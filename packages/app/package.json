@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "npx tsx server/index.ts",
     "build": "vite build",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",
@@ -42,9 +43,12 @@
     "@types/node": "^22.14.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@types/supertest": "^6.0.2",
     "autoprefixer": "^10.4.21",
+    "supertest": "^7.1.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
-    "typescript": "~5.8.2"
+    "typescript": "~5.8.2",
+    "vitest": "^3.2.3"
   }
 }

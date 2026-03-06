@@ -12,9 +12,13 @@
   "scripts": {
     "dev": "cd packages/app && npx tsx server/index.ts",
     "build": "bun run --filter '@ant/app' build",
-    "lint": "bun run --filter '*' lint"
+    "lint": "bun run --filter '*' lint",
+    "test": "bun run --filter '*' test",
+    "test:app": "cd packages/app && npx vitest run",
+    "test:mcp": "cd packages/mcp && npx vitest run"
   },
   "devDependencies": {
-    "node-gyp": "^12.2.0"
+    "node-gyp": "^12.2.0",
+    "vitest": "^3.2.3"
   }
 }
