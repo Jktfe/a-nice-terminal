@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { nanoid } from "nanoid";
 import db from "../db.js";
+import type { DbSession } from "../types.js";
 import {
   destroyPty,
   createPty,
@@ -25,7 +26,7 @@ router.get("/api/sessions", (_req, res) => {
 router.get("/api/sessions/:id", (req, res) => {
   const session = db
     .prepare("SELECT * FROM sessions WHERE id = ?")
-    .get(req.params.id);
+    .get(req.params.id) as DbSession | undefined;
 
   if (!session) return res.status(404).json({ error: "Session not found" });
   res.json(session);
@@ -59,7 +60,7 @@ router.post("/api/sessions", (req, res) => {
 // Update session
 router.patch("/api/sessions/:id", (req, res) => {
   const { name } = req.body;
-  const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id);
+  const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id) as DbSession | undefined;
   if (!session) return res.status(404).json({ error: "Session not found" });
 
   if (name) {
@@ -93,7 +94,7 @@ router.delete("/api/sessions/:id", (req, res) => {
 router.post("/api/sessions/:sessionId/terminal/input", (req, res) => {
   const session = db
     .prepare("SELECT * FROM sessions WHERE id = ?")
-    .get(req.params.sessionId);
+    .get(req.params.sessionId) as DbSession | undefined;
   if (!session) return res.status(404).json({ error: "Session not found" });
   if (session.type !== "terminal") {
     return res.status(409).json({ error: "Only terminal sessions can accept terminal input" });
@@ -129,7 +130,7 @@ router.post("/api/sessions/:sessionId/terminal/input", (req, res) => {
 router.post("/api/sessions/:sessionId/terminal/resize", (req, res) => {
   const session = db
     .prepare("SELECT * FROM sessions WHERE id = ?")
-    .get(req.params.sessionId);
+    .get(req.params.sessionId) as DbSession | undefined;
   if (!session) return res.status(404).json({ error: "Session not found" });
   if (session.type !== "terminal") {
     return res
@@ -154,7 +155,7 @@ router.post("/api/sessions/:sessionId/terminal/resize", (req, res) => {
 router.get("/api/sessions/:sessionId/terminal/output", (req, res) => {
   const session = db
     .prepare("SELECT * FROM sessions WHERE id = ?")
-    .get(req.params.sessionId);
+    .get(req.params.sessionId) as DbSession | undefined;
   if (!session) return res.status(404).json({ error: "Session not found" });
   if (session.type !== "terminal") {
     return res.status(409).json({ error: "Only terminal sessions have terminal output" });

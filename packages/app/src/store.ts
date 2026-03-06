@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { create } from "zustand";
 import { io, Socket } from "socket.io-client";
 
@@ -105,7 +106,7 @@ function appendStreamChunk(state: AppState, payload: {
         content: `${message.content}${payload.content}`,
         role: payload.role || message.role,
         format: payload.format || message.format,
-        status: "streaming",
+        status: "streaming" as const,
       };
     });
   }
@@ -116,7 +117,7 @@ function appendStreamChunk(state: AppState, payload: {
     role: payload.role,
     format: payload.format || "markdown",
     content: payload.content,
-    status: "streaming",
+    status: "streaming" as const,
   });
 
   return [...streamState, fallback];
@@ -319,5 +320,4 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
-  clearError: () => set({ error: null }),
 }));

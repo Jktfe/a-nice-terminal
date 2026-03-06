@@ -43,7 +43,9 @@ function getClientApiKey(socket: Socket): string | undefined {
 function extractIp(socket: Socket): string {
   const remote = socket?.request?.socket?.remoteAddress as string | undefined;
   const direct = socket?.conn?.remoteAddress as string | undefined;
-  const xff = ((socket?.headers?.["x-forwarded-for"] as string | undefined) || "").split(",")[0].trim();
+  const headers = ((socket as any)?.handshake?.headers || {}) as Record<string, string | string[] | undefined>;
+  const xffRaw = headers["x-forwarded-for"];
+  const xff = (typeof xffRaw === "string" ? xffRaw : "").split(",")[0].trim();
   return xff || remote || direct || "";
 }
 

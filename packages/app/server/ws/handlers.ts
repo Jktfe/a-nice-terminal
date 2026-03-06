@@ -9,6 +9,7 @@ import {
   resizePty,
 } from "../pty-manager.js";
 import db from "../db.js";
+import type { DbSession, DbMessage } from "../types.js";
 
 type Role = "human" | "agent" | "system";
 
@@ -37,7 +38,11 @@ function normalizeRole(role: string): Role | null {
 }
 
 function getSession(sessionId: string) {
-  return db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId);
+  return db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as DbSession | undefined;
+}
+
+function getMessage(messageId: string, sessionId: string) {
+  return db.prepare("SELECT * FROM messages WHERE id = ? AND session_id = ?").get(messageId, sessionId) as DbMessage | undefined;
 }
 
 export function registerSocketHandlers(io: Server) {
@@ -243,11 +248,9 @@ export function registerSocketHandlers(io: Server) {
           return;
         }
 
-        const message = db
-          .prepare("SELECT * FROM messages WHERE id = ? AND session_id = ?")
-          .get(messageId, sessionId);
+        const msg = getMessage(messageId, sessionId);
 
-        if (!message) {
+        if (!msg) {
           socket.emit("error", { message: "Message not found" });
           return;
         }
@@ -260,8 +263,8 @@ export function registerSocketHandlers(io: Server) {
         io.to(sessionId).emit("stream_chunk", {
           sessionId,
           messageId,
-          role: message.role,
-          format: message.format,
+          role: msg.role,
+          format: msg.format,
           content,
         });
       }
@@ -293,9 +296,7 @@ export function registerSocketHandlers(io: Server) {
           return;
         }
 
-        const existing = db
-          .prepare("SELECT * FROM messages WHERE id = ? AND session_id = ?")
-          .get(messageId, sessionId);
+        const existing = getMessage(messageId, sessionId);
         if (!existing) {
           socket.emit("error", { message: "Message not found" });
           return;

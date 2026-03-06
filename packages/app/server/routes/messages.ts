@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { nanoid } from "nanoid";
 import db from "../db.js";
+import type { DbSession } from "../types.js";
 
 type Role = "human" | "agent" | "system";
 
@@ -26,10 +27,10 @@ function normalizeRole(role: string): Role | null {
 }
 
 function getSession(sessionId: string) {
-  return db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId);
+  return db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as DbSession | undefined;
 }
 
-function ensureConversationSession(sessionId: string, res: any): any | null {
+function ensureConversationSession(sessionId: string, res: any): DbSession | null {
   const session = getSession(sessionId);
   if (!session) {
     res.status(404).json({ error: "Session not found" });
