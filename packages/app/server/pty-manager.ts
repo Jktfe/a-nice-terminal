@@ -60,7 +60,7 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(Math.floor(value), max));
 }
 
-export function createPty(sessionId: string, shell?: string): pty.IPty {
+export function createPty(sessionId: string, shell?: string | null): pty.IPty {
   if (ptySessions.has(sessionId)) {
     return ptySessions.get(sessionId)!.process;
   }
