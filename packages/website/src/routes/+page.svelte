@@ -1,13 +1,13 @@
 <script>
   const curlExample = `# Create a conversation session
-curl -X POST http://localhost:3000/api/sessions \\
+curl -X POST http://$ANT_HOST:$ANT_PORT/api/sessions \\
   -H "Content-Type: application/json" \\
-  -d '{"type": "conversation", "title": "Agent Chat"}'
+  -d '{"type": "conversation", "name": "Agent Chat"}'
 
 # Send a message
-curl -X POST http://localhost:3000/api/sessions/:id/messages \\
+curl -X POST http://$ANT_HOST:$ANT_PORT/api/sessions/:id/messages \\
   -H "Content-Type: application/json" \\
-  -d '{"role": "assistant", "content": "Task complete."}'`;
+  -d '{"role": "human", "content": "Task complete."}'`;
 </script>
 
 <svelte:head>
@@ -48,7 +48,7 @@ curl -X POST http://localhost:3000/api/sessions/:id/messages \\
       <span class="text-emerald-400">and</span> AI agents.
     </p>
     <p class="mb-10 text-neutral-500">
-      A localhost web interface with real PTY shells, rich messaging, and a simple API
+      A local web interface with real PTY shells, rich messaging, and a simple API
       that any agent can talk to.
     </p>
 

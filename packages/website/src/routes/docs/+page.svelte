@@ -1,15 +1,15 @@
 <script>
   const sessionBody = `{
   "type": "terminal" | "conversation",
-  "title": "My Session"
+  "name": "My Session"
 }`;
 
   const patchBody = `{
-  "title": "New Title"
+  "name": "New Name"
 }`;
 
   const messageBody = `{
-  "role": "user" | "assistant",
+  "role": "human" | "agent" | "system",
   "content": "Hello from my agent!"
 }`;
 
@@ -68,7 +68,7 @@
       <pre class="mb-6 overflow-x-auto rounded-lg bg-black/40 p-4 text-sm"><code class="text-emerald-400">npm install -g a-nice-terminal
 ant</code></pre>
       <p class="mb-4 text-sm text-neutral-400">
-        ANT starts a local server on <code class="rounded bg-white/[0.06] px-1.5 py-0.5 text-xs text-emerald-400">http://localhost:3000</code> with:
+        ANT starts a local server on `$ANT_HOST:$ANT_PORT` (defaults to `localhost:3000` locally or your configured Tailscale host/IP).
       </p>
       <ul class="space-y-2 text-sm text-neutral-400">
         <li class="flex items-start gap-2">
@@ -91,7 +91,7 @@ ant</code></pre>
   <section class="mb-16">
     <h2 class="mb-6 text-2xl font-semibold text-white" id="api-reference">API Reference</h2>
     <p class="mb-6 text-sm text-neutral-400">
-      All endpoints are available at <code class="rounded bg-white/[0.06] px-1.5 py-0.5 text-xs text-emerald-400">http://localhost:3000/api</code>.
+      All endpoints are available at <code class="rounded bg-white/[0.06] px-1.5 py-0.5 text-xs text-emerald-400">/api</code>.
       Responses are JSON.
     </p>
 
@@ -179,8 +179,7 @@ ant</code></pre>
   <section class="mb-16">
     <h2 class="mb-6 text-2xl font-semibold text-white" id="websocket-events">WebSocket Events</h2>
     <p class="mb-6 text-sm text-neutral-400">
-      Connect via Socket.IO at <code class="rounded bg-white/[0.06] px-1.5 py-0.5 text-xs text-emerald-400">http://localhost:3000</code>
-      for real-time updates.
+      Connect via Socket.IO for real-time updates.
     </p>
 
     <div class="rounded-xl border border-white/[0.06] bg-[var(--color-surface)] p-6">
@@ -188,58 +187,74 @@ ant</code></pre>
         <div class="rounded-lg border border-white/[0.04] bg-black/20 p-4">
           <div class="mb-2 flex items-center gap-3">
             <span class="rounded bg-purple-500/20 px-2 py-0.5 text-xs font-medium text-purple-400">EVENT</span>
-            <code class="text-sm text-neutral-300">session:created</code>
+            <code class="text-sm text-neutral-300">error</code>
           </div>
-          <p class="text-sm text-neutral-500">Emitted when a new session is created. Payload contains the full session object.</p>
-        </div>
-
-        <div class="rounded-lg border border-white/[0.04] bg-black/20 p-4">
-          <div class="mb-2 flex items-center gap-3">
-            <span class="rounded bg-purple-500/20 px-2 py-0.5 text-xs font-medium text-purple-400">EVENT</span>
-            <code class="text-sm text-neutral-300">session:updated</code>
-          </div>
-          <p class="text-sm text-neutral-500">Emitted when a session is renamed or modified.</p>
-        </div>
-
-        <div class="rounded-lg border border-white/[0.04] bg-black/20 p-4">
-          <div class="mb-2 flex items-center gap-3">
-            <span class="rounded bg-purple-500/20 px-2 py-0.5 text-xs font-medium text-purple-400">EVENT</span>
-            <code class="text-sm text-neutral-300">session:deleted</code>
-          </div>
-          <p class="text-sm text-neutral-500">Emitted when a session is deleted.</p>
-        </div>
-
-        <div class="rounded-lg border border-white/[0.04] bg-black/20 p-4">
-          <div class="mb-2 flex items-center gap-3">
-            <span class="rounded bg-purple-500/20 px-2 py-0.5 text-xs font-medium text-purple-400">EVENT</span>
-            <code class="text-sm text-neutral-300">message:created</code>
-          </div>
-          <p class="text-sm text-neutral-500">Emitted when a new message is added to a conversation session.</p>
-        </div>
-
-        <div class="rounded-lg border border-white/[0.04] bg-black/20 p-4">
-          <div class="mb-2 flex items-center gap-3">
-            <span class="rounded bg-purple-500/20 px-2 py-0.5 text-xs font-medium text-purple-400">EVENT</span>
-            <code class="text-sm text-neutral-300">terminal:output</code>
-          </div>
-          <p class="text-sm text-neutral-500">Streams terminal output for a given session. Subscribe by joining the session room.</p>
+          <p class="text-sm text-neutral-500">Generic error event emitted for invalid payloads, type mismatches, or access failures.</p>
         </div>
 
         <div class="rounded-lg border border-white/[0.04] bg-black/20 p-4">
           <div class="mb-2 flex items-center gap-3">
             <span class="rounded bg-purple-500/20 px-2 py-0.5 text-xs font-medium text-purple-400">EMIT</span>
-            <code class="text-sm text-neutral-300">terminal:input</code>
+            <code class="text-sm text-neutral-300">join_session</code>
           </div>
-          <p class="text-sm text-neutral-500">Send keystrokes to a terminal session.</p>
+          <p class="text-sm text-neutral-500">Join a room for a session ID. Terminal sessions also initialize PTY streams.</p>
+        </div>
+
+        <div class="rounded-lg border border-white/[0.04] bg-black/20 p-4">
+          <div class="mb-2 flex items-center gap-3">
+            <span class="rounded bg-purple-500/20 px-2 py-0.5 text-xs font-medium text-purple-400">EVENT</span>
+            <code class="text-sm text-neutral-300">session_joined</code>
+          </div>
+          <p class="text-sm text-neutral-500">Server confirms a successful room join and returns session type.</p>
         </div>
 
         <div class="rounded-lg border border-white/[0.04] bg-black/20 p-4">
           <div class="mb-2 flex items-center gap-3">
             <span class="rounded bg-purple-500/20 px-2 py-0.5 text-xs font-medium text-purple-400">EMIT</span>
-            <code class="text-sm text-neutral-300">terminal:resize</code>
+            <code class="text-sm text-neutral-300">terminal_input</code>
           </div>
-          <p class="mb-3 text-sm text-neutral-500">Resize the terminal PTY.</p>
+          <p class="text-sm text-neutral-500">Write input to a terminal session.</p>
+        </div>
+
+        <div class="rounded-lg border border-white/[0.04] bg-black/20 p-4">
+          <div class="mb-2 flex items-center gap-3">
+            <span class="rounded bg-purple-500/20 px-2 py-0.5 text-xs font-medium text-purple-400">EMIT</span>
+            <code class="text-sm text-neutral-300">terminal_resize</code>
+          </div>
+          <p class="mb-3 text-sm text-neutral-500">Resize a terminal PTY.</p>
           <pre class="overflow-x-auto rounded-lg bg-black/40 p-3 text-xs"><code class="text-neutral-300">{resizeBody}</code></pre>
+        </div>
+
+        <div class="rounded-lg border border-white/[0.04] bg-black/20 p-4">
+          <div class="mb-2 flex items-center gap-3">
+            <span class="rounded bg-purple-500/20 px-2 py-0.5 text-xs font-medium text-purple-400">EVENT</span>
+            <code class="text-sm text-neutral-300">terminal_output</code>
+          </div>
+          <p class="text-sm text-neutral-500">Server-side terminal stream output for a session.</p>
+        </div>
+
+        <div class="rounded-lg border border-white/[0.04] bg-black/20 p-4">
+          <div class="mb-2 flex items-center gap-3">
+            <span class="rounded bg-purple-500/20 px-2 py-0.5 text-xs font-medium text-purple-400">EMIT</span>
+            <code class="text-sm text-neutral-300">stream_chunk</code>
+          </div>
+          <p class="text-sm text-neutral-500">Emit partial message content for a `conversation` message.</p>
+        </div>
+
+        <div class="rounded-lg border border-white/[0.04] bg-black/20 p-4">
+          <div class="mb-2 flex items-center gap-3">
+            <span class="rounded bg-purple-500/20 px-2 py-0.5 text-xs font-medium text-purple-400">EMIT</span>
+            <code class="text-sm text-neutral-300">stream_end</code>
+          </div>
+          <p class="text-sm text-neutral-500">Finalize streaming and persist the final message content.</p>
+        </div>
+
+        <div class="rounded-lg border border-white/[0.04] bg-black/20 p-4">
+          <div class="mb-2 flex items-center gap-3">
+            <span class="rounded bg-purple-500/20 px-2 py-0.5 text-xs font-medium text-purple-400">EVENT</span>
+            <code class="text-sm text-neutral-300">message_created / message_updated / message_deleted</code>
+          </div>
+          <p class="text-sm text-neutral-500">Conversation message lifecycle events emitted to active session rooms.</p>
         </div>
       </div>
     </div>

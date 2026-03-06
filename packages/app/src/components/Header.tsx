@@ -31,7 +31,9 @@ export default function Header() {
   };
 
   const Icon = session?.type === "terminal" ? Terminal : MessageSquare;
-  const accentColor = session?.type === "terminal" ? "emerald" : "blue";
+  const tone = session?.type === "terminal"
+    ? { chip: "bg-emerald-500/10", icon: "text-emerald-400" }
+    : { chip: "bg-blue-500/10", icon: "text-blue-400" };
 
   return (
     <header className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
@@ -47,8 +49,8 @@ export default function Header() {
 
         {session && (
           <div className="flex items-center gap-2.5">
-            <div className={`p-1.5 bg-${accentColor}-500/10 rounded-md`}>
-              <Icon className={`w-4 h-4 text-${accentColor}-400`} />
+            <div className={`p-1.5 rounded-md ${tone.chip}`}>
+              <Icon className={`w-4 h-4 ${tone.icon}`} />
             </div>
 
             {editing ? (

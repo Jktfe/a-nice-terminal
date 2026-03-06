@@ -132,8 +132,15 @@ function SessionItem({
   onDelete: () => void;
 }) {
   const Icon = session.type === "terminal" ? Terminal : MessageSquare;
-  const accentColor =
-    session.type === "terminal" ? "emerald" : "blue";
+  const tone = session.type === "terminal"
+    ? {
+        activeBg: "bg-emerald-500/10",
+        activeIcon: "text-emerald-400",
+      }
+    : {
+        activeBg: "bg-blue-500/10",
+        activeIcon: "text-blue-400",
+      };
 
   return (
     <motion.div
@@ -143,15 +150,11 @@ function SessionItem({
       exit={{ opacity: 0, x: -20 }}
       onClick={onSelect}
       className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-colors mb-0.5 ${
-        active
-          ? `bg-${accentColor}-500/10 text-white`
-          : "text-white/50 hover:text-white/80 hover:bg-white/5"
+        active ? `${tone.activeBg} text-white` : "text-white/50 hover:text-white/80 hover:bg-white/5"
       }`}
     >
       <Icon
-        className={`w-3.5 h-3.5 flex-shrink-0 ${
-          active ? `text-${accentColor}-400` : ""
-        }`}
+        className={`w-3.5 h-3.5 flex-shrink-0 ${active ? tone.activeIcon : ""}`}
       />
       <span className="text-xs font-medium truncate flex-1">
         {session.name}

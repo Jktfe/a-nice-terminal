@@ -57,8 +57,9 @@ export default function QuickSwitcher({ onClose }: { onClose: () => void }) {
           {filtered.map((session, i) => {
             const Icon =
               session.type === "terminal" ? Terminal : MessageSquare;
-            const accent =
-              session.type === "terminal" ? "emerald" : "blue";
+            const iconColor = session.type === "terminal"
+              ? "text-emerald-400"
+              : "text-blue-400";
             return (
               <button
                 key={session.id}
@@ -73,7 +74,7 @@ export default function QuickSwitcher({ onClose }: { onClose: () => void }) {
                 }`}
               >
                 <Icon
-                  className={`w-3.5 h-3.5 flex-shrink-0 text-${accent}-400`}
+                  className={`w-3.5 h-3.5 flex-shrink-0 ${iconColor}`}
                 />
                 <span className="truncate">{session.name}</span>
                 <span className="ml-auto text-[10px] uppercase tracking-widest text-white/25">
