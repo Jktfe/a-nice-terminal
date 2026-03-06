@@ -1,13 +1,33 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal } from "xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { useStore } from "../store.ts";
+import { RefreshCw } from "lucide-react";
+import { useStore, apiFetch } from "../store.ts";
 
 export default function TerminalView() {
   const { activeSessionId, socket } = useStore();
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    if (!activeSessionId || !termRef.current || refreshing) return;
+    setRefreshing(true);
+    try {
+      const result = await apiFetch(
+        `/api/sessions/${activeSessionId}/terminal/output?since=0`
+      );
+      termRef.current.reset();
+      for (const event of result.events as { seq: number; data: string }[]) {
+        termRef.current.write(event.data);
+      }
+    } catch {
+      // silently ignore — live socket output continues regardless
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
     if (!containerRef.current || !socket || !activeSessionId) return;
@@ -124,11 +144,24 @@ export default function TerminalView() {
   }, [activeSessionId, socket]);
 
   return (
-    <div className="flex-1 overflow-hidden p-2">
-      <div
-        ref={containerRef}
-        className="w-full h-full terminal-container rounded-lg"
-      />
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex items-center justify-end px-3 py-1 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          title="Refresh terminal output"
+          className="flex items-center gap-1.5 px-2 py-1 text-white/40 hover:text-white/80 hover:bg-white/5 rounded transition-colors disabled:opacity-40"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
+          <span className="text-[10px] uppercase tracking-widest">Refresh</span>
+        </button>
+      </div>
+      <div className="flex-1 overflow-hidden p-2">
+        <div
+          ref={containerRef}
+          className="w-full h-full terminal-container rounded-lg"
+        />
+      </div>
     </div>
   );
 }

@@ -60,7 +60,7 @@ function buildHeaders(base?: HeadersInit): Headers {
   return headers;
 }
 
-async function apiFetch(input: string, options: RequestInit = {}): Promise<any> {
+export async function apiFetch(input: string, options: RequestInit = {}): Promise<any> {
   const response = await fetch(input, {
     ...options,
     headers: buildHeaders(options.headers),
