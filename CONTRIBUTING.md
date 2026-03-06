@@ -13,7 +13,7 @@ Thanks for your interest in contributing to ANT. This guide covers the essential
 ### Getting Started
 
 ```bash
-git clone https://github.com/jamesking/a-nice-terminal.git
+git clone https://github.com/Jktfe/a-nice-terminal.git
 cd a-nice-terminal
 bun install
 bun run dev

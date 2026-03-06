@@ -30,3 +30,24 @@ jobs:
 
       - name: Type-check MCP server
         run: cd packages/mcp && npx tsc --noEmit
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run tests
+        run: bun run test

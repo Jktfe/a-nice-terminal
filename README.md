@@ -17,7 +17,7 @@ ANT supports both local and Tailscale-first access. By default, set `ANT_HOST=0.
 
 ```bash
 # 1. Clone
-git clone https://github.com/jamesking/a-nice-terminal.git
+git clone https://github.com/Jktfe/a-nice-terminal.git
 cd a-nice-terminal
 
 # 2. Install
