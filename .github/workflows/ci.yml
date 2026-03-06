@@ -26,10 +26,10 @@ jobs:
         run: bun install
 
       - name: Type-check app
-        run: cd packages/app && npx tsc --noEmit
+        run: cd packages/app && bunx tsc --noEmit
 
       - name: Type-check MCP server
-        run: cd packages/mcp && npx tsc --noEmit
+        run: cd packages/mcp && bunx tsc --noEmit
 
   test:
     name: Test
