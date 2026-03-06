@@ -1,0 +1,20 @@
+{
+  "name": "a-nice-terminal",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A beautiful localhost web interface with terminal and conversation sessions for humans and AI agents",
+  "license": "MIT",
+  "workspaces": [
+    "packages/app",
+    "packages/mcp",
+    "packages/website"
+  ],
+  "scripts": {
+    "dev": "cd packages/app && npx tsx server/index.ts",
+    "build": "bun run --filter '@ant/app' build",
+    "lint": "bun run --filter '*' lint"
+  },
+  "devDependencies": {
+    "node-gyp": "^12.2.0"
+  }
+}

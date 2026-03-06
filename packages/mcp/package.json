@@ -1,0 +1,22 @@
+{
+  "name": "a-nice-terminal-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for A Nice Terminal - lets AI agents interact with ANT sessions",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "a-nice-terminal-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2"
+  }
+}
