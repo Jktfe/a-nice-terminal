@@ -2,7 +2,7 @@
   "name": "a-nice-terminal",
   "private": true,
   "version": "0.1.0",
-  "description": "A beautiful localhost web interface with terminal and conversation sessions for humans and AI agents",
+  "description": "A web and API interface for terminal and conversation sessions, with MCP integration for humans and AI agents",
   "license": "MIT",
   "workspaces": [
     "packages/app",

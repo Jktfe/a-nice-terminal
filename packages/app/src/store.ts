@@ -27,6 +27,7 @@ interface AppState {
   socket: Socket | null;
   connected: boolean;
   sidebarOpen: boolean;
+  error: string | null;
 
   // Actions
   init: () => void;
@@ -34,13 +35,91 @@ interface AppState {
   createSession: (
     type: "terminal" | "conversation",
     name?: string
-  ) => Promise<Session>;
+  ) => Promise<Session | null>;
   deleteSession: (id: string) => Promise<void>;
   renameSession: (id: string, name: string) => Promise<void>;
   setActiveSession: (id: string) => void;
   loadMessages: (sessionId: string) => Promise<void>;
-  sendMessage: (content: string, role?: string) => Promise<void>;
+  sendMessage: (content: string, role?: "human" | "agent" | "system") => Promise<void>;
   toggleSidebar: () => void;
+  clearError: () => void;
+  setError: (message: string) => void;
+}
+
+const API_KEY = (import.meta.env.VITE_ANT_API_KEY as string | undefined)?.trim();
+
+function buildHeaders(base?: HeadersInit): Headers {
+  const headers = new Headers(base);
+  if (!headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  if (API_KEY) {
+    headers.set("X-API-Key", API_KEY);
+  }
+  return headers;
+}
+
+async function apiFetch(input: string, options: RequestInit = {}): Promise<any> {
+  const response = await fetch(input, {
+    ...options,
+    headers: buildHeaders(options.headers),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(body || `Request failed with status ${response.status}`);
+  }
+
+  if (response.status === 204) return null;
+  return response.json();
+}
+
+function messageWithDefault(message: Partial<Message>): Message {
+  return {
+    id: message.id || "",
+    session_id: message.session_id || "",
+    role: message.role || "agent",
+    content: message.content || "",
+    format: message.format || "markdown",
+    status: message.status || "complete",
+    created_at: message.created_at || new Date().toISOString(),
+  };
+}
+
+function appendStreamChunk(state: AppState, payload: {
+  sessionId: string;
+  messageId: string;
+  role?: Message["role"];
+  format?: string;
+  content: string;
+}) {
+  const streamState = state.messages;
+  if (payload.sessionId !== state.activeSessionId) return streamState;
+
+  const found = streamState.find((m) => m.id === payload.messageId);
+  if (found) {
+    return streamState.map((message) => {
+      if (message.id !== payload.messageId) return message;
+      return {
+        ...message,
+        content: `${message.content}${payload.content}`,
+        role: payload.role || message.role,
+        format: payload.format || message.format,
+        status: "streaming",
+      };
+    });
+  }
+
+  const fallback = messageWithDefault({
+    id: payload.messageId,
+    session_id: payload.sessionId,
+    role: payload.role,
+    format: payload.format || "markdown",
+    content: payload.content,
+    status: "streaming",
+  });
+
+  return [...streamState, fallback];
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -50,31 +129,69 @@ export const useStore = create<AppState>((set, get) => ({
   socket: null,
   connected: false,
   sidebarOpen: true,
+  error: null,
+
+  setError: (message) => set({ error: message }),
+  clearError: () => set({ error: null }),
 
   init: () => {
     // Prevent double-init (React StrictMode)
     if (get().socket) return;
 
-    const socket = io();
+    const socket = io({
+      auth: API_KEY ? { apiKey: API_KEY } : undefined,
+      query: API_KEY ? { apiKey: API_KEY } : undefined,
+    });
 
-    socket.on("connect", () => set({ connected: true }));
-    socket.on("disconnect", () => set({ connected: false }));
+    socket.on("connect", () => {
+      set({ connected: true, error: null });
+    });
 
-    // Check if already connected (can happen if connect fires before listener)
-    if (socket.connected) set({ connected: true });
+    socket.on("disconnect", () => {
+      set({ connected: false });
+    });
+
+    socket.on("connect_error", (error) => {
+      set({ connected: false, error: error.message || "Socket connection failed" });
+    });
+
+    socket.on("error", (error: { message?: string }) => {
+      if (typeof error === "object" && error?.message) {
+        set({ error: error.message });
+      }
+    });
 
     socket.on("message_created", (message: Message) => {
       set((s) => {
         if (message.session_id !== s.activeSessionId) return s;
         if (s.messages.some((m) => m.id === message.id)) return s;
-        return { messages: [...s.messages, message] };
+        return {
+          messages: [...s.messages, message],
+        };
       });
     });
 
     socket.on("message_updated", (message: Message) => {
-      set((s) => ({
-        messages: s.messages.map((m) => (m.id === message.id ? message : m)),
-      }));
+      set((s) => {
+        if (message.session_id !== s.activeSessionId) return s;
+        return {
+          messages: s.messages.some((m) => m.id === message.id)
+            ? s.messages.map((current) =>
+                current.id === message.id ? message : current
+              )
+            : [...s.messages, message],
+        };
+      });
+    });
+
+    socket.on("stream_chunk", (payload: {
+      sessionId: string;
+      messageId: string;
+      role?: Message["role"];
+      format?: string;
+      content: string;
+    }) => {
+      set((s) => ({ messages: appendStreamChunk(s, payload) }));
     });
 
     socket.on("message_deleted", ({ id }: { id: string }) => {
@@ -88,67 +205,77 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   loadSessions: async () => {
-    const res = await fetch("/api/sessions");
-    const sessions = await res.json();
-    set({ sessions });
+    try {
+      const sessions = await apiFetch("/api/sessions");
+      set({ sessions });
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : "Failed to load sessions" });
+    }
   },
 
   createSession: async (type, name) => {
-    const res = await fetch("/api/sessions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type, name }),
-    });
-    const session = await res.json();
-    set((s) => ({ sessions: [session, ...s.sessions] }));
-    get().setActiveSession(session.id);
-    return session;
+    try {
+      const session = await apiFetch("/api/sessions", {
+        method: "POST",
+        body: JSON.stringify({ type, name }),
+      });
+      set((s) => ({ sessions: [session, ...s.sessions] }));
+      get().setActiveSession(session.id);
+      return session;
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : "Failed to create session" });
+      return null;
+    }
   },
 
   deleteSession: async (id) => {
-    await fetch(`/api/sessions/${id}`, { method: "DELETE" });
-    set((s) => {
-      const sessions = s.sessions.filter((ses) => ses.id !== id);
-      const activeSessionId =
-        s.activeSessionId === id
-          ? sessions[0]?.id || null
-          : s.activeSessionId;
-      return { sessions, activeSessionId };
-    });
+    try {
+      await apiFetch(`/api/sessions/${id}`, { method: "DELETE" });
+      set((s) => {
+        const sessions = s.sessions.filter((ses) => ses.id !== id);
+        const activeSessionId =
+          s.activeSessionId === id
+            ? sessions[0]?.id || null
+            : s.activeSessionId;
+        return { sessions, activeSessionId };
+      });
 
-    const newActive = get().activeSessionId;
-    if (newActive) get().setActiveSession(newActive);
+      const newActive = get().activeSessionId;
+      if (newActive) get().setActiveSession(newActive);
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : "Failed to delete session" });
+    }
   },
 
   renameSession: async (id, name) => {
-    await fetch(`/api/sessions/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-    });
-    set((s) => ({
-      sessions: s.sessions.map((ses) =>
-        ses.id === id ? { ...ses, name } : ses
-      ),
-    }));
+    try {
+      await apiFetch(`/api/sessions/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      });
+      set((s) => ({
+        sessions: s.sessions.map((ses) =>
+          ses.id === id ? { ...ses, name } : ses
+        ),
+      }));
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : "Failed to rename session" });
+    }
   },
 
   setActiveSession: (id) => {
     const { socket, activeSessionId } = get();
 
-    // Leave previous session room
     if (activeSessionId && socket) {
       socket.emit("leave_session", { sessionId: activeSessionId });
     }
 
     set({ activeSessionId: id, messages: [] });
 
-    // Join new session room
     if (socket) {
       socket.emit("join_session", { sessionId: id });
     }
 
-    // Load messages for conversation sessions
     const session = get().sessions.find((s) => s.id === id);
     if (session?.type === "conversation") {
       get().loadMessages(id);
@@ -156,21 +283,41 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   loadMessages: async (sessionId) => {
-    const res = await fetch(`/api/sessions/${sessionId}/messages`);
-    const messages = await res.json();
-    set({ messages });
+    try {
+      const session = get().sessions.find((item) => item.id === sessionId);
+      if (session?.type !== "conversation") {
+        set({ messages: [] });
+        return;
+      }
+
+      const messages = await apiFetch(`/api/sessions/${sessionId}/messages`);
+      set({ messages });
+    } catch (error) {
+      set({
+        messages: [],
+        error: error instanceof Error ? error.message : "Failed to load messages",
+      });
+    }
   },
 
   sendMessage: async (content, role = "human") => {
-    const { activeSessionId } = get();
+    const { activeSessionId, clearError } = get();
     if (!activeSessionId) return;
 
-    await fetch(`/api/sessions/${activeSessionId}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role, content }),
-    });
+    const trimmed = content.trim();
+    if (!trimmed) return;
+
+    try {
+      await apiFetch(`/api/sessions/${activeSessionId}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ role, content: trimmed }),
+      });
+      clearError();
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : "Failed to send message" });
+    }
   },
 
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+  clearError: () => set({ error: null }),
 }));
