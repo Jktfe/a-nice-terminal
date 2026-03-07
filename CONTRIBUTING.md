@@ -6,8 +6,8 @@ Thanks for your interest in contributing to ANT. This guide covers the essential
 
 ### Prerequisites
 
-- Node.js >= 22.12.0
-- [Bun](https://bun.sh) package manager
+- Node.js >= 22.12.0 (use `nvm use` if your system Node is older)
+- A package manager: [pnpm](https://pnpm.io) (primary), [Bun](https://bun.sh), or npm
 - macOS, Linux, or WSL
 
 ### Getting Started
@@ -15,9 +15,13 @@ Thanks for your interest in contributing to ANT. This guide covers the essential
 ```bash
 git clone https://github.com/Jktfe/a-nice-terminal.git
 cd a-nice-terminal
-bun install
-bun run dev
+pnpm install   # pnpm is the primary package manager; bun install / npm install also work
+pnpm run dev
 ```
+
+> **Lockfile policy:** `pnpm-lock.yaml` is the committed lockfile. `bun.lock` and
+> `package-lock.json` are git-ignored. If you use bun or npm locally, do not commit their
+> lockfiles.
 
 The development server starts at `http://127.0.0.1:3000` with Vite HMR enabled.
 
@@ -35,7 +39,7 @@ If you encounter build errors related to `node-pty`, ensure your Xcode tools are
 
 - **TypeScript** throughout -- both frontend and backend.
 - **Tailwind CSS v4** for styling. Use utility classes; avoid custom CSS where possible.
-- Run `bun run lint` (which executes `tsc --noEmit`) to type-check before submitting.
+- Run `pnpm run lint` (which executes `tsc --noEmit`) to type-check before submitting.
 - Keep files focused and small. The codebase favours many small modules over large monolithic files.
 - Use UK English spelling in comments, documentation, and user-facing strings.
 

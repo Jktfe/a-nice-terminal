@@ -20,20 +20,29 @@ ANT supports both local and Tailscale-first access. By default, set `ANT_HOST=0.
 git clone https://github.com/Jktfe/a-nice-terminal.git
 cd a-nice-terminal
 
-# 2. Install
-bun install
+# 2. Install (pnpm is primary; bun and npm also work)
+pnpm install   # recommended
+# bun install
+# npm install
 
 # 3. Run
-bun run dev
+pnpm run dev
+# bun run dev
+# npm run dev
 ```
 
 Open the app on your configured host (for Tailscale, this is typically `http://100.64.x.x:3000`).
 
 ### Requirements
 
-- Node.js >= 22.12.0
-- [Bun](https://bun.sh) package manager
+- Node.js >= 22.12.0 (required by `node-pty` native addon — use `nvm use` if needed)
+- A package manager: [pnpm](https://pnpm.io) (primary), [Bun](https://bun.sh), or npm
 - macOS, Linux, or WSL (node-pty requires a Unix-like environment)
+
+> **Runtime note:** You can install dependencies with any package manager (pnpm, bun, or npm).
+> However, the server always runs under **Node.js** — bun's runtime cannot load the `node-pty`
+> native addon. The `preflight` script checks your Node version and fixes executable permissions
+> automatically before each start.
 
 ### Configuration
 

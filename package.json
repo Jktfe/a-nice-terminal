@@ -10,10 +10,15 @@
     "packages/website"
   ],
   "scripts": {
-    "dev": "cd packages/app && npx tsx server/index.ts",
-    "build": "bun run --filter '@ant/app' build",
-    "lint": "bun run --filter '*' lint",
-    "test": "bun run --filter '*' test",
+    "preflight": "node scripts/preflight.mjs",
+    "postinstall": "node scripts/preflight.mjs",
+    "dev": "node scripts/preflight.mjs && cd packages/app && node --env-file=../../.env --import tsx server/index.ts",
+    "start": "node scripts/preflight.mjs && cd packages/app && node --import tsx server/index.ts",
+    "dev:website": "cd packages/website && npx vite dev",
+    "dev:mcp": "cd packages/mcp && npx tsx src/index.ts",
+    "build": "cd packages/app && npx vite build",
+    "lint": "cd packages/app && npx tsc --noEmit && cd ../mcp && npx tsc --noEmit",
+    "test": "cd packages/app && npx vitest run && cd ../mcp && npx vitest run",
     "test:app": "cd packages/app && npx vitest run",
     "test:mcp": "cd packages/mcp && npx vitest run"
   },
