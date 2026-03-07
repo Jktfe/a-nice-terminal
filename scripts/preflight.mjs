@@ -76,17 +76,23 @@ fixSpawnHelpers(resolve(rootDir, "packages", "app", "node_modules"));
 
 // ── node-pty load test ────────────────────────────────────────────────────────
 
-const isPostinstall = process.env.npm_lifecycle_event === "postinstall";
+const isPostinstall =
+  process.env.npm_lifecycle_event === "postinstall" ||
+  process.env.npm_command === "install" ||
+  !!process.env.CI;
 
 try {
+  // node-pty is a dependency of packages/app, so it might not be hoisted to root
+  // or even installed yet during the initial bun install.
   await import("node-pty");
 } catch (err) {
+  const isNotFound = err.code === "ERR_MODULE_NOT_FOUND" || err.message.includes("Cannot find package");
   const message =
     `[preflight] node-pty failed to load: ${err.message}\n` +
     `  Run \`pnpm install\` (or npm/bun install) to rebuild native addons.`;
 
-  if (isPostinstall) {
-    // Postinstall runs before the build is complete on a fresh clone — soft warn
+  if (isPostinstall || isNotFound) {
+    // Soft warning if we are in install phase or it's just not found yet
     console.warn(`[preflight] Warning: ${message}`);
   } else {
     console.error(message);
