@@ -7,7 +7,6 @@ const HOST = process.env.ANT_HOST || "127.0.0.1";
 const PORT = process.env.ANT_PORT || "3000";
 const EFFECTIVE_HOST = HOST === "0.0.0.0" ? "127.0.0.1" : HOST;
 const BASE_URL = process.env.ANT_BASE_URL || `http://${EFFECTIVE_HOST}:${PORT}`;
-const API_KEY = process.env.ANT_API_KEY;
 const TERMINAL_TEXT_LIMIT = 10_000;
 const MAX_TERMINAL_COLS = 500;
 const MAX_TERMINAL_ROWS = 200;
@@ -43,9 +42,10 @@ function makeErrorPayload(error: unknown): { status: number; payload: unknown } 
 }
 
 async function api(path: string, options?: RequestInit) {
+  const apiKey = process.env.ANT_API_KEY;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...(API_KEY ? { "X-API-Key": API_KEY } : {}),
+    ...(apiKey ? { "X-API-Key": apiKey } : {}),
   };
 
   const res = await fetch(`${BASE_URL}${path}`, {
@@ -340,7 +340,9 @@ async function main() {
   await server.connect(transport);
 }
 
-main().catch((err) => {
-  console.error("MCP server error:", err);
-  process.exit(1);
-});
+if (!process.env.VITEST) {
+  main().catch((err) => {
+    console.error("MCP server error:", err);
+    process.exit(1);
+  });
+}
