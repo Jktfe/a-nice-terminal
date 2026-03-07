@@ -19,7 +19,7 @@ export default function TerminalView() {
         `/api/sessions/${activeSessionId}/terminal/output?since=0`
       );
       termRef.current.reset();
-      for (const event of result.events as { seq: number; data: string }[]) {
+      for (const event of result.events as { index: number; data: string }[]) {
         termRef.current.write(event.data);
       }
     } catch {
@@ -131,6 +131,20 @@ export default function TerminalView() {
       try { fitAddon.fit(); } catch {}
     });
     resizeObserver.observe(container);
+
+    // Fetch existing output
+    apiFetch(`/api/sessions/${activeSessionId}/terminal/output?since=0&limit=1000`)
+      .then((result) => {
+        if (termRef.current && activeSessionId === result.sessionId) {
+          term.reset();
+          for (const event of result.events as { index: number; data: string }[]) {
+            term.write(event.data);
+          }
+        }
+      })
+      .catch(() => {
+        // Silently ignore, live output will still work
+      });
 
     return () => {
       cancelAnimationFrame(initTimer);

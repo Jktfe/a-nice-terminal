@@ -9,6 +9,7 @@ import {
   getTerminalOutput,
   getTerminalOutputCursor,
   resizePty,
+  addPtyOutputListener,
 } from "../pty-manager.js";
 
 const router = Router();
@@ -107,14 +108,31 @@ router.post("/api/sessions/:sessionId/terminal/input", (req, res) => {
 
   try {
     let ptyProcess = getPty(req.params.sessionId);
+    const io = req.app.get("io");
+
     if (!ptyProcess) {
       ptyProcess = createPty(req.params.sessionId, session.shell);
+      if (io) {
+        const sid = req.params.sessionId;
+        const emitter = (chunk: string) => {
+          io.to(sid).emit("terminal_output", { sessionId: sid, data: chunk });
+        };
+        addPtyOutputListener(sid, emitter);
+      }
     }
+
     try {
       ptyProcess.write(data);
     } catch (writeErr) {
       destroyPty(req.params.sessionId);
       ptyProcess = createPty(req.params.sessionId, session.shell);
+      if (io) {
+        const sid = req.params.sessionId;
+        const emitter = (chunk: string) => {
+          io.to(sid).emit("terminal_output", { sessionId: sid, data: chunk });
+        };
+        addPtyOutputListener(sid, emitter);
+      }
       ptyProcess.write(data);
     }
     res.json({ accepted: true, cursor: getTerminalOutputCursor(req.params.sessionId) });

@@ -65,8 +65,8 @@ export function registerSocketHandlers(io: Server) {
         try {
           getPty(sessionId) || createPty(sessionId, session.shell);
           if (!hasOutputListeners(sessionId)) {
-            const emitter = (data: string) => {
-              io.to(sessionId).emit("terminal_output", { sessionId, data });
+            const emitter = (chunk: string) => {
+              io.to(sessionId).emit("terminal_output", { sessionId, data: chunk });
             };
 
             addPtyOutputListener(sessionId, emitter);
