@@ -8,7 +8,9 @@
     "start": "node --import tsx server/index.ts",
     "build": "vite build",
     "lint": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "setup:launchd": "SCRIPTS_DIR=$(cd ../../scripts && pwd) && sed \"s|__SCRIPTS_DIR__|$SCRIPTS_DIR|g\" ../../scripts/com.ant.server.plist > ~/Library/LaunchAgents/com.ant.server.plist && launchctl load ~/Library/LaunchAgents/com.ant.server.plist && echo 'ANT launchd agent installed and loaded'",
+    "teardown:launchd": "launchctl unload ~/Library/LaunchAgents/com.ant.server.plist 2>/dev/null; rm -f ~/Library/LaunchAgents/com.ant.server.plist && echo 'ANT launchd agent removed'"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",

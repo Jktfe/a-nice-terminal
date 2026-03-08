@@ -8,6 +8,7 @@ import MessageList from "./components/MessageList.tsx";
 import InputArea from "./components/InputArea.tsx";
 import QuickSwitcher from "./components/QuickSwitcher.tsx";
 import StatusBar from "./components/StatusBar.tsx";
+import OfflineOverlay from "./components/OfflineOverlay.tsx";
 import { Terminal, MessageSquare } from "lucide-react";
 
 export default function App() {
@@ -78,6 +79,8 @@ export default function App() {
       {quickSwitcherOpen && (
         <QuickSwitcher onClose={() => setQuickSwitcherOpen(false)} />
       )}
+
+      <OfflineOverlay />
     </div>
   );
 }
