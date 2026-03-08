@@ -113,6 +113,57 @@ server.tool(
   }
 );
 
+// Get single session
+server.tool(
+  "ant_get_session",
+  "Get a single ANT session by ID (includes cwd for terminals)",
+  {
+    sessionId: z.string().describe("Session ID"),
+  },
+  async ({ sessionId }) => {
+    const session = await api(`/api/sessions/${sessionId}`);
+    return {
+      content: [{ type: "text", text: JSON.stringify(session, null, 2) }],
+    };
+  }
+);
+
+// Update session
+server.tool(
+  "ant_update_session",
+  "Update an ANT session (rename it)",
+  {
+    sessionId: z.string().describe("Session ID"),
+    name: z.string().describe("New session name"),
+  },
+  async ({ sessionId, name }) => {
+    const session = await api(`/api/sessions/${sessionId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(session, null, 2) }],
+    };
+  }
+);
+
+// Delete session
+server.tool(
+  "ant_delete_session",
+  "Delete an ANT session and its terminal process (if any)",
+  {
+    sessionId: z.string().describe("Session ID"),
+  },
+  async ({ sessionId }) => {
+    const result = await api(`/api/sessions/${sessionId}`, {
+      method: "DELETE",
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+    };
+  }
+);
+
 // Read messages
 server.tool(
   "ant_read_messages",
@@ -205,6 +256,25 @@ server.tool(
     );
     return {
       content: [{ type: "text", text: JSON.stringify(message, null, 2) }],
+    };
+  }
+);
+
+// Delete message
+server.tool(
+  "ant_delete_message",
+  "Delete a message from a conversation session",
+  {
+    sessionId: z.string().describe("Session ID"),
+    messageId: z.string().describe("Message ID to delete"),
+  },
+  async ({ sessionId, messageId }) => {
+    const result = await api(
+      `/api/sessions/${sessionId}/messages/${messageId}`,
+      { method: "DELETE" }
+    );
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
     };
   }
 );
@@ -331,6 +401,51 @@ server.tool(
       }
       throw error;
     }
+  }
+);
+
+// Kill all terminals
+server.tool(
+  "ant_kill_all_terminals",
+  "Kill all terminal PTY processes and their tmux sessions (nuclear option)",
+  {},
+  async () => {
+    const result = await api("/api/sessions/terminals/all", {
+      method: "DELETE",
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+    };
+  }
+);
+
+// List resume commands
+server.tool(
+  "ant_list_resume_commands",
+  "List captured LLM CLI resume commands (claude --resume, codex resume, etc.)",
+  {},
+  async () => {
+    const commands = await api("/api/resume-commands");
+    return {
+      content: [{ type: "text", text: JSON.stringify(commands, null, 2) }],
+    };
+  }
+);
+
+// Delete resume command
+server.tool(
+  "ant_delete_resume_command",
+  "Delete a captured resume command by ID",
+  {
+    id: z.string().describe("Resume command ID"),
+  },
+  async ({ id }) => {
+    const result = await api(`/api/resume-commands/${id}`, {
+      method: "DELETE",
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+    };
   }
 );
 
