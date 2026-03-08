@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Terminal } from "xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { RefreshCw } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import { RefreshCw, ChevronDown } from "lucide-react";
 import { useStore, apiFetch } from "../store.ts";
 
 export default function TerminalView() {
@@ -10,6 +11,7 @@ export default function TerminalView() {
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [showScrollButton, setShowScrollButton] = useState(false);
 
   const handleRefresh = async () => {
     if (!activeSessionId || !termRef.current || refreshing) return;
@@ -28,6 +30,11 @@ export default function TerminalView() {
       setRefreshing(false);
     }
   };
+
+  const scrollToBottom = useCallback(() => {
+    termRef.current?.scrollToBottom();
+    setShowScrollButton(false);
+  }, []);
 
   useEffect(() => {
     if (!containerRef.current || !socket || !activeSessionId) return;
@@ -71,21 +78,37 @@ export default function TerminalView() {
     fitAddonRef.current = fitAddon;
 
     // Delay open() until the container has actual dimensions
-    // This prevents the xterm "dimensions" error
     const initTimer = requestAnimationFrame(() => {
       if (!container.offsetWidth || !container.offsetHeight) {
-        // Container not sized yet, retry after a short delay
         setTimeout(() => {
           term.open(container);
           try { fitAddon.fit(); } catch {}
           sendResize();
+          attachViewportScroll();
         }, 100);
       } else {
         term.open(container);
         try { fitAddon.fit(); } catch {}
         sendResize();
+        attachViewportScroll();
       }
     });
+
+    // Scroll detection on xterm viewport
+    let viewportScrollListener: (() => void) | null = null;
+
+    function attachViewportScroll() {
+      const viewport = container.querySelector(".xterm-viewport") as HTMLElement | null;
+      if (!viewport) return;
+
+      const onScroll = () => {
+        const distFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+        setShowScrollButton(distFromBottom > 100);
+      };
+
+      viewport.addEventListener("scroll", onScroll, { passive: true });
+      viewportScrollListener = () => viewport.removeEventListener("scroll", onScroll);
+    }
 
     function sendResize() {
       socket!.emit("terminal_resize", {
@@ -151,9 +174,11 @@ export default function TerminalView() {
       window.removeEventListener("resize", handleResize);
       resizeObserver.disconnect();
       socket.off("terminal_output", handleOutput);
+      viewportScrollListener?.();
       term.dispose();
       termRef.current = null;
       fitAddonRef.current = null;
+      setShowScrollButton(false);
     };
   }, [activeSessionId, socket]);
 
@@ -170,11 +195,27 @@ export default function TerminalView() {
           <span className="text-[10px] uppercase tracking-widest">Refresh</span>
         </button>
       </div>
-      <div className="flex-1 overflow-hidden p-2">
+      <div className="flex-1 overflow-hidden p-2 relative">
         <div
           ref={containerRef}
           className="w-full h-full terminal-container rounded-lg"
         />
+
+        <AnimatePresence>
+          {showScrollButton && (
+            <motion.button
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              transition={{ duration: 0.15 }}
+              onClick={scrollToBottom}
+              className="absolute bottom-4 right-4 p-2 bg-emerald-500/20 text-emerald-400 rounded-full hover:bg-emerald-500/30 transition-colors shadow-lg backdrop-blur-sm"
+              title="Scroll to bottom"
+            >
+              <ChevronDown className="w-5 h-5" />
+            </motion.button>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );

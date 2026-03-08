@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { Copy, Check, User, Bot, Info } from "lucide-react";
+import { Copy, Check, User, Bot, Info, ChevronDown } from "lucide-react";
 import { useStore, type Message } from "../store.ts";
 
 function formatRelativeTime(dateStr: string): string {
@@ -23,27 +23,74 @@ function formatRelativeTime(dateStr: string): string {
 export default function MessageList() {
   const { messages } = useStore();
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+  const [isNearBottom, setIsNearBottom] = useState(true);
+
+  const checkScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const nearBottom = distFromBottom < 100;
+    setShowScrollButton(!nearBottom);
+    setIsNearBottom(nearBottom);
+  }, []);
 
   useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    el.addEventListener("scroll", checkScroll, { passive: true });
+    return () => el.removeEventListener("scroll", checkScroll);
+  }, [checkScroll]);
+
+  // Auto-scroll on new messages only when user is already at bottom
+  useEffect(() => {
+    if (isNearBottom) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages.length, isNearBottom]);
+
+  const scrollToBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length]);
+  };
 
   return (
-    <div className="flex-1 overflow-y-auto px-6 py-4">
-      <AnimatePresence mode="popLayout">
-        {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} />
-        ))}
+    <div className="flex-1 overflow-hidden relative">
+      <div
+        ref={scrollContainerRef}
+        className="h-full overflow-y-auto px-6 py-4"
+      >
+        <AnimatePresence mode="popLayout">
+          {messages.map((msg) => (
+            <MessageBubble key={msg.id} message={msg} />
+          ))}
+        </AnimatePresence>
+
+        {messages.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full text-white/20">
+            <Bot className="w-10 h-10 mb-3" />
+            <p className="text-sm">No messages yet. Start a conversation.</p>
+          </div>
+        )}
+
+        <div ref={bottomRef} />
+      </div>
+
+      <AnimatePresence>
+        {showScrollButton && (
+          <motion.button
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            transition={{ duration: 0.15 }}
+            onClick={scrollToBottom}
+            className="absolute bottom-4 right-4 p-2 bg-emerald-500/20 text-emerald-400 rounded-full hover:bg-emerald-500/30 transition-colors shadow-lg backdrop-blur-sm"
+            title="Scroll to bottom"
+          >
+            <ChevronDown className="w-5 h-5" />
+          </motion.button>
+        )}
       </AnimatePresence>
-
-      {messages.length === 0 && (
-        <div className="flex flex-col items-center justify-center h-full text-white/20">
-          <Bot className="w-10 h-10 mb-3" />
-          <p className="text-sm">No messages yet. Start a conversation.</p>
-        </div>
-      )}
-
-      <div ref={bottomRef} />
     </div>
   );
 }

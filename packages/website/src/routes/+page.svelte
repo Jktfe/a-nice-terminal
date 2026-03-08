@@ -1,4 +1,8 @@
 <script>
+  let copied = $state(false);
+
+  const installCmd = 'npx a-nice-terminal';
+
   const curlExample = `# Create a conversation session
 curl -X POST http://$ANT_HOST:$ANT_PORT/api/sessions \\
   -H "Content-Type: application/json" \\
@@ -8,31 +12,21 @@ curl -X POST http://$ANT_HOST:$ANT_PORT/api/sessions \\
 curl -X POST http://$ANT_HOST:$ANT_PORT/api/sessions/:id/messages \\
   -H "Content-Type: application/json" \\
   -d '{"role": "human", "content": "Task complete."}'`;
+
+  async function copyInstall() {
+    await navigator.clipboard.writeText(installCmd);
+    copied = true;
+    setTimeout(() => (copied = false), 2000);
+  }
 </script>
 
 <svelte:head>
   <title>A Nice Terminal - Beautiful terminal and conversation sessions</title>
+  <meta name="description" content="Beautiful terminal and conversation sessions for humans and AI agents. A local web interface with real PTY shells, rich messaging, and a simple API." />
+  <meta property="og:title" content="A Nice Terminal" />
+  <meta property="og:description" content="Beautiful terminal and conversation sessions for humans and AI agents." />
+  <meta property="og:url" content="https://antonline.dev" />
 </svelte:head>
-
-<!-- Nav -->
-<nav class="border-b border-white/[0.06] px-6 py-4">
-  <div class="mx-auto flex max-w-6xl items-center justify-between">
-    <a href="/" class="text-lg font-semibold text-white">
-      <span class="text-emerald-500">ANT</span> &middot; A Nice Terminal
-    </a>
-    <div class="flex items-center gap-6">
-      <a href="/docs" class="text-sm text-neutral-400 transition hover:text-white">Docs</a>
-      <a
-        href="https://github.com/jamesking/a-nice-terminal"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="text-sm text-neutral-400 transition hover:text-white"
-      >
-        GitHub
-      </a>
-    </div>
-  </div>
-</nav>
 
 <!-- Hero -->
 <section class="px-6 py-24 text-center md:py-32">
@@ -52,14 +46,17 @@ curl -X POST http://$ANT_HOST:$ANT_PORT/api/sessions/:id/messages \\
       that any agent can talk to.
     </p>
 
-    <!-- Install command -->
+    <!-- Install command with copy button -->
     <div class="mx-auto mb-10 max-w-md">
-      <div class="group relative rounded-lg border border-white/[0.06] bg-[var(--color-surface)] px-5 py-3">
-        <code class="font-mono text-sm text-emerald-400">npx a-nice-terminal</code>
-        <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-neutral-600">
-          copy
+      <button
+        onclick={copyInstall}
+        class="group relative w-full rounded-lg border border-white/[0.06] bg-[var(--color-surface)] px-5 py-3 text-left transition hover:border-white/10 cursor-pointer"
+      >
+        <code class="font-mono text-sm text-emerald-400">{installCmd}</code>
+        <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs transition-colors {copied ? 'text-emerald-400' : 'text-neutral-600 group-hover:text-neutral-400'}">
+          {copied ? 'copied!' : 'copy'}
         </span>
-      </div>
+      </button>
     </div>
 
     <!-- CTAs -->
@@ -136,6 +133,19 @@ curl -X POST http://$ANT_HOST:$ANT_PORT/api/sessions/:id/messages \\
   </div>
 </section>
 
+<!-- Screenshot placeholder -->
+<section class="border-t border-white/[0.06] px-6 py-20">
+  <div class="mx-auto max-w-5xl">
+    <h2 class="mb-4 text-center text-3xl font-bold text-white">See it in action</h2>
+    <p class="mx-auto mb-10 max-w-xl text-center text-neutral-500">
+      A clean, dark interface designed for focus.
+    </p>
+    <div class="overflow-hidden rounded-xl border border-white/[0.06] bg-[var(--color-surface)] aspect-video flex items-center justify-center">
+      <p class="text-neutral-600 text-sm">Screenshot coming soon</p>
+    </div>
+  </div>
+</section>
+
 <!-- Code Example -->
 <section class="border-t border-white/[0.06] px-6 py-20">
   <div class="mx-auto max-w-3xl">
@@ -155,25 +165,3 @@ curl -X POST http://$ANT_HOST:$ANT_PORT/api/sessions/:id/messages \\
     </div>
   </div>
 </section>
-
-<!-- Footer -->
-<footer class="border-t border-white/[0.06] px-6 py-10">
-  <div class="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 md:flex-row">
-    <div class="text-sm text-neutral-500">
-      MIT Licence &middot; Built by James King
-    </div>
-    <div class="flex items-center gap-6">
-      <a
-        href="https://github.com/jamesking/a-nice-terminal"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="text-sm text-neutral-500 transition hover:text-white"
-      >
-        GitHub
-      </a>
-      <a href="/docs" class="text-sm text-neutral-500 transition hover:text-white">
-        Docs
-      </a>
-    </div>
-  </div>
-</footer>

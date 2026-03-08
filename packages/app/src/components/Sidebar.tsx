@@ -1,14 +1,28 @@
 import {
   Terminal,
   MessageSquare,
-  Plus,
   Trash2,
   PanelLeftClose,
   Search,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useStore, type Session } from "../store.ts";
+
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== "undefined" ? window.innerWidth < 768 : false
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  return isMobile;
+}
 
 export default function Sidebar() {
   const {
@@ -21,6 +35,7 @@ export default function Sidebar() {
     toggleSidebar,
   } = useStore();
   const [search, setSearch] = useState("");
+  const isMobile = useIsMobile();
 
   if (!sidebarOpen) return null;
 
@@ -30,14 +45,27 @@ export default function Sidebar() {
       )
     : sessions;
 
-  return (
+  const handleSessionSelect = (id: string) => {
+    setActiveSession(id);
+    // Auto-close sidebar on mobile after selecting
+    if (isMobile) toggleSidebar();
+  };
+
+  const handleCreate = (type: "terminal" | "conversation") => {
+    createSession(type);
+    if (isMobile) toggleSidebar();
+  };
+
+  const sidebar = (
     <motion.aside
-      initial={false}
-      animate={{ width: 260, opacity: 1 }}
-      exit={{ width: 0, opacity: 0 }}
+      initial={isMobile ? { x: -280 } : false}
+      animate={isMobile ? { x: 0 } : { width: 260, opacity: 1 }}
+      exit={isMobile ? { x: -280 } : { width: 0, opacity: 0 }}
       transition={{ duration: 0.2 }}
-      className="h-full bg-[var(--color-surface)] border-r border-[var(--color-border)] flex flex-col overflow-hidden"
-      style={{ width: 260 }}
+      className={`h-full bg-[var(--color-surface)] border-r border-[var(--color-border)] flex flex-col overflow-hidden ${
+        isMobile ? "fixed inset-y-0 left-0 z-50 w-[280px]" : ""
+      }`}
+      style={isMobile ? undefined : { width: 260 }}
     >
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-[var(--color-border)]">
@@ -60,14 +88,14 @@ export default function Sidebar() {
       {/* New session buttons */}
       <div className="p-3 flex gap-2">
         <button
-          onClick={() => createSession("terminal")}
+          onClick={() => handleCreate("terminal")}
           className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-emerald-500/10 text-emerald-400 text-xs font-medium rounded-lg hover:bg-emerald-500/20 transition-colors"
         >
           <Terminal className="w-3.5 h-3.5" />
           Terminal
         </button>
         <button
-          onClick={() => createSession("conversation")}
+          onClick={() => handleCreate("conversation")}
           className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-blue-500/10 text-blue-400 text-xs font-medium rounded-lg hover:bg-blue-500/20 transition-colors"
         >
           <MessageSquare className="w-3.5 h-3.5" />
@@ -96,7 +124,7 @@ export default function Sidebar() {
               key={session.id}
               session={session}
               active={session.id === activeSessionId}
-              onSelect={() => setActiveSession(session.id)}
+              onSelect={() => handleSessionSelect(session.id)}
               onDelete={() => deleteSession(session.id)}
             />
           ))}
@@ -118,6 +146,18 @@ export default function Sidebar() {
       </div>
     </motion.aside>
   );
+
+  // On mobile, render as overlay with backdrop
+  if (isMobile) {
+    return (
+      <>
+        <div className="sidebar-backdrop" onClick={toggleSidebar} />
+        {sidebar}
+      </>
+    );
+  }
+
+  return sidebar;
 }
 
 function SessionItem({

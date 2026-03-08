@@ -17,8 +17,17 @@ body {
   font-family: "Inter", sans-serif;
 }
 
+/* Safe area insets for notched devices */
+#root {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
 .terminal-container .xterm-viewport {
   overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Tiptap editor styling */
@@ -66,4 +75,21 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.2);
+}
+
+/* Mobile sidebar overlay backdrop */
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 40;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+/* Mobile terminal font size */
+@media (max-width: 767px) {
+  .terminal-container .xterm {
+    font-size: 12px !important;
+  }
 }
