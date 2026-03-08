@@ -10,7 +10,9 @@ import { apiKeyAuth } from "./middleware/auth.js";
 import healthRoutes from "./routes/health.js";
 import sessionRoutes from "./routes/sessions.js";
 import messageRoutes from "./routes/messages.js";
+import resumeCommandRoutes from "./routes/resume-commands.js";
 import { registerSocketHandlers } from "./ws/handlers.js";
+import { reapOrphanedSessions } from "./pty-manager.js";
 
 // Ensure DB is initialised
 import "./db.js";
@@ -82,6 +84,7 @@ async function start() {
   app.use(healthRoutes);
   app.use(sessionRoutes);
   app.use(messageRoutes);
+  app.use(resumeCommandRoutes);
 
   // WebSocket
   registerSocketHandlers(io);
@@ -103,6 +106,9 @@ async function start() {
       res.sendFile(path.join(__dirname, "..", "dist", "index.html"));
     });
   }
+
+  // Re-adopt or schedule cleanup of orphaned tmux sessions from previous runs
+  reapOrphanedSessions();
 
   httpServer.listen(PORT, HOST, () => {
     console.log(`\n  ANT running at http://${HOST}:${PORT}\n`);

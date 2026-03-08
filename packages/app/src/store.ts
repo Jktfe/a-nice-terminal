@@ -7,8 +7,19 @@ export interface Session {
   name: string;
   type: "terminal" | "conversation";
   shell: string | null;
+  cwd: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ResumeCommand {
+  id: string;
+  session_id: string;
+  cli: "claude" | "codex" | "gemini" | "copilot";
+  command: string;
+  description: string | null;
+  root_path: string | null;
+  captured_at: string;
 }
 
 export interface Message {
@@ -25,6 +36,7 @@ interface AppState {
   sessions: Session[];
   activeSessionId: string | null;
   messages: Message[];
+  resumeCommands: ResumeCommand[];
   socket: Socket | null;
   connected: boolean;
   sidebarOpen: boolean;
@@ -42,6 +54,8 @@ interface AppState {
   setActiveSession: (id: string) => void;
   loadMessages: (sessionId: string) => Promise<void>;
   sendMessage: (content: string, role?: "human" | "agent" | "system") => Promise<void>;
+  loadResumeCommands: () => Promise<void>;
+  deleteResumeCommand: (id: string) => Promise<void>;
   toggleSidebar: () => void;
   clearError: () => void;
   setError: (message: string) => void;
@@ -127,6 +141,7 @@ export const useStore = create<AppState>((set, get) => ({
   sessions: [],
   activeSessionId: null,
   messages: [],
+  resumeCommands: [],
   socket: null,
   connected: false,
   sidebarOpen: true,
@@ -201,8 +216,16 @@ export const useStore = create<AppState>((set, get) => ({
       }));
     });
 
+    socket.on("resume_command_captured", (cmd: ResumeCommand) => {
+      set((s) => {
+        if (s.resumeCommands.some((c) => c.id === cmd.id)) return s;
+        return { resumeCommands: [cmd, ...s.resumeCommands] };
+      });
+    });
+
     set({ socket });
     get().loadSessions();
+    get().loadResumeCommands();
   },
 
   loadSessions: async () => {
@@ -316,6 +339,26 @@ export const useStore = create<AppState>((set, get) => ({
       clearError();
     } catch (error) {
       set({ error: error instanceof Error ? error.message : "Failed to send message" });
+    }
+  },
+
+  loadResumeCommands: async () => {
+    try {
+      const commands = await apiFetch("/api/resume-commands");
+      set({ resumeCommands: commands });
+    } catch {
+      // Non-critical — silently ignore
+    }
+  },
+
+  deleteResumeCommand: async (id) => {
+    try {
+      await apiFetch(`/api/resume-commands/${id}`, { method: "DELETE" });
+      set((s) => ({
+        resumeCommands: s.resumeCommands.filter((c) => c.id !== id),
+      }));
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : "Failed to delete resume command" });
     }
   },
 

@@ -4,6 +4,7 @@ import db from "../db.js";
 import type { DbSession } from "../types.js";
 import {
   destroyPty,
+  destroyAllPtys,
   createPty,
   getPty,
   getTerminalOutput,
@@ -21,6 +22,12 @@ router.get("/api/sessions", (_req, res) => {
     .prepare("SELECT * FROM sessions ORDER BY updated_at DESC")
     .all();
   res.json(sessions);
+});
+
+// Kill all terminal sessions (nuclear option) — must be before :id routes
+router.delete("/api/sessions/terminals/all", (_req, res) => {
+  const count = destroyAllPtys();
+  res.json({ destroyed: count });
 });
 
 // Get single session
@@ -111,7 +118,7 @@ router.post("/api/sessions/:sessionId/terminal/input", (req, res) => {
     const io = req.app.get("io");
 
     if (!ptyProcess) {
-      ptyProcess = createPty(req.params.sessionId, session.shell);
+      ptyProcess = createPty(req.params.sessionId, session.shell, session.cwd);
       if (io) {
         const sid = req.params.sessionId;
         const emitter = (chunk: string) => {
@@ -125,7 +132,7 @@ router.post("/api/sessions/:sessionId/terminal/input", (req, res) => {
       ptyProcess.write(data);
     } catch (writeErr) {
       destroyPty(req.params.sessionId);
-      ptyProcess = createPty(req.params.sessionId, session.shell);
+      ptyProcess = createPty(req.params.sessionId, session.shell, session.cwd);
       if (io) {
         const sid = req.params.sessionId;
         const emitter = (chunk: string) => {

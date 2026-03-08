@@ -6,7 +6,11 @@ import {
   destroyPty,
   getPty,
   hasOutputListeners,
+  hasTmuxSession,
   resizePty,
+  onResumeCommand,
+  startKillTimer,
+  cancelKillTimer,
 } from "../pty-manager.js";
 import db from "../db.js";
 import type { DbSession, DbMessage } from "../types.js";
@@ -45,8 +49,24 @@ function getMessage(messageId: string, sessionId: string) {
   return db.prepare("SELECT * FROM messages WHERE id = ? AND session_id = ?").get(messageId, sessionId) as DbMessage | undefined;
 }
 
+/**
+ * Check if a Socket.IO room has any connected clients.
+ */
+function roomHasClients(io: Server, room: string): boolean {
+  const clients = io.sockets.adapter.rooms.get(room);
+  return !!clients && clients.size > 0;
+}
+
 export function registerSocketHandlers(io: Server) {
+  // Broadcast newly captured resume commands to all clients
+  onResumeCommand((cmd) => {
+    io.emit("resume_command_captured", cmd);
+  });
+
   io.on("connection", (socket: Socket) => {
+    // Track which sessions this socket has joined (for cleanup on disconnect)
+    const joinedSessions = new Set<string>();
+
     socket.on("join_session", ({ sessionId }: { sessionId: string }) => {
       if (typeof sessionId !== "string" || !sessionId.trim()) {
         socket.emit("error", { message: "Invalid sessionId" });
@@ -60,10 +80,15 @@ export function registerSocketHandlers(io: Server) {
       }
 
       socket.join(sessionId);
+      joinedSessions.add(sessionId);
 
       if (session.type === "terminal") {
+        // A client is watching — cancel any pending kill timer
+        cancelKillTimer(sessionId);
+
         try {
-          getPty(sessionId) || createPty(sessionId, session.shell);
+          // createPty handles both fresh creation and tmux re-attachment
+          getPty(sessionId) || createPty(sessionId, session.shell, session.cwd);
           if (!hasOutputListeners(sessionId)) {
             const emitter = (chunk: string) => {
               io.to(sessionId).emit("terminal_output", { sessionId, data: chunk });
@@ -84,6 +109,13 @@ export function registerSocketHandlers(io: Server) {
     socket.on("leave_session", ({ sessionId }: { sessionId: string }) => {
       if (typeof sessionId !== "string" || !sessionId.trim()) return;
       socket.leave(sessionId);
+      joinedSessions.delete(sessionId);
+
+      // Check if this was the last client in the room
+      // Use setTimeout(0) to let Socket.IO finish the leave before checking
+      setTimeout(() => {
+        checkRoomEmpty(io, sessionId);
+      }, 0);
     });
 
     socket.on(
@@ -108,7 +140,7 @@ export function registerSocketHandlers(io: Server) {
         let ptyProcess = getPty(sessionId);
         if (!ptyProcess) {
           try {
-            ptyProcess = createPty(sessionId, session.shell);
+            ptyProcess = createPty(sessionId, session.shell, session.cwd);
           } catch (err) {
             socket.emit("error", { message: "Failed to create terminal" });
             return;
@@ -127,7 +159,7 @@ export function registerSocketHandlers(io: Server) {
         } catch (err) {
           try {
             destroyPty(sessionId);
-            const recreated = createPty(sessionId, session.shell);
+            const recreated = createPty(sessionId, session.shell, session.cwd);
             recreated.write(data);
 
             if (!hasOutputListeners(sessionId)) {
@@ -313,6 +345,28 @@ export function registerSocketHandlers(io: Server) {
       }
     );
 
-    socket.on("disconnect", () => {});
+    socket.on("disconnect", () => {
+      // For each session this socket had joined, check if the room is now empty
+      for (const sessionId of joinedSessions) {
+        // Small delay to let Socket.IO clean up the room membership
+        setTimeout(() => {
+          checkRoomEmpty(io, sessionId);
+        }, 100);
+      }
+      joinedSessions.clear();
+    });
   });
+}
+
+/**
+ * If no clients remain in a terminal session's room, start the kill timer.
+ */
+function checkRoomEmpty(io: Server, sessionId: string) {
+  const session = getSession(sessionId);
+  if (!session || session.type !== "terminal") return;
+
+  if (!roomHasClients(io, sessionId)) {
+    console.log(`[ws] No clients remain for session ${sessionId} — starting kill timer`);
+    startKillTimer(sessionId);
+  }
 }

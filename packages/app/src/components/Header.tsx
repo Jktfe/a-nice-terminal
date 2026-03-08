@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { useStore } from "../store.ts";
+import ResumeDropdown from "./ResumeDropdown.tsx";
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(
@@ -119,6 +120,7 @@ export default function Header() {
       </div>
 
       <div className="flex items-center gap-2 flex-shrink-0">
+        <ResumeDropdown />
         <span
           className={`w-1.5 h-1.5 rounded-full ${
             connected ? "bg-emerald-500 animate-pulse" : "bg-red-500"

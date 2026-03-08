@@ -82,12 +82,14 @@ export default function TerminalView() {
       if (!container.offsetWidth || !container.offsetHeight) {
         setTimeout(() => {
           term.open(container);
+          term.focus();
           try { fitAddon.fit(); } catch {}
           sendResize();
           attachViewportScroll();
         }, 100);
       } else {
         term.open(container);
+        term.focus();
         try { fitAddon.fit(); } catch {}
         sendResize();
         attachViewportScroll();
@@ -195,7 +197,10 @@ export default function TerminalView() {
           <span className="text-[10px] uppercase tracking-widest">Refresh</span>
         </button>
       </div>
-      <div className="flex-1 overflow-hidden p-2 relative">
+      <div
+        className="flex-1 overflow-hidden p-2 relative"
+        onClick={() => termRef.current?.focus()}
+      >
         <div
           ref={containerRef}
           className="w-full h-full terminal-container rounded-lg"

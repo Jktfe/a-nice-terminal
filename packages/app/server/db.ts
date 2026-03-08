@@ -34,5 +34,25 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, created_at);
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS resume_commands (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    cli TEXT NOT NULL,
+    command TEXT NOT NULL,
+    description TEXT,
+    root_path TEXT,
+    captured_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+  );
+`);
+
+// Migration: add cwd column to sessions
+try {
+  db.exec(`ALTER TABLE sessions ADD COLUMN cwd TEXT DEFAULT NULL`);
+} catch {
+  // Column already exists — ignore
+}
+
 export default db;
 export { DB_PATH };
