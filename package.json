@@ -5,9 +5,7 @@
   "description": "A web and API interface for terminal and conversation sessions, with MCP integration for humans and AI agents",
   "license": "MIT",
   "workspaces": [
-    "packages/app",
-    "packages/mcp",
-    "packages/website"
+    "packages/*"
   ],
   "scripts": {
     "preflight": "node scripts/preflight.mjs",
@@ -25,5 +23,8 @@
   "devDependencies": {
     "node-gyp": "^12.2.0",
     "vitest": "^3.2.3"
+  },
+  "dependencies": {
+    "node-pty": "^1.1.0"
   }
 }
