@@ -64,7 +64,10 @@ router.get("/api/sessions/:sessionId/messages", (req, res) => {
   const parsedLimit = Math.max(1, Math.min(parseInt(limit as string, 10) || 100, 1000));
   params.push(parsedLimit);
 
-  const messages = db.prepare(query).all(...params);
+  const messages = db.prepare(query).all(...params).map((m: any) => ({
+    ...m,
+    metadata: m.metadata ? JSON.parse(m.metadata) : null,
+  }));
   res.json(messages);
 });
 
@@ -78,6 +81,7 @@ router.post("/api/sessions/:sessionId/messages", (req, res) => {
     content = "",
     format = "markdown",
     status = "complete",
+    metadata = null,
   } = req.body;
 
   const normalisedRole = normalizeRole(role);
@@ -100,21 +104,23 @@ router.post("/api/sessions/:sessionId/messages", (req, res) => {
   const id = nanoid(12);
 
   db.prepare(
-    "INSERT INTO messages (id, session_id, role, content, format, status) VALUES (?, ?, ?, ?, ?, ?)"
+    "INSERT INTO messages (id, session_id, role, content, format, status, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)"
   ).run(
     id,
     req.params.sessionId,
     normalisedRole,
     content,
     format,
-    status
+    status,
+    metadata ? JSON.stringify(metadata) : null
   );
 
   db.prepare("UPDATE sessions SET updated_at = datetime('now') WHERE id = ?").run(
     req.params.sessionId
   );
 
-  const message = db.prepare("SELECT * FROM messages WHERE id = ?").get(id);
+  const message = db.prepare("SELECT * FROM messages WHERE id = ?").get(id) as any;
+  if (message.metadata) message.metadata = JSON.parse(message.metadata);
 
   const io = req.app.get("io");
   if (io) {
@@ -135,7 +141,7 @@ router.patch("/api/sessions/:sessionId/messages/:id", (req, res) => {
 
   if (!message) return res.status(404).json({ error: "Message not found" });
 
-  const { content, status } = req.body;
+  const { content, status, metadata } = req.body;
 
   if (status !== undefined && !VALID_STATUSES.includes(status)) {
     return res.status(400).json({ error: "Invalid status" });
@@ -147,7 +153,14 @@ router.patch("/api/sessions/:sessionId/messages/:id", (req, res) => {
     return res.status(400).json({ error: "Content too large" });
   }
 
-  if (content !== undefined && status !== undefined) {
+  if (content !== undefined && status !== undefined && metadata !== undefined) {
+    db.prepare("UPDATE messages SET content = ?, status = ?, metadata = ? WHERE id = ?").run(
+      content,
+      status,
+      JSON.stringify(metadata),
+      req.params.id
+    );
+  } else if (content !== undefined && status !== undefined) {
     db.prepare("UPDATE messages SET content = ?, status = ? WHERE id = ?").run(
       content,
       status,
@@ -163,9 +176,15 @@ router.patch("/api/sessions/:sessionId/messages/:id", (req, res) => {
       status,
       req.params.id
     );
+  } else if (metadata !== undefined) {
+    db.prepare("UPDATE messages SET metadata = ? WHERE id = ?").run(
+      JSON.stringify(metadata),
+      req.params.id
+    );
   }
 
-  const updated = db.prepare("SELECT * FROM messages WHERE id = ?").get(req.params.id);
+  const updated = db.prepare("SELECT * FROM messages WHERE id = ?").get(req.params.id) as any;
+  if (updated.metadata) updated.metadata = JSON.parse(updated.metadata);
   const io = req.app.get("io");
   if (io) {
     io.to(req.params.sessionId).emit("message_updated", updated);

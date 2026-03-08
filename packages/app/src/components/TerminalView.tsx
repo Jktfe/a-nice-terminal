@@ -6,7 +6,7 @@ import { RefreshCw, ChevronDown } from "lucide-react";
 import { useStore, apiFetch } from "../store.ts";
 
 export default function TerminalView() {
-  const { activeSessionId, socket } = useStore();
+  const { activeSessionId, socket, uploadFile } = useStore();
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -157,6 +157,38 @@ export default function TerminalView() {
     });
     resizeObserver.observe(container);
 
+    // Drag and drop support
+    const onDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    const onDrop = async (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      if (e.dataTransfer?.files?.length) {
+        const files = Array.from(e.dataTransfer.files);
+        for (const file of files) {
+          if (file.type.startsWith("image/")) {
+            try {
+              const result = await uploadFile(file);
+              const url = `${window.location.origin}${result.url}`;
+              socket!.emit("terminal_input", {
+                sessionId: activeSessionId,
+                data: url,
+              });
+            } catch (err) {
+              console.error("Failed to upload dropped file", err);
+            }
+          }
+        }
+      }
+    };
+
+    container.addEventListener("dragover", onDragOver);
+    container.addEventListener("drop", onDrop);
+
     // Fetch existing output
     apiFetch(`/api/sessions/${activeSessionId}/terminal/output?since=0&limit=1000`)
       .then((result) => {
@@ -174,6 +206,8 @@ export default function TerminalView() {
     return () => {
       cancelAnimationFrame(initTimer);
       window.removeEventListener("resize", handleResize);
+      container.removeEventListener("dragover", onDragOver);
+      container.removeEventListener("drop", onDrop);
       resizeObserver.disconnect();
       socket.off("terminal_output", handleOutput);
       viewportScrollListener?.();
@@ -182,7 +216,7 @@ export default function TerminalView() {
       fitAddonRef.current = null;
       setShowScrollButton(false);
     };
-  }, [activeSessionId, socket]);
+  }, [activeSessionId, socket, uploadFile]);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">

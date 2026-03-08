@@ -27,6 +27,7 @@ db.exec(`
     content TEXT NOT NULL DEFAULT '',
     format TEXT NOT NULL DEFAULT 'markdown',
     status TEXT NOT NULL DEFAULT 'complete' CHECK(status IN ('pending', 'streaming', 'complete')),
+    metadata TEXT DEFAULT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
   );
@@ -50,6 +51,13 @@ db.exec(`
 // Migration: add cwd column to sessions
 try {
   db.exec(`ALTER TABLE sessions ADD COLUMN cwd TEXT DEFAULT NULL`);
+} catch {
+  // Column already exists — ignore
+}
+
+// Migration: add metadata column to messages
+try {
+  db.exec(`ALTER TABLE messages ADD COLUMN metadata TEXT DEFAULT NULL`);
 } catch {
   // Column already exists — ignore
 }

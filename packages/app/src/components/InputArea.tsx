@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
-import { Send } from "lucide-react";
+import { Send, Image, X, Loader2 } from "lucide-react";
 import { useStore } from "../store.ts";
 
 function useIsMobile() {
@@ -20,9 +20,20 @@ function useIsMobile() {
   return isMobile;
 }
 
+interface Attachment {
+  url: string;
+  filename: string;
+  type: string;
+}
+
 export default function InputArea() {
-  const { sendMessage, activeSessionId } = useStore();
+  const { sendMessage, activeSessionId, uploadFile, sessions } = useStore();
   const isMobile = useIsMobile();
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const activeSession = sessions.find(s => s.id === activeSessionId);
 
   const editor = useEditor({
     extensions: [
@@ -51,44 +62,128 @@ export default function InputArea() {
     },
   });
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     if (!editor || !activeSessionId) return;
 
     const text = editor.getText().trim();
-    if (!text) return;
+    if (!text && attachments.length === 0) return;
 
-    sendMessage(text);
+    const metadata = attachments.length > 0 ? { images: attachments.map(a => a.url) } : null;
+
+    sendMessage(text, "human", metadata);
     editor.commands.clearContent();
-  }, [editor, activeSessionId, sendMessage]);
+    setAttachments([]);
+  }, [editor, activeSessionId, sendMessage, attachments]);
+
+  const handleFiles = useCallback(async (files: FileList | File[]) => {
+    setUploading(true);
+    try {
+      const newAttachments: Attachment[] = [];
+      for (const file of Array.from(files)) {
+        if (!file.type.startsWith("image/")) continue;
+        const result = await uploadFile(file);
+        newAttachments.push({
+          url: result.url,
+          filename: result.filename,
+          type: file.type
+        });
+      }
+      setAttachments(prev => [...prev, ...newAttachments]);
+    } catch (err) {
+      console.error("Upload failed", err);
+    } finally {
+      setUploading(false);
+    }
+  }, [uploadFile]);
+
+  const removeAttachment = (index: number) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files?.length) {
+      handleFiles(e.dataTransfer.files);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
 
   if (!activeSessionId) return null;
 
   return (
-    <footer className="p-4 bg-[var(--color-surface)] border-t border-[var(--color-border)]">
+    <footer 
+      className={`p-4 bg-[var(--color-surface)] border-t border-[var(--color-border)] transition-colors ${isDragging ? "bg-emerald-500/5" : ""}`}
+      onDrop={handleDrop}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+    >
       <div className="max-w-3xl mx-auto relative">
-        <div className="bg-white/5 border border-white/10 rounded-xl overflow-hidden focus-within:border-emerald-500/40 focus-within:ring-1 focus-within:ring-emerald-500/20 transition-all">
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-3">
+            {attachments.map((file, i) => (
+              <div key={i} className="group relative w-16 h-16 rounded-lg border border-white/10 overflow-hidden bg-white/5">
+                <img src={file.url} alt={file.filename} className="w-full h-full object-cover" />
+                <button
+                  onClick={() => removeAttachment(i)}
+                  className="absolute top-0.5 right-0.5 p-0.5 bg-black/60 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+            {uploading && (
+              <div className="w-16 h-16 rounded-lg border border-white/10 border-dashed flex items-center justify-center bg-white/5">
+                <Loader2 className="w-5 h-5 text-white/20 animate-spin" />
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className={`bg-white/5 border border-white/10 rounded-xl overflow-hidden transition-all ${isDragging ? "border-emerald-500/40 ring-1 ring-emerald-500/20" : "focus-within:border-emerald-500/40 focus-within:ring-1 focus-within:ring-emerald-500/20"}`}>
           <EditorContent editor={editor} />
 
           <div className="flex items-center justify-between px-3 py-2 border-t border-white/5">
-            {isMobile ? (
-              <div />
-            ) : (
-              <div className="flex items-center gap-2 text-white/30 text-[10px]">
-                <kbd className="px-1.5 py-0.5 bg-white/5 rounded border border-white/10">
-                  Cmd+Enter
-                </kbd>
-                <span>to send</span>
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              <label className="p-1.5 text-white/40 hover:text-white/80 cursor-pointer transition-colors">
+                <Image className="w-4 h-4" />
+                <input 
+                  type="file" 
+                  multiple 
+                  accept="image/*" 
+                  className="hidden" 
+                  onChange={(e) => e.target.files && handleFiles(e.target.files)} 
+                />
+              </label>
+              {isMobile ? null : (
+                <div className="flex items-center gap-2 text-white/30 text-[10px]">
+                  <kbd className="px-1.5 py-0.5 bg-white/5 rounded border border-white/10">
+                    Cmd+Enter
+                  </kbd>
+                  <span>to send</span>
+                </div>
+              )}
+            </div>
+            
             <button
               onClick={handleSend}
-              className={`p-1.5 transition-colors ${
+              disabled={uploading || (!editor?.getText().trim() && attachments.length === 0)}
+              className={`p-1.5 transition-colors disabled:opacity-30 ${
                 isMobile
                   ? "bg-emerald-500/20 text-emerald-400 rounded-lg px-3"
                   : "text-white/40 hover:text-emerald-400"
               }`}
             >
-              <Send className="w-4 h-4" />
+              {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             </button>
           </div>
         </div>

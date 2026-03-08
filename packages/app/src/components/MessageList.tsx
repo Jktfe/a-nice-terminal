@@ -26,6 +26,7 @@ export default function MessageList() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [isNearBottom, setIsNearBottom] = useState(true);
+  const [isSelecting, setIsSelecting] = useState(false);
 
   const checkScroll = useCallback(() => {
     const el = scrollContainerRef.current;
@@ -43,12 +44,23 @@ export default function MessageList() {
     return () => el.removeEventListener("scroll", checkScroll);
   }, [checkScroll]);
 
-  // Auto-scroll on new messages only when user is already at bottom
+  // Track selection to avoid auto-scrolling while user is trying to copy
   useEffect(() => {
-    if (isNearBottom) {
+    const handleSelectionChange = () => {
+      const selection = window.getSelection();
+      setIsSelecting(!!selection && selection.toString().length > 0);
+    };
+
+    document.addEventListener("selectionchange", handleSelectionChange);
+    return () => document.removeEventListener("selectionchange", handleSelectionChange);
+  }, []);
+
+  // Auto-scroll on new messages only when user is already at bottom AND not selecting
+  useEffect(() => {
+    if (isNearBottom && !isSelecting) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages.length, isNearBottom]);
+  }, [messages, isNearBottom, isSelecting]);
 
   const scrollToBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -104,7 +116,6 @@ function MessageBubble({ message }: { message: Message }) {
 
   return (
     <motion.div
-      layout
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
@@ -139,6 +150,19 @@ function MessageBubble({ message }: { message: Message }) {
           <StreamingIndicator />
         ) : (
           <div className="prose prose-invert prose-sm max-w-none">
+            {message.metadata?.images && (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {message.metadata.images.map((url: string, i: number) => (
+                  <img
+                    key={i}
+                    src={url}
+                    alt="attachment"
+                    className="max-w-full max-h-64 rounded-lg object-contain bg-black/20"
+                    onClick={() => window.open(url, "_blank")}
+                  />
+                ))}
+              </div>
+            )}
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               rehypePlugins={[rehypeHighlight]}

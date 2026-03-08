@@ -10,6 +10,7 @@ import { apiKeyAuth } from "./middleware/auth.js";
 import healthRoutes from "./routes/health.js";
 import sessionRoutes from "./routes/sessions.js";
 import messageRoutes from "./routes/messages.js";
+import uploadRoutes from "./routes/uploads.js";
 import resumeCommandRoutes from "./routes/resume-commands.js";
 import { registerSocketHandlers } from "./ws/handlers.js";
 import { reapOrphanedSessions } from "./pty-manager.js";
@@ -84,7 +85,12 @@ async function start() {
   app.use(healthRoutes);
   app.use(sessionRoutes);
   app.use(messageRoutes);
+  app.use(uploadRoutes);
   app.use(resumeCommandRoutes);
+
+  // Serve uploads
+  const uploadsPath = path.join(__dirname, "..", "..", "public", "uploads");
+  app.use("/uploads", express.static(uploadsPath));
 
   // WebSocket
   registerSocketHandlers(io);

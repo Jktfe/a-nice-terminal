@@ -29,6 +29,7 @@ export interface Message {
   content: string;
   format: string;
   status: "pending" | "streaming" | "complete";
+  metadata?: any;
   created_at: string;
 }
 
@@ -53,7 +54,8 @@ interface AppState {
   renameSession: (id: string, name: string) => Promise<void>;
   setActiveSession: (id: string) => void;
   loadMessages: (sessionId: string) => Promise<void>;
-  sendMessage: (content: string, role?: "human" | "agent" | "system") => Promise<void>;
+  sendMessage: (content: string, role?: "human" | "agent" | "system", metadata?: any) => Promise<void>;
+  uploadFile: (file: File) => Promise<{ url: string; filename: string }>;
   loadResumeCommands: () => Promise<void>;
   deleteResumeCommand: (id: string) => Promise<void>;
   toggleSidebar: () => void;
@@ -324,22 +326,40 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  sendMessage: async (content, role = "human") => {
+  sendMessage: async (content, role = "human", metadata = null) => {
     const { activeSessionId, clearError } = get();
     if (!activeSessionId) return;
 
     const trimmed = content.trim();
-    if (!trimmed) return;
+    if (!trimmed && !metadata) return;
 
     try {
       await apiFetch(`/api/sessions/${activeSessionId}/messages`, {
         method: "POST",
-        body: JSON.stringify({ role, content: trimmed }),
+        body: JSON.stringify({ role, content: trimmed, metadata }),
       });
       clearError();
     } catch (error) {
       set({ error: error instanceof Error ? error.message : "Failed to send message" });
     }
+  },
+
+  uploadFile: async (file) => {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch("/api/upload", {
+      method: "POST",
+      body: formData,
+      headers: API_KEY ? { "X-API-Key": API_KEY } : {},
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || "Upload failed");
+    }
+
+    return response.json();
   },
 
   loadResumeCommands: async () => {
