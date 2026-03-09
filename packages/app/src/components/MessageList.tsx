@@ -6,27 +6,15 @@ import rehypeHighlight from "rehype-highlight";
 import { Copy, Check, User, Bot, Info, ChevronDown } from "lucide-react";
 import { useStore, type Message } from "../store.ts";
 
-function formatRelativeTime(dateStr: string): string {
-  const now = Date.now();
-  const then = new Date(dateStr).getTime();
-  const diffSec = Math.floor((now - then) / 1000);
-  if (diffSec < 5) return "just now";
-  if (diffSec < 60) return `${diffSec}s ago`;
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
-  const diffDay = Math.floor(diffHr / 24);
-  return `${diffDay}d ago`;
-}
-
 export default function MessageList() {
   const { messages } = useStore();
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [isNearBottom, setIsNearBottom] = useState(true);
-  const [isSelecting, setIsSelecting] = useState(false);
+
+  const isNearBottomRef = useRef(true);
+  const isSelectingRef = useRef(false);
 
   const checkScroll = useCallback(() => {
     const el = scrollContainerRef.current;
@@ -35,6 +23,7 @@ export default function MessageList() {
     const nearBottom = distFromBottom < 100;
     setShowScrollButton(!nearBottom);
     setIsNearBottom(nearBottom);
+    isNearBottomRef.current = nearBottom;
   }, []);
 
   useEffect(() => {
@@ -48,7 +37,8 @@ export default function MessageList() {
   useEffect(() => {
     const handleSelectionChange = () => {
       const selection = window.getSelection();
-      setIsSelecting(!!selection && selection.toString().length > 0);
+      const selecting = !!selection && selection.toString().length > 0;
+      isSelectingRef.current = selecting;
     };
 
     document.addEventListener("selectionchange", handleSelectionChange);
@@ -57,10 +47,10 @@ export default function MessageList() {
 
   // Auto-scroll on new messages only when user is already at bottom AND not selecting
   useEffect(() => {
-    if (isNearBottom && !isSelecting) {
+    if (isNearBottomRef.current && !isSelectingRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages, isNearBottom, isSelecting]);
+  }, [messages]);
 
   const scrollToBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -107,10 +97,31 @@ export default function MessageList() {
   );
 }
 
+const remarkPluginsArr = [remarkGfm];
+const rehypePluginsArr = [rehypeHighlight];
+
+const markdownComponents = {
+  code: ({ className, children, ...props }: any) => {
+    const isBlock = className?.includes("language-");
+    if (isBlock) {
+      return (
+        <CodeBlock className={className}>
+          {children as any}
+        </CodeBlock>
+      );
+    }
+    return (
+      <code className={className} {...props}>
+        {children}
+      </code>
+    );
+  },
+  pre: ({ children }: any) => <>{children}</>,
+};
+
 function MessageBubble({ message }: { message: Message }) {
   const isHuman = message.role === "human";
   const isSystem = message.role === "system";
-  const [hovered, setHovered] = useState(false);
 
   const Icon = isHuman ? User : isSystem ? Info : Bot;
 
@@ -122,18 +133,23 @@ function MessageBubble({ message }: { message: Message }) {
       className={`group relative flex gap-3 mb-4 ${
         isHuman ? "flex-row-reverse" : ""
       } ${isSystem ? "justify-center" : ""}`}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
     >
       {!isSystem && (
-        <div
-          className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${
-            isHuman
-              ? "bg-emerald-500/15 text-emerald-400"
-              : "bg-white/5 text-white/50"
-          }`}
-        >
-          <Icon className="w-3.5 h-3.5" />
+        <div className="flex flex-col items-center gap-1 mt-0.5">
+          <div
+            className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${
+              isHuman
+                ? "bg-emerald-500/15 text-emerald-400"
+                : "bg-white/5 text-white/50"
+            }`}
+          >
+            <Icon className="w-3.5 h-3.5" />
+          </div>
+          {message.created_at && (
+            <span className="text-[9px] text-white/30 whitespace-nowrap">
+              {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
         </div>
       )}
 
@@ -164,26 +180,9 @@ function MessageBubble({ message }: { message: Message }) {
               </div>
             )}
             <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeHighlight]}
-              components={{
-                code: ({ className, children, ...props }) => {
-                  const isBlock = className?.includes("language-");
-                  if (isBlock) {
-                    return (
-                      <CodeBlock className={className}>
-                        {String(children)}
-                      </CodeBlock>
-                    );
-                  }
-                  return (
-                    <code className={className} {...props}>
-                      {children}
-                    </code>
-                  );
-                },
-                pre: ({ children }) => <>{children}</>,
-              }}
+              remarkPlugins={remarkPluginsArr}
+              rehypePlugins={rehypePluginsArr}
+              components={markdownComponents}
             >
               {message.content}
             </ReactMarkdown>
@@ -193,14 +192,6 @@ function MessageBubble({ message }: { message: Message }) {
           </div>
         )}
       </div>
-
-      {hovered && message.created_at && (
-        <div
-          className={`absolute top-0 ${isHuman ? "right-10" : "left-10"} px-2 py-0.5 bg-white/10 rounded text-[10px] text-white/40 whitespace-nowrap pointer-events-none`}
-        >
-          {formatRelativeTime(message.created_at)}
-        </div>
-      )}
     </motion.div>
   );
 }
@@ -209,21 +200,24 @@ function CodeBlock({
   children,
   className,
 }: {
-  children: string;
+  children: React.ReactNode;
   className?: string;
 }) {
   const [copied, setCopied] = useState(false);
+  const codeRef = useRef<HTMLElement>(null);
 
   const copy = async () => {
-    await navigator.clipboard.writeText(children);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (codeRef.current) {
+      await navigator.clipboard.writeText(codeRef.current.textContent || "");
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   return (
     <div className="relative group my-2">
       <pre className="bg-black/40 rounded-lg p-3 overflow-x-auto">
-        <code className={className}>{children}</code>
+        <code ref={codeRef} className={className}>{children}</code>
       </pre>
       <button
         onClick={copy}

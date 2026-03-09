@@ -8,6 +8,7 @@ vi.mock("../pty-manager.js", () => ({
   hasOutputListeners: vi.fn(() => false),
   addPtyOutputListener: vi.fn(() => () => {}),
   resizePty: vi.fn(),
+  onResumeCommand: vi.fn(),
 }));
 
 import {

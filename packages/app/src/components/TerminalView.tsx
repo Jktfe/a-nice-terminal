@@ -174,7 +174,7 @@ export default function TerminalView() {
         background: "#0a0a0a",
         foreground: "#e5e5e5",
         cursor: "#10b981",
-        selectionBackground: "rgba(16, 185, 129, 0.3)",
+        selectionBackground: "rgba(255, 255, 255, 0.25)",
         black: "#171717",
         red: "#ef4444",
         green: "#22c55e",
@@ -489,7 +489,8 @@ export default function TerminalView() {
 
         <div
           className="flex-1 min-h-0 relative"
-          onClick={() => {
+          onClick={(e) => {
+            if (termRef.current?.hasSelection()) return;
             if (slowEditMode) {
               slowEditInputRef.current?.focus();
             } else {

@@ -60,7 +60,7 @@ const terminalOutputInsert = db.prepare(
 );
 
 const terminalOutputByCursor = db.prepare(`
-  SELECT chunk_index AS index, data
+  SELECT chunk_index AS "index", data
   FROM terminal_output_events
   WHERE session_id = ? AND chunk_index >= ?
   ORDER BY chunk_index ASC
@@ -74,7 +74,7 @@ const terminalOutputCursor = db.prepare(`
 `);
 
 const terminalOutputSearch = db.prepare(`
-  SELECT chunk_index AS index, data, created_at
+  SELECT chunk_index AS "index", data, created_at
   FROM terminal_output_events
   WHERE session_id = ? AND data LIKE ? ESCAPE '\\'
   ORDER BY chunk_index ASC
@@ -82,7 +82,7 @@ const terminalOutputSearch = db.prepare(`
 `);
 
 const terminalOutputByTime = db.prepare(`
-  SELECT chunk_index AS index, data, created_at
+  SELECT chunk_index AS "index", data, created_at
   FROM terminal_output_events
   WHERE session_id = ?
   AND (
@@ -93,7 +93,7 @@ const terminalOutputByTime = db.prepare(`
 `);
 
 const terminalOutputByTimeRanges = db.prepare(`
-  SELECT chunk_index AS index, data, created_at
+  SELECT chunk_index AS "index", data, created_at
   FROM terminal_output_events
   WHERE session_id = ?
   AND (
@@ -338,17 +338,25 @@ export function createPty(
   if (!isReattach) {
     // On fresh creation, set the shell and working directory
     const resolvedShell = shell || defaultShell;
-    const resolvedCwd = cwd || process.env.HOME || process.cwd();
+    let resolvedCwd = cwd || process.env.ANT_ROOT_DIR || process.env.HOME || process.cwd();
+    if (resolvedCwd.startsWith("~/")) {
+      resolvedCwd = resolvedCwd.replace(/^~/, process.env.HOME || "");
+    }
     tmuxArgs.push("-c", resolvedCwd);
     // Use the shell as the default command
     tmuxArgs.push(resolvedShell);
+  }
+
+  let finalCwd = cwd || process.env.ANT_ROOT_DIR || process.env.HOME || process.cwd();
+  if (finalCwd.startsWith("~/")) {
+    finalCwd = finalCwd.replace(/^~/, process.env.HOME || "");
   }
 
   const ptyProcess = pty.spawn("tmux", tmuxArgs, {
     name: "xterm-256color",
     cols: 120,
     rows: 30,
-    cwd: cwd || process.env.HOME || process.cwd(),
+    cwd: finalCwd,
     env: safeEnv(),
   });
 
@@ -518,7 +526,7 @@ export function searchTerminalOutput(
       if (ranges.length === 2) {
         if (hasQuery) {
           return db.prepare(`
-            SELECT chunk_index AS index, data, created_at
+            SELECT chunk_index AS "index", data, created_at
             FROM terminal_output_events
             WHERE session_id = ?
               AND (${TIME_OF_DAY_SECONDS_EXPR} BETWEEN ? AND ? OR ${TIME_OF_DAY_SECONDS_EXPR} BETWEEN ? AND ?)
@@ -547,7 +555,7 @@ export function searchTerminalOutput(
 
       if (hasQuery) {
         return db.prepare(`
-          SELECT chunk_index AS index, data, created_at
+          SELECT chunk_index AS "index", data, created_at
           FROM terminal_output_events
           WHERE session_id = ?
             AND ${TIME_OF_DAY_SECONDS_EXPR} BETWEEN ? AND ?

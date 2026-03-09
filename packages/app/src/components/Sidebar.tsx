@@ -4,6 +4,7 @@ import {
   Trash2,
   PanelLeftClose,
   Search,
+  Settings,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
@@ -33,6 +34,7 @@ export default function Sidebar() {
     createSession,
     deleteSession,
     toggleSidebar,
+    toggleSettings,
   } = useStore();
   const [search, setSearch] = useState("");
   const isMobile = useIsMobile();
@@ -143,6 +145,17 @@ export default function Sidebar() {
             No matching sessions.
           </div>
         )}
+      </div>
+
+      {/* Settings Footer */}
+      <div className="p-3 border-t border-[var(--color-border)]">
+        <button
+          onClick={toggleSettings}
+          className="flex items-center gap-2 p-2 w-full text-white/50 hover:text-white/90 hover:bg-white/5 rounded-lg transition-colors"
+        >
+          <Settings className="w-4 h-4" />
+          <span className="text-xs font-medium">Settings</span>
+        </button>
       </div>
     </motion.aside>
   );

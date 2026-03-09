@@ -1,4 +1,4 @@
-const CACHE_NAME = "ant-shell-v1";
+const CACHE_NAME = "ant-shell-v2";
 const SHELL_ASSETS = ["/", "/index.html"];
 
 self.addEventListener("install", (event) => {

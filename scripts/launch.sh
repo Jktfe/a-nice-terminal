@@ -16,5 +16,6 @@ fi
 
 # Ensure node is available (common paths)
 export PATH="/usr/local/bin:/opt/homebrew/bin:$HOME/.nvm/versions/node/$(ls "$HOME/.nvm/versions/node/" 2>/dev/null | tail -1)/bin:$PATH"
+export NODE_ENV=production
 
 exec node --import tsx server/index.ts

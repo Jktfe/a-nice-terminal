@@ -12,6 +12,7 @@ import sessionRoutes from "./routes/sessions.js";
 import messageRoutes from "./routes/messages.js";
 import uploadRoutes from "./routes/uploads.js";
 import resumeCommandRoutes from "./routes/resume-commands.js";
+import settingsRoutes from "./routes/settings.js";
 import { registerSocketHandlers } from "./ws/handlers.js";
 import { reapOrphanedSessions } from "./pty-manager.js";
 
@@ -87,6 +88,7 @@ async function start() {
   app.use(messageRoutes);
   app.use(uploadRoutes);
   app.use(resumeCommandRoutes);
+  app.use(settingsRoutes);
 
   // Serve uploads
   const uploadsPath = path.join(__dirname, "..", "..", "public", "uploads");

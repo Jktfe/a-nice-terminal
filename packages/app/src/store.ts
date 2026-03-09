@@ -41,6 +41,7 @@ interface AppState {
   socket: Socket | null;
   connected: boolean;
   sidebarOpen: boolean;
+  settingsOpen: boolean;
   error: string | null;
 
   // Actions
@@ -59,6 +60,7 @@ interface AppState {
   loadResumeCommands: () => Promise<void>;
   deleteResumeCommand: (id: string) => Promise<void>;
   toggleSidebar: () => void;
+  toggleSettings: () => void;
   clearError: () => void;
   setError: (message: string) => void;
 }
@@ -147,6 +149,7 @@ export const useStore = create<AppState>((set, get) => ({
   socket: null,
   connected: false,
   sidebarOpen: true,
+  settingsOpen: false,
   error: null,
 
   setError: (message) => set({ error: message }),
@@ -383,4 +386,5 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+  toggleSettings: () => set((s) => ({ settingsOpen: !s.settingsOpen })),
 }));
