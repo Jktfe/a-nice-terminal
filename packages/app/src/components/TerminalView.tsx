@@ -2,16 +2,36 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Terminal } from "xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { motion, AnimatePresence } from "motion/react";
-import { RefreshCw, ChevronDown } from "lucide-react";
+import { RefreshCw, ChevronDown, Clipboard, Edit3, Send, Search, X } from "lucide-react";
 import { useStore, apiFetch } from "../store.ts";
+
+interface SearchResult {
+  index: number;
+  data: string;
+  created_at?: string;
+}
 
 export default function TerminalView() {
   const { activeSessionId, socket, uploadFile } = useStore();
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const outputBufferRef = useRef<string[]>([]);
+  const outputFlushRafRef = useRef<number | null>(null);
+  const slowEditModeRef = useRef(false);
+  const slowEditInputRef = useRef<HTMLTextAreaElement>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [slowEditMode, setSlowEditMode] = useState(false);
+  const [slowEditInput, setSlowEditInput] = useState("");
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchStart, setSearchStart] = useState("");
+  const [searchEnd, setSearchEnd] = useState("");
+  const [searchPad, setSearchPad] = useState("15");
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
 
   const handleRefresh = async () => {
     if (!activeSessionId || !termRef.current || refreshing) return;
@@ -37,9 +57,114 @@ export default function TerminalView() {
   }, []);
 
   useEffect(() => {
+    slowEditModeRef.current = slowEditMode;
+    if (slowEditMode) {
+      requestAnimationFrame(() => slowEditInputRef.current?.focus());
+    } else {
+      requestAnimationFrame(() => termRef.current?.focus());
+    }
+  }, [slowEditMode]);
+
+  const flushOutputBuffer = useCallback(() => {
+    outputFlushRafRef.current = null;
+    const term = termRef.current;
+    const chunk = outputBufferRef.current.join("");
+    outputBufferRef.current = [];
+
+    if (!term || !chunk) return;
+    term.write(chunk);
+  }, []);
+
+  const sendSlowEditInput = useCallback(() => {
+    if (!activeSessionId || !socket) return;
+    const payload = slowEditInput.endsWith("\n") ? slowEditInput : `${slowEditInput}\n`;
+    const hasText = payload.trim().length > 0;
+    if (!hasText) return;
+
+    socket.emit("terminal_input", {
+      sessionId: activeSessionId,
+      data: payload,
+    });
+    setSlowEditInput("");
+  }, [activeSessionId, socket, slowEditInput]);
+
+  const onCopySelection = async () => {
+    const selected = termRef.current?.getSelection();
+    if (!selected) return;
+    try {
+      await navigator.clipboard.writeText(selected);
+    } catch (error) {
+      console.error("Failed to copy terminal selection", error);
+    }
+  };
+
+  const runTerminalSearch = useCallback(async () => {
+    if (!activeSessionId) return;
+
+    const q = searchQuery.trim();
+    const start = searchStart.trim();
+    const end = searchEnd.trim();
+    const hasQuery = q.length > 0;
+    const hasStart = start.length > 0;
+    const hasEnd = end.length > 0;
+
+    if (!hasQuery && !(hasStart && hasEnd)) {
+      setSearchError("Provide a query or both start and end time.");
+      return;
+    }
+
+    if (hasStart !== hasEnd) {
+      setSearchError("Both start and end are required when filtering by time.");
+      return;
+    }
+
+    const params = new URLSearchParams();
+    if (hasQuery) params.set("q", q);
+    if (hasStart && hasEnd) {
+      params.set("start", start);
+      params.set("end", end);
+    }
+    const pad = Number(searchPad);
+    if (Number.isFinite(pad)) {
+      const safePad = Math.max(0, Math.min(Math.floor(pad), 120));
+      params.set("pad", String(safePad));
+    }
+
+    setSearching(true);
+    setSearchError("");
+
+    try {
+      const result = await apiFetch(
+        `/api/sessions/${activeSessionId}/terminal/search?${params.toString()}`
+      );
+      setSearchResults((result.events ?? []) as SearchResult[]);
+    } catch (error) {
+      console.error("Failed terminal search", error);
+      setSearchResults([]);
+      setSearchError("Search failed. Check the time format and try again.");
+    } finally {
+      setSearching(false);
+    }
+  }, [activeSessionId, apiFetch, searchPad, searchEnd, searchQuery, searchStart]);
+
+  const clearSearch = () => {
+    setSearchQuery("");
+    setSearchStart("");
+    setSearchEnd("");
+    setSearchPad("15");
+    setSearchError("");
+    setSearchResults([]);
+  };
+
+  useEffect(() => {
+    clearSearch();
+  }, [activeSessionId]);
+
+  useEffect(() => {
     if (!containerRef.current || !socket || !activeSessionId) return;
 
     const container = containerRef.current;
+    outputBufferRef.current = [];
 
     const term = new Terminal({
       cursorBlink: true,
@@ -122,6 +247,7 @@ export default function TerminalView() {
 
     // Send terminal input to server
     term.onData((data) => {
+      if (slowEditModeRef.current) return;
       socket!.emit("terminal_input", {
         sessionId: activeSessionId,
         data,
@@ -137,7 +263,10 @@ export default function TerminalView() {
       data: string;
     }) => {
       if (sessionId === activeSessionId) {
-        term.write(data);
+        outputBufferRef.current.push(data);
+        if (outputFlushRafRef.current === null) {
+          outputFlushRafRef.current = requestAnimationFrame(flushOutputBuffer);
+        }
       }
     };
 
@@ -205,6 +334,10 @@ export default function TerminalView() {
 
     return () => {
       cancelAnimationFrame(initTimer);
+      if (outputFlushRafRef.current !== null) {
+        cancelAnimationFrame(outputFlushRafRef.current);
+        outputFlushRafRef.current = null;
+      }
       window.removeEventListener("resize", handleResize);
       container.removeEventListener("dragover", onDragOver);
       container.removeEventListener("drop", onDrop);
@@ -214,6 +347,7 @@ export default function TerminalView() {
       term.dispose();
       termRef.current = null;
       fitAddonRef.current = null;
+      outputBufferRef.current = [];
       setShowScrollButton(false);
     };
   }, [activeSessionId, socket, uploadFile]);
@@ -221,6 +355,33 @@ export default function TerminalView() {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="flex items-center justify-end px-3 py-1 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+        <div className="mr-2 text-[10px] uppercase tracking-widest text-white/40">
+          {slowEditMode ? "Slow Edit ON" : "Live"}
+        </div>
+        <button
+          onClick={() => setSlowEditMode((value) => !value)}
+          className="flex items-center gap-1.5 px-2 py-1 text-white/40 hover:text-white/80 hover:bg-white/5 rounded transition-colors mr-2"
+          title="Toggle Slow Edit mode"
+        >
+          <Edit3 className="w-3.5 h-3.5" />
+          <span className="text-[10px] uppercase tracking-widest">Slow Edit</span>
+        </button>
+        <button
+          onClick={() => setShowSearch((value) => !value)}
+          className="flex items-center gap-1.5 px-2 py-1 text-white/40 hover:text-white/80 hover:bg-white/5 rounded transition-colors mr-2"
+          title="Search terminal output"
+        >
+          <Search className="w-3.5 h-3.5" />
+          <span className="text-[10px] uppercase tracking-widest">Search</span>
+        </button>
+        <button
+          onClick={onCopySelection}
+          className="flex items-center gap-1.5 px-2 py-1 text-white/40 hover:text-white/80 hover:bg-white/5 rounded transition-colors mr-2"
+          title="Copy selected terminal text"
+        >
+          <Clipboard className="w-3.5 h-3.5" />
+          <span className="text-[10px] uppercase tracking-widest">Copy</span>
+        </button>
         <button
           onClick={handleRefresh}
           disabled={refreshing}
@@ -232,13 +393,115 @@ export default function TerminalView() {
         </button>
       </div>
       <div
-        className="flex-1 overflow-hidden p-2 relative"
-        onClick={() => termRef.current?.focus()}
+        className="flex-1 overflow-hidden p-2 relative flex flex-col gap-2"
       >
+        {showSearch && (
+          <div className="rounded-lg border border-white/15 bg-[var(--color-surface)] p-2 text-xs text-white/80">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="text-[10px] uppercase tracking-wider text-white/50">Terminal Search</div>
+              <button
+                onClick={clearSearch}
+                className="inline-flex items-center gap-1 px-2 py-1 text-white/40 hover:text-white/70 hover:bg-white/5 rounded"
+                title="Clear search"
+              >
+                <X className="w-3 h-3" />
+                Clear
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2 mb-2">
+              <input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") runTerminalSearch();
+                }}
+                placeholder="query"
+                className="rounded border border-white/20 bg-[var(--color-bg)] px-2 py-1 text-sm text-white placeholder-white/40"
+              />
+              <input
+                value={searchStart}
+                onChange={(e) => setSearchStart(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") runTerminalSearch();
+                }}
+                placeholder="start (HH, HH:mm, HH:mm:ss)"
+                className="rounded border border-white/20 bg-[var(--color-bg)] px-2 py-1 text-sm text-white placeholder-white/40"
+              />
+              <input
+                value={searchEnd}
+                onChange={(e) => setSearchEnd(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") runTerminalSearch();
+                }}
+                placeholder="end (HH, HH:mm, HH:mm:ss)"
+                className="rounded border border-white/20 bg-[var(--color-bg)] px-2 py-1 text-sm text-white placeholder-white/40"
+              />
+              <div className="flex items-center gap-2">
+                <input
+                  value={searchPad}
+                  onChange={(e) => setSearchPad(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") runTerminalSearch();
+                  }}
+                  className="w-16 rounded border border-white/20 bg-[var(--color-bg)] px-2 py-1 text-sm text-white placeholder-white/40"
+                  placeholder="pad"
+                />
+                <span className="text-[10px] text-white/50">±min</span>
+                <button
+                  onClick={runTerminalSearch}
+                  disabled={searching}
+                  className="px-2 py-1 rounded bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-40"
+                >
+                  {searching ? "Searching…" : "Run"}
+                </button>
+              </div>
+            </div>
+            {searchError && (
+              <div className="text-[11px] text-red-400/90 mb-2">
+                {searchError}
+              </div>
+            )}
+            <div className="max-h-32 overflow-auto">
+              {searchResults.length === 0 ? (
+                <div className="text-white/40 text-[11px]">
+                  No matches yet. Run a search to populate results.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {searchResults.map((result) => (
+                    <div
+                      key={`${result.index}-${result.created_at ?? "no-ts"}`}
+                      className="rounded border border-white/10 bg-black/20 p-2"
+                    >
+                      <div className="text-[10px] text-white/40 mb-1">
+                        {result.created_at ? result.created_at : `chunk ${result.index}`}
+                      </div>
+                      <pre className="whitespace-pre-wrap text-[11px] leading-relaxed">
+                        {result.data}
+                      </pre>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         <div
-          ref={containerRef}
-          className="w-full h-full terminal-container rounded-lg"
-        />
+          className="flex-1 min-h-0 relative"
+          onClick={() => {
+            if (slowEditMode) {
+              slowEditInputRef.current?.focus();
+            } else {
+              termRef.current?.focus();
+            }
+          }}
+        >
+          <div
+            ref={containerRef}
+            className="w-full h-full terminal-container rounded-lg"
+          />
+        </div>
 
         <AnimatePresence>
           {showScrollButton && (
@@ -255,6 +518,35 @@ export default function TerminalView() {
             </motion.button>
           )}
         </AnimatePresence>
+
+        {slowEditMode && (
+          <div className="absolute inset-x-2 bottom-2 flex flex-col gap-2">
+            <textarea
+              ref={slowEditInputRef}
+              value={slowEditInput}
+              onChange={(e) => setSlowEditInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && e.shiftKey) {
+                  e.preventDefault();
+                  sendSlowEditInput();
+                }
+              }}
+              rows={3}
+              className="w-full rounded-lg border border-white/15 bg-[var(--color-bg)] px-3 py-2 text-sm text-white outline-none resize-y min-h-16"
+              placeholder="Type command(s) here. Shift+Enter sends to terminal."
+            />
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={sendSlowEditInput}
+                disabled={!slowEditInput.trim()}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-xs text-emerald-300 bg-emerald-500/20 hover:bg-emerald-500/30 disabled:opacity-30 transition-colors"
+              >
+                <Send className="w-3.5 h-3.5" />
+                Send
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

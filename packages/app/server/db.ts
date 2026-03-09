@@ -48,6 +48,25 @@ db.exec(`
   );
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS terminal_output_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    data TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_terminal_output_events_session_chunk
+    ON terminal_output_events (session_id, chunk_index);
+
+  CREATE INDEX IF NOT EXISTS idx_terminal_output_events_session_cursor
+    ON terminal_output_events (session_id, chunk_index);
+
+  CREATE INDEX IF NOT EXISTS idx_terminal_output_events_session_created_at
+    ON terminal_output_events (session_id, created_at);
+`);
+
 // Migration: add cwd column to sessions
 try {
   db.exec(`ALTER TABLE sessions ADD COLUMN cwd TEXT DEFAULT NULL`);

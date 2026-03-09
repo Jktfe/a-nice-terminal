@@ -11,10 +11,24 @@ import {
   getTerminalOutputCursor,
   resizePty,
   addPtyOutputListener,
+  searchTerminalOutput,
 } from "../pty-manager.js";
 
 const router = Router();
 const SAFE_TEXT_LIMIT = 10_000;
+
+function parseHourMinute(raw: string | undefined): number | null {
+  if (!raw) return null;
+  const match = String(raw).trim().match(/^(\d{1,2})(?::([0-5]?\d)(?::([0-5]?\d))?)?$/);
+  if (!match) return null;
+
+  const hour = Number(match[1]);
+  const minute = match[2] ? Number(match[2]) : 0;
+  const second = match[3] ? Number(match[3]) : 0;
+
+  if (hour > 23 || minute > 59 || second > 59) return null;
+  return hour * 3600 + minute * 60 + second;
+}
 
 // List sessions
 router.get("/api/sessions", (_req, res) => {
@@ -94,6 +108,7 @@ router.delete("/api/sessions/:id", (req, res) => {
 
   // Clean up PTY process if this was a terminal session
   destroyPty(req.params.id);
+  db.prepare("DELETE FROM terminal_output_events WHERE session_id = ?").run(req.params.id);
 
   res.json({ deleted: true });
 });
@@ -200,6 +215,65 @@ router.get("/api/sessions/:sessionId/terminal/output", (req, res) => {
     sessionId: req.params.sessionId,
     since: Number.isFinite(since) ? since : 0,
     cursor,
+    events,
+  });
+});
+
+router.get("/api/sessions/:sessionId/terminal/search", (req, res) => {
+  const session = db
+    .prepare("SELECT * FROM sessions WHERE id = ?")
+    .get(req.params.sessionId) as DbSession | undefined;
+  if (!session) return res.status(404).json({ error: "Session not found" });
+  if (session.type !== "terminal") {
+    return res.status(409).json({ error: "Only terminal sessions have terminal output" });
+  }
+
+  const rawQuery = String(req.query.q || "").trim();
+  const rawStart = String(req.query.start || req.query.from || "").trim();
+  const rawEnd = String(req.query.end || req.query.to || "").trim();
+  const rawPad = Number(req.query.pad);
+  const limitRaw = req.query.limit;
+  const limit = Number(limitRaw);
+
+  const hasText = Boolean(rawQuery.length > 0);
+  const hasStart = Boolean(rawStart.length > 0);
+  const hasEnd = Boolean(rawEnd.length > 0);
+
+  if (!hasText && !(hasStart && hasEnd)) {
+    return res.status(400).json({ error: "Provide q, or both start and end." });
+  }
+
+  if (hasStart !== hasEnd) {
+    return res.status(400).json({ error: "Both start and end are required when filtering by time." });
+  }
+
+  const timeStart = hasStart ? parseHourMinute(rawStart) : null;
+  const timeEnd = hasEnd ? parseHourMinute(rawEnd) : null;
+  if (hasStart && (timeStart === null || timeEnd === null)) {
+    return res.status(400).json({ error: "Invalid time format. Use HH, HH:mm, or HH:mm:ss" });
+  }
+
+  const normalizedPad = Number.isFinite(rawPad)
+    ? Math.max(0, Math.min(Math.floor(rawPad), 120))
+    : 15;
+
+  const events = searchTerminalOutput(
+    req.params.sessionId,
+    hasText ? rawQuery : undefined,
+    {
+      limit: Number.isFinite(limit) ? limit : undefined,
+      start: timeStart ?? undefined,
+      end: timeEnd ?? undefined,
+      padMinutes: normalizedPad,
+    },
+  );
+
+  res.json({
+    sessionId: req.params.sessionId,
+    q: rawQuery || undefined,
+    start: rawStart || undefined,
+    end: rawEnd || undefined,
+    padMinutes: normalizedPad,
     events,
   });
 });

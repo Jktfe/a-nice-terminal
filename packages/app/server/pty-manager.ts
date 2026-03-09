@@ -16,6 +16,7 @@ interface PtySession {
   listeners: Set<(data: string) => void>;
   resumeBuffer: string;
   resumeDebounce: ReturnType<typeof setTimeout> | null;
+  nextOutputIndex: number;
 }
 
 type TerminalOutputListener = (data: string) => void;
@@ -23,6 +24,7 @@ type TerminalOutputListener = (data: string) => void;
 interface TerminalOutputChunk {
   index: number;
   data: string;
+  created_at?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -33,6 +35,10 @@ const TMUX_PREFIX = "ant-";
 const SESSION_TTL_MS = parseInt(process.env.ANT_SESSION_TTL_MS || String(15 * 60 * 1000), 10); // 15 min default
 const MAX_TERMINAL_OUTPUT_EVENTS = 5000;
 const DEFAULT_OUTPUT_LIMIT = 250;
+const TIME_OF_DAY_SECONDS_EXPR =
+  "(CAST(strftime('%H', created_at) AS INTEGER) * 3600 + " +
+  "CAST(strftime('%M', created_at) AS INTEGER) * 60 + CAST(strftime('%S', created_at) AS INTEGER))";
+const SECONDS_PER_DAY = 24 * 60 * 60;
 
 const OSC7_RE = /\x1b\]7;file:\/\/[^/]*(\/.*?)(?:\x07|\x1b\\)/;
 
@@ -49,6 +55,55 @@ const ALLOWED_SHELLS = [
 
 const ptySessions = new Map<string, PtySession>();
 
+const terminalOutputInsert = db.prepare(
+  "INSERT OR REPLACE INTO terminal_output_events (session_id, chunk_index, data) VALUES (?, ?, ?)"
+);
+
+const terminalOutputByCursor = db.prepare(`
+  SELECT chunk_index AS index, data
+  FROM terminal_output_events
+  WHERE session_id = ? AND chunk_index >= ?
+  ORDER BY chunk_index ASC
+  LIMIT ?
+`);
+
+const terminalOutputCursor = db.prepare(`
+  SELECT COALESCE(MAX(chunk_index), -1) AS max_index
+  FROM terminal_output_events
+  WHERE session_id = ?
+`);
+
+const terminalOutputSearch = db.prepare(`
+  SELECT chunk_index AS index, data, created_at
+  FROM terminal_output_events
+  WHERE session_id = ? AND data LIKE ? ESCAPE '\\'
+  ORDER BY chunk_index ASC
+  LIMIT ?
+`);
+
+const terminalOutputByTime = db.prepare(`
+  SELECT chunk_index AS index, data, created_at
+  FROM terminal_output_events
+  WHERE session_id = ?
+  AND (
+    ${TIME_OF_DAY_SECONDS_EXPR} BETWEEN ? AND ?
+  )
+  ORDER BY chunk_index ASC
+  LIMIT ?
+`);
+
+const terminalOutputByTimeRanges = db.prepare(`
+  SELECT chunk_index AS index, data, created_at
+  FROM terminal_output_events
+  WHERE session_id = ?
+  AND (
+    ${TIME_OF_DAY_SECONDS_EXPR} BETWEEN ? AND ? OR
+    ${TIME_OF_DAY_SECONDS_EXPR} BETWEEN ? AND ?
+  )
+  ORDER BY chunk_index ASC
+  LIMIT ?
+`);
+
 // ---------------------------------------------------------------------------
 // Orphan kill timers  (sessionId → timer)
 // ---------------------------------------------------------------------------
@@ -64,6 +119,65 @@ function stripAnsi(str: string): string {
     /\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[()][AB012]/g,
     ""
   );
+}
+
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
+}
+
+function buildPaddedTimeRanges(
+  startSeconds: number,
+  endSeconds: number,
+  padMinutes = 15,
+) {
+  const safePad = clamp(Math.trunc(padMinutes), 0, 120);
+  const pad = safePad * 60;
+  const adjustedStart = startSeconds - pad;
+  const adjustedEnd = endSeconds + pad;
+
+  if (adjustedStart < 0) {
+    return [
+      [adjustedStart + SECONDS_PER_DAY, SECONDS_PER_DAY - 1],
+      [0, adjustedEnd],
+    ] as const;
+  }
+
+  if (adjustedEnd >= SECONDS_PER_DAY) {
+    return [
+      [adjustedStart, SECONDS_PER_DAY - 1],
+      [0, adjustedEnd - SECONDS_PER_DAY],
+    ] as const;
+  }
+
+  if (adjustedEnd < adjustedStart) {
+    return [
+      [adjustedStart, SECONDS_PER_DAY - 1],
+      [0, adjustedEnd],
+    ] as const;
+  }
+
+  return [[adjustedStart, adjustedEnd]] as const;
+}
+
+function getTerminalOutputCursorFromDb(sessionId: string): number {
+  try {
+    const row = terminalOutputCursor.get(sessionId) as { max_index: number } | undefined;
+    if (row && Number.isFinite(row.max_index)) {
+      return row.max_index + 1;
+    }
+  } catch {
+    // Fallback to in-memory cursor if DB is unavailable.
+  }
+  return ptySessions.get(sessionId)?.nextOutputIndex || 0;
+}
+
+function persistTerminalOutput(sessionId: string, chunkIndex: number, data: string): void {
+  try {
+    terminalOutputInsert.run(sessionId, chunkIndex, data);
+  } catch {
+    // Session rows may not exist in test setup (FK/migration timing);
+    // terminal output is still available in-memory for the active session.
+  }
 }
 
 const RESUME_PATTERNS: { cli: DbResumeCommand["cli"]; re: RegExp }[] = [
@@ -259,14 +373,19 @@ export function createPty(
     listeners: new Set(),
     resumeBuffer: "",
     resumeDebounce: null,
+    nextOutputIndex: getTerminalOutputCursorFromDb(sessionId),
   };
   ptySessions.set(sessionId, session);
 
   ptyProcess.onData((data: string) => {
+    const chunkIndex = session.nextOutputIndex;
+    session.nextOutputIndex += 1;
     session.output.push(data);
     if (session.output.length > MAX_TERMINAL_OUTPUT_EVENTS) {
       session.output = session.output.slice(-MAX_TERMINAL_OUTPUT_EVENTS);
     }
+
+    persistTerminalOutput(sessionId, chunkIndex, data);
 
     // Parse OSC 7 for working directory changes
     const osc7Match = OSC7_RE.exec(data);
@@ -342,9 +461,6 @@ export function getTerminalOutput(
   sessionId: string,
   options?: { since?: number; limit?: number },
 ) {
-  const session = ptySessions.get(sessionId);
-  if (!session) return [];
-
   const safeSince = Math.max(0, Math.floor(options?.since || 0));
   const safeLimit = clamp(
     typeof options?.limit === "number" ? options.limit : DEFAULT_OUTPUT_LIMIT,
@@ -352,14 +468,116 @@ export function getTerminalOutput(
     MAX_TERMINAL_OUTPUT_EVENTS,
   );
 
-  const end = Math.min(session.output.length, safeSince + safeLimit);
-  return session.output
-    .slice(safeSince, end)
-    .map((data, index): TerminalOutputChunk => ({ index: safeSince + index, data }));
+  try {
+    return terminalOutputByCursor.all(
+      sessionId,
+      safeSince,
+      safeLimit,
+    ) as TerminalOutputChunk[];
+  } catch {
+    const session = ptySessions.get(sessionId);
+    if (!session) return [];
+
+    const end = Math.min(session.output.length, safeSince + safeLimit);
+    return session.output
+      .slice(safeSince, end)
+      .map((data, index): TerminalOutputChunk => ({ index: safeSince + index, data }));
+  }
 }
 
 export function getTerminalOutputCursor(sessionId: string): number {
-  return ptySessions.get(sessionId)?.output.length || 0;
+  return getTerminalOutputCursorFromDb(sessionId);
+}
+
+export function searchTerminalOutput(
+  sessionId: string,
+  query: string | undefined,
+  options?: {
+    limit?: number;
+    start?: number;
+    end?: number;
+    padMinutes?: number;
+  },
+) {
+  const safeLimit = clamp(typeof options?.limit === "number" ? options.limit : 40, 1, 500);
+
+  const hasQuery = Boolean(query && query.trim());
+  const hasTimeFilter = options?.start !== undefined && options?.end !== undefined;
+
+  if (!hasQuery && !hasTimeFilter) return [];
+
+  const ranges = hasTimeFilter
+    ? buildPaddedTimeRanges(options!.start!, options!.end!, options?.padMinutes ?? 15)
+    : null;
+
+  const escaped = hasQuery ? escapeLikePattern(query!.trim()) : "";
+  const likePattern = hasQuery ? `%${escaped}%` : null;
+
+  try {
+    if (hasTimeFilter && ranges) {
+      if (ranges.length === 2) {
+        if (hasQuery) {
+          return db.prepare(`
+            SELECT chunk_index AS index, data, created_at
+            FROM terminal_output_events
+            WHERE session_id = ?
+              AND (${TIME_OF_DAY_SECONDS_EXPR} BETWEEN ? AND ? OR ${TIME_OF_DAY_SECONDS_EXPR} BETWEEN ? AND ?)
+              AND data LIKE ? ESCAPE '\\'
+            ORDER BY chunk_index ASC
+            LIMIT ?
+          `).all(
+            sessionId,
+            ranges[0][0],
+            ranges[0][1],
+            ranges[1][0],
+            ranges[1][1],
+            likePattern,
+            safeLimit,
+          ) as TerminalOutputChunk[];
+        }
+        return terminalOutputByTimeRanges.all(
+          sessionId,
+          ranges[0][0],
+          ranges[0][1],
+          ranges[1][0],
+          ranges[1][1],
+          safeLimit,
+        ) as TerminalOutputChunk[];
+      }
+
+      if (hasQuery) {
+        return db.prepare(`
+          SELECT chunk_index AS index, data, created_at
+          FROM terminal_output_events
+          WHERE session_id = ?
+            AND ${TIME_OF_DAY_SECONDS_EXPR} BETWEEN ? AND ?
+            AND data LIKE ? ESCAPE '\\'
+          ORDER BY chunk_index ASC
+          LIMIT ?
+        `).all(
+          sessionId,
+          ranges[0][0],
+          ranges[0][1],
+          likePattern,
+          safeLimit,
+        ) as TerminalOutputChunk[];
+      }
+      return terminalOutputByTime.all(
+        sessionId,
+        ranges[0][0],
+        ranges[0][1],
+        safeLimit,
+      ) as TerminalOutputChunk[];
+    }
+
+    return terminalOutputSearch.all(
+      sessionId,
+      likePattern,
+      safeLimit,
+    ) as TerminalOutputChunk[];
+  } catch {
+    return [];
+  }
 }
 
 /**
