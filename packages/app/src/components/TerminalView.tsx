@@ -250,9 +250,16 @@ export default function TerminalView() {
       });
     }
 
+    // Filter xterm's auto-generated DA (Device Attributes) responses — these are
+    // VT100 identification strings that xterm emits in reply to CSI c queries.
+    // Without filtering, the PTY echoes them back to the screen as junk text
+    // (e.g. "1;2c0;276;0c"). The ? is optional per spec, so we match both forms.
+    const DA_RESPONSE_RE = /^\x1b\[\??[\d;]*c$/;
+
     // Send terminal input to server
     term.onData((data) => {
       if (slowEditModeRef.current) return;
+      if (DA_RESPONSE_RE.test(data)) return;
       socket!.emit("terminal_input", {
         sessionId: activeSessionId,
         data,
