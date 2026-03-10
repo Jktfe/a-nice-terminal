@@ -140,8 +140,8 @@ curl -X POST http://$ANT_HOST:$ANT_PORT/api/sessions/:id/messages \\
     <p class="mx-auto mb-10 max-w-xl text-center text-neutral-500">
       A clean, dark interface designed for focus.
     </p>
-    <div class="overflow-hidden rounded-xl border border-white/[0.06] bg-[var(--color-surface)] aspect-video flex items-center justify-center">
-      <p class="text-neutral-600 text-sm">Screenshot coming soon</p>
+    <div class="overflow-hidden rounded-xl border border-white/[0.06]">
+      <img src="/ANTscreenshot.png" alt="A Nice Terminal interface screenshot" class="w-full" />
     </div>
   </div>
 </section>
