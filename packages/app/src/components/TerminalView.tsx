@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Terminal } from "xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { motion, AnimatePresence } from "motion/react";
-import { RefreshCw, ChevronDown, Clipboard, Edit3, Send, Search, X } from "lucide-react";
+import { RefreshCw, ChevronDown, Clipboard, Check, Edit3, Send, Search, X } from "lucide-react";
 import { useStore, apiFetch } from "../store.ts";
 
 interface SearchResult {
@@ -32,6 +32,8 @@ export default function TerminalView() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [copied, setCopied] = useState(false);
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleRefresh = async () => {
     if (!activeSessionId || !termRef.current || refreshing) return;
@@ -88,15 +90,18 @@ export default function TerminalView() {
     setSlowEditInput("");
   }, [activeSessionId, socket, slowEditInput]);
 
-  const onCopySelection = async () => {
+  const onCopySelection = useCallback(async () => {
     const selected = termRef.current?.getSelection();
     if (!selected) return;
     try {
       await navigator.clipboard.writeText(selected);
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+      setCopied(true);
+      copiedTimerRef.current = setTimeout(() => setCopied(false), 1500);
     } catch (error) {
       console.error("Failed to copy terminal selection", error);
     }
-  };
+  }, []);
 
   const runTerminalSearch = useCallback(async () => {
     if (!activeSessionId) return;
@@ -245,9 +250,16 @@ export default function TerminalView() {
       });
     }
 
+    // Filter xterm's auto-generated DA (Device Attributes) responses — these are
+    // VT100 identification strings that xterm emits in reply to CSI c queries.
+    // Without filtering, the PTY echoes them back to the screen as junk text
+    // (e.g. "1;2c0;276;0c"). The ? is optional per spec, so we match both forms.
+    const DA_RESPONSE_RE = /^\x1b\[\??[\d;]*c$/;
+
     // Send terminal input to server
     term.onData((data) => {
       if (slowEditModeRef.current) return;
+      if (DA_RESPONSE_RE.test(data)) return;
       socket!.emit("terminal_input", {
         sessionId: activeSessionId,
         data,
@@ -315,6 +327,34 @@ export default function TerminalView() {
       }
     };
 
+    // Copy selected text on Ctrl+Shift+C / Cmd+Shift+C
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "C") {
+        e.preventDefault();
+        const selected = term.getSelection();
+        if (selected) {
+          navigator.clipboard.writeText(selected).then(() => {
+            if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+            setCopied(true);
+            copiedTimerRef.current = setTimeout(() => setCopied(false), 1500);
+          }).catch(() => {});
+        }
+      }
+    };
+    container.addEventListener("keydown", onKeyDown);
+
+    // Auto-copy: when mouse selection ends, copy to clipboard automatically
+    term.onSelectionChange(() => {
+      const selected = term.getSelection();
+      if (selected) {
+        navigator.clipboard.writeText(selected).then(() => {
+          if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+          setCopied(true);
+          copiedTimerRef.current = setTimeout(() => setCopied(false), 1500);
+        }).catch(() => {});
+      }
+    });
+
     container.addEventListener("dragover", onDragOver);
     container.addEventListener("drop", onDrop);
 
@@ -339,6 +379,7 @@ export default function TerminalView() {
         outputFlushRafRef.current = null;
       }
       window.removeEventListener("resize", handleResize);
+      container.removeEventListener("keydown", onKeyDown);
       container.removeEventListener("dragover", onDragOver);
       container.removeEventListener("drop", onDrop);
       resizeObserver.disconnect();
@@ -376,11 +417,11 @@ export default function TerminalView() {
         </button>
         <button
           onClick={onCopySelection}
-          className="flex items-center gap-1.5 px-2 py-1 text-white/40 hover:text-white/80 hover:bg-white/5 rounded transition-colors mr-2"
-          title="Copy selected terminal text"
+          className={`flex items-center gap-1.5 px-2 py-1 rounded transition-colors mr-2 ${copied ? "text-emerald-400" : "text-white/40 hover:text-white/80 hover:bg-white/5"}`}
+          title="Copy selected terminal text (Ctrl+Shift+C)"
         >
-          <Clipboard className="w-3.5 h-3.5" />
-          <span className="text-[10px] uppercase tracking-widest">Copy</span>
+          {copied ? <Check className="w-3.5 h-3.5" /> : <Clipboard className="w-3.5 h-3.5" />}
+          <span className="text-[10px] uppercase tracking-widest">{copied ? "Copied" : "Copy"}</span>
         </button>
         <button
           onClick={handleRefresh}
@@ -503,6 +544,20 @@ export default function TerminalView() {
             className="w-full h-full terminal-container rounded-lg"
           />
         </div>
+
+        <AnimatePresence>
+          {copied && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.15 }}
+              className="absolute top-2 right-4 px-3 py-1.5 bg-emerald-500/20 text-emerald-300 text-xs rounded-lg backdrop-blur-sm shadow-lg pointer-events-none"
+            >
+              Copied to clipboard
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <AnimatePresence>
           {showScrollButton && (
