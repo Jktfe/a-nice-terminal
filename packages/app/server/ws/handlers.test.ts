@@ -9,6 +9,9 @@ vi.mock("../pty-manager.js", () => ({
   addPtyOutputListener: vi.fn(() => () => {}),
   resizePty: vi.fn(),
   onResumeCommand: vi.fn(),
+  hasTmuxSession: vi.fn(() => false),
+  startKillTimer: vi.fn(),
+  cancelKillTimer: vi.fn(),
 }));
 
 import {
