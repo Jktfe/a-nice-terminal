@@ -76,6 +76,10 @@ router.post("/api/sessions", (req, res) => {
   );
 
   const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(id);
+
+  const io = req.app.get("io");
+  if (io) io.emit("session_list_changed");
+
   res.status(201).json(session);
 });
 
@@ -93,6 +97,10 @@ router.patch("/api/sessions/:id", (req, res) => {
   const updated = db
     .prepare("SELECT * FROM sessions WHERE id = ?")
     .get(req.params.id);
+
+  const io = req.app.get("io");
+  if (io) io.emit("session_list_changed");
+
   res.json(updated);
 });
 
@@ -109,6 +117,9 @@ router.delete("/api/sessions/:id", (req, res) => {
   // Clean up PTY process if this was a terminal session
   destroyPty(req.params.id);
   db.prepare("DELETE FROM terminal_output_events WHERE session_id = ?").run(req.params.id);
+
+  const io = req.app.get("io");
+  if (io) io.emit("session_list_changed");
 
   res.json({ deleted: true });
 });

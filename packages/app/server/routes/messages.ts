@@ -2,6 +2,7 @@ import { Router } from "express";
 import { nanoid } from "nanoid";
 import db from "../db.js";
 import type { DbSession } from "../types.js";
+import { stripAnsi } from "../pty-manager.js";
 
 type Role = "human" | "agent" | "system";
 
@@ -103,13 +104,18 @@ router.post("/api/sessions/:sessionId/messages", (req, res) => {
 
   const id = nanoid(12);
 
+  // Phase 5: Strip ANSI escape codes from text/plaintext messages
+  const sanitisedContent = (format === "text" || format === "plaintext")
+    ? stripAnsi(content)
+    : content;
+
   db.prepare(
     "INSERT INTO messages (id, session_id, role, content, format, status, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)"
   ).run(
     id,
     req.params.sessionId,
     normalisedRole,
-    content,
+    sanitisedContent,
     format,
     status,
     metadata ? JSON.stringify(metadata) : null

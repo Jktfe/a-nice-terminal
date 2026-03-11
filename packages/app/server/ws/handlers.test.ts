@@ -12,6 +12,8 @@ vi.mock("../pty-manager.js", () => ({
   hasTmuxSession: vi.fn(() => false),
   startKillTimer: vi.fn(),
   cancelKillTimer: vi.fn(),
+  checkSessionHealth: vi.fn(() => true),
+  stripAnsi: vi.fn((s: string) => s),
 }));
 
 import {

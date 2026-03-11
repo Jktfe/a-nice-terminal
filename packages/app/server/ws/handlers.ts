@@ -2,6 +2,7 @@ import type { Server, Socket } from "socket.io";
 import { nanoid } from "nanoid";
 import {
   addPtyOutputListener,
+  checkSessionHealth,
   createPty,
   destroyPty,
   getPty,
@@ -11,6 +12,7 @@ import {
   onResumeCommand,
   startKillTimer,
   cancelKillTimer,
+  stripAnsi,
 } from "../pty-manager.js";
 import db from "../db.js";
 import type { DbSession, DbMessage } from "../types.js";
@@ -249,9 +251,13 @@ export function registerSocketHandlers(io: Server) {
         }
 
         const id = nanoid(12);
+        // Phase 5: Strip ANSI from text/plaintext messages
+        const sanitisedContent = (format === "text" || format === "plaintext")
+          ? stripAnsi(content)
+          : content;
         db.prepare(
           "INSERT INTO messages (id, session_id, role, content, format, status) VALUES (?, ?, ?, ?, ?, 'complete')"
-        ).run(id, sessionId, normalisedRole, content, format);
+        ).run(id, sessionId, normalisedRole, sanitisedContent, format);
         db.prepare("UPDATE sessions SET updated_at = datetime('now') WHERE id = ?").run(sessionId);
 
         const message = db.prepare("SELECT * FROM messages WHERE id = ?").get(id);
@@ -344,6 +350,13 @@ export function registerSocketHandlers(io: Server) {
         io.to(sessionId).emit("message_updated", updated);
       }
     );
+
+    // Phase 4: Session health check
+    socket.on("check_health", ({ sessionId }: { sessionId: string }) => {
+      if (typeof sessionId !== "string" || !sessionId.trim()) return;
+      const alive = checkSessionHealth(sessionId);
+      socket.emit("session_health", { sessionId, alive });
+    });
 
     socket.on("disconnect", () => {
       // For each session this socket had joined, check if the room is now empty

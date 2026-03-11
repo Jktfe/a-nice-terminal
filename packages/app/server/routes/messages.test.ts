@@ -1,6 +1,30 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import request from "supertest";
 import { createTestApp, seedSession, seedMessage } from "../__tests__/helpers.js";
+
+vi.mock("../pty-manager.js", async (importOriginal) => {
+  return {
+    stripAnsi: vi.fn((s: string) => s),
+    destroyPty: vi.fn(),
+    destroyAllPtys: vi.fn(() => 0),
+    createPty: vi.fn(),
+    getPty: vi.fn(),
+    getTerminalOutput: vi.fn(() => []),
+    getTerminalOutputCursor: vi.fn(() => 0),
+    resizePty: vi.fn(),
+    addPtyOutputListener: vi.fn(),
+    searchTerminalOutput: vi.fn(() => []),
+    hasTmuxSession: vi.fn(() => false),
+    hasOutputListeners: vi.fn(() => false),
+    removePtyOutputListeners: vi.fn(),
+    onResumeCommand: vi.fn(() => () => {}),
+    startKillTimer: vi.fn(),
+    cancelKillTimer: vi.fn(),
+    checkSessionHealth: vi.fn(() => true),
+    detachPty: vi.fn(),
+    reapOrphanedSessions: vi.fn(),
+  };
+});
 
 describe("messages routes", () => {
   let app: ReturnType<typeof createTestApp>;
