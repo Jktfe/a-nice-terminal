@@ -18,23 +18,6 @@ export default function OfflineOverlay() {
     return () => clearTimeout(timer);
   }, [connected]);
 
-  useEffect(() => {
-    if (!showOverlay) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch("/api/health", { signal: AbortSignal.timeout(3000) });
-        if (res.ok) {
-          window.location.reload();
-        }
-      } catch {
-        // Still offline
-      }
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, [showOverlay]);
-
   return (
     <AnimatePresence>
       {showOverlay && (

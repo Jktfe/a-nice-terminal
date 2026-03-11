@@ -12,7 +12,7 @@ interface SearchResult {
 }
 
 export default function TerminalView() {
-  const { activeSessionId, socket, uploadFile } = useStore();
+  const { activeSessionId, socket, uploadFile, connected, sessionHealth } = useStore();
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -20,10 +20,13 @@ export default function TerminalView() {
   const outputFlushRafRef = useRef<number | null>(null);
   const slowEditModeRef = useRef(false);
   const slowEditInputRef = useRef<HTMLTextAreaElement>(null);
+  const prevConnectedRef = useRef(connected);
   const [refreshing, setRefreshing] = useState(false);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [slowEditMode, setSlowEditMode] = useState(false);
   const [slowEditInput, setSlowEditInput] = useState("");
+  const [commandRunning, setCommandRunning] = useState(false);
+  const quietTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchStart, setSearchStart] = useState("");
@@ -165,6 +168,47 @@ export default function TerminalView() {
     clearSearch();
   }, [activeSessionId]);
 
+  // Phase 1: Re-fetch terminal output on reconnect (false→true)
+  useEffect(() => {
+    const wasDisconnected = !prevConnectedRef.current;
+    prevConnectedRef.current = connected;
+
+    if (connected && wasDisconnected && activeSessionId && termRef.current) {
+      apiFetch(`/api/sessions/${activeSessionId}/terminal/output?since=0&limit=1000`)
+        .then((result) => {
+          if (termRef.current && activeSessionId === result.sessionId) {
+            termRef.current.reset();
+            for (const event of result.events as { index: number; data: string }[]) {
+              termRef.current.write(event.data);
+            }
+          }
+        })
+        .catch(() => {});
+    }
+  }, [connected, activeSessionId]);
+
+  // Phase 4: Health check every 30 seconds
+  useEffect(() => {
+    if (!activeSessionId || !socket) return;
+    const interval = setInterval(() => {
+      socket.emit("check_health", { sessionId: activeSessionId });
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [activeSessionId, socket]);
+
+  const isSessionDead = activeSessionId ? sessionHealth[activeSessionId] === false : false;
+
+  const restartSession = useCallback(async () => {
+    if (!activeSessionId || !socket) return;
+    // Re-joining will re-create the PTY via tmux
+    socket.emit("leave_session", { sessionId: activeSessionId });
+    socket.emit("join_session", { sessionId: activeSessionId });
+    // Clear health state so the banner hides
+    useStore.setState((s) => ({
+      sessionHealth: { ...s.sessionHealth, [activeSessionId]: true },
+    }));
+  }, [activeSessionId, socket]);
+
   useEffect(() => {
     if (!containerRef.current || !socket || !activeSessionId) return;
 
@@ -260,6 +304,10 @@ export default function TerminalView() {
     term.onData((data) => {
       if (slowEditModeRef.current) return;
       if (DA_RESPONSE_RE.test(data)) return;
+      // Phase 6: Detect Enter key to track command lifecycle
+      if (data.includes("\r") || data.includes("\n")) {
+        setCommandRunning(true);
+      }
       socket!.emit("terminal_input", {
         sessionId: activeSessionId,
         data,
@@ -279,6 +327,11 @@ export default function TerminalView() {
         if (outputFlushRafRef.current === null) {
           outputFlushRafRef.current = requestAnimationFrame(flushOutputBuffer);
         }
+        // Phase 6: Reset quiet timer on each output chunk
+        if (quietTimerRef.current) clearTimeout(quietTimerRef.current);
+        quietTimerRef.current = setTimeout(() => {
+          setCommandRunning(false);
+        }, 2000);
       }
     };
 
@@ -378,6 +431,10 @@ export default function TerminalView() {
         cancelAnimationFrame(outputFlushRafRef.current);
         outputFlushRafRef.current = null;
       }
+      if (quietTimerRef.current) {
+        clearTimeout(quietTimerRef.current);
+        quietTimerRef.current = null;
+      }
       window.removeEventListener("resize", handleResize);
       container.removeEventListener("keydown", onKeyDown);
       container.removeEventListener("dragover", onDragOver);
@@ -390,14 +447,29 @@ export default function TerminalView() {
       fitAddonRef.current = null;
       outputBufferRef.current = [];
       setShowScrollButton(false);
+      setCommandRunning(false);
     };
   }, [activeSessionId, socket, uploadFile]);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="flex items-center justify-end px-3 py-1 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-        <div className="mr-2 text-[10px] uppercase tracking-widest text-white/40">
-          {slowEditMode ? "Slow Edit ON" : "Live"}
+        <div className="flex items-center gap-1.5 mr-2 text-[10px] uppercase tracking-widest text-white/40">
+          {slowEditMode ? "Slow Edit ON" : commandRunning ? (
+            <>
+              <motion.span
+                className="w-1.5 h-1.5 rounded-full bg-amber-400"
+                animate={{ opacity: [1, 0.3, 1] }}
+                transition={{ duration: 0.8, repeat: Infinity }}
+              />
+              Running
+            </>
+          ) : (
+            <>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              Idle
+            </>
+          )}
         </div>
         <button
           onClick={() => setSlowEditMode((value) => !value)}
@@ -436,6 +508,18 @@ export default function TerminalView() {
       <div
         className="flex-1 overflow-hidden p-2 relative flex flex-col gap-2"
       >
+        {isSessionDead && (
+          <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300 flex items-center justify-between">
+            <span>Terminal session has ended.</span>
+            <button
+              onClick={restartSession}
+              className="px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-200 transition-colors"
+            >
+              Restart
+            </button>
+          </div>
+        )}
+
         {showSearch && (
           <div className="rounded-lg border border-white/15 bg-[var(--color-surface)] p-2 text-xs text-white/80">
             <div className="flex items-center justify-between gap-2 mb-2">
