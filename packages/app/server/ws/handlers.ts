@@ -251,7 +251,7 @@ export function registerSocketHandlers(io: Server) {
         }
 
         const id = nanoid(12);
-        // Phase 5: Strip ANSI from text/plaintext messages
+        // Strip ANSI escapes so terminal sequences don't leak into conversation messages
         const sanitisedContent = (format === "text" || format === "plaintext")
           ? stripAnsi(content)
           : content;
@@ -351,7 +351,7 @@ export function registerSocketHandlers(io: Server) {
       }
     );
 
-    // Phase 4: Session health check
+    // Let clients poll whether a terminal's tmux session is still alive
     socket.on("check_health", ({ sessionId }: { sessionId: string }) => {
       if (typeof sessionId !== "string" || !sessionId.trim()) return;
       const alive = checkSessionHealth(sessionId);

@@ -6,7 +6,7 @@ import rehypeHighlight from "rehype-highlight";
 import { Copy, Check, User, Sparkles, Info, ChevronDown } from "lucide-react";
 import { useStore, type Message } from "../store.ts";
 
-// Phase 5: Client-side ANSI strip as safety net
+// Safety net: strip any ANSI escapes that slipped past server-side sanitisation
 const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[()][AB012]/g;
 function stripAnsi(str: string): string {
   return str.replace(ANSI_RE, "");

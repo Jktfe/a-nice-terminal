@@ -252,7 +252,7 @@ export const useStore = create<AppState>((set, get) => ({
       });
     });
 
-    // Phase 2: Session freshness — react to server-side session mutations
+    // Reload sidebar when another client creates/renames/deletes a session
     socket.on("session_list_changed", () => {
       if (sessionListDebounce) clearTimeout(sessionListDebounce);
       sessionListDebounce = setTimeout(() => {
@@ -260,7 +260,7 @@ export const useStore = create<AppState>((set, get) => ({
       }, 500);
     });
 
-    // Phase 4: Session health monitoring
+    // Track whether each terminal's tmux session is still alive
     socket.on("session_health", ({ sessionId, alive }: { sessionId: string; alive: boolean }) => {
       set((s) => ({
         sessionHealth: { ...s.sessionHealth, [sessionId]: alive },
@@ -279,7 +279,7 @@ export const useStore = create<AppState>((set, get) => ({
     });
     get().loadResumeCommands();
 
-    // Phase 2: 30-second polling fallback for session freshness
+    // Polling fallback in case a session_list_changed event is missed
     setInterval(() => {
       get().loadSessions();
     }, 30_000);
@@ -367,7 +367,7 @@ export const useStore = create<AppState>((set, get) => ({
     if (session?.type === "conversation") {
       get().loadMessages(id);
     }
-    // Phase 4: Check health for terminal sessions
+    // Immediately check if the terminal's tmux session is still alive
     if (session?.type === "terminal" && socket) {
       socket.emit("check_health", { sessionId: id });
     }

@@ -104,7 +104,7 @@ router.post("/api/sessions/:sessionId/messages", (req, res) => {
 
   const id = nanoid(12);
 
-  // Phase 5: Strip ANSI escape codes from text/plaintext messages
+  // Strip ANSI escapes so terminal sequences don't leak into conversation messages
   const sanitisedContent = (format === "text" || format === "plaintext")
     ? stripAnsi(content)
     : content;

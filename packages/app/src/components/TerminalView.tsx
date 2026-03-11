@@ -168,7 +168,7 @@ export default function TerminalView() {
     clearSearch();
   }, [activeSessionId]);
 
-  // Phase 1: Re-fetch terminal output on reconnect (false→true)
+  // Replay terminal output after a socket reconnect so xterm state is restored
   useEffect(() => {
     const wasDisconnected = !prevConnectedRef.current;
     prevConnectedRef.current = connected;
@@ -187,7 +187,7 @@ export default function TerminalView() {
     }
   }, [connected, activeSessionId]);
 
-  // Phase 4: Health check every 30 seconds
+  // Poll tmux session liveness so we can show a "session ended" banner
   useEffect(() => {
     if (!activeSessionId || !socket) return;
     const interval = setInterval(() => {
@@ -304,7 +304,7 @@ export default function TerminalView() {
     term.onData((data) => {
       if (slowEditModeRef.current) return;
       if (DA_RESPONSE_RE.test(data)) return;
-      // Phase 6: Detect Enter key to track command lifecycle
+      // Track whether a command is running (Enter → running, 2s quiet → idle)
       if (data.includes("\r") || data.includes("\n")) {
         setCommandRunning(true);
       }
@@ -327,7 +327,7 @@ export default function TerminalView() {
         if (outputFlushRafRef.current === null) {
           outputFlushRafRef.current = requestAnimationFrame(flushOutputBuffer);
         }
-        // Phase 6: Reset quiet timer on each output chunk
+        // Reset the "command running" quiet timer on each output chunk
         if (quietTimerRef.current) clearTimeout(quietTimerRef.current);
         quietTimerRef.current = setTimeout(() => {
           setCommandRunning(false);
