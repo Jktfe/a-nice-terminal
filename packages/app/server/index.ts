@@ -16,8 +16,7 @@ import settingsRoutes from "./routes/settings.js";
 import { registerSocketHandlers } from "./ws/handlers.js";
 import { reapOrphanedSessions } from "./pty-manager.js";
 
-// Ensure DB is initialised
-import "./db.js";
+import db from "./db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.ANT_PORT || "3000", 10);
@@ -117,6 +116,30 @@ async function start() {
 
   // Re-adopt or schedule cleanup of orphaned tmux sessions from previous runs
   reapOrphanedSessions();
+
+  // Server heartbeat — written every 30s so crash recovery can estimate downtime
+  const upsertState = db.prepare(
+    "INSERT OR REPLACE INTO server_state (key, value) VALUES (?, ?)"
+  );
+  upsertState.run("last_heartbeat", new Date().toISOString());
+  // Clear stale shutdown timestamp now that the server is alive again
+  db.prepare("DELETE FROM server_state WHERE key = 'last_shutdown'").run();
+
+  const heartbeatInterval = setInterval(() => {
+    upsertState.run("last_heartbeat", new Date().toISOString());
+  }, 30_000);
+
+  // Graceful shutdown — record timestamp so the next startup knows how long we were down
+  function gracefulShutdown(signal: string) {
+    console.log(`[server] Received ${signal} — recording shutdown timestamp`);
+    upsertState.run("last_shutdown", new Date().toISOString());
+    clearInterval(heartbeatInterval);
+    httpServer.close(() => process.exit(0));
+    // Force exit after 5s if connections don't close
+    setTimeout(() => process.exit(0), 5000);
+  }
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
   httpServer.listen(PORT, HOST, () => {
     console.log(`\n  ANT running at http://${HOST}:${PORT}\n`);

@@ -114,7 +114,7 @@ const killTimers = new Map<string, ReturnType<typeof setTimeout>>();
 // ANSI / resume-command helpers
 // ---------------------------------------------------------------------------
 
-function stripAnsi(str: string): string {
+export function stripAnsi(str: string): string {
   return str.replace(
     /\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[()][AB012]/g,
     ""
@@ -649,17 +649,25 @@ export function resizePty(sessionId: string, cols: number, rows: number): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Called when the last WebSocket client disconnects from a terminal session.
- * Starts the grace-period countdown.
+ * Start a kill timer with a specific duration (ms).
  */
-export function startKillTimer(sessionId: string): void {
+export function startKillTimerWithDuration(sessionId: string, durationMs: number): void {
   cancelKillTimer(sessionId);
+  const safeDuration = Math.max(0, durationMs);
   const timer = setTimeout(() => {
     killTimers.delete(sessionId);
     console.log(`[pty-manager] Kill timer expired for session ${sessionId} — destroying tmux session`);
     destroyPty(sessionId);
-  }, SESSION_TTL_MS);
+  }, safeDuration);
   killTimers.set(sessionId, timer);
+}
+
+/**
+ * Called when the last WebSocket client disconnects from a terminal session.
+ * Starts the grace-period countdown.
+ */
+export function startKillTimer(sessionId: string): void {
+  startKillTimerWithDuration(sessionId, SESSION_TTL_MS);
 }
 
 /**
@@ -682,22 +690,75 @@ export function hasTmuxSession(sessionId: string): boolean {
   return tmuxSessionExists(sessionId);
 }
 
+/**
+ * Phase 4: Check if a terminal session is alive.
+ * Returns true if the tmux session exists or a node-pty wrapper is active.
+ */
+export function checkSessionHealth(sessionId: string): boolean {
+  return tmuxSessionExists(sessionId) || ptySessions.has(sessionId);
+}
+
+
 // ---------------------------------------------------------------------------
 // Startup reaping — re-adopt or kill orphaned tmux sessions
 // ---------------------------------------------------------------------------
 
 /**
+ * Read how long the server has been down by checking shutdown/heartbeat
+ * timestamps in the server_state table. Returns elapsed ms, or null if
+ * no data exists (first run, or DB cleared).
+ */
+function getServerDowntime(): number | null {
+  try {
+    const shutdownRow = db.prepare(
+      "SELECT value FROM server_state WHERE key = 'last_shutdown'"
+    ).get() as { value: string } | undefined;
+
+    const heartbeatRow = db.prepare(
+      "SELECT value FROM server_state WHERE key = 'last_heartbeat'"
+    ).get() as { value: string } | undefined;
+
+    // Prefer last_shutdown (graceful). Fall back to last_heartbeat (crash).
+    const timestamp = shutdownRow?.value || heartbeatRow?.value;
+    if (!timestamp) return null;
+
+    const downSince = new Date(timestamp).getTime();
+    if (isNaN(downSince)) return null;
+
+    return Date.now() - downSince;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Called once at server startup. For each orphaned ANT tmux session,
- * start a kill timer. If a client reconnects before it fires, the
- * session survives. Otherwise it gets cleaned up.
+ * calculate the remaining TTL based on how long the server was down.
+ * If the server restarted quickly, sessions get the remaining time.
+ * If it was down longer than TTL, sessions are killed immediately.
  */
 export function reapOrphanedSessions(): void {
   const tmuxSessions = listAntTmuxSessions();
   if (tmuxSessions.length === 0) return;
 
-  console.log(`[pty-manager] Found ${tmuxSessions.length} orphaned tmux session(s) — starting ${SESSION_TTL_MS / 1000}s kill timers`);
+  const elapsed = getServerDowntime();
+
   for (const tmuxName of tmuxSessions) {
     const sessionId = tmuxName.slice(TMUX_PREFIX.length);
-    startKillTimer(sessionId);
+
+    if (elapsed === null) {
+      // No downtime data (first run or DB cleared) — full TTL
+      console.log(`[pty-manager] Orphan ${sessionId} — no downtime data, full ${SESSION_TTL_MS / 1000}s timer`);
+      startKillTimer(sessionId);
+    } else if (elapsed >= SESSION_TTL_MS) {
+      // Server was down longer than TTL — kill immediately
+      console.log(`[pty-manager] Orphan ${sessionId} — server was down ${Math.round(elapsed / 1000)}s (>TTL), destroying`);
+      destroyPty(sessionId);
+    } else {
+      // Server was down less than TTL — use remaining time
+      const remaining = SESSION_TTL_MS - elapsed;
+      console.log(`[pty-manager] Orphan ${sessionId} — ${Math.round(remaining / 1000)}s remaining on kill timer`);
+      startKillTimerWithDuration(sessionId, remaining);
+    }
   }
 }

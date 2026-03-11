@@ -43,9 +43,11 @@ interface AppState {
   sidebarOpen: boolean;
   settingsOpen: boolean;
   error: string | null;
+  sessionHealth: Record<string, boolean>;
 
   // Actions
   init: () => void;
+  reconnect: () => Promise<void>;
   loadSessions: () => Promise<void>;
   createSession: (
     type: "terminal" | "conversation",
@@ -66,6 +68,7 @@ interface AppState {
 }
 
 const API_KEY = (import.meta.env.VITE_ANT_API_KEY as string | undefined)?.trim();
+const ACTIVE_SESSION_KEY = "ant-active-session-id";
 
 function buildHeaders(base?: HeadersInit): Headers {
   const headers = new Headers(base);
@@ -141,6 +144,8 @@ function appendStreamChunk(state: AppState, payload: {
   return [...streamState, fallback];
 }
 
+let sessionListDebounce: ReturnType<typeof setTimeout> | null = null;
+
 export const useStore = create<AppState>((set, get) => ({
   sessions: [],
   activeSessionId: null,
@@ -151,9 +156,24 @@ export const useStore = create<AppState>((set, get) => ({
   sidebarOpen: true,
   settingsOpen: false,
   error: null,
+  sessionHealth: {},
 
   setError: (message) => set({ error: message }),
   clearError: () => set({ error: null }),
+
+  reconnect: async () => {
+    const { socket, activeSessionId } = get();
+    await get().loadSessions();
+    await get().loadResumeCommands();
+
+    if (activeSessionId && socket) {
+      socket.emit("join_session", { sessionId: activeSessionId });
+      const session = get().sessions.find((s) => s.id === activeSessionId);
+      if (session?.type === "conversation") {
+        await get().loadMessages(activeSessionId);
+      }
+    }
+  },
 
   init: () => {
     // Prevent double-init (React StrictMode)
@@ -165,7 +185,11 @@ export const useStore = create<AppState>((set, get) => ({
     });
 
     socket.on("connect", () => {
+      const isReconnect = get().sessions.length > 0;
       set({ connected: true, error: null });
+      if (isReconnect) {
+        get().reconnect();
+      }
     });
 
     socket.on("disconnect", () => {
@@ -228,9 +252,37 @@ export const useStore = create<AppState>((set, get) => ({
       });
     });
 
+    // Phase 2: Session freshness — react to server-side session mutations
+    socket.on("session_list_changed", () => {
+      if (sessionListDebounce) clearTimeout(sessionListDebounce);
+      sessionListDebounce = setTimeout(() => {
+        get().loadSessions();
+      }, 500);
+    });
+
+    // Phase 4: Session health monitoring
+    socket.on("session_health", ({ sessionId, alive }: { sessionId: string; alive: boolean }) => {
+      set((s) => ({
+        sessionHealth: { ...s.sessionHealth, [sessionId]: alive },
+      }));
+    });
+
     set({ socket });
-    get().loadSessions();
+    get().loadSessions().then(() => {
+      const savedId = localStorage.getItem(ACTIVE_SESSION_KEY);
+      const sessions = get().sessions;
+      if (savedId && sessions.some((s) => s.id === savedId)) {
+        get().setActiveSession(savedId);
+      } else {
+        localStorage.removeItem(ACTIVE_SESSION_KEY);
+      }
+    });
     get().loadResumeCommands();
+
+    // Phase 2: 30-second polling fallback for session freshness
+    setInterval(() => {
+      get().loadSessions();
+    }, 30_000);
   },
 
   loadSessions: async () => {
@@ -266,6 +318,11 @@ export const useStore = create<AppState>((set, get) => ({
           s.activeSessionId === id
             ? sessions[0]?.id || null
             : s.activeSessionId;
+        if (activeSessionId) {
+          localStorage.setItem(ACTIVE_SESSION_KEY, activeSessionId);
+        } else {
+          localStorage.removeItem(ACTIVE_SESSION_KEY);
+        }
         return { sessions, activeSessionId };
       });
 
@@ -300,6 +357,7 @@ export const useStore = create<AppState>((set, get) => ({
     }
 
     set({ activeSessionId: id, messages: [] });
+    localStorage.setItem(ACTIVE_SESSION_KEY, id);
 
     if (socket) {
       socket.emit("join_session", { sessionId: id });
@@ -308,6 +366,10 @@ export const useStore = create<AppState>((set, get) => ({
     const session = get().sessions.find((s) => s.id === id);
     if (session?.type === "conversation") {
       get().loadMessages(id);
+    }
+    // Phase 4: Check health for terminal sessions
+    if (session?.type === "terminal" && socket) {
+      socket.emit("check_health", { sessionId: id });
     }
   },
 

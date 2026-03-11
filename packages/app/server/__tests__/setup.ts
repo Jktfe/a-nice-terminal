@@ -23,6 +23,7 @@ testDb.exec(`
     content TEXT NOT NULL DEFAULT '',
     format TEXT NOT NULL DEFAULT 'markdown',
     status TEXT NOT NULL DEFAULT 'complete' CHECK(status IN ('pending', 'streaming', 'complete')),
+    metadata TEXT DEFAULT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
   );
@@ -56,6 +57,11 @@ testDb.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_terminal_output_events_session_created_at
     ON terminal_output_events (session_id, created_at);
+
+  CREATE TABLE IF NOT EXISTS server_state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
 `);
 
 vi.mock("../db.js", () => ({
@@ -68,6 +74,7 @@ beforeEach(() => {
   testDb.exec("DELETE FROM resume_commands");
   testDb.exec("DELETE FROM terminal_output_events");
   testDb.exec("DELETE FROM sessions");
+  testDb.exec("DELETE FROM server_state");
 });
 
 export { testDb };

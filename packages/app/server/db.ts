@@ -67,6 +67,13 @@ db.exec(`
     ON terminal_output_events (session_id, created_at);
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS server_state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+`);
+
 // Migration: add cwd column to sessions
 try {
   db.exec(`ALTER TABLE sessions ADD COLUMN cwd TEXT DEFAULT NULL`);
