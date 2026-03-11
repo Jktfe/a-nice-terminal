@@ -43,6 +43,8 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
     "@types/better-sqlite3": "^7.6.12",
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
@@ -50,6 +52,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/supertest": "^6.0.2",
     "autoprefixer": "^10.4.21",
+    "happy-dom": "^18.0.1",
     "supertest": "^7.1.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
