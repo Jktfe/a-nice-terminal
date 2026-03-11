@@ -3,8 +3,14 @@ import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { Copy, Check, User, Bot, Info, ChevronDown } from "lucide-react";
+import { Copy, Check, User, Sparkles, Info, ChevronDown } from "lucide-react";
 import { useStore, type Message } from "../store.ts";
+
+// Phase 5: Client-side ANSI strip as safety net
+const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[()][AB012]/g;
+function stripAnsi(str: string): string {
+  return str.replace(ANSI_RE, "");
+}
 
 export default function MessageList() {
   const { messages } = useStore();
@@ -70,7 +76,7 @@ export default function MessageList() {
 
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-white/20">
-            <Bot className="w-10 h-10 mb-3" />
+            <Sparkles className="w-10 h-10 mb-3" />
             <p className="text-sm">No messages yet. Start a conversation.</p>
           </div>
         )}
@@ -122,8 +128,10 @@ const markdownComponents = {
 function MessageBubble({ message }: { message: Message }) {
   const isHuman = message.role === "human";
   const isSystem = message.role === "system";
+  const isAgent = !isHuman && !isSystem;
+  const isStreaming = message.status === "streaming";
 
-  const Icon = isHuman ? User : isSystem ? Info : Bot;
+  const Icon = isHuman ? User : isSystem ? Info : Sparkles;
 
   return (
     <motion.div
@@ -136,14 +144,29 @@ function MessageBubble({ message }: { message: Message }) {
     >
       {!isSystem && (
         <div className="flex flex-col items-center gap-1 mt-0.5">
-          <div
-            className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${
-              isHuman
-                ? "bg-emerald-500/15 text-emerald-400"
-                : "bg-white/5 text-white/50"
-            }`}
-          >
-            <Icon className="w-3.5 h-3.5" />
+          {/* Avatar with breathing animation for agent */}
+          <div className="relative">
+            {isAgent ? (
+              <motion.div
+                className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-blue-500/15 text-blue-400 ring-1 ring-blue-500/30"
+                animate={{ scale: [1, 1.05, 1] }}
+                transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+              >
+                <Icon className="w-3.5 h-3.5" />
+              </motion.div>
+            ) : (
+              <div className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30">
+                <Icon className="w-3.5 h-3.5" />
+              </div>
+            )}
+            {/* Streaming "online" dot */}
+            {isStreaming && isAgent && (
+              <motion.span
+                className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 border border-[var(--color-bg)]"
+                animate={{ opacity: [1, 0.4, 1] }}
+                transition={{ duration: 1.2, repeat: Infinity }}
+              />
+            )}
           </div>
           {message.created_at && (
             <span className="text-[9px] text-white/30 whitespace-nowrap">
@@ -154,14 +177,24 @@ function MessageBubble({ message }: { message: Message }) {
       )}
 
       <div
-        className={`max-w-[75%] rounded-xl px-4 py-3 text-sm leading-relaxed ${
+        className={`relative max-w-[75%] rounded-xl px-4 py-3 text-sm leading-relaxed ${
           isSystem
             ? "bg-white/5 text-white/50 text-center text-xs max-w-[50%]"
             : isHuman
               ? "bg-emerald-500/10 text-white/90 border border-emerald-500/10"
-              : "bg-[var(--color-surface)] text-white/80 border border-[var(--color-border)]"
+              : "bg-blue-500/5 text-white/80 border border-blue-500/8"
         }`}
       >
+        {/* Bubble tail */}
+        {!isSystem && (
+          <span
+            className={`hidden md:block absolute top-3 w-0 h-0 ${
+              isHuman
+                ? "right-[-6px] border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-l-[6px] border-l-emerald-500/10"
+                : "left-[-6px] border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-r-[6px] border-r-blue-500/8"
+            }`}
+          />
+        )}
         {message.status === "streaming" && !message.content ? (
           <StreamingIndicator />
         ) : (
@@ -184,7 +217,7 @@ function MessageBubble({ message }: { message: Message }) {
               rehypePlugins={rehypePluginsArr}
               components={markdownComponents}
             >
-              {message.content}
+              {stripAnsi(message.content)}
             </ReactMarkdown>
             {message.status === "streaming" && message.content && (
               <span className="inline-block w-[2px] h-[1em] bg-emerald-400 ml-0.5 align-text-bottom animate-pulse" />
@@ -239,7 +272,7 @@ function StreamingIndicator() {
       {[0, 1, 2].map((i) => (
         <motion.span
           key={i}
-          className="w-1.5 h-1.5 bg-emerald-400 rounded-full"
+          className="w-1.5 h-1.5 bg-blue-400 rounded-full"
           animate={{ opacity: [0.3, 1, 0.3] }}
           transition={{
             duration: 1,
