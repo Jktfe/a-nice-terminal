@@ -26,8 +26,9 @@ interface Attachment {
   type: string;
 }
 
-export default function InputArea() {
-  const { sendMessage, activeSessionId, uploadFile, sessions } = useStore();
+export default function InputArea({ sessionId: sessionIdProp }: { sessionId?: string } = {}) {
+  const { sendMessage, sendMessageToSession, activeSessionId: storeActiveSessionId, uploadFile, sessions } = useStore();
+  const activeSessionId = sessionIdProp ?? storeActiveSessionId;
   const isMobile = useIsMobile();
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -70,10 +71,14 @@ export default function InputArea() {
 
     const metadata = attachments.length > 0 ? { images: attachments.map(a => a.url) } : null;
 
-    sendMessage(text, "human", metadata);
+    if (sessionIdProp) {
+      sendMessageToSession(activeSessionId, text, "human");
+    } else {
+      sendMessage(text, "human", metadata);
+    }
     editor.commands.clearContent();
     setAttachments([]);
-  }, [editor, activeSessionId, sendMessage, attachments]);
+  }, [editor, activeSessionId, sessionIdProp, sendMessage, sendMessageToSession, attachments]);
 
   const handleFiles = useCallback(async (files: FileList | File[]) => {
     setUploading(true);

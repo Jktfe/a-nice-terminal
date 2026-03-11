@@ -63,8 +63,8 @@ describe("MCP server tools", () => {
     });
   }
 
-  it("registers all 16 tools", () => {
-    expect(toolHandlers.size).toBe(16);
+  it("registers all 21 tools", () => {
+    expect(toolHandlers.size).toBe(21);
     expect(toolHandlers.has("ant_list_sessions")).toBe(true);
     expect(toolHandlers.has("ant_create_session")).toBe(true);
     expect(toolHandlers.has("ant_get_session")).toBe(true);
@@ -81,6 +81,11 @@ describe("MCP server tools", () => {
     expect(toolHandlers.has("ant_kill_all_terminals")).toBe(true);
     expect(toolHandlers.has("ant_list_resume_commands")).toBe(true);
     expect(toolHandlers.has("ant_delete_resume_command")).toBe(true);
+    expect(toolHandlers.has("ant_list_workspaces")).toBe(true);
+    expect(toolHandlers.has("ant_create_workspace")).toBe(true);
+    expect(toolHandlers.has("ant_update_workspace")).toBe(true);
+    expect(toolHandlers.has("ant_delete_workspace")).toBe(true);
+    expect(toolHandlers.has("ant_search")).toBe(true);
   });
 
   describe("ant_list_sessions", () => {
@@ -203,6 +208,85 @@ describe("MCP server tools", () => {
       const handler = toolHandlers.get("ant_terminal_resize")!;
       const result = await handler({ sessionId: "c1", cols: 80, rows: 24 });
       expect(result.content[0].text).toContain("409");
+    });
+  });
+
+  describe("ant_list_workspaces", () => {
+    it("calls GET /api/workspaces", async () => {
+      mockJsonResponse([{ id: "w1", name: "My WS" }]);
+      const handler = toolHandlers.get("ant_list_workspaces")!;
+      const result = await handler({});
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/workspaces"),
+        expect.any(Object)
+      );
+      expect(result.content[0].text).toContain("w1");
+    });
+  });
+
+  describe("ant_create_workspace", () => {
+    it("calls POST /api/workspaces", async () => {
+      mockJsonResponse({ id: "w2", name: "New WS" });
+      const handler = toolHandlers.get("ant_create_workspace")!;
+      const result = await handler({ name: "New WS" });
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/workspaces"),
+        expect.objectContaining({ method: "POST" })
+      );
+      expect(result.content[0].text).toContain("w2");
+    });
+  });
+
+  describe("ant_update_workspace", () => {
+    it("calls PATCH /api/workspaces/:id", async () => {
+      mockJsonResponse({ id: "w1", name: "Renamed" });
+      const handler = toolHandlers.get("ant_update_workspace")!;
+      await handler({ workspaceId: "w1", name: "Renamed" });
+      const [url, opts] = mockFetch.mock.calls[0];
+      expect(url).toContain("/api/workspaces/w1");
+      expect(opts.method).toBe("PATCH");
+    });
+  });
+
+  describe("ant_delete_workspace", () => {
+    it("calls DELETE /api/workspaces/:id", async () => {
+      mockJsonResponse({ deleted: true });
+      const handler = toolHandlers.get("ant_delete_workspace")!;
+      await handler({ workspaceId: "w1" });
+      const [url, opts] = mockFetch.mock.calls[0];
+      expect(url).toContain("/api/workspaces/w1");
+      expect(opts.method).toBe("DELETE");
+    });
+  });
+
+  describe("ant_create_session with workspaceId", () => {
+    it("passes workspace_id in body", async () => {
+      mockJsonResponse({ id: "s1", workspace_id: "w1" });
+      const handler = toolHandlers.get("ant_create_session")!;
+      await handler({ type: "terminal", name: "T1", workspaceId: "w1" });
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.workspace_id).toBe("w1");
+    });
+  });
+
+  describe("ant_search", () => {
+    it("calls GET /api/search with query", async () => {
+      mockJsonResponse({ sessions: [], messages: [] });
+      const handler = toolHandlers.get("ant_search")!;
+      const result = await handler({ query: "hello" });
+      const url = mockFetch.mock.calls[0][0] as string;
+      expect(url).toContain("/api/search");
+      expect(url).toContain("q=hello");
+      expect(result.content[0].text).toContain("sessions");
+    });
+
+    it("passes workspaceId and limit", async () => {
+      mockJsonResponse({ sessions: [], messages: [] });
+      const handler = toolHandlers.get("ant_search")!;
+      await handler({ query: "test", workspaceId: "w1", limit: 25 });
+      const url = mockFetch.mock.calls[0][0] as string;
+      expect(url).toContain("workspace_id=w1");
+      expect(url).toContain("limit=25");
     });
   });
 

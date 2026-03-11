@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import request from "supertest";
-import { createTestApp, seedSession, seedMessage } from "../__tests__/helpers.js";
+import { createTestApp, seedSession, seedMessage, seedWorkspace } from "../__tests__/helpers.js";
 
 vi.mock("../pty-manager.js", async (importOriginal) => {
   return {
@@ -154,6 +154,75 @@ describe("messages routes", () => {
         .patch("/api/sessions/s1/messages/missing")
         .send({ content: "X" });
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe("GET /api/search", () => {
+    it("returns 400 for empty query", async () => {
+      const res = await request(app).get("/api/search");
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 400 for empty q param", async () => {
+      const res = await request(app).get("/api/search?q=");
+      expect(res.status).toBe(400);
+    });
+
+    it("finds sessions by name", async () => {
+      seedSession({ id: "s1", type: "conversation", name: "Project Alpha" });
+      seedSession({ id: "s2", type: "conversation", name: "Other" });
+      const res = await request(app).get("/api/search?q=Alpha");
+      expect(res.status).toBe(200);
+      expect(res.body.sessions).toHaveLength(1);
+      expect(res.body.sessions[0].id).toBe("s1");
+    });
+
+    it("finds messages by content", async () => {
+      seedSession({ id: "s1", type: "conversation", name: "Chat" });
+      seedMessage({ id: "m1", session_id: "s1", content: "Hello world this is a test message" });
+      seedMessage({ id: "m2", session_id: "s1", content: "Goodbye" });
+      const res = await request(app).get("/api/search?q=Hello");
+      expect(res.status).toBe(200);
+      expect(res.body.messages).toHaveLength(1);
+      expect(res.body.messages[0].id).toBe("m1");
+      expect(res.body.messages[0].content_snippet).toContain("Hello");
+    });
+
+    it("returns empty results for no match", async () => {
+      seedSession({ id: "s1", type: "conversation", name: "Chat" });
+      seedMessage({ id: "m1", session_id: "s1", content: "Hello" });
+      const res = await request(app).get("/api/search?q=nonexistent");
+      expect(res.status).toBe(200);
+      expect(res.body.sessions).toHaveLength(0);
+      expect(res.body.messages).toHaveLength(0);
+    });
+
+    it("respects limit parameter", async () => {
+      seedSession({ id: "s1", type: "conversation", name: "Chat" });
+      for (let i = 0; i < 5; i++) {
+        seedMessage({ id: `m${i}`, session_id: "s1", content: `Match item ${i}` });
+      }
+      const res = await request(app).get("/api/search?q=Match&limit=2");
+      expect(res.body.messages).toHaveLength(2);
+    });
+
+    it("excludes archived sessions", async () => {
+      seedSession({ id: "s1", type: "conversation", name: "Archived Chat", archived: 1 });
+      seedMessage({ id: "m1", session_id: "s1", content: "Hidden message" });
+      const res = await request(app).get("/api/search?q=Hidden");
+      expect(res.body.sessions).toHaveLength(0);
+      expect(res.body.messages).toHaveLength(0);
+    });
+
+    it("filters by workspace_id", async () => {
+      seedWorkspace({ id: "w1", name: "WS1" });
+      seedSession({ id: "s1", type: "conversation", name: "In WS", workspace_id: "w1" });
+      seedSession({ id: "s2", type: "conversation", name: "Not in WS" });
+      seedMessage({ id: "m1", session_id: "s1", content: "workspace message" });
+      seedMessage({ id: "m2", session_id: "s2", content: "workspace message" });
+      const res = await request(app).get("/api/search?q=workspace&workspace_id=w1");
+      expect(res.body.messages).toHaveLength(1);
+      expect(res.body.messages[0].session_id).toBe("s1");
     });
   });
 

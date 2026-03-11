@@ -4,6 +4,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import { motion, AnimatePresence } from "motion/react";
 import { RefreshCw, ChevronDown, Clipboard, Check, Edit3, Send, Search, X } from "lucide-react";
 import { useStore, apiFetch } from "../store.ts";
+import { getTerminalTheme } from "../themes.ts";
+import BridgePicker from "./BridgePicker.tsx";
 
 interface SearchResult {
   index: number;
@@ -11,8 +13,9 @@ interface SearchResult {
   created_at?: string;
 }
 
-export default function TerminalView() {
-  const { activeSessionId, socket, uploadFile, connected, sessionHealth } = useStore();
+export default function TerminalView({ sessionId: sessionIdProp }: { sessionId?: string } = {}) {
+  const { activeSessionId: storeActiveSessionId, socket, uploadFile, connected, sessionHealth, terminalFontSize, terminalTheme } = useStore();
+  const activeSessionId = sessionIdProp ?? storeActiveSessionId;
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -37,6 +40,9 @@ export default function TerminalView() {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [bridgeOpen, setBridgeOpen] = useState(false);
+  const [bridgeText, setBridgeText] = useState("");
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
   const handleRefresh = async () => {
     if (!activeSessionId || !termRef.current || refreshing) return;
@@ -217,30 +223,9 @@ export default function TerminalView() {
 
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: 14,
+      fontSize: terminalFontSize,
       fontFamily: '"JetBrains Mono", monospace',
-      theme: {
-        background: "#0a0a0a",
-        foreground: "#e5e5e5",
-        cursor: "#10b981",
-        selectionBackground: "rgba(255, 255, 255, 0.25)",
-        black: "#171717",
-        red: "#ef4444",
-        green: "#22c55e",
-        yellow: "#eab308",
-        blue: "#3b82f6",
-        magenta: "#a855f7",
-        cyan: "#06b6d4",
-        white: "#e5e5e5",
-        brightBlack: "#525252",
-        brightRed: "#f87171",
-        brightGreen: "#4ade80",
-        brightYellow: "#facc15",
-        brightBlue: "#60a5fa",
-        brightMagenta: "#c084fc",
-        brightCyan: "#22d3ee",
-        brightWhite: "#fafafa",
-      },
+      theme: getTerminalTheme(terminalTheme),
       convertEol: true,
       scrollback: 10000,
     });
@@ -381,6 +366,7 @@ export default function TerminalView() {
     };
 
     // Copy selected text on Ctrl+Shift+C / Cmd+Shift+C
+    // Bridge shortcut: Cmd+Shift+S / Ctrl+Shift+S
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "C") {
         e.preventDefault();
@@ -393,8 +379,26 @@ export default function TerminalView() {
           }).catch(() => {});
         }
       }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "S") {
+        e.preventDefault();
+        const selected = term.getSelection();
+        if (selected) {
+          setBridgeText(selected);
+          setBridgeOpen(true);
+        }
+      }
     };
     container.addEventListener("keydown", onKeyDown);
+
+    // Context menu for bridge
+    const onContextMenu = (e: MouseEvent) => {
+      const selected = term.getSelection();
+      if (selected) {
+        e.preventDefault();
+        setContextMenu({ x: e.clientX, y: e.clientY });
+      }
+    };
+    container.addEventListener("contextmenu", onContextMenu);
 
     // Auto-copy: when mouse selection ends, copy to clipboard automatically
     term.onSelectionChange(() => {
@@ -437,6 +441,7 @@ export default function TerminalView() {
       }
       window.removeEventListener("resize", handleResize);
       container.removeEventListener("keydown", onKeyDown);
+      container.removeEventListener("contextmenu", onContextMenu);
       container.removeEventListener("dragover", onDragOver);
       container.removeEventListener("drop", onDrop);
       resizeObserver.disconnect();
@@ -450,6 +455,15 @@ export default function TerminalView() {
       setCommandRunning(false);
     };
   }, [activeSessionId, socket, uploadFile]);
+
+  // Apply theme/font changes reactively without recreating terminal
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term?.options) return;
+    term.options.theme = getTerminalTheme(terminalTheme);
+    term.options.fontSize = terminalFontSize;
+    try { fitAddonRef.current?.fit(); } catch {}
+  }, [terminalTheme, terminalFontSize]);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -686,6 +700,43 @@ export default function TerminalView() {
               </button>
             </div>
           </div>
+        )}
+
+        {/* Context menu for Send to Conversation */}
+        {contextMenu && (
+          <>
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => setContextMenu(null)}
+            />
+            <div
+              className="fixed z-50 bg-[#1a1a1a] border border-white/10 rounded-lg shadow-xl py-1 min-w-[180px]"
+              style={{ left: contextMenu.x, top: contextMenu.y }}
+            >
+              <button
+                onClick={() => {
+                  const selected = termRef.current?.getSelection();
+                  if (selected) {
+                    setBridgeText(selected);
+                    setBridgeOpen(true);
+                  }
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-3 py-2 text-sm text-white/80 hover:bg-white/10 transition-colors"
+              >
+                Send to Conversation
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Bridge picker */}
+        {bridgeOpen && activeSessionId && (
+          <BridgePicker
+            selectedText={bridgeText}
+            sourceSessionId={activeSessionId}
+            onClose={() => setBridgeOpen(false)}
+          />
         )}
       </div>
     </div>

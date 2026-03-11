@@ -83,9 +83,14 @@ const FORMAT_ENUM = z.enum(["markdown", "text", "plaintext", "json"]);
 server.tool(
   "ant_list_sessions",
   "List all ANT sessions (both terminal and conversation)",
-  {},
-  async () => {
-    const sessions = await api("/api/sessions");
+  {
+    includeArchived: z.boolean().optional().describe("Include archived sessions (default false)"),
+  },
+  async ({ includeArchived }) => {
+    const params = new URLSearchParams();
+    if (includeArchived) params.set("include_archived", "true");
+    const qs = params.toString();
+    const sessions = await api(`/api/sessions${qs ? `?${qs}` : ""}`);
     return {
       content: [{ type: "text", text: JSON.stringify(sessions, null, 2) }],
     };
@@ -101,11 +106,12 @@ server.tool(
       .enum(["terminal", "conversation"])
       .describe("Session type: 'terminal' for shell, 'conversation' for text"),
     name: z.string().optional().describe("Session name"),
+    workspaceId: z.string().optional().describe("Workspace ID to assign the session to"),
   },
-  async ({ type, name }) => {
+  async ({ type, name, workspaceId }) => {
     const session = await api("/api/sessions", {
       method: "POST",
-      body: JSON.stringify({ type, name }),
+      body: JSON.stringify({ type, name, workspace_id: workspaceId ?? null }),
     });
     return {
       content: [{ type: "text", text: JSON.stringify(session, null, 2) }],
@@ -131,15 +137,21 @@ server.tool(
 // Update session
 server.tool(
   "ant_update_session",
-  "Update an ANT session (rename it)",
+  "Update an ANT session (rename, move to workspace, or archive/restore)",
   {
     sessionId: z.string().describe("Session ID"),
-    name: z.string().describe("New session name"),
+    name: z.string().optional().describe("New session name"),
+    workspaceId: z.string().nullable().optional().describe("Workspace ID (null to ungroup)"),
+    archived: z.boolean().optional().describe("Set true to archive, false to restore"),
   },
-  async ({ sessionId, name }) => {
+  async ({ sessionId, name, workspaceId, archived }) => {
+    const body: Record<string, unknown> = {};
+    if (name !== undefined) body.name = name;
+    if (workspaceId !== undefined) body.workspace_id = workspaceId;
+    if (archived !== undefined) body.archived = archived ? 1 : 0;
     const session = await api(`/api/sessions/${sessionId}`, {
       method: "PATCH",
-      body: JSON.stringify({ name }),
+      body: JSON.stringify(body),
     });
     return {
       content: [{ type: "text", text: JSON.stringify(session, null, 2) }],
@@ -445,6 +457,93 @@ server.tool(
     });
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+    };
+  }
+);
+
+// List workspaces
+server.tool(
+  "ant_list_workspaces",
+  "List all ANT workspaces",
+  {},
+  async () => {
+    const workspaces = await api("/api/workspaces");
+    return {
+      content: [{ type: "text", text: JSON.stringify(workspaces, null, 2) }],
+    };
+  }
+);
+
+// Create workspace
+server.tool(
+  "ant_create_workspace",
+  "Create a new ANT workspace for grouping sessions",
+  {
+    name: z.string().describe("Workspace name"),
+  },
+  async ({ name }) => {
+    const workspace = await api("/api/workspaces", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(workspace, null, 2) }],
+    };
+  }
+);
+
+// Update workspace
+server.tool(
+  "ant_update_workspace",
+  "Rename an ANT workspace",
+  {
+    workspaceId: z.string().describe("Workspace ID"),
+    name: z.string().describe("New workspace name"),
+  },
+  async ({ workspaceId, name }) => {
+    const workspace = await api(`/api/workspaces/${workspaceId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(workspace, null, 2) }],
+    };
+  }
+);
+
+// Delete workspace
+server.tool(
+  "ant_delete_workspace",
+  "Delete an ANT workspace (sessions become ungrouped)",
+  {
+    workspaceId: z.string().describe("Workspace ID"),
+  },
+  async ({ workspaceId }) => {
+    const result = await api(`/api/workspaces/${workspaceId}`, {
+      method: "DELETE",
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+    };
+  }
+);
+
+// Search across sessions and messages
+server.tool(
+  "ant_search",
+  "Search across all ANT sessions and messages by keyword",
+  {
+    query: z.string().describe("Search query"),
+    workspaceId: z.string().optional().describe("Filter by workspace ID"),
+    limit: z.number().optional().describe("Max results (default 50, max 200)"),
+  },
+  async ({ query, workspaceId, limit }) => {
+    const params = new URLSearchParams({ q: query });
+    if (workspaceId) params.set("workspace_id", workspaceId);
+    if (limit) params.set("limit", String(limit));
+    const results = await api(`/api/search?${params.toString()}`);
+    return {
+      content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
     };
   }
 );

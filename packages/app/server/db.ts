@@ -88,5 +88,29 @@ try {
   // Column already exists — ignore
 }
 
+// Workspaces table
+db.exec(`
+  CREATE TABLE IF NOT EXISTS workspaces (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
+// Migration: add workspace_id FK to sessions
+try {
+  db.exec(`ALTER TABLE sessions ADD COLUMN workspace_id TEXT DEFAULT NULL REFERENCES workspaces(id) ON DELETE SET NULL`);
+} catch {
+  // Column already exists — ignore
+}
+
+// Migration: add archived column to sessions
+try {
+  db.exec(`ALTER TABLE sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0`);
+} catch {
+  // Column already exists — ignore
+}
+
 export default db;
 export { DB_PATH };

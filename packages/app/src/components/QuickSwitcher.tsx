@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Terminal, MessageSquare } from "lucide-react";
 import { useStore } from "../store.ts";
 
-export default function QuickSwitcher({ onClose }: { onClose: () => void }) {
+export default function QuickSwitcher({ onClose, onSelect }: { onClose: () => void; onSelect?: (id: string) => void }) {
   const { sessions, setActiveSession } = useStore();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -30,7 +30,11 @@ export default function QuickSwitcher({ onClose }: { onClose: () => void }) {
       e.preventDefault();
       setSelectedIndex((i: number) => Math.max(i - 1, 0));
     } else if (e.key === "Enter" && filtered[selectedIndex]) {
-      setActiveSession(filtered[selectedIndex].id);
+      if (onSelect) {
+        onSelect(filtered[selectedIndex].id);
+      } else {
+        setActiveSession(filtered[selectedIndex].id);
+      }
       onClose();
     }
   };
@@ -64,7 +68,11 @@ export default function QuickSwitcher({ onClose }: { onClose: () => void }) {
               <button
                 key={session.id}
                 onClick={() => {
-                  setActiveSession(session.id);
+                  if (onSelect) {
+                    onSelect(session.id);
+                  } else {
+                    setActiveSession(session.id);
+                  }
                   onClose();
                 }}
                 className={`w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors ${

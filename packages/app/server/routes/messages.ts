@@ -220,4 +220,69 @@ router.delete("/api/sessions/:sessionId/messages/:id", (req, res) => {
   res.json({ deleted: true });
 });
 
+// Global search across sessions and messages
+router.get("/api/search", (req, res) => {
+  const q = String(req.query.q || "").trim();
+  if (!q) {
+    return res.status(400).json({ error: "Query parameter 'q' is required" });
+  }
+
+  const workspaceId = req.query.workspace_id as string | undefined;
+  const limitRaw = Number(req.query.limit) || 50;
+  const limit = Math.max(1, Math.min(limitRaw, 200));
+  const escaped = `%${q}%`;
+
+  // Match sessions by name
+  let sessionQuery = "SELECT id, name, type, workspace_id FROM sessions WHERE archived = 0 AND name LIKE ?";
+  const sessionParams: any[] = [escaped];
+  if (workspaceId) {
+    sessionQuery += " AND workspace_id = ?";
+    sessionParams.push(workspaceId);
+  }
+  sessionQuery += " ORDER BY updated_at DESC LIMIT ?";
+  sessionParams.push(limit);
+
+  const sessions = db.prepare(sessionQuery).all(...sessionParams);
+
+  // Match messages by content
+  let messageQuery = `
+    SELECT m.id, m.session_id, s.name AS session_name, s.type AS session_type,
+           m.role, m.content, m.created_at
+    FROM messages m
+    JOIN sessions s ON s.id = m.session_id
+    WHERE s.archived = 0 AND m.content LIKE ?
+  `;
+  const messageParams: any[] = [escaped];
+  if (workspaceId) {
+    messageQuery += " AND s.workspace_id = ?";
+    messageParams.push(workspaceId);
+  }
+  messageQuery += " ORDER BY m.created_at DESC LIMIT ?";
+  messageParams.push(limit);
+
+  const rawMessages = db.prepare(messageQuery).all(...messageParams) as any[];
+
+  // Create 100-char snippet around match
+  const messages = rawMessages.map((m) => {
+    const idx = m.content.toLowerCase().indexOf(q.toLowerCase());
+    const start = Math.max(0, idx - 50);
+    const end = Math.min(m.content.length, idx + q.length + 50);
+    const snippet =
+      (start > 0 ? "..." : "") +
+      m.content.slice(start, end) +
+      (end < m.content.length ? "..." : "");
+    return {
+      id: m.id,
+      session_id: m.session_id,
+      session_name: m.session_name,
+      session_type: m.session_type,
+      role: m.role,
+      content_snippet: snippet,
+      created_at: m.created_at,
+    };
+  });
+
+  res.json({ sessions, messages });
+});
+
 export default router;

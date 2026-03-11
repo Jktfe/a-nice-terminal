@@ -1,25 +1,61 @@
 import { useEffect, useState, useCallback } from "react";
 import { AnimatePresence } from "motion/react";
-import { useStore } from "./store.ts";
+import { useStore, type Session } from "./store.ts";
 import Sidebar from "./components/Sidebar.tsx";
 import Header from "./components/Header.tsx";
 import TerminalView from "./components/TerminalView.tsx";
 import MessageList from "./components/MessageList.tsx";
 import InputArea from "./components/InputArea.tsx";
 import QuickSwitcher from "./components/QuickSwitcher.tsx";
+import SearchPanel from "./components/SearchPanel.tsx";
+import SplitHeader from "./components/SplitHeader.tsx";
 import StatusBar from "./components/StatusBar.tsx";
 import OfflineOverlay from "./components/OfflineOverlay.tsx";
 import SettingsModal from "./components/SettingsModal.tsx";
 import { Terminal, MessageSquare } from "lucide-react";
 
+function renderSessionContent(session: Session | undefined, sessionId?: string, splitMessages?: any[]) {
+  if (!session) return null;
+
+  if (session.type === "terminal") {
+    return <TerminalView sessionId={sessionId} />;
+  }
+
+  return (
+    <>
+      <MessageList sessionId={sessionId} messages={splitMessages} />
+      <InputArea sessionId={sessionId} />
+    </>
+  );
+}
+
 export default function App() {
-  const { init, sessions, activeSessionId, createSession, toggleSidebar } =
-    useStore();
+  const {
+    init,
+    sessions,
+    activeSessionId,
+    createSession,
+    toggleSidebar,
+    unreadCounts,
+    splitMode,
+    splitSessionId,
+    splitMessages,
+    toggleSplit,
+    setSplitSession,
+  } = useStore();
   const [quickSwitcherOpen, setQuickSwitcherOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [splitPickerOpen, setSplitPickerOpen] = useState(false);
 
   useEffect(() => {
     init();
   }, []);
+
+  // Title badge: (N) ANT
+  useEffect(() => {
+    const total = Object.values(unreadCounts).reduce((sum, n) => sum + n, 0);
+    document.title = total > 0 ? `(${total}) ANT` : "ANT";
+  }, [unreadCounts]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -38,9 +74,21 @@ export default function App() {
       } else if (e.key === "b") {
         e.preventDefault();
         toggleSidebar();
+      } else if (e.key === "F" && e.shiftKey) {
+        e.preventDefault();
+        setSearchOpen((v) => !v);
+      } else if (e.key === "\\") {
+        e.preventDefault();
+        if (splitMode) {
+          toggleSplit();
+          setSplitPickerOpen(false);
+        } else {
+          toggleSplit();
+          setSplitPickerOpen(true);
+        }
       }
     },
-    [createSession, toggleSidebar]
+    [createSession, toggleSidebar, splitMode, toggleSplit]
   );
 
   useEffect(() => {
@@ -48,7 +96,15 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleKeyDown]);
 
+  // When split mode activates without a session, show picker
+  useEffect(() => {
+    if (splitMode && !splitSessionId && !splitPickerOpen) {
+      setSplitPickerOpen(true);
+    }
+  }, [splitMode, splitSessionId, splitPickerOpen]);
+
   const activeSession = sessions.find((s) => s.id === activeSessionId);
+  const splitSession = splitSessionId ? sessions.find((s) => s.id === splitSessionId) : undefined;
 
   return (
     <div className="flex h-screen flex-col bg-[var(--color-bg)] font-sans selection:bg-emerald-500/30">
@@ -57,28 +113,58 @@ export default function App() {
           <Sidebar />
         </AnimatePresence>
 
-        <div className="flex-1 flex flex-col min-w-0">
-          <Header />
-
-          {activeSession ? (
-            activeSession.type === "terminal" ? (
-              <TerminalView />
+        {splitMode && splitSession ? (
+          // Split view: two panels side by side
+          <div className="flex-1 flex min-w-0">
+            {/* Left panel — active session */}
+            <div className="flex-1 flex flex-col min-w-0 border-r border-[var(--color-border)]">
+              <Header />
+              {activeSession ? (
+                renderSessionContent(activeSession)
+              ) : (
+                <EmptyState onCreateSession={createSession} />
+              )}
+            </div>
+            {/* Right panel — split session */}
+            <div className="flex-1 flex flex-col min-w-0">
+              <SplitHeader session={splitSession} onClose={toggleSplit} />
+              {renderSessionContent(splitSession, splitSessionId ?? undefined, splitMessages)}
+            </div>
+          </div>
+        ) : (
+          // Normal single-panel view
+          <div className="flex-1 flex flex-col min-w-0">
+            <Header />
+            {activeSession ? (
+              renderSessionContent(activeSession)
             ) : (
-              <>
-                <MessageList />
-                <InputArea />
-              </>
-            )
-          ) : (
-            <EmptyState onCreateSession={createSession} />
-          )}
-        </div>
+              <EmptyState onCreateSession={createSession} />
+            )}
+          </div>
+        )}
       </div>
 
       <StatusBar />
 
       {quickSwitcherOpen && (
         <QuickSwitcher onClose={() => setQuickSwitcherOpen(false)} />
+      )}
+
+      {searchOpen && (
+        <SearchPanel onClose={() => setSearchOpen(false)} />
+      )}
+
+      {splitPickerOpen && splitMode && !splitSessionId && (
+        <QuickSwitcher
+          onClose={() => {
+            setSplitPickerOpen(false);
+            if (!splitSessionId) toggleSplit();
+          }}
+          onSelect={(id) => {
+            setSplitSession(id);
+            setSplitPickerOpen(false);
+          }}
+        />
       )}
 
       <SettingsModal />

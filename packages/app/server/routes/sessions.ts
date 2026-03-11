@@ -31,10 +31,12 @@ function parseHourMinute(raw: string | undefined): number | null {
 }
 
 // List sessions
-router.get("/api/sessions", (_req, res) => {
-  const sessions = db
-    .prepare("SELECT * FROM sessions ORDER BY updated_at DESC")
-    .all();
+router.get("/api/sessions", (req, res) => {
+  const includeArchived = req.query.include_archived === "true";
+  const query = includeArchived
+    ? "SELECT * FROM sessions ORDER BY updated_at DESC"
+    : "SELECT * FROM sessions WHERE archived = 0 ORDER BY updated_at DESC";
+  const sessions = db.prepare(query).all();
   res.json(sessions);
 });
 
@@ -56,7 +58,7 @@ router.get("/api/sessions/:id", (req, res) => {
 
 // Create session
 router.post("/api/sessions", (req, res) => {
-  const { name, type = "conversation" } = req.body;
+  const { name, type = "conversation", workspace_id = null } = req.body;
 
   const validTypes = ["terminal", "conversation"];
   if (!validTypes.includes(type)) {
@@ -68,11 +70,12 @@ router.post("/api/sessions", (req, res) => {
   const id = nanoid(12);
   const sessionName = name || (type === "terminal" ? "Terminal" : "Conversation");
 
-  db.prepare("INSERT INTO sessions (id, name, type, shell) VALUES (?, ?, ?, ?)").run(
+  db.prepare("INSERT INTO sessions (id, name, type, shell, workspace_id) VALUES (?, ?, ?, ?, ?)").run(
     id,
     sessionName,
     type,
-    null
+    null,
+    workspace_id
   );
 
   const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(id);
@@ -85,13 +88,27 @@ router.post("/api/sessions", (req, res) => {
 
 // Update session
 router.patch("/api/sessions/:id", (req, res) => {
-  const { name } = req.body;
+  const { name, workspace_id, archived } = req.body;
   const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(req.params.id) as DbSession | undefined;
   if (!session) return res.status(404).json({ error: "Session not found" });
 
   if (name) {
     db.prepare("UPDATE sessions SET name = ?, updated_at = datetime('now') WHERE id = ?")
       .run(name, req.params.id);
+  }
+
+  if (workspace_id !== undefined) {
+    db.prepare("UPDATE sessions SET workspace_id = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(workspace_id, req.params.id);
+  }
+
+  if (archived !== undefined) {
+    db.prepare("UPDATE sessions SET archived = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(archived ? 1 : 0, req.params.id);
+    // Free PTY resources when archiving a terminal session
+    if (archived && session.type === "terminal") {
+      destroyPty(req.params.id);
+    }
   }
 
   const updated = db

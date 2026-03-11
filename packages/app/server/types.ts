@@ -4,6 +4,15 @@ export interface DbSession {
   type: "terminal" | "conversation";
   shell: string | null;
   cwd: string | null;
+  workspace_id: string | null;
+  archived: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DbWorkspace {
+  id: string;
+  name: string;
   created_at: string;
   updated_at: string;
 }

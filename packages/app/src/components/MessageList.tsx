@@ -12,8 +12,9 @@ function stripAnsi(str: string): string {
   return str.replace(ANSI_RE, "");
 }
 
-export default function MessageList() {
-  const { messages } = useStore();
+export default function MessageList({ sessionId, messages: messagesProp }: { sessionId?: string; messages?: Message[] } = {}) {
+  const { messages: storeMessages } = useStore();
+  const messages = messagesProp ?? storeMessages;
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);

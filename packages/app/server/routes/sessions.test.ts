@@ -1,14 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
-import { createTestApp, seedSession } from "../__tests__/helpers.js";
+import { createTestApp, seedSession, seedWorkspace } from "../__tests__/helpers.js";
 
 vi.mock("../pty-manager.js", () => ({
   createPty: vi.fn(() => ({ write: vi.fn(), kill: vi.fn() })),
   getPty: vi.fn(() => undefined),
   destroyPty: vi.fn(),
+  destroyAllPtys: vi.fn(() => 0),
   getTerminalOutput: vi.fn(() => []),
   getTerminalOutputCursor: vi.fn(() => 0),
   resizePty: vi.fn(),
+  addPtyOutputListener: vi.fn(),
+  searchTerminalOutput: vi.fn(() => []),
 }));
 
 import { createPty, getPty, getTerminalOutput, getTerminalOutputCursor } from "../pty-manager.js";
@@ -84,6 +87,15 @@ describe("sessions routes", () => {
         .send({ type: "invalid" });
       expect(res.status).toBe(400);
     });
+
+    it("creates session with workspace_id", async () => {
+      seedWorkspace({ id: "w1", name: "Test WS" });
+      const res = await request(app)
+        .post("/api/sessions")
+        .send({ type: "conversation", workspace_id: "w1" });
+      expect(res.status).toBe(201);
+      expect(res.body.workspace_id).toBe("w1");
+    });
   });
 
   describe("PATCH /api/sessions/:id", () => {
@@ -102,6 +114,26 @@ describe("sessions routes", () => {
         .send({ name: "X" });
       expect(res.status).toBe(404);
     });
+
+    it("updates workspace_id", async () => {
+      seedWorkspace({ id: "w1", name: "WS" });
+      seedSession({ id: "s1", name: "Test" });
+      const res = await request(app)
+        .patch("/api/sessions/s1")
+        .send({ workspace_id: "w1" });
+      expect(res.status).toBe(200);
+      expect(res.body.workspace_id).toBe("w1");
+    });
+
+    it("ungroups session by setting workspace_id to null", async () => {
+      seedWorkspace({ id: "w1", name: "WS" });
+      seedSession({ id: "s1", name: "Test", workspace_id: "w1" });
+      const res = await request(app)
+        .patch("/api/sessions/s1")
+        .send({ workspace_id: null });
+      expect(res.status).toBe(200);
+      expect(res.body.workspace_id).toBeNull();
+    });
   });
 
   describe("DELETE /api/sessions/:id", () => {
@@ -115,6 +147,48 @@ describe("sessions routes", () => {
     it("returns 404 for missing session", async () => {
       const res = await request(app).delete("/api/sessions/missing");
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe("archive behaviour", () => {
+    it("archives a session", async () => {
+      seedSession({ id: "s1", name: "Test" });
+      const res = await request(app)
+        .patch("/api/sessions/s1")
+        .send({ archived: 1 });
+      expect(res.status).toBe(200);
+      expect(res.body.archived).toBe(1);
+    });
+
+    it("excludes archived sessions from default list", async () => {
+      seedSession({ id: "s1", name: "Active" });
+      seedSession({ id: "s2", name: "Archived", archived: 1 });
+      const res = await request(app).get("/api/sessions");
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].id).toBe("s1");
+    });
+
+    it("includes archived sessions when include_archived=true", async () => {
+      seedSession({ id: "s1", name: "Active" });
+      seedSession({ id: "s2", name: "Archived", archived: 1 });
+      const res = await request(app).get("/api/sessions?include_archived=true");
+      expect(res.body).toHaveLength(2);
+    });
+
+    it("restores an archived session", async () => {
+      seedSession({ id: "s1", name: "Test", archived: 1 });
+      const res = await request(app)
+        .patch("/api/sessions/s1")
+        .send({ archived: 0 });
+      expect(res.status).toBe(200);
+      expect(res.body.archived).toBe(0);
+    });
+
+    it("permanently deletes an archived session", async () => {
+      seedSession({ id: "s1", name: "Test", archived: 1 });
+      const res = await request(app).delete("/api/sessions/s1");
+      expect(res.status).toBe(200);
+      expect(res.body.deleted).toBe(true);
     });
   });
 

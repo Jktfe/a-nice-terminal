@@ -5,9 +5,10 @@ import {
   MessageSquare,
   Pencil,
   Check,
+  Download,
 } from "lucide-react";
-import { useState, useRef, useEffect } from "react";
-import { useStore } from "../store.ts";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { useStore, apiFetch } from "../store.ts";
 import ResumeDropdown from "./ResumeDropdown.tsx";
 
 function useIsMobile() {
@@ -23,6 +24,21 @@ function useIsMobile() {
   }, []);
 
   return isMobile;
+}
+
+function downloadAsFile(filename: string, content: string, mimeType: string) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// Strip ANSI escape sequences for terminal export
+function stripAnsi(str: string): string {
+  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\x1b\].*?\x07/g, "");
 }
 
 export default function Header() {
@@ -47,6 +63,36 @@ export default function Header() {
     }
     setEditing(false);
   };
+
+  const handleExport = useCallback(async () => {
+    if (!session || !activeSessionId) return;
+
+    try {
+      if (session.type === "conversation") {
+        const messages = await apiFetch(`/api/sessions/${activeSessionId}/messages`);
+        const md = messages
+          .map((m: any) => {
+            const ts = m.created_at ? ` (${m.created_at})` : "";
+            return `## ${m.role}${ts}\n\n${m.content}`;
+          })
+          .join("\n\n---\n\n");
+        const safeName = session.name.replace(/[^a-zA-Z0-9-_ ]/g, "").trim() || "conversation";
+        downloadAsFile(`${safeName}.md`, md, "text/markdown");
+      } else {
+        const result = await apiFetch(
+          `/api/sessions/${activeSessionId}/terminal/output?since=0`
+        );
+        const rawText = (result.events as { data: string }[])
+          .map((e) => e.data)
+          .join("");
+        const plainText = stripAnsi(rawText);
+        const safeName = session.name.replace(/[^a-zA-Z0-9-_ ]/g, "").trim() || "terminal";
+        downloadAsFile(`${safeName}.txt`, plainText, "text/plain");
+      }
+    } catch (err) {
+      console.error("Export failed:", err);
+    }
+  }, [session, activeSessionId]);
 
   const Icon = session?.type === "terminal" ? Terminal : MessageSquare;
   const tone = session?.type === "terminal"
@@ -115,6 +161,14 @@ export default function Header() {
             <span className="text-[10px] uppercase tracking-widest text-white/30 bg-white/5 px-2 py-0.5 rounded flex-shrink-0 hidden sm:inline">
               {session.type}
             </span>
+
+            <button
+              onClick={handleExport}
+              className="p-1.5 text-white/30 hover:text-white/70 transition-colors flex-shrink-0"
+              title={`Export ${session.type === "conversation" ? "as Markdown" : "as plain text"}`}
+            >
+              <Download className="w-3.5 h-3.5" />
+            </button>
           </div>
         )}
       </div>

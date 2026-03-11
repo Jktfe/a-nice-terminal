@@ -2,9 +2,10 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { X, Save, AlertCircle } from "lucide-react";
 import { useStore, apiFetch } from "../store.ts";
+import { terminalThemes } from "../themes.ts";
 
 export default function SettingsModal() {
-  const { settingsOpen, toggleSettings } = useStore();
+  const { settingsOpen, toggleSettings, terminalFontSize, terminalTheme, setTerminalFontSize, setTerminalTheme } = useStore();
   const [port, setPort] = useState("");
   const [rootDir, setRootDir] = useState("");
   const [loading, setLoading] = useState(false);
@@ -80,7 +81,7 @@ export default function SettingsModal() {
                 <p>{error}</p>
               </div>
             )}
-            
+
             {successMsg && (
               <div className="flex items-center gap-2 p-3 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-lg text-sm">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -92,6 +93,7 @@ export default function SettingsModal() {
               <div className="text-center text-white/40 py-8">Loading settings...</div>
             ) : (
               <>
+                {/* Server settings */}
                 <div className="flex flex-col gap-1.5">
                   <label className="text-sm font-medium text-white/80">
                     Server Port (ANT_PORT)
@@ -122,6 +124,50 @@ export default function SettingsModal() {
                   <p className="text-xs text-white/40">
                     The default folder where new terminal sessions will start.
                   </p>
+                </div>
+
+                {/* Terminal section */}
+                <div className="border-t border-[var(--color-border)] pt-4 mt-1">
+                  <h3 className="text-sm font-semibold text-white/70 uppercase tracking-wider mb-3">
+                    Terminal
+                  </h3>
+
+                  <div className="flex flex-col gap-1.5 mb-4">
+                    <label className="text-sm font-medium text-white/80">
+                      Font Size
+                    </label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="range"
+                        min={10}
+                        max={20}
+                        step={1}
+                        value={terminalFontSize}
+                        onChange={(e) => setTerminalFontSize(Number(e.target.value))}
+                        className="flex-1 accent-emerald-500"
+                      />
+                      <span className="text-sm text-white/60 w-8 text-right tabular-nums">
+                        {terminalFontSize}px
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-sm font-medium text-white/80">
+                      Colour Scheme
+                    </label>
+                    <select
+                      value={terminalTheme}
+                      onChange={(e) => setTerminalTheme(e.target.value)}
+                      className="bg-black/20 border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500/50"
+                    >
+                      {terminalThemes.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </>
             )}
