@@ -63,17 +63,24 @@ describe("MCP server tools", () => {
     });
   }
 
-  it("registers all 9 tools", () => {
-    expect(toolHandlers.size).toBe(9);
+  it("registers all 16 tools", () => {
+    expect(toolHandlers.size).toBe(16);
     expect(toolHandlers.has("ant_list_sessions")).toBe(true);
     expect(toolHandlers.has("ant_create_session")).toBe(true);
+    expect(toolHandlers.has("ant_get_session")).toBe(true);
+    expect(toolHandlers.has("ant_update_session")).toBe(true);
+    expect(toolHandlers.has("ant_delete_session")).toBe(true);
     expect(toolHandlers.has("ant_read_messages")).toBe(true);
     expect(toolHandlers.has("ant_send_message")).toBe(true);
     expect(toolHandlers.has("ant_stream_message")).toBe(true);
     expect(toolHandlers.has("ant_complete_stream")).toBe(true);
+    expect(toolHandlers.has("ant_delete_message")).toBe(true);
     expect(toolHandlers.has("ant_terminal_input")).toBe(true);
     expect(toolHandlers.has("ant_terminal_resize")).toBe(true);
     expect(toolHandlers.has("ant_read_terminal_output")).toBe(true);
+    expect(toolHandlers.has("ant_kill_all_terminals")).toBe(true);
+    expect(toolHandlers.has("ant_list_resume_commands")).toBe(true);
+    expect(toolHandlers.has("ant_delete_resume_command")).toBe(true);
   });
 
   describe("ant_list_sessions", () => {
