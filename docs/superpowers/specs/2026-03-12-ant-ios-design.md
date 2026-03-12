@@ -184,7 +184,7 @@ App Launch -> Connect Socket.IO -> join_session for active session
 
 ### REST Endpoints
 - `GET /api/sessions` — List all sessions (supports `?include_archived=true`)
-- `GET /api/sessions/:id` — Get single session (includes cwd for terminals)
+- `GET /api/sessions/:id` — Get single session (all fields including cwd)
 - `POST /api/sessions` — Create session (type: terminal/conversation)
 - `PATCH /api/sessions/:id` — Update (name, workspace_id, archived)
 - `DELETE /api/sessions/:id` — Delete session
@@ -194,13 +194,17 @@ App Launch -> Connect Socket.IO -> join_session for active session
 - `PATCH /api/sessions/:id/messages/:msgId` — Update message
 - `DELETE /api/sessions/:id/messages/:msgId` — Delete message
 - `GET /api/sessions/:id/terminal/output` — Terminal history (supports `?since=<chunkIndex>` — **numeric integer, not timestamp**)
-- `POST /api/sessions/:id/terminal/input` — Terminal input (string body)
+- `POST /api/sessions/:id/terminal/input` — Terminal input (body: `{ "data": "<string>" }`)
+- `GET /api/sessions/:id/terminal/search?q=<query>` — Terminal-specific text search with time-range filtering (v1: optional)
 - `GET /api/search?q=<query>&limit=50` — Global search
-- `GET/POST/PATCH/DELETE /api/workspaces` — Workspace CRUD
+- `GET /api/workspaces` — List workspaces
+- `POST /api/workspaces` — Create workspace
+- `PATCH /api/workspaces/:id` — Update workspace
+- `DELETE /api/workspaces/:id` — Delete workspace
 - `GET /api/health` — Health check
 - `GET /api/resume-commands` — Resume commands list
 - `DELETE /api/resume-commands/:id` — Delete resume command
-- `POST /api/upload` — File upload, multipart/form-data (future — for conversation attachments)
+- `POST /api/upload` — File upload, multipart/form-data (future — for conversation attachments). Accepts images only (JPEG, PNG, GIF, WEBP), 10MB max.
 
 > **Important `since` parameter difference**: Messages use `?since=<ISO8601 timestamp>`. Terminal output uses `?since=<chunk_index integer>`. Do not confuse these.
 
@@ -228,11 +232,11 @@ App Launch -> Connect Socket.IO -> join_session for active session
 **Search results** (`GET /api/search`):
 ```json
 {
-  "sessions": [{ "id": "...", "name": "...", "type": "...", "updated_at": "..." }],
-  "messages": [{ "id": "...", "session_id": "...", "role": "...", "content_snippet": "...", "created_at": "..." }]
+  "sessions": [{ "id": "...", "name": "...", "type": "...", "workspace_id": "..." }],
+  "messages": [{ "id": "...", "session_id": "...", "session_name": "...", "session_type": "...", "role": "...", "content_snippet": "...", "created_at": "..." }]
 }
 ```
-Note: `content_snippet` is a ~100 character window around the match. Highlighting is done client-side by finding the query string within the snippet.
+Note: `content_snippet` is a ~100 character window around the match. Highlighting is done client-side by finding the query string within the snippet. Message results include `session_name` and `session_type` to display context without a second lookup.
 
 ---
 
