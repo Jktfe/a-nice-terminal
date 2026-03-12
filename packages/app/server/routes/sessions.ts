@@ -58,7 +58,7 @@ router.get("/api/sessions/:id", (req, res) => {
 
 // Create session
 router.post("/api/sessions", (req, res) => {
-  const { name, type = "conversation", workspace_id = null } = req.body;
+  const { name, type = "conversation", workspace_id = null, cwd = null } = req.body;
 
   const validTypes = ["terminal", "conversation"];
   if (!validTypes.includes(type)) {
@@ -69,12 +69,14 @@ router.post("/api/sessions", (req, res) => {
 
   const id = nanoid(12);
   const sessionName = name || (type === "terminal" ? "Terminal" : "Conversation");
+  const resolvedCwd = cwd || process.env.ANT_ROOT_DIR || null;
 
-  db.prepare("INSERT INTO sessions (id, name, type, shell, workspace_id) VALUES (?, ?, ?, ?, ?)").run(
+  db.prepare("INSERT INTO sessions (id, name, type, shell, cwd, workspace_id) VALUES (?, ?, ?, ?, ?, ?)").run(
     id,
     sessionName,
     type,
     null,
+    resolvedCwd,
     workspace_id
   );
 
@@ -109,6 +111,16 @@ router.patch("/api/sessions/:id", (req, res) => {
     if (archived && session.type === "terminal") {
       destroyPty(req.params.id);
     }
+  }
+
+  if (req.body.ttl_minutes !== undefined) {
+    const ttl = req.body.ttl_minutes;
+    // null = use global default, 0 = always on, positive integer = custom minutes
+    if (ttl !== null && (typeof ttl !== "number" || ttl < 0 || !Number.isFinite(ttl))) {
+      return res.status(400).json({ error: "ttl_minutes must be null, 0, or a positive number" });
+    }
+    db.prepare("UPDATE sessions SET ttl_minutes = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(ttl, req.params.id);
   }
 
   const updated = db

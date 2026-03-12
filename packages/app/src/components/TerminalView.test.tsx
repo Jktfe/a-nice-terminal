@@ -45,6 +45,10 @@ vi.mock("../store.ts", () => ({
     uploadFile: vi.fn(),
     connected: true,
     sessionHealth: {},
+    sessions: [{ id: "test-session", name: "Test", type: "terminal", ttl_minutes: null }],
+    loadSessions: vi.fn(),
+    terminalFontSize: 14,
+    terminalTheme: "dark",
   }),
   apiFetch: mockApiFetch,
 }));
@@ -66,9 +70,10 @@ describe("TerminalView", () => {
   it("does not steal focus when text is selected", async () => {
     const { container } = render(<TerminalView />);
 
-    // Advance timers to trigger requestAnimationFrame + setTimeout for terminal init
+    // Advance timers to trigger requestAnimationFrame + init polling loop
+    // (20 attempts × 50ms = 1000ms, then last-resort open)
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(200);
+      await vi.advanceTimersByTimeAsync(1200);
     });
 
     expect(mockTerminal.open).toHaveBeenCalled();

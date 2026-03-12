@@ -23,6 +23,7 @@ import {
   addPtyOutputListener,
   resizePty,
   destroyPty,
+  startKillTimer,
 } from "../pty-manager.js";
 import { testDb } from "../__tests__/setup.js";
 
@@ -44,6 +45,7 @@ function createMockSocket() {
 
 function createMockIo() {
   const connectionHandlers: Function[] = [];
+  const rooms = new Map<string, Set<string>>();
   const toRoom = {
     emit: vi.fn(),
   };
@@ -52,7 +54,11 @@ function createMockIo() {
       if (event === "connection") connectionHandlers.push(handler);
     }),
     to: vi.fn(() => toRoom),
+    emit: vi.fn(),
     toRoom,
+    sockets: {
+      adapter: { rooms },
+    },
     _simulateConnection(socket: any) {
       for (const handler of connectionHandlers) handler(socket);
     },
@@ -126,6 +132,17 @@ describe("WebSocket handlers", () => {
     it("ignores empty sessionId", () => {
       mockSocket._trigger("leave_session", { sessionId: "" });
       expect(mockSocket.leave).not.toHaveBeenCalled();
+    });
+
+    it("does not call startKillTimer synchronously (500ms delay)", () => {
+      seedTestSession("t1", "terminal");
+      mockSocket._trigger("join_session", { sessionId: "t1" });
+      vi.clearAllMocks();
+
+      mockSocket._trigger("leave_session", { sessionId: "t1" });
+
+      // Kill timer should NOT be called synchronously — 500ms delay
+      expect(vi.mocked(startKillTimer)).not.toHaveBeenCalled();
     });
   });
 

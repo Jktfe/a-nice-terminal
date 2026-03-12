@@ -2,10 +2,22 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Terminal } from "xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { motion, AnimatePresence } from "motion/react";
-import { RefreshCw, ChevronDown, Clipboard, Check, Edit3, Send, Search, X } from "lucide-react";
+import { RefreshCw, ChevronDown, Clipboard, Check, Edit3, Send, Search, X, Clock } from "lucide-react";
 import { useStore, apiFetch } from "../store.ts";
 import { getTerminalTheme } from "../themes.ts";
 import BridgePicker from "./BridgePicker.tsx";
+
+// Matches terminal-emitted response sequences (DA1, DA2, DSR, cursor position).
+// Used to block xterm.js auto-responses from reaching the PTY via onData.
+// ? and > are optional: bare DA1 is \x1b[c, DA1 with ? is \x1b[?...c, DA2 is \x1b[>...c
+const TERM_RESPONSE_RE = /^\x1b\[\??[>]?[\d;]*c$|^\x1b\[\d+;\d+[Rn]$|^\x1b\[\d*n$/;
+
+// Strip terminal *response* sequences from replayed output.
+// DA1/DA2 end with 'c' (bare, ?, or >), DSR end with 'n', CPR with 'R'.
+// Do NOT strip DEC private mode set/reset (e.g. \x1b[?25h, \x1b[?2004h)
+// as those are legitimate sequences needed for correct rendering.
+const REPLAY_JUNK_RE = /\x1b\[\??[>]?[\d;]*c|\x1b\[\d+;\d+R|\x1b\[\d*n/g;
+const stripReplayJunk = (data: string) => data.replace(REPLAY_JUNK_RE, '');
 
 interface SearchResult {
   index: number;
@@ -14,8 +26,9 @@ interface SearchResult {
 }
 
 export default function TerminalView({ sessionId: sessionIdProp }: { sessionId?: string } = {}) {
-  const { activeSessionId: storeActiveSessionId, socket, uploadFile, connected, sessionHealth, terminalFontSize, terminalTheme } = useStore();
+  const { activeSessionId: storeActiveSessionId, socket, uploadFile, connected, sessionHealth, terminalFontSize, terminalTheme, sessions, loadSessions } = useStore();
   const activeSessionId = sessionIdProp ?? storeActiveSessionId;
+  const activeSession = sessions.find((s) => s.id === activeSessionId);
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -51,10 +64,11 @@ export default function TerminalView({ sessionId: sessionIdProp }: { sessionId?:
       const result = await apiFetch(
         `/api/sessions/${activeSessionId}/terminal/output?since=0`
       );
+      const batch = (result.events as { index: number; data: string }[])
+        .map((e) => stripReplayJunk(e.data))
+        .join("");
       termRef.current.reset();
-      for (const event of result.events as { index: number; data: string }[]) {
-        termRef.current.write(event.data);
-      }
+      termRef.current.write(batch);
     } catch {
       // silently ignore — live socket output continues regardless
     } finally {
@@ -180,13 +194,14 @@ export default function TerminalView({ sessionId: sessionIdProp }: { sessionId?:
     prevConnectedRef.current = connected;
 
     if (connected && wasDisconnected && activeSessionId && termRef.current) {
-      apiFetch(`/api/sessions/${activeSessionId}/terminal/output?since=0&limit=1000`)
+      apiFetch(`/api/sessions/${activeSessionId}/terminal/output?since=0&limit=5000`)
         .then((result) => {
           if (termRef.current && activeSessionId === result.sessionId) {
+            const batch = (result.events as { index: number; data: string }[])
+              .map((e) => stripReplayJunk(e.data))
+              .join("");
             termRef.current.reset();
-            for (const event of result.events as { index: number; data: string }[]) {
-              termRef.current.write(event.data);
-            }
+            termRef.current.write(batch);
           }
         })
         .catch(() => {});
@@ -236,24 +251,30 @@ export default function TerminalView({ sessionId: sessionIdProp }: { sessionId?:
     termRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    // Delay open() until the container has actual dimensions
-    const initTimer = requestAnimationFrame(() => {
-      if (!container.offsetWidth || !container.offsetHeight) {
-        setTimeout(() => {
-          term.open(container);
-          term.focus();
-          try { fitAddon.fit(); } catch {}
-          sendResize();
-          attachViewportScroll();
-        }, 100);
+    // Wait for container to have dimensions before opening xterm.
+    // Poll every 50ms up to 1s — handles CSS animations, sidebar transitions, etc.
+    let initAttempts = 0;
+    let initPollTimer: ReturnType<typeof setTimeout> | null = null;
+    const tryInit = () => {
+      initAttempts++;
+      if (container.offsetWidth && container.offsetHeight) {
+        term.open(container);
+        term.focus();
+        try { fitAddon.fit(); } catch {}
+        sendResize();
+        attachViewportScroll();
+      } else if (initAttempts < 20) {
+        initPollTimer = setTimeout(tryInit, 50);
       } else {
+        // Last resort: open anyway — xterm will use fallback dimensions
         term.open(container);
         term.focus();
         try { fitAddon.fit(); } catch {}
         sendResize();
         attachViewportScroll();
       }
-    });
+    };
+    const initTimer = requestAnimationFrame(tryInit);
 
     // Scroll detection on xterm viewport
     let viewportScrollListener: (() => void) | null = null;
@@ -279,16 +300,10 @@ export default function TerminalView({ sessionId: sessionIdProp }: { sessionId?:
       });
     }
 
-    // Filter xterm's auto-generated DA (Device Attributes) responses — these are
-    // VT100 identification strings that xterm emits in reply to CSI c queries.
-    // Without filtering, the PTY echoes them back to the screen as junk text
-    // (e.g. "1;2c0;276;0c"). The ? is optional per spec, so we match both forms.
-    const DA_RESPONSE_RE = /^\x1b\[\??[\d;]*c$/;
-
     // Send terminal input to server
     term.onData((data) => {
       if (slowEditModeRef.current) return;
-      if (DA_RESPONSE_RE.test(data)) return;
+      if (TERM_RESPONSE_RE.test(data)) return;
       // Track whether a command is running (Enter → running, 2s quiet → idle)
       if (data.includes("\r") || data.includes("\n")) {
         setCommandRunning(true);
@@ -299,7 +314,8 @@ export default function TerminalView({ sessionId: sessionIdProp }: { sessionId?:
       });
     });
 
-    // Receive terminal output
+    // Receive terminal output — buffer chunks and flush on next animation frame
+    // to coalesce rapid output into a single xterm.write() call
     const handleOutput = ({
       sessionId,
       data,
@@ -307,32 +323,29 @@ export default function TerminalView({ sessionId: sessionIdProp }: { sessionId?:
       sessionId: string;
       data: string;
     }) => {
-      if (sessionId === activeSessionId) {
-        outputBufferRef.current.push(data);
-        if (outputFlushRafRef.current === null) {
-          outputFlushRafRef.current = requestAnimationFrame(flushOutputBuffer);
-        }
-        // Reset the "command running" quiet timer on each output chunk
-        if (quietTimerRef.current) clearTimeout(quietTimerRef.current);
-        quietTimerRef.current = setTimeout(() => {
-          setCommandRunning(false);
-        }, 2000);
+      if (sessionId !== activeSessionId) return;
+      outputBufferRef.current.push(data);
+      if (outputFlushRafRef.current === null) {
+        outputFlushRafRef.current = requestAnimationFrame(flushOutputBuffer);
       }
+      // Reset the "command running" quiet timer on each output chunk
+      if (quietTimerRef.current) clearTimeout(quietTimerRef.current);
+      quietTimerRef.current = setTimeout(() => {
+        setCommandRunning(false);
+      }, 2000);
     };
 
     socket.on("terminal_output", handleOutput);
 
-    // Handle resize
-    const handleResize = () => {
-      try { fitAddon.fit(); } catch {}
-      sendResize();
-    };
-
-    window.addEventListener("resize", handleResize);
-
-    // Also observe container size changes
+    // Observe container size changes (debounced to avoid flicker).
+    // This covers window resize, sidebar toggle, split view — everything.
+    let resizeDebounce: ReturnType<typeof setTimeout> | null = null;
     const resizeObserver = new ResizeObserver(() => {
-      try { fitAddon.fit(); } catch {}
+      if (resizeDebounce) clearTimeout(resizeDebounce);
+      resizeDebounce = setTimeout(() => {
+        try { fitAddon.fit(); } catch {}
+        sendResize();
+      }, 50);
     });
     resizeObserver.observe(container);
 
@@ -415,14 +428,15 @@ export default function TerminalView({ sessionId: sessionIdProp }: { sessionId?:
     container.addEventListener("dragover", onDragOver);
     container.addEventListener("drop", onDrop);
 
-    // Fetch existing output
-    apiFetch(`/api/sessions/${activeSessionId}/terminal/output?since=0&limit=1000`)
+    // Fetch existing output — batch all chunks into a single write to avoid flicker
+    apiFetch(`/api/sessions/${activeSessionId}/terminal/output?since=0&limit=5000`)
       .then((result) => {
         if (termRef.current && activeSessionId === result.sessionId) {
+          const batch = (result.events as { index: number; data: string }[])
+            .map((e) => stripReplayJunk(e.data))
+            .join("");
           term.reset();
-          for (const event of result.events as { index: number; data: string }[]) {
-            term.write(event.data);
-          }
+          term.write(batch);
         }
       })
       .catch(() => {
@@ -431,6 +445,7 @@ export default function TerminalView({ sessionId: sessionIdProp }: { sessionId?:
 
     return () => {
       cancelAnimationFrame(initTimer);
+      if (initPollTimer) clearTimeout(initPollTimer);
       if (outputFlushRafRef.current !== null) {
         cancelAnimationFrame(outputFlushRafRef.current);
         outputFlushRafRef.current = null;
@@ -439,12 +454,12 @@ export default function TerminalView({ sessionId: sessionIdProp }: { sessionId?:
         clearTimeout(quietTimerRef.current);
         quietTimerRef.current = null;
       }
-      window.removeEventListener("resize", handleResize);
       container.removeEventListener("keydown", onKeyDown);
       container.removeEventListener("contextmenu", onContextMenu);
       container.removeEventListener("dragover", onDragOver);
       container.removeEventListener("drop", onDrop);
       resizeObserver.disconnect();
+      if (resizeDebounce) clearTimeout(resizeDebounce);
       socket.off("terminal_output", handleOutput);
       viewportScrollListener?.();
       term.dispose();
@@ -518,6 +533,36 @@ export default function TerminalView({ sessionId: sessionIdProp }: { sessionId?:
           <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
           <span className="text-[10px] uppercase tracking-widest">Refresh</span>
         </button>
+        {activeSession?.type === "terminal" && (
+          <div className="relative flex items-center ml-auto">
+            <Clock className="w-3 h-3 text-white/30 absolute left-2 pointer-events-none" />
+            <select
+              value={activeSession.ttl_minutes === null ? "" : String(activeSession.ttl_minutes)}
+              onChange={async (e) => {
+                const val = e.target.value;
+                const ttl = val === "" ? null : Number(val);
+                await apiFetch(`/api/sessions/${activeSession.id}`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ ttl_minutes: ttl }),
+                });
+                loadSessions();
+              }}
+              className="appearance-none pl-6 pr-6 py-1 rounded text-[10px] uppercase tracking-widest font-bold bg-white/5 text-white/50 hover:text-white/80 hover:bg-white/10 border border-white/10 cursor-pointer transition-colors"
+              title="Session keep-alive duration"
+            >
+              <option value="">15m</option>
+              <option value="5">5m</option>
+              <option value="15">15m</option>
+              <option value="30">30m</option>
+              <option value="45">45m</option>
+              <option value="60">1h</option>
+              <option value="120">2h</option>
+              <option value="0">AON</option>
+            </select>
+            <ChevronDown className="w-3 h-3 text-white/30 absolute right-1.5 pointer-events-none" />
+          </div>
+        )}
       </div>
       <div
         className="flex-1 overflow-hidden p-2 relative flex flex-col gap-2"

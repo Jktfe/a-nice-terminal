@@ -6,6 +6,7 @@ export interface DbSession {
   cwd: string | null;
   workspace_id: string | null;
   archived: number;
+  ttl_minutes: number | null;
   created_at: string;
   updated_at: string;
 }

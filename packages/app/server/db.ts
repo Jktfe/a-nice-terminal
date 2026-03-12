@@ -112,5 +112,12 @@ try {
   // Column already exists — ignore
 }
 
+// Migration: add ttl_minutes column to sessions (NULL = global default, 0 = always on)
+try {
+  db.exec(`ALTER TABLE sessions ADD COLUMN ttl_minutes INTEGER DEFAULT NULL`);
+} catch {
+  // Column already exists — ignore
+}
+
 export default db;
 export { DB_PATH };

@@ -6,6 +6,7 @@ import {
   Pencil,
   Check,
   Download,
+  FolderOpen,
 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useStore, apiFetch } from "../store.ts";
@@ -161,6 +162,20 @@ export default function Header() {
             <span className="text-[10px] uppercase tracking-widest text-white/30 bg-white/5 px-2 py-0.5 rounded flex-shrink-0 hidden sm:inline">
               {session.type}
             </span>
+
+            {session.cwd && (
+              <span
+                className="flex items-center gap-1 text-[10px] text-white/25 truncate max-w-[200px] flex-shrink hidden md:flex"
+                title={session.cwd}
+              >
+                <FolderOpen className="w-3 h-3 flex-shrink-0" />
+                {(() => {
+                  const parts = session.cwd.split("/").filter(Boolean);
+                  if (parts.length <= 2) return session.cwd;
+                  return `.../${parts.slice(-2).join("/")}`;
+                })()}
+              </span>
+            )}
 
             <button
               onClick={handleExport}

@@ -3,7 +3,7 @@ import { execFileSync } from "child_process";
 import os from "os";
 import { nanoid } from "nanoid";
 import db from "./db.js";
-import type { DbResumeCommand } from "./types.js";
+import type { DbResumeCommand, DbSession } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -663,11 +663,32 @@ export function startKillTimerWithDuration(sessionId: string, durationMs: number
 }
 
 /**
+ * Get the effective TTL for a session in milliseconds.
+ * Returns null if the session is set to "always on" (ttl_minutes = 0).
+ */
+function getSessionTtlMs(sessionId: string): number | null {
+  try {
+    const session = db.prepare("SELECT ttl_minutes FROM sessions WHERE id = ?").get(sessionId) as { ttl_minutes: number | null } | undefined;
+    if (session?.ttl_minutes === 0) return null; // Always on
+    if (session?.ttl_minutes != null && session.ttl_minutes > 0) return session.ttl_minutes * 60 * 1000;
+  } catch {
+    // Fall through to default
+  }
+  return SESSION_TTL_MS;
+}
+
+/**
  * Called when the last WebSocket client disconnects from a terminal session.
- * Starts the grace-period countdown.
+ * Starts the grace-period countdown. Skips if session is "always on".
  */
 export function startKillTimer(sessionId: string): void {
-  startKillTimerWithDuration(sessionId, SESSION_TTL_MS);
+  const ttlMs = getSessionTtlMs(sessionId);
+  if (ttlMs === null) {
+    // Always on — no kill timer
+    console.log(`[pty-manager] Session ${sessionId} is always-on — skipping kill timer`);
+    return;
+  }
+  startKillTimerWithDuration(sessionId, ttlMs);
 }
 
 /**
@@ -745,18 +766,25 @@ export function reapOrphanedSessions(): void {
 
   for (const tmuxName of tmuxSessions) {
     const sessionId = tmuxName.slice(TMUX_PREFIX.length);
+    const ttlMs = getSessionTtlMs(sessionId);
+
+    if (ttlMs === null) {
+      // Always-on session — never kill
+      console.log(`[pty-manager] Orphan ${sessionId} — always-on, skipping kill timer`);
+      continue;
+    }
 
     if (elapsed === null) {
       // No downtime data (first run or DB cleared) — full TTL
-      console.log(`[pty-manager] Orphan ${sessionId} — no downtime data, full ${SESSION_TTL_MS / 1000}s timer`);
-      startKillTimer(sessionId);
-    } else if (elapsed >= SESSION_TTL_MS) {
+      console.log(`[pty-manager] Orphan ${sessionId} — no downtime data, full ${ttlMs / 1000}s timer`);
+      startKillTimerWithDuration(sessionId, ttlMs);
+    } else if (elapsed >= ttlMs) {
       // Server was down longer than TTL — kill immediately
       console.log(`[pty-manager] Orphan ${sessionId} — server was down ${Math.round(elapsed / 1000)}s (>TTL), destroying`);
       destroyPty(sessionId);
     } else {
       // Server was down less than TTL — use remaining time
-      const remaining = SESSION_TTL_MS - elapsed;
+      const remaining = ttlMs - elapsed;
       console.log(`[pty-manager] Orphan ${sessionId} — ${Math.round(remaining / 1000)}s remaining on kill timer`);
       startKillTimerWithDuration(sessionId, remaining);
     }

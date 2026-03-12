@@ -113,11 +113,11 @@ export function registerSocketHandlers(io: Server) {
       socket.leave(sessionId);
       joinedSessions.delete(sessionId);
 
-      // Check if this was the last client in the room
-      // Use setTimeout(0) to let Socket.IO finish the leave before checking
+      // 500ms delay: gives reconnecting clients time to re-join the room before
+      // we check emptiness. Too short → kill timer starts before re-joining client arrives.
       setTimeout(() => {
         checkRoomEmpty(io, sessionId);
-      }, 0);
+      }, 500);
     });
 
     socket.on(
@@ -361,10 +361,10 @@ export function registerSocketHandlers(io: Server) {
     socket.on("disconnect", () => {
       // For each session this socket had joined, check if the room is now empty
       for (const sessionId of joinedSessions) {
-        // Small delay to let Socket.IO clean up the room membership
+        // 500ms: match leave_session delay — gives reconnecting clients time to re-join
         setTimeout(() => {
           checkRoomEmpty(io, sessionId);
-        }, 100);
+        }, 500);
       }
       joinedSessions.clear();
     });

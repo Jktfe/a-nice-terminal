@@ -52,8 +52,33 @@ export default function MessageList({ sessionId, messages: messagesProp }: { ses
     return () => document.removeEventListener("selectionchange", handleSelectionChange);
   }, []);
 
-  // Auto-scroll on new messages only when user is already at bottom AND not selecting
+  // Scroll to bottom when messages first appear (page load / session switch)
+  const hasScrolledInitial = useRef(false);
   useEffect(() => {
+    if (messages.length > 0 && !hasScrolledInitial.current) {
+      hasScrolledInitial.current = true;
+      requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView({ behavior: "instant" });
+      });
+    }
+    if (messages.length === 0) {
+      hasScrolledInitial.current = false;
+    }
+  }, [messages]);
+
+  // Auto-scroll when new messages arrive or content updates (streaming)
+  const prevMessageCount = useRef(messages.length);
+  useEffect(() => {
+    const isNewMessage = messages.length > prevMessageCount.current;
+    prevMessageCount.current = messages.length;
+
+    // Always scroll for new messages (unless user is selecting text)
+    if (isNewMessage && !isSelectingRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      return;
+    }
+
+    // For streaming updates (same count, content changed), only scroll if near bottom
     if (isNearBottomRef.current && !isSelectingRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }

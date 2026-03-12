@@ -569,6 +569,28 @@ function SessionItem({
       <span className="text-xs font-medium truncate flex-1">
         {session.name}
       </span>
+      {session.type === "terminal" && (
+        <span
+          className={`flex items-center justify-center min-w-[22px] h-[16px] px-1 rounded-full text-[9px] font-bold tabular-nums ${
+            session.ttl_minutes === 0
+              ? "bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/30"
+              : "bg-white/5 text-white/30"
+          }`}
+          title={
+            session.ttl_minutes === 0
+              ? "Always on — never auto-killed"
+              : session.ttl_minutes != null
+                ? `Auto-kill after ${session.ttl_minutes} min`
+                : "Auto-kill after 15 min (default)"
+          }
+        >
+          {session.ttl_minutes === 0
+            ? "AON"
+            : session.ttl_minutes != null
+              ? session.ttl_minutes
+              : 15}
+        </span>
+      )}
       {unreadCount > 0 && (
         <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 text-[10px] font-bold text-white">
           {unreadCount}

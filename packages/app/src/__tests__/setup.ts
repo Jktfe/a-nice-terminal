@@ -93,5 +93,6 @@ vi.mock("lucide-react", async () => {
     Bot: createIcon("Bot"),
     Sparkles: createIcon("Sparkles"),
     Info: createIcon("Info"),
+    Clock: createIcon("Clock"),
   };
 });

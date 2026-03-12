@@ -14,6 +14,7 @@ testDb.exec(`
     cwd TEXT DEFAULT NULL,
     workspace_id TEXT DEFAULT NULL REFERENCES workspaces(id) ON DELETE SET NULL,
     archived INTEGER NOT NULL DEFAULT 0,
+    ttl_minutes INTEGER DEFAULT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
