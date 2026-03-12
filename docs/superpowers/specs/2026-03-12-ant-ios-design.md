@@ -34,7 +34,7 @@ A native iOS app for ANT (A Nice Terminal) — a full-featured mobile client tha
 | UI | SwiftUI + Observation framework |
 | Navigation | NavigationStack with typed destinations |
 | State | `@Observable` classes (SessionStore, MessageStore, TerminalStore, SearchStore) |
-| Networking | URLSession for REST, custom Socket.IO client over NWWebSocket |
+| Networking | URLSession for REST, Socket.IO-Client-Swift (v16.x) for WebSocket |
 | Offline cache | SwiftData |
 | Auth | API key stored in Keychain |
 | Connectivity | NWPathMonitor for online/offline detection |
@@ -42,7 +42,7 @@ A native iOS app for ANT (A Nice Terminal) — a full-featured mobile client tha
 
 ### Key Decisions
 - **No third-party UI libraries** — pure SwiftUI for full native feel
-- **Lightweight Socket.IO client**: custom Swift implementation (packet protocol over WebSocket) rather than Socket.IO-Client-Swift pod
+- **Socket.IO client**: Use `Socket.IO-Client-Swift` (v16.x) for v1 — handles Engine.IO transport negotiation, heartbeats, and reconnection out of the box. Consider a lightweight custom client post-v1 if binary size becomes a concern.
 - **No xterm.js / WebView** — terminal output rendered as `AttributedString` in ScrollView with monospace font
 - **Offline-first**: every API response cached to SwiftData. Reads hit cache first, then sync. Writes queue when offline.
 
@@ -115,6 +115,7 @@ Settings tab:
 - **Nav bar**: Back chevron, type icon, session name, subtitle, ellipsis menu (rename, export, archive, delete)
 - **Message list**: ScrollViewReader with auto-scroll to bottom. Human bubbles right-aligned (indigo), agent bubbles left-aligned (dark card + bot avatar). Markdown rendering via AttributedString. Copy button on long press.
 - **Input area**: Rounded text field, send button (indigo). Supports multi-line. Attachment button for file uploads later.
+- **Streaming messages**: When a `stream_chunk` event arrives, the app creates or updates a `CachedMessage` with `status: "streaming"`. The bubble renders with a pulsing cursor at the end. Content is accumulated chunk-by-chunk into the message body. On `message_updated` with `status: "complete"`, the cursor disappears and the final content is cached. If the app goes offline mid-stream, the partial content is preserved in cache and marked as `status: "incomplete"` — on reconnect, the full message is fetched via REST.
 
 ### 5.3 Terminal View
 - **Nav bar**: Same pattern, green gradient icon, "Active" status in green
@@ -128,9 +129,10 @@ Settings tab:
 - **Tapping result**: Pushes to Conversation or Terminal view
 
 ### 5.5 Settings
-- **Server section**: URL field, API key (Keychain-backed), connection test button
+- **Server section**: Client-local configuration — server URL field, API key (Keychain-backed), connection test button. These are stored locally on the device, not fetched from the server's `/api/settings` endpoint.
 - **Appearance**: Terminal font size slider (dark mode only for v1)
 - **Cache**: "Clear offline data" button, cache size display
+- **Troubleshooting**: "Kill all terminals" button (calls `DELETE /api/sessions/terminals/all`)
 - **About**: Version, link to ANT repo, open-source notice
 
 ---
@@ -152,12 +154,14 @@ App Launch -> Connect Socket.IO -> join_session for active session
 | Read messages | Cached messages | Fetch `?since=lastTimestamp` |
 | Read terminal output | Cached output events | Fetch `?since=lastChunkIndex` |
 | Send message | Queued in PendingAction table | Flushed in order |
-| Terminal input | Queued in PendingAction table | Flushed in order |
+| Terminal input | **Disabled** — command bar shows "Reconnecting..." | Resumes live input |
 | Create/rename/archive session | Queued | Flushed |
+
+> **Note**: Terminal input is NOT queued offline. Commands are context-dependent and the session may have been reaped during disconnection. The command bar is disabled with a clear "Terminal unavailable — reconnecting" state. Only idempotent REST operations (session CRUD, message send) are queued.
 
 ### SwiftData Models
 - `CachedSession` — id, name, type, shell, cwd, workspaceId, archived, updatedAt
-- `CachedMessage` — id, sessionId, role, content, format, status, createdAt
+- `CachedMessage` — id, sessionId, role, content, format, status, metadata (raw JSON string, optional), createdAt
 - `CachedTerminalChunk` — id, sessionId, chunkIndex, data, createdAt
 - `PendingAction` — id, endpoint, method, body, createdAt (FIFO queue)
 
@@ -167,29 +171,68 @@ App Launch -> Connect Socket.IO -> join_session for active session
 3. App foregrounded again: reconnect, delta-sync all active sessions
 4. Server unreachable: show OfflineBanner, switch to cache reads + write queuing
 
+### Error Handling & Retry Strategy
+- **HTTP 4xx**: Surface error to user (toast/alert). Do not retry. If a queued PendingAction fails with 4xx on flush, discard it and notify the user.
+- **HTTP 5xx**: Retry up to 3 times with exponential backoff (1s, 2s, 4s). If still failing, surface error.
+- **Socket.IO reconnection**: Handled by Socket.IO-Client-Swift — default exponential backoff with max 5 attempts, then surface "Connection lost" banner.
+- **Queued action flush failures**: If a session was deleted server-side while offline, the queued action returns 404. Discard the action and remove the cached session.
+- **Stale terminal sessions**: On reconnect, `check_health` confirms terminal is alive. If reaped, show "Session expired" state and offer to create a new one.
+
 ---
 
 ## 7. API Surface Used
 
 ### REST Endpoints
-- `GET/POST/PATCH/DELETE /api/sessions` — Session CRUD
-- `GET/POST/PATCH/DELETE /api/sessions/:id/messages` — Message CRUD
-- `GET /api/sessions/:id/terminal/output` — Terminal history
-- `POST /api/sessions/:id/terminal/input` — Terminal input
-- `POST /api/sessions/:id/terminal/resize` — Resize (not needed for simplified view)
-- `GET /api/search?q=<query>` — Global search
+- `GET /api/sessions` — List all sessions (supports `?include_archived=true`)
+- `GET /api/sessions/:id` — Get single session (includes cwd for terminals)
+- `POST /api/sessions` — Create session (type: terminal/conversation)
+- `PATCH /api/sessions/:id` — Update (name, workspace_id, archived)
+- `DELETE /api/sessions/:id` — Delete session
+- `DELETE /api/sessions/terminals/all` — Kill all terminal sessions (Settings troubleshooting)
+- `GET /api/sessions/:id/messages` — List messages (supports `?since=<ISO8601>&limit=N`)
+- `POST /api/sessions/:id/messages` — Send message (role, content, format, status)
+- `PATCH /api/sessions/:id/messages/:msgId` — Update message
+- `DELETE /api/sessions/:id/messages/:msgId` — Delete message
+- `GET /api/sessions/:id/terminal/output` — Terminal history (supports `?since=<chunkIndex>` — **numeric integer, not timestamp**)
+- `POST /api/sessions/:id/terminal/input` — Terminal input (string body)
+- `GET /api/search?q=<query>&limit=50` — Global search
 - `GET/POST/PATCH/DELETE /api/workspaces` — Workspace CRUD
 - `GET /api/health` — Health check
 - `GET /api/resume-commands` — Resume commands list
+- `DELETE /api/resume-commands/:id` — Delete resume command
+- `POST /api/upload` — File upload, multipart/form-data (future — for conversation attachments)
+
+> **Important `since` parameter difference**: Messages use `?since=<ISO8601 timestamp>`. Terminal output uses `?since=<chunk_index integer>`. Do not confuse these.
 
 ### WebSocket Events
-- `join_session` / `leave_session` — Subscribe/unsubscribe
-- `terminal_input` — Send input
-- `terminal_output` — Receive output chunks
-- `message_created` / `message_updated` / `message_deleted` — Message sync
-- `stream_chunk` — Streaming message content
-- `session_list_changed` — Session updates
-- `session_health` — Terminal alive status
+
+| Event | Direction | Purpose |
+|-------|-----------|---------|
+| `join_session` | client -> server | Subscribe to session updates |
+| `leave_session` | client -> server | Unsubscribe from session |
+| `terminal_input` | client -> server | Send keyboard input to terminal |
+| `terminal_output` | server -> client | Terminal output chunks |
+| `message_created` | server -> client | New message broadcast |
+| `message_updated` | server -> client | Message edited/completed |
+| `message_deleted` | server -> client | Message removed |
+| `stream_chunk` | server -> client | Streaming message content (`{ sessionId, messageId, role, format, content }`) |
+| `session_list_changed` | server -> client | Sessions/workspaces changed |
+| `session_health` | server -> client | Terminal tmux session alive status |
+| `check_health` | client -> server | Request health check |
+| `resume_command_captured` | server -> client | New resume command detected |
+
+> **Message creation**: The iOS app uses REST (`POST /api/sessions/:id/messages`) for sending messages, not WebSocket. The WebSocket is receive-only for messages.
+
+### Key Response Shapes
+
+**Search results** (`GET /api/search`):
+```json
+{
+  "sessions": [{ "id": "...", "name": "...", "type": "...", "updated_at": "..." }],
+  "messages": [{ "id": "...", "session_id": "...", "role": "...", "content_snippet": "...", "created_at": "..." }]
+}
+```
+Note: `content_snippet` is a ~100 character window around the match. Highlighting is done client-side by finding the query string within the snippet.
 
 ---
 
@@ -198,7 +241,11 @@ App Launch -> Connect Socket.IO -> join_session for active session
 ### v1: Tailscale + API Key
 - Phone on Tailscale network, hits ANT server at Tailscale IP
 - API key stored in iOS Keychain via `KeychainHelper`
-- Sent as `Authorization: Bearer <key>` header
+- Sent as `Authorization: Bearer <key>` header (server also accepts `x-api-key` header)
+
+### Development Setup
+- For local development without Tailscale (both devices on same WiFi), set `ANT_TAILSCALE_ONLY=false` on the server or add the device IP to `ANT_ALLOWLIST`
+- The server's `tailscaleOnly` middleware restricts to 100.64.0.0/10 by default
 
 ### Future: Public Access
 - Auth layer designed to be swappable (protocol-based `AuthProvider`)
