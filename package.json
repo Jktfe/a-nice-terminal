@@ -10,8 +10,8 @@
   "scripts": {
     "preflight": "node scripts/preflight.mjs",
     "postinstall": "node scripts/preflight.mjs",
-    "dev": "node scripts/preflight.mjs && cd packages/app && node --env-file=../../.env --import tsx server/index.ts",
-    "start": "node scripts/preflight.mjs && cd packages/app && node --import tsx server/index.ts",
+    "dev": "node scripts/preflight.mjs && concurrently \"pnpm --filter @ant/app dev\" \"pnpm --filter @ant/app dev:chat\"",
+    "start": "node scripts/preflight.mjs && concurrently \"pnpm --filter @ant/app start\" \"pnpm --filter @ant/app start:chat\"",
     "dev:website": "cd packages/website && npx vite dev",
     "dev:mcp": "cd packages/mcp && npx tsx src/index.ts",
     "build": "cd packages/app && npx vite build",
@@ -21,6 +21,7 @@
     "test:mcp": "cd packages/mcp && npx vitest run"
   },
   "devDependencies": {
+    "concurrently": "^9.2.1",
     "node-gyp": "^12.2.0",
     "vitest": "^3.2.3"
   },
@@ -28,6 +29,10 @@
     "node-pty": "^1.1.0"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["better-sqlite3", "esbuild", "node-pty"]
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild",
+      "node-pty"
+    ]
   }
 }

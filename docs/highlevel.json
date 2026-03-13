@@ -1,0 +1,118 @@
+{
+  "version": "1.2.0",
+  "metadata": {
+    "projectName": "ANT structure",
+    "exportedAt": "2026-03-12T19:21:33.872Z",
+    "nodeCount": 8,
+    "edgeCount": 14
+  },
+  "dataPoints": [],
+  "components": [
+    {
+      "id": "86b7fe95-eb8c-4538-b7ee-8ece4e813453",
+      "label": "Terminal on Mac Mini",
+      "displays": [],
+      "captures": [],
+      "wireframeRef": "Can be killed by ANT Server or if connection to ANT server Lost, persists until restart or reaped after 48 hours of disconnection from server, otherwise persists as long as connected to an ANT server"
+    },
+    {
+      "id": "a6f76bd2-cf74-410a-bfc5-644b4f076545",
+      "label": "ANT Server",
+      "displays": [],
+      "captures": []
+    },
+    {
+      "id": "4f30bd95-26dd-46af-880f-bb8259bb8545",
+      "label": "ANT interface",
+      "displays": [],
+      "captures": []
+    }
+  ],
+  "transforms": [],
+  "dataFlow": [
+    {
+      "from": "86b7fe95-eb8c-4538-b7ee-8ece4e813453",
+      "to": "a6f76bd2-cf74-410a-bfc5-644b4f076545",
+      "edgeType": "flows-to"
+    },
+    {
+      "from": "a6f76bd2-cf74-410a-bfc5-644b4f076545",
+      "to": "86b7fe95-eb8c-4538-b7ee-8ece4e813453",
+      "edgeType": "flows-to"
+    },
+    {
+      "from": "bb2c726b-3fdc-4543-941f-5f7fb7e70fd8",
+      "to": "766393f1-6d21-4b74-b78b-24dc4575417d",
+      "edgeType": "flows-to"
+    },
+    {
+      "from": "766393f1-6d21-4b74-b78b-24dc4575417d",
+      "to": "bb2c726b-3fdc-4543-941f-5f7fb7e70fd8",
+      "edgeType": "flows-to"
+    },
+    {
+      "from": "4f30bd95-26dd-46af-880f-bb8259bb8545",
+      "to": "a6f76bd2-cf74-410a-bfc5-644b4f076545",
+      "edgeType": "flows-to"
+    },
+    {
+      "from": "a6f76bd2-cf74-410a-bfc5-644b4f076545",
+      "to": "4f30bd95-26dd-46af-880f-bb8259bb8545",
+      "edgeType": "flows-to"
+    },
+    {
+      "from": "4f30bd95-26dd-46af-880f-bb8259bb8545",
+      "to": "63b49624-22a4-4546-8e56-229c10be8997",
+      "edgeType": "flows-to"
+    },
+    {
+      "from": "63b49624-22a4-4546-8e56-229c10be8997",
+      "to": "4f30bd95-26dd-46af-880f-bb8259bb8545",
+      "edgeType": "flows-to"
+    },
+    {
+      "from": "766393f1-6d21-4b74-b78b-24dc4575417d",
+      "to": "a6f76bd2-cf74-410a-bfc5-644b4f076545",
+      "edgeType": "flows-to"
+    },
+    {
+      "from": "a6f76bd2-cf74-410a-bfc5-644b4f076545",
+      "to": "766393f1-6d21-4b74-b78b-24dc4575417d",
+      "edgeType": "flows-to"
+    },
+    {
+      "from": "86b7fe95-eb8c-4538-b7ee-8ece4e813453",
+      "to": "8f6d81a2-bf36-45eb-a080-72944ebfbe55",
+      "edgeType": "flows-to"
+    },
+    {
+      "from": "8f6d81a2-bf36-45eb-a080-72944ebfbe55",
+      "to": "86b7fe95-eb8c-4538-b7ee-8ece4e813453",
+      "edgeType": "flows-to"
+    },
+    {
+      "from": "0df850f8-7a53-469e-8607-67c688a8be7f",
+      "to": "766393f1-6d21-4b74-b78b-24dc4575417d",
+      "edgeType": "flows-to"
+    },
+    {
+      "from": "766393f1-6d21-4b74-b78b-24dc4575417d",
+      "to": "0df850f8-7a53-469e-8607-67c688a8be7f",
+      "edgeType": "flows-to"
+    }
+  ],
+  "tables": [
+    {
+      "id": "766393f1-6d21-4b74-b78b-24dc4575417d",
+      "label": "MCP into Terminal",
+      "sourceType": "api",
+      "columns": []
+    }
+  ],
+  "validation": {
+    "mode": "design",
+    "isValid": false,
+    "errorCount": 0,
+    "warningCount": 0
+  }
+}

@@ -2,7 +2,7 @@ import { Router } from "express";
 import { nanoid } from "nanoid";
 import db from "../db.js";
 import type { DbSession } from "../types.js";
-import { stripAnsi } from "../pty-manager.js";
+import { stripAnsi } from "../types.js";
 import { normalizeRole, VALID_FORMATS } from "../constants.js";
 
 const VALID_STATUSES = ["pending", "streaming", "complete"] as const;

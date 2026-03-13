@@ -143,8 +143,20 @@ async function start() {
   process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
   process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
+  // Global error handler
+  app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error("[server] Unhandled error:", err);
+    res.status(500).json({ 
+      error: err.message || "Internal Server Error",
+      stack: process.env.NODE_ENV !== 'production' ? err.stack : undefined 
+    });
+  });
+
   httpServer.listen(PORT, HOST, () => {
     console.log(`\n  ANT running at http://${HOST}:${PORT}\n`);
+
+    // After restart, nudge all reconnecting clients to reload their state
+    setTimeout(() => io.emit("session_list_changed"), 1000);
   });
 }
 

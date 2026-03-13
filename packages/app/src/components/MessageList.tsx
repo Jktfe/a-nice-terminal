@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { Copy, Check, User, Sparkles, Info, ChevronDown } from "lucide-react";
+import { Copy, Check, User, Sparkles, Info, ChevronDown, Zap } from "lucide-react";
 import { useStore, type Message } from "../store.ts";
 import { stripAnsi } from "../utils/stripAnsi.ts";
 
@@ -67,13 +67,11 @@ export default function MessageList({ sessionId, messages: messagesProp }: { ses
     const isNewMessage = messages.length > prevMessageCount.current;
     prevMessageCount.current = messages.length;
 
-    // Always scroll for new messages (unless user is selecting text)
     if (isNewMessage && !isSelectingRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
       return;
     }
 
-    // For streaming updates (same count, content changed), only scroll if near bottom
     if (isNearBottomRef.current && !isSelectingRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
@@ -89,7 +87,7 @@ export default function MessageList({ sessionId, messages: messagesProp }: { ses
         ref={scrollContainerRef}
         className="h-full overflow-y-auto px-6 py-4"
       >
-        <AnimatePresence mode="popLayout">
+        <AnimatePresence initial={false}>
           {messages.map((msg) => (
             <MessageBubble key={msg.id} message={msg} />
           ))}
@@ -127,6 +125,35 @@ export default function MessageList({ sessionId, messages: messagesProp }: { ses
 const remarkPluginsArr = [remarkGfm];
 const rehypePluginsArr = [rehypeHighlight];
 
+function CodeBlock({ children, className }: { children: any; className?: string }) {
+  const [copied, setCopied] = useState(false);
+  const code = String(children).replace(/\n$/, "");
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div className="relative group my-4">
+      <div className="absolute right-2 top-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          onClick={handleCopy}
+          className="p-1.5 rounded-md bg-white/5 hover:bg-white/10 text-white/40 hover:text-white/80 transition-colors"
+          title="Copy code"
+        >
+          {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+        </button>
+      </div>
+      <code className={`${className} block overflow-x-auto rounded-lg bg-black/40 p-4 border border-white/5`}>
+        {children}
+      </code>
+    </div>
+  );
+}
+
 const markdownComponents = {
   code: ({ className, children, ...props }: any) => {
     const isBlock = className?.includes("language-");
@@ -146,11 +173,56 @@ const markdownComponents = {
   pre: ({ children }: any) => <>{children}</>,
 };
 
+function DtssToken({ payload }: { payload: any }) {
+  const { setActiveSession } = useStore();
+
+  const handleResume = () => {
+    setActiveSession(payload.sessionId);
+  };
+
+  return (
+    <div className="my-2 p-4 rounded-xl bg-[#16161a] border border-emerald-500/30 shadow-lg shadow-emerald-500/5 flex flex-col gap-3 max-w-full sm:max-w-[320px]">
+      <div className="flex items-center gap-2">
+        <Zap className="w-4 h-4 text-emerald-400" />
+        <span className="text-[11px] font-bold tracking-widest text-emerald-400 uppercase">
+          DTSS State Token
+        </span>
+      </div>
+      
+      <div className="flex flex-col gap-1">
+        <div className="text-sm font-semibold text-white/90 truncate">
+          {payload.sessionName}
+        </div>
+        <div className="text-[10px] font-mono text-white/40 leading-relaxed">
+          TIMESTAMP: {new Date(payload.timestamp).toLocaleString()}
+          <br />
+          CURSOR: {payload.cursor?.x}, {payload.cursor?.y}
+          <br />
+          STATE: SNAPSHOT READY
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between pt-2 border-t border-white/5">
+        <span className="text-[9px] text-white/20 uppercase tracking-tighter">
+          Expires in 48h
+        </span>
+        <button
+          onClick={handleResume}
+          className="px-3 py-1 rounded-full bg-emerald-500 text-[#0b0b0e] text-[11px] font-bold hover:bg-emerald-400 transition-all active:scale-95 shadow-lg shadow-emerald-500/20"
+        >
+          Resume
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function MessageBubble({ message }: { message: Message }) {
   const isHuman = message.role === "human";
   const isSystem = message.role === "system";
   const isAgent = !isHuman && !isSystem;
   const isStreaming = message.status === "streaming";
+  const isDTSS = (message as any).metadata?.type === "dtss_token";
 
   const Icon = isHuman ? User : isSystem ? Info : Sparkles;
 
@@ -159,19 +231,16 @@ function MessageBubble({ message }: { message: Message }) {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
-      className={`group relative flex gap-3 mb-4 ${
-        isHuman ? "flex-row-reverse" : ""
-      } ${isSystem ? "justify-center" : ""}`}
+      className={`group relative flex gap-3 mb-4 ${isHuman ? "flex-row-reverse" : ""} ${isSystem ? "justify-center" : ""}`}
     >
       {!isSystem && (
         <div className="flex flex-col items-center gap-1 mt-0.5">
-          {/* Avatar with breathing animation for agent */}
           <div className="relative">
             {isAgent ? (
               <motion.div
                 className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-blue-500/15 text-blue-400 ring-1 ring-blue-500/30"
-                animate={{ scale: [1, 1.05, 1] }}
-                transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                animate={{ scale: isStreaming ? [1, 1.05, 1] : 1 }}
+                transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
               >
                 <Icon className="w-3.5 h-3.5" />
               </motion.div>
@@ -180,7 +249,6 @@ function MessageBubble({ message }: { message: Message }) {
                 <Icon className="w-3.5 h-3.5" />
               </div>
             )}
-            {/* Streaming "online" dot */}
             {isStreaming && isAgent && (
               <motion.span
                 className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 border border-[var(--color-bg)]"
@@ -197,111 +265,37 @@ function MessageBubble({ message }: { message: Message }) {
         </div>
       )}
 
-      <div
-        className={`relative max-w-[75%] rounded-xl px-4 py-3 text-sm leading-relaxed ${
-          isSystem
-            ? "bg-white/5 text-white/50 text-center text-xs max-w-[50%]"
-            : isHuman
-              ? "bg-emerald-500/10 text-white/90 border border-emerald-500/10"
-              : "bg-blue-500/5 text-white/80 border border-blue-500/8"
-        }`}
-      >
-        {/* Bubble tail */}
+      <div className={`flex flex-col min-w-0 max-w-[85%] ${isHuman ? "items-end" : "items-start"}`}>
         {!isSystem && (
-          <span
-            className={`hidden md:block absolute top-3 w-0 h-0 ${
-              isHuman
-                ? "right-[-6px] border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-l-[6px] border-l-emerald-500/10"
-                : "left-[-6px] border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-r-[6px] border-r-blue-500/8"
-            }`}
-          />
+          <span className="text-[10px] font-bold uppercase tracking-wider text-white/10 mb-1">
+            {message.role}
+          </span>
         )}
-        {message.status === "streaming" && !message.content ? (
-          <StreamingIndicator />
+
+        {isDTSS ? (
+          <DtssToken payload={(message as any).metadata} />
         ) : (
-          <div className="prose prose-invert prose-sm max-w-none">
-            {message.metadata?.images && (
-              <div className="flex flex-wrap gap-2 mb-3">
-                {message.metadata.images.map((url: string, i: number) => (
-                  <img
-                    key={i}
-                    src={url}
-                    alt="attachment"
-                    className="max-w-full max-h-64 rounded-lg object-contain bg-black/20"
-                    onClick={() => window.open(url, "_blank")}
-                  />
-                ))}
-              </div>
-            )}
-            <ReactMarkdown
-              remarkPlugins={remarkPluginsArr}
-              rehypePlugins={rehypePluginsArr}
-              components={markdownComponents}
-            >
-              {stripAnsi(message.content)}
-            </ReactMarkdown>
-            {message.status === "streaming" && message.content && (
-              <span className="inline-block w-[2px] h-[1em] bg-emerald-400 ml-0.5 align-text-bottom animate-pulse" />
-            )}
+          <div
+            className={`relative px-4 py-2.5 text-sm leading-relaxed rounded-2xl ${
+              isHuman
+                ? "bg-emerald-600 text-white selection:bg-white/30"
+                : isSystem
+                ? "bg-white/5 text-white/40 italic"
+                : "bg-white/5 text-white/90 border border-white/5 selection:bg-emerald-500/30"
+            }`}
+          >
+            <div className="markdown-body">
+              <ReactMarkdown
+                remarkPlugins={remarkPluginsArr}
+                rehypePlugins={rehypePluginsArr}
+                components={markdownComponents}
+              >
+                {stripAnsi(message.content)}
+              </ReactMarkdown>
+            </div>
           </div>
         )}
       </div>
     </motion.div>
-  );
-}
-
-function CodeBlock({
-  children,
-  className,
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  const [copied, setCopied] = useState(false);
-  const codeRef = useRef<HTMLElement>(null);
-
-  const copy = async () => {
-    if (codeRef.current) {
-      await navigator.clipboard.writeText(codeRef.current.textContent || "");
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
-  return (
-    <div className="relative group my-2">
-      <pre className="bg-black/40 rounded-lg p-3 overflow-x-auto">
-        <code ref={codeRef} className={className}>{children}</code>
-      </pre>
-      <button
-        onClick={copy}
-        className="absolute top-2 right-2 p-1.5 bg-white/5 rounded-md text-white/30 hover:text-white/70 opacity-0 group-hover:opacity-100 transition-all"
-      >
-        {copied ? (
-          <Check className="w-3.5 h-3.5 text-emerald-400" />
-        ) : (
-          <Copy className="w-3.5 h-3.5" />
-        )}
-      </button>
-    </div>
-  );
-}
-
-function StreamingIndicator() {
-  return (
-    <div className="flex gap-1 py-1">
-      {[0, 1, 2].map((i) => (
-        <motion.span
-          key={i}
-          className="w-1.5 h-1.5 bg-blue-400 rounded-full"
-          animate={{ opacity: [0.3, 1, 0.3] }}
-          transition={{
-            duration: 1,
-            repeat: Infinity,
-            delay: i * 0.2,
-          }}
-        />
-      ))}
-    </div>
   );
 }

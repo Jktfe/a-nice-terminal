@@ -37,3 +37,11 @@ export interface DbResumeCommand {
   root_path: string | null;
   captured_at: string;
 }
+
+/**
+ * Strip ANSI escape sequences from a string.
+ */
+export function stripAnsi(str: string): string {
+  if (typeof str !== "string") return "";
+  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\x1b\].*?\x07/g, "");
+}

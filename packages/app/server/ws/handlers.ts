@@ -10,12 +10,12 @@ import {
   hasTmuxSession,
   resizePty,
   onResumeCommand,
+  onCwdUpdate,
   startKillTimer,
   cancelKillTimer,
-  stripAnsi,
 } from "../pty-manager.js";
 import db from "../db.js";
-import type { DbSession, DbMessage } from "../types.js";
+import { stripAnsi, type DbSession, type DbMessage } from "../types.js";
 import { normalizeRole, VALID_FORMATS, SAFE_TEXT_LIMIT } from "../constants.js";
 
 type StreamChunkPayload = {
@@ -44,6 +44,11 @@ export function registerSocketHandlers(io: Server) {
   // Broadcast newly captured resume commands to all clients
   onResumeCommand((cmd) => {
     io.emit("resume_command_captured", cmd);
+  });
+
+  // Reload sidebar when a terminal's CWD changes
+  onCwdUpdate(() => {
+    io.emit("session_list_changed");
   });
 
   io.on("connection", (socket: Socket) => {

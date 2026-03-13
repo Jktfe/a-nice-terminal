@@ -12,6 +12,8 @@ import {
   resizePty,
   addPtyOutputListener,
   searchTerminalOutput,
+  captureTmuxPane,
+  getTmuxCursor,
 } from "../pty-manager.js";
 import { SAFE_TEXT_LIMIT } from "../constants.js";
 
@@ -243,20 +245,66 @@ router.get("/api/sessions/:sessionId/terminal/output", (req, res) => {
 
   const sinceRaw = req.query.since;
   const limitRaw = req.query.limit;
-  const since = Number(sinceRaw);
-  const limit = Number(limitRaw);
+  const since = sinceRaw !== undefined ? Number(sinceRaw) : undefined;
+  const limit = limitRaw !== undefined ? Number(limitRaw) : undefined;
 
   const events = getTerminalOutput(req.params.sessionId, {
-    since: Number.isFinite(since) ? since : 0,
-    limit: Number.isFinite(limit) ? limit : undefined,
+    since: since !== undefined && Number.isFinite(since) ? since : undefined,
+    limit: limit !== undefined && Number.isFinite(limit) ? limit : undefined,
   });
   const cursor = getTerminalOutputCursor(req.params.sessionId);
   res.json({
     sessionId: req.params.sessionId,
-    since: Number.isFinite(since) ? since : 0,
+    since: events.length > 0 ? events[0].index : 0,
     cursor,
     events,
   });
+});
+
+// GET /api/sessions/:id/terminal/state
+// Returns a full terminal snapshot (grid + scrollback) and cursor position.
+router.get("/api/sessions/:sessionId/terminal/state", (req, res) => {
+  const session = db
+    .prepare("SELECT * FROM sessions WHERE id = ?")
+    .get(req.params.sessionId) as DbSession | undefined;
+
+  if (!session) return res.status(404).json({ error: "Session not found" });
+  if (session.type !== "terminal") {
+    return res.status(409).json({ error: "Only terminal sessions have a state snapshot" });
+  }
+
+  const format = req.query.format === "ansi" ? "ansi" : "plain";
+  
+  try {
+    const state = captureTmuxPane(req.params.sessionId, format);
+    const cursor = getTmuxCursor(req.params.sessionId);
+
+    res.json({
+      sessionId: req.params.sessionId,
+      format,
+      state,
+      cursor,
+    });
+  } catch (err: any) {
+    console.error(`[sessions] Failed to get terminal state for ${req.params.sessionId}:`, err.message);
+    res.status(500).json({ error: "Failed to capture terminal state" });
+  }
+});
+
+// POST /api/sessions/:id/presence
+// Broadcast agent presence/state changes
+router.post("/api/sessions/:sessionId/presence", (req, res) => {
+  const { state, agentId = "agent" } = req.body;
+  const io = req.app.get("io");
+  if (io) {
+    io.to(req.params.sessionId).emit("agent_state_update", {
+      sessionId: req.params.sessionId,
+      agentId,
+      state,
+      lastUpdated: new Date().toISOString(),
+    });
+  }
+  res.json({ success: true });
 });
 
 router.get("/api/sessions/:sessionId/terminal/search", (req, res) => {

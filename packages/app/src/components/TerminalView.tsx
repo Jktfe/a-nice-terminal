@@ -194,17 +194,15 @@ export default function TerminalView({ sessionId: sessionIdProp }: { sessionId?:
     prevConnectedRef.current = connected;
 
     if (connected && wasDisconnected && activeSessionId && termRef.current) {
-      apiFetch(`/api/sessions/${activeSessionId}/terminal/output?since=0&limit=5000`)
+      setRefreshing(true);
+      apiFetch(`/api/sessions/${activeSessionId}/terminal/state?format=ansi`)
         .then((result) => {
           if (termRef.current && activeSessionId === result.sessionId) {
-            const batch = (result.events as { index: number; data: string }[])
-              .map((e) => stripReplayJunk(e.data))
-              .join("");
             termRef.current.reset();
-            termRef.current.write(batch);
+            termRef.current.write(result.state);
           }
         })
-        .catch(() => {});
+        .finally(() => setRefreshing(false));
     }
   }, [connected, activeSessionId]);
 
@@ -444,20 +442,30 @@ export default function TerminalView({ sessionId: sessionIdProp }: { sessionId?:
     container.addEventListener("dragover", onDragOver);
     container.addEventListener("drop", onDrop);
 
-    // Fetch existing output — batch all chunks into a single write to avoid flicker
-    apiFetch(`/api/sessions/${activeSessionId}/terminal/output?since=0&limit=5000`)
+    // Fetch existing state — get a perfect snapshot of the terminal grid + scrollback
+    setRefreshing(true);
+    apiFetch(`/api/sessions/${activeSessionId}/terminal/state?format=ansi`)
       .then((result) => {
         if (termRef.current && activeSessionId === result.sessionId) {
-          const batch = (result.events as { index: number; data: string }[])
-            .map((e) => stripReplayJunk(e.data))
-            .join("");
           term.reset();
-          term.write(batch);
+          term.write(result.state);
         }
       })
       .catch(() => {
-        // Silently ignore, live output will still work
-      });
+        // Fallback: try legacy output chunks if state capture fails
+        apiFetch(`/api/sessions/${activeSessionId}/terminal/output?limit=5000`)
+          .then((result) => {
+            if (termRef.current && activeSessionId === result.sessionId) {
+              const batch = (result.events as { index: number; data: string }[])
+                .map((e: any) => stripReplayJunk(e.data))
+                .join("");
+              term.reset();
+              term.write(batch);
+            }
+          })
+          .catch(() => {});
+      })
+      .finally(() => setRefreshing(false));
 
     return () => {
       cancelAnimationFrame(initTimer);

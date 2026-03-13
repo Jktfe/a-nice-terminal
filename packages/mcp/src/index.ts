@@ -416,6 +416,69 @@ server.tool(
   }
 );
 
+// Get full terminal state (snapshot)
+server.tool(
+  "ant_get_terminal_state",
+  "Get a full text snapshot (grid + scrollback) of a terminal session. Best for agents to 'see' the current terminal state.",
+  {
+    sessionId: z.string().describe("Session ID"),
+    format: z.enum(["plain", "ansi"]).optional().default("plain").describe("Output format: 'plain' for clean text, 'ansi' for color/formatting"),
+  },
+  async ({ sessionId, format }) => {
+    try {
+      const result = await api(`/api/sessions/${sessionId}/terminal/state?format=${format}`);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (error) {
+      const details = makeErrorPayload(error);
+      if (details) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                { status: details.status, error: details.payload },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+      throw error;
+    }
+  }
+);
+
+// Update agent presence/state
+server.tool(
+  "ant_update_presence",
+  "Update the agent's presence state (thinking, working, idle, wrapped) for a session.",
+  {
+    sessionId: z.string().describe("Session ID"),
+    state: z.enum(["idle", "thinking", "working", "wrapped"]).describe("The current state of the agent"),
+    agentId: z.string().optional().default("agent").describe("Unique ID for the agent"),
+  },
+  async ({ sessionId, state, agentId }) => {
+    try {
+      // This will be handled by a new POST endpoint in the sessions router
+      await api(`/api/sessions/${sessionId}/presence`, {
+        method: "POST",
+        body: JSON.stringify({ state, agentId }),
+      });
+      return {
+        content: [{ type: "text", text: `Presence updated to ${state}` }],
+      };
+    } catch (error) {
+      const details = makeErrorPayload(error);
+      return {
+        content: [{ type: "text", text: `Failed to update presence: ${details?.payload || "Unknown error"}` }],
+      };
+    }
+  }
+);
+
 // Kill all terminals
 server.tool(
   "ant_kill_all_terminals",

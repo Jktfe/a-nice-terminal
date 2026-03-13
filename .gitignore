@@ -13,3 +13,4 @@ bun.lock
 package-lock.json
 .svelte-kit/
 .vercel/
+.claude/

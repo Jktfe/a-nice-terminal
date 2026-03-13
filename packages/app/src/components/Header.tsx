@@ -5,6 +5,7 @@ import {
   Check,
   Download,
   FolderOpen,
+  Camera,
 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useStore, apiFetch } from "../store.ts";
@@ -22,6 +23,25 @@ function downloadAsFile(filename: string, content: string, mimeType: string) {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+function AgentStatus({ sessionId }: { sessionId: string }) {
+  const presence = useStore((s) => s.agentPresence[sessionId]);
+  if (!presence || presence.state === "idle") return null;
+
+  return (
+    <div className="flex items-center gap-2 px-2 py-0.5 rounded-full bg-white/5 border border-white/10 ml-2">
+      <div className={`w-1.5 h-1.5 rounded-full ${
+        presence.state === "thinking" ? "bg-amber-400 animate-pulse" :
+        presence.state === "working" ? "bg-emerald-400 animate-bounce" :
+        "bg-blue-400"
+      }`} />
+      <span className="text-[9px] uppercase tracking-tighter text-white/50 font-medium">
+        {presence.state}
+      </span>
+    </div>
+  );
+}
+
 
 export default function Header() {
   const { sessions, activeSessionId, connected, sidebarOpen, toggleSidebar, renameSession } =
@@ -62,17 +82,49 @@ export default function Header() {
         downloadAsFile(`${safeName}.md`, md, "text/markdown");
       } else {
         const result = await apiFetch(
-          `/api/sessions/${activeSessionId}/terminal/output?since=0`
+          `/api/sessions/${activeSessionId}/terminal/state?format=ansi`
         );
-        const rawText = (result.events as { data: string }[])
-          .map((e) => e.data)
-          .join("");
-        const plainText = stripAnsi(rawText);
+        const plainText = stripAnsi(result.state);
         const safeName = session.name.replace(/[^a-zA-Z0-9-_ ]/g, "").trim() || "terminal";
         downloadAsFile(`${safeName}.txt`, plainText, "text/plain");
       }
     } catch (err) {
       console.error("Export failed:", err);
+    }
+  }, [session, activeSessionId]);
+
+  const handleSnapshot = useCallback(async () => {
+    if (!session || !activeSessionId || session.type !== "terminal") return;
+
+    try {
+      const result = await apiFetch(`/api/sessions/${activeSessionId}/terminal/state?format=ansi`);
+      if (!result.state) {
+        throw new Error("Terminal session is not currently running.");
+      }
+      const tokenPayload = {
+        type: "dtss_token",
+        sessionId: activeSessionId,
+        sessionName: session.name,
+        state: result.state,
+        cursor: result.cursor,
+        timestamp: new Date().toISOString(),
+      };
+
+      await apiFetch(`/api/sessions/${activeSessionId}/messages`, {
+        method: "POST",
+        body: JSON.stringify({
+          role: "agent",
+          content: `Generated DTSS State Token for **${session.name}**.\n\n\`\`\`json\n${JSON.stringify({
+            session: session.name,
+            cwd: session.cwd,
+            timestamp: tokenPayload.timestamp,
+            proc: "tmux, node"
+          }, null, 2)}\n\`\`\``,
+          metadata: tokenPayload
+        }),
+      });
+    } catch (err) {
+      console.error("Snapshot failed:", err);
     }
   }, [session, activeSessionId]);
 
@@ -137,9 +189,21 @@ export default function Header() {
               </button>
             )}
 
+            {session.type === "terminal" && (
+              <button
+                onClick={handleSnapshot}
+                className="p-1.5 text-white/20 hover:text-emerald-400 transition-colors flex-shrink-0"
+                title="Create DTSS State Token (Snapshot)"
+              >
+                <Camera className="w-3.5 h-3.5" />
+              </button>
+            )}
+
             <span className="text-[10px] uppercase tracking-widest text-white/30 bg-white/5 px-2 py-0.5 rounded flex-shrink-0 hidden sm:inline">
               {session.type}
             </span>
+
+            <AgentStatus sessionId={session.id} />
 
             {session.cwd && (
               <span
@@ -149,8 +213,8 @@ export default function Header() {
                 <FolderOpen className="w-3 h-3 flex-shrink-0" />
                 {(() => {
                   const parts = session.cwd.split("/").filter(Boolean);
-                  if (parts.length <= 2) return session.cwd;
-                  return `.../${parts.slice(-2).join("/")}`;
+                  if (parts.length <= 3) return session.cwd;
+                  return `.../${parts.slice(-3).join("/")}`;
                 })()}
               </span>
             )}

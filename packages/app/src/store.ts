@@ -43,6 +43,15 @@ export interface Message {
   created_at: string;
 }
 
+export type AgentState = "idle" | "thinking" | "working" | "wrapped";
+
+export interface AgentPresence {
+  sessionId: string;
+  agentId: string;
+  state: AgentState;
+  lastUpdated: string;
+}
+
 interface AppState {
   sessions: Session[];
   workspaces: Workspace[];
@@ -50,7 +59,9 @@ interface AppState {
   messages: Message[];
   resumeCommands: ResumeCommand[];
   socket: Socket | null;
+  chatSocket: Socket | null;
   connected: boolean;
+  chatConnected: boolean;
   sidebarOpen: boolean;
   settingsOpen: boolean;
   error: string | null;
@@ -63,6 +74,7 @@ interface AppState {
   splitMode: boolean;
   splitSessionId: string | null;
   splitMessages: Message[];
+  agentPresence: Record<string, AgentPresence>;
 
   // Actions
   init: () => void;
@@ -100,9 +112,11 @@ interface AppState {
   toggleSplit: () => void;
   setSplitSession: (id: string) => void;
   loadSplitMessages: (sessionId: string) => Promise<void>;
+  setAgentState: (sessionId: string, agentId: string, state: AgentState) => void;
 }
 
 const API_KEY = (import.meta.env.VITE_ANT_API_KEY as string | undefined)?.trim();
+const CHAT_URL = import.meta.env.VITE_ANT_CHAT_URL || `${window.location.protocol}//${window.location.hostname}:6464`;
 const ACTIVE_SESSION_KEY = "ant-active-session-id";
 const PINNED_SESSIONS_KEY = "ant-pinned-session-ids";
 const TERMINAL_FONT_SIZE_KEY = "ant-terminal-font-size";
@@ -127,84 +141,37 @@ function buildHeaders(base?: HeadersInit): Headers {
     headers.set("Content-Type", "application/json");
   }
   if (API_KEY) {
-    headers.set("X-API-Key", API_KEY);
+    headers.set("Authorization", `Bearer ${API_KEY}`);
+    headers.set("x-api-key", API_KEY);
   }
   return headers;
 }
 
-export async function apiFetch(input: string, options: RequestInit = {}): Promise<any> {
-  const response = await fetch(input, {
-    ...options,
-    headers: buildHeaders(options.headers),
-  });
+export async function apiFetch(url: string, options: RequestInit = {}): Promise<any> {
+  const isChat = url.includes("/messages") || url.includes("/presence");
+  const baseUrl = isChat ? CHAT_URL : "";
+  const fullUrl = url.startsWith("http") ? url : `${baseUrl}${url}`;
 
+  const headers = buildHeaders(options.headers);
+  const response = await fetch(fullUrl, { ...options, headers });
   if (!response.ok) {
     const body = await response.text().catch(() => "");
     throw new Error(body || `Request failed with status ${response.status}`);
   }
-
   if (response.status === 204) return null;
   return response.json();
 }
 
-function messageWithDefault(message: Partial<Message>): Message {
-  return {
-    id: message.id || "",
-    session_id: message.session_id || "",
-    role: message.role || "agent",
-    content: message.content || "",
-    format: message.format || "markdown",
-    status: message.status || "complete",
-    created_at: message.created_at || new Date().toISOString(),
-  };
-}
-
-function appendStreamChunk(state: AppState, payload: {
-  sessionId: string;
-  messageId: string;
-  role?: Message["role"];
-  format?: string;
-  content: string;
-}) {
-  const streamState = state.messages;
-  if (payload.sessionId !== state.activeSessionId) return streamState;
-
-  const found = streamState.find((m) => m.id === payload.messageId);
-  if (found) {
-    return streamState.map((message) => {
-      if (message.id !== payload.messageId) return message;
-      return {
-        ...message,
-        content: `${message.content}${payload.content}`,
-        role: payload.role || message.role,
-        format: payload.format || message.format,
-        status: "streaming" as const,
-      };
-    });
-  }
-
-  const fallback = messageWithDefault({
-    id: payload.messageId,
-    session_id: payload.sessionId,
-    role: payload.role,
-    format: payload.format || "markdown",
-    content: payload.content,
-    status: "streaming" as const,
-  });
-
-  return [...streamState, fallback];
-}
-
-let sessionListDebounce: ReturnType<typeof setTimeout> | null = null;
-
 export const useStore = create<AppState>((set, get) => ({
   sessions: [],
   workspaces: [],
-  activeSessionId: null,
+  activeSessionId: localStorage.getItem(ACTIVE_SESSION_KEY),
   messages: [],
   resumeCommands: [],
   socket: null,
+  chatSocket: null,
   connected: false,
+  chatConnected: false,
   sidebarOpen: true,
   settingsOpen: false,
   error: null,
@@ -217,18 +184,21 @@ export const useStore = create<AppState>((set, get) => ({
   splitMode: false,
   splitSessionId: null,
   splitMessages: [],
+  agentPresence: {},
 
   setError: (message) => set({ error: message }),
   clearError: () => set({ error: null }),
 
   reconnect: async () => {
-    const { socket, activeSessionId } = get();
+    const { socket, chatSocket, activeSessionId } = get();
     await get().loadSessions();
     await get().loadWorkspaces();
     await get().loadResumeCommands();
 
-    if (activeSessionId && socket) {
-      socket.emit("join_session", { sessionId: activeSessionId });
+    if (activeSessionId) {
+      if (socket) socket.emit("join_session", { sessionId: activeSessionId });
+      if (chatSocket) chatSocket.emit("join_session", { sessionId: activeSessionId });
+      
       const session = get().sessions.find((s) => s.id === activeSessionId);
       if (session?.type === "conversation") {
         await get().loadMessages(activeSessionId);
@@ -237,10 +207,14 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   init: () => {
-    // Prevent double-init (React StrictMode)
     if (get().socket) return;
 
     const socket = io({
+      auth: API_KEY ? { apiKey: API_KEY } : undefined,
+      query: API_KEY ? { apiKey: API_KEY } : undefined,
+    });
+
+    const chatSocket = io(CHAT_URL, {
       auth: API_KEY ? { apiKey: API_KEY } : undefined,
       query: API_KEY ? { apiKey: API_KEY } : undefined,
     });
@@ -250,15 +224,27 @@ export const useStore = create<AppState>((set, get) => ({
       set({ connected: true, error: null });
       if (isReconnect) {
         get().reconnect();
+      } else {
+        const { activeSessionId } = get();
+        if (activeSessionId) socket.emit("join_session", { sessionId: activeSessionId });
       }
     });
 
-    socket.on("disconnect", () => {
-      set({ connected: false });
+    chatSocket.on("connect", () => {
+      set({ chatConnected: true });
+      const { activeSessionId } = get();
+      if (activeSessionId) chatSocket.emit("join_session", { sessionId: activeSessionId });
     });
 
+    socket.on("disconnect", () => set({ connected: false }));
+    chatSocket.on("disconnect", () => set({ chatConnected: false }));
+
     socket.on("connect_error", (error) => {
-      set({ connected: false, error: error.message || "Socket connection failed" });
+      set({ connected: false, error: error.message || "Terminal socket failed" });
+    });
+
+    chatSocket.on("connect_error", (error) => {
+      console.error("Chat socket error:", error);
     });
 
     socket.on("error", (error: { message?: string }) => {
@@ -267,12 +253,11 @@ export const useStore = create<AppState>((set, get) => ({
       }
     });
 
-    socket.on("message_created", (message: Message) => {
+    chatSocket.on("message_created", (message: Message) => {
       set((s) => {
         const isActive = message.session_id === s.activeSessionId;
         const isSplit = message.session_id === s.splitSessionId;
 
-        // Unread tracking + browser notification for non-active sessions
         let unreadCounts = s.unreadCounts;
         if (!isActive) {
           unreadCounts = {
@@ -280,7 +265,6 @@ export const useStore = create<AppState>((set, get) => ({
             [message.session_id]: (s.unreadCounts[message.session_id] || 0) + 1,
           };
 
-          // Browser notification when tab is hidden
           if (document.hidden && Notification.permission === "granted") {
             const session = s.sessions.find((ses) => ses.id === message.session_id);
             const body = message.content.length > 100
@@ -290,262 +274,104 @@ export const useStore = create<AppState>((set, get) => ({
           }
         }
 
-        // Append to split messages if this message is for the split session
         let splitMessages = s.splitMessages;
         if (isSplit && !splitMessages.some((m) => m.id === message.id)) {
           splitMessages = [...splitMessages, message];
         }
 
-        // Append to main messages if active
-        let messages = s.messages;
-        if (isActive && !messages.some((m) => m.id === message.id)) {
-          messages = [...messages, message];
+        const agentPresence = { ...s.agentPresence };
+        if (message.role === "agent") {
+           delete agentPresence[message.session_id];
         }
 
-        return { messages, unreadCounts, splitMessages };
-      });
-    });
-
-    socket.on("message_updated", (message: Message) => {
-      set((s) => {
-        if (message.session_id !== s.activeSessionId) return s;
         return {
-          messages: s.messages.some((m) => m.id === message.id)
-            ? s.messages.map((current) =>
-                current.id === message.id ? message : current
-              )
-            : [...s.messages, message],
+          messages: isActive ? [...s.messages, message] : s.messages,
+          unreadCounts,
+          splitMessages,
+          agentPresence
         };
       });
     });
 
-    socket.on("stream_chunk", (payload: {
-      sessionId: string;
-      messageId: string;
-      role?: Message["role"];
-      format?: string;
-      content: string;
-    }) => {
-      set((s) => ({ messages: appendStreamChunk(s, payload) }));
-    });
-
-    socket.on("message_deleted", ({ id }: { id: string }) => {
-      set((s) => ({
-        messages: s.messages.filter((m) => m.id !== id),
-      }));
-    });
-
-    socket.on("resume_command_captured", (cmd: ResumeCommand) => {
+    chatSocket.on("message_updated", (message: Message) => {
       set((s) => {
-        if (s.resumeCommands.some((c) => c.id === cmd.id)) return s;
-        return { resumeCommands: [cmd, ...s.resumeCommands] };
+        const isActive = message.session_id === s.activeSessionId;
+        const isSplit = message.session_id === s.splitSessionId;
+        const updatedMessages = s.messages.map((m) => (m.id === message.id ? message : m));
+        const updatedSplitMessages = s.splitMessages.map((m) => (m.id === message.id ? message : m));
+        return {
+          messages: isActive ? updatedMessages : s.messages,
+          splitMessages: isSplit ? updatedSplitMessages : s.splitMessages,
+        };
       });
     });
 
-    // Reload sidebar when another client creates/renames/deletes a session or workspace
-    socket.on("session_list_changed", () => {
-      if (sessionListDebounce) clearTimeout(sessionListDebounce);
-      sessionListDebounce = setTimeout(() => {
-        get().loadSessions();
-        get().loadWorkspaces();
-      }, 500);
-    });
-
-    // Track whether each terminal's tmux session is still alive
-    socket.on("session_health", ({ sessionId, alive }: { sessionId: string; alive: boolean }) => {
+    chatSocket.on("message_deleted", ({ id, sessionId }) => {
       set((s) => ({
-        sessionHealth: { ...s.sessionHealth, [sessionId]: alive },
+        messages: sessionId === s.activeSessionId ? s.messages.filter((m) => m.id !== id) : s.messages,
+        splitMessages: sessionId === s.splitSessionId ? s.splitMessages.filter((m) => m.id !== id) : s.splitMessages,
       }));
     });
 
-    set({ socket });
+    chatSocket.on("stream_chunk", ({ sessionId, messageId, content }) => {
+      set((s) => {
+        const isActive = sessionId === s.activeSessionId;
+        const isSplit = sessionId === s.splitSessionId;
 
-    // Request browser notification permission (silent if already decided)
-    if ("Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission();
-    }
+        const updateChunks = (msgs: Message[]): Message[] => {
+          const existing = msgs.find((m) => m.id === messageId);
+          if (existing) {
+            return msgs.map((m) =>
+              m.id === messageId ? { ...m, content: m.content + content, status: "streaming" as const } : m
+            );
+          }
+          return [
+            ...msgs,
+            {
+              id: messageId,
+              session_id: sessionId,
+              role: "agent" as const,
+              content,
+              format: "markdown",
+              status: "streaming",
+              created_at: new Date().toISOString(),
+            },
+          ];
+        };
 
-    get().loadWorkspaces();
-    get().loadSessions().then(() => {
-      const savedId = localStorage.getItem(ACTIVE_SESSION_KEY);
-      const sessions = get().sessions;
-      if (savedId && sessions.some((s) => s.id === savedId)) {
-        get().setActiveSession(savedId);
-      } else {
-        localStorage.removeItem(ACTIVE_SESSION_KEY);
-      }
+        return {
+          messages: isActive ? updateChunks(s.messages) : s.messages,
+          splitMessages: isSplit ? updateChunks(s.splitMessages) : s.splitMessages,
+        };
+      });
     });
-    get().loadResumeCommands();
 
-    // Polling fallback in case a session_list_changed event is missed
-    setInterval(() => {
-      get().loadSessions();
-    }, 30_000);
+    socket.on("session_list_changed", () => get().loadSessions());
+
+    socket.on("session_health", ({ sessionId, isAlive }) => {
+      set((s) => ({
+        sessionHealth: { ...s.sessionHealth, [sessionId]: isAlive },
+      }));
+    });
+
+    chatSocket.on("agent_state_update", (presence: AgentPresence) => {
+      set((s) => ({
+        agentPresence: {
+          ...s.agentPresence,
+          [presence.sessionId]: presence,
+        },
+      }));
+    });
+
+    set({ socket, chatSocket });
   },
 
   loadSessions: async () => {
     try {
-      const { showArchived } = get();
-      const url = showArchived ? "/api/sessions?include_archived=true" : "/api/sessions";
-      const sessions = await apiFetch(url);
+      const sessions = await apiFetch("/api/sessions?include_archived=true");
       set({ sessions });
-    } catch (error) {
-      set({ error: error instanceof Error ? error.message : "Failed to load sessions" });
-    }
-  },
-
-  createSession: async (type, name, workspaceId) => {
-    try {
-      const session = await apiFetch("/api/sessions", {
-        method: "POST",
-        body: JSON.stringify({ type, name, workspace_id: workspaceId ?? null }),
-      });
-      set((s) => ({ sessions: [session, ...s.sessions] }));
-      get().setActiveSession(session.id);
-      return session;
-    } catch (error) {
-      set({ error: error instanceof Error ? error.message : "Failed to create session" });
-      return null;
-    }
-  },
-
-  deleteSession: async (id) => {
-    try {
-      await apiFetch(`/api/sessions/${id}`, { method: "DELETE" });
-      set((s) => {
-        const sessions = s.sessions.filter((ses) => ses.id !== id);
-        const activeSessionId =
-          s.activeSessionId === id
-            ? sessions[0]?.id || null
-            : s.activeSessionId;
-        if (activeSessionId) {
-          localStorage.setItem(ACTIVE_SESSION_KEY, activeSessionId);
-        } else {
-          localStorage.removeItem(ACTIVE_SESSION_KEY);
-        }
-        return { sessions, activeSessionId };
-      });
-
-      const newActive = get().activeSessionId;
-      if (newActive) get().setActiveSession(newActive);
-    } catch (error) {
-      set({ error: error instanceof Error ? error.message : "Failed to delete session" });
-    }
-  },
-
-  renameSession: async (id, name) => {
-    try {
-      await apiFetch(`/api/sessions/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ name }),
-      });
-      set((s) => ({
-        sessions: s.sessions.map((ses) =>
-          ses.id === id ? { ...ses, name } : ses
-        ),
-      }));
-    } catch (error) {
-      set({ error: error instanceof Error ? error.message : "Failed to rename session" });
-    }
-  },
-
-  setActiveSession: (id) => {
-    const { socket, activeSessionId, unreadCounts } = get();
-
-    if (activeSessionId && socket) {
-      socket.emit("leave_session", { sessionId: activeSessionId });
-    }
-
-    const newUnread = { ...unreadCounts };
-    delete newUnread[id];
-    set({ activeSessionId: id, messages: [], unreadCounts: newUnread });
-    localStorage.setItem(ACTIVE_SESSION_KEY, id);
-
-    if (socket) {
-      socket.emit("join_session", { sessionId: id });
-    }
-
-    const session = get().sessions.find((s) => s.id === id);
-    if (session?.type === "conversation") {
-      get().loadMessages(id);
-    }
-    // Immediately check if the terminal's tmux session is still alive
-    if (session?.type === "terminal" && socket) {
-      socket.emit("check_health", { sessionId: id });
-    }
-  },
-
-  loadMessages: async (sessionId) => {
-    try {
-      const session = get().sessions.find((item) => item.id === sessionId);
-      if (session?.type !== "conversation") {
-        set({ messages: [] });
-        return;
-      }
-
-      const messages = await apiFetch(`/api/sessions/${sessionId}/messages`);
-      set({ messages });
-    } catch (error) {
-      set({
-        messages: [],
-        error: error instanceof Error ? error.message : "Failed to load messages",
-      });
-    }
-  },
-
-  sendMessage: async (content, role = "human", metadata = null) => {
-    const { activeSessionId, clearError } = get();
-    if (!activeSessionId) return;
-
-    const trimmed = content.trim();
-    if (!trimmed && !metadata) return;
-
-    try {
-      await apiFetch(`/api/sessions/${activeSessionId}/messages`, {
-        method: "POST",
-        body: JSON.stringify({ role, content: trimmed, metadata }),
-      });
-      clearError();
-    } catch (error) {
-      set({ error: error instanceof Error ? error.message : "Failed to send message" });
-    }
-  },
-
-  uploadFile: async (file) => {
-    const formData = new FormData();
-    formData.append("file", file);
-
-    const response = await fetch("/api/upload", {
-      method: "POST",
-      body: formData,
-      headers: API_KEY ? { "X-API-Key": API_KEY } : {},
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(errorText || "Upload failed");
-    }
-
-    return response.json();
-  },
-
-  loadResumeCommands: async () => {
-    try {
-      const commands = await apiFetch("/api/resume-commands");
-      set({ resumeCommands: commands });
-    } catch {
-      // Non-critical — silently ignore
-    }
-  },
-
-  deleteResumeCommand: async (id) => {
-    try {
-      await apiFetch(`/api/resume-commands/${id}`, { method: "DELETE" });
-      set((s) => ({
-        resumeCommands: s.resumeCommands.filter((c) => c.id !== id),
-      }));
-    } catch (error) {
-      set({ error: error instanceof Error ? error.message : "Failed to delete resume command" });
+    } catch (err: any) {
+      set({ error: err.message });
     }
   },
 
@@ -553,21 +379,21 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const workspaces = await apiFetch("/api/workspaces");
       set({ workspaces });
-    } catch {
-      // Non-critical — silently ignore
+    } catch (err: any) {
+      set({ error: err.message });
     }
   },
 
   createWorkspace: async (name) => {
     try {
-      const workspace = await apiFetch("/api/workspaces", {
+      const ws = await apiFetch("/api/workspaces", {
         method: "POST",
         body: JSON.stringify({ name }),
       });
-      set((s) => ({ workspaces: [workspace, ...s.workspaces] }));
-      return workspace;
-    } catch (error) {
-      set({ error: error instanceof Error ? error.message : "Failed to create workspace" });
+      await get().loadWorkspaces();
+      return ws;
+    } catch (err: any) {
+      set({ error: err.message });
       return null;
     }
   },
@@ -578,23 +404,18 @@ export const useStore = create<AppState>((set, get) => ({
         method: "PATCH",
         body: JSON.stringify({ name }),
       });
-      set((s) => ({
-        workspaces: s.workspaces.map((w) => (w.id === id ? { ...w, name } : w)),
-      }));
-    } catch (error) {
-      set({ error: error instanceof Error ? error.message : "Failed to rename workspace" });
+      await get().loadWorkspaces();
+    } catch (err: any) {
+      set({ error: err.message });
     }
   },
 
   deleteWorkspace: async (id) => {
     try {
       await apiFetch(`/api/workspaces/${id}`, { method: "DELETE" });
-      set((s) => ({
-        workspaces: s.workspaces.filter((w) => w.id !== id),
-      }));
-      await get().loadSessions();
-    } catch (error) {
-      set({ error: error instanceof Error ? error.message : "Failed to delete workspace" });
+      await get().loadWorkspaces();
+    } catch (err: any) {
+      set({ error: err.message });
     }
   },
 
@@ -604,35 +425,178 @@ export const useStore = create<AppState>((set, get) => ({
         method: "PATCH",
         body: JSON.stringify({ workspace_id: workspaceId }),
       });
-      set((s) => ({
-        sessions: s.sessions.map((ses) =>
-          ses.id === sessionId ? { ...ses, workspace_id: workspaceId } : ses
-        ),
-      }));
-    } catch (error) {
-      set({ error: error instanceof Error ? error.message : "Failed to move session" });
+      await get().loadSessions();
+    } catch (err: any) {
+      set({ error: err.message });
     }
+  },
+
+  createSession: async (type, name, workspaceId) => {
+    try {
+      const session = await apiFetch("/api/sessions", {
+        method: "POST",
+        body: JSON.stringify({ type, name, workspace_id: workspaceId }),
+      });
+      await get().loadSessions();
+      set({ activeSessionId: session.id });
+      localStorage.setItem(ACTIVE_SESSION_KEY, session.id);
+      return session;
+    } catch (err: any) {
+      set({ error: err.message });
+      return null;
+    }
+  },
+
+  deleteSession: async (id) => {
+    try {
+      await apiFetch(`/api/sessions/${id}`, { method: "DELETE" });
+      const { activeSessionId, sessions } = get();
+      const updatedSessions = sessions.filter((s) => s.id !== id);
+      set({ sessions: updatedSessions });
+      if (activeSessionId === id) {
+        const next = updatedSessions.find((s) => s.archived === 0)?.id || null;
+        set({ activeSessionId: next });
+        if (next) localStorage.setItem(ACTIVE_SESSION_KEY, next);
+        else localStorage.removeItem(ACTIVE_SESSION_KEY);
+      }
+    } catch (err: any) {
+      set({ error: err.message });
+    }
+  },
+
+  renameSession: async (id, name) => {
+    try {
+      await apiFetch(`/api/sessions/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      });
+      await get().loadSessions();
+    } catch (err: any) {
+      set({ error: err.message });
+    }
+  },
+
+  archiveSession: async (id) => {
+    try {
+      await apiFetch(`/api/sessions/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ archived: true }),
+      });
+      await get().loadSessions();
+    } catch (err: any) {
+      set({ error: err.message });
+    }
+  },
+
+  restoreSession: async (id) => {
+    try {
+      await apiFetch(`/api/sessions/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ archived: false }),
+      });
+      await get().loadSessions();
+    } catch (err: any) {
+      set({ error: err.message });
+    }
+  },
+
+  toggleShowArchived: () => set((s) => ({ showArchived: !s.showArchived })),
+
+  setActiveSession: (id) => {
+    const { socket, chatSocket, activeSessionId } = get();
+    if (activeSessionId === id) return;
+
+    if (activeSessionId) {
+      if (socket) socket.emit("leave_session", { sessionId: activeSessionId });
+      if (chatSocket) chatSocket.emit("leave_session", { sessionId: activeSessionId });
+    }
+
+    set({ activeSessionId: id, messages: [] });
+    localStorage.setItem(ACTIVE_SESSION_KEY, id);
+
+    if (socket) socket.emit("join_session", { sessionId: id });
+    if (chatSocket) chatSocket.emit("join_session", { sessionId: id });
+
+    const session = get().sessions.find((s) => s.id === id);
+    if (session?.type === "conversation") {
+      get().loadMessages(id);
+    }
+  },
+
+  loadMessages: async (sessionId) => {
+    try {
+      const messages = await apiFetch(`/api/sessions/${sessionId}/messages`);
+      if (get().activeSessionId === sessionId) {
+        set({ messages });
+      }
+    } catch (err: any) {
+      set({ error: err.message });
+    }
+  },
+
+  sendMessage: async (content, role = "human", metadata) => {
+    const { activeSessionId } = get();
+    if (!activeSessionId) return;
+    return get().sendMessageToSession(activeSessionId, content, role);
   },
 
   sendMessageToSession: async (sessionId, content, role = "human") => {
     try {
       await apiFetch(`/api/sessions/${sessionId}/messages`, {
         method: "POST",
-        body: JSON.stringify({ role, content }),
+        body: JSON.stringify({ content, role }),
       });
-    } catch (error) {
-      set({ error: error instanceof Error ? error.message : "Failed to send message" });
+    } catch (err: any) {
+      set({ error: err.message });
+    }
+  },
+
+  uploadFile: async (file) => {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const headers = new Headers();
+    if (API_KEY) {
+      headers.set("Authorization", `Bearer ${API_KEY}`);
+      headers.set("x-api-key", API_KEY);
+    }
+
+    const response = await fetch("/api/upload", {
+      method: "POST",
+      body: formData,
+      headers,
+    });
+
+    if (!response.ok) {
+      throw new Error("File upload failed");
+    }
+
+    return response.json();
+  },
+
+  loadResumeCommands: async () => {
+    try {
+      const commands = await apiFetch("/api/resume-commands");
+      set({ resumeCommands: commands });
+    } catch (err: any) {
+      set({ error: err.message });
+    }
+  },
+
+  deleteResumeCommand: async (id) => {
+    try {
+      await apiFetch(`/api/resume-commands/${id}`, { method: "DELETE" });
+      await get().loadResumeCommands();
+    } catch (err: any) {
+      set({ error: err.message });
     }
   },
 
   togglePin: (sessionId) => {
     set((s) => {
       const next = new Set(s.pinnedSessionIds);
-      if (next.has(sessionId)) {
-        next.delete(sessionId);
-      } else {
-        next.add(sessionId);
-      }
+      if (next.has(sessionId)) next.delete(sessionId);
+      else next.add(sessionId);
       savePinnedSessions(next);
       return { pinnedSessionIds: next };
     });
@@ -651,56 +615,13 @@ export const useStore = create<AppState>((set, get) => ({
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   toggleSettings: () => set((s) => ({ settingsOpen: !s.settingsOpen })),
 
-  archiveSession: async (id) => {
-    try {
-      await apiFetch(`/api/sessions/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ archived: 1 }),
-      });
-      set((s) => {
-        const sessions = s.showArchived
-          ? s.sessions.map((ses) => (ses.id === id ? { ...ses, archived: 1 } : ses))
-          : s.sessions.filter((ses) => ses.id !== id);
-        const activeSessionId =
-          s.activeSessionId === id
-            ? sessions.find((ses) => !ses.archived)?.id || null
-            : s.activeSessionId;
-        return { sessions, activeSessionId };
-      });
-      const newActive = get().activeSessionId;
-      if (newActive) get().setActiveSession(newActive);
-    } catch (error) {
-      set({ error: error instanceof Error ? error.message : "Failed to archive session" });
-    }
-  },
-
-  restoreSession: async (id) => {
-    try {
-      await apiFetch(`/api/sessions/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ archived: 0 }),
-      });
-      set((s) => ({
-        sessions: s.sessions.map((ses) =>
-          ses.id === id ? { ...ses, archived: 0 } : ses
-        ),
-      }));
-    } catch (error) {
-      set({ error: error instanceof Error ? error.message : "Failed to restore session" });
-    }
-  },
-
-  toggleShowArchived: () => {
-    set((s) => ({ showArchived: !s.showArchived }));
-    get().loadSessions();
-  },
-
   toggleSplit: () => {
     set((s) => {
-      if (s.splitMode) {
-        // Leaving split — leave the split session room
-        if (s.splitSessionId && s.socket) {
-          s.socket.emit("leave_session", { sessionId: s.splitSessionId });
+      const { socket, chatSocket, splitSessionId, splitMode } = s;
+      if (splitMode) {
+        if (splitSessionId) {
+          if (socket) socket.emit("leave_session", { sessionId: splitSessionId });
+          if (chatSocket) chatSocket.emit("leave_session", { sessionId: splitSessionId });
         }
         return { splitMode: false, splitSessionId: null, splitMessages: [] };
       }
@@ -709,14 +630,14 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setSplitSession: (id) => {
-    const { socket, splitSessionId } = get();
-    if (splitSessionId && socket) {
-      socket.emit("leave_session", { sessionId: splitSessionId });
+    const { socket, chatSocket, splitSessionId } = get();
+    if (splitSessionId) {
+      if (socket) socket.emit("leave_session", { sessionId: splitSessionId });
+      if (chatSocket) chatSocket.emit("leave_session", { sessionId: splitSessionId });
     }
     set({ splitSessionId: id, splitMessages: [] });
-    if (socket) {
-      socket.emit("join_session", { sessionId: id });
-    }
+    if (socket) socket.emit("join_session", { sessionId: id });
+    if (chatSocket) chatSocket.emit("join_session", { sessionId: id });
     get().loadSplitMessages(id);
   },
 
@@ -732,5 +653,19 @@ export const useStore = create<AppState>((set, get) => ({
     } catch {
       set({ splitMessages: [] });
     }
+  },
+
+  setAgentState: (sessionId, agentId, state) => {
+    set((s) => ({
+      agentPresence: {
+        ...s.agentPresence,
+        [sessionId]: {
+          sessionId,
+          agentId,
+          state,
+          lastUpdated: new Date().toISOString(),
+        },
+      },
+    }));
   },
 }));

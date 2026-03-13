@@ -1,9 +1,10 @@
 import * as pty from "node-pty";
-import { execFileSync } from "child_process";
+import { execFileSync, spawnSync } from "child_process";
 import os from "os";
 import { nanoid } from "nanoid";
 import db from "./db.js";
 import type { DbResumeCommand, DbSession } from "./types.js";
+import { stripAnsi } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,7 +33,10 @@ interface TerminalOutputChunk {
 // ---------------------------------------------------------------------------
 
 const TMUX_PREFIX = "ant-";
-const SESSION_TTL_MS = parseInt(process.env.ANT_SESSION_TTL_MS || String(15 * 60 * 1000), 10); // 15 min default
+const SESSION_TTL_MS = parseInt(
+  process.env.ANT_SESSION_TTL_MS || String(48 * 60 * 60 * 1000),
+  10
+); // 48 hour default for DTSS persistence
 const MAX_TERMINAL_OUTPUT_EVENTS = 5000;
 const DEFAULT_OUTPUT_LIMIT = 250;
 const TIME_OF_DAY_SECONDS_EXPR =
@@ -114,12 +118,7 @@ const killTimers = new Map<string, ReturnType<typeof setTimeout>>();
 // ANSI / resume-command helpers
 // ---------------------------------------------------------------------------
 
-export function stripAnsi(str: string): string {
-  return str.replace(
-    /\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[()][AB012]/g,
-    ""
-  );
-}
+// (stripAnsi imported from types.js)
 
 function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, "\\$&");
@@ -399,6 +398,9 @@ export function createPty(
         const newCwd = decodeURIComponent(osc7Match[1]);
         db.prepare("UPDATE sessions SET cwd = ?, updated_at = datetime('now') WHERE id = ?")
           .run(newCwd, sessionId);
+        
+        // Notify listeners
+        cwdUpdateListeners.forEach((listener) => listener(sessionId, newCwd));
       } catch {
         // Ignore decode/db errors
       }
@@ -466,12 +468,27 @@ export function getTerminalOutput(
   sessionId: string,
   options?: { since?: number; limit?: number },
 ) {
-  const safeSince = Math.max(0, Math.floor(options?.since || 0));
   const safeLimit = clamp(
     typeof options?.limit === "number" ? options.limit : DEFAULT_OUTPUT_LIMIT,
     1,
     MAX_TERMINAL_OUTPUT_EVENTS,
   );
+
+  let safeSince = 0;
+  if (typeof options?.since === "number") {
+    if (options.since < 0) {
+      const maxIndexObj = terminalOutputCursor.get(sessionId) as { max_index: number } | undefined;
+      const maxIndex = maxIndexObj?.max_index ?? -1;
+      safeSince = Math.max(0, maxIndex - safeLimit + 1);
+    } else {
+      safeSince = Math.max(0, Math.floor(options.since));
+    }
+  } else {
+    // If since is omitted, fetch the tail
+    const maxIndexObj = terminalOutputCursor.get(sessionId) as { max_index: number } | undefined;
+    const maxIndex = maxIndexObj?.max_index ?? -1;
+    safeSince = Math.max(0, maxIndex - safeLimit + 1);
+  }
 
   try {
     return terminalOutputByCursor.all(
@@ -704,8 +721,59 @@ export function cancelKillTimer(sessionId: string): void {
  * Returns true if a tmux session exists for this ANT session
  * (even if no node-pty wrapper is attached).
  */
+/**
+ * Capture the full terminal state (history + visible pane) from tmux.
+ */
+export function captureTmuxPane(sessionId: string, format: "ansi" | "plain"): string {
+  if (!tmuxSessionExists(sessionId)) {
+    return "";
+  }
+  const tmuxName = tmuxSessionName(sessionId);
+  const args = ["capture-pane", "-t", tmuxName, "-p", "-S", "-"];
+  if (format === "ansi") {
+    args.push("-e");
+  }
+
+  const result = spawnSync("/opt/homebrew/bin/tmux", args, { encoding: "utf8" });
+  if (result.error || result.status !== 0) {
+    console.error(`[pty-manager] tmux capture-pane failed for ${sessionId}:`, result.error || result.stderr);
+    return "";
+  }
+  return result.stdout;
+}
+
+/**
+ * Capture the current cursor position from tmux.
+ */
+export function getTmuxCursor(sessionId: string): { x: number; y: number } {
+  if (!tmuxSessionExists(sessionId)) {
+    return { x: 0, y: 0 };
+  }
+  const tmuxName = tmuxSessionName(sessionId);
+  const result = spawnSync("/opt/homebrew/bin/tmux", ["display-message", "-t", tmuxName, "-p", "#{cursor_x},#{cursor_y}"], {
+    encoding: "utf8",
+  });
+  
+  if (result.error || result.status !== 0) {
+    return { x: 0, y: 0 };
+  }
+
+  const out = result.stdout.trim();
+  const [x, y] = out.split(",").map(Number);
+  return { x: isNaN(x) ? 0 : x, y: isNaN(y) ? 0 : y };
+}
+
 export function hasTmuxSession(sessionId: string): boolean {
   return tmuxSessionExists(sessionId);
+}
+type CwdUpdateListener = (sessionId: string, cwd: string) => void;
+const cwdUpdateListeners = new Set<CwdUpdateListener>();
+
+export function onCwdUpdate(listener: CwdUpdateListener): () => void {
+  cwdUpdateListeners.add(listener);
+  return () => {
+    cwdUpdateListeners.delete(listener);
+  };
 }
 
 /**
