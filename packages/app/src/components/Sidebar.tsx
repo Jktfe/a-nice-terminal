@@ -15,24 +15,11 @@ import {
   Archive,
   RotateCcw,
 } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useStore, type Session, type Workspace } from "../store.ts";
-
-function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(
-    typeof window !== "undefined" ? window.innerWidth < 768 : false
-  );
-
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 767px)");
-    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, []);
-
-  return isMobile;
-}
+import { useIsMobile } from "../hooks/useIsMobile.ts";
+import { getSessionTheme } from "../utils/sessionTheme.ts";
 
 export default function Sidebar() {
   const {
@@ -79,38 +66,42 @@ export default function Sidebar() {
     }
   }, [editingWorkspaceId]);
 
-  if (!sidebarOpen) return null;
+  const { sorted, activeSessions, archivedSessions, workspaceSessionMap, ungrouped } = useMemo(() => {
+    const filtered = search
+      ? sessions.filter((s) =>
+          s.name.toLowerCase().includes(search.toLowerCase())
+        )
+      : sessions;
 
-  const filtered = search
-    ? sessions.filter((s) =>
-        s.name.toLowerCase().includes(search.toLowerCase())
-      )
-    : sessions;
+    // Sort: pinned first, then by updated_at
+    const sorted = [...filtered].sort((a, b) => {
+      const aPinned = pinnedSessionIds.has(a.id) ? 1 : 0;
+      const bPinned = pinnedSessionIds.has(b.id) ? 1 : 0;
+      if (aPinned !== bPinned) return bPinned - aPinned;
+      return 0; // preserve server order (updated_at DESC)
+    });
 
-  // Sort: pinned first, then by updated_at
-  const sorted = [...filtered].sort((a, b) => {
-    const aPinned = pinnedSessionIds.has(a.id) ? 1 : 0;
-    const bPinned = pinnedSessionIds.has(b.id) ? 1 : 0;
-    if (aPinned !== bPinned) return bPinned - aPinned;
-    return 0; // preserve server order (updated_at DESC)
-  });
+    // Separate archived from active, then group by workspace
+    const activeSessions = sorted.filter((s) => !s.archived);
+    const archivedSessions = sorted.filter((s) => s.archived);
 
-  // Separate archived from active, then group by workspace
-  const activeSessions = sorted.filter((s) => !s.archived);
-  const archivedSessions = sorted.filter((s) => s.archived);
+    const workspaceSessionMap = new Map<string, Session[]>();
+    const ungrouped: Session[] = [];
 
-  const workspaceSessionMap = new Map<string, Session[]>();
-  const ungrouped: Session[] = [];
-
-  for (const session of activeSessions) {
-    if (session.workspace_id) {
-      const list = workspaceSessionMap.get(session.workspace_id) || [];
-      list.push(session);
-      workspaceSessionMap.set(session.workspace_id, list);
-    } else {
-      ungrouped.push(session);
+    for (const session of activeSessions) {
+      if (session.workspace_id) {
+        const list = workspaceSessionMap.get(session.workspace_id) || [];
+        list.push(session);
+        workspaceSessionMap.set(session.workspace_id, list);
+      } else {
+        ungrouped.push(session);
+      }
     }
-  }
+
+    return { sorted, activeSessions, archivedSessions, workspaceSessionMap, ungrouped };
+  }, [sessions, pinnedSessionIds, search]);
+
+  if (!sidebarOpen) return null;
 
   const handleSessionSelect = (id: string) => {
     setActiveSession(id);
@@ -467,7 +458,7 @@ export default function Sidebar() {
           </div>
         )}
 
-        {sessions.length > 0 && filtered.length === 0 && (
+        {sessions.length > 0 && sorted.length === 0 && (
           <div className="text-center text-white/20 text-xs py-8">
             No matching sessions.
           </div>
@@ -536,16 +527,7 @@ function SessionItem({
   onTogglePin: () => void;
   onDragStart: (e: React.DragEvent) => void;
 }) {
-  const Icon = session.type === "terminal" ? Terminal : MessageSquare;
-  const tone = session.type === "terminal"
-    ? {
-        activeBg: "bg-emerald-500/10",
-        activeIcon: "text-emerald-400",
-      }
-    : {
-        activeBg: "bg-blue-500/10",
-        activeIcon: "text-blue-400",
-      };
+  const { Icon, chip: activeBg, icon: activeIcon } = getSessionTheme(session.type);
 
   return (
     <motion.div
@@ -557,14 +539,14 @@ function SessionItem({
       onDragStart={onDragStart as any}
       onClick={onSelect}
       className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-colors mb-0.5 ${
-        active ? `${tone.activeBg} text-white` : "text-white/50 hover:text-white/80 hover:bg-white/5"
+        active ? `${activeBg} text-white` : "text-white/50 hover:text-white/80 hover:bg-white/5"
       }`}
     >
       {pinned && (
         <Pin className="w-2.5 h-2.5 text-amber-400/60 flex-shrink-0 -mr-1" />
       )}
       <Icon
-        className={`w-3.5 h-3.5 flex-shrink-0 ${active ? tone.activeIcon : ""}`}
+        className={`w-3.5 h-3.5 flex-shrink-0 ${active ? activeIcon : ""}`}
       />
       <span className="text-xs font-medium truncate flex-1">
         {session.name}

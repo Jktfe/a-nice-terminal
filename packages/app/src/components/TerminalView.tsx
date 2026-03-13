@@ -208,13 +208,29 @@ export default function TerminalView({ sessionId: sessionIdProp }: { sessionId?:
     }
   }, [connected, activeSessionId]);
 
-  // Poll tmux session liveness so we can show a "session ended" banner
+  // Poll tmux session liveness so we can show a "session ended" banner.
+  // Skip polling when the tab is hidden to avoid unnecessary WebSocket traffic.
   useEffect(() => {
     if (!activeSessionId || !socket) return;
-    const interval = setInterval(() => {
-      socket.emit("check_health", { sessionId: activeSessionId });
-    }, 30_000);
-    return () => clearInterval(interval);
+    let interval: ReturnType<typeof setInterval> | null = null;
+
+    const start = () => {
+      if (interval) return;
+      interval = setInterval(() => {
+        socket.emit("check_health", { sessionId: activeSessionId });
+      }, 30_000);
+    };
+    const stop = () => {
+      if (interval) { clearInterval(interval); interval = null; }
+    };
+    const onVisibility = () => document.hidden ? stop() : start();
+
+    if (!document.hidden) start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [activeSessionId, socket]);
 
   const isSessionDead = activeSessionId ? sessionHealth[activeSessionId] === false : false;

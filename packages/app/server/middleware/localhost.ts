@@ -203,6 +203,3 @@ export function tailscaleOnly(req: Request, res: Response, next: NextFunction): 
   res.status(403).json({ error: "ANT is restricted to the configured local network." });
 }
 
-export function localhostOnly(req: Request, res: Response, next: NextFunction): void {
-  tailscaleOnly(req, res, next);
-}
