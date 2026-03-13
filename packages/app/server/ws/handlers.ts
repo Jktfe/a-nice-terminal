@@ -16,32 +16,13 @@ import {
 } from "../pty-manager.js";
 import db from "../db.js";
 import type { DbSession, DbMessage } from "../types.js";
-
-type Role = "human" | "agent" | "system";
+import { normalizeRole, VALID_FORMATS, SAFE_TEXT_LIMIT } from "../constants.js";
 
 type StreamChunkPayload = {
   sessionId: string;
   messageId: string;
   content: string;
 };
-
-const VALID_FORMATS = new Set(["markdown", "text", "plaintext", "json"]);
-const SAFE_TEXT_LIMIT = 10_000;
-
-function normalizeRole(role: string): Role | null {
-  switch (role) {
-    case "human":
-    case "user":
-      return "human";
-    case "agent":
-    case "assistant":
-      return "agent";
-    case "system":
-      return "system";
-    default:
-      return null;
-  }
-}
 
 function getSession(sessionId: string) {
   return db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as DbSession | undefined;

@@ -1,5 +1,6 @@
-import { Terminal, MessageSquare, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useStore, type Session } from "../store.ts";
+import { getSessionTheme } from "../utils/sessionTheme.ts";
 
 export default function SplitHeader({
   session,
@@ -10,10 +11,7 @@ export default function SplitHeader({
 }) {
   const { setActiveSession } = useStore();
 
-  const Icon = session.type === "terminal" ? Terminal : MessageSquare;
-  const tone = session.type === "terminal"
-    ? { chip: "bg-emerald-500/10", icon: "text-emerald-400" }
-    : { chip: "bg-blue-500/10", icon: "text-blue-400" };
+  const { Icon, ...tone } = getSessionTheme(session.type);
 
   return (
     <header className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)]">

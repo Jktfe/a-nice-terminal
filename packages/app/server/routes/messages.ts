@@ -3,29 +3,11 @@ import { nanoid } from "nanoid";
 import db from "../db.js";
 import type { DbSession } from "../types.js";
 import { stripAnsi } from "../pty-manager.js";
+import { normalizeRole, VALID_FORMATS } from "../constants.js";
 
-type Role = "human" | "agent" | "system";
-
-const VALID_FORMATS = new Set(["markdown", "text", "plaintext", "json"]);
 const VALID_STATUSES = ["pending", "streaming", "complete"] as const;
 
 const router = Router();
-
-function normalizeRole(role: string): Role | null {
-  switch (role) {
-    case "human":
-      return "human";
-    case "user":
-      return "human";
-    case "agent":
-    case "assistant":
-      return "agent";
-    case "system":
-      return "system";
-    default:
-      return null;
-  }
-}
 
 function getSession(sessionId: string) {
   return db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as DbSession | undefined;
@@ -159,34 +141,15 @@ router.patch("/api/sessions/:sessionId/messages/:id", (req, res) => {
     return res.status(400).json({ error: "Content too large" });
   }
 
-  if (content !== undefined && status !== undefined && metadata !== undefined) {
-    db.prepare("UPDATE messages SET content = ?, status = ?, metadata = ? WHERE id = ?").run(
-      content,
-      status,
-      JSON.stringify(metadata),
-      req.params.id
-    );
-  } else if (content !== undefined && status !== undefined) {
-    db.prepare("UPDATE messages SET content = ?, status = ? WHERE id = ?").run(
-      content,
-      status,
-      req.params.id
-    );
-  } else if (content !== undefined) {
-    db.prepare("UPDATE messages SET content = ? WHERE id = ?").run(
-      content,
-      req.params.id
-    );
-  } else if (status !== undefined) {
-    db.prepare("UPDATE messages SET status = ? WHERE id = ?").run(
-      status,
-      req.params.id
-    );
-  } else if (metadata !== undefined) {
-    db.prepare("UPDATE messages SET metadata = ? WHERE id = ?").run(
-      JSON.stringify(metadata),
-      req.params.id
-    );
+  const updates: string[] = [];
+  const values: any[] = [];
+  if (content !== undefined) { updates.push("content = ?"); values.push(content); }
+  if (status !== undefined) { updates.push("status = ?"); values.push(status); }
+  if (metadata !== undefined) { updates.push("metadata = ?"); values.push(JSON.stringify(metadata)); }
+
+  if (updates.length > 0) {
+    values.push(req.params.id);
+    db.prepare(`UPDATE messages SET ${updates.join(", ")} WHERE id = ?`).run(...values);
   }
 
   const updated = db.prepare("SELECT * FROM messages WHERE id = ?").get(req.params.id) as any;

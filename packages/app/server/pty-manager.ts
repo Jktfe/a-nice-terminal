@@ -204,11 +204,6 @@ function parseResumeCommands(sessionId: string, text: string): void {
     if (!match) continue;
     const command = match[1].trim();
 
-    const existing = db
-      .prepare("SELECT id FROM resume_commands WHERE session_id = ? AND command = ?")
-      .get(sessionId, command);
-    if (existing) continue;
-
     const lines = plain.split("\n").map((l) => l.trim()).filter(Boolean);
     const matchIdx = lines.findIndex((l) => l.includes(command));
     let description: string | null = null;
@@ -223,9 +218,11 @@ function parseResumeCommands(sessionId: string, text: string): void {
     if (cwdMatch) rootPath = cwdMatch[1];
 
     const id = nanoid(12);
-    db.prepare(
-      "INSERT INTO resume_commands (id, session_id, cli, command, description, root_path) VALUES (?, ?, ?, ?, ?, ?)"
+    const result = db.prepare(
+      "INSERT OR IGNORE INTO resume_commands (id, session_id, cli, command, description, root_path) VALUES (?, ?, ?, ?, ?, ?)"
     ).run(id, sessionId, cli, command, description, rootPath);
+
+    if (result.changes === 0) continue;
 
     const row = db.prepare("SELECT * FROM resume_commands WHERE id = ?").get(id) as DbResumeCommand;
     resumeListeners.forEach((listener) => listener(row));

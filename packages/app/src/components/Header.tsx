@@ -1,8 +1,6 @@
 import {
   PanelLeft,
   Menu,
-  Terminal,
-  MessageSquare,
   Pencil,
   Check,
   Download,
@@ -11,21 +9,9 @@ import {
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useStore, apiFetch } from "../store.ts";
 import ResumeDropdown from "./ResumeDropdown.tsx";
-
-function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(
-    typeof window !== "undefined" ? window.innerWidth < 768 : false
-  );
-
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 767px)");
-    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, []);
-
-  return isMobile;
-}
+import { useIsMobile } from "../hooks/useIsMobile.ts";
+import { stripAnsi } from "../utils/stripAnsi.ts";
+import { getSessionTheme } from "../utils/sessionTheme.ts";
 
 function downloadAsFile(filename: string, content: string, mimeType: string) {
   const blob = new Blob([content], { type: mimeType });
@@ -35,11 +21,6 @@ function downloadAsFile(filename: string, content: string, mimeType: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
-}
-
-// Strip ANSI escape sequences for terminal export
-function stripAnsi(str: string): string {
-  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\x1b\].*?\x07/g, "");
 }
 
 export default function Header() {
@@ -95,10 +76,7 @@ export default function Header() {
     }
   }, [session, activeSessionId]);
 
-  const Icon = session?.type === "terminal" ? Terminal : MessageSquare;
-  const tone = session?.type === "terminal"
-    ? { chip: "bg-emerald-500/10", icon: "text-emerald-400" }
-    : { chip: "bg-blue-500/10", icon: "text-blue-400" };
+  const { Icon, ...tone } = getSessionTheme(session?.type ?? "conversation");
 
   return (
     <header className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)]">

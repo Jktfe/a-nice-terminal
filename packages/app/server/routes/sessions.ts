@@ -13,9 +13,9 @@ import {
   addPtyOutputListener,
   searchTerminalOutput,
 } from "../pty-manager.js";
+import { SAFE_TEXT_LIMIT } from "../constants.js";
 
 const router = Router();
-const SAFE_TEXT_LIMIT = 10_000;
 
 function parseHourMinute(raw: string | undefined): number | null {
   if (!raw) return null;

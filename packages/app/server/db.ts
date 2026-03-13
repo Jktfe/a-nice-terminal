@@ -46,6 +46,12 @@ db.exec(`
     captured_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
   );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_resume_commands_session_command
+    ON resume_commands (session_id, command);
+
+  CREATE INDEX IF NOT EXISTS idx_resume_commands_session_id
+    ON resume_commands (session_id);
 `);
 
 db.exec(`
