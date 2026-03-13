@@ -1,91 +1,13 @@
-import { vi, beforeEach } from "vitest";
-import Database from "better-sqlite3";
-
-const testDb = new Database(":memory:");
-testDb.pragma("journal_mode = WAL");
-testDb.pragma("foreign_keys = ON");
-
-testDb.exec(`
-  CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    type TEXT NOT NULL CHECK(type IN ('terminal', 'conversation')),
-    shell TEXT DEFAULT NULL,
-    cwd TEXT DEFAULT NULL,
-    workspace_id TEXT DEFAULT NULL REFERENCES workspaces(id) ON DELETE SET NULL,
-    archived INTEGER NOT NULL DEFAULT 0,
-    ttl_minutes INTEGER DEFAULT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-
-  CREATE TABLE IF NOT EXISTS messages (
-    id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    role TEXT NOT NULL CHECK(role IN ('human', 'agent', 'system')),
-    content TEXT NOT NULL DEFAULT '',
-    format TEXT NOT NULL DEFAULT 'markdown',
-    status TEXT NOT NULL DEFAULT 'complete' CHECK(status IN ('pending', 'streaming', 'complete')),
-    metadata TEXT DEFAULT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, created_at);
-
-  CREATE TABLE IF NOT EXISTS resume_commands (
-    id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    cli TEXT NOT NULL,
-    command TEXT NOT NULL,
-    description TEXT,
-    root_path TEXT,
-    captured_at TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-  );
-
-  CREATE TABLE IF NOT EXISTS terminal_output_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL,
-    chunk_index INTEGER NOT NULL,
-    data TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_terminal_output_events_session_chunk
-    ON terminal_output_events (session_id, chunk_index);
-
-  CREATE INDEX IF NOT EXISTS idx_terminal_output_events_session_cursor
-    ON terminal_output_events (session_id, chunk_index);
-
-  CREATE INDEX IF NOT EXISTS idx_terminal_output_events_session_created_at
-    ON terminal_output_events (session_id, created_at);
-
-  CREATE TABLE IF NOT EXISTS server_state (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS workspaces (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-`);
-
-vi.mock("../db.js", () => ({
-  default: testDb,
-  DB_PATH: ":memory:",
-}));
+import { beforeEach } from "vitest";
+import db from "../db.js";
 
 beforeEach(() => {
-  testDb.exec("DELETE FROM messages");
-  testDb.exec("DELETE FROM resume_commands");
-  testDb.exec("DELETE FROM terminal_output_events");
-  testDb.exec("DELETE FROM sessions");
-  testDb.exec("DELETE FROM workspaces");
-  testDb.exec("DELETE FROM server_state");
+  db.exec("DELETE FROM messages");
+  db.exec("DELETE FROM resume_commands");
+  db.exec("DELETE FROM terminal_output_events");
+  db.exec("DELETE FROM sessions");
+  db.exec("DELETE FROM workspaces");
+  db.exec("DELETE FROM server_state");
 });
 
-export { testDb };
+export { db as testDb };

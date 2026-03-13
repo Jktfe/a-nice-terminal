@@ -25,7 +25,8 @@ import {
   destroyPty,
   startKillTimer,
 } from "../pty-manager.js";
-import { testDb } from "../__tests__/setup.js";
+import db from "../db.js";
+const testDb = db;
 
 function createMockSocket() {
   const handlers = new Map<string, Function>();
