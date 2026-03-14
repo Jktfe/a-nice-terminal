@@ -41,6 +41,14 @@ export interface Message {
   status: "pending" | "streaming" | "complete";
   metadata?: any;
   created_at: string;
+  sender_type?: string;
+  sender_name?: string;
+  sender_cwd?: string;
+  sender_persona?: string;
+  thread_id?: string;
+  annotations?: Array<{ type: string; by: string; at: string; note?: string }>;
+  starred?: number;
+  reply_count?: number;
 }
 
 export type AgentState = "idle" | "thinking" | "working" | "wrapped";
@@ -148,9 +156,7 @@ function buildHeaders(base?: HeadersInit): Headers {
 }
 
 export async function apiFetch(url: string, options: RequestInit = {}): Promise<any> {
-  const isChat = url.includes("/messages") || url.includes("/presence");
-  const baseUrl = isChat ? CHAT_URL : "";
-  const fullUrl = url.startsWith("http") ? url : `${baseUrl}${url}`;
+  const fullUrl = url.startsWith("http") ? url : url;
 
   const headers = buildHeaders(options.headers);
   const response = await fetch(fullUrl, { ...options, headers });
@@ -160,6 +166,17 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
   }
   if (response.status === 204) return null;
   return response.json();
+}
+
+export async function chatApiFetch(url: string, options?: RequestInit) {
+  const apiKey = import.meta.env.VITE_ANT_API_KEY;
+  const headers: Record<string, string> = {
+    ...(apiKey ? { "X-API-Key": apiKey } : {}),
+    ...(options?.headers as Record<string, string> || {}),
+  };
+  const res = await fetch(`${CHAT_URL}${url}`, { ...options, headers });
+  if (!res.ok) throw new Error(`Chat API error ${res.status}`);
+  return res.json();
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -363,6 +380,14 @@ export const useStore = create<AppState>((set, get) => ({
       }));
     });
 
+    chatSocket.on("annotation_changed", ({ messageId, annotations, starred }: { messageId: string; annotations: any[]; starred: number }) => {
+      const { messages, splitMessages } = get();
+      const update = (msgs: Message[]) => msgs.map((m) =>
+        m.id === messageId ? { ...m, annotations, starred } : m
+      );
+      set({ messages: update(messages), splitMessages: update(splitMessages) });
+    });
+
     set({ socket, chatSocket });
   },
 
@@ -525,7 +550,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   loadMessages: async (sessionId) => {
     try {
-      const messages = await apiFetch(`/api/sessions/${sessionId}/messages`);
+      const messages = await chatApiFetch(`/api/sessions/${sessionId}/messages`);
       if (get().activeSessionId === sessionId) {
         set({ messages });
       }
@@ -542,8 +567,9 @@ export const useStore = create<AppState>((set, get) => ({
 
   sendMessageToSession: async (sessionId, content, role = "human") => {
     try {
-      await apiFetch(`/api/sessions/${sessionId}/messages`, {
+      await chatApiFetch(`/api/sessions/${sessionId}/messages`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content, role }),
       });
     } catch (err: any) {
@@ -648,7 +674,7 @@ export const useStore = create<AppState>((set, get) => ({
         set({ splitMessages: [] });
         return;
       }
-      const messages = await apiFetch(`/api/sessions/${sessionId}/messages`);
+      const messages = await chatApiFetch(`/api/sessions/${sessionId}/messages`);
       set({ splitMessages: messages });
     } catch {
       set({ splitMessages: [] });
