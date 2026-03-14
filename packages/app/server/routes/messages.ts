@@ -33,23 +33,34 @@ router.get("/api/sessions/:sessionId/messages", (req, res) => {
   const session = ensureConversationSession(req.params.sessionId, res);
   if (!session) return;
 
-  const { since, limit = "100" } = req.query;
-
-  let query = "SELECT * FROM messages WHERE session_id = ?";
+  const { since, limit = "100", thread_id, starred } = req.query;
+  let query: string;
   const params: any[] = [req.params.sessionId];
 
+  if (thread_id) {
+    query = "SELECT m.* FROM messages m WHERE m.session_id = ? AND m.thread_id = ?";
+    params.push(thread_id as string);
+  } else if (starred === "true") {
+    query = `SELECT m.*, (SELECT COUNT(*) FROM messages r WHERE r.thread_id = m.id) AS reply_count
+             FROM messages m WHERE m.session_id = ? AND m.starred = 1 AND m.thread_id IS NULL`;
+  } else {
+    query = `SELECT m.*, (SELECT COUNT(*) FROM messages r WHERE r.thread_id = m.id) AS reply_count
+             FROM messages m WHERE m.session_id = ? AND m.thread_id IS NULL`;
+  }
+
   if (since) {
-    query += " AND created_at > ?";
+    query += " AND m.created_at > ?";
     params.push(since as string);
   }
 
-  query += " ORDER BY created_at ASC LIMIT ?";
+  query += " ORDER BY m.created_at ASC LIMIT ?";
   const parsedLimit = Math.max(1, Math.min(parseInt(limit as string, 10) || 100, 1000));
   params.push(parsedLimit);
 
   const messages = db.prepare(query).all(...params).map((m: any) => ({
     ...m,
     metadata: m.metadata ? JSON.parse(m.metadata) : null,
+    annotations: m.annotations ? JSON.parse(m.annotations) : null,
   }));
   res.json(messages);
 });
@@ -65,6 +76,11 @@ router.post("/api/sessions/:sessionId/messages", (req, res) => {
     format = "markdown",
     status = "complete",
     metadata = null,
+    sender_type,
+    sender_name,
+    sender_cwd,
+    sender_persona,
+    thread_id,
   } = req.body;
 
   const normalisedRole = normalizeRole(role);
@@ -91,16 +107,15 @@ router.post("/api/sessions/:sessionId/messages", (req, res) => {
     ? stripAnsi(content)
     : content;
 
+  const resolvedSenderType = sender_type || (normalisedRole === "human" ? "human" : normalisedRole === "system" ? "system" : "unknown");
+
   db.prepare(
-    "INSERT INTO messages (id, session_id, role, content, format, status, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    `INSERT INTO messages (id, session_id, role, content, format, status, metadata, sender_type, sender_name, sender_cwd, sender_persona, thread_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
-    id,
-    req.params.sessionId,
-    normalisedRole,
-    sanitisedContent,
-    format,
-    status,
-    metadata ? JSON.stringify(metadata) : null
+    id, req.params.sessionId, normalisedRole, sanitisedContent, format, status,
+    metadata ? JSON.stringify(metadata) : null,
+    resolvedSenderType, sender_name || null, sender_cwd || null, sender_persona || null, thread_id || null,
   );
 
   db.prepare("UPDATE sessions SET updated_at = datetime('now') WHERE id = ?").run(
@@ -113,6 +128,9 @@ router.post("/api/sessions/:sessionId/messages", (req, res) => {
   const io = req.app.get("io");
   if (io) {
     io.to(req.params.sessionId).emit("message_created", message);
+    if (thread_id) {
+      io.to(req.params.sessionId).emit("thread_reply", { threadId: thread_id, message });
+    }
   }
 
   res.status(201).json(message);
@@ -162,13 +180,15 @@ router.patch("/api/sessions/:sessionId/messages/:id", (req, res) => {
   res.json(updated);
 });
 
-// Delete message
+// Delete message (cascade: delete thread replies first)
 router.delete("/api/sessions/:sessionId/messages/:id", (req, res) => {
   const session = ensureConversationSession(req.params.sessionId, res);
   if (!session) return;
 
-  const result = db
-    .prepare("DELETE FROM messages WHERE id = ? AND session_id = ?")
+  db.prepare("DELETE FROM messages WHERE thread_id = ? AND session_id = ?")
+    .run(req.params.id, req.params.sessionId);
+
+  const result = db.prepare("DELETE FROM messages WHERE id = ? AND session_id = ?")
     .run(req.params.id, req.params.sessionId);
 
   if (result.changes === 0) {
@@ -177,10 +197,37 @@ router.delete("/api/sessions/:sessionId/messages/:id", (req, res) => {
 
   const io = req.app.get("io");
   if (io) {
-    io.to(req.params.sessionId).emit("message_deleted", { id: req.params.id });
+    io.to(req.params.sessionId).emit("message_deleted", {
+      id: req.params.id,
+      sessionId: req.params.sessionId,
+    });
   }
 
   res.json({ deleted: true });
+});
+
+// Get thread (parent + replies)
+router.get("/api/sessions/:sessionId/messages/:msgId/thread", (req, res) => {
+  const session = ensureConversationSession(req.params.sessionId, res);
+  if (!session) return;
+
+  const parent = db.prepare("SELECT * FROM messages WHERE id = ? AND session_id = ?")
+    .get(req.params.msgId, req.params.sessionId) as any;
+
+  if (!parent) return res.status(404).json({ error: "Message not found" });
+
+  const replies = db.prepare(
+    "SELECT * FROM messages WHERE thread_id = ? AND session_id = ? ORDER BY created_at ASC"
+  ).all(req.params.msgId, req.params.sessionId).map((m: any) => ({
+    ...m,
+    metadata: m.metadata ? JSON.parse(m.metadata) : null,
+    annotations: m.annotations ? JSON.parse(m.annotations) : null,
+  }));
+
+  if (parent.metadata) parent.metadata = JSON.parse(parent.metadata);
+  if (parent.annotations) parent.annotations = JSON.parse(parent.annotations);
+
+  res.json({ parent, replies });
 });
 
 // Global search across sessions and messages
