@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { X, Save, AlertCircle } from "lucide-react";
-import { useStore, apiFetch } from "../store.ts";
+import { useStore, apiFetch, chatApiFetch } from "../store.ts";
 import { terminalThemes } from "../themes.ts";
 
 export default function SettingsModal() {
@@ -12,6 +12,8 @@ export default function SettingsModal() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [vaultPath, setVaultPath] = useState("");
+  const [vaultSaved, setVaultSaved] = useState(false);
 
   useEffect(() => {
     if (settingsOpen) {
@@ -29,6 +31,12 @@ export default function SettingsModal() {
       const data = await apiFetch("/api/settings");
       setPort(data.ANT_PORT || "3000");
       setRootDir(data.ANT_ROOT_DIR || "");
+      try {
+        const obsidian = await chatApiFetch("/api/settings/obsidian");
+        setVaultPath(obsidian.vault_path || "");
+      } catch {
+        // Chat sidecar may not be running yet
+      }
     } catch (err: any) {
       setError(err.message || "Failed to load settings");
     } finally {
@@ -50,6 +58,19 @@ export default function SettingsModal() {
       setError(err.message || "Failed to save settings");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const saveVaultPath = async () => {
+    try {
+      await chatApiFetch("/api/settings/obsidian", {
+        method: "PATCH",
+        body: JSON.stringify({ vault_path: vaultPath }),
+      });
+      setVaultSaved(true);
+      setTimeout(() => setVaultSaved(false), 2000);
+    } catch (err: any) {
+      setError(err.message || "Failed to save Obsidian vault path");
     }
   };
 
@@ -167,6 +188,30 @@ export default function SettingsModal() {
                         </option>
                       ))}
                     </select>
+                  </div>
+                </div>
+
+                {/* Obsidian vault */}
+                <div className="border-t border-[var(--color-border)] pt-4 mt-1">
+                  <h3 className="text-sm font-semibold text-white/70 uppercase tracking-wider mb-3">
+                    Integrations
+                  </h3>
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-wider text-white/40">Obsidian Vault Path</label>
+                    <div className="flex gap-2">
+                      <input
+                        value={vaultPath}
+                        onChange={(e) => setVaultPath(e.target.value)}
+                        placeholder="/Users/james/Obsidian/MyVault"
+                        className="flex-1 rounded border border-white/15 bg-[var(--color-bg)] px-3 py-1.5 text-sm text-white placeholder-white/30 outline-none"
+                      />
+                      <button
+                        onClick={saveVaultPath}
+                        className="px-3 py-1.5 rounded bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 text-sm"
+                      >
+                        {vaultSaved ? "Saved!" : "Save"}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </>
