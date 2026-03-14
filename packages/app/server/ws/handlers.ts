@@ -1,5 +1,4 @@
 import type { Server, Socket } from "socket.io";
-import { nanoid } from "nanoid";
 import {
   addPtyOutputListener,
   checkSessionHealth,
@@ -15,21 +14,11 @@ import {
   cancelKillTimer,
 } from "../pty-manager.js";
 import db from "../db.js";
-import { stripAnsi, type DbSession, type DbMessage } from "../types.js";
-import { normalizeRole, VALID_FORMATS, SAFE_TEXT_LIMIT } from "../constants.js";
-
-type StreamChunkPayload = {
-  sessionId: string;
-  messageId: string;
-  content: string;
-};
+import { type DbSession } from "../types.js";
+import { SAFE_TEXT_LIMIT } from "../constants.js";
 
 function getSession(sessionId: string) {
   return db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as DbSession | undefined;
-}
-
-function getMessage(messageId: string, sessionId: string) {
-  return db.prepare("SELECT * FROM messages WHERE id = ? AND session_id = ?").get(messageId, sessionId) as DbMessage | undefined;
 }
 
 /**
@@ -190,150 +179,6 @@ export function registerSocketHandlers(io: Server) {
         const safeCols = Math.max(1, Math.min(Math.trunc(cols), 500));
         const safeRows = Math.max(1, Math.min(Math.trunc(rows), 200));
         resizePty(sessionId, safeCols, safeRows);
-      }
-    );
-
-    socket.on(
-      "new_message",
-      ({
-        sessionId,
-        role,
-        content,
-        format = "markdown",
-      }: {
-        sessionId: string;
-        role: string;
-        content: string;
-        format?: string;
-      }) => {
-        if (typeof sessionId !== "string" || !sessionId.trim()) return;
-
-        const normalisedRole = normalizeRole(role);
-        if (!normalisedRole) {
-          socket.emit("error", { message: "Invalid role" });
-          return;
-        }
-
-        if (typeof content !== "string" || content.length > 100_000) {
-          socket.emit("error", { message: "Content too large" });
-          return;
-        }
-
-        if (!format || typeof format !== "string" || !VALID_FORMATS.has(format)) {
-          socket.emit("error", { message: "Invalid format" });
-          return;
-        }
-
-        const session = getSession(sessionId);
-        if (!session) {
-          socket.emit("error", { message: "Session not found" });
-          return;
-        }
-        if (session.type !== "conversation") {
-          socket.emit("error", {
-            message: "Only conversation sessions accept messages",
-          });
-          return;
-        }
-
-        const id = nanoid(12);
-        // Strip ANSI escapes so terminal sequences don't leak into conversation messages
-        const sanitisedContent = (format === "text" || format === "plaintext")
-          ? stripAnsi(content)
-          : content;
-        db.prepare(
-          "INSERT INTO messages (id, session_id, role, content, format, status) VALUES (?, ?, ?, ?, ?, 'complete')"
-        ).run(id, sessionId, normalisedRole, sanitisedContent, format);
-        db.prepare("UPDATE sessions SET updated_at = datetime('now') WHERE id = ?").run(sessionId);
-
-        const message = db.prepare("SELECT * FROM messages WHERE id = ?").get(id);
-        io.to(sessionId).emit("message_created", message);
-      }
-    );
-
-    socket.on(
-      "stream_chunk",
-      ({ sessionId, messageId, content }: StreamChunkPayload) => {
-        if (
-          typeof sessionId !== "string" ||
-          !sessionId.trim() ||
-          typeof messageId !== "string" ||
-          !messageId.trim() ||
-          typeof content !== "string"
-        ) {
-          return;
-        }
-
-        const session = getSession(sessionId);
-        if (!session || session.type !== "conversation") {
-          socket.emit("error", {
-            message: "Only conversation sessions accept stream chunks",
-          });
-          return;
-        }
-
-        const msg = getMessage(messageId, sessionId);
-
-        if (!msg) {
-          socket.emit("error", { message: "Message not found" });
-          return;
-        }
-
-        if (content.length > 100_000) {
-          socket.emit("error", { message: "Chunk too large" });
-          return;
-        }
-
-        io.to(sessionId).emit("stream_chunk", {
-          sessionId,
-          messageId,
-          role: msg.role,
-          format: msg.format,
-          content,
-        });
-      }
-    );
-
-    socket.on(
-      "stream_end",
-      ({ sessionId, messageId, content }: { sessionId: string; messageId: string; content: string }) => {
-        if (
-          typeof sessionId !== "string" ||
-          !sessionId.trim() ||
-          typeof messageId !== "string" ||
-          !messageId.trim() ||
-          typeof content !== "string"
-        ) {
-          return;
-        }
-
-        const session = getSession(sessionId);
-        if (!session || session.type !== "conversation") {
-          socket.emit("error", {
-            message: "Only conversation sessions accept stream completion",
-          });
-          return;
-        }
-
-        if (content.length > 100_000) {
-          socket.emit("error", { message: "Content too large" });
-          return;
-        }
-
-        const existing = getMessage(messageId, sessionId);
-        if (!existing) {
-          socket.emit("error", { message: "Message not found" });
-          return;
-        }
-
-        const updatedContent = `${existing.content || ""}${content}`;
-        db.prepare(
-          "UPDATE messages SET content = ?, status = 'complete' WHERE id = ?"
-        ).run(updatedContent, messageId);
-
-        db.prepare("UPDATE sessions SET updated_at = datetime('now') WHERE id = ?").run(sessionId);
-        const updated = db.prepare("SELECT * FROM messages WHERE id = ?").get(messageId);
-        io.to(sessionId).emit("message_updated", updated);
       }
     );
 

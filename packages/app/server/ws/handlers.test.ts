@@ -4,11 +4,15 @@ import { registerSocketHandlers } from "./handlers.js";
 vi.mock("../pty-manager.js", () => ({
   createPty: vi.fn(() => ({ write: vi.fn(), kill: vi.fn() })),
   getPty: vi.fn(() => undefined),
+  getHeadless: vi.fn(() => undefined),
+  getCommandTracker: vi.fn(() => undefined),
   destroyPty: vi.fn(),
   hasOutputListeners: vi.fn(() => false),
   addPtyOutputListener: vi.fn(() => () => {}),
   resizePty: vi.fn(),
-  onResumeCommand: vi.fn(),
+  onResumeCommand: vi.fn(() => () => {}),
+  onCwdUpdate: vi.fn(() => () => {}),
+  onCommandLifecycle: vi.fn(() => () => {}),
   hasTmuxSession: vi.fn(() => false),
   startKillTimer: vi.fn(),
   cancelKillTimer: vi.fn(),
@@ -230,100 +234,4 @@ describe("WebSocket handlers", () => {
     });
   });
 
-  describe("new_message", () => {
-    it("creates a message in conversation session", () => {
-      seedTestSession("c1", "conversation");
-      mockSocket._trigger("new_message", {
-        sessionId: "c1",
-        role: "human",
-        content: "Hello",
-      });
-      expect(mockIo.to).toHaveBeenCalledWith("c1");
-      expect(mockIo.toRoom.emit).toHaveBeenCalledWith(
-        "message_created",
-        expect.objectContaining({ role: "human", content: "Hello" })
-      );
-    });
-
-    it("rejects invalid role", () => {
-      seedTestSession("c2", "conversation");
-      mockSocket._trigger("new_message", {
-        sessionId: "c2",
-        role: "admin",
-        content: "Hi",
-      });
-      expect(mockSocket.emit).toHaveBeenCalledWith("error", {
-        message: "Invalid role",
-      });
-    });
-
-    it("rejects terminal session", () => {
-      seedTestSession("t5", "terminal");
-      mockSocket._trigger("new_message", {
-        sessionId: "t5",
-        role: "human",
-        content: "Hi",
-      });
-      expect(mockSocket.emit).toHaveBeenCalledWith("error", {
-        message: "Only conversation sessions accept messages",
-      });
-    });
-  });
-
-  describe("stream_chunk", () => {
-    it("broadcasts chunk to session room", () => {
-      seedTestSession("c1", "conversation");
-      testDb
-        .prepare(
-          "INSERT INTO messages (id, session_id, role, content, format, status) VALUES (?, ?, ?, ?, ?, ?)"
-        )
-        .run("m1", "c1", "agent", "", "markdown", "streaming");
-
-      mockSocket._trigger("stream_chunk", {
-        sessionId: "c1",
-        messageId: "m1",
-        content: "chunk data",
-      });
-      expect(mockIo.to).toHaveBeenCalledWith("c1");
-      expect(mockIo.toRoom.emit).toHaveBeenCalledWith(
-        "stream_chunk",
-        expect.objectContaining({ content: "chunk data" })
-      );
-    });
-
-    it("emits error for missing message", () => {
-      seedTestSession("c2", "conversation");
-      mockSocket._trigger("stream_chunk", {
-        sessionId: "c2",
-        messageId: "nonexistent",
-        content: "data",
-      });
-      expect(mockSocket.emit).toHaveBeenCalledWith("error", {
-        message: "Message not found",
-      });
-    });
-  });
-
-  describe("stream_end", () => {
-    it("finalises streaming message", () => {
-      seedTestSession("c1", "conversation");
-      testDb
-        .prepare(
-          "INSERT INTO messages (id, session_id, role, content, format, status) VALUES (?, ?, ?, ?, ?, ?)"
-        )
-        .run("m2", "c1", "agent", "partial", "markdown", "streaming");
-
-      mockSocket._trigger("stream_end", {
-        sessionId: "c1",
-        messageId: "m2",
-        content: " final",
-      });
-
-      const msg = testDb
-        .prepare("SELECT * FROM messages WHERE id = ?")
-        .get("m2") as any;
-      expect(msg.content).toBe("partial final");
-      expect(msg.status).toBe("complete");
-    });
-  });
 });
