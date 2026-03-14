@@ -7,7 +7,16 @@ const mockUseStore = vi.hoisted(() => vi.fn());
 
 vi.mock("../store.ts", () => ({
   useStore: mockUseStore,
+  chatApiFetch: vi.fn().mockResolvedValue({}),
 }));
+
+vi.mock("lucide-react", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  const stub = (props: any) => null;
+  return new Proxy(actual, {
+    get: (target, prop) => (target as any)[prop] ?? stub,
+  });
+});
 
 vi.mock("react-markdown", () => ({
   default: ({ children }: any) => children,
@@ -37,7 +46,7 @@ describe("MessageList", () => {
     const msg3 = makeMessage("3", "New message");
 
     // Initial render with two messages
-    mockUseStore.mockReturnValue({ messages: [msg1, msg2] });
+    mockUseStore.mockReturnValue({ messages: [msg1, msg2], activeSessionId: "session-1" });
     const { rerender } = render(<MessageList />);
 
     // Simulate the user selecting text (triggers selectionchange listener)
@@ -52,7 +61,7 @@ describe("MessageList", () => {
     scrollMock.mockClear();
 
     // A new message arrives — component re-renders with updated list
-    mockUseStore.mockReturnValue({ messages: [msg1, msg2, msg3] });
+    mockUseStore.mockReturnValue({ messages: [msg1, msg2, msg3], activeSessionId: "session-1" });
     act(() => {
       rerender(<MessageList />);
     });
