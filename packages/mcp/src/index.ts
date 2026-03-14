@@ -7,6 +7,11 @@ const HOST = process.env.ANT_HOST || "127.0.0.1";
 const PORT = process.env.ANT_PORT || "3000";
 const EFFECTIVE_HOST = HOST === "0.0.0.0" ? "127.0.0.1" : HOST;
 const BASE_URL = process.env.ANT_BASE_URL || `http://${EFFECTIVE_HOST}:${PORT}`;
+
+const CHAT_HOST = process.env.ANT_CHAT_HOST || "127.0.0.1";
+const CHAT_PORT = process.env.ANT_CHAT_PORT || "6464";
+const CHAT_BASE_URL = process.env.ANT_CHAT_URL || `http://${CHAT_HOST}:${CHAT_PORT}`;
+
 const TERMINAL_TEXT_LIMIT = 10_000;
 const MAX_TERMINAL_COLS = 500;
 const MAX_TERMINAL_ROWS = 200;
@@ -68,6 +73,25 @@ async function api(path: string, options?: RequestInit) {
     );
   }
 
+  return res.json();
+}
+
+async function chatApi(path: string, options?: RequestInit) {
+  const apiKey = process.env.ANT_API_KEY;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(apiKey ? { "X-API-Key": apiKey } : {}),
+  };
+  const res = await fetch(`${CHAT_BASE_URL}${path}`, {
+    ...options,
+    headers: { ...headers, ...(options?.headers as Record<string, string>) },
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    let payload: unknown = body;
+    try { payload = JSON.parse(body); } catch {}
+    throw new AntApiError(res.status, payload, `ANT Chat API error ${res.status}: ${getReadableErrorPayload(payload)}`);
+  }
   return res.json();
 }
 
@@ -194,7 +218,7 @@ server.tool(
     if (limit) params.set("limit", String(limit));
 
     const qs = params.toString();
-    const messages = await api(
+    const messages = await chatApi(
       `/api/sessions/${sessionId}/messages${qs ? `?${qs}` : ""}`
     );
     return {
@@ -212,11 +236,16 @@ server.tool(
     content: z.string().describe("Message content (markdown supported)"),
     role: ROLE_ENUM.default("human").describe("Message role"),
     format: FORMAT_ENUM.default("markdown").describe("Message format"),
+    sender_type: z.string().optional().describe("Sender type: claude, codex, gemini, copilot, human, system"),
+    sender_name: z.string().optional().describe("Display name"),
+    sender_cwd: z.string().optional().describe("Working directory"),
+    sender_persona: z.string().optional().describe("Agent persona/role"),
+    thread_id: z.string().optional().describe("Parent message ID for thread replies"),
   },
-  async ({ sessionId, content, role, format }) => {
-    const message = await api(`/api/sessions/${sessionId}/messages`, {
+  async ({ sessionId, content, role, format, sender_type, sender_name, sender_cwd, sender_persona, thread_id }) => {
+    const message = await chatApi(`/api/sessions/${sessionId}/messages`, {
       method: "POST",
-      body: JSON.stringify({ role, content, format }),
+      body: JSON.stringify({ role, content, format, sender_type, sender_name, sender_cwd, sender_persona, thread_id }),
     });
     return {
       content: [{ type: "text", text: JSON.stringify(message, null, 2) }],
@@ -234,7 +263,7 @@ server.tool(
     format: FORMAT_ENUM.default("markdown").describe("Message format"),
   },
   async ({ sessionId, role, format }) => {
-    const message = await api(`/api/sessions/${sessionId}/messages`, {
+    const message = await chatApi(`/api/sessions/${sessionId}/messages`, {
       method: "POST",
       body: JSON.stringify({ role, content: "", format, status: "streaming" }),
     });
@@ -259,7 +288,7 @@ server.tool(
     content: z.string().describe("Full message content"),
   },
   async ({ sessionId, messageId, content }) => {
-    const message = await api(
+    const message = await chatApi(
       `/api/sessions/${sessionId}/messages/${messageId}`,
       {
         method: "PATCH",
@@ -281,13 +310,50 @@ server.tool(
     messageId: z.string().describe("Message ID to delete"),
   },
   async ({ sessionId, messageId }) => {
-    const result = await api(
+    const result = await chatApi(
       `/api/sessions/${sessionId}/messages/${messageId}`,
       { method: "DELETE" }
     );
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
     };
+  }
+);
+
+// Reply to a message in a thread
+server.tool(
+  "ant_reply_to_message",
+  "Reply to a specific message in a thread",
+  {
+    sessionId: z.string().describe("Session ID"),
+    messageId: z.string().describe("Parent message ID to reply to"),
+    content: z.string().describe("Reply content"),
+    sender_type: z.string().optional().describe("Sender type"),
+    sender_name: z.string().optional().describe("Display name"),
+  },
+  async ({ sessionId, messageId, content, sender_type, sender_name }) => {
+    const message = await chatApi(`/api/sessions/${sessionId}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ role: "agent", content, sender_type, sender_name, thread_id: messageId }),
+    });
+    return { content: [{ type: "text", text: JSON.stringify(message, null, 2) }] };
+  }
+);
+
+// Store message to Obsidian vault
+server.tool(
+  "ant_store_message",
+  "Store a message to the configured Obsidian vault",
+  {
+    sessionId: z.string().describe("Session ID"),
+    messageId: z.string().describe("Message ID to store"),
+  },
+  async ({ sessionId, messageId }) => {
+    const result = await chatApi("/api/store", {
+      method: "POST",
+      body: JSON.stringify({ sessionId, messageId }),
+    });
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   }
 );
 
@@ -588,6 +654,118 @@ server.tool(
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
     };
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Agent API tools — structured terminal interaction for AI agents
+// ---------------------------------------------------------------------------
+
+// Get structured screen state
+server.tool(
+  "ant_get_screen",
+  "Get a structured view of the terminal screen: clean text lines, cursor position, shell state, and dimensions. Best for agents to 'see' what's on screen without parsing ANSI.",
+  {
+    sessionId: z.string().describe("Session ID"),
+  },
+  async ({ sessionId }) => {
+    try {
+      const result = await api(`/api/agent/sessions/${sessionId}/screen`);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (error) {
+      const details = makeErrorPayload(error);
+      if (details) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                { status: details.status, error: details.payload },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+      throw error;
+    }
+  }
+);
+
+// Execute command and wait for result
+server.tool(
+  "ant_exec_command",
+  "Execute a shell command in a terminal session, wait for it to complete, and return the structured result including exit code and clean output. This is the primary way agents should run commands.",
+  {
+    sessionId: z.string().describe("Session ID"),
+    command: z.string().max(TERMINAL_TEXT_LIMIT).describe("Shell command to execute"),
+    timeout: z.number().optional().default(30000).describe("Max wait time in ms (default 30s, max 5min)"),
+  },
+  async ({ sessionId, command, timeout }) => {
+    try {
+      const result = await api(`/api/agent/sessions/${sessionId}/exec`, {
+        method: "POST",
+        body: JSON.stringify({ command, timeout }),
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (error) {
+      const details = makeErrorPayload(error);
+      if (details) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                { status: details.status, error: details.payload },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+      throw error;
+    }
+  }
+);
+
+// Wait for shell to become idle
+server.tool(
+  "ant_wait_idle",
+  "Wait until the shell in a terminal session is idle (no command running). Useful after sending raw input to wait for completion before reading results.",
+  {
+    sessionId: z.string().describe("Session ID"),
+    timeout: z.number().optional().default(30000).describe("Max wait time in ms (default 30s, max 5min)"),
+  },
+  async ({ sessionId, timeout }) => {
+    try {
+      const result = await api(`/api/agent/sessions/${sessionId}/wait-idle?timeout=${timeout}`);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (error) {
+      const details = makeErrorPayload(error);
+      if (details) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                { status: details.status, error: details.payload },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+      throw error;
+    }
   }
 );
 
