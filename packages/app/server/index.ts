@@ -14,7 +14,11 @@ import uploadRoutes from "./routes/uploads.js";
 import resumeCommandRoutes from "./routes/resume-commands.js";
 import settingsRoutes from "./routes/settings.js";
 import workspaceRoutes from "./routes/workspaces.js";
+import agentRoutes from "./routes/agent.js";
+import annotationRoutes from "./routes/annotations.js";
+import storeRoutes from "./routes/store.js";
 import { registerSocketHandlers } from "./ws/handlers.js";
+import { registerTerminalNamespace } from "./ws/terminal-namespace.js";
 import { reapOrphanedSessions } from "./pty-manager.js";
 
 import db from "./db.js";
@@ -90,13 +94,32 @@ async function start() {
   app.use(resumeCommandRoutes);
   app.use(settingsRoutes);
   app.use(workspaceRoutes);
+  app.use(agentRoutes);
+  app.use(annotationRoutes);
+  app.use(storeRoutes);
 
   // Serve uploads
   const uploadsPath = path.join(__dirname, "..", "..", "public", "uploads");
   app.use("/uploads", express.static(uploadsPath));
 
-  // WebSocket
+  // WebSocket — control plane (default namespace)
   registerSocketHandlers(io);
+
+  // WebSocket — terminal I/O (dedicated /terminal namespace, binary-first)
+  const termNs = registerTerminalNamespace(io);
+
+  // Apply same auth middleware to terminal namespace
+  termNs.use((socket, next) => {
+    const ip = extractIp(socket as any);
+    if (!isAllowedHost(ip)) {
+      return next(new Error("ANT is restricted to the configured local network."));
+    }
+    if (!WS_API_KEY) return next();
+    const provided = getClientApiKey(socket as any);
+    if (!provided) return next(new Error("Invalid or missing API key"));
+    if (provided === WS_API_KEY) return next();
+    next(new Error("Invalid or missing API key"));
+  });
 
   // Vite dev server or static files
   if (process.env.NODE_ENV !== "production") {
