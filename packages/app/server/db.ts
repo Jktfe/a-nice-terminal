@@ -126,5 +126,43 @@ try {
   // Column already exists — ignore
 }
 
+// Migration: add sender identity columns to messages
+try { db.exec(`ALTER TABLE messages ADD COLUMN sender_type TEXT DEFAULT NULL`); } catch {}
+try { db.exec(`ALTER TABLE messages ADD COLUMN sender_name TEXT DEFAULT NULL`); } catch {}
+try { db.exec(`ALTER TABLE messages ADD COLUMN sender_cwd TEXT DEFAULT NULL`); } catch {}
+try { db.exec(`ALTER TABLE messages ADD COLUMN sender_persona TEXT DEFAULT NULL`); } catch {}
+try { db.exec(`ALTER TABLE messages ADD COLUMN thread_id TEXT DEFAULT NULL`); } catch {}
+try { db.exec(`ALTER TABLE messages ADD COLUMN annotations TEXT DEFAULT NULL`); } catch {}
+try { db.exec(`ALTER TABLE messages ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`); } catch {}
+
+// Backfill sender_type from role for existing messages
+db.exec(`UPDATE messages SET sender_type = 'human' WHERE sender_type IS NULL AND role = 'human'`);
+db.exec(`UPDATE messages SET sender_type = 'unknown' WHERE sender_type IS NULL AND role = 'agent'`);
+db.exec(`UPDATE messages SET sender_type = 'system' WHERE sender_type IS NULL AND role = 'system'`);
+
+// Indices for thread and starred queries
+db.exec(`CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_messages_starred ON messages(starred) WHERE starred = 1`);
+
+// Command events table — tracks command lifecycle for agent API
+db.exec(`
+  CREATE TABLE IF NOT EXISTS command_events (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    command TEXT NOT NULL,
+    exit_code INTEGER,
+    output TEXT,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    duration_ms INTEGER,
+    cwd TEXT,
+    detection_method TEXT NOT NULL DEFAULT 'quiet',
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_command_events_session
+    ON command_events (session_id, started_at);
+`);
+
 export default db;
 export { DB_PATH };
