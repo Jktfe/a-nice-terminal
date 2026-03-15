@@ -3,6 +3,7 @@ import healthRoutes from "../routes/health.js";
 import sessionRoutes from "../routes/sessions.js";
 import messageRoutes from "../routes/messages.js";
 import workspaceRoutes from "../routes/workspaces.js";
+import annotationRoutes from "../routes/annotations.js";
 import { apiKeyAuth } from "../middleware/auth.js";
 import db from "../db.js";
 const testDb = db;
@@ -14,6 +15,7 @@ export function createTestApp() {
   app.use(sessionRoutes);
   app.use(messageRoutes);
   app.use(workspaceRoutes);
+  app.use(annotationRoutes);
   return app;
 }
 
@@ -26,6 +28,7 @@ export function createTestAppWithAuth(apiKey: string) {
   app.use(sessionRoutes);
   app.use(messageRoutes);
   app.use(workspaceRoutes);
+  app.use(annotationRoutes);
   return app;
 }
 

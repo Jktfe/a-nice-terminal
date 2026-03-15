@@ -9,6 +9,7 @@ import { isProtocolMessage } from "../utils/protocolTypes.ts";
 import SenderAvatar from "./SenderAvatar.tsx";
 import MessageToolbar from "./MessageToolbar.tsx";
 import ProtocolCard from "./ProtocolCard.tsx";
+import SessionRating from "./SessionRating.tsx";
 
 const COLLAPSE_THRESHOLD = 15;
 const COLLAPSED_LINES = 6;
@@ -22,11 +23,12 @@ interface MessageBubbleProps {
   replyCount?: number;
   onToggleThread?: () => void;
   scale?: number;
+  showSessionRating?: boolean;
 }
 
 export default function MessageBubble({
   message, sessionId, onReply, onDelete, onAnnotationChange,
-  replyCount = 0, onToggleThread, scale = 1,
+  replyCount = 0, onToggleThread, scale = 1, showSessionRating = false,
 }: MessageBubbleProps) {
   const theme = getSenderTheme(message.sender_type);
   const human = isHuman(message.sender_type);
@@ -38,7 +40,7 @@ export default function MessageBubble({
   });
 
   const annotations = message.annotations || [];
-  const pills = annotations.filter((a) => a.type !== "star");
+  const pills = annotations.filter((a) => a.type !== "star" && a.type !== "session_rating");
   const isStarred = message.starred === 1;
 
   const alignment = system ? "justify-center" : human ? "justify-end" : "justify-start";
@@ -143,6 +145,14 @@ export default function MessageBubble({
               <div className={`text-[10px] text-white/25 mt-1 ${human ? "text-right" : ""}`}>
                 {timestamp}
               </div>
+
+              {showSessionRating && (
+                <SessionRating
+                  message={message}
+                  sessionId={sessionId}
+                  onAnnotationChange={(annotations, starred) => onAnnotationChange(message.id, annotations ?? [], starred)}
+                />
+              )}
             </div>
           </div>
         </div>

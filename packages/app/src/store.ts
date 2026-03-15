@@ -46,7 +46,18 @@ export interface Message {
   sender_cwd?: string;
   sender_persona?: string;
   thread_id?: string;
-  annotations?: Array<{ type: string; by: string; at: string; note?: string }>;
+  annotations?: Array<{
+    type: string;
+    by: string;
+    at: string;
+    note?: string;
+    data?: {
+      sentiment?: "up" | "down";
+      outcome?: number;
+      speed?: number;
+      trust?: number;
+    };
+  }>;
   starred?: number;
   reply_count?: number;
 }
