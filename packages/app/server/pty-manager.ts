@@ -5,6 +5,8 @@ import { nanoid } from "nanoid";
 import db from "./db.js";
 import type { DbResumeCommand, DbSession } from "./types.js";
 import { stripAnsi } from "./types.js";
+import { HeadlessTerminalWrapper } from "./terminal/headless-terminal.js";
+import { CommandTracker, type CommandEvent } from "./terminal/command-tracker.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -18,6 +20,8 @@ interface PtySession {
   resumeBuffer: string;
   resumeDebounce: ReturnType<typeof setTimeout> | null;
   nextOutputIndex: number;
+  headless: HeadlessTerminalWrapper;
+  commandTracker: CommandTracker;
 }
 
 type TerminalOutputListener = (data: string) => void;
@@ -370,6 +374,51 @@ export function createPty(
     }
   }, 300);
 
+  // Create headless terminal mirror — same dimensions as the PTY
+  const headless = new HeadlessTerminalWrapper(120, 30);
+
+  // Create command lifecycle tracker
+  const commandTracker = new CommandTracker();
+
+  // Persist command events to DB
+  const insertCommandEvent = db.prepare(
+    `INSERT INTO command_events (id, session_id, command, exit_code, output, started_at, completed_at, duration_ms, cwd, detection_method)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+
+  commandTracker.on("command_end", (event: CommandEvent) => {
+    try {
+      // Get current cwd from session
+      const sess = db.prepare("SELECT cwd FROM sessions WHERE id = ?").get(sessionId) as { cwd: string | null } | undefined;
+      const truncatedOutput = event.output ? event.output.slice(0, 50000) : null;
+      insertCommandEvent.run(
+        nanoid(12),
+        sessionId,
+        event.command,
+        event.exitCode ?? null,
+        truncatedOutput,
+        event.startedAt,
+        event.completedAt ?? null,
+        event.durationMs ?? null,
+        sess?.cwd ?? null,
+        event.detectionMethod,
+      );
+    } catch {
+      // Non-fatal — command tracking is best-effort
+    }
+  });
+
+  // Emit command lifecycle events for WebSocket consumers
+  commandTracker.on("command_start", (event) => {
+    commandListeners.forEach((listener) => listener("command_start", sessionId, event));
+  });
+  commandTracker.on("command_end", (event) => {
+    commandListeners.forEach((listener) => listener("command_end", sessionId, event));
+  });
+  commandTracker.on("idle", () => {
+    commandListeners.forEach((listener) => listener("idle", sessionId, {}));
+  });
+
   const session: PtySession = {
     process: ptyProcess,
     sessionId,
@@ -378,10 +427,17 @@ export function createPty(
     resumeBuffer: "",
     resumeDebounce: null,
     nextOutputIndex: getTerminalOutputCursorFromDb(sessionId),
+    headless,
+    commandTracker,
   };
   ptySessions.set(sessionId, session);
 
   ptyProcess.onData((data: string) => {
+    // Feed into headless terminal (must happen before any listeners)
+    headless.write(data);
+
+    // Feed into command tracker for lifecycle detection
+    commandTracker.feed(data);
     const chunkIndex = session.nextOutputIndex;
     session.nextOutputIndex += 1;
     session.output.push(data);
@@ -432,6 +488,8 @@ export function createPty(
 
     // Only clean up the node-pty wrapper — the tmux session lives on
     session.listeners.clear();
+    session.headless.dispose();
+    session.commandTracker.dispose();
     ptySessions.delete(sessionId);
   });
 
@@ -440,6 +498,14 @@ export function createPty(
 
 export function getPty(sessionId: string): pty.IPty | undefined {
   return ptySessions.get(sessionId)?.process;
+}
+
+/**
+ * Get the headless terminal wrapper for structured state access.
+ * Returns undefined if no PTY is attached for this session.
+ */
+export function getHeadless(sessionId: string): HeadlessTerminalWrapper | undefined {
+  return ptySessions.get(sessionId)?.headless;
 }
 
 export function hasOutputListeners(sessionId: string): boolean {
@@ -612,6 +678,8 @@ export function detachPty(sessionId: string): void {
 
   session.process.kill();
   session.listeners.clear();
+  session.headless.dispose();
+  session.commandTracker.dispose();
   if (session.resumeDebounce) clearTimeout(session.resumeDebounce);
   ptySessions.delete(sessionId);
 }
@@ -655,7 +723,10 @@ export function destroyAllPtys(): number {
 export function resizePty(sessionId: string, cols: number, rows: number): void {
   const session = ptySessions.get(sessionId);
   if (!session) return;
-  session.process.resize(clamp(cols, 1, 500), clamp(rows, 1, 200));
+  const safeCols = clamp(cols, 1, 500);
+  const safeRows = clamp(rows, 1, 200);
+  session.process.resize(safeCols, safeRows);
+  session.headless.resize(safeCols, safeRows);
 }
 
 // ---------------------------------------------------------------------------
@@ -766,6 +837,25 @@ export function getTmuxCursor(sessionId: string): { x: number; y: number } {
 export function hasTmuxSession(sessionId: string): boolean {
   return tmuxSessionExists(sessionId);
 }
+// ---------------------------------------------------------------------------
+// Command lifecycle listeners
+// ---------------------------------------------------------------------------
+
+type CommandLifecycleListener = (event: string, sessionId: string, data: any) => void;
+const commandListeners = new Set<CommandLifecycleListener>();
+
+export function onCommandLifecycle(listener: CommandLifecycleListener): () => void {
+  commandListeners.add(listener);
+  return () => { commandListeners.delete(listener); };
+}
+
+/**
+ * Get the command tracker for a session.
+ */
+export function getCommandTracker(sessionId: string): CommandTracker | undefined {
+  return ptySessions.get(sessionId)?.commandTracker;
+}
+
 type CwdUpdateListener = (sessionId: string, cwd: string) => void;
 const cwdUpdateListeners = new Set<CwdUpdateListener>();
 

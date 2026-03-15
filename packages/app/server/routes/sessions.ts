@@ -7,6 +7,7 @@ import {
   destroyAllPtys,
   createPty,
   getPty,
+  getHeadless,
   getTerminalOutput,
   getTerminalOutputCursor,
   resizePty,
@@ -274,8 +275,34 @@ router.get("/api/sessions/:sessionId/terminal/state", (req, res) => {
   }
 
   const format = req.query.format === "ansi" ? "ansi" : "plain";
-  
+
   try {
+    // Prefer headless terminal (single source of truth) over tmux capture
+    const headless = getHeadless(req.params.sessionId);
+    if (headless) {
+      if (format === "ansi") {
+        // Serialize full state (scrollback + screen + cursor) for client restore
+        const state = headless.serializeState();
+        const cursor = headless.getCursor();
+        return res.json({
+          sessionId: req.params.sessionId,
+          format,
+          state,
+          cursor,
+        });
+      }
+      // Plain text: return screen lines
+      const lines = headless.getScreenLines();
+      const cursor = headless.getCursor();
+      return res.json({
+        sessionId: req.params.sessionId,
+        format,
+        state: lines.join("\n"),
+        cursor,
+      });
+    }
+
+    // Fallback: capture from tmux directly (headless not yet attached, e.g. after restart)
     const state = captureTmuxPane(req.params.sessionId, format);
     const cursor = getTmuxCursor(req.params.sessionId);
 

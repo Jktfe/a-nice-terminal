@@ -3,7 +3,7 @@ import { AnimatePresence } from "motion/react";
 import { useStore, type Session } from "./store.ts";
 import Sidebar from "./components/Sidebar.tsx";
 import Header from "./components/Header.tsx";
-import TerminalView from "./components/TerminalView.tsx";
+import TerminalView from "./components/TerminalViewV2.tsx";
 import MessageList from "./components/MessageList.tsx";
 import InputArea from "./components/InputArea.tsx";
 import QuickSwitcher from "./components/QuickSwitcher.tsx";

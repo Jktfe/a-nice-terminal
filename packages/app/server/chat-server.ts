@@ -60,7 +60,14 @@ io.use((socket, next) => {
   next(new Error("Invalid or missing API key"));
 });
 
-// Express middleware
+// Express middleware — CORS must come before auth so preflight OPTIONS requests succeed
+app.use((_req, res, next) => {
+  res.header("Access-Control-Allow-Origin", _req.headers.origin || "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, X-API-Key, Authorization");
+  if (_req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
 app.use(tailscaleOnly);
 app.use(apiKeyAuth);
 app.use(express.json());
