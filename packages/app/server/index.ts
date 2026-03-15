@@ -48,13 +48,12 @@ function getClientApiKey(socket: Socket): string | undefined {
   return headerAuth;
 }
 
+// Use the actual TCP peer address — never trust X-Forwarded-For by default
+// because clients can spoof it to bypass the Tailscale IP allowlist.
 function extractIp(socket: Socket): string {
   const remote = socket?.request?.socket?.remoteAddress as string | undefined;
   const direct = socket?.conn?.remoteAddress as string | undefined;
-  const headers = ((socket as any)?.handshake?.headers || {}) as Record<string, string | string[] | undefined>;
-  const xffRaw = headers["x-forwarded-for"];
-  const xff = (typeof xffRaw === "string" ? xffRaw : "").split(",")[0].trim();
-  return xff || remote || direct || "";
+  return remote || direct || "";
 }
 
 async function start() {
