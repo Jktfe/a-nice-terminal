@@ -81,6 +81,9 @@ export default function MessageList({ sessionId, messages: messagesProp }: { ses
   };
 
   const effectiveSessionId = activeSessionId || sessionId || "";
+  const lastRateableMessageId = [...messages]
+    .reverse()
+    .find((message) => message.role !== "human" && message.status === "complete" && !message.thread_id)?.id;
 
   return (
     <div className="flex-1 overflow-hidden relative">
@@ -110,6 +113,7 @@ export default function MessageList({ sessionId, messages: messagesProp }: { ses
                 }}
                 replyCount={msg.reply_count || 0}
                 onToggleThread={() => setOpenThreadId(openThreadId === msg.id ? null : msg.id)}
+                showSessionRating={msg.id === lastRateableMessageId}
               />
               {openThreadId === msg.id && (
                 <ThreadPanel
