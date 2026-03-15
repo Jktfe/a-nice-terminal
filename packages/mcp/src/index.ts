@@ -230,7 +230,7 @@ server.tool(
 // Send message
 server.tool(
   "ant_send_message",
-  "Send a message to a conversation session",
+  "Send a message to a conversation session. For multi-agent coordination, use the metadata field with protocol types: architect_select, task_brief, offer, assignment, status_update, review_request, review_result, completion. Protocol messages render as visual cards in the UI.",
   {
     sessionId: z.string().describe("Session ID"),
     content: z.string().describe("Message content (markdown supported)"),
@@ -241,11 +241,12 @@ server.tool(
     sender_cwd: z.string().optional().describe("Working directory"),
     sender_persona: z.string().optional().describe("Agent persona/role"),
     thread_id: z.string().optional().describe("Parent message ID for thread replies"),
+    metadata: z.any().optional().describe("Structured metadata. For protocol messages use: { type: 'offer', task_id, capability, confidence (0-1), available } or { type: 'assignment', assignments: [{ task_id, assigned_to, assigned_type, branch }] } etc."),
   },
-  async ({ sessionId, content, role, format, sender_type, sender_name, sender_cwd, sender_persona, thread_id }) => {
+  async ({ sessionId, content, role, format, sender_type, sender_name, sender_cwd, sender_persona, thread_id, metadata }) => {
     const message = await chatApi(`/api/sessions/${sessionId}/messages`, {
       method: "POST",
-      body: JSON.stringify({ role, content, format, sender_type, sender_name, sender_cwd, sender_persona, thread_id }),
+      body: JSON.stringify({ role, content, format, sender_type, sender_name, sender_cwd, sender_persona, thread_id, metadata }),
     });
     return {
       content: [{ type: "text", text: JSON.stringify(message, null, 2) }],

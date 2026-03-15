@@ -5,8 +5,10 @@ import rehypeHighlight from "rehype-highlight";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { type Message } from "../store.ts";
 import { getSenderTheme, isHuman, isSystem } from "../utils/senderTheme.ts";
+import { isProtocolMessage } from "../utils/protocolTypes.ts";
 import SenderAvatar from "./SenderAvatar.tsx";
 import MessageToolbar from "./MessageToolbar.tsx";
+import ProtocolCard from "./ProtocolCard.tsx";
 
 const COLLAPSE_THRESHOLD = 15;
 const COLLAPSED_LINES = 6;
@@ -98,6 +100,11 @@ export default function MessageBubble({
                   </ReactMarkdown>
                 )}
               </div>
+
+              {/* Protocol card — rendered when metadata is a structured protocol message */}
+              {isProtocolMessage(message.metadata) && (
+                <ProtocolCard metadata={message.metadata} />
+              )}
 
               {/* Collapse toggle */}
               {message.content.split("\n").length > COLLAPSE_THRESHOLD && (
