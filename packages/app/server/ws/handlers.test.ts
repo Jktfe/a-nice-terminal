@@ -72,7 +72,7 @@ function createMockIo() {
 
 function seedTestSession(id: string, type: string, shell: string | null = null) {
   testDb
-    .prepare("INSERT INTO sessions (id, name, type, shell) VALUES (?, ?, ?, ?)")
+    .prepare("INSERT OR REPLACE INTO sessions (id, name, type, shell) VALUES (?, ?, ?, ?)")
     .run(id, `Session ${id}`, type, shell);
 }
 

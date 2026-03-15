@@ -45,7 +45,7 @@ export function seedSession(overrides: Partial<{
   const archived = overrides.archived ?? 0;
 
   testDb
-    .prepare("INSERT INTO sessions (id, name, type, shell, workspace_id, archived) VALUES (?, ?, ?, ?, ?, ?)")
+    .prepare("INSERT OR REPLACE INTO sessions (id, name, type, shell, workspace_id, archived) VALUES (?, ?, ?, ?, ?, ?)")
     .run(id, name, type, shell, workspace_id, archived);
 
   return { id, name, type, shell, workspace_id, archived };
@@ -59,7 +59,7 @@ export function seedWorkspace(overrides: Partial<{
   const name = overrides.name ?? "Test Workspace";
 
   testDb
-    .prepare("INSERT INTO workspaces (id, name) VALUES (?, ?)")
+    .prepare("INSERT OR REPLACE INTO workspaces (id, name) VALUES (?, ?)")
     .run(id, name);
 
   return { id, name };
@@ -82,7 +82,7 @@ export function seedMessage(overrides: Partial<{
 
   testDb
     .prepare(
-      "INSERT INTO messages (id, session_id, role, content, format, status) VALUES (?, ?, ?, ?, ?, ?)"
+      "INSERT OR REPLACE INTO messages (id, session_id, role, content, format, status) VALUES (?, ?, ?, ?, ?, ?)"
     )
     .run(id, session_id, role, content, format, status);
 
