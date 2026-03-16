@@ -13,8 +13,6 @@ import {
   resizePty,
   addPtyOutputListener,
   searchTerminalOutput,
-  captureTmuxPane,
-  getTmuxCursor,
 } from "../pty-manager.js";
 import { SAFE_TEXT_LIMIT } from "../constants.js";
 
@@ -47,6 +45,28 @@ router.get("/api/sessions", (req, res) => {
 router.delete("/api/sessions/terminals/all", (_req, res) => {
   const count = destroyAllPtys();
   res.json({ destroyed: count });
+});
+
+// Check if a session has any content (terminal output or messages)
+router.get("/api/sessions/:id/has-content", (req, res) => {
+  const session = db
+    .prepare("SELECT * FROM sessions WHERE id = ?")
+    .get(req.params.id) as DbSession | undefined;
+  if (!session) return res.status(404).json({ error: "Session not found" });
+
+  let hasContent = false;
+  if (session.type === "terminal") {
+    const row = db
+      .prepare("SELECT COUNT(*) as c FROM terminal_output_events WHERE session_id = ? LIMIT 1")
+      .get(req.params.id) as { c: number };
+    hasContent = row.c > 0;
+  } else {
+    const row = db
+      .prepare("SELECT COUNT(*) as c FROM messages WHERE session_id = ? LIMIT 1")
+      .get(req.params.id) as { c: number };
+    hasContent = row.c > 0;
+  }
+  res.json({ hasContent });
 });
 
 // Get single session
@@ -277,39 +297,32 @@ router.get("/api/sessions/:sessionId/terminal/state", (req, res) => {
   const format = req.query.format === "ansi" ? "ansi" : "plain";
 
   try {
-    // Prefer headless terminal (single source of truth) over tmux capture
     const headless = getHeadless(req.params.sessionId);
-    if (headless) {
-      if (format === "ansi") {
-        // Serialize full state (scrollback + screen + cursor) for client restore
-        const state = headless.serializeState();
-        const cursor = headless.getCursor();
-        return res.json({
-          sessionId: req.params.sessionId,
-          format,
-          state,
-          cursor,
-        });
-      }
-      // Plain text: return screen lines
-      const lines = headless.getScreenLines();
+    if (!headless) {
+      return res.status(503).json({
+        error: "Terminal not attached",
+        details: "No headless terminal mirror is active. Join the session via WebSocket or send input to re-attach.",
+      });
+    }
+
+    if (format === "ansi") {
+      // Serialize full state (scrollback + screen + cursor) for client restore
+      const state = headless.serializeState();
       const cursor = headless.getCursor();
       return res.json({
         sessionId: req.params.sessionId,
         format,
-        state: lines.join("\n"),
+        state,
         cursor,
       });
     }
-
-    // Fallback: capture from tmux directly (headless not yet attached, e.g. after restart)
-    const state = captureTmuxPane(req.params.sessionId, format);
-    const cursor = getTmuxCursor(req.params.sessionId);
-
-    res.json({
+    // Plain text: return screen lines
+    const lines = headless.getScreenLines();
+    const cursor = headless.getCursor();
+    return res.json({
       sessionId: req.params.sessionId,
       format,
-      state,
+      state: lines.join("\n"),
       cursor,
     });
   } catch (err: any) {

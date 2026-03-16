@@ -18,7 +18,7 @@ import {
   getCommandTracker,
   addPtyOutputListener,
   hasOutputListeners,
-  hasTmuxSession,
+  hasSession,
   onCommandLifecycle,
 } from "../pty-manager.js";
 import { SAFE_TEXT_LIMIT } from "../constants.js";
@@ -40,7 +40,7 @@ router.get("/api/agent/sessions", (_req, res) => {
       name: s.name,
       type: s.type,
       cwd: s.cwd,
-      shellState: tracker?.state ?? (hasTmuxSession(s.id) ? "unknown" : "dead"),
+      shellState: tracker?.state ?? (hasSession(s.id) ? "unknown" : "dead"),
       hasHeadless: !!getHeadless(s.id),
       created_at: s.created_at,
       updated_at: s.updated_at,

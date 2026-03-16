@@ -14,6 +14,7 @@ vi.mock("../pty-manager.js", async (importOriginal) => {
     resizePty: vi.fn(),
     addPtyOutputListener: vi.fn(),
     searchTerminalOutput: vi.fn(() => []),
+    hasSession: vi.fn(() => false),
     hasTmuxSession: vi.fn(() => false),
     hasOutputListeners: vi.fn(() => false),
     removePtyOutputListeners: vi.fn(),

@@ -232,7 +232,7 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
     }
   }, [connected, activeSessionId]);
 
-  // Poll tmux session liveness so we can show a "session ended" banner.
+  // Poll dtach session liveness so we can show a "session ended" banner.
   useEffect(() => {
     if (!activeSessionId || !socket) return;
     let interval: ReturnType<typeof setInterval> | null = null;
@@ -284,7 +284,7 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
       theme: getTerminalTheme(terminalTheme),
       scrollback: 10000,
       allowProposedApi: true,
-      // No convertEol — tmux already sends CRLF
+      // No convertEol — shell/dtach already sends CRLF
     });
 
     const fitAddon = new FitAddon();
@@ -333,6 +333,24 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
 
       try { fitAddon.fit(); } catch {}
       emitResize();
+
+      // Fetch existing terminal state after resize propagates.
+      // For established sessions this provides instant restore; for brand-new
+      // sessions the shell prompt appears via live output (click Refresh if needed
+      // due to potential rendering timing).
+      setTimeout(() => {
+        if (!termRef.current) return;
+        setRefreshing(true);
+        apiFetch(`/api/sessions/${activeSessionId}/terminal/state?format=ansi`)
+          .then((result) => {
+            if (termRef.current && activeSessionId === result.sessionId && result.state) {
+              termRef.current.reset();
+              termRef.current.write(result.state);
+            }
+          })
+          .catch(() => {})
+          .finally(() => setRefreshing(false));
+      }, 150);
     }
 
     const initTimer = requestAnimationFrame(tryInit);
@@ -532,31 +550,6 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
 
     container.addEventListener("dragover", onDragOver);
     container.addEventListener("drop", onDrop);
-
-    // Fetch existing state — get a perfect snapshot of the terminal grid + scrollback
-    setRefreshing(true);
-    apiFetch(`/api/sessions/${activeSessionId}/terminal/state?format=ansi`)
-      .then((result) => {
-        if (termRef.current && activeSessionId === result.sessionId) {
-          term.reset();
-          term.write(result.state);
-        }
-      })
-      .catch(() => {
-        // Fallback: try legacy output chunks if state capture fails
-        apiFetch(`/api/sessions/${activeSessionId}/terminal/output?limit=5000`)
-          .then((result) => {
-            if (termRef.current && activeSessionId === result.sessionId) {
-              const batch = (result.events as { index: number; data: string }[])
-                .map((e: any) => e.data)
-                .join("");
-              term.reset();
-              term.write(batch);
-            }
-          })
-          .catch(() => {});
-      })
-      .finally(() => setRefreshing(false));
 
     return () => {
       cancelAnimationFrame(initTimer);
@@ -851,14 +844,14 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
               value={slowEditInput}
               onChange={(e) => setSlowEditInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && e.shiftKey) {
+                if (e.key === "Enter" && (e.shiftKey || e.metaKey)) {
                   e.preventDefault();
                   sendSlowEditInput();
                 }
               }}
               rows={3}
               className="w-full rounded-lg border border-white/15 bg-[var(--color-bg)] px-3 py-2 text-sm text-white outline-none resize-y min-h-16"
-              placeholder="Type command(s) here. Shift+Enter sends to terminal."
+              placeholder="Type command(s) here. Cmd+Enter or Shift+Enter sends to terminal."
             />
             <div className="flex items-center justify-end gap-2">
               <button

@@ -138,7 +138,7 @@ async function start() {
     });
   }
 
-  // Re-adopt or schedule cleanup of orphaned tmux sessions from previous runs
+  // Re-adopt or schedule cleanup of orphaned dtach sessions from previous runs
   reapOrphanedSessions();
 
   // Server heartbeat — written every 30s so crash recovery can estimate downtime

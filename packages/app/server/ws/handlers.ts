@@ -6,7 +6,6 @@ import {
   destroyPty,
   getPty,
   hasOutputListeners,
-  hasTmuxSession,
   resizePty,
   onResumeCommand,
   onCwdUpdate,
@@ -64,7 +63,7 @@ export function registerSocketHandlers(io: Server) {
         cancelKillTimer(sessionId);
 
         try {
-          // createPty handles both fresh creation and tmux re-attachment
+          // createPty handles both fresh creation and dtach re-attachment
           getPty(sessionId) || createPty(sessionId, session.shell, session.cwd);
           if (!hasOutputListeners(sessionId)) {
             const emitter = (chunk: string) => {
@@ -182,7 +181,7 @@ export function registerSocketHandlers(io: Server) {
       }
     );
 
-    // Let clients poll whether a terminal's tmux session is still alive
+    // Let clients poll whether a terminal's dtach session is still alive
     socket.on("check_health", ({ sessionId }: { sessionId: string }) => {
       if (typeof sessionId !== "string" || !sessionId.trim()) return;
       const alive = checkSessionHealth(sessionId);

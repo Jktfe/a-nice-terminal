@@ -46,6 +46,10 @@ function roomHasClients(ns: Namespace, room: string): boolean {
 export function registerTerminalNamespace(io: Server): Namespace {
   const termNs = io.of("/terminal");
 
+  // Track which sessions already have a terminal-namespace output emitter,
+  // so we add exactly one per session (broadcasts to all clients in the room).
+  const termNsEmitters = new Set<string>();
+
   // Broadcast command lifecycle events to terminal namespace clients
   onCommandLifecycle((event, sessionId, data) => {
     if (event === "command_start") {
@@ -90,9 +94,11 @@ export function registerTerminalNamespace(io: Server): Namespace {
 
       try {
         getPty(sid) || createPty(sid, session.shell, session.cwd);
-        if (!hasOutputListeners(sid)) {
+        // Add exactly one terminal-namespace emitter per session.
+        // It broadcasts to all /terminal clients in the room.
+        if (!termNsEmitters.has(sid)) {
+          termNsEmitters.add(sid);
           const emitter = (chunk: string) => {
-            // Convert string output to Buffer for binary transport
             const buf = Buffer.from(chunk, "utf-8");
             termNs.to(sid).emit("out", { sid, d: buf });
           };

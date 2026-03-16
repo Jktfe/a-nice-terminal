@@ -118,7 +118,7 @@ export default function Header() {
             session: session.name,
             cwd: session.cwd,
             timestamp: tokenPayload.timestamp,
-            proc: "tmux, node"
+            proc: "dtach, node"
           }, null, 2)}\n\`\`\``,
           metadata: tokenPayload
         }),

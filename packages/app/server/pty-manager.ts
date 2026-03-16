@@ -1,5 +1,6 @@
 import * as pty from "node-pty";
 import { execFileSync, spawnSync } from "child_process";
+import { existsSync, unlinkSync, readdirSync } from "fs";
 import os from "os";
 import { nanoid } from "nanoid";
 import db from "./db.js";
@@ -36,11 +37,12 @@ interface TerminalOutputChunk {
 // Constants
 // ---------------------------------------------------------------------------
 
-const TMUX_PREFIX = "ant-";
+const DTACH_SOCKET_DIR = "/tmp";
+const DTACH_SOCKET_PREFIX = "ant-";
 const SESSION_TTL_MS = parseInt(
   process.env.ANT_SESSION_TTL_MS || String(48 * 60 * 60 * 1000),
   10
-); // 48 hour default for DTSS persistence
+); // 48 hour default for session persistence
 const MAX_TERMINAL_OUTPUT_EVENTS = 5000;
 const DEFAULT_OUTPUT_LIMIT = 250;
 const TIME_OF_DAY_SECONDS_EXPR =
@@ -233,45 +235,33 @@ function parseResumeCommands(sessionId: string, text: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// tmux helpers
+// dtach helpers
 // ---------------------------------------------------------------------------
 
-function tmuxSessionName(sessionId: string): string {
-  return `${TMUX_PREFIX}${sessionId}`;
+function dtachSocketPath(sessionId: string): string {
+  return `${DTACH_SOCKET_DIR}/${DTACH_SOCKET_PREFIX}${sessionId}.sock`;
 }
 
-function tmuxSessionExists(sessionId: string): boolean {
+function dtachSessionExists(sessionId: string): boolean {
+  return existsSync(dtachSocketPath(sessionId));
+}
+
+/** List all ANT-owned dtach socket files, returning session IDs. */
+function listAntDtachSessions(): string[] {
   try {
-    execFileSync("tmux", ["has-session", "-t", tmuxSessionName(sessionId)], {
-      stdio: "ignore",
-    });
-    return true;
+    return readdirSync(DTACH_SOCKET_DIR)
+      .filter((f) => f.startsWith(DTACH_SOCKET_PREFIX) && f.endsWith(".sock"))
+      .map((f) => f.slice(DTACH_SOCKET_PREFIX.length, -5)); // strip prefix and .sock
   } catch {
-    return false;
+    return [];
   }
 }
 
-/** List all ANT-owned tmux sessions. */
-function listAntTmuxSessions(): string[] {
+function killDtachSession(sessionId: string): void {
+  const socketPath = dtachSocketPath(sessionId);
   try {
-    const out = execFileSync("tmux", ["list-sessions", "-F", "#{session_name}"], {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    return out
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((name) => name.startsWith(TMUX_PREFIX));
-  } catch {
-    return []; // tmux server not running
-  }
-}
-
-function killTmuxSession(sessionId: string): void {
-  try {
-    execFileSync("tmux", ["kill-session", "-t", tmuxSessionName(sessionId)], {
-      stdio: "ignore",
-    });
+    // Remove the socket file — dtach process will exit when socket disappears
+    if (existsSync(socketPath)) unlinkSync(socketPath);
   } catch {
     // already dead
   }
@@ -300,15 +290,15 @@ function clamp(value: number, min: number, max: number) {
 }
 
 // ---------------------------------------------------------------------------
-// PTY lifecycle — backed by tmux
+// PTY lifecycle — backed by dtach
 // ---------------------------------------------------------------------------
 
 /**
- * Create (or re-attach to) a tmux-backed PTY for the given session.
+ * Create (or re-attach to) a dtach-backed PTY for the given session.
  *
- * `tmux new-session -A` attaches if the session exists, or creates it.
- * We disable the status bar and unbind the prefix key so the user
- * experiences a transparent shell — no tmux chrome, no stolen keys.
+ * `dtach -A` attaches if the socket exists, or creates it.
+ * dtach provides zero terminal chrome — no status bar, no prefix key,
+ * no alternate screen buffer. Just persistent PTY attachment.
  */
 export function createPty(
   sessionId: string,
@@ -326,53 +316,24 @@ export function createPty(
     throw new Error(`Shell not allowed: ${shell}`);
   }
 
-  const tmuxName = tmuxSessionName(sessionId);
-  const isReattach = tmuxSessionExists(sessionId);
+  const socketPath = dtachSocketPath(sessionId);
+  const resolvedShell = shell || defaultShell;
 
-  // Build tmux args
-  // -A  = attach-or-create
-  // -s  = session name
-  // -x/-y = initial size (only used on creation)
-  const tmuxArgs = ["new-session", "-A", "-s", tmuxName, "-x", "120", "-y", "30"];
-
-  if (!isReattach) {
-    // On fresh creation, set the shell and working directory
-    const resolvedShell = shell || defaultShell;
-    let resolvedCwd = cwd || process.env.ANT_ROOT_DIR || process.env.HOME || process.cwd();
-    if (resolvedCwd.startsWith("~/")) {
-      resolvedCwd = resolvedCwd.replace(/^~/, process.env.HOME || "");
-    }
-    tmuxArgs.push("-c", resolvedCwd);
-    // Use the shell as the default command
-    tmuxArgs.push(resolvedShell);
+  let resolvedCwd = cwd || process.env.ANT_ROOT_DIR || process.env.HOME || process.cwd();
+  if (resolvedCwd.startsWith("~/")) {
+    resolvedCwd = resolvedCwd.replace(/^~/, process.env.HOME || "");
   }
 
-  let finalCwd = cwd || process.env.ANT_ROOT_DIR || process.env.HOME || process.cwd();
-  if (finalCwd.startsWith("~/")) {
-    finalCwd = finalCwd.replace(/^~/, process.env.HOME || "");
-  }
-
-  const ptyProcess = pty.spawn("tmux", tmuxArgs, {
+  // -A = attach or create
+  // -E = no detach character (prevent accidental detach)
+  // -z = no suspend
+  const ptyProcess = pty.spawn("dtach", ["-A", socketPath, "-Ez", resolvedShell], {
     name: "xterm-256color",
     cols: 120,
     rows: 30,
-    cwd: finalCwd,
+    cwd: resolvedCwd,
     env: safeEnv(),
   });
-
-  // Suppress tmux chrome: no status bar, no prefix key
-  // Short delay to allow tmux to initialise before sending commands
-  setTimeout(() => {
-    try {
-      execFileSync("tmux", ["set-option", "-t", tmuxName, "status", "off"], { stdio: "ignore" });
-      execFileSync("tmux", ["set-option", "-t", tmuxName, "prefix", "None"], { stdio: "ignore" });
-      execFileSync("tmux", ["set-option", "-t", tmuxName, "prefix2", "None"], { stdio: "ignore" });
-      // Enable mouse support so scrolling works through xterm.js
-      execFileSync("tmux", ["set-option", "-t", tmuxName, "mouse", "on"], { stdio: "ignore" });
-    } catch {
-      // Non-fatal — session may have exited already
-    }
-  }, 300);
 
   // Create headless terminal mirror — same dimensions as the PTY
   const headless = new HeadlessTerminalWrapper(120, 30);
@@ -486,7 +447,7 @@ export function createPty(
     }
     if (session.resumeDebounce) clearTimeout(session.resumeDebounce);
 
-    // Only clean up the node-pty wrapper — the tmux session lives on
+    // Only clean up the node-pty wrapper — the dtach session lives on
     session.listeners.clear();
     session.headless.dispose();
     session.commandTracker.dispose();
@@ -670,7 +631,7 @@ export function searchTerminalOutput(
 
 /**
  * Detach the node-pty wrapper from a session.
- * The underlying tmux session remains alive for re-attachment.
+ * The underlying dtach session remains alive for re-attachment.
  */
 export function detachPty(sessionId: string): void {
   const session = ptySessions.get(sessionId);
@@ -685,17 +646,17 @@ export function detachPty(sessionId: string): void {
 }
 
 /**
- * Fully destroy a session — kill the tmux session and clean up.
+ * Fully destroy a session — kill the dtach session and clean up.
  * Used when the user explicitly deletes a session or the kill timer fires.
  */
 export function destroyPty(sessionId: string): void {
   detachPty(sessionId);
-  killTmuxSession(sessionId);
+  killDtachSession(sessionId);
   cancelKillTimer(sessionId);
 }
 
 /**
- * Kill all ANT-owned tmux sessions. Nuclear option.
+ * Kill all ANT-owned dtach sessions. Nuclear option.
  */
 export function destroyAllPtys(): number {
   let count = 0;
@@ -706,14 +667,11 @@ export function destroyAllPtys(): number {
     count++;
   }
 
-  // Also kill any orphaned tmux sessions from previous server runs
-  for (const tmuxName of listAntTmuxSessions()) {
-    const sessionId = tmuxName.slice(TMUX_PREFIX.length);
+  // Also kill any orphaned dtach sessions from previous server runs
+  for (const sessionId of listAntDtachSessions()) {
     if (!ptySessions.has(sessionId)) {
-      try {
-        execFileSync("tmux", ["kill-session", "-t", tmuxName], { stdio: "ignore" });
-        count++;
-      } catch {}
+      killDtachSession(sessionId);
+      count++;
     }
   }
 
@@ -741,7 +699,7 @@ export function startKillTimerWithDuration(sessionId: string, durationMs: number
   const safeDuration = Math.max(0, durationMs);
   const timer = setTimeout(() => {
     killTimers.delete(sessionId);
-    console.log(`[pty-manager] Kill timer expired for session ${sessionId} — destroying tmux session`);
+    console.log(`[pty-manager] Kill timer expired for session ${sessionId} — destroying dtach session`);
     destroyPty(sessionId);
   }, safeDuration);
   killTimers.set(sessionId, timer);
@@ -789,53 +747,16 @@ export function cancelKillTimer(sessionId: string): void {
 }
 
 /**
- * Returns true if a tmux session exists for this ANT session
+ * Returns true if a dtach session exists for this ANT session
  * (even if no node-pty wrapper is attached).
  */
-/**
- * Capture the full terminal state (history + visible pane) from tmux.
- */
-export function captureTmuxPane(sessionId: string, format: "ansi" | "plain"): string {
-  if (!tmuxSessionExists(sessionId)) {
-    return "";
-  }
-  const tmuxName = tmuxSessionName(sessionId);
-  const args = ["capture-pane", "-t", tmuxName, "-p", "-S", "-"];
-  if (format === "ansi") {
-    args.push("-e");
-  }
-
-  const result = spawnSync("/opt/homebrew/bin/tmux", args, { encoding: "utf8" });
-  if (result.error || result.status !== 0) {
-    console.error(`[pty-manager] tmux capture-pane failed for ${sessionId}:`, result.error || result.stderr);
-    return "";
-  }
-  return result.stdout;
+export function hasSession(sessionId: string): boolean {
+  return dtachSessionExists(sessionId);
 }
 
-/**
- * Capture the current cursor position from tmux.
- */
-export function getTmuxCursor(sessionId: string): { x: number; y: number } {
-  if (!tmuxSessionExists(sessionId)) {
-    return { x: 0, y: 0 };
-  }
-  const tmuxName = tmuxSessionName(sessionId);
-  const result = spawnSync("/opt/homebrew/bin/tmux", ["display-message", "-t", tmuxName, "-p", "#{cursor_x},#{cursor_y}"], {
-    encoding: "utf8",
-  });
-  
-  if (result.error || result.status !== 0) {
-    return { x: 0, y: 0 };
-  }
-
-  const out = result.stdout.trim();
-  const [x, y] = out.split(",").map(Number);
-  return { x: isNaN(x) ? 0 : x, y: isNaN(y) ? 0 : y };
-}
-
+/** @deprecated Use hasSession() — kept for backward compatibility */
 export function hasTmuxSession(sessionId: string): boolean {
-  return tmuxSessionExists(sessionId);
+  return hasSession(sessionId);
 }
 // ---------------------------------------------------------------------------
 // Command lifecycle listeners
@@ -867,16 +788,16 @@ export function onCwdUpdate(listener: CwdUpdateListener): () => void {
 }
 
 /**
- * Phase 4: Check if a terminal session is alive.
- * Returns true if the tmux session exists or a node-pty wrapper is active.
+ * Check if a terminal session is alive.
+ * Returns true if the dtach socket exists or a node-pty wrapper is active.
  */
 export function checkSessionHealth(sessionId: string): boolean {
-  return tmuxSessionExists(sessionId) || ptySessions.has(sessionId);
+  return dtachSessionExists(sessionId) || ptySessions.has(sessionId);
 }
 
 
 // ---------------------------------------------------------------------------
-// Startup reaping — re-adopt or kill orphaned tmux sessions
+// Startup reaping — re-adopt or kill orphaned dtach sessions
 // ---------------------------------------------------------------------------
 
 /**
@@ -908,19 +829,18 @@ function getServerDowntime(): number | null {
 }
 
 /**
- * Called once at server startup. For each orphaned ANT tmux session,
+ * Called once at server startup. For each orphaned ANT dtach session,
  * calculate the remaining TTL based on how long the server was down.
  * If the server restarted quickly, sessions get the remaining time.
  * If it was down longer than TTL, sessions are killed immediately.
  */
 export function reapOrphanedSessions(): void {
-  const tmuxSessions = listAntTmuxSessions();
-  if (tmuxSessions.length === 0) return;
+  const orphanedSessionIds = listAntDtachSessions();
+  if (orphanedSessionIds.length === 0) return;
 
   const elapsed = getServerDowntime();
 
-  for (const tmuxName of tmuxSessions) {
-    const sessionId = tmuxName.slice(TMUX_PREFIX.length);
+  for (const sessionId of orphanedSessionIds) {
     const ttlMs = getSessionTtlMs(sessionId);
 
     if (ttlMs === null) {

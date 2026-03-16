@@ -5,7 +5,7 @@
  * Every byte from the PTY is fed into this headless terminal instance,
  * so it always mirrors exactly what the user sees in the browser.
  * Agents read structured state (screen lines, cursor position) directly
- * from this instance — no ANSI parsing, no tmux capture-pane hacks.
+ * from this instance — no ANSI parsing, no external capture hacks.
  */
 import xtermHeadless from "@xterm/headless";
 const { Terminal } = xtermHeadless;
@@ -22,7 +22,7 @@ export class HeadlessTerminalWrapper {
       rows,
       scrollback: 10000,
       allowProposedApi: true,
-      // No convertEol — tmux already sends CRLF
+      // No convertEol — the shell/dtach already sends CRLF
     });
 
     const unicode11 = new Unicode11Addon();
