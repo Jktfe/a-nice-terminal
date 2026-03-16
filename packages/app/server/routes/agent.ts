@@ -8,7 +8,6 @@
  * All endpoints reuse the existing ANT_API_KEY auth mechanism.
  */
 import { Router } from "express";
-import { nanoid } from "nanoid";
 import db from "../db.js";
 import type { DbSession } from "../types.js";
 import {

@@ -1,5 +1,4 @@
 import * as pty from "node-pty";
-import { execFileSync, spawnSync } from "child_process";
 import { existsSync, unlinkSync, readdirSync } from "fs";
 import os from "os";
 import { nanoid } from "nanoid";
