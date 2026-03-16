@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { X, Save, AlertCircle } from "lucide-react";
-import { useStore, apiFetch, chatApiFetch } from "../store.ts";
+import { useStore, apiFetch } from "../store.ts";
 import { terminalThemes } from "../themes.ts";
 
 export default function SettingsModal() {
@@ -32,7 +32,7 @@ export default function SettingsModal() {
       setPort(data.ANT_PORT || "3000");
       setRootDir(data.ANT_ROOT_DIR || "");
       try {
-        const obsidian = await chatApiFetch("/api/settings/obsidian");
+        const obsidian = await apiFetch("/api/settings/obsidian");
         setVaultPath(obsidian.vault_path || "");
       } catch {
         // Chat sidecar may not be running yet
@@ -63,7 +63,7 @@ export default function SettingsModal() {
 
   const saveVaultPath = async () => {
     try {
-      await chatApiFetch("/api/settings/obsidian", {
+      await apiFetch("/api/settings/obsidian", {
         method: "PATCH",
         body: JSON.stringify({ vault_path: vaultPath }),
       });

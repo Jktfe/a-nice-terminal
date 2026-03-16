@@ -126,6 +126,7 @@ interface AppState {
   clearError: () => void;
   setError: (message: string) => void;
   archiveSession: (id: string) => Promise<void>;
+  archiveOrDeleteSession: (id: string) => Promise<void>;
   restoreSession: (id: string) => Promise<void>;
   toggleShowArchived: () => void;
   toggleSplit: () => void;
@@ -248,14 +249,12 @@ export const useStore = create<AppState>((set, get) => ({
     });
 
     socket.on("connect", () => {
-      const isReconnect = get().sessions.length > 0;
       set({ connected: true, error: null });
-      if (isReconnect) {
-        get().reconnect();
-      } else {
-        const { activeSessionId } = get();
-        if (activeSessionId) socket.emit("join_session", { sessionId: activeSessionId });
-      }
+      get().loadSessions();
+      get().loadWorkspaces();
+      get().loadResumeCommands();
+      const { activeSessionId } = get();
+      if (activeSessionId) socket.emit("join_session", { sessionId: activeSessionId });
     });
 
     chatSocket.on("connect", () => {
@@ -406,6 +405,14 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const sessions = await apiFetch("/api/sessions?include_archived=true");
       set({ sessions });
+      // Validate stored active session still exists
+      const { activeSessionId } = get();
+      if (activeSessionId && !sessions.find((s: Session) => s.id === activeSessionId)) {
+        const fallback = sessions.find((s: Session) => !s.archived)?.id || null;
+        set({ activeSessionId: fallback, error: null });
+        if (fallback) localStorage.setItem(ACTIVE_SESSION_KEY, fallback);
+        else localStorage.removeItem(ACTIVE_SESSION_KEY);
+      }
     } catch (err: any) {
       set({ error: err.message });
     }
@@ -474,8 +481,7 @@ export const useStore = create<AppState>((set, get) => ({
         body: JSON.stringify({ type, name, workspace_id: workspaceId }),
       });
       await get().loadSessions();
-      set({ activeSessionId: session.id });
-      localStorage.setItem(ACTIVE_SESSION_KEY, session.id);
+      get().setActiveSession(session.id);
       return session;
     } catch (err: any) {
       set({ error: err.message });
@@ -521,6 +527,20 @@ export const useStore = create<AppState>((set, get) => ({
       await get().loadSessions();
     } catch (err: any) {
       set({ error: err.message });
+    }
+  },
+
+  archiveOrDeleteSession: async (id) => {
+    try {
+      const { hasContent } = await apiFetch(`/api/sessions/${id}/has-content`);
+      if (hasContent) {
+        await get().archiveSession(id);
+      } else {
+        await get().deleteSession(id);
+      }
+    } catch {
+      // Fallback to archive if content check fails
+      await get().archiveSession(id);
     }
   },
 

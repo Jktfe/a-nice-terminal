@@ -34,6 +34,7 @@ export default function Sidebar() {
     createSession,
     deleteSession,
     archiveSession,
+    archiveOrDeleteSession,
     restoreSession,
     toggleShowArchived,
     toggleSidebar,
@@ -360,7 +361,7 @@ export default function Sidebar() {
                           if (e.shiftKey && window.confirm("Permanently delete this session?")) {
                             deleteSession(session.id);
                           } else if (!e.shiftKey) {
-                            archiveSession(session.id);
+                            archiveOrDeleteSession(session.id);
                           }
                         }}
                         onTogglePin={() => togglePin(session.id)}
