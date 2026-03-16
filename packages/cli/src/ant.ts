@@ -7,6 +7,16 @@ import { create } from "./commands/create.js";
 import { read } from "./commands/read.js";
 import { post } from "./commands/post.js";
 import { search } from "./commands/search.js";
+import { del } from "./commands/delete.js";
+import { archive } from "./commands/archive.js";
+import { restore } from "./commands/restore.js";
+import { rename } from "./commands/rename.js";
+import { members } from "./commands/members.js";
+import { filter } from "./commands/filter.js";
+import { exec } from "./commands/exec.js";
+import { attach } from "./commands/attach.js";
+import { screen } from "./commands/screen.js";
+import { health } from "./commands/health.js";
 import * as out from "./output.js";
 
 const program = new Command()
@@ -71,6 +81,74 @@ program.command("search <query>").alias("s").description("Search sessions and me
   .option("--include-archived", "Include archived sessions")
   .action(async (query, opts) => {
     try { const { client, format } = getClientAndFormat(); await search(client, query, { format, limit: opts.limit ? parseInt(opts.limit) : undefined, ...opts }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+program.command("delete <session>").alias("rm").description("Delete a session permanently")
+  .option("--force", "Skip confirmation prompt")
+  .action(async (session, opts) => {
+    try { const { client, format } = getClientAndFormat(); await del(client, session, { format, ...opts }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+program.command("archive <session>").description("Archive a session")
+  .action(async (session) => {
+    try { const { client, format } = getClientAndFormat(); await archive(client, session, { format }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+program.command("restore <session>").description("Restore an archived session")
+  .action(async (session) => {
+    try { const { client, format } = getClientAndFormat(); await restore(client, session, { format }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+program.command("rename <session> <new-name>").description("Rename a session")
+  .action(async (session, newName) => {
+    try { const { client, format } = getClientAndFormat(); await rename(client, session, newName, { format }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+program.command("members <session>").alias("m").description("List participants in a session")
+  .action(async (session) => {
+    try { const { client, format } = getClientAndFormat(); await members(client, session, { format }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+program.command("filter <session> <sender>").alias("f").description("Filter messages by sender")
+  .option("-l, --limit <n>", "Max messages to scan", "100")
+  .option("--role <role>", "Filter by role (human|agent|system)")
+  .action(async (session, sender, opts) => {
+    try { const { client, format } = getClientAndFormat(); await filter(client, session, sender, { format, limit: opts.limit ? parseInt(opts.limit) : undefined, ...opts }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+program.command("exec <session> [command]").alias("x").description("Execute a command in a terminal session")
+  .option("-t, --timeout <seconds>", "Command timeout in seconds", "30")
+  .option("-q, --quiet", "Suppress output, return exit code only")
+  .option("-i, --interactive", "Interactive TTY attach")
+  .action(async (session, command, opts) => {
+    try { const { client, format } = getClientAndFormat(); await exec(client, session, command, { format, timeout: parseInt(opts.timeout), ...opts }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+program.command("attach <session>").alias("a").description("Attach interactively to a terminal session")
+  .action(async (session) => {
+    try { const { client } = getClientAndFormat(); await attach(client, session); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+program.command("screen <session>").alias("sc").description("Show current terminal screen state")
+  .option("--plain", "Strip ANSI escape codes")
+  .option("--lines <n>", "Show last N lines")
+  .action(async (session, opts) => {
+    try { const { client, format } = getClientAndFormat(); await screen(client, session, { format, plain: opts.plain, lines: opts.lines ? parseInt(opts.lines) : undefined }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+program.command("health").description("Check server connectivity")
+  .action(async () => {
+    try { const { client, format } = getClientAndFormat(); await health(client, { format }); }
     catch (err: any) { out.error(err.message); process.exit(1); }
   });
 

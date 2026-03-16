@@ -168,10 +168,8 @@ function buildHeaders(base?: HeadersInit): Headers {
 }
 
 export async function apiFetch(url: string, options: RequestInit = {}): Promise<any> {
-  const fullUrl = url.startsWith("http") ? url : url;
-
   const headers = buildHeaders(options.headers);
-  const response = await fetch(fullUrl, { ...options, headers });
+  const response = await fetch(url, { ...options, headers });
   if (!response.ok) {
     const body = await response.text().catch(() => "");
     throw new Error(body || `Request failed with status ${response.status}`);
@@ -551,6 +549,12 @@ export const useStore = create<AppState>((set, get) => ({
         body: JSON.stringify({ archived: false }),
       });
       await get().loadSessions();
+      // Re-join to spawn PTY if this is the active terminal session
+      const { activeSessionId, socket } = get();
+      if (activeSessionId === id && socket) {
+        socket.emit("leave_session", { sessionId: id });
+        socket.emit("join_session", { sessionId: id });
+      }
     } catch (err: any) {
       set({ error: err.message });
     }
@@ -581,7 +585,9 @@ export const useStore = create<AppState>((set, get) => ({
 
   loadMessages: async (sessionId) => {
     try {
-      const messages = await chatApiFetch(`/api/sessions/${sessionId}/messages`);
+      // Use apiFetch (main server) for data loading — works even if chat sidecar is down.
+      // chatSocket still handles real-time push events.
+      const messages = await apiFetch(`/api/sessions/${sessionId}/messages`);
       if (get().activeSessionId === sessionId) {
         set({ messages });
       }
@@ -598,7 +604,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   sendMessageToSession: async (sessionId, content, role = "human") => {
     try {
-      await chatApiFetch(`/api/sessions/${sessionId}/messages`, {
+      await apiFetch(`/api/sessions/${sessionId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content, role }),
@@ -705,7 +711,7 @@ export const useStore = create<AppState>((set, get) => ({
         set({ splitMessages: [] });
         return;
       }
-      const messages = await chatApiFetch(`/api/sessions/${sessionId}/messages`);
+      const messages = await apiFetch(`/api/sessions/${sessionId}/messages`);
       set({ splitMessages: messages });
     } catch {
       set({ splitMessages: [] });

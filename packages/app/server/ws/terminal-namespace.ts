@@ -92,6 +92,12 @@ export function registerTerminalNamespace(io: Server): Namespace {
       // A client is watching — cancel any pending kill timer
       cancelKillTimer(sid);
 
+      // Don't spawn a new PTY for archived sessions — historical output only
+      if (session.archived) {
+        socket.emit("joined", { sid, type: session.type, archived: true });
+        return;
+      }
+
       try {
         getPty(sid) || createPty(sid, session.shell, session.cwd);
         // Add exactly one terminal-namespace emitter per session.
@@ -148,6 +154,10 @@ export function registerTerminalNamespace(io: Server): Namespace {
       const session = getSession(sid);
       if (!session || session.type !== "terminal") {
         socket.emit("error", { message: "Not a terminal session" });
+        return;
+      }
+      if (session.archived) {
+        socket.emit("error", { message: "Session is archived (read-only)" });
         return;
       }
 

@@ -348,7 +348,23 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
               termRef.current.write(result.state);
             }
           })
-          .catch(() => {})
+          .catch(() => {
+            // State fetch failed (e.g. archived session with no live PTY).
+            // Fall back to replaying historical output from the DB.
+            if (!termRef.current) return;
+            apiFetch(`/api/sessions/${activeSessionId}/terminal/output?limit=5000`)
+              .then((result) => {
+                if (!termRef.current || activeSessionId !== result.sessionId) return;
+                const events = result.events || [];
+                if (events.length > 0) {
+                  termRef.current.reset();
+                  for (const evt of events) {
+                    termRef.current.write(evt.data);
+                  }
+                }
+              })
+              .catch(() => {});
+          })
           .finally(() => setRefreshing(false));
       }, 150);
     }
@@ -686,6 +702,12 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
       <div
         className="flex-1 overflow-hidden p-2 relative flex flex-col gap-2"
       >
+        {activeSession?.archived ? (
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-300 flex items-center gap-2">
+            <span>Archived — read-only view of historical output. Restore to interact.</span>
+          </div>
+        ) : null}
+
         {isSessionDead && (
           <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300 flex items-center justify-between">
             <span>Terminal session has ended.</span>

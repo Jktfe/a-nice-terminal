@@ -62,6 +62,12 @@ export function registerSocketHandlers(io: Server) {
         // A client is watching — cancel any pending kill timer
         cancelKillTimer(sessionId);
 
+        // Don't spawn a new PTY for archived sessions — show historical output only
+        if (session.archived) {
+          socket.emit("session_joined", { sessionId, type: session.type, archived: true });
+          return;
+        }
+
         try {
           // createPty handles both fresh creation and dtach re-attachment
           getPty(sessionId) || createPty(sessionId, session.shell, session.cwd);
@@ -110,6 +116,10 @@ export function registerSocketHandlers(io: Server) {
         }
         if (session.type !== "terminal") {
           socket.emit("error", { message: "Not a terminal session" });
+          return;
+        }
+        if (session.archived) {
+          socket.emit("error", { message: "Session is archived (read-only)" });
           return;
         }
 
