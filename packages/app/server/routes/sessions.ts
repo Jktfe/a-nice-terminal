@@ -90,8 +90,45 @@ router.post("/api/sessions", (req, res) => {
       .json({ error: "Invalid session type. Must be 'terminal' or 'conversation'." });
   }
 
+  const defaultBase = type === "terminal" ? "Terminal" : "Conversation";
+  let sessionName: string;
+
+  if (name) {
+    // Check for duplicate active name (case-insensitive)
+    const clash = db.prepare(
+      "SELECT id FROM sessions WHERE name = ? COLLATE NOCASE AND archived = 0"
+    ).get(name);
+    if (clash) {
+      return res.status(409).json({ error: `A session named '${name}' already exists` });
+    }
+    sessionName = name;
+  } else {
+    // Auto-increment default names: "Terminal", "Terminal 2", "Terminal 3", ...
+    const existing = db.prepare(
+      "SELECT name FROM sessions WHERE archived = 0 AND (name = ? COLLATE NOCASE OR name LIKE ? COLLATE NOCASE)"
+    ).all(defaultBase, `${defaultBase} %`) as { name: string }[];
+
+    const takenNumbers = new Set<number>();
+    takenNumbers.add(0); // placeholder
+    for (const row of existing) {
+      if (row.name.toLowerCase() === defaultBase.toLowerCase()) {
+        takenNumbers.add(1);
+      } else {
+        const match = row.name.match(new RegExp(`^${defaultBase}\\s+(\\d+)$`, "i"));
+        if (match) takenNumbers.add(parseInt(match[1], 10));
+      }
+    }
+
+    if (!takenNumbers.has(1)) {
+      sessionName = defaultBase;
+    } else {
+      let n = 2;
+      while (takenNumbers.has(n)) n++;
+      sessionName = `${defaultBase} ${n}`;
+    }
+  }
+
   const id = nanoid(12);
-  const sessionName = name || (type === "terminal" ? "Terminal" : "Conversation");
   const resolvedCwd = cwd || process.env.ANT_ROOT_DIR || null;
 
   db.prepare("INSERT INTO sessions (id, name, type, shell, cwd, workspace_id) VALUES (?, ?, ?, ?, ?, ?)").run(
@@ -118,6 +155,12 @@ router.patch("/api/sessions/:id", (req, res) => {
   if (!session) return res.status(404).json({ error: "Session not found" });
 
   if (name) {
+    const clash = db.prepare(
+      "SELECT id FROM sessions WHERE name = ? COLLATE NOCASE AND archived = 0 AND id != ?"
+    ).get(name, req.params.id);
+    if (clash) {
+      return res.status(409).json({ error: `A session named '${name}' already exists` });
+    }
     db.prepare("UPDATE sessions SET name = ?, updated_at = datetime('now') WHERE id = ?")
       .run(name, req.params.id);
   }
@@ -128,11 +171,32 @@ router.patch("/api/sessions/:id", (req, res) => {
   }
 
   if (archived !== undefined) {
-    db.prepare("UPDATE sessions SET archived = ?, updated_at = datetime('now') WHERE id = ?")
-      .run(archived ? 1 : 0, req.params.id);
-    // Free PTY resources when archiving a terminal session
-    if (archived && session.type === "terminal") {
-      destroyPty(req.params.id);
+    if (archived) {
+      // Archiving: append timestamp suffix to free the name for reuse
+      const timestamp = new Date().toISOString().replace("T", " ").slice(0, 19);
+      const archivedName = `${session.name} (archived ${timestamp})`;
+      db.prepare("UPDATE sessions SET archived = 1, name = ?, updated_at = datetime('now') WHERE id = ?")
+        .run(archivedName, req.params.id);
+      // Free PTY resources when archiving a terminal session
+      if (session.type === "terminal") {
+        destroyPty(req.params.id);
+      }
+    } else {
+      // Restoring: strip archive suffix if original name is available
+      const archiveSuffixPattern = / \(archived \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\)$/;
+      let restoredName = session.name;
+      const match = session.name.match(archiveSuffixPattern);
+      if (match) {
+        const originalName = session.name.replace(archiveSuffixPattern, "");
+        const clash = db.prepare(
+          "SELECT id FROM sessions WHERE name = ? COLLATE NOCASE AND archived = 0 AND id != ?"
+        ).get(originalName, req.params.id);
+        if (!clash) {
+          restoredName = originalName;
+        }
+      }
+      db.prepare("UPDATE sessions SET archived = 0, name = ?, updated_at = datetime('now') WHERE id = ?")
+        .run(restoredName, req.params.id);
     }
   }
 

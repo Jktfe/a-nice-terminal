@@ -238,12 +238,14 @@ router.get("/api/search", (req, res) => {
   }
 
   const workspaceId = req.query.workspace_id as string | undefined;
+  const includeArchived = req.query.include_archived === "true";
   const limitRaw = Number(req.query.limit) || 50;
   const limit = Math.max(1, Math.min(limitRaw, 200));
   const escaped = `%${q}%`;
+  const archivedClause = includeArchived ? "" : " AND archived = 0";
 
   // Match sessions by name
-  let sessionQuery = "SELECT id, name, type, workspace_id FROM sessions WHERE archived = 0 AND name LIKE ?";
+  let sessionQuery = `SELECT id, name, type, workspace_id FROM sessions WHERE 1=1${archivedClause} AND name LIKE ?`;
   const sessionParams: any[] = [escaped];
   if (workspaceId) {
     sessionQuery += " AND workspace_id = ?";
@@ -255,12 +257,13 @@ router.get("/api/search", (req, res) => {
   const sessions = db.prepare(sessionQuery).all(...sessionParams);
 
   // Match messages by content
+  const msgArchivedClause = includeArchived ? "" : " AND s.archived = 0";
   let messageQuery = `
     SELECT m.id, m.session_id, s.name AS session_name, s.type AS session_type,
            m.role, m.content, m.created_at
     FROM messages m
     JOIN sessions s ON s.id = m.session_id
-    WHERE s.archived = 0 AND m.content LIKE ?
+    WHERE 1=1${msgArchivedClause} AND m.content LIKE ?
   `;
   const messageParams: any[] = [escaped];
   if (workspaceId) {

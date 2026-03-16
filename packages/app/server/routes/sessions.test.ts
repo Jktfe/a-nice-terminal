@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 import { createTestApp, seedSession, seedWorkspace } from "../__tests__/helpers.js";
+import db from "../db.js";
 
 vi.mock("../pty-manager.js", () => ({
   createPty: vi.fn(() => ({ write: vi.fn(), kill: vi.fn() })),
@@ -20,6 +21,12 @@ describe("sessions routes", () => {
   let app: ReturnType<typeof createTestApp>;
 
   beforeEach(() => {
+    // Clean all tables to prevent state leaking between tests
+    db.exec("DELETE FROM messages");
+    db.exec("DELETE FROM resume_commands");
+    db.exec("DELETE FROM terminal_output_events");
+    db.exec("DELETE FROM sessions");
+    db.exec("DELETE FROM workspaces");
     app = createTestApp();
     vi.clearAllMocks();
   });
@@ -150,6 +157,65 @@ describe("sessions routes", () => {
     });
   });
 
+  describe("unique name enforcement", () => {
+    it("rejects creating a session with a duplicate active name", async () => {
+      seedSession({ id: "uq-existing-1", name: "Dev Notes", type: "conversation" });
+      const res = await request(app).post("/api/sessions").send({ name: "Dev Notes", type: "conversation" });
+      expect(res.status).toBe(409);
+      expect(res.body.error).toMatch(/already exists/i);
+    });
+
+    it("allows creating a session with same name as archived session", async () => {
+      seedSession({ id: "uq-archived-1", name: "Dev Notes", type: "conversation", archived: 1 });
+      const res = await request(app).post("/api/sessions").send({ name: "Dev Notes", type: "conversation" });
+      expect(res.status).toBe(201);
+    });
+
+    it("rejects duplicate names case-insensitively", async () => {
+      seedSession({ id: "uq-existing-2", name: "Dev Notes", type: "conversation" });
+      const res = await request(app).post("/api/sessions").send({ name: "dev notes", type: "conversation" });
+      expect(res.status).toBe(409);
+    });
+
+    it("auto-increments default terminal names", async () => {
+      seedSession({ id: "uq-t1", name: "Terminal", type: "terminal" });
+      const res = await request(app).post("/api/sessions").send({ type: "terminal" });
+      expect(res.status).toBe(201);
+      expect(res.body.name).toBe("Terminal 2");
+    });
+
+    it("auto-increments default conversation names", async () => {
+      seedSession({ id: "uq-c1", name: "Conversation", type: "conversation" });
+      const res = await request(app).post("/api/sessions").send({ type: "conversation" });
+      expect(res.status).toBe(201);
+      expect(res.body.name).toBe("Conversation 2");
+    });
+
+    it("auto-increments past existing numbered names", async () => {
+      seedSession({ id: "uq-t1b", name: "Terminal", type: "terminal" });
+      seedSession({ id: "uq-t2b", name: "Terminal 2", type: "terminal" });
+      seedSession({ id: "uq-t3b", name: "Terminal 3", type: "terminal" });
+      const res = await request(app).post("/api/sessions").send({ type: "terminal" });
+      expect(res.status).toBe(201);
+      expect(res.body.name).toBe("Terminal 4");
+    });
+  });
+
+  describe("unique name on rename", () => {
+    it("rejects renaming to a name used by another active session", async () => {
+      seedSession({ id: "rn-s1", name: "Session A" });
+      seedSession({ id: "rn-s2", name: "Session B" });
+      const res = await request(app).patch("/api/sessions/rn-s2").send({ name: "Session A" });
+      expect(res.status).toBe(409);
+    });
+
+    it("allows renaming to same name (no-op)", async () => {
+      seedSession({ id: "rn-s3", name: "Session A" });
+      const res = await request(app).patch("/api/sessions/rn-s3").send({ name: "Session A" });
+      expect(res.status).toBe(200);
+    });
+  });
+
   describe("archive behaviour", () => {
     it("archives a session", async () => {
       seedSession({ id: "s1", name: "Test" });
@@ -189,6 +255,33 @@ describe("sessions routes", () => {
       const res = await request(app).delete("/api/sessions/s1");
       expect(res.status).toBe(200);
       expect(res.body.deleted).toBe(true);
+    });
+  });
+
+  describe("archive auto-rename", () => {
+    it("appends timestamp suffix when archiving", async () => {
+      seedSession({ id: "ar-s1", name: "Dev Notes" });
+      const res = await request(app).patch("/api/sessions/ar-s1").send({ archived: true });
+      expect(res.status).toBe(200);
+      expect(res.body.name).toMatch(/^Dev Notes \(archived \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\)$/);
+      expect(res.body.archived).toBe(1);
+    });
+  });
+
+  describe("restore strip suffix", () => {
+    it("strips archive suffix on restore when original name is free", async () => {
+      seedSession({ id: "rs-s1", name: "Dev Notes (archived 2026-03-16 09:47:32)", archived: 1 });
+      const res = await request(app).patch("/api/sessions/rs-s1").send({ archived: false });
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe("Dev Notes");
+    });
+
+    it("keeps suffix on restore when original name is taken", async () => {
+      seedSession({ id: "rs-s2", name: "Dev Notes (archived 2026-03-16 09:47:32)", archived: 1 });
+      seedSession({ id: "rs-s3", name: "Dev Notes" });
+      const res = await request(app).patch("/api/sessions/rs-s2").send({ archived: false });
+      expect(res.status).toBe(200);
+      expect(res.body.name).toMatch(/archived/);
     });
   });
 

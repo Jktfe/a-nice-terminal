@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import request from "supertest";
 import { createTestApp, seedSession, seedMessage, seedWorkspace } from "../__tests__/helpers.js";
+import db from "../db.js";
 
 vi.mock("../pty-manager.js", async (importOriginal) => {
   return {
@@ -31,6 +32,11 @@ describe("messages routes", () => {
   let app: ReturnType<typeof createTestApp>;
 
   beforeEach(() => {
+    db.exec("DELETE FROM messages");
+    db.exec("DELETE FROM resume_commands");
+    db.exec("DELETE FROM terminal_output_events");
+    db.exec("DELETE FROM sessions");
+    db.exec("DELETE FROM workspaces");
     app = createTestApp();
   });
 
@@ -213,6 +219,30 @@ describe("messages routes", () => {
       const res = await request(app).get("/api/search?q=Hidden");
       expect(res.body.sessions).toHaveLength(0);
       expect(res.body.messages).toHaveLength(0);
+    });
+
+    it("excludes archived sessions by default from session results", async () => {
+      seedSession({ id: "srch-a1", name: "Active Dev", type: "conversation" });
+      seedSession({ id: "srch-a2", name: "Archived Dev", type: "conversation", archived: 1 });
+      const res = await request(app).get("/api/search?q=Dev");
+      expect(res.body.sessions).toHaveLength(1);
+      expect(res.body.sessions[0].name).toBe("Active Dev");
+    });
+
+    it("includes archived sessions when include_archived=true", async () => {
+      seedSession({ id: "srch-b1", name: "Active Dev", type: "conversation" });
+      seedSession({ id: "srch-b2", name: "Archived Dev", type: "conversation", archived: 1 });
+      const res = await request(app).get("/api/search?q=Dev&include_archived=true");
+      expect(res.body.sessions).toHaveLength(2);
+    });
+
+    it("includes archived session messages when include_archived=true", async () => {
+      seedSession({ id: "srch-c1", name: "Active Chat", type: "conversation" });
+      seedMessage({ id: "srch-m1", session_id: "srch-c1", content: "visible note" });
+      seedSession({ id: "srch-c2", name: "Old Chat", type: "conversation", archived: 1 });
+      seedMessage({ id: "srch-m2", session_id: "srch-c2", content: "hidden note" });
+      const res = await request(app).get("/api/search?q=note&include_archived=true");
+      expect(res.body.messages).toHaveLength(2);
     });
 
     it("filters by workspace_id", async () => {
