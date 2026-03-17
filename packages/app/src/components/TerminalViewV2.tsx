@@ -836,7 +836,7 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.15 }}
-              className="absolute top-2 right-4 px-3 py-1.5 bg-emerald-500/20 text-emerald-300 text-xs rounded-lg backdrop-blur-sm shadow-lg pointer-events-none"
+              className="absolute top-2 right-4 z-10 px-3 py-1.5 bg-emerald-500/20 text-emerald-300 text-xs rounded-lg backdrop-blur-sm shadow-lg pointer-events-none"
             >
               Copied to clipboard
             </motion.div>
@@ -851,7 +851,7 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
               exit={{ opacity: 0, scale: 0.8 }}
               transition={{ duration: 0.15 }}
               onClick={scrollToBottom}
-              className="absolute bottom-4 right-4 p-2 bg-emerald-500/20 text-emerald-400 rounded-full hover:bg-emerald-500/30 transition-colors shadow-lg backdrop-blur-sm"
+              className="absolute bottom-4 right-4 z-10 p-2 bg-emerald-500/20 text-emerald-400 rounded-full hover:bg-emerald-500/30 transition-colors shadow-lg backdrop-blur-sm"
               title="Scroll to bottom"
             >
               <ChevronDown className="w-5 h-5" />

@@ -99,7 +99,7 @@ export default function SearchPanel({ onClose }: { onClose: () => void }) {
     return (
       <>
         {text.slice(0, idx)}
-        <span className="font-bold text-white">{text.slice(idx, idx + q.length)}</span>
+        <span className="font-bold text-[var(--color-text)]">{text.slice(idx, idx + q.length)}</span>
         {text.slice(idx + q.length)}
       </>
     );
@@ -112,23 +112,23 @@ export default function SearchPanel({ onClose }: { onClose: () => void }) {
       className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]"
       onClick={onClose}
     >
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-[var(--color-overlay)] backdrop-blur-sm" />
       <div
-        className="relative w-full max-w-lg bg-[#141414] border border-[var(--color-border)] rounded-xl shadow-2xl overflow-hidden"
+        className="relative w-full max-w-lg bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--color-border)]">
-          <Search className="w-4 h-4 text-white/30" />
+          <Search className="w-4 h-4 text-[var(--color-text-dim)]" />
           <input
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Search sessions and messages..."
-            className="flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/30"
+            className="flex-1 bg-transparent text-sm text-[var(--color-text)] outline-none placeholder:text-[var(--color-text-dim)]"
           />
           {query && (
-            <button onClick={() => setQuery("")} className="text-white/30 hover:text-white/60">
+            <button onClick={() => setQuery("")} className="text-[var(--color-text-dim)] hover:text-[var(--color-text-muted)]">
               <X className="w-3.5 h-3.5" />
             </button>
           )}
@@ -136,18 +136,18 @@ export default function SearchPanel({ onClose }: { onClose: () => void }) {
 
         <div className="max-h-80 overflow-y-auto py-1">
           {loading && (
-            <div className="px-4 py-3 text-xs text-white/30">Searching...</div>
+            <div className="px-4 py-3 text-xs text-[var(--color-text-dim)]">Searching...</div>
           )}
 
           {!loading && query.trim() && totalResults === 0 && (
-            <div className="px-4 py-6 text-center text-xs text-white/25">
+            <div className="px-4 py-6 text-center text-xs text-[var(--color-text-dim)]">
               No results found.
             </div>
           )}
 
           {sessions.length > 0 && (
             <>
-              <div className="px-4 py-1.5 text-[10px] uppercase tracking-wider text-white/30 font-semibold">
+              <div className="px-4 py-1.5 text-[10px] uppercase tracking-wider text-[var(--color-text-dim)] font-semibold">
                 Sessions
               </div>
               {sessions.map((session) => {
@@ -160,13 +160,13 @@ export default function SearchPanel({ onClose }: { onClose: () => void }) {
                     onClick={() => selectResult(idx)}
                     className={`w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors ${
                       idx === selectedIndex
-                        ? "bg-white/10 text-white"
-                        : "text-white/60 hover:bg-white/5"
+                        ? "bg-[var(--color-active)] text-[var(--color-text)]"
+                        : "text-[var(--color-text-muted)] hover:bg-[var(--color-hover)]"
                     }`}
                   >
                     <Icon className={`w-3.5 h-3.5 flex-shrink-0 ${iconColor}`} />
                     <span className="truncate">{highlightMatch(session.name, query)}</span>
-                    <span className="ml-auto text-[10px] uppercase tracking-widest text-white/25">
+                    <span className="ml-auto text-[10px] uppercase tracking-widest text-[var(--color-text-dim)]">
                       {session.type}
                     </span>
                   </button>
@@ -177,7 +177,7 @@ export default function SearchPanel({ onClose }: { onClose: () => void }) {
 
           {messages.length > 0 && (
             <>
-              <div className="px-4 py-1.5 text-[10px] uppercase tracking-wider text-white/30 font-semibold">
+              <div className="px-4 py-1.5 text-[10px] uppercase tracking-wider text-[var(--color-text-dim)] font-semibold">
                 Messages
               </div>
               {messages.map((msg) => {
@@ -190,21 +190,21 @@ export default function SearchPanel({ onClose }: { onClose: () => void }) {
                     onClick={() => selectResult(idx)}
                     className={`w-full flex flex-col gap-1 px-4 py-2.5 text-left transition-colors ${
                       idx === selectedIndex
-                        ? "bg-white/10 text-white"
-                        : "text-white/60 hover:bg-white/5"
+                        ? "bg-[var(--color-active)] text-[var(--color-text)]"
+                        : "text-[var(--color-text-muted)] hover:bg-[var(--color-hover)]"
                     }`}
                   >
                     <div className="flex items-center gap-2 text-xs">
                       <Icon className={`w-3 h-3 flex-shrink-0 ${iconColor}`} />
-                      <span className="truncate text-white/40">{msg.session_name}</span>
-                      <span className="px-1.5 py-0.5 rounded bg-white/5 text-[9px] uppercase tracking-wider text-white/30">
+                      <span className="truncate text-[var(--color-text-dim)]">{msg.session_name}</span>
+                      <span className="px-1.5 py-0.5 rounded bg-[var(--color-hover)] text-[9px] uppercase tracking-wider text-[var(--color-text-dim)]">
                         {msg.role}
                       </span>
-                      <span className="ml-auto text-[9px] text-white/20">
+                      <span className="ml-auto text-[9px] text-[var(--color-text-dim)]">
                         {new Date(msg.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </div>
-                    <span className="text-xs text-white/50 truncate">
+                    <span className="text-xs text-[var(--color-text-muted)] truncate">
                       {highlightMatch(msg.content_snippet, query)}
                     </span>
                   </button>
@@ -214,7 +214,7 @@ export default function SearchPanel({ onClose }: { onClose: () => void }) {
           )}
 
           {!query.trim() && !loading && (
-            <div className="px-4 py-6 text-center text-xs text-white/25">
+            <div className="px-4 py-6 text-center text-xs text-[var(--color-text-dim)]">
               Type to search across all sessions and messages.
             </div>
           )}

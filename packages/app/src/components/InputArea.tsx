@@ -37,7 +37,7 @@ export default function InputArea({ sessionId: sessionIdProp }: { sessionId?: st
     ],
     editorProps: {
       attributes: {
-        class: "tiptap text-sm text-white/90 px-4 py-3 outline-none",
+        class: "tiptap text-sm text-[var(--color-text)] px-4 py-3 outline-none",
       },
       handleKeyDown: (_view, event) => {
         if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
@@ -122,30 +122,30 @@ export default function InputArea({ sessionId: sessionIdProp }: { sessionId?: st
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-3">
             {attachments.map((file, i) => (
-              <div key={i} className="group relative w-16 h-16 rounded-lg border border-white/10 overflow-hidden bg-white/5">
+              <div key={i} className="group relative w-16 h-16 rounded-lg border border-[var(--color-input-border)] overflow-hidden bg-[var(--color-hover)]">
                 <img src={file.url} alt={file.filename} className="w-full h-full object-cover" />
                 <button
                   onClick={() => removeAttachment(i)}
-                  className="absolute top-0.5 right-0.5 p-0.5 bg-black/60 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="absolute top-0.5 right-0.5 p-0.5 bg-black/60 text-[var(--color-text)] rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   <X className="w-3 h-3" />
                 </button>
               </div>
             ))}
             {uploading && (
-              <div className="w-16 h-16 rounded-lg border border-white/10 border-dashed flex items-center justify-center bg-white/5">
-                <Loader2 className="w-5 h-5 text-white/20 animate-spin" />
+              <div className="w-16 h-16 rounded-lg border border-[var(--color-input-border)] border-dashed flex items-center justify-center bg-[var(--color-hover)]">
+                <Loader2 className="w-5 h-5 text-[var(--color-text-dim)] animate-spin" />
               </div>
             )}
           </div>
         )}
 
-        <div className={`bg-white/5 border border-white/10 rounded-xl overflow-hidden transition-all ${isDragging ? "border-emerald-500/40 ring-1 ring-emerald-500/20" : "focus-within:border-emerald-500/40 focus-within:ring-1 focus-within:ring-emerald-500/20"}`}>
+        <div className={`bg-[var(--color-hover)] border border-[var(--color-input-border)] rounded-xl overflow-hidden transition-all ${isDragging ? "border-emerald-500/40 ring-1 ring-emerald-500/20" : "focus-within:border-emerald-500/40 focus-within:ring-1 focus-within:ring-emerald-500/20"}`}>
           <EditorContent editor={editor} />
 
-          <div className="flex items-center justify-between px-3 py-2 border-t border-white/5">
+          <div className="flex items-center justify-between px-3 py-2 border-t border-[var(--color-border)]">
             <div className="flex items-center gap-2">
-              <label className="p-1.5 text-white/40 hover:text-white/80 cursor-pointer transition-colors">
+              <label className="p-1.5 text-[var(--color-text-dim)] hover:text-[var(--color-text)] cursor-pointer transition-colors">
                 <Image className="w-4 h-4" />
                 <input 
                   type="file" 
@@ -156,8 +156,8 @@ export default function InputArea({ sessionId: sessionIdProp }: { sessionId?: st
                 />
               </label>
               {isMobile ? null : (
-                <div className="flex items-center gap-2 text-white/30 text-[10px]">
-                  <kbd className="px-1.5 py-0.5 bg-white/5 rounded border border-white/10">
+                <div className="flex items-center gap-2 text-[var(--color-text-dim)] text-[10px]">
+                  <kbd className="px-1.5 py-0.5 bg-[var(--color-hover)] rounded border border-[var(--color-input-border)]">
                     Cmd+Enter
                   </kbd>
                   <span>to send</span>
@@ -171,7 +171,7 @@ export default function InputArea({ sessionId: sessionIdProp }: { sessionId?: st
               className={`p-1.5 transition-colors disabled:opacity-30 ${
                 isMobile
                   ? "bg-emerald-500/20 text-emerald-400 rounded-lg px-3"
-                  : "text-white/40 hover:text-emerald-400"
+                  : "text-[var(--color-text-dim)] hover:text-emerald-400"
               }`}
             >
               {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}

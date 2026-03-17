@@ -94,6 +94,8 @@ interface AppState {
   splitSessionId: string | null;
   splitMessages: Message[];
   agentPresence: Record<string, AgentPresence>;
+  uiTheme: UiTheme;
+  docsOpen: boolean;
 
   // Actions
   init: () => void;
@@ -133,6 +135,8 @@ interface AppState {
   setSplitSession: (id: string) => void;
   loadSplitMessages: (sessionId: string) => Promise<void>;
   setAgentState: (sessionId: string, agentId: string, state: AgentState) => void;
+  setUiTheme: (theme: UiTheme) => void;
+  toggleDocs: () => void;
 }
 
 const API_KEY = (import.meta.env.VITE_ANT_API_KEY as string | undefined)?.trim();
@@ -141,6 +145,25 @@ const ACTIVE_SESSION_KEY = "ant-active-session-id";
 const PINNED_SESSIONS_KEY = "ant-pinned-session-ids";
 const TERMINAL_FONT_SIZE_KEY = "ant-terminal-font-size";
 const TERMINAL_THEME_KEY = "ant-terminal-theme";
+const UI_THEME_KEY = "ant-ui-theme";
+
+export type UiTheme = "dark" | "light" | "system";
+
+function applyUiTheme(theme: UiTheme) {
+  const root = document.documentElement;
+  if (theme === "system") {
+    const preferLight = window.matchMedia("(prefers-color-scheme: light)").matches;
+    root.classList.toggle("light", preferLight);
+  } else {
+    root.classList.toggle("light", theme === "light");
+  }
+}
+
+function loadUiTheme(): UiTheme {
+  const stored = localStorage.getItem(UI_THEME_KEY);
+  if (stored === "light" || stored === "dark" || stored === "system") return stored;
+  return "dark";
+}
 
 function loadPinnedSessions(): Set<string> {
   try {
@@ -212,6 +235,8 @@ export const useStore = create<AppState>((set, get) => ({
   splitSessionId: null,
   splitMessages: [],
   agentPresence: {},
+  uiTheme: loadUiTheme(),
+  docsOpen: false,
 
   setError: (message) => set({ error: message }),
   clearError: () => set({ error: null }),
@@ -731,4 +756,21 @@ export const useStore = create<AppState>((set, get) => ({
       },
     }));
   },
+
+  setUiTheme: (theme) => {
+    localStorage.setItem(UI_THEME_KEY, theme);
+    applyUiTheme(theme);
+    set({ uiTheme: theme });
+  },
+
+  toggleDocs: () => set((s) => ({ docsOpen: !s.docsOpen })),
 }));
+
+// Apply theme on load
+applyUiTheme(loadUiTheme());
+
+// Listen for system theme changes
+window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
+  const { uiTheme } = useStore.getState();
+  if (uiTheme === "system") applyUiTheme("system");
+});

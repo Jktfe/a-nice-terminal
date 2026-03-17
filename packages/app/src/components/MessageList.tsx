@@ -16,6 +16,7 @@ export default function MessageList({ sessionId, messages: messagesProp }: { ses
 
   const isNearBottomRef = useRef(true);
   const isSelectingRef = useRef(false);
+  const prevSessionId = useRef(activeSessionId);
 
   const checkScroll = useCallback(() => {
     const el = scrollContainerRef.current;
@@ -46,6 +47,15 @@ export default function MessageList({ sessionId, messages: messagesProp }: { ses
     return () => document.removeEventListener("selectionchange", handleSelectionChange);
   }, []);
 
+  // Reset scroll state when switching sessions
+  useEffect(() => {
+    if (prevSessionId.current !== activeSessionId) {
+      hasScrolledInitial.current = false;
+      prevMessageCount.current = 0;
+      prevSessionId.current = activeSessionId;
+    }
+  }, [activeSessionId]);
+
   // Scroll to bottom when messages first appear (page load / session switch)
   const hasScrolledInitial = useRef(false);
   useEffect(() => {
@@ -67,12 +77,12 @@ export default function MessageList({ sessionId, messages: messagesProp }: { ses
     prevMessageCount.current = messages.length;
 
     if (isNewMessage && !isSelectingRef.current) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
       return;
     }
 
     if (isNearBottomRef.current && !isSelectingRef.current) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
     }
   }, [messages]);
 
@@ -127,7 +137,7 @@ export default function MessageList({ sessionId, messages: messagesProp }: { ses
         </AnimatePresence>
 
         {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-white/20">
+          <div className="flex flex-col items-center justify-center h-full text-[var(--color-text-dim)]">
             <Sparkles className="w-10 h-10 mb-3" />
             <p className="text-sm">No messages yet. Start a conversation.</p>
           </div>

@@ -12,6 +12,7 @@ import SplitHeader from "./components/SplitHeader.tsx";
 import StatusBar from "./components/StatusBar.tsx";
 import OfflineOverlay from "./components/OfflineOverlay.tsx";
 import SettingsModal from "./components/SettingsModal.tsx";
+import DocsModal from "./components/DocsModal.tsx";
 import { Terminal, MessageSquare } from "lucide-react";
 
 function renderSessionContent(session: Session | undefined, sessionId?: string, splitMessages?: any[]) {
@@ -42,6 +43,7 @@ export default function App() {
     splitMessages,
     toggleSplit,
     setSplitSession,
+    toggleDocs,
   } = useStore();
   const [quickSwitcherOpen, setQuickSwitcherOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -77,6 +79,9 @@ export default function App() {
       } else if (e.key === "F" && e.shiftKey) {
         e.preventDefault();
         setSearchOpen((v) => !v);
+      } else if (e.key === "/") {
+        e.preventDefault();
+        toggleDocs();
       } else if (e.key === "\\") {
         e.preventDefault();
         if (splitMode) {
@@ -88,7 +93,7 @@ export default function App() {
         }
       }
     },
-    [createSession, toggleSidebar, splitMode, toggleSplit]
+    [createSession, toggleSidebar, splitMode, toggleSplit, toggleDocs]
   );
 
   useEffect(() => {
@@ -168,6 +173,7 @@ export default function App() {
       )}
 
       <SettingsModal />
+      <DocsModal />
 
       <OfflineOverlay />
     </div>
@@ -182,10 +188,10 @@ function EmptyState({
   return (
     <div className="flex-1 flex items-center justify-center">
       <div className="text-center">
-        <h2 className="text-lg font-medium text-white/60 mb-6">
+        <h2 className="text-lg font-medium text-[var(--color-text-muted)] mb-6">
           Welcome to ANT
         </h2>
-        <p className="text-sm text-white/30 mb-8 max-w-sm">
+        <p className="text-sm text-[var(--color-text-dim)] mb-8 max-w-sm">
           A Nice Terminal. Beautiful sessions for humans, clean API for AI
           agents.
         </p>

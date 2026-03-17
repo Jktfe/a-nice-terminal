@@ -44,9 +44,9 @@ export default function QuickSwitcher({ onClose, onSelect }: { onClose: () => vo
       className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]"
       onClick={onClose}
     >
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-[var(--color-overlay)] backdrop-blur-sm" />
       <div
-        className="relative w-full max-w-md bg-[#141414] border border-[var(--color-border)] rounded-xl shadow-2xl overflow-hidden"
+        className="relative w-full max-w-md bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <input
@@ -55,7 +55,7 @@ export default function QuickSwitcher({ onClose, onSelect }: { onClose: () => vo
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Switch session..."
-          className="w-full px-4 py-3 bg-transparent text-sm text-white outline-none border-b border-[var(--color-border)] placeholder:text-white/30"
+          className="w-full px-4 py-3 bg-transparent text-sm text-[var(--color-text)] outline-none border-b border-[var(--color-border)] placeholder:text-[var(--color-text-dim)]"
         />
         <div className="max-h-64 overflow-y-auto py-1">
           {filtered.map((session, i) => {
@@ -77,22 +77,22 @@ export default function QuickSwitcher({ onClose, onSelect }: { onClose: () => vo
                 }}
                 className={`w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors ${
                   i === selectedIndex
-                    ? "bg-white/10 text-white"
-                    : "text-white/60 hover:bg-white/5"
+                    ? "bg-[var(--color-active)] text-[var(--color-text)]"
+                    : "text-[var(--color-text-muted)] hover:bg-[var(--color-hover)]"
                 }`}
               >
                 <Icon
                   className={`w-3.5 h-3.5 flex-shrink-0 ${iconColor}`}
                 />
                 <span className="truncate">{session.name}</span>
-                <span className="ml-auto text-[10px] uppercase tracking-widest text-white/25">
+                <span className="ml-auto text-[10px] uppercase tracking-widest text-[var(--color-text-dim)]">
                   {session.type}
                 </span>
               </button>
             );
           })}
           {filtered.length === 0 && (
-            <div className="px-4 py-6 text-center text-xs text-white/25">
+            <div className="px-4 py-6 text-center text-xs text-[var(--color-text-dim)]">
               No sessions found.
             </div>
           )}

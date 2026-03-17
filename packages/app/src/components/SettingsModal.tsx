@@ -5,7 +5,7 @@ import { useStore, apiFetch } from "../store.ts";
 import { terminalThemes } from "../themes.ts";
 
 export default function SettingsModal() {
-  const { settingsOpen, toggleSettings, terminalFontSize, terminalTheme, setTerminalFontSize, setTerminalTheme } = useStore();
+  const { settingsOpen, toggleSettings, terminalFontSize, terminalTheme, setTerminalFontSize, setTerminalTheme, uiTheme, setUiTheme } = useStore();
   const [port, setPort] = useState("");
   const [rootDir, setRootDir] = useState("");
   const [loading, setLoading] = useState(false);
@@ -78,7 +78,7 @@ export default function SettingsModal() {
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--color-overlay)] backdrop-blur-sm p-4">
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -86,10 +86,10 @@ export default function SettingsModal() {
           className="w-full max-w-md bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-2xl flex flex-col overflow-hidden"
         >
           <div className="flex items-center justify-between p-4 border-b border-[var(--color-border)]">
-            <h2 className="text-lg font-semibold text-white">Settings</h2>
+            <h2 className="text-lg font-semibold text-[var(--color-text)]">Settings</h2>
             <button
               onClick={toggleSettings}
-              className="p-1.5 text-white/50 hover:text-white bg-white/5 hover:bg-white/10 rounded-md transition-colors"
+              className="p-1.5 text-[var(--color-text-muted)] hover:text-[var(--color-text)] bg-[var(--color-hover)] hover:bg-[var(--color-active)] rounded-md transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
@@ -111,12 +111,40 @@ export default function SettingsModal() {
             )}
 
             {loading ? (
-              <div className="text-center text-white/40 py-8">Loading settings...</div>
+              <div className="text-center text-[var(--color-text-muted)] py-8">Loading settings...</div>
             ) : (
               <>
+                {/* Appearance */}
+                <div className="flex flex-col gap-1.5">
+                  <h3 className="text-sm font-semibold text-[var(--color-text-muted)] uppercase tracking-wider mb-1">
+                    Appearance
+                  </h3>
+                  <label className="text-sm font-medium text-[var(--color-text-muted)]">
+                    Theme
+                  </label>
+                  <div className="flex gap-2">
+                    {(["dark", "light", "system"] as const).map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => setUiTheme(t)}
+                        className={`flex-1 px-3 py-2 text-xs font-medium rounded-lg border transition-colors capitalize ${
+                          uiTheme === t
+                            ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+                            : "bg-[var(--color-input-bg)] text-[var(--color-text-muted)] border-[var(--color-border)] hover:border-emerald-500/30"
+                        }`}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-[var(--color-text-dim)]">
+                    Choose dark, light, or follow your system preference.
+                  </p>
+                </div>
+
                 {/* Server settings */}
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-white/80">
+                  <label className="text-sm font-medium text-[var(--color-text)]">
                     Server Port (ANT_PORT)
                   </label>
                   <input
@@ -124,15 +152,15 @@ export default function SettingsModal() {
                     value={port}
                     onChange={(e) => setPort(e.target.value)}
                     placeholder="3000"
-                    className="bg-black/20 border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500/50"
+                    className="bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm text-[var(--color-text)] focus:outline-none focus:border-emerald-500/50"
                   />
-                  <p className="text-xs text-white/40">
+                  <p className="text-xs text-[var(--color-text-dim)]">
                     The port ANT will listen on. Default is 3000.
                   </p>
                 </div>
 
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-white/80">
+                  <label className="text-sm font-medium text-[var(--color-text)]">
                     Terminal Root Directory (ANT_ROOT_DIR)
                   </label>
                   <input
@@ -140,21 +168,21 @@ export default function SettingsModal() {
                     value={rootDir}
                     onChange={(e) => setRootDir(e.target.value)}
                     placeholder="~/CascadeProjects"
-                    className="bg-black/20 border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500/50"
+                    className="bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm text-[var(--color-text)] focus:outline-none focus:border-emerald-500/50"
                   />
-                  <p className="text-xs text-white/40">
+                  <p className="text-xs text-[var(--color-text-dim)]">
                     The default folder where new terminal sessions will start.
                   </p>
                 </div>
 
                 {/* Terminal section */}
                 <div className="border-t border-[var(--color-border)] pt-4 mt-1">
-                  <h3 className="text-sm font-semibold text-white/70 uppercase tracking-wider mb-3">
+                  <h3 className="text-sm font-semibold text-[var(--color-text-muted)] uppercase tracking-wider mb-3">
                     Terminal
                   </h3>
 
                   <div className="flex flex-col gap-1.5 mb-4">
-                    <label className="text-sm font-medium text-white/80">
+                    <label className="text-sm font-medium text-[var(--color-text)]">
                       Font Size
                     </label>
                     <div className="flex items-center gap-3">
@@ -167,20 +195,20 @@ export default function SettingsModal() {
                         onChange={(e) => setTerminalFontSize(Number(e.target.value))}
                         className="flex-1 accent-emerald-500"
                       />
-                      <span className="text-sm text-white/60 w-8 text-right tabular-nums">
+                      <span className="text-sm text-[var(--color-text-muted)] w-8 text-right tabular-nums">
                         {terminalFontSize}px
                       </span>
                     </div>
                   </div>
 
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-sm font-medium text-white/80">
+                    <label className="text-sm font-medium text-[var(--color-text)]">
                       Colour Scheme
                     </label>
                     <select
                       value={terminalTheme}
                       onChange={(e) => setTerminalTheme(e.target.value)}
-                      className="bg-black/20 border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500/50"
+                      className="bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm text-[var(--color-text)] focus:outline-none focus:border-emerald-500/50"
                     >
                       {terminalThemes.map((t) => (
                         <option key={t.id} value={t.id}>
@@ -193,17 +221,17 @@ export default function SettingsModal() {
 
                 {/* Obsidian vault */}
                 <div className="border-t border-[var(--color-border)] pt-4 mt-1">
-                  <h3 className="text-sm font-semibold text-white/70 uppercase tracking-wider mb-3">
+                  <h3 className="text-sm font-semibold text-[var(--color-text-muted)] uppercase tracking-wider mb-3">
                     Integrations
                   </h3>
                   <div className="space-y-2">
-                    <label className="text-[10px] uppercase tracking-wider text-white/40">Obsidian Vault Path</label>
+                    <label className="text-[10px] uppercase tracking-wider text-[var(--color-text-dim)]">Obsidian Vault Path</label>
                     <div className="flex gap-2">
                       <input
                         value={vaultPath}
                         onChange={(e) => setVaultPath(e.target.value)}
                         placeholder="/Users/james/Obsidian/MyVault"
-                        className="flex-1 rounded border border-white/15 bg-[var(--color-bg)] px-3 py-1.5 text-sm text-white placeholder-white/30 outline-none"
+                        className="flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-dim)] outline-none"
                       />
                       <button
                         onClick={saveVaultPath}
@@ -218,10 +246,10 @@ export default function SettingsModal() {
             )}
           </div>
 
-          <div className="p-4 border-t border-[var(--color-border)] flex justify-end gap-3 bg-black/20">
+          <div className="p-4 border-t border-[var(--color-border)] flex justify-end gap-3 bg-[var(--color-input-bg)]">
             <button
               onClick={toggleSettings}
-              className="px-4 py-2 text-sm font-medium text-white/70 hover:text-white transition-colors"
+              className="px-4 py-2 text-sm font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
             >
               Cancel
             </button>

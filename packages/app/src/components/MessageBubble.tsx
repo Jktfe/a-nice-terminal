@@ -93,7 +93,7 @@ export default function MessageBubble({
               {/* Content */}
               <div className={`prose prose-invert prose-sm max-w-none ${collapsed ? "overflow-hidden" : ""}`}>
                 {system ? (
-                  <span className="text-white/50 text-xs">{message.content}</span>
+                  <span className="text-[var(--color-text-muted)] text-xs">{message.content}</span>
                 ) : (
                   <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
                     {collapsed
@@ -112,7 +112,7 @@ export default function MessageBubble({
               {message.content.split("\n").length > COLLAPSE_THRESHOLD && (
                 <button
                   onClick={() => setCollapsed((v) => !v)}
-                  className="flex items-center gap-1 mt-1 text-[10px] text-white/40 hover:text-white/70 transition-colors"
+                  className="flex items-center gap-1 mt-1 text-[10px] text-[var(--color-text-dim)] hover:text-[var(--color-text-muted)] transition-colors"
                 >
                   {collapsed ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
                   {collapsed ? "Show more" : "Show less"}
@@ -123,7 +123,7 @@ export default function MessageBubble({
               {pills.length > 0 && (
                 <div className="flex items-center gap-1.5 mt-2">
                   {pills.map((a, i) => (
-                    <span key={i} className="px-1.5 py-0.5 rounded-full text-[10px] bg-white/5 text-white/50">
+                    <span key={i} className="px-1.5 py-0.5 rounded-full text-[10px] bg-[var(--color-hover)] text-[var(--color-text-muted)]">
                       {a.type === "thumbs_up" ? "\ud83d\udc4d" : a.type === "thumbs_down" ? "\ud83d\udc4e" : "\ud83d\udea9"}
                       {a.note && <span className="ml-1">{a.note}</span>}
                     </span>
@@ -135,14 +135,14 @@ export default function MessageBubble({
               {replyCount > 0 && onToggleThread && (
                 <button
                   onClick={onToggleThread}
-                  className="mt-2 text-[11px] text-white/40 hover:text-white/70 transition-colors"
+                  className="mt-2 text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text-muted)] transition-colors"
                 >
                   {replyCount} {replyCount === 1 ? "reply" : "replies"} &#x25BE;
                 </button>
               )}
 
               {/* Timestamp */}
-              <div className={`text-[10px] text-white/25 mt-1 ${human ? "text-right" : ""}`}>
+              <div className={`text-[10px] text-[var(--color-text-dim)] mt-1 ${human ? "text-right" : ""}`}>
                 {timestamp}
               </div>
 

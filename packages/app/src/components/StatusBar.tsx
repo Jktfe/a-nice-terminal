@@ -1,7 +1,8 @@
+import { HelpCircle } from "lucide-react";
 import { useStore } from "../store.ts";
 
 export default function StatusBar() {
-  const { sessions, activeSessionId, error, clearError } = useStore();
+  const { sessions, activeSessionId, error, clearError, toggleDocs } = useStore();
   const activeSession = sessions.find((s) => s.id === activeSessionId);
 
   const host = window.location.port
@@ -9,13 +10,13 @@ export default function StatusBar() {
     : window.location.hostname || "localhost";
 
   return (
-    <div className="flex flex-col gap-1 px-4 py-1 bg-[#0a0a0a] border-t border-[var(--color-border)] text-[10px] text-white/30 select-none">
+    <div className="flex flex-col gap-1 px-4 py-1 bg-[var(--color-bg)] border-t border-[var(--color-border)] text-[10px] text-[var(--color-text-dim)] select-none">
       {error && (
         <div className="flex items-center justify-between rounded-sm border border-red-500/30 bg-red-500/10 px-2 py-1 text-red-200">
           <span>{error}</span>
           <button
             onClick={clearError}
-            className="text-white/70 hover:text-white"
+            className="text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
           >
             Dismiss
           </button>
@@ -33,7 +34,17 @@ export default function StatusBar() {
             </span>
           )}
         </div>
-        <span className="tracking-wide">{host}</span>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={toggleDocs}
+            className="flex items-center gap-1 hover:text-[var(--color-text-muted)] transition-colors"
+            title="Docs (Cmd+/)"
+          >
+            <HelpCircle className="w-3 h-3" />
+            <span>Docs</span>
+          </button>
+          <span className="tracking-wide">{host}</span>
+        </div>
       </div>
     </div>
   );

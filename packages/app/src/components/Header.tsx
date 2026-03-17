@@ -29,13 +29,13 @@ function AgentStatus({ sessionId }: { sessionId: string }) {
   if (!presence || presence.state === "idle") return null;
 
   return (
-    <div className="flex items-center gap-2 px-2 py-0.5 rounded-full bg-white/5 border border-white/10 ml-2">
+    <div className="flex items-center gap-2 px-2 py-0.5 rounded-full bg-[var(--color-hover)] border border-[var(--color-input-border)] ml-2">
       <div className={`w-1.5 h-1.5 rounded-full ${
         presence.state === "thinking" ? "bg-amber-400 animate-pulse" :
         presence.state === "working" ? "bg-emerald-400 animate-bounce" :
         "bg-blue-400"
       }`} />
-      <span className="text-[9px] uppercase tracking-tighter text-white/50 font-medium">
+      <span className="text-[9px] uppercase tracking-tighter text-[var(--color-text-muted)] font-medium">
         {presence.state}
       </span>
     </div>
@@ -137,7 +137,7 @@ export default function Header() {
         {isMobile ? (
           <button
             onClick={toggleSidebar}
-            className="p-1.5 text-white/40 hover:text-white/80 transition-colors flex-shrink-0"
+            className="p-1.5 text-[var(--color-text-dim)] hover:text-[var(--color-text)] transition-colors flex-shrink-0"
           >
             <Menu className="w-5 h-5" />
           </button>
@@ -145,7 +145,7 @@ export default function Header() {
           !sidebarOpen && (
             <button
               onClick={toggleSidebar}
-              className="p-1.5 text-white/40 hover:text-white/80 transition-colors"
+              className="p-1.5 text-[var(--color-text-dim)] hover:text-[var(--color-text)] transition-colors"
             >
               <PanelLeft className="w-4 h-4" />
             </button>
@@ -171,7 +171,7 @@ export default function Header() {
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
                   onBlur={commitRename}
-                  className="bg-white/5 border border-white/10 rounded px-2 py-0.5 text-sm text-white outline-none focus:border-emerald-500/50 w-full max-w-[200px]"
+                  className="bg-[var(--color-hover)] border border-[var(--color-input-border)] rounded px-2 py-0.5 text-sm text-[var(--color-text)] outline-none focus:border-emerald-500/50 w-full max-w-[200px]"
                 />
                 <button type="submit" className="text-emerald-400">
                   <Check className="w-3.5 h-3.5" />
@@ -182,24 +182,24 @@ export default function Header() {
                 onClick={startEditing}
                 className="group flex items-center gap-1.5 min-w-0"
               >
-                <h1 className="text-sm font-medium text-white truncate">
+                <h1 className="text-sm font-medium text-[var(--color-text)] truncate">
                   {session.name}
                 </h1>
-                <Pencil className="w-3 h-3 text-white/20 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                <Pencil className="w-3 h-3 text-[var(--color-text-dim)] opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
               </button>
             )}
 
             {session.type === "terminal" && (
               <button
                 onClick={handleSnapshot}
-                className="p-1.5 text-white/20 hover:text-emerald-400 transition-colors flex-shrink-0"
+                className="p-1.5 text-[var(--color-text-dim)] hover:text-emerald-400 transition-colors flex-shrink-0"
                 title="Create DTSS State Token (Snapshot)"
               >
                 <Camera className="w-3.5 h-3.5" />
               </button>
             )}
 
-            <span className="text-[10px] uppercase tracking-widest text-white/30 bg-white/5 px-2 py-0.5 rounded flex-shrink-0 hidden sm:inline">
+            <span className="text-[10px] uppercase tracking-widest text-[var(--color-text-dim)] bg-[var(--color-hover)] px-2 py-0.5 rounded flex-shrink-0 hidden sm:inline">
               {session.type}
             </span>
 
@@ -207,7 +207,7 @@ export default function Header() {
 
             {session.cwd && (
               <span
-                className="flex items-center gap-1 text-[10px] text-white/25 truncate max-w-[200px] flex-shrink hidden md:flex"
+                className="flex items-center gap-1 text-[10px] text-[var(--color-text-dim)] truncate max-w-[200px] flex-shrink hidden md:flex"
                 title={session.cwd}
               >
                 <FolderOpen className="w-3 h-3 flex-shrink-0" />
@@ -221,7 +221,7 @@ export default function Header() {
 
             <button
               onClick={handleExport}
-              className="p-1.5 text-white/30 hover:text-white/70 transition-colors flex-shrink-0"
+              className="p-1.5 text-[var(--color-text-dim)] hover:text-[var(--color-text-muted)] transition-colors flex-shrink-0"
               title={`Export ${session.type === "conversation" ? "as Markdown" : "as plain text"}`}
             >
               <Download className="w-3.5 h-3.5" />
@@ -237,7 +237,7 @@ export default function Header() {
             connected ? "bg-emerald-500 animate-pulse" : "bg-red-500"
           }`}
         />
-        <span className="text-[10px] uppercase tracking-widest text-white/40 hidden sm:inline">
+        <span className="text-[10px] uppercase tracking-widest text-[var(--color-text-dim)] hidden sm:inline">
           {connected ? "Connected" : "Disconnected"}
         </span>
       </div>

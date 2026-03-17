@@ -176,21 +176,21 @@ export default function Sidebar() {
           <div className="p-1.5 bg-emerald-500/10 rounded-lg">
             <Terminal className="w-4 h-4 text-emerald-500" />
           </div>
-          <span className="text-sm font-semibold text-white tracking-tight">
+          <span className="text-sm font-semibold text-[var(--color-text)] tracking-tight">
             ANT
           </span>
         </div>
         <div className="flex items-center gap-1">
           <button
             onClick={() => setShowNewWorkspace((v) => !v)}
-            className="p-1.5 text-white/40 hover:text-white/80 transition-colors"
+            className="p-1.5 text-[var(--color-text-dim)] hover:text-[var(--color-text)] transition-colors"
             title="New Workspace"
           >
             <FolderPlus className="w-4 h-4" />
           </button>
           <button
             onClick={toggleSidebar}
-            className="p-1.5 text-white/40 hover:text-white/80 transition-colors"
+            className="p-1.5 text-[var(--color-text-dim)] hover:text-[var(--color-text)] transition-colors"
           >
             <PanelLeftClose className="w-4 h-4" />
           </button>
@@ -209,7 +209,7 @@ export default function Sidebar() {
               if (e.key === "Escape") setShowNewWorkspace(false);
             }}
             placeholder="Workspace name..."
-            className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white outline-none focus:border-emerald-500/50 placeholder:text-white/20"
+            className="flex-1 bg-[var(--color-hover)] border border-[var(--color-input-border)] rounded px-2 py-1 text-xs text-[var(--color-text)] outline-none focus:border-emerald-500/50 placeholder:text-[var(--color-text-dim)]"
           />
           <button
             onClick={handleCreateWorkspace}
@@ -219,7 +219,7 @@ export default function Sidebar() {
           </button>
           <button
             onClick={() => setShowNewWorkspace(false)}
-            className="p-1 text-white/40 hover:text-white/80"
+            className="p-1 text-[var(--color-text-dim)] hover:text-[var(--color-text)]"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -246,13 +246,13 @@ export default function Sidebar() {
 
       {/* Search */}
       <div className="px-3 pb-2">
-        <div className="flex items-center gap-2 px-2.5 py-1.5 bg-white/5 rounded-lg border border-white/5 focus-within:border-white/10 transition-colors">
-          <Search className="w-3 h-3 text-white/25 flex-shrink-0" />
+        <div className="flex items-center gap-2 px-2.5 py-1.5 bg-[var(--color-hover)] rounded-lg border border-[var(--color-border)] focus-within:border-[var(--color-input-border)] transition-colors">
+          <Search className="w-3 h-3 text-[var(--color-text-dim)] flex-shrink-0" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Filter sessions..."
-            className="flex-1 bg-transparent text-xs text-white/80 outline-none placeholder:text-white/20"
+            className="flex-1 bg-transparent text-xs text-[var(--color-text)] outline-none placeholder:text-[var(--color-text-dim)]"
           />
         </div>
       </div>
@@ -273,10 +273,10 @@ export default function Sidebar() {
               onDrop={(e) => handleDropOnWorkspace(e, workspace.id)}
             >
               {/* Workspace header */}
-              <div className="group flex items-center gap-1 px-2 py-1.5 rounded-md hover:bg-white/5 transition-colors cursor-pointer">
+              <div className="group flex items-center gap-1 px-2 py-1.5 rounded-md hover:bg-[var(--color-hover)] transition-colors cursor-pointer">
                 <button
                   onClick={() => toggleCollapsed(workspace.id)}
-                  className="text-white/30 hover:text-white/60 flex-shrink-0"
+                  className="text-[var(--color-text-dim)] hover:text-[var(--color-text-muted)] flex-shrink-0"
                 >
                   {isCollapsed ? (
                     <ChevronRight className="w-3 h-3" />
@@ -295,12 +295,12 @@ export default function Sidebar() {
                       if (e.key === "Escape") setEditingWorkspaceId(null);
                     }}
                     onBlur={() => handleRenameWorkspace(workspace.id)}
-                    className="flex-1 bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-[11px] text-white outline-none focus:border-emerald-500/50"
+                    className="flex-1 bg-[var(--color-hover)] border border-[var(--color-input-border)] rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text)] outline-none focus:border-emerald-500/50"
                   />
                 ) : (
                   <span
                     onClick={() => toggleCollapsed(workspace.id)}
-                    className="flex-1 text-[11px] font-semibold uppercase tracking-wider text-white/40 truncate"
+                    className="flex-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-dim)] truncate"
                   >
                     {workspace.name}
                   </span>
@@ -309,11 +309,11 @@ export default function Sidebar() {
                 {(() => {
                   const wsUnread = wsSessions.reduce((sum, s) => sum + (unreadCounts[s.id] || 0), 0);
                   return wsUnread > 0 ? (
-                    <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 text-[10px] font-bold text-white mr-1">
+                    <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 text-[10px] font-bold text-[var(--color-text)] mr-1">
                       {wsUnread}
                     </span>
                   ) : (
-                    <span className="text-[10px] text-white/20 mr-1">
+                    <span className="text-[10px] text-[var(--color-text-dim)] mr-1">
                       {wsSessions.length}
                     </span>
                   );
@@ -327,7 +327,7 @@ export default function Sidebar() {
                         setEditingWorkspaceId(workspace.id);
                         setEditingWorkspaceName(workspace.name);
                       }}
-                      className="p-0.5 text-white/30 hover:text-white/60"
+                      className="p-0.5 text-[var(--color-text-dim)] hover:text-[var(--color-text-muted)]"
                     >
                       <Pencil className="w-2.5 h-2.5" />
                     </button>
@@ -336,7 +336,7 @@ export default function Sidebar() {
                         e.stopPropagation();
                         deleteWorkspace(workspace.id);
                       }}
-                      className="p-0.5 text-white/30 hover:text-red-400"
+                      className="p-0.5 text-[var(--color-text-dim)] hover:text-red-400"
                     >
                       <Trash2 className="w-2.5 h-2.5" />
                     </button>
@@ -383,7 +383,7 @@ export default function Sidebar() {
             onDrop={(e) => handleDropOnWorkspace(e, null)}
           >
             <div className="px-2 py-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-white/25">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-dim)]">
                 Ungrouped
               </span>
             </div>
@@ -422,7 +422,7 @@ export default function Sidebar() {
         {showArchived && archivedSessions.length > 0 && (
           <div className="mt-2 mb-1">
             <div className="px-2 py-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-white/25">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-dim)]">
                 Archived
               </span>
             </div>
@@ -452,7 +452,7 @@ export default function Sidebar() {
         )}
 
         {sessions.length === 0 && (
-          <div className="text-center text-white/20 text-xs py-8">
+          <div className="text-center text-[var(--color-text-dim)] text-xs py-8">
             No sessions yet.
             <br />
             Create one above.
@@ -460,7 +460,7 @@ export default function Sidebar() {
         )}
 
         {sessions.length > 0 && sorted.length === 0 && (
-          <div className="text-center text-white/20 text-xs py-8">
+          <div className="text-center text-[var(--color-text-dim)] text-xs py-8">
             No matching sessions.
           </div>
         )}
@@ -471,7 +471,7 @@ export default function Sidebar() {
         <button
           onClick={toggleShowArchived}
           className={`flex items-center gap-2 p-2 w-full rounded-lg transition-colors ${
-            showArchived ? "text-amber-400 bg-amber-500/10" : "text-white/50 hover:text-white/90 hover:bg-white/5"
+            showArchived ? "text-amber-400 bg-amber-500/10" : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)]"
           }`}
         >
           <Archive className="w-4 h-4" />
@@ -481,7 +481,7 @@ export default function Sidebar() {
         </button>
         <button
           onClick={toggleSettings}
-          className="flex items-center gap-2 p-2 w-full text-white/50 hover:text-white/90 hover:bg-white/5 rounded-lg transition-colors"
+          className="flex items-center gap-2 p-2 w-full text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)] rounded-lg transition-colors"
         >
           <Settings className="w-4 h-4" />
           <span className="text-xs font-medium">Settings</span>
@@ -540,7 +540,7 @@ function SessionItem({
       onDragStart={onDragStart as any}
       onClick={onSelect}
       className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-colors mb-0.5 ${
-        active ? `${activeBg} text-white` : "text-white/50 hover:text-white/80 hover:bg-white/5"
+        active ? `${activeBg} text-[var(--color-text)]` : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)]"
       }`}
     >
       {pinned && (
@@ -557,7 +557,7 @@ function SessionItem({
           className={`flex items-center justify-center min-w-[22px] h-[16px] px-1 rounded-full text-[9px] font-bold tabular-nums ${
             session.ttl_minutes === 0
               ? "bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/30"
-              : "bg-white/5 text-white/30"
+              : "bg-[var(--color-hover)] text-[var(--color-text-dim)]"
           }`}
           title={
             session.ttl_minutes === 0
@@ -575,7 +575,7 @@ function SessionItem({
         </span>
       )}
       {unreadCount > 0 && (
-        <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 text-[10px] font-bold text-white">
+        <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 text-[10px] font-bold text-[var(--color-text)]">
           {unreadCount}
         </span>
       )}
@@ -588,7 +588,7 @@ function SessionItem({
                   e.stopPropagation();
                   onRestore();
                 }}
-                className="p-1 text-white/30 hover:text-emerald-400 transition-colors"
+                className="p-1 text-[var(--color-text-dim)] hover:text-emerald-400 transition-colors"
                 title="Restore"
               >
                 <RotateCcw className="w-3 h-3" />
@@ -599,7 +599,7 @@ function SessionItem({
                 e.stopPropagation();
                 onDelete(e);
               }}
-              className="p-1 text-white/30 hover:text-red-400 transition-colors"
+              className="p-1 text-[var(--color-text-dim)] hover:text-red-400 transition-colors"
               title="Delete permanently"
             >
               <Trash2 className="w-3 h-3" />
@@ -613,7 +613,7 @@ function SessionItem({
                 onTogglePin();
               }}
               className={`p-1 transition-colors ${
-                pinned ? "text-amber-400" : "text-white/30 hover:text-amber-400"
+                pinned ? "text-amber-400" : "text-[var(--color-text-dim)] hover:text-amber-400"
               }`}
               title={pinned ? "Unpin" : "Pin"}
             >
@@ -624,7 +624,7 @@ function SessionItem({
                 e.stopPropagation();
                 onDelete(e);
               }}
-              className="p-1 text-white/30 hover:text-red-400 transition-colors"
+              className="p-1 text-[var(--color-text-dim)] hover:text-red-400 transition-colors"
               title="Archive (Shift+click to delete)"
             >
               <Trash2 className="w-3 h-3" />
