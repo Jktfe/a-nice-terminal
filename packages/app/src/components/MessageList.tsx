@@ -119,7 +119,10 @@ export default function MessageList({ sessionId, messages: messagesProp }: { ses
                   } catch {}
                 }}
                 onAnnotationChange={(id, annotations, starred) => {
-                  // Optimistic local update not needed — annotation_changed socket event handles it
+                  useStore.setState((s) => ({
+                    messages: s.messages.map((m) => m.id === id ? { ...m, annotations, starred } : m),
+                    splitMessages: s.splitMessages.map((m) => m.id === id ? { ...m, annotations, starred } : m),
+                  }));
                 }}
                 replyCount={msg.reply_count || 0}
                 onToggleThread={() => setOpenThreadId(openThreadId === msg.id ? null : msg.id)}
