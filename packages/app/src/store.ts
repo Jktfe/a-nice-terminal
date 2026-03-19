@@ -303,10 +303,19 @@ export const useStore = create<AppState>((set, get) => ({
       }
     });
 
-    chatSocket.on("message_created", (message: Message) => {
+    // --- Message event handlers ---
+    // These must fire on BOTH sockets: the main server (port 3000) emits
+    // message_created/updated/deleted when the frontend POSTs via apiFetch,
+    // while the chat sidecar (port 6464) emits them for MCP/CLI clients.
+    // Dedup by message ID prevents double-processing when both fire.
+
+    const handleMessageCreated = (message: Message) => {
       set((s) => {
         const isActive = message.session_id === s.activeSessionId;
         const isSplit = message.session_id === s.splitSessionId;
+
+        // Dedup: ignore if we already have this message
+        if (isActive && s.messages.some((m) => m.id === message.id)) return s;
 
         let unreadCounts = s.unreadCounts;
         if (!isActive) {
@@ -341,9 +350,9 @@ export const useStore = create<AppState>((set, get) => ({
           agentPresence
         };
       });
-    });
+    };
 
-    chatSocket.on("message_updated", (message: Message) => {
+    const handleMessageUpdated = (message: Message) => {
       set((s) => {
         const isActive = message.session_id === s.activeSessionId;
         const isSplit = message.session_id === s.splitSessionId;
@@ -354,16 +363,16 @@ export const useStore = create<AppState>((set, get) => ({
           splitMessages: isSplit ? updatedSplitMessages : s.splitMessages,
         };
       });
-    });
+    };
 
-    chatSocket.on("message_deleted", ({ id, sessionId }) => {
+    const handleMessageDeleted = ({ id, sessionId }: { id: string; sessionId: string }) => {
       set((s) => ({
         messages: sessionId === s.activeSessionId ? s.messages.filter((m) => m.id !== id) : s.messages,
         splitMessages: sessionId === s.splitSessionId ? s.splitMessages.filter((m) => m.id !== id) : s.splitMessages,
       }));
-    });
+    };
 
-    chatSocket.on("stream_chunk", ({ sessionId, messageId, content }) => {
+    const handleStreamChunk = ({ sessionId, messageId, content }: { sessionId: string; messageId: string; content: string }) => {
       set((s) => {
         const isActive = sessionId === s.activeSessionId;
         const isSplit = sessionId === s.splitSessionId;
@@ -394,7 +403,25 @@ export const useStore = create<AppState>((set, get) => ({
           splitMessages: isSplit ? updateChunks(s.splitMessages) : s.splitMessages,
         };
       });
-    });
+    };
+
+    const handleAnnotationChanged = ({ messageId, annotations, starred }: { messageId: string; annotations: any[]; starred: number }) => {
+      set((s) => ({
+        messages: s.messages.map((m) => m.id === messageId ? { ...m, annotations, starred } : m),
+        splitMessages: s.splitMessages.map((m) => m.id === messageId ? { ...m, annotations, starred } : m),
+      }));
+    };
+
+    // Register on both sockets so events arrive regardless of which server emits them
+    socket.on("message_created", handleMessageCreated);
+    chatSocket.on("message_created", handleMessageCreated);
+    socket.on("message_updated", handleMessageUpdated);
+    chatSocket.on("message_updated", handleMessageUpdated);
+    socket.on("message_deleted", handleMessageDeleted);
+    chatSocket.on("message_deleted", handleMessageDeleted);
+    chatSocket.on("stream_chunk", handleStreamChunk);
+    socket.on("annotation_changed", handleAnnotationChanged);
+    chatSocket.on("annotation_changed", handleAnnotationChanged);
 
     socket.on("session_list_changed", () => get().loadSessions());
 
@@ -411,14 +438,6 @@ export const useStore = create<AppState>((set, get) => ({
           [presence.sessionId]: presence,
         },
       }));
-    });
-
-    chatSocket.on("annotation_changed", ({ messageId, annotations, starred }: { messageId: string; annotations: any[]; starred: number }) => {
-      const { messages, splitMessages } = get();
-      const update = (msgs: Message[]) => msgs.map((m) =>
-        m.id === messageId ? { ...m, annotations, starred } : m
-      );
-      set({ messages: update(messages), splitMessages: update(splitMessages) });
     });
 
     set({ socket, chatSocket });
