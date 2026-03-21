@@ -49,8 +49,7 @@ export default function MessageBubble({
   const annotations = message.annotations || [];
   const pills = annotations.filter((a) => a.type !== "star" && a.type !== "session_rating");
   const isStarred = message.starred === 1;
-  const messageSource = message.metadata?.source as string | undefined;
-  const platformInfo = messageSource ? PLATFORM_LABELS[messageSource] : undefined;
+  const platformInfo = message.metadata?.source ? PLATFORM_LABELS[message.metadata.source as string] : undefined;
 
   const alignment = system ? "justify-center" : human ? "justify-end" : "justify-start";
   const maxWidth = system ? "max-w-lg" : "max-w-2xl";

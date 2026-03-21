@@ -9,10 +9,14 @@ import type {
   BridgeMapping,
 } from "./types.js";
 
+const INBOUND_RATE_WINDOW_MS = 10_000;
+const INBOUND_RATE_MAX = 20; // max messages per chat per window
+
 export class BridgeCore {
   private config: BridgeConfig;
   private ant: AntClient;
   private platforms: PlatformAdapter[] = [];
+  private inboundRateCounts = new Map<string, { count: number; resetAt: number }>();
   private models: ModelAdapter[] = [];
   private dedupTrackers = new Map<string, DedupTracker>();
   private mappingCache = new Map<string, BridgeMapping>(); // "platform:channelId" → mapping
@@ -87,8 +91,23 @@ export class BridgeCore {
 
   // --- Inbound: Platform → ANT ---
 
+  private isRateLimited(key: string): boolean {
+    const now = Date.now();
+    let entry = this.inboundRateCounts.get(key);
+    if (!entry || now >= entry.resetAt) {
+      entry = { count: 0, resetAt: now + INBOUND_RATE_WINDOW_MS };
+      this.inboundRateCounts.set(key, entry);
+    }
+    entry.count++;
+    return entry.count > INBOUND_RATE_MAX;
+  }
+
   private async handleInbound(platform: string, msg: InboundMessage): Promise<void> {
     try {
+      if (this.isRateLimited(`${platform}:${msg.channelId}`)) {
+        console.warn(`[bridge] Rate limited: ${platform}:${msg.channelId}`);
+        return;
+      }
       const cacheKey = `${platform}:${msg.channelId}`;
       let mapping = this.mappingCache.get(cacheKey) || null;
 
@@ -145,10 +164,29 @@ export class BridgeCore {
 
   // --- Outbound: ANT → Platforms ---
 
+  private buildOutboundPrefix(msg: AntMessage): string {
+    const name = msg.sender_name || null;
+    const type = msg.sender_type || msg.role;
+    if (type === "agent") return name ? `[ANT][${name}]` : `[ANT][Agent]`;
+    if (type === "system") return `[ANT][System]`;
+    if (name && name !== "human") return `[ANT][${name}]`;
+    return `[ANT]`;
+  }
+
   private async handleOutbound(msg: AntMessage): Promise<void> {
     // Parse metadata if it's a string (Socket.IO may pass raw DB row)
     if (typeof msg.metadata === "string") {
       try { msg.metadata = JSON.parse(msg.metadata); } catch { msg.metadata = null; }
+    }
+
+    const text = `${this.buildOutboundPrefix(msg)} ${msg.content}`;
+
+    // Fetch all mappings for this session once, then partition by platform
+    let allMappings: BridgeMapping[];
+    try {
+      allMappings = await this.ant.getMappingsBySession(msg.session_id);
+    } catch {
+      return;
     }
 
     // Relay to each platform adapter
@@ -159,30 +197,16 @@ export class BridgeCore {
         continue;
       }
 
+      const mappings = allMappings.filter((m) => m.platform === adapter.platform);
+      if (mappings.length === 0) continue;
+
       try {
-        const mappings = await this.getMappingsForSession(msg.session_id, adapter.platform);
         console.log(`[bridge] Outbound ${adapter.platform}: session=${msg.session_id} mappings=${mappings.length}`);
         for (const mapping of mappings) {
           if (mapping.direction === "inbound") continue;
 
-          const senderName = msg.sender_name || null;
-          const senderType = msg.sender_type || msg.role;
-          let prefix: string;
-          if (senderType === "agent" && senderName) {
-            prefix = `[ANT][${senderName}]`;
-          } else if (senderType === "agent") {
-            prefix = `[ANT][Agent]`;
-          } else if (senderType === "system") {
-            prefix = `[ANT][System]`;
-          } else if (senderName && senderName !== "human") {
-            prefix = `[ANT][${senderName}]`;
-          } else {
-            prefix = `[ANT]`;
-          }
-          const text = `${prefix} ${msg.content}`;
-
           await adapter.sendMessage(mapping.external_channel_id, text, {
-            senderName: senderName || undefined,
+            senderName: msg.sender_name || undefined,
             senderType: msg.sender_type || undefined,
           });
           console.log(`[bridge] ANT → ${adapter.platform}: "${text.slice(0, 60)}..."`);

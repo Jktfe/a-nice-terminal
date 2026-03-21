@@ -92,22 +92,35 @@ export class TelegramAdapter implements PlatformAdapter {
       const photo = ctx.message.photo[ctx.message.photo.length - 1]; // highest res
       let imagePath: string | undefined;
 
+      const MAX_PHOTO_BYTES = 5 * 1024 * 1024; // 5 MB
+
       try {
         const file = await ctx.api.getFile(photo.file_id);
         if (file.file_path) {
-          const tmpDir = path.join(os.tmpdir(), "ant-bridge");
-          fs.mkdirSync(tmpDir, { recursive: true });
-          const ext = path.extname(file.file_path) || ".jpg";
-          const localPath = path.join(tmpDir, `${photo.file_id}${ext}`);
+          if (file.file_size && file.file_size > MAX_PHOTO_BYTES) {
+            console.warn(`[telegram] Photo too large (${file.file_size} bytes), skipping download`);
+          } else {
+            const tmpDir = path.join(os.tmpdir(), "ant-bridge");
+            fs.mkdirSync(tmpDir, { recursive: true });
+            const ext = path.extname(file.file_path) || ".jpg";
+            const localPath = path.join(tmpDir, `${photo.file_id}${ext}`);
 
-          const url = `https://api.telegram.org/file/bot${this.bot.token}/${file.file_path}`;
-          const res = await globalThis.fetch(url);
-          const buffer = Buffer.from(await res.arrayBuffer());
-          fs.writeFileSync(localPath, buffer);
-          imagePath = localPath;
+            const url = `https://api.telegram.org/file/bot${this.bot.token}/${file.file_path}`;
+            const res = await globalThis.fetch(url);
+            const buffer = Buffer.from(await res.arrayBuffer());
+            fs.writeFileSync(localPath, buffer);
+            imagePath = localPath;
+
+            // Clean up after a delay so the message handler can reference the file
+            setTimeout(() => {
+              try { fs.unlinkSync(localPath); } catch {}
+            }, 60_000);
+          }
         }
       } catch (err) {
-        console.error("[telegram] Failed to download photo:", err instanceof Error ? err.message : err);
+        // Redact bot token from error messages
+        const errMsg = err instanceof Error ? err.message.replace(this.bot.token, "[REDACTED]") : String(err);
+        console.error("[telegram] Failed to download photo:", errMsg);
       }
 
       const caption = ctx.message.caption || "";
