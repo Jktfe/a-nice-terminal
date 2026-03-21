@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Terminal, MessageSquare, Search, X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { useStore, apiFetch } from "../store.ts";
+import { getSessionTheme } from "../utils/sessionTheme.ts";
 
 interface SessionMatch {
   id: string;
@@ -20,7 +21,7 @@ interface MessageMatch {
 }
 
 export default function SearchPanel({ onClose }: { onClose: () => void }) {
-  const { setActiveSession } = useStore();
+  const { setActiveSession, uiTheme } = useStore();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [sessions, setSessions] = useState<SessionMatch[]>([]);
@@ -152,8 +153,7 @@ export default function SearchPanel({ onClose }: { onClose: () => void }) {
               </div>
               {sessions.map((session) => {
                 const idx = flatIndex++;
-                const Icon = session.type === "terminal" ? Terminal : MessageSquare;
-                const iconColor = session.type === "terminal" ? "text-emerald-400" : "text-blue-400";
+                const { Icon, icon: iconColor } = getSessionTheme(session.type, uiTheme);
                 return (
                   <button
                     key={`s-${session.id}`}
@@ -182,8 +182,7 @@ export default function SearchPanel({ onClose }: { onClose: () => void }) {
               </div>
               {messages.map((msg) => {
                 const idx = flatIndex++;
-                const Icon = msg.session_type === "terminal" ? Terminal : MessageSquare;
-                const iconColor = msg.session_type === "terminal" ? "text-emerald-400" : "text-blue-400";
+                const { Icon, icon: iconColor } = getSessionTheme(msg.session_type as any, uiTheme);
                 return (
                   <button
                     key={`m-${msg.id}`}

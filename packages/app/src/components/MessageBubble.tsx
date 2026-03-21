@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { type Message } from "../store.ts";
+import { useStore, type Message } from "../store.ts";
 import { getSenderTheme, isHuman, isSystem } from "../utils/senderTheme.ts";
 import { isProtocolMessage } from "../utils/protocolTypes.ts";
 import SenderAvatar from "./SenderAvatar.tsx";
@@ -30,7 +30,8 @@ export default function MessageBubble({
   message, sessionId, onReply, onDelete, onAnnotationChange,
   replyCount = 0, onToggleThread, scale = 1, showSessionRating = false,
 }: MessageBubbleProps) {
-  const theme = getSenderTheme(message.sender_type);
+  const uiTheme = useStore((s) => s.uiTheme);
+  const theme = getSenderTheme(message.sender_type, uiTheme);
   const human = isHuman(message.sender_type);
   const system = isSystem(message.sender_type);
   const [hovered, setHovered] = useState(false);

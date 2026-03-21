@@ -61,8 +61,20 @@ const themes: Record<string, SenderTheme> = {
   },
 };
 
-export function getSenderTheme(senderType?: string | null): SenderTheme {
-  return themes[senderType || "unknown"] || themes.unknown;
+export function getSenderTheme(senderType?: string | null, uiTheme: "light" | "dark" | "system" = "dark"): SenderTheme {
+  const isLight = uiTheme === "light" || (uiTheme === "system" && window.matchMedia("(prefers-color-scheme: light)").matches);
+  const theme = themes[senderType || "unknown"] || themes.unknown;
+
+  if (isLight) {
+    return {
+      ...theme,
+      accent: theme.accent, // accent colors are generally fine, but we can refine them if needed
+      bg: theme.bg.replace("0.08", "0.12").replace("0.06", "0.08"), // Slightly more contrast on light background
+      border: theme.border.replace("0.3", "0.4").replace("0.2", "0.3"),
+    };
+  }
+
+  return theme;
 }
 
 export function isHuman(senderType?: string | null): boolean {

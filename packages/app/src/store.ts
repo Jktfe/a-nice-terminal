@@ -162,7 +162,7 @@ function applyUiTheme(theme: UiTheme) {
 function loadUiTheme(): UiTheme {
   const stored = localStorage.getItem(UI_THEME_KEY);
   if (stored === "light" || stored === "dark" || stored === "system") return stored;
-  return "dark";
+  return "light";
 }
 
 function loadPinnedSessions(): Set<string> {

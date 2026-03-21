@@ -44,12 +44,12 @@ export default function MessageToolbar({ message, sessionId, onReply, onDelete, 
     }
   };
 
-  const btnClass = "p-1 rounded hover:bg-white/10 transition-colors";
+  const btnClass = "p-1 rounded hover:bg-[var(--color-hover)] transition-colors";
   const activeClass = "text-amber-400";
-  const inactiveClass = "text-white/40 hover:text-white/70";
+  const inactiveClass = "text-[var(--color-text-dim)] hover:text-[var(--color-text-muted)]";
 
   return (
-    <div className="flex items-center gap-0.5 bg-[#1a1a1a] border border-white/10 rounded-lg px-1 py-0.5 shadow-lg">
+    <div className="flex items-center gap-0.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg px-1 py-0.5 shadow-lg">
       <button onClick={() => toggleAnnotation("thumbs_up")} className={`${btnClass} ${hasAnnotation("thumbs_up") ? activeClass : inactiveClass}`} title="Thumbs up">
         <ThumbsUp className="w-3.5 h-3.5" />
       </button>
@@ -62,7 +62,7 @@ export default function MessageToolbar({ message, sessionId, onReply, onDelete, 
       <button onClick={() => toggleAnnotation("star")} className={`${btnClass} ${hasAnnotation("star") ? "text-yellow-400" : inactiveClass}`} title="Star">
         <Star className="w-3.5 h-3.5" />
       </button>
-      <div className="w-px h-4 bg-white/10 mx-0.5" />
+      <div className="w-px h-4 bg-[var(--color-border)] mx-0.5" />
       <button onClick={onReply} className={`${btnClass} ${inactiveClass}`} title="Reply">
         <Reply className="w-3.5 h-3.5" />
       </button>
@@ -72,8 +72,8 @@ export default function MessageToolbar({ message, sessionId, onReply, onDelete, 
       <button onClick={storeToObsidian} className={`${btnClass} ${inactiveClass}`} title="Store to Obsidian">
         <Download className="w-3.5 h-3.5" />
       </button>
-      <div className="w-px h-4 bg-white/10 mx-0.5" />
-      <button onClick={onDelete} className={`${btnClass} text-white/40 hover:text-red-400`} title="Delete">
+      <div className="w-px h-4 bg-[var(--color-border)] mx-0.5" />
+      <button onClick={onDelete} className={`${btnClass} text-[var(--color-text-dim)] hover:text-red-400`} title="Delete">
         <Trash2 className="w-3.5 h-3.5" />
       </button>
     </div>

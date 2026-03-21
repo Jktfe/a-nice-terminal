@@ -55,6 +55,11 @@ export const mcpTools: DocEntry[] = [
   { name: "ant_list_resume_commands", category: "Resume", description: "List captured LLM CLI resume commands (claude --resume, codex resume, etc.)", params: [] },
   { name: "ant_delete_resume_command", category: "Resume", description: "Delete a captured resume command by ID", params: [{ name: "id", type: "string", required: true, description: "Resume command ID" }] },
 
+  // Bridge
+  { name: "ant_list_bridge_mappings", category: "Bridge", description: "List all bridge mappings linking external channels to ANT sessions", params: [{ name: "platform", type: "string", description: "Filter by platform (e.g. 'telegram')" }] },
+  { name: "ant_create_bridge_mapping", category: "Bridge", description: "Link an external platform channel to an ANT session", params: [{ name: "platform", type: "string", required: true, description: "Platform name" }, { name: "externalChannelId", type: "string", required: true, description: "External channel/chat ID" }, { name: "sessionId", type: "string", required: true, description: "ANT session ID" }, { name: "externalChannelName", type: "string", description: "Channel display name" }] },
+  { name: "ant_delete_bridge_mapping", category: "Bridge", description: "Remove a bridge mapping (unlink external channel)", params: [{ name: "mappingId", type: "string", required: true, description: "Mapping ID" }] },
+
   // Admin
   { name: "ant_kill_all_terminals", category: "Admin", description: "Kill all terminal PTY processes (nuclear option)", params: [] },
 ];

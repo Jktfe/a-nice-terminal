@@ -139,7 +139,12 @@ export const terminalThemes: TerminalTheme[] = [
   },
 ];
 
-export function getTerminalTheme(id: string): ITheme {
-  const found = terminalThemes.find((t) => t.id === id);
-  return found?.theme ?? terminalThemes[0].theme;
+export function getTerminalTheme(id: string, uiTheme: "light" | "dark" | "system" = "dark"): ITheme {
+  let themeId = id;
+  if (id === "default") {
+    const isLight = uiTheme === "light" || (uiTheme === "system" && window.matchMedia("(prefers-color-scheme: light)").matches);
+    themeId = isLight ? "default-light" : "default";
+  }
+  const found = terminalThemes.find((t) => t.id === themeId);
+  return found?.theme ?? terminalThemes.find(t => t.id === "default")?.theme ?? terminalThemes[0].theme;
 }

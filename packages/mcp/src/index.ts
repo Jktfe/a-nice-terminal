@@ -790,6 +790,65 @@ server.tool(
   }
 );
 
+// --- Bridge Mappings ---
+
+// List bridge mappings
+server.tool(
+  "ant_list_bridge_mappings",
+  "List all bridge mappings that link external platform channels (Telegram, etc.) to ANT sessions",
+  {
+    platform: z.string().optional().describe("Filter by platform (e.g. 'telegram')"),
+  },
+  async ({ platform }) => {
+    const qs = platform ? `?platform=${encodeURIComponent(platform)}` : "";
+    const mappings = await api(`/api/bridge/mappings${qs}`);
+    return {
+      content: [{ type: "text", text: JSON.stringify(mappings, null, 2) }],
+    };
+  }
+);
+
+// Create bridge mapping
+server.tool(
+  "ant_create_bridge_mapping",
+  "Link an external platform channel to an ANT conversation session",
+  {
+    platform: z.string().describe("Platform name (e.g. 'telegram')"),
+    externalChannelId: z.string().describe("External channel/chat ID"),
+    sessionId: z.string().describe("ANT session ID to link to"),
+    externalChannelName: z.string().optional().describe("Human-readable channel name"),
+  },
+  async ({ platform, externalChannelId, sessionId, externalChannelName }) => {
+    const mapping = await api("/api/bridge/mappings", {
+      method: "POST",
+      body: JSON.stringify({
+        platform,
+        external_channel_id: externalChannelId,
+        session_id: sessionId,
+        external_channel_name: externalChannelName,
+      }),
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(mapping, null, 2) }],
+    };
+  }
+);
+
+// Delete bridge mapping
+server.tool(
+  "ant_delete_bridge_mapping",
+  "Remove a bridge mapping (unlink an external channel from an ANT session)",
+  {
+    mappingId: z.string().describe("Bridge mapping ID to delete"),
+  },
+  async ({ mappingId }) => {
+    await api(`/api/bridge/mappings/${mappingId}`, { method: "DELETE" });
+    return {
+      content: [{ type: "text", text: JSON.stringify({ deleted: true, id: mappingId }) }],
+    };
+  }
+);
+
 // Run
 async function main() {
   const transport = new StdioServerTransport();

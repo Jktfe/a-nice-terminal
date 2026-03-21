@@ -44,6 +44,7 @@ export default function App() {
     toggleSplit,
     setSplitSession,
     toggleDocs,
+    toggleSettings,
   } = useStore();
   const [quickSwitcherOpen, setQuickSwitcherOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -82,6 +83,9 @@ export default function App() {
       } else if (e.key === "/") {
         e.preventDefault();
         toggleDocs();
+      } else if (e.key === ",") {
+        e.preventDefault();
+        toggleSettings();
       } else if (e.key === "\\") {
         e.preventDefault();
         if (splitMode) {
@@ -93,7 +97,7 @@ export default function App() {
         }
       }
     },
-    [createSession, toggleSidebar, splitMode, toggleSplit, toggleDocs]
+    [createSession, toggleSidebar, splitMode, toggleSplit, toggleDocs, toggleSettings]
   );
 
   useEffect(() => {

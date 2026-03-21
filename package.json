@@ -14,6 +14,7 @@
     "start": "node scripts/preflight.mjs && concurrently \"pnpm --filter @ant/app start\" \"pnpm --filter @ant/app start:chat\"",
     "dev:website": "cd packages/website && npx vite dev",
     "dev:mcp": "cd packages/mcp && npx tsx src/index.ts",
+    "dev:bridge": "cd packages/bridge && node --env-file=../../.env --import tsx src/index.ts",
     "build": "cd packages/app && npx vite build",
     "lint": "cd packages/app && npx tsc --noEmit && cd ../mcp && npx tsc --noEmit",
     "test": "cd packages/app && npx vitest run && cd ../mcp && npx vitest run",

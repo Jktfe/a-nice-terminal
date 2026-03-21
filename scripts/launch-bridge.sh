@@ -1,11 +1,11 @@
 #!/bin/bash
-# ANT launch script — used by launchd to start the server
+# ANT Bridge launch script — used by launchd to start the Telegram + model bridge
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-APP_DIR="$PROJECT_DIR/packages/app"
+BRIDGE_DIR="$PROJECT_DIR/packages/bridge"
 
-cd "$APP_DIR" || exit 1
+cd "$BRIDGE_DIR" || exit 1
 
 # Source .env if present
 if [ -f "$PROJECT_DIR/.env" ]; then
@@ -14,11 +14,9 @@ if [ -f "$PROJECT_DIR/.env" ]; then
   set +a
 fi
 
-# Ensure node is available (common paths)
-# Pin to v22 — native addons (better-sqlite3, node-pty) are compiled for this version
-# nvm path MUST come before /opt/homebrew/bin (which has v25)
+# Pin to v22 — must match the ANT server's Node version
 NVM_NODE="$(ls -d "$HOME/.nvm/versions/node/v22"* 2>/dev/null | sort -V | tail -1)"
 export PATH="${NVM_NODE:-$HOME/.nvm/versions/node/v22.14.0}/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"
 export NODE_ENV=production
 
-exec node --import tsx server/index.ts
+exec node --import tsx src/index.ts

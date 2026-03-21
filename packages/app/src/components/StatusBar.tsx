@@ -1,9 +1,21 @@
-import { HelpCircle } from "lucide-react";
+import { HelpCircle, Radio } from "lucide-react";
 import { useStore } from "../store.ts";
+import { useState, useEffect } from "react";
 
 export default function StatusBar() {
   const { sessions, activeSessionId, error, clearError, toggleDocs } = useStore();
   const activeSession = sessions.find((s) => s.id === activeSessionId);
+  const [bridgePlatforms, setBridgePlatforms] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!activeSessionId) { setBridgePlatforms([]); return; }
+    fetch(`/api/bridge/mappings/by-session/${activeSessionId}`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((mappings: Array<{ platform: string }>) => {
+        setBridgePlatforms(mappings.map((m) => m.platform));
+      })
+      .catch(() => setBridgePlatforms([]));
+  }, [activeSessionId]);
 
   const host = window.location.port
     ? `${window.location.hostname}:${window.location.port}`
@@ -31,6 +43,12 @@ export default function StatusBar() {
           {activeSession && (
             <span className="uppercase tracking-widest">
               {activeSession.type}
+            </span>
+          )}
+          {bridgePlatforms.length > 0 && (
+            <span className="flex items-center gap-1 text-green-400" title={`Bridged: ${bridgePlatforms.join(", ")}`}>
+              <Radio className="w-3 h-3" />
+              {bridgePlatforms.join(", ")}
             </span>
           )}
         </div>

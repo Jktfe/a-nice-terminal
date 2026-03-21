@@ -17,6 +17,7 @@ import workspaceRoutes from "./routes/workspaces.js";
 import agentRoutes from "./routes/agent.js";
 import annotationRoutes from "./routes/annotations.js";
 import storeRoutes from "./routes/store.js";
+import bridgeRoutes from "./routes/bridge.js";
 import { registerSocketHandlers } from "./ws/handlers.js";
 import { registerTerminalNamespace } from "./ws/terminal-namespace.js";
 import { reapOrphanedSessions } from "./pty-manager.js";
@@ -96,6 +97,7 @@ async function start() {
   app.use(agentRoutes);
   app.use(annotationRoutes);
   app.use(storeRoutes);
+  app.use(bridgeRoutes);
 
   // Serve uploads
   const uploadsPath = path.join(__dirname, "..", "..", "public", "uploads");

@@ -6,6 +6,8 @@ import {
   Download,
   FolderOpen,
   Camera,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useStore, apiFetch } from "../store.ts";
@@ -44,7 +46,7 @@ function AgentStatus({ sessionId }: { sessionId: string }) {
 
 
 export default function Header() {
-  const { sessions, activeSessionId, connected, sidebarOpen, toggleSidebar, renameSession } =
+  const { sessions, activeSessionId, connected, sidebarOpen, toggleSidebar, renameSession, uiTheme, setUiTheme } =
     useStore();
   const session = sessions.find((s) => s.id === activeSessionId);
   const [editing, setEditing] = useState(false);
@@ -128,7 +130,7 @@ export default function Header() {
     }
   }, [session, activeSessionId]);
 
-  const { Icon, ...tone } = getSessionTheme(session?.type ?? "conversation");
+  const { Icon, ...tone } = getSessionTheme(session?.type ?? "conversation", uiTheme);
 
   return (
     <header className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
@@ -231,6 +233,13 @@ export default function Header() {
       </div>
 
       <div className="flex items-center gap-2 flex-shrink-0">
+        <button
+          onClick={() => setUiTheme(uiTheme === "light" ? "dark" : "light")}
+          className="p-1.5 text-[var(--color-text-dim)] hover:text-[var(--color-text)] transition-colors mr-1"
+          title={`Switch to ${uiTheme === "light" ? "dark" : "light"} mode`}
+        >
+          {uiTheme === "light" ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+        </button>
         <ResumeDropdown />
         <span
           className={`w-1.5 h-1.5 rounded-full ${

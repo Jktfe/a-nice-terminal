@@ -41,7 +41,7 @@ interface SearchResult {
 }
 
 export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId?: string } = {}) {
-  const { activeSessionId: storeActiveSessionId, socket, uploadFile, connected, sessionHealth, terminalFontSize, terminalTheme, sessions, loadSessions } = useStore();
+  const { activeSessionId: storeActiveSessionId, socket, uploadFile, connected, sessionHealth, terminalFontSize, terminalTheme, uiTheme, sessions, loadSessions } = useStore();
   const activeSessionId = sessionIdProp ?? storeActiveSessionId;
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -281,7 +281,7 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
       cursorBlink: true,
       fontSize: terminalFontSize,
       fontFamily: '"JetBrains Mono", monospace',
-      theme: getTerminalTheme(terminalTheme),
+      theme: getTerminalTheme(terminalTheme, uiTheme),
       scrollback: 10000,
       allowProposedApi: true,
       // No convertEol — shell/dtach already sends CRLF
@@ -610,15 +610,15 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
   useEffect(() => {
     const term = termRef.current;
     if (!term?.options) return;
-    term.options.theme = getTerminalTheme(terminalTheme);
+    term.options.theme = getTerminalTheme(terminalTheme, uiTheme);
     term.options.fontSize = terminalFontSize;
     try { fitAddonRef.current?.fit(); } catch {}
-  }, [terminalTheme, terminalFontSize]);
+  }, [terminalTheme, terminalFontSize, uiTheme]);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="flex items-center justify-end px-3 py-1 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-        <div className="flex items-center gap-1.5 mr-2 text-[10px] uppercase tracking-widest text-white/40">
+        <div className="flex items-center gap-1.5 mr-2 text-[10px] uppercase tracking-widest text-[var(--color-text-muted)]">
           {slowEditMode ? "Slow Edit ON" : commandRunning ? (
             <>
               <motion.span
@@ -637,7 +637,7 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
         </div>
         <button
           onClick={() => setSlowEditMode((value) => !value)}
-          className="flex items-center gap-1.5 px-2 py-1 text-white/40 hover:text-white/80 hover:bg-white/5 rounded transition-colors mr-2"
+          className="flex items-center gap-1.5 px-2 py-1 text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)] rounded transition-colors mr-2"
           title="Toggle Slow Edit mode"
         >
           <Edit3 className="w-3.5 h-3.5" />
@@ -645,7 +645,7 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
         </button>
         <button
           onClick={() => setShowSearch((value) => !value)}
-          className="flex items-center gap-1.5 px-2 py-1 text-white/40 hover:text-white/80 hover:bg-white/5 rounded transition-colors mr-2"
+          className="flex items-center gap-1.5 px-2 py-1 text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)] rounded transition-colors mr-2"
           title="Search terminal output"
         >
           <Search className="w-3.5 h-3.5" />
@@ -653,7 +653,7 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
         </button>
         <button
           onClick={onCopySelection}
-          className={`flex items-center gap-1.5 px-2 py-1 rounded transition-colors mr-2 ${copied ? "text-emerald-400" : "text-white/40 hover:text-white/80 hover:bg-white/5"}`}
+          className={`flex items-center gap-1.5 px-2 py-1 rounded transition-colors mr-2 ${copied ? "text-emerald-400" : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)]"}`}
           title="Copy selected terminal text (Ctrl+Shift+C)"
         >
           {copied ? <Check className="w-3.5 h-3.5" /> : <Clipboard className="w-3.5 h-3.5" />}
@@ -663,14 +663,14 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
           onClick={handleRefresh}
           disabled={refreshing}
           title="Refresh terminal output"
-          className="flex items-center gap-1.5 px-2 py-1 text-white/40 hover:text-white/80 hover:bg-white/5 rounded transition-colors disabled:opacity-40"
+          className="flex items-center gap-1.5 px-2 py-1 text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)] rounded transition-colors disabled:opacity-40"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
           <span className="text-[10px] uppercase tracking-widest">Refresh</span>
         </button>
         {activeSession?.type === "terminal" && (
           <div className="relative flex items-center ml-auto">
-            <Clock className="w-3 h-3 text-white/30 absolute left-2 pointer-events-none" />
+            <Clock className="w-3 h-3 text-[var(--color-text-dim)] absolute left-2 pointer-events-none" />
             <select
               value={activeSession.ttl_minutes === null ? "" : String(activeSession.ttl_minutes)}
               onChange={async (e) => {
@@ -683,7 +683,7 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
                 });
                 loadSessions();
               }}
-              className="appearance-none pl-6 pr-6 py-1 rounded text-[10px] uppercase tracking-widest font-bold bg-white/5 text-white/50 hover:text-white/80 hover:bg-white/10 border border-white/10 cursor-pointer transition-colors"
+              className="appearance-none pl-6 pr-6 py-1 rounded text-[10px] uppercase tracking-widest font-bold bg-[var(--color-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-active)] border border-[var(--color-border)] cursor-pointer transition-colors"
               title="Session keep-alive duration"
             >
               <option value="">15m</option>
@@ -695,7 +695,7 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
               <option value="120">2h</option>
               <option value="0">AON</option>
             </select>
-            <ChevronDown className="w-3 h-3 text-white/30 absolute right-1.5 pointer-events-none" />
+            <ChevronDown className="w-3 h-3 text-[var(--color-text-dim)] absolute right-1.5 pointer-events-none" />
           </div>
         )}
       </div>
@@ -721,12 +721,12 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
         )}
 
         {showSearch && (
-          <div className="rounded-lg border border-white/15 bg-[var(--color-surface)] p-2 text-xs text-white/80">
+          <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-xs text-[var(--color-text)]">
             <div className="flex items-center justify-between gap-2 mb-2">
-              <div className="text-[10px] uppercase tracking-wider text-white/50">Terminal Search</div>
+              <div className="text-[10px] uppercase tracking-wider text-[var(--color-text-muted)]">Terminal Search</div>
               <button
                 onClick={clearSearch}
-                className="inline-flex items-center gap-1 px-2 py-1 text-white/40 hover:text-white/70 hover:bg-white/5 rounded"
+                className="inline-flex items-center gap-1 px-2 py-1 text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)] rounded"
                 title="Clear search"
               >
                 <X className="w-3 h-3" />
@@ -741,7 +741,7 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
                   if (e.key === "Enter") runTerminalSearch();
                 }}
                 placeholder="query"
-                className="rounded border border-white/20 bg-[var(--color-bg)] px-2 py-1 text-sm text-white placeholder-white/40"
+                className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-dim)]"
               />
               <input
                 value={searchStart}
@@ -750,7 +750,7 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
                   if (e.key === "Enter") runTerminalSearch();
                 }}
                 placeholder="start (HH, HH:mm, HH:mm:ss)"
-                className="rounded border border-white/20 bg-[var(--color-bg)] px-2 py-1 text-sm text-white placeholder-white/40"
+                className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-dim)]"
               />
               <input
                 value={searchEnd}
@@ -759,7 +759,7 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
                   if (e.key === "Enter") runTerminalSearch();
                 }}
                 placeholder="end (HH, HH:mm, HH:mm:ss)"
-                className="rounded border border-white/20 bg-[var(--color-bg)] px-2 py-1 text-sm text-white placeholder-white/40"
+                className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-dim)]"
               />
               <div className="flex items-center gap-2">
                 <input
@@ -768,10 +768,10 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
                   onKeyDown={(e) => {
                     if (e.key === "Enter") runTerminalSearch();
                   }}
-                  className="w-16 rounded border border-white/20 bg-[var(--color-bg)] px-2 py-1 text-sm text-white placeholder-white/40"
+                  className="w-16 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-dim)]"
                   placeholder="pad"
                 />
-                <span className="text-[10px] text-white/50">±min</span>
+                <span className="text-[10px] text-[var(--color-text-muted)]">±min</span>
                 <button
                   onClick={runTerminalSearch}
                   disabled={searching}
@@ -788,7 +788,7 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
             )}
             <div className="max-h-32 overflow-auto">
               {searchResults.length === 0 ? (
-                <div className="text-white/40 text-[11px]">
+                <div className="text-[var(--color-text-dim)] text-[11px]">
                   No matches yet. Run a search to populate results.
                 </div>
               ) : (
@@ -796,9 +796,9 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
                   {searchResults.map((result) => (
                     <div
                       key={`${result.index}-${result.created_at ?? "no-ts"}`}
-                      className="rounded border border-white/10 bg-black/20 p-2"
+                      className="rounded border border-[var(--color-border)] bg-[var(--color-active)] p-2"
                     >
-                      <div className="text-[10px] text-white/40 mb-1">
+                      <div className="text-[10px] text-[var(--color-text-dim)] mb-1">
                         {result.created_at ? result.created_at : `chunk ${result.index}`}
                       </div>
                       <pre className="whitespace-pre-wrap text-[11px] leading-relaxed">
@@ -872,7 +872,7 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
                 }
               }}
               rows={3}
-              className="w-full rounded-lg border border-white/15 bg-[var(--color-bg)] px-3 py-2 text-sm text-white outline-none resize-y min-h-16"
+              className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] outline-none resize-y min-h-16"
               placeholder="Type command(s) here. Cmd+Enter or Shift+Enter sends to terminal."
             />
             <div className="flex items-center justify-end gap-2">
@@ -896,7 +896,7 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
               onClick={() => setContextMenu(null)}
             />
             <div
-              className="fixed z-50 bg-[#1a1a1a] border border-white/10 rounded-lg shadow-xl py-1 min-w-[180px]"
+              className="fixed z-50 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg shadow-xl py-1 min-w-[180px]"
               style={{ left: contextMenu.x, top: contextMenu.y }}
             >
               <button
@@ -908,7 +908,7 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
                   }
                   setContextMenu(null);
                 }}
-                className="w-full text-left px-3 py-2 text-sm text-white/80 hover:bg-white/10 transition-colors"
+                className="w-full text-left px-3 py-2 text-sm text-[var(--color-text)] hover:bg-[var(--color-hover)] transition-colors"
               >
                 Send to Conversation
               </button>

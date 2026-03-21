@@ -164,5 +164,20 @@ db.exec(`
     ON command_events (session_id, started_at);
 `);
 
+// Bridge mappings — links external platform channels (Telegram, etc.) to ANT sessions
+db.exec(`
+  CREATE TABLE IF NOT EXISTS bridge_mappings (
+    id TEXT PRIMARY KEY,
+    platform TEXT NOT NULL,
+    external_channel_id TEXT NOT NULL,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    external_channel_name TEXT,
+    direction TEXT NOT NULL DEFAULT 'bidirectional',
+    config TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(platform, external_channel_id)
+  );
+`);
+
 export default db;
 export { DB_PATH };

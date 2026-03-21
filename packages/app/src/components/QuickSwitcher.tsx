@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from "react";
-import { Terminal, MessageSquare } from "lucide-react";
 import { useStore } from "../store.ts";
+import { getSessionTheme } from "../utils/sessionTheme.ts";
 
 export default function QuickSwitcher({ onClose, onSelect }: { onClose: () => void; onSelect?: (id: string) => void }) {
-  const { sessions, setActiveSession } = useStore();
+  const { sessions, setActiveSession, uiTheme } = useStore();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -59,11 +59,7 @@ export default function QuickSwitcher({ onClose, onSelect }: { onClose: () => vo
         />
         <div className="max-h-64 overflow-y-auto py-1">
           {filtered.map((session, i) => {
-            const Icon =
-              session.type === "terminal" ? Terminal : MessageSquare;
-            const iconColor = session.type === "terminal"
-              ? "text-emerald-400"
-              : "text-blue-400";
+            const { Icon, icon: iconColor } = getSessionTheme(session.type, uiTheme);
             return (
               <button
                 key={session.id}

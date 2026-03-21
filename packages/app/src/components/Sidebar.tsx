@@ -14,6 +14,8 @@ import {
   X,
   Archive,
   RotateCcw,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
@@ -44,6 +46,8 @@ export default function Sidebar() {
     renameWorkspace,
     deleteWorkspace,
     moveSessionToWorkspace,
+    uiTheme,
+    setUiTheme,
   } = useStore();
   const [search, setSearch] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -366,6 +370,7 @@ export default function Sidebar() {
                         }}
                         onTogglePin={() => togglePin(session.id)}
                         onDragStart={(e) => handleDragStart(e, session.id)}
+                        uiTheme={uiTheme}
                       />
                     ))}
                   </AnimatePresence>
@@ -413,6 +418,7 @@ export default function Sidebar() {
                 }}
                 onTogglePin={() => togglePin(session.id)}
                 onDragStart={(e) => handleDragStart(e, session.id)}
+                uiTheme={uiTheme}
               />
             ))}
           </AnimatePresence>
@@ -445,6 +451,7 @@ export default function Sidebar() {
                   }}
                   onTogglePin={() => {}}
                   onDragStart={(e) => handleDragStart(e, session.id)}
+                  uiTheme={uiTheme}
                 />
               ))}
             </AnimatePresence>
@@ -479,13 +486,23 @@ export default function Sidebar() {
             {showArchived ? "Hide Archived" : "Show Archived"}
           </span>
         </button>
-        <button
-          onClick={toggleSettings}
-          className="flex items-center gap-2 p-2 w-full text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)] rounded-lg transition-colors"
-        >
-          <Settings className="w-4 h-4" />
-          <span className="text-xs font-medium">Settings</span>
-        </button>
+        <div className="flex gap-1">
+          <button
+            onClick={() => setUiTheme(uiTheme === "light" ? "dark" : "light")}
+            className="flex items-center gap-2 p-2 flex-1 text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)] rounded-lg transition-colors"
+            title={`Switch to ${uiTheme === "light" ? "dark" : "light"} mode`}
+          >
+            {uiTheme === "light" ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+            <span className="text-xs font-medium capitalize">{uiTheme === "light" ? "Dark" : "Light"}</span>
+          </button>
+          <button
+            onClick={toggleSettings}
+            className="flex items-center justify-center p-2 text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)] rounded-lg transition-colors"
+            title="Settings"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+        </div>
       </div>
     </motion.aside>
   );
@@ -515,6 +532,7 @@ function SessionItem({
   onDelete,
   onTogglePin,
   onDragStart,
+  uiTheme,
 }: {
   session: Session;
   active: boolean;
@@ -527,8 +545,9 @@ function SessionItem({
   onDelete: (e: React.MouseEvent) => void;
   onTogglePin: () => void;
   onDragStart: (e: React.DragEvent) => void;
+  uiTheme: any;
 }) {
-  const { Icon, chip: activeBg, icon: activeIcon } = getSessionTheme(session.type);
+  const { Icon, chip: activeBg, icon: activeIcon } = getSessionTheme(session.type, uiTheme);
 
   return (
     <motion.div
