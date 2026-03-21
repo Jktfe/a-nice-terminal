@@ -165,10 +165,21 @@ export class BridgeCore {
         for (const mapping of mappings) {
           if (mapping.direction === "inbound") continue;
 
-          const senderName = msg.sender_name || msg.role;
-          const text = senderName && senderName !== "human"
-            ? `[${senderName}] ${msg.content}`
-            : msg.content;
+          const senderName = msg.sender_name || null;
+          const senderType = msg.sender_type || msg.role;
+          let prefix: string;
+          if (senderType === "agent" && senderName) {
+            prefix = `[ANT][${senderName}]`;
+          } else if (senderType === "agent") {
+            prefix = `[ANT][Agent]`;
+          } else if (senderType === "system") {
+            prefix = `[ANT][System]`;
+          } else if (senderName && senderName !== "human") {
+            prefix = `[ANT][${senderName}]`;
+          } else {
+            prefix = `[ANT]`;
+          }
+          const text = `${prefix} ${msg.content}`;
 
           await adapter.sendMessage(mapping.external_channel_id, text, {
             senderName: senderName || undefined,

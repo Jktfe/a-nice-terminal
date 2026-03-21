@@ -2,7 +2,7 @@ import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Send } from "lucide-react";
 import { useStore, type Message } from "../store.ts";
 import { getSenderTheme, isHuman, isSystem } from "../utils/senderTheme.ts";
 import { isProtocolMessage } from "../utils/protocolTypes.ts";
@@ -10,6 +10,12 @@ import SenderAvatar from "./SenderAvatar.tsx";
 import MessageToolbar from "./MessageToolbar.tsx";
 import ProtocolCard from "./ProtocolCard.tsx";
 import SessionRating from "./SessionRating.tsx";
+
+const PLATFORM_LABELS: Record<string, { label: string; color: string }> = {
+  telegram: { label: "Telegram", color: "#0088cc" },
+  slack: { label: "Slack", color: "#4a154b" },
+  discord: { label: "Discord", color: "#5865f2" },
+};
 
 const COLLAPSE_THRESHOLD = 15;
 const COLLAPSED_LINES = 6;
@@ -43,6 +49,8 @@ export default function MessageBubble({
   const annotations = message.annotations || [];
   const pills = annotations.filter((a) => a.type !== "star" && a.type !== "session_rating");
   const isStarred = message.starred === 1;
+  const messageSource = message.metadata?.source as string | undefined;
+  const platformInfo = messageSource ? PLATFORM_LABELS[messageSource] : undefined;
 
   const alignment = system ? "justify-center" : human ? "justify-end" : "justify-start";
   const maxWidth = system ? "max-w-lg" : "max-w-2xl";
@@ -91,6 +99,12 @@ export default function MessageBubble({
               size={scale < 1 ? 16 : 20}
             />
             <div className="min-w-0 flex-1">
+              {/* Sender name for bridged messages */}
+              {platformInfo && message.sender_name && (
+                <div className="text-[11px] font-medium mb-0.5" style={{ color: platformInfo.color }}>
+                  {message.sender_name}
+                </div>
+              )}
               {/* Content */}
               <div className={`prose prose-invert prose-sm max-w-none ${collapsed ? "overflow-hidden" : ""}`}>
                 {system ? (
@@ -142,9 +156,18 @@ export default function MessageBubble({
                 </button>
               )}
 
-              {/* Timestamp */}
-              <div className={`text-[10px] text-[var(--color-text-dim)] mt-1 ${human ? "text-right" : ""}`}>
-                {timestamp}
+              {/* Timestamp + source badge */}
+              <div className={`flex items-center gap-1.5 mt-1 ${human ? "justify-end" : ""}`}>
+                {platformInfo && (
+                  <span
+                    className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-medium text-white"
+                    style={{ backgroundColor: platformInfo.color }}
+                  >
+                    <Send className="w-2 h-2" />
+                    {platformInfo.label}
+                  </span>
+                )}
+                <span className="text-[10px] text-[var(--color-text-dim)]">{timestamp}</span>
               </div>
 
               {showSessionRating && (
