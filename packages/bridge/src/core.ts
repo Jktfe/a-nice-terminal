@@ -1,5 +1,6 @@
 import { AntClient } from "./ant-client.js";
 import { DedupTracker } from "./dedup.js";
+import { TerminalWatcher } from "./terminal-watcher.js";
 import type {
   PlatformAdapter,
   ModelAdapter,
@@ -20,6 +21,9 @@ export class BridgeCore {
   private models: ModelAdapter[] = [];
   private dedupTrackers = new Map<string, DedupTracker>();
   private mappingCache = new Map<string, BridgeMapping>(); // "platform:channelId" → mapping
+  private terminalWatcher: TerminalWatcher | null = null;
+  private sessionCache: { data: Array<{ id: string; name: string; type: string; archived: number }>; expiresAt: number } | null = null;
+  private static SESSION_CACHE_TTL = 30_000; // 30s
 
   constructor(config: BridgeConfig) {
     this.config = config;
@@ -75,18 +79,82 @@ export class BridgeCore {
       }
     }
 
+    // Start terminal watcher — watches PTY output for CLI commands
+    this.terminalWatcher = new TerminalWatcher(this.config.antUrl, this.config.antApiKey);
+    this.terminalWatcher.onCommand((cmd) => this.handleTerminalCommand(cmd));
+    try {
+      await this.terminalWatcher.connect();
+      // Watch all active terminal sessions
+      const allSessions = await this.ant.getSessions();
+      for (const s of allSessions) {
+        if (s.type === "terminal" && !s.archived) {
+          this.terminalWatcher.watchSession(s.id);
+        }
+      }
+      console.log("[bridge] Terminal watcher started");
+    } catch (err) {
+      console.warn("[bridge] Terminal watcher failed to connect (non-fatal):", err instanceof Error ? err.message : err);
+      this.terminalWatcher = null;
+    }
+
     console.log("[bridge] BridgeCore started");
   }
 
   async stop(): Promise<void> {
     for (const p of this.platforms) await p.stop();
     for (const m of this.models) await m.stop();
+    this.terminalWatcher?.disconnect();
     this.ant.disconnect();
     console.log("[bridge] BridgeCore stopped");
   }
 
   getAntClient(): AntClient {
     return this.ant;
+  }
+
+  // --- Cached session list (30s TTL) for terminal command resolution ---
+
+  private async getCachedSessions() {
+    const now = Date.now();
+    if (this.sessionCache && now < this.sessionCache.expiresAt) {
+      return this.sessionCache.data;
+    }
+    const data = await this.ant.getSessions();
+    this.sessionCache = { data, expiresAt: now + BridgeCore.SESSION_CACHE_TTL };
+    return data;
+  }
+
+  // --- Terminal command: PTY output → ANT (triggers outbound routing) ---
+
+  private async handleTerminalCommand(cmd: { sessionId: string; target: string; content: string }): Promise<void> {
+    try {
+      const sessions = await this.getCachedSessions();
+      const target = sessions.find(
+        (s) => s.type === "conversation" && s.name.toLowerCase() === cmd.target.toLowerCase()
+      );
+
+      if (!target) {
+        console.warn(`[bridge] Terminal command target not found: "${cmd.target}"`);
+        return;
+      }
+
+      // Post the message to the target session — this triggers handleOutbound
+      // via the message_created event, routing to all mapped platforms
+      await this.ant.postMessage(target.id, {
+        content: cmd.content,
+        role: "human",
+        senderType: "agent",
+        senderName: `Terminal (${cmd.sessionId.slice(0, 8)})`,
+        metadata: {
+          source: "terminal",
+          source_session_id: cmd.sessionId,
+        },
+      });
+
+      console.log(`[bridge] Terminal → ANT: "${cmd.content.slice(0, 60)}..." → session "${cmd.target}"`);
+    } catch (err) {
+      console.error("[bridge] Terminal command error:", err instanceof Error ? err.message : err);
+    }
   }
 
   // --- Inbound: Platform → ANT ---
@@ -108,6 +176,32 @@ export class BridgeCore {
         console.warn(`[bridge] Rate limited: ${platform}:${msg.channelId}`);
         return;
       }
+
+      // --- Direct bot: single write with bot_type metadata ---
+      // Echo prevention in handleOutbound checks bot_type === "direct"
+      if (msg.botType === "direct" && msg.directSessionId) {
+        const posted = await this.ant.postMessage(msg.directSessionId, {
+          content: msg.content,
+          role: "human",
+          senderType: "human",
+          senderName: msg.author,
+          metadata: {
+            source: platform,
+            bot_type: "direct",
+            agent_id: msg.agentId,
+            [`${platform}_chat_id`]: msg.channelId,
+            [`${platform}_message_id`]: msg.externalId,
+          },
+        });
+
+        const tracker = this.dedupTrackers.get(platform);
+        if (tracker) tracker.trackPosted(posted.id);
+
+        console.log(`[bridge] ${platform} (direct${msg.agentId ? `:${msg.agentId}` : ""}) → ANT: "${msg.content.slice(0, 60)}..." → session ${msg.directSessionId}`);
+        return;
+      }
+
+      // --- Relay bot: standard path ---
       const cacheKey = `${platform}:${msg.channelId}`;
       let mapping = this.mappingCache.get(cacheKey) || null;
 
@@ -148,6 +242,8 @@ export class BridgeCore {
         senderName: msg.author,
         metadata: {
           source: platform,
+          bot_type: msg.botType || "relay",
+          agent_id: msg.agentId,
           [`${platform}_chat_id`]: msg.channelId,
           [`${platform}_message_id`]: msg.externalId,
         },
@@ -177,6 +273,13 @@ export class BridgeCore {
     // Parse metadata if it's a string (Socket.IO may pass raw DB row)
     if (typeof msg.metadata === "string") {
       try { msg.metadata = JSON.parse(msg.metadata); } catch { msg.metadata = null; }
+    }
+
+    // Skip direct-bot messages from being relayed back out — the direct bot
+    // already delivered the message; outbound relay would cause an echo
+    if (msg.metadata?.bot_type === "direct") {
+      console.log(`[bridge] Outbound skip (direct bot): msg=${msg.id}`);
+      return;
     }
 
     const text = `${this.buildOutboundPrefix(msg)} ${msg.content}`;
@@ -241,25 +344,6 @@ export class BridgeCore {
         console.error(`[bridge] Model error (${model.name}):`, err instanceof Error ? err.message : err);
       }
     }
-  }
-
-  private async getMappingsForSession(sessionId: string, platform: string): Promise<BridgeMapping[]> {
-    // Check cache first
-    const cached: BridgeMapping[] = [];
-    for (const [key, mapping] of this.mappingCache) {
-      if (key.startsWith(`${platform}:`) && mapping.session_id === sessionId) {
-        cached.push(mapping);
-      }
-    }
-    if (cached.length > 0) return cached;
-
-    // Fetch from API
-    const all = await this.ant.getMappingsBySession(sessionId);
-    const filtered = all.filter((m) => m.platform === platform);
-    for (const m of filtered) {
-      this.mappingCache.set(`${m.platform}:${m.external_channel_id}`, m);
-    }
-    return filtered;
   }
 
   async refreshMappings(): Promise<void> {

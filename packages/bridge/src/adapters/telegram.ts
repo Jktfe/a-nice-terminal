@@ -6,10 +6,19 @@ import type { PlatformAdapter, InboundMessage } from "../types.js";
 
 export interface TelegramAdapterOptions {
   botToken: string;
+  /** "relay" (default) — supports /link /unlink. "direct" — auto-linked to a session. */
+  botType?: "relay" | "direct";
+  /** Agent identifier for per-agent routing (e.g., "mmd") */
+  agentId?: string;
+  /** For direct bots: the ANT session ID to auto-link to */
+  directSessionId?: string;
 }
 
 export class TelegramAdapter implements PlatformAdapter {
   readonly platform = "telegram";
+  readonly botType: "relay" | "direct";
+  readonly agentId?: string;
+  readonly directSessionId?: string;
   private bot: Bot;
   private messageHandler: ((msg: InboundMessage) => void) | null = null;
   private linkHandler: ((chatId: string, sessionName: string) => Promise<string | null>) | null = null;
@@ -18,33 +27,38 @@ export class TelegramAdapter implements PlatformAdapter {
 
   constructor(opts: TelegramAdapterOptions) {
     this.bot = new Bot(opts.botToken);
+    this.botType = opts.botType || "relay";
+    this.agentId = opts.agentId;
+    this.directSessionId = opts.directSessionId;
     this.setupHandlers();
   }
 
   private setupHandlers(): void {
-    // Bot commands
-    this.bot.command("link", async (ctx) => {
-      const sessionName = ctx.match?.trim();
-      if (!sessionName) {
-        await ctx.reply("Usage: /link <session-name>\n\nLinks this Telegram chat to an ANT conversation session.");
-        return;
-      }
-      if (this.linkHandler) {
-        const result = await this.linkHandler(String(ctx.chat.id), sessionName);
-        if (result) {
-          await ctx.reply(`Linked to ANT session: ${result}`);
-        } else {
-          await ctx.reply(`Could not find session "${sessionName}". Check the name and try again.`);
+    // Bot commands — /link and /unlink only available on relay bots
+    if (this.botType === "relay") {
+      this.bot.command("link", async (ctx) => {
+        const sessionName = ctx.match?.trim();
+        if (!sessionName) {
+          await ctx.reply("Usage: /link <session-name>\n\nLinks this Telegram chat to an ANT conversation session.");
+          return;
         }
-      }
-    });
+        if (this.linkHandler) {
+          const result = await this.linkHandler(String(ctx.chat.id), sessionName);
+          if (result) {
+            await ctx.reply(`Linked to ANT session: ${result}`);
+          } else {
+            await ctx.reply(`Could not find session "${sessionName}". Check the name and try again.`);
+          }
+        }
+      });
 
-    this.bot.command("unlink", async (ctx) => {
-      if (this.unlinkHandler) {
-        const ok = await this.unlinkHandler(String(ctx.chat.id));
-        await ctx.reply(ok ? "Unlinked from ANT session." : "No mapping found for this chat.");
-      }
-    });
+      this.bot.command("unlink", async (ctx) => {
+        if (this.unlinkHandler) {
+          const ok = await this.unlinkHandler(String(ctx.chat.id));
+          await ctx.reply(ok ? "Unlinked from ANT session." : "No mapping found for this chat.");
+        }
+      });
+    }
 
     this.bot.command("status", async (ctx) => {
       if (this.statusHandler) {
@@ -56,14 +70,23 @@ export class TelegramAdapter implements PlatformAdapter {
     });
 
     this.bot.command("start", async (ctx) => {
-      await ctx.reply(
-        "ANT Bridge Bot\n\n" +
-        "Commands:\n" +
-        "/link <session-name> — Link this chat to an ANT session\n" +
-        "/unlink — Remove the link\n" +
-        "/status — Show current mapping\n\n" +
-        "Messages you send here will appear in the linked ANT session, and vice versa."
-      );
+      if (this.botType === "direct") {
+        const agentLabel = this.agentId ? ` (${this.agentId})` : "";
+        await ctx.reply(
+          `ANT Direct Bot${agentLabel}\n\n` +
+          "This is a private channel — messages go directly to the agent's ANT session.\n\n" +
+          "/status — Show connection info"
+        );
+      } else {
+        await ctx.reply(
+          "ANT Bridge Bot\n\n" +
+          "Commands:\n" +
+          "/link <session-name> — Link this chat to an ANT session\n" +
+          "/unlink — Remove the link\n" +
+          "/status — Show current mapping\n\n" +
+          "Messages you send here will appear in the linked ANT session, and vice versa."
+        );
+      }
     });
 
     // Regular messages → inbound handler
@@ -80,6 +103,9 @@ export class TelegramAdapter implements PlatformAdapter {
           ? String(ctx.message.reply_to_message.message_id)
           : undefined,
         timestamp: new Date(ctx.message.date * 1000),
+        botType: this.botType,
+        agentId: this.agentId,
+        directSessionId: this.directSessionId,
       };
 
       this.messageHandler(msg);
@@ -136,6 +162,9 @@ export class TelegramAdapter implements PlatformAdapter {
         content,
         timestamp: new Date(ctx.message.date * 1000),
         imagePath,
+        botType: this.botType,
+        agentId: this.agentId,
+        directSessionId: this.directSessionId,
       };
 
       this.messageHandler(msg);

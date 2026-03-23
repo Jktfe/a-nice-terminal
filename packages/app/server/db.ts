@@ -174,10 +174,24 @@ db.exec(`
     external_channel_name TEXT,
     direction TEXT NOT NULL DEFAULT 'bidirectional',
     config TEXT,
+    bot_type TEXT NOT NULL DEFAULT 'relay',
+    agent_id TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(platform, external_channel_id)
   );
 `);
+
+// Migration: add bot_type and agent_id columns if missing (safe for existing DBs)
+{
+  const cols = db.pragma("table_info(bridge_mappings)") as Array<{ name: string }>;
+  const colNames = new Set(cols.map((c) => c.name));
+  if (!colNames.has("bot_type")) {
+    db.prepare("ALTER TABLE bridge_mappings ADD COLUMN bot_type TEXT NOT NULL DEFAULT 'relay'").run();
+  }
+  if (!colNames.has("agent_id")) {
+    db.prepare("ALTER TABLE bridge_mappings ADD COLUMN agent_id TEXT").run();
+  }
+}
 
 export default db;
 export { DB_PATH };

@@ -14,12 +14,10 @@ async function main(): Promise<void> {
 
   const bridge = new BridgeCore(config);
 
-  // --- Telegram adapter ---
-  if (config.telegramBotToken) {
-    const telegram = new TelegramAdapter({ botToken: config.telegramBotToken });
-    const ant = bridge.getAntClient();
+  const ant = bridge.getAntClient();
 
-    // /link command — find session by name and create mapping
+  // Helper: wire up /link, /unlink, /status handlers for a relay bot
+  function wireRelayHandlers(telegram: TelegramAdapter): void {
     telegram.onLink(async (chatId, sessionName) => {
       try {
         const sessions = await ant.getSessions();
@@ -43,7 +41,6 @@ async function main(): Promise<void> {
       }
     });
 
-    // /unlink command
     telegram.onUnlink(async (chatId) => {
       try {
         const mapping = await ant.getMappingByChannel("telegram", chatId);
@@ -57,7 +54,6 @@ async function main(): Promise<void> {
       }
     });
 
-    // /status command
     telegram.onStatus(async (chatId) => {
       try {
         const mapping = await ant.getMappingByChannel("telegram", chatId);
@@ -73,8 +69,51 @@ async function main(): Promise<void> {
         return `Error checking status: ${err instanceof Error ? err.message : err}`;
       }
     });
+  }
 
+  // --- Shared relay Telegram adapter (backward compatible) ---
+  if (config.telegramBotToken) {
+    const telegram = new TelegramAdapter({ botToken: config.telegramBotToken, botType: "relay" });
+    wireRelayHandlers(telegram);
     bridge.registerPlatform(telegram);
+  }
+
+  // --- Per-agent Telegram bots ---
+  if (config.telegramAgents && config.telegramAgents.length > 0) {
+    for (const agentConfig of config.telegramAgents) {
+      // Direct bot for this agent
+      if (agentConfig.directBotToken) {
+        const directBot = new TelegramAdapter({
+          botToken: agentConfig.directBotToken,
+          botType: "direct",
+          agentId: agentConfig.agentId,
+          directSessionId: agentConfig.directSessionId,
+        });
+        // Direct bots get a status handler showing their config
+        directBot.onStatus(async () => {
+          return [
+            `*ANT Direct Bot*`,
+            `Agent: ${agentConfig.agentId}`,
+            `Session: \`${agentConfig.directSessionId || "not configured"}\``,
+            `Type: direct`,
+          ].join("\n");
+        });
+        bridge.registerPlatform(directBot);
+        console.log(`[bridge] Registered direct bot for agent: ${agentConfig.agentId}`);
+      }
+
+      // Relay bot for this agent
+      if (agentConfig.relayBotToken) {
+        const relayBot = new TelegramAdapter({
+          botToken: agentConfig.relayBotToken,
+          botType: "relay",
+          agentId: agentConfig.agentId,
+        });
+        wireRelayHandlers(relayBot);
+        bridge.registerPlatform(relayBot);
+        console.log(`[bridge] Registered relay bot for agent: ${agentConfig.agentId}`);
+      }
+    }
   }
 
   // --- LM Studio model adapter ---
