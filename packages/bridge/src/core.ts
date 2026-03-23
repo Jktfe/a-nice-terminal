@@ -1,6 +1,6 @@
 import { AntClient } from "./ant-client.js";
 import { DedupTracker } from "./dedup.js";
-import { TerminalWatcher } from "./terminal-watcher.js";
+import { TerminalWatcher, type TerminalCommand } from "./terminal-watcher.js";
 import type {
   PlatformAdapter,
   ModelAdapter,
@@ -132,7 +132,7 @@ export class BridgeCore {
 
   // --- Terminal command: PTY output → ANT (triggers outbound routing) ---
 
-  private async handleTerminalCommand(cmd: { sessionId: string; target: string; content: string }): Promise<void> {
+  private async handleTerminalCommand(cmd: TerminalCommand): Promise<void> {
     try {
       const sessions = await this.getCachedSessions();
       const target = sessions.find(
