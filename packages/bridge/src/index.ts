@@ -31,6 +31,8 @@ async function main(): Promise<void> {
           externalChannelId: chatId,
           sessionId: match.id,
           externalChannelName: sessionName,
+          botType: telegram.botType,
+          agentId: telegram.agentId,
         });
         ant.joinSession(match.id);
         await bridge.refreshMappings();

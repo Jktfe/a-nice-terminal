@@ -25,7 +25,7 @@ router.get("/api/bridge/mappings", (req, res) => {
 
 // Create a bridge mapping
 router.post("/api/bridge/mappings", (req, res) => {
-  const { platform, external_channel_id, session_id, external_channel_name, direction, config } = req.body;
+  const { platform, external_channel_id, session_id, external_channel_name, direction, config, bot_type, agent_id } = req.body;
 
   if (!platform || !external_channel_id || !session_id) {
     return res.status(400).json({ error: "platform, external_channel_id, and session_id are required" });
@@ -40,8 +40,8 @@ router.post("/api/bridge/mappings", (req, res) => {
   const id = nanoid(12);
   try {
     db.prepare(
-      `INSERT INTO bridge_mappings (id, platform, external_channel_id, session_id, external_channel_name, direction, config)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO bridge_mappings (id, platform, external_channel_id, session_id, external_channel_name, direction, config, bot_type, agent_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id,
       platform,
@@ -50,6 +50,8 @@ router.post("/api/bridge/mappings", (req, res) => {
       external_channel_name || null,
       direction || "bidirectional",
       config ? JSON.stringify(config) : null,
+      bot_type || "relay",
+      agent_id || null,
     );
   } catch (err: any) {
     if (err.message?.includes("UNIQUE constraint failed")) {

@@ -178,6 +178,8 @@ export class AntClient {
     externalChannelId: string;
     sessionId: string;
     externalChannelName?: string;
+    botType?: "relay" | "direct";
+    agentId?: string;
   }): Promise<BridgeMapping> {
     return this.fetch("/api/bridge/mappings", {
       method: "POST",
@@ -186,6 +188,8 @@ export class AntClient {
         external_channel_id: opts.externalChannelId,
         session_id: opts.sessionId,
         external_channel_name: opts.externalChannelName,
+        bot_type: opts.botType,
+        agent_id: opts.agentId,
       }),
     });
   }

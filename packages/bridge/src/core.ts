@@ -30,11 +30,17 @@ export class BridgeCore {
     this.ant = new AntClient(config.antUrl, config.antApiKey);
   }
 
+  /** Unique key for an adapter — disambiguates multiple adapters on the same platform */
+  private adapterKey(adapter: PlatformAdapter): string {
+    if (adapter.agentId) return `${adapter.platform}:${adapter.botType || "relay"}:${adapter.agentId}`;
+    return adapter.platform;
+  }
+
   registerPlatform(adapter: PlatformAdapter): void {
     this.platforms.push(adapter);
-    this.dedupTrackers.set(adapter.platform, new DedupTracker(adapter.platform));
+    this.dedupTrackers.set(this.adapterKey(adapter), new DedupTracker(this.adapterKey(adapter)));
 
-    adapter.onMessage((msg) => this.handleInbound(adapter.platform, msg));
+    adapter.onMessage((msg) => this.handleInbound(adapter, msg));
   }
 
   registerModel(adapter: ModelAdapter): void {
@@ -170,7 +176,10 @@ export class BridgeCore {
     return entry.count > INBOUND_RATE_MAX;
   }
 
-  private async handleInbound(platform: string, msg: InboundMessage): Promise<void> {
+  private async handleInbound(adapter: PlatformAdapter, msg: InboundMessage): Promise<void> {
+    const platform = adapter.platform;
+    const key = this.adapterKey(adapter);
+
     try {
       if (this.isRateLimited(`${platform}:${msg.channelId}`)) {
         console.warn(`[bridge] Rate limited: ${platform}:${msg.channelId}`);
@@ -194,10 +203,9 @@ export class BridgeCore {
           },
         });
 
-        const tracker = this.dedupTrackers.get(platform);
-        if (tracker) tracker.trackPosted(posted.id);
+        this.dedupTrackers.get(key)?.trackPosted(posted.id);
 
-        console.log(`[bridge] ${platform} (direct${msg.agentId ? `:${msg.agentId}` : ""}) → ANT: "${msg.content.slice(0, 60)}..." → session ${msg.directSessionId}`);
+        console.log(`[bridge] ${key} → ANT: "${msg.content.slice(0, 60)}..." → session ${msg.directSessionId}`);
         return;
       }
 
@@ -222,14 +230,16 @@ export class BridgeCore {
           externalChannelId: msg.channelId,
           sessionId: session.id,
           externalChannelName: msg.author || msg.channelId,
+          botType: adapter.botType,
+          agentId: adapter.agentId,
         });
         this.mappingCache.set(cacheKey, mapping);
         this.ant.joinSession(session.id);
-        console.log(`[bridge] Auto-created session "${sessionName}" for ${platform}:${msg.channelId}`);
+        console.log(`[bridge] Auto-created session "${sessionName}" for ${key}:${msg.channelId}`);
       }
 
       if (!mapping) {
-        console.log(`[bridge] No mapping for ${platform}:${msg.channelId} — ignoring`);
+        console.log(`[bridge] No mapping for ${key}:${msg.channelId} — ignoring`);
         return;
       }
 
@@ -249,12 +259,11 @@ export class BridgeCore {
         },
       });
 
-      const tracker = this.dedupTrackers.get(platform);
-      if (tracker) tracker.trackPosted(posted.id);
+      this.dedupTrackers.get(key)?.trackPosted(posted.id);
 
-      console.log(`[bridge] ${platform} → ANT: "${msg.content.slice(0, 60)}..." → session ${mapping.session_id}`);
+      console.log(`[bridge] ${key} → ANT: "${msg.content.slice(0, 60)}..." → session ${mapping.session_id}`);
     } catch (err) {
-      console.error(`[bridge] Inbound error (${platform}):`, err instanceof Error ? err.message : err);
+      console.error(`[bridge] Inbound error (${key}):`, err instanceof Error ? err.message : err);
     }
   }
 
@@ -292,19 +301,31 @@ export class BridgeCore {
       return;
     }
 
-    // Relay to each platform adapter
+    // Relay to each platform adapter — each adapter only handles its own mappings
     for (const adapter of this.platforms) {
-      const tracker = this.dedupTrackers.get(adapter.platform);
+      const key = this.adapterKey(adapter);
+      const tracker = this.dedupTrackers.get(key);
       if (tracker?.shouldSkip(msg)) {
-        console.log(`[bridge] Outbound skip (dedup): ${adapter.platform} msg=${msg.id}`);
+        console.log(`[bridge] Outbound skip (dedup): ${key} msg=${msg.id}`);
         continue;
       }
 
-      const mappings = allMappings.filter((m) => m.platform === adapter.platform);
+      // Filter mappings to only those belonging to this adapter:
+      // - Platform must match
+      // - If adapter has agentId, only match mappings with same agent_id
+      // - If adapter has no agentId (shared relay), only match mappings without agent_id
+      // - Direct adapters never handle outbound (they don't create relay mappings)
+      if (adapter.botType === "direct") continue;
+
+      const mappings = allMappings.filter((m) => {
+        if (m.platform !== adapter.platform) return false;
+        if (adapter.agentId) return m.agent_id === adapter.agentId;
+        return !m.agent_id; // shared relay handles mappings without agent_id
+      });
       if (mappings.length === 0) continue;
 
       try {
-        console.log(`[bridge] Outbound ${adapter.platform}: session=${msg.session_id} mappings=${mappings.length}`);
+        console.log(`[bridge] Outbound ${key}: session=${msg.session_id} mappings=${mappings.length}`);
         for (const mapping of mappings) {
           if (mapping.direction === "inbound") continue;
 
@@ -312,10 +333,10 @@ export class BridgeCore {
             senderName: msg.sender_name || undefined,
             senderType: msg.sender_type || undefined,
           });
-          console.log(`[bridge] ANT → ${adapter.platform}: "${text.slice(0, 60)}..."`);
+          console.log(`[bridge] ANT → ${key}: "${text.slice(0, 60)}..."`);
         }
       } catch (err) {
-        console.error(`[bridge] Outbound error (${adapter.platform}):`, err instanceof Error ? err.message : err);
+        console.error(`[bridge] Outbound error (${key}):`, err instanceof Error ? err.message : err);
       }
     }
 

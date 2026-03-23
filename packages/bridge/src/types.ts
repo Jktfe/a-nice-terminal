@@ -1,6 +1,10 @@
 // Platform adapter interface — Telegram now, Slack/Discord later
 export interface PlatformAdapter {
   readonly platform: string;
+  /** "relay" or "direct" — used to match adapter to its own mappings in outbound routing */
+  readonly botType?: "relay" | "direct";
+  /** Agent identifier — adapters with an agentId only handle mappings with matching agent_id */
+  readonly agentId?: string;
   start(): Promise<void>;
   stop(): Promise<void>;
   sendMessage(channelId: string, text: string, opts?: {
