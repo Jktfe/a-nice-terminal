@@ -14,3 +14,4 @@ package-lock.json
 .svelte-kit/
 .vercel/
 .claude/
+seed-recipes.json

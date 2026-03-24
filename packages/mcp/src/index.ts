@@ -849,6 +849,843 @@ server.tool(
   }
 );
 
+// ---------------------------------------------------------------------------
+// V2 Tools — Coordination + Notifications
+// ---------------------------------------------------------------------------
+
+// Broadcast a task for other agents
+server.tool(
+  "ant_broadcast_task",
+  "Broadcast a task to other agents. Specify required capabilities to match the right agent. If you know the target agent, set target_agent_id directly. Tasks expire after 1 hour by default.",
+  {
+    task: z.string().describe("Description of what needs to be done"),
+    session_id: z.string().optional().describe("Session context for the task"),
+    required_capabilities: z.array(z.string()).optional().describe("Required capabilities: code_review, debugging, testing, architecture, code_generation, visual_review, security"),
+    target_agent_id: z.string().optional().describe("Specific agent to target (bypasses capability matching)"),
+    agent_id: z.string().optional().describe("Your agent ID (who is broadcasting)"),
+    context: z.any().optional().describe("Additional context for the task"),
+    priority: z.enum(["low", "normal", "high", "urgent"]).optional().describe("Task priority"),
+  },
+  async ({ task, session_id, required_capabilities, target_agent_id, agent_id, context, priority }) => {
+    const result = await api("/api/v2/tasks/broadcast", {
+      method: "POST",
+      body: JSON.stringify({ task, session_id, required_capabilities, target_agent_id, agent_id, context, priority }),
+    });
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// Get tasks matching my capabilities
+server.tool(
+  "ant_get_my_tasks",
+  "Get pending tasks that match your capabilities. Call this periodically to check if other agents need your help.",
+  {
+    agent_id: z.string().describe("Your agent ID"),
+  },
+  async ({ agent_id }) => {
+    const tasks = await api(`/api/v2/agent/tasks?agent_id=${encodeURIComponent(agent_id)}`);
+    return { content: [{ type: "text", text: JSON.stringify(tasks, null, 2) }] };
+  }
+);
+
+// Claim a task
+server.tool(
+  "ant_claim_task",
+  "Claim a pending task — marks it as yours so other agents don't duplicate work.",
+  {
+    task_id: z.string().describe("Task ID to claim"),
+    agent_id: z.string().describe("Your agent ID"),
+  },
+  async ({ task_id, agent_id }) => {
+    try {
+      const result = await api(`/api/v2/tasks/${task_id}/claim`, {
+        method: "POST",
+        body: JSON.stringify({ agent_id }),
+      });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    } catch (error) {
+      const details = makeErrorPayload(error);
+      if (details) return { content: [{ type: "text", text: JSON.stringify({ status: details.status, error: details.payload }, null, 2) }] };
+      throw error;
+    }
+  }
+);
+
+// Complete a task
+server.tool(
+  "ant_complete_task",
+  "Mark a task as completed with the result. The broadcasting agent and any watchers will be notified.",
+  {
+    task_id: z.string().describe("Task ID"),
+    agent_id: z.string().describe("Your agent ID"),
+    result: z.string().describe("What you did / the outcome"),
+    artifacts: z.array(z.object({
+      type: z.string(),
+      id: z.string().optional(),
+      path: z.string().optional(),
+    })).optional().describe("Artifacts produced (files, messages, sessions)"),
+  },
+  async ({ task_id, agent_id, result, artifacts }) => {
+    const res = await api(`/api/v2/tasks/${task_id}/complete`, {
+      method: "POST",
+      body: JSON.stringify({ agent_id, result, artifacts }),
+    });
+    return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
+  }
+);
+
+// Send push notification
+server.tool(
+  "ant_notify",
+  "Send a push notification via ntfy.sh to the configured device. Use for important events: long command completed, error detected, review needed, task completed. Requires NTFY_TOPIC env var.",
+  {
+    title: z.string().optional().describe("Notification title (default: 'ANT')"),
+    body: z.string().describe("Notification body text"),
+    priority: z.enum(["min", "low", "default", "high", "urgent"]).optional().describe("Notification priority"),
+    tags: z.array(z.string()).optional().describe("Tags for categorisation (e.g. ['terminal', 'error'])"),
+  },
+  async ({ title, body, priority, tags }) => {
+    try {
+      const result = await api("/api/v2/notify", {
+        method: "POST",
+        body: JSON.stringify({ title, body, priority, tags }),
+      });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    } catch (error) {
+      const details = makeErrorPayload(error);
+      if (details) return { content: [{ type: "text", text: JSON.stringify({ status: details.status, error: details.payload }, null, 2) }] };
+      throw error;
+    }
+  }
+);
+
+// List connected devices
+server.tool(
+  "ant_list_devices",
+  "List devices currently connected to ANT. Useful for deciding whether to send notifications or understanding which devices are active.",
+  {},
+  async () => {
+    const devices = await api("/api/v2/devices");
+    return { content: [{ type: "text", text: JSON.stringify(devices, null, 2) }] };
+  }
+);
+
+// ---------------------------------------------------------------------------
+// V2 Tools — Recipes + Obsidian Export
+// ---------------------------------------------------------------------------
+
+// List recipes
+server.tool(
+  "ant_list_recipes",
+  "List available workflow recipes. Recipes are reusable multi-step command sequences (e.g. 'New Svelte 5 Project', 'Debug Vercel Deploy'). Filter by category or approval status.",
+  {
+    category: z.string().optional().describe("Filter by category: setup, debug, deploy, test"),
+    approved: z.boolean().optional().describe("Filter by approval status"),
+    limit: z.number().optional().describe("Max results"),
+  },
+  async ({ category, approved, limit }) => {
+    const params = new URLSearchParams();
+    if (category) params.set("category", category);
+    if (approved !== undefined) params.set("approved", String(approved));
+    if (limit) params.set("limit", String(limit));
+    const recipes = await api(`/api/v2/recipes?${params.toString()}`);
+    return { content: [{ type: "text", text: JSON.stringify(recipes, null, 2) }] };
+  }
+);
+
+// Get single recipe
+server.tool(
+  "ant_get_recipe",
+  "Get a recipe's full details including all steps and required parameters.",
+  {
+    recipeId: z.string().describe("Recipe ID"),
+  },
+  async ({ recipeId }) => {
+    const recipe = await api(`/api/v2/recipes/${recipeId}`);
+    return { content: [{ type: "text", text: JSON.stringify(recipe, null, 2) }] };
+  }
+);
+
+// Run a recipe
+server.tool(
+  "ant_run_recipe",
+  "Execute a recipe — returns the resolved step list with parameters substituted. Execute each step using ant_safe_exec in sequence. Interactive steps should be handled manually or skipped.",
+  {
+    recipeId: z.string().describe("Recipe ID"),
+    sessionId: z.string().describe("Terminal session to run steps in"),
+    params: z.record(z.string()).optional().describe("Parameter values (e.g. { project_name: 'my-app' })"),
+  },
+  async ({ recipeId, sessionId, params }) => {
+    try {
+      const plan = await api(`/api/v2/recipes/${recipeId}/run`, {
+        method: "POST",
+        body: JSON.stringify({ params, session_id: sessionId }),
+      });
+      return { content: [{ type: "text", text: JSON.stringify(plan, null, 2) }] };
+    } catch (error) {
+      const details = makeErrorPayload(error);
+      if (details) return { content: [{ type: "text", text: JSON.stringify({ status: details.status, error: details.payload }, null, 2) }] };
+      throw error;
+    }
+  }
+);
+
+// Propose a new recipe
+server.tool(
+  "ant_propose_recipe",
+  "Propose a new recipe based on a successful workflow. The recipe will be pending human approval before other agents can use it.",
+  {
+    name: z.string().describe("Recipe name (e.g. 'Set Up Clerk Auth')"),
+    description: z.string().optional().describe("What this recipe does"),
+    category: z.string().optional().describe("Category: setup, debug, deploy, test, cleanup"),
+    steps: z.array(z.object({
+      command: z.string().describe("Shell command (use {{param_name}} for parameters)"),
+      description: z.string().describe("What this step does"),
+    })).describe("Ordered list of steps"),
+    params: z.array(z.object({
+      name: z.string(),
+      description: z.string().optional(),
+      default_value: z.string().optional(),
+      required: z.boolean().optional(),
+    })).optional().describe("Parameters that need to be provided when running"),
+    source_agent: z.string().optional().describe("Your agent ID"),
+  },
+  async ({ name, description, category, steps, params: recipeParams, source_agent }) => {
+    const result = await api("/api/v2/recipes", {
+      method: "POST",
+      body: JSON.stringify({ name, description, category, steps, params: recipeParams, source_agent }),
+    });
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// Export session to Obsidian
+server.tool(
+  "ant_export_to_obsidian",
+  "Export a session to the configured Obsidian vault as a markdown file. Terminal sessions become structured command logs. Conversation and unified sessions become chat transcripts with YAML frontmatter, participant lists, and wikilinks.",
+  {
+    sessionId: z.string().describe("Session ID to export"),
+  },
+  async ({ sessionId }) => {
+    try {
+      const result = await api(`/api/v2/sessions/${sessionId}/export/obsidian`, { method: "POST" });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    } catch (error) {
+      const details = makeErrorPayload(error);
+      if (details) return { content: [{ type: "text", text: JSON.stringify({ status: details.status, error: details.payload }, null, 2) }] };
+      throw error;
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// V2 Tools — Knowledge System
+// ---------------------------------------------------------------------------
+
+// Report a knowledge fact
+server.tool(
+  "ant_report_fact",
+  "Record a piece of knowledge discovered during this session. Facts are searchable by all agents and persist across sessions. Categories: command_pattern, project_config, api_endpoint, file_location, environment, preference, gotcha.",
+  {
+    category: z.enum(["command_pattern", "project_config", "api_endpoint", "file_location", "environment", "preference", "gotcha"]).describe("Fact category"),
+    key: z.string().describe("Short searchable label (e.g. 'package_manager', 'database_port')"),
+    value: z.string().describe("The knowledge (e.g. 'pnpm', '5432')"),
+    scope: z.string().optional().describe("Scope: 'global' or 'project:<path>' (default: global)"),
+    source_agent: z.string().optional().describe("Your agent ID"),
+    confidence: z.number().min(0).max(1).optional().describe("Confidence 0.0-1.0 (default 0.5)"),
+  },
+  async ({ category, key, value, scope, source_agent, confidence }) => {
+    const result = await api("/api/v2/knowledge/facts", {
+      method: "POST",
+      body: JSON.stringify({ category, key, value, scope, source_agent, confidence }),
+    });
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// Search knowledge
+server.tool(
+  "ant_search_knowledge",
+  "Search the knowledge base for facts, error patterns, and past solutions. Use this before starting work to check if relevant knowledge exists. Returns facts ranked by confidence.",
+  {
+    query: z.string().describe("Search query (natural language or keywords)"),
+    scope: z.string().optional().describe("Filter by scope"),
+    category: z.string().optional().describe("Filter by category"),
+    limit: z.number().optional().describe("Max results (default 20)"),
+  },
+  async ({ query, scope, category, limit }) => {
+    const params = new URLSearchParams({ q: query });
+    if (scope) params.set("scope", scope);
+    if (category) params.set("category", category);
+    if (limit) params.set("limit", String(limit));
+    const results = await api(`/api/v2/knowledge/search?${params.toString()}`);
+    return { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };
+  }
+);
+
+// Check for known error patterns
+server.tool(
+  "ant_check_error",
+  "Check if an error message matches a known pattern with a recorded fix. Use this when a command fails before attempting your own fix — someone may have already solved it.",
+  {
+    error_text: z.string().describe("The error message or output to check"),
+  },
+  async ({ error_text }) => {
+    const params = new URLSearchParams({ q: error_text });
+    const results = await api(`/api/v2/knowledge/errors?${params.toString()}`);
+    return { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };
+  }
+);
+
+// Find a past fix for a problem
+server.tool(
+  "ant_find_past_fix",
+  "Search for commands that previously fixed similar problems. Combines error pattern matching with knowledge fact search to find the most relevant past solution.",
+  {
+    problem: z.string().describe("Description of the problem or error text"),
+    scope: z.string().optional().describe("Narrow to a project scope"),
+  },
+  async ({ problem, scope }) => {
+    // Search both error patterns and knowledge facts
+    const errorParams = new URLSearchParams({ q: problem });
+    const factParams = new URLSearchParams({ q: problem });
+    if (scope) factParams.set("scope", scope);
+
+    const [errors, facts] = await Promise.all([
+      api(`/api/v2/knowledge/errors?${errorParams.toString()}`).catch(() => []),
+      api(`/api/v2/knowledge/search?${factParams.toString()}`).catch(() => []),
+    ]);
+
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          error_patterns: errors,
+          related_facts: facts,
+          hint: errors.length > 0
+            ? `Found ${errors.length} matching error pattern(s). The top fix is: ${(errors as any[])[0]?.fix_command || "no fix recorded yet"}`
+            : facts.length > 0
+              ? `No error patterns matched, but found ${facts.length} related fact(s).`
+              : "No matches found. You may be the first to encounter this.",
+        }, null, 2),
+      }],
+    };
+  }
+);
+
+// Report an error pattern with a fix
+server.tool(
+  "ant_report_error_fix",
+  "Record that a specific error was fixed by a specific command. Helps other agents solve the same problem in the future.",
+  {
+    error_signature: z.string().describe("Normalised error text (first meaningful error line)"),
+    fix_command: z.string().describe("The command that fixed the error"),
+    fix_description: z.string().optional().describe("Human-readable explanation of why the fix works"),
+    fix_agent: z.string().optional().describe("Your agent ID"),
+    context_scope: z.string().optional().describe("Scope: 'global' or 'project:<path>'"),
+  },
+  async ({ error_signature, fix_command, fix_description, fix_agent, context_scope }) => {
+    const result = await api("/api/v2/knowledge/errors", {
+      method: "POST",
+      body: JSON.stringify({ error_signature, fix_command, fix_description, fix_agent, context_scope }),
+    });
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// ---------------------------------------------------------------------------
+// V2 Tools — Session Tiers + Danger-Checked Exec
+// ---------------------------------------------------------------------------
+
+// Promote session tier
+server.tool(
+  "ant_promote_session",
+  "Promote a session to a higher lifecycle tier. sprint (15min) → session (1h45) → persistent (always-on). Higher tiers live longer before being reaped.",
+  {
+    sessionId: z.string().describe("Session ID"),
+  },
+  async ({ sessionId }) => {
+    try {
+      const result = await api(`/api/v2/sessions/${sessionId}/promote`, { method: "POST" });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    } catch (error) {
+      const details = makeErrorPayload(error);
+      if (details) return { content: [{ type: "text", text: JSON.stringify({ status: details.status, error: details.payload }, null, 2) }] };
+      throw error;
+    }
+  }
+);
+
+// Demote session tier
+server.tool(
+  "ant_demote_session",
+  "Demote a session to a lower lifecycle tier. persistent (always-on) → session (1h45) → sprint (15min). Lower tiers are reaped sooner when no clients are connected.",
+  {
+    sessionId: z.string().describe("Session ID"),
+  },
+  async ({ sessionId }) => {
+    try {
+      const result = await api(`/api/v2/sessions/${sessionId}/demote`, { method: "POST" });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    } catch (error) {
+      const details = makeErrorPayload(error);
+      if (details) return { content: [{ type: "text", text: JSON.stringify({ status: details.status, error: details.payload }, null, 2) }] };
+      throw error;
+    }
+  }
+);
+
+// Set session tier directly
+server.tool(
+  "ant_set_session_tier",
+  "Set a session's lifecycle tier directly. 'sprint' = 15min, 'session' = 1h45 (default), 'persistent' = always-on.",
+  {
+    sessionId: z.string().describe("Session ID"),
+    tier: z.enum(["sprint", "session", "persistent"]).describe("Lifecycle tier"),
+  },
+  async ({ sessionId, tier }) => {
+    try {
+      const result = await api(`/api/v2/sessions/${sessionId}/tier`, {
+        method: "PATCH",
+        body: JSON.stringify({ tier }),
+      });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    } catch (error) {
+      const details = makeErrorPayload(error);
+      if (details) return { content: [{ type: "text", text: JSON.stringify({ status: details.status, error: details.payload }, null, 2) }] };
+      throw error;
+    }
+  }
+);
+
+// Danger-checked exec
+server.tool(
+  "ant_safe_exec",
+  "Execute a command with automatic danger detection. If the command matches a dangerous pattern (rm -rf, DROP TABLE, chmod 777, etc.), returns a warning instead of executing. Set acknowledge_danger: true to proceed anyway. Use this instead of ant_exec_command for safer multi-agent workflows.",
+  {
+    sessionId: z.string().describe("Session ID"),
+    command: z.string().max(TERMINAL_TEXT_LIMIT).describe("Shell command to execute"),
+    timeout: z.number().optional().default(30000).describe("Max wait time in ms"),
+    agent_id: z.string().optional().describe("Your agent ID (for lock passthrough)"),
+    acknowledge_danger: z.boolean().optional().default(false).describe("Set true to bypass danger warning"),
+    intent: z.enum(["exploration", "fix", "verification", "test", "setup", "cleanup"]).optional().describe("Tag this command's intent for the knowledge system"),
+  },
+  async ({ sessionId, command, timeout, agent_id, acknowledge_danger, intent }) => {
+    try {
+      const result = await api(`/api/v2/sessions/${sessionId}/exec`, {
+        method: "POST",
+        body: JSON.stringify({ command, timeout, agent_id, acknowledge_danger, intent }),
+      });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    } catch (error) {
+      const details = makeErrorPayload(error);
+      if (details) return { content: [{ type: "text", text: JSON.stringify({ status: details.status, error: details.payload }, null, 2) }] };
+      throw error;
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// V2 Tools — Agent Registry + Terminal Locks
+// ---------------------------------------------------------------------------
+
+// Register an agent
+server.tool(
+  "ant_register_agent",
+  "Register this AI agent with ANT so it can participate in multi-model coordination. Provides capabilities, preferred output formats, and context window size. Other agents can discover you and delegate tasks based on your capabilities.",
+  {
+    id: z.string().describe("Unique agent ID (e.g. 'claude-code', 'gemini-cli', 'codex')"),
+    model_family: z.string().describe("Model family (e.g. 'claude', 'gemini', 'gpt', 'deepseek', 'mistral')"),
+    display_name: z.string().describe("Human-readable name (e.g. 'Claude Code (Opus 4.6)')"),
+    capabilities: z.array(z.string()).optional().describe("What this agent can do: 'code_review', 'debugging', 'testing', 'architecture', 'code_generation', 'visual_review', 'security', etc."),
+    preferred_formats: z.array(z.enum(["raw", "structured", "screenshot", "summary"])).optional().describe("Preferred terminal output formats"),
+    context_window: z.number().optional().describe("Context window size in tokens"),
+    transport: z.enum(["mcp", "function_calling", "rest", "cli"]).optional().describe("How this agent connects to ANT"),
+    gateway: z.string().optional().describe("Gateway tool name (e.g. 'vibecli', 'ollama', 'lm-studio')"),
+    underlying_model: z.string().optional().describe("Actual model ID (e.g. 'claude-opus-4.6', 'gpt-5.4')"),
+  },
+  async ({ id, model_family, display_name, capabilities, preferred_formats, context_window, transport, gateway, underlying_model }) => {
+    const result = await api("/api/v2/agents/register", {
+      method: "POST",
+      body: JSON.stringify({ id, model_family, display_name, capabilities, preferred_formats, context_window, transport, gateway, underlying_model }),
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+    };
+  }
+);
+
+// List registered agents
+server.tool(
+  "ant_list_agents",
+  "List all AI agents registered with ANT. Shows their capabilities, preferred formats, status, and last activity. Use this to discover what other agents are available for task delegation.",
+  {},
+  async () => {
+    const agents = await api("/api/v2/agents");
+    return {
+      content: [{ type: "text", text: JSON.stringify(agents, null, 2) }],
+    };
+  }
+);
+
+// Acquire terminal lock
+server.tool(
+  "ant_acquire_terminal",
+  "Acquire exclusive write access to a terminal session. Only the lock holder can send input or execute commands. Other agents get a 423 error with the holder's identity. Locks auto-expire after 5 minutes (configurable). Use this before running commands to prevent conflicts with other agents.",
+  {
+    sessionId: z.string().describe("Session ID to lock"),
+    agentId: z.string().describe("Your agent ID (must match your registration)"),
+    durationMs: z.number().optional().describe("Lock duration in ms (default 5min, max 30min)"),
+  },
+  async ({ sessionId, agentId, durationMs }) => {
+    try {
+      const result = await api(`/api/v2/sessions/${sessionId}/lock`, {
+        method: "POST",
+        body: JSON.stringify({ agent_id: agentId, duration_ms: durationMs }),
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (error) {
+      const details = makeErrorPayload(error);
+      if (details && details.status === 423) {
+        return {
+          content: [{ type: "text", text: `Terminal locked by another agent:\n${JSON.stringify(details.payload, null, 2)}` }],
+        };
+      }
+      if (details) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ status: details.status, error: details.payload }, null, 2) }],
+        };
+      }
+      throw error;
+    }
+  }
+);
+
+// Release terminal lock
+server.tool(
+  "ant_release_terminal",
+  "Release your exclusive lock on a terminal session, allowing other agents to write to it.",
+  {
+    sessionId: z.string().describe("Session ID to unlock"),
+    agentId: z.string().describe("Your agent ID"),
+  },
+  async ({ sessionId, agentId }) => {
+    const result = await api(`/api/v2/sessions/${sessionId}/lock`, {
+      method: "DELETE",
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+    };
+  }
+);
+
+// Check terminal lock status
+server.tool(
+  "ant_check_terminal_lock",
+  "Check if a terminal session is currently locked by another agent.",
+  {
+    sessionId: z.string().describe("Session ID to check"),
+  },
+  async ({ sessionId }) => {
+    const result = await api(`/api/v2/sessions/${sessionId}/lock`);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+    };
+  }
+);
+
+// ---------------------------------------------------------------------------
+// V2 Tools — multi-format terminal state with seq IDs
+// ---------------------------------------------------------------------------
+
+const V2_FORMAT_ENUM = z.enum(["raw", "structured", "summary"]).optional().default("raw");
+
+// Get terminal state in any format (raw/structured/summary) with seq ID
+server.tool(
+  "ant_get_terminal_state_v2",
+  "Get terminal state in the format best suited to your context window. 'raw' = full screen lines + cursor. 'structured' = command/output pairs with exit codes (best for most agents). 'summary' = compact one-line status (best for small-context models). All formats include a seq ID for drift detection.",
+  {
+    sessionId: z.string().describe("Session ID"),
+    format: V2_FORMAT_ENUM.describe("Output format: raw (screen lines), structured (command/output pairs), summary (compact text)"),
+  },
+  async ({ sessionId, format }) => {
+    try {
+      const result = await api(`/api/v2/sessions/${sessionId}/terminal/state?format=${format}`);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (error) {
+      const details = makeErrorPayload(error);
+      if (details) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ status: details.status, error: details.payload }, null, 2) }],
+        };
+      }
+      throw error;
+    }
+  }
+);
+
+// Get structured command history
+server.tool(
+  "ant_get_command_history",
+  "Get recent command/output pairs from a terminal session as structured JSON. Each entry includes command, exit_code, output (ANSI-stripped), duration_ms, cwd, and timestamps. Best way for agents to review what happened in a terminal.",
+  {
+    sessionId: z.string().describe("Session ID"),
+    limit: z.number().optional().default(20).describe("Max commands to return (default 20, max 100)"),
+    since: z.string().optional().describe("ISO timestamp — only return commands after this time"),
+  },
+  async ({ sessionId, limit, since }) => {
+    const params = new URLSearchParams();
+    if (limit) params.set("limit", String(limit));
+    if (since) params.set("since", since);
+    const qs = params.toString();
+    try {
+      const result = await api(`/api/v2/sessions/${sessionId}/terminal/structured${qs ? `?${qs}` : ""}`);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (error) {
+      const details = makeErrorPayload(error);
+      if (details) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ status: details.status, error: details.payload }, null, 2) }],
+        };
+      }
+      throw error;
+    }
+  }
+);
+
+// Get terminal summary (for small-context models)
+server.tool(
+  "ant_get_terminal_summary",
+  "Get a compact one-line summary of terminal state: shell status, last command result, recent error count, and action suggestions. Designed for small-context models (4K-32K tokens) that need minimal but actionable information.",
+  {
+    sessionId: z.string().describe("Session ID"),
+  },
+  async ({ sessionId }) => {
+    try {
+      const result = await api(`/api/v2/sessions/${sessionId}/terminal/summary`);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (error) {
+      const details = makeErrorPayload(error);
+      if (details) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ status: details.status, error: details.payload }, null, 2) }],
+        };
+      }
+      throw error;
+    }
+  }
+);
+
+// Read terminal output with seq IDs
+server.tool(
+  "ant_read_terminal_output_v2",
+  "Read terminal output events with seq IDs for drift detection. Supports format negotiation: raw (chunks with seq), structured (command pairs), summary (compact). Use seq to detect if the terminal state has changed since your last read.",
+  {
+    sessionId: z.string().describe("Session ID"),
+    since: z.number().optional().describe("Seq cursor to start from (0 = beginning)"),
+    limit: z.number().optional().describe("Maximum chunks to return"),
+    format: V2_FORMAT_ENUM.describe("Output format: raw, structured, or summary"),
+  },
+  async ({ sessionId, since, limit, format }) => {
+    const params = new URLSearchParams();
+    if (typeof since === "number") params.set("since", String(Math.max(0, since)));
+    if (typeof limit === "number") params.set("limit", String(Math.max(1, limit)));
+    if (format) params.set("format", format);
+    const qs = params.toString();
+    try {
+      const result = await api(`/api/v2/sessions/${sessionId}/terminal/output${qs ? `?${qs}` : ""}`);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (error) {
+      const details = makeErrorPayload(error);
+      if (details) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ status: details.status, error: details.payload }, null, 2) }],
+        };
+      }
+      throw error;
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// V2 Tools — Beeper (unified messaging)
+// ---------------------------------------------------------------------------
+
+// Send message via Beeper to any network
+server.tool(
+  "ant_beeper_send",
+  "Send a message to any chat via Beeper (WhatsApp, Telegram, Signal, etc.). Requires Beeper Desktop running and ANT_ENABLE_BEEPER=true. The chatID identifies the conversation across any connected network.",
+  {
+    chatId: z.string().describe("Beeper chat ID"),
+    text: z.string().describe("Message text (markdown supported)"),
+    replyToMessageId: z.string().optional().describe("Message ID to reply to"),
+  },
+  async ({ chatId, text, replyToMessageId }) => {
+    const tokenRow = await api("/api/v2/beeper/token").catch(() => null);
+    if (!tokenRow) {
+      return { content: [{ type: "text", text: "Beeper not authenticated. Enable with ANT_ENABLE_BEEPER=true and restart." }] };
+    }
+    try {
+      const beeperUrl = process.env.BEEPER_URL || "http://localhost:23373";
+      const body: Record<string, any> = { text };
+      if (replyToMessageId) body.replyToMessageID = replyToMessageId;
+
+      const res = await fetch(`${beeperUrl}/v1/chats/${encodeURIComponent(chatId)}/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${tokenRow.token}`,
+        },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        return { content: [{ type: "text", text: `Beeper send failed: ${res.status} ${errText.slice(0, 200)}` }] };
+      }
+      const data = await res.json();
+      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+    } catch (error: any) {
+      return { content: [{ type: "text", text: `Beeper error: ${error.message}` }] };
+    }
+  }
+);
+
+// List Beeper chats
+server.tool(
+  "ant_beeper_list_chats",
+  "List available chats across all connected messaging networks via Beeper. Shows chat title, network (WhatsApp/Telegram/Signal/etc.), and chat ID for use with ant_beeper_send.",
+  {
+    limit: z.number().optional().default(30).describe("Max chats to return"),
+  },
+  async ({ limit }) => {
+    try {
+      const beeperUrl = process.env.BEEPER_URL || "http://localhost:23373";
+      const tokenRow = await api("/api/v2/beeper/token").catch(() => null);
+      if (!tokenRow) {
+        return { content: [{ type: "text", text: "Beeper not authenticated." }] };
+      }
+      const res = await fetch(`${beeperUrl}/v1/chats?limit=${limit}`, {
+        headers: { Authorization: `Bearer ${tokenRow.token}` },
+      });
+      if (!res.ok) return { content: [{ type: "text", text: `List chats failed: ${res.status}` }] };
+      const data = await res.json();
+      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+    } catch (error: any) {
+      return { content: [{ type: "text", text: `Beeper error: ${error.message}` }] };
+    }
+  }
+);
+
+// Search Beeper messages
+server.tool(
+  "ant_beeper_search",
+  "Search messages across all connected messaging networks via Beeper.",
+  {
+    query: z.string().describe("Search query"),
+    limit: z.number().optional().default(20).describe("Max results"),
+  },
+  async ({ query, limit }) => {
+    try {
+      const beeperUrl = process.env.BEEPER_URL || "http://localhost:23373";
+      const tokenRow = await api("/api/v2/beeper/token").catch(() => null);
+      if (!tokenRow) {
+        return { content: [{ type: "text", text: "Beeper not authenticated." }] };
+      }
+      const res = await fetch(`${beeperUrl}/v1/search?q=${encodeURIComponent(query)}&limit=${limit}`, {
+        headers: { Authorization: `Bearer ${tokenRow.token}` },
+      });
+      if (!res.ok) return { content: [{ type: "text", text: `Search failed: ${res.status}` }] };
+      const data = await res.json();
+      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+    } catch (error: any) {
+      return { content: [{ type: "text", text: `Beeper error: ${error.message}` }] };
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// V2 Tools — Preferences + Resources
+// ---------------------------------------------------------------------------
+
+// Get user preferences
+server.tool(
+  "ant_get_preferences",
+  "Get learned user preferences (package manager, shell, framework choices, etc.). Use this to tailor your suggestions to the user's established patterns. Preferences are auto-learned from command history or explicitly set.",
+  {
+    domain: z.string().optional().describe("Filter by domain: tooling, language, framework, style"),
+  },
+  async ({ domain }) => {
+    const params = new URLSearchParams();
+    if (domain) params.set("domain", domain);
+    const prefs = await api(`/api/v2/preferences?${params.toString()}`);
+    return { content: [{ type: "text", text: JSON.stringify(prefs, null, 2) }] };
+  }
+);
+
+// Trigger preference learning
+server.tool(
+  "ant_learn_preferences",
+  "Analyse command history and learn user preferences (package manager, shell, etc.). Run this periodically to keep preferences up to date.",
+  {},
+  async () => {
+    const result = await api("/api/v2/preferences/learn", { method: "POST" });
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// Get session resource stats
+server.tool(
+  "ant_get_session_resources",
+  "Get resource statistics for a terminal session: command count, error rate, average duration, output size, and server memory usage.",
+  {
+    sessionId: z.string().describe("Session ID"),
+  },
+  async ({ sessionId }) => {
+    try {
+      const result = await api(`/api/v2/sessions/${sessionId}/resources`);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    } catch (error) {
+      const details = makeErrorPayload(error);
+      if (details) return { content: [{ type: "text", text: JSON.stringify({ status: details.status, error: details.payload }, null, 2) }] };
+      throw error;
+    }
+  }
+);
+
+// Get terminal screenshot
+server.tool(
+  "ant_get_terminal_screenshot",
+  "Get a visual screenshot of the terminal as SVG (or base64 for embedding). Best for multimodal models like Gemini that can process images. Returns the terminal grid rendered with monospace font on dark background.",
+  {
+    sessionId: z.string().describe("Session ID"),
+    format: z.enum(["svg", "json"]).optional().default("json").describe("'svg' returns raw SVG, 'json' returns base64-encoded SVG with metadata"),
+  },
+  async ({ sessionId, format }) => {
+    try {
+      const result = await api(`/api/v2/sessions/${sessionId}/terminal/screenshot?format=${format}`);
+      if (format === "json") {
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+      return { content: [{ type: "text", text: result }] };
+    } catch (error) {
+      const details = makeErrorPayload(error);
+      if (details) return { content: [{ type: "text", text: JSON.stringify({ status: details.status, error: details.payload }, null, 2) }] };
+      throw error;
+    }
+  }
+);
+
 // Run
 async function main() {
   const transport = new StdioServerTransport();

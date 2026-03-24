@@ -18,9 +18,15 @@ import agentRoutes from "./routes/agent.js";
 import annotationRoutes from "./routes/annotations.js";
 import storeRoutes from "./routes/store.js";
 import bridgeRoutes from "./routes/bridge.js";
+import agentV2Routes from "./routes/agent-v2.js";
+import knowledgeRoutes from "./routes/knowledge.js";
+import recipeRoutes from "./routes/recipes.js";
+import coordinationRoutes from "./routes/coordination.js";
 import { registerSocketHandlers } from "./ws/handlers.js";
 import { registerTerminalNamespace } from "./ws/terminal-namespace.js";
 import { reapOrphanedSessions } from "./pty-manager.js";
+import { registerDiscoveredModels } from "./agent/auto-discover.js";
+import { features } from "./feature-flags.js";
 
 import db from "./db.js";
 
@@ -98,6 +104,10 @@ async function start() {
   app.use(annotationRoutes);
   app.use(storeRoutes);
   app.use(bridgeRoutes);
+  app.use(agentV2Routes);
+  app.use(knowledgeRoutes);
+  app.use(recipeRoutes);
+  app.use(coordinationRoutes);
 
   // Serve uploads
   const uploadsPath = path.join(__dirname, "..", "..", "public", "uploads");
@@ -142,6 +152,13 @@ async function start() {
 
   // Re-adopt or schedule cleanup of orphaned dtach sessions from previous runs
   reapOrphanedSessions();
+
+  // Auto-discover local AI models on startup (disable with ANT_ENABLE_AUTO_DISCOVER=false)
+  if (features.autoDiscover()) {
+    registerDiscoveredModels().catch((err) => {
+      console.warn("[auto-discover] Startup discovery failed:", err.message);
+    });
+  }
 
   // Server heartbeat — written every 30s so crash recovery can estimate downtime
   const upsertState = db.prepare(

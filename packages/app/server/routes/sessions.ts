@@ -83,14 +83,14 @@ router.get("/api/sessions/:id", (req, res) => {
 router.post("/api/sessions", (req, res) => {
   const { name, type = "conversation", workspace_id = null, cwd = null } = req.body;
 
-  const validTypes = ["terminal", "conversation"];
+  const validTypes = ["terminal", "conversation", "unified"];
   if (!validTypes.includes(type)) {
     return res
       .status(400)
-      .json({ error: "Invalid session type. Must be 'terminal' or 'conversation'." });
+      .json({ error: "Invalid session type. Must be 'terminal', 'conversation', or 'unified'." });
   }
 
-  const defaultBase = type === "terminal" ? "Terminal" : "Conversation";
+  const defaultBase = type === "terminal" ? "Terminal" : type === "unified" ? "Session" : "Conversation";
   let sessionName: string;
 
   if (name) {
@@ -140,12 +140,25 @@ router.post("/api/sessions", (req, res) => {
     workspace_id
   );
 
-  const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(id);
+  const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(id) as DbSession;
+
+  // For unified sessions: optionally auto-create and attach a terminal
+  let terminalId: string | null = null;
+  if (type === "unified" && req.body.terminal) {
+    const termId = nanoid(12);
+    const termName = `${sessionName} (terminal)`;
+    const termCwd = resolvedCwd || process.env.ANT_ROOT_DIR || null;
+    db.prepare("INSERT INTO sessions (id, name, type, shell, cwd, workspace_id) VALUES (?, ?, 'terminal', ?, ?, ?)")
+      .run(termId, termName, null, termCwd, workspace_id);
+    db.prepare("INSERT INTO session_terminals (session_id, terminal_session_id) VALUES (?, ?)")
+      .run(id, termId);
+    terminalId = termId;
+  }
 
   const io = req.app.get("io");
   if (io) io.emit("session_list_changed");
 
-  res.status(201).json(session);
+  res.status(201).json({ ...session, terminal_id: terminalId });
 });
 
 // Update session

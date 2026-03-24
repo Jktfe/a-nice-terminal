@@ -5,6 +5,7 @@ import Sidebar from "./components/Sidebar.tsx";
 import Header from "./components/Header.tsx";
 import TerminalView from "./components/TerminalViewV2.tsx";
 import MessageList from "./components/MessageList.tsx";
+import ChatThread from "./components/ChatThread.tsx";
 import InputArea from "./components/InputArea.tsx";
 import QuickSwitcher from "./components/QuickSwitcher.tsx";
 import SearchPanel from "./components/SearchPanel.tsx";
@@ -13,13 +14,25 @@ import StatusBar from "./components/StatusBar.tsx";
 import OfflineOverlay from "./components/OfflineOverlay.tsx";
 import SettingsModal from "./components/SettingsModal.tsx";
 import DocsModal from "./components/DocsModal.tsx";
-import { Terminal, MessageSquare } from "lucide-react";
+import { Terminal, MessageSquare, Layers } from "lucide-react";
+import { useIsMobile } from "./hooks/useIsMobile.ts";
+import MobileTabBar, { type MobileTab } from "./components/MobileTabBar.tsx";
+import SessionDashboard from "./components/SessionDashboard.tsx";
 
 function renderSessionContent(session: Session | undefined, sessionId?: string, splitMessages?: any[]) {
   if (!session) return null;
 
   if (session.type === "terminal") {
     return <TerminalView sessionId={sessionId} />;
+  }
+
+  if (session.type === "unified") {
+    return (
+      <>
+        <ChatThread sessionId={sessionId} messages={splitMessages} />
+        <InputArea sessionId={sessionId} />
+      </>
+    );
   }
 
   return (
@@ -49,6 +62,8 @@ export default function App() {
   const [quickSwitcherOpen, setQuickSwitcherOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [splitPickerOpen, setSplitPickerOpen] = useState(false);
+  const [mobileTab, setMobileTab] = useState<MobileTab>("sessions");
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     init();
@@ -115,6 +130,105 @@ export default function App() {
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const splitSession = splitSessionId ? sessions.find((s) => s.id === splitSessionId) : undefined;
 
+  // Auto-switch to chat/terminal tab when a session is selected on mobile
+  useEffect(() => {
+    if (isMobile && activeSessionId && (mobileTab === "sessions" || mobileTab === "active")) {
+      const s = sessions.find((s) => s.id === activeSessionId);
+      if (s?.type === "terminal") setMobileTab("terminal");
+      else setMobileTab("chat");
+    }
+  }, [activeSessionId, isMobile]);
+
+  // Mobile layout
+  if (isMobile) {
+    return (
+      <div className="flex h-screen flex-col bg-[var(--color-bg)] font-sans selection:bg-emerald-500/30">
+        {/* Compact header on mobile */}
+        {(mobileTab === "chat" || mobileTab === "terminal") && activeSession && (
+          <Header />
+        )}
+
+        {/* Content area — switches based on tab */}
+        <div className="flex-1 flex flex-col min-h-0 pb-12">
+          {mobileTab === "sessions" && (
+            <div className="flex-1 flex flex-col">
+              <div className="px-4 py-3 border-b border-[var(--color-border)] flex items-center justify-between">
+                <h1 className="text-lg font-semibold text-[var(--color-text)]">Sessions</h1>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => createSession("terminal")}
+                    className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                  >
+                    <Terminal className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => createSession("conversation")}
+                    className="p-2 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20"
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => createSession("unified")}
+                    className="p-2 rounded-lg bg-violet-500/10 text-violet-400 hover:bg-violet-500/20"
+                  >
+                    <Layers className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              <Sidebar />
+            </div>
+          )}
+
+          {mobileTab === "active" && <SessionDashboard />}
+
+          {mobileTab === "chat" && activeSession && (
+            renderSessionContent(activeSession)
+          )}
+
+          {mobileTab === "terminal" && activeSession?.type === "terminal" && (
+            renderSessionContent(activeSession)
+          )}
+
+          {mobileTab === "terminal" && activeSession?.type === "unified" && (
+            renderSessionContent(activeSession)
+          )}
+
+          {(mobileTab === "chat" || mobileTab === "terminal") && !activeSession && (
+            <EmptyState onCreateSession={createSession} />
+          )}
+
+          {mobileTab === "more" && (
+            <div className="flex-1 flex flex-col gap-3 p-4">
+              <button onClick={() => setSearchOpen(true)} className="p-3 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-left text-sm text-[var(--color-text)]">
+                Search sessions & messages
+              </button>
+              <button onClick={() => toggleSettings()} className="p-3 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-left text-sm text-[var(--color-text)]">
+                Settings
+              </button>
+              <button onClick={() => toggleDocs()} className="p-3 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-left text-sm text-[var(--color-text)]">
+                Documentation
+              </button>
+            </div>
+          )}
+        </div>
+
+        <MobileTabBar
+          activeTab={mobileTab}
+          onTabChange={setMobileTab}
+          hasActiveSession={!!activeSession}
+        />
+
+        {/* Overlays */}
+        {quickSwitcherOpen && <QuickSwitcher onClose={() => setQuickSwitcherOpen(false)} />}
+        {searchOpen && <SearchPanel onClose={() => setSearchOpen(false)} />}
+        <SettingsModal />
+        <DocsModal />
+        <OfflineOverlay />
+      </div>
+    );
+  }
+
+  // Desktop layout (unchanged)
   return (
     <div className="flex h-screen flex-col bg-[var(--color-bg)] font-sans selection:bg-emerald-500/30">
       <div className="flex flex-1 min-h-0">
@@ -187,7 +301,7 @@ export default function App() {
 function EmptyState({
   onCreateSession,
 }: {
-  onCreateSession: (type: "terminal" | "conversation", name?: string) => void;
+  onCreateSession: (type: "terminal" | "conversation" | "unified", name?: string) => void;
 }) {
   return (
     <div className="flex-1 flex items-center justify-center">

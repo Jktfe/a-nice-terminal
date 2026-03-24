@@ -7,6 +7,7 @@ import type { DbResumeCommand, DbSession } from "./types.js";
 import { stripAnsi } from "./types.js";
 import { HeadlessTerminalWrapper } from "./terminal/headless-terminal.js";
 import { CommandTracker, type CommandEvent } from "./terminal/command-tracker.js";
+import { features } from "./feature-flags.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -234,6 +235,153 @@ function parseResumeCommands(sessionId: string, text: string): void {
 }
 
 // ---------------------------------------------------------------------------
+// Git commit hash detection
+// ---------------------------------------------------------------------------
+
+const GIT_COMMIT_RE = /\[[\w/.-]+\s+([0-9a-f]{7,40})\]/;
+const GIT_COMMIT_HASH_RE = /^[0-9a-f]{7,40}$/;
+
+function detectGitCommitHash(command: string, output: string): string | null {
+  if (!command.startsWith("git commit") && !command.startsWith("git merge") && !command.startsWith("git cherry-pick")) {
+    return null;
+  }
+  const clean = stripAnsi(output);
+  const match = GIT_COMMIT_RE.exec(clean);
+  if (match && GIT_COMMIT_HASH_RE.test(match[1])) {
+    return match[1];
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Auto error pattern extraction — links failures to subsequent fixes
+// ---------------------------------------------------------------------------
+
+// Track last error per session for auto-linking
+const lastSessionError = new Map<string, { signature: string; command: string; timestamp: string }>();
+
+function extractErrorSignature(output: string): string | null {
+  if (!output) return null;
+  const clean = stripAnsi(output).trim();
+  if (!clean) return null;
+
+  // Take the first meaningful error line (up to 200 chars, stripped of paths/versions)
+  const lines = clean.split("\n").filter((l) => l.trim().length > 0);
+  const errorLine = lines.find((l) =>
+    /error|Error|ERR!|FAIL|fatal|panic|exception|denied|not found|cannot find/i.test(l)
+  );
+  if (!errorLine) return null;
+
+  // Normalise: strip absolute paths, version numbers, timestamps
+  return errorLine
+    .replace(/\/[^\s:]+/g, "<path>")
+    .replace(/\d+\.\d+\.\d+/g, "<ver>")
+    .replace(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}/g, "<time>")
+    .slice(0, 200)
+    .trim();
+}
+
+function recordErrorPattern(sessionId: string, event: CommandEvent): void {
+  try {
+    if (event.exitCode === 0 || event.exitCode === null) {
+      // Success — check if we can link to a previous error
+      const lastError = lastSessionError.get(sessionId);
+      if (lastError) {
+        lastSessionError.delete(sessionId);
+        // Record the fix
+        const existing = db.prepare(
+          "SELECT id FROM error_patterns WHERE error_signature = ?"
+        ).get(lastError.signature) as { id: string } | undefined;
+
+        if (existing) {
+          db.prepare(
+            "UPDATE error_patterns SET fix_command = ?, fix_session_id = ?, success_count = success_count + 1, updated_at = datetime('now') WHERE id = ?"
+          ).run(event.command, sessionId, existing.id);
+        } else {
+          db.prepare(
+            "INSERT INTO error_patterns (id, error_signature, context_scope, fix_command, fix_session_id) VALUES (?, ?, ?, ?, ?)"
+          ).run(nanoid(12), lastError.signature, `session:${sessionId}`, event.command, sessionId);
+        }
+      }
+      return;
+    }
+
+    // Failure — extract error signature
+    const signature = extractErrorSignature(event.output || "");
+    if (signature) {
+      lastSessionError.set(sessionId, {
+        signature,
+        command: event.command,
+        timestamp: event.startedAt,
+      });
+
+      // Record the error (without fix)
+      const existing = db.prepare(
+        "SELECT id FROM error_patterns WHERE error_signature = ?"
+      ).get(signature);
+
+      if (existing) {
+        db.prepare("UPDATE error_patterns SET failure_count = failure_count + 1, updated_at = datetime('now') WHERE id = ?")
+          .run((existing as any).id);
+      } else {
+        db.prepare(
+          "INSERT INTO error_patterns (id, error_signature, context_scope, fix_session_id, success_count, failure_count) VALUES (?, ?, ?, ?, 0, 1)"
+        ).run(nanoid(12), signature, `session:${sessionId}`, sessionId);
+      }
+    }
+  } catch {
+    // Non-fatal — knowledge extraction is best-effort
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Command result → parent unified session
+// ---------------------------------------------------------------------------
+
+type CommandResultListener = (parentSessionId: string, message: any) => void;
+const commandResultListeners = new Set<CommandResultListener>();
+
+export function onCommandResult(listener: CommandResultListener): () => void {
+  commandResultListeners.add(listener);
+  return () => { commandResultListeners.delete(listener); };
+}
+
+function emitCommandResultToParent(terminalSessionId: string, event: CommandEvent, cwd: string | null): void {
+  try {
+    // Find parent unified session via session_terminals
+    const link = db.prepare(
+      "SELECT session_id FROM session_terminals WHERE terminal_session_id = ? AND status = 'active'"
+    ).get(terminalSessionId) as { session_id: string } | undefined;
+
+    if (!link) return; // Not linked to a unified session
+
+    const msgId = nanoid(12);
+    const strippedOutput = event.output ? stripAnsi(event.output).slice(0, 10000) : "";
+    const metadata = JSON.stringify({
+      terminal_session_id: terminalSessionId,
+      command: event.command,
+      exit_code: event.exitCode ?? null,
+      duration_ms: event.durationMs ?? null,
+      cwd,
+      started_at: event.startedAt,
+      completed_at: event.completedAt ?? null,
+      detection_method: event.detectionMethod,
+    });
+
+    db.prepare(
+      `INSERT INTO messages (id, session_id, role, content, format, status, message_type, metadata, sender_type, sender_name)
+       VALUES (?, ?, 'system', ?, 'text', 'complete', 'command_result', ?, 'terminal', 'Terminal')`
+    ).run(msgId, link.session_id, strippedOutput, metadata);
+
+    // Notify listeners (WebSocket broadcast)
+    const msg = db.prepare("SELECT * FROM messages WHERE id = ?").get(msgId);
+    commandResultListeners.forEach((listener) => listener(link.session_id, msg));
+  } catch {
+    // Non-fatal
+  }
+}
+
+// ---------------------------------------------------------------------------
 // dtach helpers
 // ---------------------------------------------------------------------------
 
@@ -351,6 +499,10 @@ export function createPty(
       // Get current cwd from session
       const sess = db.prepare("SELECT cwd FROM sessions WHERE id = ?").get(sessionId) as { cwd: string | null } | undefined;
       const truncatedOutput = event.output ? event.output.slice(0, 50000) : null;
+
+      // Detect git commit hash in output
+      const gitHash = detectGitCommitHash(event.command, event.output || "");
+
       insertCommandEvent.run(
         nanoid(12),
         sessionId,
@@ -363,6 +515,32 @@ export function createPty(
         sess?.cwd ?? null,
         event.detectionMethod,
       );
+
+      // Update git_commit_hash if detected (separate query since column may not exist in older schema)
+      if (gitHash) {
+        try {
+          db.prepare("UPDATE command_events SET git_commit_hash = ? WHERE session_id = ? AND command = ? AND started_at = ?")
+            .run(gitHash, sessionId, event.command, event.startedAt);
+        } catch { /* column may not exist yet */ }
+      }
+
+      // If this terminal is linked to a unified session, emit a command_result message
+      emitCommandResultToParent(sessionId, event, sess?.cwd ?? null);
+
+      // Auto-extract error patterns for the knowledge system (disable with ANT_ENABLE_KNOWLEDGE=false)
+      if (features.knowledge()) {
+        recordErrorPattern(sessionId, event);
+      }
+
+      // Emit failure signal if command hung (duration > expected)
+      if (event.durationMs && event.durationMs > 120000 && event.exitCode !== 0) {
+        commandListeners.forEach((listener) => listener("failure_signal", sessionId, {
+          type: "long_running_failure",
+          command: event.command,
+          duration_ms: event.durationMs,
+          exit_code: event.exitCode,
+        }));
+      }
     } catch {
       // Non-fatal — command tracking is best-effort
     }

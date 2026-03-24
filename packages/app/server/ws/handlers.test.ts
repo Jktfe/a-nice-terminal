@@ -12,6 +12,7 @@ vi.mock("../pty-manager.js", () => ({
   resizePty: vi.fn(),
   onResumeCommand: vi.fn(() => () => {}),
   onCwdUpdate: vi.fn(() => () => {}),
+  onCommandResult: vi.fn(() => () => {}),
   onCommandLifecycle: vi.fn(() => () => {}),
   hasSession: vi.fn(() => false),
   hasTmuxSession: vi.fn(() => false),

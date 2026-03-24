@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import db from "./db.js";
 
 const fakePtyInstance = {
   onData: vi.fn(),
@@ -37,6 +38,8 @@ describe("pty-manager", () => {
     // Clean up any PTY sessions from prior tests
     try { destroyPty("test-pty"); } catch {}
     try { destroyPty("test-pty-2"); } catch {}
+    // Clear terminal output events to reset cursor positions between tests
+    try { db.prepare("DELETE FROM terminal_output_events WHERE session_id IN ('test-pty', 'test-pty-2')").run(); } catch {}
     vi.clearAllMocks();
   });
 
