@@ -21,6 +21,7 @@ import {
   onCommandLifecycle,
 } from "../pty-manager.js";
 import { SAFE_TEXT_LIMIT } from "../constants.js";
+import { checkTerminalLock } from "./agent-v2.js";
 
 const router = Router();
 
@@ -91,6 +92,17 @@ router.post("/api/agent/sessions/:id/exec", async (req, res) => {
   const { command, timeout = 30000 } = req.body;
   if (typeof command !== "string" || command.length === 0 || command.length > SAFE_TEXT_LIMIT) {
     return res.status(400).json({ error: "Invalid command" });
+  }
+
+  // Check terminal lock — allow if no lock, or if requester is the holder
+  const agentId = req.body.agent_id || req.headers["x-agent-id"] as string | undefined;
+  const lockStatus = checkTerminalLock(session.id, agentId);
+  if (lockStatus.locked) {
+    return res.status(423).json({
+      error: "Terminal locked by another agent",
+      holder: lockStatus.holder,
+      expires_at: lockStatus.expires_at,
+    });
   }
 
   const safeTimeout = Math.max(1000, Math.min(Number(timeout) || 30000, 300000)); // 1s to 5min
@@ -200,6 +212,17 @@ router.post("/api/agent/sessions/:id/input", (req, res) => {
   const { data } = req.body;
   if (typeof data !== "string" || data.length > SAFE_TEXT_LIMIT) {
     return res.status(400).json({ error: "Invalid input" });
+  }
+
+  // Check terminal lock
+  const agentId = req.body.agent_id || req.headers["x-agent-id"] as string | undefined;
+  const lockStatus = checkTerminalLock(session.id, agentId);
+  if (lockStatus.locked) {
+    return res.status(423).json({
+      error: "Terminal locked by another agent",
+      holder: lockStatus.holder,
+      expires_at: lockStatus.expires_at,
+    });
   }
 
   let ptyProcess = getPty(session.id);

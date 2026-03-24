@@ -1,12 +1,13 @@
 export interface DbSession {
   id: string;
   name: string;
-  type: "terminal" | "conversation";
+  type: "terminal" | "conversation" | "unified";
   shell: string | null;
   cwd: string | null;
   workspace_id: string | null;
   archived: number;
   ttl_minutes: number | null;
+  tier: "sprint" | "session" | "persistent";
   created_at: string;
   updated_at: string;
 }

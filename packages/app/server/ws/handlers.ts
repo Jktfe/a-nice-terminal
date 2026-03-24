@@ -9,6 +9,7 @@ import {
   resizePty,
   onResumeCommand,
   onCwdUpdate,
+  onCommandResult,
   startKillTimer,
   cancelKillTimer,
 } from "../pty-manager.js";
@@ -37,6 +38,11 @@ export function registerSocketHandlers(io: Server) {
   // Reload sidebar when a terminal's CWD changes
   onCwdUpdate(() => {
     io.emit("session_list_changed");
+  });
+
+  // Broadcast command_result messages to unified session rooms
+  onCommandResult((parentSessionId, message) => {
+    io.to(parentSessionId).emit("message_created", message);
   });
 
   io.on("connection", (socket: Socket) => {

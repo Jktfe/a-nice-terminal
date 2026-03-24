@@ -1,0 +1,33 @@
+{
+  "_comment": "Copy this file to seed-recipes.json and customise. ANT will import recipes on first run if the recipes table is empty. seed-recipes.json is gitignored.",
+  "recipes": [
+    {
+      "id": "example-node-project",
+      "name": "New Node.js Project",
+      "description": "Scaffold a new Node.js project with TypeScript",
+      "category": "setup",
+      "steps": [
+        { "command": "mkdir {{project_name}} && cd {{project_name}}", "description": "Create project directory" },
+        { "command": "npm init -y", "description": "Initialise package.json" },
+        { "command": "npm install typescript @types/node --save-dev", "description": "Add TypeScript" },
+        { "command": "npx tsc --init", "description": "Create tsconfig.json" }
+      ],
+      "params": [
+        { "name": "project_name", "description": "Name for the new project directory", "required": true }
+      ]
+    },
+    {
+      "id": "example-git-branch",
+      "name": "Git Feature Branch",
+      "description": "Create a feature branch and push it",
+      "category": "workflow",
+      "steps": [
+        { "command": "git checkout -b feature/{{branch_name}}", "description": "Create and switch to feature branch" },
+        { "command": "git status", "description": "Verify clean working tree" }
+      ],
+      "params": [
+        { "name": "branch_name", "description": "Feature branch name (without feature/ prefix)", "required": true }
+      ]
+    }
+  ]
+}

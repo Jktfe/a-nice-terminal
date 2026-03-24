@@ -12,12 +12,14 @@ export interface Workspace {
 export interface Session {
   id: string;
   name: string;
-  type: "terminal" | "conversation";
+  type: "terminal" | "conversation" | "unified";
   shell: string | null;
   cwd: string | null;
   workspace_id: string | null;
   archived: number;
   ttl_minutes: number | null;
+  tier?: "sprint" | "session" | "persistent";
+  terminal_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -60,6 +62,7 @@ export interface Message {
   }>;
   starred?: number;
   reply_count?: number;
+  message_type?: "text" | "command_result" | "terminal_block" | "agent_action" | "terminal_embed" | "file" | "image";
 }
 
 export type AgentState = "idle" | "thinking" | "working" | "wrapped";
@@ -96,6 +99,7 @@ interface AppState {
   agentPresence: Record<string, AgentPresence>;
   uiTheme: UiTheme;
   docsOpen: boolean;
+  offlineQueue: Array<{ sessionId: string; content: string; role: string; queuedAt: string }>;
 
   // Actions
   init: () => void;
@@ -107,7 +111,7 @@ interface AppState {
   deleteWorkspace: (id: string) => Promise<void>;
   moveSessionToWorkspace: (sessionId: string, workspaceId: string | null) => Promise<void>;
   createSession: (
-    type: "terminal" | "conversation",
+    type: "terminal" | "conversation" | "unified",
     name?: string,
     workspaceId?: string
   ) => Promise<Session | null>;
@@ -237,6 +241,7 @@ export const useStore = create<AppState>((set, get) => ({
   agentPresence: {},
   uiTheme: loadUiTheme(),
   docsOpen: false,
+  offlineQueue: JSON.parse(localStorage.getItem("ant-offline-queue") || "[]"),
 
   setError: (message) => set({ error: message }),
   clearError: () => set({ error: null }),
@@ -278,6 +283,20 @@ export const useStore = create<AppState>((set, get) => ({
       get().loadResumeCommands();
       const { activeSessionId } = get();
       if (activeSessionId) socket.emit("join_session", { sessionId: activeSessionId });
+
+      // Flush offline message queue
+      const queue = get().offlineQueue;
+      if (queue.length > 0) {
+        set({ offlineQueue: [] });
+        localStorage.removeItem("ant-offline-queue");
+        for (const msg of queue) {
+          apiFetch(`/api/sessions/${msg.sessionId}/messages`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content: msg.content, role: msg.role }),
+          }).catch(() => {});
+        }
+      }
     });
 
     chatSocket.on("connect", () => {
@@ -647,6 +666,17 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   sendMessageToSession: async (sessionId, content, role = "human") => {
+    const { connected } = get();
+
+    // If offline, queue the message for later
+    if (!connected) {
+      const queued = { sessionId, content, role, queuedAt: new Date().toISOString() };
+      const queue = [...get().offlineQueue, queued];
+      localStorage.setItem("ant-offline-queue", JSON.stringify(queue));
+      set({ offlineQueue: queue });
+      return;
+    }
+
     try {
       await apiFetch(`/api/sessions/${sessionId}/messages`, {
         method: "POST",

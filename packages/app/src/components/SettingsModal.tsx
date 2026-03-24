@@ -230,7 +230,7 @@ export default function SettingsModal() {
                       <input
                         value={vaultPath}
                         onChange={(e) => setVaultPath(e.target.value)}
-                        placeholder="/Users/james/Obsidian/MyVault"
+                        placeholder="~/Obsidian/MyVault"
                         className="flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-dim)] outline-none"
                       />
                       <button
