@@ -95,23 +95,33 @@ export default function InputArea({ sessionId: sessionIdProp }: { sessionId?: st
         suggestion: {
           items: async ({ query }: { query: string }): Promise<MentionItem[]> => {
             try {
-              const participants: MentionItem[] = [{ id: "user", label: "User" }];
-              // Fetch chat room participants
+              const seen = new Set<string>();
+              const participants: MentionItem[] = [];
+
+              // Primary source: sender_name values from this conversation's messages
+              const sid = sessionIdRef.current;
+              if (sid) {
+                const msgs: Array<{ sender_name?: string; role?: string }> = await apiFetch(`/api/sessions/${sid}/messages`);
+                for (const m of msgs) {
+                  const name = m.sender_name;
+                  if (name && !seen.has(name)) {
+                    seen.add(name);
+                    participants.push({ id: name, label: name });
+                  }
+                }
+              }
+
+              // Secondary source: registered chat room participants
               const rooms = await apiFetch("/api/chat-rooms");
               for (const room of rooms) {
                 for (const p of room.participants || []) {
-                  if (!participants.some((x: MentionItem) => x.id === p.terminalSessionId)) {
+                  if (!seen.has(p.agentName)) {
+                    seen.add(p.agentName);
                     participants.push({ id: p.terminalSessionId, label: p.agentName, model: p.model });
                   }
                 }
               }
-              // Add session names as mentionable
-              const allSessions = await apiFetch("/api/sessions");
-              for (const s of allSessions) {
-                if (!participants.some((x: MentionItem) => x.label === s.name)) {
-                  participants.push({ id: s.id, label: s.name });
-                }
-              }
+
               return participants.filter((item: MentionItem) =>
                 item.label.toLowerCase().includes(query.toLowerCase())
               );

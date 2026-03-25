@@ -21,12 +21,18 @@ import { Terminal, MessageSquare, Layers } from "lucide-react";
 import { useIsMobile } from "./hooks/useIsMobile.ts";
 import MobileTabBar, { type MobileTab } from "./components/MobileTabBar.tsx";
 import SessionDashboard from "./components/SessionDashboard.tsx";
+import AeroChatView from "./components/aero/AeroChatView.tsx";
 
-function renderSessionContent(session: Session | undefined, sessionId?: string, splitMessages?: any[]) {
+function renderSessionContent(session: Session | undefined, sessionId?: string, splitMessages?: any[], aeroMode?: boolean) {
   if (!session) return null;
 
   if (session.type === "terminal") {
     return <TerminalView sessionId={sessionId} />;
+  }
+
+  // Aero view for conversation/unified sessions
+  if (aeroMode) {
+    return <AeroChatView sessionId={sessionId} messages={splitMessages} />;
   }
 
   if (session.type === "unified") {
@@ -64,6 +70,8 @@ export default function App() {
     knowledgePanelOpen,
     toggleKnowledgePanel,
     toggleCommonCalls,
+    chatViewMode,
+    setChatViewMode,
   } = useStore();
   const [quickSwitcherOpen, setQuickSwitcherOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -107,6 +115,9 @@ export default function App() {
       } else if (e.key === "C" && e.shiftKey) {
         e.preventDefault();
         toggleCommonCalls();
+      } else if (e.key === "." && e.shiftKey) {
+        e.preventDefault();
+        setChatViewMode(chatViewMode === "aero" ? "classic" : "aero");
       } else if (e.key === "/") {
         e.preventDefault();
         toggleDocs();
@@ -272,9 +283,12 @@ export default function App() {
         ) : (
           // Normal single-panel view
           <div className="flex-1 flex flex-col min-w-0">
-            <Header />
+            {/* Hide Header in aero mode for non-terminal sessions — AeroChatView has its own context bar */}
+            {!(chatViewMode === "aero" && activeSession && activeSession.type !== "terminal") && (
+              <Header />
+            )}
             {activeSession ? (
-              renderSessionContent(activeSession)
+              renderSessionContent(activeSession, undefined, undefined, chatViewMode === "aero")
             ) : (
               <EmptyState onCreateSession={createSession} />
             )}

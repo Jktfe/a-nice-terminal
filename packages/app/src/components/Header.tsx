@@ -8,6 +8,8 @@ import {
   Camera,
   Sun,
   Moon,
+  LayoutGrid,
+  Rows3,
 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useStore, apiFetch } from "../store.ts";
@@ -46,7 +48,7 @@ function AgentStatus({ sessionId }: { sessionId: string }) {
 
 
 export default function Header() {
-  const { sessions, activeSessionId, connected, sidebarOpen, toggleSidebar, renameSession, uiTheme, setUiTheme } =
+  const { sessions, activeSessionId, connected, sidebarOpen, toggleSidebar, renameSession, uiTheme, setUiTheme, chatViewMode, setChatViewMode } =
     useStore();
   const session = sessions.find((s) => s.id === activeSessionId);
   const [editing, setEditing] = useState(false);
@@ -233,6 +235,19 @@ export default function Header() {
       </div>
 
       <div className="flex items-center gap-2 flex-shrink-0">
+        {session && session.type !== "terminal" && (
+          <button
+            onClick={() => setChatViewMode(chatViewMode === "aero" ? "classic" : "aero")}
+            className={`p-1.5 transition-colors mr-0.5 ${
+              chatViewMode === "aero"
+                ? "text-violet-400 hover:text-violet-300"
+                : "text-[var(--color-text-dim)] hover:text-[var(--color-text)]"
+            }`}
+            title={`Switch to ${chatViewMode === "aero" ? "classic" : "Aero"} layout (⌘⇧.)`}
+          >
+            {chatViewMode === "aero" ? <Rows3 className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
+          </button>
+        )}
         <button
           onClick={() => setUiTheme(uiTheme === "light" ? "dark" : "light")}
           className="p-1.5 text-[var(--color-text-dim)] hover:text-[var(--color-text)] transition-colors mr-1"

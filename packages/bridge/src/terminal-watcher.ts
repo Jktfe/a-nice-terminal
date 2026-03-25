@@ -18,9 +18,10 @@ const CLI_CMD_RE =
 
 // Matches: ANTchat! [room-name] "message" or ANTchat! [room-name] 'message'
 // Threading: ANTchat! [room-name:2026-03-25T10:09:33Z] "reply" threads under that timestamp
+// Attribution: ANTchat! [room-name] @SenderName "message" — optional sender identifier
 // Brackets optional: ANTchat! room-name "message" also works
 const ANTCHAT_RE =
-  /ANTchat!\s+\[?([^\]":\s]+)(?::([^\]"\s]+))?\]?\s+(?:"([^"]+)"|'([^']+)')/;
+  /ANTchat!\s+\[?([^\]":\s]+)(?::([^\]"\s]+))?\]?\s+(?:@(\S+)\s+)?(?:"([^"]+)"|'([^']+)')/;
 
 // Matches: ANTtask! [room] "task name" status:done assigned:AgentName
 const ANTTASK_RE =
@@ -45,6 +46,8 @@ export interface ChatMessage {
   roomName: string;
   /** Optional thread timestamp — replies thread under the message at this time */
   threadTs?: string;
+  /** Optional sender name — from @SenderName token in the ANTchat! line */
+  senderName?: string;
   /** Message content */
   content: string;
 }
@@ -79,6 +82,9 @@ export class TerminalWatcher {
   private chatHandler: ChatMessageHandler | null = null;
   private taskHandler: TaskCommandHandler | null = null;
   private fileHandler: FileCommandHandler | null = null;
+  // Dedup: key = `${sessionId}:${roomName}:${content}`, value = timestamp
+  private recentChatMessages = new Map<string, number>();
+  private static CHAT_DEDUP_TTL_MS = 8000;
 
   constructor(baseUrl: string, apiKey?: string) {
     this.baseUrl = baseUrl;
@@ -173,15 +179,25 @@ export class TerminalWatcher {
   private processChunk(sessionId: string, data: Buffer | Uint8Array): void {
     const raw = Buffer.from(data).toString("utf-8");
 
-    // Fast pre-filter: skip chunks that can't contain our CLI command or ANT protocols
+    // Fast pre-filter: skip chunks that can't contain our CLI command or ANT protocols.
+    // Exception: if the line buffer already has "ANT" content, we must still process
+    // complete lines that result from combining the buffer with this chunk.
     if (!raw.includes("ant") && !raw.includes("ANT")) {
-      // Still need to handle line buffer for continuity, but only if buffer has content
       const existing = this.lineBuffers.get(sessionId);
       if (existing) {
         const combined = existing + raw;
         const lines = combined.split(/\r?\n|\r/);
         const incomplete = lines.pop() || "";
-        this.lineBuffers.set(sessionId, incomplete.slice(-MAX_LINE_BUFFER));
+        this.lineBuffers.set(sessionId, incomplete.length > MAX_LINE_BUFFER ? "" : incomplete);
+        // If the buffer held a partial ANT line, check any now-complete lines
+        if (existing.includes("ANT") || existing.includes("ant")) {
+          const cleanExisting = stripAnsi(combined);
+          const completedLines = cleanExisting.split(/\r?\n|\r/);
+          completedLines.pop(); // discard incomplete tail
+          for (const line of completedLines) {
+            this.matchLine(sessionId, line);
+          }
+        }
       }
       return;
     }
@@ -209,16 +225,31 @@ export class TerminalWatcher {
     if (chatMatch) {
       const roomName = chatMatch[1];
       const threadTs = chatMatch[2] || undefined; // optional :timestamp
-      const chatContent = chatMatch[3] || chatMatch[4]; // content (double/single quotes)
+      const senderName = chatMatch[3] || undefined; // optional @SenderName token
+      const chatContent = chatMatch[4] || chatMatch[5]; // content (double/single quotes)
 
       if (roomName && chatContent) {
+        // Dedup: skip if same (session, room, content) was posted within TTL
+        const dedupKey = `${sessionId}:${roomName}:${chatContent}`;
+        const lastSeen = this.recentChatMessages.get(dedupKey) ?? 0;
+        const now = Date.now();
+        if (now - lastSeen < TerminalWatcher.CHAT_DEDUP_TTL_MS) return;
+        this.recentChatMessages.set(dedupKey, now);
+        // Prune old entries to prevent unbounded growth
+        if (this.recentChatMessages.size > 200) {
+          const cutoff = now - TerminalWatcher.CHAT_DEDUP_TTL_MS;
+          for (const [k, ts] of this.recentChatMessages) {
+            if (ts < cutoff) this.recentChatMessages.delete(k);
+          }
+        }
+
         console.log(
           `[terminal-watcher] ANTchat! in session ${sessionId}: room="${roomName}"${threadTs ? ` thread=${threadTs}` : ""} content="${chatContent.slice(0, 60)}..."`
         );
 
         if (this.chatHandler) {
           try {
-            this.chatHandler({ sessionId, roomName, threadTs, content: chatContent });
+            this.chatHandler({ sessionId, roomName, threadTs, senderName, content: chatContent });
           } catch (err) {
             console.error("[terminal-watcher] Chat handler error:", err);
           }

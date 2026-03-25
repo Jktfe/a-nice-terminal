@@ -103,6 +103,7 @@ interface AppState {
   parseDeleteSessionId: string | null;
   draftsBySessionId: Record<string, string>;
   commonCallsOpen: boolean;
+  chatViewMode: ChatViewMode;
   offlineQueue: Array<{ sessionId: string; content: string; role: string; queuedAt: string }>;
 
   // Actions
@@ -151,6 +152,7 @@ interface AppState {
   saveDraft: (sessionId: string, text: string) => void;
   clearDraft: (sessionId: string) => void;
   toggleCommonCalls: () => void;
+  setChatViewMode: (mode: ChatViewMode) => void;
 }
 
 const API_KEY = (import.meta.env.VITE_ANT_API_KEY as string | undefined)?.trim();
@@ -160,8 +162,10 @@ const PINNED_SESSIONS_KEY = "ant-pinned-session-ids";
 const TERMINAL_FONT_SIZE_KEY = "ant-terminal-font-size";
 const TERMINAL_THEME_KEY = "ant-terminal-theme";
 const UI_THEME_KEY = "ant-ui-theme";
+const CHAT_VIEW_MODE_KEY = "ant-chat-view-mode";
 
 export type UiTheme = "dark" | "light" | "system";
+export type ChatViewMode = "classic" | "aero";
 
 function applyUiTheme(theme: UiTheme) {
   const root = document.documentElement;
@@ -255,6 +259,7 @@ export const useStore = create<AppState>((set, get) => ({
   parseDeleteSessionId: null,
   draftsBySessionId: {},
   commonCallsOpen: false,
+  chatViewMode: (localStorage.getItem(CHAT_VIEW_MODE_KEY) as ChatViewMode) || "classic",
   offlineQueue: JSON.parse(localStorage.getItem("ant-offline-queue") || "[]"),
 
   setError: (message) => set({ error: message }),
@@ -841,6 +846,10 @@ export const useStore = create<AppState>((set, get) => ({
     return { draftsBySessionId: rest };
   }),
   toggleCommonCalls: () => set((s) => ({ commonCallsOpen: !s.commonCallsOpen })),
+  setChatViewMode: (mode) => {
+    localStorage.setItem(CHAT_VIEW_MODE_KEY, mode);
+    set({ chatViewMode: mode });
+  },
 }));
 
 // Apply theme on load

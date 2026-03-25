@@ -102,6 +102,17 @@ export class BridgeCore {
           this.terminalWatcher.watchSession(s.id);
         }
       }
+      // Auto-watch terminal sessions created after startup
+      this.ant.onSessionListChanged(async () => {
+        if (!this.terminalWatcher) return;
+        const sessions = await this.ant.getSessions();
+        for (const s of sessions) {
+          if (s.type === "terminal" && !s.archived) {
+            this.terminalWatcher.watchSession(s.id);
+          }
+        }
+      });
+
       console.log("[bridge] Terminal watcher started");
     } catch (err) {
       console.warn("[bridge] Terminal watcher failed to connect (non-fatal):", err instanceof Error ? err.message : err);
@@ -190,20 +201,21 @@ export class BridgeCore {
         return;
       }
 
-      // Build attribution from participant info or fall back to session ID
+      // Build attribution: @SenderName in protocol > participant registry > terminal ID
       const info = this.chatRoomRegistry.getParticipantInfo(msg.roomName, msg.sessionId);
+      const resolvedSender = msg.senderName || info?.agentName || `Terminal-${msg.sessionId.slice(0, 8)}`;
       const label = info
-        ? `[${info.agentName}${info.model ? ` (${info.terminalName || msg.sessionId.slice(0, 8)} | ${info.model})` : ""}]`
-        : `[Terminal ${msg.sessionId.slice(0, 8)}]`;
+        ? `[@${info.agentName}${info.model ? ` (${info.model})` : ""}]`
+        : `[@${resolvedSender}]`;
 
       const attributed = `${label} ${msg.content}`;
 
       // 1) Post to the conversation session
       await this.ant.postMessage(room.conversationSessionId, {
         content: attributed,
-        role: "human",
-        senderType: "agent",
-        senderName: info?.agentName || `Terminal ${msg.sessionId.slice(0, 8)}`,
+        role: "agent",
+        senderType: "terminal",
+        senderName: resolvedSender,
         metadata: {
           source: "antchat",
           source_session_id: msg.sessionId,

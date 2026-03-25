@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# antchat — post to or read from an ANT conversation by name
+#
+# Usage:
+#   antchat <conversation-name>                                        # read all messages
+#   antchat <conversation-name> --last <N>                             # read last N messages
+#   antchat <conversation-name> "<message>"                            # send a message (role: agent)
+#   antchat <conversation-name> "<message>" --from "Claude"            # send with sender identity
+#   antchat <conversation-name> "<message>" --thread <ISO-timestamp>   # threaded reply
+#   antchat <conversation-name> "<message>" --role human               # send as human
+#
+# Env:
+#   ANT_URL   ANT server base URL (default: http://127.0.0.1:6458)
+
+set -euo pipefail
+
+ANT_URL="${ANT_URL:-http://127.0.0.1:6458}"
+
+CONV_NAME=""
+MESSAGE=""
+THREAD_TS=""
+ROLE="agent"
+LAST_N=""
+SENDER_NAME=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --thread)
+      THREAD_TS="$2"; shift 2 ;;
+    --role)
+      ROLE="$2"; shift 2 ;;
+    --last)
+      LAST_N="$2"; shift 2 ;;
+    --from)
+      SENDER_NAME="$2"; shift 2 ;;
+    --help|-h)
+      sed -n '2,12p' "$0" | sed 's/^# \?//'
+      exit 0 ;;
+    -*)
+      echo "Unknown flag: $1" >&2; exit 1 ;;
+    *)
+      if [[ -z "$CONV_NAME" ]]; then
+        CONV_NAME="$1"
+      elif [[ -z "$MESSAGE" ]]; then
+        MESSAGE="$1"
+      else
+        echo "Unexpected argument: $1" >&2; exit 1
+      fi
+      shift ;;
+  esac
+done
+
+if [[ -z "$CONV_NAME" ]]; then
+  echo "Usage: antchat <conversation-name> [\"message\"] [--from <name>] [--thread <ts>] [--role <role>] [--last N]" >&2
+  exit 1
+fi
+
+SESSION_ID=$(curl -sf "$ANT_URL/api/sessions" | python3 -c "
+import json, sys
+name = $(python3 -c "import json,sys; print(json.dumps(sys.argv[1]))" "$CONV_NAME")
+for s in json.load(sys.stdin):
+    if s.get('type') == 'conversation' and not s.get('archived') and s.get('name') == name:
+        print(s['id'])
+        break
+" 2>/dev/null)
+
+if [[ -z "$SESSION_ID" ]]; then
+  echo "Error: conversation '$CONV_NAME' not found (or ANT unavailable at $ANT_URL)" >&2
+  exit 1
+fi
+
+if [[ -n "$MESSAGE" ]]; then
+  CONTENT="$MESSAGE"
+  if [[ -n "$THREAD_TS" ]]; then
+    CONTENT="$CONTENT (thread:$THREAD_TS)"
+  fi
+
+  PAYLOAD=$(python3 -c "
+import json, sys
+content, role, sender = sys.argv[1], sys.argv[2], sys.argv[3]
+obj = {'role': role, 'content': content, 'format': 'text', 'status': 'complete'}
+if sender:
+    obj['sender_name'] = sender
+    obj['sender_type'] = 'agent'
+print(json.dumps(obj))
+" "$CONTENT" "$ROLE" "$SENDER_NAME")
+
+  RESPONSE=$(curl -sf -X POST "$ANT_URL/api/sessions/$SESSION_ID/messages" \
+    -H 'Content-Type: application/json' \
+    -d "$PAYLOAD")
+
+  CREATED_AT=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('created_at','?'))" 2>/dev/null || echo "?")
+  echo "[sent] $CREATED_AT"
+  exit 0
+fi
+
+MESSAGES=$(curl -sf "$ANT_URL/api/sessions/$SESSION_ID/messages")
+
+python3 - "$MESSAGES" "$LAST_N" << 'PYEOF'
+import json, sys
+from datetime import datetime, timezone
+
+messages = json.loads(sys.argv[1])
+last_n   = int(sys.argv[2]) if sys.argv[2] else None
+
+if last_n:
+    messages = messages[-last_n:]
+
+if not messages:
+    print("(no messages)")
+    sys.exit(0)
+
+COLOURS = {
+    "human":  "\033[96m",
+    "agent":  "\033[92m",
+    "system": "\033[90m",
+}
+RESET = "\033[0m"
+
+for msg in messages:
+    raw_ts = msg.get("created_at", "")
+    try:
+        dt = datetime.fromisoformat(raw_ts.replace(" ", "T"))
+        ts_display = dt.strftime("%H:%M:%S")
+        ts_full    = dt.isoformat()
+    except Exception:
+        ts_display = raw_ts
+        ts_full    = raw_ts
+
+    role        = msg.get("role", "?")
+    content     = msg.get("content", "")
+    sender_name = msg.get("sender_name") or ""
+    colour      = COLOURS.get(role, "")
+
+    role_display = f"@{sender_name}" if sender_name else role
+
+    print(f"{colour}[{ts_display} {role_display}]{RESET} {content}")
+    print(f"  \033[90m↳ thread: {ts_full}{RESET}")
+
+PYEOF

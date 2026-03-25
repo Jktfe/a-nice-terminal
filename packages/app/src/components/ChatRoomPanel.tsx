@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import {
   Users,
   ListTodo,
@@ -10,37 +10,7 @@ import {
   Loader2,
   Circle,
 } from "lucide-react";
-import { apiFetch } from "../store.ts";
-
-interface Participant {
-  terminalSessionId: string;
-  agentName: string;
-  model?: string;
-  terminalName?: string;
-}
-
-interface Task {
-  id: string;
-  name: string;
-  assignedTo?: string;
-  status: "pending" | "in-progress" | "done";
-}
-
-interface RoomFile {
-  id: string;
-  path: string;
-  description?: string;
-  addedBy?: string;
-}
-
-interface RoomDetail {
-  name: string;
-  conversationSessionId: string;
-  purpose?: string;
-  participants: Participant[];
-  tasks: Task[];
-  files: RoomFile[];
-}
+import { useChatRoom, type Task } from "../hooks/useChatRoom.ts";
 
 const statusIcon = (status: Task["status"]) => {
   switch (status) {
@@ -55,38 +25,19 @@ const statusIcon = (status: Task["status"]) => {
 
 export default function ChatRoomPanel({
   roomName,
+  sessionId,
   onClose,
 }: {
   roomName: string;
+  sessionId?: string;
   onClose: () => void;
 }) {
-  const [room, setRoom] = useState<RoomDetail | null>(null);
+  const { room, loading } = useChatRoom(sessionId ?? null);
   const [expandedSections, setExpandedSections] = useState({
     participants: true,
     tasks: true,
     files: true,
   });
-  const [loading, setLoading] = useState(true);
-
-  const fetchRoom = useCallback(async () => {
-    try {
-      const rooms = await apiFetch("/api/chat-rooms");
-      const match = rooms.find(
-        (r: RoomDetail) => r.name.toLowerCase() === roomName.toLowerCase()
-      );
-      if (match) setRoom(match);
-    } catch {
-      // silently fail
-    } finally {
-      setLoading(false);
-    }
-  }, [roomName]);
-
-  useEffect(() => {
-    fetchRoom();
-    const interval = setInterval(fetchRoom, 10000); // refresh every 10s
-    return () => clearInterval(interval);
-  }, [fetchRoom]);
 
   const toggleSection = (section: keyof typeof expandedSections) => {
     setExpandedSections((prev) => ({

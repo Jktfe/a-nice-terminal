@@ -6,6 +6,7 @@ export class AntClient {
   private apiKey?: string;
   private socket: Socket | null = null;
   private messageHandlers: Array<(msg: AntMessage) => void> = [];
+  private sessionListChangedHandlers: Array<() => void> = [];
   private joinedSessions = new Set<string>();
 
   constructor(baseUrl: string, apiKey?: string) {
@@ -49,9 +50,17 @@ export class AntClient {
         }
       });
 
+      this.socket.on("session_list_changed", () => {
+        for (const handler of this.sessionListChangedHandlers) {
+          try { handler(); } catch (err) {
+            console.error("[ant-client] sessionListChanged handler error:", err);
+          }
+        }
+      });
+
       // Debug: log all events
       this.socket.onAny((event: string) => {
-        if (event !== "message_created") {
+        if (event !== "message_created" && event !== "session_list_changed") {
           console.log(`[ant-client] event: ${event}`);
         }
       });
@@ -78,6 +87,10 @@ export class AntClient {
   leaveSession(sessionId: string): void {
     this.joinedSessions.delete(sessionId);
     this.socket?.emit("leave_session", { sessionId });
+  }
+
+  onSessionListChanged(handler: () => void): void {
+    this.sessionListChangedHandlers.push(handler);
   }
 
   onMessageCreated(handler: (msg: AntMessage) => void): void {
