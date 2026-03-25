@@ -22,10 +22,14 @@ import agentV2Routes from "./routes/agent-v2.js";
 import knowledgeRoutes from "./routes/knowledge.js";
 import recipeRoutes from "./routes/recipes.js";
 import coordinationRoutes from "./routes/coordination.js";
+import chatRoomProtocolRoutes from "./routes/chat-rooms.js";
+import retentionRoutes from "./routes/retention.js";
+import commonCallsRoutes from "./routes/common-calls.js";
 import { registerSocketHandlers } from "./ws/handlers.js";
 import { registerTerminalNamespace } from "./ws/terminal-namespace.js";
 import { reapOrphanedSessions } from "./pty-manager.js";
 import { registerDiscoveredModels } from "./agent/auto-discover.js";
+import { startRetentionScheduler, stopRetentionScheduler } from "./retention.js";
 import { features } from "./feature-flags.js";
 
 import db from "./db.js";
@@ -108,6 +112,9 @@ async function start() {
   app.use(knowledgeRoutes);
   app.use(recipeRoutes);
   app.use(coordinationRoutes);
+  app.use(chatRoomProtocolRoutes);
+  app.use(retentionRoutes);
+  app.use(commonCallsRoutes);
 
   // Serve uploads
   const uploadsPath = path.join(__dirname, "..", "..", "public", "uploads");
@@ -172,11 +179,15 @@ async function start() {
     upsertState.run("last_heartbeat", new Date().toISOString());
   }, 30_000);
 
+  // Archive retention — daily sweep to parse and delete expired archived sessions
+  startRetentionScheduler(io);
+
   // Graceful shutdown — record timestamp so the next startup knows how long we were down
   function gracefulShutdown(signal: string) {
     console.log(`[server] Received ${signal} — recording shutdown timestamp`);
     upsertState.run("last_shutdown", new Date().toISOString());
     clearInterval(heartbeatInterval);
+    stopRetentionScheduler();
     httpServer.close(() => process.exit(0));
     // Force exit after 5s if connections don't close
     setTimeout(() => process.exit(0), 5000);

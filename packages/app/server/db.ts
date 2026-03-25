@@ -406,6 +406,42 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_links_to ON knowledge_links(to_type, to_id);
 `);
 
+// ---------------------------------------------------------------------------
+// Session Digests — LLM-extracted summaries of archived sessions before deletion
+// ---------------------------------------------------------------------------
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS session_digests (
+    id TEXT PRIMARY KEY,
+    session_name TEXT NOT NULL,
+    session_type TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    key_learnings TEXT NOT NULL DEFAULT '[]',
+    tags TEXT NOT NULL DEFAULT '[]',
+    session_created_at TEXT NOT NULL,
+    session_archived_at TEXT,
+    parsed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    parsed_by TEXT,
+    source_message_count INTEGER DEFAULT 0,
+    source_output_chunks INTEGER DEFAULT 0
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_session_digests_parsed_at
+    ON session_digests(parsed_at);
+`);
+
+// FTS5 for full-text search over session digests
+try {
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS session_digests_fts USING fts5(
+      session_name, summary, key_learnings, tags,
+      content=session_digests, content_rowid=rowid
+    );
+  `);
+} catch {
+  // FTS5 table may already exist
+}
+
 // Migration: add intent column to command_events
 try { db.exec(`ALTER TABLE command_events ADD COLUMN intent TEXT DEFAULT NULL`); } catch {}
 
@@ -557,6 +593,20 @@ db.exec(`
 
 // Migration: add git_commit_hash column to command_events
 try { db.exec(`ALTER TABLE command_events ADD COLUMN git_commit_hash TEXT DEFAULT NULL`); } catch {}
+
+// ---------------------------------------------------------------------------
+// Common Calls — quick-copy command snippets
+// ---------------------------------------------------------------------------
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS common_calls (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    command TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
 
 export default db;
 export { DB_PATH };

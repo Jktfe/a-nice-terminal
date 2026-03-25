@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { X, Send } from "lucide-react";
-import { chatApiFetch, useStore, type Message } from "../store.ts";
+import { apiFetch, useStore, type Message } from "../store.ts";
 import MessageBubble from "./MessageBubble.tsx";
 
 interface ThreadPanelProps {
@@ -17,7 +17,7 @@ export default function ThreadPanel({ parentMessage, sessionId, onClose }: Threa
   const { chatSocket } = useStore();
 
   useEffect(() => {
-    chatApiFetch(`/api/sessions/${sessionId}/messages/${parentMessage.id}/thread`)
+    apiFetch(`/api/sessions/${sessionId}/messages/${parentMessage.id}/thread`)
       .then((data) => setReplies(data.replies || []))
       .catch(() => {});
   }, [sessionId, parentMessage.id]);
@@ -39,7 +39,7 @@ export default function ThreadPanel({ parentMessage, sessionId, onClose }: Threa
     if (!replyInput.trim() || sending) return;
     setSending(true);
     try {
-      await chatApiFetch(`/api/sessions/${sessionId}/messages`, {
+      await apiFetch(`/api/sessions/${sessionId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

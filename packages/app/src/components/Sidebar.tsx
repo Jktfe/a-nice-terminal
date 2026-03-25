@@ -16,6 +16,7 @@ import {
   RotateCcw,
   Sun,
   Moon,
+  Zap,
 } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
@@ -48,6 +49,8 @@ export default function Sidebar() {
     moveSessionToWorkspace,
     uiTheme,
     setUiTheme,
+    openParseDeleteDialog,
+    toggleCommonCalls,
   } = useStore();
   const [search, setSearch] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -445,8 +448,10 @@ export default function Sidebar() {
                   onArchive={() => {}}
                   onRestore={() => restoreSession(session.id)}
                   onDelete={(e) => {
-                    if (window.confirm("Permanently delete this archived session?")) {
+                    if (e.shiftKey && window.confirm("Permanently delete this archived session?")) {
                       deleteSession(session.id);
+                    } else if (!e.shiftKey) {
+                      openParseDeleteDialog(session.id);
                     }
                   }}
                   onTogglePin={() => {}}
@@ -475,6 +480,13 @@ export default function Sidebar() {
 
       {/* Settings Footer */}
       <div className="p-3 border-t border-[var(--color-border)] space-y-1">
+        <button
+          onClick={toggleCommonCalls}
+          className="flex items-center gap-2 p-2 w-full rounded-lg transition-colors text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)]"
+        >
+          <Zap className="w-4 h-4" />
+          <span className="text-xs font-medium">Common Calls</span>
+        </button>
         <button
           onClick={toggleShowArchived}
           className={`flex items-center gap-2 p-2 w-full rounded-lg transition-colors ${

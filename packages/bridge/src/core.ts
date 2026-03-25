@@ -1,6 +1,7 @@
 import { AntClient } from "./ant-client.js";
 import { DedupTracker } from "./dedup.js";
-import { TerminalWatcher, type TerminalCommand } from "./terminal-watcher.js";
+import { TerminalWatcher, type TerminalCommand, type ChatMessage, type TaskCommand, type FileCommand } from "./terminal-watcher.js";
+import { ChatRoomRegistry } from "./chat-room-registry.js";
 import type {
   PlatformAdapter,
   ModelAdapter,
@@ -22,6 +23,7 @@ export class BridgeCore {
   private dedupTrackers = new Map<string, DedupTracker>();
   private mappingCache = new Map<string, BridgeMapping>(); // "platform:channelId" → mapping
   private terminalWatcher: TerminalWatcher | null = null;
+  private chatRoomRegistry = new ChatRoomRegistry();
   private sessionCache: { data: Array<{ id: string; name: string; type: string; archived: number }>; expiresAt: number } | null = null;
   private static SESSION_CACHE_TTL = 30_000; // 30s
 
@@ -88,6 +90,9 @@ export class BridgeCore {
     // Start terminal watcher — watches PTY output for CLI commands
     this.terminalWatcher = new TerminalWatcher(this.config.antUrl, this.config.antApiKey);
     this.terminalWatcher.onCommand((cmd) => this.handleTerminalCommand(cmd));
+    this.terminalWatcher.onChatMessage((msg) => this.handleChatMessage(msg));
+    this.terminalWatcher.onTaskCommand((cmd) => this.handleTaskCommand(cmd));
+    this.terminalWatcher.onFileCommand((cmd) => this.handleFileCommand(cmd));
     try {
       await this.terminalWatcher.connect();
       // Watch all active terminal sessions
@@ -161,6 +166,126 @@ export class BridgeCore {
     } catch (err) {
       console.error("[bridge] Terminal command error:", err instanceof Error ? err.message : err);
     }
+  }
+
+  // --- ANTchat!: Terminal PTY → Conversation + other terminals ---
+
+  private async handleChatMessage(msg: ChatMessage): Promise<void> {
+    try {
+      let room = this.chatRoomRegistry.getRoom(msg.roomName);
+
+      // Auto-resolve room if not registered: find conversation session by name
+      if (!room) {
+        const sessions = await this.getCachedSessions();
+        const match = sessions.find(
+          (s) => s.type === "conversation" && s.name.toLowerCase() === msg.roomName.toLowerCase()
+        );
+        if (match) {
+          room = this.chatRoomRegistry.registerRoom(msg.roomName, match.id);
+        }
+      }
+
+      if (!room) {
+        console.warn(`[bridge] ANTchat! room not found: "${msg.roomName}"`);
+        return;
+      }
+
+      // Build attribution from participant info or fall back to session ID
+      const info = this.chatRoomRegistry.getParticipantInfo(msg.roomName, msg.sessionId);
+      const label = info
+        ? `[${info.agentName}${info.model ? ` (${info.terminalName || msg.sessionId.slice(0, 8)} | ${info.model})` : ""}]`
+        : `[Terminal ${msg.sessionId.slice(0, 8)}]`;
+
+      const attributed = `${label} ${msg.content}`;
+
+      // 1) Post to the conversation session
+      await this.ant.postMessage(room.conversationSessionId, {
+        content: attributed,
+        role: "human",
+        senderType: "agent",
+        senderName: info?.agentName || `Terminal ${msg.sessionId.slice(0, 8)}`,
+        metadata: {
+          source: "antchat",
+          source_session_id: msg.sessionId,
+          room_name: msg.roomName,
+          ...(msg.threadTs ? { thread_ts: msg.threadTs } : {}),
+        },
+      });
+
+      // 2) Fan out to all other participant terminals
+      const others = this.chatRoomRegistry.getOtherParticipants(msg.roomName, msg.sessionId);
+      for (const terminalId of others) {
+        this.terminalWatcher?.writeToTerminal(terminalId, `\r\n${attributed}\r\n`);
+      }
+
+      console.log(`[bridge] ANTchat! ${msg.sessionId.slice(0, 8)} → room "${msg.roomName}": "${msg.content.slice(0, 60)}..."`);
+    } catch (err) {
+      console.error("[bridge] ANTchat! error:", err instanceof Error ? err.message : err);
+    }
+  }
+
+  // --- ANTtask!: Terminal PTY → Room task management ---
+
+  private async handleTaskCommand(cmd: TaskCommand): Promise<void> {
+    try {
+      let room = this.chatRoomRegistry.getRoom(cmd.roomName);
+      if (!room) {
+        const sessions = await this.getCachedSessions();
+        const match = sessions.find(
+          (s) => s.type === "conversation" && s.name.toLowerCase() === cmd.roomName.toLowerCase()
+        );
+        if (match) room = this.chatRoomRegistry.registerRoom(cmd.roomName, match.id);
+      }
+      if (!room) return;
+
+      // Find existing task by name or create new one
+      const existing = room.tasks.find((t) => t.name.toLowerCase() === cmd.taskName.toLowerCase());
+      if (existing) {
+        const status = cmd.status as "pending" | "in-progress" | "done" | undefined;
+        this.chatRoomRegistry.updateTask(cmd.roomName, existing.id, {
+          status,
+          assignedTo: cmd.assignedTo,
+        });
+        console.log(`[bridge] ANTtask! updated: "${cmd.taskName}" → ${cmd.status || "no status change"}`);
+      } else {
+        this.chatRoomRegistry.addTask(cmd.roomName, cmd.taskName, cmd.assignedTo);
+        console.log(`[bridge] ANTtask! created: "${cmd.taskName}" assigned to ${cmd.assignedTo || "TBA"}`);
+      }
+    } catch (err) {
+      console.error("[bridge] ANTtask! error:", err instanceof Error ? err.message : err);
+    }
+  }
+
+  // --- ANTfile!: Terminal PTY → Room file registration ---
+
+  private async handleFileCommand(cmd: FileCommand): Promise<void> {
+    try {
+      let room = this.chatRoomRegistry.getRoom(cmd.roomName);
+      if (!room) {
+        const sessions = await this.getCachedSessions();
+        const match = sessions.find(
+          (s) => s.type === "conversation" && s.name.toLowerCase() === cmd.roomName.toLowerCase()
+        );
+        if (match) room = this.chatRoomRegistry.registerRoom(cmd.roomName, match.id);
+      }
+      if (!room) return;
+
+      const info = this.chatRoomRegistry.getParticipantInfo(cmd.roomName, cmd.sessionId);
+      this.chatRoomRegistry.addFile(
+        cmd.roomName,
+        cmd.path,
+        cmd.description,
+        info?.agentName || `Terminal ${cmd.sessionId.slice(0, 8)}`
+      );
+      console.log(`[bridge] ANTfile! registered: "${cmd.path}" in room "${cmd.roomName}"`);
+    } catch (err) {
+      console.error("[bridge] ANTfile! error:", err instanceof Error ? err.message : err);
+    }
+  }
+
+  /** Expose room registry for external API endpoints */
+  getChatRoomRegistry(): ChatRoomRegistry {
+    return this.chatRoomRegistry;
   }
 
   // --- Inbound: Platform → ANT ---
@@ -289,6 +414,26 @@ export class BridgeCore {
     if (msg.metadata?.bot_type === "direct") {
       console.log(`[bridge] Outbound skip (direct bot): msg=${msg.id}`);
       return;
+    }
+
+    // --- Chat room fan-out: conversation messages → participant terminals ---
+    // Skip messages that originated from ANTchat! (already handled by handleChatMessage)
+    if (msg.metadata?.source !== "antchat" && this.terminalWatcher) {
+      for (const room of this.chatRoomRegistry.listRooms()) {
+        if (room.conversationSessionId === msg.session_id && room.participants.size > 0) {
+          const senderName = msg.sender_name || msg.role;
+          const label = `[${senderName}]`;
+          const fanOutText = `${label} ${msg.content}`;
+
+          for (const [terminalId] of room.participants) {
+            // Don't echo back to the terminal that sent via ANTchat!
+            if (msg.metadata?.source_session_id === terminalId) continue;
+            this.terminalWatcher.writeToTerminal(terminalId, `\r\n${fanOutText}\r\n`);
+          }
+          console.log(`[bridge] Chat room fan-out: "${room.name}" → ${room.participants.size} terminals`);
+          break;
+        }
+      }
     }
 
     const text = `${this.buildOutboundPrefix(msg)} ${msg.content}`;

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { ThumbsDown, ThumbsUp, ChevronDown, ChevronUp } from "lucide-react";
-import { chatApiFetch, type Message } from "../store.ts";
+import { apiFetch, type Message } from "../store.ts";
 
 interface SessionRatingProps {
   message: Message;
@@ -42,7 +42,7 @@ export default function SessionRating({ message, sessionId, onAnnotationChange }
           trust: next.trust,
         },
       };
-      const result = await chatApiFetch(`/api/sessions/${sessionId}/messages/${message.id}/annotate`, {
+      const result = await apiFetch(`/api/sessions/${sessionId}/messages/${message.id}/annotate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

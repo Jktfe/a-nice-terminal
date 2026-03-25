@@ -98,10 +98,16 @@ export default function MessageBubble({
               size={scale < 1 ? 16 : 20}
             />
             <div className="min-w-0 flex-1">
-              {/* Sender name for bridged messages */}
-              {platformInfo && message.sender_name && (
-                <div className="text-[11px] font-medium mb-0.5" style={{ color: platformInfo.color }}>
+              {/* Sender name — shown for all non-human messages with a sender_name */}
+              {!human && message.sender_name && (
+                <div
+                  className="text-[11px] font-medium mb-0.5"
+                  style={{ color: platformInfo?.color || theme.accent }}
+                >
                   {message.sender_name}
+                  {platformInfo && (
+                    <span className="ml-1 opacity-60">via {platformInfo.label}</span>
+                  )}
                 </div>
               )}
               {/* Content */}

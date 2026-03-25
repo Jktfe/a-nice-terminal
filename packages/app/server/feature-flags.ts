@@ -25,6 +25,9 @@ export const features = {
   /** Auto preference learning from command patterns */
   preferenceLearning: () => isEnabled("ANT_ENABLE_PREFERENCE_LEARNING"),
 
+  /** Automatic archive retention with LLM parsing before deletion */
+  archiveRetention: () => isEnabled("ANT_ENABLE_ARCHIVE_RETENTION"),
+
   /** Beeper Desktop integration (unified messaging) */
   beeper: () => isEnabled("ANT_ENABLE_BEEPER", false), // default OFF — requires Beeper Desktop
 };

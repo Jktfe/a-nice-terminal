@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { X, Save, AlertCircle } from "lucide-react";
+import { X, Save, AlertCircle, Play, Loader2 } from "lucide-react";
 import { useStore, apiFetch } from "../store.ts";
 import { terminalThemes } from "../themes.ts";
 
@@ -14,6 +14,13 @@ export default function SettingsModal() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [vaultPath, setVaultPath] = useState("");
   const [vaultSaved, setVaultSaved] = useState(false);
+  const [retentionDays, setRetentionDays] = useState("15");
+  const [retentionLmUrl, setRetentionLmUrl] = useState("http://localhost:1234");
+  const [retentionLmModel, setRetentionLmModel] = useState("");
+  const [retentionPolicy, setRetentionPolicy] = useState<"keep" | "delete">("keep");
+  const [lastRetentionRun, setLastRetentionRun] = useState<string | null>(null);
+  const [sweepRunning, setSweepRunning] = useState(false);
+  const [sweepResult, setSweepResult] = useState<string | null>(null);
 
   useEffect(() => {
     if (settingsOpen) {
@@ -37,6 +44,16 @@ export default function SettingsModal() {
       } catch {
         // Chat sidecar may not be running yet
       }
+      try {
+        const ret = await apiFetch("/api/retention/settings");
+        setRetentionDays(String(ret.archive_retention_days || 15));
+        setRetentionLmUrl(ret.retention_lm_url || "http://localhost:1234");
+        setRetentionLmModel(ret.retention_lm_model || "");
+        setRetentionPolicy(ret.retention_lm_unavailable_policy || "keep");
+        setLastRetentionRun(ret.last_retention_run || null);
+      } catch {
+        // Retention API may not be available
+      }
     } catch (err: any) {
       setError(err.message || "Failed to load settings");
     } finally {
@@ -58,6 +75,36 @@ export default function SettingsModal() {
       setError(err.message || "Failed to save settings");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const saveRetentionSettings = async () => {
+    try {
+      await apiFetch("/api/retention/settings", {
+        method: "PATCH",
+        body: JSON.stringify({
+          archive_retention_days: parseInt(retentionDays) || 15,
+          retention_lm_url: retentionLmUrl,
+          retention_lm_model: retentionLmModel,
+          retention_lm_unavailable_policy: retentionPolicy,
+        }),
+      });
+    } catch (err: any) {
+      setError(err.message || "Failed to save retention settings");
+    }
+  };
+
+  const runSweepNow = async () => {
+    setSweepRunning(true);
+    setSweepResult(null);
+    try {
+      const result = await apiFetch("/api/retention/run", { method: "POST" });
+      setSweepResult(`${result.processed} processed, ${result.parsed} parsed, ${result.deleted} deleted`);
+      setLastRetentionRun(new Date().toISOString());
+    } catch (err: any) {
+      setSweepResult(`Error: ${err.message}`);
+    } finally {
+      setSweepRunning(false);
     }
   };
 
@@ -216,6 +263,99 @@ export default function SettingsModal() {
                         </option>
                       ))}
                     </select>
+                  </div>
+                </div>
+
+                {/* Retention */}
+                <div className="border-t border-[var(--color-border)] pt-4 mt-1">
+                  <h3 className="text-sm font-semibold text-[var(--color-text-muted)] uppercase tracking-wider mb-3">
+                    Archive Retention
+                  </h3>
+
+                  <div className="flex flex-col gap-3">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] uppercase tracking-wider text-[var(--color-text-dim)]">
+                        Retention Period (days)
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={365}
+                        value={retentionDays}
+                        onChange={(e) => setRetentionDays(e.target.value)}
+                        onBlur={saveRetentionSettings}
+                        className="bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm text-[var(--color-text)] focus:outline-none focus:border-emerald-500/50 w-24"
+                      />
+                      <p className="text-xs text-[var(--color-text-dim)]">
+                        Archived sessions are parsed and deleted after this many days.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] uppercase tracking-wider text-[var(--color-text-dim)]">
+                        Local LLM URL
+                      </label>
+                      <input
+                        value={retentionLmUrl}
+                        onChange={(e) => setRetentionLmUrl(e.target.value)}
+                        onBlur={saveRetentionSettings}
+                        placeholder="http://localhost:1234"
+                        className="bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm text-[var(--color-text)] focus:outline-none focus:border-emerald-500/50"
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] uppercase tracking-wider text-[var(--color-text-dim)]">
+                        LLM Model (blank = auto-detect)
+                      </label>
+                      <input
+                        value={retentionLmModel}
+                        onChange={(e) => setRetentionLmModel(e.target.value)}
+                        onBlur={saveRetentionSettings}
+                        placeholder="auto-detect"
+                        className="bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm text-[var(--color-text)] focus:outline-none focus:border-emerald-500/50"
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] uppercase tracking-wider text-[var(--color-text-dim)]">
+                        When LLM Unavailable
+                      </label>
+                      <div className="flex gap-2">
+                        {(["keep", "delete"] as const).map((p) => (
+                          <button
+                            key={p}
+                            onClick={() => { setRetentionPolicy(p); setTimeout(saveRetentionSettings, 0); }}
+                            className={`flex-1 px-3 py-2 text-xs font-medium rounded-lg border transition-colors capitalize ${
+                              retentionPolicy === p
+                                ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+                                : "bg-[var(--color-input-bg)] text-[var(--color-text-muted)] border-[var(--color-border)] hover:border-emerald-500/30"
+                            }`}
+                          >
+                            {p === "keep" ? "Keep until available" : "Delete anyway"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 mt-1">
+                      <button
+                        onClick={runSweepNow}
+                        disabled={sweepRunning}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 text-xs disabled:opacity-50"
+                      >
+                        {sweepRunning ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+                        {sweepRunning ? "Running..." : "Run Sweep Now"}
+                      </button>
+                      {lastRetentionRun && (
+                        <span className="text-[10px] text-[var(--color-text-dim)]">
+                          Last: {new Date(lastRetentionRun).toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                    {sweepResult && (
+                      <p className="text-xs text-[var(--color-text-muted)]">{sweepResult}</p>
+                    )}
                   </div>
                 </div>
 

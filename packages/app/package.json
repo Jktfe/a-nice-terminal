@@ -17,10 +17,12 @@
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",
     "@tiptap/extension-code-block-lowlight": "^2.11.0",
+    "@tiptap/extension-mention": "^2.11.0",
     "@tiptap/extension-placeholder": "^2.11.0",
     "@tiptap/pm": "^2.11.0",
     "@tiptap/react": "^2.11.0",
     "@tiptap/starter-kit": "^2.11.0",
+    "@tiptap/suggestion": "^2.11.0",
     "@types/multer": "^2.1.0",
     "@vitejs/plugin-react": "^5.0.4",
     "@xterm/addon-fit": "^0.11.0",

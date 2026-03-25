@@ -1,5 +1,5 @@
 import { ThumbsUp, ThumbsDown, Flag, Star, Reply, Copy, Download, Trash2 } from "lucide-react";
-import { chatApiFetch, type Message } from "../store.ts";
+import { apiFetch, type Message } from "../store.ts";
 
 interface MessageToolbarProps {
   message: Message;
@@ -15,7 +15,7 @@ export default function MessageToolbar({ message, sessionId, onReply, onDelete, 
 
   const toggleAnnotation = async (type: string) => {
     try {
-      const result = await chatApiFetch(`/api/sessions/${sessionId}/messages/${message.id}/annotate`, {
+      const result = await apiFetch(`/api/sessions/${sessionId}/messages/${message.id}/annotate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type, by: "human" }),
@@ -34,7 +34,7 @@ export default function MessageToolbar({ message, sessionId, onReply, onDelete, 
 
   const storeToObsidian = async () => {
     try {
-      await chatApiFetch("/api/store", {
+      await apiFetch("/api/store", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messageId: message.id, sessionId }),

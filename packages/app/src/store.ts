@@ -99,6 +99,10 @@ interface AppState {
   agentPresence: Record<string, AgentPresence>;
   uiTheme: UiTheme;
   docsOpen: boolean;
+  knowledgePanelOpen: boolean;
+  parseDeleteSessionId: string | null;
+  draftsBySessionId: Record<string, string>;
+  commonCallsOpen: boolean;
   offlineQueue: Array<{ sessionId: string; content: string; role: string; queuedAt: string }>;
 
   // Actions
@@ -141,6 +145,12 @@ interface AppState {
   setAgentState: (sessionId: string, agentId: string, state: AgentState) => void;
   setUiTheme: (theme: UiTheme) => void;
   toggleDocs: () => void;
+  toggleKnowledgePanel: () => void;
+  openParseDeleteDialog: (id: string) => void;
+  closeParseDeleteDialog: () => void;
+  saveDraft: (sessionId: string, text: string) => void;
+  clearDraft: (sessionId: string) => void;
+  toggleCommonCalls: () => void;
 }
 
 const API_KEY = (import.meta.env.VITE_ANT_API_KEY as string | undefined)?.trim();
@@ -241,6 +251,10 @@ export const useStore = create<AppState>((set, get) => ({
   agentPresence: {},
   uiTheme: loadUiTheme(),
   docsOpen: false,
+  knowledgePanelOpen: false,
+  parseDeleteSessionId: null,
+  draftsBySessionId: {},
+  commonCallsOpen: false,
   offlineQueue: JSON.parse(localStorage.getItem("ant-offline-queue") || "[]"),
 
   setError: (message) => set({ error: message }),
@@ -556,6 +570,9 @@ export const useStore = create<AppState>((set, get) => ({
       const { activeSessionId, sessions } = get();
       const updatedSessions = sessions.filter((s) => s.id !== id);
       set({ sessions: updatedSessions });
+      // Clean up draft for deleted session
+      const { [id]: _, ...remainingDrafts } = get().draftsBySessionId;
+      set({ draftsBySessionId: remainingDrafts });
       if (activeSessionId === id) {
         const next = updatedSessions.find((s) => s.archived === 0)?.id || null;
         set({ activeSessionId: next });
@@ -813,6 +830,17 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   toggleDocs: () => set((s) => ({ docsOpen: !s.docsOpen })),
+  toggleKnowledgePanel: () => set((s) => ({ knowledgePanelOpen: !s.knowledgePanelOpen })),
+  openParseDeleteDialog: (id) => set({ parseDeleteSessionId: id }),
+  closeParseDeleteDialog: () => set({ parseDeleteSessionId: null }),
+  saveDraft: (sessionId, text) => set((s) => ({
+    draftsBySessionId: { ...s.draftsBySessionId, [sessionId]: text },
+  })),
+  clearDraft: (sessionId) => set((s) => {
+    const { [sessionId]: _, ...rest } = s.draftsBySessionId;
+    return { draftsBySessionId: rest };
+  }),
+  toggleCommonCalls: () => set((s) => ({ commonCallsOpen: !s.commonCallsOpen })),
 }));
 
 // Apply theme on load

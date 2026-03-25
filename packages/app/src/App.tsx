@@ -14,6 +14,9 @@ import StatusBar from "./components/StatusBar.tsx";
 import OfflineOverlay from "./components/OfflineOverlay.tsx";
 import SettingsModal from "./components/SettingsModal.tsx";
 import DocsModal from "./components/DocsModal.tsx";
+import ParseDeleteDialog from "./components/ParseDeleteDialog.tsx";
+import KnowledgePanel from "./components/KnowledgePanel.tsx";
+import CommonCallsPanel from "./components/CommonCallsPanel.tsx";
 import { Terminal, MessageSquare, Layers } from "lucide-react";
 import { useIsMobile } from "./hooks/useIsMobile.ts";
 import MobileTabBar, { type MobileTab } from "./components/MobileTabBar.tsx";
@@ -58,6 +61,9 @@ export default function App() {
     setSplitSession,
     toggleDocs,
     toggleSettings,
+    knowledgePanelOpen,
+    toggleKnowledgePanel,
+    toggleCommonCalls,
   } = useStore();
   const [quickSwitcherOpen, setQuickSwitcherOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -95,6 +101,12 @@ export default function App() {
       } else if (e.key === "F" && e.shiftKey) {
         e.preventDefault();
         setSearchOpen((v) => !v);
+      } else if (e.key === "K" && e.shiftKey) {
+        e.preventDefault();
+        toggleKnowledgePanel();
+      } else if (e.key === "C" && e.shiftKey) {
+        e.preventDefault();
+        toggleCommonCalls();
       } else if (e.key === "/") {
         e.preventDefault();
         toggleDocs();
@@ -112,7 +124,7 @@ export default function App() {
         }
       }
     },
-    [createSession, toggleSidebar, splitMode, toggleSplit, toggleDocs, toggleSettings]
+    [createSession, toggleSidebar, splitMode, toggleSplit, toggleDocs, toggleSettings, toggleKnowledgePanel, toggleCommonCalls]
   );
 
   useEffect(() => {
@@ -223,6 +235,9 @@ export default function App() {
         {searchOpen && <SearchPanel onClose={() => setSearchOpen(false)} />}
         <SettingsModal />
         <DocsModal />
+        <ParseDeleteDialog />
+        <KnowledgePanel />
+        <CommonCallsPanel />
         <OfflineOverlay />
       </div>
     );
