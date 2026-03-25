@@ -307,6 +307,9 @@ export default function App() {
 
       <SettingsModal />
       <DocsModal />
+      <ParseDeleteDialog />
+      <KnowledgePanel />
+      <CommonCallsPanel />
 
       <OfflineOverlay />
     </div>
