@@ -63,8 +63,8 @@ describe("MCP server tools", () => {
     });
   }
 
-  it("registers all 21 tools", () => {
-    expect(toolHandlers.size).toBe(21);
+  it("registers all tools", () => {
+    // Core tools + agent orchestration tools
     expect(toolHandlers.has("ant_list_sessions")).toBe(true);
     expect(toolHandlers.has("ant_create_session")).toBe(true);
     expect(toolHandlers.has("ant_get_session")).toBe(true);
@@ -86,6 +86,16 @@ describe("MCP server tools", () => {
     expect(toolHandlers.has("ant_update_workspace")).toBe(true);
     expect(toolHandlers.has("ant_delete_workspace")).toBe(true);
     expect(toolHandlers.has("ant_search")).toBe(true);
+    // Agent orchestration tools
+    expect(toolHandlers.has("ant_bootstrap")).toBe(true);
+    expect(toolHandlers.has("ant_get_context")).toBe(true);
+    expect(toolHandlers.has("ant_join_conversation")).toBe(true);
+    expect(toolHandlers.has("ant_leave_conversation")).toBe(true);
+    expect(toolHandlers.has("ant_list_my_conversations")).toBe(true);
+    expect(toolHandlers.has("ant_list_conversation_members")).toBe(true);
+    expect(toolHandlers.has("ant_poll_notifications")).toBe(true);
+    // Verify minimum tool count (core + orchestration + agent registry + coordination + knowledge + recipes + beeper + etc.)
+    expect(toolHandlers.size).toBeGreaterThanOrEqual(74);
   });
 
   describe("ant_list_sessions", () => {

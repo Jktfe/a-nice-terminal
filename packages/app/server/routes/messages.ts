@@ -4,6 +4,7 @@ import db from "../db.js";
 import type { DbSession } from "../types.js";
 import { stripAnsi } from "../types.js";
 import { normalizeRole, VALID_FORMATS } from "../constants.js";
+import { resolveMentions } from "./agent-v2.js";
 
 const VALID_STATUSES = ["pending", "streaming", "complete"] as const;
 
@@ -133,8 +134,125 @@ router.post("/api/sessions/:sessionId/messages", (req, res) => {
     }
   }
 
+  // --- Mention resolution → task creation pipeline ---
+  if (sanitisedContent && normalisedRole !== "system") {
+    try {
+      const mentions = resolveMentions(sanitisedContent, req.params.sessionId);
+      if (mentions.length > 0) {
+        // Extract task text per mention: split on @mention boundaries
+        const mentionTasks = extractTasksPerMention(sanitisedContent, mentions);
+
+        for (const { mention, taskText } of mentionTasks) {
+          const taskId = nanoid(12);
+          const payload = JSON.stringify({
+            task: taskText,
+            from: { name: sender_name || "Unknown", type: resolvedSenderType },
+            full_message: sanitisedContent.length > 500 ? sanitisedContent.slice(0, 500) + "..." : sanitisedContent,
+          });
+
+          db.prepare(`
+            INSERT INTO coordination_events (id, session_id, event_type, agent_id, target_agent_id, payload, status, source, source_message_id, source_session_id, expires_at)
+            VALUES (?, ?, 'task_available', ?, ?, ?, 'pending', 'mention', ?, ?, ?)
+          `).run(
+            taskId,
+            req.params.sessionId,
+            null, // agent_id (creator) — could be the sender
+            mention.agent_id,
+            payload,
+            id, // source_message_id
+            req.params.sessionId,
+            new Date(Date.now() + 60 * 60 * 1000).toISOString(), // 1h expiry
+          );
+
+          // Push notification to online agents via Socket.IO
+          if (io) {
+            io.emit("agent_notification", {
+              type: "mention",
+              task_id: taskId,
+              target_agent_id: mention.agent_id,
+              session_id: req.params.sessionId,
+              message_id: id,
+              from: { name: sender_name || "Unknown", type: resolvedSenderType },
+              extracted_task: taskText,
+              handle: mention.handle,
+              created_at: new Date().toISOString(),
+            });
+          }
+        }
+
+        // Post system message summarising task assignments
+        if (mentionTasks.length > 0) {
+          const summaryParts = mentionTasks.map(({ mention, taskText }) =>
+            `@${mention.handle}: ${taskText.length > 80 ? taskText.slice(0, 80) + "..." : taskText}`
+          );
+          const summaryContent = mentionTasks.length === 1
+            ? `Task assigned to ${summaryParts[0]}`
+            : `${mentionTasks.length} tasks created:\n${summaryParts.map((s) => `• ${s}`).join("\n")}`;
+
+          const sysMsgId = nanoid(12);
+          db.prepare(`
+            INSERT INTO messages (id, session_id, role, content, format, sender_type, sender_name, message_type, metadata)
+            VALUES (?, ?, 'system', ?, 'markdown', 'system', 'ANT', 'agent_action', ?)
+          `).run(
+            sysMsgId, req.params.sessionId, summaryContent,
+            JSON.stringify({ type: "assignment", mentions: mentionTasks.map(({ mention }) => ({ agent_id: mention.agent_id, handle: mention.handle })) }),
+          );
+
+          if (io) {
+            const sysMsg = db.prepare("SELECT * FROM messages WHERE id = ?").get(sysMsgId) as any;
+            if (sysMsg) {
+              if (sysMsg.metadata) sysMsg.metadata = JSON.parse(sysMsg.metadata);
+              io.to(req.params.sessionId).emit("message_created", sysMsg);
+            }
+          }
+        }
+      }
+    } catch {
+      // Non-fatal — mention resolution shouldn't break message creation
+    }
+  }
+
   res.status(201).json(message);
 });
+
+// Helper: extract task text per mention from a multi-mention message
+function extractTasksPerMention(
+  content: string,
+  mentions: Array<{ agent_id: string; handle: string; display_name: string; matched: string; in_conversation: boolean }>
+): Array<{ mention: typeof mentions[0]; taskText: string }> {
+  const results: Array<{ mention: typeof mentions[0]; taskText: string }> = [];
+
+  if (mentions.length === 1) {
+    // Single mention: task is everything after the @mention
+    const pattern = new RegExp(`@${mentions[0].matched}\\s*`, "i");
+    const taskText = content.replace(pattern, "").trim();
+    if (taskText) results.push({ mention: mentions[0], taskText });
+    return results;
+  }
+
+  // Multiple mentions: split on @mention boundaries
+  // Find positions of each mention
+  const positions: Array<{ mention: typeof mentions[0]; start: number; end: number }> = [];
+  for (const mention of mentions) {
+    const regex = new RegExp(`@${mention.matched}`, "i");
+    const match = regex.exec(content);
+    if (match) {
+      positions.push({ mention, start: match.index, end: match.index + match[0].length });
+    }
+  }
+
+  // Sort by position
+  positions.sort((a, b) => a.start - b.start);
+
+  for (let i = 0; i < positions.length; i++) {
+    const current = positions[i];
+    const nextStart = i + 1 < positions.length ? positions[i + 1].start : content.length;
+    const taskText = content.slice(current.end, nextStart).trim();
+    if (taskText) results.push({ mention: current.mention, taskText });
+  }
+
+  return results;
+}
 
 // Update message (for streaming)
 router.patch("/api/sessions/:sessionId/messages/:id", (req, res) => {

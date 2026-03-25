@@ -302,6 +302,7 @@ db.exec(`
 db.exec(`
   CREATE TABLE IF NOT EXISTS agent_registry (
     id TEXT PRIMARY KEY,
+    handle TEXT UNIQUE,
     model_family TEXT NOT NULL,
     display_name TEXT NOT NULL,
     capabilities TEXT NOT NULL DEFAULT '[]',
@@ -317,6 +318,30 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_handle ON agent_registry(handle);
+`);
+
+// Migration: add handle column to agent_registry
+try { db.exec(`ALTER TABLE agent_registry ADD COLUMN handle TEXT UNIQUE`); } catch {}
+
+// ---------------------------------------------------------------------------
+// V2: Conversation Members — tracks which agents have joined which chats
+// ---------------------------------------------------------------------------
+db.exec(`
+  CREATE TABLE IF NOT EXISTS conversation_members (
+    session_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    handle TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'participant',
+    joined_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (session_id, agent_id),
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY (agent_id) REFERENCES agent_registry(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_conv_members_agent ON conversation_members(agent_id);
+  CREATE INDEX IF NOT EXISTS idx_conv_members_handle ON conversation_members(handle);
 `);
 
 // ---------------------------------------------------------------------------
@@ -558,6 +583,11 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_coord_events_target ON coordination_events(target_agent_id);
   CREATE INDEX IF NOT EXISTS idx_coord_events_session ON coordination_events(session_id);
 `);
+
+// Migration: add source tracking to coordination_events for mention-based tasks
+try { db.exec(`ALTER TABLE coordination_events ADD COLUMN source TEXT DEFAULT NULL`); } catch {}
+try { db.exec(`ALTER TABLE coordination_events ADD COLUMN source_message_id TEXT DEFAULT NULL`); } catch {}
+try { db.exec(`ALTER TABLE coordination_events ADD COLUMN source_session_id TEXT DEFAULT NULL`); } catch {}
 
 // V2: Device tracking for multi-device awareness
 db.exec(`

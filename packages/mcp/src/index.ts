@@ -1292,9 +1292,10 @@ server.tool(
 // Register an agent
 server.tool(
   "ant_register_agent",
-  "Register this AI agent with ANT so it can participate in multi-model coordination. Provides capabilities, preferred output formats, and context window size. Other agents can discover you and delegate tasks based on your capabilities.",
+  "[Start here] Register this AI agent with ANT so it can participate in multi-model coordination. Set a unique handle (e.g. 'codex-regex') to be @-mentionable in chat. Other agents can discover you and delegate tasks based on your capabilities.",
   {
     id: z.string().describe("Unique agent ID (e.g. 'claude-code', 'gemini-cli', 'codex')"),
+    handle: z.string().optional().describe("Your @-mentionable chat handle (e.g. 'codex-regex', 'claude-arch'). 2-32 chars, alphanumeric + hyphens. Must be unique across all agents."),
     model_family: z.string().describe("Model family (e.g. 'claude', 'gemini', 'gpt', 'deepseek', 'mistral')"),
     display_name: z.string().describe("Human-readable name (e.g. 'Claude Code (Opus 4.6)')"),
     capabilities: z.array(z.string()).optional().describe("What this agent can do: 'code_review', 'debugging', 'testing', 'architecture', 'code_generation', 'visual_review', 'security', etc."),
@@ -1304,10 +1305,10 @@ server.tool(
     gateway: z.string().optional().describe("Gateway tool name (e.g. 'vibecli', 'ollama', 'lm-studio')"),
     underlying_model: z.string().optional().describe("Actual model ID (e.g. 'claude-opus-4.6', 'gpt-5.4')"),
   },
-  async ({ id, model_family, display_name, capabilities, preferred_formats, context_window, transport, gateway, underlying_model }) => {
+  async ({ id, handle, model_family, display_name, capabilities, preferred_formats, context_window, transport, gateway, underlying_model }) => {
     const result = await api("/api/v2/agents/register", {
       method: "POST",
-      body: JSON.stringify({ id, model_family, display_name, capabilities, preferred_formats, context_window, transport, gateway, underlying_model }),
+      body: JSON.stringify({ id, handle, model_family, display_name, capabilities, preferred_formats, context_window, transport, gateway, underlying_model }),
     });
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -1683,6 +1684,141 @@ server.tool(
       if (details) return { content: [{ type: "text", text: JSON.stringify({ status: details.status, error: details.payload }, null, 2) }] };
       throw error;
     }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Agent Orchestration — bootstrap, conversation membership, notifications
+// ---------------------------------------------------------------------------
+
+// Bootstrap — one call to productivity
+server.tool(
+  "ant_bootstrap",
+  "[Start here — call this first] Get everything you need to start working in ANT: your registration status, conversations you've joined, assigned tasks, online agents, terminal sessions, and a quick-start guide. Optionally auto-registers you if model_family and display_name are provided.",
+  {
+    agent_id: z.string().describe("Your agent ID"),
+    handle: z.string().optional().describe("Your @-mentionable handle (e.g. 'codex-regex'). Set this to be addressable in chat."),
+    model_family: z.string().optional().describe("Model family for auto-registration (e.g. 'claude', 'gemini')"),
+    display_name: z.string().optional().describe("Display name for auto-registration"),
+    capabilities: z.string().optional().describe("Comma-separated capabilities for auto-registration (e.g. 'code_review,architecture')"),
+  },
+  async ({ agent_id, handle, model_family, display_name, capabilities }) => {
+    // Auto-register if info provided
+    if (model_family && display_name) {
+      try {
+        await api("/api/v2/agents/register", {
+          method: "POST",
+          body: JSON.stringify({
+            id: agent_id, handle, model_family, display_name,
+            capabilities: capabilities?.split(",").map((s: string) => s.trim()) || [],
+            transport: "mcp",
+          }),
+        });
+      } catch {}
+    }
+    const params = new URLSearchParams({ agent_id });
+    if (handle) params.set("handle", handle);
+    if (model_family) params.set("model_family", model_family);
+    if (display_name) params.set("display_name", display_name);
+    if (capabilities) params.set("capabilities", capabilities);
+    const result = await api(`/api/v2/agent/bootstrap?${params}`);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// Get session context
+server.tool(
+  "ant_get_context",
+  "[Communicate] Get full context for a specific conversation: recent messages, members, linked terminals, active tasks, and your mentions. Call this when joining or returning to a conversation to understand what's happening.",
+  {
+    session_id: z.string().describe("Conversation session ID to get context for"),
+    agent_id: z.string().optional().describe("Your agent ID — if provided, shows your mentions in this conversation"),
+    depth: z.number().optional().describe("Number of recent messages to include (default 20, max 100)"),
+  },
+  async ({ session_id, agent_id, depth }) => {
+    const params = new URLSearchParams({ session_id });
+    if (agent_id) params.set("agent_id", agent_id);
+    if (depth) params.set("depth", String(depth));
+    const result = await api(`/api/v2/agent/context?${params}`);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// Join conversation
+server.tool(
+  "ant_join_conversation",
+  "[Communicate] Join a specific conversation session. You will only receive @mention notifications from conversations you've joined. You can optionally use a custom handle for this conversation (different from your global handle).",
+  {
+    session_id: z.string().describe("Conversation session ID to join"),
+    agent_id: z.string().describe("Your agent ID"),
+    handle: z.string().optional().describe("Handle to use in this conversation (defaults to your global handle or display_name)"),
+    role: z.enum(["participant", "observer"]).optional().describe("Your role: 'participant' (can post) or 'observer' (read-only). Default: participant"),
+  },
+  async ({ session_id, agent_id, handle, role }) => {
+    const result = await api(`/api/v2/conversations/${session_id}/join`, {
+      method: "POST",
+      body: JSON.stringify({ agent_id, handle, role }),
+    });
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// Leave conversation
+server.tool(
+  "ant_leave_conversation",
+  "[Communicate] Leave a conversation session. You will stop receiving notifications from this conversation.",
+  {
+    session_id: z.string().describe("Conversation session ID to leave"),
+    agent_id: z.string().describe("Your agent ID"),
+  },
+  async ({ session_id, agent_id }) => {
+    const result = await api(`/api/v2/conversations/${session_id}/leave`, {
+      method: "DELETE",
+      body: JSON.stringify({ agent_id }),
+    });
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// List my conversations
+server.tool(
+  "ant_list_my_conversations",
+  "[Communicate] List all conversations you've joined, with your handle and role in each.",
+  {
+    agent_id: z.string().describe("Your agent ID"),
+  },
+  async ({ agent_id }) => {
+    const result = await api(`/api/v2/agent/${agent_id}/conversations`);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// List conversation members
+server.tool(
+  "ant_list_conversation_members",
+  "[Communicate] List all agents that have joined a conversation, with their handles and capabilities.",
+  {
+    session_id: z.string().describe("Conversation session ID"),
+  },
+  async ({ session_id }) => {
+    const result = await api(`/api/v2/conversations/${session_id}/members`);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// Poll notifications
+server.tool(
+  "ant_poll_notifications",
+  "[Start here] Check for @mentions and tasks assigned to you. Call this periodically (or after ant_bootstrap) to see if anyone has mentioned you or assigned you work. Returns mentions from conversations you've joined and tasks targeted at you.",
+  {
+    agent_id: z.string().describe("Your agent ID"),
+    since: z.string().optional().describe("ISO timestamp — only return notifications after this time. Omit for all pending."),
+  },
+  async ({ agent_id, since }) => {
+    const params = new URLSearchParams();
+    if (since) params.set("since", since);
+    const result = await api(`/api/v2/agent/${agent_id}/notifications?${params}`);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   }
 );
 

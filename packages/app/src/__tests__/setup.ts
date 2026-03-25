@@ -94,5 +94,7 @@ vi.mock("lucide-react", async () => {
     Sparkles: createIcon("Sparkles"),
     Info: createIcon("Info"),
     Clock: createIcon("Clock"),
+    Play: createIcon("Play"),
+    Loader2: createIcon("Loader2"),
   };
 });

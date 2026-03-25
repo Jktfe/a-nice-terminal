@@ -21,10 +21,10 @@ describe("SettingsModal", () => {
   });
 
   it("loads and displays ANT_PORT and ANT_ROOT_DIR from environment variables", async () => {
-    mockApiFetch.mockResolvedValueOnce({
-      ANT_PORT: "4000",
-      ANT_ROOT_DIR: "/home/user/projects",
-    });
+    mockApiFetch
+      .mockResolvedValueOnce({ ANT_PORT: "4000", ANT_ROOT_DIR: "/home/user/projects" })
+      .mockResolvedValueOnce({ vault_path: "" })   // GET /api/settings/obsidian
+      .mockResolvedValueOnce({});                   // GET /api/retention/settings
 
     render(<SettingsModal />);
 
@@ -38,8 +38,10 @@ describe("SettingsModal", () => {
 
   it("saves updated ANT_PORT and ANT_ROOT_DIR to the .env file", async () => {
     mockApiFetch
-      .mockResolvedValueOnce({ ANT_PORT: "3000", ANT_ROOT_DIR: "" })
-      .mockResolvedValueOnce({ success: true });
+      .mockResolvedValueOnce({ ANT_PORT: "3000", ANT_ROOT_DIR: "" }) // GET /api/settings
+      .mockResolvedValueOnce({ vault_path: "" })                      // GET /api/settings/obsidian
+      .mockResolvedValueOnce({})                                      // GET /api/retention/settings
+      .mockResolvedValueOnce({ success: true });                      // POST /api/settings (save)
 
     render(<SettingsModal />);
 
@@ -70,8 +72,10 @@ describe("SettingsModal", () => {
 
   it("displays an error message if saving settings fails", async () => {
     mockApiFetch
-      .mockResolvedValueOnce({ ANT_PORT: "3000", ANT_ROOT_DIR: "" })
-      .mockRejectedValueOnce(new Error("Permission denied"));
+      .mockResolvedValueOnce({ ANT_PORT: "3000", ANT_ROOT_DIR: "" }) // GET /api/settings
+      .mockResolvedValueOnce({ vault_path: "" })                      // GET /api/settings/obsidian
+      .mockResolvedValueOnce({})                                      // GET /api/retention/settings
+      .mockRejectedValueOnce(new Error("Permission denied"));         // POST /api/settings (save)
 
     render(<SettingsModal />);
 

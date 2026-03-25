@@ -658,10 +658,22 @@ router.post("/api/v2/dangerous-commands", (req, res) => {
 
 // POST /api/v2/agents/register — register or update an agent
 router.post("/api/v2/agents/register", (req, res) => {
-  const { id, model_family, display_name, capabilities, preferred_formats, context_window, transport, gateway, underlying_model, api_base, config } = req.body;
+  const { id, handle, model_family, display_name, capabilities, preferred_formats, context_window, transport, gateway, underlying_model, api_base, config } = req.body;
 
   if (!id || !model_family || !display_name) {
     return res.status(400).json({ error: "id, model_family, and display_name are required" });
+  }
+
+  // Validate handle format if provided: alphanumeric + hyphens, 2-32 chars
+  if (handle !== undefined && handle !== null) {
+    if (typeof handle !== "string" || !/^[\w][\w-]{1,31}$/.test(handle)) {
+      return res.status(400).json({ error: "handle must be 2-32 characters, alphanumeric/hyphens, starting with a letter or digit" });
+    }
+    // Check uniqueness (another agent may already own this handle)
+    const conflict = db.prepare("SELECT id FROM agent_registry WHERE handle = ? AND id != ?").get(handle, id) as { id: string } | undefined;
+    if (conflict) {
+      return res.status(409).json({ error: `Handle @${handle} is already taken by agent ${conflict.id}` });
+    }
   }
 
   const existing = db.prepare("SELECT id FROM agent_registry WHERE id = ?").get(id);
@@ -669,11 +681,12 @@ router.post("/api/v2/agents/register", (req, res) => {
   if (existing) {
     db.prepare(`
       UPDATE agent_registry SET
-        model_family = ?, display_name = ?, capabilities = ?, preferred_formats = ?,
+        handle = COALESCE(?, handle), model_family = ?, display_name = ?, capabilities = ?, preferred_formats = ?,
         context_window = ?, transport = ?, status = 'online', last_seen = datetime('now'),
         config = ?, gateway = ?, underlying_model = ?, api_base = ?, updated_at = datetime('now')
       WHERE id = ?
     `).run(
+      handle ?? null,
       model_family, display_name,
       JSON.stringify(capabilities || []),
       JSON.stringify(preferred_formats || ["raw"]),
@@ -687,10 +700,10 @@ router.post("/api/v2/agents/register", (req, res) => {
     );
   } else {
     db.prepare(`
-      INSERT INTO agent_registry (id, model_family, display_name, capabilities, preferred_formats, context_window, transport, status, last_seen, config, gateway, underlying_model, api_base)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'online', datetime('now'), ?, ?, ?, ?)
+      INSERT INTO agent_registry (id, handle, model_family, display_name, capabilities, preferred_formats, context_window, transport, status, last_seen, config, gateway, underlying_model, api_base)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'online', datetime('now'), ?, ?, ?, ?)
     `).run(
-      id, model_family, display_name,
+      id, handle || null, model_family, display_name,
       JSON.stringify(capabilities || []),
       JSON.stringify(preferred_formats || ["raw"]),
       context_window || null,
@@ -735,6 +748,125 @@ router.post("/api/v2/agents/:id/heartbeat", (req, res) => {
   ).run(req.params.id);
   if (result.changes === 0) return res.status(404).json({ error: "Agent not found" });
   res.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// Conversation Membership — agents join/leave specific chats
+// ---------------------------------------------------------------------------
+
+// POST /api/v2/conversations/:id/join — agent joins a conversation
+router.post("/api/v2/conversations/:id/join", (req, res) => {
+  const sessionId = req.params.id;
+  const { agent_id, handle: overrideHandle, role } = req.body;
+
+  if (!agent_id) return res.status(400).json({ error: "agent_id is required" });
+
+  // Verify session exists and is a conversation (or unified)
+  const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as DbSession | undefined;
+  if (!session) return res.status(404).json({ error: "Session not found" });
+  if (session.type !== "conversation" && session.type !== "unified") {
+    return res.status(409).json({ error: "Can only join conversation or unified sessions" });
+  }
+
+  // Verify agent exists
+  const agent = db.prepare("SELECT * FROM agent_registry WHERE id = ?").get(agent_id) as any;
+  if (!agent) return res.status(404).json({ error: "Agent not found — register first via POST /api/v2/agents/register" });
+
+  // Determine the handle to use in this conversation
+  const memberHandle = overrideHandle || agent.handle || agent.display_name;
+  if (!memberHandle) {
+    return res.status(400).json({ error: "No handle available — provide handle in request or register with a handle first" });
+  }
+
+  // Check handle uniqueness within this conversation
+  const conflict = db.prepare(
+    "SELECT agent_id FROM conversation_members WHERE session_id = ? AND LOWER(handle) = LOWER(?) AND agent_id != ?"
+  ).get(sessionId, memberHandle, agent_id) as { agent_id: string } | undefined;
+  if (conflict) {
+    return res.status(409).json({ error: `Handle @${memberHandle} is already in use in this conversation by agent ${conflict.agent_id}` });
+  }
+
+  const memberRole = role === "observer" ? "observer" : "participant";
+
+  db.prepare(`
+    INSERT INTO conversation_members (session_id, agent_id, handle, role)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(session_id, agent_id) DO UPDATE SET handle = ?, role = ?, joined_at = datetime('now')
+  `).run(sessionId, agent_id, memberHandle, memberRole, memberHandle, memberRole);
+
+  // Post system message announcing the join
+  const msgId = `msg-join-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  db.prepare(`
+    INSERT INTO messages (id, session_id, role, content, format, sender_type, sender_name, message_type)
+    VALUES (?, ?, 'system', ?, 'text', 'system', 'ANT', 'text')
+  `).run(msgId, sessionId, `@${memberHandle} has joined the conversation`);
+
+  // Broadcast via Socket.IO
+  const io = req.app.get("io");
+  if (io) {
+    io.to(sessionId).emit("member_joined", { session_id: sessionId, agent_id, handle: memberHandle, role: memberRole });
+    const msg = db.prepare("SELECT * FROM messages WHERE id = ?").get(msgId);
+    if (msg) io.to(sessionId).emit("message_created", msg);
+  }
+
+  res.json({ joined: true, session_id: sessionId, agent_id, handle: memberHandle, role: memberRole });
+});
+
+// DELETE /api/v2/conversations/:id/leave — agent leaves a conversation
+router.delete("/api/v2/conversations/:id/leave", (req, res) => {
+  const sessionId = req.params.id;
+  const { agent_id } = req.body;
+
+  if (!agent_id) return res.status(400).json({ error: "agent_id is required" });
+
+  const member = db.prepare("SELECT handle FROM conversation_members WHERE session_id = ? AND agent_id = ?").get(sessionId, agent_id) as { handle: string } | undefined;
+  if (!member) return res.status(404).json({ error: "Agent is not a member of this conversation" });
+
+  db.prepare("DELETE FROM conversation_members WHERE session_id = ? AND agent_id = ?").run(sessionId, agent_id);
+
+  // Post system message
+  const msgId = `msg-leave-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  db.prepare(`
+    INSERT INTO messages (id, session_id, role, content, format, sender_type, sender_name, message_type)
+    VALUES (?, ?, 'system', ?, 'text', 'system', 'ANT', 'text')
+  `).run(msgId, sessionId, `@${member.handle} has left the conversation`);
+
+  const io = req.app.get("io");
+  if (io) {
+    io.to(sessionId).emit("member_left", { session_id: sessionId, agent_id, handle: member.handle });
+    const msg = db.prepare("SELECT * FROM messages WHERE id = ?").get(msgId);
+    if (msg) io.to(sessionId).emit("message_created", msg);
+  }
+
+  res.json({ left: true, session_id: sessionId, agent_id, handle: member.handle });
+});
+
+// GET /api/v2/conversations/:id/members — list members of a conversation
+router.get("/api/v2/conversations/:id/members", (req, res) => {
+  const sessionId = req.params.id;
+  const members = db.prepare(`
+    SELECT cm.agent_id, cm.handle, cm.role, cm.joined_at,
+           ar.display_name, ar.model_family, ar.capabilities, ar.status, ar.last_seen
+    FROM conversation_members cm
+    JOIN agent_registry ar ON ar.id = cm.agent_id
+    WHERE cm.session_id = ?
+    ORDER BY cm.joined_at ASC
+  `).all(sessionId);
+  res.json(members);
+});
+
+// GET /api/v2/agent/:id/conversations — list conversations an agent has joined
+router.get("/api/v2/agent/:id/conversations", (req, res) => {
+  const agentId = req.params.id;
+  const conversations = db.prepare(`
+    SELECT cm.session_id, cm.handle, cm.role, cm.joined_at,
+           s.name, s.type, s.updated_at
+    FROM conversation_members cm
+    JOIN sessions s ON s.id = cm.session_id
+    WHERE cm.agent_id = ? AND s.archived = 0
+    ORDER BY s.updated_at DESC
+  `).all(agentId);
+  res.json(conversations);
 });
 
 // POST /api/v2/agents/discover — re-run auto-discovery of local models
@@ -1039,6 +1171,332 @@ router.get("/api/v2/sessions/:id/resources", (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Agent Bootstrap — one call to productivity
+// ---------------------------------------------------------------------------
+
+// GET /api/v2/agent/bootstrap — everything an agent needs to start working
+router.get("/api/v2/agent/bootstrap", (req, res) => {
+  const agentId = req.query.agent_id as string;
+  const handle = req.query.handle as string | undefined;
+  const capabilities = req.query.capabilities as string | undefined;
+  const modelFamily = req.query.model_family as string | undefined;
+  const displayName = req.query.display_name as string | undefined;
+
+  // Auto-register if enough info provided
+  if (agentId && modelFamily && displayName) {
+    const existing = db.prepare("SELECT id FROM agent_registry WHERE id = ?").get(agentId);
+    if (!existing) {
+      const caps = capabilities ? capabilities.split(",") : [];
+      db.prepare(`
+        INSERT INTO agent_registry (id, handle, model_family, display_name, capabilities, status, last_seen)
+        VALUES (?, ?, ?, ?, ?, 'online', datetime('now'))
+      `).run(agentId, handle || null, modelFamily, displayName, JSON.stringify(caps));
+    } else {
+      db.prepare("UPDATE agent_registry SET status = 'online', last_seen = datetime('now') WHERE id = ?").run(agentId);
+    }
+  } else if (agentId) {
+    db.prepare("UPDATE agent_registry SET status = 'online', last_seen = datetime('now') WHERE id = ?").run(agentId);
+  }
+
+  // --- YOU ---
+  let you: any = null;
+  if (agentId) {
+    const agent = db.prepare("SELECT * FROM agent_registry WHERE id = ?").get(agentId) as any;
+    const conversations = db.prepare(`
+      SELECT cm.session_id, cm.handle, cm.role, cm.joined_at, s.name
+      FROM conversation_members cm
+      JOIN sessions s ON s.id = cm.session_id
+      WHERE cm.agent_id = ? AND s.archived = 0
+    `).all(agentId);
+
+    // Tasks assigned to this agent
+    db.prepare("UPDATE coordination_events SET status = 'expired' WHERE status = 'pending' AND expires_at < datetime('now')").run();
+    const tasks = db.prepare(
+      "SELECT * FROM coordination_events WHERE status = 'pending' AND target_agent_id = ? ORDER BY created_at ASC"
+    ).all(agentId);
+
+    // Unread mentions (mentions in conversations I'm a member of, since my last_seen)
+    const memberSessions = conversations.map((c: any) => c.session_id);
+    let unreadMentions = 0;
+    if (agent && memberSessions.length > 0) {
+      const placeholders = memberSessions.map(() => "?").join(",");
+      const mentionRows = db.prepare(`
+        SELECT COUNT(*) as c FROM messages
+        WHERE session_id IN (${placeholders})
+          AND content LIKE '%@' || ? || '%'
+          AND created_at > COALESCE(?, '1970-01-01')
+          AND role != 'system'
+      `).get(...memberSessions, agent.handle || agent.display_name, agent.last_seen || "1970-01-01") as { c: number };
+      unreadMentions = mentionRows.c;
+    }
+
+    you = {
+      agent_id: agentId,
+      handle: agent?.handle || null,
+      display_name: agent?.display_name || null,
+      registered: !!agent,
+      capabilities: agent ? JSON.parse(agent.capabilities) : [],
+      conversations_joined: conversations,
+      assigned_tasks: tasks.map((t: any) => ({
+        id: t.id,
+        description: JSON.parse(t.payload).task,
+        source: t.source || null,
+        source_message_id: t.source_message_id || null,
+        session_id: t.session_id,
+        created_at: t.created_at,
+      })),
+      unread_mentions: unreadMentions,
+    };
+  }
+
+  // --- WORKSPACE ---
+  const conversationSessions = db.prepare(`
+    SELECT s.id, s.name, s.type, s.updated_at,
+      (SELECT COUNT(*) FROM messages WHERE session_id = s.id) as message_count,
+      (SELECT COUNT(*) FROM conversation_members WHERE session_id = s.id) as participant_count
+    FROM sessions s
+    WHERE s.type IN ('conversation', 'unified') AND s.archived = 0
+    ORDER BY s.updated_at DESC LIMIT 20
+  `).all() as any[];
+
+  // Mark which conversations this agent is a member of
+  const myMemberships = agentId
+    ? new Set(db.prepare("SELECT session_id FROM conversation_members WHERE agent_id = ?").all(agentId).map((r: any) => r.session_id))
+    : new Set<string>();
+
+  const terminalSessions = db.prepare(`
+    SELECT s.id, s.name, s.shell, s.cwd, s.updated_at
+    FROM sessions s
+    WHERE s.type IN ('terminal', 'unified') AND s.archived = 0
+    ORDER BY s.updated_at DESC LIMIT 20
+  `).all() as any[];
+
+  // Enrich terminals with idle/lock status
+  for (const t of terminalSessions) {
+    t.idle = !hasSession(t.id) || !getCommandTracker(t.id)?.isRunning();
+    const lock = getActiveLock(t.id);
+    t.locked_by = lock?.holder_agent || null;
+  }
+
+  const agents = db.prepare(
+    "SELECT id, handle, display_name, model_family, capabilities, status, last_seen FROM agent_registry ORDER BY last_seen DESC"
+  ).all();
+
+  // Pending tasks (unscoped)
+  const pendingTasks = db.prepare(
+    "SELECT * FROM coordination_events WHERE status = 'pending' ORDER BY created_at ASC LIMIT 20"
+  ).all() as any[];
+
+  // --- GUIDE ---
+  const guide = {
+    quick_start: `You are an agent in ANT (Agent Orchestration Hub). Your primary loop: (1) Check your assigned_tasks and unread_mentions. (2) Claim tasks with ant_claim_task. (3) Work in terminals with ant_exec_command. (4) Post results to conversations with ant_send_message. (5) Mark done with ant_complete_task. Use ant_poll_notifications to stay updated.`,
+    message_conventions: "Post to conversation sessions using ant_send_message with role='agent'. Use markdown format. For terminal output, use message_type='terminal_block'. Thread replies via thread_id. Mention other agents with @handle.",
+    coordination: "Use @mentions to address specific agents by their handle. Terminal locks prevent conflicts — acquire with ant_acquire_terminal before writing. Use ant_list_agents to see who's available and their handles.",
+    joining_conversations: "You only receive notifications from conversations you've joined. Use ant_join_conversation to join a chat. You can use a custom handle per conversation. Use ant_list_my_conversations to see your memberships.",
+  };
+
+  // Try to read .ant.md from any terminal's CWD
+  let projectContext: string | null = null;
+  for (const t of terminalSessions) {
+    if (t.cwd) {
+      try {
+        const { readFileSync, existsSync } = require("fs");
+        const antMdPath = require("path").join(t.cwd, ".ant.md");
+        if (existsSync(antMdPath)) {
+          projectContext = readFileSync(antMdPath, "utf-8");
+          break;
+        }
+      } catch {}
+    }
+  }
+  if (projectContext) (guide as any).project_context = projectContext;
+
+  res.json({
+    you,
+    workspace: {
+      conversations: conversationSessions.map((s: any) => ({
+        ...s,
+        you_are_member: myMemberships.has(s.id),
+      })),
+      terminals: terminalSessions,
+      agents_online: agents,
+    },
+    pending_tasks: pendingTasks.map((t: any) => ({
+      id: t.id,
+      description: JSON.parse(t.payload).task,
+      required_capabilities: JSON.parse(t.required_capabilities),
+      target_agent_id: t.target_agent_id,
+      source: t.source || null,
+      session_id: t.session_id,
+      created_at: t.created_at,
+    })),
+    guide,
+    server: {
+      version: "2.0",
+      uptime_s: Math.round(process.uptime()),
+      features_enabled: Object.entries(features).filter(([, v]) => v).map(([k]) => k),
+    },
+  });
+});
+
+// GET /api/v2/agent/context — session-scoped briefing
+router.get("/api/v2/agent/context", (req, res) => {
+  const sessionId = req.query.session_id as string;
+  const agentId = req.query.agent_id as string;
+  const depth = Math.min(parseInt(req.query.depth as string) || 20, 100);
+
+  if (!sessionId) return res.status(400).json({ error: "session_id is required" });
+
+  const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as DbSession | undefined;
+  if (!session) return res.status(404).json({ error: "Session not found" });
+
+  // Recent messages
+  const messages = db.prepare(`
+    SELECT id, role, sender_name, sender_type, content, created_at, thread_id, message_type
+    FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT ?
+  `).all(sessionId, depth).reverse() as any[];
+
+  // Truncate content for preview
+  for (const m of messages) {
+    if (m.content && m.content.length > 300) {
+      m.content_preview = m.content.slice(0, 300) + "...";
+      delete m.content;
+    }
+  }
+
+  // Members of this conversation
+  const members = db.prepare(`
+    SELECT cm.agent_id, cm.handle, cm.role, cm.joined_at,
+           ar.display_name, ar.model_family, ar.capabilities, ar.status, ar.last_seen
+    FROM conversation_members cm
+    JOIN agent_registry ar ON ar.id = cm.agent_id
+    WHERE cm.session_id = ?
+    ORDER BY cm.joined_at ASC
+  `).all(sessionId);
+
+  // Linked terminals (for unified sessions)
+  const linkedTerminals = db.prepare(`
+    SELECT st.terminal_session_id as id, s.name, s.cwd, s.shell
+    FROM session_terminals st
+    JOIN sessions s ON s.id = st.terminal_session_id
+    WHERE st.session_id = ? AND st.status = 'active'
+  `).all(sessionId) as any[];
+
+  // Enrich with last command
+  for (const t of linkedTerminals) {
+    const lastCmd = db.prepare(
+      "SELECT command, exit_code FROM command_events WHERE session_id = ? ORDER BY started_at DESC LIMIT 1"
+    ).get(t.id) as any;
+    t.last_command = lastCmd?.command || null;
+    t.last_exit_code = lastCmd?.exit_code ?? null;
+  }
+
+  // Active tasks for this session
+  const tasks = db.prepare(
+    "SELECT * FROM coordination_events WHERE session_id = ? AND status IN ('pending', 'claimed') ORDER BY created_at ASC"
+  ).all(sessionId) as any[];
+
+  // Your mentions in this conversation (if agent_id provided)
+  let yourMentions: any[] = [];
+  if (agentId) {
+    const agent = db.prepare("SELECT handle, display_name FROM agent_registry WHERE id = ?").get(agentId) as any;
+    if (agent) {
+      const searchName = agent.handle || agent.display_name;
+      yourMentions = db.prepare(`
+        SELECT id, sender_name, content, created_at FROM messages
+        WHERE session_id = ? AND content LIKE '%@' || ? || '%' AND role != 'system'
+        ORDER BY created_at DESC LIMIT 10
+      `).all(sessionId, searchName) as any[];
+    }
+  }
+
+  res.json({
+    session: { id: session.id, name: session.name, type: session.type, created_at: session.created_at },
+    recent_messages: messages,
+    members,
+    linked_terminals: linkedTerminals,
+    active_tasks: tasks.map((t: any) => ({
+      id: t.id,
+      description: JSON.parse(t.payload).task,
+      assigned_to: t.target_agent_id,
+      status: t.status,
+      created_at: t.created_at,
+    })),
+    your_mentions: yourMentions,
+  });
+});
+
+// GET /api/v2/agent/:id/notifications — long-poll for agent notifications
+router.get("/api/v2/agent/:id/notifications", (req, res) => {
+  const agentId = req.params.id;
+  const since = req.query.since as string || "1970-01-01";
+
+  const agent = db.prepare("SELECT handle, display_name FROM agent_registry WHERE id = ?").get(agentId) as any;
+  if (!agent) return res.status(404).json({ error: "Agent not found" });
+
+  // Update presence
+  db.prepare("UPDATE agent_registry SET status = 'online', last_seen = datetime('now') WHERE id = ?").run(agentId);
+
+  const notifications: any[] = [];
+
+  // 1. Tasks targeted at this agent (from mentions or direct broadcast)
+  const tasks = db.prepare(`
+    SELECT * FROM coordination_events
+    WHERE target_agent_id = ? AND status = 'pending' AND created_at > ?
+    ORDER BY created_at ASC
+  `).all(agentId, since) as any[];
+
+  for (const t of tasks) {
+    const payload = JSON.parse(t.payload);
+    notifications.push({
+      type: t.source === "mention" ? "mention" : "task",
+      task_id: t.id,
+      session_id: t.session_id || t.source_session_id,
+      message_id: t.source_message_id || null,
+      description: payload.task,
+      from: payload.from || null,
+      created_at: t.created_at,
+    });
+  }
+
+  // 2. @mentions in conversations I've joined (not yet converted to tasks)
+  const searchName = agent.handle || agent.display_name;
+  const memberSessions = db.prepare(
+    "SELECT session_id FROM conversation_members WHERE agent_id = ?"
+  ).all(agentId) as any[];
+
+  if (memberSessions.length > 0) {
+    const placeholders = memberSessions.map(() => "?").join(",");
+    const mentions = db.prepare(`
+      SELECT id, session_id, sender_name, sender_type, content, created_at
+      FROM messages
+      WHERE session_id IN (${placeholders})
+        AND content LIKE '%@' || ? || '%'
+        AND created_at > ?
+        AND role != 'system'
+      ORDER BY created_at ASC LIMIT 20
+    `).all(...memberSessions.map((s: any) => s.session_id), searchName, since) as any[];
+
+    for (const m of mentions) {
+      // Skip if already covered by a task notification
+      if (notifications.some((n) => n.message_id === m.id)) continue;
+      notifications.push({
+        type: "mention",
+        session_id: m.session_id,
+        message_id: m.id,
+        from: { name: m.sender_name, type: m.sender_type },
+        content: m.content.length > 500 ? m.content.slice(0, 500) + "..." : m.content,
+        created_at: m.created_at,
+      });
+    }
+  }
+
+  notifications.sort((a, b) => a.created_at.localeCompare(b.created_at));
+
+  res.json({ agent_id: agentId, since, notifications });
+});
+
+// ---------------------------------------------------------------------------
 // Middleware export: lock checker for use in other routes
 // ---------------------------------------------------------------------------
 
@@ -1047,6 +1505,63 @@ export function checkTerminalLock(sessionId: string, agentId?: string): { locked
   if (!lock) return { locked: false };
   if (agentId && lock.holder_agent === agentId) return { locked: false }; // holder can pass
   return { locked: true, holder: lock.holder_agent, expires_at: lock.expires_at };
+}
+
+// Export mention resolution for use by message routes
+export function resolveMentions(content: string, sessionId: string): Array<{
+  agent_id: string;
+  handle: string;
+  display_name: string;
+  matched: string;
+  in_conversation: boolean;
+}> {
+  const mentionPattern = /@([\w][\w-]*)/g;
+  const mentions: Array<{
+    agent_id: string;
+    handle: string;
+    display_name: string;
+    matched: string;
+    in_conversation: boolean;
+  }> = [];
+  const seen = new Set<string>();
+
+  for (const match of content.matchAll(mentionPattern)) {
+    const name = match[1];
+    if (seen.has(name.toLowerCase())) continue;
+    seen.add(name.toLowerCase());
+
+    // 1. Check conversation members first (highest priority)
+    const member = db.prepare(`
+      SELECT cm.agent_id, cm.handle, ar.display_name
+      FROM conversation_members cm
+      JOIN agent_registry ar ON ar.id = cm.agent_id
+      WHERE cm.session_id = ? AND (LOWER(cm.handle) = LOWER(?) OR LOWER(ar.display_name) = LOWER(?))
+    `).get(sessionId, name, name) as { agent_id: string; handle: string; display_name: string } | undefined;
+
+    if (member) {
+      mentions.push({ agent_id: member.agent_id, handle: member.handle, display_name: member.display_name, matched: name, in_conversation: true });
+      continue;
+    }
+
+    // 2. Check global agent registry by handle or display_name
+    const globalAgent = db.prepare(`
+      SELECT id, handle, display_name FROM agent_registry
+      WHERE LOWER(handle) = LOWER(?) OR LOWER(display_name) = LOWER(?)
+    `).get(name, name) as { id: string; handle: string | null; display_name: string } | undefined;
+
+    if (globalAgent) {
+      mentions.push({
+        agent_id: globalAgent.id,
+        handle: globalAgent.handle || globalAgent.display_name,
+        display_name: globalAgent.display_name,
+        matched: name,
+        in_conversation: false,
+      });
+    }
+    // If no match — it's just text, not a real agent mention. Skip.
+  }
+
+  return mentions;
 }
 
 export default router;
