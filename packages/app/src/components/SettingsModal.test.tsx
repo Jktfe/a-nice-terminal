@@ -53,7 +53,7 @@ describe("SettingsModal", () => {
       target: { value: "5000" },
     });
 
-    fireEvent.change(screen.getByPlaceholderText("~/CascadeProjects"), {
+    fireEvent.change(screen.getByPlaceholderText("~/projects"), {
       target: { value: "/opt/projects" },
     });
 

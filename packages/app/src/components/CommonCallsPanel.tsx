@@ -191,7 +191,7 @@ export default function CommonCallsPanel() {
                 <input
                   value={newCommand}
                   onChange={(e) => setNewCommand(e.target.value)}
-                  placeholder="Command (e.g. cd ~/CascadeProjects/a-nice-terminal)"
+                  placeholder="Command (e.g. cd ~/projects/my-app)"
                   className="w-full bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--color-text)] font-mono placeholder:text-[var(--color-text-dim)] focus:outline-none focus:border-emerald-500/50"
                   onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); if (e.key === "Escape") setAdding(false); }}
                 />

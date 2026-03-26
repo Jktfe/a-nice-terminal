@@ -2,7 +2,7 @@
 
 **Date**: 2026-03-12
 **Status**: Approved
-**Repo**: `/Users/jamesking/CascadeProjects/antios` (private, open-source later)
+**Repo**: `~/projects/antios` (private, open-source later)
 
 ---
 

@@ -214,7 +214,7 @@ export default function SettingsModal() {
                     type="text"
                     value={rootDir}
                     onChange={(e) => setRootDir(e.target.value)}
-                    placeholder="~/CascadeProjects"
+                    placeholder="~/projects"
                     className="bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm text-[var(--color-text)] focus:outline-none focus:border-emerald-500/50"
                   />
                   <p className="text-xs text-[var(--color-text-dim)]">
