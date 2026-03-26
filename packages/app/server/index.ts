@@ -26,6 +26,7 @@ import chatRoomProtocolRoutes from "./routes/chat-rooms.js";
 import retentionRoutes from "./routes/retention.js";
 import commonCallsRoutes from "./routes/common-calls.js";
 import { registerSocketHandlers } from "./ws/handlers.js";
+import { registerChatHandlers } from "./ws/chat-handlers.js";
 import { registerTerminalNamespace } from "./ws/terminal-namespace.js";
 import { reapOrphanedSessions } from "./pty-manager.js";
 import { registerDiscoveredModels } from "./agent/auto-discover.js";
@@ -122,6 +123,9 @@ async function start() {
 
   // WebSocket — control plane (default namespace)
   registerSocketHandlers(io);
+
+  // WebSocket — chat streaming (stream_chunk, stream_end on default namespace)
+  registerChatHandlers(io);
 
   // WebSocket — terminal I/O (dedicated /terminal namespace, binary-first)
   const termNs = registerTerminalNamespace(io);

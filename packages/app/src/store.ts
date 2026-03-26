@@ -81,9 +81,7 @@ interface AppState {
   messages: Message[];
   resumeCommands: ResumeCommand[];
   socket: Socket | null;
-  chatSocket: Socket | null;
   connected: boolean;
-  chatConnected: boolean;
   sidebarOpen: boolean;
   settingsOpen: boolean;
   error: string | null;
@@ -156,7 +154,6 @@ interface AppState {
 }
 
 const API_KEY = (import.meta.env.VITE_ANT_API_KEY as string | undefined)?.trim();
-const CHAT_URL = import.meta.env.VITE_ANT_CHAT_URL || `${window.location.protocol}//${window.location.hostname}:6464`;
 const ACTIVE_SESSION_KEY = "ant-active-session-id";
 const PINNED_SESSIONS_KEY = "ant-pinned-session-ids";
 const TERMINAL_FONT_SIZE_KEY = "ant-terminal-font-size";
@@ -219,17 +216,6 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
   return response.json();
 }
 
-export async function chatApiFetch(url: string, options?: RequestInit) {
-  const apiKey = import.meta.env.VITE_ANT_API_KEY;
-  const headers: Record<string, string> = {
-    ...(apiKey ? { "X-API-Key": apiKey } : {}),
-    ...(options?.headers as Record<string, string> || {}),
-  };
-  const res = await fetch(`${CHAT_URL}${url}`, { ...options, headers });
-  if (!res.ok) throw new Error(`Chat API error ${res.status}`);
-  return res.json();
-}
-
 export const useStore = create<AppState>((set, get) => ({
   sessions: [],
   workspaces: [],
@@ -237,9 +223,7 @@ export const useStore = create<AppState>((set, get) => ({
   messages: [],
   resumeCommands: [],
   socket: null,
-  chatSocket: null,
   connected: false,
-  chatConnected: false,
   sidebarOpen: true,
   settingsOpen: false,
   error: null,
@@ -266,14 +250,13 @@ export const useStore = create<AppState>((set, get) => ({
   clearError: () => set({ error: null }),
 
   reconnect: async () => {
-    const { socket, chatSocket, activeSessionId } = get();
+    const { socket, activeSessionId } = get();
     await get().loadSessions();
     await get().loadWorkspaces();
     await get().loadResumeCommands();
 
     if (activeSessionId) {
       if (socket) socket.emit("join_session", { sessionId: activeSessionId });
-      if (chatSocket) chatSocket.emit("join_session", { sessionId: activeSessionId });
       
       const session = get().sessions.find((s) => s.id === activeSessionId);
       if (session?.type === "conversation") {
@@ -286,11 +269,6 @@ export const useStore = create<AppState>((set, get) => ({
     if (get().socket) return;
 
     const socket = io({
-      auth: API_KEY ? { apiKey: API_KEY } : undefined,
-      query: API_KEY ? { apiKey: API_KEY } : undefined,
-    });
-
-    const chatSocket = io(CHAT_URL, {
       auth: API_KEY ? { apiKey: API_KEY } : undefined,
       query: API_KEY ? { apiKey: API_KEY } : undefined,
     });
@@ -318,21 +296,10 @@ export const useStore = create<AppState>((set, get) => ({
       }
     });
 
-    chatSocket.on("connect", () => {
-      set({ chatConnected: true });
-      const { activeSessionId } = get();
-      if (activeSessionId) chatSocket.emit("join_session", { sessionId: activeSessionId });
-    });
-
     socket.on("disconnect", () => set({ connected: false }));
-    chatSocket.on("disconnect", () => set({ chatConnected: false }));
 
     socket.on("connect_error", (error) => {
-      set({ connected: false, error: error.message || "Terminal socket failed" });
-    });
-
-    chatSocket.on("connect_error", (error) => {
-      console.error("Chat socket error:", error);
+      set({ connected: false, error: error.message || "Socket connection failed" });
     });
 
     socket.on("error", (error: { message?: string }) => {
@@ -342,10 +309,6 @@ export const useStore = create<AppState>((set, get) => ({
     });
 
     // --- Message event handlers ---
-    // These must fire on BOTH sockets: the main server (port 3000) emits
-    // message_created/updated/deleted when the frontend POSTs via apiFetch,
-    // while the chat sidecar (port 6464) emits them for MCP/CLI clients.
-    // Dedup by message ID prevents double-processing when both fire.
 
     const handleMessageCreated = (message: Message) => {
       set((s) => {
@@ -450,16 +413,11 @@ export const useStore = create<AppState>((set, get) => ({
       }));
     };
 
-    // Register on both sockets so events arrive regardless of which server emits them
     socket.on("message_created", handleMessageCreated);
-    chatSocket.on("message_created", handleMessageCreated);
     socket.on("message_updated", handleMessageUpdated);
-    chatSocket.on("message_updated", handleMessageUpdated);
     socket.on("message_deleted", handleMessageDeleted);
-    chatSocket.on("message_deleted", handleMessageDeleted);
-    chatSocket.on("stream_chunk", handleStreamChunk);
+    socket.on("stream_chunk", handleStreamChunk);
     socket.on("annotation_changed", handleAnnotationChanged);
-    chatSocket.on("annotation_changed", handleAnnotationChanged);
 
     socket.on("session_list_changed", () => get().loadSessions());
 
@@ -469,7 +427,7 @@ export const useStore = create<AppState>((set, get) => ({
       }));
     });
 
-    chatSocket.on("agent_state_update", (presence: AgentPresence) => {
+    socket.on("agent_state_update", (presence: AgentPresence) => {
       set((s) => ({
         agentPresence: {
           ...s.agentPresence,
@@ -478,7 +436,7 @@ export const useStore = create<AppState>((set, get) => ({
       }));
     });
 
-    set({ socket, chatSocket });
+    set({ socket });
   },
 
   loadSessions: async () => {
@@ -648,19 +606,17 @@ export const useStore = create<AppState>((set, get) => ({
   toggleShowArchived: () => set((s) => ({ showArchived: !s.showArchived })),
 
   setActiveSession: (id) => {
-    const { socket, chatSocket, activeSessionId } = get();
+    const { socket, activeSessionId } = get();
     if (activeSessionId === id) return;
 
     if (activeSessionId) {
       if (socket) socket.emit("leave_session", { sessionId: activeSessionId });
-      if (chatSocket) chatSocket.emit("leave_session", { sessionId: activeSessionId });
     }
 
     set({ activeSessionId: id, messages: [] });
     localStorage.setItem(ACTIVE_SESSION_KEY, id);
 
     if (socket) socket.emit("join_session", { sessionId: id });
-    if (chatSocket) chatSocket.emit("join_session", { sessionId: id });
 
     const session = get().sessions.find((s) => s.id === id);
     if (session?.type === "conversation") {
@@ -670,8 +626,6 @@ export const useStore = create<AppState>((set, get) => ({
 
   loadMessages: async (sessionId) => {
     try {
-      // Use apiFetch (main server) for data loading — works even if chat sidecar is down.
-      // chatSocket still handles real-time push events.
       const messages = await apiFetch(`/api/sessions/${sessionId}/messages`);
       if (get().activeSessionId === sessionId) {
         set({ messages });
@@ -776,11 +730,10 @@ export const useStore = create<AppState>((set, get) => ({
 
   toggleSplit: () => {
     set((s) => {
-      const { socket, chatSocket, splitSessionId, splitMode } = s;
+      const { socket, splitSessionId, splitMode } = s;
       if (splitMode) {
         if (splitSessionId) {
           if (socket) socket.emit("leave_session", { sessionId: splitSessionId });
-          if (chatSocket) chatSocket.emit("leave_session", { sessionId: splitSessionId });
         }
         return { splitMode: false, splitSessionId: null, splitMessages: [] };
       }
@@ -789,14 +742,12 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setSplitSession: (id) => {
-    const { socket, chatSocket, splitSessionId } = get();
+    const { socket, splitSessionId } = get();
     if (splitSessionId) {
       if (socket) socket.emit("leave_session", { sessionId: splitSessionId });
-      if (chatSocket) chatSocket.emit("leave_session", { sessionId: splitSessionId });
     }
     set({ splitSessionId: id, splitMessages: [] });
     if (socket) socket.emit("join_session", { sessionId: id });
-    if (chatSocket) chatSocket.emit("join_session", { sessionId: id });
     get().loadSplitMessages(id);
   },
 

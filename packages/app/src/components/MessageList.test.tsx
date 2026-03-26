@@ -7,7 +7,7 @@ const mockUseStore = vi.hoisted(() => vi.fn());
 
 vi.mock("../store.ts", () => ({
   useStore: mockUseStore,
-  chatApiFetch: vi.fn().mockResolvedValue({}),
+  apiFetch: vi.fn().mockResolvedValue({}),
 }));
 
 vi.mock("lucide-react", async (importOriginal) => {

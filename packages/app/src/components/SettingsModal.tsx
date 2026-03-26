@@ -42,7 +42,7 @@ export default function SettingsModal() {
         const obsidian = await apiFetch("/api/settings/obsidian");
         setVaultPath(obsidian.vault_path || "");
       } catch {
-        // Chat sidecar may not be running yet
+        // Settings may not be available yet
       }
       try {
         const ret = await apiFetch("/api/retention/settings");

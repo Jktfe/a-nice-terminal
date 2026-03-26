@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Sparkles, ChevronDown, Terminal } from "lucide-react";
-import { useStore, chatApiFetch, type Message } from "../store.ts";
+import { useStore, apiFetch, type Message } from "../store.ts";
 import ChatBlock from "./ChatBlock.tsx";
 import ThreadPanel from "./ThreadPanel.tsx";
 
@@ -109,7 +109,7 @@ export default function ChatThread({ sessionId, messages: messagesProp }: { sess
                 onReply={(id) => setOpenThreadId(openThreadId === id ? null : id)}
                 onDelete={async (id) => {
                   try {
-                    await chatApiFetch(`/api/sessions/${effectiveSessionId}/messages/${id}`, { method: "DELETE" });
+                    await apiFetch(`/api/sessions/${effectiveSessionId}/messages/${id}`, { method: "DELETE" });
                   } catch {}
                 }}
                 onAnnotationChange={(id, annotations, starred) => {

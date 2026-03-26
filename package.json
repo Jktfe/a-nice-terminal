@@ -10,8 +10,8 @@
   "scripts": {
     "preflight": "node scripts/preflight.mjs",
     "postinstall": "node scripts/preflight.mjs",
-    "dev": "node scripts/preflight.mjs && concurrently \"pnpm --filter @ant/app dev\" \"pnpm --filter @ant/app dev:chat\"",
-    "start": "node scripts/preflight.mjs && concurrently \"pnpm --filter @ant/app start\" \"pnpm --filter @ant/app start:chat\"",
+    "dev": "node scripts/preflight.mjs && pnpm --filter @ant/app dev",
+    "start": "node scripts/preflight.mjs && pnpm --filter @ant/app start",
     "dev:website": "cd packages/website && npx vite dev",
     "dev:mcp": "cd packages/mcp && npx tsx src/index.ts",
     "dev:bridge": "cd packages/bridge && node --env-file=../../.env --import tsx src/index.ts",
@@ -22,7 +22,6 @@
     "test:mcp": "cd packages/mcp && npx vitest run"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1",
     "node-gyp": "^12.2.0",
     "vitest": "^3.2.3"
   },

@@ -14,7 +14,7 @@ export default function ThreadPanel({ parentMessage, sessionId, onClose }: Threa
   const [replyInput, setReplyInput] = useState("");
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const { chatSocket } = useStore();
+  const { socket } = useStore();
 
   useEffect(() => {
     apiFetch(`/api/sessions/${sessionId}/messages/${parentMessage.id}/thread`)
@@ -24,16 +24,16 @@ export default function ThreadPanel({ parentMessage, sessionId, onClose }: Threa
 
   // Listen for new thread replies
   useEffect(() => {
-    if (!chatSocket) return;
+    if (!socket) return;
     const handler = ({ threadId, message }: { threadId: string; message: Message }) => {
       if (threadId === parentMessage.id) {
         setReplies((prev) => [...prev, message]);
         requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
       }
     };
-    chatSocket.on("thread_reply", handler);
-    return () => { chatSocket.off("thread_reply", handler); };
-  }, [chatSocket, parentMessage.id]);
+    socket.on("thread_reply", handler);
+    return () => { socket.off("thread_reply", handler); };
+  }, [socket, parentMessage.id]);
 
   const sendReply = async () => {
     if (!replyInput.trim() || sending) return;

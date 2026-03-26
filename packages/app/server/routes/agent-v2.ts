@@ -1276,7 +1276,7 @@ router.get("/api/v2/agent/bootstrap", (req, res) => {
 
   // Enrich terminals with idle/lock status
   for (const t of terminalSessions) {
-    t.idle = !hasSession(t.id) || !getCommandTracker(t.id)?.isRunning();
+    t.idle = !hasSession(t.id) || getCommandTracker(t.id)?.state !== "running";
     const lock = getActiveLock(t.id);
     t.locked_by = lock?.holder_agent || null;
   }

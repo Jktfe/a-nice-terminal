@@ -39,6 +39,8 @@ VITE_ANT_API_KEY=mySecret  # Must match ANT_API_KEY`;
     { id: 'api-reference', label: 'API Reference' },
     { id: 'websocket-events', label: 'WebSocket Events' },
     { id: 'mcp-server', label: 'MCP Server' },
+    { id: 'dtach', label: 'Session Persistence' },
+    { id: 'archive', label: 'Archive & Restore' },
   ];
 </script>
 
@@ -381,6 +383,76 @@ ant</code></pre>
             Read terminal output and conversation history
           </li>
         </ul>
+      </div>
+    </section>
+
+    <!-- Session Persistence (dtach) -->
+    <section class="mb-16">
+      <h2 class="mb-6 text-2xl font-semibold text-white" id="dtach">Session Persistence</h2>
+      <div class="rounded-xl border border-white/[0.06] bg-[var(--color-surface)] p-6">
+        <div class="space-y-4 text-sm text-neutral-400">
+          <p>ANT terminal sessions survive server restarts using <a href="https://github.com/crigler/dtach" target="_blank" rel="noopener noreferrer" class="text-emerald-400 hover:underline">dtach</a>, a lightweight detach utility.</p>
+          <div>
+            <h4 class="mb-2 font-medium text-white">How it works</h4>
+            <p>Each terminal session spawns via <code class="rounded bg-white/[0.06] px-1.5 py-0.5 text-xs text-emerald-400">dtach -A /tmp/ant-{'{id}'}.sock -Ez {'{shell}'}</code>. When the server restarts, it re-attaches to existing dtach sockets, preserving all terminal state.</p>
+          </div>
+          <div>
+            <h4 class="mb-2 font-medium text-white">Installation</h4>
+            <pre class="overflow-x-auto rounded-lg bg-black/40 p-4 text-sm"><code class="text-emerald-400">brew install dtach</code></pre>
+          </div>
+          <div>
+            <h4 class="mb-2 font-medium text-white">Session TTL</h4>
+            <p>When no WebSocket clients are connected to a session, a kill timer starts. The grace period defaults to 48 hours and is configurable via <code class="rounded bg-white/[0.06] px-1.5 py-0.5 text-xs text-emerald-400">ANT_SESSION_TTL_MS</code>.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Archive & Restore -->
+    <section class="mb-16">
+      <h2 class="mb-6 text-2xl font-semibold text-white" id="archive">Archive &amp; Restore</h2>
+      <div class="rounded-xl border border-white/[0.06] bg-[var(--color-surface)] p-6">
+        <div class="space-y-4 text-sm text-neutral-400">
+          <p>Sessions can be archived (soft-deleted) and restored later. Archived sessions free their name for reuse.</p>
+          <div class="space-y-3">
+            <div class="rounded-lg border border-white/[0.04] bg-black/20 p-4">
+              <div class="mb-2 flex items-center gap-3">
+                <span class="rounded bg-amber-500/20 px-2 py-0.5 text-xs font-medium text-amber-400">PATCH</span>
+                <code class="text-sm text-neutral-300">/api/sessions/:id</code>
+              </div>
+              <p class="mb-2 text-sm text-neutral-500">Archive a session.</p>
+              <pre class="overflow-x-auto rounded-lg bg-black/40 p-3 text-xs"><code class="text-neutral-300">{`{ "archived": true }`}</code></pre>
+            </div>
+            <div class="rounded-lg border border-white/[0.04] bg-black/20 p-4">
+              <div class="mb-2 flex items-center gap-3">
+                <span class="rounded bg-amber-500/20 px-2 py-0.5 text-xs font-medium text-amber-400">PATCH</span>
+                <code class="text-sm text-neutral-300">/api/sessions/:id</code>
+              </div>
+              <p class="mb-2 text-sm text-neutral-500">Restore an archived session.</p>
+              <pre class="overflow-x-auto rounded-lg bg-black/40 p-3 text-xs"><code class="text-neutral-300">{`{ "archived": false }`}</code></pre>
+            </div>
+          </div>
+          <p>Archived terminal sessions are read-only — terminal input is blocked server-side. Historical output replays from the database.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Cross-links -->
+    <section class="mb-16">
+      <h2 class="mb-6 text-2xl font-semibold text-white">More Documentation</h2>
+      <div class="grid gap-4 md:grid-cols-3">
+        <a href="/cli" class="rounded-xl border border-white/[0.06] bg-[var(--color-surface)] p-5 transition hover:border-emerald-500/20">
+          <h3 class="mb-1 font-medium text-white">CLI Reference</h3>
+          <p class="text-sm text-neutral-500">15 commands for humans and agents</p>
+        </a>
+        <a href="/mcp" class="rounded-xl border border-white/[0.06] bg-[var(--color-surface)] p-5 transition hover:border-emerald-500/20">
+          <h3 class="mb-1 font-medium text-white">MCP Tools</h3>
+          <p class="text-sm text-neutral-500">28 tools across 9 categories</p>
+        </a>
+        <a href="/agents" class="rounded-xl border border-white/[0.06] bg-[var(--color-surface)] p-5 transition hover:border-emerald-500/20">
+          <h3 class="mb-1 font-medium text-white">Agent Platform</h3>
+          <p class="text-sm text-neutral-500">Handles, mentions, and chat rooms</p>
+        </a>
       </div>
     </section>
 

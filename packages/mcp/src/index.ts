@@ -8,10 +8,6 @@ const PORT = process.env.ANT_PORT || "3000";
 const EFFECTIVE_HOST = HOST === "0.0.0.0" ? "127.0.0.1" : HOST;
 const BASE_URL = process.env.ANT_BASE_URL || `http://${EFFECTIVE_HOST}:${PORT}`;
 
-const CHAT_HOST = process.env.ANT_CHAT_HOST || "127.0.0.1";
-const CHAT_PORT = process.env.ANT_CHAT_PORT || "6464";
-const CHAT_BASE_URL = process.env.ANT_CHAT_URL || `http://${CHAT_HOST}:${CHAT_PORT}`;
-
 const TERMINAL_TEXT_LIMIT = 10_000;
 const MAX_TERMINAL_COLS = 500;
 const MAX_TERMINAL_ROWS = 200;
@@ -73,25 +69,6 @@ async function api(path: string, options?: RequestInit) {
     );
   }
 
-  return res.json();
-}
-
-async function chatApi(path: string, options?: RequestInit) {
-  const apiKey = process.env.ANT_API_KEY;
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(apiKey ? { "X-API-Key": apiKey } : {}),
-  };
-  const res = await fetch(`${CHAT_BASE_URL}${path}`, {
-    ...options,
-    headers: { ...headers, ...(options?.headers as Record<string, string>) },
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    let payload: unknown = body;
-    try { payload = JSON.parse(body); } catch {}
-    throw new AntApiError(res.status, payload, `ANT Chat API error ${res.status}: ${getReadableErrorPayload(payload)}`);
-  }
   return res.json();
 }
 
@@ -218,7 +195,7 @@ server.tool(
     if (limit) params.set("limit", String(limit));
 
     const qs = params.toString();
-    const messages = await chatApi(
+    const messages = await api(
       `/api/sessions/${sessionId}/messages${qs ? `?${qs}` : ""}`
     );
     return {
@@ -244,7 +221,7 @@ server.tool(
     metadata: z.any().optional().describe("Structured metadata. For protocol messages use: { type: 'offer', task_id, capability, confidence (0-1), available } or { type: 'assignment', assignments: [{ task_id, assigned_to, assigned_type, branch }] } etc."),
   },
   async ({ sessionId, content, role, format, sender_type, sender_name, sender_cwd, sender_persona, thread_id, metadata }) => {
-    const message = await chatApi(`/api/sessions/${sessionId}/messages`, {
+    const message = await api(`/api/sessions/${sessionId}/messages`, {
       method: "POST",
       body: JSON.stringify({ role, content, format, sender_type, sender_name, sender_cwd, sender_persona, thread_id, metadata }),
     });
@@ -264,7 +241,7 @@ server.tool(
     format: FORMAT_ENUM.default("markdown").describe("Message format"),
   },
   async ({ sessionId, role, format }) => {
-    const message = await chatApi(`/api/sessions/${sessionId}/messages`, {
+    const message = await api(`/api/sessions/${sessionId}/messages`, {
       method: "POST",
       body: JSON.stringify({ role, content: "", format, status: "streaming" }),
     });
@@ -289,7 +266,7 @@ server.tool(
     content: z.string().describe("Full message content"),
   },
   async ({ sessionId, messageId, content }) => {
-    const message = await chatApi(
+    const message = await api(
       `/api/sessions/${sessionId}/messages/${messageId}`,
       {
         method: "PATCH",
@@ -311,7 +288,7 @@ server.tool(
     messageId: z.string().describe("Message ID to delete"),
   },
   async ({ sessionId, messageId }) => {
-    const result = await chatApi(
+    const result = await api(
       `/api/sessions/${sessionId}/messages/${messageId}`,
       { method: "DELETE" }
     );
@@ -333,7 +310,7 @@ server.tool(
     sender_name: z.string().optional().describe("Display name"),
   },
   async ({ sessionId, messageId, content, sender_type, sender_name }) => {
-    const message = await chatApi(`/api/sessions/${sessionId}/messages`, {
+    const message = await api(`/api/sessions/${sessionId}/messages`, {
       method: "POST",
       body: JSON.stringify({ role: "agent", content, sender_type, sender_name, thread_id: messageId }),
     });
@@ -350,7 +327,7 @@ server.tool(
     messageId: z.string().describe("Message ID to store"),
   },
   async ({ sessionId, messageId }) => {
-    const result = await chatApi("/api/store", {
+    const result = await api("/api/store", {
       method: "POST",
       body: JSON.stringify({ sessionId, messageId }),
     });
