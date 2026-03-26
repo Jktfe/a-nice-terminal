@@ -3,6 +3,8 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 import { defineConfig } from "vite";
 
+const PORT = process.env.ANT_PORT || "3000";
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
@@ -12,9 +14,9 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      "/api": "http://127.0.0.1:3000",
+      "/api": `http://127.0.0.1:${PORT}`,
       "/socket.io": {
-        target: "http://127.0.0.1:3000",
+        target: `http://127.0.0.1:${PORT}`,
         ws: true,
       },
     },
