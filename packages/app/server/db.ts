@@ -170,6 +170,18 @@ db.exec(`UPDATE messages SET sender_type = 'system' WHERE sender_type IS NULL AN
 db.exec(`CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id)`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_messages_starred ON messages(starred) WHERE starred = 1`);
 
+// FTS5 for full-text search over messages (used for @mention lookups and global search)
+try {
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+      content, sender_name,
+      content=messages, content_rowid=rowid
+    );
+  `);
+} catch {
+  // FTS5 table may already exist
+}
+
 // Command events table — tracks command lifecycle for agent API
 db.exec(`
   CREATE TABLE IF NOT EXISTS command_events (
@@ -325,6 +337,12 @@ db.exec(`
 // Migration: add handle column to agent_registry
 try { db.exec(`ALTER TABLE agent_registry ADD COLUMN handle TEXT UNIQUE`); } catch {}
 
+// Case-insensitive indexes for agent handle/display_name lookups (avoids LOWER() full scans)
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_agent_handle_nocase ON agent_registry(handle COLLATE NOCASE);
+  CREATE INDEX IF NOT EXISTS idx_agent_display_name_nocase ON agent_registry(display_name COLLATE NOCASE);
+`);
+
 // ---------------------------------------------------------------------------
 // V2: Conversation Members — tracks which agents have joined which chats
 // ---------------------------------------------------------------------------
@@ -341,7 +359,7 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_conv_members_agent ON conversation_members(agent_id);
-  CREATE INDEX IF NOT EXISTS idx_conv_members_handle ON conversation_members(handle);
+  CREATE INDEX IF NOT EXISTS idx_conv_members_session_handle ON conversation_members(session_id, handle COLLATE NOCASE);
 `);
 
 // ---------------------------------------------------------------------------

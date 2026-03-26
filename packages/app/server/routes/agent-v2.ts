@@ -9,6 +9,9 @@
  * existing /api/agent/ routes.
  */
 import { Router } from "express";
+import { nanoid } from "nanoid";
+import { readFileSync, existsSync } from "fs";
+import path from "path";
 import db from "../db.js";
 import type { DbSession } from "../types.js";
 import { stripAnsi } from "../types.js";
@@ -666,11 +669,11 @@ router.post("/api/v2/agents/register", (req, res) => {
 
   // Validate handle format if provided: alphanumeric + hyphens, 2-32 chars
   if (handle !== undefined && handle !== null) {
-    if (typeof handle !== "string" || !/^[\w][\w-]{1,31}$/.test(handle)) {
+    if (typeof handle !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9-]{1,31}$/.test(handle)) {
       return res.status(400).json({ error: "handle must be 2-32 characters, alphanumeric/hyphens, starting with a letter or digit" });
     }
     // Check uniqueness (another agent may already own this handle)
-    const conflict = db.prepare("SELECT id FROM agent_registry WHERE handle = ? AND id != ?").get(handle, id) as { id: string } | undefined;
+    const conflict = db.prepare("SELECT id FROM agent_registry WHERE handle = ? COLLATE NOCASE AND id != ?").get(handle, id) as { id: string } | undefined;
     if (conflict) {
       return res.status(409).json({ error: `Handle @${handle} is already taken by agent ${conflict.id}` });
     }
@@ -795,7 +798,7 @@ router.post("/api/v2/conversations/:id/join", (req, res) => {
   `).run(sessionId, agent_id, memberHandle, memberRole, memberHandle, memberRole);
 
   // Post system message announcing the join
-  const msgId = `msg-join-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const msgId = nanoid(12);
   db.prepare(`
     INSERT INTO messages (id, session_id, role, content, format, sender_type, sender_name, message_type)
     VALUES (?, ?, 'system', ?, 'text', 'system', 'ANT', 'text')
@@ -825,7 +828,7 @@ router.delete("/api/v2/conversations/:id/leave", (req, res) => {
   db.prepare("DELETE FROM conversation_members WHERE session_id = ? AND agent_id = ?").run(sessionId, agent_id);
 
   // Post system message
-  const msgId = `msg-leave-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const msgId = nanoid(12);
   db.prepare(`
     INSERT INTO messages (id, session_id, role, content, format, sender_type, sender_name, message_type)
     VALUES (?, ?, 'system', ?, 'text', 'system', 'ANT', 'text')
@@ -1300,8 +1303,7 @@ router.get("/api/v2/agent/bootstrap", (req, res) => {
   for (const t of terminalSessions) {
     if (t.cwd) {
       try {
-        const { readFileSync, existsSync } = require("fs");
-        const antMdPath = require("path").join(t.cwd, ".ant.md");
+        const antMdPath = path.join(t.cwd, ".ant.md");
         if (existsSync(antMdPath)) {
           projectContext = readFileSync(antMdPath, "utf-8");
           break;
@@ -1535,7 +1537,7 @@ export function resolveMentions(content: string, sessionId: string): Array<{
       SELECT cm.agent_id, cm.handle, ar.display_name
       FROM conversation_members cm
       JOIN agent_registry ar ON ar.id = cm.agent_id
-      WHERE cm.session_id = ? AND (LOWER(cm.handle) = LOWER(?) OR LOWER(ar.display_name) = LOWER(?))
+      WHERE cm.session_id = ? AND (cm.handle = ? COLLATE NOCASE OR ar.display_name = ? COLLATE NOCASE)
     `).get(sessionId, name, name) as { agent_id: string; handle: string; display_name: string } | undefined;
 
     if (member) {
@@ -1546,7 +1548,7 @@ export function resolveMentions(content: string, sessionId: string): Array<{
     // 2. Check global agent registry by handle or display_name
     const globalAgent = db.prepare(`
       SELECT id, handle, display_name FROM agent_registry
-      WHERE LOWER(handle) = LOWER(?) OR LOWER(display_name) = LOWER(?)
+      WHERE handle = ? COLLATE NOCASE OR display_name = ? COLLATE NOCASE
     `).get(name, name) as { id: string; handle: string | null; display_name: string } | undefined;
 
     if (globalAgent) {
