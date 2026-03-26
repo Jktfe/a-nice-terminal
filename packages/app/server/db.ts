@@ -331,14 +331,16 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_handle ON agent_registry(handle);
 `);
 
-// Migration: add handle column to agent_registry
-try { db.exec(`ALTER TABLE agent_registry ADD COLUMN handle TEXT UNIQUE`); } catch {}
+// Migration: add handle column to agent_registry (must run before index creation)
+// Note: SQLite does not support UNIQUE constraint in ALTER TABLE ADD COLUMN — the unique
+// index is created separately below.
+try { db.exec(`ALTER TABLE agent_registry ADD COLUMN handle TEXT`); } catch {}
 
-// Case-insensitive indexes for agent handle/display_name lookups (avoids LOWER() full scans)
+// Indexes for agent handle/display_name lookups (after migration ensures column exists)
 db.exec(`
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_handle ON agent_registry(handle);
   CREATE INDEX IF NOT EXISTS idx_agent_handle_nocase ON agent_registry(handle COLLATE NOCASE);
   CREATE INDEX IF NOT EXISTS idx_agent_display_name_nocase ON agent_registry(display_name COLLATE NOCASE);
 `);
