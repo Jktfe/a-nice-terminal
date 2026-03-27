@@ -17,6 +17,7 @@ export default function ChairmanPanel() {
   const [currentSession, setCurrentSession] = useState("");
   const [sessions, setSessions] = useState<Array<{ id: string; title: string; type: string }>>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!chairmanPanelOpen) return;
@@ -43,9 +44,10 @@ export default function ChairmanPanel() {
       .finally(() => setLoadingRooms(false));
 
     setLoadingSessions(true);
+    setSessionsError(null);
     apiFetch("/api/sessions")
       .then((data) => setSessions((data ?? []).filter((s: { id: string; title: string; type: string }) => s.type === "chat")))
-      .catch(() => {})
+      .catch(() => setSessionsError("Could not load sessions"))
       .finally(() => setLoadingSessions(false));
   }, [chairmanPanelOpen]);
 
@@ -216,7 +218,12 @@ export default function ChairmanPanel() {
               <label className="text-[10px] uppercase tracking-wider text-[var(--color-text-dim)] font-semibold">
                 Watched Session
               </label>
-              {loadingSessions ? (
+              {sessionsError ? (
+                <div className="flex items-center gap-1.5 px-3 py-2 text-xs text-amber-400/80">
+                  <AlertTriangle className="w-3 h-3 shrink-0" />
+                  {sessionsError}
+                </div>
+              ) : loadingSessions ? (
                 <div className="px-3 py-2 text-xs text-[var(--color-text-dim)]">
                   Loading sessions...
                 </div>
