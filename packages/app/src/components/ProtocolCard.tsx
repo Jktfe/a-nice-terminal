@@ -4,7 +4,7 @@
  */
 import {
   Crown, FileText, Hand, GitBranch, Activity,
-  Eye, CheckCircle, XCircle, AlertCircle, Trophy,
+  Eye, CheckCircle, XCircle, AlertCircle, Trophy, Terminal,
 } from "lucide-react";
 import type { ProtocolMetadata, ProtocolType } from "../utils/protocolTypes.ts";
 import { protocolLabel, protocolAccent } from "../utils/protocolTypes.ts";
@@ -23,6 +23,7 @@ const typeIcons: Record<ProtocolType, typeof Crown> = {
   review_request: Eye,
   review_result: CheckCircle,
   completion: Trophy,
+  terminal_approval: Terminal,
 };
 
 export default function ProtocolCard({ metadata }: ProtocolCardProps) {
@@ -197,6 +198,24 @@ export default function ProtocolCard({ metadata }: ProtocolCardProps) {
               Next: {metadata.next_steps.join(", ")}
             </div>
           )}
+        </div>
+      )}
+
+      {metadata.type === "terminal_approval" && (
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="text-white/60">Tool:</span>
+            <span className="font-mono text-white/80">{metadata.tool_type}</span>
+            <span className={`ml-auto px-1.5 py-0.5 rounded text-[10px] ${
+              metadata.status === "approved" ? "bg-emerald-500/20 text-emerald-300" :
+              metadata.status === "rejected" ? "bg-red-500/20 text-red-300" :
+              "bg-amber-500/20 text-amber-300"
+            }`}>
+              {metadata.status}
+            </span>
+          </div>
+          <div className="text-white/50 mt-1 font-mono text-[10px] truncate">{metadata.detail}</div>
+          <div className="text-white/40 mt-1 text-[10px]">{metadata.terminal_name}</div>
         </div>
       )}
     </div>

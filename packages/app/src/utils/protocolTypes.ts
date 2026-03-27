@@ -24,7 +24,8 @@ export type ProtocolType =
   | "status_update"
   | "review_request"
   | "review_result"
-  | "completion";
+  | "completion"
+  | "terminal_approval";
 
 // MasterDave selects an architect for the conversation
 export interface ArchitectSelect {
@@ -107,6 +108,17 @@ export interface Completion {
   next_steps?: string[];
 }
 
+// Chairman posts a permission approval for a Claude Code terminal action
+export interface TerminalApprovalMetadata {
+  type: "terminal_approval";
+  terminal_id: string;
+  terminal_name: string;
+  tool_type: string;   // "Bash" | "Edit" | "Write" | "Read" | "WebFetch" | "MultiEdit"
+  detail: string;      // the command or file path (max 200 chars)
+  prompt_id: string;   // sha1 fingerprint for de-duplication
+  status: "pending" | "approved" | "rejected";
+}
+
 export type ProtocolMetadata =
   | ArchitectSelect
   | TaskBrief
@@ -115,7 +127,8 @@ export type ProtocolMetadata =
   | StatusUpdate
   | ReviewRequest
   | ReviewResult
-  | Completion;
+  | Completion
+  | TerminalApprovalMetadata;
 
 /**
  * Check if a message's metadata is a protocol message.
@@ -134,6 +147,7 @@ const PROTOCOL_TYPES = new Set<string>([
   "review_request",
   "review_result",
   "completion",
+  "terminal_approval",
 ]);
 
 /**
@@ -149,6 +163,7 @@ export function protocolLabel(type: ProtocolType): string {
     review_request: "Review Request",
     review_result: "Review Result",
     completion: "Complete",
+    terminal_approval: "Terminal Approval",
   };
   return labels[type] || type;
 }
@@ -166,6 +181,7 @@ export function protocolAccent(type: ProtocolType): string {
     review_request: "#f59e0b",  // amber
     review_result: "#10b981",   // emerald
     completion: "#10b981",      // emerald
+    terminal_approval: "#f59e0b", // amber
   };
   return accents[type] || "#e5e5e5";
 }
