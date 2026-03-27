@@ -1,3 +1,5 @@
+"use client";
+
 import { useState, useEffect, useRef } from "react";
 import { X, Send } from "lucide-react";
 import { apiFetch, useStore, type Message } from "../store.ts";
@@ -88,7 +90,7 @@ export default function ThreadPanel({ parentMessage, sessionId, onClose }: Threa
           onChange={(e) => setReplyInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendReply(); } }}
           placeholder="Reply..."
-          className="flex-1 bg-transparent text-sm text-white outline-none placeholder-white/30"
+          className="flex-1 bg-white/5 text-sm text-white outline-none placeholder-white/40 px-2 py-1.5 rounded border border-white/10 focus:border-emerald-500/50 focus:bg-white/10 transition-colors"
         />
         <button
           onClick={sendReply}
