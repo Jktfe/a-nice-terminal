@@ -9,6 +9,9 @@
  */
 
 import db from "./db.js";
+import { startTerminalMonitor, stopTerminalMonitor } from "./terminal-monitor.js";
+import { startMessageBridge, stopMessageBridge } from "./message-bridge.js";
+import { startTaskWatchdog, stopTaskWatchdog } from "./task-watchdog.js";
 
 const ANT_URL = `http://localhost:${process.env.ANT_PORT || "6458"}`;
 const LM_STUDIO_URL = process.env.LM_STUDIO_URL || "http://localhost:1234";
@@ -313,6 +316,9 @@ async function poll(): Promise<void> {
 export function startChairmanBridge(): void {
   if (intervalHandle) return;
   console.log(`[chairman] Bridge starting (poll every ${POLL_INTERVAL_MS}ms)`);
+  startTerminalMonitor();
+  startMessageBridge();
+  startTaskWatchdog();
   intervalHandle = setInterval(poll, POLL_INTERVAL_MS);
   // Run first poll immediately
   poll().catch(() => {});
@@ -324,4 +330,7 @@ export function stopChairmanBridge(): void {
     intervalHandle = null;
     console.log(`[chairman] Bridge stopped`);
   }
+  stopTerminalMonitor();
+  stopMessageBridge();
+  stopTaskWatchdog();
 }
