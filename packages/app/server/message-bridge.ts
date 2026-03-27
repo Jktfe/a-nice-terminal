@@ -124,7 +124,10 @@ async function poll(): Promise<void> {
 
         // Inject raw message content into terminal
         const pty = getPty(participant.terminalSessionId);
-        if (!pty) continue;
+        if (!pty) {
+          console.warn(`[message-bridge] PTY not found for ${participant.agentName} (session ${participant.terminalSessionId})`);
+          continue;
+        }
 
         try {
           pty.write(msg.content + "\n");
