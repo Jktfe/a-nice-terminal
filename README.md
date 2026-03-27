@@ -60,6 +60,15 @@ ANT_ALLOW_LOOPBACK=false
 # ANT_API_KEY=your-secret-key
 # Optional browser auth key for authenticated frontend/API calls
 # VITE_ANT_API_KEY=your-secret-key
+
+# Chairman orchestration tuning (all optional, shown with defaults)
+# TERMINAL_MONITOR_POLL_MS=2000   # how often to scan PTY screens for permission prompts
+# MESSAGE_BRIDGE_POLL_MS=3000     # how often to check chat for undelivered @mentions
+# MESSAGE_BRIDGE_GRACE_MS=6000    # wait before injecting a message into a terminal
+# WATCHDOG_IDLE_MS=300000         # idle threshold before nudging an in-progress task
+# WATCHDOG_UNSTARTED_MS=180000    # alert threshold for unstarted assigned tasks
+# WATCHDOG_SILENT_MS=900000       # alert threshold for no chat update from active agent
+# WATCHDOG_COOLDOWN_MS=600000     # cooldown between nudges per task
 ```
 
 ## Architecture
