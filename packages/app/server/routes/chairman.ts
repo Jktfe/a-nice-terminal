@@ -127,13 +127,11 @@ router.post("/api/chairman/terminal-action", (req, res) => {
     const newMeta = JSON.stringify({ ...meta, status: newStatus });
     db.prepare("UPDATE messages SET metadata = ? WHERE id = ?").run(newMeta, message_id);
 
-    // Emit socket event to live-update the card in all open browsers
+    // Emit full message row so the store handler can replace-by-id correctly
     const io = req.app.get("io");
     if (io) {
-      io.to(session_id).emit("message_updated", {
-        messageId: message_id,
-        metadata: { ...meta, status: newStatus },
-      });
+      const updatedMsg = db.prepare("SELECT * FROM messages WHERE id = ?").get(message_id);
+      if (updatedMsg) io.to(session_id).emit("message_updated", updatedMsg);
     }
 
     return res.json({ ok: true, status: newStatus });

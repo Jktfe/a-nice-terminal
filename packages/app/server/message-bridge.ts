@@ -162,6 +162,8 @@ export function stopMessageBridge(): void {
   if (intervalHandle) {
     clearInterval(intervalHandle);
     intervalHandle = null;
+    injectedMessageIds.clear();
+    lastSeenAt = null;
     console.log("[message-bridge] Stopped");
   }
 }

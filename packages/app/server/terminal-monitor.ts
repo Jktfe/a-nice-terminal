@@ -190,6 +190,7 @@ export function stopTerminalMonitor(): void {
   if (intervalHandle) {
     clearInterval(intervalHandle);
     intervalHandle = null;
+    seenPrompts.clear();
     console.log("[terminal-monitor] Stopped");
   }
 }

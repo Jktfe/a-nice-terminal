@@ -6,7 +6,7 @@
  * After approve/reject, buttons are replaced by a resolved badge.
  * View expands an inline terminal screenshot below the buttons.
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Terminal, Check, X, Eye, Loader2 } from "lucide-react";
 import { apiFetch } from "../store.ts";
 import type { TerminalApprovalMetadata } from "../utils/protocolTypes.ts";
@@ -24,6 +24,11 @@ export default function TerminalApprovalCard({
 }: TerminalApprovalCardProps) {
   const [status, setStatus] = useState<"pending" | "approved" | "rejected">(metadata.status);
   const [loading, setLoading] = useState<"approve" | "reject" | "view" | null>(null);
+
+  // Sync status when another participant acts (store updates metadata via message_updated socket)
+  useEffect(() => {
+    setStatus(metadata.status);
+  }, [metadata.status]);
   const [screenLines, setScreenLines] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 

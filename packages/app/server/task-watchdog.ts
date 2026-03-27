@@ -291,6 +291,7 @@ export function stopTaskWatchdog(): void {
   if (intervalHandle) {
     clearInterval(intervalHandle);
     intervalHandle = null;
+    watchedTasks.clear();
     console.log("[task-watchdog] Stopped");
   }
 }
