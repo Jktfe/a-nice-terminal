@@ -179,7 +179,7 @@ async function poll(): Promise<void> {
     };
     const tasks = db
       .prepare(
-        "SELECT id, title, status, assigned_name, updated_at FROM tasks WHERE assigned_name IS NOT NULL AND status != 'done'"
+        "SELECT id, title, status, assigned_name, updated_at FROM tasks WHERE assigned_name IS NOT NULL"
       )
       .all() as DbTask[];
 
@@ -195,8 +195,9 @@ async function poll(): Promise<void> {
       const cursorNow = getTerminalOutputCursor(participant.terminalSessionId);
       const elapsed = Date.now() - new Date(task.updated_at + "Z").getTime();
 
-      // Register new task
+      // Register new task (skip done tasks we've never seen — nothing to detect)
       if (!watchedTasks.has(task.id)) {
+        if (task.status === "done") continue;
         watchedTasks.set(task.id, {
           taskId: task.id,
           assignedHandle: handle,
