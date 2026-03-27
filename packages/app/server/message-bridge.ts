@@ -104,6 +104,9 @@ async function poll(): Promise<void> {
       const mentions = extractMentions(msg.content);
       if (mentions.length === 0) continue;
 
+      // Mark as processed before the mention loop so an exception can't cause re-processing
+      injectedMessageIds.add(msg.id);
+
       for (const mention of mentions) {
         const participant = participants.find(
           (p) => p.agentName.toLowerCase() === mention.toLowerCase()
@@ -138,8 +141,6 @@ async function poll(): Promise<void> {
           console.warn("[message-bridge] Inject failed:", err instanceof Error ? err.message : err);
         }
       }
-
-      injectedMessageIds.add(msg.id);
     }
   } catch (err) {
     console.warn("[message-bridge] Poll error:", err instanceof Error ? err.message : err);
