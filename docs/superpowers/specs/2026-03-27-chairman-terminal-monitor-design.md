@@ -1,4 +1,4 @@
-# Chairman Terminal Monitor — Design Spec
+# Chairman Full Orchestration — Design Spec
 **Date:** 2026-03-27
 **Status:** Approved
 
@@ -6,27 +6,37 @@
 
 ## Problem
 
-The Chairman (@Chatlead) currently only routes chat messages to agents. When Claude Code or another agent running in a terminal requires user approval (permission prompts, tool use confirmations), there is no bridge between the terminal and the chat — the user must context-switch to the terminal manually.
+The Chairman (@Chatlead) currently only routes chat messages to agents. There is no bridge between terminals and chat in either direction — permission prompts go unseen, @mentions don't reach terminals, assigned tasks go unmonitored, and idle agents go undetected.
 
 ## Goal
 
-When a terminal shows a permission prompt, the Chairman automatically posts an interactive card in the watched chat session. The user can approve, reject, or inspect the prompt directly from chat without touching the terminal.
+The Chairman becomes a full orchestration layer: monitoring all participant terminals, bridging messages in both directions, tracking task execution, and detecting gaps between what should be happening and what is.
+
+### Capabilities
+
+1. **Terminal Approval** — permission prompts posted to chat with Approve/Reject/View buttons
+2. **Message Bridge** — @mentions in chat injected into the addressed agent's terminal if not received
+3. **Task Watchdog** — assigned tasks monitored; idle agents nudged in chat and in their terminal
+4. **Gap Detection** — identifies tasks assigned but not started, agents active but not reporting, terminals idle on in-progress work
 
 ---
 
 ## Architecture
 
-Seven components modified or created:
+Ten components modified or created:
 
 | File | Change |
 |------|--------|
-| `packages/app/server/terminal-monitor.ts` | NEW — polls terminals, detects prompts, posts cards |
-| `packages/app/server/routes/chairman.ts` | EXTEND — `/api/chairman/terminal-action` + `/api/chairman/session` |
-| `packages/app/server/chairman-bridge.ts` | EXTEND — start/stop terminal monitor with bridge lifecycle |
+| `packages/app/server/terminal-monitor.ts` | NEW — polls terminals for permission prompts + idle state |
+| `packages/app/server/message-bridge.ts` | NEW — bridges chat @mentions into agent terminals |
+| `packages/app/server/task-watchdog.ts` | NEW — tracks task assignments, detects gaps, nudges agents |
+| `packages/app/server/routes/chairman.ts` | EXTEND — terminal-action, session, room endpoints |
+| `packages/app/server/chairman-bridge.ts` | EXTEND — starts/stops all three new modules |
 | `packages/app/src/utils/protocolTypes.ts` | EXTEND — add `terminal_approval` type |
 | `packages/app/src/components/TerminalApprovalCard.tsx` | NEW — pending/resolved card UI |
 | `packages/app/src/components/MessageBubble.tsx` | EXTEND — render TerminalApprovalCard |
-| `packages/app/src/components/ChairmanPanel.tsx` | EXTEND — session selector dropdown |
+| `packages/app/src/components/ChairmanPanel.tsx` | EXTEND — session + room selector |
+| `packages/app/src/store.ts` | EXTEND — `chairmanRoom` setting |
 
 ### Data Flow
 
@@ -270,9 +280,186 @@ This fixes the bug where `chairman_session` was empty and the Chairman had no co
 
 ---
 
-## Not In Scope
+## Not In Scope (Phase 1)
 
 - Support for non-Claude-Code permission prompts (e.g. sudo) — can be added later via additional pattern strings
 - Telegram/Slack bridge for approval (chat-only for now)
 - Persistent seenPrompts across server restarts
 - Auto-approve rules / always-allow patterns
+
+---
+
+## Foundation: Agent-Terminal Mapping
+
+All three new modules share a common function `getRoomParticipants(roomName)` that calls:
+
+```
+GET /api/chat-rooms/:roomName/participants
+→ [{ terminalSessionId, agentName, model }]
+```
+
+The `chairman_room` setting (new, alongside `chairman_session`) names the chat room to monitor. The chairman derives both the conversation session ID and all terminal IDs from this one room name.
+
+`ChairmanPanel.tsx` gains a room selector: a dropdown populated from `GET /api/chat-rooms` that sets `chairman_room` via `POST /api/chairman/room`.
+
+---
+
+## Module 8: `message-bridge.ts`
+
+Bridges chat @mentions to agent terminals when they aren't received.
+
+### Trigger
+
+Polls the chairman session for new human messages every 3s. For each message containing `@<agentHandle>`:
+
+1. Looks up `terminalSessionId` for that handle from room participants
+2. Checks whether that terminal's recent output (last 10s via output cursor delta) shows any sign of activity — if the output cursor advanced after the message timestamp, the agent likely received it already
+3. If no activity after a 6s grace period → injects the raw message content into the terminal
+
+### Injection Format
+
+Raw message content pasted directly via `ptyProcess.write(message.content + "\n")`. No wrapping — the agent sees it as if it were typed at the prompt.
+
+### De-duplication
+
+Tracks `injectedMessageIds: Set<string>` in module scope. A message ID is added to the set when injected; never injected twice regardless of re-detection.
+
+### What counts as "received"
+
+Terminal output cursor has advanced by ≥1 event since message timestamp + 6s. This is a simple heuristic — if the agent's terminal produced any output it likely processed the message. If not, the injection ensures delivery.
+
+---
+
+## Module 9: `task-watchdog.ts`
+
+Monitors task assignments and ensures assigned agents are working.
+
+### Task State Tracking
+
+On startup and every 30s, loads all tasks from `GET /api/tasks` and coordination tasks from `GET /api/v2/agent/context?session_id={chairmanSession}`. Builds a map:
+
+```typescript
+interface WatchedTask {
+  taskId: string;
+  assignedHandle: string;       // e.g. "@ANTClaude"
+  terminalSessionId: string;    // from room participant lookup
+  assignedAt: Date;
+  lastOutputCursor: number;     // terminal output cursor at time of assignment
+  nudgedAt: Date | null;
+  status: "in_progress" | "todo" | "done";
+}
+```
+
+### Idle Detection
+
+Every 30s, for each `in_progress` task:
+
+1. Gets current terminal output cursor via `getTerminalOutputCursor(terminalSessionId)`
+2. Compares to `lastOutputCursor` recorded when task was assigned (or last nudge)
+3. If cursor hasn't advanced in **5 minutes** → trigger a nudge
+
+### Nudge Action (both chat + terminal)
+
+**In chat** — posts:
+```
+[@Chatlead] @ANTClaude — T001 has been in_progress for 8 minutes with no terminal
+activity detected. Are you working on it? Post a status update.
+```
+
+**In terminal** — injects via `ptyProcess.write()`:
+```
+[Chatlead] Task T001 still shows in_progress — please post a status update in chat.\n
+```
+
+Both use raw paste (option A from brainstorm). `nudgedAt` is set to prevent re-nudging within 10 minutes per task.
+
+### Gap Detection
+
+Beyond idle tasks, the watchdog also detects:
+
+- **Unstarted assignments**: task has `status: "todo"` but was assigned (has `assigned_name`) more than 3 minutes ago → posts: *"@ANTClaude — T002 was assigned to you 4 mins ago but hasn't been started. Ready to begin?"*
+- **Active terminal, no chat update**: agent's terminal shows output activity but no chat message from that agent in 15 minutes → posts: *"@ANTClaude — good terminal activity on T001 but no chat update in 15 mins. How's it going?"*
+- **Task marked done in chat but terminal still active**: task status changed to done but agent's terminal shows continued activity → posts: *"@ANTClaude — T001 is marked done but terminal still active. Follow-up work, or should I update the task?"*
+
+### Thresholds (all configurable via env vars)
+
+| Threshold | Default | Env Var |
+|-----------|---------|---------|
+| Idle before nudge | 5 min | `WATCHDOG_IDLE_MS` |
+| Unstarted assignment alert | 3 min | `WATCHDOG_UNSTARTED_MS` |
+| No chat update alert | 15 min | `WATCHDOG_SILENT_MS` |
+| Re-nudge cooldown | 10 min | `WATCHDOG_COOLDOWN_MS` |
+
+---
+
+## Updated `chairman-bridge.ts` Lifecycle
+
+```typescript
+import { startTerminalMonitor, stopTerminalMonitor } from "./terminal-monitor.js";
+import { startMessageBridge, stopMessageBridge } from "./message-bridge.js";
+import { startTaskWatchdog, stopTaskWatchdog } from "./task-watchdog.js";
+
+export function startChairmanBridge(): void {
+  startTerminalMonitor();
+  startMessageBridge();
+  startTaskWatchdog();
+  // ... existing poll loop
+}
+
+export function stopChairmanBridge(): void {
+  stopTerminalMonitor();
+  stopMessageBridge();
+  stopTaskWatchdog();
+  // ...
+}
+```
+
+All three modules check `isEnabled()` and `getSessionId()` / `getRoomName()` on every cycle, consistent with the existing chairman bridge pattern.
+
+---
+
+## Updated `routes/chairman.ts` Additions
+
+### `GET /api/chairman/status` — extended response
+```json
+{
+  "enabled": true,
+  "model": "openai/gpt-oss-20b",
+  "session": "RbL8N2Aco2qH",
+  "room": "ChatV2"
+}
+```
+
+### `POST /api/chairman/room`
+```typescript
+body: { room: string }
+// Writes chairman_room to server_state
+```
+
+### `GET /api/chairman/rooms`
+Returns available room names from `ChatRoomRegistry` for the room selector dropdown.
+
+---
+
+## Updated Error Handling
+
+| Scenario | Behaviour |
+|----------|-----------|
+| No active PTY for terminal_id | Card shows "Terminal ended", buttons disabled |
+| Chairman disabled mid-poll | All modules skip, nothing posted |
+| No session or room set | All modules skip, ChairmanPanel shows warning |
+| Same prompt re-detected after server restart | One duplicate card possible; 409 on action prevents double-execution |
+| Network error on terminal-action call | Card shows inline error, buttons re-enable for retry |
+| Agent not in room participants | Watchdog skips that task, logs warning |
+| Message bridge injection fails (PTY gone) | Logs warning, message ID still marked as processed |
+| Task watchdog nudge: agent already responded | `nudgedAt` cooldown prevents spam |
+
+---
+
+## Not In Scope
+
+- Support for non-Claude-Code permission prompts (e.g. sudo)
+- Telegram/Slack bridge for approvals
+- Persistent seenPrompts / injectedMessageIds across server restarts
+- Auto-approve rules / always-allow patterns
+- Chairman responding in the terminal on behalf of the agent (reads only, no AI generation in terminal)
