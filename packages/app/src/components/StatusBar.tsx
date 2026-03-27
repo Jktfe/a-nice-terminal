@@ -1,9 +1,9 @@
-import { HelpCircle, Radio, Crown } from "lucide-react";
+import { HelpCircle, Radio } from "lucide-react";
 import { useStore } from "../store.ts";
 import { useState, useEffect } from "react";
 
 export default function StatusBar() {
-  const { sessions, activeSessionId, error, clearError, toggleDocs, chairmanPanelOpen, toggleChairmanPanel } = useStore();
+  const { sessions, activeSessionId, error, clearError, toggleDocs } = useStore();
   const activeSessions = sessions.filter((s) => !s.archived);
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const [bridgePlatforms, setBridgePlatforms] = useState<string[]>([]);
@@ -54,16 +54,6 @@ export default function StatusBar() {
           )}
         </div>
         <div className="flex items-center gap-3">
-          <button
-            onClick={toggleChairmanPanel}
-            className={`flex items-center gap-1 transition-colors ${
-              chairmanPanelOpen ? "text-amber-400" : "hover:text-[var(--color-text-muted)]"
-            }`}
-            title="Chairman (⌘⇧H)"
-          >
-            <Crown className="w-3 h-3" />
-            <span>Chairman</span>
-          </button>
           <button
             onClick={toggleDocs}
             className="flex items-center gap-1 hover:text-[var(--color-text-muted)] transition-colors"

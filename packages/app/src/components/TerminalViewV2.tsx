@@ -41,7 +41,7 @@ interface SearchResult {
 }
 
 export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId?: string } = {}) {
-  const { activeSessionId: storeActiveSessionId, socket, uploadFile, connected, sessionHealth, terminalFontSize, terminalTheme, uiTheme, sessions, loadSessions } = useStore();
+  const { activeSessionId: storeActiveSessionId, socket, uploadFile, connected, sessionHealth, terminalFontSize, terminalTheme, uiTheme, sessions, loadSessions, slowEditMode, toggleSlowEditMode, terminalRefreshSeq } = useStore();
   const activeSessionId = sessionIdProp ?? storeActiveSessionId;
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -64,7 +64,6 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
 
   const [refreshing, setRefreshing] = useState(false);
   const [showScrollButton, setShowScrollButton] = useState(false);
-  const [slowEditMode, setSlowEditMode] = useState(false);
   const [slowEditInput, setSlowEditInput] = useState("");
   const [commandRunning, setCommandRunning] = useState(false);
   const quietTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -104,6 +103,12 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
     termRef.current?.scrollToBottom();
     setShowScrollButton(false);
   }, []);
+
+  // Respond to refresh requests from the header toolbar
+  useEffect(() => {
+    if (terminalRefreshSeq > 0) handleRefresh();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [terminalRefreshSeq]);
 
   useEffect(() => {
     slowEditModeRef.current = slowEditMode;
@@ -617,88 +622,6 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="flex items-center justify-end px-3 py-1 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-        <div className="flex items-center gap-1.5 mr-2 text-[10px] uppercase tracking-widest text-[var(--color-text-muted)]">
-          {slowEditMode ? "Slow Edit ON" : commandRunning ? (
-            <>
-              <motion.span
-                className="w-1.5 h-1.5 rounded-full bg-amber-400"
-                animate={{ opacity: [1, 0.3, 1] }}
-                transition={{ duration: 0.8, repeat: Infinity }}
-              />
-              Running
-            </>
-          ) : (
-            <>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-              Idle
-            </>
-          )}
-        </div>
-        <button
-          onClick={() => setSlowEditMode((value) => !value)}
-          className="flex items-center gap-1.5 px-2 py-1 text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)] rounded transition-colors mr-2"
-          title="Toggle Slow Edit mode"
-        >
-          <Edit3 className="w-3.5 h-3.5" />
-          <span className="text-[10px] uppercase tracking-widest">Slow Edit</span>
-        </button>
-        <button
-          onClick={() => setShowSearch((value) => !value)}
-          className="flex items-center gap-1.5 px-2 py-1 text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)] rounded transition-colors mr-2"
-          title="Search terminal output"
-        >
-          <Search className="w-3.5 h-3.5" />
-          <span className="text-[10px] uppercase tracking-widest">Search</span>
-        </button>
-        <button
-          onClick={onCopySelection}
-          className={`flex items-center gap-1.5 px-2 py-1 rounded transition-colors mr-2 ${copied ? "text-emerald-400" : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)]"}`}
-          title="Copy selected terminal text (Ctrl+Shift+C)"
-        >
-          {copied ? <Check className="w-3.5 h-3.5" /> : <Clipboard className="w-3.5 h-3.5" />}
-          <span className="text-[10px] uppercase tracking-widest">{copied ? "Copied" : "Copy"}</span>
-        </button>
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          title="Refresh terminal output"
-          className="flex items-center gap-1.5 px-2 py-1 text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)] rounded transition-colors disabled:opacity-40"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
-          <span className="text-[10px] uppercase tracking-widest">Refresh</span>
-        </button>
-        {activeSession?.type === "terminal" && (
-          <div className="relative flex items-center ml-auto">
-            <Clock className="w-3 h-3 text-[var(--color-text-dim)] absolute left-2 pointer-events-none" />
-            <select
-              value={activeSession.ttl_minutes === null ? "" : String(activeSession.ttl_minutes)}
-              onChange={async (e) => {
-                const val = e.target.value;
-                const ttl = val === "" ? null : Number(val);
-                await apiFetch(`/api/sessions/${activeSession.id}`, {
-                  method: "PATCH",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ ttl_minutes: ttl }),
-                });
-                loadSessions();
-              }}
-              className="appearance-none pl-6 pr-6 py-1 rounded text-[10px] uppercase tracking-widest font-bold bg-[var(--color-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-active)] border border-[var(--color-border)] cursor-pointer transition-colors"
-              title="Session keep-alive duration"
-            >
-              <option value="">15m</option>
-              <option value="5">5m</option>
-              <option value="15">15m</option>
-              <option value="30">30m</option>
-              <option value="45">45m</option>
-              <option value="60">1h</option>
-              <option value="120">2h</option>
-              <option value="0">AON</option>
-            </select>
-            <ChevronDown className="w-3 h-3 text-[var(--color-text-dim)] absolute right-1.5 pointer-events-none" />
-          </div>
-        )}
-      </div>
       <div
         className="flex-1 overflow-hidden p-2 relative flex flex-col gap-2"
       >

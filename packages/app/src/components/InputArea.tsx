@@ -85,8 +85,8 @@ export default function InputArea({ sessionId: sessionIdProp }: { sessionId?: st
       }),
       Placeholder.configure({
         placeholder: isMobile
-          ? "Type a message..."
-          : "Type a message... (Cmd+Enter to send)",
+          ? "Type command..."
+          : "Type command... (Cmd+Enter to send)",
       }),
       Mention.configure({
         HTMLAttributes: {
@@ -347,13 +347,16 @@ export default function InputArea({ sessionId: sessionIdProp }: { sessionId?: st
             <button
               onClick={handleSend}
               disabled={uploading || (!editor?.getText().trim() && attachments.length === 0)}
-              className={`p-1.5 transition-colors disabled:opacity-30 ${
-                isMobile
-                  ? "bg-emerald-500/20 text-emerald-400 rounded-lg px-3"
-                  : "text-[var(--color-text-dim)] hover:text-emerald-400"
-              }`}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-[#0a0a0a] text-xs font-bold rounded-lg transition-colors disabled:opacity-30"
             >
-              {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              {uploading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <>
+                  <span>Enter</span>
+                  <Send className="w-3.5 h-3.5" />
+                </>
+              )}
             </button>
           </div>
         </div>

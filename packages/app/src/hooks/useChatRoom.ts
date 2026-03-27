@@ -34,6 +34,7 @@ export interface RoomDetail {
 export function useChatRoom(sessionId: string | null): {
   room: RoomDetail | null;
   loading: boolean;
+  refetch: () => Promise<void>;
 } {
   const [room, setRoom] = useState<RoomDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -63,5 +64,5 @@ export function useChatRoom(sessionId: string | null): {
     return () => clearInterval(interval);
   }, [fetchRoom]);
 
-  return { room, loading };
+  return { room, loading, refetch: fetchRoom };
 }

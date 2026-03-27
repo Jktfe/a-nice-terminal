@@ -1,20 +1,19 @@
-import { useMemo, useState, useEffect, useCallback } from "react";
-import { 
-  Check, 
-  Circle, 
-  Loader2, 
-  FileText, 
-  Users, 
-  MessageSquare, 
-  Clock, 
-  CheckSquare, 
-  Plus, 
-  User, 
+import { useMemo, useState, useEffect, useCallback, useRef } from "react";
+import {
+  Circle,
+  FileText,
+  Users,
+  Clock,
+  CheckSquare,
+  Plus,
+  User,
   Trash2,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  PanelLeftOpen,
+  Crown,
 } from "lucide-react";
-import { useStore, type Session, type Message, apiFetch } from "../store.ts";
+import { useStore, apiFetch } from "../store.ts";
 import { useChatRoom } from "../hooks/useChatRoom.ts";
 
 // --- Types ---
@@ -74,14 +73,15 @@ interface DerivedParticipant {
 // --- Component ---
 
 export default function RightPanel() {
-  const { activeSessionId, sessions, messages, agentPresence, socket } = useStore();
-  const session = sessions.find(s => s.id === activeSessionId);
-  const { room } = useChatRoom(activeSessionId);
+  const { activeSessionId, messages, agentPresence, socket, toggleChairmanPanel, toggleRightPanel } = useStore();
+  const { room, refetch: refetchRoom } = useChatRoom(activeSessionId);
+  const [editingHandle, setEditingHandle] = useState<string | null>(null); // terminalSessionId being edited
+  const [editHandleValue, setEditHandleValue] = useState("");
+  const handleInputRef = useRef<HTMLInputElement>(null);
   
   // Task State
   const [tasks, setTasks] = useState<Task[]>([]);
   const [sessionTasks, setSessionTasks] = useState<any[]>([]);
-  const [loadingTasks, setLoadingTasks] = useState(false);
   const [addingTask, setAddingTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskAssignee, setNewTaskAssignee] = useState("");
@@ -133,9 +133,7 @@ export default function RightPanel() {
   }, [activeSessionId]);
 
   const loadAllTasks = useCallback(async () => {
-    setLoadingTasks(true);
     await Promise.all([loadGlobalTasks(), loadSessionTasks()]);
-    setLoadingTasks(false);
   }, [loadGlobalTasks, loadSessionTasks]);
 
   useEffect(() => {
@@ -225,6 +223,25 @@ export default function RightPanel() {
     await apiFetch(`/api/tasks/${id}`, { method: "DELETE" }).catch(() => {});
   };
 
+  const startEditHandle = (terminalSessionId: string, currentName: string) => {
+    setEditingHandle(terminalSessionId);
+    setEditHandleValue(currentName);
+    setTimeout(() => handleInputRef.current?.focus(), 0);
+  };
+
+  const saveHandle = async (terminalSessionId: string) => {
+    const name = editHandleValue.trim();
+    if (!name || !room) { setEditingHandle(null); return; }
+    try {
+      await apiFetch(`/api/chat-rooms/${room.name}/participants/${terminalSessionId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ agentName: name }),
+      });
+      await refetchRoom();
+    } catch { /* silently ignore */ }
+    setEditingHandle(null);
+  };
+
   // Merge and normalize all tasks for display
   const allTasks = useMemo(() => {
     const merged: Task[] = [...tasks];
@@ -249,14 +266,22 @@ export default function RightPanel() {
   const taskGroups = STATUS_ORDER.map((status) => ({
     status,
     tasks: allTasks.filter((t) => t.status === status),
-  })).filter((g) => g.tasks.length > 0 || g.status === "in_progress");
+  })).filter((g) => g.tasks.length > 0);
 
   if (!activeSessionId) return null;
 
   return (
     <aside className="w-80 flex-shrink-0 border-l border-[var(--color-border)] bg-[var(--color-surface)] flex flex-col overflow-hidden">
+      {/* Panel header */}
+      <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--color-border)] flex-shrink-0">
+        <span className="text-sm font-bold text-[var(--color-text)]">Chat Info</span>
+        <button onClick={toggleRightPanel} className="p-1 text-[var(--color-text-dim)] hover:text-[var(--color-text)] transition-colors" title="Close panel">
+          <PanelLeftOpen className="w-4 h-4" />
+        </button>
+      </div>
+
       <div className="flex-1 overflow-y-auto px-5 py-6 space-y-8">
-        
+
         {/* Participants Section */}
         <section>
           <div className="flex items-center gap-2 mb-4">
@@ -268,37 +293,63 @@ export default function RightPanel() {
               {(room?.participants.length || derivedParticipants?.length || 0)}
             </span>
           </div>
-          <div className="space-y-3">
+          <div className="space-y-2">
             {room && room.participants.map((p) => {
               const isHuman = !p.model;
               const presence = agentPresence[p.terminalSessionId];
-              const isActive = presence?.state === "working" || presence?.state === "thinking";
+              const agentState = presence?.state;
+              const statusLabel = isHuman ? "YOU" : agentState === "working" ? "WORKING" : agentState === "thinking" ? "THINKING" : "ACTIVE";
+              const statusCls = isHuman ? "text-emerald-400" : agentState === "working" ? "text-cyan-400" : agentState === "thinking" ? "text-amber-400" : "text-violet-400";
+              const isEditing = editingHandle === p.terminalSessionId;
               return (
-                <div key={p.terminalSessionId} className="flex items-center gap-3">
-                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isHuman ? "bg-emerald-400" : isActive ? "bg-violet-400 animate-pulse" : "bg-[var(--color-text-dim)]"}`} />
-                  <span className={`text-xs truncate ${isHuman || isActive ? "font-semibold text-[var(--color-text)]" : "text-[var(--color-text-muted)]"}`}>
-                    {p.agentName}
-                  </span>
-                  {p.model && <span className="text-[10px] text-[var(--color-text-dim)] truncate ml-auto">{p.model}</span>}
+                <div key={p.terminalSessionId} className="flex items-center gap-3 px-3 py-2 bg-[var(--color-bg)] rounded-lg border border-[var(--color-border)]">
+                  {isEditing ? (
+                    <input
+                      ref={handleInputRef}
+                      value={editHandleValue}
+                      onChange={e => setEditHandleValue(e.target.value)}
+                      onBlur={() => saveHandle(p.terminalSessionId)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter") saveHandle(p.terminalSessionId);
+                        if (e.key === "Escape") setEditingHandle(null);
+                      }}
+                      className="flex-1 bg-transparent text-xs font-semibold text-[var(--color-text)] outline-none border-b border-emerald-500/40"
+                    />
+                  ) : (
+                    <button
+                      onClick={() => startEditHandle(p.terminalSessionId, p.agentName)}
+                      className="text-xs font-semibold text-[var(--color-text)] truncate flex-1 text-left hover:text-emerald-400 transition-colors"
+                      title="Click to edit handle"
+                    >
+                      @{p.agentName}
+                    </button>
+                  )}
+                  {p.model && <span className="text-[10px] text-[var(--color-text-dim)] truncate">{p.model}</span>}
+                  <span className={`text-[9px] font-bold tracking-wide flex-shrink-0 ${statusCls}`}>{statusLabel}</span>
                 </div>
               );
             })}
-            {derivedParticipants && derivedParticipants.map((p) => (
-              <div key={p.name} className="flex items-center gap-3">
-                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${p.senderType === "human" ? "bg-emerald-400" : "bg-violet-400"}`} />
-                <span className="text-xs font-semibold text-[var(--color-text)] truncate">{p.name}</span>
-                <span className="text-[10px] text-[var(--color-text-dim)] ml-auto">{p.messageCount} msg</span>
-              </div>
-            ))}
+            {derivedParticipants && derivedParticipants.map((p) => {
+              const isHuman = p.senderType === "human";
+              const statusLabel = isHuman ? "YOU" : "ACTIVE";
+              const statusCls = isHuman ? "text-emerald-400" : "text-violet-400";
+              return (
+                <div key={p.name} className="flex items-center gap-3 px-3 py-2 bg-[var(--color-bg)] rounded-lg border border-[var(--color-border)]">
+                  <span className="text-xs font-semibold text-[var(--color-text)] truncate flex-1">@{p.name}</span>
+                  <span className="text-[10px] text-[var(--color-text-dim)]">{p.messageCount} msg</span>
+                  <span className={`text-[9px] font-bold tracking-wide flex-shrink-0 ${statusCls}`}>{statusLabel}</span>
+                </div>
+              );
+            })}
           </div>
         </section>
 
-        {/* Task Board Section */}
+        {/* Task List Section */}
         <section>
           <div className="flex items-center gap-2 mb-4">
             <CheckSquare className="w-4 h-4 text-violet-400" />
             <h3 className="text-[11px] font-bold uppercase tracking-widest text-[var(--color-text-dim)]">
-              Task Board
+              Task List
             </h3>
             <button 
               onClick={() => setAddingTask(v => !v)}
@@ -332,10 +383,15 @@ export default function RightPanel() {
             </div>
           )}
 
+          {allTasks.length === 0 && !addingTask && (
+            <div className="px-3 py-4 bg-[var(--color-bg)] rounded-lg border border-dashed border-[var(--color-border)] text-center">
+              <p className="text-[11px] text-[var(--color-text-dim)]">No tasks yet</p>
+            </div>
+          )}
+
           <div className="space-y-5">
             {taskGroups.map(({ status, tasks: groupTasks }) => {
               const meta = STATUS_META[status];
-              if (groupTasks.length === 0 && status !== "in_progress") return null;
               return (
                 <div key={status}>
                   <div className={`flex items-center gap-1.5 mb-2.5 ${meta.colour}`}>
@@ -392,29 +448,37 @@ export default function RightPanel() {
             <div className="flex items-center gap-2 mb-4">
               <FileText className="w-4 h-4 text-blue-400" />
               <h3 className="text-[11px] font-bold uppercase tracking-widest text-[var(--color-text-dim)]">
-                Key Context
+                Key Context Files
               </h3>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-2">
               {room.files.map((file) => (
-                <div key={file.id} className="flex items-start gap-3 p-2 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-md">
-                  <FileText className="w-3.5 h-3.5 text-blue-400 mt-0.5 flex-shrink-0" />
-                  <div className="min-w-0">
-                    <div className="text-[11px] font-mono text-[var(--color-text)] truncate" title={file.path}>
-                      {file.path.split('/').pop()}
-                    </div>
-                    {file.description && (
-                      <p className="text-[10px] text-[var(--color-text-dim)] mt-0.5 line-clamp-2">
-                        {file.description}
-                      </p>
-                    )}
+                <div key={file.id} className="px-3 py-2 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg">
+                  <div className="text-[11px] font-mono text-[var(--color-text)] truncate" title={file.path}>
+                    {file.path}
                   </div>
+                  {file.description && (
+                    <p className="text-[10px] text-[var(--color-text-dim)] mt-0.5 line-clamp-2">
+                      {file.description}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
           </section>
         )}
 
+      </div>
+
+      {/* Chairperson button */}
+      <div className="px-5 py-4 border-t border-[var(--color-border)] flex-shrink-0">
+        <button
+          onClick={toggleChairmanPanel}
+          className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 rounded-lg transition-colors font-bold text-xs tracking-wide border border-amber-500/20"
+        >
+          <Crown className="w-4 h-4" />
+          CHAIRPERSON
+        </button>
       </div>
     </aside>
   );

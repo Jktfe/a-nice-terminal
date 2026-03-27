@@ -152,6 +152,20 @@ export function mountChatRoomRoutes(
     res.json({ ok: true });
   });
 
+  // Update a participant's agentName
+  app.patch("/api/chat-rooms/:name/participants/:terminalSessionId", (req: Request, res: Response) => {
+    const registry = getRegistry();
+    if (!registry) return res.status(503).json({ error: "Chat room registry not available" });
+    const { agentName } = req.body;
+    if (!agentName) return res.status(400).json({ error: "agentName required" });
+    const room = registry.getRoom(req.params.name);
+    if (!room) return res.status(404).json({ error: "Room not found" });
+    const existing = room.participants.get(req.params.terminalSessionId);
+    if (!existing) return res.status(404).json({ error: "Participant not found" });
+    registry.addParticipant(req.params.name, req.params.terminalSessionId, { ...existing, agentName });
+    res.json({ ok: true });
+  });
+
   // Update room purpose
   app.patch("/api/chat-rooms/:name", (req: Request, res: Response) => {
     const registry = getRegistry();

@@ -104,6 +104,7 @@ interface AppState {
   taskPanelOpen: boolean;
   chairmanPanelOpen: boolean;
   chatViewMode: ChatViewMode;
+  slowEditMode: boolean;
   offlineQueue: Array<{ sessionId: string; content: string; role: string; queuedAt: string }>;
 
   // Actions
@@ -155,6 +156,13 @@ interface AppState {
   toggleTaskPanel: () => void;
   toggleChairmanPanel: () => void;
   setChatViewMode: (mode: ChatViewMode) => void;
+  toggleSlowEditMode: () => void;
+  terminalRefreshSeq: number;
+  requestTerminalRefresh: () => void;
+  showRightPanel: boolean;
+  toggleRightPanel: () => void;
+  searchOpen: boolean;
+  toggleSearch: () => void;
 }
 
 const API_KEY = (import.meta.env.VITE_ANT_API_KEY as string | undefined)?.trim();
@@ -249,7 +257,11 @@ export const useStore = create<AppState>((set, get) => ({
   commonCallsOpen: false,
   taskPanelOpen: false,
   chairmanPanelOpen: false,
+  showRightPanel: true,
+  searchOpen: false,
   chatViewMode: (localStorage.getItem(CHAT_VIEW_MODE_KEY) as ChatViewMode) || "classic",
+  slowEditMode: false,
+  terminalRefreshSeq: 0,
   offlineQueue: JSON.parse(localStorage.getItem("ant-offline-queue") || "[]"),
 
   setError: (message) => set({ error: message }),
@@ -805,6 +817,10 @@ export const useStore = create<AppState>((set, get) => ({
   toggleCommonCalls: () => set((s) => ({ commonCallsOpen: !s.commonCallsOpen })),
   toggleTaskPanel: () => set((s) => ({ taskPanelOpen: !s.taskPanelOpen })),
   toggleChairmanPanel: () => set((s) => ({ chairmanPanelOpen: !s.chairmanPanelOpen })),
+  toggleSlowEditMode: () => set((s) => ({ slowEditMode: !s.slowEditMode })),
+  requestTerminalRefresh: () => set((s) => ({ terminalRefreshSeq: s.terminalRefreshSeq + 1 })),
+  toggleRightPanel: () => set((s) => ({ showRightPanel: !s.showRightPanel })),
+  toggleSearch: () => set((s) => ({ searchOpen: !s.searchOpen })),
   setChatViewMode: (mode) => {
     localStorage.setItem(CHAT_VIEW_MODE_KEY, mode);
     set({ chatViewMode: mode });

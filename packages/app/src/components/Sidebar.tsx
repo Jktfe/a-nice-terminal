@@ -14,8 +14,6 @@ import {
   X,
   Archive,
   RotateCcw,
-  Sun,
-  Moon,
   Zap,
 } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
@@ -33,6 +31,8 @@ export default function Sidebar() {
     pinnedSessionIds,
     unreadCounts,
     showArchived,
+    agentPresence,
+    sessionHealth,
     setActiveSession,
     createSession,
     deleteSession,
@@ -48,7 +48,6 @@ export default function Sidebar() {
     deleteWorkspace,
     moveSessionToWorkspace,
     uiTheme,
-    setUiTheme,
     openParseDeleteDialog,
     toggleCommonCalls,
   } = useStore();
@@ -179,14 +178,9 @@ export default function Sidebar() {
     >
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-[var(--color-border)]">
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 bg-emerald-500/10 rounded-lg">
-            <Terminal className="w-4 h-4 text-emerald-500" />
-          </div>
-          <span className="text-sm font-semibold text-[var(--color-text)] tracking-tight">
-            ANT
-          </span>
-        </div>
+        <span className="text-sm font-semibold text-[var(--color-text)] tracking-tight">
+          Workspaces
+        </span>
         <div className="flex items-center gap-1">
           <button
             onClick={() => setShowNewWorkspace((v) => !v)}
@@ -362,6 +356,8 @@ export default function Sidebar() {
                         active={session.id === activeSessionId}
                         pinned={pinnedSessionIds.has(session.id)}
                         unreadCount={unreadCounts[session.id] || 0}
+                        agentState={agentPresence[session.id]?.state}
+                        hasError={sessionHealth[session.id] === false}
                         onSelect={() => handleSessionSelect(session.id)}
                         onArchive={() => archiveSession(session.id)}
                         onDelete={(e) => {
@@ -410,6 +406,8 @@ export default function Sidebar() {
                 active={session.id === activeSessionId}
                 pinned={pinnedSessionIds.has(session.id)}
                 unreadCount={unreadCounts[session.id] || 0}
+                agentState={agentPresence[session.id]?.state}
+                hasError={sessionHealth[session.id] === false}
                 onSelect={() => handleSessionSelect(session.id)}
                 onArchive={() => archiveSession(session.id)}
                 onDelete={(e) => {
@@ -457,6 +455,8 @@ export default function Sidebar() {
                   onTogglePin={() => {}}
                   onDragStart={(e) => handleDragStart(e, session.id)}
                   uiTheme={uiTheme}
+                  agentState={undefined}
+                  hasError={false}
                 />
               ))}
             </AnimatePresence>
@@ -479,42 +479,33 @@ export default function Sidebar() {
       </div>
 
       {/* Settings Footer */}
-      <div className="p-3 border-t border-[var(--color-border)] space-y-1">
+      <div className="p-3 border-t border-[var(--color-border)] flex gap-1">
         <button
           onClick={toggleCommonCalls}
-          className="flex items-center gap-2 p-2 w-full rounded-lg transition-colors text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)]"
+          className="flex items-center justify-center gap-1.5 p-2 flex-1 rounded-lg transition-colors text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)]"
+          title="Common Calls"
         >
           <Zap className="w-4 h-4" />
-          <span className="text-xs font-medium">Common Calls</span>
+          <span className="text-xs font-medium">Calls</span>
         </button>
         <button
           onClick={toggleShowArchived}
-          className={`flex items-center gap-2 p-2 w-full rounded-lg transition-colors ${
+          className={`flex items-center justify-center gap-1.5 p-2 flex-1 rounded-lg transition-colors ${
             showArchived ? "text-amber-400 bg-amber-500/10" : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)]"
           }`}
+          title={showArchived ? "Hide Archived" : "Show Archived"}
         >
           <Archive className="w-4 h-4" />
-          <span className="text-xs font-medium">
-            {showArchived ? "Hide Archived" : "Show Archived"}
-          </span>
+          <span className="text-xs font-medium">Archive</span>
         </button>
-        <div className="flex gap-1">
-          <button
-            onClick={() => setUiTheme(uiTheme === "light" ? "dark" : "light")}
-            className="flex items-center gap-2 p-2 flex-1 text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)] rounded-lg transition-colors"
-            title={`Switch to ${uiTheme === "light" ? "dark" : "light"} mode`}
-          >
-            {uiTheme === "light" ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
-            <span className="text-xs font-medium capitalize">{uiTheme === "light" ? "Dark" : "Light"}</span>
-          </button>
-          <button
-            onClick={toggleSettings}
-            className="flex items-center justify-center p-2 text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)] rounded-lg transition-colors"
-            title="Settings"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-        </div>
+        <button
+          onClick={toggleSettings}
+          className="flex items-center justify-center gap-1.5 p-2 flex-1 text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)] rounded-lg transition-colors"
+          title="Settings"
+        >
+          <Settings className="w-4 h-4" />
+          <span className="text-xs font-medium">Settings</span>
+        </button>
       </div>
     </motion.aside>
   );
@@ -538,6 +529,8 @@ function SessionItem({
   pinned,
   unreadCount,
   archived,
+  agentState,
+  hasError,
   onSelect,
   onArchive,
   onRestore,
@@ -551,6 +544,8 @@ function SessionItem({
   pinned: boolean;
   unreadCount: number;
   archived?: boolean;
+  agentState?: string;
+  hasError?: boolean;
   onSelect: () => void;
   onArchive: () => void;
   onRestore?: () => void;
@@ -559,7 +554,25 @@ function SessionItem({
   onDragStart: (e: React.DragEvent) => void;
   uiTheme: any;
 }) {
-  const { Icon, chip: activeBg, icon: activeIcon } = getSessionTheme(session.type, uiTheme);
+  const { Icon, chip: activeBg } = getSessionTheme(session.type, uiTheme);
+
+  // Icon colour based on agent state
+  const iconColor =
+    agentState === "working" ? "text-emerald-400" :
+    agentState === "thinking" ? "text-amber-400" :
+    hasError ? "text-red-400" :
+    active ? "text-[var(--color-text)]" : "text-[var(--color-text-dim)]";
+
+  // Status badge
+  const badge = hasError
+    ? { label: "ERROR", cls: "bg-red-950 text-red-400" }
+    : agentState === "working"
+    ? { label: "WORKING", cls: "bg-green-950 text-green-400" }
+    : agentState === "thinking"
+    ? { label: "NEEDS INPUT", cls: "bg-amber-950 text-amber-400" }
+    : { label: "IDLE", cls: "bg-[var(--color-hover)] text-[var(--color-text-dim)]" };
+
+  const typeLabel = session.type === "terminal" ? "terminal" : session.type === "conversation" ? "conversation" : "unified";
 
   return (
     <motion.div
@@ -577,48 +590,32 @@ function SessionItem({
       {pinned && (
         <Pin className="w-2.5 h-2.5 text-amber-400/60 flex-shrink-0 -mr-1" />
       )}
-      <Icon
-        className={`w-3.5 h-3.5 flex-shrink-0 ${active ? activeIcon : ""}`}
-      />
-      <span className="text-xs font-medium truncate flex-1">
-        {session.name}
-      </span>
-      {session.type === "terminal" && (
-        <span
-          className={`flex items-center justify-center min-w-[22px] h-[16px] px-1 rounded-full text-[9px] font-bold tabular-nums ${
-            session.ttl_minutes === 0
-              ? "bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/30"
-              : "bg-[var(--color-hover)] text-[var(--color-text-dim)]"
-          }`}
-          title={
-            session.ttl_minutes === 0
-              ? "Always on — never auto-killed"
-              : session.ttl_minutes != null
-                ? `Auto-kill after ${session.ttl_minutes} min`
-                : "Auto-kill after 15 min (default)"
-          }
-        >
-          {session.ttl_minutes === 0
-            ? "AON"
-            : session.ttl_minutes != null
-              ? session.ttl_minutes
-              : 15}
+      <Icon className={`w-3.5 h-3.5 flex-shrink-0 ${iconColor}`} />
+      <div className="flex-1 min-w-0">
+        <div className="text-xs font-medium truncate">{session.name}</div>
+        <div className="text-[10px] text-[var(--color-text-dim)] truncate">{typeLabel}</div>
+      </div>
+      <div className="flex items-center gap-1 flex-shrink-0">
+        {unreadCount > 0 && (
+          <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 text-[10px] font-bold text-[var(--color-text)]">
+            {unreadCount}
+          </span>
+        )}
+        {!archived && (
+          <span className={`hidden group-hover:hidden px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wide ${badge.cls}`}>
+            {badge.label}
+          </span>
+        )}
+        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wide group-hover:hidden ${badge.cls}`}>
+          {badge.label}
         </span>
-      )}
-      {unreadCount > 0 && (
-        <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 text-[10px] font-bold text-[var(--color-text)]">
-          {unreadCount}
-        </span>
-      )}
-      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+      </div>
+      <div className="hidden group-hover:flex items-center gap-0.5 flex-shrink-0">
         {archived ? (
           <>
             {onRestore && (
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRestore();
-                }}
+                onClick={(e) => { e.stopPropagation(); onRestore(); }}
                 className="p-1 text-[var(--color-text-dim)] hover:text-emerald-400 transition-colors"
                 title="Restore"
               >
@@ -626,10 +623,7 @@ function SessionItem({
               </button>
             )}
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(e);
-              }}
+              onClick={(e) => { e.stopPropagation(); onDelete(e); }}
               className="p-1 text-[var(--color-text-dim)] hover:text-red-400 transition-colors"
               title="Delete permanently"
             >
@@ -639,22 +633,14 @@ function SessionItem({
         ) : (
           <>
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onTogglePin();
-              }}
-              className={`p-1 transition-colors ${
-                pinned ? "text-amber-400" : "text-[var(--color-text-dim)] hover:text-amber-400"
-              }`}
+              onClick={(e) => { e.stopPropagation(); onTogglePin(); }}
+              className={`p-1 transition-colors ${pinned ? "text-amber-400" : "text-[var(--color-text-dim)] hover:text-amber-400"}`}
               title={pinned ? "Unpin" : "Pin"}
             >
               <Pin className="w-3 h-3" />
             </button>
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(e);
-              }}
+              onClick={(e) => { e.stopPropagation(); onDelete(e); }}
               className="p-1 text-[var(--color-text-dim)] hover:text-red-400 transition-colors"
               title="Archive (Shift+click to delete)"
             >

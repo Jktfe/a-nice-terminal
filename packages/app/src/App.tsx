@@ -69,9 +69,11 @@ export default function App() {
     toggleCommonCalls,
     toggleTaskPanel,
     toggleChairmanPanel,
+    showRightPanel,
+    searchOpen,
+    toggleSearch,
   } = useStore();
   const [quickSwitcherOpen, setQuickSwitcherOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
   const [splitPickerOpen, setSplitPickerOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>("sessions");
   const isMobile = useIsMobile();
@@ -105,7 +107,7 @@ export default function App() {
         toggleSidebar();
       } else if (e.key === "F" && e.shiftKey) {
         e.preventDefault();
-        setSearchOpen((v) => !v);
+        toggleSearch();
       } else if (e.key === "K" && e.shiftKey) {
         e.preventDefault();
         toggleKnowledgePanel();
@@ -135,7 +137,7 @@ export default function App() {
         }
       }
     },
-    [createSession, toggleSidebar, splitMode, toggleSplit, toggleDocs, toggleSettings, toggleKnowledgePanel, toggleCommonCalls, toggleTaskPanel, toggleChairmanPanel]
+    [createSession, toggleSidebar, splitMode, toggleSplit, toggleDocs, toggleSettings, toggleKnowledgePanel, toggleCommonCalls, toggleTaskPanel, toggleChairmanPanel, toggleSearch]
   );
 
   useEffect(() => {
@@ -222,7 +224,7 @@ export default function App() {
 
           {mobileTab === "more" && (
             <div className="flex-1 flex flex-col gap-3 p-4">
-              <button onClick={() => setSearchOpen(true)} className="p-3 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-left text-sm text-[var(--color-text)]">
+              <button onClick={() => toggleSearch()} className="p-3 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-left text-sm text-[var(--color-text)]">
                 Search sessions & messages
               </button>
               <button onClick={() => toggleSettings()} className="p-3 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-left text-sm text-[var(--color-text)]">
@@ -243,7 +245,7 @@ export default function App() {
 
         {/* Overlays */}
         {quickSwitcherOpen && <QuickSwitcher onClose={() => setQuickSwitcherOpen(false)} />}
-        {searchOpen && <SearchPanel onClose={() => setSearchOpen(false)} />}
+        {searchOpen && <SearchPanel onClose={() => toggleSearch()} />}
         <SettingsModal />
         <DocsModal />
         <ParseDeleteDialog />
@@ -293,7 +295,7 @@ export default function App() {
                 <EmptyState onCreateSession={createSession} />
               )}
             </div>
-            {activeSession && activeSession.type !== "terminal" && <RightPanel />}
+            {activeSession && activeSession.type !== "terminal" && showRightPanel && <RightPanel />}
           </div>
         )}
       </div>
@@ -305,7 +307,7 @@ export default function App() {
       )}
 
       {searchOpen && (
-        <SearchPanel onClose={() => setSearchOpen(false)} />
+        <SearchPanel onClose={() => toggleSearch()} />
       )}
 
       {splitPickerOpen && splitMode && !splitSessionId && (
