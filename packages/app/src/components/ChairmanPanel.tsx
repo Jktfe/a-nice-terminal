@@ -14,6 +14,9 @@ export default function ChairmanPanel() {
   const [currentRoom, setCurrentRoom] = useState("");
   const [rooms, setRooms] = useState<Array<{ name: string; conversationSessionId: string }>>([]);
   const [loadingRooms, setLoadingRooms] = useState(false);
+  const [currentSession, setCurrentSession] = useState("");
+  const [sessions, setSessions] = useState<Array<{ id: string; title: string; type: string }>>([]);
+  const [loadingSessions, setLoadingSessions] = useState(false);
 
   useEffect(() => {
     if (!chairmanPanelOpen) return;
@@ -22,6 +25,7 @@ export default function ChairmanPanel() {
         setEnabled(data.enabled);
         setCurrentModel(data.model);
         setCurrentRoom(data.room ?? "");
+        setCurrentSession(data.session ?? "");
       })
       .catch(() => {});
 
@@ -37,6 +41,12 @@ export default function ChairmanPanel() {
       .then((data) => setRooms(data.rooms ?? []))
       .catch(() => {})
       .finally(() => setLoadingRooms(false));
+
+    setLoadingSessions(true);
+    apiFetch("/api/sessions")
+      .then((data) => setSessions((data ?? []).filter((s: { id: string; title: string; type: string }) => s.type === "chat")))
+      .catch(() => {})
+      .finally(() => setLoadingSessions(false));
   }, [chairmanPanelOpen]);
 
   const handleToggle = async () => {
@@ -62,6 +72,14 @@ export default function ChairmanPanel() {
     await apiFetch("/api/chairman/room", {
       method: "POST",
       body: JSON.stringify({ room }),
+    }).catch(() => {});
+  };
+
+  const handleSessionChange = async (session: string) => {
+    setCurrentSession(session);
+    await apiFetch("/api/chairman/session", {
+      method: "POST",
+      body: JSON.stringify({ session }),
     }).catch(() => {});
   };
 
@@ -189,6 +207,36 @@ export default function ChairmanPanel() {
               {!currentRoom && (
                 <p className="text-[10px] text-amber-400/70">
                   Select a room so the Chairman knows which terminals to watch.
+                </p>
+              )}
+            </div>
+
+            {/* Session selector */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] uppercase tracking-wider text-[var(--color-text-dim)] font-semibold">
+                Watched Session
+              </label>
+              {loadingSessions ? (
+                <div className="px-3 py-2 text-xs text-[var(--color-text-dim)]">
+                  Loading sessions...
+                </div>
+              ) : (
+                <select
+                  value={currentSession}
+                  onChange={(e) => handleSessionChange(e.target.value)}
+                  className="w-full px-3 py-2 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-lg text-sm text-[var(--color-text)] focus:outline-none focus:border-amber-500/50 appearance-none cursor-pointer"
+                >
+                  <option value="">— none —</option>
+                  {sessions.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.title}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {!currentSession && (
+                <p className="text-[10px] text-amber-400/70">
+                  Select a session so the Chairman knows which conversation to monitor.
                 </p>
               )}
             </div>
