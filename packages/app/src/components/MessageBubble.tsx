@@ -2,13 +2,14 @@ import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { ChevronDown, ChevronUp, Send } from "lucide-react";
+import { ChevronDown, ChevronUp, Send, MessageSquare } from "lucide-react";
 import { useStore, type Message } from "../store.ts";
 import { getSenderTheme, isHuman, isSystem } from "../utils/senderTheme.ts";
 import { isProtocolMessage } from "../utils/protocolTypes.ts";
 import SenderAvatar from "./SenderAvatar.tsx";
 import MessageToolbar from "./MessageToolbar.tsx";
 import ProtocolCard from "./ProtocolCard.tsx";
+import TerminalApprovalCard from "./TerminalApprovalCard.tsx";
 import SessionRating from "./SessionRating.tsx";
 
 const PLATFORM_LABELS: Record<string, { label: string; color: string }> = {
@@ -123,9 +124,18 @@ export default function MessageBubble({
                 )}
               </div>
 
-              {/* Protocol card — rendered when metadata is a structured protocol message */}
-              {isProtocolMessage(message.metadata) && (
+              {/* Protocol card — rendered when metadata is a structured protocol message (but not terminal_approval which has its own card) */}
+              {isProtocolMessage(message.metadata) && message.metadata?.type !== "terminal_approval" && (
                 <ProtocolCard metadata={message.metadata} />
+              )}
+
+              {/* Terminal approval card */}
+              {message.metadata?.type === "terminal_approval" && (
+                <TerminalApprovalCard
+                  metadata={message.metadata as any}
+                  messageId={message.id}
+                  sessionId={sessionId}
+                />
               )}
 
               {/* Collapse toggle */}
@@ -155,9 +165,10 @@ export default function MessageBubble({
               {replyCount > 0 && onToggleThread && (
                 <button
                   onClick={onToggleThread}
-                  className="mt-2 text-[11px] text-[var(--color-text-dim)] hover:text-[var(--color-text-muted)] transition-colors"
+                  className="mt-2 flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-[11px] font-semibold hover:bg-emerald-500/20 transition-all border border-emerald-500/20"
                 >
-                  {replyCount} {replyCount === 1 ? "reply" : "replies"} &#x25BE;
+                  <MessageSquare className="w-3 h-3" />
+                  {replyCount} {replyCount === 1 ? "reply" : "replies"}
                 </button>
               )}
 
