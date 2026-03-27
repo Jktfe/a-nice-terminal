@@ -64,7 +64,7 @@ program.command("read <session>").alias("r").description("Read messages or termi
   });
 
 program.command("post <session> [message]").alias("p").description("Post a message or send input")
-  .option("--role <role>", "Message role (human|agent|system)", "human")
+  .option("--role <role>", "Message role (human|agent|system)", "agent")
   .option("--sender-name <name>", "Sender display name")
   .option("--sender-type <type>", "Sender type identifier")
   .option("--key <keyname>", "Send a single key (terminal only)")

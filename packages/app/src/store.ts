@@ -101,6 +101,8 @@ interface AppState {
   parseDeleteSessionId: string | null;
   draftsBySessionId: Record<string, string>;
   commonCallsOpen: boolean;
+  taskPanelOpen: boolean;
+  chairmanPanelOpen: boolean;
   chatViewMode: ChatViewMode;
   offlineQueue: Array<{ sessionId: string; content: string; role: string; queuedAt: string }>;
 
@@ -150,6 +152,8 @@ interface AppState {
   saveDraft: (sessionId: string, text: string) => void;
   clearDraft: (sessionId: string) => void;
   toggleCommonCalls: () => void;
+  toggleTaskPanel: () => void;
+  toggleChairmanPanel: () => void;
   setChatViewMode: (mode: ChatViewMode) => void;
 }
 
@@ -243,6 +247,8 @@ export const useStore = create<AppState>((set, get) => ({
   parseDeleteSessionId: null,
   draftsBySessionId: {},
   commonCallsOpen: false,
+  taskPanelOpen: false,
+  chairmanPanelOpen: false,
   chatViewMode: (localStorage.getItem(CHAT_VIEW_MODE_KEY) as ChatViewMode) || "classic",
   offlineQueue: JSON.parse(localStorage.getItem("ant-offline-queue") || "[]"),
 
@@ -797,6 +803,8 @@ export const useStore = create<AppState>((set, get) => ({
     return { draftsBySessionId: rest };
   }),
   toggleCommonCalls: () => set((s) => ({ commonCallsOpen: !s.commonCallsOpen })),
+  toggleTaskPanel: () => set((s) => ({ taskPanelOpen: !s.taskPanelOpen })),
+  toggleChairmanPanel: () => set((s) => ({ chairmanPanelOpen: !s.chairmanPanelOpen })),
   setChatViewMode: (mode) => {
     localStorage.setItem(CHAT_VIEW_MODE_KEY, mode);
     set({ chatViewMode: mode });

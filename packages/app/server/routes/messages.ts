@@ -81,12 +81,27 @@ router.post("/api/sessions/:sessionId/messages", (req, res) => {
     sender_name,
     sender_cwd,
     sender_persona,
+    sender_terminal_id,
     thread_id,
   } = req.body;
 
   const normalisedRole = normalizeRole(role);
   if (!normalisedRole) {
     return res.status(400).json({ error: "Invalid role" });
+  }
+
+  // Validate sender_terminal_id if provided — prevents identity spoofing
+  let resolvedSenderName = sender_name || null;
+  if (sender_terminal_id) {
+    const terminal = db.prepare("SELECT id FROM sessions WHERE id = ?").get(sender_terminal_id);
+    if (!terminal) {
+      return res.status(400).json({ error: "Invalid sender_terminal_id: terminal session not found" });
+    }
+    // Look up user-set display name for this terminal
+    const displayName = db.prepare("SELECT display_name FROM terminal_display_names WHERE terminal_id = ?").get(sender_terminal_id) as any;
+    if (displayName) {
+      resolvedSenderName = displayName.display_name;
+    }
   }
   if (!VALID_STATUSES.includes(status)) {
     return res.status(400).json({ error: "Invalid status" });
@@ -101,6 +116,28 @@ router.post("/api/sessions/:sessionId/messages", (req, res) => {
     return res.status(400).json({ error: "Invalid format" });
   }
 
+  // Ephemeral status messages (thinking/idle heartbeats) — emit as transient
+  // Socket.IO events but don't persist to DB. They pollute conversation history.
+  if (normalisedRole === "system" && format === "json") {
+    try {
+      const parsed = JSON.parse(content);
+      if (typeof parsed?.status === "string" && typeof parsed?.from === "string") {
+        const io = req.app.get("io");
+        if (io) {
+          io.to(req.params.sessionId).emit("agent_status", {
+            sessionId: req.params.sessionId,
+            from: parsed.from,
+            status: parsed.status,
+            message: parsed.message,
+          });
+        }
+        return res.status(200).json({ id: null, transient: true, status: parsed.status });
+      }
+    } catch {
+      // Not valid JSON — continue with normal persistence
+    }
+  }
+
   const id = nanoid(12);
 
   // Strip ANSI escapes so terminal sequences don't leak into conversation messages
@@ -111,12 +148,12 @@ router.post("/api/sessions/:sessionId/messages", (req, res) => {
   const resolvedSenderType = sender_type || (normalisedRole === "human" ? "human" : normalisedRole === "system" ? "system" : "unknown");
 
   db.prepare(
-    `INSERT INTO messages (id, session_id, role, content, format, status, metadata, sender_type, sender_name, sender_cwd, sender_persona, thread_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO messages (id, session_id, role, content, format, status, metadata, sender_type, sender_name, sender_cwd, sender_persona, sender_terminal_id, thread_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id, req.params.sessionId, normalisedRole, sanitisedContent, format, status,
     metadata ? JSON.stringify(metadata) : null,
-    resolvedSenderType, sender_name || null, sender_cwd || null, sender_persona || null, thread_id || null,
+    resolvedSenderType, resolvedSenderName, sender_cwd || null, sender_persona || null, sender_terminal_id || null, thread_id || null,
   );
 
   db.prepare("UPDATE sessions SET updated_at = datetime('now') WHERE id = ?").run(
@@ -135,7 +172,13 @@ router.post("/api/sessions/:sessionId/messages", (req, res) => {
   }
 
   // --- Mention resolution → task creation pipeline ---
-  if (sanitisedContent && normalisedRole !== "system") {
+  // Only create tasks from human messages without existing protocol metadata.
+  // Agent-to-agent @mentions are conversational, not task assignments.
+  // Protocol messages (with metadata.type) handle their own semantics.
+  const shouldCreateTasks = normalisedRole !== "system"
+    && resolvedSenderType === "human"
+    && !metadata?.type;
+  if (sanitisedContent && shouldCreateTasks) {
     try {
       const mentions = resolveMentions(sanitisedContent, req.params.sessionId);
       if (mentions.length > 0) {
@@ -414,6 +457,36 @@ router.get("/api/search", (req, res) => {
   });
 
   res.json({ sessions, messages });
+});
+
+// Set or update terminal display name
+router.post("/api/terminals/:terminalId/display-name", (req, res) => {
+  const { display_name } = req.body;
+  if (!display_name || typeof display_name !== "string" || !display_name.trim()) {
+    return res.status(400).json({ error: "display_name required and must be non-empty string" });
+  }
+
+  const terminal = db.prepare("SELECT id FROM sessions WHERE id = ?").get(req.params.terminalId);
+  if (!terminal) {
+    return res.status(404).json({ error: "Terminal not found" });
+  }
+
+  db.prepare(
+    `INSERT INTO terminal_display_names (terminal_id, display_name, updated_at)
+     VALUES (?, ?, datetime('now'))
+     ON CONFLICT(terminal_id) DO UPDATE SET display_name = excluded.display_name, updated_at = datetime('now')`
+  ).run(req.params.terminalId, display_name.trim());
+
+  res.json({ ok: true, terminalId: req.params.terminalId, display_name: display_name.trim() });
+});
+
+// Get terminal display name
+router.get("/api/terminals/:terminalId/display-name", (req, res) => {
+  const displayName = db.prepare("SELECT display_name FROM terminal_display_names WHERE terminal_id = ?").get(req.params.terminalId) as any;
+  if (!displayName) {
+    return res.status(404).json({ error: "No display name set for this terminal" });
+  }
+  res.json({ terminalId: req.params.terminalId, display_name: displayName.display_name });
 });
 
 export default router;

@@ -60,7 +60,7 @@ export async function post(client: Client, sessionName: string, message: string 
     content = Buffer.concat(chunks).toString("utf-8");
   }
   if (!content) throw new Error("No message provided. Pass text as argument or pipe via stdin.");
-  const body: any = { content, role: opts.role || "human" };
+  const body: any = { content, role: opts.role || "agent" };
   if (opts.senderName) body.sender_name = opts.senderName;
   if (opts.senderType) body.sender_type = opts.senderType;
   const result = await client.post(`/api/sessions/${session.id}/messages`, body);

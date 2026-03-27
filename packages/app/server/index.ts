@@ -22,16 +22,20 @@ import agentV2Routes from "./routes/agent-v2.js";
 import knowledgeRoutes from "./routes/knowledge.js";
 import recipeRoutes from "./routes/recipes.js";
 import coordinationRoutes from "./routes/coordination.js";
-import chatRoomProtocolRoutes from "./routes/chat-rooms.js";
+import chatRoomProtocolRoutes, { mountChatRoomRoutes } from "./routes/chat-rooms.js";
 import retentionRoutes from "./routes/retention.js";
 import commonCallsRoutes from "./routes/common-calls.js";
+import tasksRoutes from "./routes/tasks.js";
+import chairmanRoutes from "./routes/chairman.js";
 import { registerSocketHandlers } from "./ws/handlers.js";
 import { registerChatHandlers } from "./ws/chat-handlers.js";
 import { registerTerminalNamespace } from "./ws/terminal-namespace.js";
 import { reapOrphanedSessions } from "./pty-manager.js";
 import { registerDiscoveredModels } from "./agent/auto-discover.js";
 import { startRetentionScheduler, stopRetentionScheduler } from "./retention.js";
+import { startChairmanBridge, stopChairmanBridge } from "./chairman-bridge.js";
 import { features } from "./feature-flags.js";
+import { ChatRoomRegistry } from "../../bridge/src/chat-room-registry.js";
 
 import db from "./db.js";
 
@@ -39,6 +43,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.ANT_PORT || "3000", 10);
 const HOST = process.env.ANT_HOST || "0.0.0.0";
 const WS_API_KEY = process.env.ANT_API_KEY;
+
+// Shared registry for chat rooms — allows the server to host rooms even without the bridge
+const chatRoomRegistry = new ChatRoomRegistry();
 
 function getClientApiKey(socket: Socket): string | undefined {
   const handshake = (socket as any)?.handshake || {};
@@ -114,8 +121,11 @@ async function start() {
   app.use(recipeRoutes);
   app.use(coordinationRoutes);
   app.use(chatRoomProtocolRoutes);
+  mountChatRoomRoutes(app, () => chatRoomRegistry);
   app.use(retentionRoutes);
   app.use(commonCallsRoutes);
+  app.use(tasksRoutes);
+  app.use(chairmanRoutes);
 
   // Serve uploads
   const uploadsPath = path.join(__dirname, "..", "..", "public", "uploads");
@@ -186,12 +196,16 @@ async function start() {
   // Archive retention — daily sweep to parse and delete expired archived sessions
   startRetentionScheduler(io);
 
+  // Chairman bridge — embedded poll loop, auto-starts and respects toggle
+  startChairmanBridge();
+
   // Graceful shutdown — record timestamp so the next startup knows how long we were down
   function gracefulShutdown(signal: string) {
     console.log(`[server] Received ${signal} — recording shutdown timestamp`);
     upsertState.run("last_shutdown", new Date().toISOString());
     clearInterval(heartbeatInterval);
     stopRetentionScheduler();
+    stopChairmanBridge();
     httpServer.close(() => process.exit(0));
     // Force exit after 5s if connections don't close
     setTimeout(() => process.exit(0), 5000);

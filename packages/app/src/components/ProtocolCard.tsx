@@ -100,7 +100,7 @@ export default function ProtocolCard({ metadata }: ProtocolCardProps) {
 
       {metadata.type === "assignment" && (
         <div className="space-y-1.5">
-          {metadata.assignments.map((a) => (
+          {(metadata.assignments ?? []).map((a) => (
             <div key={a.task_id} className="flex items-center gap-2">
               <span className="font-mono text-white/50">{a.task_id}</span>
               <span className="text-white/30">→</span>

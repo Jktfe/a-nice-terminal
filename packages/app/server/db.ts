@@ -161,6 +161,19 @@ try { db.exec(`ALTER TABLE messages ADD COLUMN thread_id TEXT DEFAULT NULL`); } 
 try { db.exec(`ALTER TABLE messages ADD COLUMN annotations TEXT DEFAULT NULL`); } catch {}
 try { db.exec(`ALTER TABLE messages ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`); } catch {}
 
+// Migration: add sender_terminal_id for identity binding + spoofing prevention
+try { db.exec(`ALTER TABLE messages ADD COLUMN sender_terminal_id TEXT DEFAULT NULL`); } catch {}
+
+// Terminal display names table — allows users to set custom names for their terminals
+db.exec(`
+  CREATE TABLE IF NOT EXISTS terminal_display_names (
+    terminal_id TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
 // Backfill sender_type from role for existing messages
 db.exec(`UPDATE messages SET sender_type = 'human' WHERE sender_type IS NULL AND role = 'human'`);
 db.exec(`UPDATE messages SET sender_type = 'unknown' WHERE sender_type IS NULL AND role = 'agent'`);
@@ -656,6 +669,26 @@ db.exec(`
     sort_order INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+`);
+
+// ---------------------------------------------------------------------------
+// Tasks — shared task board visible in the right-hand panel
+// ---------------------------------------------------------------------------
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS tasks (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT DEFAULT NULL,
+    status TEXT NOT NULL DEFAULT 'todo' CHECK(status IN ('todo', 'in_progress', 'done', 'blocked')),
+    assigned_to TEXT DEFAULT NULL,
+    assigned_name TEXT DEFAULT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+  CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_to);
 `);
 
 export default db;

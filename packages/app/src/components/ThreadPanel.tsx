@@ -8,10 +8,11 @@ import MessageBubble from "./MessageBubble.tsx";
 interface ThreadPanelProps {
   parentMessage: Message;
   sessionId: string;
+  senderTerminalId?: string; // Optional: bind replies to a specific terminal for identity security
   onClose: () => void;
 }
 
-export default function ThreadPanel({ parentMessage, sessionId, onClose }: ThreadPanelProps) {
+export default function ThreadPanel({ parentMessage, sessionId, senderTerminalId, onClose }: ThreadPanelProps) {
   const [replies, setReplies] = useState<Message[]>([]);
   const [replyInput, setReplyInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -41,16 +42,25 @@ export default function ThreadPanel({ parentMessage, sessionId, onClose }: Threa
     if (!replyInput.trim() || sending) return;
     setSending(true);
     try {
+      const payload: any = {
+        role: "human",
+        content: replyInput.trim(),
+        sender_type: "human",
+        thread_id: parentMessage.id,
+      };
+
+      // If terminal ID is provided, bind to it (prevents identity spoofing)
+      // Otherwise fall back to sender_name
+      if (senderTerminalId) {
+        payload.sender_terminal_id = senderTerminalId;
+      } else {
+        payload.sender_name = localStorage.getItem("ant_user_name") || "Human";
+      }
+
       await apiFetch(`/api/sessions/${sessionId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          role: "human",
-          content: replyInput.trim(),
-          sender_type: "human",
-          sender_name: localStorage.getItem("ant_user_name") || "Human",
-          thread_id: parentMessage.id,
-        }),
+        body: JSON.stringify(payload),
       });
       setReplyInput("");
     } catch (err) {
@@ -61,10 +71,10 @@ export default function ThreadPanel({ parentMessage, sessionId, onClose }: Threa
   };
 
   return (
-    <div className="ml-8 mt-1 rounded-lg border border-white/10 bg-[var(--color-surface)] overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/5">
-        <span className="text-[10px] uppercase tracking-wider text-white/40">Thread</span>
-        <button onClick={onClose} className="text-white/30 hover:text-white/60 transition-colors">
+    <div className="ml-8 mt-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden shadow-sm">
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-[var(--color-border)]">
+        <span className="text-[10px] uppercase tracking-wider text-[var(--color-text-dim)]">Thread</span>
+        <button onClick={onClose} className="text-[var(--color-text-dim)] hover:text-[var(--color-text)] transition-colors">
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
@@ -84,18 +94,18 @@ export default function ThreadPanel({ parentMessage, sessionId, onClose }: Threa
         <div ref={bottomRef} />
       </div>
 
-      <div className="flex items-center gap-2 px-3 py-2 border-t border-white/5">
+      <div className="flex items-center gap-2 px-3 py-2 border-t border-[var(--color-border)]">
         <input
           value={replyInput}
           onChange={(e) => setReplyInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendReply(); } }}
           placeholder="Reply..."
-          className="flex-1 bg-white/5 text-sm text-white outline-none placeholder-white/40 px-2 py-1.5 rounded border border-white/10 focus:border-emerald-500/50 focus:bg-white/10 transition-colors"
+          className="flex-1 bg-[var(--color-hover)] text-sm text-[var(--color-text)] outline-none placeholder:[var(--color-text-dim)] px-2 py-1.5 rounded border border-[var(--color-border)] focus:border-emerald-500/50 transition-colors"
         />
         <button
           onClick={sendReply}
           disabled={!replyInput.trim() || sending}
-          className="text-emerald-400 disabled:text-white/20 transition-colors"
+          className="text-emerald-400 disabled:text-[var(--color-text-dim)] transition-colors"
         >
           <Send className="w-4 h-4" />
         </button>

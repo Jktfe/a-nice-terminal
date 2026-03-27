@@ -98,33 +98,46 @@ export default function InputArea({ sessionId: sessionIdProp }: { sessionId?: st
               const seen = new Set<string>();
               const participants: MentionItem[] = [];
 
-              // Primary source: sender_name values from this conversation's messages
+              // Source 1: Registered chat room participants (best source)
+              try {
+                const rooms = await apiFetch("/api/chat-rooms");
+                const currentRoom = rooms.find((r: any) => r.conversationSessionId === sessionIdRef.current);
+                const candidates = currentRoom ? currentRoom.participants : rooms.flatMap((r: any) => r.participants || []);
+                
+                for (const p of candidates) {
+                  const label = p.agentName;
+                  if (label && !seen.has(label.toLowerCase())) {
+                    seen.add(label.toLowerCase());
+                    participants.push({ id: p.terminalSessionId || label, label, model: p.model });
+                  }
+                }
+              } catch (e) {
+                console.warn("Failed to fetch room participants for mentions", e);
+              }
+
+              // Source 2: sender_name values from message history (fallback/supplement)
               const sid = sessionIdRef.current;
               if (sid) {
-                const msgs: Array<{ sender_name?: string; role?: string }> = await apiFetch(`/api/sessions/${sid}/messages`);
-                for (const m of msgs) {
-                  const name = m.sender_name;
-                  if (name && !seen.has(name)) {
-                    seen.add(name);
-                    participants.push({ id: name, label: name });
+                try {
+                  const msgs: Array<{ sender_name?: string; role?: string }> = await apiFetch(`/api/sessions/${sid}/messages?limit=50`);
+                  for (const m of msgs) {
+                    const name = m.sender_name || (m.role === "human" ? "human" : null);
+                    if (name && !seen.has(name.toLowerCase())) {
+                      seen.add(name.toLowerCase());
+                      participants.push({ id: name, label: name });
+                    }
                   }
+                } catch (e) {
+                  console.warn("Failed to fetch message history for mentions", e);
                 }
               }
 
-              // Secondary source: registered chat room participants
-              const rooms = await apiFetch("/api/chat-rooms");
-              for (const room of rooms) {
-                for (const p of room.participants || []) {
-                  if (!seen.has(p.agentName)) {
-                    seen.add(p.agentName);
-                    participants.push({ id: p.terminalSessionId, label: p.agentName, model: p.model });
-                  }
-                }
-              }
-
-              return participants.filter((item: MentionItem) =>
+              const filtered = participants.filter((item: MentionItem) =>
                 item.label.toLowerCase().includes(query.toLowerCase())
               );
+              
+              // Always return at least some items if query is empty to trigger dropdown
+              return filtered.length > 0 ? filtered : participants.slice(0, 10);
             } catch {
               return [];
             }

@@ -2,6 +2,7 @@ import { loadConfig } from "./config.js";
 import { BridgeCore } from "./core.js";
 import { TelegramAdapter } from "./adapters/telegram.js";
 import { LMStudioAdapter } from "./adapters/lmstudio.js";
+import { OpenAICompatibleAdapter } from "./adapters/openai-compatible.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -118,15 +119,42 @@ async function main(): Promise<void> {
     }
   }
 
-  // --- LM Studio model adapter ---
+  // --- LM Studio model adapter (legacy direct triggers + broadcast) ---
   if (config.lmStudioUrl) {
-    const lmstudio = new LMStudioAdapter({
+    bridge.registerModel(new LMStudioAdapter({
       url: config.lmStudioUrl,
       model: config.lmStudioModel || "openai/gpt-oss-20b",
       sessions: ["all"],
-    });
-    bridge.registerModel(lmstudio);
+    }));
   }
+
+  // --- MMD Chat REST model adapters ---
+  // Antigravity (vibeCLI on port 8317)
+  bridge.registerModel(new OpenAICompatibleAdapter({
+    name: "antigravity",
+    displayName: "Antigravity",
+    url: "http://localhost:8317",
+    triggerWords: ["@antigravity", "everyone", "all of you", "all models"],
+    systemPrompt: "You are Antigravity, a Gemini-powered AI in a multi-model chat room called MMD-chat. Be concise, insightful, and collaborative with the other models.",
+  }));
+
+  // Llamafile (Gemma3 12B on port 8080)
+  bridge.registerModel(new OpenAICompatibleAdapter({
+    name: "llamafile",
+    displayName: "Llamafile",
+    url: "http://localhost:8080",
+    triggerWords: ["@llamafile", "everyone", "all of you", "all models"],
+    systemPrompt: "You are Llamafile, a Gemma3-powered local AI in a multi-model chat room called MMD-chat. Be concise and helpful.",
+  }));
+
+  // llm CLI / mlx-lm (Qwen3.5-27B-Opus on port 8090)
+  bridge.registerModel(new OpenAICompatibleAdapter({
+    name: "llm-cli",
+    displayName: "llm CLI",
+    url: "http://localhost:8090",
+    triggerWords: ["@llm", "@mistral", "@llm-cli", "everyone", "all of you", "all models"],
+    systemPrompt: "You are llm CLI (Mistral/Qwen via mlx-lm), a local AI in a multi-model chat room called MMD-chat. Be concise and thoughtful.",
+  }));
 
   // --- Start ---
   await bridge.start();

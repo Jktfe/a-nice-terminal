@@ -201,6 +201,15 @@ export class BridgeCore {
         return;
       }
 
+      // Auto-register sending terminal as participant if not already — "lazy join"
+      // This means each terminal self-registers on its first ANTchat! message
+      // (e.g. hello messages) and receives fan-out from that point on.
+      if (!this.chatRoomRegistry.getParticipantInfo(msg.roomName, msg.sessionId)) {
+        const agentName = msg.senderName || `Terminal-${msg.sessionId.slice(0, 8)}`;
+        this.chatRoomRegistry.addParticipant(msg.roomName, msg.sessionId, { agentName });
+        console.log(`[bridge] Auto-registered ${agentName} in room "${msg.roomName}"`);
+      }
+
       // Build attribution: @SenderName in protocol > participant registry > terminal ID
       const info = this.chatRoomRegistry.getParticipantInfo(msg.roomName, msg.sessionId);
       const resolvedSender = msg.senderName || info?.agentName || `Terminal-${msg.sessionId.slice(0, 8)}`;

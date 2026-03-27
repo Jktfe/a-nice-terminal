@@ -17,22 +17,19 @@ import DocsModal from "./components/DocsModal.tsx";
 import ParseDeleteDialog from "./components/ParseDeleteDialog.tsx";
 import KnowledgePanel from "./components/KnowledgePanel.tsx";
 import CommonCallsPanel from "./components/CommonCallsPanel.tsx";
+import TaskPanel from "./components/TaskPanel.tsx";
+import ChairmanPanel from "./components/ChairmanPanel.tsx";
+import RightPanel from "./components/RightPanel.tsx";
 import { Terminal, MessageSquare, Layers } from "lucide-react";
 import { useIsMobile } from "./hooks/useIsMobile.ts";
 import MobileTabBar, { type MobileTab } from "./components/MobileTabBar.tsx";
 import SessionDashboard from "./components/SessionDashboard.tsx";
-import AeroChatView from "./components/aero/AeroChatView.tsx";
 
-function renderSessionContent(session: Session | undefined, sessionId?: string, splitMessages?: any[], aeroMode?: boolean) {
+function renderSessionContent(session: Session | undefined, sessionId?: string, splitMessages?: any[]) {
   if (!session) return null;
 
   if (session.type === "terminal") {
     return <TerminalView sessionId={sessionId} />;
-  }
-
-  // Aero view for conversation/unified sessions
-  if (aeroMode) {
-    return <AeroChatView sessionId={sessionId} messages={splitMessages} />;
   }
 
   if (session.type === "unified") {
@@ -70,8 +67,8 @@ export default function App() {
     knowledgePanelOpen,
     toggleKnowledgePanel,
     toggleCommonCalls,
-    chatViewMode,
-    setChatViewMode,
+    toggleTaskPanel,
+    toggleChairmanPanel,
   } = useStore();
   const [quickSwitcherOpen, setQuickSwitcherOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -115,9 +112,12 @@ export default function App() {
       } else if (e.key === "C" && e.shiftKey) {
         e.preventDefault();
         toggleCommonCalls();
-      } else if (e.key === "." && e.shiftKey) {
+      } else if (e.key === "T" && e.shiftKey) {
         e.preventDefault();
-        setChatViewMode(chatViewMode === "aero" ? "classic" : "aero");
+        toggleTaskPanel();
+      } else if (e.key === "H" && e.shiftKey) {
+        e.preventDefault();
+        toggleChairmanPanel();
       } else if (e.key === "/") {
         e.preventDefault();
         toggleDocs();
@@ -135,7 +135,7 @@ export default function App() {
         }
       }
     },
-    [createSession, toggleSidebar, splitMode, toggleSplit, toggleDocs, toggleSettings, toggleKnowledgePanel, toggleCommonCalls]
+    [createSession, toggleSidebar, splitMode, toggleSplit, toggleDocs, toggleSettings, toggleKnowledgePanel, toggleCommonCalls, toggleTaskPanel, toggleChairmanPanel]
   );
 
   useEffect(() => {
@@ -249,6 +249,8 @@ export default function App() {
         <ParseDeleteDialog />
         <KnowledgePanel />
         <CommonCallsPanel />
+        <TaskPanel />
+        <ChairmanPanel />
         <OfflineOverlay />
       </div>
     );
@@ -282,16 +284,16 @@ export default function App() {
           </div>
         ) : (
           // Normal single-panel view
-          <div className="flex-1 flex flex-col min-w-0">
-            {/* Hide Header in aero mode for non-terminal sessions — AeroChatView has its own context bar */}
-            {!(chatViewMode === "aero" && activeSession && activeSession.type !== "terminal") && (
+          <div className="flex-1 flex min-w-0">
+            <div className="flex-1 flex flex-col min-w-0">
               <Header />
-            )}
-            {activeSession ? (
-              renderSessionContent(activeSession, undefined, undefined, chatViewMode === "aero")
-            ) : (
-              <EmptyState onCreateSession={createSession} />
-            )}
+              {activeSession ? (
+                renderSessionContent(activeSession)
+              ) : (
+                <EmptyState onCreateSession={createSession} />
+              )}
+            </div>
+            {activeSession && activeSession.type !== "terminal" && <RightPanel />}
           </div>
         )}
       </div>
@@ -324,6 +326,8 @@ export default function App() {
       <ParseDeleteDialog />
       <KnowledgePanel />
       <CommonCallsPanel />
+      <TaskPanel />
+      <ChairmanPanel />
 
       <OfflineOverlay />
     </div>

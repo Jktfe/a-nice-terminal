@@ -378,6 +378,56 @@ server.tool(
   }
 );
 
+// Send a named key to a terminal session (e.g. enter, tab, escape, ctrl+c)
+const KEY_MAP: Record<string, string> = {
+  enter: "\r",
+  tab: "\t",
+  escape: "\x1b",
+  esc: "\x1b",
+  up: "\x1b[A",
+  down: "\x1b[B",
+  right: "\x1b[C",
+  left: "\x1b[D",
+  backspace: "\x7f",
+  delete: "\x1b[3~",
+  home: "\x1b[H",
+  end: "\x1b[F",
+  space: " ",
+  "ctrl+c": "\x03",
+  "ctrl+d": "\x04",
+  "ctrl+u": "\x15",
+  "ctrl+l": "\x0c",
+};
+server.tool(
+  "ant_terminal_key",
+  "Send a named key press to a terminal session. Use key: \"enter\" to submit TUI input (Claude Code, Gemini CLI, Codex, lms chat, etc). Valid keys: enter, tab, escape, up, down, left, right, backspace, delete, home, end, space, ctrl+c, ctrl+d, ctrl+u, ctrl+l",
+  {
+    sessionId: z.string().describe("Session ID"),
+    key: z.string().describe("Key name to send (e.g. \"enter\", \"tab\", \"ctrl+c\")"),
+  },
+  async ({ sessionId, key }) => {
+    const data = KEY_MAP[key.toLowerCase()];
+    if (!data) {
+      return {
+        content: [{ type: "text", text: JSON.stringify({ error: `Unknown key: "${key}". Valid keys: ${Object.keys(KEY_MAP).join(", ")}` }) }],
+      };
+    }
+    try {
+      const result = await api(`/api/sessions/${sessionId}/terminal/input`, {
+        method: "POST",
+        body: JSON.stringify({ data }),
+      });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    } catch (error) {
+      const details = makeErrorPayload(error);
+      if (details) {
+        return { content: [{ type: "text", text: JSON.stringify({ status: details.status, error: details.payload }, null, 2) }] };
+      }
+      throw error;
+    }
+  }
+);
+
 // Resize terminal
 server.tool(
   "ant_terminal_resize",

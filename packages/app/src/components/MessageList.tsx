@@ -5,6 +5,17 @@ import { useStore, apiFetch, type Message } from "../store.ts";
 import MessageBubble from "./MessageBubble.tsx";
 import ThreadPanel from "./ThreadPanel.tsx";
 
+/** Ephemeral system status messages (e.g. thinking/idle heartbeats) — hide from chat */
+function isEphemeralStatus(msg: Message): boolean {
+  if (msg.role !== "system" || msg.format !== "json") return false;
+  try {
+    const parsed = typeof msg.content === "string" ? JSON.parse(msg.content) : msg.content;
+    return typeof parsed?.status === "string" && typeof parsed?.from === "string";
+  } catch {
+    return false;
+  }
+}
+
 export default function MessageList({ sessionId, messages: messagesProp }: { sessionId?: string; messages?: Message[] } = {}) {
   const { messages: storeMessages, activeSessionId } = useStore();
   const messages = messagesProp ?? storeMessages;
@@ -102,7 +113,7 @@ export default function MessageList({ sessionId, messages: messagesProp }: { ses
         className="h-full overflow-y-auto px-6 py-4"
       >
         <AnimatePresence initial={false}>
-          {messages.map((msg) => (
+          {messages.filter((msg) => !isEphemeralStatus(msg) && !msg.thread_id).map((msg) => (
             <motion.div
               key={msg.id}
               initial={{ opacity: 0, y: 10 }}
