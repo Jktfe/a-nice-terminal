@@ -11,6 +11,9 @@ export default function ChairmanPanel() {
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [currentRoom, setCurrentRoom] = useState("");
+  const [rooms, setRooms] = useState<Array<{ name: string; conversationSessionId: string }>>([]);
+  const [loadingRooms, setLoadingRooms] = useState(false);
 
   useEffect(() => {
     if (!chairmanPanelOpen) return;
@@ -18,6 +21,7 @@ export default function ChairmanPanel() {
       .then((data) => {
         setEnabled(data.enabled);
         setCurrentModel(data.model);
+        setCurrentRoom(data.room ?? "");
       })
       .catch(() => {});
 
@@ -27,6 +31,12 @@ export default function ChairmanPanel() {
       .then((data) => setModels(data.models))
       .catch(() => setModelsError("Cannot reach LM Studio"))
       .finally(() => setLoadingModels(false));
+
+    setLoadingRooms(true);
+    apiFetch("/api/chairman/rooms")
+      .then((data) => setRooms(data.rooms ?? []))
+      .catch(() => {})
+      .finally(() => setLoadingRooms(false));
   }, [chairmanPanelOpen]);
 
   const handleToggle = async () => {
@@ -44,6 +54,14 @@ export default function ChairmanPanel() {
     await apiFetch("/api/chairman/model", {
       method: "POST",
       body: JSON.stringify({ model }),
+    }).catch(() => {});
+  };
+
+  const handleRoomChange = async (room: string) => {
+    setCurrentRoom(room);
+    await apiFetch("/api/chairman/room", {
+      method: "POST",
+      body: JSON.stringify({ room }),
     }).catch(() => {});
   };
 
@@ -142,6 +160,36 @@ export default function ChairmanPanel() {
                     </option>
                   ))}
                 </select>
+              )}
+            </div>
+
+            {/* Room selector */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] uppercase tracking-wider text-[var(--color-text-dim)] font-semibold">
+                Watched Room
+              </label>
+              {loadingRooms ? (
+                <div className="px-3 py-2 text-xs text-[var(--color-text-dim)]">
+                  Loading rooms...
+                </div>
+              ) : (
+                <select
+                  value={currentRoom}
+                  onChange={(e) => handleRoomChange(e.target.value)}
+                  className="w-full px-3 py-2 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-lg text-sm text-[var(--color-text)] focus:outline-none focus:border-amber-500/50 appearance-none cursor-pointer"
+                >
+                  <option value="">— none —</option>
+                  {rooms.map((r) => (
+                    <option key={r.name} value={r.name}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {!currentRoom && (
+                <p className="text-[10px] text-amber-400/70">
+                  Select a room so the Chairman knows which terminals to watch.
+                </p>
               )}
             </div>
 
