@@ -187,7 +187,10 @@ async function poll(): Promise<void> {
       const handle = task.assigned_name!;
       const participant = participantMap.get(handle.replace("@", "").toLowerCase()) ??
         participantMap.get(handle.toLowerCase());
-      if (!participant) continue;
+      if (!participant) {
+        console.warn(`[task-watchdog] Agent ${handle} not in room participants — skipping task ${task.id}`);
+        continue;
+      }
 
       const cursorNow = getTerminalOutputCursor(participant.terminalSessionId);
       const elapsed = Date.now() - new Date(task.updated_at + "Z").getTime();
@@ -211,6 +214,12 @@ async function poll(): Promise<void> {
       if (!canNudge(watched)) continue;
 
       if (task.status === "done") {
+        const cursorAdvanced = cursorNow > watched.cursorAtAssign;
+        if (cursorAdvanced) {
+          const alertMsg = `**[@Chatlead]** ${handle} — ${task.id} is marked done but terminal still active. Follow-up work, or should I update the task?`;
+          await postChat(sessionId, alertMsg);
+          console.log(`[task-watchdog] Alert: task ${task.id} done but terminal still active for ${handle}`);
+        }
         watchedTasks.delete(task.id);
         continue;
       }
@@ -222,8 +231,8 @@ async function poll(): Promise<void> {
         task.status === "in_progress" &&
         isIdleOnTask(watched.cursorAtAssign, cursorNow, watched.assignedAt, IDLE_MS)
       ) {
-        const chatMsg = `**[@Chatlead]** ${handle} — \`${task.title}\` has been in_progress for ${elapsedMsg} with no terminal activity. Working on it?`;
-        const termMsg = `[Chatlead] Task "${task.title}" (in_progress ${elapsedMsg}) — please post a status update in chat.`;
+        const chatMsg = `**[@Chatlead]** ${handle} — ${task.id} has been in_progress for ${elapsedMsg} with no terminal activity. Working on it?`;
+        const termMsg = `[Chatlead] Task ${task.id} still shows in_progress — please post a status update in chat.`;
         await postChat(sessionId, chatMsg);
         injectTerminal(participant.terminalSessionId, termMsg);
         watched.nudgedAt = new Date();
