@@ -230,6 +230,7 @@ export class BridgeCore {
         role: "agent",
         senderType: "terminal",
         senderName: resolvedSender,
+        message_type: msg.threadTs ? "reply" : "post",
         metadata: {
           source: "antchat",
           source_session_id: msg.sessionId,
@@ -276,10 +277,37 @@ export class BridgeCore {
           assignedTo: cmd.assignedTo,
         });
         this.writeThrough(() => this.ant.updateChatRoomTask(cmd.roomName, existing.id, { status, assignedTo: cmd.assignedTo }));
+
+        const statusLabel = cmd.status || "updated";
+        await this.ant.postMessage(room.conversationSessionId, {
+          content: `[Task] Updated: '${cmd.taskName}' → ${statusLabel}`,
+          role: "agent",
+          senderType: "system",
+          senderName: "ANTtask",
+          message_type: "task_update",
+          metadata: {
+            source: "antchat",
+            room_name: cmd.roomName,
+          },
+        });
+
         console.log(`[bridge] ANTtask! updated: "${cmd.taskName}" → ${cmd.status || "no status change"}`);
       } else {
         this.chatRoomRegistry.addTask(cmd.roomName, cmd.taskName, cmd.assignedTo);
         this.writeThrough(() => this.ant.addChatRoomTask(cmd.roomName, cmd.taskName, cmd.assignedTo));
+
+        await this.ant.postMessage(room.conversationSessionId, {
+          content: `[Task] Created: '${cmd.taskName}' assigned to ${cmd.assignedTo || "TBA"}`,
+          role: "agent",
+          senderType: "system",
+          senderName: "ANTtask",
+          message_type: "task_add",
+          metadata: {
+            source: "antchat",
+            room_name: cmd.roomName,
+          },
+        });
+
         console.log(`[bridge] ANTtask! created: "${cmd.taskName}" assigned to ${cmd.assignedTo || "TBA"}`);
       }
     } catch (err) {
@@ -313,6 +341,19 @@ export class BridgeCore {
         addedBy
       );
       this.writeThrough(() => this.ant.addChatRoomFile(cmd.roomName, cmd.path, cmd.description, addedBy));
+
+      await this.ant.postMessage(room.conversationSessionId, {
+        content: `[File] Registered: ${cmd.path} — ${cmd.description}`,
+        role: "agent",
+        senderType: "system",
+        senderName: "ANTfile",
+        message_type: "file_add",
+        metadata: {
+          source: "antchat",
+          room_name: cmd.roomName,
+        },
+      });
+
       console.log(`[bridge] ANTfile! registered: "${cmd.path}" in room "${cmd.roomName}"`);
     } catch (err) {
       console.error("[bridge] ANTfile! error:", err instanceof Error ? err.message : err);

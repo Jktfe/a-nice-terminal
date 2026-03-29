@@ -146,6 +146,7 @@ export class AntClient {
     senderType?: string;
     senderName?: string;
     metadata?: Record<string, any>;
+    message_type?: string;
   }): Promise<AntMessage> {
     return this.fetch(`/api/sessions/${sessionId}/messages`, {
       method: "POST",
@@ -157,6 +158,7 @@ export class AntClient {
         sender_type: opts.senderType || "human",
         sender_name: opts.senderName || null,
         metadata: opts.metadata || null,
+        ...(opts.message_type ? { message_type: opts.message_type } : {}),
       }),
     });
   }

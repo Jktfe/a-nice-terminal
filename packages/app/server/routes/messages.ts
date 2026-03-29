@@ -77,6 +77,7 @@ router.post("/api/sessions/:sessionId/messages", (req, res) => {
     format = "markdown",
     status = "complete",
     metadata = null,
+    message_type,
     sender_type,
     sender_name,
     sender_cwd,
@@ -147,12 +148,15 @@ router.post("/api/sessions/:sessionId/messages", (req, res) => {
 
   const resolvedSenderType = sender_type || (normalisedRole === "human" ? "human" : normalisedRole === "system" ? "system" : "unknown");
 
+  const resolvedMessageType = message_type || "text";
+
   db.prepare(
-    `INSERT INTO messages (id, session_id, role, content, format, status, metadata, sender_type, sender_name, sender_cwd, sender_persona, sender_terminal_id, thread_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO messages (id, session_id, role, content, format, status, metadata, message_type, sender_type, sender_name, sender_cwd, sender_persona, sender_terminal_id, thread_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id, req.params.sessionId, normalisedRole, sanitisedContent, format, status,
     metadata ? JSON.stringify(metadata) : null,
+    resolvedMessageType,
     resolvedSenderType, resolvedSenderName, sender_cwd || null, sender_persona || null, sender_terminal_id || null, thread_id || null,
   );
 
