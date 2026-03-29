@@ -224,7 +224,7 @@ export class DbChatRoomRegistry {
   ): RoomTask | null {
     const room = this.stmts.getRoomByName.get(roomName) as any;
     if (!room) return null;
-    const id = `t-${Date.now().toString(36)}`;
+    const id = 't-' + nanoid(12);
     this.stmts.insertTask.run(
       id,
       room.id,
@@ -277,7 +277,7 @@ export class DbChatRoomRegistry {
   ): RoomFile | null {
     const room = this.stmts.getRoomByName.get(roomName) as any;
     if (!room) return null;
-    const id = `f-${Date.now().toString(36)}`;
+    const id = 'f-' + nanoid(12);
     try {
       this.stmts.insertFile.run(
         id,
