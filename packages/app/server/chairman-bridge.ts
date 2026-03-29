@@ -1,7 +1,12 @@
 /**
  * Embedded Chairman Bridge — runs inside the ANT server process.
- * Polls the configured session for @chatlead mentions and routes tasks
- * to the right agent via LM Studio (OpenAI-compatible API).
+ *
+ * Uses the DB-backed antchat_tasks / antchat_participants tables as the
+ * source of truth for task routing.  Polls for pending tasks and routes
+ * them via LM Studio (OpenAI-compatible API).
+ *
+ * Still posts summary messages to the conversation session so humans can
+ * follow along, but all state is persisted in the DB.
  *
  * Auto-starts when chairman_enabled is "1" in server_state.
  * Checks the toggle on every poll cycle so it can be switched on/off
@@ -9,6 +14,7 @@
  */
 
 import db from "./db.js";
+import { DbChatRoomRegistry, type RoomTask, type ParticipantInfo } from "./db-chat-room-registry.js";
 import { startTerminalMonitor, stopTerminalMonitor } from "./terminal-monitor.js";
 import { startMessageBridge, stopMessageBridge } from "./message-bridge.js";
 import { startTaskWatchdog, stopTaskWatchdog } from "./task-watchdog.js";
@@ -17,18 +23,8 @@ const ANT_URL = `http://localhost:${process.env.ANT_PORT || "6458"}`;
 const LM_STUDIO_URL = process.env.LM_STUDIO_URL || "http://localhost:1234";
 const POLL_INTERVAL_MS = parseInt(process.env.CHAIRMAN_POLL_MS || "4000", 10);
 const CHAIRMAN_NAME = process.env.CHAIRMAN_NAME || "@Chatlead";
-const BUSY_THRESHOLD_MS = parseInt(process.env.CHAIRMAN_BUSY_THRESHOLD_MS || "90000", 10);
 
 // ─── Types ───────────────────────────────────────────────────────────────────
-
-interface AntMessage {
-  id: string;
-  role: "human" | "agent" | "system";
-  content: string;
-  created_at: string;
-  sender_name?: string;
-  metadata?: any;
-}
 
 interface AssignmentItem {
   task_id: string;
@@ -45,25 +41,21 @@ interface ChairmanDecision {
   question?: string;
 }
 
-const KNOWN_AGENTS = [
-  { name: "@ANTClaude", type: "antclaude", domain: "ANT" },
-  { name: "@ANTGem", type: "antgem", domain: "ANT" },
-  { name: "@MMDClaude", type: "mmdclaude", domain: "MMD" },
-  { name: "@MMDGem", type: "mmdgem", domain: "MMD" },
-] as const;
+// ─── DB Registry ────────────────────────────────────────────────────────────
+
+const registry = new DbChatRoomRegistry(db);
+
+// ─── System prompt ──────────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `You are @Chatlead, the Chairman and task router in the MMD-and-ANT multi-agent chat.
 
-AGENTS:
-- @ANTClaude — ANT codebase work (TypeScript, server, UI, bridges, infrastructure)
-- @ANTGem    — ANT work, UI-focused; use when @ANTClaude is busy
-- @MMDClaude — MMD project work (content, documents, MMD-specific features)
-- @MMDGem    — MMD work; use when @MMDClaude is busy
+You will be given a list of AVAILABLE PARTICIPANTS (from the room's DB) and
+one or more PENDING TASKS that need to be assigned.
 
 ROUTING RULES:
-1. Match the domain: ANT tasks → ANT agents; MMD tasks → MMD agents
+1. Match domain: ANT tasks -> ANT-domain agents; MMD tasks -> MMD-domain agents
 2. If a domain is ambiguous, ask one clarifying question before routing
-3. Always prefer available agents; if both are busy, say "holding — both [domain] agents busy"
+3. Prefer available (non-busy) agents
 4. Never pick more than 2 agents for a single request unless clearly separate tasks
 
 RESPOND ONLY WITH JSON (no prose before or after):
@@ -71,21 +63,17 @@ RESPOND ONLY WITH JSON (no prose before or after):
   "action": "assign" | "hold" | "clarify",
   "reason": "<one sentence>",
   "assignments": [
-    { "task_id": "T001", "assigned_to": "@ANTClaude", "assigned_type": "antclaude", "branch": "" }
+    { "task_id": "<the DB task id>", "assigned_to": "<agent handle>", "assigned_type": "<agent type>", "branch": "" }
   ],
   "hold_message": "<only present when action is hold>",
   "question": "<only present when action is clarify>"
 }
 
-task_id: generate a short slug like T001, T002 etc.
 If action is "hold" or "clarify", set assignments to [].`;
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
-let lastSeenAt: string | null = null;
-const processedIds = new Set<string>();
 let busy = false;
-let taskCounter = 0;
 let currentModel = process.env.CHAIRMAN_MODEL || "openai/gpt-oss-20b";
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
 let hasAnnounced = false;
@@ -116,13 +104,11 @@ function getModel(): string {
   return currentModel;
 }
 
-// ─── ANT API ─────────────────────────────────────────────────────────────────
-
-async function fetchMessages(sessionId: string): Promise<AntMessage[]> {
-  const res = await fetch(`${ANT_URL}/api/sessions/${sessionId}/messages`);
-  if (!res.ok) throw new Error(`ANT ${res.status}: ${await res.text()}`);
-  return res.json() as Promise<AntMessage[]>;
+function getConfiguredRoomName(): string {
+  return getSetting("chairman_room", "");
 }
+
+// ─── ANT API (for posting summary messages) ────────────────────────────────
 
 async function postMessage(sessionId: string, content: string, metadata?: any): Promise<void> {
   const body: any = {
@@ -143,34 +129,60 @@ async function postMessage(sessionId: string, content: string, metadata?: any): 
   if (!res.ok) console.error(`[chairman] Failed to post: ${res.status}`);
 }
 
-// ─── Agent availability ──────────────────────────────────────────────────────
+// ─── DB queries ─────────────────────────────────────────────────────────────
 
-function getAgentAvailability(messages: AntMessage[]): Record<string, boolean> {
-  const now = Date.now();
-  const available: Record<string, boolean> = {};
-  for (const agent of KNOWN_AGENTS) {
-    const lastMsg = [...messages]
-      .reverse()
-      .find((m) => m.sender_name?.toLowerCase() === agent.name.toLowerCase());
-    available[agent.name] = !lastMsg || now - new Date(lastMsg.created_at).getTime() > BUSY_THRESHOLD_MS;
-  }
-  return available;
+/** Get pending or assigned tasks for a given room (by room name). */
+function getPendingTasks(roomName: string): RoomTask[] {
+  const room = registry.getRoom(roomName);
+  if (!room) return [];
+  return room.tasks.filter(
+    (t) => t.status === "pending" || t.status === "assigned"
+  );
 }
 
-function buildContext(messages: AntMessage[], availability: Record<string, boolean>): string {
-  const recentLines = messages
-    .slice(-15)
-    .map((m) => `[${m.sender_name || m.role}]: ${m.content.slice(0, 300)}`)
+/** Get all participants in a room. Returns map of terminalSessionId -> ParticipantInfo. */
+function getRoomParticipants(roomName: string): Map<string, ParticipantInfo> {
+  const room = registry.getRoom(roomName);
+  if (!room) return new Map();
+  return room.participants;
+}
+
+/** Find a room that is linked to the given conversation session. */
+function findRoomForSession(sessionId: string): string | undefined {
+  const rooms = registry.listRooms();
+  const match = rooms.find((r) => r.conversationSessionId === sessionId);
+  return match?.name;
+}
+
+// ─── Build context for LM Studio ───────────────────────────────────────────
+
+function buildContext(
+  pendingTasks: RoomTask[],
+  participants: Map<string, ParticipantInfo>
+): string {
+  const participantLines = Array.from(participants.entries())
+    .map(([sessionId, info]) => {
+      const model = info.model ? ` (model: ${info.model})` : "";
+      return `- ${info.agentName}${model} [session: ${sessionId}]`;
+    })
     .join("\n");
-  const availLines = KNOWN_AGENTS.map(
-    (a) => `- ${a.name} (${a.domain}): ${availability[a.name] ? "AVAILABLE" : "BUSY"}`
-  ).join("\n");
-  return `=== Agent Availability ===\n${availLines}\n\n=== Recent Chat ===\n${recentLines}`;
+
+  const taskLines = pendingTasks
+    .map((t) => {
+      const assigned = t.assignedTo ? ` (currently assigned to: ${t.assignedTo})` : "";
+      return `- [${t.id}] "${t.name}" — status: ${t.status}${assigned}`;
+    })
+    .join("\n");
+
+  return (
+    `=== Room Participants ===\n${participantLines || "(none)"}\n\n` +
+    `=== Pending Tasks ===\n${taskLines || "(none)"}`
+  );
 }
 
 // ─── LM Studio API ──────────────────────────────────────────────────────────
 
-async function queryLmStudio(userContent: string, context: string): Promise<string> {
+async function queryLmStudio(context: string): Promise<string> {
   const model = getModel();
   const res = await fetch(`${LM_STUDIO_URL}/v1/chat/completions`, {
     method: "POST",
@@ -179,7 +191,7 @@ async function queryLmStudio(userContent: string, context: string): Promise<stri
       model,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: `${context}\n\n=== New Request ===\n${userContent}` },
+        { role: "user", content: context },
       ],
       temperature: 0.3,
       max_tokens: 500,
@@ -201,30 +213,20 @@ function parseDecision(raw: string): ChairmanDecision | null {
   }
 }
 
-// ─── Message filtering ──────────────────────────────────────────────────────
+// ─── Handle pending tasks ──────────────────────────────────────────────────
 
-function shouldRespond(msg: AntMessage): boolean {
-  if (msg.role === "system") return false;
-  if (msg.sender_name === CHAIRMAN_NAME) return false;
-  const lower = msg.content.toLowerCase();
-  return (
-    lower.includes("@chatlead") ||
-    lower.includes("chairman") ||
-    lower.includes("route this") ||
-    lower.includes("assign this") ||
-    lower.includes("who should") ||
-    lower.includes("delegate")
+async function handlePendingTasks(
+  sessionId: string,
+  roomName: string,
+  pendingTasks: RoomTask[],
+  participants: Map<string, ParticipantInfo>
+): Promise<void> {
+  const context = buildContext(pendingTasks, participants);
+
+  console.log(
+    `[chairman] Routing ${pendingTasks.length} pending task(s) in room "${roomName}"`
   );
-}
-
-// ─── Handle message ─────────────────────────────────────────────────────────
-
-async function handleMessage(sessionId: string, msg: AntMessage, allMessages: AntMessage[]): Promise<void> {
-  const availability = getAgentAvailability(allMessages);
-  const context = buildContext(allMessages, availability);
-
-  console.log(`[chairman] Routing request: "${msg.content.slice(0, 80)}"`);
-  const raw = await queryLmStudio(msg.content, context);
+  const raw = await queryLmStudio(context);
   const decision = parseDecision(raw);
 
   if (!decision) {
@@ -235,24 +237,42 @@ async function handleMessage(sessionId: string, msg: AntMessage, allMessages: An
 
   switch (decision.action) {
     case "assign": {
-      const assignments = decision.assignments.map((a) => ({
-        ...a,
-        task_id: a.task_id || `T${String(++taskCounter).padStart(3, "0")}`,
-      }));
-      const summary = assignments.map((a) => `**${a.task_id}** → ${a.assigned_to}`).join("\n");
-      await postMessage(sessionId, `[${CHAIRMAN_NAME}] ${decision.reason}\n\n${summary}`, {
-        type: "assignment",
-        assignments,
-      });
-      console.log(`[chairman] Assigned: ${assignments.map((a) => `${a.task_id}→${a.assigned_to}`).join(", ")}`);
+      const summaryParts: string[] = [];
+      for (const a of decision.assignments) {
+        // Update task status in DB
+        const updated = registry.updateTask(roomName, a.task_id, {
+          status: "assigned",
+          assignedTo: a.assigned_to,
+        });
+        if (updated) {
+          summaryParts.push(`**${a.task_id}** -> ${a.assigned_to}`);
+          console.log(`[chairman] DB: ${a.task_id} assigned to ${a.assigned_to}`);
+        } else {
+          console.warn(`[chairman] Failed to update task ${a.task_id} in DB`);
+          summaryParts.push(`**${a.task_id}** -> ${a.assigned_to} (DB update failed)`);
+        }
+      }
+
+      // Post human-readable summary to conversation
+      await postMessage(
+        sessionId,
+        `[${CHAIRMAN_NAME}] ${decision.reason}\n\n${summaryParts.join("\n")}`,
+        { type: "assignment", assignments: decision.assignments }
+      );
       break;
     }
     case "hold":
-      await postMessage(sessionId, `[${CHAIRMAN_NAME}] ${decision.hold_message || "Holding — agents busy."}`);
+      await postMessage(
+        sessionId,
+        `[${CHAIRMAN_NAME}] ${decision.hold_message || "Holding -- agents busy."}`
+      );
       console.log(`[chairman] Holding: ${decision.reason}`);
       break;
     case "clarify":
-      await postMessage(sessionId, `[${CHAIRMAN_NAME}] ${decision.question || "Can you clarify the task?"}`);
+      await postMessage(
+        sessionId,
+        `[${CHAIRMAN_NAME}] ${decision.question || "Can you clarify the task?"}`
+      );
       console.log(`[chairman] Clarifying: ${decision.reason}`);
       break;
   }
@@ -268,41 +288,36 @@ async function poll(): Promise<void> {
   if (!sessionId) return;
 
   try {
-    const messages = await fetchMessages(sessionId);
-    if (messages.length === 0) return;
+    // Determine which room to poll.  Prefer an explicit setting, fall back
+    // to finding a room linked to the configured conversation session.
+    let roomName = getConfiguredRoomName();
+    if (!roomName) {
+      roomName = findRoomForSession(sessionId) ?? "";
+    }
+    if (!roomName) return; // No room configured or linked — nothing to do
 
     // Announce on first enabled poll
     if (!hasAnnounced) {
       hasAnnounced = true;
       await postMessage(
         sessionId,
-        `[${CHAIRMAN_NAME}] Online — task router active.\n` +
+        `[${CHAIRMAN_NAME}] Online -- task router active.\n` +
           `- Model: \`${getModel()}\`\n` +
-          `- Mention \`@chatlead\` or say \`assign this\` / \`route this\` to trigger routing.`
+          `- Room: \`${roomName}\`\n` +
+          `- Polling \`antchat_tasks\` for pending tasks every ${POLL_INTERVAL_MS}ms.`
       );
+      console.log(`[chairman] Initial sync — room "${roomName}"`);
     }
 
-    if (lastSeenAt === null) {
-      lastSeenAt = messages[messages.length - 1].created_at;
-      for (const m of messages) processedIds.add(m.id);
-      console.log(`[chairman] Initial sync — ${messages.length} messages`);
-      return;
-    }
+    // Query DB for pending tasks instead of parsing message text
+    const pendingTasks = getPendingTasks(roomName);
+    if (pendingTasks.length === 0) return;
 
-    const newMessages = messages.filter(
-      (m) => m.created_at > lastSeenAt! && !processedIds.has(m.id)
-    );
-    if (newMessages.length === 0) return;
-
-    lastSeenAt = messages[messages.length - 1].created_at;
-    for (const m of newMessages) processedIds.add(m.id);
-
-    const toHandle = newMessages.find(shouldRespond);
-    if (!toHandle) return;
+    const participants = getRoomParticipants(roomName);
 
     busy = true;
     try {
-      await handleMessage(sessionId, toHandle, messages);
+      await handlePendingTasks(sessionId, roomName, pendingTasks, participants);
     } finally {
       busy = false;
     }

@@ -1849,6 +1849,97 @@ server.tool(
   }
 );
 
+// --- Chat room tools ---
+
+// List all chat rooms
+server.tool(
+  "ant_list_rooms",
+  "List all active ANTchat rooms with participants, tasks, and files",
+  {},
+  async () => {
+    const rooms = await api("/api/chat-rooms");
+    return { content: [{ type: "text", text: JSON.stringify(rooms, null, 2) }] };
+  }
+);
+
+// Get room details
+server.tool(
+  "ant_room_details",
+  "Get full details for a chat room (participants, tasks, files, tags) by name",
+  {
+    name: z.string().describe("Room name"),
+  },
+  async ({ name }) => {
+    const rooms = await api("/api/chat-rooms");
+    const room = rooms.find((r: any) => r.name.toLowerCase() === name.toLowerCase());
+    if (!room) {
+      return { content: [{ type: "text", text: JSON.stringify({ error: "Room not found" }) }], isError: true };
+    }
+    return { content: [{ type: "text", text: JSON.stringify(room, null, 2) }] };
+  }
+);
+
+// List tasks for a room
+server.tool(
+  "ant_room_tasks",
+  "List tasks for a chat room, with optional status filter",
+  {
+    name: z.string().describe("Room name"),
+    status: z.string().optional().describe("Filter by task status (pending, in-progress, done)"),
+  },
+  async ({ name, status }) => {
+    const params = new URLSearchParams();
+    if (status) params.set("status", status);
+    const qs = params.toString();
+    const tasks = await api(`/api/chat-rooms/${encodeURIComponent(name)}/tasks${qs ? `?${qs}` : ""}`);
+    return { content: [{ type: "text", text: JSON.stringify(tasks, null, 2) }] };
+  }
+);
+
+// Add a tag to a participant
+server.tool(
+  "ant_add_room_tag",
+  "Add a tag to a participant in a chat room",
+  {
+    name: z.string().describe("Room name"),
+    terminalSessionId: z.string().describe("Terminal session ID of the participant"),
+    tag: z.string().describe("Tag to add"),
+  },
+  async ({ name, terminalSessionId, tag }) => {
+    const result = await api(`/api/chat-rooms/${encodeURIComponent(name)}/tags`, {
+      method: "POST",
+      body: JSON.stringify({ terminalSessionId, tag }),
+    });
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+// Add a context file to a room
+server.tool(
+  "ant_add_room_file",
+  "Register a context file in a chat room",
+  {
+    name: z.string().describe("Room name"),
+    path: z.string().describe("File path"),
+    description: z.string().optional().describe("File description"),
+    addedBy: z.string().optional().describe("Who added the file"),
+    fileType: z.string().optional().describe("File type"),
+    shortName: z.string().optional().describe("Short display name"),
+  },
+  async ({ name, path, description, addedBy, fileType, shortName }) => {
+    const body: Record<string, string> = { path };
+    if (description) body.description = description;
+    if (addedBy) body.addedBy = addedBy;
+    if (fileType) body.fileType = fileType;
+    if (shortName) body.shortName = shortName;
+    const result = await api(`/api/chat-rooms/${encodeURIComponent(name)}/files`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
 // Run
 async function main() {
   const transport = new StdioServerTransport();

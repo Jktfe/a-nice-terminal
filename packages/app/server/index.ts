@@ -35,7 +35,7 @@ import { registerDiscoveredModels } from "./agent/auto-discover.js";
 import { startRetentionScheduler, stopRetentionScheduler } from "./retention.js";
 import { startChairmanBridge, stopChairmanBridge } from "./chairman-bridge.js";
 import { features } from "./feature-flags.js";
-import { ChatRoomRegistry } from "../../bridge/src/chat-room-registry.js";
+import { DbChatRoomRegistry } from "./db-chat-room-registry.js";
 
 import db from "./db.js";
 
@@ -44,8 +44,8 @@ const PORT = parseInt(process.env.ANT_PORT || "3000", 10);
 const HOST = process.env.ANT_HOST || "0.0.0.0";
 const WS_API_KEY = process.env.ANT_API_KEY;
 
-// Shared registry for chat rooms — allows the server to host rooms even without the bridge
-const chatRoomRegistry = new ChatRoomRegistry();
+// Shared registry for chat rooms — DB-backed, persists across restarts
+const chatRoomRegistry = new DbChatRoomRegistry(db);
 
 function getClientApiKey(socket: Socket): string | undefined {
   const handshake = (socket as any)?.handshake || {};

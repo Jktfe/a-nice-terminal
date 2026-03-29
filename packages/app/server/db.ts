@@ -691,5 +691,149 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_to);
 `);
 
+// ---------------------------------------------------------------------------
+// ANTchat: Persisted chat rooms (replaces in-memory ChatRoomRegistry)
+// ---------------------------------------------------------------------------
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS antchat_rooms (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    conversation_session_id TEXT NOT NULL,
+    purpose TEXT DEFAULT NULL,
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'archived')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    archived_at TEXT DEFAULT NULL,
+    FOREIGN KEY (conversation_session_id) REFERENCES sessions(id) ON DELETE CASCADE
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_antchat_rooms_name_active
+    ON antchat_rooms(name) WHERE status = 'active';
+  CREATE INDEX IF NOT EXISTS idx_antchat_rooms_session
+    ON antchat_rooms(conversation_session_id);
+  CREATE INDEX IF NOT EXISTS idx_antchat_rooms_status
+    ON antchat_rooms(status);
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS antchat_participants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    room_id TEXT NOT NULL,
+    terminal_session_id TEXT NOT NULL,
+    agent_name TEXT NOT NULL,
+    model TEXT DEFAULT NULL,
+    terminal_name TEXT DEFAULT NULL,
+    joined_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (room_id) REFERENCES antchat_rooms(id) ON DELETE CASCADE,
+    FOREIGN KEY (terminal_session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+    UNIQUE(room_id, terminal_session_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_antchat_participants_room
+    ON antchat_participants(room_id);
+  CREATE INDEX IF NOT EXISTS idx_antchat_participants_terminal
+    ON antchat_participants(terminal_session_id);
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS antchat_tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    room_id TEXT NOT NULL,
+    terminal_session_id TEXT NOT NULL,
+    tag TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (room_id) REFERENCES antchat_rooms(id) ON DELETE CASCADE,
+    UNIQUE(room_id, terminal_session_id, tag)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_antchat_tags_room
+    ON antchat_tags(room_id);
+  CREATE INDEX IF NOT EXISTS idx_antchat_tags_room_terminal
+    ON antchat_tags(room_id, terminal_session_id);
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS antchat_tasks (
+    id TEXT PRIMARY KEY,
+    room_id TEXT NOT NULL,
+    contents TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN (
+      'pending', 'assigned', 'in-progress', 'review',
+      'being-reviewed', 'reviewed-agent-signed-off',
+      'reviewed-needs-work', 'user-signed-off'
+    )),
+    assigned_to TEXT DEFAULT NULL,
+    assigned_name TEXT DEFAULT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (room_id) REFERENCES antchat_rooms(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_antchat_tasks_room
+    ON antchat_tasks(room_id);
+  CREATE INDEX IF NOT EXISTS idx_antchat_tasks_status
+    ON antchat_tasks(status);
+  CREATE INDEX IF NOT EXISTS idx_antchat_tasks_room_status
+    ON antchat_tasks(room_id, status);
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS antchat_context_files (
+    id TEXT PRIMARY KEY,
+    room_id TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    file_type TEXT DEFAULT NULL,
+    short_name TEXT DEFAULT NULL,
+    description TEXT DEFAULT NULL,
+    added_by TEXT DEFAULT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (room_id) REFERENCES antchat_rooms(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_antchat_cf_room
+    ON antchat_context_files(room_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_antchat_cf_room_path
+    ON antchat_context_files(room_id, file_path);
+`);
+
+// Migration: link messages to ANTchat rooms
+try { db.exec(`ALTER TABLE messages ADD COLUMN antchat_room_id TEXT DEFAULT NULL REFERENCES antchat_rooms(id) ON DELETE SET NULL`); } catch {}
+db.exec(`CREATE INDEX IF NOT EXISTS idx_messages_antchat_room ON messages(antchat_room_id)`);
+
+// Junction: terminal sessions tagged/mentioned in a message
+db.exec(`
+  CREATE TABLE IF NOT EXISTS message_terminal_tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id TEXT NOT NULL,
+    terminal_session_id TEXT NOT NULL,
+    FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+    FOREIGN KEY (terminal_session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+    UNIQUE(message_id, terminal_session_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_msg_tags_message
+    ON message_terminal_tags(message_id);
+  CREATE INDEX IF NOT EXISTS idx_msg_tags_terminal
+    ON message_terminal_tags(terminal_session_id);
+`);
+
+// Junction: context files referenced in a message
+db.exec(`
+  CREATE TABLE IF NOT EXISTS message_context_files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id TEXT NOT NULL,
+    context_file_id TEXT NOT NULL,
+    FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+    FOREIGN KEY (context_file_id) REFERENCES antchat_context_files(id) ON DELETE CASCADE,
+    UNIQUE(message_id, context_file_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_msg_cf_message
+    ON message_context_files(message_id);
+  CREATE INDEX IF NOT EXISTS idx_msg_cf_file
+    ON message_context_files(context_file_id);
+`);
+
 export default db;
 export { DB_PATH };
