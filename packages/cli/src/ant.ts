@@ -17,6 +17,11 @@ import { exec } from "./commands/exec.js";
 import { attach } from "./commands/attach.js";
 import { screen } from "./commands/screen.js";
 import { health } from "./commands/health.js";
+import { rooms } from "./commands/rooms.js";
+import { room } from "./commands/room.js";
+import { roomTasks } from "./commands/room-tasks.js";
+import { roomTag } from "./commands/room-tag.js";
+import { roomFile } from "./commands/room-file.js";
 import * as out from "./output.js";
 
 const program = new Command()
@@ -149,6 +154,40 @@ program.command("screen <session>").alias("sc").description("Show current termin
 program.command("health").description("Check server connectivity")
   .action(async () => {
     try { const { client, format } = getClientAndFormat(); await health(client, { format }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+program.command("rooms").description("List all active chat rooms")
+  .action(async () => {
+    try { const { client, format } = getClientAndFormat(); await rooms(client, { format }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+program.command("room <name>").description("Show room details (participants, tasks, files, tags)")
+  .action(async (name) => {
+    try { const { client, format } = getClientAndFormat(); await room(client, name, { format }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+program.command("room-tasks <name>").description("List tasks for a chat room")
+  .option("--status <status>", "Filter by task status")
+  .action(async (name, opts) => {
+    try { const { client, format } = getClientAndFormat(); await roomTasks(client, name, { format, ...opts }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+program.command("room-tag <name> <terminalSessionId> <tag>").description("Add a tag to a participant in a room")
+  .action(async (name, terminalSessionId, tag) => {
+    try { const { client, format } = getClientAndFormat(); await roomTag(client, name, terminalSessionId, tag, { format }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+program.command("room-file <name> <path>").description("Add a context file to a room")
+  .option("--desc <desc>", "File description")
+  .option("--type <type>", "File type")
+  .option("--short <shortname>", "Short display name")
+  .action(async (name, path, opts) => {
+    try { const { client, format } = getClientAndFormat(); await roomFile(client, name, path, { format, ...opts }); }
     catch (err: any) { out.error(err.message); process.exit(1); }
   });
 
