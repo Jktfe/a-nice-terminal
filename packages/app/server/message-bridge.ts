@@ -1,8 +1,10 @@
 /**
- * Message Bridge — polls the chairman chat session for new human messages
+ * Message Bridge — polls ALL conversation sessions for new human messages
  * that @mention an agent. If the addressed agent's terminal has not produced
  * new output within the grace period, injects the raw message content into
  * the terminal so the agent is guaranteed to receive it.
+ *
+ * No session or room configuration required — monitors every conversation.
  */
 
 import db from "./db.js";
@@ -36,54 +38,50 @@ function isEnabled(): boolean {
   return getSetting("chairman_enabled", "0") === "1";
 }
 
-function getSessionId(): string | null {
-  return getSetting("chairman_session", "") || null;
+// ─── Session discovery ───────────────────────────────────────────────────────
+
+function getAllChatSessionIds(): string[] {
+  const rows = db
+    .prepare("SELECT id FROM sessions WHERE type IN ('conversation', 'unified') AND archived = 0")
+    .all() as { id: string }[];
+  return rows.map((r) => r.id);
 }
 
-function getRoomName(): string | null {
-  return getSetting("chairman_room", "") || null;
-}
-
-// ─── Participant lookup ──────────────────────────────────────────────────────
+// ─── Participant lookup (all agents with active terminals) ────────────────────
 
 interface Participant {
   terminalSessionId: string;
   agentName: string;
 }
 
-async function getRoomParticipants(roomName: string): Promise<Participant[]> {
-  try {
-    const res = await fetch(
-      `${ANT_URL}/api/chat-rooms/${encodeURIComponent(roomName)}/participants`
-    );
-    if (!res.ok) return [];
-    return (await res.json()) as Participant[];
-  } catch {
-    return [];
-  }
+function getAllParticipants(): Participant[] {
+  const rows = db
+    .prepare(`
+      SELECT DISTINCT st.terminal_session_id as terminalSessionId, ar.handle as agentName
+      FROM session_terminals st
+      JOIN conversation_members cm ON cm.session_id = st.session_id
+      JOIN agent_registry ar ON ar.id = cm.agent_id
+      WHERE st.status = 'active' AND ar.handle IS NOT NULL
+    `)
+    .all() as Participant[];
+  return rows;
 }
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
-const injectedMessageIds = new Set<string>();
-let lastSeenAt: string | null = null;
+// Per-session tracking of injected message IDs and cursor positions
+const sessionInjectedIds = new Map<string, Set<string>>();
+const sessionLastSeenAt = new Map<string, string>();
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
 let busy = false;
 
 // ─── Poll ────────────────────────────────────────────────────────────────────
 
-async function poll(): Promise<void> {
-  if (busy) return;
-  if (!isEnabled()) return;
-
-  const sessionId = getSessionId();
-  const roomName = getRoomName();
-  if (!sessionId || !roomName) return;
-
-  busy = true;
+async function pollSession(sessionId: string, participants: Participant[]): Promise<void> {
   try {
-    const url = lastSeenAt
-      ? `${ANT_URL}/api/sessions/${sessionId}/messages?since=${encodeURIComponent(lastSeenAt)}`
+    const lastSeen = sessionLastSeenAt.get(sessionId);
+    const url = lastSeen
+      ? `${ANT_URL}/api/sessions/${sessionId}/messages?since=${encodeURIComponent(lastSeen)}`
       : `${ANT_URL}/api/sessions/${sessionId}/messages`;
 
     const res = await fetch(url);
@@ -93,23 +91,25 @@ async function poll(): Promise<void> {
       await res.json();
 
     if (messages.length === 0) return;
-    lastSeenAt = messages[messages.length - 1].created_at;
+    sessionLastSeenAt.set(sessionId, messages[messages.length - 1].created_at);
 
-    const participants = await getRoomParticipants(roomName);
+    const injectedIds = sessionInjectedIds.get(sessionId) ?? new Set<string>();
+    sessionInjectedIds.set(sessionId, injectedIds);
 
     for (const msg of messages) {
       if (msg.role !== "human") continue;
-      if (injectedMessageIds.has(msg.id)) continue;
+      if (injectedIds.has(msg.id)) continue;
 
       const mentions = extractMentions(msg.content);
       if (mentions.length === 0) continue;
 
       // Mark as processed before the mention loop so an exception can't cause re-processing
-      injectedMessageIds.add(msg.id);
+      injectedIds.add(msg.id);
 
       for (const mention of mentions) {
         const participant = participants.find(
-          (p) => p.agentName.toLowerCase() === mention.toLowerCase()
+          (p) => p.agentName.toLowerCase() === mention.replace("@", "").toLowerCase()
+            || p.agentName.toLowerCase() === mention.toLowerCase()
         );
         if (!participant) continue;
 
@@ -143,6 +143,22 @@ async function poll(): Promise<void> {
       }
     }
   } catch (err) {
+    console.warn(`[message-bridge] Poll error for session ${sessionId}:`, err instanceof Error ? err.message : err);
+  }
+}
+
+async function poll(): Promise<void> {
+  if (busy) return;
+  if (!isEnabled()) return;
+
+  const sessionIds = getAllChatSessionIds();
+  if (sessionIds.length === 0) return;
+
+  busy = true;
+  try {
+    const participants = getAllParticipants();
+    await Promise.all(sessionIds.map((id) => pollSession(id, participants)));
+  } catch (err) {
     console.warn("[message-bridge] Poll error:", err instanceof Error ? err.message : err);
   } finally {
     busy = false;
@@ -153,7 +169,7 @@ async function poll(): Promise<void> {
 
 export function startMessageBridge(): void {
   if (intervalHandle) return;
-  console.log(`[message-bridge] Starting (poll every ${POLL_INTERVAL_MS}ms)`);
+  console.log(`[message-bridge] Starting (poll every ${POLL_INTERVAL_MS}ms, watching all sessions)`);
   intervalHandle = setInterval(poll, POLL_INTERVAL_MS);
   poll().catch(() => {});
 }
@@ -162,8 +178,8 @@ export function stopMessageBridge(): void {
   if (intervalHandle) {
     clearInterval(intervalHandle);
     intervalHandle = null;
-    injectedMessageIds.clear();
-    lastSeenAt = null;
+    sessionInjectedIds.clear();
+    sessionLastSeenAt.clear();
     console.log("[message-bridge] Stopped");
   }
 }

@@ -927,6 +927,10 @@ export function cancelKillTimer(sessionId: string): void {
  * Returns true if a dtach session exists for this ANT session
  * (even if no node-pty wrapper is attached).
  */
+export function getActivePtySessionIds(): string[] {
+  return Array.from(ptySessions.keys());
+}
+
 export function hasSession(sessionId: string): boolean {
   return dtachSessionExists(sessionId);
 }

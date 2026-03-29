@@ -1,6 +1,8 @@
 /**
  * Task Watchdog — monitors in-progress task assignments, detects idle agents,
- * and nudges them in both chat and their terminal.
+ * and nudges them in both the most active chat session and their terminal.
+ *
+ * No session or room configuration required — reads all tasks and agents globally.
  *
  * Gap detection:
  * - Idle in_progress task: terminal cursor hasn't advanced in IDLE_MS
@@ -64,12 +66,21 @@ function isEnabled(): boolean {
   return getSetting("chairman_enabled", "0") === "1";
 }
 
-function getSessionId(): string | null {
-  return getSetting("chairman_session", "") || null;
-}
+// ─── Session discovery ───────────────────────────────────────────────────────
 
-function getRoomName(): string | null {
-  return getSetting("chairman_room", "") || null;
+function getMostActiveChatSessionId(): string | null {
+  const row = db
+    .prepare(`
+      SELECT s.id
+      FROM sessions s
+      WHERE s.type IN ('conversation', 'unified') AND s.archived = 0
+      ORDER BY (
+        SELECT MAX(created_at) FROM messages WHERE session_id = s.id
+      ) DESC
+      LIMIT 1
+    `)
+    .get() as { id: string } | undefined;
+  return row?.id ?? null;
 }
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -85,7 +96,7 @@ interface WatchedTask {
   lastChatAt: Date;
 }
 
-interface Participant {
+interface AgentTerminal {
   terminalSessionId: string;
   agentName: string;
 }
@@ -98,16 +109,17 @@ let busy = false;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-async function getRoomParticipants(roomName: string): Promise<Participant[]> {
-  try {
-    const res = await fetch(
-      `${ANT_URL}/api/chat-rooms/${encodeURIComponent(roomName)}/participants`
-    );
-    if (!res.ok) return [];
-    return (await res.json()) as Participant[];
-  } catch {
-    return [];
-  }
+function getAllAgentTerminals(): AgentTerminal[] {
+  const rows = db
+    .prepare(`
+      SELECT DISTINCT st.terminal_session_id as terminalSessionId, ar.handle as agentName
+      FROM session_terminals st
+      JOIN conversation_members cm ON cm.session_id = st.session_id
+      JOIN agent_registry ar ON ar.id = cm.agent_id
+      WHERE st.status = 'active' AND ar.handle IS NOT NULL
+    `)
+    .all() as AgentTerminal[];
+  return rows;
 }
 
 async function postChat(sessionId: string, content: string): Promise<void> {
@@ -144,14 +156,15 @@ function canNudge(task: WatchedTask): boolean {
   return Date.now() - task.nudgedAt.getTime() >= COOLDOWN_MS;
 }
 
-function getLastAgentChatTime(sessionId: string, agentHandle: string): Date {
+// Query across ALL sessions to find the most recent chat from this agent
+function getLastAgentChatTime(agentHandle: string): Date {
   const row = db
     .prepare(
       `SELECT created_at FROM messages
-       WHERE session_id = ? AND sender_name = ?
+       WHERE sender_name = ?
        ORDER BY created_at DESC LIMIT 1`
     )
-    .get(sessionId, agentHandle) as { created_at: string } | undefined;
+    .get(agentHandle) as { created_at: string } | undefined;
   return row ? new Date(row.created_at + "Z") : new Date(0);
 }
 
@@ -161,14 +174,13 @@ async function poll(): Promise<void> {
   if (busy) return;
   if (!isEnabled()) return;
 
-  const sessionId = getSessionId();
-  const roomName = getRoomName();
-  if (!sessionId || !roomName) return;
+  const sessionId = getMostActiveChatSessionId();
+  if (!sessionId) return;
 
   busy = true;
   try {
-    const participants = await getRoomParticipants(roomName);
-    const participantMap = new Map(participants.map((p) => [p.agentName.toLowerCase(), p]));
+    const agentTerminals = getAllAgentTerminals();
+    const terminalMap = new Map(agentTerminals.map((a) => [a.agentName.toLowerCase(), a]));
 
     type DbTask = {
       id: string;
@@ -185,14 +197,16 @@ async function poll(): Promise<void> {
 
     for (const task of tasks) {
       const handle = task.assigned_name!;
-      const participant = participantMap.get(handle.replace("@", "").toLowerCase()) ??
-        participantMap.get(handle.toLowerCase());
-      if (!participant) {
-        console.warn(`[task-watchdog] Agent ${handle} not in room participants — skipping task ${task.id}`);
+      const terminal =
+        terminalMap.get(handle.replace("@", "").toLowerCase()) ??
+        terminalMap.get(handle.toLowerCase());
+
+      if (!terminal) {
+        console.warn(`[task-watchdog] Agent ${handle} has no active terminal — skipping task ${task.id}`);
         continue;
       }
 
-      const cursorNow = getTerminalOutputCursor(participant.terminalSessionId);
+      const cursorNow = getTerminalOutputCursor(terminal.terminalSessionId);
       const elapsed = Date.now() - new Date(task.updated_at + "Z").getTime();
 
       // Register new task (skip done tasks we've never seen — nothing to detect)
@@ -201,12 +215,12 @@ async function poll(): Promise<void> {
         watchedTasks.set(task.id, {
           taskId: task.id,
           assignedHandle: handle,
-          terminalSessionId: participant.terminalSessionId,
+          terminalSessionId: terminal.terminalSessionId,
           assignedAt: new Date(task.updated_at + "Z"),
           cursorAtAssign: cursorNow,
           nudgedAt: null,
           cursorAtLastNudge: cursorNow,
-          lastChatAt: getLastAgentChatTime(sessionId, handle),
+          lastChatAt: getLastAgentChatTime(handle),
         });
         continue;
       }
@@ -235,7 +249,7 @@ async function poll(): Promise<void> {
         const chatMsg = `**[@Chatlead]** ${handle} — ${task.id} has been in_progress for ${elapsedMsg} with no terminal activity. Working on it?`;
         const termMsg = `[Chatlead] Task ${task.id} still shows in_progress — please post a status update in chat.`;
         await postChat(sessionId, chatMsg);
-        injectTerminal(participant.terminalSessionId, termMsg);
+        injectTerminal(terminal.terminalSessionId, termMsg);
         watched.nudgedAt = new Date();
         watched.cursorAtLastNudge = cursorNow;
         console.log(`[task-watchdog] Nudged ${handle} on task ${task.id} (idle)`);
@@ -247,14 +261,14 @@ async function poll(): Promise<void> {
         const chatMsg = `**[@Chatlead]** ${handle} — \`${task.title}\` was assigned ${elapsedMsg} ago but hasn't been started. Ready to begin?`;
         const termMsg = `[Chatlead] Task "${task.title}" assigned ${elapsedMsg} ago — please start when ready.`;
         await postChat(sessionId, chatMsg);
-        injectTerminal(participant.terminalSessionId, termMsg);
+        injectTerminal(terminal.terminalSessionId, termMsg);
         watched.nudgedAt = new Date();
         console.log(`[task-watchdog] Nudged ${handle} on task ${task.id} (unstarted)`);
         continue;
       }
 
       // 3. Terminal active but no chat update
-      const lastChatAt = getLastAgentChatTime(sessionId, handle);
+      const lastChatAt = getLastAgentChatTime(handle);
       if (needsSilentNudge(watched.cursorAtLastNudge, cursorNow, lastChatAt, SILENT_MS)) {
         const chatMsg = `**[@Chatlead]** ${handle} — terminal shows activity on \`${task.title}\` but no chat update in ${minutesAgo(SILENT_MS)}. How's it going?`;
         await postChat(sessionId, chatMsg);
@@ -282,7 +296,7 @@ async function poll(): Promise<void> {
 
 export function startTaskWatchdog(): void {
   if (intervalHandle) return;
-  console.log(`[task-watchdog] Starting (poll every ${POLL_INTERVAL_MS}ms)`);
+  console.log(`[task-watchdog] Starting (poll every ${POLL_INTERVAL_MS}ms, watching all agents)`);
   intervalHandle = setInterval(poll, POLL_INTERVAL_MS);
   poll().catch(() => {});
 }

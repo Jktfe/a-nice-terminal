@@ -11,13 +11,6 @@ export default function ChairmanPanel() {
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [currentRoom, setCurrentRoom] = useState("");
-  const [rooms, setRooms] = useState<Array<{ name: string; conversationSessionId: string }>>([]);
-  const [loadingRooms, setLoadingRooms] = useState(false);
-  const [currentSession, setCurrentSession] = useState("");
-  const [sessions, setSessions] = useState<Array<{ id: string; title: string; type: string }>>([]);
-  const [loadingSessions, setLoadingSessions] = useState(false);
-  const [sessionsError, setSessionsError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!chairmanPanelOpen) return;
@@ -25,8 +18,6 @@ export default function ChairmanPanel() {
       .then((data) => {
         setEnabled(data.enabled);
         setCurrentModel(data.model);
-        setCurrentRoom(data.room ?? "");
-        setCurrentSession(data.session ?? "");
       })
       .catch(() => {});
 
@@ -36,19 +27,6 @@ export default function ChairmanPanel() {
       .then((data) => setModels(data.models))
       .catch(() => setModelsError("Cannot reach LM Studio"))
       .finally(() => setLoadingModels(false));
-
-    setLoadingRooms(true);
-    apiFetch("/api/chairman/rooms")
-      .then((data) => setRooms(data.rooms ?? []))
-      .catch(() => {})
-      .finally(() => setLoadingRooms(false));
-
-    setLoadingSessions(true);
-    setSessionsError(null);
-    apiFetch("/api/sessions")
-      .then((data) => setSessions((data ?? []).filter((s: { id: string; title: string; type: string }) => s.type === "chat")))
-      .catch(() => setSessionsError("Could not load sessions"))
-      .finally(() => setLoadingSessions(false));
   }, [chairmanPanelOpen]);
 
   const handleToggle = async () => {
@@ -66,22 +44,6 @@ export default function ChairmanPanel() {
     await apiFetch("/api/chairman/model", {
       method: "POST",
       body: JSON.stringify({ model }),
-    }).catch(() => {});
-  };
-
-  const handleRoomChange = async (room: string) => {
-    setCurrentRoom(room);
-    await apiFetch("/api/chairman/room", {
-      method: "POST",
-      body: JSON.stringify({ room }),
-    }).catch(() => {});
-  };
-
-  const handleSessionChange = async (session: string) => {
-    setCurrentSession(session);
-    await apiFetch("/api/chairman/session", {
-      method: "POST",
-      body: JSON.stringify({ session }),
     }).catch(() => {});
   };
 
@@ -183,76 +145,11 @@ export default function ChairmanPanel() {
               )}
             </div>
 
-            {/* Room selector */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] uppercase tracking-wider text-[var(--color-text-dim)] font-semibold">
-                Watched Room
-              </label>
-              {loadingRooms ? (
-                <div className="px-3 py-2 text-xs text-[var(--color-text-dim)]">
-                  Loading rooms...
-                </div>
-              ) : (
-                <select
-                  value={currentRoom}
-                  onChange={(e) => handleRoomChange(e.target.value)}
-                  className="w-full px-3 py-2 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-lg text-sm text-[var(--color-text)] focus:outline-none focus:border-amber-500/50 appearance-none cursor-pointer"
-                >
-                  <option value="">— none —</option>
-                  {rooms.map((r) => (
-                    <option key={r.name} value={r.name}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
-              )}
-              {!currentRoom && (
-                <p className="text-[10px] text-amber-400/70">
-                  Select a room so the Chairman knows which terminals to watch.
-                </p>
-              )}
-            </div>
-
-            {/* Session selector */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] uppercase tracking-wider text-[var(--color-text-dim)] font-semibold">
-                Watched Session
-              </label>
-              {sessionsError ? (
-                <div className="flex items-center gap-1.5 px-3 py-2 text-xs text-amber-400/80">
-                  <AlertTriangle className="w-3 h-3 shrink-0" />
-                  {sessionsError}
-                </div>
-              ) : loadingSessions ? (
-                <div className="px-3 py-2 text-xs text-[var(--color-text-dim)]">
-                  Loading sessions...
-                </div>
-              ) : (
-                <select
-                  value={currentSession}
-                  onChange={(e) => handleSessionChange(e.target.value)}
-                  className="w-full px-3 py-2 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-lg text-sm text-[var(--color-text)] focus:outline-none focus:border-amber-500/50 appearance-none cursor-pointer"
-                >
-                  <option value="">— none —</option>
-                  {sessions.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.title}
-                    </option>
-                  ))}
-                </select>
-              )}
-              {!currentSession && (
-                <p className="text-[10px] text-amber-400/70">
-                  Select a session so the Chairman knows which conversation to monitor.
-                </p>
-              )}
-            </div>
-
             {/* Info */}
             <div className="text-[11px] text-[var(--color-text-dim)] leading-relaxed border-t border-[var(--color-border)] pt-3">
               <p className="mb-1.5">
-                <strong className="text-[var(--color-text-muted)]">@Chatlead</strong> routes tasks
-                to agents based on domain:
+                <strong className="text-[var(--color-text-muted)]">@Chatlead</strong> monitors
+                all sessions and terminals automatically:
               </p>
               <div className="flex flex-col gap-0.5 ml-2">
                 <span>ANT tasks → @ANTClaude / @ANTGem</span>
@@ -260,7 +157,7 @@ export default function ChairmanPanel() {
               </div>
               <p className="mt-2 text-[10px]">
                 Trigger with <code className="px-1 py-0.5 bg-[var(--color-hover)] border border-[var(--color-border)] rounded">@chatlead</code> or{" "}
-                <code className="px-1 py-0.5 bg-[var(--color-hover)] border border-[var(--color-border)] rounded">assign this</code> in chat.
+                <code className="px-1 py-0.5 bg-[var(--color-hover)] border border-[var(--color-border)] rounded">assign this</code> in any chat.
               </p>
             </div>
           </div>

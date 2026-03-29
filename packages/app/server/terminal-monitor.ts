@@ -1,16 +1,16 @@
 /**
- * Terminal Monitor — polls headless terminal screen lines for Claude Code
- * permission prompts and posts terminal_approval cards to the watched
- * chairman chat session.
+ * Terminal Monitor — polls ALL active terminal screens for Claude Code
+ * permission prompts and posts terminal_approval cards to the most recently
+ * active chat session.
  *
+ * No room or session configuration required — monitors every terminal.
  * Started/stopped by chairman-bridge alongside the chat routing loop.
- * Reads chairman_enabled + chairman_session + chairman_room from server_state
- * on every cycle — no restart needed to reconfigure.
+ * Reads chairman_enabled from server_state on every cycle.
  */
 
 import crypto from "crypto";
 import db from "./db.js";
-import { getHeadless } from "./pty-manager.js";
+import { getHeadless, getActivePtySessionIds } from "./pty-manager.js";
 
 const ANT_URL = `http://localhost:${process.env.ANT_PORT || "6458"}`;
 const POLL_INTERVAL_MS = parseInt(process.env.TERMINAL_MONITOR_POLL_MS || "2000", 10);
@@ -62,7 +62,31 @@ export function buildPromptId(sessionId: string, toolType: string, detail: strin
     .slice(0, 12);
 }
 
-// ─── Settings helpers ────────────────────────────────────────────────────────
+// ─── Session helpers ─────────────────────────────────────────────────────────
+
+function getMostActiveChatSessionId(): string | null {
+  const row = db
+    .prepare(`
+      SELECT s.id
+      FROM sessions s
+      WHERE s.type IN ('conversation', 'unified') AND s.archived = 0
+      ORDER BY (
+        SELECT MAX(created_at) FROM messages WHERE session_id = s.id
+      ) DESC
+      LIMIT 1
+    `)
+    .get() as { id: string } | undefined;
+  return row?.id ?? null;
+}
+
+function getTerminalName(terminalSessionId: string): string {
+  const row = db
+    .prepare("SELECT name FROM sessions WHERE id = ?")
+    .get(terminalSessionId) as { name: string } | undefined;
+  return row?.name ?? terminalSessionId;
+}
+
+// ─── Settings ────────────────────────────────────────────────────────────────
 
 function getSetting(key: string, fallback: string): string {
   const row = db.prepare("SELECT value FROM server_state WHERE key = ?").get(key) as
@@ -73,31 +97,6 @@ function getSetting(key: string, fallback: string): string {
 
 function isEnabled(): boolean {
   return getSetting("chairman_enabled", "0") === "1";
-}
-
-function getSessionId(): string | null {
-  return getSetting("chairman_session", "") || null;
-}
-
-function getRoomName(): string | null {
-  return getSetting("chairman_room", "") || null;
-}
-
-// ─── Participant lookup ──────────────────────────────────────────────────────
-
-interface Participant {
-  terminalSessionId: string;
-  agentName: string;
-}
-
-async function getRoomParticipants(roomName: string): Promise<Participant[]> {
-  try {
-    const res = await fetch(`${ANT_URL}/api/chat-rooms/${encodeURIComponent(roomName)}/participants`);
-    if (!res.ok) return [];
-    return (await res.json()) as Participant[];
-  } catch {
-    return [];
-  }
 }
 
 // ─── Post approval card ──────────────────────────────────────────────────────
@@ -145,15 +144,15 @@ async function poll(): Promise<void> {
   if (busy) return;
   if (!isEnabled()) return;
 
-  const sessionId = getSessionId();
-  const roomName = getRoomName();
-  if (!sessionId || !roomName) return;
+  const targetSessionId = getMostActiveChatSessionId();
+  if (!targetSessionId) return;
+
+  const terminalIds = getActivePtySessionIds();
+  if (terminalIds.length === 0) return;
 
   busy = true;
   try {
-    const participants = await getRoomParticipants(roomName);
-
-    for (const { terminalSessionId, agentName } of participants) {
+    for (const terminalSessionId of terminalIds) {
       const headless = getHeadless(terminalSessionId);
       if (!headless) continue;
 
@@ -167,8 +166,9 @@ async function poll(): Promise<void> {
       if (seenPrompts.has(promptId)) continue;
       seenPrompts.add(promptId);
 
-      await postApprovalCard(sessionId, terminalSessionId, agentName, toolType, detail, promptId);
-      console.log(`[terminal-monitor] Approval card posted for ${agentName}: ${toolType} — ${detail.slice(0, 50)}`);
+      const terminalName = getTerminalName(terminalSessionId);
+      await postApprovalCard(targetSessionId, terminalSessionId, terminalName, toolType, detail, promptId);
+      console.log(`[terminal-monitor] Approval card posted for terminal "${terminalName}": ${toolType} — ${detail.slice(0, 50)}`);
     }
   } catch (err) {
     console.warn("[terminal-monitor] Poll error:", err instanceof Error ? err.message : err);
@@ -181,7 +181,7 @@ async function poll(): Promise<void> {
 
 export function startTerminalMonitor(): void {
   if (intervalHandle) return;
-  console.log(`[terminal-monitor] Starting (poll every ${POLL_INTERVAL_MS}ms)`);
+  console.log(`[terminal-monitor] Starting (poll every ${POLL_INTERVAL_MS}ms, watching all terminals)`);
   intervalHandle = setInterval(poll, POLL_INTERVAL_MS);
   poll().catch(() => {});
 }

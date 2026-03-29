@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chairman Orchestration System</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --accent-cyan: #22d3ee;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --border-color: #334155;
+            --font-main: 'IBM Plex Sans', sans-serif;
+            --font-mono: 'IBM Plex Mono', monospace;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: var(--font-main);
+            margin: 0;
+            padding: 2rem;
+            line-height: 1.6;
+        }
+
+        header {
+            border-bottom: 2px solid var(--accent-cyan);
+            margin-bottom: 3rem;
+            padding-bottom: 1rem;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin: 0;
+            color: var(--accent-cyan);
+            letter-spacing: -0.025em;
+        }
+
+        .subtitle {
+            font-family: var(--font-mono);
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            text-transform: uppercase;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .mermaid-section {
+            background: var(--card-bg);
+            padding: 2rem;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            margin-bottom: 3rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1.5rem;
+            transition: transform 0.2s, border-color 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+            border-color: var(--accent-cyan);
+        }
+
+        .card h3 {
+            margin-top: 0;
+            color: var(--accent-cyan);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .card-icon {
+            width: 24px;
+            height: 24px;
+            fill: currentColor;
+        }
+
+        .card p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        .tech-tags {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .tag {
+            background: var(--bg-color);
+            padding: 2px 8px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+        }
+
+        .footer {
+            margin-top: 4rem;
+            text-align: center;
+            font-family: var(--font-mono);
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="subtitle">System Architecture Overview</div>
+            <h1>Chairman Orchestrator</h1>
+        </header>
+
+        <div class="mermaid-section">
+            <div class="mermaid">
+                graph TD
+                    User(("User")) -->|Chat Message| Chairman["@Chatlead Chairman"]
+                    Agent(("Agent CLI")) -->|Chat/Terminal Activity| Chairman
+                    
+                    subgraph Chairman_Orchestration ["Chairman Core Loop"]
+                        Chairman --> TaskRouting["Task Routing & Assignment"]
+                        Chairman --> TerminalMonitor["Terminal Prompt Detection"]
+                        Chairman --> MsgBridge["Message Bridge & Injection"]
+                        Chairman --> TaskWatchdog["Task Progress & Nudge"]
+                    end
+                    
+                    TerminalMonitor -->|"Permission Prompt"| UserApproval{"User Approval"}
+                    UserApproval -->|"Yes/No"| PTY["PTY Manager / Terminal"]
+                    
+                    TaskRouting -->|"Task ID"| Agent
+                    MsgBridge -->|"Injected Msg"| PTY
+                    TaskWatchdog -->|"Nudge"| PTY
+                    TaskWatchdog -->|"Status Update"| Chairman
+                    
+                    PTY -->|"Output Stream"| TerminalMonitor
+                    PTY -->|"Activity Heuristics"| MsgBridge
+                    
+                    style Chairman fill:#22d3ee,color:#0f172a,stroke:#fff,stroke-width:4px
+                    style Chairman_Orchestration fill:none,stroke:#334155,stroke-dasharray: 5 5
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <h3>
+                    <svg class="card-icon" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                    The Chairman Bridge
+                </h3>
+                <p>The central orchestration hub. It manages the primary polling loops for chat sessions and coordinates the lifecycle of all specialized sub-modules.</p>
+                <div class="tech-tags">
+                    <span class="tag">chairman-bridge.ts</span>
+                    <span class="tag">LLM Orchestration</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>
+                    <svg class="card-icon" viewBox="0 0 24 24"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7l-2 3v1h8v-1l-2-3h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H3V4h18v12z"/></svg>
+                    Terminal Monitor
+                </h3>
+                <p>Watches PTY output streams for high-stakes permission prompts (like Claude Code's "Allow run command?"). It intercepts these and posts interactive approval cards to chat.</p>
+                <div class="tech-tags">
+                    <span class="tag">terminal-monitor.ts</span>
+                    <span class="tag">Screen Scraping</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>
+                    <svg class="card-icon" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/></svg>
+                    Message Bridge
+                </h3>
+                <p>Ensures agents never miss critical @mentions. If a message is posted in chat but the agent is "lost" in their terminal, the bridge injects the message directly into the terminal UI.</p>
+                <div class="tech-tags">
+                    <span class="tag">message-bridge.ts</span>
+                    <span class="tag">Injection Logic</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>
+                    <svg class="card-icon" viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
+                    Task Watchdog
+                </h3>
+                <p>The system's integrity layer. It detects idle agents, identifies "silent failures," and ensures that tasks marked as complete actually align with terminal exit states.</p>
+                <div class="tech-tags">
+                    <span class="tag">task-watchdog.ts</span>
+                    <span class="tag">Health Checks</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            Generated by Gemini CLI &bull; A-Nice-Terminal Documentation
+        </div>
+    </div>
+
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'dark',
+            securityLevel: 'loose',
+            themeVariables: {
+                primaryColor: '#22d3ee',
+                primaryTextColor: '#0f172a',
+                primaryBorderColor: '#fff',
+                lineColor: '#94a3b8',
+                secondaryColor: '#1e293b',
+                tertiaryColor: '#0f172a'
+            }
+        });
+    </script>
+</body>
+</html>

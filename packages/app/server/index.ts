@@ -31,7 +31,6 @@ import { registerSocketHandlers } from "./ws/handlers.js";
 import { registerChatHandlers } from "./ws/chat-handlers.js";
 import { registerTerminalNamespace } from "./ws/terminal-namespace.js";
 import { reapOrphanedSessions } from "./pty-manager.js";
-import { registerDiscoveredModels } from "./agent/auto-discover.js";
 import { startRetentionScheduler, stopRetentionScheduler } from "./retention.js";
 import { startChairmanBridge, stopChairmanBridge } from "./chairman-bridge.js";
 import { features } from "./feature-flags.js";
@@ -173,13 +172,6 @@ async function start() {
 
   // Re-adopt or schedule cleanup of orphaned dtach sessions from previous runs
   reapOrphanedSessions();
-
-  // Auto-discover local AI models on startup (disable with ANT_ENABLE_AUTO_DISCOVER=false)
-  if (features.autoDiscover()) {
-    registerDiscoveredModels().catch((err) => {
-      console.warn("[auto-discover] Startup discovery failed:", err.message);
-    });
-  }
 
   // Server heartbeat — written every 30s so crash recovery can estimate downtime
   const upsertState = db.prepare(
