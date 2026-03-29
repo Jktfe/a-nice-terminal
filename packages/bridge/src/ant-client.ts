@@ -210,4 +210,69 @@ export class AntClient {
   async deleteMapping(id: string): Promise<void> {
     await this.fetch(`/api/bridge/mappings/${id}`, { method: "DELETE" });
   }
+
+  // --- Chat Room persistence (write-through to DB-backed server registry) ---
+
+  async getChatRooms(): Promise<any[]> {
+    return this.fetch("/api/chat-rooms");
+  }
+
+  async registerChatRoom(name: string, conversationSessionId: string): Promise<any> {
+    return this.fetch("/api/chat-rooms", {
+      method: "POST",
+      body: JSON.stringify({ name, conversationSessionId }),
+    });
+  }
+
+  async addChatRoomParticipant(
+    roomName: string,
+    terminalSessionId: string,
+    info: { agentName: string; model?: string; terminalName?: string }
+  ): Promise<void> {
+    await this.fetch(`/api/chat-rooms/${encodeURIComponent(roomName)}/participants`, {
+      method: "POST",
+      body: JSON.stringify({
+        terminalSessionId,
+        agentName: info.agentName,
+        model: info.model,
+        terminalName: info.terminalName,
+      }),
+    });
+  }
+
+  async addChatRoomTask(
+    roomName: string,
+    taskName: string,
+    assignedTo?: string
+  ): Promise<any> {
+    return this.fetch(`/api/chat-rooms/${encodeURIComponent(roomName)}/tasks`, {
+      method: "POST",
+      body: JSON.stringify({ name: taskName, assignedTo }),
+    });
+  }
+
+  async updateChatRoomTask(
+    roomName: string,
+    taskId: string,
+    updates: { status?: string; assignedTo?: string }
+  ): Promise<void> {
+    await this.fetch(`/api/chat-rooms/${encodeURIComponent(roomName)}/tasks/${encodeURIComponent(taskId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(updates),
+    });
+  }
+
+  async addChatRoomFile(
+    roomName: string,
+    path: string,
+    description?: string,
+    addedBy?: string,
+    fileType?: string,
+    shortName?: string
+  ): Promise<any> {
+    return this.fetch(`/api/chat-rooms/${encodeURIComponent(roomName)}/files`, {
+      method: "POST",
+      body: JSON.stringify({ path, description, addedBy, fileType, shortName }),
+    });
+  }
 }

@@ -160,6 +160,52 @@ router.post("/api/sessions/:sessionId/messages", (req, res) => {
     req.params.sessionId
   );
 
+  // --- ANTchat room linking + junction tables ---
+  if (metadata?.source === "antchat" && metadata?.room_name) {
+    const room = db.prepare(
+      "SELECT id FROM antchat_rooms WHERE name = ? AND status = 'active'"
+    ).get(metadata.room_name) as { id: string } | undefined;
+    if (room) {
+      db.prepare("UPDATE messages SET antchat_room_id = ? WHERE id = ?").run(room.id, id);
+
+      // Populate message_terminal_tags from @mentions in content
+      if (sender_terminal_id) {
+        const mentionPattern = /@(\S+)/g;
+        let match;
+        const insertTag = db.prepare(
+          "INSERT OR IGNORE INTO message_terminal_tags (message_id, terminal_session_id) VALUES (?, ?)"
+        );
+        while ((match = mentionPattern.exec(sanitisedContent)) !== null) {
+          const mentionHandle = match[1];
+          // Resolve handle to a participant's terminal session ID
+          const participant = db.prepare(
+            "SELECT terminal_session_id FROM antchat_participants WHERE room_id = ? AND agent_name = ? COLLATE NOCASE"
+          ).get(room.id, mentionHandle) as { terminal_session_id: string } | undefined;
+          if (participant) {
+            insertTag.run(id, participant.terminal_session_id);
+          }
+        }
+      }
+
+      // Populate message_context_files from #shortname or path references
+      const shortNamePattern = /#(\S+)/g;
+      let cfMatch;
+      const insertCf = db.prepare(
+        "INSERT OR IGNORE INTO message_context_files (message_id, context_file_id) VALUES (?, ?)"
+      );
+      while ((cfMatch = shortNamePattern.exec(sanitisedContent)) !== null) {
+        const ref = cfMatch[1];
+        // Try matching by short_name first, then by file_path suffix
+        const cf = db.prepare(
+          "SELECT id FROM antchat_context_files WHERE room_id = ? AND (short_name = ? COLLATE NOCASE OR file_path LIKE '%' || ?)"
+        ).get(room.id, ref, ref) as { id: string } | undefined;
+        if (cf) {
+          insertCf.run(id, cf.id);
+        }
+      }
+    }
+  }
+
   const message = db.prepare("SELECT * FROM messages WHERE id = ?").get(id) as any;
   if (message.metadata) message.metadata = JSON.parse(message.metadata);
 

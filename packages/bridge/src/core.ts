@@ -64,6 +64,9 @@ export class BridgeCore {
     // Load existing mappings and join those sessions
     await this.refreshMappings();
 
+    // Hydrate in-memory chat room registry from DB-backed server
+    await this.hydrateChatRoomRegistry();
+
     // Listen for outbound messages (ANT → platforms)
     this.ant.onMessageCreated((msg) => this.handleOutbound(msg));
 
@@ -193,6 +196,7 @@ export class BridgeCore {
         );
         if (match) {
           room = this.chatRoomRegistry.registerRoom(msg.roomName, match.id);
+          this.writeThrough(() => this.ant.registerChatRoom(msg.roomName, match.id));
         }
       }
 
@@ -207,6 +211,7 @@ export class BridgeCore {
       if (!this.chatRoomRegistry.getParticipantInfo(msg.roomName, msg.sessionId)) {
         const agentName = msg.senderName || `Terminal-${msg.sessionId.slice(0, 8)}`;
         this.chatRoomRegistry.addParticipant(msg.roomName, msg.sessionId, { agentName });
+        this.writeThrough(() => this.ant.addChatRoomParticipant(msg.roomName, msg.sessionId, { agentName }));
         console.log(`[bridge] Auto-registered ${agentName} in room "${msg.roomName}"`);
       }
 
@@ -255,7 +260,10 @@ export class BridgeCore {
         const match = sessions.find(
           (s) => s.type === "conversation" && s.name.toLowerCase() === cmd.roomName.toLowerCase()
         );
-        if (match) room = this.chatRoomRegistry.registerRoom(cmd.roomName, match.id);
+        if (match) {
+          room = this.chatRoomRegistry.registerRoom(cmd.roomName, match.id);
+          this.writeThrough(() => this.ant.registerChatRoom(cmd.roomName, match.id));
+        }
       }
       if (!room) return;
 
@@ -267,9 +275,11 @@ export class BridgeCore {
           status,
           assignedTo: cmd.assignedTo,
         });
+        this.writeThrough(() => this.ant.updateChatRoomTask(cmd.roomName, existing.id, { status, assignedTo: cmd.assignedTo }));
         console.log(`[bridge] ANTtask! updated: "${cmd.taskName}" → ${cmd.status || "no status change"}`);
       } else {
         this.chatRoomRegistry.addTask(cmd.roomName, cmd.taskName, cmd.assignedTo);
+        this.writeThrough(() => this.ant.addChatRoomTask(cmd.roomName, cmd.taskName, cmd.assignedTo));
         console.log(`[bridge] ANTtask! created: "${cmd.taskName}" assigned to ${cmd.assignedTo || "TBA"}`);
       }
     } catch (err) {
@@ -287,17 +297,22 @@ export class BridgeCore {
         const match = sessions.find(
           (s) => s.type === "conversation" && s.name.toLowerCase() === cmd.roomName.toLowerCase()
         );
-        if (match) room = this.chatRoomRegistry.registerRoom(cmd.roomName, match.id);
+        if (match) {
+          room = this.chatRoomRegistry.registerRoom(cmd.roomName, match.id);
+          this.writeThrough(() => this.ant.registerChatRoom(cmd.roomName, match.id));
+        }
       }
       if (!room) return;
 
       const info = this.chatRoomRegistry.getParticipantInfo(cmd.roomName, cmd.sessionId);
+      const addedBy = info?.agentName || `Terminal ${cmd.sessionId.slice(0, 8)}`;
       this.chatRoomRegistry.addFile(
         cmd.roomName,
         cmd.path,
         cmd.description,
-        info?.agentName || `Terminal ${cmd.sessionId.slice(0, 8)}`
+        addedBy
       );
+      this.writeThrough(() => this.ant.addChatRoomFile(cmd.roomName, cmd.path, cmd.description, addedBy));
       console.log(`[bridge] ANTfile! registered: "${cmd.path}" in room "${cmd.roomName}"`);
     } catch (err) {
       console.error("[bridge] ANTfile! error:", err instanceof Error ? err.message : err);
@@ -307,6 +322,43 @@ export class BridgeCore {
   /** Expose room registry for external API endpoints */
   getChatRoomRegistry(): ChatRoomRegistry {
     return this.chatRoomRegistry;
+  }
+
+  /** Hydrate in-memory registry from DB-backed server on startup */
+  private async hydrateChatRoomRegistry(): Promise<void> {
+    try {
+      const rooms = await this.ant.getChatRooms();
+      for (const room of rooms) {
+        this.chatRoomRegistry.registerRoom(room.name, room.conversationSessionId);
+        if (room.purpose) {
+          this.chatRoomRegistry.setPurpose(room.name, room.purpose);
+        }
+        for (const p of room.participants || []) {
+          this.chatRoomRegistry.addParticipant(room.name, p.terminalSessionId, {
+            agentName: p.agentName,
+            model: p.model,
+            terminalName: p.terminalName,
+          });
+        }
+        // Tasks and files are loaded into the in-memory registry for fast lookups
+        for (const t of room.tasks || []) {
+          this.chatRoomRegistry.addTask(room.name, t.name, t.assignedTo);
+        }
+        for (const f of room.files || []) {
+          this.chatRoomRegistry.addFile(room.name, f.path, f.description, f.addedBy);
+        }
+      }
+      console.log(`[bridge] Hydrated ${rooms.length} chat room(s) from server DB`);
+    } catch (err) {
+      console.warn("[bridge] Failed to hydrate chat rooms:", err instanceof Error ? err.message : err);
+    }
+  }
+
+  /** Fire-and-forget write-through to server DB */
+  private writeThrough(fn: () => Promise<any>): void {
+    fn().catch((err) => {
+      console.warn("[bridge] Write-through failed:", err instanceof Error ? err.message : err);
+    });
   }
 
   // --- Inbound: Platform → ANT ---
