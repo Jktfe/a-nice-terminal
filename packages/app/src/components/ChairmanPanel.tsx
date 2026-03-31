@@ -149,12 +149,8 @@ export default function ChairmanPanel() {
             <div className="text-[11px] text-[var(--color-text-dim)] leading-relaxed border-t border-[var(--color-border)] pt-3">
               <p className="mb-1.5">
                 <strong className="text-[var(--color-text-muted)]">@Chatlead</strong> monitors
-                all sessions and terminals automatically:
+                all sessions and terminals automatically, routing tasks to the best available agent based on content and capabilities.
               </p>
-              <div className="flex flex-col gap-0.5 ml-2">
-                <span>ANT tasks → @ANTClaude / @ANTGem</span>
-                <span>MMD tasks → @MMDClaude / @MMDGem</span>
-              </div>
               <p className="mt-2 text-[10px]">
                 Trigger with <code className="px-1 py-0.5 bg-[var(--color-hover)] border border-[var(--color-border)] rounded">@chatlead</code> or{" "}
                 <code className="px-1 py-0.5 bg-[var(--color-hover)] border border-[var(--color-border)] rounded">assign this</code> in any chat.
