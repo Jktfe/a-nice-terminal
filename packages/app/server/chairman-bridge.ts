@@ -23,6 +23,8 @@ const ANT_URL = `http://localhost:${process.env.ANT_PORT || "6458"}`;
 const LM_STUDIO_URL = process.env.LM_STUDIO_URL || "http://localhost:1234";
 const POLL_INTERVAL_MS = parseInt(process.env.CHAIRMAN_POLL_MS || "4000", 10);
 const CHAIRMAN_NAME = process.env.CHAIRMAN_NAME || "@Chatlead";
+// Strip leading @ for use as sender_name / agentName (prevents [@@Chatlead] in attribution)
+const CHAIRMAN_HANDLE = CHAIRMAN_NAME.replace(/^@+/, "");
 
 // Chairman fires before task-watchdog (5min assigned / 15min silent)
 const ASSIGNED_CURSOR_STALE_MS = parseInt(process.env.CHAIRMAN_ASSIGNED_STALE_MS || String(3 * 60 * 1000), 10);
@@ -144,6 +146,9 @@ const sessionProcessedIds = new Map<string, Set<string>>();
 // Track which rooms have received the initial announcement (per process lifetime)
 const announcedRooms = new Set<string>();
 
+// Track which rooms Chairman has joined as a participant (per process lifetime)
+const joinedRooms = new Set<string>();
+
 // Cursor baselines for assigned/in-progress task verification
 const taskCursorBaselines = new Map<string, TaskCursorBaseline>();
 
@@ -192,7 +197,7 @@ async function postMessage(sessionId: string, content: string, metadata?: any): 
     content,
     format: "markdown",
     status: "complete",
-    sender_name: CHAIRMAN_NAME,
+    sender_name: CHAIRMAN_HANDLE,
     sender_type: "agent",
   };
   if (metadata) body.metadata = metadata;
@@ -228,7 +233,7 @@ function findRoomForSession(sessionId: string): string | undefined {
 // ─── Trigger detection ───────────────────────────────────────────────────────
 
 function shouldRespond(msg: AntMessage): boolean {
-  if (msg.role === "agent" && msg.sender_name === CHAIRMAN_NAME) return false;
+  if (msg.role === "agent" && msg.sender_name === CHAIRMAN_HANDLE) return false;
   const lc = msg.content.toLowerCase();
   return lc.includes("@chatlead") || lc.includes("@chairman");
 }
@@ -308,7 +313,7 @@ async function analyseAndRouteMessage(
 ): Promise<void> {
   // Only analyse human messages — agents are responding, not requesting
   if (msg.role === "agent") return;
-  if (msg.sender_name === CHAIRMAN_NAME) return;
+  if (msg.sender_name === CHAIRMAN_HANDLE) return;
 
   const participants = getRoomParticipants(roomName);
   if (participants.size === 0) return;
@@ -419,6 +424,42 @@ async function injectToTerminal(terminalSessionId: string, text: string): Promis
   }
 }
 
+// ─── Register Chairman as a room participant ─────────────────────────────────
+
+/**
+ * Ensures Chairman appears in the room participant list.
+ * Uses a stable pseudo session-id "chairman" so it's idempotent.
+ * Best-effort — never throws.
+ */
+async function ensureInRoom(roomName: string): Promise<void> {
+  if (joinedRooms.has(roomName)) return;
+  joinedRooms.add(roomName); // optimistic — prevents concurrent duplicate calls
+  try {
+    const res = await fetch(
+      `${ANT_URL}/api/chat-rooms/${encodeURIComponent(roomName)}/participants`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          terminalSessionId: "chairman",
+          agentName: CHAIRMAN_HANDLE,
+          model: "Chairman",
+          terminalName: "Chairman",
+        }),
+      }
+    );
+    if (!res.ok) {
+      joinedRooms.delete(roomName); // allow retry on failure
+      console.warn(`[chairman] Failed to register in room "${roomName}": ${res.status}`);
+    } else {
+      console.log(`[chairman] Registered as participant in room "${roomName}"`);
+    }
+  } catch (err) {
+    joinedRooms.delete(roomName);
+    console.warn(`[chairman] Could not register in room "${roomName}":`, err instanceof Error ? err.message : err);
+  }
+}
+
 // ─── First-connect room announcement ────────────────────────────────────────
 
 /**
@@ -429,6 +470,7 @@ async function injectToTerminal(terminalSessionId: string, text: string): Promis
 async function maybeAnnounceRoom(sessionId: string, roomName: string): Promise<void> {
   if (announcedRooms.has(roomName)) return;
   announcedRooms.add(roomName);
+  await ensureInRoom(roomName);
   await postMessage(
     sessionId,
     `[${CHAIRMAN_NAME}] Now monitoring room **${roomName}**. ` +
@@ -745,6 +787,7 @@ export function stopChairmanBridge(): void {
     sessionLastSeenAt.clear();
     sessionProcessedIds.clear();
     announcedRooms.clear();
+    joinedRooms.clear();
     taskCursorBaselines.clear();
     console.log(`[chairman] Bridge stopped`);
   }

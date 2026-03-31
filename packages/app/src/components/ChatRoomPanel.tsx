@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   Users,
   ListTodo,
@@ -9,8 +9,10 @@ import {
   Check,
   Loader2,
   Circle,
+  Pencil,
 } from "lucide-react";
 import { useChatRoom, type Task } from "../hooks/useChatRoom.ts";
+import { apiFetch } from "../store.ts";
 
 const statusIcon = (status: Task["status"]) => {
   switch (status) {
@@ -32,12 +34,36 @@ export default function ChatRoomPanel({
   sessionId?: string;
   onClose: () => void;
 }) {
-  const { room, loading } = useChatRoom(sessionId ?? null);
+  const { room, loading, refetch } = useChatRoom(sessionId ?? null);
   const [expandedSections, setExpandedSections] = useState({
     participants: true,
     tasks: true,
     files: true,
   });
+  const [editingParticipant, setEditingParticipant] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const editInputRef = useRef<HTMLInputElement>(null);
+
+  const startEdit = (terminalSessionId: string, currentName: string) => {
+    setEditingParticipant(terminalSessionId);
+    setEditValue(currentName);
+    setTimeout(() => editInputRef.current?.select(), 0);
+  };
+
+  const saveEdit = async () => {
+    if (!editingParticipant || !room || !editValue.trim()) {
+      setEditingParticipant(null);
+      return;
+    }
+    try {
+      await apiFetch(
+        `/api/chat-rooms/${encodeURIComponent(room.name)}/participants/${editingParticipant}`,
+        { method: "PATCH", body: JSON.stringify({ agentName: editValue.trim() }) }
+      );
+      await refetch();
+    } catch { /* best-effort */ }
+    setEditingParticipant(null);
+  };
 
   const toggleSection = (section: keyof typeof expandedSections) => {
     setExpandedSections((prev) => ({
@@ -124,16 +150,40 @@ export default function ChatRoomPanel({
                 room.participants.map((p) => (
                   <div
                     key={p.terminalSessionId}
-                    className="flex items-center gap-2 text-xs"
+                    className="group flex items-center gap-2 text-xs"
                   >
                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                    <span className="text-[var(--color-text)] font-medium truncate">
-                      {p.agentName}
-                    </span>
-                    {p.model && (
-                      <span className="text-[10px] text-[var(--color-text-dim)] truncate">
-                        {p.model}
-                      </span>
+                    {editingParticipant === p.terminalSessionId ? (
+                      <input
+                        ref={editInputRef}
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onBlur={saveEdit}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") saveEdit();
+                          if (e.key === "Escape") setEditingParticipant(null);
+                        }}
+                        className="flex-1 min-w-0 bg-[var(--color-input-bg)] border border-amber-500/50 rounded px-1.5 py-0.5 text-xs text-[var(--color-text)] outline-none"
+                        autoFocus
+                      />
+                    ) : (
+                      <>
+                        <span className="text-[var(--color-text)] font-medium truncate flex-1">
+                          {p.agentName}
+                        </span>
+                        {p.model && (
+                          <span className="text-[10px] text-[var(--color-text-dim)] truncate">
+                            {p.model}
+                          </span>
+                        )}
+                        <button
+                          onClick={() => startEdit(p.terminalSessionId, p.agentName)}
+                          className="opacity-0 group-hover:opacity-100 p-0.5 text-[var(--color-text-dim)] hover:text-[var(--color-text)] transition-opacity"
+                          title="Rename participant"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                      </>
                     )}
                   </div>
                 ))
