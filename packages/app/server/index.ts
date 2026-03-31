@@ -1,5 +1,7 @@
 import express from "express";
 import { createServer } from "http";
+import { createServer as createHttpsServer } from "https";
+import fs from "fs";
 import { Server, type Socket } from "socket.io";
 import { createServer as createViteServer } from "vite";
 import path from "path";
@@ -74,9 +76,28 @@ function extractIp(socket: Socket): string {
   return remote || direct || "";
 }
 
+// TLS configuration — set ANT_TLS_CERT and ANT_TLS_KEY env vars, or
+// provide cert/key files at the default Tailscale paths.
+const TLS_CERT = process.env.ANT_TLS_CERT;
+const TLS_KEY = process.env.ANT_TLS_KEY;
+
+function createAppServer(app: express.Application) {
+  if (TLS_CERT && TLS_KEY) {
+    try {
+      const cert = fs.readFileSync(TLS_CERT);
+      const key = fs.readFileSync(TLS_KEY);
+      console.log(`  [TLS] Using cert: ${TLS_CERT}`);
+      return { server: createHttpsServer({ cert, key }, app), protocol: "https" };
+    } catch (err) {
+      console.warn(`  [TLS] Failed to read cert/key, falling back to HTTP:`, err);
+    }
+  }
+  return { server: createServer(app), protocol: "http" };
+}
+
 async function start() {
   const app = express();
-  const httpServer = createServer(app);
+  const { server: httpServer, protocol } = createAppServer(app);
 
   const io = new Server(httpServer, {
     cors: { origin: true },
@@ -215,7 +236,7 @@ async function start() {
   });
 
   httpServer.listen(PORT, HOST, () => {
-    console.log(`\n  ANT running at http://${HOST}:${PORT}\n`);
+    console.log(`\n  ANT running at ${protocol}://${HOST}:${PORT}\n`);
 
     // After restart, nudge all reconnecting clients to reload their state
     setTimeout(() => io.emit("session_list_changed"), 1000);

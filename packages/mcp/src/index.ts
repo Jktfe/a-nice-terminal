@@ -6,7 +6,15 @@ import { z } from "zod";
 const HOST = process.env.ANT_HOST || "127.0.0.1";
 const PORT = process.env.ANT_PORT || "3000";
 const EFFECTIVE_HOST = HOST === "0.0.0.0" ? "127.0.0.1" : HOST;
-const BASE_URL = process.env.ANT_BASE_URL || `http://${EFFECTIVE_HOST}:${PORT}`;
+
+// Mirror the server's TLS detection: if ANT_TLS_CERT is set the server is HTTPS.
+// For local self-signed / Tailscale certs, disable strict cert verification.
+const ANT_TLS_CERT = process.env.ANT_TLS_CERT;
+if (ANT_TLS_CERT) {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+}
+const DEFAULT_PROTOCOL = ANT_TLS_CERT ? "https" : "http";
+const BASE_URL = process.env.ANT_BASE_URL || `${DEFAULT_PROTOCOL}://${EFFECTIVE_HOST}:${PORT}`;
 
 const TERMINAL_TEXT_LIMIT = 10_000;
 const MAX_TERMINAL_COLS = 500;
@@ -1790,6 +1798,30 @@ server.tool(
   }
 );
 
+// Join room by name
+server.tool(
+  "ant_join_room",
+  "[Communicate] Join an ANTchat room by name. Looks up the room, finds its conversation session, and joins it. After joining you will receive @mention notifications from this room. Use this instead of ant_join_conversation when you only know the room name.",
+  {
+    room_name: z.string().describe("Room name (case-insensitive, e.g. 'MobileANTchat')"),
+    agent_id: z.string().describe("Your agent ID"),
+    handle: z.string().optional().describe("Handle to use in this room (defaults to your global handle)"),
+    role: z.enum(["participant", "observer"]).optional().describe("Your role: 'participant' (can post) or 'observer' (read-only). Default: participant"),
+  },
+  async ({ room_name, agent_id, handle, role }) => {
+    const rooms = await api("/api/chat-rooms");
+    const room = rooms.find((r: any) => r.name.toLowerCase() === room_name.toLowerCase());
+    if (!room) {
+      return { content: [{ type: "text", text: JSON.stringify({ error: `Room '${room_name}' not found. Call ant_list_rooms to see available rooms.` }) }], isError: true };
+    }
+    const result = await api(`/api/v2/conversations/${room.conversationSessionId}/join`, {
+      method: "POST",
+      body: JSON.stringify({ agent_id, handle, role }),
+    });
+    return { content: [{ type: "text", text: JSON.stringify({ ...result, room_name: room.name, session_id: room.conversationSessionId }, null, 2) }] };
+  }
+);
+
 // Leave conversation
 server.tool(
   "ant_leave_conversation",
@@ -1859,6 +1891,30 @@ server.tool(
   async () => {
     const rooms = await api("/api/chat-rooms");
     return { content: [{ type: "text", text: JSON.stringify(rooms, null, 2) }] };
+  }
+);
+
+// Post to room by name
+server.tool(
+  "ant_post_to_room",
+  "[Communicate] Post a message to an ANTchat room by name. Simpler than ant_send_message — no need to know the session ID. Use this for multi-agent coordination in named rooms.",
+  {
+    room_name: z.string().describe("Room name (case-insensitive, e.g. 'MobileANTchat')"),
+    content: z.string().describe("Message content (markdown supported)"),
+    sender_name: z.string().optional().describe("Your display name / handle"),
+    sender_type: z.string().optional().describe("Sender type: claude, gemini, codex, copilot, human, system"),
+  },
+  async ({ room_name, content, sender_name, sender_type }) => {
+    const rooms = await api("/api/chat-rooms");
+    const room = rooms.find((r: any) => r.name.toLowerCase() === room_name.toLowerCase());
+    if (!room) {
+      return { content: [{ type: "text", text: JSON.stringify({ error: `Room '${room_name}' not found. Call ant_list_rooms to see available rooms.` }) }], isError: true };
+    }
+    const result = await api(`/api/sessions/${room.conversationSessionId}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ content, role: "agent", sender_type: sender_type ?? "agent", sender_name }),
+    });
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   }
 );
 

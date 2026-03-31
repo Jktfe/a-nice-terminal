@@ -595,22 +595,17 @@ function SessionItem({
         <div className="text-xs font-medium truncate">{session.name}</div>
         <div className="text-[10px] text-[var(--color-text-dim)] truncate">{typeLabel}</div>
       </div>
-      <div className="flex items-center gap-1 flex-shrink-0">
+      <div className="flex items-center gap-1.5 flex-shrink-0">
         {unreadCount > 0 && (
           <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 text-[10px] font-bold text-[var(--color-text)]">
             {unreadCount}
           </span>
         )}
-        {!archived && (
-          <span className={`hidden group-hover:hidden px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wide ${badge.cls}`}>
-            {badge.label}
-          </span>
-        )}
-        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wide group-hover:hidden ${badge.cls}`}>
+        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wide ${badge.cls}`}>
           {badge.label}
         </span>
       </div>
-      <div className="hidden group-hover:flex items-center gap-0.5 flex-shrink-0">
+      <div className="flex items-center gap-0.5 flex-shrink-0 ml-1">
         {archived ? (
           <>
             {onRestore && (
@@ -640,9 +635,16 @@ function SessionItem({
               <Pin className="w-3 h-3" />
             </button>
             <button
+              onClick={(e) => { e.stopPropagation(); onArchive(); }}
+              className="p-1 text-[var(--color-text-dim)] hover:text-amber-400 transition-colors"
+              title="Archive"
+            >
+              <Archive className="w-3 h-3" />
+            </button>
+            <button
               onClick={(e) => { e.stopPropagation(); onDelete(e); }}
               className="p-1 text-[var(--color-text-dim)] hover:text-red-400 transition-colors"
-              title="Archive (Shift+click to delete)"
+              title="Delete (Shift+click for permanent)"
             >
               <Trash2 className="w-3 h-3" />
             </button>

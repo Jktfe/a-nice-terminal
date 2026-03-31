@@ -376,7 +376,7 @@ export class DbChatRoomRegistry {
     return {
       // Rooms
       getRoomByName: this.db.prepare(
-        `SELECT * FROM antchat_rooms WHERE name = ? AND status = 'active'`
+        `SELECT * FROM antchat_rooms WHERE name = ? COLLATE NOCASE AND status = 'active'`
       ),
       getRoomById: this.db.prepare(
         `SELECT * FROM antchat_rooms WHERE id = ? AND status = 'active'`
