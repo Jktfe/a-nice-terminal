@@ -61,6 +61,16 @@ ANT_ALLOW_LOOPBACK=false
 # Optional browser auth key for authenticated frontend/API calls
 # VITE_ANT_API_KEY=your-secret-key
 
+# TLS/HTTPS (optional -- when set, server runs HTTPS instead of HTTP)
+# ANT_TLS_CERT=/path/to/cert.pem
+# ANT_TLS_KEY=/path/to/key.pem
+
+# Chairman -- LM Studio-backed ambient orchestrator
+# LM_STUDIO_URL=http://localhost:1234     # LM Studio base URL
+# CHAIRMAN_NAME=@Chatlead                 # display name (@ prefix = cosmetic only)
+# CHAIRMAN_MODEL=openai/gpt-oss-20b      # model to use for routing decisions
+# CHAIRMAN_POLL_MS=4000                  # how often to scan all sessions
+
 # Chairman orchestration tuning (all optional, shown with defaults)
 # TERMINAL_MONITOR_POLL_MS=2000   # how often to scan PTY screens for permission prompts
 # MESSAGE_BRIDGE_POLL_MS=3000     # how often to check chat for undelivered @mentions
