@@ -10,7 +10,9 @@
 import db from "./db.js";
 import { getPty, getTerminalOutputCursor } from "./pty-manager.js";
 
-const ANT_URL = `http://localhost:${process.env.ANT_PORT || "6458"}`;
+const _TLS = process.env.ANT_TLS_CERT;
+if (_TLS) process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+const ANT_URL = `${_TLS ? "https" : "http"}://localhost:${process.env.ANT_PORT || "6458"}`;
 const POLL_INTERVAL_MS = parseInt(process.env.MESSAGE_BRIDGE_POLL_MS || "3000", 10);
 const GRACE_PERIOD_MS = parseInt(process.env.MESSAGE_BRIDGE_GRACE_MS || "6000", 10);
 

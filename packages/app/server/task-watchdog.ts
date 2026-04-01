@@ -13,7 +13,9 @@
 import db from "./db.js";
 import { getPty, getTerminalOutputCursor } from "./pty-manager.js";
 
-const ANT_URL = `http://localhost:${process.env.ANT_PORT || "6458"}`;
+const _TLS = process.env.ANT_TLS_CERT;
+if (_TLS) process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+const ANT_URL = `${_TLS ? "https" : "http"}://localhost:${process.env.ANT_PORT || "6458"}`;
 const POLL_INTERVAL_MS = parseInt(process.env.WATCHDOG_POLL_MS || "30000", 10);
 const IDLE_MS = parseInt(process.env.WATCHDOG_IDLE_MS || String(5 * 60 * 1000), 10);
 const UNSTARTED_MS = parseInt(process.env.WATCHDOG_UNSTARTED_MS || String(3 * 60 * 1000), 10);

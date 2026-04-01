@@ -19,7 +19,12 @@ import { startTerminalMonitor, stopTerminalMonitor } from "./terminal-monitor.js
 import { startMessageBridge, stopMessageBridge } from "./message-bridge.js";
 import { startTaskWatchdog, stopTaskWatchdog } from "./task-watchdog.js";
 
-const ANT_URL = `http://localhost:${process.env.ANT_PORT || "6458"}`;
+// Mirror the server's TLS detection so internal fetch() calls use the right protocol.
+// The server itself is the fetch target (same process, loopback), so we also disable
+// strict cert verification to handle self-signed / Tailscale certs.
+const _TLS = process.env.ANT_TLS_CERT;
+if (_TLS) process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+const ANT_URL = `${_TLS ? "https" : "http"}://localhost:${process.env.ANT_PORT || "6458"}`;
 const LM_STUDIO_URL = process.env.LM_STUDIO_URL || "http://localhost:1234";
 const POLL_INTERVAL_MS = parseInt(process.env.CHAIRMAN_POLL_MS || "4000", 10);
 const CHAIRMAN_NAME = process.env.CHAIRMAN_NAME || "@Chatlead";
