@@ -23,6 +23,35 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DAEMON_ENTRY = path.resolve(__dirname, "../../../daemon/src/index.ts");
 
+// Monorepo root .env file — loaded into the daemon's environment so vars like
+// ANT_ALLOW_LOOPBACK, ANT_TLS_CERT etc. are available even when `ant daemon
+// start` is run from a shell that hasn't sourced the .env file.
+const ENV_FILE = path.resolve(__dirname, "../../../../.env");
+
+function loadDotEnv(envPath: string): Record<string, string> {
+  try {
+    const content = fs.readFileSync(envPath, "utf8");
+    const result: Record<string, string> = {};
+    for (const line of content.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const eq = trimmed.indexOf("=");
+      if (eq === -1) continue;
+      const key = trimmed.slice(0, eq).trim();
+      let value = trimmed.slice(eq + 1).trim();
+      // Strip surrounding quotes
+      if ((value.startsWith('"') && value.endsWith('"')) ||
+          (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      result[key] = value;
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
 // ---------------------------------------------------------------------------
 // PID helpers (mirrors daemon/src/pid.ts — no cross-package import needed)
 // ---------------------------------------------------------------------------
@@ -79,10 +108,13 @@ export async function daemonStart(opts: { format: Format }): Promise<void> {
   // Find tsx — prefer local node_modules, fall back to PATH
   const tsxPath = findTsx();
 
+  // .env vars are the baseline; process.env overrides (explicit shell exports win)
+  const dotEnv = loadDotEnv(ENV_FILE);
+
   const child = spawn(tsxPath, [DAEMON_ENTRY], {
     detached: true,
     stdio: "ignore",
-    env: { ...process.env },
+    env: { ...dotEnv, ...process.env },
   });
 
   child.unref();
