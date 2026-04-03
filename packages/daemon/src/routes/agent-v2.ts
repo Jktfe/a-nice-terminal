@@ -41,6 +41,11 @@ function tierToTtlMinutes(tier: string): number | null {
   return TIER_TTL[tier] ?? 105;
 }
 
+function safeJson(val: string | null | undefined, fallback: any = null): any {
+  if (!val) return fallback;
+  try { return JSON.parse(val); } catch { return fallback; }
+}
+
 // ---------------------------------------------------------------------------
 // Danger check helper
 // ---------------------------------------------------------------------------
@@ -1142,11 +1147,11 @@ router.get("/api/v2/agent/bootstrap", (req, res) => {
       handle: agent?.handle || null,
       display_name: agent?.display_name || null,
       registered: !!agent,
-      capabilities: agent ? JSON.parse(agent.capabilities) : [],
+      capabilities: agent ? safeJson(agent.capabilities, []) : [],
       conversations_joined: conversations,
       assigned_tasks: tasks.map((t: any) => ({
         id: t.id,
-        description: JSON.parse(t.payload).task,
+        description: safeJson(t.payload, {}).task,
         source: t.source || null,
         source_message_id: t.source_message_id || null,
         session_id: t.session_id,
@@ -1223,8 +1228,8 @@ router.get("/api/v2/agent/bootstrap", (req, res) => {
     },
     pending_tasks: pendingTasks.map((t: any) => ({
       id: t.id,
-      description: JSON.parse(t.payload).task,
-      required_capabilities: JSON.parse(t.required_capabilities),
+      description: safeJson(t.payload, {}).task,
+      required_capabilities: safeJson(t.required_capabilities, []),
       target_agent_id: t.target_agent_id,
       source: t.source || null,
       session_id: t.session_id,
@@ -1309,7 +1314,7 @@ router.get("/api/v2/agent/context", (req, res) => {
     linked_terminals: linkedTerminals,
     active_tasks: tasks.map((t: any) => ({
       id: t.id,
-      description: JSON.parse(t.payload).task,
+      description: safeJson(t.payload, {}).task,
       assigned_to: t.target_agent_id,
       status: t.status,
       created_at: t.created_at,
@@ -1336,7 +1341,7 @@ router.get("/api/v2/agent/:id/notifications", (req, res) => {
   `).all(agentId, since) as any[];
 
   for (const t of tasks) {
-    const payload = JSON.parse(t.payload);
+    const payload = safeJson(t.payload, {});
     notifications.push({
       type: t.source === "mention" ? "mention" : "task",
       task_id: t.id,

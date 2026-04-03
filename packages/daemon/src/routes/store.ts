@@ -171,7 +171,8 @@ router.post("/api/v2/sessions/:id/export/obsidian", (req, res) => {
       const msgType = m.message_type || "text";
 
       if (msgType === "command_result") {
-        const meta = m.metadata ? JSON.parse(m.metadata) : {};
+        let meta: Record<string, any> = {};
+        try { if (m.metadata) meta = JSON.parse(m.metadata); } catch { /* malformed — ignore */ }
         const exitInfo = meta.exit_code === 0 ? "succeeded" : meta.exit_code != null ? `failed (${meta.exit_code})` : "running";
         return `### \`${meta.command || "command"}\` (${time}, ${exitInfo})\n\`\`\`\n${(m.content || "").slice(0, 2000)}\n\`\`\``;
       }
