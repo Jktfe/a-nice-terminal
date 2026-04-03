@@ -1,18 +1,20 @@
 # ANT v2: Orchestration Layer Architecture
 
-> ANT is not a terminal. ANT is the persistent memory and orchestration layer above native terminals.
+> ANT is not a terminal. ANT is the persistent memory, conversation layer, and orchestration hub above native terminals.
 
 ## Core Insight
 
 ANT's value is NOT terminal rendering. Ghostty (or any native terminal) does that better than any web solution ever could. ANT's value is:
 
 1. **Permanent memory** — when Claude/Gemini compact context and clear the terminal, the full conversation remains in ANT, searchable, scrollable, accessible from any device
-2. **Resilience** — agents keep working even if ANT goes down; ANT catches up on reconnect
-3. **Conversations** — structured messaging between humans and AI agents
-4. **Cross-terminal workflows** — coordinating work across multiple agent sessions
-5. **Full I/O capture** — every byte in and out, stored permanently, defeating terminal scrollback limits
-6. **Orchestration** — creating terminals, routing messages, managing agent lifecycles
-7. **Mobile/remote access** — the full conversation on your phone even when the terminal has been compacted
+2. **Conversation layer above terminals** — chat alongside/above terminals with full context of what's happening in each. Ask "did another agent try this?" and ANT can answer because it has the indexed history of every session
+3. **Cross-terminal intelligence** — "look at sessions X and Y and tell me what worked" is a query ANT can serve because it captured everything in both
+4. **Fire-and-forget agent monitoring** — launch a GPT-OSS agent, walk away. The entire terminal interaction is captured whether you watch it or not. Jump in when you want, ignore when you don't, learn from it later
+5. **Human-in-the-loop input** — seamlessly type into any terminal from the web UI or your phone. Approve prompts, send commands, intervene — same mechanism for humans and agents
+6. **Knowledge pipeline** — archived sessions get processed and exported to Obsidian vaults, building a permanent knowledge base that compounds over time
+7. **Resilience** — agents keep working even if ANT goes down; ANT catches up on reconnect
+
+## The Problem ANT Solves
 
 ## The Problem ANT Solves
 
@@ -243,6 +245,95 @@ The unique value no one else has:
 - **Parallel streams**: "3 agents working on different parts of a feature"
 - **Status dashboard**: per-terminal status (idle/active/waiting-for-input/error)
 - **Workflow templates**: "Start a backend agent, frontend agent, and test watcher"
+
+## Cross-Terminal Conversations
+
+The conversation layer is what makes ANT unique. It's not "chat alongside a terminal" — it's a layer that can reference across terminals, across time, across agents.
+
+### Example: Cross-session learning
+
+> **Human (in ANT chat):** "yo, I think another Gemini agent tried that approach but a Claude agent solved it differently — can you look across session X and Y to see?"
+
+ANT can answer this because it has the complete indexed history of both sessions. FTS5 search across all terminal output, all command events, all conversation messages.
+
+### Example: Fire-and-forget monitoring
+
+> **Human:** "set a gpt-oss agent off on the refactoring task and monitor its terminal"
+
+```bash
+ant create "refactor-agent" --cwd ~/project
+# In the new Ghostty tab, user types: gpt-oss "refactor the auth module"
+# Walks away. Goes to bed.
+```
+
+Next morning, on phone:
+- Open ANT web UI
+- See the full session: every command the agent ran, every output, every error
+- Search: "auth module" → finds the exact point where the agent succeeded or got stuck
+- Jump in from the phone: type a correction or approval directly into the terminal
+
+### Example: Agent-to-agent context
+
+> **Agent A (Claude, in terminal 1):** fails on a test
+> **Message Router** notices the failure via shell hook (exit code ≠ 0)
+> **Message Router** checks: "has any other session solved this?"
+> **FTS5 query** across all sessions finds Agent B (Gemini, terminal 3) fixed a similar test
+> **Message Router** surfaces this in the conversation: "Terminal 3 solved a similar issue — see command block at 14:23"
+
+### Example: Human intervention from mobile
+
+Agent is running autonomously. Hits a permission prompt. ANT detects it (via shell hooks or pattern matching on captured output). Sends a notification. Human approves from their phone — ANT sends `y\n` to the terminal via AppleScript `input text`.
+
+## Knowledge Pipeline: Sessions → Obsidian
+
+When sessions are archived, they can be processed into structured knowledge:
+
+```
+Active Session → ant-capture (live I/O) → SQLite (permanent storage)
+                                              ↓
+                                    Archive trigger (manual or TTL)
+                                              ↓
+                                    Processing pipeline:
+                                    1. Extract command blocks
+                                    2. Summarise key decisions/outcomes
+                                    3. Extract code snippets & diffs
+                                    4. Tag with project/topic metadata
+                                              ↓
+                                    Export to Obsidian vault:
+                                    - Session summary note
+                                    - Linked command block notes
+                                    - Tagged with [[project]], [[agent]], [[date]]
+                                    - Wikilinks to related sessions
+```
+
+This means the knowledge **compounds**. Every session feeds the vault. The vault feeds future sessions (via RAG or manual reference). Nothing is ever lost.
+
+### Obsidian Export Format
+
+```markdown
+# Session: refactor-agent (2026-04-03)
+
+**Agent:** GPT-OSS | **Duration:** 2h 14m | **Commands:** 47 | **Exit codes:** 43 ok, 4 failed
+
+## Summary
+Refactored auth module from JWT to session-based auth. Hit a circular dependency
+in middleware (failed 3 times) before resolving via lazy imports.
+
+## Key Decisions
+- Chose session-based over OAuth2 (agent reasoned about simplicity)
+- Used lazy imports to break circular dependency (command block #34)
+
+## Notable Commands
+- `npm test -- --grep auth` → 12 runs, first 3 failed
+- `git diff HEAD~5` → shows the full scope of changes
+
+## Linked Sessions
+- [[session-claude-backend-2026-04-02]] — earlier attempt at same refactor
+- [[session-gemini-tests-2026-04-03]] — test suite improvements that enabled this
+
+## Tags
+#project/myapp #agent/gpt-oss #topic/auth #topic/refactoring
+```
 
 ## What ANT Does NOT Do
 
