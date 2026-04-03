@@ -9,7 +9,7 @@
 
 ANT's core architecture (node-pty + xterm.js + Socket.IO + SQLite) is fundamentally sound, but the **transport and interface layers are over-engineered** for what they do. The biggest wins come from:
 
-1. **Evaluate ghostty-web for browser rendering** — better VT compliance but NOT a full xterm.js replacement (no headless mode, no serialize, no parser hooks)
+1. **Stick with xterm.js** — ghostty-web is a POC with critical blockers; monitor xterm.js adopting libghostty instead
 2. **Adopt OSC 133 shell integration injection** — transforms command detection from heuristic to precise
 3. **Restructure around a CLI-first daemon model** — eliminate the HTTP/MCP indirection layers
 4. **Add block-based command output** — the UX pattern users now expect from Warp/Wave
@@ -162,7 +162,7 @@ Anthropic's internal benchmarks (early 2025) found CLI tool calls achieved ~100%
                      │      │             │         │
                      │  ┌───┴─────────────┴───┐    │
                      │  │  Unix Domain Socket  │    │
-                     │  │  /run/user/uid/ant/  │    │
+                     │  │  $XDG_RUNTIME_DIR/ant/antd.sock  │    │
                      │  └──────────┬───────────┘    │
                      │             │                │
                      │  ┌──────────┴───────────┐    │
@@ -232,25 +232,23 @@ Warp popularized treating each command+output as a discrete "block" — independ
 
 ANT already has the building blocks:
 1. **OSC 133 C/D markers** detect command start/end (CommandTracker already does this)
-2. **Store blocks in a new table**:
+2. **Extend the existing `command_events` table** (already in `db.ts` line 200) — it already has `command`, `exit_code`, `output`, `started_at`, `completed_at`, `duration_ms`, `cwd`, `detection_method`. Just add:
 
 ```sql
-command_blocks:
-  id            TEXT PRIMARY KEY
-  session_id    TEXT
-  command       TEXT          -- stripped text of command
-  output_text   TEXT          -- stripped text for FTS
-  exit_code     INTEGER
-  cwd           TEXT
-  started_at    TEXT
-  completed_at  TEXT
-  duration_ms   INTEGER
-  detection     TEXT          -- 'osc133' or 'quiet'
-  start_chunk   INTEGER      -- FK to terminal_output_events
-  end_chunk     INTEGER      -- FK to terminal_output_events
+ALTER TABLE command_events ADD COLUMN output_text TEXT;    -- stripped text for FTS
+ALTER TABLE command_events ADD COLUMN start_chunk INTEGER; -- FK to terminal_output_events
+ALTER TABLE command_events ADD COLUMN end_chunk INTEGER;   -- FK to terminal_output_events
 ```
 
-3. **Add FTS5 virtual table** on `command_blocks.output_text` and `command_blocks.command` for full-text search across all sessions
+3. **Add an FTS5 external content table** to index without duplicating string content (important for large terminal buffers):
+
+```sql
+CREATE VIRTUAL TABLE command_events_fts USING fts5(
+  command, output_text,
+  content='command_events',
+  content_rowid='rowid'
+);
+```
 4. **Render blocks in the web UI** with visual boundaries, exit code indicators, and copy/share actions
 
 ### Session Recording
@@ -302,7 +300,7 @@ No one has defined a protocol for AI agents to interact with terminal sessions. 
 | Change | Effort | Impact |
 |--------|--------|--------|
 | Inject shell integration scripts on session creation | Medium | Transforms command detection from heuristic to precise |
-| Add `command_blocks` table + FTS5 | Medium | Enables Warp-like searchable command history |
+| Extend `command_events` table + FTS5 external content | Medium | Enables Warp-like searchable command history |
 | Restructure CLI to use UDS instead of HTTP | Medium | Eliminates 3 hops, feels native |
 | Add daemon auto-start (`antd`) | Low | tmux-like UX |
 
@@ -310,7 +308,7 @@ No one has defined a protocol for AI agents to interact with terminal sessions. 
 
 | Change | Effort | Impact |
 |--------|--------|--------|
-| ghostty-web for browser rendering only (keep xterm/headless on server) | Medium | Better VT compliance for display; blocked for full replacement |
+| Monitor xterm.js adopting libghostty (issue #5686) | None (wait) | Would get VT improvements without switching libraries |
 | Block-based rendering in web UI | High | Modern UX expectation |
 | Add synchronized output (DCS) | Low | Eliminates flicker |
 | MCP → thin CLI wrapper (or drop) | Low | Simpler, more reliable agent integration |
@@ -326,7 +324,7 @@ No one has defined a protocol for AI agents to interact with terminal sessions. 
 
 ### What NOT to Do
 
-- **Don't integrate Warp** — proprietary, no terminal control API, can't be embedded
+- **Don't integrate Warp as a dependency** — closed-source terminal, can't be embedded. But study its patterns: OSC 777 agent-terminal protocol, block model, `oz` CLI local+cloud execution, agent auto-detection. See `09-warp-api-corrected.md` for full corrected assessment.
 - **Don't use Gridland** — solves the opposite problem (TUI→web, not web→terminal)
 - **Don't embed WezTerm/Kitty/Alacritty** — desktop-only renderers
 - **Don't over-invest in MCP** — the 2026 consensus is that CLI tools are beating MCP for dev tools
@@ -343,15 +341,15 @@ No one has defined a protocol for AI agents to interact with terminal sessions. 
 - **Socket.IO** — for web UI real-time (but NOT for CLI/agent access)
 - **Commander.js** — for CLI command routing (already works)
 
-### Replace (Browser Only — When Ready)
-- **xterm.js browser rendering** → **ghostty-web** (when it moves past POC status; keep `@xterm/headless` + serialize on server)
+### Keep (Revised)
+- **xterm.js + WebGL** — working well, no evidence of inadequacy. ghostty-web is a POC with critical blockers (no headless, no serialize, no parser hooks). Not worth the complexity.
 - **HTTP REST for CLI** → **Unix domain socket + NDJSON**
 - **MCP as primary agent interface** → **CLI as primary, MCP as optional thin wrapper**
 - **Quiet-period command detection** → **OSC 133 shell integration injection** (keep quiet-period as fallback)
 
 ### Add
 - **Shell integration script injection** (bash, zsh, fish)
-- **command_blocks table** with FTS5
+- **Extend `command_events`** with `start_chunk`/`end_chunk` + FTS5 external content table
 - **Daemon auto-start** (antd)
 - **Synchronized output sequences** (DCS/DECSET 2026)
 - **Asciicast v3 export** for session recording
@@ -461,9 +459,9 @@ The synthesis so far focuses on the terminal half of ANT. But conversation/messa
 
 ### Phase 0: Foundation (no breaking changes)
 - [ ] Inject shell integration scripts for bash/zsh/fish on session creation
-- [ ] Add `command_blocks` table with FTS5 indexing
+- [ ] Extend `command_events` table with `start_chunk`/`end_chunk` columns
+- [ ] Add FTS5 external content table on `command_events` for full-text search
 - [ ] Add synchronized output sequences (DCS) to eliminate flicker
-- [ ] Store command blocks from existing CommandTracker output
 - **Result**: Better command detection and searchability with zero UX changes
 
 ### Phase 1: CLI Rework (parallel to existing)
@@ -524,3 +522,4 @@ The synthesis so far focuses on the terminal half of ANT. But conversation/messa
 | `06-cli-vs-mcp-credibility-analysis.md` | CLI vs MCP Credibility | Source verification for reliability statistics, counter-arguments, nuanced framing |
 | `07-messaging-architecture-analysis.md` | Messaging Architecture | Current message flow, threading, chat rooms, Chairman, Message Bridge, v2 evolution |
 | `08-ghostty-web-addon-compatibility.md` | ghostty-web Compatibility | Detailed addon compatibility analysis for ANT's specific xterm.js usage |
+| `09-warp-api-corrected.md` | Warp API (Corrected) | Oz API, Oz CLI, OSC 777 protocol, URI scheme — fuller picture than initial research |
