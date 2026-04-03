@@ -3,7 +3,12 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 import { defineConfig } from "vite";
 
-const PORT = process.env.ANT_PORT || "3000";
+// In dev, forward /api and /socket.io to the daemon (not the UI shell).
+// ANT_DAEMON_URL overrides; ANT_DAEMON_PORT is a simpler alternative.
+// Falls back to port 6458 which is the daemon's default.
+const DAEMON_URL =
+  process.env.ANT_DAEMON_URL ??
+  `http://127.0.0.1:${process.env.ANT_DAEMON_PORT ?? "6458"}`;
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -15,9 +20,9 @@ export default defineConfig({
   server: {
     allowedHosts: true,
     proxy: {
-      "/api": `http://127.0.0.1:${PORT}`,
+      "/api": DAEMON_URL,
       "/socket.io": {
-        target: `http://127.0.0.1:${PORT}`,
+        target: DAEMON_URL,
         ws: true,
       },
     },

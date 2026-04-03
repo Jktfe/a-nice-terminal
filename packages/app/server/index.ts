@@ -1,181 +1,180 @@
+/**
+ * ANT app server — thin UI shell.
+ *
+ * Responsibilities:
+ *   1. Serve the React / Vite frontend (dev middleware or static dist).
+ *   2. Proxy /api/* and /socket.io/* to the daemon.
+ *   3. Apply Tailscale-only host guard (security).
+ *   4. Optionally terminate TLS so the browser can reach the frontend via HTTPS.
+ *
+ * All business logic (routes, WS handlers, DB, Chair, PTY) lives in packages/daemon.
+ */
+
 import express from "express";
-import { createServer } from "http";
-import { createServer as createHttpsServer } from "https";
-import fs from "fs";
-import { Server, type Socket } from "socket.io";
+import { createServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createServer as createViteServer } from "vite";
-import path from "path";
-import { fileURLToPath } from "url";
 
 import { isAllowedHost, tailscaleOnly } from "./middleware/localhost.js";
-import { apiKeyAuth } from "./middleware/auth.js";
-import healthRoutes from "./routes/health.js";
-import sessionRoutes from "./routes/sessions.js";
-import messageRoutes from "./routes/messages.js";
-import uploadRoutes from "./routes/uploads.js";
-import resumeCommandRoutes from "./routes/resume-commands.js";
-import settingsRoutes from "./routes/settings.js";
-import workspaceRoutes from "./routes/workspaces.js";
-import agentRoutes from "./routes/agent.js";
-import annotationRoutes from "./routes/annotations.js";
-import storeRoutes from "./routes/store.js";
-import bridgeRoutes from "./routes/bridge.js";
-import agentV2Routes from "./routes/agent-v2.js";
-import knowledgeRoutes from "./routes/knowledge.js";
-import recipeRoutes from "./routes/recipes.js";
-import coordinationRoutes from "./routes/coordination.js";
-import chatRoomProtocolRoutes, { mountChatRoomRoutes } from "./routes/chat-rooms.js";
-import retentionRoutes from "./routes/retention.js";
-import commonCallsRoutes from "./routes/common-calls.js";
-import tasksRoutes from "./routes/tasks.js";
-import chairmanRoutes from "./routes/chairman.js";
-import { registerSocketHandlers } from "./ws/handlers.js";
-import { registerChatHandlers } from "./ws/chat-handlers.js";
-import { registerTerminalNamespace } from "./ws/terminal-namespace.js";
-import { reapOrphanedSessions } from "./pty-manager.js";
-import { startRetentionScheduler, stopRetentionScheduler } from "./retention.js";
-import { startChairmanBridge, stopChairmanBridge } from "./chairman-bridge.js";
-import { setIo as setTerminalMonitorIo } from "./terminal-monitor.js";
-import { features } from "./feature-flags.js";
-import { DbChatRoomRegistry } from "./db-chat-room-registry.js";
 
-import db from "./db.js";
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = parseInt(process.env.ANT_PORT || "3000", 10);
-const HOST = process.env.ANT_HOST || "0.0.0.0";
-const WS_API_KEY = process.env.ANT_API_KEY;
 
-// Shared registry for chat rooms — DB-backed, persists across restarts
-const chatRoomRegistry = new DbChatRoomRegistry(db);
+const PORT = parseInt(process.env.ANT_UI_PORT ?? process.env.ANT_PORT ?? "3000", 10);
+const HOST = process.env.ANT_HOST ?? "0.0.0.0";
 
-function getClientApiKey(socket: Socket): string | undefined {
-  const handshake = (socket as any)?.handshake || {};
-  const auth = (handshake.auth || {}) as Record<string, string | undefined>;
-  const query = (handshake.query || {}) as Record<string, string | string[] | undefined>;
-  const headers = (handshake.headers || {}) as Record<string, string | string[] | undefined>;
+// The daemon's base URL — all /api/* and /socket.io/* calls are forwarded here.
+const DAEMON_URL = process.env.ANT_DAEMON_URL ?? `http://localhost:${process.env.ANT_DAEMON_PORT ?? "6458"}`;
 
-  const rawAuth = auth.apiKey || (query.apiKey as string | undefined);
-  const headerApiKey = Array.isArray(headers["x-api-key"])
-    ? headers["x-api-key"][0]
-    : headers["x-api-key"];
-  const headerAuth = Array.isArray(headers.authorization)
-    ? headers.authorization[0]
-    : headers.authorization;
-
-  if (rawAuth) return rawAuth;
-  if (headerApiKey) return headerApiKey;
-  if (headerAuth?.startsWith("Bearer ")) return headerAuth.slice("Bearer ".length);
-  return headerAuth;
-}
-
-// Use the actual TCP peer address — never trust X-Forwarded-For by default
-// because clients can spoof it to bypass the Tailscale IP allowlist.
-function extractIp(socket: Socket): string {
-  const remote = socket?.request?.socket?.remoteAddress as string | undefined;
-  const direct = socket?.conn?.remoteAddress as string | undefined;
-  return remote || direct || "";
-}
-
-// TLS configuration — set ANT_TLS_CERT and ANT_TLS_KEY env vars, or
-// provide cert/key files at the default Tailscale paths.
 const TLS_CERT = process.env.ANT_TLS_CERT;
-const TLS_KEY = process.env.ANT_TLS_KEY;
+const TLS_KEY  = process.env.ANT_TLS_KEY;
+
+// ─── TLS helper ───────────────────────────────────────────────────────────────
 
 function createAppServer(app: express.Application) {
   if (TLS_CERT && TLS_KEY) {
     try {
       const cert = fs.readFileSync(TLS_CERT);
-      const key = fs.readFileSync(TLS_KEY);
+      const key  = fs.readFileSync(TLS_KEY);
       console.log(`  [TLS] Using cert: ${TLS_CERT}`);
       return { server: createHttpsServer({ cert, key }, app), protocol: "https" };
     } catch (err) {
-      console.warn(`  [TLS] Failed to read cert/key, falling back to HTTP:`, err);
+      console.warn("  [TLS] Failed to read cert/key, falling back to HTTP:", err);
     }
   }
   return { server: createServer(app), protocol: "http" };
 }
 
+// ─── Proxy helper ────────────────────────────────────────────────────────────
+
+/**
+ * Forward an incoming Express request to the daemon and pipe the response back.
+ * Works for regular HTTP and for WebSocket upgrade (handled separately via
+ * the raw httpServer 'upgrade' event).
+ */
+function proxyRequest(
+  req: express.Request,
+  res: express.Response,
+  daemonUrl: string,
+): void {
+  const parsed = new URL(daemonUrl);
+  const isHttps = parsed.protocol === "https:";
+  const reqFn   = isHttps ? httpsRequest : httpRequest;
+
+  const options = {
+    hostname: parsed.hostname,
+    port:     parsed.port || (isHttps ? 443 : 80),
+    path:     req.url,
+    method:   req.method,
+    headers:  { ...req.headers, host: parsed.host },
+  };
+
+  const proxyReq = reqFn(options, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
+    proxyRes.pipe(res, { end: true });
+  });
+
+  proxyReq.on("error", (err) => {
+    console.warn(`  [proxy] Daemon unreachable (${daemonUrl}):`, err.message);
+    if (!res.headersSent) {
+      res.status(502).json({
+        error: "Daemon unreachable",
+        detail: err.message,
+        hint:   `Ensure antd is running and ANT_DAEMON_URL (${daemonUrl}) is correct.`,
+      });
+    }
+  });
+
+  req.pipe(proxyReq, { end: true });
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
 async function start() {
   const app = express();
   const { server: httpServer, protocol } = createAppServer(app);
 
-  const io = new Server(httpServer, {
-    cors: { origin: true },
-  });
-
-  // Make io available to route handlers and background services
-  app.set("io", io);
-  setTerminalMonitorIo(io);
-  io.use((socket, next) => {
-    const ip = extractIp(socket as any);
-    if (!isAllowedHost(ip)) {
-      return next(new Error("ANT is restricted to the configured local network."));
-    }
-
-    if (!WS_API_KEY) return next();
-
-    const provided = getClientApiKey(socket);
-    if (!provided) return next(new Error("Invalid or missing API key"));
-    if (provided === WS_API_KEY) return next();
-    next(new Error("Invalid or missing API key"));
-  });
-
-  // Middleware
+  // ── Security: Tailscale / localhost guard ─────────────────────────────────
   app.use(tailscaleOnly);
-  app.use(apiKeyAuth);
+
+  // ── Minimal body parsing (needed so headers propagate correctly for proxied
+  //    requests that express might otherwise buffer unexpectedly) ────────────
   app.use(express.json());
 
-  // API routes
-  app.use(healthRoutes);
-  app.use(sessionRoutes);
-  app.use(messageRoutes);
-  app.use(uploadRoutes);
-  app.use(resumeCommandRoutes);
-  app.use(settingsRoutes);
-  app.use(workspaceRoutes);
-  app.use(agentRoutes);
-  app.use(annotationRoutes);
-  app.use(storeRoutes);
-  app.use(bridgeRoutes);
-  app.use(agentV2Routes);
-  app.use(knowledgeRoutes);
-  app.use(recipeRoutes);
-  app.use(coordinationRoutes);
-  app.use(chatRoomProtocolRoutes);
-  mountChatRoomRoutes(app, () => chatRoomRegistry);
-  app.use(retentionRoutes);
-  app.use(commonCallsRoutes);
-  app.use(tasksRoutes);
-  app.use(chairmanRoutes);
-
-  // Serve uploads
-  const uploadsPath = path.join(__dirname, "..", "..", "public", "uploads");
-  app.use("/uploads", express.static(uploadsPath));
-
-  // WebSocket — control plane (default namespace)
-  registerSocketHandlers(io);
-
-  // WebSocket — chat streaming (stream_chunk, stream_end on default namespace)
-  registerChatHandlers(io);
-
-  // WebSocket — terminal I/O (dedicated /terminal namespace, binary-first)
-  const termNs = registerTerminalNamespace(io);
-
-  // Apply same auth middleware to terminal namespace
-  termNs.use((socket, next) => {
-    const ip = extractIp(socket as any);
-    if (!isAllowedHost(ip)) {
-      return next(new Error("ANT is restricted to the configured local network."));
-    }
-    if (!WS_API_KEY) return next();
-    const provided = getClientApiKey(socket as any);
-    if (!provided) return next(new Error("Invalid or missing API key"));
-    if (provided === WS_API_KEY) return next();
-    next(new Error("Invalid or missing API key"));
+  // ── Proxy /api/* → daemon ─────────────────────────────────────────────────
+  app.use("/api", (req, res) => {
+    proxyRequest(req, res, DAEMON_URL);
   });
 
-  // Vite dev server or static files
+  // ── Proxy /socket.io/* (HTTP long-poll fallback) → daemon ─────────────────
+  app.use("/socket.io", (req, res) => {
+    proxyRequest(req, res, DAEMON_URL);
+  });
+
+  // ── WebSocket upgrade → daemon ────────────────────────────────────────────
+  const daemonParsed = new URL(DAEMON_URL);
+  const daemonIsHttps = daemonParsed.protocol === "https:";
+  const daemonPort    = parseInt(daemonParsed.port || (daemonIsHttps ? "443" : "80"), 10);
+
+  httpServer.on("upgrade", (req, socket, head) => {
+    // Guard: only proxy upgrade requests from allowed hosts.
+    const remoteIp = (socket as any).remoteAddress as string | undefined ?? "";
+    if (!isAllowedHost(remoteIp)) {
+      socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+
+    // Open a raw TCP (or TLS) connection to the daemon and tunnel the WS frames.
+    import(daemonIsHttps ? "node:tls" : "node:net").then((netMod) => {
+      const upstream: import("node:net").Socket = (netMod as any).connect(
+        {
+          host: daemonParsed.hostname,
+          port: daemonPort,
+          rejectUnauthorized: false,
+        },
+        () => {
+          const headerLines = [
+            `${req.method} ${req.url} HTTP/1.1`,
+            `Host: ${daemonParsed.host}`,
+            ...Object.entries(req.headers).map(
+              ([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`,
+            ),
+            "",
+            "",
+          ].join("\r\n");
+          upstream.write(headerLines);
+          upstream.write(head);
+          socket.pipe(upstream);
+          upstream.pipe(socket);
+        },
+      );
+
+      upstream.on("error", (err: Error) => {
+        console.warn("  [ws-proxy] Daemon WebSocket unreachable:", err.message);
+        socket.destroy();
+      });
+
+      socket.on("error", () => upstream.destroy());
+    }).catch((err) => {
+      console.warn("  [ws-proxy] Failed to load net module:", err);
+      socket.destroy();
+    });
+  });
+
+  // ── Uploads served by daemon — but proxy the path just in case older clients
+  //    hit /uploads directly on the UI server ────────────────────────────────
+  app.use("/uploads", (req, res) => {
+    proxyRequest(req, res, DAEMON_URL);
+  });
+
+  // ── Frontend: Vite dev middleware (dev) or static dist (prod) ────────────
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       root: path.join(__dirname, ".."),
@@ -187,73 +186,43 @@ async function start() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(path.join(__dirname, "..", "dist")));
+    const distPath = path.join(__dirname, "..", "dist");
+    app.use(express.static(distPath));
     app.get("*", (_req, res) => {
-      res.sendFile(path.join(__dirname, "..", "dist", "index.html"));
+      res.sendFile(path.join(distPath, "index.html"));
     });
   }
 
-  // Re-adopt or schedule cleanup of orphaned dtach sessions from previous runs
-  reapOrphanedSessions();
+  // ── Global error handler ──────────────────────────────────────────────────
+  app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error("[app-server] Unhandled error:", err);
+    res.status(500).json({
+      error: err.message ?? "Internal Server Error",
+      stack: process.env.NODE_ENV !== "production" ? err.stack : undefined,
+    });
+  });
 
-  // Server heartbeat — written every 30s so crash recovery can estimate downtime
-  const upsertState = db.prepare(
-    "INSERT OR REPLACE INTO server_state (key, value) VALUES (?, ?)"
-  );
-  upsertState.run("last_heartbeat", new Date().toISOString());
-  // Clear stale shutdown timestamp now that the server is alive again
-  db.prepare("DELETE FROM server_state WHERE key = 'last_shutdown'").run();
+  // ── Listen ────────────────────────────────────────────────────────────────
+  httpServer.listen(PORT, HOST, () => {
+    console.log(`\n  ANT UI running at ${protocol}://${HOST}:${PORT}`);
+    console.log(`  Proxying API + WS to daemon: ${DAEMON_URL}\n`);
+  });
 
-  const heartbeatInterval = setInterval(() => {
-    upsertState.run("last_heartbeat", new Date().toISOString());
-  }, 30_000);
-
-  // Archive retention — daily sweep to parse and delete expired archived sessions
-  startRetentionScheduler(io);
-
-  // Chairman bridge — embedded poll loop, auto-starts and respects toggle
-  startChairmanBridge();
-
-  // Graceful shutdown — record timestamp so the next startup knows how long we were down
+  // ── Graceful shutdown ─────────────────────────────────────────────────────
   function gracefulShutdown(signal: string) {
-    console.log(`[server] Received ${signal} — recording shutdown timestamp`);
-    upsertState.run("last_shutdown", new Date().toISOString());
-    clearInterval(heartbeatInterval);
-    stopRetentionScheduler();
-    stopChairmanBridge();
+    console.log(`[app-server] Received ${signal} — shutting down`);
     httpServer.close(() => process.exit(0));
-    // Force exit after 5s if connections don't close
-    setTimeout(() => process.exit(0), 5000);
+    setTimeout(() => process.exit(0), 5_000);
   }
   process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
-  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
-
-  // Global error handler
-  app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    console.error("[server] Unhandled error:", err);
-    res.status(500).json({ 
-      error: err.message || "Internal Server Error",
-      stack: process.env.NODE_ENV !== 'production' ? err.stack : undefined 
-    });
-  });
-
-  httpServer.listen(PORT, HOST, () => {
-    console.log(`\n  ANT running at ${protocol}://${HOST}:${PORT}\n`);
-
-    // After restart, nudge all reconnecting clients to reload their state
-    setTimeout(() => io.emit("session_list_changed"), 1000);
-  });
+  process.on("SIGINT",  () => gracefulShutdown("SIGINT"));
 }
 
-// Prevent uncaught errors from crashing the server
-process.on("uncaughtException", (err) => {
-  console.error("Uncaught exception:", err);
-});
-process.on("unhandledRejection", (err) => {
-  console.error("Unhandled rejection:", err);
-});
+// ── Uncaught error guards ────────────────────────────────────────────────────
+process.on("uncaughtException",  (err) => console.error("Uncaught exception:", err));
+process.on("unhandledRejection", (err) => console.error("Unhandled rejection:", err));
 
 start().catch((err) => {
-  console.error("Failed to start ANT:", err);
+  console.error("Failed to start ANT app server:", err);
   process.exit(1);
 });

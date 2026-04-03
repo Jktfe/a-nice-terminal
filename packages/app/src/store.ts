@@ -169,6 +169,13 @@ interface AppState {
 }
 
 const API_KEY = (import.meta.env.VITE_ANT_API_KEY as string | undefined)?.trim();
+
+// When the React app is served by a separate UI shell (not the daemon directly),
+// set VITE_ANT_DAEMON_URL so that socket.io and API calls reach the daemon.
+// In dev this is normally handled by the Vite proxy; in prod you may need it
+// if the UI shell and daemon run on different origins.
+const DAEMON_URL = (import.meta.env.VITE_ANT_DAEMON_URL as string | undefined)?.trim() ?? "";
+
 const ACTIVE_SESSION_KEY = "ant-active-session-id";
 const PINNED_SESSIONS_KEY = "ant-pinned-session-ids";
 const TERMINAL_FONT_SIZE_KEY = "ant-terminal-font-size";
@@ -222,7 +229,9 @@ function buildHeaders(base?: HeadersInit): Headers {
 
 export async function apiFetch(url: string, options: RequestInit = {}): Promise<any> {
   const headers = buildHeaders(options.headers);
-  const response = await fetch(url, { ...options, headers });
+  // Prepend daemon origin when VITE_ANT_DAEMON_URL is set and the URL is relative.
+  const resolvedUrl = DAEMON_URL && url.startsWith("/") ? `${DAEMON_URL}${url}` : url;
+  const response = await fetch(resolvedUrl, { ...options, headers });
   if (!response.ok) {
     const body = await response.text().catch(() => "");
     throw new Error(body || `Request failed with status ${response.status}`);
@@ -290,7 +299,9 @@ export const useStore = create<AppState>((set, get) => ({
   init: () => {
     if (get().socket) return;
 
-    const socket = io({
+    // Pass DAEMON_URL as the first arg when set; omit it (relative) otherwise
+    // so the Vite proxy handles routing in dev.
+    const socket = io(DAEMON_URL || undefined!, {
       auth: API_KEY ? { apiKey: API_KEY } : undefined,
       query: API_KEY ? { apiKey: API_KEY } : undefined,
     });
