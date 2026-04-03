@@ -13,7 +13,11 @@ bun.lock
 package-lock.json
 .svelte-kit/
 .vercel/
-.claude/
+# Claude Code — ignore user-specific state, commit project settings and hooks
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+!.claude/hooks/**
 seed-recipes.json
 
 # TLS certs
