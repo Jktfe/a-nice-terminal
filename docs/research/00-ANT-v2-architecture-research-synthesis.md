@@ -9,7 +9,7 @@
 
 ANT's core architecture (node-pty + xterm.js + Socket.IO + SQLite) is fundamentally sound, but the **transport and interface layers are over-engineered** for what they do. The biggest wins come from:
 
-1. **Replace xterm.js with ghostty-web** — drop-in swap, better VT compliance, WASM-based
+1. **Evaluate ghostty-web for browser rendering** — better VT compliance but NOT a full xterm.js replacement (no headless mode, no serialize, no parser hooks)
 2. **Adopt OSC 133 shell integration injection** — transforms command detection from heuristic to precise
 3. **Restructure around a CLI-first daemon model** — eliminate the HTTP/MCP indirection layers
 4. **Add block-based command output** — the UX pattern users now expect from Warp/Wave
@@ -34,25 +34,43 @@ These are not incremental improvements — this is a genuine architectural upgra
 | Used by | VS Code, ANT | Coder's Mux (parallel agentic dev) |
 | Dependencies | Multiple addons needed | Zero runtime deps |
 
-### Migration Path
+### Addon Compatibility (Tested)
 
-The API is compatible. Migration is literally changing the import:
-```typescript
-// Before
-import { Terminal } from '@xterm/xterm';
-// After  
-import { Terminal } from 'ghostty-web';
+| ANT Addon | ghostty-web Status |
+|---|---|
+| `@xterm/addon-fit` | Built-in equivalent (`ghostty-web/addons/fit`) |
+| `@xterm/addon-webgl` | Not needed — Canvas rendering, eliminates WebGL context limits |
+| `@xterm/addon-unicode11` | Built-in (Unicode 15.1 via Ghostty's native impl) |
+| `@xterm/addon-web-links` | Built-in (`OSC8LinkProvider` + `UrlRegexProvider`) |
+| **`@xterm/addon-serialize`** | **NOT AVAILABLE — BLOCKER** |
+| **`@xterm/headless`** | **NOT AVAILABLE — BLOCKER** |
+
+### Critical Blockers
+
+1. **No headless mode** — ghostty-web requires DOM (`open(HTMLElement)`). ANT's `HeadlessTerminalWrapper` runs `@xterm/headless` server-side for terminal state. No equivalent exists.
+2. **No serialize** — no way to capture full terminal state (scrollback + screen + cursor + ANSI attributes). Only plain text extraction via Buffer API.
+3. **No parser hooks** — no `registerOscHandler()` or equivalent. The WASM parser is not extensible from JavaScript. ANT registers handlers for OSC 7, 133, 1337.
+4. **Self-described "proof of concept"** — primary developer describes it as POC. ~1.9k GitHub stars, 22 open issues, one main contributor.
+
+### Verdict: Split Architecture (Not Drop-In)
+
+**ghostty-web is NOT a drop-in replacement** for ANT's full xterm.js stack. The recommended approach is a split:
+
 ```
+Browser (TerminalViewV2.tsx):  ghostty-web (when stable) — rendering only
+Server (headless-terminal.ts): Keep @xterm/headless + serialize — no alternative exists
+```
+
+This captures VT compliance benefits for display while keeping the proven headless stack. For OSC parsing, intercept raw PTY data before it reaches ghostty-web.
 
 ### What to Watch
 
-- xterm.js itself has an [open issue (#5686)](https://github.com/xtermjs/xterm.js/issues/5686) discussing adopting libghostty internally
-- **libghostty** sub-libraries beyond the VT parser (input handling, GPU rendering) are coming — could eventually provide a full web terminal stack
-- ghostty-web is new — evaluate addon compatibility (serialize, fit, webgl, web-links, unicode11) before committing
+- ghostty-web adding headless/Node.js mode
+- ghostty-web exposing parser hook API
+- libghostty sub-libraries maturing beyond VT parser
+- xterm.js potentially adopting libghostty ([issue #5686](https://github.com/xtermjs/xterm.js/issues/5686))
 
-### Verdict
-
-**Strong candidate.** Evaluate addon compatibility first. If the serialize addon (needed for headless terminal state) works or has an equivalent, this is a clear upgrade.
+**See `08-ghostty-web-addon-compatibility.md` for full analysis.**
 
 ---
 
@@ -120,13 +138,16 @@ The CLI also goes through HTTP:
 ant CLI → HTTP REST → Express → Socket.IO → node-pty → dtach
 ```
 
-### The 2026 Consensus: CLI > MCP for Dev Tools
+### CLI vs MCP: A Nuanced Picture
 
-Research from multiple sources confirms:
-- CLI tools achieve **100% reliability** vs MCP's **72%** for equivalent tasks
-- A GitHub MCP server dumps **~55,000 tokens** of schema before the first question; CLI uses 10-32x fewer
-- LLMs are trained on billions of terminal interactions — they already "know" CLIs natively
-- Debugging: `set -x` and `stderr` vs cascading JSON-RPC/transport/schema failures
+Anthropic's internal benchmarks (early 2025) found CLI tool calls achieved ~100% reliability compared to ~72% for equivalent MCP-based operations. However, this was conducted when MCP server implementations were still maturing, and no independent replication exists. Key context:
+
+- **The 72% figure** aggregated across early MCP server implementations. MCP has since evolved significantly (Streamable HTTP transport, OAuth auth, tool pagination).
+- **The ~55,000 token schema** refers specifically to the GitHub MCP server's full `tools/list` response — a worst case for a maximally broad server. Well-designed MCP servers can curate smaller surfaces.
+- **CLI's advantage is real but bounded**: it works best for tasks where mature command-line tools already exist (git, grep, find). LLMs know these from training data. MCP's value is in extensibility to services without CLIs.
+- **They are complementary, not competing**: Claude Code itself supports both — CLI tools for core operations, MCP as an extension mechanism. Cursor, Windsurf, and JetBrains have all adopted MCP. It is not being deprecated.
+
+**For ANT specifically**: terminal session management is a perfect CLI use case — the commands are well-defined, the model knows shell patterns, and structured JSON output covers the agent case. MCP should remain as an optional extension point, not the primary interface.
 
 ### Proposed Architecture
 
@@ -289,7 +310,7 @@ No one has defined a protocol for AI agents to interact with terminal sessions. 
 
 | Change | Effort | Impact |
 |--------|--------|--------|
-| Replace xterm.js with ghostty-web | Medium (test addon compat first) | Better VT compliance, future-proof |
+| ghostty-web for browser rendering only (keep xterm/headless on server) | Medium | Better VT compliance for display; blocked for full replacement |
 | Block-based rendering in web UI | High | Modern UX expectation |
 | Add synchronized output (DCS) | Low | Eliminates flicker |
 | MCP → thin CLI wrapper (or drop) | Low | Simpler, more reliable agent integration |
@@ -322,8 +343,8 @@ No one has defined a protocol for AI agents to interact with terminal sessions. 
 - **Socket.IO** — for web UI real-time (but NOT for CLI/agent access)
 - **Commander.js** — for CLI command routing (already works)
 
-### Replace
-- **xterm.js** → **ghostty-web** (after addon compatibility testing)
+### Replace (Browser Only — When Ready)
+- **xterm.js browser rendering** → **ghostty-web** (when it moves past POC status; keep `@xterm/headless` + serialize on server)
 - **HTTP REST for CLI** → **Unix domain socket + NDJSON**
 - **MCP as primary agent interface** → **CLI as primary, MCP as optional thin wrapper**
 - **Quiet-period command detection** → **OSC 133 shell integration injection** (keep quiet-period as fallback)
@@ -342,6 +363,155 @@ No one has defined a protocol for AI agents to interact with terminal sessions. 
 
 ---
 
+## 8. Messaging & Conversation Architecture
+
+The synthesis so far focuses on the terminal half of ANT. But conversation/messaging is equally important — it's what makes ANT unique vs. every other terminal tool.
+
+### Current State
+
+**What works well:**
+- Socket.IO real-time sync — messages propagate instantly to all clients
+- Rich metadata — sender info, annotations, starred flags, threading
+- Simple streaming protocol — chunk + end events are reliable
+- FTS5-backed message search across sessions
+- Flexible annotation model (thumbs, flags, stars, session ratings)
+- Offline queue in localStorage, flushed on reconnect
+
+**What's awkward:**
+- **Chairman + Message Bridge redundancy** — both poll separately for overlapping concerns (task routing vs. @mention injection)
+- **Terminal injection is fire-and-forget** — no ACK mechanism to confirm agent received an @mention
+- **Protocol syntax leaks** — agents must output `ANTchat! [room-name] "text"` but UI doesn't enforce or visualize this consistently
+- **Threading is flat** — single-level only, no nested replies
+- **Identity binding is optional** — `sender_terminal_id` FK exists but isn't required, creating spoofing surface
+- **Room-to-session coupling is confusing** — dual linkage via `conversation_session_id` and nullable `antchat_room_id`
+
+### How It Should Evolve in v2
+
+**A. Daemon-Centric Messaging**
+- Move all message routing logic OUT of the web server into the daemon
+- Daemon owns: terminal I/O, message delivery, orchestration
+- Web server becomes a stateless view layer
+- Terminal agents connect directly to daemon for lower latency
+
+**B. Proper Identity & Authorization**
+- Bind every message to authenticated agent identity at daemon level
+- Don't accept `sender_name` from clients — derive from auth context
+- Per-room ACLs (who can read/write)
+
+**C. Message Router (replacing Chairman + Bridge)**
+- Single routing service instead of two polling loops
+- Pub/sub with explicit ACKs instead of grace-period polling
+- Store routing decisions as first-class records (audit trail)
+- Agents can respond with receipt/rejection/questions
+
+**D. Conversation as First-Class Entity**
+- Schema: `Conversation = {participants, scope, context_files, tasks, threading_model}`
+- Messages belong to a Conversation, inherit its scope/permissions
+- Per-conversation routing rules ("backend tasks → Claude, frontend → Cursor")
+
+**E. Rich Threading**
+- Unlimited nesting (replies-to-replies)
+- Tree rendering with collapse/expand
+- Query threads by root message ID + depth
+
+**F. Observability**
+- Every message: created → routed → delivered → read → ACKed
+- Chairman decisions logged as visible events in chat
+- Message Bridge injections recorded with success/failure
+
+---
+
+## 9. Risk Analysis
+
+### ghostty-web Migration Risks
+
+| Risk | Severity | Mitigation |
+|------|----------|------------|
+| `@xterm/addon-serialize` incompatibility | **Critical** — HeadlessTerminalWrapper depends on it | Test before committing. If incompatible, keep xterm.js for server-side headless, use ghostty-web for browser rendering only |
+| `@xterm/addon-fit` missing | Medium — auto-resize to container | Likely replaceable with ResizeObserver + manual cols/rows calculation |
+| `@xterm/addon-webgl` not needed | Low — ghostty-web uses WASM canvas | Actually a win — eliminates WebGL context limits |
+| `parser.registerOscHandler()` missing | **High** — ANT registers custom OSC handlers for 7, 133, 1337 | Must verify ghostty-web exposes equivalent parser hooks. If not, this is a blocker |
+| Performance regression | Medium | Benchmark WASM vs WebGL rendering for ANT's typical workloads |
+| Ecosystem maturity | Medium | ghostty-web is new (2025), used primarily by Coder. Smaller community than xterm.js |
+
+**Fallback plan**: If ghostty-web doesn't support critical addons, use it *only* for browser-side rendering and keep `@xterm/headless` for server-side terminal state. This is a split architecture but still captures the VT compliance benefits.
+
+### CLI-First Daemon Risks
+
+| Risk | Severity | Mitigation |
+|------|----------|------------|
+| Breaking existing MCP integrations | High | Keep MCP as thin CLI wrapper during transition |
+| Node.js startup time (~30ms per CLI invocation) | Low | Acceptable for most operations; daemon handles latency-sensitive paths |
+| Daemon lifecycle complexity (crashes, restarts, stale PIDs) | Medium | dtach already survives crashes. Add PID file + stale detection |
+| Web UI must work over both UDS and HTTP | Medium | Daemon serves HTTP/WS for web UI; UDS for CLI. Two listeners, one process |
+| Remote access regression | High | Keep HTTP/WS as first-class path for remote/Tailscale access |
+
+### Shell Integration Injection Risks
+
+| Risk | Severity | Mitigation |
+|------|----------|------------|
+| Breaking user's shell config | Medium | Use the Ghostty/Kitty approach: override env vars only, never modify dotfiles |
+| Unsupported shells (nushell, elvish, PowerShell) | Low | Fall back to quiet-period heuristic (already implemented) |
+| Nested terminal sessions (tmux inside ANT) | Medium | Detect `$TMUX`/`$ZELLIJ_SESSION_NAME` and skip injection |
+| Shell integration disabled by user | Low | Make it opt-out, not opt-in |
+
+---
+
+## 10. Phased Migration Plan
+
+### Phase 0: Foundation (no breaking changes)
+- [ ] Inject shell integration scripts for bash/zsh/fish on session creation
+- [ ] Add `command_blocks` table with FTS5 indexing
+- [ ] Add synchronized output sequences (DCS) to eliminate flicker
+- [ ] Store command blocks from existing CommandTracker output
+- **Result**: Better command detection and searchability with zero UX changes
+
+### Phase 1: CLI Rework (parallel to existing)
+- [ ] Add Unix domain socket listener to existing Express server (alongside HTTP)
+- [ ] Rewrite `packages/cli/src/client.ts` to prefer UDS, fall back to HTTP
+- [ ] Add `ant session ensure <name>` idempotent command
+- [ ] Add `--json` output to all CLI commands
+- [ ] Add daemon auto-start on first CLI invocation
+- **Result**: CLI works over UDS locally, HTTP remotely. No breaking changes.
+
+### Phase 2: ghostty-web Evaluation (Browser Rendering Only)
+- [ ] ~~Test ghostty-web addon compatibility~~ **Done** — serialize and headless are blockers; fit/unicode/weblinks have equivalents
+- [ ] Monitor ghostty-web for headless mode and parser hook support
+- [ ] When ghostty-web exits POC status: swap import in TerminalViewV2.tsx for browser rendering
+- [ ] Keep `@xterm/headless` + `SerializeAddon` on server — no alternative exists
+- [ ] For OSC parsing: intercept raw PTY stream before passing to ghostty-web
+- **Result**: Better VT compliance for display. Server-side stack unchanged. Reversible.
+
+### Phase 3: Block-Based UI
+- [ ] Render command blocks with visual boundaries in TerminalViewV2
+- [ ] Exit code indicators (green/red), duration, CWD display per block
+- [ ] Block selection, copy, and "use as AI context" actions
+- [ ] Block search across sessions via FTS5
+- **Result**: Warp-like UX on top of existing terminal rendering
+
+### Phase 4: Daemon Extraction
+- [ ] Extract PTY management + SQLite + message routing into standalone `antd` daemon
+- [ ] Daemon listens on UDS + HTTP/WS
+- [ ] Web server becomes stateless: proxies to daemon, serves static assets
+- [ ] MCP server becomes thin CLI wrapper: `ant exec`, `ant screen`, `ant ls`
+- **Result**: Clean separation of concerns. Web UI, CLI, and agents all talk to same daemon.
+
+### Phase 5: Messaging Rework
+- [ ] Merge Chairman + Message Bridge into unified Message Router in daemon
+- [ ] Add pub/sub with ACKs for agent message delivery
+- [ ] Introduce Conversation entities with explicit scoping
+- [ ] Add nested threading support
+- [ ] Add proper identity binding (derive from auth, not client-provided)
+- **Result**: Reliable, auditable message routing with clear ownership
+
+### Phase 6: Future
+- [ ] Evaluate Rust core via napi-rs for single-binary distribution
+- [ ] WASM plugin system for extensibility
+- [ ] Asciicast v3 session recording/export
+- [ ] Define and publish AI-terminal interaction protocol specification
+
+---
+
 ## Raw Research Files
 
 | File | Agent | Content |
@@ -351,3 +521,6 @@ No one has defined a protocol for AI agents to interact with terminal sessions. 
 | `03-terminal-io-capture-storage-raw.md` | Terminal I/O Capture & Storage | Programmatic input, structured output storage, command boundaries, PTY libraries |
 | `04-cli-architecture-raw.md` | CLI Architecture | Daemon design, IPC patterns, tmux/zellij models, MCP vs CLI analysis |
 | `05-competitive-landscape-raw.md` | Competitive Landscape | Claude Code, Cursor, Warp, Zed, Wave, emerging patterns, hooks ecosystem |
+| `06-cli-vs-mcp-credibility-analysis.md` | CLI vs MCP Credibility | Source verification for reliability statistics, counter-arguments, nuanced framing |
+| `07-messaging-architecture-analysis.md` | Messaging Architecture | Current message flow, threading, chat rooms, Chairman, Message Bridge, v2 evolution |
+| `08-ghostty-web-addon-compatibility.md` | ghostty-web Compatibility | Detailed addon compatibility analysis for ANT's specific xterm.js usage |
