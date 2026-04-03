@@ -8,6 +8,7 @@ import { stripAnsi } from "./types.js";
 import { HeadlessTerminalWrapper } from "./terminal/headless-terminal.js";
 import { CommandTracker, type CommandEvent } from "./terminal/command-tracker.js";
 import { features } from "./feature-flags.js";
+import { bus } from "./events/bus.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -584,6 +585,7 @@ export function createPty(
     }
 
     persistTerminalOutput(sessionId, chunkIndex, data);
+    bus.emit("terminal:output", { sessionId, data });
 
     // Parse OSC 7 for working directory changes
     const osc7Match = OSC7_RE.exec(data);

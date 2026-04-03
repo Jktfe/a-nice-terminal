@@ -900,5 +900,20 @@ db.exec(`
   END;
 `);
 
+// Routing event audit trail — every Chair routing decision is recorded here.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS routing_events (
+    id         TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    message_id TEXT,
+    action     TEXT NOT NULL,
+    target     TEXT,
+    reason     TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )
+`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_routing_events_session ON routing_events(session_id)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_routing_events_created ON routing_events(created_at)`);
+
 export default db;
 export { DB_PATH };

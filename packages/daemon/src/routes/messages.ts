@@ -5,6 +5,7 @@ import type { DbSession } from "../types.js";
 import { stripAnsi } from "../types.js";
 import { normalizeRole, VALID_FORMATS } from "../constants.js";
 import { resolveMentions } from "./agent-v2.js";
+import { bus } from "../events/bus.js";
 
 const VALID_STATUSES = ["pending", "streaming", "complete"] as const;
 
@@ -212,6 +213,17 @@ router.post("/api/sessions/:sessionId/messages", (req, res) => {
 
   const message = db.prepare("SELECT * FROM messages WHERE id = ?").get(id) as any;
   if (message.metadata) message.metadata = JSON.parse(message.metadata);
+
+  // Notify all in-process subscribers (Chair, message-bridge, etc.) immediately.
+  bus.emit("message:new", {
+    sessionId: req.params.sessionId,
+    id: message.id,
+    role: message.role,
+    content: message.content ?? "",
+    sender_name: message.sender_name,
+    sender_type: message.sender_type,
+    created_at: message.created_at,
+  });
 
   const io = req.app.get("io");
   if (io) {

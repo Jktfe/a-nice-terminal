@@ -1,19 +1,18 @@
 /**
- * Message Bridge — polls ALL conversation sessions for new human messages
- * that @mention an agent. If the addressed agent's terminal has not produced
- * new output within the grace period, injects the raw message content into
- * the terminal so the agent is guaranteed to receive it.
+ * Message Bridge — delivers new human messages that @mention an agent
+ * directly to that agent's terminal PTY.
  *
- * No session or room configuration required — monitors every conversation.
+ * No polling. Listens to the daemon event bus and fires the moment a message
+ * is committed to the DB. A configurable grace period lets the agent's
+ * terminal self-respond before falling back to PTY injection.
+ *
+ * No session or room configuration required — monitors every Chat.
  */
 
 import db from "../db.js";
+import { bus, type NewMessagePayload } from "../events/bus.js";
 import { getPty, getTerminalOutputCursor } from "../pty-manager.js";
 
-const _TLS = process.env.ANT_TLS_CERT;
-if (_TLS) process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-const ANT_URL = `${_TLS ? "https" : "http"}://localhost:${process.env.ANT_PORT || "6458"}`;
-const POLL_INTERVAL_MS = parseInt(process.env.MESSAGE_BRIDGE_POLL_MS || "3000", 10);
 const GRACE_PERIOD_MS = parseInt(process.env.MESSAGE_BRIDGE_GRACE_MS || "6000", 10);
 
 // ─── Pure helpers (exported for tests) ───────────────────────────────────────
@@ -27,29 +26,7 @@ export function shouldInject(cursorAtSend: number, cursorNow: number): boolean {
   return cursorNow <= cursorAtSend;
 }
 
-// ─── Settings ────────────────────────────────────────────────────────────────
-
-function getSetting(key: string, fallback: string): string {
-  const row = db.prepare("SELECT value FROM server_state WHERE key = ?").get(key) as
-    | { value: string }
-    | undefined;
-  return row?.value ?? fallback;
-}
-
-function isEnabled(): boolean {
-  return getSetting("chairman_enabled", "0") === "1";
-}
-
-// ─── Session discovery ───────────────────────────────────────────────────────
-
-function getAllChatSessionIds(): string[] {
-  const rows = db
-    .prepare("SELECT id FROM sessions WHERE type IN ('conversation', 'unified') AND archived = 0")
-    .all() as { id: string }[];
-  return rows.map((r) => r.id);
-}
-
-// ─── Participant lookup (all agents with active terminals) ────────────────────
+// ─── Participant lookup ───────────────────────────────────────────────────────
 
 interface Participant {
   terminalSessionId: string;
@@ -57,7 +34,7 @@ interface Participant {
 }
 
 function getAllParticipants(): Participant[] {
-  const rows = db
+  return db
     .prepare(`
       SELECT DISTINCT st.terminal_session_id as terminalSessionId, ar.handle as agentName
       FROM session_terminals st
@@ -66,122 +43,96 @@ function getAllParticipants(): Participant[] {
       WHERE st.status = 'active' AND ar.handle IS NOT NULL
     `)
     .all() as Participant[];
-  return rows;
 }
 
-// ─── State ───────────────────────────────────────────────────────────────────
-
-// Per-session tracking of injected message IDs and cursor positions
-const sessionInjectedIds = new Map<string, Set<string>>();
-const sessionLastSeenAt = new Map<string, string>();
-let intervalHandle: ReturnType<typeof setInterval> | null = null;
-let busy = false;
-
-// ─── Poll ────────────────────────────────────────────────────────────────────
-
-async function pollSession(sessionId: string, participants: Participant[]): Promise<void> {
-  try {
-    const lastSeen = sessionLastSeenAt.get(sessionId);
-    const url = lastSeen
-      ? `${ANT_URL}/api/sessions/${sessionId}/messages?since=${encodeURIComponent(lastSeen)}`
-      : `${ANT_URL}/api/sessions/${sessionId}/messages`;
-
-    const res = await fetch(url);
-    if (!res.ok) return;
-
-    const messages: Array<{ id: string; role: string; content: string; created_at: string; sender_type: string }> =
-      await res.json();
-
-    if (messages.length === 0) return;
-    sessionLastSeenAt.set(sessionId, messages[messages.length - 1].created_at);
-
-    const injectedIds = sessionInjectedIds.get(sessionId) ?? new Set<string>();
-    sessionInjectedIds.set(sessionId, injectedIds);
-
-    for (const msg of messages) {
-      if (msg.role !== "human") continue;
-      if (injectedIds.has(msg.id)) continue;
-
-      const mentions = extractMentions(msg.content);
-      if (mentions.length === 0) continue;
-
-      // Mark as processed before the mention loop so an exception can't cause re-processing
-      injectedIds.add(msg.id);
-
-      for (const mention of mentions) {
-        const participant = participants.find(
-          (p) => p.agentName.toLowerCase() === mention.replace("@", "").toLowerCase()
-            || p.agentName.toLowerCase() === mention.toLowerCase()
-        );
-        if (!participant) continue;
-
-        const cursorAtSend = getTerminalOutputCursor(participant.terminalSessionId);
-
-        // Wait grace period then check if cursor advanced
-        await new Promise((r) => setTimeout(r, GRACE_PERIOD_MS));
-
-        const cursorNow = getTerminalOutputCursor(participant.terminalSessionId);
-
-        if (!shouldInject(cursorAtSend, cursorNow)) {
-          // Agent's terminal produced output — message was likely received
-          continue;
-        }
-
-        // Inject raw message content into terminal
-        const pty = getPty(participant.terminalSessionId);
-        if (!pty) {
-          console.warn(`[message-bridge] PTY not found for ${participant.agentName} (session ${participant.terminalSessionId})`);
-          continue;
-        }
-
-        try {
-          pty.write(msg.content + "\n");
-          console.log(
-            `[message-bridge] Injected message ${msg.id} into ${participant.agentName}'s terminal`
-          );
-        } catch (err) {
-          console.warn("[message-bridge] Inject failed:", err instanceof Error ? err.message : err);
-        }
-      }
-    }
-  } catch (err) {
-    console.warn(`[message-bridge] Poll error for session ${sessionId}:`, err instanceof Error ? err.message : err);
-  }
+function isEnabled(): boolean {
+  const row = db
+    .prepare("SELECT value FROM server_state WHERE key = ?")
+    .get("chairman_enabled") as { value: string } | undefined;
+  return row?.value === "1";
 }
 
-async function poll(): Promise<void> {
-  if (busy) return;
+// ─── Core handler ─────────────────────────────────────────────────────────────
+
+// Track which message IDs we've already acted on across all sessions.
+const processedIds = new Set<string>();
+
+async function handleNewMessage(payload: NewMessagePayload): Promise<void> {
   if (!isEnabled()) return;
+  if (payload.role !== "human") return;
+  if (processedIds.has(payload.id)) return;
 
-  const sessionIds = getAllChatSessionIds();
-  if (sessionIds.length === 0) return;
+  const mentions = extractMentions(payload.content);
+  if (mentions.length === 0) return;
 
-  busy = true;
-  try {
-    const participants = getAllParticipants();
-    await Promise.all(sessionIds.map((id) => pollSession(id, participants)));
-  } catch (err) {
-    console.warn("[message-bridge] Poll error:", err instanceof Error ? err.message : err);
-  } finally {
-    busy = false;
+  // Mark early so concurrent events for the same message don't double-inject.
+  processedIds.add(payload.id);
+
+  // Cap the set to avoid unbounded growth over long daemon lifetimes.
+  if (processedIds.size > 10_000) {
+    const oldest = processedIds.values().next().value;
+    if (oldest !== undefined) processedIds.delete(oldest);
+  }
+
+  const participants = getAllParticipants();
+
+  for (const mention of mentions) {
+    const participant = participants.find(
+      (p) =>
+        p.agentName.toLowerCase() === mention.replace("@", "").toLowerCase() ||
+        p.agentName.toLowerCase() === mention.toLowerCase()
+    );
+    if (!participant) continue;
+
+    const cursorAtSend = getTerminalOutputCursor(participant.terminalSessionId);
+
+    // Grace period: give the agent time to self-respond before we inject.
+    await new Promise<void>((resolve) => setTimeout(resolve, GRACE_PERIOD_MS));
+
+    const cursorNow = getTerminalOutputCursor(participant.terminalSessionId);
+    if (!shouldInject(cursorAtSend, cursorNow)) continue; // agent already responded
+
+    const pty = getPty(participant.terminalSessionId);
+    if (!pty) {
+      console.warn(
+        `[message-bridge] PTY not found for ${participant.agentName} (session ${participant.terminalSessionId})`
+      );
+      continue;
+    }
+
+    try {
+      pty.write(payload.content + "\n");
+      console.log(
+        `[message-bridge] Injected message ${payload.id} into ${participant.agentName}'s terminal`
+      );
+    } catch (err) {
+      console.warn(
+        "[message-bridge] Inject failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
   }
 }
 
-// ─── Lifecycle ───────────────────────────────────────────────────────────────
+// ─── Lifecycle ────────────────────────────────────────────────────────────────
+
+let started = false;
 
 export function startMessageBridge(): void {
-  if (intervalHandle) return;
-  console.log(`[message-bridge] Starting (poll every ${POLL_INTERVAL_MS}ms, watching all sessions)`);
-  intervalHandle = setInterval(poll, POLL_INTERVAL_MS);
-  poll().catch(() => {});
+  if (started) return;
+  started = true;
+  bus.on("message:new", (payload) => {
+    handleNewMessage(payload).catch((err) => {
+      console.warn("[message-bridge] Handler error:", err instanceof Error ? err.message : err);
+    });
+  });
+  console.log("[message-bridge] Started (event-driven, no polling)");
 }
 
 export function stopMessageBridge(): void {
-  if (intervalHandle) {
-    clearInterval(intervalHandle);
-    intervalHandle = null;
-    sessionInjectedIds.clear();
-    sessionLastSeenAt.clear();
-    console.log("[message-bridge] Stopped");
-  }
+  if (!started) return;
+  bus.off("message:new", handleNewMessage as (payload: NewMessagePayload) => void);
+  processedIds.clear();
+  started = false;
+  console.log("[message-bridge] Stopped");
 }

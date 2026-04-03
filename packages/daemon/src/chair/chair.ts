@@ -12,22 +12,19 @@
  * Auto-starts when chairman_enabled is "1" in server_state.
  */
 
+import { nanoid } from "nanoid";
 import type { Server } from "socket.io";
 import db from "../db.js";
 import { DbChatRegistry, type RoomTask, type ParticipantInfo } from "../db-chat-room-registry.js";
 import { getPty, getTerminalOutputCursor } from "../pty-manager.js";
+import { bus, type NewMessagePayload } from "../events/bus.js";
 import { startTerminalMonitor, stopTerminalMonitor } from "./terminal-monitor.js";
 import { startMessageBridge, stopMessageBridge } from "./message-bridge.js";
 import { startTaskWatchdog, stopTaskWatchdog } from "./task-watchdog.js";
 
-// Mirror the server's TLS detection so internal fetch() calls use the right protocol.
-// The server itself is the fetch target (same process, loopback), so we also disable
-// strict cert verification to handle self-signed / Tailscale certs.
-const _TLS = process.env.ANT_TLS_CERT;
-if (_TLS) process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-const ANT_URL = `${_TLS ? "https" : "http"}://localhost:${process.env.ANT_PORT || "6458"}`;
 const LM_STUDIO_URL = process.env.LM_STUDIO_URL || "http://localhost:1234";
-const POLL_INTERVAL_MS = parseInt(process.env.CHAIRMAN_POLL_MS || "4000", 10);
+/** How often to run time-based checks (cursor staleness, reviewed-needs-work). */
+const PERIODIC_CHECK_MS = parseInt(process.env.CHAIRMAN_PERIODIC_MS || "60000", 10);
 const CHAIR_NAME = process.env.CHAIR_NAME ?? process.env.CHAIRMAN_NAME ?? "@Chatlead";
 // Strip leading @ for use as sender_name / agentName (prevents [@@Chatlead] in attribution)
 const CHAIR_HANDLE = CHAIR_NAME.replace(/^@+/, "");
@@ -139,7 +136,9 @@ If action is "hold" or "clarify", set assignments to [].`;
 
 let busy = false;
 let currentModel = process.env.CHAIRMAN_MODEL || "openai/gpt-oss-20b";
-let intervalHandle: ReturnType<typeof setInterval> | null = null;
+let periodicHandle: ReturnType<typeof setInterval> | null = null;
+/** Socket.IO server reference — set in startChair, used by postMessage. */
+let ioServer: Server | null = null;
 
 // Per-session tracking so each conversation is monitored independently
 const sessionLastSeenAt = new Map<string, string>();
@@ -188,31 +187,44 @@ function getAllChatSessionIds(): string[] {
   return rows.map((r) => r.id);
 }
 
-// ─── ANT API ─────────────────────────────────────────────────────────────────
+// ─── Routing audit trail ─────────────────────────────────────────────────────
 
-async function fetchMessages(sessionId: string): Promise<AntMessage[]> {
-  const res = await fetch(`${ANT_URL}/api/sessions/${sessionId}/messages`);
-  if (!res.ok) throw new Error(`ANT ${res.status}: ${await res.text()}`);
-  return res.json() as Promise<AntMessage[]>;
+function logRoutingEvent(
+  sessionId: string,
+  messageId: string | null,
+  action: string,
+  target: string,
+  reason: string,
+): void {
+  try {
+    db.prepare(`
+      INSERT INTO routing_events (id, session_id, message_id, action, target, reason)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(nanoid(12), sessionId, messageId, action, target, reason.slice(0, 500));
+  } catch {
+    // Non-critical — never let audit logging break the routing path
+  }
 }
 
-async function postMessage(sessionId: string, content: string, metadata?: any): Promise<void> {
-  const body: any = {
-    role: "agent",
-    content,
-    format: "markdown",
-    status: "complete",
-    sender_name: CHAIR_HANDLE,
-    sender_type: "agent",
-  };
-  if (metadata) body.metadata = metadata;
+// ─── Direct DB helpers (no self-fetch) ───────────────────────────────────────
 
-  const res = await fetch(`${ANT_URL}/api/sessions/${sessionId}/messages`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) console.error(`[chair] Failed to post: ${res.status}`);
+function postMessage(sessionId: string, content: string, metadata?: any): void {
+  const id = nanoid(12);
+  const metaJson = metadata ? JSON.stringify(metadata) : null;
+  db.prepare(`
+    INSERT INTO messages (id, session_id, role, content, format, status, metadata, message_type, sender_type, sender_name)
+    VALUES (?, ?, 'agent', ?, 'markdown', 'complete', ?, 'text', 'agent', ?)
+  `).run(id, sessionId, content, metaJson, CHAIR_HANDLE);
+
+  // Broadcast via Socket.IO so connected clients update in real-time.
+  if (ioServer) {
+    const saved = db.prepare("SELECT * FROM messages WHERE id = ?").get(id) as any;
+    if (saved?.metadata) saved.metadata = JSON.parse(saved.metadata);
+    ioServer.to(sessionId).emit("message_created", saved);
+  }
+
+  // Record routing event for audit trail.
+  logRoutingEvent(sessionId, id, "post", metadata?.type ?? "message", content.slice(0, 120));
 }
 
 // ─── DB queries ─────────────────────────────────────────────────────────────
@@ -372,7 +384,7 @@ async function analyseAndRouteMessage(
   }
 
   if (createdTasks.length > 0) {
-    await postMessage(
+    postMessage(
       sessionId,
       `[${CHAIR_NAME}] Detected ${createdTasks.length} task(s):\n\n${createdTasks.join("\n")}\n\nRouting now…`
     );
@@ -399,6 +411,7 @@ async function analyseAndRouteMessage(
 
   await Promise.all(injections);
 
+  logRoutingEvent(sessionId, msg.id, "route", result.route_to.join(","), result.reason);
   console.log(
     `[chair] Routed message to [${result.route_to.join(", ")}] — ${result.reason}`
   );
@@ -436,31 +449,19 @@ async function injectToTerminal(terminalSessionId: string, text: string): Promis
  * Uses a stable pseudo session-id "chair" so it's idempotent.
  * Best-effort — never throws.
  */
-async function ensureInRoom(roomName: string): Promise<void> {
+function ensureInRoom(roomName: string): void {
   if (joinedRooms.has(roomName)) return;
-  joinedRooms.add(roomName); // optimistic — prevents concurrent duplicate calls
+  joinedRooms.add(roomName);
   try {
-    const res = await fetch(
-      `${ANT_URL}/api/chat-rooms/${encodeURIComponent(roomName)}/participants`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          terminalSessionId: "chair",
-          agentName: CHAIR_HANDLE,
-          model: "Chair",
-          terminalName: "Chair",
-        }),
-      }
-    );
-    if (!res.ok) {
-      joinedRooms.delete(roomName); // allow retry on failure
-      console.warn(`[chair] Failed to register in room "${roomName}": ${res.status}`);
-    } else {
-      console.log(`[chair] Registered as participant in room "${roomName}"`);
-    }
+    // Use the registry directly — no HTTP round-trip.
+    registry.addParticipant(roomName, "chair", {
+      agentName: CHAIR_HANDLE,
+      model: "Chair",
+      terminalName: "Chair",
+    });
+    console.log(`[chair] Registered as participant in room "${roomName}"`);
   } catch (err) {
-    joinedRooms.delete(roomName);
+    joinedRooms.delete(roomName); // allow retry
     console.warn(`[chair] Could not register in room "${roomName}":`, err instanceof Error ? err.message : err);
   }
 }
@@ -472,11 +473,11 @@ async function ensureInRoom(roomName: string): Promise<void> {
  * The add() is synchronous before the await to prevent double-announce
  * when multiple sessions resolve to the same room in a Promise.all cycle.
  */
-async function maybeAnnounceRoom(sessionId: string, roomName: string): Promise<void> {
+function maybeAnnounceRoom(sessionId: string, roomName: string): void {
   if (announcedRooms.has(roomName)) return;
   announcedRooms.add(roomName);
-  await ensureInRoom(roomName);
-  await postMessage(
+  ensureInRoom(roomName);
+  postMessage(
     sessionId,
     `[${CHAIR_NAME}] Now monitoring room **${roomName}**. ` +
       `I'll route tasks, broadcast messages to all participants, and verify work is progressing.`
@@ -560,7 +561,7 @@ async function checkTaskCursorBaselines(
         registry.updateTask(roomName, a.task_id, { status: "assigned", assignedTo: a.assigned_to });
         console.log(`[chair] Re-assigned stale task ${a.task_id} to ${a.assigned_to}`);
       }
-      await postMessage(
+      postMessage(
         sessionId,
         `[${CHAIR_NAME}] Task **${task.name}** was stale (${elapsedMin}min). ${decision.reason}\n\n` +
           decision.assignments.map((a) => `**${a.task_id}** -> ${a.assigned_to}`).join("\n"),
@@ -626,7 +627,7 @@ async function checkReviewedNeedsWork(
   }
 
   if (summaryParts.length > 0) {
-    await postMessage(
+    postMessage(
       sessionId,
       `[${CHAIR_NAME}] Re-routing tasks that need more work:\n\n${summaryParts.join("\n")}`,
       { type: "assignment", assignments: decision.assignments }
@@ -650,7 +651,7 @@ async function handlePendingTasks(
 
   if (!decision) {
     console.warn(`[chair] Could not parse LLM response, posting raw`);
-    await postMessage(sessionId, `[${CHAIR_NAME}] ${raw}`);
+    postMessage(sessionId, `[${CHAIR_NAME}] ${raw}`);
     return;
   }
 
@@ -670,7 +671,7 @@ async function handlePendingTasks(
           summaryParts.push(`**${a.task_id}** -> ${a.assigned_to} (DB update failed)`);
         }
       }
-      await postMessage(
+      postMessage(
         sessionId,
         `[${CHAIR_NAME}] ${decision.reason}\n\n${summaryParts.join("\n")}`,
         { type: "assignment", assignments: decision.assignments }
@@ -678,11 +679,11 @@ async function handlePendingTasks(
       break;
     }
     case "hold":
-      await postMessage(sessionId, `[${CHAIR_NAME}] ${decision.hold_message || "Holding -- agents busy."}`);
+      postMessage(sessionId, `[${CHAIR_NAME}] ${decision.hold_message || "Holding -- agents busy."}`);
       console.log(`[chair] Holding: ${decision.reason}`);
       break;
     case "clarify":
-      await postMessage(sessionId, `[${CHAIR_NAME}] ${decision.question || "Can you clarify the task?"}`);
+      postMessage(sessionId, `[${CHAIR_NAME}] ${decision.question || "Can you clarify the task?"}`);
       console.log(`[chair] Clarifying: ${decision.reason}`);
       break;
   }
@@ -708,95 +709,89 @@ async function handleMessage(sessionId: string, msg: AntMessage): Promise<void> 
   await handlePendingTasks(sessionId, roomName, pendingTasks, participants);
 }
 
-// ─── Per-session poll ────────────────────────────────────────────────────────
+// ─── Event-driven message handler ────────────────────────────────────────────
 
-async function pollSession(sessionId: string): Promise<void> {
-  try {
-    const messages = await fetchMessages(sessionId);
-    if (messages.length === 0) return;
-
-    // First time seeing this session — snapshot current state, don't process old messages
-    if (!sessionLastSeenAt.has(sessionId)) {
-      sessionLastSeenAt.set(sessionId, messages[messages.length - 1].created_at);
-      sessionProcessedIds.set(sessionId, new Set(messages.map((m) => m.id)));
-      return;
-    }
-
-    // Proactive room-linked checks (run every cycle regardless of new messages)
-    const roomName = findRoomForSession(sessionId);
-    if (roomName) {
-      await maybeAnnounceRoom(sessionId, roomName);
-      await checkTaskCursorBaselines(sessionId, roomName);
-      await checkReviewedNeedsWork(sessionId, roomName);
-    }
-
-    const lastSeen = sessionLastSeenAt.get(sessionId)!;
-    const processedIds = sessionProcessedIds.get(sessionId) ?? new Set<string>();
-
-    const newMessages = messages.filter(
-      (m) => m.created_at > lastSeen && !processedIds.has(m.id)
-    );
-    if (newMessages.length === 0) return;
-
-    sessionLastSeenAt.set(sessionId, messages[messages.length - 1].created_at);
-    for (const m of newMessages) processedIds.add(m.id);
-
-    // Analyse each new message: detect tasks + route to relevant agents only
-    if (roomName) {
-      for (const msg of newMessages) {
-        await analyseAndRouteMessage(sessionId, roomName, msg);
-      }
-    }
-
-    // Explicit @chatlead/@chairman trigger — route any remaining pending tasks
-    const toHandle = newMessages.find(shouldRespond);
-    if (toHandle) await handleMessage(sessionId, toHandle);
-  } catch (err) {
-    console.warn(`[chair] Poll error for session ${sessionId}:`, err instanceof Error ? err.message : err);
-  }
-}
-
-// ─── Poll loop ──────────────────────────────────────────────────────────────
-
-async function poll(): Promise<void> {
-  if (busy) return;
+async function onNewMessage(payload: NewMessagePayload): Promise<void> {
   if (!isEnabled()) return;
+  if (busy) return; // one inflight LLM call at a time
 
-  const sessionIds = getAllChatSessionIds();
-  if (sessionIds.length === 0) return;
+  const { sessionId, id, role, content, sender_name, created_at } = payload;
+
+  // Deduplicate
+  const processedIds = sessionProcessedIds.get(sessionId) ?? new Set<string>();
+  sessionProcessedIds.set(sessionId, processedIds);
+  if (processedIds.has(id)) return;
+  processedIds.add(id);
+  sessionLastSeenAt.set(sessionId, created_at);
+
+  const msg: AntMessage = { id, role, content, sender_name: sender_name ?? undefined, created_at };
+
+  const roomName = findRoomForSession(sessionId);
+  if (!roomName) return; // only act on room-linked sessions
+
+  maybeAnnounceRoom(sessionId, roomName);
 
   busy = true;
   try {
-    await Promise.all(sessionIds.map(pollSession));
+    await analyseAndRouteMessage(sessionId, roomName, msg);
+    if (shouldRespond(msg)) await handleMessage(sessionId, msg);
+  } catch (err) {
+    console.warn("[chair] Handler error:", err instanceof Error ? err.message : err);
   } finally {
     busy = false;
   }
 }
 
-// ─── Lifecycle ──────────────────────────────────────────────────────────────
+// ─── Periodic checks (inherently time-based) ─────────────────────────────────
+
+async function runPeriodicChecks(): Promise<void> {
+  if (!isEnabled()) return;
+
+  const sessionIds = getAllChatSessionIds();
+  for (const sessionId of sessionIds) {
+    const roomName = findRoomForSession(sessionId);
+    if (!roomName) continue;
+    try {
+      await checkTaskCursorBaselines(sessionId, roomName);
+      await checkReviewedNeedsWork(sessionId, roomName);
+    } catch (err) {
+      console.warn(`[chair] Periodic check error for session ${sessionId}:`, err instanceof Error ? err.message : err);
+    }
+  }
+}
+
+// ─── Lifecycle ───────────────────────────────────────────────────────────────
 
 export function startChair(io: Server, registryInstance: DbChatRegistry): void {
-  if (intervalHandle) return;
+  if (periodicHandle) return;
+  ioServer = io;
   registry = registryInstance;
-  console.log(`[chair] Starting (poll every ${POLL_INTERVAL_MS}ms, watching all sessions)`);
+  console.log("[chair] Starting (event-driven, periodic checks every " + PERIODIC_CHECK_MS + "ms)");
+  bus.on("message:new", (payload) => {
+    onNewMessage(payload).catch((err) => {
+      console.warn("[chair] Unhandled error in onNewMessage:", err instanceof Error ? err.message : err);
+    });
+  });
   startTerminalMonitor();
   startMessageBridge();
   startTaskWatchdog();
-  intervalHandle = setInterval(poll, POLL_INTERVAL_MS);
-  poll().catch(() => {});
+  periodicHandle = setInterval(() => {
+    runPeriodicChecks().catch(() => {});
+  }, PERIODIC_CHECK_MS);
 }
 
 export function stopChair(): void {
-  if (intervalHandle) {
-    clearInterval(intervalHandle);
-    intervalHandle = null;
-    sessionLastSeenAt.clear();
-    sessionProcessedIds.clear();
-    announcedRooms.clear();
-    joinedRooms.clear();
-    taskCursorBaselines.clear();
-    console.log(`[chair] Stopped`);
-  }
+  if (!periodicHandle) return;
+  clearInterval(periodicHandle);
+  periodicHandle = null;
+  bus.off("message:new", onNewMessage as (payload: NewMessagePayload) => void);
+  ioServer = null;
+  sessionLastSeenAt.clear();
+  sessionProcessedIds.clear();
+  announcedRooms.clear();
+  joinedRooms.clear();
+  taskCursorBaselines.clear();
+  console.log("[chair] Stopped");
   stopTerminalMonitor();
   stopMessageBridge();
   stopTaskWatchdog();

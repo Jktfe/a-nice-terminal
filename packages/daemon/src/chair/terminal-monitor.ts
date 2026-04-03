@@ -1,29 +1,32 @@
 /**
- * Terminal Monitor — polls ALL active terminal screens for Claude Code
- * permission prompts and posts terminal_approval cards to the most recently
- * active chat session.
+ * Terminal Monitor — detects Claude Code permission prompts in active
+ * terminal screens and posts terminal_approval cards to the most recently
+ * active Chat session.
+ *
+ * No polling. Listens to the daemon event bus and fires when a PTY produces
+ * output. Per-session debounce (500 ms) prevents re-checking on every byte.
  *
  * No room or session configuration required — monitors every terminal.
- * Started/stopped by chair alongside the chat routing loop.
- * Reads chairman_enabled from server_state on every cycle.
+ * Started/stopped by Chair alongside the chat routing loop.
  */
 
 import crypto from "node:crypto";
 import type { Server } from "socket.io";
+import { nanoid } from "nanoid";
 import db from "../db.js";
-import { getHeadless, getActivePtySessionIds } from "../pty-manager.js";
+import { bus, type TerminalOutputPayload } from "../events/bus.js";
+import { getHeadless } from "../pty-manager.js";
 
 // ─── Socket.IO reference (set from index.ts after server starts) ──────────────
+
 let ioServer: Server | null = null;
 export function setIo(server: Server): void {
   ioServer = server;
 }
 
-const _TLS = process.env.ANT_TLS_CERT;
-if (_TLS) process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-const ANT_URL = `${_TLS ? "https" : "http"}://localhost:${process.env.ANT_PORT || "6458"}`;
-const POLL_INTERVAL_MS = parseInt(process.env.TERMINAL_MONITOR_POLL_MS || "2000", 10);
 const CHAIR_NAME = process.env.CHAIR_NAME ?? process.env.CHAIRMAN_NAME ?? "@Chatlead";
+/** How long after the last output byte before we check the screen for prompts. */
+const DEBOUNCE_MS = parseInt(process.env.TERMINAL_MONITOR_DEBOUNCE_MS || "500", 10);
 
 // ─── Pure helper functions (exported for tests) ──────────────────────────────
 
@@ -71,7 +74,7 @@ export function buildPromptId(sessionId: string, toolType: string, detail: strin
     .slice(0, 12);
 }
 
-// ─── Session helpers ─────────────────────────────────────────────────────────
+// ─── DB helpers ──────────────────────────────────────────────────────────────
 
 function getMostActiveChatSessionId(): string | null {
   const row = db
@@ -95,117 +98,122 @@ function getTerminalName(terminalSessionId: string): string {
   return row?.name ?? terminalSessionId;
 }
 
-// ─── Settings ────────────────────────────────────────────────────────────────
-
-function getSetting(key: string, fallback: string): string {
-  const row = db.prepare("SELECT value FROM server_state WHERE key = ?").get(key) as
-    | { value: string }
-    | undefined;
-  return row?.value ?? fallback;
-}
-
 function isEnabled(): boolean {
-  return getSetting("chairman_enabled", "0") === "1";
+  const row = db
+    .prepare("SELECT value FROM server_state WHERE key = ?")
+    .get("chairman_enabled") as { value: string } | undefined;
+  return row?.value === "1";
 }
 
-// ─── Post approval card ──────────────────────────────────────────────────────
+// ─── Direct DB message insert (replaces self-fetch POST) ─────────────────────
 
-async function postApprovalCard(
+function insertApprovalCard(
   sessionId: string,
   terminalId: string,
   terminalName: string,
   toolType: string,
   detail: string,
   promptId: string,
-): Promise<void> {
-  await fetch(`${ANT_URL}/api/sessions/${sessionId}/messages`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      role: "agent",
-      content: `**@Chatlead** — Terminal approval required\n\n**${toolType}**: \`${detail || "(no detail)"}\`\n\nUse the card below to respond.`,
-      format: "markdown",
-      status: "complete",
-      sender_name: CHAIR_NAME,
-      sender_type: "agent",
-      metadata: {
-        type: "terminal_approval",
-        terminal_id: terminalId,
-        terminal_name: terminalName,
-        tool_type: toolType,
-        detail,
-        prompt_id: promptId,
-        status: "pending",
-      },
-    }),
+): void {
+  const id = nanoid(12);
+  const content = `**${CHAIR_NAME}** — Terminal approval required\n\n**${toolType}**: \`${detail || "(no detail)"}\`\n\nUse the card below to respond.`;
+  const metadata = JSON.stringify({
+    type: "terminal_approval",
+    terminal_id: terminalId,
+    terminal_name: terminalName,
+    tool_type: toolType,
+    detail,
+    prompt_id: promptId,
+    status: "pending",
   });
+
+  db.prepare(`
+    INSERT INTO messages (id, session_id, role, content, format, status, metadata, message_type, sender_type, sender_name)
+    VALUES (?, ?, 'agent', ?, 'markdown', 'complete', ?, 'text', 'agent', ?)
+  `).run(id, sessionId, content, metadata, CHAIR_NAME);
+
+  // Notify clients via Socket.IO directly — no HTTP round-trip.
+  if (ioServer) {
+    const saved = db.prepare("SELECT * FROM messages WHERE id = ?").get(id) as any;
+    if (saved?.metadata) saved.metadata = JSON.parse(saved.metadata);
+    ioServer.to(sessionId).emit("message_created", saved);
+  }
 }
 
-// ─── State ───────────────────────────────────────────────────────────────────
+// ─── State — per-session debounce timers and seen-prompt dedup ────────────────
 
 const seenPrompts = new Set<string>();
-let intervalHandle: ReturnType<typeof setInterval> | null = null;
-let busy = false;
+const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-// ─── Poll ────────────────────────────────────────────────────────────────────
+// ─── Handler ─────────────────────────────────────────────────────────────────
 
-async function poll(): Promise<void> {
-  if (busy) return;
+function checkTerminal(sessionId: string): void {
   if (!isEnabled()) return;
+
+  const headless = getHeadless(sessionId);
+  if (!headless) return;
+
+  const lines = headless.getScreenLines();
+  if (!detectPrompt(lines)) return;
+
+  const toolType = extractToolType(lines);
+  const detail = extractDetail(lines, toolType);
+  const promptId = buildPromptId(sessionId, toolType, detail);
+
+  if (seenPrompts.has(promptId)) return;
+  seenPrompts.add(promptId);
 
   const targetSessionId = getMostActiveChatSessionId();
   if (!targetSessionId) return;
 
-  const terminalIds = getActivePtySessionIds();
-  if (terminalIds.length === 0) return;
+  const terminalName = getTerminalName(sessionId);
+  insertApprovalCard(targetSessionId, sessionId, terminalName, toolType, detail, promptId);
 
-  busy = true;
-  try {
-    for (const terminalSessionId of terminalIds) {
-      const headless = getHeadless(terminalSessionId);
-      if (!headless) continue;
-
-      const lines = headless.getScreenLines();
-      if (!detectPrompt(lines)) continue;
-
-      const toolType = extractToolType(lines);
-      const detail = extractDetail(lines, toolType);
-      const promptId = buildPromptId(terminalSessionId, toolType, detail);
-
-      if (seenPrompts.has(promptId)) continue;
-      seenPrompts.add(promptId);
-
-      const terminalName = getTerminalName(terminalSessionId);
-      await postApprovalCard(targetSessionId, terminalSessionId, terminalName, toolType, detail, promptId);
-
-      // Broadcast to all connected clients so the sidebar can highlight the terminal
-      if (ioServer) {
-        ioServer.emit("terminal_approval_needed", { sessionId: terminalSessionId, promptId, toolType });
-      }
-
-      console.log(`[terminal-monitor] Approval card posted for terminal "${terminalName}": ${toolType} — ${detail.slice(0, 50)}`);
-    }
-  } catch (err) {
-    console.warn("[terminal-monitor] Poll error:", err instanceof Error ? err.message : err);
-  } finally {
-    busy = false;
+  if (ioServer) {
+    ioServer.emit("terminal_approval_needed", { sessionId, promptId, toolType });
   }
+
+  console.log(
+    `[terminal-monitor] Approval card posted for terminal "${terminalName}": ${toolType} — ${detail.slice(0, 50)}`
+  );
 }
 
-// ─── Lifecycle ───────────────────────────────────────────────────────────────
+function handleTerminalOutput(payload: TerminalOutputPayload): void {
+  const { sessionId } = payload;
+
+  // Debounce: cancel previous timer for this session, schedule a fresh check.
+  const existing = debounceTimers.get(sessionId);
+  if (existing) clearTimeout(existing);
+
+  const timer = setTimeout(() => {
+    debounceTimers.delete(sessionId);
+    try {
+      checkTerminal(sessionId);
+    } catch (err) {
+      console.warn("[terminal-monitor] Check error:", err instanceof Error ? err.message : err);
+    }
+  }, DEBOUNCE_MS);
+
+  debounceTimers.set(sessionId, timer);
+}
+
+// ─── Lifecycle ────────────────────────────────────────────────────────────────
+
+let started = false;
 
 export function startTerminalMonitor(): void {
-  if (intervalHandle) return;
-  console.log(`[terminal-monitor] Starting (poll every ${POLL_INTERVAL_MS}ms, watching all terminals)`);
-  intervalHandle = setInterval(poll, POLL_INTERVAL_MS);
-  poll().catch(() => {});
+  if (started) return;
+  started = true;
+  bus.on("terminal:output", handleTerminalOutput);
+  console.log("[terminal-monitor] Started (event-driven, debounce " + DEBOUNCE_MS + "ms)");
 }
 
 export function stopTerminalMonitor(): void {
-  if (intervalHandle) {
-    clearInterval(intervalHandle);
-    intervalHandle = null;
-    seenPrompts.clear();
-    console.log("[terminal-monitor] Stopped");
-  }
+  if (!started) return;
+  bus.off("terminal:output", handleTerminalOutput);
+  for (const t of debounceTimers.values()) clearTimeout(t);
+  debounceTimers.clear();
+  seenPrompts.clear();
+  started = false;
+  console.log("[terminal-monitor] Stopped");
 }
