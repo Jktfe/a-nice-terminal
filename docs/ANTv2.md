@@ -1,11 +1,23 @@
 # ANT v2: Complete Planning Document
 
-> **ANT is not a terminal. ANT is the persistent memory, conversation layer, and orchestration hub above native terminals.**
+> **ANT is not a terminal. ANT is the persistent memory, Chat layer, and orchestration hub above native terminals.**
 
 **Date:** April 2026
 **Target Platform:** macOS (primary), Linux (fallback)
 **Terminal Backend:** Ghostty (via AppleScript)
-**Status:** Planning
+**Status:** Active build — Phase 1 in progress
+
+---
+
+## Vocabulary
+
+These terms are locked. Use them consistently everywhere — in code, comments, UI, and docs.
+
+| Term | Meaning | Replaces |
+|---|---|---|
+| **Chat** | A messaging thread — what v1 called "conversation" or "session" (messaging context) | conversation, room, session (messaging) |
+| **Chair** | The always-on intelligent forwarding agent that monitors all Chats and all Terminals | Chairman, Message Router, orchestration agent |
+| **Terminal** | A captured shell session (Ghostty tab + ant-capture) | terminal session, PTY session |
 
 ---
 
@@ -885,15 +897,34 @@ The paradigm shift from "ANT is a terminal" to "ANT is an orchestration layer" e
 
 ### Phase 1: Daemon + UDS (Week 1-2)
 
-Extract antd as a standalone daemon process:
-- [ ] Create `packages/daemon/` with entry point
-- [ ] Move SQLite database ownership to daemon
-- [ ] Add UDS listener (`$XDG_RUNTIME_DIR/ant/antd.sock`) with NDJSON protocol
-- [ ] Keep HTTP/WS listener for web UI (same process, two listeners)
-- [ ] Add daemon auto-start on first CLI invocation
-- [ ] Add PID file + stale detection
-- [ ] Rewrite CLI client to prefer UDS, fall back to HTTP
-- [ ] Add `--json` output to all existing CLI commands
+Extract antd as a standalone daemon process. **Detailed 12-step migration sequence:**
+
+**Pre-conditions before Step 10 (app thinning):**
+1. `VITE_ANT_DAEMON_URL` env var — React `store.ts` must be configurable for daemon on separate port
+2. `DbChatRoomRegistry` singleton — create once in daemon entry point, pass to Chair and routes (currently two separate instances)
+3. Replace self-fetch calls in `terminal-monitor.ts` and `task-watchdog.ts` with direct DB inserts + `io.emit()` to eliminate startup ordering hazards
+4. Fix ESM bug in `capture-ingest.ts` — lines 198–201 use `require("fs")` inside an ESM module; fix to top-level imports
+
+**Steps:**
+- [x] **Step 1** — Scaffold `packages/daemon/` (entry point, UDS server, PID management, logger) ✅
+- [x] **Step 1b** — CLI: `uds-client.ts`, `ant daemon start|stop|status|restart`, `--json` already implemented ✅
+- [ ] **Step 2** — Move `db.ts` + `types.ts` to daemon; add `ANT_DB_PATH` env var; add `capture_cursors` table
+- [ ] **Step 3** — Move `feature-flags.ts`, `constants.ts`, `middleware/auth.ts`, `middleware/localhost.ts`
+- [ ] **Step 4** — Move `terminal/headless-terminal.ts`, `terminal/command-tracker.ts`, `pty-manager.ts`
+- [ ] **Step 5** — Move Chair subsystem: `db-chat-room-registry.ts`, `message-bridge.ts`, `task-watchdog.ts`, `terminal-monitor.ts`, `chairman-bridge.ts` → rename to `chair.ts`; fix self-fetch; create singleton registry
+- [ ] **Step 6** — Move `retention.ts`, `capture-ingest.ts` (fix ESM bug during move)
+- [ ] **Step 7** — Move all 20 route files from `server/routes/` → `daemon/src/routes/`; rename `routes/chairman.ts` → `routes/chair.ts`
+- [ ] **Step 8** — Move WS handlers: `ws/handlers.ts`, `ws/terminal-namespace.ts`, `ws/chat-handlers.ts`
+- [ ] **Step 9** — Create full `daemon/src/index.ts`: Express + Socket.IO + all routes + WS + Chair/retention start + heartbeat
+- [ ] **Step 10** — Thin `packages/app/server/index.ts` to ~30 lines: serve Vite/static only; add `VITE_ANT_DAEMON_URL` support
+- [ ] **Step 11** — Create `packages/shared/src/events.ts`: typed Socket.IO event contract imported by both daemon and app
+- [ ] **Step 12** — Delete dead code from `packages/app/server/`: `db.ts`, `pty-manager.ts`, `terminal/`, `chairman-bridge.ts`, all route files
+
+**Key decisions from analysis:**
+- Daemon owns **all** tables. App never touches SQLite directly. `better-sqlite3` is a daemon-only dependency.
+- `stripAnsi()` stays in daemon types unless app needs it — if so, promote to `packages/shared/`.
+- Replace `Chairman`/`chairman` naming throughout with `Chair`/`chair` during Steps 5 and 7.
+- Socket path: `process.env.ANT_SOCKET ?? os.tmpdir() + '/ant/antd.sock'`
 
 **Why first:** This is the foundation everything else builds on. The daemon owns state.
 
@@ -1013,38 +1044,21 @@ Cross-terminal workflows and Obsidian export:
 
 ---
 
-## 13. Open Questions
+## 13. Decisions (formerly Open Questions)
 
-### Architecture
+All questions resolved 2026-04-03.
 
-1. **Screen reconstruction:** How to rebuild "current terminal screen" from captured ANSI stream? Options:
-   - Replay last N bytes through a headless parser on demand (lazy, not continuous)
-   - Keep a lightweight ANSI state machine just for screen reconstruction
-   - Rely on Ghostty AppleScript query for screen content (if API supports it)
-
-2. **Fish shell support:** v1 had bash + zsh. Fish uses different hook mechanisms (`fish_preexec`, `fish_postexec`). Worth adding in initial build?
-
-3. **Capture format:** Raw `script` output includes timing information on some platforms. Should we use `script -t` for timing data, or rely solely on shell hook timestamps?
-
-### Product
-
-4. **Notification triggers:** When should ANT push-notify the user? Options:
-   - Agent waiting for input (pattern matching on captured output)
-   - Agent error (non-zero exit code on "important" commands)
-   - Agent idle for N minutes
-   - Explicit @mention from agent
-
-5. **Session naming:** Should ANT auto-name sessions based on what's running inside (detected from first few commands), or always require user-provided names?
-
-6. **Conversation scope:** Should each terminal have its own conversation, or should conversations span multiple terminals? v1 has both patterns — clarify the primary model.
-
-### Technical
-
-7. **Daemon process model:** Single-threaded Node.js (current), or multi-process with worker threads for capture ingest? Capture ingest is I/O-bound, probably fine single-threaded.
-
-8. **Web UI framework:** Keep React 19 + Zustand (working fine), or evaluate alternatives for the dashboard-heavy v2 UI? Recommendation: keep — rewriting the UI framework is unnecessary churn.
-
-9. **Asciicast export:** v3 format for session recording. Build custom exporter, or integrate with asciinema tooling?
+| # | Question | Decision |
+|---|---|---|
+| 1 | Screen reconstruction | **Command blocks only by default.** Pulsing activity indicator on terminal tab shows live activity. No partial output streaming to UI. **Smooth view toggle** (like slow edit) spins up xterm.js on-demand for that terminal only — lazy-loaded, not in bundle by default. |
+| 2 | Fish shell | **Bash + zsh now. Fish later.** Hook mechanism is different enough to do properly; not blocking anyone today. |
+| 3 | Capture timing | **Shell hook timestamps only.** `script -t` replay is a future nice-to-have — not worth the complexity now. |
+| 4 | Notification triggers | **Waiting for input + @mention only.** Low cadence by design. Errors, idle, completion show in UI passively — no push. |
+| 5 | Session naming | **Auto-generate always, user can override.** No friction at creation time. |
+| 6 | Chat scope | **All Chats are accessible to all Terminals. Chair monitors everything.** Chats are not scoped to individual terminals — they are a shared layer above all of them. |
+| 7 | Daemon process model | **Single-threaded Node.js to start.** CaptureIngest is I/O-bound polling — negligible overhead. Design CaptureIngest stateless so worker threads can be added later without rearchitecting. |
+| 8 | Web UI framework | **Stay React 19 + Zustand for the rewrite. Switch to Svelte 5 at Phase 5** (UI overhaul) — Phase 5 replaces the frontend anyway, so the switch happens at a natural seam rather than mid-rewrite. |
+| 9 | Asciicast export | **Custom exporter, ~100 lines.** All data needed (timestamps from shell hooks, raw output from ant-capture) is already owned. No external dependency needed. |
 
 ---
 

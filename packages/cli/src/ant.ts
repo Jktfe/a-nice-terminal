@@ -22,6 +22,7 @@ import { room } from "./commands/room.js";
 import { roomTasks } from "./commands/room-tasks.js";
 import { roomTag } from "./commands/room-tag.js";
 import { roomFile } from "./commands/room-file.js";
+import { daemonStart, daemonStop, daemonStatus, daemonRestart } from "./commands/daemon-commands.js";
 import * as out from "./output.js";
 
 const program = new Command()
@@ -188,6 +189,32 @@ program.command("room-file <name> <path>").description("Add a context file to a 
   .option("--short <shortname>", "Short display name")
   .action(async (name, path, opts) => {
     try { const { client, format } = getClientAndFormat(); await roomFile(client, name, path, { format, ...opts }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+const daemon = program.command("daemon").description("Manage the antd background daemon");
+
+daemon.command("start").description("Start antd in the background")
+  .action(async () => {
+    try { const { format } = getClientAndFormat(); await daemonStart({ format }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+daemon.command("stop").description("Stop the running antd process")
+  .action(async () => {
+    try { const { format } = getClientAndFormat(); await daemonStop({ format }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+daemon.command("status").description("Show antd running status")
+  .action(async () => {
+    try { const { format } = getClientAndFormat(); await daemonStatus({ format }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+daemon.command("restart").description("Restart antd")
+  .action(async () => {
+    try { const { format } = getClientAndFormat(); await daemonRestart({ format }); }
     catch (err: any) { out.error(err.message); process.exit(1); }
   });
 
