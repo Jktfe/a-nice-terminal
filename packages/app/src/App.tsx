@@ -3,7 +3,7 @@ import { AnimatePresence } from "motion/react";
 import { useStore, type Session } from "./store.ts";
 import Sidebar from "./components/Sidebar.tsx";
 import Header from "./components/Header.tsx";
-import TerminalView from "./components/TerminalViewV2.tsx";
+import TerminalDashboard from "./components/TerminalDashboard.tsx";
 import MessageList from "./components/MessageList.tsx";
 import ChatThread from "./components/ChatThread.tsx";
 import InputArea from "./components/InputArea.tsx";
@@ -29,7 +29,7 @@ function renderSessionContent(session: Session | undefined, sessionId?: string, 
   if (!session) return null;
 
   if (session.type === "terminal") {
-    return <TerminalView sessionId={sessionId} />;
+    return <TerminalDashboard sessionId={sessionId} />;
   }
 
   if (session.type === "unified") {

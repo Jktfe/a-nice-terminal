@@ -488,4 +488,91 @@ router.get("/api/sessions/:sessionId/terminal/search", (req, res) => {
   });
 });
 
+// ─── Command blocks (capture pipeline) ───────────────────────────────────────
+
+// GET /api/sessions/:sessionId/commands
+// Returns structured command events for TerminalDashboard.
+// ?limit=N  (default 100, max 500)
+// ?since=<ISO>  — only events started_at > since (for incremental updates)
+router.get("/api/sessions/:sessionId/commands", (req, res) => {
+  const session = db
+    .prepare("SELECT * FROM sessions WHERE id = ?")
+    .get(req.params.sessionId) as DbSession | undefined;
+  if (!session) return res.status(404).json({ error: "Session not found" });
+  if (session.type !== "terminal") {
+    return res.status(409).json({ error: "Only terminal sessions have command events" });
+  }
+
+  const rawLimit = Number(req.query.limit);
+  const limit = rawLimit > 0 && rawLimit <= 500 ? rawLimit : 100;
+  const since = String(req.query.since || "").trim();
+
+  let rows: unknown[];
+  if (since) {
+    rows = db
+      .prepare(
+        `SELECT id, session_id, command, exit_code, output, started_at, completed_at,
+                duration_ms, cwd, detection_method
+         FROM command_events
+         WHERE session_id = ? AND started_at > ?
+         ORDER BY started_at ASC
+         LIMIT ?`
+      )
+      .all(req.params.sessionId, since, limit);
+  } else {
+    rows = db
+      .prepare(
+        `SELECT id, session_id, command, exit_code, output, started_at, completed_at,
+                duration_ms, cwd, detection_method
+         FROM command_events
+         WHERE session_id = ?
+         ORDER BY started_at ASC
+         LIMIT ?`
+      )
+      .all(req.params.sessionId, limit);
+  }
+
+  res.json(rows);
+});
+
+// GET /api/capture/search?q=<text>&session=<id>&limit=N
+// Full-text search across all captured command output via FTS5.
+router.get("/api/capture/search", (req, res) => {
+  const q = String(req.query.q || "").trim();
+  if (!q) return res.status(400).json({ error: "q is required" });
+
+  const rawLimit = Number(req.query.limit);
+  const limit = rawLimit > 0 && rawLimit <= 200 ? rawLimit : 50;
+  const sessionId = String(req.query.session || "").trim();
+
+  let rows: unknown[];
+  if (sessionId) {
+    rows = db
+      .prepare(
+        `SELECT ce.id, ce.session_id, ce.command, ce.cwd, ce.exit_code, ce.started_at,
+                snippet(command_events_fts, 2, '<mark>', '</mark>', '…', 16) AS output_snippet
+         FROM command_events_fts
+         JOIN command_events ce ON ce.rowid = command_events_fts.rowid
+         WHERE command_events_fts MATCH ? AND ce.session_id = ?
+         ORDER BY ce.started_at DESC
+         LIMIT ?`
+      )
+      .all(q, sessionId, limit);
+  } else {
+    rows = db
+      .prepare(
+        `SELECT ce.id, ce.session_id, ce.command, ce.cwd, ce.exit_code, ce.started_at,
+                snippet(command_events_fts, 2, '<mark>', '</mark>', '…', 16) AS output_snippet
+         FROM command_events_fts
+         JOIN command_events ce ON ce.rowid = command_events_fts.rowid
+         WHERE command_events_fts MATCH ?
+         ORDER BY ce.started_at DESC
+         LIMIT ?`
+      )
+      .all(q, limit);
+  }
+
+  res.json(rows);
+});
+
 export default router;

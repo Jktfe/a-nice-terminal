@@ -155,3 +155,39 @@ html:not(.light) .aero-view {
     font-size: 12px !important;
   }
 }
+
+/* ─── TerminalDashboard mobile optimisations ─────────────────────────────── */
+
+/* Prevent iOS rubber-band on the command list; allow internal scrolling */
+.command-list {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* Ensure command output blocks scroll horizontally on narrow screens */
+.command-block-output {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+/* Minimum tap target size (Apple HIG: 44pt) */
+@media (max-width: 767px) {
+  .ant-tap-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Tighten command block padding on small screens */
+  .command-block-header {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+
+  /* Full-width search panel on mobile */
+  .search-panel {
+    max-width: 100%;
+    border-radius: 0;
+    margin: 0;
+    top: 0;
+  }
+}

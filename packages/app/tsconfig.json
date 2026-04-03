@@ -16,5 +16,6 @@
     "noEmit": true,
     "strict": true
   },
-  "include": ["src", "server"]
+  "include": ["src"],
+  "exclude": ["server"]
 }
