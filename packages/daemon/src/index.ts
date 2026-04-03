@@ -44,6 +44,7 @@ import { startRetentionScheduler, stopRetentionScheduler } from "./retention.js"
 import { startChair, stopChair } from "./chair/chair.js";
 import { setIo } from "./chair/terminal-monitor.js";
 import { DbChatRoomRegistry } from "./db-chat-room-registry.js";
+import { CaptureIngest } from "./capture-ingest.js";
 import db from "./db.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -274,6 +275,17 @@ export async function start(): Promise<void> {
   // Chair — ambient orchestrator (respects chairman_enabled flag)
   startChair(io, chatRoomRegistry);
 
+  // Capture ingest — tail ant-capture log/event files into SQLite
+  let captureIngest: CaptureIngest | null = null;
+  const captureDir = process.env.ANT_CAPTURE_DIR;
+  if (captureDir) {
+    captureIngest = new CaptureIngest(db, captureDir);
+    captureIngest.start();
+    log("antd", `Capture ingest started (watching ${captureDir})`);
+  } else {
+    log("antd", "Capture ingest disabled (set ANT_CAPTURE_DIR to enable)");
+  }
+
   // Nudge all reconnecting clients to reload state
   setTimeout(() => io.emit("session_list_changed"), 1000);
 
@@ -287,6 +299,7 @@ export async function start(): Promise<void> {
 
     stopChair();
     stopRetentionScheduler();
+    if (captureIngest) captureIngest.stop();
 
     udsServer.close(() => {
       log("antd", "UDS server closed");

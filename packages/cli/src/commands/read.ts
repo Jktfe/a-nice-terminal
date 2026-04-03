@@ -11,7 +11,7 @@ export async function read(client: Client, sessionName: string, opts: {
   plain?: boolean;
 }): Promise<void> {
   const session = await resolveSession(client, sessionName);
-  const limit = opts.limit || 50;
+  const limit = opts.limit || 1000;
 
   if (session.type === "conversation") {
     const params = new URLSearchParams({ limit: String(limit) });

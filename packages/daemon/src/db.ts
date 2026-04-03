@@ -852,9 +852,52 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS capture_cursors (
     session_id TEXT PRIMARY KEY,
     log_offset INTEGER NOT NULL DEFAULT 0,
-    events_offset INTEGER NOT NULL DEFAULT 0,
+    event_offset INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   )
+`);
+
+// Migration: rename events_offset → event_offset if the old column name exists
+{
+  const captureCols = db.pragma("table_info(capture_cursors)") as Array<{ name: string }>;
+  const captureCopNames = new Set(captureCols.map((c) => c.name));
+  if (captureCopNames.has("events_offset") && !captureCopNames.has("event_offset")) {
+    db.exec(`
+      CREATE TABLE capture_cursors_new (
+        session_id TEXT PRIMARY KEY,
+        log_offset INTEGER NOT NULL DEFAULT 0,
+        event_offset INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      INSERT INTO capture_cursors_new SELECT session_id, log_offset, events_offset, updated_at FROM capture_cursors;
+      DROP TABLE capture_cursors;
+      ALTER TABLE capture_cursors_new RENAME TO capture_cursors;
+    `);
+  }
+}
+
+// FTS5 for full-text search over captured command output
+// Uses a standalone (non-content) table so the TEXT primary key of command_events
+// does not interfere with FTS5's required integer rowid.
+try {
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS command_events_fts USING fts5(
+      session_id UNINDEXED,
+      command,
+      output
+    );
+  `);
+} catch {
+  // FTS5 table may already exist
+}
+
+// Trigger: keep command_events_fts in sync when a command event is inserted
+db.exec(`
+  CREATE TRIGGER IF NOT EXISTS command_events_ai
+  AFTER INSERT ON command_events BEGIN
+    INSERT INTO command_events_fts(session_id, command, output)
+    VALUES (new.session_id, new.command, COALESCE(new.output, ''));
+  END;
 `);
 
 export default db;

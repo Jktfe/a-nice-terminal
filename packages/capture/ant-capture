@@ -48,9 +48,13 @@ cat > "$META_FILE" <<METAEOF
 }
 METAEOF
 
-# Export session ID so shell hooks and child processes can find it
+# Export session ID and capture directory so shell hooks and child processes can find them
 export ANT_SESSION_ID="$SESSION_ID"
+export ANT_CAPTURE_DIR="$CAPTURE_DIR"
 export ANT_CAPTURE_LOG="$LOG_FILE"
+# Track nesting depth so inner shells skip double-capture
+export ANT_CAPTURE_DEPTH="${ANT_CAPTURE_DEPTH:-0}"
+export ANT_CAPTURE_DEPTH=$(( ANT_CAPTURE_DEPTH + 1 ))
 
 # Source shell integration if available
 # (hooks will be picked up by the spawned shell)

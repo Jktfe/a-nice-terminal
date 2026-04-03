@@ -47,7 +47,8 @@ export class CaptureIngest {
     this.db = db;
     this.captureDir = captureDir;
 
-    // Ensure capture cursor table exists
+    // Ensure capture cursor table exists (db.ts is authoritative, but guard for
+    // the case where capture-ingest is used standalone in tests).
     db.exec(`
       CREATE TABLE IF NOT EXISTS capture_cursors (
         session_id TEXT PRIMARY KEY,
@@ -60,18 +61,6 @@ export class CaptureIngest {
     // Extend command_events with capture-specific columns if missing
     try { db.exec(`ALTER TABLE command_events ADD COLUMN start_chunk INTEGER DEFAULT NULL`); } catch {}
     try { db.exec(`ALTER TABLE command_events ADD COLUMN end_chunk INTEGER DEFAULT NULL`); } catch {}
-
-    // Add FTS5 on command_events if not exists
-    try {
-      db.exec(`
-        CREATE VIRTUAL TABLE IF NOT EXISTS command_events_fts USING fts5(
-          command, output,
-          content=command_events, content_rowid=rowid
-        );
-      `);
-    } catch {
-      // Already exists
-    }
 
     this.insertOutput = db.prepare(
       "INSERT OR REPLACE INTO terminal_output_events (session_id, chunk_index, data) VALUES (?, ?, ?)"

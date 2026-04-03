@@ -60,7 +60,7 @@ program.command("create <name>").alias("c").description("Create a new session")
   });
 
 program.command("read <session>").alias("r").description("Read messages or terminal output")
-  .option("-l, --limit <n>", "Number of items to fetch", "50")
+  .option("-l, --limit <n>", "Number of items to fetch", "1000")
   .option("--since <value>", "Fetch after this timestamp or cursor")
   .option("-f, --follow", "Tail new messages/output in real-time")
   .option("--plain", "Strip ANSI escape codes")

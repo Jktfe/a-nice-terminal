@@ -12,6 +12,11 @@
 # Guard: only activate if running inside an ANT capture session
 [ -z "$ANT_SESSION_ID" ] && return
 
+# Guard: don't double-capture nested shells (e.g. tmux pane spawning a sub-shell)
+if [ "${ANT_CAPTURE_DEPTH:-0}" -gt 1 ]; then
+  return
+fi
+
 __ant_event_dir="${ANT_CAPTURE_DIR:-${HOME}/.local/state/ant/capture}"
 __ant_event_file="${__ant_event_dir}/${ANT_SESSION_ID}.events"
 
@@ -31,6 +36,19 @@ __ant_emit() {
   echo "$1" >> "$__ant_event_file"
 }
 
+# JSON-escape a string — replaces backslashes, double-quotes, and control chars
+# Usage: __ant_json_str "raw string" → "escaped string" (with surrounding quotes)
+__ant_json_str() {
+  local s="$1"
+  # Escape backslash first, then double-quote, then common control chars
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\t'/\\t}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/\\r}"
+  printf '"%s"' "$s"
+}
+
 # Track state between preexec and precmd
 __ant_cmd_start_ms=""
 __ant_current_cmd=""
@@ -43,7 +61,7 @@ __ant_preexec() {
   # Emit OSC 133;C (command execution start) for terminals that support it
   printf '\033]133;C\007'
 
-  __ant_emit "{\"event\":\"command_start\",\"session\":\"${ANT_SESSION_ID}\",\"command\":$(printf '%s' "$1" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))' 2>/dev/null || echo "\"$1\""),\"cwd\":\"${PWD}\",\"ts\":${__ant_cmd_start_ms}}"
+  __ant_emit "{\"event\":\"command_start\",\"session\":\"${ANT_SESSION_ID}\",\"command\":$(__ant_json_str "$1"),\"cwd\":\"${PWD}\",\"ts\":${__ant_cmd_start_ms}}"
 }
 
 # --- precmd: fires just before the prompt is displayed ---
@@ -57,7 +75,7 @@ __ant_precmd() {
   # Only emit command_end if we saw a command_start
   if [ -n "$__ant_cmd_start_ms" ]; then
     local duration_ms=$(( end_ms - __ant_cmd_start_ms ))
-    __ant_emit "{\"event\":\"command_end\",\"session\":\"${ANT_SESSION_ID}\",\"command\":$(printf '%s' "$__ant_current_cmd" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))' 2>/dev/null || echo "\"$__ant_current_cmd\""),\"exit_code\":${exit_code},\"cwd\":\"${PWD}\",\"duration_ms\":${duration_ms},\"ts\":${end_ms}}"
+    __ant_emit "{\"event\":\"command_end\",\"session\":\"${ANT_SESSION_ID}\",\"command\":$(__ant_json_str "$__ant_current_cmd"),\"exit_code\":${exit_code},\"cwd\":\"${PWD}\",\"duration_ms\":${duration_ms},\"ts\":${end_ms}}"
     __ant_cmd_start_ms=""
     __ant_current_cmd=""
   fi
