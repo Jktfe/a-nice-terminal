@@ -35,6 +35,7 @@ import { registerTerminalNamespace } from "./ws/terminal-namespace.js";
 import { reapOrphanedSessions } from "./pty-manager.js";
 import { startRetentionScheduler, stopRetentionScheduler } from "./retention.js";
 import { startChairmanBridge, stopChairmanBridge } from "./chairman-bridge.js";
+import { setIo as setTerminalMonitorIo } from "./terminal-monitor.js";
 import { features } from "./feature-flags.js";
 import { DbChatRoomRegistry } from "./db-chat-room-registry.js";
 
@@ -103,8 +104,9 @@ async function start() {
     cors: { origin: true },
   });
 
-  // Make io available to route handlers
+  // Make io available to route handlers and background services
   app.set("io", io);
+  setTerminalMonitorIo(io);
   io.use((socket, next) => {
     const ip = extractIp(socket as any);
     if (!isAllowedHost(ip)) {

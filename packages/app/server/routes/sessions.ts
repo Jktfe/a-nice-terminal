@@ -223,6 +223,11 @@ router.patch("/api/sessions/:id", (req, res) => {
       .run(ttl, req.params.id);
   }
 
+  if (req.body.retain_history !== undefined) {
+    db.prepare("UPDATE sessions SET retain_history = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(req.body.retain_history ? 1 : 0, req.params.id);
+  }
+
   const updated = db
     .prepare("SELECT * FROM sessions WHERE id = ?")
     .get(req.params.id);

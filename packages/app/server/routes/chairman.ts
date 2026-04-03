@@ -91,11 +91,13 @@ router.post("/api/chairman/terminal-action", (req, res) => {
     const newMeta = JSON.stringify({ ...meta, status: newStatus });
     db.prepare("UPDATE messages SET metadata = ? WHERE id = ?").run(newMeta, message_id);
 
-    // Emit full message row so the store handler can replace-by-id correctly
     const io = req.app.get("io");
     if (io) {
+      // Update the approval card in the chat session
       const updatedMsg = db.prepare("SELECT * FROM messages WHERE id = ?").get(message_id);
       if (updatedMsg) io.to(session_id).emit("message_updated", updatedMsg);
+      // Clear the sidebar amber indicator for this terminal
+      io.emit("terminal_approval_resolved", { sessionId: terminal_id });
     }
 
     return res.json({ ok: true, status: newStatus });

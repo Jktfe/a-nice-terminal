@@ -15,6 +15,7 @@ import {
   Archive,
   RotateCcw,
   Zap,
+  BookmarkCheck,
 } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
@@ -30,6 +31,7 @@ export default function Sidebar() {
     sidebarOpen,
     pinnedSessionIds,
     unreadCounts,
+    approvalNeeded,
     showArchived,
     agentPresence,
     sessionHealth,
@@ -43,6 +45,7 @@ export default function Sidebar() {
     toggleSidebar,
     toggleSettings,
     togglePin,
+    toggleRetainHistory,
     createWorkspace,
     renameWorkspace,
     deleteWorkspace,
@@ -356,6 +359,7 @@ export default function Sidebar() {
                         active={session.id === activeSessionId}
                         pinned={pinnedSessionIds.has(session.id)}
                         unreadCount={unreadCounts[session.id] || 0}
+                        approvalNeeded={approvalNeeded[session.id] || false}
                         agentState={agentPresence[session.id]?.state}
                         hasError={sessionHealth[session.id] === false}
                         onSelect={() => handleSessionSelect(session.id)}
@@ -368,6 +372,7 @@ export default function Sidebar() {
                           }
                         }}
                         onTogglePin={() => togglePin(session.id)}
+                        onToggleRetain={() => toggleRetainHistory(session.id)}
                         onDragStart={(e) => handleDragStart(e, session.id)}
                         uiTheme={uiTheme}
                       />
@@ -406,6 +411,7 @@ export default function Sidebar() {
                 active={session.id === activeSessionId}
                 pinned={pinnedSessionIds.has(session.id)}
                 unreadCount={unreadCounts[session.id] || 0}
+                approvalNeeded={approvalNeeded[session.id] || false}
                 agentState={agentPresence[session.id]?.state}
                 hasError={sessionHealth[session.id] === false}
                 onSelect={() => handleSessionSelect(session.id)}
@@ -418,6 +424,7 @@ export default function Sidebar() {
                   }
                 }}
                 onTogglePin={() => togglePin(session.id)}
+                onToggleRetain={() => toggleRetainHistory(session.id)}
                 onDragStart={(e) => handleDragStart(e, session.id)}
                 uiTheme={uiTheme}
               />
@@ -528,6 +535,7 @@ function SessionItem({
   active,
   pinned,
   unreadCount,
+  approvalNeeded,
   archived,
   agentState,
   hasError,
@@ -536,6 +544,7 @@ function SessionItem({
   onRestore,
   onDelete,
   onTogglePin,
+  onToggleRetain,
   onDragStart,
   uiTheme,
 }: {
@@ -543,6 +552,7 @@ function SessionItem({
   active: boolean;
   pinned: boolean;
   unreadCount: number;
+  approvalNeeded?: boolean;
   archived?: boolean;
   agentState?: string;
   hasError?: boolean;
@@ -551,6 +561,7 @@ function SessionItem({
   onRestore?: () => void;
   onDelete: (e: React.MouseEvent) => void;
   onTogglePin: () => void;
+  onToggleRetain?: () => void;
   onDragStart: (e: React.DragEvent) => void;
   uiTheme: any;
 }) {
@@ -590,9 +601,14 @@ function SessionItem({
       {pinned && (
         <Pin className="w-2.5 h-2.5 text-amber-400/60 flex-shrink-0 -mr-1" />
       )}
-      <Icon className={`w-3.5 h-3.5 flex-shrink-0 ${iconColor}`} />
+      <div className="relative flex-shrink-0">
+        <Icon className={`w-3.5 h-3.5 ${iconColor}`} />
+        {approvalNeeded && (
+          <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400 animate-pulse" title="Waiting for permission approval" />
+        )}
+      </div>
       <div className="flex-1 min-w-0">
-        <div className="text-xs font-medium truncate">{session.name}</div>
+        <div className={`text-xs truncate ${unreadCount > 0 ? "font-bold text-[var(--color-text)]" : "font-medium"}`}>{session.name}</div>
         <div className="text-[10px] text-[var(--color-text-dim)] truncate">{typeLabel}</div>
       </div>
       <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -627,6 +643,15 @@ function SessionItem({
           </>
         ) : (
           <>
+            {session.type === "terminal" && onToggleRetain && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onToggleRetain(); }}
+                className={`p-1 transition-colors ${session.retain_history ? "text-emerald-400" : "text-[var(--color-text-dim)] hover:text-emerald-400"}`}
+                title={session.retain_history ? "Retain history: ON (click to disable)" : "Retain history: OFF (click to enable)"}
+              >
+                <BookmarkCheck className="w-3 h-3" />
+              </button>
+            )}
             <button
               onClick={(e) => { e.stopPropagation(); onTogglePin(); }}
               className={`p-1 transition-colors ${pinned ? "text-amber-400" : "text-[var(--color-text-dim)] hover:text-amber-400"}`}

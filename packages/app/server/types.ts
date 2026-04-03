@@ -8,6 +8,7 @@ export interface DbSession {
   archived: number;
   ttl_minutes: number | null;
   tier: "sprint" | "session" | "persistent";
+  retain_history: number; // 0 = off, 1 = retain full scrollback
   created_at: string;
   updated_at: string;
 }

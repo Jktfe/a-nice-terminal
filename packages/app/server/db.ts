@@ -276,6 +276,13 @@ try {
   // Column already exists
 }
 
+// Migration: add retain_history column to sessions (opt-in full scrollback replay)
+try {
+  db.exec(`ALTER TABLE sessions ADD COLUMN retain_history INTEGER NOT NULL DEFAULT 0`);
+} catch {
+  // Column already exists
+}
+
 // ---------------------------------------------------------------------------
 // V2: Dangerous Commands — patterns that trigger warnings before execution
 // ---------------------------------------------------------------------------

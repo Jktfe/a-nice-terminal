@@ -19,6 +19,7 @@ export interface Session {
   archived: number;
   ttl_minutes: number | null;
   tier?: "sprint" | "session" | "persistent";
+  retain_history?: number; // 0 = off, 1 = retain full scrollback
   terminal_id?: string | null;
   created_at: string;
   updated_at: string;
@@ -90,6 +91,7 @@ interface AppState {
   terminalFontSize: number;
   terminalTheme: string;
   unreadCounts: Record<string, number>;
+  approvalNeeded: Record<string, boolean>;
   showArchived: boolean;
   splitMode: boolean;
   splitSessionId: string | null;
@@ -157,6 +159,7 @@ interface AppState {
   toggleChairmanPanel: () => void;
   setChatViewMode: (mode: ChatViewMode) => void;
   toggleSlowEditMode: () => void;
+  toggleRetainHistory: (id: string) => Promise<void>;
   terminalRefreshSeq: number;
   requestTerminalRefresh: () => void;
   showRightPanel: boolean;
@@ -244,6 +247,7 @@ export const useStore = create<AppState>((set, get) => ({
   terminalFontSize: Number(localStorage.getItem(TERMINAL_FONT_SIZE_KEY)) || 14,
   terminalTheme: localStorage.getItem(TERMINAL_THEME_KEY) || "default",
   unreadCounts: {},
+  approvalNeeded: {},
   showArchived: false,
   splitMode: false,
   splitSessionId: null,
@@ -454,6 +458,14 @@ export const useStore = create<AppState>((set, get) => ({
       }));
     });
 
+    socket.on("terminal_approval_needed", ({ sessionId }: { sessionId: string }) => {
+      set((s) => ({ approvalNeeded: { ...s.approvalNeeded, [sessionId]: true } }));
+    });
+
+    socket.on("terminal_approval_resolved", ({ sessionId }: { sessionId: string }) => {
+      set((s) => ({ approvalNeeded: { ...s.approvalNeeded, [sessionId]: false } }));
+    });
+
     set({ socket });
   },
 
@@ -623,6 +635,21 @@ export const useStore = create<AppState>((set, get) => ({
 
   toggleShowArchived: () => set((s) => ({ showArchived: !s.showArchived })),
 
+  toggleRetainHistory: async (id) => {
+    const session = get().sessions.find((s) => s.id === id);
+    if (!session) return;
+    const newVal = session.retain_history ? 0 : 1;
+    try {
+      await apiFetch(`/api/sessions/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ retain_history: newVal }),
+      });
+      await get().loadSessions();
+    } catch (err: any) {
+      set({ error: err.message });
+    }
+  },
+
   setActiveSession: (id) => {
     const { socket, activeSessionId } = get();
     if (activeSessionId === id) return;
@@ -631,7 +658,8 @@ export const useStore = create<AppState>((set, get) => ({
       if (socket) socket.emit("leave_session", { sessionId: activeSessionId });
     }
 
-    set({ activeSessionId: id, messages: [] });
+    // Clear unread badge for the session being activated
+    set((s) => ({ activeSessionId: id, messages: [], unreadCounts: { ...s.unreadCounts, [id]: 0 } }));
     localStorage.setItem(ACTIVE_SESSION_KEY, id);
 
     if (socket) socket.emit("join_session", { sessionId: id });

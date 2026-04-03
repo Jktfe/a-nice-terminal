@@ -78,6 +78,9 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [bridgeOpen, setBridgeOpen] = useState(false);
+  const [isTouchDevice] = useState(() =>
+    typeof navigator !== "undefined" && navigator.maxTouchPoints > 0
+  );
   const [bridgeText, setBridgeText] = useState("");
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
@@ -103,6 +106,26 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
     termRef.current?.scrollToBottom();
     setShowScrollButton(false);
   }, []);
+
+  // Send a raw byte sequence to the PTY (used by mobile key bar)
+  const sendRaw = useCallback((bytes: string) => {
+    if (!activeSessionId) return;
+    const ts = getTermSocket();
+    ts.emit("in", { sid: activeSessionId, d: new TextEncoder().encode(bytes) });
+  }, [activeSessionId]);
+
+  const handleMobilePaste = useCallback(async () => {
+    if (!activeSessionId) return;
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        const ts = getTermSocket();
+        ts.emit("in", { sid: activeSessionId, d: new TextEncoder().encode(text) });
+      }
+    } catch {
+      // Clipboard access denied or unavailable — no-op
+    }
+  }, [activeSessionId]);
 
   // Respond to refresh requests from the header toolbar
   useEffect(() => {
@@ -356,8 +379,13 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
           .catch(() => {
             // State fetch failed (e.g. archived session with no live PTY).
             // Fall back to replaying historical output from the DB.
+            // When retain_history is set, load all chunks; otherwise cap at 5000.
             if (!termRef.current) return;
-            apiFetch(`/api/sessions/${activeSessionId}/terminal/output?limit=5000`)
+            const retainHistory = sessions.find((s) => s.id === activeSessionId)?.retain_history;
+            const outputUrl = retainHistory
+              ? `/api/sessions/${activeSessionId}/terminal/output`
+              : `/api/sessions/${activeSessionId}/terminal/output?limit=5000`;
+            apiFetch(outputUrl)
               .then((result) => {
                 if (!termRef.current || activeSessionId !== result.sessionId) return;
                 const events = result.events || [];
@@ -781,6 +809,32 @@ export default function TerminalViewV2({ sessionId: sessionIdProp }: { sessionId
             </motion.button>
           )}
         </AnimatePresence>
+
+        {isTouchDevice && !activeSession?.archived && !isSessionDead && (
+          <div className="flex items-center gap-1.5 px-1 py-1 border-t border-[var(--color-border)]">
+            <button
+              onPointerDown={(e) => { e.preventDefault(); sendRaw("\x1b"); }}
+              className="flex-1 py-2 rounded text-xs font-mono font-semibold text-[var(--color-text-muted)] bg-[var(--color-surface)] hover:bg-[var(--color-hover)] active:bg-[var(--color-active)] border border-[var(--color-border)] transition-colors select-none"
+              title="Send Escape"
+            >
+              ESC
+            </button>
+            <button
+              onPointerDown={(e) => { e.preventDefault(); sendRaw("\x03"); }}
+              className="flex-1 py-2 rounded text-xs font-mono font-semibold text-red-400/80 bg-[var(--color-surface)] hover:bg-red-500/10 active:bg-red-500/20 border border-[var(--color-border)] transition-colors select-none"
+              title="Send Ctrl+C (interrupt)"
+            >
+              ^C
+            </button>
+            <button
+              onPointerDown={(e) => { e.preventDefault(); handleMobilePaste(); }}
+              className="flex-1 py-2 rounded text-xs font-mono font-semibold text-[var(--color-text-muted)] bg-[var(--color-surface)] hover:bg-[var(--color-hover)] active:bg-[var(--color-active)] border border-[var(--color-border)] transition-colors select-none"
+              title="Paste from clipboard"
+            >
+              Paste
+            </button>
+          </div>
+        )}
 
         {slowEditMode && (
           <div className="absolute inset-x-2 bottom-2 flex flex-col gap-2">

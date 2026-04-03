@@ -9,8 +9,15 @@
  */
 
 import crypto from "crypto";
+import type { Server } from "socket.io";
 import db from "./db.js";
 import { getHeadless, getActivePtySessionIds } from "./pty-manager.js";
+
+// ─── Socket.IO reference (set from index.ts after server starts) ──────────────
+let ioServer: Server | null = null;
+export function setIo(server: Server): void {
+  ioServer = server;
+}
 
 const _TLS = process.env.ANT_TLS_CERT;
 if (_TLS) process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
@@ -170,6 +177,12 @@ async function poll(): Promise<void> {
 
       const terminalName = getTerminalName(terminalSessionId);
       await postApprovalCard(targetSessionId, terminalSessionId, terminalName, toolType, detail, promptId);
+
+      // Broadcast to all connected clients so the sidebar can highlight the terminal
+      if (ioServer) {
+        ioServer.emit("terminal_approval_needed", { sessionId: terminalSessionId, promptId, toolType });
+      }
+
       console.log(`[terminal-monitor] Approval card posted for terminal "${terminalName}": ${toolType} — ${detail.slice(0, 50)}`);
     }
   } catch (err) {
