@@ -1,16 +1,31 @@
 # ANT v2: Orchestration Layer Architecture
 
-> ANT is not a terminal. ANT is the orchestration and conversation layer above native terminals.
+> ANT is not a terminal. ANT is the persistent memory and orchestration layer above native terminals.
 
 ## Core Insight
 
 ANT's value is NOT terminal rendering. Ghostty (or any native terminal) does that better than any web solution ever could. ANT's value is:
 
-1. **Conversations** — structured messaging between humans and AI agents
-2. **Cross-terminal workflows** — coordinating work across multiple agent sessions
-3. **Capture & search** — command history, output indexing, session recording
-4. **Orchestration** — creating terminals, routing messages, managing agent lifecycles
-5. **Visibility** — a web dashboard showing what's happening across all terminals
+1. **Permanent memory** — when Claude/Gemini compact context and clear the terminal, the full conversation remains in ANT, searchable, scrollable, accessible from any device
+2. **Resilience** — agents keep working even if ANT goes down; ANT catches up on reconnect
+3. **Conversations** — structured messaging between humans and AI agents
+4. **Cross-terminal workflows** — coordinating work across multiple agent sessions
+5. **Full I/O capture** — every byte in and out, stored permanently, defeating terminal scrollback limits
+6. **Orchestration** — creating terminals, routing messages, managing agent lifecycles
+7. **Mobile/remote access** — the full conversation on your phone even when the terminal has been compacted
+
+## The Problem ANT Solves
+
+LLM CLI tools (Claude Code, Gemini CLI, Aider, etc.) have a fundamental UX problem:
+
+1. **Context compaction clears the terminal** — the LLM decides to compact, your scrollback is gone
+2. **Terminal scrollback is finite** — even without compaction, long sessions overflow the buffer
+3. **No cross-device access** — you can't pick up your phone and see what Claude is doing
+4. **No search across sessions** — finding that command from yesterday means grepping logs
+5. **Agent crashes lose context** — if the process dies, the conversation is gone
+6. **No cross-agent visibility** — three agents working on your project, no unified view
+
+ANT defeats all of these by sitting above the terminal, capturing everything, and storing it permanently in a searchable database accessible from any device.
 
 ## Architecture
 
@@ -107,9 +122,81 @@ tell application "Ghostty"
 end tell
 ```
 
+### Full I/O Capture (The Core Value)
+
+ANT captures **every byte** flowing through the terminal — not just command events, but the entire conversation stream. When Claude compacts context and clears the terminal, ANT still has everything.
+
+**Architecture: `script`-style wrapper**
+
+When ANT creates a Ghostty terminal, it wraps the agent command:
+
+```applescript
+tell application "Ghostty"
+    set cfg to new surface configuration
+    set command of cfg to "/usr/local/bin/ant-capture abc123 claude --resume"
+    set environment of cfg to {"ANT_SESSION_ID=abc123"}
+    new tab with configuration cfg
+end tell
+```
+
+Where `ant-capture` is a thin wrapper:
+
+```bash
+#!/bin/bash
+# ant-capture <session-id> <command...>
+SESSION_ID="$1"; shift
+FIFO="$XDG_RUNTIME_DIR/ant/capture/$SESSION_ID"
+mkfifo "$FIFO.in" "$FIFO.out" 2>/dev/null
+
+# Tee all output to the FIFO for antd to consume
+# The command runs normally in the terminal — user sees everything
+# antd reads the FIFO and stores permanently
+script -q -F "$FIFO.out" -c "$*" 2>&1 | tee >(
+    while IFS= read -r line; do
+        echo "$line" > "$FIFO.out"
+    done
+) &
+
+# Or simpler: use typescript recording
+exec script -q -F "$XDG_RUNTIME_DIR/ant/capture/$SESSION_ID.log" -c "$*"
+```
+
+**What antd does with the stream:**
+
+1. **Stores raw bytes** — complete ANSI stream in `terminal_output_events`, chunked and timestamped
+2. **Strips to text** — parallel stripped-text version for FTS5 search
+3. **Detects command boundaries** — via OSC 133 markers or shell hook events
+4. **Indexes command blocks** — command text + output text in `command_events` with FTS5
+5. **Detects context compaction** — when the LLM emits a clear-screen sequence (CSI 2 J or CSI 3 J), ANT notes it but **keeps all prior content**
+
+**The result:** The terminal can clear, compact, or crash. ANT has the complete, permanent, searchable record.
+
+### Resilience: ANT Down ≠ Agent Down
+
+The capture wrapper (`ant-capture` / `script`) writes to a local log file. If antd goes down:
+
+1. The agent keeps running in Ghostty — nothing depends on antd for terminal operation
+2. The `script` log file keeps growing on disk
+3. When antd comes back, it reads the log file from where it left off (cursor stored in SQLite)
+4. Full catch-up: every byte captured, no gaps
+
+This is better than dtach because the agent process isn't even aware ANT exists. It's just a shell running in Ghostty. The capture is a transparent wrapper.
+
+### Mobile Access
+
+The web UI (accessible via Tailscale on your phone) shows:
+
+- **Full conversation history** — every command and output, permanently
+- **Smooth scrolling** — it's a web page rendering stored text, not a terminal buffer
+- **Search** — FTS5 across all sessions, all time
+- **Live status** — which agents are active, idle, waiting for input
+- **Message threads** — the conversation layer alongside terminal output
+
+When Claude compacts context and clears the terminal at 2am, you wake up, open ANT on your phone, and the entire conversation is there — searchable, scrollable, with command blocks, exit codes, and timestamps.
+
 ### Session State Capture
 
-ANT doesn't need to render terminal content. It captures metadata:
+In addition to full I/O, ANT captures structured metadata:
 
 1. **OSC 133 markers** (Ghostty natively emits these) — command boundaries, exit codes, timing
 2. **OSC 7** — working directory changes
@@ -193,10 +280,10 @@ The unique value no one else has:
 | Concern | Challenge | Mitigation |
 |---|---|---|
 | **macOS only** (today) | AppleScript is macOS-only. Linux Ghostty has no equivalent IPC. | Accept macOS-first. Linux support via fallback to node-pty path (current architecture) or wait for libghostty cross-platform API. |
-| **No terminal buffer access** | Can't read what's on screen via AppleScript. No `ant screen` equivalent. | Shell hooks capture command output. For raw screen state, would need Ghostty to add a buffer-read API (or use libghostty when available). |
-| **Agent output capture** | Can't capture raw ANSI output for replay/recording. | Shell hooks capture text. For full ANSI recording, use `script` command wrapping or asciinema inside the Ghostty session. |
+| **No terminal buffer access** | Can't read what's currently on screen via AppleScript. | ANT has the full stream via `script` capture — can reconstruct current screen by replaying recent ANSI. Or: `ant screen` replays last N bytes through a headless parser on demand (lazy, not continuous). |
 | **Ghostty dependency** | Users must install and use Ghostty. | Ghostty is MIT-licensed, free, and increasingly popular (49K+ stars). Reasonable to require for the premium experience. |
-| **Split attention** | User looks at Ghostty for terminal, browser for ANT web UI. | This is actually fine — it's the same as using Slack alongside your IDE. ANT web UI is for the conversation/orchestration view, not terminal interaction. |
+| **Split attention** | User looks at Ghostty for terminal, browser for ANT web UI. | This is actually the point — Ghostty is where you type, ANT web UI is where you review, search, coordinate across agents, and access from mobile. Same as Slack alongside your IDE. |
+| **Capture wrapper overhead** | `script` / `tee` adds a process to the pipe. | Negligible — `script` is a decades-old Unix utility designed for this. Sub-millisecond overhead. |
 
 ## The ant CLI in This Model
 
