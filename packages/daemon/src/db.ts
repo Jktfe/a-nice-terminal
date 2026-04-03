@@ -915,5 +915,38 @@ db.exec(`
 db.exec(`CREATE INDEX IF NOT EXISTS idx_routing_events_session ON routing_events(session_id)`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_routing_events_created ON routing_events(created_at)`);
 
+// ─── Workflow instances ───────────────────────────────────────────────────────
+// A workflow_instance is a single run of a recipe.
+// workflow_step_sessions maps each step index to the ANT session created for it.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS workflow_instances (
+    id          TEXT PRIMARY KEY,
+    recipe_id   TEXT NOT NULL,
+    recipe_name TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'running',  -- running | done | failed
+    started_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    finished_at TEXT,
+    FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE
+  )
+`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_wf_instances_recipe ON workflow_instances(recipe_id)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_wf_instances_status ON workflow_instances(status)`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS workflow_step_sessions (
+    id              TEXT PRIMARY KEY,
+    workflow_id     TEXT NOT NULL,
+    step_index      INTEGER NOT NULL,
+    step_title      TEXT,
+    session_id      TEXT NOT NULL,
+    depends_on      TEXT,  -- JSON array of step indices this step waits for
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (workflow_id) REFERENCES workflow_instances(id) ON DELETE CASCADE,
+    FOREIGN KEY (session_id)  REFERENCES sessions(id) ON DELETE CASCADE
+  )
+`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_wf_steps_workflow ON workflow_step_sessions(workflow_id)`);
+db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_wf_steps_unique ON workflow_step_sessions(workflow_id, step_index)`);
+
 export default db;
 export { DB_PATH };

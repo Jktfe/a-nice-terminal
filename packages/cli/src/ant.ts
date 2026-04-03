@@ -24,6 +24,8 @@ import { roomTag } from "./commands/room-tag.js";
 import { roomFile } from "./commands/room-file.js";
 import { daemonStart, daemonStop, daemonStatus, daemonRestart } from "./commands/daemon-commands.js";
 import { terminalCreate, terminalInput, terminalExec, terminalFocus, terminalClose, terminalList } from "./commands/terminal-commands.js";
+import { workflowList, workflowStatus, workflowLaunch, workflowCancel } from "./commands/workflow-commands.js";
+import { exportObsidian, exportAsciicast } from "./commands/export-commands.js";
 import * as out from "./output.js";
 
 const program = new Command()
@@ -263,6 +265,53 @@ program.command("term-close <session>").description("Close a Ghostty terminal")
   .option("--json", "Output raw JSON")
   .action(async (session, opts) => {
     try { const { client, format } = getClientAndFormat(); await terminalClose(client, session, { format: opts.json ? "json" : format }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+// ─── Workflow commands ────────────────────────────────────────────────────────
+
+const workflow = program.command("workflow").description("Manage multi-terminal workflow instances");
+
+workflow.command("list").alias("ls").description("List workflow instances")
+  .action(async () => {
+    try { const { client, format } = getClientAndFormat(); await workflowList(client, { format }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+workflow.command("status <id>").description("Show workflow status and step details")
+  .action(async (id) => {
+    try { const { client, format } = getClientAndFormat(); await workflowStatus(client, id, { format }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+workflow.command("launch <recipe-id>").description("Launch a workflow from a recipe")
+  .option("-p, --param <key=value>", "Recipe parameter substitution (repeatable)", (v, a: string[]) => [...a, v], [] as string[])
+  .action(async (recipeId, opts) => {
+    try { const { client, format } = getClientAndFormat(); await workflowLaunch(client, recipeId, { format, param: opts.param }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+workflow.command("cancel <id>").description("Cancel a running workflow")
+  .action(async (id) => {
+    try { const { client, format } = getClientAndFormat(); await workflowCancel(client, id, { format }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+// ─── Export commands ──────────────────────────────────────────────────────────
+
+const exportCmd = program.command("export").description("Export session data");
+
+exportCmd.command("obsidian <session>").description("Export session as an Obsidian markdown note")
+  .option("-o, --out <path>", "Output file path (default: <session-name>.md)")
+  .action(async (session, opts) => {
+    try { const { client, format } = getClientAndFormat(); await exportObsidian(client, session, { format, out: opts.out }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+exportCmd.command("asciicast <session>").description("Export terminal session as an Asciicast v3 .cast file")
+  .option("-o, --out <path>", "Output file path (default: <session-name>.cast)")
+  .action(async (session, opts) => {
+    try { const { client, format } = getClientAndFormat(); await exportAsciicast(client, session, { format, out: opts.out }); }
     catch (err: any) { out.error(err.message); process.exit(1); }
   });
 

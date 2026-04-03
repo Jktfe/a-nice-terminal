@@ -16,6 +16,7 @@ import SettingsModal from "./components/SettingsModal.tsx";
 import DocsModal from "./components/DocsModal.tsx";
 import ParseDeleteDialog from "./components/ParseDeleteDialog.tsx";
 import KnowledgePanel from "./components/KnowledgePanel.tsx";
+import WorkflowPanel from "./components/WorkflowPanel.tsx";
 import CommonCallsPanel from "./components/CommonCallsPanel.tsx";
 import TaskPanel from "./components/TaskPanel.tsx";
 import ChairmanPanel from "./components/ChairmanPanel.tsx";
@@ -69,6 +70,7 @@ export default function App() {
     toggleCommonCalls,
     toggleTaskPanel,
     toggleChairmanPanel,
+    toggleWorkflowPanel,
     showRightPanel,
     searchOpen,
     toggleSearch,
@@ -120,6 +122,9 @@ export default function App() {
       } else if (e.key === "H" && e.shiftKey) {
         e.preventDefault();
         toggleChairmanPanel();
+      } else if (e.key === "W" && e.shiftKey) {
+        e.preventDefault();
+        toggleWorkflowPanel();
       } else if (e.key === "/") {
         e.preventDefault();
         toggleDocs();
@@ -137,7 +142,7 @@ export default function App() {
         }
       }
     },
-    [createSession, toggleSidebar, splitMode, toggleSplit, toggleDocs, toggleSettings, toggleKnowledgePanel, toggleCommonCalls, toggleTaskPanel, toggleChairmanPanel, toggleSearch]
+    [createSession, toggleSidebar, splitMode, toggleSplit, toggleDocs, toggleSettings, toggleKnowledgePanel, toggleCommonCalls, toggleTaskPanel, toggleChairmanPanel, toggleSearch, toggleWorkflowPanel]
   );
 
   useEffect(() => {
@@ -253,6 +258,7 @@ export default function App() {
         <CommonCallsPanel />
         <TaskPanel />
         <ChairmanPanel />
+        <WorkflowPanel />
         <OfflineOverlay />
       </div>
     );
@@ -330,6 +336,7 @@ export default function App() {
       <CommonCallsPanel />
       <TaskPanel />
       <ChairmanPanel />
+      <WorkflowPanel />
 
       <OfflineOverlay />
     </div>

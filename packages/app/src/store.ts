@@ -105,6 +105,7 @@ interface AppState {
   commonCallsOpen: boolean;
   taskPanelOpen: boolean;
   chairmanPanelOpen: boolean;
+  workflowPanelOpen: boolean;
   chatViewMode: ChatViewMode;
   slowEditMode: boolean;
   offlineQueue: Array<{ sessionId: string; content: string; role: string; queuedAt: string }>;
@@ -157,6 +158,7 @@ interface AppState {
   toggleCommonCalls: () => void;
   toggleTaskPanel: () => void;
   toggleChairmanPanel: () => void;
+  toggleWorkflowPanel: () => void;
   setChatViewMode: (mode: ChatViewMode) => void;
   toggleSlowEditMode: () => void;
   toggleRetainHistory: (id: string) => Promise<void>;
@@ -270,6 +272,7 @@ export const useStore = create<AppState>((set, get) => ({
   commonCallsOpen: false,
   taskPanelOpen: false,
   chairmanPanelOpen: false,
+  workflowPanelOpen: false,
   showRightPanel: true,
   searchOpen: false,
   chatViewMode: (localStorage.getItem(CHAT_VIEW_MODE_KEY) as ChatViewMode) || "classic",
@@ -856,6 +859,7 @@ export const useStore = create<AppState>((set, get) => ({
   toggleCommonCalls: () => set((s) => ({ commonCallsOpen: !s.commonCallsOpen })),
   toggleTaskPanel: () => set((s) => ({ taskPanelOpen: !s.taskPanelOpen })),
   toggleChairmanPanel: () => set((s) => ({ chairmanPanelOpen: !s.chairmanPanelOpen })),
+  toggleWorkflowPanel: () => set((s) => ({ workflowPanelOpen: !s.workflowPanelOpen })),
   toggleSlowEditMode: () => set((s) => ({ slowEditMode: !s.slowEditMode })),
   requestTerminalRefresh: () => set((s) => ({ terminalRefreshSeq: s.terminalRefreshSeq + 1 })),
   toggleRightPanel: () => set((s) => ({ showRightPanel: !s.showRightPanel })),
