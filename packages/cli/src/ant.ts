@@ -23,6 +23,7 @@ import { roomTasks } from "./commands/room-tasks.js";
 import { roomTag } from "./commands/room-tag.js";
 import { roomFile } from "./commands/room-file.js";
 import { daemonStart, daemonStop, daemonStatus, daemonRestart } from "./commands/daemon-commands.js";
+import { terminalCreate, terminalInput, terminalExec, terminalFocus, terminalClose, terminalList } from "./commands/terminal-commands.js";
 import * as out from "./output.js";
 
 const program = new Command()
@@ -215,6 +216,53 @@ daemon.command("status").description("Show antd running status")
 daemon.command("restart").description("Restart antd")
   .action(async () => {
     try { const { format } = getClientAndFormat(); await daemonRestart({ format }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+// ─── Terminal orchestration commands ──────────────────────────────────────────
+
+program.command("terminals").alias("term list").description("List all open Ghostty terminals")
+  .option("--json", "Output raw JSON")
+  .action(async (opts) => {
+    try { const { client, format } = getClientAndFormat(); await terminalList(client, { format: opts.json ? "json" : format }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+program.command("term-create [name]").description("Create a new Ghostty terminal")
+  .option("--cwd <path>", "Starting directory (default: current directory)")
+  .option("--title <title>", "Tab title")
+  .option("--json", "Output raw JSON")
+  .action(async (name, opts) => {
+    try { const { client, format } = getClientAndFormat(); await terminalCreate(client, name, { format: opts.json ? "json" : format, cwd: opts.cwd, title: opts.title }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+program.command("term-input <session> <text>").description("Send text input to a terminal (use - to read from stdin)")
+  .option("--json", "Output raw JSON")
+  .action(async (session, text, opts) => {
+    try { const { client, format } = getClientAndFormat(); await terminalInput(client, session, text, { format: opts.json ? "json" : format }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+program.command("term-exec <session> <command>").description("Execute a command in a Ghostty terminal and wait for exit")
+  .option("--timeout <ms>", "Timeout in milliseconds", "30000")
+  .option("--json", "Output raw JSON")
+  .action(async (session, command, opts) => {
+    try { const { client, format } = getClientAndFormat(); await terminalExec(client, session, command, { format: opts.json ? "json" : format, timeout: parseInt(opts.timeout) }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+program.command("term-focus <session>").description("Bring a Ghostty terminal to the front")
+  .option("--json", "Output raw JSON")
+  .action(async (session, opts) => {
+    try { const { client, format } = getClientAndFormat(); await terminalFocus(client, session, { format: opts.json ? "json" : format }); }
+    catch (err: any) { out.error(err.message); process.exit(1); }
+  });
+
+program.command("term-close <session>").description("Close a Ghostty terminal")
+  .option("--json", "Output raw JSON")
+  .action(async (session, opts) => {
+    try { const { client, format } = getClientAndFormat(); await terminalClose(client, session, { format: opts.json ? "json" : format }); }
     catch (err: any) { out.error(err.message); process.exit(1); }
   });
 

@@ -33,6 +33,7 @@ import retentionRoutes from "./routes/retention.js";
 import commonCallsRoutes from "./routes/common-calls.js";
 import tasksRoutes from "./routes/tasks.js";
 import chairRoutes from "./routes/chair.js";
+import terminalsRouter from "./routes/terminals.js";
 
 import { registerSocketHandlers } from "./ws/handlers.js";
 // NOTE: registerChatHandlers and registerTerminalNamespace are Step 8 deliverables.
@@ -195,6 +196,7 @@ export async function start(): Promise<void> {
   app.use(commonCallsRoutes);
   app.use(tasksRoutes);
   app.use(chairRoutes);
+  app.use(terminalsRouter);
 
   // ── WebSocket handlers ────────────────────────────────────────────────────
 
