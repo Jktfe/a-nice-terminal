@@ -93,12 +93,12 @@ ANT defeats all of these by sitting above the terminal, capturing everything, an
 ### Terminal Orchestration via AppleScript
 
 ```applescript
--- Create a new terminal for an agent
+-- Create a new terminal session
 tell application "Ghostty"
     set cfg to new surface configuration
     set working directory of cfg to "/Users/me/project"
-    set command of cfg to "claude --resume"
-    set environment of cfg to {"ANT_SESSION_ID=abc123", "ANT_AGENT=claude-1"}
+    set command of cfg to "/usr/local/bin/ant-capture abc123 /bin/zsh"
+    set environment of cfg to {"ANT_SESSION_ID=abc123"}
     new tab with configuration cfg
 end tell
 
@@ -128,18 +128,18 @@ ANT captures **every byte** flowing through the terminal — not just command ev
 
 **Architecture: `script`-style wrapper**
 
-When ANT creates a Ghostty terminal, it wraps the agent command:
+When ANT creates a Ghostty terminal, the command is always just a shell wrapped with `ant-capture`. ANT doesn't know or care what runs inside — the user decides (Claude, Cursor, plain bash, anything). ANT just captures everything.
 
 ```applescript
 tell application "Ghostty"
     set cfg to new surface configuration
-    set command of cfg to "/usr/local/bin/ant-capture abc123 claude --resume"
+    set command of cfg to "/usr/local/bin/ant-capture abc123 /bin/zsh"
     set environment of cfg to {"ANT_SESSION_ID=abc123"}
     new tab with configuration cfg
 end tell
 ```
 
-Where `ant-capture` is a thin wrapper:
+`ant-capture` is a thin wrapper:
 
 ```bash
 #!/bin/bash
