@@ -103,10 +103,6 @@ async function start() {
   // ── Security: Tailscale / localhost guard ─────────────────────────────────
   app.use(tailscaleOnly);
 
-  // ── Minimal body parsing (needed so headers propagate correctly for proxied
-  //    requests that express might otherwise buffer unexpectedly) ────────────
-  app.use(express.json());
-
   // ── Proxy /api/* → daemon ─────────────────────────────────────────────────
   // Express strips the mount prefix from req.url, so we must restore it before
   // forwarding — otherwise GET /api/health becomes GET /health on the daemon.
