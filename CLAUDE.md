@@ -19,11 +19,10 @@ Requires Node.js >= 22.12.0 (pinned in `.nvmrc` at 22.14.0). Always runs under N
 
 ```
 packages/
-  app/            # Main application
-    src/          # React 19 frontend (xterm.js, Zustand, Tailwind CSS v4)
-    server/       # Express backend (REST, Socket.IO, SQLite WAL, node-pty)
+  app/            # React 19 frontend (xterm.js, Zustand, Tailwind CSS v4)
+  daemon/         # Express backend daemon (REST, Socket.IO, SQLite WAL, node-pty, Chair)
   bridge/         # Chairman and LLM bridge servers
-  cli/            # CLI tooling
+  cli/            # CLI tooling (ant start/stop/status, daemon management)
   mcp/            # MCP server (stdio) for Claude Code / Cursor integration
   website/        # Marketing site (SvelteKit + Svelte 5)
 ```

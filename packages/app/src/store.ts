@@ -168,6 +168,10 @@ interface AppState {
   toggleRightPanel: () => void;
   searchOpen: boolean;
   toggleSearch: () => void;
+  // Live cwd per terminal session — updated by TerminalDashboard from captured command events.
+  // Takes precedence over session.cwd (which is only set at creation time) in the Header breadcrumb.
+  sessionCwds: Record<string, string>;
+  setSessionCwd: (sessionId: string, cwd: string) => void;
 }
 
 const API_KEY = (import.meta.env.VITE_ANT_API_KEY as string | undefined)?.trim();
@@ -278,6 +282,7 @@ export const useStore = create<AppState>((set, get) => ({
   chatViewMode: (localStorage.getItem(CHAT_VIEW_MODE_KEY) as ChatViewMode) || "classic",
   slowEditMode: false,
   terminalRefreshSeq: 0,
+  sessionCwds: {},
   offlineQueue: JSON.parse(localStorage.getItem("ant-offline-queue") || "[]"),
 
   setError: (message) => set({ error: message }),
@@ -864,6 +869,7 @@ export const useStore = create<AppState>((set, get) => ({
   requestTerminalRefresh: () => set((s) => ({ terminalRefreshSeq: s.terminalRefreshSeq + 1 })),
   toggleRightPanel: () => set((s) => ({ showRightPanel: !s.showRightPanel })),
   toggleSearch: () => set((s) => ({ searchOpen: !s.searchOpen })),
+  setSessionCwd: (sessionId, cwd) => set((s) => ({ sessionCwds: { ...s.sessionCwds, [sessionId]: cwd } })),
   setChatViewMode: (mode) => {
     localStorage.setItem(CHAT_VIEW_MODE_KEY, mode);
     set({ chatViewMode: mode });

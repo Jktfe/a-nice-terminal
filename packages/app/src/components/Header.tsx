@@ -77,9 +77,11 @@ export default function Header() {
     toggleSlowEditMode,
     requestTerminalRefresh,
     toggleSearch,
+    sessionCwds,
   } = useStore();
 
   const session = sessions.find((s) => s.id === activeSessionId);
+  const liveCwd = activeSessionId ? (sessionCwds[activeSessionId] ?? session?.cwd ?? null) : null;
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState("");
   const [copied, setCopied] = useState(false);
@@ -374,16 +376,16 @@ export default function Header() {
                   <span className="hidden md:inline">SNAPSHOT</span>
                 </button>
 
-                {session.cwd && (
+                {liveCwd && (
                   <span
                     className="flex items-center gap-1 text-[11px] text-[var(--color-text-dim)] truncate max-w-[280px] hidden md:flex"
-                    title={session.cwd}
+                    title={liveCwd}
                   >
                     <FolderOpen className="w-3 h-3 flex-shrink-0" />
                     {(() => {
-                      const parts = session.cwd.split("/").filter(Boolean);
+                      const parts = liveCwd.split("/").filter(Boolean);
                       return parts.length <= 3
-                        ? session.cwd
+                        ? liveCwd
                         : `.../${parts.slice(-3).join("/")}`;
                     })()}
                   </span>

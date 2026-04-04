@@ -38,9 +38,8 @@ import workflowsRouter from "./routes/workflows.js";
 import exportRouter from "./routes/export.js";
 
 import { registerSocketHandlers } from "./ws/handlers.js";
-// NOTE: registerChatHandlers and registerTerminalNamespace are Step 8 deliverables.
-// They are imported conditionally below so the daemon starts even if those files
-// do not yet exist. Remove the dynamic approach once Step 8 lands.
+// Chat and terminal-namespace handlers are imported dynamically so the daemon
+// degrades gracefully if either file is absent (e.g. during an incremental build).
 
 import { reapOrphanedSessions } from "./pty-manager.js";
 import { startRetentionScheduler, stopRetentionScheduler } from "./retention.js";
@@ -207,16 +206,16 @@ export async function start(): Promise<void> {
   // Control plane (default namespace)
   registerSocketHandlers(io);
 
-  // Chat streaming — Step 8 deliverable; import dynamically so daemon starts
-  // even if chat-handlers.ts does not yet exist.
+  // Chat streaming handlers — dynamic import so daemon degrades gracefully
+  // if the file is absent during an incremental build or partial deploy.
   try {
     const { registerChatHandlers } = await import("./ws/chat-handlers.js");
     registerChatHandlers(io);
   } catch {
-    log("antd", "ws/chat-handlers.ts not yet available — skipping (Step 8)");
+    log("antd", "ws/chat-handlers.ts not available — skipping");
   }
 
-  // Terminal namespace — Step 8 deliverable; same guard.
+  // Terminal namespace — same graceful-degradation guard.
   try {
     const { registerTerminalNamespace } = await import("./ws/terminal-namespace.js");
     const termNs = registerTerminalNamespace(io);

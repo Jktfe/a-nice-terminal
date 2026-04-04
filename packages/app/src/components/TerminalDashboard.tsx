@@ -25,7 +25,7 @@ interface TerminalDashboardProps {
 }
 
 export default function TerminalDashboard({ sessionId: sessionIdProp }: TerminalDashboardProps) {
-  const { activeSessionId, sessions, uiTheme } = useStore();
+  const { activeSessionId, sessions, uiTheme, setSessionCwd } = useStore();
   const sessionId = sessionIdProp ?? activeSessionId;
   const session = sessions.find((s) => s.id === sessionId);
 
@@ -38,15 +38,18 @@ export default function TerminalDashboard({ sessionId: sessionIdProp }: Terminal
   const fetchCommands = useCallback(async () => {
     if (!sessionId) return;
     try {
-      const data = await apiFetch(`/api/sessions/${sessionId}/commands?limit=200`);
-      setCommands(data as CommandEvent[]);
+      const data = await apiFetch(`/api/sessions/${sessionId}/commands?limit=200`) as CommandEvent[];
+      setCommands(data);
       setError(null);
+      // Update the live cwd breadcrumb with the last command that recorded a cwd.
+      const lastCwd = [...data].reverse().find((c) => c.cwd)?.cwd;
+      if (lastCwd) setSessionCwd(sessionId, lastCwd);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load commands");
     } finally {
       setLoading(false);
     }
-  }, [sessionId]);
+  }, [sessionId, setSessionCwd]);
 
   useEffect(() => {
     setLoading(true);
@@ -157,7 +160,7 @@ function SmoothViewHeader({ sessionName, onExit }: { sessionName: string; onExit
         onClick={onExit}
         className="text-xs text-zinc-400 hover:text-zinc-200 px-2 py-1 rounded hover:bg-zinc-800 transition-colors border border-zinc-700/40"
       >
-        ← Command view
+        ← History
       </button>
     </div>
   );
