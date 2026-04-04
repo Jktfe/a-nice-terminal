@@ -22,7 +22,6 @@ import { useState, useRef, useCallback } from "react";
 import { useStore, apiFetch } from "../store.ts";
 import { useIsMobile } from "../hooks/useIsMobile.ts";
 import { stripAnsi } from "../utils/stripAnsi.ts";
-import { getSessionTheme } from "../utils/sessionTheme.ts";
 
 function downloadAsFile(filename: string, content: string, mimeType: string) {
   const blob = new Blob([content], { type: mimeType });
@@ -190,8 +189,6 @@ export default function Header() {
       await loadMessages(activeSessionId);
     }
   }, [session, activeSessionId, requestTerminalRefresh, loadMessages, loadSessions]);
-
-  const { Icon } = getSessionTheme(session?.type ?? "conversation", uiTheme);
 
   const SessionIcon =
     session?.type === "terminal"

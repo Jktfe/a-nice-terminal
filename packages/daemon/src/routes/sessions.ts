@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { nanoid } from "nanoid";
 import db from "../db.js";
+import { error as logError } from "../logger.js";
 import type { DbSession } from "../types.js";
 import {
   destroyPty,
@@ -408,7 +409,7 @@ router.get("/api/sessions/:sessionId/terminal/state", (req, res) => {
       cursor,
     });
   } catch (err: any) {
-    console.error(`[sessions] Failed to get terminal state for ${req.params.sessionId}:`, err.message);
+    logError("sessions", `Failed to get terminal state for ${req.params.sessionId}`, err);
     res.status(500).json({ error: "Failed to capture terminal state" });
   }
 });

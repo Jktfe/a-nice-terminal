@@ -1,4 +1,5 @@
 import type { Server, Socket } from "socket.io";
+import { log, error as logError } from "../logger.js";
 import {
   addPtyOutputListener,
   checkSessionHealth,
@@ -85,7 +86,7 @@ export function registerSocketHandlers(io: Server) {
             addPtyOutputListener(sessionId, emitter);
           }
         } catch (err) {
-          console.error(`Failed to create PTY for session ${sessionId}:`, err);
+          logError("ws", `Failed to create PTY for session ${sessionId}`, err);
           socket.emit("error", { message: "Failed to create terminal" });
           return;
         }
@@ -225,7 +226,7 @@ function checkRoomEmpty(io: Server, sessionId: string) {
   if (!session || session.type !== "terminal") return;
 
   if (!roomHasClients(io, sessionId)) {
-    console.log(`[ws] No clients remain for session ${sessionId} — starting kill timer`);
+    log("ws", `No clients remain for session ${sessionId} — starting kill timer`);
     startKillTimer(sessionId);
   }
 }

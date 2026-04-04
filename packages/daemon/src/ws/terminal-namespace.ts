@@ -15,6 +15,7 @@
  *   cmd_end   (server→client) { sid, command, exitCode, durationMs }
  */
 import type { Server, Namespace, Socket } from "socket.io";
+import { log, error as logError } from "../logger.js";
 import {
   addPtyOutputListener,
   createPty,
@@ -111,7 +112,7 @@ export function registerTerminalNamespace(io: Server): Namespace {
           addPtyOutputListener(sid, emitter);
         }
       } catch (err) {
-        console.error(`[terminal-ns] Failed to create PTY for ${sid}:`, err);
+        logError("terminal-ns", `Failed to create PTY for ${sid}`, err);
         socket.emit("error", { message: "Failed to create terminal" });
         return;
       }
@@ -237,7 +238,7 @@ function checkRoomEmpty(ns: Namespace, sessionId: string) {
   if (!session || session.type !== "terminal") return;
 
   if (!roomHasClients(ns, sessionId)) {
-    console.log(`[terminal-ns] No clients remain for ${sessionId} — starting kill timer`);
+    log("terminal-ns", `No clients remain for ${sessionId} — starting kill timer`);
     startKillTimer(sessionId);
   }
 }

@@ -3,6 +3,7 @@ import { writeFileSync, mkdirSync, existsSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import db from "../db.js";
+import { error as logError } from "../logger.js";
 
 const router = Router();
 
@@ -61,7 +62,7 @@ router.post("/api/store", (req, res) => {
 
     res.json({ stored: true, path: filePath, filename });
   } catch (err: any) {
-    console.error("[store] Failed to write to Obsidian vault:", err.message);
+    logError("store", "Failed to write to Obsidian vault", err);
     res.status(500).json({ error: "Failed to write file", details: err.message });
   }
 });
@@ -200,7 +201,7 @@ router.post("/api/v2/sessions/:id/export/obsidian", (req, res) => {
 
     res.json({ exported: true, path: filePath, filename });
   } catch (err: any) {
-    console.error("[store] Failed to export to Obsidian:", err.message);
+    logError("store", "Failed to export to Obsidian", err);
     res.status(500).json({ error: "Failed to write file", details: err.message });
   }
 });

@@ -250,7 +250,7 @@ export async function start(): Promise<void> {
       next(new Error("Invalid or missing API key"));
     });
   } catch {
-    log("antd", "ws/terminal-namespace.ts not yet available — skipping (Step 8)");
+    log("antd", "ws/terminal-namespace.ts not available — skipping");
   }
 
   // ── Global error handler ──────────────────────────────────────────────────
