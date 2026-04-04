@@ -19,7 +19,10 @@
     "lint": "cd packages/app && npx tsc --noEmit && cd ../mcp && npx tsc --noEmit",
     "test": "cd packages/app && npx vitest run && cd ../mcp && npx vitest run",
     "test:app": "cd packages/app && npx vitest run",
-    "test:mcp": "cd packages/mcp && npx vitest run"
+    "test:mcp": "cd packages/mcp && npx vitest run",
+    "daemon:restart": "bash scripts/restart-daemon.sh",
+    "daemon:stop": "lsof -ti :6458 | xargs kill 2>/dev/null && echo 'Daemon stopped' || echo 'No daemon running'",
+    "daemon:log": "tail -f ~/.ant/daemon.log"
   },
   "devDependencies": {
     "node-gyp": "^12.2.0",

@@ -21,9 +21,9 @@ function ensureConversationSession(sessionId: string, res: any): DbSession | nul
     res.status(404).json({ error: "Session not found" });
     return null;
   }
-  if (session.type !== "conversation") {
+  if (session.type !== "conversation" && session.type !== "chat") {
     res.status(409).json({
-      error: "Only conversation sessions can access messages",
+      error: "Only conversation or chat sessions can access messages",
     });
     return null;
   }

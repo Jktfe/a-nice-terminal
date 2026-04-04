@@ -3,6 +3,7 @@ import { nanoid } from "nanoid";
 import db from "../db.js";
 import { error as logError } from "../logger.js";
 import type { DbSession } from "../types.js";
+import { DbChatRegistry } from "../db-chat-room-registry.js";
 import {
   destroyPty,
   destroyAllPtys,
@@ -84,11 +85,11 @@ router.get("/api/sessions/:id", (req, res) => {
 router.post("/api/sessions", (req, res) => {
   const { name, type = "conversation", workspace_id = null, cwd = null } = req.body;
 
-  const validTypes = ["terminal", "conversation", "unified"];
+  const validTypes = ["terminal", "conversation", "chat", "unified"];
   if (!validTypes.includes(type)) {
     return res
       .status(400)
-      .json({ error: "Invalid session type. Must be 'terminal', 'conversation', or 'unified'." });
+      .json({ error: "Invalid session type. Must be 'terminal', 'conversation', 'chat', or 'unified'." });
   }
 
   const defaultBase = type === "terminal" ? "Terminal" : type === "unified" ? "Session" : "Conversation";
@@ -142,6 +143,15 @@ router.post("/api/sessions", (req, res) => {
   );
 
   const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(id) as DbSession;
+
+  // Auto-register conversation/chat sessions as chat rooms so Chair can find them immediately.
+  if (type === "conversation" || type === "chat") {
+    try {
+      new DbChatRegistry(db).registerRoom(sessionName, id);
+    } catch {
+      // Non-fatal — room can be registered manually if needed
+    }
+  }
 
   // For unified sessions: optionally auto-create and attach a terminal
   let terminalId: string | null = null;

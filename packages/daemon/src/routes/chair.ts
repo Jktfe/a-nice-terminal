@@ -1,6 +1,7 @@
 import { Router } from "express";
 import db from "../db.js";
 import { getPty, getHeadless } from "../pty-manager.js";
+import { triggerLmStudioCheck } from "../chair/chair.js";
 
 const router = Router();
 
@@ -31,6 +32,7 @@ router.post("/api/chairman/toggle", (_req, res) => {
   const current = getSetting("chairman_enabled", "0");
   const next = current === "1" ? "0" : "1";
   setSetting("chairman_enabled", next);
+  if (next === "1") triggerLmStudioCheck();
   res.json({ enabled: next === "1" });
 });
 

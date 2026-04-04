@@ -260,8 +260,34 @@ export default function RightPanel() {
         isCoordination: true
       });
     }
+    // Include Chair-managed room tasks (antchat_tasks)
+    for (const rt of (room?.tasks ?? [])) {
+      // Avoid duplicates if a task is somehow in both systems
+      if (merged.find((t) => t.id === rt.id)) continue;
+      const s = rt.status as string;
+      const status: TaskStatus =
+        s === "in-progress" || s === "review" || s === "being-reviewed" || s === "reviewed-agent-signed-off"
+          ? "in_progress"
+          : s === "user-signed-off"
+          ? "done"
+          : s === "reviewed-needs-work"
+          ? "blocked"
+          : "todo"; // pending, assigned
+      merged.push({
+        id: rt.id,
+        title: rt.name,
+        description: rt.status.replace(/-/g, " "),
+        status,
+        assigned_to: rt.assignedTo ?? null,
+        assigned_name: rt.assignedTo ?? null,
+        created_at: rt.createdAt instanceof Date ? rt.createdAt.toISOString() : String(rt.createdAt),
+        updated_at: rt.createdAt instanceof Date ? rt.createdAt.toISOString() : String(rt.createdAt),
+        // @ts-ignore
+        isRoomTask: true
+      });
+    }
     return merged;
-  }, [tasks, sessionTasks]);
+  }, [tasks, sessionTasks, room]);
 
   const taskGroups = STATUS_ORDER.map((status) => ({
     status,
@@ -402,12 +428,13 @@ export default function RightPanel() {
                     {groupTasks.map((task) => (
                       <div key={task.id} className="group relative bg-[var(--color-bg)] border border-[var(--color-border)] rounded-md p-2.5 hover:border-[var(--color-text-dim)]/40 transition-colors">
                         <div className="flex items-start gap-2">
-                          <button 
+                          <button
                             onClick={() => {
                               // @ts-ignore
                               if (task.isCoordination) handleSessionTaskCycle(task);
-                              else handleTaskStatusCycle(task);
-                            }} 
+                              // @ts-ignore
+                              else if (!task.isRoomTask) handleTaskStatusCycle(task);
+                            }}
                             className={`mt-0.5 ${meta.colour}`}
                           >
                             {meta.icon}
@@ -424,7 +451,7 @@ export default function RightPanel() {
                             )}
                           </div>
                           {!// @ts-ignore
-                          task.isCoordination && (
+                          (task.isCoordination || task.isRoomTask) && (
                             <button 
                               onClick={() => handleTaskDelete(task.id)}
                               className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-[var(--color-text-dim)] hover:text-red-400"

@@ -25,7 +25,7 @@ import { startTaskWatchdog, stopTaskWatchdog } from "./task-watchdog.js";
 const LM_STUDIO_URL = process.env.LM_STUDIO_URL || "http://localhost:1234";
 /** How often to run time-based checks (cursor staleness, reviewed-needs-work). */
 const PERIODIC_CHECK_MS = parseInt(process.env.CHAIRMAN_PERIODIC_MS || "60000", 10);
-const CHAIR_NAME = process.env.CHAIR_NAME ?? process.env.CHAIRMAN_NAME ?? "@Chatlead";
+const CHAIR_NAME = process.env.CHAIR_NAME ?? process.env.CHAIRMAN_NAME ?? "@Chair";
 // Strip leading @ for use as sender_name / agentName (prevents [@@Chatlead] in attribution)
 const CHAIR_HANDLE = CHAIR_NAME.replace(/^@+/, "");
 
@@ -79,19 +79,25 @@ interface TaskCursorBaseline {
 
 // ─── System prompt ──────────────────────────────────────────────────────────
 
-const MESSAGE_ANALYSIS_PROMPT = `You are @Chatlead, Chair of a multi-agent development team.
+const MESSAGE_ANALYSIS_PROMPT = `You are @Chair, orchestrator of a multi-agent development team.
 
 For each incoming message, decide two things:
 
-1. TASKS — does the message contain actionable work to assign?
-   A task is: implement, fix, build, update, investigate, write, create, or review something.
+1. TASKS — does the message contain actionable work for specific agents?
+   A task is: implement, fix, build, update, investigate, write, create, invite, or review something.
    Not a task: status updates, acknowledgements, chit-chat, or already-completed work.
+
+   IMPORTANT — explicit assignments: if the message explicitly assigns work to named agents
+   (e.g. "@MMDclaude and @MMDgem each do X"), create ONE task PER agent with the agent handle
+   in the task name so it can be routed correctly (e.g. "MMDclaude: invite agents to ModelCheck",
+   "MMDgem: invite agents to ModelCheck").
 
 2. ROUTING — which specific agents need to see this message in their terminal?
    Only route to agents whose domain is directly relevant to the message content.
    Do NOT route to everyone by default — be selective.
    Use "all" only if the message is a blocker or announcement genuinely relevant to every participant.
    Use [] if no agent needs to see it (e.g. human-to-human conversation).
+   You are the orchestrator — do NOT route messages to yourself.
 
 You will receive the message and a list of available participants.
 
@@ -108,16 +114,17 @@ tasks: [] if no actionable work.
 route_to: [] if no agent routing needed.
 route_to: ["all"] only when every participant genuinely needs it.`;
 
-const SYSTEM_PROMPT = `You are @Chatlead, the Chair and task router in a multi-agent development team.
+const SYSTEM_PROMPT = `You are @Chair, orchestrator of a multi-agent development team. You assign tasks to agents — you never execute tasks yourself.
 
 You will be given a list of AVAILABLE PARTICIPANTS (from the room's DB) and
 one or more PENDING TASKS that need to be assigned.
 
 ROUTING RULES:
-1. Match task content to agent capabilities — read the task description and assign to the agent best suited by skill, model, or stated role. Do not route based on session name prefixes.
-2. If the right agent is genuinely ambiguous, ask one clarifying question before routing
-3. Prefer available (non-busy) agents
-4. Never pick more than 2 agents for a single request unless clearly separate tasks
+1. NEVER assign a task to yourself (Chair/Chatlead). You are the orchestrator only. If a task has no suitable agent, hold it.
+2. If the task name starts with an agent handle (e.g. "MMDclaude: ..."), assign it to that agent.
+3. Otherwise match task content to agent capabilities — skill, model, or stated role.
+4. If the right agent is genuinely ambiguous, ask one clarifying question before routing.
+5. Prefer available (non-busy) agents.
 
 RESPOND ONLY WITH JSON (no prose before or after):
 {
@@ -137,6 +144,7 @@ If action is "hold" or "clarify", set assignments to [].`;
 let busy = false;
 let currentModel = process.env.CHAIRMAN_MODEL || "openai/gpt-oss-20b";
 let periodicHandle: ReturnType<typeof setInterval> | null = null;
+let lmStudioHealthy = true; // tracks last known state to avoid log spam
 /** Socket.IO server reference — set in startChair, used by postMessage. */
 let ioServer: Server | null = null;
 
@@ -156,6 +164,61 @@ const taskCursorBaselines = new Map<string, TaskCursorBaseline>();
 // Registry instance — injected via startChair
 let registry: DbChatRegistry;
 
+// ─── Chair log session ───────────────────────────────────────────────────────
+
+/** Session ID for the Chair's own log/monitor session. Null until ensured. */
+let logSessionId: string | null = null;
+
+/**
+ * Looks up the "Chair" conversation session by name, creating it if absent.
+ * Called once on startChair — result cached in logSessionId.
+ */
+function ensureLogSession(): void {
+  const existing = db
+    .prepare("SELECT id FROM sessions WHERE name = 'Chair' AND type IN ('chat', 'conversation') AND archived = 0")
+    .get() as { id: string } | undefined;
+  if (existing) {
+    logSessionId = existing.id;
+    return;
+  }
+  const id = nanoid(12);
+  db.prepare(
+    "INSERT INTO sessions (id, name, type, shell, cwd, workspace_id) VALUES (?, 'Chair', 'chat', NULL, NULL, NULL)"
+  ).run(id);
+  logSessionId = id;
+  if (ioServer) ioServer.emit("session_list_changed");
+}
+
+type LogLevel = "info" | "warn" | "error";
+
+const LEVEL_PREFIX: Record<LogLevel, string> = {
+  info:  "ℹ",
+  warn:  "⚠",
+  error: "✖",
+};
+
+/**
+ * Log to both console and the Chair monitor session.
+ * High-frequency / low-signal lines (e.g. "no linked room") stay console-only.
+ */
+function chairLog(level: LogLevel, message: string): void {
+  const consoleFn = level === "info" ? console.log : console.warn;
+  consoleFn(`[chair] ${message}`);
+
+  if (!logSessionId) return;
+  const id = nanoid(12);
+  const content = `${LEVEL_PREFIX[level]} ${message}`;
+  db.prepare(`
+    INSERT INTO messages (id, session_id, role, content, format, status, sender_type, sender_name)
+    VALUES (?, ?, 'agent', ?, 'markdown', 'complete', 'agent', ?)
+  `).run(id, logSessionId, content, CHAIR_HANDLE);
+
+  if (ioServer) {
+    const saved = db.prepare("SELECT * FROM messages WHERE id = ?").get(id) as any;
+    ioServer.to(logSessionId).emit("message_created", saved);
+  }
+}
+
 // ─── Settings helpers ────────────────────────────────────────────────────────
 
 function getSetting(key: string, fallback: string): string {
@@ -172,7 +235,7 @@ function isEnabled(): boolean {
 function getModel(): string {
   const model = getSetting("chairman_model", currentModel);
   if (model !== currentModel) {
-    console.log(`[chair] Model updated to: ${model}`);
+    chairLog("info", `Model updated to: ${model}`);
     currentModel = model;
   }
   return currentModel;
@@ -182,7 +245,7 @@ function getModel(): string {
 
 function getAllChatSessionIds(): string[] {
   const rows = db
-    .prepare("SELECT id FROM sessions WHERE type IN ('conversation', 'unified') AND archived = 0")
+    .prepare("SELECT id FROM sessions WHERE type IN ('conversation', 'chat', 'unified') AND archived = 0")
     .all() as { id: string }[];
   return rows.map((r) => r.id);
 }
@@ -227,6 +290,43 @@ function postMessage(sessionId: string, content: string, metadata?: any): void {
   logRoutingEvent(sessionId, id, "post", metadata?.type ?? "message", content.slice(0, 120));
 }
 
+// ─── LM Studio health check ──────────────────────────────────────────────────
+
+/**
+ * Verifies LM Studio is reachable and has at least one model loaded.
+ * Logs state transitions to the Chair session (not every poll cycle).
+ * Returns true if healthy.
+ */
+async function verifyLmStudio(): Promise<boolean> {
+  let healthy = false;
+  let reason = "";
+  try {
+    const res = await fetch(`${LM_STUDIO_URL}/v1/models`);
+    if (!res.ok) {
+      reason = `HTTP ${res.status}`;
+    } else {
+      const data = (await res.json()) as { data: Array<{ id: string }> };
+      if (!data.data?.length) {
+        reason = "no model loaded";
+      } else {
+        healthy = true;
+        if (!lmStudioHealthy) {
+          chairLog("info", `LM Studio recovered — model: ${data.data[0].id}`);
+        }
+      }
+    }
+  } catch {
+    reason = `not running at ${LM_STUDIO_URL}`;
+  }
+
+  if (!healthy && lmStudioHealthy) {
+    // Only log on transition from healthy → unhealthy
+    chairLog("warn", `LM Studio unavailable (${reason}) — routing paused until it recovers`);
+  }
+  lmStudioHealthy = healthy;
+  return healthy;
+}
+
 // ─── DB queries ─────────────────────────────────────────────────────────────
 
 function getPendingTasks(roomName: string): RoomTask[] {
@@ -252,7 +352,7 @@ function findRoomForSession(sessionId: string): string | undefined {
 function shouldRespond(msg: AntMessage): boolean {
   if (msg.role === "agent" && msg.sender_name === CHAIR_HANDLE) return false;
   const lc = msg.content.toLowerCase();
-  return lc.includes("@chatlead") || lc.includes("@chairman");
+  return lc.includes("@chair") || lc.includes("@chatlead") || lc.includes("@chairman");
 }
 
 // ─── Build context for LM Studio ───────────────────────────────────────────
@@ -379,7 +479,7 @@ async function analyseAndRouteMessage(
     const task = registry.addTask(roomName, detected.name);
     if (task) {
       createdTasks.push(`**${task.id}** "${detected.name}"`);
-      console.log(`[chair] Detected task in room "${roomName}": "${detected.name}"`);
+      chairLog("info", `Detected task in room "${roomName}": "${detected.name}"`);
     }
   }
 
@@ -412,9 +512,7 @@ async function analyseAndRouteMessage(
   await Promise.all(injections);
 
   logRoutingEvent(sessionId, msg.id, "route", result.route_to.join(","), result.reason);
-  console.log(
-    `[chair] Routed message to [${result.route_to.join(", ")}] — ${result.reason}`
-  );
+  chairLog("info", `Routed message to [${result.route_to.join(", ")}] — ${result.reason}`);
 }
 
 // ─── Terminal injection ──────────────────────────────────────────────────────
@@ -454,15 +552,17 @@ function ensureInRoom(roomName: string): void {
   joinedRooms.add(roomName);
   try {
     // Use the registry directly — no HTTP round-trip.
-    registry.addParticipant(roomName, "chair", {
+    // Use the log session ID as the participant ID (a real session row) so FK constraints pass.
+    // Falls back to a string sentinel if the log session hasn't been created yet.
+    registry.addParticipant(roomName, logSessionId ?? "chair-sentinel", {
       agentName: CHAIR_HANDLE,
       model: "Chair",
       terminalName: "Chair",
     });
-    console.log(`[chair] Registered as participant in room "${roomName}"`);
+    chairLog("info", `Registered as participant in room "${roomName}"`);
   } catch (err) {
     joinedRooms.delete(roomName); // allow retry
-    console.warn(`[chair] Could not register in room "${roomName}":`, err instanceof Error ? err.message : err);
+    chairLog("warn", `Could not register in room "${roomName}": ${err instanceof Error ? err.message : err}`);
   }
 }
 
@@ -482,7 +582,7 @@ function maybeAnnounceRoom(sessionId: string, roomName: string): void {
     `[${CHAIR_NAME}] Now monitoring room **${roomName}**. ` +
       `I'll route tasks, broadcast messages to all participants, and verify work is progressing.`
   );
-  console.log(`[chair] Announced presence in room "${roomName}"`);
+  chairLog("info", `Announced presence in room "${roomName}"`);
 }
 
 // ─── Task cursor baseline verification ──────────────────────────────────────
@@ -546,7 +646,7 @@ async function checkTaskCursorBaselines(
 
     // Stale — escalate to LLM for re-routing
     const elapsedMin = Math.round(elapsed / 60000);
-    console.log(`[chair] Task ${task.id} stale (${elapsedMin}min, no terminal activity from ${task.assignedTo}) — escalating`);
+    chairLog("warn", `Task ${task.id} stale (${elapsedMin}min, no terminal activity from ${task.assignedTo}) — escalating`);
 
     const staleContext =
       buildContext([task], participants) +
@@ -559,7 +659,7 @@ async function checkTaskCursorBaselines(
     if (decision?.action === "assign") {
       for (const a of decision.assignments) {
         registry.updateTask(roomName, a.task_id, { status: "assigned", assignedTo: a.assigned_to });
-        console.log(`[chair] Re-assigned stale task ${a.task_id} to ${a.assigned_to}`);
+        chairLog("info", `Re-assigned stale task ${a.task_id} to ${a.assigned_to}`);
       }
       postMessage(
         sessionId,
@@ -591,7 +691,7 @@ async function checkReviewedNeedsWork(
   const needsWork = room.tasks.filter((t) => t.status === "reviewed-needs-work");
   if (needsWork.length === 0) return;
 
-  console.log(`[chair] ${needsWork.length} task(s) in "reviewed-needs-work" in room "${roomName}" — re-routing`);
+  chairLog("info", `${needsWork.length} task(s) in "reviewed-needs-work" in room "${roomName}" — re-routing`);
 
   const participants = room.participants;
 
@@ -645,12 +745,12 @@ async function handlePendingTasks(
 ): Promise<void> {
   const context = buildContext(pendingTasks, participants);
 
-  console.log(`[chair] Routing ${pendingTasks.length} pending task(s) in room "${roomName}"`);
+  chairLog("info", `Routing ${pendingTasks.length} pending task(s) in room "${roomName}"`);
   const raw = await queryLmStudio(context);
   const decision = parseDecision(raw);
 
   if (!decision) {
-    console.warn(`[chair] Could not parse LLM response, posting raw`);
+    chairLog("warn", `Could not parse LLM response, posting raw`);
     postMessage(sessionId, `[${CHAIR_NAME}] ${raw}`);
     return;
   }
@@ -665,9 +765,9 @@ async function handlePendingTasks(
         });
         if (updated) {
           summaryParts.push(`**${a.task_id}** -> ${a.assigned_to}`);
-          console.log(`[chair] DB: ${a.task_id} assigned to ${a.assigned_to}`);
+          chairLog("info", `DB: ${a.task_id} assigned to ${a.assigned_to}`);
         } else {
-          console.warn(`[chair] Failed to update task ${a.task_id} in DB`);
+          chairLog("warn", `Failed to update task ${a.task_id} in DB`);
           summaryParts.push(`**${a.task_id}** -> ${a.assigned_to} (DB update failed)`);
         }
       }
@@ -680,11 +780,11 @@ async function handlePendingTasks(
     }
     case "hold":
       postMessage(sessionId, `[${CHAIR_NAME}] ${decision.hold_message || "Holding -- agents busy."}`);
-      console.log(`[chair] Holding: ${decision.reason}`);
+      chairLog("info", `Holding: ${decision.reason}`);
       break;
     case "clarify":
       postMessage(sessionId, `[${CHAIR_NAME}] ${decision.question || "Can you clarify the task?"}`);
-      console.log(`[chair] Clarifying: ${decision.reason}`);
+      chairLog("info", `Clarifying: ${decision.reason}`);
       break;
   }
 }
@@ -736,7 +836,7 @@ async function onNewMessage(payload: NewMessagePayload): Promise<void> {
     await analyseAndRouteMessage(sessionId, roomName, msg);
     if (shouldRespond(msg)) await handleMessage(sessionId, msg);
   } catch (err) {
-    console.warn("[chair] Handler error:", err instanceof Error ? err.message : err);
+    chairLog("error", `Handler error: ${err instanceof Error ? err.message : err}`);
   } finally {
     busy = false;
   }
@@ -746,6 +846,7 @@ async function onNewMessage(payload: NewMessagePayload): Promise<void> {
 
 async function runPeriodicChecks(): Promise<void> {
   if (!isEnabled()) return;
+  await verifyLmStudio();
 
   const sessionIds = getAllChatSessionIds();
   for (const sessionId of sessionIds) {
@@ -755,18 +856,25 @@ async function runPeriodicChecks(): Promise<void> {
       await checkTaskCursorBaselines(sessionId, roomName);
       await checkReviewedNeedsWork(sessionId, roomName);
     } catch (err) {
-      console.warn(`[chair] Periodic check error for session ${sessionId}:`, err instanceof Error ? err.message : err);
+      chairLog("warn", `Periodic check error for session ${sessionId}: ${err instanceof Error ? err.message : err}`);
     }
   }
 }
 
 // ─── Lifecycle ───────────────────────────────────────────────────────────────
 
+/** Called by the toggle route when Chair is enabled — runs an immediate health check. */
+export function triggerLmStudioCheck(): void {
+  verifyLmStudio().catch(() => {});
+}
+
 export function startChair(io: Server, registryInstance: DbChatRegistry): void {
   if (periodicHandle) return;
   ioServer = io;
   registry = registryInstance;
-  console.log("[chair] Starting (event-driven, periodic checks every " + PERIODIC_CHECK_MS + "ms)");
+  ensureLogSession();
+  chairLog("info", `Starting — event-driven, periodic checks every ${PERIODIC_CHECK_MS}ms`);
+  verifyLmStudio().catch(() => {});
   bus.on("message:new", (payload) => {
     onNewMessage(payload).catch((err) => {
       console.warn("[chair] Unhandled error in onNewMessage:", err instanceof Error ? err.message : err);
@@ -791,7 +899,8 @@ export function stopChair(): void {
   announcedRooms.clear();
   joinedRooms.clear();
   taskCursorBaselines.clear();
-  console.log("[chair] Stopped");
+  chairLog("info", "Stopped");
+  logSessionId = null;
   stopTerminalMonitor();
   stopMessageBridge();
   stopTaskWatchdog();

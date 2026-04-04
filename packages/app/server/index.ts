@@ -73,6 +73,8 @@ function proxyRequest(
     path:     req.url,
     method:   req.method,
     headers:  { ...req.headers, host: parsed.host },
+    // Daemon uses a self-signed cert — skip verification for same-machine proxy hops.
+    rejectUnauthorized: false,
   };
 
   const proxyReq = reqFn(options, (proxyRes) => {

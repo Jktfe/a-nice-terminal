@@ -4,7 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 
 const HOST = process.env.ANT_HOST || "127.0.0.1";
-const PORT = process.env.ANT_PORT || "3000";
+const PORT = process.env.ANT_PORT || "6458";
 const EFFECTIVE_HOST = HOST === "0.0.0.0" ? "127.0.0.1" : HOST;
 
 // Mirror the server's TLS detection: if ANT_TLS_CERT is set the server is HTTPS.
@@ -57,10 +57,20 @@ async function api(path: string, options?: RequestInit) {
     ...(apiKey ? { "X-API-Key": apiKey } : {}),
   };
 
-  const res = await fetch(`${BASE_URL}${path}`, {
-    ...options,
-    headers: { ...headers, ...(options?.headers as Record<string, string>) },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}${path}`, {
+      ...options,
+      headers: { ...headers, ...(options?.headers as Record<string, string>) },
+    });
+  } catch (err) {
+    const cause = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `ANT server unreachable at ${BASE_URL}. ` +
+      `Check it is running: curl -sk ${BASE_URL}/api/health\n` +
+      `Cause: ${cause}`
+    );
+  }
 
   if (!res.ok) {
     const body = await res.text();

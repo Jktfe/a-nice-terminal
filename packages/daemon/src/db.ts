@@ -21,7 +21,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    type TEXT NOT NULL CHECK(type IN ('terminal', 'conversation', 'unified')),
+    type TEXT NOT NULL CHECK(type IN ('terminal', 'conversation', 'chat', 'unified')),
     shell TEXT DEFAULT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -87,20 +87,25 @@ db.exec(`
   );
 `);
 
-// Migration: expand sessions.type CHECK to include 'unified'
+// Migration: expand sessions.type CHECK to include 'chat' and 'unified'
 // SQLite doesn't support ALTER CHECK, so we recreate the table if needed.
 {
-  try {
-    // Test if 'unified' is allowed by attempting a temp insert
-    db.exec(`INSERT INTO sessions (id, name, type) VALUES ('__type_check__', '__test__', 'unified')`);
-    db.exec(`DELETE FROM sessions WHERE id = '__type_check__'`);
-  } catch {
-    // 'unified' not allowed — recreate table with expanded CHECK
+  let needsMigration = false;
+  for (const testType of ['chat', 'unified'] as const) {
+    try {
+      db.exec(`INSERT INTO sessions (id, name, type) VALUES ('__type_check__', '__test__', '${testType}')`);
+      db.exec(`DELETE FROM sessions WHERE id = '__type_check__'`);
+    } catch {
+      needsMigration = true;
+      break;
+    }
+  }
+  if (needsMigration) {
     db.exec(`
       CREATE TABLE IF NOT EXISTS sessions_new (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
-        type TEXT NOT NULL CHECK(type IN ('terminal', 'conversation', 'unified')),
+        type TEXT NOT NULL CHECK(type IN ('terminal', 'conversation', 'chat', 'unified')),
         shell TEXT DEFAULT NULL,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
