@@ -60,6 +60,23 @@ const WS_API_KEY = process.env.ANT_API_KEY;
 
 const PID_FILE = path.join(path.dirname(SOCKET_PATH), "antd.pid");
 
+// ─── Auth sanity check ────────────────────────────────────────────────────────
+// If both network-level guard (Tailscale) and API key auth are simultaneously
+// disabled, the daemon is wide open to any reachable host. Refuse to start.
+{
+  const tailscaleOnly = process.env.ANT_TAILSCALE_ONLY;
+  const tailscaleEnabled = tailscaleOnly === undefined || tailscaleOnly === "" ||
+    !["false", "0", "no", "off", "n"].includes(tailscaleOnly.toLowerCase());
+  if (!tailscaleEnabled && !WS_API_KEY) {
+    console.error(
+      "[antd] FATAL: ANT_TAILSCALE_ONLY is disabled and ANT_API_KEY is not set.\n" +
+      "       The daemon would be accessible to any host without authentication.\n" +
+      "       Set ANT_API_KEY or re-enable ANT_TAILSCALE_ONLY before starting."
+    );
+    process.exit(1);
+  }
+}
+
 // ─── TLS ─────────────────────────────────────────────────────────────────────
 
 const TLS_CERT = process.env.ANT_TLS_CERT;

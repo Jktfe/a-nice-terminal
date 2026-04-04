@@ -541,36 +541,27 @@ router.get("/api/capture/search", (req, res) => {
   const q = String(req.query.q || "").trim();
   if (!q) return res.status(400).json({ error: "q is required" });
 
+  const sessionId = String(req.query.session || "").trim();
+  if (!sessionId) return res.status(400).json({ error: "session is required" });
+
   const rawLimit = Number(req.query.limit);
   const limit = rawLimit > 0 && rawLimit <= 200 ? rawLimit : 50;
-  const sessionId = String(req.query.session || "").trim();
 
-  let rows: unknown[];
-  if (sessionId) {
-    rows = db
-      .prepare(
-        `SELECT ce.id, ce.session_id, ce.command, ce.cwd, ce.exit_code, ce.started_at,
-                snippet(command_events_fts, 2, '<mark>', '</mark>', '…', 16) AS output_snippet
-         FROM command_events_fts
-         JOIN command_events ce ON ce.rowid = command_events_fts.rowid
-         WHERE command_events_fts MATCH ? AND ce.session_id = ?
-         ORDER BY ce.started_at DESC
-         LIMIT ?`
-      )
-      .all(q, sessionId, limit);
-  } else {
-    rows = db
-      .prepare(
-        `SELECT ce.id, ce.session_id, ce.command, ce.cwd, ce.exit_code, ce.started_at,
-                snippet(command_events_fts, 2, '<mark>', '</mark>', '…', 16) AS output_snippet
-         FROM command_events_fts
-         JOIN command_events ce ON ce.rowid = command_events_fts.rowid
-         WHERE command_events_fts MATCH ?
-         ORDER BY ce.started_at DESC
-         LIMIT ?`
-      )
-      .all(q, limit);
-  }
+  // Wrap the query in double-quotes so FTS5 treats it as a literal phrase
+  // rather than interpreting operators like * NOT OR and column filters.
+  const safeQ = `"${q.replace(/"/g, '""')}"`;
+
+  const rows = db
+    .prepare(
+      `SELECT ce.id, ce.session_id, ce.command, ce.cwd, ce.exit_code, ce.started_at,
+              snippet(command_events_fts, 2, '<mark>', '</mark>', '…', 16) AS output_snippet
+       FROM command_events_fts
+       JOIN command_events ce ON ce.rowid = command_events_fts.rowid
+       WHERE command_events_fts MATCH ? AND ce.session_id = ?
+       ORDER BY ce.started_at DESC
+       LIMIT ?`
+    )
+    .all(safeQ, sessionId, limit);
 
   res.json(rows);
 });

@@ -149,14 +149,20 @@ export class GhosttyBackend implements TerminalBackend {
     }
 
     if (cwd) {
-      await this.sendTypedLine(`cd ${JSON.stringify(cwd)} && ${startCommand}`);
+      // Use printf %s to avoid any shell interpretation of the cwd value.
+      // POSIX quoting: replace each ' with '\'' to safely embed in single-quotes.
+      const safeCwd = cwd.replace(/'/g, "'\\''");
+      await this.sendTypedLine(`cd '${safeCwd}' && ${startCommand}`);
     } else {
       await this.sendTypedLine(startCommand);
     }
 
-    // Set tab title via OSC 2 escape sequence if requested
+    // Set tab title via OSC 2 escape sequence if requested.
+    // Use printf %s with a variable assignment so the title value is never
+    // interpreted as shell syntax — avoids injection via single-quote or $().
     if (title) {
-      await this.sendTypedLine(`printf '\\033]2;${escapeForAppleScript(title)}\\007'`);
+      const safeTitle = title.replace(/'/g, "'\\''");
+      await this.sendTypedLine(`_t='${safeTitle}'; printf '\\033]2;%s\\007' "$_t"`);
     }
 
     return { id: sessionId };

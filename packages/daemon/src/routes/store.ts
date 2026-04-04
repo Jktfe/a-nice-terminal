@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { writeFileSync, mkdirSync, existsSync } from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import db from "../db.js";
 
 const router = Router();
@@ -82,6 +83,13 @@ router.patch("/api/settings/obsidian", (req, res) => {
 
   if (!existsSync(resolved)) {
     return res.status(400).json({ error: "Path does not exist" });
+  }
+
+  // Restrict vault path to within the user's home directory to prevent
+  // exports being written to sensitive locations like ~/.ssh or /etc.
+  const home = process.env.HOME || os.homedir();
+  if (!resolved.startsWith(home + path.sep) && resolved !== home) {
+    return res.status(400).json({ error: "vault_path must be within your home directory" });
   }
 
   db.prepare("INSERT OR REPLACE INTO server_state (key, value) VALUES (?, ?)")
