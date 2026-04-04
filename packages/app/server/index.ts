@@ -108,12 +108,16 @@ async function start() {
   app.use(express.json());
 
   // ── Proxy /api/* → daemon ─────────────────────────────────────────────────
+  // Express strips the mount prefix from req.url, so we must restore it before
+  // forwarding — otherwise GET /api/health becomes GET /health on the daemon.
   app.use("/api", (req, res) => {
+    req.url = "/api" + req.url;
     proxyRequest(req, res, DAEMON_URL);
   });
 
   // ── Proxy /socket.io/* (HTTP long-poll fallback) → daemon ─────────────────
   app.use("/socket.io", (req, res) => {
+    req.url = "/socket.io" + req.url;
     proxyRequest(req, res, DAEMON_URL);
   });
 
