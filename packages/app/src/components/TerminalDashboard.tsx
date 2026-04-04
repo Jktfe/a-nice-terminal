@@ -32,7 +32,7 @@ export default function TerminalDashboard({ sessionId: sessionIdProp }: Terminal
   const [commands, setCommands] = useState<CommandEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [smoothView, setSmoothView] = useState(false);
+  const [smoothView, setSmoothView] = useState(true);
 
   // Fetch command events from the capture pipeline.
   const fetchCommands = useCallback(async () => {
