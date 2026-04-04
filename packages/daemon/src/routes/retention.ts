@@ -48,6 +48,8 @@ router.get("/api/retention/digests", (req, res) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
 
   if (q) {
+    // Wrap in FTS5 phrase quotes so operators (*, NOT, OR) are treated as literals.
+    const ftsPhrase = `"${q.replace(/"/g, '""')}"`;
     // Try FTS5 first
     try {
       const ftsResults = db.prepare(`
@@ -56,7 +58,7 @@ router.get("/api/retention/digests", (req, res) => {
         WHERE session_digests_fts MATCH ?
         ORDER BY rank
         LIMIT ?
-      `).all(q, limit);
+      `).all(ftsPhrase, limit);
 
       if (ftsResults.length > 0) return res.json(ftsResults);
     } catch {

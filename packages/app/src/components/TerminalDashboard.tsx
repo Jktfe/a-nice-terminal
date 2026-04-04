@@ -41,9 +41,12 @@ export default function TerminalDashboard({ sessionId: sessionIdProp }: Terminal
       const data = await apiFetch(`/api/sessions/${sessionId}/commands?limit=200`) as CommandEvent[];
       setCommands(data);
       setError(null);
-      // Update the live cwd breadcrumb with the last command that recorded a cwd.
-      const lastCwd = [...data].reverse().find((c) => c.cwd)?.cwd;
-      if (lastCwd) setSessionCwd(sessionId, lastCwd);
+      // Update the live cwd breadcrumb with the most recent command that recorded a cwd.
+      // findLast avoids copying the array just to scan backwards.
+      const lastCwd = data.findLast((c) => c.cwd)?.cwd;
+      if (lastCwd && lastCwd !== useStore.getState().sessionCwds[sessionId]) {
+        setSessionCwd(sessionId, lastCwd);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load commands");
     } finally {
@@ -52,16 +55,20 @@ export default function TerminalDashboard({ sessionId: sessionIdProp }: Terminal
   }, [sessionId, setSessionCwd]);
 
   useEffect(() => {
+    // Don't reset or poll when the live view is active — the history view isn't visible.
+    if (smoothView) return;
     setLoading(true);
     setCommands([]);
     fetchCommands();
-  }, [fetchCommands]);
+  }, [fetchCommands, smoothView]);
 
   // Poll for new commands every few seconds (capture pipeline writes async).
+  // Paused while the live xterm.js view is active — no need to poll hidden state.
   useEffect(() => {
+    if (smoothView) return;
     const timer = setInterval(fetchCommands, POLL_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [fetchCommands]);
+  }, [fetchCommands, smoothView]);
 
   const isDark = uiTheme !== "light";
 

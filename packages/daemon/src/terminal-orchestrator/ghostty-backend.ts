@@ -67,6 +67,16 @@ function escapeForAppleScript(text: string): string {
   return text.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
+/**
+ * Wrap a string in POSIX single-quotes for safe shell embedding.
+ * Single-quotes cannot be escaped inside single-quote strings in POSIX sh,
+ * so any embedded ' is handled by ending the quoted region, inserting a
+ * literal ', then resuming: foo'bar → 'foo'\''bar'
+ */
+function posixSingleQuote(s: string): string {
+  return "'" + s.replace(/'/g, "'\\''") + "'";
+}
+
 /** Check whether Ghostty.app is currently running. */
 async function isGhosttyRunning(): Promise<boolean> {
   try {
@@ -149,20 +159,15 @@ export class GhosttyBackend implements TerminalBackend {
     }
 
     if (cwd) {
-      // Use printf %s to avoid any shell interpretation of the cwd value.
-      // POSIX quoting: replace each ' with '\'' to safely embed in single-quotes.
-      const safeCwd = cwd.replace(/'/g, "'\\''");
-      await this.sendTypedLine(`cd '${safeCwd}' && ${startCommand}`);
+      await this.sendTypedLine(`cd ${posixSingleQuote(cwd)} && ${startCommand}`);
     } else {
       await this.sendTypedLine(startCommand);
     }
 
     // Set tab title via OSC 2 escape sequence if requested.
-    // Use printf %s with a variable assignment so the title value is never
-    // interpreted as shell syntax — avoids injection via single-quote or $().
+    // Assign to a variable first so the title is never interpreted as shell syntax.
     if (title) {
-      const safeTitle = title.replace(/'/g, "'\\''");
-      await this.sendTypedLine(`_t='${safeTitle}'; printf '\\033]2;%s\\007' "$_t"`);
+      await this.sendTypedLine(`_t=${posixSingleQuote(title)}; printf '\\033]2;%s\\007' "$_t"`);
     }
 
     return { id: sessionId };

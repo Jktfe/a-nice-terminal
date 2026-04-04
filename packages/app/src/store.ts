@@ -129,7 +129,7 @@ interface AppState {
   setActiveSession: (id: string) => void;
   loadMessages: (sessionId: string) => Promise<void>;
   sendMessage: (content: string, role?: "human" | "agent" | "system", metadata?: any) => Promise<void>;
-  sendMessageToSession: (sessionId: string, content: string, role?: "human" | "agent" | "system") => Promise<void>;
+  sendMessageToSession: (sessionId: string, content: string, role?: "human" | "agent" | "system", metadata?: any) => Promise<void>;
   uploadFile: (file: File) => Promise<{ url: string; filename: string }>;
   loadResumeCommands: () => Promise<void>;
   deleteResumeCommand: (id: string) => Promise<void>;
@@ -703,10 +703,10 @@ export const useStore = create<AppState>((set, get) => ({
   sendMessage: async (content, role = "human", metadata) => {
     const { activeSessionId } = get();
     if (!activeSessionId) return;
-    return get().sendMessageToSession(activeSessionId, content, role);
+    return get().sendMessageToSession(activeSessionId, content, role, metadata);
   },
 
-  sendMessageToSession: async (sessionId, content, role = "human") => {
+  sendMessageToSession: async (sessionId, content, role = "human", metadata) => {
     const { connected } = get();
 
     // If offline, queue the message for later
@@ -722,7 +722,7 @@ export const useStore = create<AppState>((set, get) => ({
       await apiFetch(`/api/sessions/${sessionId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, role }),
+        body: JSON.stringify({ content, role, ...(metadata !== undefined && { metadata }) }),
       });
     } catch (err: any) {
       set({ error: err.message });

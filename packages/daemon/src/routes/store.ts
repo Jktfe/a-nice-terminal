@@ -55,7 +55,7 @@ router.post("/api/store", (req, res) => {
 
   try {
     const antDir = path.join(vaultPath, "ANT");
-    if (!existsSync(antDir)) mkdirSync(antDir, { recursive: true });
+    mkdirSync(antDir, { recursive: true });
 
     const filePath = path.join(antDir, filename);
     writeFileSync(filePath, fileContent, "utf-8");
@@ -194,7 +194,7 @@ router.post("/api/v2/sessions/:id/export/obsidian", (req, res) => {
 
   try {
     const antDir = path.join(vaultPath, "ANT");
-    if (!existsSync(antDir)) mkdirSync(antDir, { recursive: true });
+    mkdirSync(antDir, { recursive: true });
 
     const filePath = path.join(antDir, filename);
     writeFileSync(filePath, fileContent, "utf-8");

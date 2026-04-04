@@ -7,6 +7,7 @@
 
 import { Router } from "express";
 import db from "../db.js";
+import { stripAnsi } from "../types.js";
 
 const router = Router();
 
@@ -24,12 +25,6 @@ function formatDurationMs(ms: number | null): string {
   const m = Math.floor(ms / 60_000);
   const s = Math.round((ms % 60_000) / 1000);
   return `${m}m ${s}s`;
-}
-
-// Strip ANSI escape sequences
-const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]|\x1b\][^\x07]*\x07|\x1b[()][0-9A-Za-z]/g;
-function stripAnsi(text: string): string {
-  return text.replace(ANSI_RE, "");
 }
 
 // ─── Obsidian export ──────────────────────────────────────────────────────────

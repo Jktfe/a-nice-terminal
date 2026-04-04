@@ -91,7 +91,9 @@ router.get("/api/v2/knowledge/search", (req, res) => {
 
   if (!q) return res.status(400).json({ error: "q parameter required" });
 
-  // Try FTS5 first
+  // Try FTS5 first. Wrap in phrase quotes so FTS5 operators (*, NOT, OR) in
+  // the query string are treated as literals rather than query syntax.
+  const ftsPhrase = `"${q.replace(/"/g, '""')}"`;
   try {
     const ftsResults = db.prepare(`
       SELECT kf.* FROM knowledge_facts kf
@@ -99,7 +101,7 @@ router.get("/api/v2/knowledge/search", (req, res) => {
       WHERE knowledge_facts_fts MATCH ?
       ORDER BY rank
       LIMIT ?
-    `).all(q, limit);
+    `).all(ftsPhrase, limit);
 
     if (ftsResults.length > 0) return res.json(ftsResults);
   } catch {
