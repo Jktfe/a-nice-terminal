@@ -9,6 +9,11 @@
   let ws: WebSocket | null = $state(null);
   let slowEdit = $state(false);
   let slowEditText = $state('');
+  let slowEditRef = $state<HTMLTextAreaElement | null>(null);
+
+  $effect(() => {
+    if (slowEdit && slowEditRef) slowEditRef.focus();
+  });
 
   // Block DA1/DA2/DSR cursor-report responses from looping back into the PTY (v2 lesson)
   const TERM_RESPONSE_RE = /^\x1b\[\??[>]?[\d;]*c$|^\x1b\[\d+;\d+[Rn]$|^\x1b\[\d*n$/;
@@ -87,9 +92,15 @@
     const { SerializeAddon } = await import('@xterm/addon-serialize');
     await import('@xterm/xterm/css/xterm.css');
 
+    // iOS/mobile Safari: use system monospace — JetBrains Mono isn't available and causes metric issues
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    const fontFamily = isMobile
+      ? 'ui-monospace, "SF Mono", Menlo, monospace'
+      : '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace';
+
     const term = new Terminal({
-      fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace',
-      fontSize: 13,
+      fontFamily,
+      fontSize: isMobile ? 12 : 13,
       lineHeight: 1.3,
       cursorBlink: true,
       cursorStyle: 'block',
@@ -127,11 +138,17 @@
     term.loadAddon(fitAddon);
     term.loadAddon(serializeAddon);
 
-    try {
-      const { WebglAddon } = await import('@xterm/addon-webgl');
-      term.loadAddon(new WebglAddon());
-    } catch {
-      // Canvas fallback for Safari/WebKit
+    // Skip WebGL on mobile — iOS Safari's WebGL can partially fail, corrupting glyph rendering
+    // without throwing an error. The DOM renderer is more reliable on mobile.
+    if (!isMobile) {
+      try {
+        const { WebglAddon } = await import('@xterm/addon-webgl');
+        const webgl = new WebglAddon();
+        webgl.onContextLoss(() => webgl.dispose());
+        term.loadAddon(webgl);
+      } catch {
+        // DOM renderer fallback for desktop Safari/WebKit
+      }
     }
 
     term.open(termRef);
@@ -142,52 +159,60 @@
     // Click anywhere in the terminal container to restore keyboard focus (v2 lesson)
     termRef.addEventListener('click', () => term.focus());
 
-    // WebSocket connection
+    // WebSocket connection — extracted to a function so reconnects reuse all handlers
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(`${protocol}//${location.host}/ws`);
-    ws = socket;
+    let destroyed = false;
 
-    socket.onopen = () => {
-      socket.send(JSON.stringify({ type: 'join_session', sessionId }));
-    };
+    function connect() {
+      if (destroyed) return;
+      const socket = new WebSocket(`${protocol}//${location.host}/ws`);
+      ws = socket;
 
-    socket.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.type === 'terminal_output' && msg.sessionId === sessionId) {
-          enqueueOutput(term, msg.data);
-          onData?.(msg.data);
-        }
-      } catch {}
-    };
+      socket.onopen = () => {
+        socket.send(JSON.stringify({ type: 'join_session', sessionId }));
+      };
 
-    socket.onclose = () => {
-      setTimeout(() => {
-        if (termRef) {
-          const newSocket = new WebSocket(`${protocol}//${location.host}/ws`);
-          newSocket.onopen = () => {
-            newSocket.send(JSON.stringify({ type: 'join_session', sessionId }));
-          };
-          newSocket.onmessage = socket.onmessage;
-          ws = newSocket;
-        }
-      }, 2000);
-    };
+      socket.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'terminal_output' && msg.sessionId === sessionId) {
+            enqueueOutput(term, msg.data);
+            onData?.(msg.data);
+          } else if (msg.type === 'build_id') {
+            const stored = sessionStorage.getItem('ant-build-id');
+            if (!stored) {
+              sessionStorage.setItem('ant-build-id', msg.buildId);
+            } else if (stored !== msg.buildId) {
+              console.warn('[ant] Server build changed — reloading');
+              sessionStorage.setItem('ant-build-id', msg.buildId);
+              setTimeout(() => window.location.reload(), 200);
+            }
+          }
+        } catch {}
+      };
 
-    // Forward user input — filter xterm auto-responses to prevent PTY feedback loop (v2 lesson)
+      // Reconnect on close — unless the component was torn down
+      socket.onclose = () => {
+        if (!destroyed) setTimeout(connect, 2000);
+      };
+    }
+
+    connect();
+
+    // Forward user input — always reads ws at call-time so reconnects work (v2 lesson fix)
     term.onData((data: string) => {
       if (slowEdit) return; // Slow edit captures input separately
       if (TERM_RESPONSE_RE.test(data)) return; // Block DA1/DA2/DSR cursor reports
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: 'terminal_input', sessionId, data }));
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'terminal_input', sessionId, data }));
       }
     });
 
-    // Handle resize
+    // Handle resize — reads ws at call-time for same reason
     const resizeObserver = new ResizeObserver(() => {
       fitAddon.fit();
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
           type: 'terminal_resize',
           sessionId,
           cols: term.cols,
@@ -197,18 +222,26 @@
     });
     resizeObserver.observe(termRef);
 
-    // iPad wake/sleep reconnection
+    // Tab restore: repaint xterm (WebGL context may have been lost while hidden)
+    // and reconnect WS if needed (iPad wake/sleep)
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible' && socket.readyState !== WebSocket.OPEN) {
-        socket.close();
+      if (document.visibilityState === 'visible') {
+        requestAnimationFrame(() => {
+          fitAddon.fit();
+          term.refresh(0, term.rows - 1);
+        });
+        if (ws && ws.readyState !== WebSocket.OPEN) {
+          ws.close(); // triggers onclose → reconnect
+        }
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
+      destroyed = true;
       resizeObserver.disconnect();
       document.removeEventListener('visibilitychange', handleVisibility);
-      socket.close();
+      ws?.close();
       term.dispose();
     };
   });
@@ -229,6 +262,7 @@
         class="flex-1 bg-[#1A1A22] text-white font-mono text-sm p-3 rounded-lg border border-[#6366F1] resize-none focus:outline-none focus:ring-2 focus:ring-[#6366F1]"
         placeholder="Type your command here..."
         bind:value={slowEditText}
+        bind:this={slowEditRef}
         onkeydown={(e) => {
           if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
             e.preventDefault();
@@ -239,7 +273,6 @@
             requestAnimationFrame(() => terminal?.focus());
           }
         }}
-        autofocus
       ></textarea>
       <div class="flex gap-2 text-xs text-gray-500">
         <kbd class="px-1.5 py-0.5 bg-[#1A1A22] rounded border border-[var(--border-subtle)]">Ctrl+Enter</kbd>

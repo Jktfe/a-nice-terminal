@@ -5,6 +5,8 @@
 
 import { join } from 'path';
 import { mkdirSync } from 'fs';
+import { createRequire } from 'module';
+const _require = createRequire(import.meta.url);
 
 const DATA_DIR = process.env.ANT_DATA_DIR || join(process.env.HOME || '/tmp', '.ant-v3');
 const DB_PATH = join(DATA_DIR, 'ant.db');
@@ -20,12 +22,10 @@ function getDb(): any {
   mkdirSync(DATA_DIR, { recursive: true });
 
   if (isBun) {
-    // bun:sqlite — fastest option, native to Bun
-    const { Database } = require('bun:sqlite');
+    const { Database } = _require('bun:sqlite');
     _db = new Database(DB_PATH);
   } else {
-    // better-sqlite3 — Node.js compatible
-    const Database = require('better-sqlite3');
+    const Database = _require('better-sqlite3');
     _db = new Database(DB_PATH);
   }
 
@@ -47,10 +47,21 @@ function getDb(): any {
     root_dir TEXT,
     status TEXT DEFAULT 'idle',
     archived INTEGER DEFAULT 0,
+    ttl TEXT DEFAULT '15m',
+    deleted_at TEXT,
+    last_activity TEXT,
     meta TEXT DEFAULT '{}',
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
   )`);
+
+  // Migrations for existing DBs
+  const cols = _db.prepare(`PRAGMA table_info(sessions)`).all().map((c: any) => c.name);
+  if (!cols.includes('ttl'))           _db.exec(`ALTER TABLE sessions ADD COLUMN ttl TEXT DEFAULT '15m'`);
+  if (!cols.includes('deleted_at'))    _db.exec(`ALTER TABLE sessions ADD COLUMN deleted_at TEXT`);
+  if (!cols.includes('last_activity')) _db.exec(`ALTER TABLE sessions ADD COLUMN last_activity TEXT`);
+  if (!cols.includes('handle'))        _db.exec(`ALTER TABLE sessions ADD COLUMN handle TEXT`);
+  if (!cols.includes('display_name'))  _db.exec(`ALTER TABLE sessions ADD COLUMN display_name TEXT`);
 
   _db.exec(`CREATE TABLE IF NOT EXISTS messages (
     id TEXT PRIMARY KEY,
@@ -59,9 +70,18 @@ function getDb(): any {
     content TEXT NOT NULL,
     format TEXT DEFAULT 'text',
     status TEXT DEFAULT 'complete',
+    sender_id TEXT,
+    target TEXT,
+    msg_type TEXT DEFAULT 'message',
     meta TEXT DEFAULT '{}',
     created_at TEXT DEFAULT (datetime('now'))
   )`);
+
+  // Migrations for messages table
+  const msgCols = _db.prepare(`PRAGMA table_info(messages)`).all().map((c: any) => c.name);
+  if (!msgCols.includes('sender_id')) _db.exec(`ALTER TABLE messages ADD COLUMN sender_id TEXT`);
+  if (!msgCols.includes('target'))    _db.exec(`ALTER TABLE messages ADD COLUMN target TEXT`);
+  if (!msgCols.includes('msg_type'))  _db.exec(`ALTER TABLE messages ADD COLUMN msg_type TEXT DEFAULT 'message'`);
 
   _db.exec(`CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id)`);
   _db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_workspace ON sessions(workspace_id)`);
@@ -93,6 +113,32 @@ function getDb(): any {
 
   _db.exec(`CREATE INDEX IF NOT EXISTS idx_transcripts_session ON terminal_transcripts(session_id)`);
 
+  _db.exec(`CREATE TABLE IF NOT EXISTS tasks (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    created_by TEXT,
+    assigned_to TEXT,
+    title TEXT NOT NULL,
+    description TEXT,
+    status TEXT DEFAULT 'proposed',
+    file_refs TEXT DEFAULT '[]',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  )`);
+
+  _db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id)`);
+
+  _db.exec(`CREATE TABLE IF NOT EXISTS file_refs (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    flagged_by TEXT,
+    file_path TEXT NOT NULL,
+    note TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+
+  _db.exec(`CREATE INDEX IF NOT EXISTS idx_file_refs_session ON file_refs(session_id)`);
+
   _db.exec(`CREATE TABLE IF NOT EXISTS workspaces (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -122,24 +168,69 @@ function prepare(sql: string): any {
   return stmtCache.get(sql);
 }
 
+const TTL_MS: Record<string, number> = {
+  '15m':    15 * 60 * 1000,
+  '45m':    45 * 60 * 1000,
+  '3h':   3 * 60 * 60 * 1000,
+  'forever': Infinity,
+};
+
+export function ttlMs(ttl: string): number {
+  return TTL_MS[ttl] ?? TTL_MS['15m'];
+}
+
 export const queries = {
-  // Sessions
-  listSessions: () => prepare(`SELECT * FROM sessions WHERE archived = 0 ORDER BY updated_at DESC`).all(),
+  // Sessions — active (not soft-deleted, not archived)
+  listSessions: () => prepare(`SELECT * FROM sessions WHERE archived = 0 AND deleted_at IS NULL ORDER BY updated_at DESC`).all(),
+  // Soft-deleted sessions still within their TTL window (recoverable)
+  listRecoverable: () => prepare(`SELECT * FROM sessions WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC`).all(),
+  // All terminal sessions for rehydration on startup
+  listTerminalSessions: () => prepare(`SELECT * FROM sessions WHERE type = 'terminal' AND archived = 0`).all(),
   getSession: (id: string) => prepare(`SELECT * FROM sessions WHERE id = ?`).get(id),
-  createSession: (id: string, name: string, type: string, workspaceId: string | null, rootDir: string | null, meta: string) =>
-    prepare(`INSERT INTO sessions (id, name, type, workspace_id, root_dir, meta) VALUES (?, ?, ?, ?, ?, ?)`).run(id, name, type, workspaceId, rootDir, meta),
+  createSession: (id: string, name: string, type: string, ttl: string, workspaceId: string | null, rootDir: string | null, meta: string) =>
+    prepare(`INSERT INTO sessions (id, name, type, ttl, workspace_id, root_dir, meta) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(id, name, type, ttl, workspaceId, rootDir, meta),
   updateSession: (name: string | null, status: string | null, archived: number | null, meta: string | null, id: string) =>
     prepare(`UPDATE sessions SET name = COALESCE(?, name), status = COALESCE(?, status), archived = COALESCE(?, archived), meta = COALESCE(?, meta), updated_at = datetime('now') WHERE id = ?`).run(name, status, archived, meta, id),
-  deleteSession: (id: string) => prepare(`DELETE FROM sessions WHERE id = ?`).run(id),
+  updateTtl: (ttl: string, id: string) =>
+    prepare(`UPDATE sessions SET ttl = ?, updated_at = datetime('now') WHERE id = ?`).run(ttl, id),
+  touchActivity: (id: string) =>
+    prepare(`UPDATE sessions SET last_activity = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(id),
+  softDeleteSession: (id: string) =>
+    prepare(`UPDATE sessions SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(id),
+  restoreSession: (id: string) =>
+    prepare(`UPDATE sessions SET deleted_at = NULL, archived = 0, updated_at = datetime('now') WHERE id = ?`).run(id),
+  hardDeleteSession: (id: string) => prepare(`DELETE FROM sessions WHERE id = ?`).run(id),
   archiveSession: (id: string) => prepare(`UPDATE sessions SET archived = 1, updated_at = datetime('now') WHERE id = ?`).run(id),
+
+  // Sessions — handle/identity
+  setHandle: (id: string, handle: string | null, displayName: string | null) =>
+    prepare(`UPDATE sessions SET handle = ?, display_name = ?, updated_at = datetime('now') WHERE id = ?`).run(handle, displayName, id),
+  getSessionByHandle: (handle: string) => prepare(`SELECT * FROM sessions WHERE handle = ? AND archived = 0 AND deleted_at IS NULL`).get(handle),
 
   // Messages
   listMessages: (sessionId: string) => prepare(`SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC`).all(sessionId),
   getMessagesSince: (sessionId: string, since: string, limit: number) =>
     prepare(`SELECT * FROM messages WHERE session_id = ? AND created_at > ? ORDER BY created_at ASC LIMIT ?`).all(sessionId, since, limit),
-  createMessage: (id: string, sessionId: string, role: string, content: string, format: string, status: string, meta: string) =>
-    prepare(`INSERT INTO messages (id, session_id, role, content, format, status, meta) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(id, sessionId, role, content, format, status, meta),
+  createMessage: (id: string, sessionId: string, role: string, content: string, format: string, status: string, senderId: string | null, target: string | null, msgType: string, meta: string) =>
+    prepare(`INSERT INTO messages (id, session_id, role, content, format, status, sender_id, target, msg_type, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, sessionId, role, content, format, status, senderId, target, msgType, meta),
   deleteMessage: (id: string) => prepare(`DELETE FROM messages WHERE id = ?`).run(id),
+  updateMessageMeta: (id: string, meta: string) =>
+    prepare(`UPDATE messages SET meta = ? WHERE id = ?`).run(meta, id),
+
+  // Tasks
+  listTasks: (sessionId: string) => prepare(`SELECT * FROM tasks WHERE session_id = ? ORDER BY created_at ASC`).all(sessionId),
+  getTask: (id: string) => prepare(`SELECT * FROM tasks WHERE id = ?`).get(id),
+  createTask: (id: string, sessionId: string, createdBy: string | null, title: string, description: string | null) =>
+    prepare(`INSERT INTO tasks (id, session_id, created_by, title, description) VALUES (?, ?, ?, ?, ?)`).run(id, sessionId, createdBy, title, description),
+  updateTask: (id: string, status: string | null, assignedTo: string | null, description: string | null, fileRefs: string | null) =>
+    prepare(`UPDATE tasks SET status = COALESCE(?, status), assigned_to = COALESCE(?, assigned_to), description = COALESCE(?, description), file_refs = COALESCE(?, file_refs), updated_at = datetime('now') WHERE id = ?`).run(status, assignedTo, description, fileRefs, id),
+  deleteTask: (id: string) => prepare(`UPDATE tasks SET status = 'deleted', updated_at = datetime('now') WHERE id = ?`).run(id),
+
+  // File refs
+  listFileRefs: (sessionId: string) => prepare(`SELECT * FROM file_refs WHERE session_id = ? ORDER BY created_at ASC`).all(sessionId),
+  createFileRef: (id: string, sessionId: string, flaggedBy: string | null, filePath: string, note: string | null) =>
+    prepare(`INSERT INTO file_refs (id, session_id, flagged_by, file_path, note) VALUES (?, ?, ?, ?, ?)`).run(id, sessionId, flaggedBy, filePath, note),
+  deleteFileRef: (id: string) => prepare(`DELETE FROM file_refs WHERE id = ?`).run(id),
 
   // Search
   searchMessages: (query: string, limit: number) => prepare(`

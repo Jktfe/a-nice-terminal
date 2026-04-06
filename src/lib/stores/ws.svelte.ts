@@ -1,5 +1,6 @@
 let ws = $state<WebSocket | null>(null);
 let connected = $state(false);
+let knownBuildId: string | null = null;
 
 export function useWsStore() {
   function connect() {
@@ -17,9 +18,17 @@ export function useWsStore() {
     };
 
     ws.onmessage = event => {
-      const data = JSON.parse(event.data);
-      // Dispatch to appropriate store based on event type
-      // This will be wired up by the layout component
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'build_id') {
+          if (knownBuildId === null) {
+            knownBuildId = data.buildId;
+          } else if (knownBuildId !== data.buildId) {
+            console.warn('[ant] Server restarted with new build — reloading');
+            setTimeout(() => window.location.reload(), 200);
+          }
+        }
+      } catch {}
     };
   }
 

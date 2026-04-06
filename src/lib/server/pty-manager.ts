@@ -5,6 +5,8 @@ import * as pty from 'node-pty';
 import { nanoid } from 'nanoid';
 import stripAnsi from 'strip-ansi';
 
+const SCROLLBACK_LIMIT = 256 * 1024; // 256 KB per session
+
 export interface PTYSession {
   id: string;
   sessionId: string;  // DB session ID
@@ -12,6 +14,7 @@ export interface PTYSession {
   cwd: string;
   alive: boolean;
   createdAt: Date;
+  scrollback: string; // raw ANSI output ring buffer
 }
 
 type DataCallback = (sessionId: string, data: string) => void;
@@ -51,10 +54,16 @@ class PTYManager {
       cwd,
       alive: true,
       createdAt: new Date(),
+      scrollback: '',
     };
 
-    // Forward output to all listeners
+    // Forward output to all listeners and accumulate scrollback
     terminal.onData((data: string) => {
+      // Append to scrollback, trim oldest bytes if over limit
+      session.scrollback += data;
+      if (session.scrollback.length > SCROLLBACK_LIMIT) {
+        session.scrollback = session.scrollback.slice(session.scrollback.length - SCROLLBACK_LIMIT);
+      }
       for (const cb of this.dataListeners) {
         try { cb(sessionId, data); } catch {}
       }
@@ -97,6 +106,11 @@ class PTYManager {
   /** Get session info */
   get(sessionId: string): PTYSession | undefined {
     return this.sessions.get(sessionId);
+  }
+
+  /** Get buffered output for replay to a reconnecting client */
+  getScrollback(sessionId: string): string {
+    return this.sessions.get(sessionId)?.scrollback ?? '';
   }
 
   /** Check if a session is alive */

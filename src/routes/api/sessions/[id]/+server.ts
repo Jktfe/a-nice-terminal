@@ -9,21 +9,27 @@ export function GET({ params }) {
 
 export async function PATCH({ params, request }) {
   const body = await request.json();
-  queries.updateSession(
-    body.name || null,
-    body.status || null,
-    body.archived !== undefined ? (body.archived ? 1 : 0) : null,
-    body.meta ? JSON.stringify(body.meta) : null,
-    params.id
-  );
+  if (body.ttl) {
+    queries.updateTtl(body.ttl, params.id);
+  }
+  if (body.name || body.status || body.archived !== undefined || body.meta) {
+    queries.updateSession(
+      body.name || null,
+      body.status || null,
+      body.archived !== undefined ? (body.archived ? 1 : 0) : null,
+      body.meta ? JSON.stringify(body.meta) : null,
+      params.id
+    );
+  }
   const session = queries.getSession(params.id);
   if (!session) throw error(404, 'Session not found');
   return json(session);
 }
 
+// Soft-delete: marks deleted_at, PTY keeps running, recoverable within TTL window
 export function DELETE({ params }) {
   const session = queries.getSession(params.id);
   if (!session) throw error(404, 'Session not found');
-  queries.deleteSession(params.id);
+  queries.softDeleteSession(params.id);
   return new Response(null, { status: 204 });
 }

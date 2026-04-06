@@ -18,17 +18,21 @@ export const handle: Handle = async ({ event, resolve }) => {
     }
   }
 
-  // API key check (optional — only enforce if ANT_API_KEY is set)
+  // API key check — enforced for external API calls only, not browser UI (same-origin)
   const apiKey = process.env.ANT_API_KEY;
   if (apiKey && event.url.pathname.startsWith('/api/')) {
-    const provided = event.request.headers.get('authorization')?.replace('Bearer ', '') ||
-                     event.request.headers.get('x-api-key') ||
-                     event.url.searchParams.get('apiKey');
-    if (provided !== apiKey) {
-      return new Response(JSON.stringify({ error: 'Invalid or missing API key' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      });
+    const origin = event.request.headers.get('origin');
+    const isSameOrigin = origin === event.url.origin || !origin;
+    if (!isSameOrigin) {
+      const provided = event.request.headers.get('authorization')?.replace('Bearer ', '') ||
+                       event.request.headers.get('x-api-key') ||
+                       event.url.searchParams.get('apiKey');
+      if (provided !== apiKey) {
+        return new Response(JSON.stringify({ error: 'Invalid or missing API key' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
     }
   }
 

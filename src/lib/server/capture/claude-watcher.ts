@@ -48,26 +48,23 @@ function processJSONLFile(path: string): void {
   }
 }
 
-function ingestClaudeEntry(entry: any, sourcePath: string): void {
-  // Claude Code JSONL format has various message types
-  // Extract what we can and store as messages
-  if (entry.type === 'human' || entry.type === 'assistant') {
-    const role = entry.type === 'human' ? 'user' : 'assistant';
-    const content = typeof entry.message === 'string'
-      ? entry.message
-      : entry.message?.content || JSON.stringify(entry.message);
-
-    // Try to find or create a session for this source
-    const sessionName = basename(sourcePath, '.jsonl').replace(/-/g, ' ');
-    // Store with source metadata
-    const meta = JSON.stringify({
-      source: 'claude-code',
-      file: sourcePath,
-      tokens: entry.usage?.input_tokens,
-      model: entry.model,
-    });
-
-    // For now, just log — full session linkage will be added later
-    console.log(`[capture] Claude ${role}: ${content.slice(0, 80)}...`);
+function extractText(message: any): string {
+  if (typeof message === 'string') return message;
+  if (Array.isArray(message)) {
+    return message
+      .map((block: any) => (block?.type === 'text' ? block.text : ''))
+      .filter(Boolean)
+      .join(' ');
   }
+  return message?.content ? extractText(message.content) : JSON.stringify(message);
+}
+
+function ingestClaudeEntry(entry: any, sourcePath: string): void {
+  if (entry.type !== 'human' && entry.type !== 'assistant') return;
+
+  const role = entry.type === 'human' ? 'user' : 'assistant';
+  const text = extractText(entry.message)?.slice(0, 80);
+  if (!text) return;
+
+  // TODO: link to ANT session for full capture
 }

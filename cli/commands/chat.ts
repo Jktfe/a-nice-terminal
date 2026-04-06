@@ -15,7 +15,7 @@ export async function chat(args: string[], flags: any, ctx: any) {
   if (sub === 'send') {
     const msg = flags.msg || args[2];
     if (!msg) { console.error('Usage: ant chat send <id> --msg "message"'); return; }
-    const result = await api.post(ctx, `/api/sessions/${id}/messages`, { role: 'user', content: msg, format: 'text' });
+    const result = await api.post(ctx, `/api/sessions/${id}/messages`, { role: 'user', content: msg, format: 'text', sender_id: config.get('handle') || 'cli' });
     if (ctx.json) { console.log(JSON.stringify(result)); return; }
     console.log(`Sent: ${msg}`);
     return;
@@ -38,7 +38,7 @@ export async function chat(args: string[], flags: any, ctx: any) {
   if (sub === 'reply') {
     const msg = flags.msg || args[2];
     if (!msg) { console.error('Usage: ant chat reply <id> --msg "message"'); return; }
-    const result = await api.post(ctx, `/api/sessions/${id}/messages`, { role: 'user', content: msg, format: 'text' });
+    const result = await api.post(ctx, `/api/sessions/${id}/messages`, { role: 'user', content: msg, format: 'text', sender_id: config.get('handle') || 'cli' });
     if (ctx.json) { console.log(JSON.stringify(result)); return; }
     console.log(`Replied: ${msg}`);
     return;
@@ -57,8 +57,8 @@ export async function chat(args: string[], flags: any, ctx: any) {
 
     console.log('\n--- Joined chat (streaming, Ctrl+C to exit) ---\n');
 
-    // Connect WebSocket for real-time messages
-    const wsUrl = ctx.serverUrl.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws';
+    // Connect WebSocket — always prefer wss:// (http:// → wss:// since server is TLS-only)
+    const wsUrl = ctx.serverUrl.replace('https://', 'wss://').replace('http://', 'wss://') + '/ws';
     const ws = new WebSocket(wsUrl, {
       headers: ctx.apiKey ? { 'Authorization': `Bearer ${ctx.apiKey}` } : {},
       rejectUnauthorized: false,

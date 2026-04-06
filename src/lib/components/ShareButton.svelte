@@ -66,10 +66,10 @@
         <div class="space-y-3 max-h-96 overflow-y-auto">
           {#each Object.entries(commands) as [label, cmd]}
             <div class="space-y-2">
-              <label class="text-xs font-medium text-gray-300 capitalize flex items-center gap-1">
+              <p class="text-xs font-medium text-gray-300 capitalize flex items-center gap-1">
                 <span class="w-1.5 h-1.5 rounded-full bg-[#6366F1]"></span>
                 {label.replace(/_/g, ' ')}
-              </label>
+              </p>
               <button
                 onclick={() => copyCommand(cmd)}
                 class="w-full text-left px-3 py-2.5 rounded-lg bg-[#0D0D12] font-mono text-xs text-gray-300 hover:bg-[#16161A] hover:text-[#6366F1] border border-[var(--border-subtle)] transition-all truncate"

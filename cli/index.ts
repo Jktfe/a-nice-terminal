@@ -6,6 +6,11 @@ import { sessions } from './commands/sessions.js';
 import { chat } from './commands/chat.js';
 import { terminal } from './commands/terminal.js';
 import { search } from './commands/search.js';
+import { share } from './commands/share.js';
+import { qr } from './commands/qr.js';
+import { msg } from './commands/msg.js';
+import { task } from './commands/task.js';
+import { flag } from './commands/flag.js';
 import { config } from './lib/config.js';
 
 const { command, args, flags } = parseArgs(process.argv.slice(2));
@@ -29,10 +34,29 @@ Commands:
   chat read <id>        Read message history (--limit 50)
   chat reply <id>       Reply to the latest message (--msg "yes do it")
 
+  msg <id> "text"       Broadcast a message to all session participants
+  msg <id> @handle "t" Send a targeted message to one handle
+
+  task <id> list                    List tasks
+  task <id> create "title"          Propose a new task (--desc "...")
+  task <id> accept <task-id>        Accept a proposed task
+  task <id> assign <task-id> @h     Assign to a handle
+  task <id> review <task-id>        Mark as ready for review
+  task <id> done <task-id>          Mark complete
+  task <id> delete <task-id>        Delete a task
+
+  flag <id> <file>      Flag a file reference in the session (--note "why")
+  flag <id> list        List flagged files
+  flag <id> remove <r>  Remove a file reference
+
+  share <id>            Generate a read-only share link for a session
+  qr                    Show QR code to connect ANTios to this server
+
   search <query>        Search across all sessions (FTS5)
 
   config                Show current config
-  config set            Set server URL (--url https://...)
+  config set            Set server URL / API key / handle / session ID
+                        (--url https://... --key abc --handle @james --session <id>)
 
 Options:
   --server, -s    Server URL (default: from ~/.ant/config.json)
@@ -47,7 +71,7 @@ async function main() {
     process.exit(0);
   }
 
-  const serverUrl = flags.server || config.get('serverUrl') || 'http://localhost:6458';
+  const serverUrl = flags.server || config.get('serverUrl') || 'https://localhost:6458';
   const apiKey = flags.key || config.get('apiKey') || '';
 
   const ctx = { serverUrl, apiKey, json: !!flags.json };
@@ -57,7 +81,12 @@ async function main() {
       case 'sessions': await sessions(args, flags, ctx); break;
       case 'terminal': await terminal(args, flags, ctx); break;
       case 'chat':     await chat(args, flags, ctx); break;
+      case 'msg':      await msg(args, flags, ctx); break;
+      case 'task':     await task(args, flags, ctx); break;
+      case 'flag':     await flag(args, flags, ctx); break;
       case 'search':   await search(args, flags, ctx); break;
+      case 'share':    await share(args, flags, ctx); break;
+      case 'qr':       await qr(args, flags, ctx); break;
       case 'config':   configCmd(args, flags); break;
       default:
         console.error(`Unknown command: ${command}`);
@@ -72,8 +101,10 @@ async function main() {
 
 function configCmd(args: string[], flags: Record<string, any>) {
   if (args[0] === 'set') {
-    if (flags.url) config.set('serverUrl', flags.url);
-    if (flags.key) config.set('apiKey', flags.key);
+    if (flags.url)     config.set('serverUrl', flags.url);
+    if (flags.key)     config.set('apiKey', flags.key);
+    if (flags.handle)  config.set('handle', flags.handle.startsWith('@') ? flags.handle : `@${flags.handle}`);
+    if (flags.session) config.set('sessionId', flags.session);
     console.log('Config updated');
   } else {
     console.log(JSON.stringify(config.getAll(), null, 2));

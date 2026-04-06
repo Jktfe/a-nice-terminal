@@ -5,6 +5,9 @@ interface Message {
   content: string;
   format: string;
   status: string;
+  sender_id: string | null;
+  target: string | null;
+  msg_type: string;
   created_at: string;
 }
 
@@ -18,57 +21,51 @@ export function useMessageStore() {
     messages = data.messages || [];
   }
 
-  async function send(sessionId: string, content: string) {
+  async function send(sessionId: string, content: string, opts?: { sender_id?: string; target?: string }) {
     const res = await fetch(`/api/sessions/${sessionId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role: 'user', content, format: 'text' }),
+      body: JSON.stringify({
+        role: 'user',
+        content,
+        format: 'text',
+        sender_id: opts?.sender_id ?? null,
+        target: opts?.target ?? null,
+        msg_type: 'message',
+      }),
     });
     const msg = await res.json();
-    messages = [...messages, msg];
+    // Optimistic add — WS event deduplicates
+    if (!messages.find(m => m.id === msg.id)) {
+      messages = [...messages, msg];
+    }
     return msg;
   }
 
   function handleStreamChunk(msgId: string, chunk: string) {
     const idx = messages.findIndex(m => m.id === msgId);
     if (idx >= 0) {
-      messages[idx] = {
-        ...messages[idx],
-        content: messages[idx].content + chunk,
-        status: 'streaming',
-      };
+      messages[idx] = { ...messages[idx], content: messages[idx].content + chunk, status: 'streaming' };
     } else {
-      messages = [
-        ...messages,
-        {
-          id: msgId,
-          session_id: '',
-          role: 'assistant',
-          content: chunk,
-          format: 'text',
-          status: 'streaming',
-          created_at: new Date().toISOString(),
-        },
-      ];
+      messages = [...messages, {
+        id: msgId, session_id: '', role: 'assistant', content: chunk,
+        format: 'text', status: 'streaming', sender_id: null, target: null, msg_type: 'message',
+        created_at: new Date().toISOString(),
+      }];
     }
     streamingId = msgId;
   }
 
   function handleStreamEnd(msgId: string) {
     const idx = messages.findIndex(m => m.id === msgId);
-    if (idx >= 0) {
-      messages[idx] = { ...messages[idx], status: 'complete' };
-    }
+    if (idx >= 0) messages[idx] = { ...messages[idx], status: 'complete' };
     streamingId = null;
   }
 
   return {
-    get messages() {
-      return messages;
-    },
-    get streamingId() {
-      return streamingId;
-    },
+    get messages() { return messages; },
+    set messages(v: Message[]) { messages = v; },
+    get streamingId() { return streamingId; },
     load,
     send,
     handleStreamChunk,

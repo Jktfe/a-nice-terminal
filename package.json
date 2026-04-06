@@ -7,7 +7,10 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "node --import ./node_modules/tsx/dist/esm/index.mjs ./server.ts",
-    "start:prod": "npm run build && npm run start"
+    "start:prod": "npm run build && npm run start",
+    "dev:full": "concurrently -n vite,server -c cyan,green \"vite build --watch\" \"nodemon --watch build --delay 1.5 --exec 'node --import ./node_modules/tsx/dist/esm/index.mjs ./server.ts'\"",
+    "daemon:start": "bun src/lib/server/pty-daemon.ts &",
+    "daemon:stop": "lsof -ti UNIX:$HOME/.ant/pty.sock | xargs kill -TERM 2>/dev/null || true"
   },
   "dependencies": {
     "@sveltejs/adapter-node": "^5.5.4",
@@ -22,6 +25,7 @@
     "better-sqlite3": "^12.8.0",
     "dotenv": "^17.4.1",
     "gray-matter": "^4.0.3",
+    "marked": "^17.0.6",
     "nanoid": "^5.1.7",
     "node-pty": "^1.1.0",
     "strip-ansi": "^7.2.0",
@@ -34,6 +38,8 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/ws": "^8.18.1",
+    "concurrently": "^9.2.1",
+    "nodemon": "^3.1.14",
     "tsx": "^4.21.0"
   }
 }

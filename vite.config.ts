@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [tailwindcss(), sveltekit()],
   server: { allowedHosts: true },
   ssr: {
-    external: ['better-sqlite3'],
+    external: ['better-sqlite3', 'node-pty'],
     noExternal: [],
   },
 });
