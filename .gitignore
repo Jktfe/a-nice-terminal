@@ -1,0 +1,11 @@
+node_modules/
+.svelte-kit/
+build/
+.env
+certs/
+*.db
+*.db-wal
+*.db-shm
+.ant-v3/
+/tmp/
+vc.newmodel.ant.plist

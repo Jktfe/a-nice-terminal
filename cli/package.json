@@ -1,0 +1,11 @@
+{
+  "name": "@ant/cli",
+  "version": "3.0.0",
+  "type": "module",
+  "bin": {
+    "ant": "./index.ts"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ant.server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/path/to/node</string>
+    <string>--import</string>
+    <string>./node_modules/tsx/dist/esm/index.mjs</string>
+    <string>./server.ts</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/path/to/a-nice-terminal</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>UserName</key>
+  <string>yourusername</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ANT_PORT</key>
+    <string>6458</string>
+    <key>ANT_HOST</key>
+    <string>0.0.0.0</string>
+    <key>ANT_TAILSCALE_ONLY</key>
+    <string>true</string>
+    <key>ANT_TLS_CERT</key>
+    <string>/path/to/a-nice-terminal/certs/ant-tls.crt</string>
+    <key>ANT_TLS_KEY</key>
+    <string>/path/to/a-nice-terminal/certs/ant-tls.key</string>
+    <key>HOME</key>
+    <string>/Users/yourusername</string>
+    <key>PATH</key>
+    <string>/path/to/node/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/var/log/ant/stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/var/log/ant/stderr.log</string>
+</dict>
+</plist>
