@@ -12,7 +12,6 @@
   import FileRefCard from '$lib/components/FileRefCard.svelte';
   import { theme } from '$lib/stores/theme.svelte';
   import { useToasts } from '$lib/stores/toast.svelte';
-  import PtyChat from '$lib/components/PtyChat.svelte';
   import { onMount, onDestroy } from 'svelte';
 
   const toasts = useToasts();
@@ -464,12 +463,6 @@
             onclick={() => (mode='terminal')}
             title="Raw terminal"
           >⌨</button>
-          <button
-            class="px-2.5 py-1 text-xs rounded transition-all"
-            style={mode==='ptychat' ? 'background:#F59E0B;color:#fff;' : 'color:var(--text-muted);'}
-            onclick={() => (mode='ptychat')}
-            title="PTY Chat — interact with CLI tool as bubbles"
-          >🤖</button>
         </div>
       {/if}
 
@@ -524,27 +517,51 @@
           <div class="flex-1 overflow-y-auto px-4 py-4 space-y-3 relative"
                bind:this={chatScrollEl}
                onscroll={onChatScroll}>
-            {#if msgStore.messages.length === 0}
-              <div class="flex flex-col items-center justify-center h-full text-center opacity-60">
-                <p class="text-4xl mb-3">💬</p>
-                <p class="font-medium" style="color:var(--text);">No messages yet</p>
-                <p class="text-sm mt-1" style="color:var(--text-muted);">Type below, or use <code class="font-mono text-xs">ant msg</code> from a terminal</p>
-              </div>
+            {#if session?.type === 'terminal'}
+              {#if linkedChatMessages.length === 0}
+                <div class="flex flex-col items-center justify-center h-full text-center opacity-60">
+                  <p class="text-4xl mb-3">💬</p>
+                  <p class="font-medium" style="color:var(--text);">No messages in linked chat</p>
+                </div>
+              {:else}
+                {#each linkedChatMessages as m (m.id)}
+                  <MessageBubble
+                    message={m}
+                    {sessionId}
+                    {allSessions}
+                    onReply={(msg) => { replyTo = msg; }}
+                    onDeleted={(id) => { linkedChatMessages = linkedChatMessages.filter(x => x.id !== id); }}
+                    onMetaUpdated={(id, meta) => {
+                      linkedChatMessages = linkedChatMessages.map(x =>
+                        x.id === id ? { ...x, meta: JSON.stringify(meta) } : x
+                      );
+                    }}
+                  />
+                {/each}
+              {/if}
             {:else}
-              {#each msgStore.messages as m (m.id)}
-                <MessageBubble
-                  message={m}
-                  {sessionId}
-                  {allSessions}
-                  onReply={(msg) => { replyTo = msg; }}
-                  onDeleted={(id) => { msgStore.messages = msgStore.messages.filter(x => x.id !== id); }}
-                  onMetaUpdated={(id, meta) => {
-                    msgStore.messages = msgStore.messages.map(x =>
-                      x.id === id ? { ...x, meta: JSON.stringify(meta) } : x
-                    );
-                  }}
-                />
-              {/each}
+              {#if msgStore.messages.length === 0}
+                <div class="flex flex-col items-center justify-center h-full text-center opacity-60">
+                  <p class="text-4xl mb-3">💬</p>
+                  <p class="font-medium" style="color:var(--text);">No messages yet</p>
+                  <p class="text-sm mt-1" style="color:var(--text-muted);">Type below, or use <code class="font-mono text-xs">ant msg</code> from a terminal</p>
+                </div>
+              {:else}
+                {#each msgStore.messages as m (m.id)}
+                  <MessageBubble
+                    message={m}
+                    {sessionId}
+                    {allSessions}
+                    onReply={(msg) => { replyTo = msg; }}
+                    onDeleted={(id) => { msgStore.messages = msgStore.messages.filter(x => x.id !== id); }}
+                    onMetaUpdated={(id, meta) => {
+                      msgStore.messages = msgStore.messages.map(x =>
+                        x.id === id ? { ...x, meta: JSON.stringify(meta) } : x
+                      );
+                    }}
+                  />
+                {/each}
+              {/if}
             {/if}
           </div>
 
@@ -564,22 +581,29 @@
             </div>
           {/if}
 
-          <MessageInput
-            onSend={sendMessage}
-            {replyTo}
-            onClearReply={() => (replyTo = null)}
-            handles={allSessions.filter(s => s.handle).map(s => ({ handle: s.handle, name: s.display_name || s.name }))}
-          />
-        </div>
-      {:else if mode === 'ptychat'}
-        <!-- PTY Chat bridge — terminal output as bubbles, input via PTY -->
-        <div class="flex-1 overflow-hidden" style="background:var(--bg);">
-          <PtyChat
-            {sessionId}
-            {allSessions}
-            {ws}
-            onSendCommand={sendCommand}
-          />
+          {#if session?.type === 'terminal'}
+            <div class="flex gap-2 p-3 border-t" style="border-color:var(--border-light);">
+              <input
+                class="flex-1 rounded-lg px-3 py-2 text-sm outline-none"
+                style="background:var(--bg-card);border:1px solid var(--border-subtle);color:var(--text);"
+                placeholder="Message linked chat…"
+                bind:value={linkedChatInput}
+                onkeydown={(e) => { if (e.key === 'Enter') postToLinkedChat(); }}
+              />
+              <button
+                onclick={postToLinkedChat}
+                class="px-3 py-2 text-sm rounded-lg font-medium"
+                style="background:#6366F1;color:#fff;"
+              >Send</button>
+            </div>
+          {:else}
+            <MessageInput
+              onSend={sendMessage}
+              {replyTo}
+              onClearReply={() => (replyTo = null)}
+              handles={allSessions.filter(s => s.handle).map(s => ({ handle: s.handle, name: s.display_name || s.name }))}
+            />
+          {/if}
         </div>
       {:else}
         <!-- Terminal mode -->
