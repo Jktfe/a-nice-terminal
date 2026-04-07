@@ -169,7 +169,10 @@
       ws = socket;
 
       socket.onopen = () => {
-        socket.send(JSON.stringify({ type: 'join_session', sessionId }));
+        // spawnPty: true tells the server to start/attach the PTY daemon session.
+        // Passing actual cols/rows ensures the PTY is spawned at the right size —
+        // fitAddon.fit() has already run by this point (connect() is called after term.open()).
+        socket.send(JSON.stringify({ type: 'join_session', sessionId, spawnPty: true, cols: term.cols, rows: term.rows }));
       };
 
       socket.onmessage = (event) => {

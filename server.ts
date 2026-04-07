@@ -118,12 +118,14 @@ wss.on('connection', async (ws) => {
           const sess = q2.getSession(msg.sessionId);
           broadcastEntry.handle = sess?.handle ?? null;
 
-          // For terminal sessions: spawn PTY and replay scrollback BEFORE joining the
-          // live-output stream. joinedSessions.add() is intentionally deferred until
-          // after scrollback is sent — WebSocket ordering guarantees the client always
-          // receives scrollback before any subsequent live output.
-          if (sess?.type === 'terminal') {
-            const result = await ptm.spawn(msg.sessionId, msg.cwd || process.env.HOME || '/tmp');
+          // Only Terminal.svelte sends spawnPty:true — the page's own WS should NOT
+          // trigger a spawn, because it doesn't know the actual terminal dimensions and
+          // would start the PTY at the wrong size (default 120×30).
+          // cols/rows come from fitAddon.fit(), which has run before connect() is called.
+          if (msg.spawnPty && sess?.type === 'terminal') {
+            const cols = typeof msg.cols === 'number' ? msg.cols : 120;
+            const rows = typeof msg.rows === 'number' ? msg.rows : 30;
+            const result = await ptm.spawn(msg.sessionId, msg.cwd || process.env.HOME || '/tmp', cols, rows);
             ws.send(JSON.stringify({ type: 'session_health', sessionId: msg.sessionId, alive: result.alive }));
             if (result.scrollback) {
               ws.send(JSON.stringify({ type: 'terminal_output', sessionId: msg.sessionId, data: result.scrollback }));
