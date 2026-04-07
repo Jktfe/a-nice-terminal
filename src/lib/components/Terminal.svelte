@@ -67,7 +67,12 @@
       term.write(chunk);
       offset += CHUNK_SIZE;
       if (offset < data.length) requestAnimationFrame(next);
-      else onDone?.();
+      else {
+        // Force repaint after chunked write — xterm holds the data but won't
+        // paint it without this when the terminal was hidden during the writes.
+        term.refresh(0, term.rows - 1);
+        onDone?.();
+      }
     }
     requestAnimationFrame(next);
   }
@@ -142,7 +147,6 @@
     // producing garbled/replacement-character output on first render.
 
     term.open(termRef);
-    fitAddon.fit();
     term.focus(); // Must call after open() — arrows/Tab stop working without this (v2 lesson)
     terminal = term;
 
@@ -190,8 +194,6 @@
       };
     }
 
-    connect();
-
     // Forward user input — always reads ws at call-time so reconnects work (v2 lesson fix)
     term.onData((data: string) => {
       if (slowEdit) return; // Slow edit captures input separately
@@ -201,9 +203,20 @@
       }
     });
 
-    // Handle resize — reads ws at call-time for same reason
+    // Connect only after the container has a real height — on SvelteKit client-side
+    // navigation the flex layout hasn't resolved when onMount runs, so fitAddon.fit()
+    // would compute 0 cols/rows. The scrollback would then land in a mis-sized terminal
+    // and never repaint. Waiting for the first ResizeObserver entry with clientHeight > 0
+    // guarantees layout has settled before we spawn the PTY or replay scrollback.
+    let initialConnectDone = false;
     const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit();
+      if (!initialConnectDone && termRef.clientHeight > 0) {
+        initialConnectDone = true;
+        fitAddon.fit();
+        connect();
+      } else if (initialConnectDone) {
+        fitAddon.fit();
+      }
       if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
           type: 'terminal_resize',
