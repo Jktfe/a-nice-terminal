@@ -122,10 +122,13 @@ wss.on('connection', async (ws) => {
           // trigger a spawn, because it doesn't know the actual terminal dimensions and
           // would start the PTY at the wrong size (default 120×30).
           // cols/rows come from fitAddon.fit(), which has run before connect() is called.
+          console.log(`[ws] join_session ${msg.sessionId} spawnPty=${!!msg.spawnPty} cols=${msg.cols} rows=${msg.rows} type=${sess?.type}`);
+
           if (msg.spawnPty && sess?.type === 'terminal') {
             const cols = typeof msg.cols === 'number' ? msg.cols : 120;
             const rows = typeof msg.rows === 'number' ? msg.rows : 30;
             const result = await ptm.spawn(msg.sessionId, msg.cwd || process.env.HOME || '/tmp', cols, rows);
+            console.log(`[ws] spawned ${msg.sessionId} alive=${result.alive} scrollback=${result.scrollback.length}b`);
             ws.send(JSON.stringify({ type: 'session_health', sessionId: msg.sessionId, alive: result.alive }));
             if (result.scrollback) {
               ws.send(JSON.stringify({ type: 'terminal_output', sessionId: msg.sessionId, data: result.scrollback }));

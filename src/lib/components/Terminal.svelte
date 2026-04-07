@@ -138,18 +138,8 @@
     term.loadAddon(fitAddon);
     term.loadAddon(serializeAddon);
 
-    // Skip WebGL on mobile — iOS Safari's WebGL can partially fail, corrupting glyph rendering
-    // without throwing an error. The DOM renderer is more reliable on mobile.
-    if (!isMobile) {
-      try {
-        const { WebglAddon } = await import('@xterm/addon-webgl');
-        const webgl = new WebglAddon();
-        webgl.onContextLoss(() => webgl.dispose());
-        term.loadAddon(webgl);
-      } catch {
-        // DOM renderer fallback for desktop Safari/WebKit
-      }
-    }
+    // DOM renderer only — WebGL glyph atlas can build before the font is ready,
+    // producing garbled/replacement-character output on first render.
 
     term.open(termRef);
     fitAddon.fit();

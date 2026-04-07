@@ -12,7 +12,7 @@ export const handle: Handle = async ({ event, resolve }) => {
   if (process.env.ANT_TAILSCALE_ONLY === 'true') {
     const ip = event.request.headers.get('x-forwarded-for') ||
                event.getClientAddress();
-    const isTailscale = ip.startsWith('100.') || ip === '127.0.0.1' || ip === '::1';
+    const isTailscale = ip != null && (ip.startsWith('100.') || ip === '127.0.0.1' || ip === '::1');
     if (!isTailscale) {
       return new Response('Forbidden', { status: 403 });
     }

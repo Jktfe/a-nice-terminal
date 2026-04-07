@@ -585,20 +585,13 @@
       {:else}
         <!-- Terminal mode -->
         <div class="flex flex-col flex-1 overflow-hidden">
-          <div class="flex items-center gap-2 px-4 py-2 border-b" style="border-color:var(--border-light);background:var(--bg-surface);">
-            <span class="text-[11px] font-medium mr-1" style="color:var(--text-faint);">VIEW</span>
-            {#each ['xterm','signals','raw'] as v}
-              <button
-                class="px-2.5 py-1 text-xs rounded transition-all"
-                style={signalMode===v ? 'background:#6366F1;color:#fff;' : 'color:var(--text-muted);'}
-                onclick={() => (signalMode=v)}
-              >{v.toUpperCase()}</button>
-            {/each}
+          <div class="flex items-center px-4 py-2 border-b" style="border-color:var(--border-light);background:var(--bg-surface);">
             <button
               onclick={() => termKey++}
               class="ml-auto p-1.5 rounded transition-all"
               style="color:var(--text-faint);"
               title="Refresh terminal (remount)"
+              aria-label="Refresh terminal"
             >
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -607,13 +600,7 @@
             </button>
           </div>
           <div class="flex-1 overflow-hidden" style="background:var(--terminal-bg);">
-            {#if signalMode==='xterm'}
-              {#key termKey}<Terminal {sessionId}/>{/key}
-            {:else}
-              <div class="flex items-center justify-center h-full text-center px-6">
-                <p class="text-gray-500 text-sm">{signalMode === 'signals' ? 'Signal view — pending' : 'Raw buffer — pending'}</p>
-              </div>
-            {/if}
+            {#key termKey}<Terminal {sessionId}/>{/key}
           </div>
           <CLIInput onSubmit={sendCommand}/>
         </div>
