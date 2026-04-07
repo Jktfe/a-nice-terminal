@@ -133,6 +133,18 @@ wss.on('connection', async (ws) => {
             if (result.scrollback) {
               ws.send(JSON.stringify({ type: 'terminal_output', sessionId: msg.sessionId, data: result.scrollback }));
             }
+            // Trigger a SIGWINCH after scrollback replay so TUI apps (Claude Code, vim,
+            // htop, etc.) fully repaint their current screen state. Without this, a
+            // session whose scrollback was trimmed mid-alt-screen renders blank because
+            // the initial "enter alt-screen + paint" sequence was discarded. A resize
+            // forces the process to redraw from scratch, exactly like tmux does on attach.
+            if (result.alive) {
+              setTimeout(() => {
+                const c = typeof msg.cols === 'number' ? msg.cols : 120;
+                const r = typeof msg.rows === 'number' ? msg.rows : 30;
+                ptm.resize(msg.sessionId, c, r);
+              }, 300);
+            }
           }
 
           // Now start receiving live output (after scrollback has been queued for send)
