@@ -1,4 +1,5 @@
 import { api } from '../lib/api.js';
+import { config } from '../lib/config.js';
 import { createInterface } from 'readline';
 import WebSocket from 'ws';
 

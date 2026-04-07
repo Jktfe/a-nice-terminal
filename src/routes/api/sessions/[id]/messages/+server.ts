@@ -70,5 +70,27 @@ export async function POST({ params, request }) {
   const { broadcast } = await import('$lib/server/ws-broadcast.js');
   broadcast(params.id, { type: 'message_created', sessionId: params.id, ...msg }, target);
 
+  // If message targets a handle, inject a notification into that terminal's PTY
+  // so the AI running in that terminal sees it directly
+  if (target && target !== '@everyone') {
+    const targetSession: any = queries.getSessionByHandle(target);
+    if (targetSession?.type === 'terminal') {
+      const senderSession: any = sender_id ? queries.getSession(sender_id) : null;
+      const senderName = senderSession?.name || sender_id || 'web';
+      const chatUrl = `https://localhost:6458/session/${params.id}`;
+      // Inject as a clearly delimited notification block — safe for bash and AI CLIs
+      const notification =
+        `\r\n\x1b[36m┌─ ANT message ─────────────────────────────────\x1b[0m\r\n` +
+        `\x1b[36m│\x1b[0m From: \x1b[33m${senderName}\x1b[0m → \x1b[32m${target}\x1b[0m\r\n` +
+        `\x1b[36m│\x1b[0m "${content.slice(0, 200)}"\r\n` +
+        `\x1b[36m│\x1b[0m Reply: \x1b[90mant msg ${params.id} "your reply"\x1b[0m\r\n` +
+        `\x1b[36m└───────────────────────────────────────────────\x1b[0m\r\n`;
+      try {
+        const { ptyManager } = await import('$lib/server/pty-manager.js');
+        ptyManager.write(targetSession.id, notification);
+      } catch {}
+    }
+  }
+
   return json(msg, { status: 201 });
 }

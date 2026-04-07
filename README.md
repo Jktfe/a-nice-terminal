@@ -8,6 +8,9 @@ A self-hosted terminal multiplexer and chat interface. Run terminal sessions and
 - **Keyboard-correct** — Esc, Tab, Ctrl+C, arrows, Option/Alt, and paste all work; DA1/DA2 feedback loop prevented
 - **Slow Edit mode** — compose multi-line commands in a textarea before sending to the PTY
 - **Chat sessions** — persistent message threads with FTS5 full-text search
+- **PTY Chat mode** (🤖) — terminal output appears as chat bubbles; type commands inline
+- **Memory panel** — key/value memory store with FTS5 search; agents can save and recall facts
+- **Toast notifications** — visual feedback for wake, cross-post, and save actions
 - **Share** — generate CLI commands so other clients (agents or humans) can join any session
 - **CLI tool** (`ant`) — manage and connect to sessions from anywhere
 - **API key auth** — optional bearer token protection on all API and WebSocket endpoints
@@ -90,6 +93,9 @@ POST /api/sessions/:id/messages
 GET  /api/sessions/:id/share
 POST /api/sessions/:id/terminal/input
 GET  /api/search?q=...
+GET  /api/memories?q=...&limit=
+POST /api/memories
+DELETE /api/memories?id=
 GET  /api/workspaces
 WS   /ws    (join_session, terminal_input, terminal_resize, terminal_output)
 ```

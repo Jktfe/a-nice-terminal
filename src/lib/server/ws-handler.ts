@@ -2,6 +2,7 @@
 // Replaces Socket.IO with native WebSocket for terminal I/O and real-time events
 
 import { ptyManager } from './pty-manager';
+import { ptyClient } from './pty-client';
 import { queries } from './db';
 
 interface WSClient {
@@ -106,15 +107,16 @@ class WebSocketHandler {
     }
   }
 
-  /** Wire up PTY manager output to broadcast */
+  /** Wire up PTY output to broadcast (both in-process manager and daemon client) */
   init(): void {
-    // Forward all PTY output to joined clients
+    // ptyManager handles direct in-process sessions (fallback path).
+    // ptyClient handles sessions running in the persistent daemon (primary path).
+    // Both fire 'terminal_output' so PtyChat and xterm receive all output.
     ptyManager.onData((sessionId, data) => {
-      this.broadcastToSession(sessionId, {
-        type: 'terminal_output',
-        sessionId,
-        data,
-      });
+      this.broadcastToSession(sessionId, { type: 'terminal_output', sessionId, data });
+    });
+    ptyClient.onData((sessionId, data) => {
+      this.broadcastToSession(sessionId, { type: 'terminal_output', sessionId, data });
     });
   }
 }

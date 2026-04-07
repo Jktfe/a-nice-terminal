@@ -151,6 +151,36 @@ function getDb(): any {
     value TEXT NOT NULL
   )`);
 
+  _db.exec(`CREATE TABLE IF NOT EXISTS memories (
+    id TEXT PRIMARY KEY,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    tags TEXT DEFAULT '[]',
+    session_id TEXT,
+    created_by TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  )`);
+
+  _db.exec(`CREATE INDEX IF NOT EXISTS idx_memories_key ON memories(key)`);
+  _db.exec(`CREATE INDEX IF NOT EXISTS idx_memories_session ON memories(session_id)`);
+
+  _db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+    key, value, tokenize='trigram'
+  )`);
+
+  _db.exec(`CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
+    INSERT INTO memories_fts(rowid, key, value) VALUES (new.rowid, new.key, new.value);
+  END`);
+
+  _db.exec(`CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE OF key, value ON memories BEGIN
+    UPDATE memories_fts SET key = new.key, value = new.value WHERE rowid = new.rowid;
+  END`);
+
+  _db.exec(`CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
+    DELETE FROM memories_fts WHERE rowid = old.rowid;
+  END`);
+
   // Record startup
   _db.prepare(`INSERT OR REPLACE INTO server_state (key, value) VALUES (?, ?)`).run('last_heartbeat', new Date().toISOString());
 
@@ -258,6 +288,23 @@ export const queries = {
   getState: (key: string) => prepare(`SELECT value FROM server_state WHERE key = ?`).get(key),
   setState: (key: string, value: string) =>
     prepare(`INSERT OR REPLACE INTO server_state (key, value) VALUES (?, ?)`).run(key, value),
+
+  // Memories
+  listMemories: (limit: number) => prepare(`SELECT * FROM memories ORDER BY updated_at DESC LIMIT ?`).all(limit),
+  getMemory: (id: string) => prepare(`SELECT * FROM memories WHERE id = ?`).get(id),
+  upsertMemory: (id: string, key: string, value: string, tags: string, sessionId: string | null, createdBy: string | null) =>
+    prepare(`INSERT INTO memories (id, key, value, tags, session_id, created_by) VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET key = excluded.key, value = excluded.value, tags = excluded.tags, updated_at = datetime('now')`).run(id, key, value, tags, sessionId, createdBy),
+  deleteMemory: (id: string) => prepare(`DELETE FROM memories WHERE id = ?`).run(id),
+  searchMemories: (query: string, limit: number) => prepare(`
+    SELECT m.id, m.key, m.value, m.tags, m.session_id, m.created_by, m.created_at,
+           snippet(memories_fts, 1, '<mark>', '</mark>', '...', 24) as snippet
+    FROM memories_fts
+    JOIN memories m ON memories_fts.rowid = m.rowid
+    WHERE memories_fts MATCH ?
+    ORDER BY rank
+    LIMIT ?
+  `).all(query, limit),
 };
 
 export default getDb;

@@ -167,13 +167,13 @@
          class:rounded-bl-sm={!isOwn}
          style={isOwn
            ? `background: ${colour}22; border: 1px solid ${colour}44; color: var(--text);`
-           : `background: #1A1A22; border: 1px solid ${colour}33; color: var(--text); border-left: 2px solid ${colour};`}>
-      <div class="prose prose-sm prose-invert break-words max-w-none
+           : `background: var(--bg-card); border: 1px solid ${colour}44; color: var(--text); border-left: 2px solid ${colour};`}>
+      <div class="prose prose-sm break-words max-w-none
                   [&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0
                   [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5
                   [&_strong]:font-semibold [&_code]:px-1 [&_code]:py-px [&_code]:rounded [&_code]:text-xs [&_code]:font-mono
                   [&_pre]:my-1 [&_pre]:p-2 [&_pre]:rounded [&_pre]:overflow-x-auto [&_pre]:text-xs"
-           style="--tw-prose-invert-code-bg: {colour}18;">{@html renderMarkdown(message.content)}</div>
+           style="--tw-prose-body: var(--text); --tw-prose-headings: var(--text); --tw-prose-bold: var(--text); --tw-prose-code: var(--text); --tw-prose-bullets: var(--text-muted); color: var(--text);">{@html renderMarkdown(message.content)}</div>
       {#if message.status === 'streaming'}
         <span class="animate-pulse" style="color:{colour};">▌</span>
       {/if}

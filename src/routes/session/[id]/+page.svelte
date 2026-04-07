@@ -11,7 +11,11 @@
   import TaskCard from '$lib/components/TaskCard.svelte';
   import FileRefCard from '$lib/components/FileRefCard.svelte';
   import { theme } from '$lib/stores/theme.svelte';
+  import { useToasts } from '$lib/stores/toast.svelte';
+  import PtyChat from '$lib/components/PtyChat.svelte';
   import { onMount, onDestroy } from 'svelte';
+
+  const toasts = useToasts();
 
   const sessionId = $derived($page.params.id);
   const msgStore = useMessageStore();
@@ -23,13 +27,137 @@
   let signalMode = $state('xterm');
   let showMenu = $state(false);
   let showPanel = $state(false); // set after session loads
-  let panelTab = $state('participants'); // 'participants' | 'tasks' | 'files'
+  let panelTab = $state('participants'); // 'participants' | 'tasks' | 'files' | 'chat' | 'memory'
 
   let tasks = $state([]);
   let fileRefs = $state([]);
   let replyTo = $state(null);
   let editingNickname = $state(null); // session ID being renamed
   let nicknameInput = $state('');
+
+  // Auto-scroll
+  let chatScrollEl = $state(null);
+  let atBottom = $state(true);
+
+  function scrollToBottom() {
+    if (chatScrollEl) { chatScrollEl.scrollTop = chatScrollEl.scrollHeight; atBottom = true; }
+  }
+
+  function onChatScroll() {
+    if (!chatScrollEl) return;
+    const threshold = 80;
+    atBottom = chatScrollEl.scrollHeight - chatScrollEl.scrollTop - chatScrollEl.clientHeight < threshold;
+  }
+
+  // Auto-scroll when new messages arrive if already at bottom
+  $effect(() => {
+    if (msgStore.messages.length && atBottom) {
+      setTimeout(scrollToBottom, 30);
+    }
+  });
+
+  // Terminal refresh — remount xterm by toggling a key
+  let termKey = $state(0);
+
+  // Memory panel state
+  let memories = $state([]);
+  let memorySearch = $state('');
+  let memoryNewKey = $state('');
+  let memoryNewValue = $state('');
+  let memorySearchResults = $state([]);
+  let memorySearching = $state(false);
+
+  async function loadMemories() {
+    const res = await fetch('/api/memories?limit=50');
+    const data = await res.json();
+    memories = data.memories || [];
+  }
+
+  async function addMemory() {
+    const key = memoryNewKey.trim();
+    const value = memoryNewValue.trim();
+    if (!key || !value) return;
+    const res = await fetch('/api/memories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, value, session_id: sessionId, created_by: session?.handle || sessionId }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      memories = [data.memory, ...memories];
+      memoryNewKey = '';
+      memoryNewValue = '';
+      toasts.show('Memory saved');
+    }
+  }
+
+  async function deleteMemory(id) {
+    await fetch(`/api/memories?id=${id}`, { method: 'DELETE' });
+    memories = memories.filter(m => m.id !== id);
+    memorySearchResults = memorySearchResults.filter(m => m.id !== id);
+  }
+
+  let _memSearchTimer;
+  $effect(() => {
+    const q = memorySearch;
+    if (_memSearchTimer) clearTimeout(_memSearchTimer);
+    if (!q.trim()) { memorySearchResults = []; return; }
+    memorySearching = true;
+    _memSearchTimer = setTimeout(async () => {
+      const res = await fetch(`/api/memories?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      memorySearchResults = data.memories || [];
+      memorySearching = false;
+    }, 300);
+  });
+
+  // Chat feed (for terminal sessions — link to a chat session and follow it)
+  let linkedChatId = $state('');
+  let linkedChatMessages = $state([]);
+  let linkedChatInput = $state('');
+
+  async function loadLinkedChat(chatId) {
+    if (!chatId) return;
+    const res = await fetch(`/api/sessions/${chatId}/messages?limit=30`);
+    const data = await res.json();
+    linkedChatMessages = data.messages || [];
+  }
+
+  async function postToLinkedChat() {
+    if (!linkedChatId || !linkedChatInput.trim()) return;
+    await fetch(`/api/sessions/${linkedChatId}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        role: 'user', content: linkedChatInput.trim(),
+        format: 'text', sender_id: sessionId, msg_type: 'message',
+      }),
+    });
+    linkedChatInput = '';
+  }
+
+  // Wake a participant — send a targeted message from the current session to their handle
+  // This triggers PTY injection on the server, so the AI in their terminal sees it
+  async function wakeParticipant(targetSess) {
+    const handle = targetSess.handle;
+    const chatSessions = allSessions.filter(s => s.type === 'chat');
+    const chatRef = chatSessions.length > 0 ? chatSessions[0] : null;
+    const myName = session?.name || sessionId;
+    const replyCmd = chatRef ? `ant msg ${chatRef.id} "your reply here"` : 'ant msg <chat-session-id> "your reply here"';
+    await fetch(`/api/sessions/${chatRef?.id || sessionId}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        role: 'user',
+        content: `Hey ${targetSess.display_name || targetSess.name} — please check in and introduce yourself to the group. Reply using: \`${replyCmd}\``,
+        format: 'text',
+        sender_id: sessionId,
+        target: handle,
+        msg_type: 'message',
+      }),
+    });
+    toasts.show(`Woke ${targetSess.display_name || targetSess.name}`);
+  }
 
   // WS for live chat updates
   let ws = $state(null);
@@ -41,7 +169,13 @@
     const socket = new WebSocket(`${protocol}//${location.host}/ws`);
     ws = socket;
 
-    socket.onopen = () => socket.send(JSON.stringify({ type: 'join_session', sessionId }));
+    socket.onopen = () => {
+      socket.send(JSON.stringify({ type: 'join_session', sessionId }));
+      // Also subscribe to linked chat session events
+      if (linkedChatId && linkedChatId !== sessionId) {
+        socket.send(JSON.stringify({ type: 'join_session', sessionId: linkedChatId }));
+      }
+    };
 
     socket.onmessage = (event) => {
       try {
@@ -81,6 +215,16 @@
             session = { ...session, handle: data.handle, display_name: data.display_name };
             break;
         }
+        // Also update linked chat feed if the event is from the linked chat session
+        if (linkedChatId && data.sessionId === linkedChatId) {
+          if (data.type === 'message_created') {
+            if (!linkedChatMessages.find(m => m.id === data.id)) {
+              linkedChatMessages = [...linkedChatMessages, data];
+            }
+          } else if (data.type === 'message_deleted') {
+            linkedChatMessages = linkedChatMessages.filter(m => m.id !== data.msgId);
+          }
+        }
       } catch {}
     };
 
@@ -98,6 +242,15 @@
     // Panel open by default only for chat sessions
     showPanel = mode === 'chat';
 
+    // Auto-link terminals to the first chat session
+    if (mode === 'terminal') {
+      const firstChat = allSessions.find(s => s.type === 'chat');
+      if (firstChat) {
+        linkedChatId = firstChat.id;
+        await loadLinkedChat(firstChat.id);
+      }
+    }
+
     if (mode === 'chat') await msgStore.load(sessionId);
 
     const [tasksRes, refsRes] = await Promise.all([
@@ -108,6 +261,7 @@
     fileRefs = (await refsRes.json()).refs || [];
 
     connectWs();
+    loadMemories();
   });
 
   onDestroy(() => {
@@ -195,7 +349,9 @@
 
   async function crossPost() {
     if (!crossPostTarget || !crossPostText.trim()) return;
-    await fetch(`/api/sessions/${crossPostTarget}/messages`, {
+    const targetSess = allSessions.find(s => s.id === crossPostTarget);
+    // Post to the CURRENT session with target handle — triggers PTY injection
+    await fetch(`/api/sessions/${sessionId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -203,25 +359,30 @@
         content: crossPostText.trim(),
         format: 'text',
         sender_id: sessionId,
+        target: targetSess?.handle || null,
         msg_type: 'message',
       }),
     });
+    const name = targetSess?.display_name || targetSess?.name || 'session';
     crossPostText = '';
     crossPostTarget = null;
+    toasts.show(`Posted to ${name}`);
   }
 
   // Nickname save
   async function saveNickname(sess) {
     const trimmed = nicknameInput.trim();
     if (!trimmed) { editingNickname = null; return; }
-    const res = await fetch(`/api/sessions/${sess.id}`, {
+    // Update the handle (auto-prefix @)
+    const handle = trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
+    const res = await fetch(`/api/sessions/${sess.id}/handle`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: trimmed }),
+      body: JSON.stringify({ handle }),
     });
     if (res.ok) {
       const updated = await res.json();
-      allSessions = allSessions.map(s => s.id === updated.id ? updated : s);
+      allSessions = allSessions.map(s => s.id === sess.id ? { ...s, handle: updated.handle } : s);
     }
     editingNickname = null;
   }
@@ -296,12 +457,20 @@
             class="px-2.5 py-1 text-xs rounded transition-all"
             style={mode==='chat' ? 'background:#6366F1;color:#fff;' : 'color:var(--text-muted);'}
             onclick={() => (mode='chat')}
+            title="Chat (messages)"
           >💬</button>
           <button
             class="px-2.5 py-1 text-xs rounded transition-all"
             style={mode==='terminal' ? 'background:#22C55E;color:#fff;' : 'color:var(--text-muted);'}
             onclick={() => (mode='terminal')}
+            title="Raw terminal"
           >⌨</button>
+          <button
+            class="px-2.5 py-1 text-xs rounded transition-all"
+            style={mode==='ptychat' ? 'background:#F59E0B;color:#fff;' : 'color:var(--text-muted);'}
+            onclick={() => (mode='ptychat')}
+            title="PTY Chat — interact with CLI tool as bubbles"
+          >🤖</button>
         </div>
       {/if}
 
@@ -353,7 +522,9 @@
       {#if mode === 'chat'}
         <div class="flex-1 flex flex-col overflow-hidden">
           <!-- Messages -->
-          <div class="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+          <div class="flex-1 overflow-y-auto px-4 py-4 space-y-3 relative"
+               bind:this={chatScrollEl}
+               onscroll={onChatScroll}>
             {#if msgStore.messages.length === 0}
               <div class="flex flex-col items-center justify-center h-full text-center opacity-60">
                 <p class="text-4xl mb-3">💬</p>
@@ -378,10 +549,37 @@
             {/if}
           </div>
 
+          <!-- Scroll-to-bottom button -->
+          {#if !atBottom}
+            <div class="flex justify-center py-1">
+              <button
+                onclick={scrollToBottom}
+                class="flex items-center gap-1.5 px-3 py-1 text-xs rounded-full shadow-lg border transition-all"
+                style="background:var(--bg-card);border-color:#6366F155;color:#6366F1;"
+              >
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+                Jump to bottom
+              </button>
+            </div>
+          {/if}
+
           <MessageInput
             onSend={sendMessage}
             {replyTo}
             onClearReply={() => (replyTo = null)}
+            handles={allSessions.filter(s => s.handle).map(s => ({ handle: s.handle, name: s.display_name || s.name }))}
+          />
+        </div>
+      {:else if mode === 'ptychat'}
+        <!-- PTY Chat bridge — terminal output as bubbles, input via PTY -->
+        <div class="flex-1 overflow-hidden" style="background:var(--bg);">
+          <PtyChat
+            {sessionId}
+            {allSessions}
+            {ws}
+            onSendCommand={sendCommand}
           />
         </div>
       {:else}
@@ -396,10 +594,21 @@
                 onclick={() => (signalMode=v)}
               >{v.toUpperCase()}</button>
             {/each}
+            <button
+              onclick={() => termKey++}
+              class="ml-auto p-1.5 rounded transition-all"
+              style="color:var(--text-faint);"
+              title="Refresh terminal (remount)"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+            </button>
           </div>
           <div class="flex-1 overflow-hidden" style="background:var(--terminal-bg);">
             {#if signalMode==='xterm'}
-              <Terminal {sessionId}/>
+              {#key termKey}<Terminal {sessionId}/>{/key}
             {:else}
               <div class="flex items-center justify-center h-full text-center px-6">
                 <p class="text-gray-500 text-sm">{signalMode === 'signals' ? 'Signal view — pending' : 'Raw buffer — pending'}</p>
@@ -417,7 +626,13 @@
            style="border-color:var(--border-light);background:var(--bg-surface);">
         <!-- Tab bar -->
         <div class="flex border-b flex-shrink-0" style="border-color:var(--border-subtle);">
-          {#each [['participants','👥','Participants'],['tasks','☑','Tasks'],['files','📎','Files']] as [tab, icon, label]}
+          {#each [
+            ['participants','👥','Participants'],
+            ['tasks','☑','Tasks'],
+            ['files','📎','Files'],
+            ...(session?.type === 'terminal' ? [['chat','💬','Chat']] : []),
+            ['memory','🧠','Memory'],
+          ] as [tab, icon, label]}
             <button
               onclick={() => (panelTab=tab)}
               class="flex-1 py-2 text-xs font-medium transition-all border-b-2 relative"
@@ -468,7 +683,7 @@
                 {#each participants.active as p}
                   {@const col = handleColour(p.sess.id)}
                   {@const label = p.sess.display_name || p.sess.name}
-                  <div class="rounded-lg border overflow-hidden" style="background:var(--bg-card);border-color:var(--border-subtle);">
+                  <div class="group/pcard rounded-lg border overflow-hidden" style="background:var(--bg-card);border-color:var(--border-subtle);">
                     <div class="flex items-center gap-2.5 p-2">
                       <div class="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold text-white flex-shrink-0 relative"
                            style="background:{col};">
@@ -488,18 +703,20 @@
                             onblur={() => saveNickname(p.sess)}
                           />
                         {:else}
-                          <p class="text-sm font-semibold truncate leading-tight" style="color:{col};">{label}</p>
+                          <div class="flex items-center gap-1 min-w-0">
+                            <p class="text-sm font-semibold truncate leading-tight" style="color:{col};">{label}</p>
+                            <span class="text-[10px] font-mono px-1 py-px rounded flex-shrink-0" style="background:{col}18;color:{col}99;">{p.count}</span>
+                          </div>
                           {#if p.sess.handle}
                             <p class="text-[10px] font-mono" style="color:{col}88;">{p.sess.handle}</p>
                           {/if}
                         {/if}
                       </div>
-                      <div class="flex items-center gap-1 flex-shrink-0">
-                        <span class="text-[10px] font-mono px-1 py-px rounded" style="background:{col}18;color:{col}99;">{p.count}</span>
+                      <div class="flex items-center gap-0.5 flex-shrink-0">
                         <button
-                          onclick={() => { editingNickname = p.sess.id; nicknameInput = p.sess.display_name || p.sess.name; }}
-                          class="p-1 rounded transition-colors text-gray-600 hover:text-gray-300"
-                          title="Rename"
+                          onclick={() => { editingNickname = p.sess.id; nicknameInput = p.sess.handle || ''; }}
+                          class="p-1 rounded transition-all text-gray-700 hover:text-gray-300 opacity-0 group-hover/pcard:opacity-100"
+                          title="Set handle (e.g. @gemini)"
                         >✎</button>
                         <button
                           onclick={() => { crossPostTarget = crossPostTarget === p.sess.id ? null : p.sess.id; crossPostText = ''; }}
@@ -507,6 +724,14 @@
                           style={crossPostTarget === p.sess.id ? 'color:#6366F1;' : 'color:var(--text-faint);'}
                           title="Post to this session"
                         >↗</button>
+                        {#if p.sess.type === 'terminal' && p.sess.handle}
+                          <button
+                            onclick={() => wakeParticipant(p.sess)}
+                            class="p-1 rounded text-xs transition-colors"
+                            style="color:var(--text-faint);"
+                            title="Wake — send a notification to this terminal's AI"
+                          >📢</button>
+                        {/if}
                       </div>
                     </div>
                     <div class="px-2 pb-1.5 flex items-center gap-1.5">
@@ -548,12 +773,22 @@
                         <p class="text-xs font-medium truncate" style="color:{col}88;">{label}</p>
                         <p class="text-[9px] font-mono" style="color:var(--text-faint);">{p.sess.type} · {p.sess.id.slice(0,8)}…</p>
                       </div>
-                      <button
-                        onclick={() => { crossPostTarget = crossPostTarget === p.sess.id ? null : p.sess.id; crossPostText = ''; }}
-                        class="p-1.5 rounded text-xs transition-colors flex-shrink-0"
-                        style={crossPostTarget === p.sess.id ? 'background:#6366F122;color:#6366F1;' : 'color:var(--text-faint);'}
-                        title="Post to {label}"
-                      >↗</button>
+                      <div class="flex items-center gap-1 flex-shrink-0">
+                        <button
+                          onclick={() => { crossPostTarget = crossPostTarget === p.sess.id ? null : p.sess.id; crossPostText = ''; }}
+                          class="p-1.5 rounded text-xs transition-colors"
+                          style={crossPostTarget === p.sess.id ? 'background:#6366F122;color:#6366F1;' : 'color:var(--text-faint);'}
+                          title="Post to {label}"
+                        >↗</button>
+                        {#if p.sess.type === 'terminal' && p.sess.handle}
+                          <button
+                            onclick={() => wakeParticipant(p.sess)}
+                            class="p-1.5 rounded text-xs transition-colors"
+                            style="color:var(--text-faint);"
+                            title="Wake — notify this terminal's AI"
+                          >📢</button>
+                        {/if}
+                      </div>
                     </div>
                     <!-- Cross-post inline input -->
                     {#if crossPostTarget === p.sess.id}
@@ -620,7 +855,7 @@
             </div>
 
           <!-- FILES TAB -->
-          {:else}
+          {:else if panelTab === 'files'}
             <div class="p-2 space-y-1">
               {#if allFiles.length === 0 && bookmarkedMessages.length === 0}
                 <div class="text-center py-8 opacity-50">
@@ -655,6 +890,132 @@
                   {/each}
                 {/if}
               {/if}
+            </div>
+
+          <!-- CHAT FEED TAB (terminals only — follow a chat session) -->
+          {:else if panelTab === 'chat'}
+            <div class="flex flex-col h-full">
+              <!-- Session selector -->
+              <div class="px-3 pt-2.5 pb-2 border-b flex-shrink-0" style="border-color:var(--border-subtle);">
+                <select
+                  bind:value={linkedChatId}
+                  onchange={() => loadLinkedChat(linkedChatId)}
+                  class="w-full text-xs rounded px-2 py-1.5 outline-none"
+                  style="background:var(--bg);border:1px solid var(--border-subtle);color:var(--text);"
+                >
+                  <option value="">— pick chat session —</option>
+                  {#each allSessions.filter(s => s.type === 'chat') as s}
+                    <option value={s.id}>{s.display_name || s.name}</option>
+                  {/each}
+                </select>
+              </div>
+
+              <!-- Message feed -->
+              <div class="flex-1 overflow-y-auto min-h-0 px-2 py-2 space-y-1.5">
+                {#if !linkedChatId}
+                  <p class="text-center text-xs py-8" style="color:var(--text-faint);">Select a chat to follow</p>
+                {:else if linkedChatMessages.length === 0}
+                  <p class="text-center text-xs py-8" style="color:var(--text-faint);">No messages yet</p>
+                {:else}
+                  {#each linkedChatMessages as m (m.id)}
+                    {@const senderSess = allSessions.find(s => s.id === m.sender_id || s.handle === m.sender_id)}
+                    {@const senderName = senderSess ? (senderSess.display_name || senderSess.name) : (m.sender_id || (m.role === 'user' ? 'You' : 'AI'))}
+                    {@const col = m.sender_id ? handleColour(m.sender_id) : (m.role === 'user' ? '#4B5563' : '#6366F1')}
+                    <div class="text-xs rounded-lg border px-2.5 py-2" style="background:var(--bg-card);border-color:{col}22;border-left:2px solid {col};">
+                      <p class="font-semibold mb-0.5 font-mono text-[10px]" style="color:{col};">{senderName}</p>
+                      <p class="text-gray-300 break-words line-clamp-4">{m.content}</p>
+                    </div>
+                  {/each}
+                {/if}
+              </div>
+
+              <!-- Quick reply input -->
+              {#if linkedChatId}
+                <div class="px-2 pb-2 pt-1 border-t flex-shrink-0" style="border-color:var(--border-subtle);">
+                  <div class="flex gap-1">
+                    <input
+                      class="flex-1 text-xs rounded px-2 py-1.5 outline-none"
+                      style="background:var(--bg);border:1px solid var(--border-subtle);color:var(--text);"
+                      placeholder="Post to chat…"
+                      bind:value={linkedChatInput}
+                      onkeydown={(e) => { if (e.key === 'Enter') postToLinkedChat(); }}
+                    />
+                    <button onclick={postToLinkedChat} disabled={!linkedChatInput.trim()}
+                      class="px-2 text-xs rounded font-medium disabled:opacity-40"
+                      style="background:#6366F1;color:#fff;">↗</button>
+                  </div>
+                </div>
+              {/if}
+            </div>
+
+          <!-- MEMORY TAB -->
+          {:else if panelTab === 'memory'}
+            <div class="flex flex-col h-full">
+              <!-- Search bar -->
+              <div class="px-3 pt-2.5 pb-2 border-b flex-shrink-0" style="border-color:var(--border-subtle);">
+                <input
+                  bind:value={memorySearch}
+                  placeholder="Search memory…"
+                  class="w-full text-xs rounded px-2.5 py-1.5 outline-none"
+                  style="background:var(--bg);border:1px solid var(--border-subtle);color:var(--text);"
+                />
+              </div>
+
+              <!-- Add new -->
+              <div class="px-3 py-2 border-b flex-shrink-0 space-y-1.5" style="border-color:var(--border-subtle);">
+                <input
+                  bind:value={memoryNewKey}
+                  placeholder="Key (e.g. project-goal)"
+                  class="w-full text-xs rounded px-2 py-1 outline-none"
+                  style="background:var(--bg);border:1px solid var(--border-subtle);color:var(--text);"
+                  onkeydown={(e) => { if (e.key === 'Enter') addMemory(); }}
+                />
+                <div class="flex gap-1">
+                  <input
+                    bind:value={memoryNewValue}
+                    placeholder="Value…"
+                    class="flex-1 text-xs rounded px-2 py-1 outline-none"
+                    style="background:var(--bg);border:1px solid var(--border-subtle);color:var(--text);"
+                    onkeydown={(e) => { if (e.key === 'Enter') addMemory(); }}
+                  />
+                  <button onclick={addMemory} disabled={!memoryNewKey.trim() || !memoryNewValue.trim()}
+                    class="px-2 text-xs rounded font-medium disabled:opacity-40"
+                    style="background:#6366F1;color:#fff;">Save</button>
+                </div>
+              </div>
+
+              <!-- List / results -->
+              <div class="flex-1 overflow-y-auto min-h-0 p-2 space-y-1.5">
+                {#if memorySearching}
+                  <p class="text-center text-xs py-4" style="color:var(--text-faint);">Searching…</p>
+                {:else if (memorySearch.trim() ? memorySearchResults : memories).length === 0}
+                  <div class="text-center py-8 opacity-50">
+                    <p class="text-2xl mb-2">🧠</p>
+                    <p class="text-xs" style="color:var(--text-muted);">{memorySearch ? 'No results' : 'No memories yet'}</p>
+                  </div>
+                {:else}
+                  {#each (memorySearch.trim() ? memorySearchResults : memories) as mem (mem.id)}
+                    <div class="rounded-lg border px-2.5 py-2 group/mem text-xs"
+                         style="background:var(--bg-card);border-color:var(--border-subtle);">
+                      <div class="flex items-start justify-between gap-1">
+                        <p class="font-mono font-semibold text-[11px] truncate flex-1" style="color:#6366F1;">{mem.key}</p>
+                        <button
+                          onclick={() => deleteMemory(mem.id)}
+                          class="opacity-0 group-hover/mem:opacity-100 text-gray-600 hover:text-red-400 transition-all flex-shrink-0 text-[10px]"
+                        >✕</button>
+                      </div>
+                      {#if mem.snippet}
+                        <p class="text-gray-400 mt-0.5 break-words line-clamp-3">{@html mem.snippet}</p>
+                      {:else}
+                        <p class="text-gray-400 mt-0.5 break-words line-clamp-3">{mem.value}</p>
+                      {/if}
+                      {#if mem.created_by}
+                        <p class="text-[10px] mt-1 font-mono" style="color:var(--text-faint);">{mem.created_by}</p>
+                      {/if}
+                    </div>
+                  {/each}
+                {/if}
+              </div>
             </div>
           {/if}
         </div>

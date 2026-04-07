@@ -3,15 +3,27 @@
     onSend,
     replyTo = null,
     onClearReply,
+    handles = [],
   }: {
     onSend: (text: string) => void;
     replyTo?: any;
     onClearReply?: () => void;
+    handles?: { handle: string; name: string }[];
   } = $props();
 
   let text = $state('');
   let isFocused = $state(false);
   let inputEl = $state<HTMLTextAreaElement | null>(null);
+
+  // @ mention autocomplete
+  let mentionQuery = $state('');
+  let showMentions = $state(false);
+  let mentionStart = $state(-1);
+  let mentionSelectedIdx = $state(0);
+
+  const filteredHandles = $derived(
+    handles.filter(h => h.handle.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6)
+  );
 
   // When replyTo changes, prepend @mention and focus
   $effect(() => {
@@ -22,15 +34,55 @@
     }
   });
 
+  function detectMention() {
+    const cursorPos = inputEl?.selectionStart ?? text.length;
+    const textBefore = text.slice(0, cursorPos);
+    const atMatch = textBefore.match(/@(\w*)$/);
+    if (atMatch && handles.length > 0) {
+      mentionStart = cursorPos - atMatch[0].length;
+      mentionQuery = atMatch[1];
+      mentionSelectedIdx = 0;
+      showMentions = filteredHandles.length > 0;
+    } else {
+      showMentions = false;
+      mentionStart = -1;
+    }
+  }
+
+  function selectMention(handle: string) {
+    const cursorPos = inputEl?.selectionStart ?? text.length;
+    const before = text.slice(0, mentionStart);
+    const after = text.slice(cursorPos);
+    text = before + handle + ' ' + after;
+    showMentions = false;
+    mentionStart = -1;
+    setTimeout(() => {
+      inputEl?.focus();
+      const pos = (before + handle + ' ').length;
+      inputEl?.setSelectionRange(pos, pos);
+    }, 0);
+  }
+
   function handleSubmit() {
     const trimmed = text.trim();
     if (!trimmed) return;
     onSend(trimmed);
     text = '';
+    showMentions = false;
     onClearReply?.();
   }
 
   function handleKeydown(e: KeyboardEvent) {
+    if (showMentions && filteredHandles.length > 0) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); mentionSelectedIdx = Math.min(mentionSelectedIdx + 1, filteredHandles.length - 1); return; }
+      if (e.key === 'ArrowUp')   { e.preventDefault(); mentionSelectedIdx = Math.max(mentionSelectedIdx - 1, 0); return; }
+      if (e.key === 'Tab' || e.key === 'Enter') {
+        e.preventDefault();
+        selectMention(filteredHandles[mentionSelectedIdx].handle);
+        return;
+      }
+      if (e.key === 'Escape') { showMentions = false; return; }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
@@ -41,7 +93,24 @@
   }
 </script>
 
-<div class="px-4 py-3 border-t border-[var(--border-light)] bg-[#0A1628]/50 backdrop-blur-sm">
+<div class="relative px-4 py-3 border-t border-[var(--border-light)] bg-[#0A1628]/50 backdrop-blur-sm">
+  <!-- @ mention dropdown -->
+  {#if showMentions && filteredHandles.length > 0}
+    <div class="absolute bottom-full left-4 right-4 mb-1 rounded-lg border overflow-hidden shadow-lg z-10"
+         style="background:var(--bg-card);border-color:#6366F155;">
+      {#each filteredHandles as h, i}
+        <button
+          onmousedown={(e) => { e.preventDefault(); selectMention(h.handle); }}
+          class="w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors text-left"
+          style={i === mentionSelectedIdx ? 'background:#6366F122;' : 'background:transparent;'}
+        >
+          <span class="font-mono font-semibold" style="color:#6366F1;">{h.handle}</span>
+          <span style="color:var(--text-muted);">{h.name}</span>
+        </button>
+      {/each}
+    </div>
+  {/if}
+
   <!-- Reply preview banner -->
   {#if replyTo}
     <div class="flex items-center gap-2 mb-2 px-3 py-1.5 rounded-lg bg-[#1A1A22] border border-[#6366F133] text-xs">
@@ -52,10 +121,7 @@
       <span class="text-gray-400">Replying to</span>
       <span class="font-mono text-[#6366F1]">{replyTo.sender_id ?? (replyTo.role === 'assistant' ? 'Assistant' : 'You')}</span>
       <span class="text-gray-600 truncate flex-1">{replyTo.content.slice(0, 60)}</span>
-      <button
-        onclick={onClearReply}
-        class="text-gray-600 hover:text-gray-400 flex-shrink-0 ml-auto"
-      >✕</button>
+      <button onclick={onClearReply} class="text-gray-600 hover:text-gray-400 flex-shrink-0 ml-auto">✕</button>
     </div>
   {/if}
 
@@ -66,8 +132,9 @@
   >
     <textarea
       bind:this={inputEl}
-      placeholder="Send a message…"
+      placeholder="Send a message… (@ to mention)"
       bind:value={text}
+      oninput={detectMention}
       onfocus={() => (isFocused = true)}
       onblur={() => (isFocused = false)}
       onkeydown={handleKeydown}

@@ -1,6 +1,7 @@
 <script>
   import '../app.css';
   import { theme } from '$lib/stores/theme.svelte';
+  import ToastContainer from '$lib/components/ToastContainer.svelte';
   import { onMount } from 'svelte';
 
   let { children } = $props();
@@ -10,3 +11,4 @@
   });
 </script>
 {@render children()}
+<ToastContainer />
