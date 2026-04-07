@@ -63,7 +63,7 @@ function handle(msg: any, socket: net.Socket) {
     case 'spawn': {
       const existing = sessions.get(msg.sessionId);
       if (existing?.alive) {
-        send(socket, { type: 'spawned', sessionId: msg.sessionId, alive: true, scrollback: existing.scrollback });
+        send(socket, { type: 'spawned', sessionId: msg.sessionId, callId: msg.callId, alive: true, scrollback: existing.scrollback });
         return;
       }
       const shell = process.env.SHELL || '/bin/zsh';
@@ -92,7 +92,7 @@ function handle(msg: any, socket: net.Socket) {
       });
 
       LOG(`spawned session: ${msg.sessionId}`);
-      send(socket, { type: 'spawned', sessionId: msg.sessionId, alive: true, scrollback: '' });
+      send(socket, { type: 'spawned', sessionId: msg.sessionId, callId: msg.callId, alive: true, scrollback: '' });
       break;
     }
     case 'write': {

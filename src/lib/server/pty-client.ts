@@ -18,7 +18,9 @@ class PTYClient {
   private queue: string[] = [];
   private buf = '';
   private dataListeners: DataCallback[] = [];
+  // Keyed by "sessionId:callId" to prevent concurrent callers clobbering each other
   private pendingSpawns = new Map<string, (result: any) => void>();
+  private spawnCallCounter = 0;
 
   async ensureDaemon(): Promise<void> {
     // Quick ping to see if daemon is up
@@ -84,8 +86,10 @@ class PTYClient {
               try { cb(msg.sessionId, msg.data); } catch {}
             }
           } else if (msg.type === 'spawned') {
-            this.pendingSpawns.get(msg.sessionId)?.(msg);
-            this.pendingSpawns.delete(msg.sessionId);
+            // callId is echoed back so we resolve exactly the right pending spawn
+            const key = `${msg.sessionId}:${msg.callId}`;
+            this.pendingSpawns.get(key)?.(msg);
+            this.pendingSpawns.delete(key);
           }
         } catch {}
       }
@@ -120,13 +124,14 @@ class PTYClient {
   }
 
   spawn(sessionId: string, cwd: string, cols = 120, rows = 30): Promise<{ alive: boolean; scrollback: string }> {
+    const callId = ++this.spawnCallCounter;
+    const key = `${sessionId}:${callId}`;
     return new Promise((resolve) => {
-      this.pendingSpawns.set(sessionId, resolve);
-      this.send({ type: 'spawn', sessionId, cwd, cols, rows });
-      // Timeout after 5s
+      this.pendingSpawns.set(key, resolve);
+      this.send({ type: 'spawn', sessionId, cwd, cols, rows, callId });
       setTimeout(() => {
-        if (this.pendingSpawns.has(sessionId)) {
-          this.pendingSpawns.delete(sessionId);
+        if (this.pendingSpawns.has(key)) {
+          this.pendingSpawns.delete(key);
           resolve({ alive: false, scrollback: '' });
         }
       }, 5000);

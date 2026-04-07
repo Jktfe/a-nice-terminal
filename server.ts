@@ -112,19 +112,26 @@ wss.on('connection', async (ws) => {
 
       switch (msg.type) {
         case 'join_session': {
-          client.joinedSessions.add(msg.sessionId);
-          // Update broadcast entry so this client receives targeted messages for this session
+          // Update broadcast entry so API-route pushes (tasks, messages) reach this client
           broadcastEntry.sessionId = msg.sessionId;
-          // Look up the session's @handle so target routing works
           const { queries: q2 } = await import('./src/lib/server/db.js');
           const sess = q2.getSession(msg.sessionId);
           broadcastEntry.handle = sess?.handle ?? null;
-          // spawn is idempotent — reconnects to existing session and returns scrollback
-          const result = await ptm.spawn(msg.sessionId, msg.cwd || process.env.HOME || '/tmp');
-          ws.send(JSON.stringify({ type: 'session_health', sessionId: msg.sessionId, alive: result.alive }));
-          if (result.scrollback) {
-            ws.send(JSON.stringify({ type: 'terminal_output', sessionId: msg.sessionId, data: result.scrollback }));
+
+          // For terminal sessions: spawn PTY and replay scrollback BEFORE joining the
+          // live-output stream. joinedSessions.add() is intentionally deferred until
+          // after scrollback is sent — WebSocket ordering guarantees the client always
+          // receives scrollback before any subsequent live output.
+          if (sess?.type === 'terminal') {
+            const result = await ptm.spawn(msg.sessionId, msg.cwd || process.env.HOME || '/tmp');
+            ws.send(JSON.stringify({ type: 'session_health', sessionId: msg.sessionId, alive: result.alive }));
+            if (result.scrollback) {
+              ws.send(JSON.stringify({ type: 'terminal_output', sessionId: msg.sessionId, data: result.scrollback }));
+            }
           }
+
+          // Now start receiving live output (after scrollback has been queued for send)
+          client.joinedSessions.add(msg.sessionId);
           break;
         }
         case 'leave_session':
