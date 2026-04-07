@@ -24,7 +24,6 @@
   let session = $state(null);
   let allSessions = $state([]); // all sessions for participant lookup
   let mode = $state('chat');
-  let signalMode = $state('xterm');
   let showMenu = $state(false);
   let showPanel = $state(false); // set after session loads
   let panelTab = $state('participants'); // 'participants' | 'tasks' | 'files' | 'chat' | 'memory'
