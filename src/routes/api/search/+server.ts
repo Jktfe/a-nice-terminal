@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
 
-export function GET({ url }) {
+export function GET({ url }: RequestEvent) {
   const q = url.searchParams.get('q');
   if (!q) return json({ results: [] });
 

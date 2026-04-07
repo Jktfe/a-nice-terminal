@@ -1,13 +1,14 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
 import { nanoid } from 'nanoid';
 
-export function GET({ params }) {
+export function GET({ params }: RequestEvent<{ id: string }>) {
   const refs = queries.listFileRefs(params.id);
   return json({ refs });
 }
 
-export async function POST({ params, request }) {
+export async function POST({ params, request }: RequestEvent<{ id: string }>) {
   const { file_path, note, flagged_by } = await request.json();
   if (!file_path) return json({ error: 'file_path required' }, { status: 400 });
 
@@ -22,7 +23,7 @@ export async function POST({ params, request }) {
   return json({ ref }, { status: 201 });
 }
 
-export async function DELETE({ params, url }) {
+export async function DELETE({ params, url }: RequestEvent<{ id: string }>) {
   const refId = url.searchParams.get('refId');
   if (!refId) return json({ error: 'refId required' }, { status: 400 });
 

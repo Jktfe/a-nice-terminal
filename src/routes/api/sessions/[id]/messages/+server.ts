@@ -1,9 +1,10 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
 import { nanoid } from 'nanoid';
 
-// PATCH /api/sessions/:id/messages/:msgId — update meta (reactions, bookmarks)
-export async function PATCH({ params, url, request }) {
+// PATCH /api/sessions/:id/messages?msgId= — update meta (reactions, bookmarks)
+export async function PATCH({ params, url, request }: RequestEvent<{ id: string }>) {
   const msgId = url.searchParams.get('msgId');
   if (!msgId) return json({ error: 'msgId required' }, { status: 400 });
 
@@ -26,8 +27,8 @@ export async function PATCH({ params, url, request }) {
   return json({ msgId, meta: merged });
 }
 
-// DELETE /api/sessions/:id/messages/:msgId
-export async function DELETE({ params, url }) {
+// DELETE /api/sessions/:id/messages?msgId=
+export async function DELETE({ params, url }: RequestEvent<{ id: string }>) {
   const msgId = url.searchParams.get('msgId');
   if (!msgId) return json({ error: 'msgId required' }, { status: 400 });
 
@@ -39,7 +40,7 @@ export async function DELETE({ params, url }) {
   return json({ ok: true });
 }
 
-export function GET({ params, url }) {
+export function GET({ params, url }: RequestEvent<{ id: string }>) {
   const since = url.searchParams.get('since');
   const limit = parseInt(url.searchParams.get('limit') || '50');
 
@@ -49,7 +50,7 @@ export function GET({ params, url }) {
   return json({ messages });
 }
 
-export async function POST({ params, request }) {
+export async function POST({ params, request }: RequestEvent<{ id: string }>) {
   const { role, content, format, sender_id, target, msg_type } = await request.json();
   const id = nanoid();
   const msgType = msg_type || 'message';
@@ -77,7 +78,6 @@ export async function POST({ params, request }) {
     if (targetSession?.type === 'terminal') {
       const senderSession: any = sender_id ? queries.getSession(sender_id) : null;
       const senderName = senderSession?.name || sender_id || 'web';
-      const chatUrl = `https://localhost:6458/session/${params.id}`;
       // Inject as a clearly delimited notification block — safe for bash and AI CLIs
       const notification =
         `\r\n\x1b[36m┌─ ANT message ─────────────────────────────────\x1b[0m\r\n` +
@@ -86,8 +86,9 @@ export async function POST({ params, request }) {
         `\x1b[36m│\x1b[0m Reply: \x1b[90mant msg ${params.id} "your reply"\x1b[0m\r\n` +
         `\x1b[36m└───────────────────────────────────────────────\x1b[0m\r\n`;
       try {
-        const { ptyManager } = await import('$lib/server/pty-manager.js');
-        ptyManager.write(targetSession.id, notification);
+        // ptyClient preferred; falls back gracefully if session not in daemon
+        const { ptyClient } = await import('$lib/server/pty-client.js');
+        ptyClient.write(targetSession.id, notification);
       } catch {}
     }
   }

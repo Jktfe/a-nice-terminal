@@ -12,7 +12,8 @@ const DATA_DIR = process.env.ANT_DATA_DIR || join(process.env.HOME || '/tmp', '.
 const DB_PATH = join(DATA_DIR, 'ant.db');
 
 // Detect runtime
-const isBun = typeof globalThis.Bun !== 'undefined';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- globalThis.Bun is not in TS lib; runtime check only
+const isBun = typeof (globalThis as any).Bun !== 'undefined';
 
 let _db: any = null;
 

@@ -1,9 +1,10 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
 
 // PATCH /api/sessions/:id/tasks/:taskId
 // Body: { status?, assigned_to?, description?, file_refs? }
-export async function PATCH({ params, request }) {
+export async function PATCH({ params, request }: RequestEvent<{ id: string; taskId: string }>) {
   const { status, assigned_to, description, file_refs } = await request.json();
 
   queries.updateTask(
@@ -23,7 +24,7 @@ export async function PATCH({ params, request }) {
   return json({ task });
 }
 
-export async function DELETE({ params }) {
+export async function DELETE({ params }: RequestEvent<{ id: string; taskId: string }>) {
   queries.deleteTask(params.taskId);
 
   const { broadcast } = await import('$lib/server/ws-broadcast.js');

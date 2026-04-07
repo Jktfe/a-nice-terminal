@@ -1,13 +1,14 @@
 import { json, error } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
 
-export function GET({ params }) {
+export function GET({ params }: RequestEvent<{ id: string }>) {
   const session = queries.getSession(params.id);
   if (!session) throw error(404, 'Session not found');
   return json(session);
 }
 
-export async function PATCH({ params, request }) {
+export async function PATCH({ params, request }: RequestEvent<{ id: string }>) {
   const body = await request.json();
   if (body.ttl) {
     queries.updateTtl(body.ttl, params.id);
@@ -27,7 +28,7 @@ export async function PATCH({ params, request }) {
 }
 
 // Soft-delete: marks deleted_at, PTY keeps running, recoverable within TTL window
-export function DELETE({ params }) {
+export function DELETE({ params }: RequestEvent<{ id: string }>) {
   const session = queries.getSession(params.id);
   if (!session) throw error(404, 'Session not found');
   queries.softDeleteSession(params.id);

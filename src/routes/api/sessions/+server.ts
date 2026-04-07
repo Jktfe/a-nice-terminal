@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
 import { nanoid } from 'nanoid';
 
@@ -8,7 +9,7 @@ export function GET() {
   return json({ sessions, recoverable });
 }
 
-export async function POST({ request }) {
+export async function POST({ request }: RequestEvent) {
   const { name, type, ttl = '15m', workspace_id, root_dir } = await request.json();
   const id = nanoid();
   queries.createSession(id, name, type, ttl, workspace_id || null, root_dir || null, '{}');

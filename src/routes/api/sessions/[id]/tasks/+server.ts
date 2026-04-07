@@ -1,13 +1,14 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
 import { nanoid } from 'nanoid';
 
-export function GET({ params }) {
+export function GET({ params }: RequestEvent<{ id: string }>) {
   const tasks = queries.listTasks(params.id);
   return json({ tasks });
 }
 
-export async function POST({ params, request }) {
+export async function POST({ params, request }: RequestEvent<{ id: string }>) {
   const { title, description, created_by } = await request.json();
   if (!title) return json({ error: 'title required' }, { status: 400 });
 

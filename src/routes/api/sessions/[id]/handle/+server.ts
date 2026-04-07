@@ -1,9 +1,10 @@
 import { json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
 
 // PATCH /api/sessions/:id/handle
 // Body: { handle: '@james' | null, display_name?: string }
-export async function PATCH({ params, request }) {
+export async function PATCH({ params, request }: RequestEvent<{ id: string }>) {
   const { handle, display_name } = await request.json();
 
   // Normalise: ensure handle starts with @ if provided

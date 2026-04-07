@@ -495,7 +495,7 @@
 
       <!-- Menu -->
       <div class="relative">
-        <button onclick={() => (showMenu=!showMenu)} class="p-1.5 rounded-lg" style="color:var(--text-muted);">
+        <button onclick={() => (showMenu=!showMenu)} class="p-1.5 rounded-lg" style="color:var(--text-muted);" aria-label="Session menu">
           <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
             <circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/>
           </svg>
