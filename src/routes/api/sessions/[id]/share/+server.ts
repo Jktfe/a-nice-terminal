@@ -2,12 +2,12 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
 
-export function GET({ params }: RequestEvent<{ id: string }>) {
+export function GET({ params, url }: RequestEvent<{ id: string }>) {
   const session = queries.getSession(params.id);
   if (!session) throw error(404, 'Session not found');
 
-  const serverUrl = process.env.ANT_SERVER_URL ||
-    `http://localhost:${process.env.ANT_PORT || 6458}`;
+  // Use the actual request origin so https:// URLs stay https://
+  const serverUrl = process.env.ANT_SERVER_URL || `${url.protocol}//${url.host}`;
 
   const commands: Record<string, string> = {};
 

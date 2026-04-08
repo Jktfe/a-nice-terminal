@@ -10,7 +10,8 @@ import { existsSync } from 'fs';
 const SOCK_PATH = join(process.env.HOME || '/tmp', '.ant', 'pty.sock');
 const DAEMON_BIN = join(process.cwd(), 'src/lib/server/pty-daemon.ts');
 
-type DataCallback = (sessionId: string, data: string) => void;
+type DataCallback    = (sessionId: string, data: string) => void;
+type SilenceCallback = (sessionId: string, isPrompt: boolean, text: string) => void;
 
 class PTYClient {
   private socket: net.Socket | null = null;
@@ -18,9 +19,12 @@ class PTYClient {
   private queue: string[] = [];
   private buf = '';
   private dataListeners: DataCallback[] = [];
+  private silenceListeners: SilenceCallback[] = [];
   // Keyed by "sessionId:callId" to prevent concurrent callers clobbering each other
-  private pendingSpawns = new Map<string, (result: any) => void>();
-  private spawnCallCounter = 0;
+  private pendingSpawns   = new Map<string, (result: any) => void>();
+  private pendingCaptures = new Map<string, (result: any) => void>();
+  private spawnCallCounter   = 0;
+  private captureCallCounter = 0;
 
   async ensureDaemon(): Promise<void> {
     // Quick ping to see if daemon is up
@@ -85,11 +89,19 @@ class PTYClient {
             for (const cb of this.dataListeners) {
               try { cb(msg.sessionId, msg.data); } catch {}
             }
+          } else if (msg.type === 'terminal_silence') {
+            for (const cb of this.silenceListeners) {
+              try { cb(msg.sessionId, msg.isPrompt, msg.text); } catch {}
+            }
           } else if (msg.type === 'spawned') {
             // callId is echoed back so we resolve exactly the right pending spawn
             const key = `${msg.sessionId}:${msg.callId}`;
             this.pendingSpawns.get(key)?.(msg);
             this.pendingSpawns.delete(key);
+          } else if (msg.type === 'captured') {
+            const key = `${msg.sessionId}:${msg.callId}`;
+            this.pendingCaptures.get(key)?.(msg);
+            this.pendingCaptures.delete(key);
           }
         } catch {}
       }
@@ -121,6 +133,26 @@ class PTYClient {
   onData(callback: DataCallback): () => void {
     this.dataListeners.push(callback);
     return () => { this.dataListeners = this.dataListeners.filter(cb => cb !== callback); };
+  }
+
+  onSilence(callback: SilenceCallback): () => void {
+    this.silenceListeners.push(callback);
+    return () => { this.silenceListeners = this.silenceListeners.filter(cb => cb !== callback); };
+  }
+
+  capture(sessionId: string, lines = 50): Promise<string> {
+    const callId = ++this.captureCallCounter;
+    const key = `${sessionId}:${callId}`;
+    return new Promise((resolve) => {
+      this.pendingCaptures.set(key, (result) => resolve(result.text ?? ''));
+      this.send({ type: 'capture', sessionId, lines, callId });
+      setTimeout(() => {
+        if (this.pendingCaptures.has(key)) {
+          this.pendingCaptures.delete(key);
+          resolve('');
+        }
+      }, 5000);
+    });
   }
 
   spawn(sessionId: string, cwd: string, cols = 120, rows = 30): Promise<{ alive: boolean; scrollback: string }> {

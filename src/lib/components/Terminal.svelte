@@ -27,6 +27,25 @@
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
   let microtaskScheduled = false;
 
+  // Write queue — ensures sequential writes to xterm.
+  // writeChunked uses setTimeout chains; if scrollback (262KB, ~43 chunks, ~430ms)
+  // and a concurrent SIGWINCH response both run, their chunks interleave and corrupt
+  // xterm's ANSI state machine (cursor positions, erase sequences clash → blank screen).
+  let writeQueue: string[] = [];
+  let writeActive = false;
+
+  function drainWriteQueue(term: any) {
+    if (writeQueue.length === 0) { writeActive = false; return; }
+    writeActive = true;
+    const data = writeQueue.shift()!;
+    writeChunked(term, data, () => drainWriteQueue(term));
+  }
+
+  function scheduleWrite(term: any, data: string) {
+    writeQueue.push(data);
+    if (!writeActive) drainWriteQueue(term);
+  }
+
   function flushOutput(term: any) {
     if (outputBuffer.length === 0) return;
     const data = outputBuffer.join('');
@@ -34,7 +53,7 @@
     outputSize = 0;
     flushTimer = null;
     microtaskScheduled = false;
-    writeChunked(term, data);
+    scheduleWrite(term, data);
   }
 
   function enqueueOutput(term: any, data: string) {
@@ -66,15 +85,16 @@
       if (!chunk) { onDone?.(); return; }
       term.write(chunk);
       offset += CHUNK_SIZE;
-      if (offset < data.length) requestAnimationFrame(next);
+      if (offset < data.length) setTimeout(next, 0);
       else {
         // Force repaint after chunked write — xterm holds the data but won't
         // paint it without this when the terminal was hidden during the writes.
-        term.refresh(0, term.rows - 1);
-        onDone?.();
+        // Use setTimeout here too: rAF is suppressed during SvelteKit navigation
+        // which would leave scrollback written to the buffer but never painted.
+        setTimeout(() => { term.refresh(0, term.rows - 1); onDone?.(); }, 0);
       }
     }
-    requestAnimationFrame(next);
+    setTimeout(next, 0);
   }
 
   async function sendSlowEdit(term: any, socket: WebSocket) {
@@ -169,7 +189,22 @@
       const socket = new WebSocket(`${protocol}//${location.host}/ws`);
       ws = socket;
 
+      // If session_health isn't received within 3s the server likely dropped our
+      // join_session (race during async connection handler setup). Close to trigger
+      // the 2s reconnect cycle, which sends a fresh join_session.
+      let healthReceived = false;
+      const healthTimeout = setTimeout(() => {
+        if (!healthReceived && !destroyed) {
+          console.warn('[ant] session_health not received — reconnecting');
+          socket.close();
+        }
+      }, 3000);
+
       socket.onopen = () => {
+        // Clear any stale write queue from the previous connection so old scrollback
+        // chunks don't interleave with the fresh scrollback about to arrive.
+        writeQueue = [];
+        writeActive = false;
         // spawnPty: true tells the server to start/attach the PTY daemon session.
         // Passing actual cols/rows ensures the PTY is spawned at the right size —
         // fitAddon.fit() has already run by this point (connect() is called after term.open()).
@@ -187,6 +222,7 @@
       };
 
       socket.onerror = () => {
+        clearTimeout(healthTimeout);
         term.writeln('\r\n\x1b[31m✗ WebSocket connection failed.\x1b[0m');
         term.writeln('\x1b[90mRetrying in 2s…\x1b[0m\r\n');
       };
@@ -198,6 +234,8 @@
             enqueueOutput(term, msg.data);
             onData?.(msg.data);
           } else if (msg.type === 'session_health' && msg.sessionId === sessionId) {
+            healthReceived = true;
+            clearTimeout(healthTimeout);
             if (!msg.alive) {
               term.writeln('\r\n\x1b[31m✗ PTY session failed to start.\x1b[0m');
               term.writeln('\x1b[90mThe daemon may be unreachable. Click the refresh button (↻) to retry.\x1b[0m\r\n');
@@ -217,6 +255,7 @@
 
       // Reconnect on close — unless the component was torn down
       socket.onclose = () => {
+        clearTimeout(healthTimeout);
         if (!destroyed) setTimeout(connect, 2000);
       };
     }

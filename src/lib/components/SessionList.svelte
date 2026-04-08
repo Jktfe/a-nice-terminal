@@ -43,6 +43,13 @@
       {/if}
     </div>
     <div class="flex items-center gap-2">
+      <!-- CLI Help link -->
+      <a
+        href="/help"
+        class="p-2 rounded-lg transition-all duration-200 text-xs font-mono"
+        style="color: var(--text-muted);"
+        title="CLI command reference"
+      >?</a>
       <!-- Theme toggle -->
       <button
         onclick={() => theme.toggle()}

@@ -208,9 +208,10 @@ function getDb(): any {
   END`);
 
   // Migrations for sessions table — tmux + AON columns
-  if (!cols.includes('tmux_id'))    _db.exec(`ALTER TABLE sessions ADD COLUMN tmux_id TEXT`);
-  if (!cols.includes('kill_timer')) _db.exec(`ALTER TABLE sessions ADD COLUMN kill_timer TEXT`);
-  if (!cols.includes('is_aon'))     _db.exec(`ALTER TABLE sessions ADD COLUMN is_aon INTEGER DEFAULT 0`);
+  if (!cols.includes('tmux_id'))        _db.exec(`ALTER TABLE sessions ADD COLUMN tmux_id TEXT`);
+  if (!cols.includes('kill_timer'))     _db.exec(`ALTER TABLE sessions ADD COLUMN kill_timer TEXT`);
+  if (!cols.includes('is_aon'))         _db.exec(`ALTER TABLE sessions ADD COLUMN is_aon INTEGER DEFAULT 0`);
+  if (!cols.includes('linked_chat_id')) _db.exec(`ALTER TABLE sessions ADD COLUMN linked_chat_id TEXT`);
 
   // Record startup
   _db.prepare(`INSERT OR REPLACE INTO server_state (key, value) VALUES (?, ?)`).run('last_heartbeat', new Date().toISOString());
@@ -264,13 +265,38 @@ export const queries = {
   hardDeleteSession: (id: string) => prepare(`DELETE FROM sessions WHERE id = ?`).run(id),
   archiveSession: (id: string) => prepare(`UPDATE sessions SET archived = 1, updated_at = datetime('now') WHERE id = ?`).run(id),
 
+  // Sessions — linked chat
+  setLinkedChat: (sessionId: string, chatId: string) =>
+    prepare(`UPDATE sessions SET linked_chat_id = ?, updated_at = datetime('now') WHERE id = ?`).run(chatId, sessionId),
+
   // Sessions — handle/identity
   setHandle: (id: string, handle: string | null, displayName: string | null) =>
     prepare(`UPDATE sessions SET handle = ?, display_name = ?, updated_at = datetime('now') WHERE id = ?`).run(handle, displayName, id),
   getSessionByHandle: (handle: string) => prepare(`SELECT * FROM sessions WHERE handle = ? AND archived = 0 AND deleted_at IS NULL`).get(handle),
+  getTerminalsByLinkedChat: (chatId: string) =>
+    prepare(`SELECT * FROM sessions WHERE linked_chat_id = ? AND type = 'terminal' AND archived = 0 AND deleted_at IS NULL`).all(chatId),
 
   // Messages
   listMessages: (sessionId: string) => prepare(`SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC`).all(sessionId),
+
+  // Participants — unique senders in a session, enriched with session name/handle
+  listParticipants: (sessionId: string) =>
+    prepare(`
+      SELECT DISTINCT
+        m.sender_id as id,
+        COALESCE(s.display_name, s.name, m.sender_id) as name,
+        s.handle,
+        s.type as session_type,
+        MIN(m.created_at) as first_seen,
+        MAX(m.created_at) as last_seen,
+        COUNT(*) as message_count
+      FROM messages m
+      LEFT JOIN sessions s ON s.id = m.sender_id
+      WHERE m.session_id = ? AND m.sender_id IS NOT NULL
+      GROUP BY m.sender_id
+      ORDER BY first_seen ASC
+    `).all(sessionId),
+
   getMessagesSince: (sessionId: string, since: string, limit: number) =>
     prepare(`SELECT * FROM messages WHERE session_id = ? AND created_at > ? ORDER BY created_at ASC LIMIT ?`).all(sessionId, since, limit),
   createMessage: (id: string, sessionId: string, role: string, content: string, format: string, status: string, senderId: string | null, target: string | null, msgType: string, meta: string) =>
@@ -306,8 +332,10 @@ export const queries = {
   `).all(query, limit),
 
   // Terminal transcripts
-  appendTranscript: (sessionId: string, chunkIndex: number, rawData: Buffer) =>
+  appendTranscript: (sessionId: string, chunkIndex: number, rawData: string) =>
     prepare(`INSERT INTO terminal_transcripts (session_id, chunk_index, raw_data) VALUES (?, ?, ?)`).run(sessionId, chunkIndex, rawData),
+  listTranscriptChunks: (sessionId: string) =>
+    prepare(`SELECT chunk_index, raw_data, timestamp FROM terminal_transcripts WHERE session_id = ? ORDER BY chunk_index ASC`).all(sessionId),
   getTranscripts: (sessionId: string) =>
     prepare(`SELECT * FROM terminal_transcripts WHERE session_id = ? ORDER BY chunk_index ASC`).all(sessionId),
 

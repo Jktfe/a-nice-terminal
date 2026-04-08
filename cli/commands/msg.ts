@@ -4,6 +4,7 @@
 
 import { api } from '../lib/api.js';
 import { config } from '../lib/config.js';
+import { execFileSync } from 'child_process';
 
 export async function msg(args: string[], flags: any, ctx: any) {
   const sessionId = args[0];
@@ -26,8 +27,15 @@ export async function msg(args: string[], flags: any, ctx: any) {
     return;
   }
 
-  // Prefer session ID (canonical) over handle string
-  const sender_id = flags.from || config.get('sessionId') || config.get('handle') || 'cli';
+  // Resolve sender: flag override > ANT_SESSION_ID env > tmux session name (reliable
+  // since ANT uses session IDs as tmux session names) > config handle > 'cli'
+  let sender_id: string = flags.from || process.env.ANT_SESSION_ID || '';
+  if (!sender_id) {
+    try {
+      sender_id = execFileSync('tmux', ['display-message', '-p', '#{session_name}'], { stdio: 'pipe' }).toString().trim();
+    } catch {}
+  }
+  if (!sender_id) sender_id = config.get('handle') || 'cli';
 
   const result = await api.post(ctx, `/api/sessions/${sessionId}/messages`, {
     role: 'user',

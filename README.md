@@ -73,7 +73,7 @@ ANT_SERVER_URL=            # Public URL used in share commands
 
 ## launchd Daemon (macOS)
 
-Copy `vc.newmodel.ant.plist.example` to `~/Library/LaunchAgents/ant.server.plist`, fill in your paths, then:
+Copy `ant.server.plist.example` to `~/Library/LaunchAgents/ant.server.plist`, fill in your paths, then:
 
 ```bash
 launchctl load ~/Library/LaunchAgents/ant.server.plist

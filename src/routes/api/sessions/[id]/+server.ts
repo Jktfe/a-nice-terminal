@@ -22,8 +22,29 @@ export async function PATCH({ params, request }: RequestEvent<{ id: string }>) {
       params.id
     );
   }
+  if (body.linked_chat_id !== undefined) {
+    queries.setLinkedChat(params.id, body.linked_chat_id);
+  }
   const session = queries.getSession(params.id);
   if (!session) throw error(404, 'Session not found');
+
+  // Auto-export to memory palace when a session is archived
+  if (body.archived === true) {
+    const { maybeWriteSessionSummary } = await import('$lib/server/capture/obsidian-writer.js');
+    // Export this session
+    maybeWriteSessionSummary(params.id);
+    // Also export its linked chat (or if this is a chat, export linked terminals)
+    if ((session as any).linked_chat_id) {
+      maybeWriteSessionSummary((session as any).linked_chat_id);
+    } else {
+      // This might be a chat — find any terminals that link to it and export them too
+      const linkedTerminals = queries.getTerminalsByLinkedChat(params.id) as any[];
+      for (const t of linkedTerminals) {
+        maybeWriteSessionSummary(t.id);
+      }
+    }
+  }
+
   return json(session);
 }
 

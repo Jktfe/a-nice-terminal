@@ -8,4 +8,12 @@ certs/
 *.db-shm
 .ant-v3/
 /tmp/
-vc.newmodel.ant.plist
+
+# Personal / host-specific files — never commit these
+*.plist
+ANT-v3-plan.md
+CLAUDE.md
+
+# Logs
+*.log
+logs/

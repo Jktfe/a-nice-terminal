@@ -28,7 +28,20 @@
     return statusMap[status] || { color: '#6B7280', label: status };
   }
 
-  const statusInfo = $derived(getStatusDot(session.status));
+  // Derive terminal status from last_activity (updated every ~10s by PTY output)
+  // rather than the static DB status field which is never auto-updated.
+  function deriveStatus(s: typeof session) {
+    if (s.type === 'terminal' && s.last_activity) {
+      const utc = s.last_activity.includes('Z') || s.last_activity.includes('+')
+        ? s.last_activity : s.last_activity.replace(' ', 'T') + 'Z';
+      const ageMs = Date.now() - new Date(utc).getTime();
+      if (ageMs < 60_000)      return { color: '#22C55E', label: 'Active' };
+      if (ageMs < 5 * 60_000)  return { color: '#F59E0B', label: 'Running' };
+    }
+    return getStatusDot(s.status);
+  }
+
+  const statusInfo = $derived(deriveStatus(session));
 
   function handleDelete(e: MouseEvent) {
     e.stopPropagation();

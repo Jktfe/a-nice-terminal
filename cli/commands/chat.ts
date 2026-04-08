@@ -2,6 +2,16 @@ import { api } from '../lib/api.js';
 import { config } from '../lib/config.js';
 import { createInterface } from 'readline';
 import WebSocket from 'ws';
+import { execFileSync } from 'child_process';
+
+function resolveIdentity(): string {
+  if (process.env.ANT_SESSION_ID) return process.env.ANT_SESSION_ID;
+  try {
+    const name = execFileSync('tmux', ['display-message', '-p', '#{session_name}'], { stdio: 'pipe' }).toString().trim();
+    if (name) return name;
+  } catch {}
+  return config.get('handle') || 'cli';
+}
 
 export async function chat(args: string[], flags: any, ctx: any) {
   const sub = args[0];
@@ -16,7 +26,8 @@ export async function chat(args: string[], flags: any, ctx: any) {
   if (sub === 'send') {
     const msg = flags.msg || args[2];
     if (!msg) { console.error('Usage: ant chat send <id> --msg "message"'); return; }
-    const result = await api.post(ctx, `/api/sessions/${id}/messages`, { role: 'user', content: msg, format: 'text', sender_id: config.get('handle') || 'cli' });
+    const sender = resolveIdentity();
+    const result = await api.post(ctx, `/api/sessions/${id}/messages`, { role: 'user', content: msg, format: 'text', sender_id: sender });
     if (ctx.json) { console.log(JSON.stringify(result)); return; }
     console.log(`Sent: ${msg}`);
     return;
@@ -39,7 +50,8 @@ export async function chat(args: string[], flags: any, ctx: any) {
   if (sub === 'reply') {
     const msg = flags.msg || args[2];
     if (!msg) { console.error('Usage: ant chat reply <id> --msg "message"'); return; }
-    const result = await api.post(ctx, `/api/sessions/${id}/messages`, { role: 'user', content: msg, format: 'text', sender_id: config.get('handle') || 'cli' });
+    const sender = resolveIdentity();
+    const result = await api.post(ctx, `/api/sessions/${id}/messages`, { role: 'user', content: msg, format: 'text', sender_id: sender });
     if (ctx.json) { console.log(JSON.stringify(result)); return; }
     console.log(`Replied: ${msg}`);
     return;
@@ -82,13 +94,14 @@ export async function chat(args: string[], flags: any, ctx: any) {
     });
 
     // Interactive input
+    const joinSender = resolveIdentity();
     const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: '\x1b[36mYou\x1b[0m: ' });
     rl.prompt();
     rl.on('line', async (line) => {
       const trimmed = line.trim();
       if (!trimmed) { rl.prompt(); return; }
       try {
-        await api.post(ctx, `/api/sessions/${id}/messages`, { role: 'user', content: trimmed, format: 'text' });
+        await api.post(ctx, `/api/sessions/${id}/messages`, { role: 'user', content: trimmed, format: 'text', sender_id: joinSender });
       } catch (e: any) {
         console.error(`Error: ${e.message}`);
       }
@@ -108,13 +121,14 @@ export async function chat(args: string[], flags: any, ctx: any) {
   }
 
   console.log('\n--- Interactive chat (Ctrl+C to exit) ---\n');
+  const interactiveSender = resolveIdentity();
   const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: '\x1b[36mYou\x1b[0m: ' });
   rl.prompt();
   rl.on('line', async (line) => {
     const trimmed = line.trim();
     if (!trimmed) { rl.prompt(); return; }
     try {
-      await api.post(ctx, `/api/sessions/${id}/messages`, { role: 'user', content: trimmed, format: 'text' });
+      await api.post(ctx, `/api/sessions/${id}/messages`, { role: 'user', content: trimmed, format: 'text', sender_id: interactiveSender });
     } catch (e: any) {
       console.error(`Error: ${e.message}`);
     }

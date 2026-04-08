@@ -59,7 +59,7 @@
   let termKey = $state(0);
 
   // Command blocks view
-  let smoothView = $state(false);
+  let smoothView = $state(true);
   let commands = $state([]);
 
   async function loadCommands() {
@@ -123,6 +123,19 @@
     }, 300);
   });
 
+  // @ mention handles — loaded from participants API, refreshed on new messages
+  let mentionHandles = $state<{ handle: string; name: string }[]>([]);
+
+  async function loadMentionHandles() {
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/participants`);
+      const data = await res.json();
+      mentionHandles = (data.participants || [])
+        .filter((p: any) => p.handle)
+        .map((p: any) => ({ handle: p.handle, name: p.name || p.handle }));
+    } catch {}
+  }
+
   // Chat feed (for terminal sessions — link to a chat session and follow it)
   let linkedChatId = $state('');
   let linkedChatMessages = $state([]);
@@ -137,14 +150,19 @@
 
   async function postToLinkedChat() {
     if (!linkedChatId || !linkedChatInput.trim()) return;
+    const text = linkedChatInput.trim();
     await fetch(`/api/sessions/${linkedChatId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        role: 'user', content: linkedChatInput.trim(),
+        role: 'user', content: text,
         format: 'text', sender_id: sessionId, msg_type: 'message',
       }),
     });
+    // Also inject into the terminal PTY — the CLI LLM running there sees it as stdin
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'terminal_input', sessionId, data: text + '\r' }));
+    }
     linkedChatInput = '';
   }
 
@@ -198,6 +216,10 @@
           case 'message_created':
             if (!msgStore.messages.find(m => m.id === data.id)) {
               msgStore.messages = [...msgStore.messages, data];
+              // New sender may not be in mention list yet — refresh handles
+              if (data.sender_id && !mentionHandles.find(h => h.handle === data.sender_id)) {
+                loadMentionHandles();
+              }
             }
             break;
           case 'message_updated':
@@ -254,12 +276,28 @@
     // Panel open by default only for chat sessions
     showPanel = mode === 'chat';
 
-    // Auto-link terminals to the first chat session
+    // Per-terminal dedicated chat — persist the link so each terminal always has its own chat
     if (mode === 'terminal') {
-      const firstChat = allSessions.find(s => s.type === 'chat');
-      if (firstChat) {
-        linkedChatId = firstChat.id;
-        await loadLinkedChat(firstChat.id);
+      if (session.linked_chat_id) {
+        linkedChatId = session.linked_chat_id;
+        await loadLinkedChat(session.linked_chat_id);
+      } else {
+        // Auto-create a dedicated chat session for this terminal
+        const res = await fetch('/api/sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: `${session.name} Chat`, type: 'chat', ttl: session.ttl || '15m' }),
+        });
+        const newChat = await res.json();
+        // Persist the link so the next open finds the same chat
+        await fetch(`/api/sessions/${sessionId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ linked_chat_id: newChat.id }),
+        });
+        linkedChatId = newChat.id;
+        allSessions = [...allSessions, newChat];
+        await loadLinkedChat(newChat.id);
       }
     }
 
@@ -271,6 +309,7 @@
     ]);
     tasks = (await tasksRes.json()).tasks || [];
     fileRefs = (await refsRes.json()).refs || [];
+    loadMentionHandles();
 
     connectWs();
     loadMemories();
@@ -621,7 +660,7 @@
               onSend={sendMessage}
               {replyTo}
               onClearReply={() => (replyTo = null)}
-              handles={allSessions.filter(s => s.handle).map(s => ({ handle: s.handle, name: s.display_name || s.name }))}
+              handles={mentionHandles}
             />
           {/if}
         </div>

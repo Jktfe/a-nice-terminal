@@ -5,7 +5,8 @@ import { config } from 'dotenv';
 config(); // Load .env
 
 import { createServer } from 'http';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, mkdirSync, copyFileSync, chmodSync, appendFileSync } from 'fs';
+import { join } from 'path';
 import { createServer as createHttpsServer } from 'https';
 import { handler } from './build/handler.js';
 import { WebSocketServer } from 'ws';
@@ -187,6 +188,22 @@ getPtyManager().then(async ptm => {
   // Throttle last_activity updates (1 write per session per 10s max)
   const activityThrottle = new Map<string, number>();
 
+  // Buffer terminal output per session — flush to terminal_transcripts every ~10KB or 30s
+  const transcriptBufs  = new Map<string, string>();
+  const transcriptFlush = new Map<string, ReturnType<typeof setTimeout>>();
+  const chunkCounters   = new Map<string, number>();
+
+  function flushTranscript(sessionId: string) {
+    const buf = transcriptBufs.get(sessionId);
+    if (!buf) return;
+    transcriptBufs.delete(sessionId);
+    const idx = (chunkCounters.get(sessionId) ?? 0) + 1;
+    chunkCounters.set(sessionId, idx);
+    try {
+      queries.appendTranscript(sessionId, idx, buf);
+    } catch {}
+  }
+
   ptm.onData((sessionId: string, data: string) => {
     const msg = JSON.stringify({ type: 'terminal_output', sessionId, data });
     for (const [ws, client] of clients) {
@@ -199,6 +216,51 @@ getPtyManager().then(async ptm => {
     if ((now - (activityThrottle.get(sessionId) ?? 0)) > 10_000) {
       activityThrottle.set(sessionId, now);
       try { queries.touchActivity(sessionId); } catch {}
+    }
+    // Buffer raw output for transcript persistence
+    transcriptBufs.set(sessionId, (transcriptBufs.get(sessionId) ?? '') + data);
+    // Flush immediately if buffer exceeds 10KB
+    if ((transcriptBufs.get(sessionId)?.length ?? 0) > 10_240) {
+      clearTimeout(transcriptFlush.get(sessionId));
+      transcriptFlush.delete(sessionId);
+      flushTranscript(sessionId);
+    } else if (!transcriptFlush.has(sessionId)) {
+      // Flush after 30s of inactivity
+      transcriptFlush.set(sessionId, setTimeout(() => {
+        transcriptFlush.delete(sessionId);
+        flushTranscript(sessionId);
+      }, 30_000));
+    }
+  });
+
+  // Forward terminal prompts to the session's linked chat.
+  // Only fires when tmux detects 3s of silence AND the pane tail looks like a prompt.
+  ptm.onSilence(async (sessionId: string, isPrompt: boolean, text: string) => {
+    if (!isPrompt) return;
+    const session = queries.getSession(sessionId);
+    if (!session?.linked_chat_id) return;
+    const { broadcast } = await import('./src/lib/server/ws-broadcast.js');
+    const msgId = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    const tail = text.slice(-600).trim();
+    try {
+      queries.createMessage(
+        msgId, session.linked_chat_id,
+        'assistant', tail,
+        'text', 'complete',
+        sessionId, null, 'prompt', '{}'
+      );
+      broadcast(session.linked_chat_id, {
+        type: 'message_created',
+        sessionId: session.linked_chat_id,
+        id: msgId,
+        role: 'assistant',
+        content: tail,
+        sender_id: sessionId,
+        msg_type: 'prompt',
+        created_at: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.error('[ws] Error forwarding terminal prompt to chat:', e);
     }
   });
 
@@ -213,6 +275,26 @@ import('./src/lib/server/capture/claude-watcher.js')
 import('./src/lib/server/capture/capture-ingest.js')
   .then(mod => mod.startCaptureIngest?.())
   .catch(() => console.log('[capture] Capture ingest not available'));
+
+// Auto-install ANT shell hooks into ~/.zshrc on first server start
+(function autoInstallHooks() {
+  const home = process.env.HOME || '/tmp';
+  const zshrc = join(home, '.zshrc');
+  if (existsSync(zshrc) && readFileSync(zshrc, 'utf8').includes('ant/hooks/ant.zsh')) return;
+  const srcDir = join(process.cwd(), 'ant-capture');
+  if (!existsSync(srcDir)) return;
+  try {
+    const hookDir = join(home, '.ant', 'hooks');
+    mkdirSync(hookDir, { recursive: true });
+    if (existsSync(join(srcDir, 'ant.zsh')))     copyFileSync(join(srcDir, 'ant.zsh'), join(hookDir, 'ant.zsh'));
+    if (existsSync(join(srcDir, 'ant.bash')))    copyFileSync(join(srcDir, 'ant.bash'), join(hookDir, 'ant.bash'));
+    if (existsSync(join(srcDir, 'ant-capture'))) { copyFileSync(join(srcDir, 'ant-capture'), join(hookDir, 'ant-capture')); chmodSync(join(hookDir, 'ant-capture'), 0o755); }
+    appendFileSync(zshrc, '\n# ANT shell capture hooks\n[ -f "$HOME/.ant/hooks/ant.zsh" ] && source "$HOME/.ant/hooks/ant.zsh"\n');
+    console.log('[hooks] Auto-installed ANT shell hooks into ~/.zshrc — restart your shell or run: source ~/.zshrc');
+  } catch (e) {
+    console.warn('[hooks] Could not auto-install hooks:', e);
+  }
+})();
 
 server.listen(PORT, HOST, () => {
   console.log(`\n  ANT v3 running at ${protocol}://${HOST}:${PORT}\n`);

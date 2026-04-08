@@ -2,10 +2,6 @@
 // Handles WebSocket upgrades and middleware
 
 import type { Handle } from '@sveltejs/kit';
-import { wsHandler } from '$lib/server/ws-handler';
-
-// Initialize WebSocket handler (wires PTY output to broadcast)
-wsHandler.init();
 
 export const handle: Handle = async ({ event, resolve }) => {
   // Tailscale IP check (optional — only enforce if ANT_TAILSCALE_ONLY is set)
@@ -39,8 +35,3 @@ export const handle: Handle = async ({ event, resolve }) => {
   return resolve(event);
 };
 
-// Note: WebSocket upgrade handling depends on the runtime.
-// With Bun, you'd handle it in the Bun.serve() config.
-// With Node adapter, you'd attach to the httpServer in a custom server.
-// Export the wsHandler for use in custom server setup:
-export { wsHandler };

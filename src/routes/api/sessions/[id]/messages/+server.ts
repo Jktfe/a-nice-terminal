@@ -93,5 +93,30 @@ export async function POST({ params, request }: RequestEvent<{ id: string }>) {
     }
   }
 
+  // Fan-out: inject unaddressed messages into ALL terminal PTYs linked to this chat.
+  // Skip prompt-type messages (those are injected by the silence detector, not echoed back).
+  if ((!target || target === '@everyone') && msgType !== 'prompt') {
+    const linkedTerminals: any[] = queries.getTerminalsByLinkedChat(params.id);
+    if (linkedTerminals.length > 0) {
+      const senderSession: any = sender_id ? queries.getSession(sender_id) : null;
+      const senderName = senderSession?.name || sender_id || 'chat';
+      const notification =
+        `\r\n\x1b[36m┌─ ANT broadcast ────────────────────────────────\x1b[0m\r\n` +
+        `\x1b[36m│\x1b[0m From: \x1b[33m${senderName}\x1b[0m\r\n` +
+        `\x1b[36m│\x1b[0m "${content.slice(0, 200)}"\r\n` +
+        `\x1b[36m│\x1b[0m Reply: \x1b[90mant msg ${params.id} "your reply"\x1b[0m\r\n` +
+        `\x1b[36m└───────────────────────────────────────────────\x1b[0m\r\n`;
+      try {
+        const { ptyClient } = await import('$lib/server/pty-client.js');
+        for (const terminal of linkedTerminals) {
+          // Don't echo back to the sending terminal
+          if (terminal.id !== sender_id) {
+            ptyClient.write(terminal.id, notification);
+          }
+        }
+      } catch {}
+    }
+  }
+
   return json(msg, { status: 201 });
 }
