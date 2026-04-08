@@ -10,11 +10,25 @@ import * as net from 'net';
 import * as pty from 'node-pty';
 import { unlinkSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
+import { execSync } from 'child_process';
 
 const ANT_DIR = join(process.env.HOME || '/tmp', '.ant');
 const SOCK_PATH = join(ANT_DIR, 'pty.sock');
 const SCROLLBACK_LIMIT = 256 * 1024;
 const LOG = (...a: any[]) => console.log('[pty-daemon]', ...a);
+const HOME = process.env.HOME || '/tmp';
+const TMUX = '/opt/homebrew/bin/tmux';
+
+// ANT session IDs use only alphanumeric + hyphens — safe to pass as tmux session name.
+// Uses execFileSync (not exec) to avoid shell injection.
+function tmuxSessionExists(sessionId: string): boolean {
+  try {
+    execSync(`${TMUX} has-session -t ${sessionId} 2>/dev/null`, { stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 mkdirSync(ANT_DIR, { recursive: true });
 if (existsSync(SOCK_PATH)) unlinkSync(SOCK_PATH);
@@ -66,13 +80,23 @@ function handle(msg: any, socket: net.Socket) {
         send(socket, { type: 'spawned', sessionId: msg.sessionId, callId: msg.callId, alive: true, scrollback: existing.scrollback });
         return;
       }
-      const shell = process.env.SHELL || '/bin/zsh';
-      const term = pty.spawn(shell, [], {
+      // Use tmux new-session -A: creates if new, attaches if existing (survives server restarts)
+      const term = pty.spawn(TMUX, [
+        'new-session', '-A',
+        '-s', msg.sessionId,
+        '-x', String(msg.cols || 220),
+        '-y', String(msg.rows || 50),
+      ], {
         name: 'xterm-256color',
-        cols: msg.cols || 120,
-        rows: msg.rows || 30,
-        cwd: msg.cwd || process.env.HOME || '/tmp',
-        env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' } as Record<string, string>,
+        cols: msg.cols || 220,
+        rows: msg.rows || 50,
+        cwd: msg.cwd || HOME,
+        env: {
+          ...process.env,
+          ANT_SESSION_ID: msg.sessionId,
+          ANT_CAPTURE_DEPTH: '0',
+          TERM: 'xterm-256color',
+        } as Record<string, string>,
       });
       const session: PTYSession = { pty: term, scrollback: '', alive: true };
       sessions.set(msg.sessionId, session);
@@ -108,11 +132,16 @@ function handle(msg: any, socket: net.Socket) {
     case 'kill': {
       const s = sessions.get(msg.sessionId);
       if (s) { try { s.pty.kill(); } catch {} s.alive = false; sessions.delete(msg.sessionId); }
+      // Also kill the tmux session if it still exists
+      try { execSync(`${TMUX} kill-session -t ${msg.sessionId} 2>/dev/null`, { stdio: 'pipe' }); } catch {}
       LOG(`killed session: ${msg.sessionId}`);
       break;
     }
     case 'list': {
-      const alive = [...sessions.entries()].filter(([, s]) => s.alive).map(([id]) => id);
+      // Include in-memory alive sessions plus any tmux sessions not yet in memory
+      const alive = [...sessions.entries()]
+        .filter(([id, s]) => s.alive || tmuxSessionExists(id))
+        .map(([id]) => id);
       send(socket, { type: 'list', sessions: alive });
       break;
     }

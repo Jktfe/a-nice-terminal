@@ -182,8 +182,39 @@ function getDb(): any {
     DELETE FROM memories_fts WHERE rowid = old.rowid;
   END`);
 
+  _db.exec(`CREATE TABLE IF NOT EXISTS command_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    command TEXT NOT NULL,
+    cwd TEXT,
+    exit_code INTEGER,
+    started_at TEXT,
+    ended_at TEXT,
+    duration_ms INTEGER,
+    output_snippet TEXT,
+    meta TEXT DEFAULT '{}'
+  )`);
+
+  _db.exec(`CREATE INDEX IF NOT EXISTS idx_cmd_session ON command_events(session_id)`);
+  _db.exec(`CREATE INDEX IF NOT EXISTS idx_cmd_started ON command_events(started_at)`);
+
+  _db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS command_events_fts USING fts5(
+    command, output_snippet, cwd, tokenize='trigram'
+  )`);
+
+  _db.exec(`CREATE TRIGGER IF NOT EXISTS cmd_ai AFTER INSERT ON command_events BEGIN
+    INSERT INTO command_events_fts(rowid, command, output_snippet, cwd)
+    VALUES (new.rowid, new.command, new.output_snippet, new.cwd);
+  END`);
+
+  // Migrations for sessions table — tmux + AON columns
+  if (!cols.includes('tmux_id'))    _db.exec(`ALTER TABLE sessions ADD COLUMN tmux_id TEXT`);
+  if (!cols.includes('kill_timer')) _db.exec(`ALTER TABLE sessions ADD COLUMN kill_timer TEXT`);
+  if (!cols.includes('is_aon'))     _db.exec(`ALTER TABLE sessions ADD COLUMN is_aon INTEGER DEFAULT 0`);
+
   // Record startup
   _db.prepare(`INSERT OR REPLACE INTO server_state (key, value) VALUES (?, ?)`).run('last_heartbeat', new Date().toISOString());
+  _db.exec(`INSERT OR REPLACE INTO server_state(key, value) VALUES ('last_started', datetime('now'))`);
 
   console.log(`[db] Initialized ${isBun ? 'bun:sqlite' : 'better-sqlite3'} at ${DB_PATH}`);
   return _db;
@@ -287,6 +318,7 @@ export const queries = {
 
   // Server state
   getState: (key: string) => prepare(`SELECT value FROM server_state WHERE key = ?`).get(key),
+  getServerState: (key: string) => (prepare(`SELECT value FROM server_state WHERE key = ?`).get(key) as any)?.value as string | undefined,
   setState: (key: string, value: string) =>
     prepare(`INSERT OR REPLACE INTO server_state (key, value) VALUES (?, ?)`).run(key, value),
 
@@ -306,6 +338,12 @@ export const queries = {
     ORDER BY rank
     LIMIT ?
   `).all(query, limit),
+
+  // Command events
+  getCommands: (sessionId: string, limit: number) =>
+    prepare(`SELECT * FROM command_events WHERE session_id = ? ORDER BY started_at DESC LIMIT ?`).all(sessionId, limit),
+  insertCommand: (sessionId: string, command: string, cwd: string | null, exitCode: number | null, startedAt: string | null, endedAt: string | null, durationMs: number | null, outputSnippet: string | null) =>
+    prepare(`INSERT INTO command_events(session_id, command, cwd, exit_code, started_at, ended_at, duration_ms, output_snippet) VALUES (?,?,?,?,?,?,?,?)`).run(sessionId, command, cwd, exitCode, startedAt, endedAt, durationMs, outputSnippet),
 };
 
 export default getDb;

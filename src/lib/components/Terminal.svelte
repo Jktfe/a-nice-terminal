@@ -150,8 +150,15 @@
     term.focus(); // Must call after open() — arrows/Tab stop working without this (v2 lesson)
     terminal = term;
 
-    // Click anywhere in the terminal container to restore keyboard focus (v2 lesson)
-    termRef.addEventListener('click', () => term.focus());
+    // Click anywhere in the terminal container to restore keyboard focus + trigger SIGWINCH
+    // repaint. This handles "click off and click back within the same page" where
+    // visibilitychange doesn't fire but the xterm buffer may need refreshing.
+    termRef.addEventListener('click', () => {
+      term.focus();
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'terminal_resize', sessionId, cols: term.cols, rows: term.rows }));
+      }
+    });
 
     // WebSocket connection — extracted to a function so reconnects reuse all handlers
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -167,6 +174,21 @@
         // Passing actual cols/rows ensures the PTY is spawned at the right size —
         // fitAddon.fit() has already run by this point (connect() is called after term.open()).
         socket.send(JSON.stringify({ type: 'join_session', sessionId, spawnPty: true, cols: term.cols, rows: term.rows }));
+        // Force-repaint 600ms after connect: covers SvelteKit client-side navigation where
+        // the browser suppresses requestAnimationFrame during the route transition. xterm uses
+        // rAF internally so term.write() content can land in the DOM without ever being painted.
+        // Accessing offsetHeight forces a synchronous layout, then refresh() repaints all rows.
+        setTimeout(() => {
+          if (term.element) {
+            term.element.offsetHeight; // synchronous layout invalidation
+            term.refresh(0, term.rows - 1);
+          }
+        }, 600);
+      };
+
+      socket.onerror = () => {
+        term.writeln('\r\n\x1b[31m✗ WebSocket connection failed.\x1b[0m');
+        term.writeln('\x1b[90mRetrying in 2s…\x1b[0m\r\n');
       };
 
       socket.onmessage = (event) => {
@@ -175,6 +197,11 @@
           if (msg.type === 'terminal_output' && msg.sessionId === sessionId) {
             enqueueOutput(term, msg.data);
             onData?.(msg.data);
+          } else if (msg.type === 'session_health' && msg.sessionId === sessionId) {
+            if (!msg.alive) {
+              term.writeln('\r\n\x1b[31m✗ PTY session failed to start.\x1b[0m');
+              term.writeln('\x1b[90mThe daemon may be unreachable. Click the refresh button (↻) to retry.\x1b[0m\r\n');
+            }
           } else if (msg.type === 'build_id') {
             const stored = sessionStorage.getItem('ant-build-id');
             if (!stored) {
@@ -228,13 +255,19 @@
     });
     resizeObserver.observe(termRef);
 
-    // Tab restore: repaint xterm (WebGL context may have been lost while hidden)
-    // and reconnect WS if needed (iPad wake/sleep)
+    // Tab restore: repaint xterm and force SIGWINCH so the shell redraws its current state.
+    // term.refresh() only repaints the existing xterm buffer — if the buffer is blank/stale
+    // the screen stays blank. Sending terminal_resize triggers SIGWINCH which causes the
+    // shell (or any foreground TUI) to emit a fresh repaint.
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
         requestAnimationFrame(() => {
           fitAddon.fit();
           term.refresh(0, term.rows - 1);
+          // Force shell repaint regardless of WS state
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'terminal_resize', sessionId, cols: term.cols, rows: term.rows }));
+          }
         });
         if (ws && ws.readyState !== WebSocket.OPEN) {
           ws.close(); // triggers onclose → reconnect
@@ -253,7 +286,7 @@
   });
 </script>
 
-<div class="w-full h-full min-h-0 relative flex flex-col">
+<div class="w-full flex-1 min-h-0 relative flex flex-col">
   <!-- xterm.js container — dimmed when Slow Edit is active -->
   <div bind:this={termRef} class="w-full flex-1 min-h-0" class:opacity-30={slowEdit}></div>
 

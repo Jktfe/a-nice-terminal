@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# ant-capture — transparent I/O capture wrapper for ANT
+#
+# Wraps any command, capturing all terminal output to a per-session log file.
+# The command runs normally in the terminal — the user sees everything.
+# antd reads the log and stores it permanently in SQLite.
+#
+# Usage:
+#   ant-capture <session-id> <command...>
+#   ant-capture abc123 claude --resume
+#   ant-capture abc123 bash
+#
+# Environment:
+#   ANT_CAPTURE_DIR  — directory for capture logs (default: ~/.local/state/ant/capture)
+#   ANT_SOCKET       — antd UDS path (default: $XDG_RUNTIME_DIR/ant/antd.sock)
+#
+# The session ID is injected as ANT_SESSION_ID into the child environment,
+# so shell integration hooks can correlate events back to ANT.
+
+set -euo pipefail
+
+if [ $# -lt 2 ]; then
+  echo "Usage: ant-capture <session-id> <command...>" >&2
+  exit 1
+fi
+
+SESSION_ID="$1"
+shift
+
+# Where to store capture logs
+CAPTURE_DIR="${ANT_CAPTURE_DIR:-${HOME}/.local/state/ant/capture}"
+mkdir -p "$CAPTURE_DIR"
+
+LOG_FILE="${CAPTURE_DIR}/${SESSION_ID}.log"
+CURSOR_FILE="${CAPTURE_DIR}/${SESSION_ID}.cursor"
+META_FILE="${CAPTURE_DIR}/${SESSION_ID}.meta"
+
+# Write session metadata
+cat > "$META_FILE" <<METAEOF
+{
+  "session_id": "${SESSION_ID}",
+  "command": "$*",
+  "started_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "pid": $$,
+  "cwd": "$(pwd)",
+  "user": "$(whoami)",
+  "shell": "${SHELL:-unknown}"
+}
+METAEOF
+
+# Export session ID and capture directory so shell hooks and child processes can find them
+export ANT_SESSION_ID="$SESSION_ID"
+export ANT_CAPTURE_DIR="$CAPTURE_DIR"
+export ANT_CAPTURE_LOG="$LOG_FILE"
+# Track nesting depth so inner shells skip double-capture
+export ANT_CAPTURE_DEPTH="${ANT_CAPTURE_DEPTH:-0}"
+export ANT_CAPTURE_DEPTH=$(( ANT_CAPTURE_DEPTH + 1 ))
+
+# Source shell integration if available
+# (hooks will be picked up by the spawned shell)
+INTEGRATION_DIR="$(cd "$(dirname "$0")" && pwd)/shell-integration"
+if [ -d "$INTEGRATION_DIR" ]; then
+  export ANT_SHELL_INTEGRATION_DIR="$INTEGRATION_DIR"
+
+  # For bash: inject via ENV (loaded in non-interactive POSIX mode)
+  # For zsh: we prepend to ZDOTDIR so our hooks load before the user's .zshrc
+  DETECTED_SHELL="$(basename "${SHELL:-bash}")"
+  case "$DETECTED_SHELL" in
+    bash)
+      # Create a tiny loader that sources our hooks then falls through
+      LOADER="${CAPTURE_DIR}/.ant-bash-loader-${SESSION_ID}"
+      cat > "$LOADER" <<BASHEOF
+[ -f "$INTEGRATION_DIR/ant.bash" ] && source "$INTEGRATION_DIR/ant.bash"
+[ -f ~/.bashrc ] && source ~/.bashrc
+BASHEOF
+      export ENV="$LOADER"
+      export BASH_ENV="$LOADER"
+      ;;
+    zsh)
+      # Override ZDOTDIR to inject our hooks, then source user's .zshrc
+      ZSH_WRAPPER="${CAPTURE_DIR}/.ant-zsh-${SESSION_ID}"
+      mkdir -p "$ZSH_WRAPPER"
+      cat > "$ZSH_WRAPPER/.zshrc" <<ZSHEOF
+source "$INTEGRATION_DIR/ant.zsh"
+[ -f "${ZDOTDIR:-$HOME}/.zshrc" ] && ZDOTDIR="${ZDOTDIR:-$HOME}" source "\${ZDOTDIR}/.zshrc"
+ZSHEOF
+      export ANT_ORIGINAL_ZDOTDIR="${ZDOTDIR:-$HOME}"
+      export ZDOTDIR="$ZSH_WRAPPER"
+      ;;
+  esac
+fi
+
+# Use `script` to capture all terminal I/O transparently.
+# -q: quiet (no "Script started" banner)
+# -F: flush after each write (real-time capture)
+#
+# On macOS, `script` syntax is: script -q -F <logfile> <command>
+# On Linux, `script` syntax is:  script -q -f <logfile> -c <command>
+if [[ "$(uname)" == "Darwin" ]]; then
+  # macOS: script -q -F logfile command args...
+  exec script -q -F "$LOG_FILE" "$@"
+else
+  # Linux: script -q -f logfile -c "command args..."
+  exec script -q -f "$LOG_FILE" -c "$*"
+fi

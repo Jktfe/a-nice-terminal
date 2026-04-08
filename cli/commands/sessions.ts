@@ -28,6 +28,14 @@ export async function sessions(args: string[], flags: any, ctx: any) {
     return;
   }
 
+  if (sub === 'export') {
+    const id = args[1];
+    if (!id) { console.error('Usage: ant sessions export <id>'); return; }
+    await api.post(ctx, `/api/sessions/${id}/export`, {});
+    console.log(`Exported session ${id} to Obsidian`);
+    return;
+  }
+
   // Default: list sessions
   const list = await api.get(ctx, '/api/sessions');
   if (ctx.json) { console.log(JSON.stringify(list)); return; }

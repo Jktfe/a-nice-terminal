@@ -11,6 +11,7 @@ import { qr } from './commands/qr.js';
 import { msg } from './commands/msg.js';
 import { task } from './commands/task.js';
 import { flag } from './commands/flag.js';
+import { hooks } from './commands/hooks.js';
 import { config } from './lib/config.js';
 
 const { command, args, flags } = parseArgs(process.argv.slice(2));
@@ -25,6 +26,7 @@ Commands:
   sessions create       Create a new session (--name, --type terminal|chat)
   sessions archive <id> Archive a session
   sessions delete <id>  Delete a session
+  sessions export <id>  Export session summary to Obsidian vault
 
   terminal <id>         Connect to a terminal session (interactive PTY)
   terminal send <id>    Send a command to a terminal (--cmd "ls -la")
@@ -53,6 +55,8 @@ Commands:
   qr                    Show QR code to connect ANTios to this server
 
   search <query>        Search across all sessions (FTS5)
+
+  hooks install         Install ANT shell capture hooks into ~/.zshrc
 
   config                Show current config
   config set            Set server URL / API key / handle / session ID
@@ -85,6 +89,7 @@ async function main() {
       case 'task':     await task(args, flags, ctx); break;
       case 'flag':     await flag(args, flags, ctx); break;
       case 'search':   await search(args, flags, ctx); break;
+      case 'hooks':    await hooks(args.slice(1), flags); break;
       case 'share':    await share(args, flags, ctx); break;
       case 'qr':       await qr(args, flags, ctx); break;
       case 'config':   configCmd(args, flags); break;

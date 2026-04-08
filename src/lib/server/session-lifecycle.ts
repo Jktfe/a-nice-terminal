@@ -14,6 +14,20 @@ type PTYClient = {
   kill: (id: string) => void;
 };
 
+// Parse duration strings like '15m', '2h', '7d' into milliseconds.
+function parseDuration(s: string): number {
+  const match = s.match(/^(\d+)([smhd])$/);
+  if (!match) return ttlMs(s); // fall back to the existing lookup table
+  const n = parseInt(match[1], 10);
+  switch (match[2]) {
+    case 's': return n * 1000;
+    case 'm': return n * 60 * 1000;
+    case 'h': return n * 60 * 60 * 1000;
+    case 'd': return n * 24 * 60 * 60 * 1000;
+    default:  return ttlMs(s);
+  }
+}
+
 // Called once when the server starts and connects to the daemon.
 //
 // Normal case (web server restarted, daemon still running):
@@ -21,11 +35,16 @@ type PTYClient = {
 //   returns the scrollback buffer — nothing is started.
 //
 // Rare case (full system reboot, daemon also restarted):
-//   PTYs are gone. `pty.spawn()` creates a new shell — but ONLY for sessions
-//   whose TTL says they should still exist (AON always, others by last_activity).
+//   PTYs are gone. `pty.spawn()` creates a new tmux session — but ONLY for
+//   sessions whose TTL/AON/kill_timer says they should still exist.
 export async function rehydrateSessions(pty: PTYClient): Promise<void> {
-  const sessions = queries.listTerminalSessions();
+  // Determine how long the server was down so kill_timer logic can use it.
+  const lastStarted = queries.getServerState?.('last_started');
+  const prevShutdown = lastStarted ? new Date(lastStarted).getTime() : 0;
   const now = Date.now();
+  const downtimeMs = now - prevShutdown;
+
+  const sessions = queries.listTerminalSessions();
   let connected = 0;
   let skipped = 0;
 
@@ -42,8 +61,8 @@ export async function rehydrateSessions(pty: PTYClient): Promise<void> {
       continue;
     }
 
-    // AON or within TTL window → connect (or reconnect) to the daemon
-    if (shouldConnectAfterRestart(session, now)) {
+    // AON or within TTL/kill_timer window → connect (or reconnect) to the daemon
+    if (shouldConnectAfterRestart(session, downtimeMs, now)) {
       try {
         const cwd = session.root_dir || process.env.HOME || '/tmp';
         await pty.spawn(session.id, cwd);
@@ -60,15 +79,23 @@ export async function rehydrateSessions(pty: PTYClient): Promise<void> {
 }
 
 // Should this session be connected after a restart?
-// AON: always. Others: only if last_activity is within the TTL window.
+// AON: always. kill_timer: only if downtime < timer. Others: TTL from last_activity.
 // This is purely a restart-time decision — live sessions are NEVER killed by this.
-function shouldConnectAfterRestart(session: any, now: number): boolean {
+function shouldConnectAfterRestart(session: any, downtimeMs: number, now: number): boolean {
+  if (session.is_aon) return true;          // Always On — never kill on restart
   if (session.ttl === 'forever') return true;
 
-  const lastActive = session.last_activity || session.updated_at || session.created_at;
-  if (!lastActive) return false;
-  const lastActiveMs = new Date(lastActive).getTime();
-  return (now - lastActiveMs) < ttlMs(session.ttl || '15m');
+  // kill_timer: if set, only reconnect if downtime < kill_timer duration
+  if (session.kill_timer) {
+    const timerMs = parseDuration(session.kill_timer);
+    if (downtimeMs > timerMs) return false; // expired during outage
+  }
+
+  // Fall back to existing TTL logic
+  if (!session.last_activity) return true;
+  const idleMs = now - new Date(session.last_activity).getTime();
+  const ttlMillis = parseDuration(session.ttl || '15m');
+  return idleMs < ttlMillis;
 }
 
 // Runs periodically — ONLY cleans up soft-deleted sessions past their TTL window.

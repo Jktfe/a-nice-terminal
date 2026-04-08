@@ -210,6 +210,10 @@ import('./src/lib/server/capture/claude-watcher.js')
   .then(mod => mod.startClaudeWatcher?.())
   .catch(() => console.log('[capture] Claude watcher not available'));
 
+import('./src/lib/server/capture/capture-ingest.js')
+  .then(mod => mod.startCaptureIngest?.())
+  .catch(() => console.log('[capture] Capture ingest not available'));
+
 server.listen(PORT, HOST, () => {
   console.log(`\n  ANT v3 running at ${protocol}://${HOST}:${PORT}\n`);
 });

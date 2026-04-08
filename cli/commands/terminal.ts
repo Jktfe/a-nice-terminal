@@ -25,7 +25,7 @@ export async function terminal(args: string[], flags: any, ctx: any) {
     if (!id) { console.error('Usage: ant terminal watch <session-id>'); return; }
     console.log(`Watching terminal session ${id} (read-only, Ctrl+C to exit)...`);
 
-    const wsUrl = ctx.serverUrl.replace('https://', 'wss://').replace('http://', 'wss://') + '/ws';
+    const wsUrl = ctx.serverUrl.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws';
     const ws = new WebSocket(wsUrl, {
       headers: ctx.apiKey ? { 'Authorization': `Bearer ${ctx.apiKey}` } : {},
       rejectUnauthorized: false,
@@ -53,7 +53,7 @@ export async function terminal(args: string[], flags: any, ctx: any) {
   // Interactive terminal connection
   console.log(`Connecting to terminal session ${id}...`);
 
-  const wsUrl = ctx.serverUrl.replace('https://', 'wss://').replace('http://', 'wss://') + '/ws';
+  const wsUrl = ctx.serverUrl.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws';
   const ws = new WebSocket(wsUrl, {
     headers: ctx.apiKey ? { 'Authorization': `Bearer ${ctx.apiKey}` } : {},
     rejectUnauthorized: false,

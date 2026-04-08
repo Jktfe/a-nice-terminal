@@ -7,6 +7,7 @@
   import MessageInput from '$lib/components/MessageInput.svelte';
   import CLIInput from '$lib/components/CLIInput.svelte';
   import Terminal from '$lib/components/Terminal.svelte';
+  import CommandBlock from '$lib/components/CommandBlock.svelte';
   import ShareButton from '$lib/components/ShareButton.svelte';
   import TaskCard from '$lib/components/TaskCard.svelte';
   import FileRefCard from '$lib/components/FileRefCard.svelte';
@@ -56,6 +57,19 @@
 
   // Terminal refresh — remount xterm by toggling a key
   let termKey = $state(0);
+
+  // Command blocks view
+  let smoothView = $state(false);
+  let commands = $state([]);
+
+  async function loadCommands() {
+    if (!sessionId) return;
+    const res = await fetch(`/api/sessions/${sessionId}/commands?limit=100`);
+    const data = await res.json();
+    commands = Array.isArray(data) ? data : [];
+  }
+
+  let cmdPoll = null;
 
   // Memory panel state
   let memories = $state([]);
@@ -260,11 +274,17 @@
 
     connectWs();
     loadMemories();
+
+    if (mode === 'terminal') {
+      loadCommands();
+      cmdPoll = setInterval(() => { if (!smoothView) loadCommands(); }, 3000);
+    }
   });
 
   onDestroy(() => {
     wsDestroyed = true;
     ws?.close();
+    if (cmdPoll !== null) clearInterval(cmdPoll);
   });
 
   async function sendMessage(text) {
@@ -608,10 +628,11 @@
       {:else}
         <!-- Terminal mode -->
         <div class="flex flex-col flex-1 overflow-hidden">
-          <div class="flex items-center px-4 py-2 border-b" style="border-color:var(--border-light);background:var(--bg-surface);">
+          <!-- Toolbar: refresh + view toggle -->
+          <div class="flex items-center px-3 py-1.5 border-b gap-2" style="border-color:var(--border-light);background:var(--bg-surface);">
             <button
               onclick={() => termKey++}
-              class="ml-auto p-1.5 rounded transition-all"
+              class="p-1.5 rounded transition-all"
               style="color:var(--text-faint);"
               title="Refresh terminal (remount)"
               aria-label="Refresh terminal"
@@ -621,11 +642,57 @@
                   d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
               </svg>
             </button>
+            <div class="flex-1"></div>
+            <button
+              onclick={() => {
+                smoothView = !smoothView;
+                if (!smoothView) loadCommands();
+              }}
+              class="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-all {smoothView ? 'bg-[#6366F1] text-white' : 'text-[#78909C] hover:text-[#E0E0E0] border border-[var(--border-subtle)]'}"
+              title={smoothView ? 'Switch to command blocks' : 'Switch to live terminal (Smooth View)'}
+            >
+              {#if smoothView}
+                ⬛ Command Blocks
+              {:else}
+                ⚡ Smooth View
+              {/if}
+            </button>
           </div>
-          <div class="flex-1 overflow-hidden" style="background:var(--terminal-bg);">
-            {#key termKey}<Terminal {sessionId}/>{/key}
-          </div>
-          <CLIInput onSubmit={sendCommand}/>
+
+          {#if smoothView}
+            <!-- Smooth View: full xterm.js terminal -->
+            <div class="flex-1 min-h-0 flex flex-col" style="background:var(--terminal-bg);">
+              {#key termKey}<Terminal {sessionId}/>{/key}
+            </div>
+            <CLIInput onSubmit={sendCommand}/>
+          {:else}
+            <!-- Command Blocks: default view -->
+            <div class="flex-1 min-h-0 overflow-y-auto p-3" style="background:#0D0D12;">
+              {#if commands.length === 0}
+                <div class="flex flex-col items-center justify-center h-full gap-3 text-[#78909C]">
+                  <div class="text-4xl">⌨️</div>
+                  <p class="text-sm">No commands captured yet.</p>
+                  <p class="text-xs max-w-xs text-center">
+                    Run <code class="bg-[#1A1A22] px-1.5 py-0.5 rounded font-mono text-[#6366F1]">ant hooks install</code>
+                    to enable shell capture, or use
+                    <button onclick={() => (smoothView = true)} class="text-[#6366F1] underline">⚡ Smooth View</button>
+                    for a live terminal.
+                  </p>
+                </div>
+              {:else}
+                {#each commands as cmd (cmd.id)}
+                  <CommandBlock
+                    command={cmd.command}
+                    cwd={cmd.cwd}
+                    exit_code={cmd.exit_code}
+                    started_at={cmd.started_at}
+                    duration_ms={cmd.duration_ms}
+                    output_snippet={cmd.output_snippet}
+                  />
+                {/each}
+              {/if}
+            </div>
+          {/if}
         </div>
       {/if}
     </div>

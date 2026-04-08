@@ -8,7 +8,7 @@
     "preview": "vite preview",
     "start": "node --import ./node_modules/tsx/dist/esm/index.mjs ./server.ts",
     "start:prod": "npm run build && npm run start",
-    "dev:full": "concurrently -n vite,server -c cyan,green \"vite build --watch\" \"nodemon --watch build --delay 1.5 --exec 'node --import ./node_modules/tsx/dist/esm/index.mjs ./server.ts'\"",
+    "dev:full": "lsof -ti TCP:6458 | xargs kill -TERM 2>/dev/null; concurrently -n vite,server -c cyan,green \"vite build --watch\" \"nodemon --watch build --delay 1.5 --exec 'node --import ./node_modules/tsx/dist/esm/index.mjs ./server.ts'\"",
     "daemon:start": "bun src/lib/server/pty-daemon.ts &",
     "daemon:stop": "lsof -ti UNIX:$HOME/.ant/pty.sock | xargs kill -TERM 2>/dev/null || true"
   },
