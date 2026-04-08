@@ -124,15 +124,15 @@
   });
 
   // @ mention handles — loaded from participants API, refreshed on new messages
-  let mentionHandles = $state<{ handle: string; name: string }[]>([]);
+  let mentionHandles = $state([]);
 
   async function loadMentionHandles() {
     try {
       const res = await fetch(`/api/sessions/${sessionId}/participants`);
       const data = await res.json();
       mentionHandles = (data.participants || [])
-        .filter((p: any) => p.handle)
-        .map((p: any) => ({ handle: p.handle, name: p.name || p.handle }));
+        .filter(p => p.handle)
+        .map(p => ({ handle: p.handle, name: p.name || p.handle }));
     } catch {}
   }
 
