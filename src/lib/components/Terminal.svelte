@@ -109,8 +109,13 @@
     requestAnimationFrame(() => term.focus());
   }
 
-  onMount(async () => {
+  onMount(() => {
     if (!browser || !termRef) return;
+
+    // Dynamic imports require async, but onMount cleanup must be returned synchronously.
+    // Capture the teardown in a closure so Svelte can call it on destroy.
+    let destroyFn: (() => void) | undefined;
+    (async () => {
 
     const { Terminal } = await import('@xterm/xterm');
     const { FitAddon } = await import('@xterm/addon-fit');
@@ -276,7 +281,7 @@
     // guarantees layout has settled before we spawn the PTY or replay scrollback.
     let initialConnectDone = false;
     const resizeObserver = new ResizeObserver(() => {
-      if (!initialConnectDone && termRef.clientHeight > 0) {
+      if (!initialConnectDone && termRef!.clientHeight > 0) {
         initialConnectDone = true;
         fitAddon.fit();
         connect();
@@ -315,13 +320,16 @@
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
-    return () => {
-      destroyed = true;
-      resizeObserver.disconnect();
-      document.removeEventListener('visibilitychange', handleVisibility);
-      ws?.close();
-      term.dispose();
-    };
+      destroyFn = () => {
+        destroyed = true;
+        resizeObserver.disconnect();
+        document.removeEventListener('visibilitychange', handleVisibility);
+        ws?.close();
+        term.dispose();
+      };
+    })();
+
+    return () => destroyFn?.();
   });
 </script>
 

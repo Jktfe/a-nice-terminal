@@ -99,6 +99,17 @@
       </span>
       <span class="flex-1 text-xs truncate font-medium" style="color: var(--text-muted);">{session.name}</span>
       <button
+        onclick={openPicker}
+        class="flex-shrink-0 w-4 h-4 flex items-center justify-center rounded transition-colors hover:bg-white/10"
+        style="color: var(--text-faint);"
+        title="Switch session"
+      >
+        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M8 7h12m0 0l-4-4m4 4l-4 4M16 17H4m0 0l4 4m-4-4l4-4" />
+        </svg>
+      </button>
+      <button
         onclick={clear}
         class="flex-shrink-0 w-4 h-4 flex items-center justify-center rounded transition-colors hover:bg-white/10"
         style="color: var(--text-faint);"
