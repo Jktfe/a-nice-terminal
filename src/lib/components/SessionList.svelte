@@ -1,8 +1,12 @@
 <script lang="ts">
   import { useSessionStore, TTL_OPTIONS } from '$lib/stores/sessions.svelte';
+  import { useGridStore } from '$lib/stores/grid.svelte';
   import SessionCard from './SessionCard.svelte';
+  import GridView from './GridView.svelte';
   import { goto } from '$app/navigation';
   import { theme } from '$lib/stores/theme.svelte';
+
+  const grid = useGridStore();
 
   const store = useSessionStore();
   let searchText = $state('');
@@ -71,6 +75,53 @@
           </svg>
         {/if}
       </button>
+      <!-- Grid toggle -->
+      <button
+        onclick={() => grid.toggle()}
+        class="p-2 rounded-lg transition-all duration-200"
+        style={grid.enabled
+          ? 'color: #6366F1; background: rgba(99,102,241,0.15);'
+          : 'color: var(--text-muted); background: transparent;'}
+        title="Toggle grid view"
+      >
+        <svg class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+          <rect x="2" y="2" width="7" height="7" rx="1.5"/>
+          <rect x="11" y="2" width="7" height="7" rx="1.5"/>
+          <rect x="2" y="11" width="7" height="7" rx="1.5"/>
+          <rect x="11" y="11" width="7" height="7" rx="1.5"/>
+        </svg>
+      </button>
+
+      <!-- Grid dimension controls (visible when grid is enabled) -->
+      {#if grid.enabled}
+        <div class="flex items-center gap-1" style="color: var(--text-muted);">
+          <span class="text-xs font-mono">C</span>
+          <button
+            onclick={() => grid.setDimensions(grid.cols - 1, grid.rows)}
+            disabled={grid.cols <= 1}
+            class="w-5 h-5 flex items-center justify-center rounded text-xs font-bold transition-colors hover:bg-white/10 disabled:opacity-30"
+          >−</button>
+          <span class="text-xs w-3 text-center">{grid.cols}</span>
+          <button
+            onclick={() => grid.setDimensions(grid.cols + 1, grid.rows)}
+            disabled={grid.cols >= 5}
+            class="w-5 h-5 flex items-center justify-center rounded text-xs font-bold transition-colors hover:bg-white/10 disabled:opacity-30"
+          >+</button>
+          <span class="text-xs font-mono ml-1">R</span>
+          <button
+            onclick={() => grid.setDimensions(grid.cols, grid.rows - 1)}
+            disabled={grid.rows <= 1}
+            class="w-5 h-5 flex items-center justify-center rounded text-xs font-bold transition-colors hover:bg-white/10 disabled:opacity-30"
+          >−</button>
+          <span class="text-xs w-3 text-center">{grid.rows}</span>
+          <button
+            onclick={() => grid.setDimensions(grid.cols, grid.rows + 1)}
+            disabled={grid.rows >= 5}
+            class="w-5 h-5 flex items-center justify-center rounded text-xs font-bold transition-colors hover:bg-white/10 disabled:opacity-30"
+          >+</button>
+        </div>
+      {/if}
+
       <button
         onclick={() => (showNewSessionModal = true)}
         class="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-indigo hover:shadow-lg transition-all duration-200 text-white text-sm font-medium"
@@ -88,7 +139,15 @@
     <span>Connected</span>
   </div>
 
-  <!-- Search Bar -->
+  <!-- Grid view (replaces list when enabled) -->
+  {#if grid.enabled}
+    <div class="flex-1 min-h-0 overflow-hidden">
+      <GridView sessions={store.sessions} />
+    </div>
+  {/if}
+
+  <!-- Search Bar (list mode only) -->
+  {#if !grid.enabled}
   <div class="px-6 py-4">
     <div class="relative">
       <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -104,7 +163,7 @@
     </div>
   </div>
 
-  <!-- Recoverable Sessions Rail -->
+  <!-- Recoverable Sessions Rail (list mode only) -->
   {#if store.recoverable.length > 0}
     <div class="px-6 py-3 border-b" style="border-color: var(--border-subtle); background: var(--bg-surface);">
       <p class="text-xs font-medium mb-2" style="color: var(--text-faint);">Recently deleted — tap to restore</p>
@@ -127,7 +186,7 @@
     </div>
   {/if}
 
-  <!-- Session List -->
+  <!-- Session List (list mode only) -->
   <div class="flex-1 overflow-y-auto px-6 pb-6">
     {#if store.loading && store.sessions.length === 0}
       <div class="flex flex-col items-center justify-center h-full gap-3">
@@ -175,6 +234,7 @@
       </div>
     {/if}
   </div>
+  {/if}
 </div>
 
 <!-- New Session Modal -->

@@ -7,7 +7,6 @@
   import MessageInput from '$lib/components/MessageInput.svelte';
   import CLIInput from '$lib/components/CLIInput.svelte';
   import Terminal from '$lib/components/Terminal.svelte';
-  import CommandBlock from '$lib/components/CommandBlock.svelte';
   import ShareButton from '$lib/components/ShareButton.svelte';
   import TaskCard from '$lib/components/TaskCard.svelte';
   import FileRefCard from '$lib/components/FileRefCard.svelte';
@@ -57,17 +56,6 @@
 
   // Terminal refresh — remount xterm by toggling a key
   let termKey = $state(0);
-
-  // Command blocks view
-  let smoothView = $state(true);
-  let commands = $state([]);
-
-  async function loadCommands() {
-    if (!sessionId) return;
-    const res = await fetch(`/api/sessions/${sessionId}/commands?limit=100`);
-    const data = await res.json();
-    commands = Array.isArray(data) ? data : [];
-  }
 
   let cmdPoll = null;
 
@@ -320,10 +308,6 @@
     connectWs();
     loadMemories();
 
-    if (mode === 'terminal') {
-      loadCommands();
-      cmdPoll = setInterval(() => { if (!smoothView) loadCommands(); }, 3000);
-    }
   });
 
   onDestroy(() => {
@@ -688,56 +672,12 @@
               </svg>
             </button>
             <div class="flex-1"></div>
-            <button
-              onclick={() => {
-                smoothView = !smoothView;
-                if (!smoothView) loadCommands();
-              }}
-              class="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-all {smoothView ? 'bg-[#6366F1] text-white' : 'text-[#78909C] hover:text-[#E0E0E0] border border-[var(--border-subtle)]'}"
-              title={smoothView ? 'Switch to command blocks' : 'Switch to live terminal (Smooth View)'}
-            >
-              {#if smoothView}
-                ⬛ Command Blocks
-              {:else}
-                ⚡ Smooth View
-              {/if}
-            </button>
           </div>
 
-          {#if smoothView}
-            <!-- Smooth View: full xterm.js terminal -->
-            <div class="flex-1 min-h-0 flex flex-col" style="background:var(--terminal-bg);">
-              {#key termKey}<Terminal {sessionId}/>{/key}
-            </div>
-            <CLIInput onSubmit={sendCommand}/>
-          {:else}
-            <!-- Command Blocks: default view -->
-            <div class="flex-1 min-h-0 overflow-y-auto p-3" style="background:#0D0D12;">
-              {#if commands.length === 0}
-                <div class="flex flex-col items-center justify-center h-full gap-3 text-[#78909C]">
-                  <div class="text-4xl">⌨️</div>
-                  <p class="text-sm">No commands captured yet.</p>
-                  <p class="text-xs max-w-xs text-center">
-                    Run <code class="bg-[#1A1A22] px-1.5 py-0.5 rounded font-mono text-[#6366F1]">ant hooks install</code>
-                    to enable shell capture, or use
-                    <button onclick={() => (smoothView = true)} class="text-[#6366F1] underline">⚡ Smooth View</button>
-                    for a live terminal.
-                  </p>
-                </div>
-              {:else}
-                {#each commands as cmd (cmd.id)}
-                  <CommandBlock
-                    command={cmd.command}
-                    cwd={cmd.cwd}
-                    exit_code={cmd.exit_code}
-                    started_at={cmd.started_at}
-                    duration_ms={cmd.duration_ms}
-                    output_snippet={cmd.output_snippet}
-                  />
-                {/each}
-              {/if}
-            </div>
-          {/if}
+          <div class="flex-1 min-h-0 flex flex-col" style="background:var(--terminal-bg);">
+            {#key termKey}<Terminal {sessionId}/>{/key}
+          </div>
+          <CLIInput onSubmit={sendCommand}/>
         </div>
       {/if}
     </div>
