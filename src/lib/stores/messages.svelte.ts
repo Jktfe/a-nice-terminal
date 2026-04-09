@@ -9,6 +9,7 @@ interface Message {
   target: string | null;
   msg_type: string;
   created_at: string;
+  meta?: string | null;
 }
 
 let messages = $state<Message[]>([]);

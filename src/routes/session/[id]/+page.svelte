@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { useMessageStore } from '$lib/stores/messages.svelte';
@@ -14,27 +14,38 @@
   import { useToasts } from '$lib/stores/toast.svelte';
   import { onMount, onDestroy } from 'svelte';
 
+  interface PageSession {
+    id: string;
+    name: string;
+    type: string;
+    handle?: string;
+    display_name?: string;
+    linked_chat_id?: string;
+    ttl?: string;
+    [key: string]: unknown;
+  }
+
   const toasts = useToasts();
 
-  const sessionId = $derived($page.params.id);
+  const sessionId = $derived($page.params.id as string);
   const msgStore = useMessageStore();
   const sessionStore = useSessionStore();
 
-  let session = $state(null);
-  let allSessions = $state([]); // all sessions for participant lookup
+  let session = $state<PageSession | null>(null);
+  let allSessions = $state<PageSession[]>([]); // all sessions for participant lookup
   let mode = $state('chat');
   let showMenu = $state(false);
   let showPanel = $state(false); // set after session loads
   let panelTab = $state('participants'); // 'participants' | 'tasks' | 'files' | 'chat' | 'memory'
 
-  let tasks = $state([]);
-  let fileRefs = $state([]);
-  let replyTo = $state(null);
-  let editingNickname = $state(null); // session ID being renamed
+  let tasks = $state<{ id: string; status: string; [key: string]: unknown }[]>([]);
+  let fileRefs = $state<{ id: string; file_path?: string; [key: string]: unknown }[]>([]);
+  let replyTo = $state<Record<string, unknown> | null>(null);
+  let editingNickname = $state<string | null>(null); // session ID being renamed
   let nicknameInput = $state('');
 
   // Auto-scroll
-  let chatScrollEl = $state(null);
+  let chatScrollEl = $state<HTMLElement | null>(null);
   let atBottom = $state(true);
 
   function scrollToBottom() {
@@ -57,14 +68,14 @@
   // Terminal refresh — remount xterm by toggling a key
   let termKey = $state(0);
 
-  let cmdPoll = null;
+  let cmdPoll: ReturnType<typeof setInterval> | null = null;
 
   // Memory panel state
-  let memories = $state([]);
+  let memories = $state<Record<string, unknown>[]>([]);
   let memorySearch = $state('');
   let memoryNewKey = $state('');
   let memoryNewValue = $state('');
-  let memorySearchResults = $state([]);
+  let memorySearchResults = $state<Record<string, unknown>[]>([]);
   let memorySearching = $state(false);
 
   async function loadMemories() {
@@ -91,13 +102,13 @@
     }
   }
 
-  async function deleteMemory(id) {
+  async function deleteMemory(id: unknown) {
     await fetch(`/api/memories?id=${id}`, { method: 'DELETE' });
     memories = memories.filter(m => m.id !== id);
     memorySearchResults = memorySearchResults.filter(m => m.id !== id);
   }
 
-  let _memSearchTimer;
+  let _memSearchTimer: ReturnType<typeof setTimeout> | undefined;
   $effect(() => {
     const q = memorySearch;
     if (_memSearchTimer) clearTimeout(_memSearchTimer);
@@ -112,24 +123,24 @@
   });
 
   // @ mention handles — loaded from participants API, refreshed on new messages
-  let mentionHandles = $state([]);
+  let mentionHandles = $state<{ handle: string; name: string }[]>([]);
 
   async function loadMentionHandles() {
     try {
       const res = await fetch(`/api/sessions/${sessionId}/participants`);
       const data = await res.json();
       mentionHandles = (data.participants || [])
-        .filter(p => p.handle)
-        .map(p => ({ handle: p.handle, name: p.name || p.handle }));
+        .filter((p: Record<string, string>) => p.handle)
+        .map((p: Record<string, string>) => ({ handle: p.handle, name: p.name || p.handle }));
     } catch {}
   }
 
   // Chat feed (for terminal sessions — link to a chat session and follow it)
   let linkedChatId = $state('');
-  let linkedChatMessages = $state([]);
+  let linkedChatMessages = $state<Record<string, unknown>[]>([]);
   let linkedChatInput = $state('');
 
-  async function loadLinkedChat(chatId) {
+  async function loadLinkedChat(chatId: string) {
     if (!chatId) return;
     const res = await fetch(`/api/sessions/${chatId}/messages?limit=30`);
     const data = await res.json();
@@ -156,7 +167,7 @@
 
   // Wake a participant — send a targeted message from the current session to their handle
   // This triggers PTY injection on the server, so the AI in their terminal sees it
-  async function wakeParticipant(targetSess) {
+  async function wakeParticipant(targetSess: PageSession) {
     const handle = targetSess.handle;
     const chatSessions = allSessions.filter(s => s.type === 'chat');
     const chatRef = chatSessions.length > 0 ? chatSessions[0] : null;
@@ -178,7 +189,7 @@
   }
 
   // WS for live chat updates
-  let ws = $state(null);
+  let ws = $state<WebSocket | null>(null);
   let wsDestroyed = false;
 
   function connectWs() {
@@ -250,7 +261,7 @@
             fileRefs = fileRefs.filter(r => r.id !== data.refId);
             break;
           case 'handle_updated':
-            session = { ...session, handle: data.handle, display_name: data.display_name };
+            session = { ...session!, handle: data.handle as string | undefined, display_name: data.display_name as string | undefined };
             break;
         }
       } catch {}
@@ -271,7 +282,7 @@
     showPanel = mode === 'chat';
 
     // Per-terminal dedicated chat — persist the link so each terminal always has its own chat
-    if (mode === 'terminal') {
+    if (mode === 'terminal' && session) {
       if (session.linked_chat_id) {
         linkedChatId = session.linked_chat_id;
         await loadLinkedChat(session.linked_chat_id);
@@ -316,12 +327,12 @@
     if (cmdPoll !== null) clearInterval(cmdPoll);
   });
 
-  async function sendMessage(text) {
+  async function sendMessage(text: string) {
     await msgStore.send(sessionId, text);
     replyTo = null;
   }
 
-  async function sendCommand(cmd) {
+  async function sendCommand(cmd: string) {
     const text = cmd.endsWith('\n') || cmd.endsWith('\r') ? cmd.slice(0, -1) : cmd;
     await fetch(`/api/sessions/${sessionId}/terminal/input`, {
       method: 'POST',
@@ -346,7 +357,7 @@
     if (!newName?.trim()) return;
     showMenu = false;
     await sessionStore.renameSession(sessionId, newName.trim());
-    session = { ...session, name: newName.trim() };
+    session = { ...session!, name: newName.trim() };
   }
 
   async function deleteSession() {
@@ -391,7 +402,7 @@
   });
 
   // Cross-session quick post
-  let crossPostTarget = $state(null);
+  let crossPostTarget = $state<string | null>(null);
   let crossPostText = $state('');
 
   async function crossPost() {
@@ -417,7 +428,7 @@
   }
 
   // Nickname save
-  async function saveNickname(sess) {
+  async function saveNickname(sess: PageSession) {
     const trimmed = nicknameInput.trim();
     if (!trimmed) { editingNickname = null; return; }
     // Update the handle (auto-prefix @)
@@ -434,7 +445,7 @@
     editingNickname = null;
   }
 
-  function handleColour(h) {
+  function handleColour(h: string) {
     const palette = ['#6366F1','#22C55E','#F59E0B','#EC4899','#26A69A','#AB47BC','#42A5F5','#F97316'];
     let hash = 0;
     for (let i = 0; i < h.length; i++) hash = (hash * 31 + h.charCodeAt(i)) & 0xffffffff;
@@ -982,7 +993,7 @@
                   {#each linkedChatMessages as m (m.id)}
                     {@const senderSess = allSessions.find(s => s.id === m.sender_id || s.handle === m.sender_id)}
                     {@const senderName = senderSess ? (senderSess.display_name || senderSess.name) : (m.sender_id || (m.role === 'user' ? 'You' : 'AI'))}
-                    {@const col = m.sender_id ? handleColour(m.sender_id) : (m.role === 'user' ? '#4B5563' : '#6366F1')}
+                    {@const col = m.sender_id ? handleColour(m.sender_id as string) : (m.role === 'user' ? '#4B5563' : '#6366F1')}
                     <div class="text-xs rounded-lg border px-2.5 py-2" style="background:var(--bg-card);border-color:{col}22;border-left:2px solid {col};">
                       <p class="font-semibold mb-0.5 font-mono text-[10px]" style="color:{col};">{senderName}</p>
                       <p class="text-gray-300 break-words line-clamp-4">{m.content}</p>
