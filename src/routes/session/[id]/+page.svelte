@@ -210,7 +210,7 @@
     socket.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        // Route linked chat events to the linked chat feed, not the terminal message store
+        // Update linked chat feed if the event is from the linked chat session
         if (linkedChatId && data.sessionId === linkedChatId) {
           if (data.type === 'message_created') {
             if (!linkedChatMessages.find(m => m.id === data.id)) {
@@ -219,10 +219,9 @@
           } else if (data.type === 'message_deleted') {
             linkedChatMessages = linkedChatMessages.filter(m => m.id !== data.msgId);
           }
-          return;
         }
 
-        if (data.sessionId && data.sessionId !== sessionId) return;
+        if (data.sessionId && data.sessionId !== sessionId && data.sessionId !== linkedChatId) return;
 
         switch (data.type) {
           case 'message_created':
