@@ -210,6 +210,18 @@
     socket.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+        // Route linked chat events to the linked chat feed, not the terminal message store
+        if (linkedChatId && data.sessionId === linkedChatId) {
+          if (data.type === 'message_created') {
+            if (!linkedChatMessages.find(m => m.id === data.id)) {
+              linkedChatMessages = [...linkedChatMessages, data];
+            }
+          } else if (data.type === 'message_deleted') {
+            linkedChatMessages = linkedChatMessages.filter(m => m.id !== data.msgId);
+          }
+          return;
+        }
+
         if (data.sessionId && data.sessionId !== sessionId) return;
 
         switch (data.type) {
@@ -248,16 +260,6 @@
           case 'handle_updated':
             session = { ...session, handle: data.handle, display_name: data.display_name };
             break;
-        }
-        // Also update linked chat feed if the event is from the linked chat session
-        if (linkedChatId && data.sessionId === linkedChatId) {
-          if (data.type === 'message_created') {
-            if (!linkedChatMessages.find(m => m.id === data.id)) {
-              linkedChatMessages = [...linkedChatMessages, data];
-            }
-          } else if (data.type === 'message_deleted') {
-            linkedChatMessages = linkedChatMessages.filter(m => m.id !== data.msgId);
-          }
         }
       } catch {}
     };
