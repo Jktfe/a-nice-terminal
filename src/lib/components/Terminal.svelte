@@ -198,7 +198,7 @@
           console.warn('[ant] session_health not received — reconnecting');
           socket.close();
         }
-      }, 3000);
+      }, 8000);
 
       socket.onopen = () => {
         // Clear any stale write queue from the previous connection so old scrollback
