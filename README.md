@@ -9,6 +9,7 @@ A self-hosted terminal multiplexer and chat interface. Run terminal sessions and
 - **Slow Edit mode** — compose multi-line commands in a textarea before sending to the PTY
 - **Chat sessions** — persistent message threads with FTS5 full-text search
 - **PTY Chat mode** (🤖) — terminal output appears as chat bubbles; type commands inline
+- **Linked-chat bridge** — pair any terminal with a chat; tmux `alert-silence` hook + `#{pane_title}` polling surface prompts/state to the chat; user-role messages typed in the chat are auto-forwarded as keystrokes to answer interactive prompts (opt-out via `auto_forward_chat=0`)
 - **Memory panel** — key/value memory store with FTS5 search; agents can save and recall facts
 - **Toast notifications** — visual feedback for wake, cross-post, and save actions
 - **Share** — generate CLI commands so other clients (agents or humans) can join any session
