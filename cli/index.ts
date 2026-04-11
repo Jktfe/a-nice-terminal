@@ -35,6 +35,8 @@ Commands:
   terminal watch <id>   Read-only live stream of a terminal
   terminal history <id> Read persisted terminal history from the DB
                         (--since 5m|1h  --grep "error"  --limit 100  --raw)
+  terminal events <id>  Read tmux control-mode structured events
+                        (--since 15m  --kind layout-change  --limit 50)
 
   chat <id>             Open chat session (interactive)
   chat send <id>        Send a message (--msg "hello")

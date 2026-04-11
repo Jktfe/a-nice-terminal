@@ -256,6 +256,15 @@ getPtyManager().then(async ptm => {
     }
   });
 
+  // Persist tmux control-mode structured events — the "what happened in this
+  // terminal" timeline that sits alongside the raw transcript. Cheap writes;
+  // only whitelisted kinds reach us thanks to pty-daemon's PERSIST_KINDS.
+  ptm.onEvent((event: { sessionId: string; ts: number; kind: string; data: Record<string, unknown> }) => {
+    try {
+      queries.appendTerminalEvent(event.sessionId, event.ts, event.kind, JSON.stringify(event.data ?? {}));
+    } catch {}
+  });
+
   // Forward terminal prompts to the session's linked chat.
   // Only fires when tmux detects 3s of silence AND the pane tail looks like a prompt.
   ptm.onSilence(async (sessionId: string, isPrompt: boolean, text: string) => {

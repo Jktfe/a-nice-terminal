@@ -213,6 +213,21 @@ function getDb(): any {
     DELETE FROM memories_fts WHERE rowid = old.rowid;
   END`);
 
+  // Structured tmux control mode events — persistent timeline of what
+  // happened inside a terminal session beyond the byte stream. Populated by
+  // pty-daemon parsing `%window-*`, `%session-*`, `%layout-change`, `%exit`
+  // and related control mode notifications. See docs/mempalace-schema.md
+  // for how agents use these (idle-tick read, librarian digest input).
+  _db.exec(`CREATE TABLE IF NOT EXISTS terminal_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    ts_ms INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    data TEXT DEFAULT '{}'
+  )`);
+  _db.exec(`CREATE INDEX IF NOT EXISTS idx_term_events_session_ts ON terminal_events(session_id, ts_ms)`);
+  _db.exec(`CREATE INDEX IF NOT EXISTS idx_term_events_kind ON terminal_events(kind)`);
+
   _db.exec(`CREATE TABLE IF NOT EXISTS command_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -499,6 +514,25 @@ export const queries = {
     ORDER BY rank
     LIMIT ?
   `).all(query, limit),
+
+  // Terminal events (tmux control mode structured events)
+  appendTerminalEvent: (sessionId: string, tsMs: number, kind: string, data: string) =>
+    prepare(`INSERT INTO terminal_events (session_id, ts_ms, kind, data) VALUES (?, ?, ?, ?)`).run(sessionId, tsMs, kind, data),
+
+  getTerminalEvents: (sessionId: string, sinceMs: number, kind: string | null, limit: number) => {
+    if (kind) {
+      return prepare(`
+        SELECT id, ts_ms, kind, data FROM terminal_events
+        WHERE session_id = ? AND ts_ms >= ? AND kind = ?
+        ORDER BY ts_ms DESC LIMIT ?
+      `).all(sessionId, sinceMs, kind, limit);
+    }
+    return prepare(`
+      SELECT id, ts_ms, kind, data FROM terminal_events
+      WHERE session_id = ? AND ts_ms >= ?
+      ORDER BY ts_ms DESC LIMIT ?
+    `).all(sessionId, sinceMs, limit);
+  },
 
   // Command events
   getCommands: (sessionId: string, limit: number) =>
