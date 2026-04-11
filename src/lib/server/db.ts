@@ -465,6 +465,30 @@ export const queries = {
   upsertMemory: (id: string, key: string, value: string, tags: string, sessionId: string | null, createdBy: string | null) =>
     prepare(`INSERT INTO memories (id, key, value, tags, session_id, created_by) VALUES (?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET key = excluded.key, value = excluded.value, tags = excluded.tags, updated_at = datetime('now')`).run(id, key, value, tags, sessionId, createdBy),
+
+  // Key-addressed memory access — the mempalace schema relies on stable keys
+  // so agents can read/write `tasks/t-42` deterministically. Identity is
+  // derived from the key itself (`mem:${key}`) so two writes to the same key
+  // upsert rather than duplicate.
+  getMemoryByKey: (key: string) =>
+    prepare(`SELECT * FROM memories WHERE key = ? ORDER BY updated_at DESC LIMIT 1`).get(key),
+
+  upsertMemoryByKey: (key: string, value: string, tags: string, sessionId: string | null, createdBy: string | null) => {
+    const id = 'mem:' + key;
+    return prepare(`INSERT INTO memories (id, key, value, tags, session_id, created_by) VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET key = excluded.key, value = excluded.value, tags = excluded.tags, session_id = excluded.session_id, created_by = excluded.created_by, updated_at = datetime('now')`).run(id, key, value, tags, sessionId, createdBy);
+  },
+
+  deleteMemoryByKey: (key: string) => prepare(`DELETE FROM memories WHERE key = ?`).run(key),
+
+  // Prefix scan — used for `tasks/`, `agents/`, `goals/` listings. Sorted by
+  // updated_at so the newest version of each key appears first.
+  listMemoriesByPrefix: (prefix: string, limit: number) => prepare(`
+    SELECT * FROM memories
+    WHERE key LIKE ? ESCAPE '\\'
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `).all(prefix.replace(/[%_\\]/g, c => '\\' + c) + '%', limit),
   deleteMemory: (id: string) => prepare(`DELETE FROM memories WHERE id = ?`).run(id),
   searchMemories: (query: string, limit: number) => prepare(`
     SELECT m.id, m.key, m.value, m.tags, m.session_id, m.created_by, m.created_at,

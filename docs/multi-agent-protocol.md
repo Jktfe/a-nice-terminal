@@ -1,0 +1,212 @@
+# Multi-agent protocol
+
+This is the canonical, committed version of the protocol every agent should
+read when they join an ANT session. It defines the small amount of
+convention that lets multiple agents collaborate over ANT's existing
+terminal + chat + memory substrate without a framework, without MCP tool
+tax, and without stepping on each other.
+
+**CLAUDE.md is intentionally gitignored in this repo** (host-specific).
+The recommended pattern is to put one line in your personal `CLAUDE.md`
+that imports this file so agents running under Claude Code read it on
+startup:
+
+```
+@docs/multi-agent-protocol.md
+```
+
+Or copy this file wholesale into `CLAUDE.md` if you want to customise it
+per-host.
+
+**Read this every session. On startup, run the six-command wake ritual.**
+
+---
+
+## The six-command wake ritual
+
+Paste these into your first turn when you join a session. Together they cost
+~1–2k tokens and give you everything you need to act sensibly.
+
+```bash
+cat docs/multi-agent-protocol.md                 # 1. this protocol
+cat docs/mempalace-schema.md                     # 2. key conventions
+ant memory get goals/current                     # 3. the north star
+ant memory list tasks/ --status doing,review,todo   # 4. active work
+ant memory list digest/ --limit 1                # 5. latest librarian digest
+ant agents list                                  # 6. who's around & what they do
+```
+
+Then decide what to work on based on what you read — don't just start typing.
+
+---
+
+## The tools you have — use them
+
+These are the only tools you need for multi-agent collaboration. Memorise
+the shape of each. If you find yourself wanting to do something one of these
+already does, stop and use the tool.
+
+| Command | What it does |
+|---|---|
+| `ant sessions` | List active terminal and chat sessions |
+| `ant terminal <id>` | Attach to a terminal session (interactive) |
+| `ant terminal send <id> --cmd "…"` | Fire one command into a terminal |
+| `ant terminal history <id> [--since 5m] [--grep …]` | Read past terminal output as a SQL-backed query — use this as **evidence** of work done |
+| `ant chat send <id> --msg "…"` | Post a message into a session's chat |
+| `ant chat read <id>` | Read chat history |
+| `ant memory get <key>` | Read one memory row by key |
+| `ant memory put <key> <value>` | Write/upsert one memory row by key |
+| `ant memory list <prefix>` | List all keys under a prefix (`agents/`, `tasks/`, etc.) |
+| `ant memory search "q"` | FTS5 full-text search across memory |
+| `ant agents list` | Pretty-printed registry of agents and their strengths |
+| `ant agents show <id>` | One agent's full row |
+| `ant task <session> list` | Per-session tasks (legacy; prefer `memory list tasks/` for cross-session) |
+
+**Output is JSON when `--json` is passed.** Prefer `--json` when piping.
+
+---
+
+## Delegation protocol — low value to the cheap model
+
+Your first question on any non-trivial task is *"is this mine to do?"*
+
+1. Read `agents/*` (via `ant agents list`) before starting anything.
+2. **If the task is low-value and mechanical** (edits, renames, greps,
+   lint, test runs, file restructuring, obvious bug fixes), **delegate to
+   the cheapest reliable agent**. You are expensive. They are not.
+3. If the task is architectural, novel, or ambiguous, do it yourself.
+4. If you're not sure which, write one-line rationale to
+   `memory put thinking/<your-id>/<ts> "…"` and default to delegating —
+   the verifier step below will catch it if the delegate fails.
+
+To delegate:
+
+```bash
+# 1. Create a task row
+ant memory put tasks/t-$(date +%s) '{
+  "title": "rename getCwd → getCurrentWorkingDirectory across src/",
+  "status": "todo",
+  "delegator": "<your-id>",
+  "assignee": "<cheap-agent-id>",
+  "verifier": "<your-id>",
+  "done_criteria": "all call sites updated, tests pass",
+  "created_at": "<iso>"
+}'
+
+# 2. Notify the assignee in their linked chat session
+ant chat send <assignee-chat-id> --msg "@<assignee-id> new task: tasks/t-<ts>"
+```
+
+---
+
+## Accepting a delegated task
+
+When you see a task addressed to you:
+
+1. Read your own row: `ant agents show <your-id>`. If the task falls under
+   your `avoid` list, **redirect, don't attempt**. Update the task row with
+   `status: blocked` and `block_reason: "outside capability"`.
+2. Post your plan in one line to the chat before starting:
+   `ant chat send <id> --msg "on tasks/t-42: plan is X, Y, Z"`
+3. Move the row to `status: doing`:
+   `ant memory put tasks/t-42 '{...status:"doing",...}'`
+4. **Do the work.**
+5. When done, write evidence. Evidence is command invocations and their
+   outputs, not prose. Minimum evidence:
+   - commit sha if code changed (from `git log -1 --format=%H`)
+   - `ant terminal history <sid> --since 10m` excerpt if terminal work
+   - test output if tests were run
+6. Move the row to `status: review` and wait. Do not self-approve.
+
+---
+
+## Verification — mandatory, separate agent
+
+Tasks in `status: review` are picked up by their `verifier`. The verifier:
+
+1. Reads **only** the evidence, not the delegate's chat explanation.
+2. Re-runs a minimal check (spot-check a renamed file, re-run one test).
+3. Decides:
+   - **Accept** → move row to `status: done`, archive under `done/<date>/<id>`,
+     increment the assignee's `reliability` in `agents/<assignee>`.
+   - **Reject** → move row to `status: todo` with `last_rejection` note,
+     decrement the assignee's `reliability`.
+
+Never mark a task `done` by yourself, even if you did the work. The
+verification step is what makes trust propagate through the registry.
+
+---
+
+## The loop guard — stop ping-pong
+
+If you've handed a task off and it comes back to you within the same chain
+(A → B → A), **pause**. Write `memory put tasks/t-42 '{...status:"blocked",
+block_reason:"loop detected", awaiting:"human"}'` and post to chat. Never
+auto-resume an agent-to-agent loop; that's how you burn tokens on nothing.
+
+---
+
+## Updating the registry — how trust propagates
+
+When the verifier accepts or rejects a task, they update `agents/<assignee>`:
+
+```json
+{
+  "id": "haiku-local",
+  "reliability": 0.91,   // was 0.90 before this accept
+  "completed": 47,       // incremented
+  "rejected": 5,         // unchanged on accept, +1 on reject
+  "last_updated": "<iso>"
+}
+```
+
+The idle-tick script also updates `agents/<id>.last_seen` whenever it
+observes that agent's terminal is alive. Old `last_seen` values (>24h)
+effectively deprioritise that agent for delegation.
+
+---
+
+## The mempalace — four axes at a glance
+
+Every question you might ask has one answer shaped as a memory key prefix.
+See `docs/mempalace-schema.md` for the full schema. One-liner:
+
+| Question | Key |
+|---|---|
+| What is the goal? | `goals/current` |
+| What's being done right now? | `tasks/*` where `status ∈ doing, review` |
+| What should be done next? | `tasks/*` where `status = todo` + `goals/*` |
+| What's already been done? | `done/<date>/*` and `tasks/*` where `status = done` |
+| Who's available? | `agents/*` |
+| What did the world look like recently? | `heartbeat/*` (script-populated) and `digest/*` (LLM-compiled) |
+
+---
+
+## What not to do
+
+- Don't invent your own key prefixes. Use the ones in
+  `docs/mempalace-schema.md` or add one there first with an explanation.
+- Don't skip the wake ritual. It's 1–2k tokens and saves 10× that in
+  redundant work and mistakes.
+- Don't self-verify. Even if you're the only agent around, write the task
+  row anyway and note `verifier: "self"` — it still gives you a checklist.
+- Don't leave tasks in `doing` across sessions. If you're stepping away,
+  move to `blocked` with `awaiting: "human"` or hand off.
+- Don't post prose evidence. Evidence is commands and outputs. If you can't
+  show it as a command output, it isn't evidence.
+
+---
+
+## A note on cost
+
+You're paying for every token you read and write. The protocol above is
+designed to be cheap:
+
+- The wake ritual is paid **once per session**, not per turn.
+- CLI discovery is free — you already know `ant --help`.
+- Memory reads are paid **on demand**, not in a system prompt.
+- Script-driven idle checks (see `scripts/idle-tick.sh`) do the 1-minute
+  polling work at **zero LLM cost**; you only wake for actual change.
+
+If you find yourself doing something that feels like it should be cheaper,
+it probably can be. Ask the human before adding framework complexity.

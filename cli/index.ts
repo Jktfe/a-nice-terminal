@@ -12,6 +12,8 @@ import { msg } from './commands/msg.js';
 import { task } from './commands/task.js';
 import { flag } from './commands/flag.js';
 import { hooks } from './commands/hooks.js';
+import { memory } from './commands/memory.js';
+import { agents } from './commands/agents.js';
 import { config } from './lib/config.js';
 
 const { command, args, flags } = parseArgs(process.argv.slice(2));
@@ -59,6 +61,16 @@ Commands:
 
   search <query>        Search across all sessions (FTS5)
 
+  memory get <key>            Read one mempalace row by key
+  memory put <key> <value>    Upsert one mempalace row (value = JSON or string)
+  memory list <prefix>        List all rows under a key prefix (tasks/, agents/…)
+  memory search <query>       FTS5 search across all memory
+  memory delete <key>         Delete one row by key
+                              (see docs/mempalace-schema.md for conventions)
+
+  agents list                 Pretty-print the agent registry (agents/*)
+  agents show <id>            Full row for one agent
+
   hooks install         Install ANT shell capture hooks into ~/.zshrc
 
   config                Show current config
@@ -92,6 +104,8 @@ async function main() {
       case 'task':     await task(args, flags, ctx); break;
       case 'flag':     await flag(args, flags, ctx); break;
       case 'search':   await search(args, flags, ctx); break;
+      case 'memory':   await memory(args, flags, ctx); break;
+      case 'agents':   await agents(args, flags, ctx); break;
       case 'hooks':    await hooks(args.slice(1), flags); break;
       case 'share':    await share(args, flags, ctx); break;
       case 'qr':       await qr(args, flags, ctx); break;
