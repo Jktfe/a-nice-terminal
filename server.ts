@@ -265,38 +265,117 @@ getPtyManager().then(async ptm => {
     } catch {}
   });
 
-  // Forward terminal prompts to the session's linked chat.
-  // Only fires when tmux detects 3s of silence AND the pane tail looks like a prompt.
-  ptm.onSilence(async (sessionId: string, isPrompt: boolean, text: string) => {
-    if (!isPrompt) return;
-    const session = queries.getSession(sessionId);
-    if (!session?.linked_chat_id) return;
-    const { broadcast } = await import('./src/lib/server/ws-broadcast.js');
+  // ─── Terminal-state → linked-chat bridge ──────────────────────────────────
+  //
+  // Two complementary signals feed linked chats, both tmux-native:
+  //
+  //   1. `terminal_silence` — fired when either the ctrl-mode %alert-silence
+  //      parser OR the belt-and-braces set-hook helper detects 3s of silence.
+  //      Covers the ~11 CLIs that don't emit OSC title updates (codex, aider,
+  //      llm, ollama, copilot, etc.) as well as plain shells. We drop the
+  //      old `isPrompt` regex filter entirely — trust tmux's signal.
+  //
+  //   2. pane_title polling (below, every 2s) — catches dynamic OSC 0/1/2
+  //      title updates from claude (⠂/✳ task summary) and gemini ("Action
+  //      Required…"). Faster than silence, and posts only on semantic change
+  //      (spinner-glyph-only churn is filtered out).
+  //
+  // Both paths share the same `postToLinkedChat` helper, and use distinct
+  // `msg_type` values (`prompt` / `title`) so the chat UI can style them
+  // differently and the fan-out handler in messages/+server.ts can skip them
+  // from terminal re-broadcast to avoid echo loops.
+
+  const { broadcast } = await import('./src/lib/server/ws-broadcast.js');
+
+  async function postToLinkedChat(
+    sessionId: string,
+    chatId: string,
+    content: string,
+    msgType: 'prompt' | 'title',
+  ) {
     const msgId = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
-    const tail = text.slice(-600).trim();
     try {
       queries.createMessage(
-        msgId, session.linked_chat_id,
-        'assistant', tail,
+        msgId, chatId,
+        'assistant', content,
         'text', 'complete',
-        sessionId, null, 'prompt', '{}'
+        sessionId, null, msgType, '{}'
       );
-      broadcast(session.linked_chat_id, {
+      broadcast(chatId, {
         type: 'message_created',
-        sessionId: session.linked_chat_id,
+        sessionId: chatId,
         id: msgId,
         role: 'assistant',
-        content: tail,
+        content,
         sender_id: sessionId,
-        msg_type: 'prompt',
+        msg_type: msgType,
         created_at: new Date().toISOString(),
       });
     } catch (e) {
-      console.error('[ws] Error forwarding terminal prompt to chat:', e);
+      console.error(`[linkedchat] forward ${msgType} failed:`, e);
     }
+  }
+
+  // Signal 1: silence → chat. No isPrompt filter — trust tmux.
+  // The `isPrompt` arg is still passed for schema compat but ignored here.
+  ptm.onSilence(async (sessionId: string, _isPrompt: boolean, text: string) => {
+    const session = queries.getSession(sessionId);
+    if (!session?.linked_chat_id) return;
+    const tail = text.slice(-600).trim();
+    if (!tail) return;
+    // Enrich with current pane_title if the CLI set one — gives the chat
+    // viewer both the semantic state ("Action Required") and the raw tail.
+    let title = '';
+    try { title = await ptm.title(sessionId); } catch {}
+    const content = title ? `[${title}]\n${tail}` : tail;
+    postToLinkedChat(sessionId, session.linked_chat_id, content, 'prompt');
   });
 
-  console.log('[server] connected to PTY daemon');
+  // Signal 2: pane_title polling → chat. 2s interval.
+  // Normalise by stripping leading spinner/status glyphs so Claude Code's
+  // braille-spinner animation frames (⠂⠃⠁⠉⠈⠐⠠⠄) don't each count as a new
+  // title. Also ignore empty titles and the default hostname-as-title set
+  // by tmux when no OSC sequence has ever been emitted.
+  const lastTitleBySession = new Map<string, string>();
+  function normalizeTitle(raw: string): string {
+    return raw
+      .replace(/^[\u2800-\u28FF✳◇◆▪✻●○]+\s*/u, '')
+      .trim();
+  }
+  const hostnameRaw = (process.env.HOSTNAME || '').trim();
+  function isDefaultTitle(t: string): boolean {
+    if (!t) return true;
+    if (t === hostnameRaw) return true;
+    if (hostnameRaw && (t === `${hostnameRaw}.local` || `${t}.local` === hostnameRaw)) return true;
+    // Default "user@host:cwd" shell title set by many .zshrc PROMPT configs.
+    if (/^\S+@\S+:/.test(t)) return true;
+    return false;
+  }
+
+  setInterval(async () => {
+    let rows: any[] = [];
+    try {
+      rows = queries.getLinkedTerminalSessions() as any[];
+    } catch { return; }
+    for (const row of rows) {
+      const sid: string = row.id;
+      const chatId: string | null = row.linked_chat_id;
+      if (!chatId) continue;
+      let title = '';
+      try { title = await ptm.title(sid); } catch { continue; }
+      if (!title) continue;
+      const prev = lastTitleBySession.get(sid) ?? '';
+      if (title === prev) continue;
+      const normNew = normalizeTitle(title);
+      const normPrev = normalizeTitle(prev);
+      lastTitleBySession.set(sid, title);
+      if (normNew === normPrev) continue;    // only the spinner frame changed
+      if (isDefaultTitle(normNew)) continue; // plain host/shell title, no semantic info
+      postToLinkedChat(sid, chatId, normNew, 'title');
+    }
+  }, 2000);
+
+  console.log('[server] connected to PTY daemon — silence hook + title poller active');
 });
 
 // Start capture pipeline
@@ -308,23 +387,43 @@ import('./src/lib/server/capture/capture-ingest.js')
   .then(mod => mod.startCaptureIngest?.())
   .catch(() => console.log('[capture] Capture ingest not available'));
 
-// Auto-install ANT shell hooks into ~/.zshrc on first server start
+// Refresh ANT hook-dir contents on every server start, and patch ~/.zshrc
+// on first install. Helper scripts (ant-capture, ant-silence-notify) are
+// always re-copied so they track the repo copy — they're referenced by
+// tmux hooks + the pty-daemon and must exist on disk regardless of whether
+// the one-time .zshrc patch has already been applied.
 (function autoInstallHooks() {
   const home = process.env.HOME || '/tmp';
-  const zshrc = join(home, '.zshrc');
-  if (existsSync(zshrc) && readFileSync(zshrc, 'utf8').includes('ant/hooks/ant.zsh')) return;
   const srcDir = join(process.cwd(), 'ant-capture');
   if (!existsSync(srcDir)) return;
+  const hookDir = join(home, '.ant', 'hooks');
+
   try {
-    const hookDir = join(home, '.ant', 'hooks');
     mkdirSync(hookDir, { recursive: true });
-    if (existsSync(join(srcDir, 'ant.zsh')))     copyFileSync(join(srcDir, 'ant.zsh'), join(hookDir, 'ant.zsh'));
-    if (existsSync(join(srcDir, 'ant.bash')))    copyFileSync(join(srcDir, 'ant.bash'), join(hookDir, 'ant.bash'));
-    if (existsSync(join(srcDir, 'ant-capture'))) { copyFileSync(join(srcDir, 'ant-capture'), join(hookDir, 'ant-capture')); chmodSync(join(hookDir, 'ant-capture'), 0o755); }
-    appendFileSync(zshrc, '\n# ANT shell capture hooks\n[ -f "$HOME/.ant/hooks/ant.zsh" ] && source "$HOME/.ant/hooks/ant.zsh"\n');
-    console.log('[hooks] Auto-installed ANT shell hooks into ~/.zshrc — restart your shell or run: source ~/.zshrc');
+    const helpers: Array<{ file: string; exec: boolean }> = [
+      { file: 'ant.zsh',            exec: false },
+      { file: 'ant.bash',           exec: false },
+      { file: 'ant-capture',        exec: true  },
+      { file: 'ant-silence-notify', exec: true  },  // called by tmux alert-silence hook
+    ];
+    for (const { file, exec } of helpers) {
+      const srcPath = join(srcDir, file);
+      if (!existsSync(srcPath)) continue;
+      copyFileSync(srcPath, join(hookDir, file));
+      if (exec) chmodSync(join(hookDir, file), 0o755);
+    }
   } catch (e) {
-    console.warn('[hooks] Could not auto-install hooks:', e);
+    console.warn('[hooks] Could not refresh hook dir:', e);
+    return;
+  }
+
+  const zshrc = join(home, '.zshrc');
+  try {
+    if (!existsSync(zshrc) || readFileSync(zshrc, 'utf8').includes('ant/hooks/ant.zsh')) return;
+    appendFileSync(zshrc, '\n# ANT shell capture hooks\n[ -f "$HOME/.ant/hooks/ant.zsh" ] && source "$HOME/.ant/hooks/ant.zsh"\n');
+    console.log('[hooks] Patched ~/.zshrc to source ANT capture hooks — run: source ~/.zshrc');
+  } catch (e) {
+    console.warn('[hooks] Could not patch ~/.zshrc:', e);
   }
 })();
 

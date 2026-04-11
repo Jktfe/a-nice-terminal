@@ -258,6 +258,11 @@ function getDb(): any {
   if (!cols.includes('kill_timer'))     _db.exec(`ALTER TABLE sessions ADD COLUMN kill_timer TEXT`);
   if (!cols.includes('is_aon'))         _db.exec(`ALTER TABLE sessions ADD COLUMN is_aon INTEGER DEFAULT 0`);
   if (!cols.includes('linked_chat_id')) _db.exec(`ALTER TABLE sessions ADD COLUMN linked_chat_id TEXT`);
+  // If on, user-role messages posted to a chat are written to each linked
+  // terminal's PTY as raw keystrokes (so you can answer (y)/n prompts from
+  // the chat input). If off, they arrive as the existing notification block.
+  // Default on. Flip off per-session for multi-agent broadcast rooms.
+  if (!cols.includes('auto_forward_chat')) _db.exec(`ALTER TABLE sessions ADD COLUMN auto_forward_chat INTEGER NOT NULL DEFAULT 1`);
 
   // Record startup
   _db.prepare(`INSERT OR REPLACE INTO server_state (key, value) VALUES (?, ?)`).run('last_heartbeat', new Date().toISOString());
@@ -321,6 +326,11 @@ export const queries = {
   getSessionByHandle: (handle: string) => prepare(`SELECT * FROM sessions WHERE handle = ? AND archived = 0 AND deleted_at IS NULL`).get(handle),
   getTerminalsByLinkedChat: (chatId: string) =>
     prepare(`SELECT * FROM sessions WHERE linked_chat_id = ? AND type = 'terminal' AND archived = 0 AND deleted_at IS NULL`).all(chatId),
+  // All live terminal sessions that have a linked chat — used by the
+  // server-side pane_title polling loop (2s interval) to detect OSC title
+  // updates from claude/gemini and forward them to the paired chat.
+  getLinkedTerminalSessions: () =>
+    prepare(`SELECT id, linked_chat_id FROM sessions WHERE type = 'terminal' AND archived = 0 AND deleted_at IS NULL AND linked_chat_id IS NOT NULL`).all(),
 
   // Messages
   listMessages: (sessionId: string) => prepare(`SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC`).all(sessionId),

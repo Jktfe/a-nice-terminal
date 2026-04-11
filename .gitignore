@@ -17,3 +17,4 @@ CLAUDE.md
 # Logs
 *.log
 logs/
+.aider*

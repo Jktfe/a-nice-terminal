@@ -43,6 +43,15 @@ export async function PATCH({ params, request }: RequestEvent<{ id: string }>) {
         maybeWriteSessionSummary(t.id);
       }
     }
+
+    // Tear down the live PTY + tmux session now that the summary is captured.
+    // Without this, archive leaves the tmux session + its zsh/claude child
+    // running forever — the daemon doesn't prune on archive. Must run *after*
+    // maybeWriteSessionSummary above, which reads from the live tmux pane.
+    if ((session as any).type === 'terminal') {
+      const { ptyClient } = await import('$lib/server/pty-client.js');
+      ptyClient.kill(params.id);
+    }
   }
 
   return json(session);

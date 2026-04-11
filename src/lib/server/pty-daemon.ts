@@ -21,10 +21,17 @@ const SOCK_PATH = join(ANT_DIR, 'pty.sock');
 const LOG = (...a: any[]) => console.log('[pty-daemon]', ...a);
 const HOME = process.env.HOME || '/tmp';
 const TMUX = '/opt/homebrew/bin/tmux';
+const SILENCE_HOOK_SCRIPT = join(HOME, '.ant', 'hooks', 'ant-silence-notify');
 
 // After this many ms of silence, fire a prompt-detection check.
 // Must match the monitor-silence value set on each window (3s).
 const SILENCE_DEDUP_MS = 15_000; // don't re-alert within this window
+
+// Module-level broadcast dedup for silence events. Both paths that produce a
+// `terminal_silence` broadcast (control-mode's %alert-silence parser AND the
+// new `silence` IPC called by the tmux set-hook helper) consult this map so
+// only one broadcast fires per session per SILENCE_DEDUP_MS window.
+const lastSilenceBroadcast = new Map<string, number>();
 
 // ─── tmux helpers ────────────────────────────────────────────────────────────
 
@@ -191,7 +198,9 @@ function handleControlLine(line: string, sessionId: string, session: PTYSession)
   // Special case: silence alert still drives prompt detection and broadcasts
   // its own `terminal_silence` message for backwards compat. Also persisted
   // as a terminal_event so idle-tick can see it without subscribing to two
-  // channels.
+  // channels. The broadcast itself is debounced via the shared
+  // `lastSilenceBroadcast` map so the parallel set-hook path (see the
+  // `silence` IPC case below) and this control-mode path don't double-post.
   if (kind === 'alert-silence') {
     const now = Date.now();
     broadcast({
@@ -201,8 +210,9 @@ function handleControlLine(line: string, sessionId: string, session: PTYSession)
       kind: 'alert-silence',
       data: {},
     });
-    if (now - session.lastSilenceAlert < SILENCE_DEDUP_MS) return;
     session.lastSilenceAlert = now;
+    if (now - (lastSilenceBroadcast.get(sessionId) ?? 0) < SILENCE_DEDUP_MS) return;
+    lastSilenceBroadcast.set(sessionId, now);
     const text = captureClean(sessionId, 30);
     if (!text) return;
     broadcast({
@@ -297,6 +307,47 @@ function parseEventData(kind: string, rest: string): Record<string, unknown> {
   return out;
 }
 
+// ─── Belt-and-braces silence hook ─────────────────────────────────────────────
+//
+// tmux's `-C attach-session` subprocess is fragile — it can die on some tmux
+// versions / load conditions, which kills the control-mode silence path above.
+// As a redundant channel we also install a native tmux `set-hook alert-silence`
+// pointing at a small shell helper that pokes the daemon's Unix socket with a
+// `silence` IPC message. The daemon then broadcasts `terminal_silence` through
+// the same path — dedup'd via `lastSilenceBroadcast` so ctrl-mode + hook never
+// double-fire.
+//
+// This is called on every spawn AND every reconnect — idempotent (tmux just
+// re-sets the same option + hook).
+function installSilenceHook(sessionId: string) {
+  if (!existsSync(SILENCE_HOOK_SCRIPT)) return; // helper not deployed — skip quietly
+  try {
+    execFileSync(TMUX, [
+      'set-window-option', '-t', sessionId, 'monitor-silence', '3',
+    ], { stdio: 'pipe' });
+    // Shell-quote the session ID defensively. tmux session IDs are
+    // alphanumeric + `-` in practice, but a stray `'` would break run-shell.
+    const safeSid = sessionId.replace(/'/g, `'\\''`);
+    execFileSync(TMUX, [
+      'set-hook', '-t', sessionId, 'alert-silence',
+      `run-shell '${SILENCE_HOOK_SCRIPT} ${safeSid}'`,
+    ], { stdio: 'pipe' });
+  } catch (e) {
+    LOG(`installSilenceHook failed for ${sessionId}:`, (e as Error).message);
+  }
+}
+
+// Read the current pane_title for a session via a one-shot tmux display call.
+// Sub-millisecond; used by the server-side 2s polling loop to catch OSC title
+// updates from claude (⠂/✳ task summary) and gemini ("Action Required…").
+function readPaneTitle(sessionId: string): string {
+  try {
+    return execFileSync(TMUX, [
+      'display-message', '-p', '-t', sessionId, '#{pane_title}',
+    ], { stdio: 'pipe' }).toString().replace(/\n$/, '');
+  } catch { return ''; }
+}
+
 // ─── Unix socket server ───────────────────────────────────────────────────────
 
 mkdirSync(ANT_DIR, { recursive: true });
@@ -342,6 +393,8 @@ function handle(msg: any, socket: net.Socket) {
       if (existing?.alive) {
         // Reconnect path: serve scrollback from tmux's own buffer.
         // capture-pane handles alt-screen automatically — no prefix injection needed.
+        // Re-apply the silence hook — idempotent and survives daemon restarts.
+        installSilenceHook(msg.sessionId);
         const scrollback = captureScrollback(msg.sessionId);
         send(socket, { type: 'spawned', sessionId: msg.sessionId, callId: msg.callId, alive: true, scrollback });
         return;
@@ -385,6 +438,12 @@ function handle(msg: any, socket: net.Socket) {
         if (session.alive) session.ctrl = spawnControlMode(msg.sessionId, session);
       }, 1200);
 
+      // Install the belt-and-braces native tmux set-hook in parallel with
+      // control mode. If ctrl mode flakes, this still delivers silence.
+      setTimeout(() => {
+        if (session.alive) installSilenceHook(msg.sessionId);
+      }, 600);
+
       LOG(`spawned session: ${msg.sessionId}`);
       // New session — no scrollback yet
       send(socket, { type: 'spawned', sessionId: msg.sessionId, callId: msg.callId, alive: true, scrollback: '' });
@@ -419,6 +478,7 @@ function handle(msg: any, socket: net.Socket) {
         s.alive = false;
         sessions.delete(msg.sessionId);
       }
+      lastSilenceBroadcast.delete(msg.sessionId);
       try { execFileSync(TMUX, ['kill-session', '-t', msg.sessionId], { stdio: 'pipe' }); } catch {}
       LOG(`killed session: ${msg.sessionId}`);
       break;
@@ -429,6 +489,33 @@ function handle(msg: any, socket: net.Socket) {
         .filter(([id, s]) => s.alive || tmuxSessionExists(id))
         .map(([id]) => id);
       send(socket, { type: 'list', sessions: alive });
+      break;
+    }
+
+    // Silence notification from tmux's native alert-silence hook (via the
+    // ant-silence-notify helper). This is the belt-and-braces path that works
+    // even when ctrl-mode's %alert-silence parser is down. Shares dedup state
+    // with the ctrl-mode path so we never double-post.
+    case 'silence': {
+      const now = Date.now();
+      if (now - (lastSilenceBroadcast.get(msg.sessionId) ?? 0) < SILENCE_DEDUP_MS) break;
+      lastSilenceBroadcast.set(msg.sessionId, now);
+      const text = captureClean(msg.sessionId, 30);
+      if (!text) break;
+      broadcast({
+        type: 'terminal_silence',
+        sessionId: msg.sessionId,
+        isPrompt: isWaitingForInput(text),  // kept for schema compat; server ignores
+        text,
+      });
+      break;
+    }
+
+    // Current pane_title for a session. Used by the server's polling loop
+    // to detect OSC title changes from CLIs that emit OSC 0/1/2 (claude, gemini).
+    case 'title': {
+      const title = readPaneTitle(msg.sessionId);
+      send(socket, { type: 'title', sessionId: msg.sessionId, callId: msg.callId, title });
       break;
     }
 

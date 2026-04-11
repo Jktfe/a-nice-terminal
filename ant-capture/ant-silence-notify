@@ -1,0 +1,22 @@
+#!/bin/bash
+# ant-silence-notify — called by tmux's alert-silence hook.
+#
+# Usage: ant-silence-notify <session-id>
+#
+# Writes a single newline-delimited JSON message to the ANT pty-daemon's
+# Unix socket. The daemon receives it, captures the pane tail, and broadcasts
+# a `terminal_silence` event to all connected clients (the ANT server).
+#
+# Runs entirely out-of-process from the daemon: no long-lived subprocess,
+# no TLS, no control-mode parsing. tmux's own alert-silence fires this.
+
+sid="$1"
+[ -z "$sid" ] && exit 0
+
+sock="${HOME}/.ant/pty.sock"
+[ -S "$sock" ] || exit 0
+
+# -w 1: 1-second timeout — we don't care about the response, just delivery
+printf '{"type":"silence","sessionId":"%s"}\n' "$sid" \
+  | /usr/bin/nc -U "$sock" -w 1 >/dev/null 2>&1 &
+exit 0
