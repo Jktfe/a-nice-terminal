@@ -12,6 +12,8 @@ import { msg } from './commands/msg.js';
 import { task } from './commands/task.js';
 import { flag } from './commands/flag.js';
 import { hooks } from './commands/hooks.js';
+import { memory } from './commands/memory.js';
+import { agents } from './commands/agents.js';
 import { config } from './lib/config.js';
 
 const { command, args, flags } = parseArgs(process.argv.slice(2));
@@ -30,6 +32,11 @@ Commands:
 
   terminal <id>         Connect to a terminal session (interactive PTY)
   terminal send <id>    Send a command to a terminal (--cmd "ls -la")
+  terminal watch <id>   Read-only live stream of a terminal
+  terminal history <id> Read persisted terminal history from the DB
+                        (--since 5m|1h  --grep "error"  --limit 100  --raw)
+  terminal events <id>  Read tmux control-mode structured events
+                        (--since 15m  --kind layout-change  --limit 50)
 
   chat <id>             Open chat session (interactive)
   chat send <id>        Send a message (--msg "hello")
@@ -55,6 +62,16 @@ Commands:
   qr                    Show QR code to connect ANTios to this server
 
   search <query>        Search across all sessions (FTS5)
+
+  memory get <key>            Read one mempalace row by key
+  memory put <key> <value>    Upsert one mempalace row (value = JSON or string)
+  memory list <prefix>        List all rows under a key prefix (tasks/, agents/…)
+  memory search <query>       FTS5 search across all memory
+  memory delete <key>         Delete one row by key
+                              (see docs/mempalace-schema.md for conventions)
+
+  agents list                 Pretty-print the agent registry (agents/*)
+  agents show <id>            Full row for one agent
 
   hooks install         Install ANT shell capture hooks into ~/.zshrc
 
@@ -89,6 +106,8 @@ async function main() {
       case 'task':     await task(args, flags, ctx); break;
       case 'flag':     await flag(args, flags, ctx); break;
       case 'search':   await search(args, flags, ctx); break;
+      case 'memory':   await memory(args, flags, ctx); break;
+      case 'agents':   await agents(args, flags, ctx); break;
       case 'hooks':    await hooks(args.slice(1), flags); break;
       case 'share':    await share(args, flags, ctx); break;
       case 'qr':       await qr(args, flags, ctx); break;

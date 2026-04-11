@@ -113,6 +113,56 @@ function scanAndIngest(): void {
   } catch {
     // Non-fatal
   }
+  // Opportunistic: fill output_snippet on any command_events row whose time
+  // window has closed past the transcript flush horizon. Cheap because it
+  // runs at most once per POLL_INTERVAL_MS (500 ms) and only touches rows
+  // with null snippets.
+  backfillCommandSnippets();
+}
+
+// Flush horizon — commands that ended within the last TRANSCRIPT_FLUSH_HORIZON_MS
+// may still have in-memory output that hasn't been written to terminal_transcripts.
+// We only backfill rows older than this to avoid populating incomplete snippets.
+// Value: 30s buffer flush timer + 5s safety margin.
+const TRANSCRIPT_FLUSH_HORIZON_MS = 35_000;
+const BACKFILL_BATCH_SIZE = 25;
+const SNIPPET_MAX_LEN = 500;
+
+function backfillCommandSnippets(): void {
+  try {
+    const cutoffIso = new Date(Date.now() - TRANSCRIPT_FLUSH_HORIZON_MS).toISOString();
+    const pending = queries.listCommandsNeedingSnippet(cutoffIso, BACKFILL_BATCH_SIZE) as any[];
+    if (!pending.length) return;
+
+    for (const row of pending) {
+      const startMs = row.started_at ? Date.parse(row.started_at) : null;
+      const endMs = row.ended_at ? Date.parse(row.ended_at) : null;
+      if (!startMs || !endMs || !row.session_id) {
+        // Mark with empty string so we don't keep re-querying this row — still
+        // distinguishable from the "not yet processed" null state if we ever
+        // care to re-scan.
+        queries.setCommandSnippet(row.id, '');
+        continue;
+      }
+
+      const chunks = queries.getTranscriptRangeStripped(row.session_id, startMs, endMs) as any[];
+      if (!chunks.length) {
+        queries.setCommandSnippet(row.id, '');
+        continue;
+      }
+
+      // Concat stripped text from the overlapping window, trim, truncate.
+      // Tail of the window is most informative (last N chars of output), so
+      // we prefer the trailing slice when truncating.
+      const joined = chunks.map(c => c.text ?? '').join('').trim();
+      const snippet = joined.length > SNIPPET_MAX_LEN
+        ? '…' + joined.slice(-(SNIPPET_MAX_LEN - 1))
+        : joined;
+      queries.setCommandSnippet(row.id, snippet);
+    }
+  } catch {
+    // Non-fatal — the next poll will try again.
+  }
 }
 
 function ingestEventsFile(filename: string): void {

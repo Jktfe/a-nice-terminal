@@ -91,6 +91,50 @@ const sessions = new Map<string, PTYSession>();
 const clients  = new Set<net.Socket>();
 
 // ─── Control mode ─────────────────────────────────────────────────────────────
+//
+// tmux -C emits notifications as lines starting with `%`. We listen for:
+//
+//   %alert-silence                           — already used for prompt detection
+//   %window-add @<id>                        — new window in our session
+//   %window-close @<id>
+//   %window-renamed @<id> <name>
+//   %session-changed $<id> <name>            — tmux switched our active session
+//   %session-renamed <name>
+//   %sessions-changed
+//   %layout-change @<id> <layout-string>     — split/resize/close pane
+//   %pane-mode-changed %<id>                 — entered/left copy mode etc.
+//   %continue %<id>                          — pane unpaused (mapped to activity)
+//   %pause %<id>                             — pane paused
+//   %exit [reason]                           — tmux session exited
+//
+// Everything else is dropped for now. When a message we care about arrives, we
+// broadcast a `terminal_event` line on the unix socket; the server writes it
+// to the `terminal_events` table, giving agents + the librarian a structured
+// timeline to read alongside the raw transcript.
+
+// Match one `%word` notification prefix, capture the kind and the rest.
+const NOTIFY_RE = /^%(\S+)(?:\s+(.*))?$/;
+
+// Whitelist of notification kinds we persist. Anything outside this set is
+// ignored so we don't flood the DB with %begin/%end/%output chatter.
+const PERSIST_KINDS = new Set<string>([
+  'window-add',
+  'window-close',
+  'window-renamed',
+  'session-changed',
+  'session-renamed',
+  'sessions-changed',
+  'layout-change',
+  'pane-mode-changed',
+  'continue',
+  'pause',
+  'exit',
+  'unlinked-window-add',
+  'unlinked-window-close',
+  'unlinked-window-renamed',
+  'client-session-changed',
+  'client-detached',
+]);
 
 function spawnControlMode(sessionId: string, session: PTYSession): pty.IPty | null {
   try {
@@ -113,32 +157,144 @@ function spawnControlMode(sessionId: string, session: PTYSession): pty.IPty | nu
       const lines = buf.split('\n');
       buf = lines.pop()!;
       for (const line of lines) {
-        if (!line.startsWith('%alert-silence')) continue;
-
-        const now = Date.now();
-        if (now - session.lastSilenceAlert < SILENCE_DEDUP_MS) continue;
-        session.lastSilenceAlert = now;
-
-        const text = captureClean(sessionId, 30);
-        if (!text) continue;
-
-        // Always broadcast the silence event — server decides what to do with it.
-        // Include isPrompt flag so server can filter intelligently.
-        broadcast({
-          type: 'terminal_silence',
-          sessionId,
-          isPrompt: isWaitingForInput(text),
-          text,
-        });
+        handleControlLine(line, sessionId, session);
       }
     });
 
-    ctrl.onExit(() => LOG(`ctrl mode exited: ${sessionId}`));
+    ctrl.onExit(() => {
+      LOG(`ctrl mode exited: ${sessionId}`);
+      // Record the ctrl-mode exit as a session event so downstream readers
+      // know the structured timeline stopped here.
+      broadcast({
+        type: 'terminal_event',
+        sessionId,
+        ts: Date.now(),
+        kind: 'ctrl-exit',
+        data: {},
+      });
+    });
     return ctrl;
   } catch (e) {
     LOG(`ctrl mode failed for ${sessionId}:`, e);
     return null;
   }
+}
+
+function handleControlLine(line: string, sessionId: string, session: PTYSession): void {
+  if (!line || line[0] !== '%') return;
+
+  const match = line.match(NOTIFY_RE);
+  if (!match) return;
+  const kind = match[1];
+  const rest = match[2] ?? '';
+
+  // Special case: silence alert still drives prompt detection and broadcasts
+  // its own `terminal_silence` message for backwards compat. Also persisted
+  // as a terminal_event so idle-tick can see it without subscribing to two
+  // channels.
+  if (kind === 'alert-silence') {
+    const now = Date.now();
+    broadcast({
+      type: 'terminal_event',
+      sessionId,
+      ts: now,
+      kind: 'alert-silence',
+      data: {},
+    });
+    if (now - session.lastSilenceAlert < SILENCE_DEDUP_MS) return;
+    session.lastSilenceAlert = now;
+    const text = captureClean(sessionId, 30);
+    if (!text) return;
+    broadcast({
+      type: 'terminal_silence',
+      sessionId,
+      isPrompt: isWaitingForInput(text),
+      text,
+    });
+    return;
+  }
+
+  // Everything else: persist only the whitelisted structured events. Keep
+  // the raw tail in `data.raw` for forensics, plus a light-touch structured
+  // parse for the common shapes.
+  if (!PERSIST_KINDS.has(kind)) return;
+
+  broadcast({
+    type: 'terminal_event',
+    sessionId,
+    ts: Date.now(),
+    kind,
+    data: parseEventData(kind, rest),
+  });
+}
+
+// Best-effort structured parsing of the argument string. Falls back to
+// `{raw: rest}` for anything we don't recognise. The goal is to make common
+// queries cheap (e.g. "list all window-renamed events") without pretending to
+// be a full tmux protocol parser.
+function parseEventData(kind: string, rest: string): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (!rest) return out;
+  out.raw = rest;
+
+  switch (kind) {
+    case 'window-add':
+    case 'window-close':
+    case 'unlinked-window-add':
+    case 'unlinked-window-close': {
+      // `@<window-id>`
+      const m = rest.match(/^@(\d+)/);
+      if (m) out.window_id = parseInt(m[1], 10);
+      break;
+    }
+    case 'window-renamed':
+    case 'unlinked-window-renamed': {
+      // `@<window-id> <name>`
+      const m = rest.match(/^@(\d+)\s+(.*)$/);
+      if (m) {
+        out.window_id = parseInt(m[1], 10);
+        out.name = m[2];
+      }
+      break;
+    }
+    case 'session-changed':
+    case 'client-session-changed': {
+      // `$<session-id> <name>` or `<client> $<session-id> <name>`
+      const m = rest.match(/\$(\d+)\s+(.*)$/);
+      if (m) {
+        out.session_tmux_id = parseInt(m[1], 10);
+        out.name = m[2];
+      }
+      break;
+    }
+    case 'session-renamed': {
+      out.name = rest;
+      break;
+    }
+    case 'layout-change': {
+      // `@<window-id> <layout> [visible-layout] [flags]`
+      const m = rest.match(/^@(\d+)\s+(\S+)/);
+      if (m) {
+        out.window_id = parseInt(m[1], 10);
+        out.layout = m[2];
+      }
+      break;
+    }
+    case 'pane-mode-changed':
+    case 'continue':
+    case 'pause': {
+      // `%<pane-id>`
+      const m = rest.match(/^%(\d+)/);
+      if (m) out.pane_id = parseInt(m[1], 10);
+      break;
+    }
+    case 'exit':
+    case 'client-detached': {
+      out.reason = rest || null;
+      break;
+    }
+  }
+  return out;
 }
 
 // ─── Unix socket server ───────────────────────────────────────────────────────

@@ -12,6 +12,13 @@ const DAEMON_BIN = join(process.cwd(), 'src/lib/server/pty-daemon.ts');
 
 type DataCallback    = (sessionId: string, data: string) => void;
 type SilenceCallback = (sessionId: string, isPrompt: boolean, text: string) => void;
+export type TerminalEvent = {
+  sessionId: string;
+  ts: number;
+  kind: string;
+  data: Record<string, unknown>;
+};
+type EventCallback = (event: TerminalEvent) => void;
 
 class PTYClient {
   private socket: net.Socket | null = null;
@@ -20,6 +27,7 @@ class PTYClient {
   private buf = '';
   private dataListeners: DataCallback[] = [];
   private silenceListeners: SilenceCallback[] = [];
+  private eventListeners: EventCallback[] = [];
   // Keyed by "sessionId:callId" to prevent concurrent callers clobbering each other
   private pendingSpawns   = new Map<string, (result: any) => void>();
   private pendingCaptures = new Map<string, (result: any) => void>();
@@ -93,6 +101,16 @@ class PTYClient {
             for (const cb of this.silenceListeners) {
               try { cb(msg.sessionId, msg.isPrompt, msg.text); } catch {}
             }
+          } else if (msg.type === 'terminal_event') {
+            const event: TerminalEvent = {
+              sessionId: msg.sessionId,
+              ts: msg.ts ?? Date.now(),
+              kind: msg.kind ?? 'unknown',
+              data: msg.data ?? {},
+            };
+            for (const cb of this.eventListeners) {
+              try { cb(event); } catch {}
+            }
           } else if (msg.type === 'spawned') {
             // callId is echoed back so we resolve exactly the right pending spawn
             const key = `${msg.sessionId}:${msg.callId}`;
@@ -138,6 +156,11 @@ class PTYClient {
   onSilence(callback: SilenceCallback): () => void {
     this.silenceListeners.push(callback);
     return () => { this.silenceListeners = this.silenceListeners.filter(cb => cb !== callback); };
+  }
+
+  onEvent(callback: EventCallback): () => void {
+    this.eventListeners.push(callback);
+    return () => { this.eventListeners = this.eventListeners.filter(cb => cb !== callback); };
   }
 
   capture(sessionId: string, lines = 50): Promise<string> {
