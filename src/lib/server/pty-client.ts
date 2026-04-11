@@ -31,8 +31,10 @@ class PTYClient {
   // Keyed by "sessionId:callId" to prevent concurrent callers clobbering each other
   private pendingSpawns   = new Map<string, (result: any) => void>();
   private pendingCaptures = new Map<string, (result: any) => void>();
+  private pendingTitles   = new Map<string, (result: any) => void>();
   private spawnCallCounter   = 0;
   private captureCallCounter = 0;
+  private titleCallCounter   = 0;
 
   async ensureDaemon(): Promise<void> {
     // Quick ping to see if daemon is up
@@ -120,6 +122,10 @@ class PTYClient {
             const key = `${msg.sessionId}:${msg.callId}`;
             this.pendingCaptures.get(key)?.(msg);
             this.pendingCaptures.delete(key);
+          } else if (msg.type === 'title') {
+            const key = `${msg.sessionId}:${msg.callId}`;
+            this.pendingTitles.get(key)?.(msg);
+            this.pendingTitles.delete(key);
           }
         } catch {}
       }
@@ -175,6 +181,25 @@ class PTYClient {
           resolve('');
         }
       }, 5000);
+    });
+  }
+
+  // Read the current pane_title for a session. Returns '' on timeout/no-title.
+  // Used by the server's polling loop (2s) to detect OSC title updates from
+  // CLIs that emit OSC 0/1/2 (claude, gemini). For CLIs that don't, we fall
+  // back to the silence-hook path — this just catches the fast lane.
+  title(sessionId: string): Promise<string> {
+    const callId = ++this.titleCallCounter;
+    const key = `${sessionId}:${callId}`;
+    return new Promise((resolve) => {
+      this.pendingTitles.set(key, (result) => resolve(result.title ?? ''));
+      this.send({ type: 'title', sessionId, callId });
+      setTimeout(() => {
+        if (this.pendingTitles.has(key)) {
+          this.pendingTitles.delete(key);
+          resolve('');
+        }
+      }, 2000);
     });
   }
 
