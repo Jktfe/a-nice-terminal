@@ -30,6 +30,9 @@ Commands:
 
   terminal <id>         Connect to a terminal session (interactive PTY)
   terminal send <id>    Send a command to a terminal (--cmd "ls -la")
+  terminal watch <id>   Read-only live stream of a terminal
+  terminal history <id> Read persisted terminal history from the DB
+                        (--since 5m|1h  --grep "error"  --limit 100  --raw)
 
   chat <id>             Open chat session (interactive)
   chat send <id>        Send a message (--msg "hello")

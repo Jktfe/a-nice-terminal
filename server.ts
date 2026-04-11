@@ -184,23 +184,46 @@ getPtyManager().then(async ptm => {
   startTtlSweep(ptm);
 
   const { queries } = await import('./src/lib/server/db.js');
+  const { default: stripAnsi } = await import('strip-ansi');
 
   // Throttle last_activity updates (1 write per session per 10s max)
   const activityThrottle = new Map<string, number>();
 
-  // Buffer terminal output per session — flush to terminal_transcripts every ~10KB or 30s
+  // Buffer terminal output per session — flush to terminal_transcripts every ~10KB or 30s.
+  // chunkCounters and byteOffsets are seeded from the DB on first flush per session per
+  // process (see seedCountersIfNeeded) so a server restart can't reset chunk_index to 0
+  // and collide with existing rows.
   const transcriptBufs  = new Map<string, string>();
   const transcriptFlush = new Map<string, ReturnType<typeof setTimeout>>();
   const chunkCounters   = new Map<string, number>();
+  const byteOffsets     = new Map<string, number>();
+  const seeded          = new Set<string>();
+
+  function seedCountersIfNeeded(sessionId: string) {
+    if (seeded.has(sessionId)) return;
+    seeded.add(sessionId);
+    try {
+      const stats = queries.getTranscriptStats(sessionId);
+      chunkCounters.set(sessionId, stats?.max_chunk ?? 0);
+      byteOffsets.set(sessionId, stats?.total_bytes ?? 0);
+    } catch {
+      chunkCounters.set(sessionId, 0);
+      byteOffsets.set(sessionId, 0);
+    }
+  }
 
   function flushTranscript(sessionId: string) {
     const buf = transcriptBufs.get(sessionId);
     if (!buf) return;
     transcriptBufs.delete(sessionId);
+    seedCountersIfNeeded(sessionId);
     const idx = (chunkCounters.get(sessionId) ?? 0) + 1;
+    const offset = byteOffsets.get(sessionId) ?? 0;
     chunkCounters.set(sessionId, idx);
+    byteOffsets.set(sessionId, offset + buf.length);
     try {
-      queries.appendTranscript(sessionId, idx, buf);
+      const stripped = stripAnsi(buf);
+      queries.appendTranscriptWithText(sessionId, idx, buf, stripped, Date.now(), offset);
     } catch {}
   }
 

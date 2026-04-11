@@ -114,6 +114,37 @@ function getDb(): any {
 
   _db.exec(`CREATE INDEX IF NOT EXISTS idx_transcripts_session ON terminal_transcripts(session_id)`);
 
+  // Migrations for terminal_transcripts — per-row millisecond precision + cumulative
+  // byte offset per session, both needed by the history read paths and the idle-tick
+  // script. Added in the same commit that introduces the history API.
+  const trCols = _db.prepare(`PRAGMA table_info(terminal_transcripts)`).all().map((c: any) => c.name);
+  if (!trCols.includes('ts_ms'))       _db.exec(`ALTER TABLE terminal_transcripts ADD COLUMN ts_ms INTEGER`);
+  if (!trCols.includes('byte_offset')) _db.exec(`ALTER TABLE terminal_transcripts ADD COLUMN byte_offset INTEGER`);
+
+  // Dedupe any (session_id, chunk_index) collisions that accumulated before the
+  // restart bug was fixed — keep the row with the highest id for each pair, then
+  // add a UNIQUE index so we can never collide again.
+  try {
+    _db.exec(`
+      DELETE FROM terminal_transcripts
+      WHERE id NOT IN (
+        SELECT MAX(id) FROM terminal_transcripts GROUP BY session_id, chunk_index
+      )
+    `);
+  } catch { /* non-fatal */ }
+  _db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_transcripts_session_chunk
+            ON terminal_transcripts(session_id, chunk_index)`);
+  _db.exec(`CREATE INDEX IF NOT EXISTS idx_transcripts_session_ts
+            ON terminal_transcripts(session_id, ts_ms)`);
+
+  // FTS5 mirror of transcript text with ANSI stripped. rowid matches
+  // terminal_transcripts.id so joins are cheap. Populated from TS (see
+  // appendTranscriptWithText below) rather than a SQL trigger, because SQLite
+  // can't strip ANSI without a user-defined function.
+  _db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS terminal_text_fts USING fts5(
+    text, tokenize='trigram'
+  )`);
+
   _db.exec(`CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -331,13 +362,91 @@ export const queries = {
     LIMIT ?
   `).all(query, limit),
 
-  // Terminal transcripts
+  // Terminal transcripts — legacy writer kept for callers that don't yet supply
+  // stripped text or ts_ms. New code should use appendTranscriptWithText.
   appendTranscript: (sessionId: string, chunkIndex: number, rawData: string) =>
-    prepare(`INSERT INTO terminal_transcripts (session_id, chunk_index, raw_data) VALUES (?, ?, ?)`).run(sessionId, chunkIndex, rawData),
+    prepare(`INSERT INTO terminal_transcripts (session_id, chunk_index, raw_data, ts_ms) VALUES (?, ?, ?, ?)`).run(sessionId, chunkIndex, rawData, Date.now()),
   listTranscriptChunks: (sessionId: string) =>
-    prepare(`SELECT chunk_index, raw_data, timestamp FROM terminal_transcripts WHERE session_id = ? ORDER BY chunk_index ASC`).all(sessionId),
+    prepare(`SELECT chunk_index, raw_data, timestamp, ts_ms, byte_offset FROM terminal_transcripts WHERE session_id = ? ORDER BY chunk_index ASC`).all(sessionId),
   getTranscripts: (sessionId: string) =>
     prepare(`SELECT * FROM terminal_transcripts WHERE session_id = ? ORDER BY chunk_index ASC`).all(sessionId),
+
+  // Per-session stats used to seed the in-memory chunk/byte counters on first
+  // flush after a server restart. Returns 0/0 for sessions with no rows yet.
+  getTranscriptStats: (sessionId: string) => prepare(`
+    SELECT
+      COALESCE(MAX(chunk_index), 0) AS max_chunk,
+      COALESCE(SUM(LENGTH(raw_data)), 0) AS total_bytes
+    FROM terminal_transcripts
+    WHERE session_id = ?
+  `).get(sessionId) as { max_chunk: number; total_bytes: number } | undefined,
+
+  // Append a transcript row and its ANSI-stripped mirror in one transaction.
+  // rowid of terminal_text_fts is tied to terminal_transcripts.id so the history
+  // route can JOIN on rowid when running FTS searches.
+  appendTranscriptWithText: (
+    sessionId: string, chunkIndex: number, rawData: string,
+    textStripped: string, tsMs: number, byteOffset: number
+  ) => {
+    const db = getDb();
+    const insertMain = prepare(`INSERT INTO terminal_transcripts
+      (session_id, chunk_index, raw_data, ts_ms, byte_offset) VALUES (?, ?, ?, ?, ?)`);
+    const insertFts = prepare(`INSERT INTO terminal_text_fts(rowid, text) VALUES (?, ?)`);
+    const tx = db.transaction(() => {
+      const result = insertMain.run(sessionId, chunkIndex, rawData, tsMs, byteOffset);
+      insertFts.run(result.lastInsertRowid, textStripped);
+    });
+    tx();
+  },
+
+  // Time-window query for the history route and the command_events backfill.
+  // Returns newest-first so the `limit` parameter bounds recent history cheaply.
+  getTranscriptsSince: (sessionId: string, sinceMs: number, limit: number) => prepare(`
+    SELECT id, chunk_index, ts_ms, byte_offset, LENGTH(raw_data) AS size, raw_data
+    FROM terminal_transcripts
+    WHERE session_id = ? AND ts_ms >= ?
+    ORDER BY ts_ms DESC
+    LIMIT ?
+  `).all(sessionId, sinceMs, limit),
+
+  // Non-FTS time-window query, used when we need stripped text for a command
+  // output snippet but don't have a search term.
+  getTranscriptRangeStripped: (sessionId: string, startMs: number, endMs: number) => prepare(`
+    SELECT t.id, f.text
+    FROM terminal_transcripts t
+    JOIN terminal_text_fts f ON f.rowid = t.id
+    WHERE t.session_id = ? AND t.ts_ms BETWEEN ? AND ?
+    ORDER BY t.ts_ms ASC
+  `).all(sessionId, startMs, endMs),
+
+  // FTS search across transcripts for one session. Joins via rowid to recover
+  // ordering metadata. Uses ranked results and returns an FTS snippet for
+  // highlighting.
+  searchTranscripts: (sessionId: string, query: string, limit: number) => prepare(`
+    SELECT t.id, t.chunk_index, t.ts_ms, t.byte_offset, LENGTH(t.raw_data) AS size,
+           snippet(terminal_text_fts, 0, '<mark>', '</mark>', '…', 32) AS snippet
+    FROM terminal_text_fts
+    JOIN terminal_transcripts t ON t.id = terminal_text_fts.rowid
+    WHERE terminal_text_fts MATCH ? AND t.session_id = ?
+    ORDER BY rank
+    LIMIT ?
+  `).all(query, sessionId, limit),
+
+  // Backfill output snippets onto command_events rows whose time window has
+  // fully closed (end time older than the transcript flush horizon). Runs
+  // opportunistically from capture-ingest's poll loop — see capture-ingest.ts.
+  listCommandsNeedingSnippet: (olderThanIso: string, limit: number) => prepare(`
+    SELECT id, session_id, started_at, ended_at
+    FROM command_events
+    WHERE output_snippet IS NULL
+      AND ended_at IS NOT NULL
+      AND ended_at < ?
+    ORDER BY ended_at ASC
+    LIMIT ?
+  `).all(olderThanIso, limit),
+
+  setCommandSnippet: (id: number, snippet: string) =>
+    prepare(`UPDATE command_events SET output_snippet = ? WHERE id = ?`).run(snippet, id),
 
   // Workspaces
   listWorkspaces: () => prepare(`SELECT * FROM workspaces ORDER BY name ASC`).all(),
