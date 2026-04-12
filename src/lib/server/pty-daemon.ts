@@ -325,6 +325,14 @@ function installSilenceHook(sessionId: string) {
     execFileSync(TMUX, [
       'set-window-option', '-t', sessionId, 'monitor-silence', '3',
     ], { stdio: 'pipe' });
+    // Suppress the visual status-bar flag toggle that monitor-silence causes.
+    // Without this, every 3s-silence → output cycle redraws the status bar
+    // (tmux's status-format references #{window_silence_flag}), which causes
+    // visible flicker on mobile xterm.js renderers (antios). The alert-silence
+    // hook still fires — silence-action only controls the visual indicator.
+    execFileSync(TMUX, [
+      'set-option', '-t', sessionId, 'silence-action', 'none',
+    ], { stdio: 'pipe' });
     // Shell-quote the session ID defensively. tmux session IDs are
     // alphanumeric + `-` in practice, but a stray `'` would break run-shell.
     const safeSid = sessionId.replace(/'/g, `'\\''`);
