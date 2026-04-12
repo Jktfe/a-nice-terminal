@@ -19,5 +19,8 @@ CLAUDE.md
 logs/
 .aider*
 
+# Uploaded files
+static/uploads/
+
 # macOS
 .DS_Store
