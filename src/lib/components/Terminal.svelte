@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { slide } from 'svelte/transition';
   import { browser } from '$app/environment';
 
   let { sessionId, onData }: { sessionId: string; onData?: (data: string) => void } = $props();
@@ -10,6 +11,41 @@
   let slowEdit = $state(false);
   let slowEditText = $state('');
   let slowEditRef = $state<HTMLTextAreaElement | null>(null);
+  let paneTitle = $state('');
+
+  // Scroll track state
+  let scrollRatio = $state(1);
+  let scrollThumbTop = $derived.by(() => {
+    const trackHeight = 400; // approximate, updated by resize observer
+    const thumbHeight = Math.max(40, Math.min(120, trackHeight * 0.15));
+    const maxOffset = trackHeight - thumbHeight - 80;
+    return 40 + (1 - scrollRatio) * maxOffset;
+  });
+  let scrollThumbHeight = $derived(Math.max(40, 120));
+
+  // Special keys for mobile/touch input
+  const specialKeys = [
+    { label: 'Esc', seq: '\x1b' },
+    { label: '↑', seq: '\x1b[A' },
+    { label: '↓', seq: '\x1b[B' },
+    { label: '←', seq: '\x1b[D' },
+    { label: '→', seq: '\x1b[C' },
+    { label: 'Paste', seq: '__paste__' },
+    { label: '^C', seq: '\x03' },
+    { label: '⇧Tab', seq: '\x1b[Z' },
+    { label: 'Tab', seq: '\t' },
+  ];
+
+  function sendKey(seq: string) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (seq === '__paste__') {
+      navigator.clipboard.readText().then(text => {
+        ws!.send(JSON.stringify({ type: 'terminal_input', sessionId, data: text }));
+      });
+      return;
+    }
+    ws.send(JSON.stringify({ type: 'terminal_input', sessionId, data: seq }));
+  }
 
   $effect(() => {
     if (slowEdit && slowEditRef) slowEditRef.focus();
@@ -175,6 +211,12 @@
     term.focus(); // Must call after open() — arrows/Tab stop working without this (v2 lesson)
     terminal = term;
 
+    // Wire scroll position to the custom scroll track
+    term.onScroll(() => {
+      const buf = term.buffer.active;
+      scrollRatio = buf.baseY > 0 ? buf.viewportY / buf.baseY : 1;
+    });
+
     // Click anywhere in the terminal container to restore keyboard focus + trigger SIGWINCH
     // repaint. This handles "click off and click back within the same page" where
     // visibilitychange doesn't fire but the xterm buffer may need refreshing.
@@ -333,20 +375,47 @@
   });
 </script>
 
-<div class="w-full flex-1 min-h-0 relative flex flex-col">
-  <!-- xterm.js container — dimmed when Slow Edit is active -->
-  <div bind:this={termRef} class="w-full flex-1 min-h-0" class:opacity-30={slowEdit}></div>
+<div class="w-full flex-1 min-h-0 flex flex-col">
+  <!-- 1. tmux status bar -->
+  <div class="flex items-center justify-between px-2 h-[22px] bg-[#22C55E] text-[#0D0D12] text-[10px] font-mono shrink-0">
+    <span>[{sessionId.slice(0,10)}*]</span>
+    <span>{paneTitle || sessionId} {new Date().toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'})}</span>
+  </div>
 
-  <!-- Slow Edit overlay — compose large/multi-line input before sending (v2 lesson) -->
+  <!-- 2. Terminal + scroll track -->
+  <div class="flex flex-1 min-h-0">
+    <!-- xterm.js container -->
+    <div bind:this={termRef} class="flex-1 min-h-0" class:opacity-30={slowEdit}></div>
+
+    <!-- Scroll track -->
+    <div class="w-8 bg-[#111318] relative shrink-0" class:opacity-30={slowEdit}>
+      <div
+        class="absolute left-1 w-6 rounded-xl bg-[#30363D] hover:bg-[#4B5563] cursor-grab transition-colors"
+        style="top: {scrollThumbTop}px; height: {scrollThumbHeight}px;"
+      ></div>
+    </div>
+  </div>
+
+  <!-- 3. Special keys row -->
+  <div class="flex items-center gap-1.5 px-2 h-9 bg-[#111318] overflow-x-auto shrink-0 scrollbar-none">
+    {#each specialKeys as key}
+      <button
+        onclick={() => sendKey(key.seq)}
+        class="shrink-0 px-3 py-1.5 rounded-md bg-[#1E2228] text-xs text-[#8B949E] hover:bg-[#2A2F38] active:bg-[#363B44] transition-colors"
+      >{key.label}</button>
+    {/each}
+  </div>
+
+  <!-- 4. Slow Edit panel -->
   {#if slowEdit}
-    <div class="absolute inset-0 bottom-8 flex flex-col bg-[#0D0D12]/95 p-3 gap-2">
-      <div class="flex items-center gap-2 text-xs text-gray-400 mb-1">
-        <span class="text-yellow-400 font-mono">✎</span>
-        <span>Slow Edit — compose then send with Ctrl+Enter</span>
+    <div class="bg-[#161B22] rounded-t-xl px-3 py-3 flex flex-col gap-2 shrink-0" transition:slide={{ duration: 200 }}>
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-semibold text-white">Slow Edit</span>
+        <button onclick={() => { slowEdit = false; requestAnimationFrame(() => terminal?.focus()); }} class="text-sm text-[#8B949E]">✕</button>
       </div>
       <textarea
-        class="flex-1 bg-[#1A1A22] text-white font-mono text-sm p-3 rounded-lg border border-[#6366F1] resize-none focus:outline-none focus:ring-2 focus:ring-[#6366F1]"
-        placeholder="Type your command here..."
+        class="bg-[#1E2228] text-white font-mono text-sm p-3 rounded-lg border border-[#3B82F6] resize-none focus:outline-none min-h-[80px] max-h-[120px]"
+        placeholder="Type your command..."
         bind:value={slowEditText}
         bind:this={slowEditRef}
         onkeydown={(e) => {
@@ -354,38 +423,40 @@
             e.preventDefault();
             if (ws) sendSlowEdit(terminal, ws);
           }
-          if (e.key === 'Escape') {
-            slowEdit = false;
-            requestAnimationFrame(() => terminal?.focus());
-          }
+          if (e.key === 'Escape') { slowEdit = false; requestAnimationFrame(() => terminal?.focus()); }
         }}
       ></textarea>
-      <div class="flex gap-2 text-xs text-gray-500">
-        <kbd class="px-1.5 py-0.5 bg-[#1A1A22] rounded border border-[var(--border-subtle)]">Ctrl+Enter</kbd>
-        <span>send</span>
-        <span class="mx-2">·</span>
-        <kbd class="px-1.5 py-0.5 bg-[#1A1A22] rounded border border-[var(--border-subtle)]">Esc</kbd>
-        <span>cancel</span>
-      </div>
+      <span class="text-[11px] text-[#8B949E]">Paste, type, or use voice — then tap Send</span>
     </div>
   {/if}
 
-  <!-- Bottom bar: Slow Edit toggle -->
-  <div class="flex items-center gap-2 px-2 py-1 bg-[#16161A] border-t border-[var(--border-subtle)]">
+  <!-- 5. Input row -->
+  <div class="flex items-center gap-1.5 px-2 py-1.5 bg-[#0D0D12] shrink-0">
+    <!-- Back -->
+    <button onclick={() => history.back()} class="w-[34px] h-[34px] rounded-lg bg-[#1E2228] flex items-center justify-center text-[#8B949E] hover:bg-[#2A2F38]">←</button>
+
+    <!-- Input pill (tap target for slow edit) -->
     <button
-      onclick={() => {
-        slowEdit = !slowEdit;
-        if (!slowEdit) requestAnimationFrame(() => terminal?.focus());
-      }}
-      class="flex items-center gap-1.5 px-2 py-0.5 text-xs rounded transition-all"
-      class:bg-yellow-500={slowEdit}
-      class:text-black={slowEdit}
-      class:text-gray-500={!slowEdit}
-      class:hover:text-gray-300={!slowEdit}
-      title="Toggle Slow Edit for paste or multi-line commands"
-    >
-      <span>✎</span>
-      <span>Slow Edit</span>
-    </button>
+      onclick={() => { slowEdit = true; }}
+      class="flex-1 h-[34px] rounded-full bg-[#1E2228] px-3 text-left text-sm truncate"
+      class:text-[#8B949E]={!slowEditText}
+      class:text-[#E6EDF3]={!!slowEditText}
+      class:ring-1={slowEdit}
+      class:ring-[#3B82F6]={slowEdit}
+    >{slowEditText || 'Type a command...'}</button>
+
+    <!-- Attach -->
+    <button class="w-[34px] h-[34px] rounded-lg bg-[#1E2228] flex items-center justify-center text-[#8B949E]">📎</button>
+
+    <!-- Chat switcher -->
+    <button onclick={() => { /* TODO: dispatch switchToChat event */ }} class="h-[34px] rounded-lg bg-[#1E2228] px-2.5 flex items-center gap-1 text-xs text-[#8B949E]">💬 Chat</button>
+
+    <!-- Send -->
+    <button
+      onclick={() => { if (ws && slowEditText) sendSlowEdit(terminal, ws); }}
+      class="w-[34px] h-[34px] rounded-full flex items-center justify-center text-white font-bold"
+      class:bg-[#3B82F6]={!slowEditText}
+      class:bg-[#22C55E]={!!slowEditText}
+    >↑</button>
   </div>
 </div>
