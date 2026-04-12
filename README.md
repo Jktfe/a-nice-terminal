@@ -4,7 +4,7 @@ A self-hosted terminal multiplexer and chat interface. Run terminal sessions and
 
 ## Features
 
-- **Live terminal sessions** — full PTY streaming via WebSocket and xterm.js (WebGL-accelerated)
+- **Live terminal sessions** — full PTY streaming via WebSocket and xterm.js (DOM renderer)
 - **Keyboard-correct** — Esc, Tab, Ctrl+C, arrows, Option/Alt, and paste all work; DA1/DA2 feedback loop prevented
 - **Slow Edit mode** — compose multi-line commands in a textarea before sending to the PTY
 - **Chat sessions** — persistent message threads with FTS5 full-text search

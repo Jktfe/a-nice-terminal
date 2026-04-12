@@ -453,11 +453,18 @@
   <!-- 2. Terminal + scroll track -->
   <div class="flex flex-1 min-h-0">
     <!-- xterm.js container -->
-    <div bind:this={termRef} class="flex-1 min-h-0" class:opacity-30={slowEdit}></div>
+    <div id="xterm-container" bind:this={termRef} class="flex-1 min-h-0" class:opacity-30={slowEdit}></div>
 
     <!-- Scroll track -->
     <div class="w-8 bg-[#111318] relative shrink-0" class:opacity-30={slowEdit}>
       <div
+        role="scrollbar"
+        aria-controls="xterm-container"
+        aria-valuenow={Math.round(scrollRatio * 100)}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-orientation="vertical"
+        tabindex="-1"
         class="absolute left-1 w-6 rounded-xl bg-[#30363D] hover:bg-[#4B5563] cursor-grab transition-colors"
         style="top: {scrollThumbTop}px; height: {scrollThumbHeight}px; touch-action: none;"
         onpointerdown={startScrollDrag}
