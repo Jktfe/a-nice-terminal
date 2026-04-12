@@ -338,8 +338,11 @@ getPtyManager().then(async ptm => {
   // by tmux when no OSC sequence has ever been emitted.
   const lastTitleBySession = new Map<string, string>();
   function normalizeTitle(raw: string): string {
+    // Strip only braille-spinner animation frames (U+2800–U+28FF) which cycle
+    // every ~100ms. Keep ✳◇◆ etc. — those are STATE indicators (idle vs.
+    // thinking) and their transitions are the signal we want to surface.
     return raw
-      .replace(/^[\u2800-\u28FF✳◇◆▪✻●○]+\s*/u, '')
+      .replace(/^[\u2800-\u28FF]+\s*/u, '')
       .trim();
   }
   const hostnameRaw = (process.env.HOSTNAME || '').trim();
