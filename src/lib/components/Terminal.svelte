@@ -51,6 +51,29 @@
     if (slowEdit && slowEditRef) slowEditRef.focus();
   });
 
+  // Scroll track drag handling
+  function startScrollDrag(e: PointerEvent) {
+    const track = (e.target as HTMLElement).parentElement!;
+    const rect = track.getBoundingClientRect();
+
+    function onMove(ev: PointerEvent) {
+      const y = ev.clientY - rect.top;
+      const ratio = Math.max(0, Math.min(1, y / rect.height));
+      if (terminal?.buffer?.active) {
+        terminal.scrollToLine(Math.round(ratio * terminal.buffer.active.baseY));
+      }
+    }
+
+    function onUp() {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+    }
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    onMove(e);
+  }
+
   // Block DA1/DA2/DSR cursor-report responses from looping back into the PTY (v2 lesson)
   const TERM_RESPONSE_RE = /^\x1b\[\??[>]?[\d;]*c$|^\x1b\[\d+;\d+[Rn]$|^\x1b\[\d*n$/;
 
@@ -391,7 +414,8 @@
     <div class="w-8 bg-[#111318] relative shrink-0" class:opacity-30={slowEdit}>
       <div
         class="absolute left-1 w-6 rounded-xl bg-[#30363D] hover:bg-[#4B5563] cursor-grab transition-colors"
-        style="top: {scrollThumbTop}px; height: {scrollThumbHeight}px;"
+        style="top: {scrollThumbTop}px; height: {scrollThumbHeight}px; touch-action: none;"
+        onpointerdown={startScrollDrag}
       ></div>
     </div>
   </div>
