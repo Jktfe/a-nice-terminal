@@ -196,7 +196,7 @@
       allowTransparency: true,
       macOptionIsMeta: true,     // Option → Meta/Alt for word-jump (Option+B/F) in bash/vim
       allowProposedApi: true,    // Required for SerializeAddon
-      scrollback: 5000,
+      scrollback: 100_000,
       rightClickSelectsWord: true,
       theme: {
         background: '#0D0D12',
@@ -254,10 +254,46 @@
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     let destroyed = false;
 
+    // ── Infinite scrollback: fetch full DB history before live output ──
+    // When a WS connects, the server sends session_health then terminal_output
+    // (tmux capture-pane scrollback). We buffer ALL terminal_output until the
+    // DB history is fetched and written, so history sits above live content.
+    let historyLoaded = false;
+    let pendingOutput: string[] = [];
+
+    async function loadHistory(t: any, sid: string) {
+      try {
+        const res = await fetch(`/api/sessions/${sid}/terminal/history?limit=1000&since=0&raw=1`);
+        if (!res.ok) { historyLoaded = true; return; }
+        const data = await res.json();
+        if (!data.rows?.length) { historyLoaded = true; return; }
+        // API returns newest-first; reverse to chronological order
+        const history = data.rows
+          .reverse()
+          .map((r: any) => r.raw || '')
+          .join('');
+        if (history) {
+          scheduleWrite(t, history);
+        }
+      } catch {
+        // Silently fall through — live scrollback still works
+      }
+      // Now flush any terminal_output that arrived while we were fetching
+      historyLoaded = true;
+      if (pendingOutput.length) {
+        const buffered = pendingOutput.join('');
+        pendingOutput = [];
+        enqueueOutput(t, buffered);
+      }
+    }
+
     function connect() {
       if (destroyed) return;
       const socket = new WebSocket(`${protocol}//${location.host}/ws`);
       ws = socket;
+      // Reset history state for each new connection
+      historyLoaded = false;
+      pendingOutput = [];
 
       // If session_health isn't received within 3s the server likely dropped our
       // join_session (race during async connection handler setup). Close to trigger
@@ -301,11 +337,20 @@
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === 'terminal_output' && msg.sessionId === sessionId) {
-            enqueueOutput(term, msg.data);
+            if (!historyLoaded) {
+              // Buffer output until DB history has been written
+              pendingOutput.push(msg.data);
+            } else {
+              enqueueOutput(term, msg.data);
+            }
             onData?.(msg.data);
           } else if (msg.type === 'session_health' && msg.sessionId === sessionId) {
             healthReceived = true;
             clearTimeout(healthTimeout);
+            if (msg.alive) {
+              // Fetch full DB history before any terminal_output arrives
+              loadHistory(term, sessionId);
+            }
             if (!msg.alive) {
               term.writeln('\r\n\x1b[31m✗ PTY session failed to start.\x1b[0m');
               term.writeln('\x1b[90mThe daemon may be unreachable. Click the refresh button (↻) to retry.\x1b[0m\r\n');
