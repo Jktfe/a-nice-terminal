@@ -151,6 +151,11 @@ class PTYClient {
       this.socket.write(line);
     } else {
       this.queue.push(line);
+      // Auto-connect on first use. SvelteKit route handlers get a separate
+      // module instance from server.ts (compiled chunk vs tsx source), so
+      // their ptyClient singleton was never .connect()'d. This ensures the
+      // first write triggers a connection and the queued message drains.
+      if (!this.socket) this.connect();
     }
   }
 
