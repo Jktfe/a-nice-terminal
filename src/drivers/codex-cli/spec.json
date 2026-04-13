@@ -1,0 +1,182 @@
+{
+  "agent": "codex-cli",
+  "version_tested": "0.118.0",
+  "launch_command": "codex",
+  "capture_source": "tmux_output",
+  "probe_date": "2026-04-14",
+  "notes": "See NOTES.md for deviations from spec predictions.",
+
+  "session_model": {
+    "type": "non-persistent",
+    "notes": "Codex 0.118.0 exits after completing each response. The session UUID is displayed and can be resumed with 'codex resume <UUID>'. This is fundamentally different from Claude Code's persistent REPL model.",
+    "exit_signal": "Line matching 'To continue this session, run codex resume [a-f0-9-]+'",
+    "resume_command": "codex resume <UUID> OR codex (starts fresh)"
+  },
+
+  "events": [
+    {
+      "class": "permission_request",
+      "subclass": "read",
+      "label": "File read (NOT TRIGGERED in 0.118.0 default mode)",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": null,
+        "notes": "DEVIATION FROM SPEC: Codex 0.118.0 with gpt-5.4 xhigh auto-reads files without any permission request. P01 completed with no TUI prompt."
+      },
+      "extraction": null,
+      "response": null,
+      "settled_signal": "n/a"
+    },
+
+    {
+      "class": "permission_request",
+      "subclass": "write",
+      "label": "File write (NOT TRIGGERED in 0.118.0 default mode)",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": null,
+        "notes": "DEVIATION FROM SPEC: Codex 0.118.0 with gpt-5.4 xhigh auto-creates and edits files without any permission request. P02 completed with no TUI prompt. The write is shown as '• Added filename (+N -0)' with a diff."
+      },
+      "extraction": null,
+      "response": null,
+      "settled_signal": "n/a"
+    },
+
+    {
+      "class": "permission_request",
+      "subclass": "execute",
+      "label": "Bash command execution (NOT TRIGGERED in 0.118.0 default mode)",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": null,
+        "notes": "DEVIATION FROM SPEC: Codex 0.118.0 with gpt-5.4 xhigh auto-executes bash commands without any permission request. P03 completed with no TUI prompt."
+      },
+      "extraction": null,
+      "response": null,
+      "settled_signal": "n/a"
+    },
+
+    {
+      "class": "progress",
+      "label": "Model thinking / generating",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "• Working \\(\\d+s • esc to interrupt\\)",
+        "notes": "Codex 0.118.0 shows '• Working (Ns • esc to interrupt)' during generation. The N increments every second."
+      },
+      "extraction": {
+        "elapsed_seconds": "Digit(s) before 's' in the pattern",
+        "interrupt_hint": "esc to interrupt"
+      },
+      "response": {
+        "method": "none",
+        "notes": "progress is not interactive. Wait for the session to exit ('To continue this session...' line) or the '›' prompt to reappear."
+      },
+      "settled_signal": "'To continue this session, run codex resume <UUID>' line appears OR '› ' prompt appears"
+    },
+
+    {
+      "class": "multi_choice",
+      "label": "Numbered or list selection",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "^\\s*(\\d+)\\.\\s+\\S",
+        "context_pattern": "(which one|please choose|pick one|choose one|select one)",
+        "notes": "TODO: Not yet validated. Expected based on Claude Code precedent — plain-text numbered list at the '› ' prompt."
+      },
+      "extraction": null,
+      "response": {
+        "method": "send_keys",
+        "format": "{1-based-number}\\n",
+        "notes": "TODO: Not yet validated."
+      },
+      "settled_signal": "TODO"
+    },
+
+    {
+      "class": "confirmation",
+      "label": "Destructive action confirmation",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "(shall I go ahead|want me to proceed|are you sure|proceed\\?)",
+        "notes": "TODO: Not yet validated."
+      },
+      "extraction": null,
+      "response": {
+        "method": "send_keys",
+        "confirm": "yes\\n",
+        "cancel": "no\\n",
+        "notes": "TODO: Not yet validated."
+      },
+      "settled_signal": "TODO"
+    },
+
+    {
+      "class": "free_text",
+      "label": "Open-ended question requiring typed input",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "• .+\\?\\s*$",
+        "context_pattern": "bullet-point response line ending in '?'",
+        "notes": "TODO: Not yet validated against P07. Expected: '• What is your preferred programming language?' at the '› ' prompt."
+      },
+      "extraction": {
+        "question": "Last '• ' line ending in '?'"
+      },
+      "response": {
+        "method": "send_keys",
+        "format": "{typed-answer}\\n"
+      },
+      "settled_signal": "'To continue this session...' OR '• ' response line appears"
+    },
+
+    {
+      "class": "tool_auth",
+      "label": "External tool / web search authorisation",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": null,
+        "notes": "TODO: Not yet validated. Codex may not have a tool_auth TUI — web search and MCP tools might auto-run like read/write/execute."
+      },
+      "extraction": null,
+      "response": null,
+      "settled_signal": "TODO"
+    },
+
+    {
+      "class": "error_retry",
+      "label": "File-not-found or tool error with recovery offer",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "• .+(doesn't exist|does not exist|not found|failed|error).*(would you like|want me to|shall I|did you mean)",
+        "notes": "TODO: Not yet validated. Expected plain-text error + offer in bullet-point format."
+      },
+      "extraction": null,
+      "response": {
+        "method": "send_keys",
+        "format": "{typed-instruction}\\n"
+      },
+      "settled_signal": "TODO"
+    }
+  ],
+
+  "ui_structure": {
+    "prompt_indicator": "›",
+    "response_bullet": "• ",
+    "divider": "─────────────────────────────────────────────────────────────────────────────────────────────────── (full-width)",
+    "tool_calls": {
+      "read":    "• Explored\\n  └ Read <filename>",
+      "write":   "• Added <filename> (+N -0)\\n    N +<content>",
+      "execute": "• Ran bash <command>\\n  └ <output>"
+    },
+    "progress": "• Working (Ns • esc to interrupt)",
+    "token_usage": "Token usage: total=N input=N (+ N cached) output=N (reasoning N)",
+    "session_exit": "To continue this session, run codex resume <UUID>",
+    "footer": "gpt-5.4 xhigh · N% left · ~/path/to/dir",
+    "startup_banner": {
+      "update_available": "╭─────╮\\n│ ✨ Update available! old → new │\\n│ Run brew upgrade --cask codex │\\n╰─────╯",
+      "header": "╭──────────╮\\n│ >_ OpenAI Codex (v0.118.0) │\\n│ model: gpt-5.4 xhigh │\\n│ directory: ~/path │\\n╰──────────╯",
+      "mcp_warning": "⚠ MCP client for '<name>' failed to start: <reason>"
+    }
+  }
+}

@@ -1,0 +1,200 @@
+{
+  "agent": "gemini-cli",
+  "version_tested": "0.37.0",
+  "launch_command": "gemini --approval-mode default",
+  "capture_source": "tmux_output",
+  "probe_date": "2026-04-14",
+  "notes": "See NOTES.md for deviations from spec predictions and the approval-mode discovery.",
+
+  "approval_modes": {
+    "default": {
+      "status_bar_pattern": "Shift\\+Tab to accept edits",
+      "submit_key": "BTab (Shift+Tab)",
+      "behaviour": "BTab both submits the queued prompt AND switches to auto-accept mode. Tools execute immediately after the prompt is submitted.",
+      "notes": "In practice, a single BTab from this mode acts as 'submit + approve all'. There is no per-tool approval dialog."
+    },
+    "auto_accept": {
+      "status_bar_pattern": "auto-accept edits Shift\\+Tab to plan",
+      "submit_key": "Enter",
+      "behaviour": "Enter submits prompts. All tools run without any approval prompt."
+    },
+    "plan": {
+      "status_bar_pattern": "plan Shift\\+Tab to manual",
+      "submit_key": "BTab (Shift+Tab)",
+      "behaviour": "Read-only mode. Writes and shell commands are blocked."
+    }
+  },
+
+  "events": [
+    {
+      "class": "permission_request",
+      "subclass": "write",
+      "label": "File write authorisation",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": null,
+        "notes": "DEVIATION FROM SPEC: Gemini CLI 0.37.0 has NO visual per-tool approval dialog for file writes. The tool result box with '✓  WriteFile' appears only AFTER the write completes. There is no pre-write pause where the user can approve or deny."
+      },
+      "extraction": null,
+      "response": {
+        "method": "approval_mode_toggle",
+        "notes": "Approval is pre-submission via Shift+Tab mode toggle. The submit key (BTab from default mode) implicitly approves all pending tool calls.",
+        "approve": "BTab from default mode (submits + auto-approves)",
+        "deny": "Switch to plan mode (BTab BTab from default) before submitting"
+      },
+      "settled_signal": "Tool result box '│ ✓  WriteFile Writing to <file> │' appears followed by '✦' response line and '? for shortcuts' in status bar"
+    },
+
+    {
+      "class": "permission_request",
+      "subclass": "execute",
+      "label": "Bash command authorisation",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": null,
+        "notes": "DEVIATION FROM SPEC: Gemini CLI 0.37.0 has NO visual per-tool approval dialog for shell execution. The tool result box '│ ✓  Shell bash <cmd> [cwd ...] │' appears only after the command completes."
+      },
+      "extraction": null,
+      "response": {
+        "method": "approval_mode_toggle",
+        "notes": "Same as write — pre-submission mode toggle via BTab."
+      },
+      "settled_signal": "Tool result box '│ ✓  Shell <cmd> [cwd ...] │' with output, followed by '✦' response and '? for shortcuts'"
+    },
+
+    {
+      "class": "tool_auth",
+      "label": "External tool authorisation (web search etc.)",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": null,
+        "notes": "TODO: Not yet validated. Expected to follow same pattern as write/execute — no per-tool dialog, just a '✓  ToolName' result box after completion."
+      },
+      "extraction": null,
+      "response": null,
+      "settled_signal": "TODO"
+    },
+
+    {
+      "class": "multi_choice",
+      "label": "Numbered or list selection",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "^\\s*(\\d+)\\.\\s+\\S",
+        "context_pattern": "(which one|please choose|pick one|choose one|select one)",
+        "notes": "TODO: Not yet validated. Expected to produce plain-text numbered list followed by a choice question at the '> ' prompt. No Ink TUI selector observed."
+      },
+      "extraction": null,
+      "response": {
+        "method": "send_keys",
+        "format": "{1-based-number}\\n",
+        "notes": "TODO: Not yet validated."
+      },
+      "settled_signal": "TODO"
+    },
+
+    {
+      "class": "confirmation",
+      "label": "Destructive action confirmation",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "(shall I go ahead|want me to proceed|are you sure|proceed\\?)",
+        "notes": "TODO: Not yet validated."
+      },
+      "extraction": null,
+      "response": {
+        "method": "send_keys",
+        "confirm": "yes\\n",
+        "cancel": "no\\n",
+        "notes": "TODO: Not yet validated."
+      },
+      "settled_signal": "TODO"
+    },
+
+    {
+      "class": "free_text",
+      "label": "Open-ended question requiring typed input",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "✦.+\\?\\s*$",
+        "context_pattern": "response line starting with '✦' ending with '?'; '> Type your message' in input area",
+        "notes": "TODO: Not yet validated against P07. Expected: '✦ What is your preferred programming language?' followed by idle input box."
+      },
+      "extraction": {
+        "question": "Line starting with '✦' ending in '?'"
+      },
+      "response": {
+        "method": "send_keys",
+        "format": "{typed-answer}\\n (Enter submits in auto-accept mode; BTab submits from default mode)",
+        "notes": "TODO: Submit key depends on current approval mode."
+      },
+      "settled_signal": "'? for shortcuts' in status bar; '✦' response appears"
+    },
+
+    {
+      "class": "progress",
+      "label": "Streaming / long-running task indicator",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "Responding with gemini-[\\w-]+",
+        "notes": "Gemini CLI 0.37.0 shows 'Responding with gemini-3-flash-preview' (or similar model name) above the response while generating. The status bar shows 'esc to interrupt' or equivalent during generation."
+      },
+      "extraction": {
+        "model_line": "Line matching /Responding with gemini-/",
+        "status_bar_idle": "? for shortcuts",
+        "status_bar_active": "esc to interrupt (TODO: validate exact wording)"
+      },
+      "response": {
+        "method": "none",
+        "notes": "progress is not interactive. Wait for '? for shortcuts' in status bar."
+      },
+      "settled_signal": "'? for shortcuts' in status bar; '✦' response completed; '> Type your message' input box visible"
+    },
+
+    {
+      "class": "error_retry",
+      "label": "File-not-found or tool error with recovery offer",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "✦.+(doesn't exist|does not exist|not found|failed|error).*(would you like|want me to|shall I|did you mean)",
+        "notes": "TODO: Not yet validated against P10. Expected: '✦ That file doesn't exist. Would you like me to create it?' — plain-text offer, no TUI card."
+      },
+      "extraction": null,
+      "response": {
+        "method": "send_keys",
+        "format": "{typed-instruction}\\n",
+        "notes": "TODO: Not yet validated."
+      },
+      "settled_signal": "TODO"
+    }
+  ],
+
+  "ui_structure": {
+    "input_box": {
+      "top_border": "▀▀▀▀▀▀▀... (full-width block chars)",
+      "bottom_border": "▄▄▄▄▄▄▄... (full-width block chars)",
+      "prompt_prefix": "> ",
+      "placeholder": "> Type your message or @path/to/file",
+      "submit_default_mode": "BTab (Shift+Tab)",
+      "submit_auto_accept_mode": "Enter",
+      "newline_insert": "Enter (in default mode)"
+    },
+    "response_prefix": "✦",
+    "tool_result_box": {
+      "format": "╭───╮\\n│ ✓  ToolName Description │\\n│ content │\\n╰───╯",
+      "checkmark": "✓",
+      "examples": {
+        "write": "│ ✓  WriteFile Writing to <filename> │",
+        "execute": "│ ✓  Shell <cmd> [current working directory <path>] (<description>) │",
+        "read": "│ ✓  ReadFile <filename> │ (TODO: validate exact format)"
+      }
+    },
+    "status_bar": {
+      "idle": "? for shortcuts",
+      "right_side": "N GEMINI.md files · N MCP servers"
+    },
+    "footer": {
+      "format": "workspace | branch | /model | context"
+    }
+  }
+}
