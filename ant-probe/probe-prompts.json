@@ -1,76 +1,81 @@
 {
   "version": "1.0.0",
-  "description": "ANT agent fingerprinting probes — one per event class captured by the dual-source pipeline",
+  "description": "ANT agent fingerprinting probes — verbatim from spec. Each probe is engineered to deterministically trigger a specific interaction class. Prompts are agent-agnostic.",
   "probes": [
     {
       "id": "P01",
-      "event_class": "tool_use",
-      "label": "Tool invocation",
-      "description": "Triggers a single discrete tool call so the pipeline can observe tool_use event shape, timing, and input serialisation.",
-      "prompt": "Run `cat ant-probe/test-file.txt` and tell me exactly what it says."
+      "event_class": "permission_request",
+      "subclass": "read",
+      "label": "Read permission request",
+      "description": "Triggers a read permission request by asking the agent to read a file. Claude Code surfaces this via JSONL side-channel and/or Ink TUI.",
+      "prompt": "Read the contents of test-file.txt and tell me what it says"
     },
     {
       "id": "P02",
-      "event_class": "tool_result",
-      "label": "Tool result ingestion",
-      "description": "Forces the agent to parse and act on a tool result, exposing how tool_result events are structured in the JSONL stream.",
-      "prompt": "Run `bash ant-probe/test-script.sh` and confirm the exit code you received."
+      "event_class": "permission_request",
+      "subclass": "write",
+      "label": "Write permission request",
+      "description": "Triggers a write permission request by asking the agent to create a file.",
+      "prompt": "Create a new file called output.txt containing the word hello"
     },
     {
       "id": "P03",
-      "event_class": "text_message",
-      "label": "Pure text response",
-      "description": "Produces a multi-sentence assistant text block with no tool calls, isolating the text content_block shape.",
-      "prompt": "Without using any tools, describe in two sentences what the ANT fingerprinting pipeline does based on ant-probe/README.md (which you may have already seen)."
+      "event_class": "permission_request",
+      "subclass": "execute",
+      "label": "Execute permission request",
+      "description": "Triggers an execute permission request by asking the agent to run a script.",
+      "prompt": "Run the script test-script.sh and tell me the output"
     },
     {
       "id": "P04",
-      "event_class": "error_recovery",
-      "label": "Tool error and retry",
-      "description": "Deliberately references a non-existent path to elicit a tool error event, then observes whether the agent retries or surfaces the failure.",
-      "prompt": "Run `cat ant-probe/does-not-exist.txt` and tell me what happened."
+      "event_class": "multi_choice",
+      "subclass": "numbered",
+      "label": "Numbered multi-choice",
+      "description": "Forces the agent to generate numbered options and present them for selection.",
+      "prompt": "Give me exactly 3 numbered options for how to name a boolean variable that tracks login state, then ask me to choose one"
     },
     {
       "id": "P05",
-      "event_class": "multi_step_reasoning",
-      "label": "Chained tool sequence",
-      "description": "Requires the agent to issue multiple ordered tool calls, producing a sequence of interleaved tool_use/tool_result events for timing analysis.",
-      "prompt": "List the files in ant-probe/, then read ant-probe/nested/secret.txt, then tell me what both outputs say."
+      "event_class": "multi_choice",
+      "subclass": "tab-able",
+      "label": "Tab-navigable multi-choice",
+      "description": "Asks the agent to list directory contents as selectable options, potentially using a native TUI selector (Ink interactive list).",
+      "prompt": "List the files in this directory as selectable options and ask me to pick one to read"
     },
     {
       "id": "P06",
-      "event_class": "file_read",
-      "label": "Structured file read",
-      "description": "Exercises the Read tool (or equivalent) rather than bash cat, producing a distinct tool_use shape with file_path parameter.",
-      "prompt": "Read the file at ant-probe/test-file.txt using your file reading tool and quote the contents verbatim."
+      "event_class": "confirmation",
+      "label": "Destructive action confirmation",
+      "description": "Triggers a yes/no confirmation before a destructive operation (file delete).",
+      "prompt": "Delete output.txt — but ask me to confirm before doing it"
     },
     {
       "id": "P07",
-      "event_class": "file_write",
-      "label": "File creation",
-      "description": "Triggers a Write or create-file tool call, exposing the file_write event class including content length and path parameters.",
-      "prompt": "Create a new file at ant-probe/probe-output.txt containing the single line: PROBE_P07_COMPLETE"
+      "event_class": "free_text",
+      "label": "Free text input request",
+      "description": "Agent asks the user to provide a free-form typed answer before proceeding.",
+      "prompt": "Before writing any code, ask me what my preferred programming language is"
     },
     {
       "id": "P08",
-      "event_class": "bash_execution",
-      "label": "Bash command with piped output",
-      "description": "Exercises a compound shell command to observe how the agent structures multi-argument bash tool calls and handles stdout capture.",
-      "prompt": "Run `ls -la ant-probe/ | wc -l` and tell me the result."
+      "event_class": "progress",
+      "label": "Long-running progress indicator",
+      "description": "Triggers a long-running streamed output task to observe the agent's progress indicator (spinner, streaming tokens).",
+      "prompt": "Write a fully commented Python module with at least 20 functions for common string manipulation tasks"
     },
     {
       "id": "P09",
-      "event_class": "session_lifecycle",
-      "label": "Session state probe",
-      "description": "Asks the agent to reflect on its own session context, surfacing any session-id, conversation-id, or metadata it exposes in its JSONL stream.",
-      "prompt": "What can you tell me about the current session or conversation context you are operating in? Include any IDs, timestamps, or metadata you have access to."
+      "event_class": "tool_auth",
+      "label": "Tool authorisation prompt",
+      "description": "Triggers a web search requiring tool authorisation.",
+      "prompt": "Search the web for the current Node.js LTS version number"
     },
     {
       "id": "P10",
-      "event_class": "search_grep",
-      "label": "Codebase search",
-      "description": "Triggers a Grep or search tool call, producing a search event with pattern and path parameters for fingerprinting search strategy differences across agents.",
-      "prompt": "Search for the string 'fingerprinting' in all files under ant-probe/ and tell me which files contain it and on which lines."
+      "event_class": "error_retry",
+      "label": "Error and retry prompt",
+      "description": "Deliberately references a non-existent file to trigger an error event and observe whether the agent offers retry/abort/modify options.",
+      "prompt": "Read the file missing-file-that-does-not-exist.txt"
     }
   ]
 }

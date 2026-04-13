@@ -12,7 +12,7 @@ import { nanoid } from 'nanoid';
 import { execFileNoThrow } from '../utils/execFileNoThrow.js';
 import { CaptureSession } from './capture.js';
 import type {
-  AgentDriver,
+  ProbeHarness,
   DriverSpec,
   NormalisedEvent,
   ProbeDefinition,
@@ -52,7 +52,7 @@ function openDb(): any {
 // Drives an agent running inside a tmux pane by sending keys via `tmux send-keys`.
 // The CaptureSession (read-only, -r flag) listens on the same session.
 
-class TmuxAgentDriver implements AgentDriver {
+class TmuxAgentDriver implements ProbeHarness {
   private capture: CaptureSession;
   private buffer: NormalisedEvent[] = [];
   private idleResolve: ((sig: ProbeResult['exit_signal']) => void) | null = null;
@@ -111,7 +111,7 @@ class TmuxAgentDriver implements AgentDriver {
 
 // ─── Driver factory ───────────────────────────────────────────────────────────
 
-function createDriver(spec: DriverSpec): AgentDriver {
+function createDriver(spec: DriverSpec): ProbeHarness {
   switch (spec.driver_type) {
     case 'tmux':
       return new TmuxAgentDriver(spec);
@@ -135,7 +135,7 @@ export interface ProbeRunnerOptions {
 export class ProbeRunner {
   private db: ReturnType<typeof openDb>;
   private probes: ProbeDefinition[];
-  private driver: AgentDriver;
+  private driver: ProbeHarness;
   private inter_probe_pause_ms: number;
 
   constructor(private opts: ProbeRunnerOptions) {
@@ -212,8 +212,8 @@ export class ProbeRunner {
     const events      = this.driver.drainOutput();
     const duration_ms = Date.now() - start;
 
-    const raw_output = events.map(e => e.raw).join('\n');
-    const normalised = events.filter(e => e.type === 'output').map(e => e.text).join('\n');
+    const raw_output = events.map((e: NormalisedEvent) => e.raw).join('\n');
+    const normalised = events.filter((e: NormalisedEvent) => e.type === 'output').map((e: NormalisedEvent) => e.text).join('\n');
 
     return {
       id:          nanoid(),

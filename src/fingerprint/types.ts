@@ -1,19 +1,19 @@
 // ANT Fingerprinting Pipeline — shared TypeScript types
 // File: src/fingerprint/types.ts
+//
+// EventClass matches the 7 normalised classes from the ANT spec.
+// AgentDriver interface matches spec exactly: detect / respond / isSettled.
 
-// ─── Event classes ────────────────────────────────────────────────────────────
+// ─── Normalised event classes (from spec) ─────────────────────────────────────
 
 export type EventClass =
-  | 'tool_use'
-  | 'tool_result'
-  | 'text_message'
-  | 'error_recovery'
-  | 'multi_step_reasoning'
-  | 'file_read'
-  | 'file_write'
-  | 'bash_execution'
-  | 'session_lifecycle'
-  | 'search_grep';
+  | 'permission_request'   // agent asking to read/write/execute → Approve/Deny card
+  | 'multi_choice'         // numbered or tab-able options → Button group
+  | 'confirmation'         // yes/no, proceed/cancel → Confirm/Cancel dialog
+  | 'free_text'            // agent asking for typed input → Inline text input
+  | 'tool_auth'            // authorising a specific tool use → Tool auth card
+  | 'progress'             // streaming / long-running task → Progress indicator
+  | 'error_retry';         // agent hit an error, needs direction → Retry/Abort/Modify
 
 // ─── Normalised event ─────────────────────────────────────────────────────────
 // A single parsed event extracted from a tmux control-mode capture burst.
@@ -70,18 +70,65 @@ export interface DriverSpec {
   updated_at: string;
 }
 
-// ─── Agent driver (runtime) ───────────────────────────────────────────────────
-// The live object instantiated by the runner from a DriverSpec.
+// ─── Raw types (inputs to AgentDriver methods) ───────────────────────────────
+
+/** A single event from the capture pipeline — tmux output line or JSONL record. */
+export interface RawEvent {
+  source: 'tmux_output' | 'jsonl';
+  ts: number;           // epoch ms
+  text: string;         // ANSI-stripped tmux line, or raw JSONL string
+  raw: string;          // original bytes before stripping
+}
+
+/** The user's response to an interactive event. */
+export type UserChoice =
+  | { type: 'approve' }
+  | { type: 'deny' }
+  | { type: 'select'; index: number }          // for multi_choice: 0-based index
+  | { type: 'text'; value: string }            // for free_text
+  | { type: 'confirm'; yes: boolean }          // for confirmation
+  | { type: 'retry' }
+  | { type: 'abort' };
+
+/** A window of recent raw output used to check settled state. */
+export interface RawOutput {
+  lines: RawEvent[];
+  last_ts: number;
+}
+
+// ─── Agent driver interface (from spec) ──────────────────────────────────────
+// Every driver — Claude Code, Gemini CLI, Ollama, etc. — implements this.
+// The ANT event bus calls these methods; it never contains agent-specific logic.
 
 export interface AgentDriver {
+  /**
+   * Inspect a raw event (tmux output line or JSONL record) and return a
+   * NormalisedEvent if this is an interactive event, or null if it is not.
+   */
+  detect(raw: RawEvent): NormalisedEvent | null;
+
+  /**
+   * Send the user's response back to the agent in its expected input format
+   * (tmux send-keys, JSONL write, etc.).
+   */
+  respond(event: NormalisedEvent, choice: UserChoice): Promise<void>;
+
+  /**
+   * Determine whether the interactive event has been resolved — the agent has
+   * accepted the response and moved on.
+   */
+  isSettled(event: NormalisedEvent, output: RawOutput): boolean;
+}
+
+// ─── Probe runner interface (orchestration layer above AgentDriver) ───────────
+// The runner uses sendPrompt/waitForIdle/drainOutput — not part of the spec
+// AgentDriver interface, but needed by the fingerprinting harness.
+
+export interface ProbeHarness {
   spec: DriverSpec;
-  /** Inject a prompt string into the target agent's input. */
   sendPrompt(prompt: string): Promise<void>;
-  /** Wait until the agent has finished responding (idle or prompt detected). */
   waitForIdle(timeout_ms?: number): Promise<'idle_timeout' | 'prompt_detected' | 'error'>;
-  /** Drain all buffered output since the last call. */
   drainOutput(): NormalisedEvent[];
-  /** Clean up resources (close tmux control socket, etc.). */
   dispose(): void;
 }
 

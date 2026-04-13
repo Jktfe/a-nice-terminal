@@ -1,0 +1,201 @@
+{
+  "agent": "claude-code",
+  "version_tested": "2.1.89",
+  "launch_command": "claude",
+  "capture_source": "tmux_output",
+  "probe_date": "2026-04-13",
+  "notes": "See NOTES.md for deviations from spec predictions.",
+
+  "events": [
+    {
+      "class": "permission_request",
+      "subclass": "write",
+      "label": "File write/create authorisation",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "Do you want to (create|edit) .+\\?",
+        "context_pattern": "─{10,}\\s+(Create file|Edit file)",
+        "notes": "Wide ─ divider followed by 'Create file' or 'Edit file' header. Diff view shown between ╌ separators. Question line asks 'Do you want to create/edit <file>?'"
+      },
+      "extraction": {
+        "file_path": "Second line of header block (after 'Create file' / 'Edit file')",
+        "diff_content": "Lines between ╌ separators",
+        "options": ["Yes", "Yes, allow all edits during this session", "No"],
+        "option_pattern": "❯ 1\\. Yes"
+      },
+      "response": {
+        "method": "send_keys",
+        "approve": "",
+        "approve_always": "2\n",
+        "deny": "3\n",
+        "notes": "Empty Enter (no text) confirms pre-highlighted option 1 (Yes). Sending '1\\n' also works. '2\\n' grants session-wide write permission."
+      },
+      "settled_signal": "The TUI box disappears and a new ⏺ line appears with 'Wrote N lines to <file>' or 'Created <file>'"
+    },
+
+    {
+      "class": "permission_request",
+      "subclass": "execute",
+      "label": "Bash command authorisation",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "This command requires approval",
+        "context_pattern": "─{10,}\\s+Bash command",
+        "notes": "Wide ─ divider followed by 'Bash command' header. The command is shown verbatim, with a one-line natural language description below. Question reads 'Do you want to proceed?'"
+      },
+      "extraction": {
+        "command": "First indented line after 'Bash command' header",
+        "description": "Second indented line (natural language label)",
+        "options": ["Yes", "Yes, and don't ask again for: bash:*", "No"],
+        "option_pattern": "❯ 1\\. Yes"
+      },
+      "response": {
+        "method": "send_keys",
+        "approve": "",
+        "approve_always": "2\n",
+        "deny": "3\n"
+      },
+      "settled_signal": "TUI box disappears; '⎿  Done' or command output appears"
+    },
+
+    {
+      "class": "permission_request",
+      "subclass": "read",
+      "label": "File read (NOT TRIGGERED in 2.1.89)",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": null,
+        "notes": "DEVIATION FROM SPEC: Claude Code 2.1.89 auto-reads files without a permission request. The probe 'Read the contents of test-file.txt' completed without any TUI prompt. The 'permission_request (read)' event class does not exist in this version."
+      },
+      "extraction": null,
+      "response": null,
+      "settled_signal": "n/a"
+    },
+
+    {
+      "class": "tool_auth",
+      "label": "External tool authorisation (Web Search, MCP, etc.)",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "Do you want to proceed\\?",
+        "context_pattern": "─{10,}\\s+Tool use",
+        "notes": "Same TUI structure as bash permission_request, but header is 'Tool use' not 'Bash command'. Seen for Web Search. Likely also for MCP tools. Option 2 grants directory-scoped permanent permission."
+      },
+      "extraction": {
+        "tool_name": "First line of content block (e.g. 'Web Search(\"...\")')",
+        "description": "Second line: 'Claude wants to ...'",
+        "options": ["Yes", "Yes, and don't ask again for <tool> in <dir>", "No"],
+        "option_pattern": "❯ 1\\. Yes"
+      },
+      "response": {
+        "method": "send_keys",
+        "approve": "",
+        "approve_always": "2\n",
+        "deny": "3\n"
+      },
+      "settled_signal": "TUI box disappears; tool result line appears (e.g. '⎿  Did 1 search in Xs')"
+    },
+
+    {
+      "class": "multi_choice",
+      "label": "Numbered or list selection (text-level, no TUI)",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "^\\s*(\\d+)\\.\\s+\\S",
+        "context_pattern": "(which one|please choose|pick one|choose one|select one)",
+        "notes": "DEVIATION FROM SPEC: Claude Code 2.1.89 does NOT render a native Ink TUI for multi_choice. Both P04 (numbered) and P05 (tab-able) produced plain-text numbered lists in the conversation followed by a question. The cursor then waits at ❯ for text input. There is no keyboard-navigable selector."
+      },
+      "extraction": {
+        "options": "Lines matching '^\\s*\\d+\\.\\s+\\S' after last ⏺ block",
+        "question": "Last line before ❯ prompt that contains '?' character",
+        "notes": "Typically 3–6 options. The model always uses 1-indexed numbering."
+      },
+      "response": {
+        "method": "send_keys",
+        "format": "{1-based-number}\n",
+        "notes": "Type the option number followed by Enter at the ❯ prompt."
+      },
+      "settled_signal": "Agent responds with confirmation of choice (e.g. 'Good choice — ...') and new ⏺ or ❯ appears"
+    },
+
+    {
+      "class": "confirmation",
+      "label": "Destructive action confirmation (text-level)",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "(shall I go ahead|want me to proceed|confirm.*delete|are you sure)",
+        "notes": "DEVIATION FROM SPEC: Claude Code 2.1.89 does NOT render a native yes/no TUI dialog for confirmation. P06 showed the model asks 'Shall I go ahead?' as plain text. The actual destructive operation then triggers the standard bash permission_request TUI separately."
+      },
+      "extraction": {
+        "question": "Last conversational line before ❯ prompt containing confirmation phrasing",
+        "implicit_options": ["yes", "no"]
+      },
+      "response": {
+        "method": "send_keys",
+        "confirm": "yes\n",
+        "cancel": "no\n"
+      },
+      "settled_signal": "For confirmation: agent proceeds to the operation (which then triggers permission_request TUI). For cancellation: agent acknowledges and returns to ❯"
+    },
+
+    {
+      "class": "free_text",
+      "label": "Open-ended question requiring typed input",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "\\?\\s*$",
+        "context_pattern": "last ⏺ block ends with a question; status bar shows '? for shortcuts' (idle state, not running)",
+        "notes": "The model outputs a question ending in '?' and waits at ❯ for user input. Ambiguity with multi_choice: multi_choice also ends with '?'. Discriminator: multi_choice has numbered list lines (^\\s*\\d+\\.) above the question; free_text does not."
+      },
+      "extraction": {
+        "question": "Last non-empty line of the most recent ⏺ block",
+        "context": "Preceding ⏺ blocks for additional context"
+      },
+      "response": {
+        "method": "send_keys",
+        "format": "{typed-answer}\n"
+      },
+      "settled_signal": "Agent acknowledges the answer and continues (new ⏺ block or tool call)"
+    },
+
+    {
+      "class": "progress",
+      "label": "Streaming / long-running task indicator",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "[✽✳✻✶·★⏺]\\s+\\w+…",
+        "notes": "Claude Code 2.1.89 uses rotating Unicode spinner characters (✽ ✳ ✻ ✶ · ★) followed by a gerund word ending in '…' (e.g. 'Synthesizing…', 'Beaming…', 'Cerebrating…'). This appears in the conversation area while the model is generating. Also: '⏺ Reading N file…', '⏺ Searching for N pattern…' for tool operations in progress."
+      },
+      "extraction": {
+        "spinner_chars": ["✽", "✳", "✻", "✶", "·", "★", "⏺"],
+        "status_bar_pattern": "esc to interrupt",
+        "notes": "Status bar switches from '? for shortcuts' to 'esc to interrupt' during active generation."
+      },
+      "response": {
+        "method": "none",
+        "notes": "progress is not an interactive event — no response needed. It resolves when spinner disappears and status bar returns to '? for shortcuts'."
+      },
+      "settled_signal": "Spinner characters absent from output; status bar shows '? for shortcuts'; ❯ prompt visible"
+    },
+
+    {
+      "class": "error_retry",
+      "label": "File-not-found or tool error with recovery offer",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "(doesn't exist|does not exist|not found|failed|error).*(would you like|want me to|shall I|did you mean)",
+        "notes": "DEVIATION FROM SPEC: Claude Code 2.1.89 does NOT render a Retry/Abort/Modify TUI card after errors. P10 showed the model silently handles the error (reads the file, gets no content), then generates a text offer: 'That file doesn't exist... Would you like me to create it, or did you mean a different file?' — a free_text event."
+      },
+      "extraction": {
+        "error_description": "Sentence(s) describing what went wrong",
+        "recovery_options": "Inferred from the offer text (create it / try another file / etc.)"
+      },
+      "response": {
+        "method": "send_keys",
+        "format": "{typed-instruction}\n",
+        "notes": "User types a new instruction at ❯. Effectively a free_text response."
+      },
+      "settled_signal": "Agent acknowledges and proceeds or asks a follow-up question"
+    }
+  ]
+}
