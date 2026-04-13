@@ -125,8 +125,10 @@ export async function POST({ params, request }: RequestEvent<{ id: string }>) {
           if (terminal.id === sender_id) continue;  // don't echo to the sender
           const rawMode = role === 'user' && terminal.auto_forward_chat !== 0;
           if (rawMode) {
-            // Raw keystrokes: content + \r. Answers (y)/n prompts, types commands, etc.
-            ptyClient.write(terminal.id, content + '\r');
+            // Raw keystrokes: strip trailing whitespace/newlines from chat input,
+            // then append \r (carriage return — what terminals expect for "Enter").
+            // Chat clients may include a trailing \n from the submit keypress.
+            ptyClient.write(terminal.id, content.trimEnd() + '\r');
           } else {
             // AI-to-AI or explicit off: colored notification block
             ptyClient.write(terminal.id, notification);
