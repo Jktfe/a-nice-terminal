@@ -12,7 +12,13 @@
     "dev:full": "lsof -ti TCP:6458 | xargs kill -TERM 2>/dev/null; concurrently -n vite,server -c cyan,green \"vite build --watch\" \"nodemon --watch build --delay 1.5 --exec 'node --import ./node_modules/tsx/dist/esm/index.mjs ./server.ts'\"",
     "daemon:start": "bun src/lib/server/pty-daemon.ts &",
     "daemon:stop": "lsof -ti UNIX:$HOME/.ant/pty.sock | xargs kill -TERM 2>/dev/null || true",
-    "idle-tick": "bun scripts/idle-tick.ts"
+    "idle-tick": "bun scripts/idle-tick.ts",
+    "fingerprint": "tsx src/fingerprint/runner.ts",
+    "fingerprint:claude": "tsx src/fingerprint/runner.ts --agent claude-code",
+    "fingerprint:gemini": "tsx src/fingerprint/runner.ts --agent gemini-cli",
+    "fingerprint:codex": "tsx src/fingerprint/runner.ts --agent codex-cli",
+    "fingerprint:all": "tsx src/fingerprint/runner.ts --all",
+    "fingerprint:list": "tsx src/fingerprint/runner.ts --list"
   },
   "dependencies": {
     "@sveltejs/adapter-node": "^5.5.4",

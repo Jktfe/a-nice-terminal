@@ -246,14 +246,122 @@ export class ProbeRunner {
 }
 
 // ─── CLI entry point ──────────────────────────────────────────────────────────
-// Usage: npx tsx src/fingerprint/runner.ts --session=ant --driver=claude-code-tmux
-// Optional: --probes=P01,P03  --timeout=10000  --name="My Agent"
+//
+// Usage:
+//   npx tsx src/fingerprint/runner.ts --list
+//   npx tsx src/fingerprint/runner.ts --agent claude-code --session ant
+//   npx tsx src/fingerprint/runner.ts --all --timeout 15000
+//   npx tsx src/fingerprint/runner.ts --agent gemini-cli --session probe-gemini --diff
+//
+// Legacy single-session usage (still supported):
+//   npx tsx src/fingerprint/runner.ts --session=ant --driver=claude-code-tmux
 
 if (process.argv[1]?.endsWith('runner.ts') || process.argv[1]?.endsWith('runner.js')) {
-  const args = Object.fromEntries(
-    process.argv.slice(2).map(a => a.replace(/^--/, '').split('=')).filter(([k]) => k)
-  );
+  main().catch(err => { console.error('[fingerprint] fatal:', err); process.exit(1); });
+}
 
+async function main(): Promise<void> {
+  // Parse args — support both --key=value and --key value forms
+  const argv = process.argv.slice(2);
+  const args: Record<string, string> = {};
+  const flags = new Set<string>();
+
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a.startsWith('--')) {
+      const eq = a.indexOf('=');
+      if (eq !== -1) {
+        args[a.slice(2, eq)] = a.slice(eq + 1);
+      } else {
+        const next = argv[i + 1];
+        if (next && !next.startsWith('--')) {
+          args[a.slice(2)] = next;
+          i++;
+        } else {
+          flags.add(a.slice(2));
+        }
+      }
+    }
+  }
+
+  // ── --list ─────────────────────────────────────────────────────────────────
+  if (flags.has('list') || args['list'] !== undefined) {
+    const { AGENTS, checkAvailability } = await import('./agent-registry.js');
+    const { detectVersions }            = await import('./version-detector.js');
+    const { formatVersionReport }       = await import('./spec-diff.js');
+
+    await checkAvailability(AGENTS);
+    const versionResults = await detectVersions(AGENTS.filter(a => a.available));
+
+    const vmap = new Map(versionResults.map(v => [v.agent, v]));
+
+    const PAD = { name: 14, cmd: 36, tier: 5 };
+    const header =
+      'name'.padEnd(PAD.name) + 'tier'.padEnd(PAD.tier) +
+      'available'.padEnd(10) + 'spec'.padEnd(10) +
+      'detected'.padEnd(12) + 'launch command';
+    console.log('\n── ANT Agent Registry ──────────────────────────────────────────');
+    console.log(header);
+    console.log('─'.repeat(90));
+
+    for (const a of AGENTS) {
+      const v     = vmap.get(a.name);
+      const avail = a.available ? '✓' : '✗';
+      const spec  = a.specPath ? '✓' : '–';
+      const ver   = v?.detected ?? '–';
+      const stale = v?.stale ? ' ⚠' : '';
+      console.log(
+        a.name.padEnd(PAD.name) +
+        String(a.tier).padEnd(PAD.tier) +
+        avail.padEnd(10) +
+        spec.padEnd(10) +
+        (ver + stale).padEnd(12) +
+        a.launchCommand +
+        (a.notes ? `  (${a.notes})` : ''),
+      );
+    }
+    console.log('');
+    console.log(formatVersionReport(versionResults));
+    console.log('');
+    return;
+  }
+
+  // ── --all ──────────────────────────────────────────────────────────────────
+  if (flags.has('all') || args['all'] !== undefined) {
+    const { AGENTS, checkAvailability } = await import('./agent-registry.js');
+    await checkAvailability(AGENTS);
+
+    const available = AGENTS.filter(a => a.available && a.tier === 1); // Tier 1 only for --all
+    console.log(`[fingerprint] --all: running ${available.length} Tier 1 agents`);
+
+    for (const agent of available) {
+      const sessionName = args['session'] ?? `ant-${agent.name}`;
+      console.log(`\n[fingerprint] → ${agent.name} (session: ${sessionName})`);
+      await runAgentSpec(agent.name, sessionName, args);
+    }
+    return;
+  }
+
+  // ── --agent <name> ─────────────────────────────────────────────────────────
+  if (args['agent']) {
+    const { findAgent, checkAvailability } = await import('./agent-registry.js');
+    const entry = findAgent(args['agent']);
+    if (!entry) {
+      console.error(`[fingerprint] unknown agent "${args['agent']}". Run --list to see available agents.`);
+      process.exit(1);
+    }
+    await checkAvailability([entry]);
+    if (!entry.available) {
+      console.error(`[fingerprint] agent "${entry.name}" is not available on this machine.`);
+      process.exit(1);
+    }
+
+    const sessionName = args['session'] ?? `ant-${entry.name}`;
+    await runAgentSpec(entry.name, sessionName, args);
+    return;
+  }
+
+  // ── Legacy: --session / --driver ──────────────────────────────────────────
   const spec: DriverSpec = {
     id:          args['driver']  ?? 'claude-code-tmux',
     name:        args['name']    ?? 'Claude Code (tmux)',
@@ -271,9 +379,83 @@ if (process.argv[1]?.endsWith('runner.ts') || process.argv[1]?.endsWith('runner.
     probeIds: args['probes'] ? args['probes'].split(',') : undefined,
   });
 
-  runner.run()
-    .then(run => { console.log(`\n[fingerprint] done — ${run.results.length} probes, run_id=${run.run_id}`); process.exit(0); })
-    .catch(err => { console.error('[fingerprint] failed:', err); process.exit(1); });
+  const run = await runner.run();
+  console.log(`\n[fingerprint] done — ${run.results.length} probes, run_id=${run.run_id}`);
+  process.exit(0);
+}
+
+// ─── Agent-aware probe run ────────────────────────────────────────────────────
+
+async function runAgentSpec(
+  agentName: string,
+  sessionName: string,
+  args: Record<string, string>,
+): Promise<void> {
+  const { findAgent }        = await import('./agent-registry.js');
+  const { detectVersion }    = await import('./version-detector.js');
+  const { formatDiffReport, formatVersionReport } = await import('./spec-diff.js');
+
+  const entry = findAgent(agentName)!;
+
+  // Version check
+  const vr = await detectVersion(entry, entry.specPath);
+  console.log(`[fingerprint] ${agentName} — detected v${vr.detected ?? 'unknown'}, spec v${vr.specVersion ?? 'none'}`);
+  if (vr.stale) {
+    console.warn(`[fingerprint] ⚠  version mismatch — driver spec may be stale (was v${vr.specVersion}, now v${vr.detected})`);
+  }
+
+  const spec: DriverSpec = {
+    id:          `${agentName}-tmux`,
+    name:        entry.name,
+    driver_type: 'tmux',
+    config: {
+      session:         sessionName,
+      idle_timeout_ms: args['timeout'] ? parseInt(args['timeout'], 10) : 15_000,
+    } satisfies TmuxDriverConfig,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  const runner = new ProbeRunner({
+    driverSpec: spec,
+    probeIds: args['probes'] ? args['probes'].split(',') : undefined,
+  });
+
+  const run = await runner.run();
+  console.log(`\n[fingerprint] ${agentName} done — ${run.results.length} probes, run_id=${run.run_id}`);
+
+  // ── --diff ─────────────────────────────────────────────────────────────────
+  const wantDiff = Object.keys(args).includes('diff') || process.argv.includes('--diff');
+  if (wantDiff && entry.specPath) {
+    // Build a summary of event classes seen in this run vs documented in spec
+    const seenClasses  = new Set<string>(run.results.map(r => r.event_class as string));
+    const { readFileSync } = await import('fs');
+    const { join } = await import('path');
+
+    let specClasses: Set<string> = new Set();
+    try {
+      const spec_ = JSON.parse(readFileSync(join(process.cwd(), entry.specPath), 'utf8'));
+      specClasses = new Set<string>(
+        (spec_.events as Array<{ class: string }>)
+          .map((e: { class: string }) => e.class)
+          .filter((c: string) => c !== null),
+      );
+    } catch { /* no spec */ }
+
+    console.log('\n── Probe coverage diff ────────────────────────────────────');
+    const allClasses = new Set<string>([...seenClasses, ...specClasses]);
+    for (const cls of allClasses) {
+      const inSpec  = specClasses.has(cls) ? '✓ spec' : '      ';
+      const inRun   = seenClasses.has(cls)  ? '✓ run ' : '      ';
+      const gap     = specClasses.has(cls) && !seenClasses.has(cls) ? '  ← not triggered this run' : '';
+      console.log(`  ${inSpec}  ${inRun}  ${cls}${gap}`);
+    }
+    console.log('');
+
+    console.log(formatVersionReport([vr]));
+  }
+
+  process.exit(0);
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
