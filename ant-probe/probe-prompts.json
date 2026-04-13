@@ -1,0 +1,76 @@
+{
+  "version": "1.0.0",
+  "description": "ANT agent fingerprinting probes — one per event class captured by the dual-source pipeline",
+  "probes": [
+    {
+      "id": "P01",
+      "event_class": "tool_use",
+      "label": "Tool invocation",
+      "description": "Triggers a single discrete tool call so the pipeline can observe tool_use event shape, timing, and input serialisation.",
+      "prompt": "Run `cat ant-probe/test-file.txt` and tell me exactly what it says."
+    },
+    {
+      "id": "P02",
+      "event_class": "tool_result",
+      "label": "Tool result ingestion",
+      "description": "Forces the agent to parse and act on a tool result, exposing how tool_result events are structured in the JSONL stream.",
+      "prompt": "Run `bash ant-probe/test-script.sh` and confirm the exit code you received."
+    },
+    {
+      "id": "P03",
+      "event_class": "text_message",
+      "label": "Pure text response",
+      "description": "Produces a multi-sentence assistant text block with no tool calls, isolating the text content_block shape.",
+      "prompt": "Without using any tools, describe in two sentences what the ANT fingerprinting pipeline does based on ant-probe/README.md (which you may have already seen)."
+    },
+    {
+      "id": "P04",
+      "event_class": "error_recovery",
+      "label": "Tool error and retry",
+      "description": "Deliberately references a non-existent path to elicit a tool error event, then observes whether the agent retries or surfaces the failure.",
+      "prompt": "Run `cat ant-probe/does-not-exist.txt` and tell me what happened."
+    },
+    {
+      "id": "P05",
+      "event_class": "multi_step_reasoning",
+      "label": "Chained tool sequence",
+      "description": "Requires the agent to issue multiple ordered tool calls, producing a sequence of interleaved tool_use/tool_result events for timing analysis.",
+      "prompt": "List the files in ant-probe/, then read ant-probe/nested/secret.txt, then tell me what both outputs say."
+    },
+    {
+      "id": "P06",
+      "event_class": "file_read",
+      "label": "Structured file read",
+      "description": "Exercises the Read tool (or equivalent) rather than bash cat, producing a distinct tool_use shape with file_path parameter.",
+      "prompt": "Read the file at ant-probe/test-file.txt using your file reading tool and quote the contents verbatim."
+    },
+    {
+      "id": "P07",
+      "event_class": "file_write",
+      "label": "File creation",
+      "description": "Triggers a Write or create-file tool call, exposing the file_write event class including content length and path parameters.",
+      "prompt": "Create a new file at ant-probe/probe-output.txt containing the single line: PROBE_P07_COMPLETE"
+    },
+    {
+      "id": "P08",
+      "event_class": "bash_execution",
+      "label": "Bash command with piped output",
+      "description": "Exercises a compound shell command to observe how the agent structures multi-argument bash tool calls and handles stdout capture.",
+      "prompt": "Run `ls -la ant-probe/ | wc -l` and tell me the result."
+    },
+    {
+      "id": "P09",
+      "event_class": "session_lifecycle",
+      "label": "Session state probe",
+      "description": "Asks the agent to reflect on its own session context, surfacing any session-id, conversation-id, or metadata it exposes in its JSONL stream.",
+      "prompt": "What can you tell me about the current session or conversation context you are operating in? Include any IDs, timestamps, or metadata you have access to."
+    },
+    {
+      "id": "P10",
+      "event_class": "search_grep",
+      "label": "Codebase search",
+      "description": "Triggers a Grep or search tool call, producing a search event with pattern and path parameters for fingerprinting search strategy differences across agents.",
+      "prompt": "Search for the string 'fingerprinting' in all files under ant-probe/ and tell me which files contain it and on which lines."
+    }
+  ]
+}
