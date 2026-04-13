@@ -325,13 +325,17 @@ function installSilenceHook(sessionId: string) {
     execFileSync(TMUX, [
       'set-window-option', '-t', sessionId, 'monitor-silence', '3',
     ], { stdio: 'pipe' });
-    // Suppress the visual status-bar flag toggle that monitor-silence causes.
-    // Without this, every 3s-silence → output cycle redraws the status bar
-    // (tmux's status-format references #{window_silence_flag}), which causes
-    // visible flicker on mobile xterm.js renderers (antios). The alert-silence
-    // hook still fires — silence-action only controls the visual indicator.
+    // Suppress ALL tmux status-bar redraws that cause mobile xterm.js flicker:
+    // 1. silence-action=none: don't visually flag windows on silence transitions
+    // 2. status=off: disable tmux's own status bar entirely — ANT renders its
+    //    own session header in the UI, so the native tmux bar is redundant and
+    //    its flag-toggling format (#{window_silence_flag}, #{window_activity_flag})
+    //    causes continuous redraws on TUIs that paint frequently.
     execFileSync(TMUX, [
       'set-option', '-t', sessionId, 'silence-action', 'none',
+    ], { stdio: 'pipe' });
+    execFileSync(TMUX, [
+      'set-option', '-t', sessionId, 'status', 'off',
     ], { stdio: 'pipe' });
     // Shell-quote the session ID defensively. tmux session IDs are
     // alphanumeric + `-` in practice, but a stray `'` would break run-shell.
