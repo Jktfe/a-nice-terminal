@@ -332,27 +332,48 @@ getPtyManager().then(async ptm => {
   });
 
   // Signal 2: pane_title polling → chat. 2s interval.
-  // Normalise by stripping leading spinner/status glyphs so Claude Code's
-  // braille-spinner animation frames (⠂⠃⠁⠉⠈⠐⠠⠄) don't each count as a new
-  // title. Also ignore empty titles and the default hostname-as-title set
-  // by tmux when no OSC sequence has ever been emitted.
+  // ─── Title poller — 2s poll, 30s post cooldown per session ─────────────
+  //
+  // Strips ALL leading glyphs (braille spinners + state indicators ✳◇✦ etc.)
+  // for COMPARISON so ✳↔⠂ toggles don't spam. But INCLUDES the glyph in the
+  // posted content for display.
+  //
+  // When a meaningful change is detected:
+  //   1. Captures the last ~8 lines of terminal output (pane tail)
+  //   2. Detects whether this looks like an "attention needed" moment:
+  //      - title contains "action required" / "awaiting" / "input"
+  //      - CLI went idle (✳ / ◇ Ready)
+  //   3. Posts enriched content: title + context tail
+  //   4. Rate-limited to max 1 post per session per 30s
+  //
   const lastTitleBySession = new Map<string, string>();
-  function normalizeTitle(raw: string): string {
-    // Strip only braille-spinner animation frames (U+2800–U+28FF) which cycle
-    // every ~100ms. Keep ✳◇◆ etc. — those are STATE indicators (idle vs.
-    // thinking) and their transitions are the signal we want to surface.
+  const lastTitlePostTime = new Map<string, number>();
+  const TITLE_POST_COOLDOWN_MS = 30_000;
+
+  // Strip ALL leading glyphs for comparison — braille + status indicators.
+  // This prevents ✳↔⠂ oscillation from counting as a semantic change.
+  function normalizeTitleForCompare(raw: string): string {
     return raw
-      .replace(/^[\u2800-\u28FF]+\s*/u, '')
+      .replace(/^[\u2800-\u28FF✳◇◆▪✻●○✦✢⏺]+\s*/u, '')
       .trim();
   }
+
   const hostnameRaw = (process.env.HOSTNAME || '').trim();
   function isDefaultTitle(t: string): boolean {
     if (!t) return true;
     if (t === hostnameRaw) return true;
     if (hostnameRaw && (t === `${hostnameRaw}.local` || `${t}.local` === hostnameRaw)) return true;
-    // Default "user@host:cwd" shell title set by many .zshrc PROMPT configs.
     if (/^\S+@\S+:/.test(t)) return true;
     return false;
+  }
+
+  // Detect if a title suggests the terminal needs user attention.
+  function isAttentionTitle(raw: string): boolean {
+    const lower = raw.toLowerCase();
+    return (
+      /action\s*required|awaiting|needs?\s*input|waiting\s*for/i.test(lower) ||
+      /^\s*[✳◇]/.test(raw)  // idle/ready indicator — might be waiting
+    );
   }
 
   setInterval(async () => {
@@ -364,17 +385,41 @@ getPtyManager().then(async ptm => {
       const sid: string = row.id;
       const chatId: string | null = row.linked_chat_id;
       if (!chatId) continue;
+
       let title = '';
       try { title = await ptm.title(sid); } catch { continue; }
       if (!title) continue;
+
+      // Raw-equality check first (cheapest)
       const prev = lastTitleBySession.get(sid) ?? '';
       if (title === prev) continue;
-      const normNew = normalizeTitle(title);
-      const normPrev = normalizeTitle(prev);
       lastTitleBySession.set(sid, title);
-      if (normNew === normPrev) continue;    // only the spinner frame changed
-      if (isDefaultTitle(normNew)) continue; // plain host/shell title, no semantic info
-      postToLinkedChat(sid, chatId, normNew, 'title');
+
+      // Semantic-equality check (strips ALL glyphs including ✳/◇)
+      const normNew = normalizeTitleForCompare(title);
+      const normPrev = normalizeTitleForCompare(prev);
+      if (normNew === normPrev) continue;
+      if (isDefaultTitle(normNew)) continue;
+
+      // Rate-limit: max 1 post per 30s per session
+      const now = Date.now();
+      const lastPost = lastTitlePostTime.get(sid) ?? 0;
+      if (now - lastPost < TITLE_POST_COOLDOWN_MS) continue;
+      lastTitlePostTime.set(sid, now);
+
+      // Enrich with terminal context — last ~8 lines of pane output
+      let tail = '';
+      try { tail = await ptm.capture(sid, 8); } catch {}
+      const tailClean = tail.trim();
+
+      // Build the message content
+      const attention = isAttentionTitle(title);
+      const header = attention ? `⚠️ ${normNew}` : `📋 ${normNew}`;
+      const content = tailClean
+        ? `${header}\n\n${tailClean}`
+        : header;
+
+      postToLinkedChat(sid, chatId, content, attention ? 'prompt' : 'title');
     }
   }, 2000);
 
