@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
+    "postbuild": "lsof -ti TCP:${ANT_PORT:-6458} | xargs kill -TERM 2>/dev/null && sleep 1 && nohup node --import ./node_modules/tsx/dist/esm/index.mjs ./server.ts >> /tmp/ant-server.log 2>&1 & disown || true",
     "preview": "vite preview",
     "start": "node --import ./node_modules/tsx/dist/esm/index.mjs ./server.ts",
     "start:prod": "npm run build && npm run start",
