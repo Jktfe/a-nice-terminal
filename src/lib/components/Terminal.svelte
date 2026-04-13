@@ -511,6 +511,9 @@
     <!-- Back -->
     <button onclick={() => history.back()} class="w-[34px] h-[34px] rounded-lg bg-[#1E2228] flex items-center justify-center text-[#8B949E] hover:bg-[#2A2F38]">←</button>
 
+    <!-- Refresh -->
+    <button onclick={() => { if (ws && ws.readyState === WebSocket.OPEN) { ws.send(JSON.stringify({ type: 'join_session', sessionId, spawnPty: true, cols: terminal?.cols ?? 120, rows: terminal?.rows ?? 30 })); } }} class="w-[34px] h-[34px] rounded-lg bg-[#1E2228] flex items-center justify-center text-[#8B949E] hover:bg-[#2A2F38]" title="Refresh terminal">↻</button>
+
     <!-- Input pill (tap target for slow edit) -->
     <button
       onclick={() => { slowEdit = true; }}
