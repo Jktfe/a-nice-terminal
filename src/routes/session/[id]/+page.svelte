@@ -150,7 +150,8 @@
   async function postToLinkedChat() {
     if (!linkedChatId || !linkedChatInput.trim()) return;
     const text = linkedChatInput.trim();
-    await fetch(`/api/sessions/${linkedChatId}/messages`, {
+    linkedChatInput = '';
+    const res = await fetch(`/api/sessions/${linkedChatId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -158,11 +159,15 @@
         format: 'text', sender_id: sessionId, msg_type: 'message',
       }),
     });
+    const msg = await res.json();
+    // Optimistic append — WS message_created handler deduplicates by id
+    if (msg.id && !linkedChatMessages.find(m => m.id === msg.id)) {
+      linkedChatMessages = [...linkedChatMessages, msg];
+    }
     // Also inject into the terminal PTY — the CLI LLM running there sees it as stdin
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'terminal_input', sessionId, data: text + '\r' }));
     }
-    linkedChatInput = '';
   }
 
   // Wake a participant — send a targeted message from the current session to their handle
@@ -409,7 +414,7 @@
     if (!crossPostTarget || !crossPostText.trim()) return;
     const targetSess = allSessions.find(s => s.id === crossPostTarget);
     // Post to the CURRENT session with target handle — triggers PTY injection
-    await fetch(`/api/sessions/${sessionId}/messages`, {
+    const res = await fetch(`/api/sessions/${sessionId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -421,6 +426,11 @@
         msg_type: 'message',
       }),
     });
+    const msg = await res.json();
+    // Optimistic append — WS message_created handler deduplicates by id
+    if (msg.id && !msgStore.messages.find(m => m.id === msg.id)) {
+      msgStore.messages = [...msgStore.messages, msg];
+    }
     const name = targetSess?.display_name || targetSess?.name || 'session';
     crossPostText = '';
     crossPostTarget = null;
