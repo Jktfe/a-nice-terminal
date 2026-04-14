@@ -217,7 +217,7 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         role: 'user', content: text,
-        format: 'text', sender_id: sessionId, msg_type: 'message',
+        format: 'text', sender_id: null, msg_type: 'message',
       }),
     });
     const msg = await res.json();
