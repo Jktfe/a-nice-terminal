@@ -270,15 +270,16 @@ getPtyManager().then(async ptm => {
 
   // ─── Terminal output → linked chat (the "chat IS the terminal" path) ──────
   //
-  // Settled text from tmux control mode (%output, debounced 100ms in the
-  // daemon) streams into the linked chat as terminal_line messages. This is
-  // the primary rendering path — the chat pane shows terminal output as
-  // monospace text blocks, with interactive events as AgentEventCard cards.
+  // Settled text from tmux control mode (%output, debounced via capture-pane
+  // diff in the daemon). NOT posted to the chat — the chat is a curated
+  // interaction surface (agent events + user messages only). Terminal output
+  // lives in the "Terminal" text view (terminal_transcripts table).
+  //
+  // This handler feeds the agent event bus for interactive event detection.
+  // When the bus detects a permission prompt / question / etc., IT posts the
+  // agent_event message to the chat — that's the only path terminal content
+  // reaches the chat.
   ptm.onLine(async (sessionId: string, text: string) => {
-    const session = queries.getSession(sessionId);
-    if (!session?.linked_chat_id) return;
-    // Post to linked chat as terminal_line
-    postToLinkedChat(sessionId, session.linked_chat_id, text, 'terminal_line');
     // Feed to agent event bus for interactive event detection
     import('./src/lib/server/agent-event-bus.js')
       .then(({ feed }) => feed(sessionId, text))
