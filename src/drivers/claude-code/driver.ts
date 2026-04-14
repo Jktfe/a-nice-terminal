@@ -44,9 +44,11 @@ const CONFIRM_RE = /(shall I go ahead|want me to proceed|confirm.*delete|are you
 // Error + recovery offer
 const ERROR_RETRY_RE = /(doesn't exist|does not exist|not found|failed|error)[^]*?(would you like|want me to|shall I|did you mean)/is;
 
-// Free-text: a question with at least 10 chars of actual words before the `?`.
-// Avoids false positives on status bar text like "? for shortcuts" or short fragments.
+// Free-text: a question with substantial text before `?`.
+// Guards against false positives from Claude Code's own UI elements.
 const FREE_TEXT_RE = /[a-zA-Z]{3,}[^?]{6,}\?\s*$/;
+// Lines that are part of Claude Code's UI — never treat as interactive questions
+const UI_NOISE_RE = /(?:Task \d+:|✔|◼|⏵⏵|shift\+tab|esc to|for shortcuts|brew upgrade|Update available|Bramwick|tokens?\)|thought for)/i;
 
 // Progress: Claude Code spinner characters + gerund word
 const SPINNER_RE       = /[✽✳✻✶·★]\s+\w[^\n]*…/;
@@ -80,6 +82,10 @@ export class ClaudeCodeDriver implements AgentDriver {
    */
   detect(raw: RawEvent): NormalisedEvent | null {
     const { text, ts } = raw;
+
+    // Skip lines that are part of Claude Code's own UI — task lists, status bar,
+    // Bramwick snail, etc. These are never interactive events.
+    if (UI_NOISE_RE.test(text)) return null;
 
     // TUI permission/tool dialog — discriminate by window context when available
     if (OPTION_YES_RE.test(text)) {

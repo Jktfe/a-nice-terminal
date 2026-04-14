@@ -38,6 +38,7 @@ interface SessionState {
   buffer: RawEvent[];                       // ring buffer, last 50 lines
   pendingEvents: Map<string, { event: NormalisedEvent; msgId: string; chatId: string }>;
   debounceTimer: ReturnType<typeof setTimeout> | null;
+  lastPosted: Map<string, number> | null;   // cooldown: "sessionId:class" → timestamp
 }
 
 const sessions = new Map<string, SessionState>();
@@ -81,7 +82,7 @@ function stripAnsi(s: string): string {
 function getState(sessionId: string): SessionState {
   let s = sessions.get(sessionId);
   if (!s) {
-    s = { driver: null, driverSlug: null, buffer: [], pendingEvents: new Map(), debounceTimer: null };
+    s = { driver: null, driverSlug: null, buffer: [], pendingEvents: new Map(), debounceTimer: null, lastPosted: null };
     sessions.set(sessionId, s);
   }
   return s;
@@ -179,21 +180,29 @@ async function onDebounce(sessionId: string, state: SessionState): Promise<void>
     return;
   }
 
-  console.log(`[event-bus] DETECTED ${(event as any).class || event.type} in ${sessionId}`);
-
-  // Dedup: don't re-post if the same event class is already pending
   const eventClass = (event as any).class ?? event.type;
+  console.log(`[event-bus] DETECTED ${eventClass} in ${sessionId}`);
+
+  // Dedup: cooldown per event class — don't re-post the same class within 30s.
+  // This prevents rapid-fire detection from capture-pane diffs that keep
+  // showing the same screen content (spinner moves, same prompt stays).
+  const cooldownKey = `${sessionId}:${eventClass}`;
+  const now = Date.now();
+  const lastPost = state.lastPosted?.get(cooldownKey) ?? 0;
+  if (now - lastPost < 30_000) return;
+
+  // Also skip if same class is already pending (user hasn't responded yet)
   for (const [, pending] of state.pendingEvents) {
     if ((pending.event as any).class === eventClass || pending.event.type === eventClass) return;
   }
 
   // Post to linked chat
+  if (!state.lastPosted) state.lastPosted = new Map();
+  state.lastPosted.set(cooldownKey, now);
+
   const content = JSON.stringify(event);
   _postToChat(sessionId, session.linked_chat_id, content, 'agent_event');
-
-  // We need the message ID that was just created — derive it the same way
-  // postToLinkedChat does (random ID). For now, use event.ts as a lookup key.
-  // The actual integration will pass the msgId back.
+  console.log(`[event-bus] POSTED ${eventClass} to chat ${session.linked_chat_id}`);
 }
 
 /** Called from the messages endpoint when msg_type === 'agent_response'. */
