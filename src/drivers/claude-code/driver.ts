@@ -38,17 +38,17 @@ const OPTION_YES_RE = /❯\s+1\.\s+Yes/;
 const NUMBERED_LIST_RE  = /^\s*\d+\.\s+\S/m;
 const CHOICE_QUESTION_RE = /(which one|please choose|pick one|choose one|select one|which would you|which file)/i;
 
-// Confirmation: model asking for verbal yes/no before acting
-const CONFIRM_RE = /(shall I go ahead|want me to proceed|confirm.*delete|are you sure|shall I proceed|should I go ahead)/i;
+// Confirmation: model asking for verbal yes/no before acting, or a direct (y/n) prompt
+const CONFIRM_RE = /(shall I go ahead|want me to proceed|confirm.*delete|are you sure|shall I proceed|should I go ahead|\(y\/n\))/i;
 
 // Error + recovery offer
-const ERROR_RETRY_RE = /(doesn't exist|does not exist|not found|failed|error)[^]*?(would you like|want me to|shall I|did you mean)/is;
+const ERROR_RETRY_RE = /(doesn't exist|does not exist|not found|failed|error)[^]*?(would you like|want me to|shall I|did you mean|Enter to)/is;
 
 // Free-text: a question with substantial text before `?`.
 // Guards against false positives from Claude Code's own UI elements.
-const FREE_TEXT_RE = /[a-zA-Z]{3,}[^?]{6,}\?\s*$/;
+const FREE_TEXT_RE = /(?:[a-zA-Z]{3,}[^?]{6,}\?\s*$|Enter to (?:continue|retry|exit))/i;
 // Lines that are part of Claude Code's UI — never treat as interactive questions
-const UI_NOISE_RE = /(?:Task \d+:|✔|◼|⏵⏵|shift\+tab|esc to|for shortcuts|brew upgrade|Update available|Bramwick|tokens?\)|thought for)/i;
+const UI_NOISE_RE = /(?:Task \d+:|✔|◼|⏵⏵|shift\+tab|esc to|for shortcuts|brew upgrade|Update available|Bramwick|tokens?\)|thought for|^❯\s|^\s*[\u2800-\u28FF]+\s*$)/i;
 
 // Progress: Claude Code spinner characters + gerund word
 const SPINNER_RE       = /[✽✳✻✶·★]\s+\w[^\n]*…/;
@@ -266,6 +266,36 @@ export class ClaudeCodeDriver implements AgentDriver {
       default:
         return null;
     }
+  }
+
+  /**
+   * Return true if this line is Claude Code UI chrome — status bar, spinners,
+   * decoration, task list, Bramwick snail, dividers, etc. These are filtered
+   * from the terminal text view so only meaningful agent output shows.
+   *
+   * Based on fingerprint probe run 2026-04-13.
+   */
+  isChrome(line: string): boolean {
+    const t = line.trim();
+    if (!t) return true;                                         // blank lines
+    if (DIVIDER_RE.test(t)) return true;                         // ─────────
+    if (/^❯\s*$/.test(t)) return true;                          // empty prompt
+    if (/^[✽✳✻✶✢·★⏺⠂⠐⠈]+\s/.test(t)) return true;            // spinner + text
+    if (/^[✽✳✻✶✢·★⏺⠂⠐⠈]+$/.test(t)) return true;             // spinner alone
+    if (/^⏵⏵/.test(t)) return true;                             // permission mode indicator
+    if (/tokens?\)/.test(t)) return true;                        // token count
+    if (/thought for \d/.test(t)) return true;                   // thinking time
+    if (/shift\+tab|esc to|for shortcuts|ctrl\+[a-z]/.test(t)) return true; // key hints
+    if (/Update available.*brew upgrade/.test(t)) return true;   // update banner
+    if (/Bramwick/.test(t)) return true;                         // snail
+    if (/Remote Control active/.test(t)) return true;            // RC indicator
+    if (/^\s*[\u2800-\u28FF]+\s*$/.test(t)) return true;        // braille-only lines
+    if (/^[/\\|_`~\-.\s()*@^×]+$/.test(t)) return true;        // ASCII art (snail etc.)
+    if (/^\s*✔\s+Task \d+/.test(t)) return true;                // completed task
+    if (/^\s*◼\s+Task \d+/.test(t)) return true;                // pending task
+    if (/^\s*⎿\s/.test(t)) return true;                         // tool result bracket
+    if (/^\s*\d+\.\s+(Yes|No|Don't)/.test(t)) return true;      // TUI option list
+    return false;
   }
 }
 

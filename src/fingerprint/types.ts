@@ -118,6 +118,14 @@ export interface AgentDriver {
    * accepted the response and moved on.
    */
   isSettled(event: NormalisedEvent, output: RawOutput): boolean;
+
+  /**
+   * Return true if this line is UI chrome (status bar, spinner, decoration)
+   * that should be filtered from the terminal text view. Only meaningful
+   * agent output (tool results, code, explanations) should pass through.
+   * Optional — if not implemented, all lines pass through.
+   */
+  isChrome?(line: string): boolean;
 }
 
 // ─── Probe runner interface (orchestration layer above AgentDriver) ───────────

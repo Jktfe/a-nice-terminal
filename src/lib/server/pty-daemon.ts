@@ -103,18 +103,33 @@ function flushViaCapture(sessionId: string, ot: OutputTimer): void {
   // If screens are identical, nothing to broadcast
   if (common === prevLines.length && common === newLines.length) return;
 
-  // New lines = everything in newLines that isn't in the common suffix
-  const freshLines = newLines.slice(0, newLines.length - common);
-  const text = freshLines
+  // New lines = everything in newLines that isn't in the common suffix.
+  // Filter out UI chrome lines (spinners, status bars, decoration) using
+  // generic patterns that work across all CLI agents. Driver-specific
+  // isChrome() in the event bus handles the fine-grained filtering.
+  const freshLines = newLines.slice(0, newLines.length - common)
     .map(l => l.trimEnd())
-    .filter(l => l.length > 0)
-    .join('\n')
-    .trim();
+    .filter(l => {
+      if (!l) return false;
+      // Generic chrome patterns (work for Claude Code, Gemini, etc.)
+      if (/^─{10,}$/.test(l)) return false;                          // dividers
+      if (/^❯\s*$/.test(l)) return false;                            // empty prompt
+      if (/^[✽✳✻✶✢·★⏺⠂⠐⠈]+(\s|$)/.test(l)) return false;          // spinner lines
+      if (/^⏵⏵/.test(l)) return false;                               // permission mode
+      if (/shift\+tab|esc to interrupt|for shortcuts/.test(l)) return false; // key hints
+      if (/Update available.*brew upgrade/.test(l)) return false;     // update banner
+      if (/Bramwick/.test(l)) return false;                           // snail name
+      if (/Remote Control active/.test(l)) return false;              // RC indicator
+      if (/^\s*[\u2800-\u28FF]+\s*$/.test(l)) return false;          // braille-only
+      if (/^[/\\|_`~\-.\s()*@^×]+$/.test(l)) return false;          // ASCII art
+      if (/tokens?\)|thought for \d/.test(l)) return false;           // token/think stats
+      if (/^\s*[✔◼]\s+Task \d+/.test(l)) return false;               // task list items
+      if (/Action Required/i.test(l)) return false;                   // Gemini action bar
+      return true;
+    });
 
+  const text = freshLines.join('\n').trim();
   if (!text) return;
-
-  // Skip lines that are ONLY spinner/decoration characters
-  if (/^[\s✽✳✻✶✢·★⏺⏵⠂⠐⠈↓↑←→×─│┌┐└┘├┤┬┴┼❯\u00a0\u2500-\u257f\u2580-\u259f\u25a0-\u25ff\u2800-\u28ff\n]*$/.test(text)) return;
 
   broadcast({
     type: 'terminal_line',
