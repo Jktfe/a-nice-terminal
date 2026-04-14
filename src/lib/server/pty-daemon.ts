@@ -41,36 +41,12 @@ const lastSilenceBroadcast = new Map<string, number>();
 // this debounced path feeds the CHAT pane (text rendering, not xterm.js).
 
 const OUTPUT_DEBOUNCE_MS = 100;  // idle timeout — fire after 100ms of silence
-const OUTPUT_MAX_WAIT_MS = 500;  // ceiling — fire at most every 500ms during continuous output
+const OUTPUT_MAX_WAIT_MS = 2000; // ceiling — fire at most every 2s during continuous output
 
-interface OutputBuffer {
-  chunks: string[];
-  timer: ReturnType<typeof setTimeout> | null;
-  firstChunkTs: number;   // timestamp of first chunk in current batch
-  maxTimer: ReturnType<typeof setTimeout> | null;
-}
-const outputBuffers = new Map<string, OutputBuffer>();
+// Pending chrome-check requests — keyed by "sessionId:line"
+const chromeChecks = new Map<string, (isChrome: boolean) => void>();
 
-function decodeOctalEscapes(s: string): string {
-  return s.replace(/\\(\d{3})/g, (_, oct: string) => String.fromCharCode(parseInt(oct, 8)));
-}
-
-// Per-session state for the capture-pane diff approach.
-// Instead of accumulating raw %output bytes (which are cursor-movement garbage
-// for TUI apps like Claude Code and Gemini CLI), we use the debounce timer as
-// a "something changed" signal, then call `tmux capture-pane -p` to get the
-// RENDERED screen content — what you actually see — and diff against the
-// previous capture. Only genuinely new lines are broadcast.
-const lastCapture = new Map<string, string>();
-
-interface OutputTimer {
-  timer: ReturnType<typeof setTimeout> | null;
-  maxTimer: ReturnType<typeof setTimeout> | null;
-  firstTs: number;
-}
-const outputTimers = new Map<string, OutputTimer>();
-
-function flushViaCapture(sessionId: string, ot: OutputTimer): void {
+async function flushViaCapture(sessionId: string, ot: OutputTimer): Promise<void> {
   if (ot.timer) { clearTimeout(ot.timer); ot.timer = null; }
   if (ot.maxTimer) { clearTimeout(ot.maxTimer); ot.maxTimer = null; }
   ot.firstTs = 0;
@@ -84,9 +60,6 @@ function flushViaCapture(sessionId: string, ot: OutputTimer): void {
 
   if (!prev) return; // First capture — establish baseline, don't broadcast
 
-  // Diff: find lines in the new capture that weren't in the previous one.
-  // Use a simple approach: split into lines, find the longest common suffix
-  // between old and new, broadcast only the new prefix.
   const prevLines = prev.split('\n');
   const newLines = screen.split('\n');
 
@@ -100,35 +73,35 @@ function flushViaCapture(sessionId: string, ot: OutputTimer): void {
     common++;
   }
 
-  // If screens are identical, nothing to broadcast
   if (common === prevLines.length && common === newLines.length) return;
 
-  // New lines = everything in newLines that isn't in the common suffix.
-  // Filter out UI chrome lines (spinners, status bars, decoration) using
-  // generic patterns that work across all CLI agents. Driver-specific
-  // isChrome() in the event bus handles the fine-grained filtering.
-  const freshLines = newLines.slice(0, newLines.length - common)
+  const rawFresh = newLines.slice(0, newLines.length - common)
     .map(l => l.trimEnd())
-    .filter(l => {
-      if (!l) return false;
-      // Generic chrome patterns (work for Claude Code, Gemini, etc.)
-      if (/^─{10,}$/.test(l)) return false;                          // dividers
-      if (/^❯\s*$/.test(l)) return false;                            // empty prompt
-      if (/^[✽✳✻✶✢·★⏺⠂⠐⠈]+(\s|$)/.test(l)) return false;          // spinner lines
-      if (/^⏵⏵/.test(l)) return false;                               // permission mode
-      if (/shift\+tab|esc to interrupt|for shortcuts/.test(l)) return false; // key hints
-      if (/Update available.*brew upgrade/.test(l)) return false;     // update banner
-      if (/Bramwick/.test(l)) return false;                           // snail name
-      if (/Remote Control active/.test(l)) return false;              // RC indicator
-      if (/^\s*[\u2800-\u28FF]+\s*$/.test(l)) return false;          // braille-only
-      if (/^[/\\|_`~\-.\s()*@^×]+$/.test(l)) return false;          // ASCII art
-      if (/tokens?\)|thought for \d/.test(l)) return false;           // token/think stats
-      if (/^\s*[✔◼]\s+Task \d+/.test(l)) return false;               // task list items
-      if (/Action Required/i.test(l)) return false;                   // Gemini action bar
-      return true;
-    });
+    .filter(l => l.length > 0);
 
-  const text = freshLines.join('\n').trim();
+  if (rawFresh.length === 0) return;
+
+  // Filter out UI chrome. We ask the main server (which has the drivers loaded)
+  // for fine-grained filtering via the 'is_chrome' IPC.
+  const filteredLines: string[] = [];
+  for (const line of rawFresh) {
+    // 1. Fast path: generic chrome patterns (work for Claude Code, Gemini, etc.)
+    if (/^─{10,}$/.test(line)) continue;
+    if (/^❯\s*$/.test(line)) continue;
+    if (/^[✽✳✻✶✢·★⏺⠂⠐⠈]+(\s|$)/.test(line)) continue;
+    if (/^⏵⏵/.test(line)) continue;
+    if (/shift\+tab|esc to interrupt|for shortcuts/.test(line)) continue;
+    if (/^\s*[\u2800-\u28FF]+\s*$/.test(line)) continue;
+    if (/^[/\\|_`~\-.\s()*@^×]+$/.test(line)) continue;
+    if (/tokens?\)|thought for \d/.test(line)) continue;
+    if (/^\s*[✔◼]\s+Task \d+/.test(line)) continue;
+
+    // 2. Slow path: driver-specific classification (requires IPC roundtrip)
+    const isChrome = await checkChrome(sessionId, line);
+    if (!isChrome) filteredLines.push(line);
+  }
+
+  const text = filteredLines.join('\n').trim();
   if (!text) return;
 
   broadcast({
@@ -136,6 +109,22 @@ function flushViaCapture(sessionId: string, ot: OutputTimer): void {
     sessionId,
     text,
     ts: Date.now(),
+  });
+}
+
+/** IPC to main server: is this line UI chrome for the current session's driver? */
+function checkChrome(sessionId: string, line: string): Promise<boolean> {
+  const key = `${sessionId}:${line}`;
+  return new Promise((resolve) => {
+    chromeChecks.set(key, resolve);
+    broadcast({ type: 'check_chrome', sessionId, line });
+    // Timeout — if server doesn't respond, assume it's NOT chrome (safe fallback)
+    setTimeout(() => {
+      if (chromeChecks.has(key)) {
+        chromeChecks.delete(key);
+        resolve(false);
+      }
+    }, 150);
   });
 }
 

@@ -12,6 +12,7 @@
   import FileRefCard from '$lib/components/FileRefCard.svelte';
   import AgentEventCard from '$lib/components/AgentEventCard.svelte';
   import TerminalLine from '$lib/components/TerminalLine.svelte';
+  import TerminalSummary from '$lib/components/TerminalSummary.svelte';
   import { theme } from '$lib/stores/theme.svelte';
   import { useToasts } from '$lib/stores/toast.svelte';
   import { onMount, onDestroy } from 'svelte';
@@ -225,8 +226,8 @@
       linkedChatMessages = [...linkedChatMessages, msg];
     }
     // Also inject into the terminal PTY — the CLI LLM running there sees it as stdin
-    if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'terminal_input', sessionId, data: text + '\r' }));
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: 'terminal_input', sessionId, data: text + '\r' }));
     }
   }
 
@@ -257,21 +258,24 @@
   let ws = $state<WebSocket | null>(null);
   let wsDestroyed = false;
 
+  // Global socket accessor for components/effects
+  const socket = $derived(ws);
+
   function connectWs() {
     if (wsDestroyed) return;
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(`${protocol}//${location.host}/ws`);
-    ws = socket;
+    const s = new WebSocket(`${protocol}//${location.host}/ws`);
+    ws = s;
 
-    socket.onopen = () => {
-      socket.send(JSON.stringify({ type: 'join_session', sessionId }));
+    s.onopen = () => {
+      s.send(JSON.stringify({ type: 'join_session', sessionId }));
       // Also subscribe to linked chat session events
       if (linkedChatId && linkedChatId !== sessionId) {
-        socket.send(JSON.stringify({ type: 'join_session', sessionId: linkedChatId }));
+        s.send(JSON.stringify({ type: 'join_session', sessionId: linkedChatId }));
       }
     };
 
-    socket.onmessage = (event) => {
+    s.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         // Route linked chat events — handle and return early to avoid falling through to main session logic
@@ -334,7 +338,7 @@
       } catch {}
     };
 
-    socket.onclose = () => { if (!wsDestroyed) setTimeout(connectWs, 2000); };
+    s.onclose = () => { if (!wsDestroyed) setTimeout(connectWs, 2000); };
   }
 
   onMount(async () => {
@@ -706,7 +710,7 @@
                 {/if}
                 {#each groupMessages(linkedChatMessages) as group (group.key)}
                   {#if group.type === 'terminal_line'}
-                    <TerminalLine messages={group.items} />
+                    <TerminalSummary messages={group.items} />
                   {:else if group.type === 'agent_event'}
                     <AgentEventCard
                       message={group.items[0]}

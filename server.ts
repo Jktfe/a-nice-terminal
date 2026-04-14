@@ -228,7 +228,11 @@ getPtyManager().then(async ptm => {
   }
 
   ptm.onData((sessionId: string, data: string) => {
-    const msg = JSON.stringify({ type: 'terminal_output', sessionId, data });
+    // Terminal output is also buffered per session for transcripts
+    seedCountersIfNeeded(sessionId);
+    const chunkIdx = (chunkCounters.get(sessionId) ?? 0) + 1;
+
+    const msg = JSON.stringify({ type: 'terminal_output', sessionId, data, seq: chunkIdx });
     for (const [ws, client] of clients) {
       if (client.joinedSessions.has(sessionId) && ws.readyState === 1) {
         try { ws.send(msg); } catch {}

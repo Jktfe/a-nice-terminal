@@ -259,7 +259,8 @@
     // (tmux capture-pane scrollback). We buffer ALL terminal_output until the
     // DB history is fetched and written, so history sits above live content.
     let historyLoaded = false;
-    let pendingOutput: string[] = [];
+    let lastSeq = -1;
+    let pendingOutput: { seq: number; data: string }[] = [];
 
     async function loadHistory(t: any, sid: string) {
       try {
@@ -268,12 +269,12 @@
         const data = await res.json();
         if (!data.rows?.length) { historyLoaded = true; return; }
         // API returns newest-first; reverse to chronological order
-        const history = data.rows
-          .reverse()
-          .map((r: any) => r.raw || '')
-          .join('');
+        const historyRows = data.rows.reverse();
+        const history = historyRows.map((r: any) => r.raw || '').join('');
         if (history) {
           scheduleWrite(t, history);
+          // Set lastSeq to the highest chunk_index we just loaded
+          lastSeq = Math.max(...historyRows.map((r: any) => r.chunk_index || 0));
         }
       } catch {
         // Silently fall through — live scrollback still works
@@ -281,9 +282,12 @@
       // Now flush any terminal_output that arrived while we were fetching
       historyLoaded = true;
       if (pendingOutput.length) {
-        const buffered = pendingOutput.join('');
+        const buffered = pendingOutput
+          .filter(m => m.seq > lastSeq)
+          .map(m => m.data)
+          .join('');
         pendingOutput = [];
-        enqueueOutput(t, buffered);
+        if (buffered) enqueueOutput(t, buffered);
       }
     }
 
@@ -293,6 +297,7 @@
       ws = socket;
       // Reset history state for each new connection
       historyLoaded = false;
+      lastSeq = -1;
       pendingOutput = [];
 
       // If session_health isn't received within 3s the server likely dropped our
@@ -337,10 +342,14 @@
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === 'terminal_output' && msg.sessionId === sessionId) {
+            const seq = msg.seq ?? -1;
             if (!historyLoaded) {
               // Buffer output until DB history has been written
-              pendingOutput.push(msg.data);
+              pendingOutput.push({ seq, data: msg.data });
             } else {
+              // Ignore if we already have this chunk from history
+              if (seq !== -1 && seq <= lastSeq) return;
+              if (seq !== -1) lastSeq = seq;
               enqueueOutput(term, msg.data);
             }
             onData?.(msg.data);

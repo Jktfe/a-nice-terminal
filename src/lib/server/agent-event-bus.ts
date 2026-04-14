@@ -264,6 +264,15 @@ export function trackEvent(sessionId: string, msgId: string, chatId: string, eve
   state.pendingEvents.set(msgId, { event, msgId, chatId });
 }
 
+/** Check if a line is UI chrome for the given session's driver. */
+export function isChrome(sessionId: string, line: string): boolean {
+  const state = sessions.get(sessionId);
+  if (state?.driver?.isChrome) {
+    return state.driver.isChrome(line);
+  }
+  return false;
+}
+
 /** Clean up when a session is killed/archived. */
 export function dispose(sessionId: string): void {
   const state = sessions.get(sessionId);
