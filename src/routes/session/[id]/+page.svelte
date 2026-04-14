@@ -631,6 +631,16 @@
             title="Terminal — text output"
           >⌨</button>
         </div>
+        <button
+          class="px-2.5 py-1 text-xs rounded-lg border transition-all"
+          style="border-color:var(--border-subtle);color:var(--text-muted);"
+          title="Copy SSH+tmux command to clipboard"
+          onclick={() => {
+            const cmd = `ssh mac.tail34caea.ts.net -t tmux attach-session -t ${sessionId}`;
+            navigator.clipboard.writeText(cmd);
+            toasts.add('Copied tmux command to clipboard', 'success');
+          }}
+        >📋 tmux</button>
       {/if}
 
       <!-- Panel toggle with badge -->
