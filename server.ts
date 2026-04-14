@@ -254,6 +254,11 @@ getPtyManager().then(async ptm => {
         flushTranscript(sessionId);
       }, 30_000));
     }
+    // Agent event bus — detect interactive events and post to linked chats
+    try {
+      const { feed } = await import('./src/lib/server/agent-event-bus.js');
+      feed(sessionId, data);
+    } catch {}
   });
 
   // Persist tmux control-mode structured events — the "what happened in this
@@ -315,6 +320,17 @@ getPtyManager().then(async ptm => {
       console.error(`[linkedchat] forward ${msgType} failed:`, e);
     }
   }
+
+  // Initialize agent event bus with server dependencies
+  import('./src/lib/server/agent-event-bus.js').then(({ init }) => {
+    init({
+      getSession: queries.getSession,
+      postToChat: postToLinkedChat,
+      writeToTerminal: (sid: string, data: string) => ptm.write(sid, data),
+      updateMessageMeta: queries.updateMessageMeta,
+      broadcastToChat: broadcast,
+    });
+  }).catch(() => {});
 
   // Signal 1: silence → chat. No isPrompt filter — trust tmux.
   // The `isPrompt` arg is still passed for schema compat but ignored here.
