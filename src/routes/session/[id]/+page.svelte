@@ -279,6 +279,8 @@
           if (data.type === 'message_created') {
             if (!linkedChatMessages.find(m => m.id === data.id)) {
               linkedChatMessages = [...linkedChatMessages, data];
+              // Auto-scroll to bottom when new message arrives
+              if (atBottom) requestAnimationFrame(() => scrollToBottom());
             }
           } else if (data.type === 'message_updated') {
             linkedChatMessages = linkedChatMessages.map(m =>
@@ -374,6 +376,9 @@
     }
 
     if (session?.type !== 'terminal') await msgStore.load(sessionId);
+
+    // Scroll chat to bottom after initial load
+    requestAnimationFrame(() => scrollToBottom());
 
     const [tasksRes, refsRes] = await Promise.all([
       fetch(`/api/sessions/${sessionId}/tasks`),
