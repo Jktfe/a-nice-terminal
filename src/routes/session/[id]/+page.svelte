@@ -630,12 +630,6 @@
             onclick={() => (mode='terminal')}
             title="Terminal — text output"
           >⌨</button>
-          <button
-            class="px-2.5 py-1 text-xs rounded transition-all"
-            style={mode==='raw' ? 'background:#F59E0B;color:#fff;' : 'color:var(--text-muted);'}
-            onclick={() => (mode='raw')}
-            title="Raw — xterm.js"
-          >🖥</button>
         </div>
       {/if}
 
