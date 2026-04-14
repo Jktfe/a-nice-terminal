@@ -476,6 +476,16 @@ function installSilenceHook(sessionId: string) {
     execFileSync(TMUX, [
       'set-option', '-t', sessionId, 'status', 'off',
     ], { stdio: 'pipe' });
+    // Inject ANT_SESSION into the tmux environment so any process launched
+    // inside this session (Claude Code, Gemini CLI, etc.) inherits it.
+    // Claude Code hooks use this to route events back to the right ANT chat.
+    execFileSync(TMUX, [
+      'set-environment', '-t', sessionId, 'ANT_SESSION', sessionId,
+    ], { stdio: 'pipe' });
+    execFileSync(TMUX, [
+      'set-environment', '-t', sessionId, 'ANT_SERVER', `https://localhost:${process.env.ANT_PORT || '6458'}`,
+    ], { stdio: 'pipe' });
+
     // Shell-quote the session ID defensively. tmux session IDs are
     // alphanumeric + `-` in practice, but a stray `'` would break run-shell.
     const safeSid = sessionId.replace(/'/g, `'\\''`);
