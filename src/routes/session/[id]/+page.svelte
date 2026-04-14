@@ -11,6 +11,7 @@
   import TaskCard from '$lib/components/TaskCard.svelte';
   import FileRefCard from '$lib/components/FileRefCard.svelte';
   import AgentEventCard from '$lib/components/AgentEventCard.svelte';
+  import TerminalLine from '$lib/components/TerminalLine.svelte';
   import { theme } from '$lib/stores/theme.svelte';
   import { useToasts } from '$lib/stores/toast.svelte';
   import { onMount, onDestroy } from 'svelte';
@@ -283,12 +284,14 @@
     ]);
     session = await sessRes.json();
     allSessions = (await allSessRes.json()).sessions || [];
-    mode = session?.type === 'terminal' ? 'terminal' : 'chat';
+    // Terminal sessions with a linked chat default to chat view; raw terminal is opt-in.
+    // If there's no linked_chat_id yet it will be auto-created below, so still default chat.
+    mode = 'chat';
     // Panel open by default only for chat sessions
-    showPanel = mode === 'chat';
+    showPanel = session?.type !== 'terminal';
 
     // Per-terminal dedicated chat — persist the link so each terminal always has its own chat
-    if (mode === 'terminal' && session) {
+    if (session?.type === 'terminal' && session) {
       if (session.linked_chat_id) {
         linkedChatId = session.linked_chat_id;
         await loadLinkedChat(session.linked_chat_id);
@@ -312,7 +315,7 @@
       }
     }
 
-    if (mode === 'chat') await msgStore.load(sessionId);
+    if (session?.type !== 'terminal') await msgStore.load(sessionId);
 
     const [tasksRes, refsRes] = await Promise.all([
       fetch(`/api/sessions/${sessionId}/tasks`),
@@ -461,6 +464,20 @@
     let hash = 0;
     for (let i = 0; i < h.length; i++) hash = (hash * 31 + h.charCodeAt(i)) & 0xffffffff;
     return palette[Math.abs(hash) % palette.length];
+  }
+
+  // Group consecutive terminal_line messages into single blocks for compact rendering
+  function groupMessages(msgs: Record<string, unknown>[]): { key: string; type: string; items: Record<string, unknown>[] }[] {
+    const groups: { key: string; type: string; items: Record<string, unknown>[] }[] = [];
+    for (const msg of msgs) {
+      const t = (msg.msg_type as string) || 'chat';
+      if (t === 'terminal_line' && groups.length > 0 && groups[groups.length - 1].type === 'terminal_line') {
+        groups[groups.length - 1].items.push(msg);
+      } else {
+        groups.push({ key: msg.id as string, type: t, items: [msg] });
+      }
+    }
+    return groups;
   }
 
   const activeTasks = $derived(tasks.filter(t => t.status !== 'deleted'));
