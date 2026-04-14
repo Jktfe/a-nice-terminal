@@ -508,8 +508,9 @@
   }
 
   // Group consecutive terminal_line messages into single blocks for compact rendering
-  function groupMessages(msgs: Record<string, unknown>[]): { key: string; type: string; items: Record<string, unknown>[] }[] {
-    const groups: { key: string; type: string; items: Record<string, unknown>[] }[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function groupMessages(msgs: any[]): { key: string; type: string; items: any[] }[] {
+    const groups: { key: string; type: string; items: any[] }[] = [];
     for (const msg of msgs) {
       const t = (msg.msg_type as string) || 'chat';
       if (t === 'terminal_line' && groups.length > 0 && groups[groups.length - 1].type === 'terminal_line') {
