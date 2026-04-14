@@ -112,12 +112,15 @@ async function resolveDriver(sessionId: string): Promise<AgentDriver | null> {
 export async function feed(sessionId: string, rawData: string): Promise<void> {
   const state = getState(sessionId);
 
-  // Lazy-load driver on first call
-  if (state.driver === undefined || (state.driver === null && state.driverSlug === null)) {
+  // Lazy-load driver on first call. Don't cache "no driver" until init() has
+  // been called — feed() fires before init() completes due to async import race.
+  if (!state.driver) {
+    if (!_getSession) return; // init() hasn't run yet — skip silently, retry next call
+    if (state.driverSlug === 'none') return; // already confirmed no driver configured
     state.driver = await resolveDriver(sessionId);
     state.driverSlug = state.driver ? 'loaded' : 'none';
   }
-  if (!state.driver) return; // no driver configured — no-op
+  if (!state.driver) return;
 
   // Append stripped lines to ring buffer
   const stripped = stripAnsi(rawData);
