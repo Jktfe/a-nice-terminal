@@ -10,6 +10,7 @@
   import ShareButton from '$lib/components/ShareButton.svelte';
   import TaskCard from '$lib/components/TaskCard.svelte';
   import FileRefCard from '$lib/components/FileRefCard.svelte';
+  import AgentEventCard from '$lib/components/AgentEventCard.svelte';
   import { theme } from '$lib/stores/theme.svelte';
   import { useToasts } from '$lib/stores/toast.svelte';
   import { onMount, onDestroy } from 'svelte';
@@ -595,18 +596,36 @@
                 </div>
               {:else}
                 {#each linkedChatMessages as m (m.id)}
-                  <MessageBubble
-                    message={m}
-                    {sessionId}
-                    {allSessions}
-                    onReply={(msg) => { replyTo = msg; }}
-                    onDeleted={(id) => { linkedChatMessages = linkedChatMessages.filter(x => x.id !== id); }}
-                    onMetaUpdated={(id, meta) => {
-                      linkedChatMessages = linkedChatMessages.map(x =>
-                        x.id === id ? { ...x, meta: JSON.stringify(meta) } : x
-                      );
-                    }}
-                  />
+                  {#if m.msg_type === 'agent_event'}
+                    <AgentEventCard
+                      message={m}
+                      sessionId={linkedChatId}
+                      onRespond={async (payload) => {
+                        await fetch(`/api/sessions/${linkedChatId}/messages`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            role: 'user',
+                            msg_type: 'agent_response',
+                            content: JSON.stringify(payload),
+                          }),
+                        });
+                      }}
+                    />
+                  {:else}
+                    <MessageBubble
+                      message={m}
+                      {sessionId}
+                      {allSessions}
+                      onReply={(msg) => { replyTo = msg; }}
+                      onDeleted={(id) => { linkedChatMessages = linkedChatMessages.filter(x => x.id !== id); }}
+                      onMetaUpdated={(id, meta) => {
+                        linkedChatMessages = linkedChatMessages.map(x =>
+                          x.id === id ? { ...x, meta: JSON.stringify(meta) } : x
+                        );
+                      }}
+                    />
+                  {/if}
                 {/each}
               {/if}
             {:else}
@@ -1001,13 +1020,31 @@
                   <p class="text-center text-xs py-8" style="color:var(--text-faint);">No messages yet</p>
                 {:else}
                   {#each linkedChatMessages as m (m.id)}
-                    {@const senderSess = allSessions.find(s => s.id === m.sender_id || s.handle === m.sender_id)}
-                    {@const senderName = senderSess ? (senderSess.display_name || senderSess.name) : (m.sender_id || (m.role === 'user' ? 'You' : 'AI'))}
-                    {@const col = m.sender_id ? handleColour(m.sender_id as string) : (m.role === 'user' ? '#4B5563' : '#6366F1')}
-                    <div class="text-xs rounded-lg border px-2.5 py-2" style="background:var(--bg-card);border-color:{col}22;border-left:2px solid {col};">
-                      <p class="font-semibold mb-0.5 font-mono text-[10px]" style="color:{col};">{senderName}</p>
-                      <p class="text-gray-300 break-words line-clamp-4">{m.content}</p>
-                    </div>
+                    {#if m.msg_type === 'agent_event'}
+                      <AgentEventCard
+                        message={m}
+                        sessionId={linkedChatId}
+                        onRespond={async (payload) => {
+                          await fetch(`/api/sessions/${linkedChatId}/messages`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              role: 'user',
+                              msg_type: 'agent_response',
+                              content: JSON.stringify(payload),
+                            }),
+                          });
+                        }}
+                      />
+                    {:else}
+                      {@const senderSess = allSessions.find(s => s.id === m.sender_id || s.handle === m.sender_id)}
+                      {@const senderName = senderSess ? (senderSess.display_name || senderSess.name) : (m.sender_id || (m.role === 'user' ? 'You' : 'AI'))}
+                      {@const col = m.sender_id ? handleColour(m.sender_id as string) : (m.role === 'user' ? '#4B5563' : '#6366F1')}
+                      <div class="text-xs rounded-lg border px-2.5 py-2" style="background:var(--bg-card);border-color:{col}22;border-left:2px solid {col};">
+                        <p class="font-semibold mb-0.5 font-mono text-[10px]" style="color:{col};">{senderName}</p>
+                        <p class="text-gray-300 break-words line-clamp-4">{m.content}</p>
+                      </div>
+                    {/if}
                   {/each}
                 {/if}
               </div>
