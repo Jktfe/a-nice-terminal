@@ -326,11 +326,15 @@ export const queries = {
   getSessionByHandle: (handle: string) => prepare(`SELECT * FROM sessions WHERE handle = ? AND archived = 0 AND deleted_at IS NULL`).get(handle),
   getTerminalsByLinkedChat: (chatId: string) =>
     prepare(`SELECT * FROM sessions WHERE linked_chat_id = ? AND type = 'terminal' AND archived = 0 AND deleted_at IS NULL`).all(chatId),
-  // All live terminal sessions that have a linked chat — used by the
-  // server-side pane_title polling loop (2s interval) to detect OSC title
-  // updates from claude/gemini and forward them to the paired chat.
+  // All live terminal sessions that have a linked chat — kept for reference.
   getLinkedTerminalSessions: () =>
     prepare(`SELECT id, linked_chat_id FROM sessions WHERE type = 'terminal' AND archived = 0 AND deleted_at IS NULL AND linked_chat_id IS NOT NULL`).all(),
+
+  // All live terminal sessions WITHOUT a linked chat — used by the pane_title
+  // polling loop. Sessions with a linked chat get terminal output via the
+  // terminal_line path, so title polling is redundant noise for them.
+  getUnlinkedTerminalSessions: () =>
+    prepare(`SELECT id, linked_chat_id FROM sessions WHERE type = 'terminal' AND archived = 0 AND deleted_at IS NULL AND linked_chat_id IS NULL`).all(),
 
   // Most recent title/prompt message in a chat — used to seed the title poller
   // cooldown map on server restart so we don't spam duplicate titles.
@@ -360,6 +364,8 @@ export const queries = {
 
   getMessagesSince: (sessionId: string, since: string, limit: number) =>
     prepare(`SELECT * FROM messages WHERE session_id = ? AND created_at > ? ORDER BY created_at ASC LIMIT ?`).all(sessionId, since, limit),
+  getMessagesBefore: (sessionId: string, before: string, limit: number) =>
+    prepare(`SELECT * FROM messages WHERE session_id = ? AND created_at < ? ORDER BY created_at DESC LIMIT ?`).all(sessionId, before, limit),
   createMessage: (id: string, sessionId: string, role: string, content: string, format: string, status: string, senderId: string | null, target: string | null, msgType: string, meta: string) =>
     prepare(`INSERT INTO messages (id, session_id, role, content, format, status, sender_id, target, msg_type, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, sessionId, role, content, format, status, senderId, target, msgType, meta),
   deleteMessage: (id: string) => prepare(`DELETE FROM messages WHERE id = ?`).run(id),

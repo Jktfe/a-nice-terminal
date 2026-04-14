@@ -58,6 +58,11 @@
     if (!chatScrollEl) return;
     const threshold = 80;
     atBottom = chatScrollEl.scrollHeight - chatScrollEl.scrollTop - chatScrollEl.clientHeight < threshold;
+    // Lazy-load older linked chat messages when scrolled near the top
+    if (linkedChatId && chatScrollEl.scrollTop < 100 && linkedChatHasMore && !linkedChatLoadingMore) {
+      linkedChatScrollEl = chatScrollEl;
+      loadOlderLinkedChatMessages();
+    }
   }
 
   // Auto-scroll when new messages arrive if already at bottom
@@ -141,12 +146,48 @@
   let linkedChatId = $state('');
   let linkedChatMessages = $state<Record<string, unknown>[]>([]);
   let linkedChatInput = $state('');
+  let linkedChatHasMore = $state(false);
+  let linkedChatLoadingMore = $state(false);
+  let linkedChatScrollEl = $state<HTMLElement | null>(null);
+  const LINKED_CHAT_PAGE_SIZE = 50;
 
   async function loadLinkedChat(chatId: string) {
     if (!chatId) return;
-    const res = await fetch(`/api/sessions/${chatId}/messages?limit=30`);
+    const res = await fetch(`/api/sessions/${chatId}/messages?limit=${LINKED_CHAT_PAGE_SIZE}`);
     const data = await res.json();
-    linkedChatMessages = data.messages || [];
+    const msgs: Record<string, unknown>[] = data.messages || [];
+    linkedChatMessages = msgs;
+    linkedChatHasMore = msgs.length === LINKED_CHAT_PAGE_SIZE;
+  }
+
+  async function loadOlderLinkedChatMessages() {
+    if (!linkedChatId || linkedChatLoadingMore || !linkedChatHasMore) return;
+    const oldest = linkedChatMessages[0];
+    if (!oldest) return;
+    linkedChatLoadingMore = true;
+    try {
+      const before = (oldest.created_at as string) || '';
+      const res = await fetch(
+        `/api/sessions/${linkedChatId}/messages?before=${encodeURIComponent(before)}&limit=${LINKED_CHAT_PAGE_SIZE}`
+      );
+      const data = await res.json();
+      const older: Record<string, unknown>[] = data.messages || [];
+      if (older.length === 0) { linkedChatHasMore = false; return; }
+      linkedChatHasMore = older.length === LINKED_CHAT_PAGE_SIZE;
+      const el = linkedChatScrollEl;
+      const prevScrollHeight = el ? el.scrollHeight : 0;
+      linkedChatMessages = [...older, ...linkedChatMessages];
+      if (el) {
+        requestAnimationFrame(() => { el.scrollTop = el.scrollHeight - prevScrollHeight; });
+      }
+    } finally {
+      linkedChatLoadingMore = false;
+    }
+  }
+
+  function onLinkedChatScroll() {
+    if (!linkedChatScrollEl || !linkedChatHasMore || linkedChatLoadingMore) return;
+    if (linkedChatScrollEl.scrollTop < 100) loadOlderLinkedChatMessages();
   }
 
   async function postToLinkedChat() {
@@ -612,10 +653,23 @@
                   <p class="font-medium" style="color:var(--text);">No messages in linked chat</p>
                 </div>
               {:else}
-                {#each linkedChatMessages as m (m.id)}
-                  {#if m.msg_type === 'agent_event'}
+                {#if linkedChatLoadingMore}
+                  <div class="flex justify-center py-2 text-xs" style="color:var(--text-muted);">Loading older messages…</div>
+                {:else if linkedChatHasMore}
+                  <div class="flex justify-center py-1">
+                    <button
+                      onclick={loadOlderLinkedChatMessages}
+                      class="text-xs px-3 py-1 rounded-full border transition-all"
+                      style="border-color:var(--border-subtle);color:var(--text-muted);"
+                    >Load older messages</button>
+                  </div>
+                {/if}
+                {#each groupMessages(linkedChatMessages) as group (group.key)}
+                  {#if group.type === 'terminal_line'}
+                    <TerminalLine messages={group.items} />
+                  {:else if group.type === 'agent_event'}
                     <AgentEventCard
-                      message={m}
+                      message={group.items[0]}
                       sessionId={linkedChatId}
                       onRespond={async (payload) => {
                         await fetch(`/api/sessions/${linkedChatId}/messages`, {
@@ -631,7 +685,7 @@
                     />
                   {:else}
                     <MessageBubble
-                      message={m}
+                      message={group.items[0]}
                       {sessionId}
                       {allSessions}
                       onReply={(msg) => { replyTo = msg; }}
@@ -653,19 +707,23 @@
                   <p class="text-sm mt-1" style="color:var(--text-muted);">Type below, or use <code class="font-mono text-xs">ant msg</code> from a terminal</p>
                 </div>
               {:else}
-                {#each msgStore.messages as m (m.id)}
-                  <MessageBubble
-                    message={m}
-                    {sessionId}
-                    {allSessions}
-                    onReply={(msg) => { replyTo = msg; }}
-                    onDeleted={(id) => { msgStore.messages = msgStore.messages.filter(x => x.id !== id); }}
-                    onMetaUpdated={(id, meta) => {
-                      msgStore.messages = msgStore.messages.map(x =>
-                        x.id === id ? { ...x, meta: JSON.stringify(meta) } : x
-                      );
-                    }}
-                  />
+                {#each groupMessages(msgStore.messages) as group (group.key)}
+                  {#if group.type === 'terminal_line'}
+                    <TerminalLine messages={group.items} />
+                  {:else}
+                    <MessageBubble
+                      message={group.items[0]}
+                      {sessionId}
+                      {allSessions}
+                      onReply={(msg) => { replyTo = msg; }}
+                      onDeleted={(id) => { msgStore.messages = msgStore.messages.filter(x => x.id !== id); }}
+                      onMetaUpdated={(id, meta) => {
+                        msgStore.messages = msgStore.messages.map(x =>
+                          x.id === id ? { ...x, meta: JSON.stringify(meta) } : x
+                        );
+                      }}
+                    />
+                  {/if}
                 {/each}
               {/if}
             {/if}
@@ -1036,10 +1094,12 @@
                 {:else if linkedChatMessages.length === 0}
                   <p class="text-center text-xs py-8" style="color:var(--text-faint);">No messages yet</p>
                 {:else}
-                  {#each linkedChatMessages as m (m.id)}
-                    {#if m.msg_type === 'agent_event'}
+                  {#each groupMessages(linkedChatMessages) as group (group.key)}
+                    {#if group.type === 'terminal_line'}
+                      <TerminalLine messages={group.items} />
+                    {:else if group.type === 'agent_event'}
                       <AgentEventCard
-                        message={m}
+                        message={group.items[0]}
                         sessionId={linkedChatId}
                         onRespond={async (payload) => {
                           await fetch(`/api/sessions/${linkedChatId}/messages`, {
@@ -1054,6 +1114,7 @@
                         }}
                       />
                     {:else}
+                      {@const m = group.items[0]}
                       {@const senderSess = allSessions.find(s => s.id === m.sender_id || s.handle === m.sender_id)}
                       {@const senderName = senderSess ? (senderSess.display_name || senderSess.name) : (m.sender_id || (m.role === 'user' ? 'You' : 'AI'))}
                       {@const col = m.sender_id ? handleColour(m.sender_id as string) : (m.role === 'user' ? '#4B5563' : '#6366F1')}

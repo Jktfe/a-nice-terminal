@@ -287,24 +287,20 @@ getPtyManager().then(async ptm => {
 
   // ─── Legacy terminal-state signals (silence + title polling) ────────────
   //
-  // These predate the control-mode terminal_line path above. Kept for
-  // sessions without a linked chat, and as a fallback.
+  // These predate the control-mode terminal_line path above. Both are now
+  // disabled for sessions WITH a linked chat — terminal output flows via the
+  // terminal_line path, so silence/title signals are redundant noise there.
   //
-  //   1. `terminal_silence` — fired when either the ctrl-mode %alert-silence
-  //      parser OR the belt-and-braces set-hook helper detects 3s of silence.
-  //      Covers the ~11 CLIs that don't emit OSC title updates (codex, aider,
-  //      llm, ollama, copilot, etc.) as well as plain shells. We drop the
-  //      old `isPrompt` regex filter entirely — trust tmux's signal.
+  //   1. `terminal_silence` — disabled for all sessions (see onSilence below).
+  //      Sessions with a linked chat use terminal_line; unlinked sessions have
+  //      no chat target. Handler registered as a no-op hook for future use.
   //
-  //   2. pane_title polling (below, every 2s) — catches dynamic OSC 0/1/2
-  //      title updates from claude (⠂/✳ task summary) and gemini ("Action
-  //      Required…"). Faster than silence, and posts only on semantic change
-  //      (spinner-glyph-only churn is filtered out).
+  //   2. pane_title polling (every 2s) — runs for UNLINKED sessions only.
+  //      Tracks OSC 0/1/2 title changes in lastTitleBySession; no broadcast
+  //      target for unlinked sessions, so changes are just recorded locally.
   //
-  // Both paths share the same `postToLinkedChat` helper, and use distinct
-  // `msg_type` values (`prompt` / `title`) so the chat UI can style them
-  // differently and the fan-out handler in messages/+server.ts can skip them
-  // from terminal re-broadcast to avoid echo loops.
+  // `postToLinkedChat` is still used by the terminal_line path (onLine above)
+  // and the agent event bus — kept here for those callers.
 
   const { broadcast } = await import('./src/lib/server/ws-broadcast.js');
 
@@ -348,39 +344,28 @@ getPtyManager().then(async ptm => {
     });
   }).catch(() => {});
 
-  // Signal 1: silence → chat. No isPrompt filter — trust tmux.
-  // The `isPrompt` arg is still passed for schema compat but ignored here.
-  ptm.onSilence(async (sessionId: string, _isPrompt: boolean, text: string) => {
-    const session = queries.getSession(sessionId);
-    if (!session?.linked_chat_id) return;
-    const tail = text.slice(-600).trim();
-    if (!tail) return;
-    // Enrich with current pane_title if the CLI set one — gives the chat
-    // viewer both the semantic state ("Action Required") and the raw tail.
-    let title = '';
-    try { title = await ptm.title(sessionId); } catch {}
-    const content = title ? `[${title}]\n${tail}` : tail;
-    postToLinkedChat(sessionId, session.linked_chat_id, content, 'prompt');
+  // Signal 1: silence → chat.
+  // Disabled for sessions with a linked chat — terminal output flows via the
+  // terminal_line path (ptm.onLine above), making silence signals redundant.
+  // Sessions without a linked chat have no chat to post to, so this is a
+  // complete no-op for now; kept as a registration hook for future use.
+  ptm.onSilence(async (_sessionId: string, _isPrompt: boolean, _text: string) => {
+    // No-op: terminal_line pipeline supersedes silence signals for linked
+    // sessions, and unlinked sessions have no chat target to post to.
   });
 
-  // Signal 2: pane_title polling → chat. 2s interval.
-  // ─── Title poller — 2s poll, 30s post cooldown per session ─────────────
+  // Signal 2: pane_title polling — 2s interval, unlinked sessions only.
+  // ─── Title poller ────────────────────────────────────────────────────────
   //
-  // Strips ALL leading glyphs (braille spinners + state indicators ✳◇✦ etc.)
-  // for COMPARISON so ✳↔⠂ toggles don't spam. But INCLUDES the glyph in the
-  // posted content for display.
+  // Sessions WITH a linked_chat_id are excluded: they receive terminal output
+  // directly via the terminal_line path (ptm.onLine above), so title polling
+  // is redundant noise for them.
   //
-  // When a meaningful change is detected:
-  //   1. Captures the last ~8 lines of terminal output (pane tail)
-  //   2. Detects whether this looks like an "attention needed" moment:
-  //      - title contains "action required" / "awaiting" / "input"
-  //      - CLI went idle (✳ / ◇ Ready)
-  //   3. Posts enriched content: title + context tail
-  //   4. Rate-limited to max 1 post per session per 30s
+  // For sessions WITHOUT a linked chat the poller tracks title changes in
+  // lastTitleBySession. This keeps the mechanism alive for future use (e.g.
+  // surfacing title changes in the session list) without spamming any chat.
   //
   const lastTitleBySession = new Map<string, string>();
-  const lastTitlePostTime = new Map<string, number>();
-  const TITLE_POST_COOLDOWN_MS = 60_000;
 
   // Strip ALL leading glyphs for comparison — braille + status indicators.
   // This prevents ✳↔⠂ oscillation from counting as a semantic change.
@@ -399,24 +384,13 @@ getPtyManager().then(async ptm => {
     return false;
   }
 
-  // Detect if a title suggests the terminal needs user attention.
-  function isAttentionTitle(raw: string): boolean {
-    const lower = raw.toLowerCase();
-    return (
-      /action\s*required|awaiting|needs?\s*input|waiting\s*for/i.test(lower) ||
-      /^\s*[✳◇]/.test(raw)  // idle/ready indicator — might be waiting
-    );
-  }
-
   setInterval(async () => {
     let rows: any[] = [];
     try {
-      rows = queries.getLinkedTerminalSessions() as any[];
+      rows = queries.getUnlinkedTerminalSessions() as any[];
     } catch { return; }
     for (const row of rows) {
       const sid: string = row.id;
-      const chatId: string | null = row.linked_chat_id;
-      if (!chatId) continue;
 
       let title = '';
       try { title = await ptm.title(sid); } catch { continue; }
@@ -433,35 +407,8 @@ getPtyManager().then(async ptm => {
       if (normNew === normPrev) continue;
       if (isDefaultTitle(normNew)) continue;
 
-      // Rate-limit: max 1 post per 60s per session. On first check, seed from
-      // the DB so server restarts don't cause a burst of duplicate title posts.
-      const now = Date.now();
-      if (!lastTitlePostTime.has(sid)) {
-        // Seed from most recent title message in DB for this chat
-        try {
-          const recent: any = queries.getMostRecentTitleMessage?.(chatId);
-          if (recent?.created_at) {
-            lastTitlePostTime.set(sid, new Date(recent.created_at + 'Z').getTime());
-          }
-        } catch {}
-      }
-      const lastPost = lastTitlePostTime.get(sid) ?? 0;
-      if (now - lastPost < TITLE_POST_COOLDOWN_MS) continue;
-      lastTitlePostTime.set(sid, now);
-
-      // Enrich with terminal context — last ~8 lines of pane output
-      let tail = '';
-      try { tail = await ptm.capture(sid, 8); } catch {}
-      const tailClean = tail.trim();
-
-      // Build the message content
-      const attention = isAttentionTitle(title);
-      const header = attention ? `⚠️ ${normNew}` : `📋 ${normNew}`;
-      const content = tailClean
-        ? `${header}\n\n${tailClean}`
-        : header;
-
-      postToLinkedChat(sid, chatId, content, attention ? 'prompt' : 'title');
+      // Title changed — tracked in lastTitleBySession for status/health use.
+      // No linked chat means no broadcast target; nothing more to do here.
     }
   }, 2000);
 

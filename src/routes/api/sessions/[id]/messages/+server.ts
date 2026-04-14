@@ -42,11 +42,20 @@ export async function DELETE({ params, url }: RequestEvent<{ id: string }>) {
 
 export function GET({ params, url }: RequestEvent<{ id: string }>) {
   const since = url.searchParams.get('since');
+  const before = url.searchParams.get('before');
   const limit = parseInt(url.searchParams.get('limit') || '50');
 
-  const messages = since
-    ? queries.getMessagesSince(params.id, since, limit)
-    : queries.listMessages(params.id);
+  let messages: unknown[];
+  if (before) {
+    // Backward pagination: fetch older messages before a given timestamp/id,
+    // returned DESC from DB then reversed so caller gets ASC order.
+    const rows = queries.getMessagesBefore(params.id, before, limit) as unknown[];
+    messages = (rows as unknown[]).reverse();
+  } else if (since) {
+    messages = queries.getMessagesSince(params.id, since, limit) as unknown[];
+  } else {
+    messages = queries.listMessages(params.id) as unknown[];
+  }
   return json({ messages });
 }
 
