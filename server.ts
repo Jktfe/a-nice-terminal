@@ -255,10 +255,10 @@ getPtyManager().then(async ptm => {
       }, 30_000));
     }
     // Agent event bus — detect interactive events and post to linked chats
-    try {
-      const { feed } = await import('./src/lib/server/agent-event-bus.js');
-      feed(sessionId, data);
-    } catch {}
+    // (dynamic import is cached after first call; no await needed since feed() is fire-and-forget)
+    import('./src/lib/server/agent-event-bus.js')
+      .then(({ feed }) => feed(sessionId, data))
+      .catch(() => {});
   });
 
   // Persist tmux control-mode structured events — the "what happened in this
