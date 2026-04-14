@@ -43,6 +43,15 @@ const lastSilenceBroadcast = new Map<string, number>();
 const OUTPUT_DEBOUNCE_MS = 100;  // idle timeout — fire after 100ms of silence
 const OUTPUT_MAX_WAIT_MS = 2000; // ceiling — fire at most every 2s during continuous output
 
+const lastCapture = new Map<string, string>();
+
+interface OutputTimer {
+  timer: ReturnType<typeof setTimeout> | null;
+  maxTimer: ReturnType<typeof setTimeout> | null;
+  firstTs: number;
+}
+const outputTimers = new Map<string, OutputTimer>();
+
 // Pending chrome-check requests — keyed by "sessionId:line"
 const chromeChecks = new Map<string, (isChrome: boolean) => void>();
 
@@ -658,6 +667,13 @@ function handle(msg: any, socket: net.Socket) {
     case 'title': {
       const title = readPaneTitle(msg.sessionId);
       send(socket, { type: 'title', sessionId: msg.sessionId, callId: msg.callId, title });
+      break;
+    }
+
+    case 'is_chrome_result': {
+      const key = `${msg.sessionId}:${msg.line}`;
+      chromeChecks.get(key)?.(msg.isChrome);
+      chromeChecks.delete(key);
       break;
     }
 
