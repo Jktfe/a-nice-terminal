@@ -46,6 +46,23 @@
   let editingNickname = $state<string | null>(null); // session ID being renamed
   let nicknameInput = $state('');
 
+  // Text terminal view — capture-pane output
+  let terminalText = $state('');
+  let terminalTextTimer: ReturnType<typeof setInterval> | null = null;
+
+  async function refreshTerminalText() {
+    if (!sessionId || session?.type !== 'terminal') return;
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/terminal/history?since=1h&limit=500`);
+      if (res.ok) {
+        const data = await res.json();
+        // Join stripped text rows into a continuous transcript
+        const rows = data.rows || [];
+        terminalText = rows.map((r: any) => r.text || '').join('\n').trim() || '(no output yet)';
+      }
+    } catch {}
+  }
+
   // Auto-scroll
   let chatScrollEl = $state<HTMLElement | null>(null);
   let atBottom = $state(true);
@@ -371,10 +388,21 @@
 
   });
 
+  // Auto-refresh terminal text view when that tab is active
+  $effect(() => {
+    if (mode === 'terminal' && session?.type === 'terminal') {
+      refreshTerminalText();
+      terminalTextTimer = setInterval(refreshTerminalText, 2000);
+    } else {
+      if (terminalTextTimer) { clearInterval(terminalTextTimer); terminalTextTimer = null; }
+    }
+  });
+
   onDestroy(() => {
     wsDestroyed = true;
     ws?.close();
     if (cmdPoll !== null) clearInterval(cmdPoll);
+    if (terminalTextTimer) clearInterval(terminalTextTimer);
   });
 
   async function sendMessage(text: string) {
@@ -560,7 +588,7 @@
             <span class="font-mono" style="color:#22C55E;">{session.handle}</span>
             <span class="mx-1 opacity-40">·</span>
           {/if}
-          <span>{mode === 'chat' ? 'Chat' : 'Terminal'}</span>
+          <span>{mode === 'chat' ? 'Chat' : mode === 'terminal' ? 'Terminal' : 'Raw'}</span>
         </p>
       </div>
     </div>
@@ -585,14 +613,20 @@
             class="px-2.5 py-1 text-xs rounded transition-all"
             style={mode==='chat' ? 'background:#6366F1;color:#fff;' : 'color:var(--text-muted);'}
             onclick={() => (mode='chat')}
-            title="Chat (messages)"
+            title="Chat — interactions & events"
           >💬</button>
           <button
             class="px-2.5 py-1 text-xs rounded transition-all"
             style={mode==='terminal' ? 'background:#22C55E;color:#fff;' : 'color:var(--text-muted);'}
             onclick={() => (mode='terminal')}
-            title="Raw terminal"
+            title="Terminal — text output"
           >⌨</button>
+          <button
+            class="px-2.5 py-1 text-xs rounded transition-all"
+            style={mode==='raw' ? 'background:#F59E0B;color:#fff;' : 'color:var(--text-muted);'}
+            onclick={() => (mode='raw')}
+            title="Raw — xterm.js"
+          >🖥</button>
         </div>
       {/if}
 
@@ -770,11 +804,35 @@
             />
           {/if}
         </div>
-      {:else}
-        <!-- Terminal mode -->
+      {:else if mode === 'terminal'}
+        <!-- Text terminal mode — searchable capture-pane output -->
         <div class="flex flex-col flex-1 overflow-hidden">
-          <!-- Toolbar: refresh + view toggle -->
           <div class="flex items-center px-3 py-1.5 border-b gap-2" style="border-color:var(--border-light);background:var(--bg-surface);">
+            <span class="text-xs font-medium" style="color:var(--text-muted);">⌨ Terminal Output</span>
+            <div class="flex-1"></div>
+            <button
+              onclick={refreshTerminalText}
+              class="p-1.5 rounded transition-all"
+              style="color:var(--text-faint);"
+              title="Refresh"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+            </button>
+          </div>
+          <div class="flex-1 overflow-y-auto p-4" style="background:#0D1117;">
+            <pre class="text-xs leading-relaxed whitespace-pre-wrap break-words" style="color:#E6EDF3;font-family:'JetBrains Mono',monospace;">{terminalText || 'Loading terminal output…'}</pre>
+          </div>
+          <CLIInput onSubmit={sendCommand}/>
+        </div>
+      {:else}
+        <!-- Raw terminal mode (xterm.js) -->
+        <div class="flex flex-col flex-1 overflow-hidden">
+          <div class="flex items-center px-3 py-1.5 border-b gap-2" style="border-color:var(--border-light);background:var(--bg-surface);">
+            <span class="text-xs font-medium" style="color:var(--text-muted);">🖥 Raw Terminal</span>
+            <div class="flex-1"></div>
             <button
               onclick={() => termKey++}
               class="p-1.5 rounded transition-all"
