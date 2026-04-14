@@ -55,25 +55,66 @@ function decodeOctalEscapes(s: string): string {
   return s.replace(/\\(\d{3})/g, (_, oct: string) => String.fromCharCode(parseInt(oct, 8)));
 }
 
-// Extended ANSI strip: also handles DEC private modes (\x1b[?...h/l),
-// cursor positioning with ?, and other CSI variants.
-const ANSI_STRIP_RE = /\x1b\[[\x20-\x3f]*[\x40-\x7e]|\x1b\].*?(?:\x07|\x1b\\)|\x1b[()][0-9A-B]|\r/g;
+// Per-session state for the capture-pane diff approach.
+// Instead of accumulating raw %output bytes (which are cursor-movement garbage
+// for TUI apps like Claude Code and Gemini CLI), we use the debounce timer as
+// a "something changed" signal, then call `tmux capture-pane -p` to get the
+// RENDERED screen content — what you actually see — and diff against the
+// previous capture. Only genuinely new lines are broadcast.
+const lastCapture = new Map<string, string>();
 
-// Characters that are pure decoration/spinner — not meaningful terminal output.
-// If the stripped text contains ONLY these (no alphanumeric), don't broadcast.
-const NOISE_RE = /^[\s✽✳✻✶✢·★⏺⏵⠂⠐⠈↓↑←→×─│┌┐└┘├┤┬┴┼❯\u00a0\u2500-\u257f\u2580-\u259f\u25a0-\u25ff\u2800-\u28ff]*$/;
+interface OutputTimer {
+  timer: ReturnType<typeof setTimeout> | null;
+  maxTimer: ReturnType<typeof setTimeout> | null;
+  firstTs: number;
+}
+const outputTimers = new Map<string, OutputTimer>();
 
-function flushOutputBuffer(sessionId: string, buf: OutputBuffer): void {
-  if (buf.timer) { clearTimeout(buf.timer); buf.timer = null; }
-  if (buf.maxTimer) { clearTimeout(buf.maxTimer); buf.maxTimer = null; }
-  const text = buf.chunks.join('').trim();
-  buf.chunks = [];
-  buf.firstChunkTs = 0;
+function flushViaCapture(sessionId: string, ot: OutputTimer): void {
+  if (ot.timer) { clearTimeout(ot.timer); ot.timer = null; }
+  if (ot.maxTimer) { clearTimeout(ot.maxTimer); ot.maxTimer = null; }
+  ot.firstTs = 0;
+
+  // Capture the current rendered screen (plain text, no ANSI)
+  const screen = captureClean(sessionId, 50);
+  if (!screen) return;
+
+  const prev = lastCapture.get(sessionId) ?? '';
+  lastCapture.set(sessionId, screen);
+
+  if (!prev) return; // First capture — establish baseline, don't broadcast
+
+  // Diff: find lines in the new capture that weren't in the previous one.
+  // Use a simple approach: split into lines, find the longest common suffix
+  // between old and new, broadcast only the new prefix.
+  const prevLines = prev.split('\n');
+  const newLines = screen.split('\n');
+
+  // Find how many trailing lines match (common suffix)
+  let common = 0;
+  while (
+    common < prevLines.length &&
+    common < newLines.length &&
+    prevLines[prevLines.length - 1 - common] === newLines[newLines.length - 1 - common]
+  ) {
+    common++;
+  }
+
+  // If screens are identical, nothing to broadcast
+  if (common === prevLines.length && common === newLines.length) return;
+
+  // New lines = everything in newLines that isn't in the common suffix
+  const freshLines = newLines.slice(0, newLines.length - common);
+  const text = freshLines
+    .map(l => l.trimEnd())
+    .filter(l => l.length > 0)
+    .join('\n')
+    .trim();
+
   if (!text) return;
 
-  // Filter out noise-only frames (spinners, box-drawing, braille dots).
-  // Only broadcast lines that contain actual readable text.
-  if (NOISE_RE.test(text)) return;
+  // Skip lines that are ONLY spinner/decoration characters
+  if (/^[\s✽✳✻✶✢·★⏺⏵⠂⠐⠈↓↑←→×─│┌┐└┘├┤┬┴┼❯\u00a0\u2500-\u257f\u2580-\u259f\u25a0-\u25ff\u2800-\u28ff\n]*$/.test(text)) return;
 
   broadcast({
     type: 'terminal_line',
@@ -83,30 +124,24 @@ function flushOutputBuffer(sessionId: string, buf: OutputBuffer): void {
   });
 }
 
-function handleOutputLine(sessionId: string, rawContent: string): void {
-  let buf = outputBuffers.get(sessionId);
-  if (!buf) {
-    buf = { chunks: [], timer: null, firstChunkTs: 0, maxTimer: null };
-    outputBuffers.set(sessionId, buf);
+/** Called on every %output line. We don't process the content — just use it
+ *  as a signal that something changed, then debounce a capture-pane call. */
+function handleOutputLine(sessionId: string, _rawContent: string): void {
+  let ot = outputTimers.get(sessionId);
+  if (!ot) {
+    ot = { timer: null, maxTimer: null, firstTs: 0 };
+    outputTimers.set(sessionId, ot);
   }
 
-  // Decode octal escapes from tmux control mode, then strip ANSI
-  const decoded = decodeOctalEscapes(rawContent);
-  const clean = decoded.replace(ANSI_STRIP_RE, '');
-  if (clean.trim()) buf.chunks.push(clean);
+  if (!ot.firstTs) ot.firstTs = Date.now();
 
-  // Track when the first chunk arrived for the max-wait ceiling
-  if (!buf.firstChunkTs) buf.firstChunkTs = Date.now();
+  // Restart idle debounce (trailing edge — fires 100ms after last output)
+  if (ot.timer) clearTimeout(ot.timer);
+  ot.timer = setTimeout(() => flushViaCapture(sessionId, ot!), OUTPUT_DEBOUNCE_MS);
 
-  // Restart idle debounce timer (trailing edge — fires 100ms after last output)
-  if (buf.timer) clearTimeout(buf.timer);
-  buf.timer = setTimeout(() => flushOutputBuffer(sessionId, buf!), OUTPUT_DEBOUNCE_MS);
-
-  // Start max-wait ceiling timer if not already running. This ensures output
-  // reaches the chat even during continuous streaming (spinners at ~50ms/frame
-  // would starve a pure debounce).
-  if (!buf.maxTimer) {
-    buf.maxTimer = setTimeout(() => flushOutputBuffer(sessionId, buf!), OUTPUT_MAX_WAIT_MS);
+  // Max-wait ceiling — fire at most every 500ms during continuous streaming
+  if (!ot.maxTimer) {
+    ot.maxTimer = setTimeout(() => flushViaCapture(sessionId, ot!), OUTPUT_MAX_WAIT_MS);
   }
 }
 
