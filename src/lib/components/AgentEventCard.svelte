@@ -30,6 +30,7 @@
   const chosenAction: string = $derived(meta.chosen || '');
 
   function respond(type: string, choice: Record<string, any>) {
+    console.log('[AgentEventCard] respond called:', type, JSON.stringify(choice));
     onRespond({
       type,
       event_content: message.content,
@@ -98,10 +99,10 @@
           <div class="flex gap-2">
             <button class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
                     style="background:#22C55E;" disabled={!active}
-                    onclick={() => respond('approve', { action: 'approve' })}>Approve</button>
+                    onclick={(e: MouseEvent) => { e.stopPropagation(); respond('approve', { action: 'approve' }); }}>Approve</button>
             <button class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
                     style="background:#EF4444;" disabled={!active}
-                    onclick={() => respond('deny', { action: 'deny' })}>Deny</button>
+                    onclick={(e: MouseEvent) => { e.stopPropagation(); respond('deny', { action: 'deny' }); }}>Deny</button>
           </div>
         {/if}
 
