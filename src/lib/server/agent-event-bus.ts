@@ -119,6 +119,7 @@ export async function feed(sessionId: string, rawData: string): Promise<void> {
     if (state.driverSlug === 'none') return; // already confirmed no driver configured
     state.driver = await resolveDriver(sessionId);
     state.driverSlug = state.driver ? 'loaded' : 'none';
+    if (state.driver) console.log(`[event-bus] driver loaded for ${sessionId}: ${state.driverSlug}`);
   }
   if (!state.driver) return;
 
@@ -147,11 +148,22 @@ async function onDebounce(sessionId: string, state: SessionState): Promise<void>
   const session = _getSession(sessionId);
   if (!session?.linked_chat_id) return;
 
-  // Run detect() on the most recent line
+  // Run detect() on each recent line (not just the last — events can appear mid-burst)
   const lastLine = state.buffer[state.buffer.length - 1];
   if (!lastLine) return;
 
-  const detected = state.driver.detect(lastLine);
+  // Log buffer state periodically for diagnostics
+  if (Math.random() < 0.01) {
+    console.log(`[event-bus] ${sessionId} buffer=${state.buffer.length} last="${lastLine.text.slice(0, 60)}"`);
+  }
+
+  // Try each of the last 5 lines (events may not be on the very last line)
+  let detected: ReturnType<typeof state.driver.detect> = null;
+  const recentLines = state.buffer.slice(-5);
+  for (const line of recentLines) {
+    detected = state.driver!.detect(line);
+    if (detected) break;
+  }
 
   // Also try classifyFromWindow if the driver supports it (richer classification)
   let event = detected;
@@ -166,6 +178,8 @@ async function onDebounce(sessionId: string, state: SessionState): Promise<void>
     checkSettled(sessionId, state);
     return;
   }
+
+  console.log(`[event-bus] DETECTED ${(event as any).class || event.type} in ${sessionId}`);
 
   // Dedup: don't re-post if the same event class is already pending
   const eventClass = (event as any).class ?? event.type;

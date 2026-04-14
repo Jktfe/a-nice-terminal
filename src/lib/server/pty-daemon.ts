@@ -33,6 +33,83 @@ const SILENCE_DEDUP_MS = 15_000; // don't re-alert within this window
 // only one broadcast fires per session per SILENCE_DEDUP_MS window.
 const lastSilenceBroadcast = new Map<string, number>();
 
+// ─── %output debounce → terminal_line broadcast ──────────────────────────────
+// tmux control mode emits %output for every byte of terminal content. During
+// streaming/spinners this can be hundreds/sec. We debounce per-session with a
+// 100ms window, collapsing bursts to the final settled text before broadcasting.
+// Live WS viewers still get the raw PTY stream via the existing onData path;
+// this debounced path feeds the CHAT pane (text rendering, not xterm.js).
+
+const OUTPUT_DEBOUNCE_MS = 100;  // idle timeout — fire after 100ms of silence
+const OUTPUT_MAX_WAIT_MS = 500;  // ceiling — fire at most every 500ms during continuous output
+
+interface OutputBuffer {
+  chunks: string[];
+  timer: ReturnType<typeof setTimeout> | null;
+  firstChunkTs: number;   // timestamp of first chunk in current batch
+  maxTimer: ReturnType<typeof setTimeout> | null;
+}
+const outputBuffers = new Map<string, OutputBuffer>();
+
+function decodeOctalEscapes(s: string): string {
+  return s.replace(/\\(\d{3})/g, (_, oct: string) => String.fromCharCode(parseInt(oct, 8)));
+}
+
+// Extended ANSI strip: also handles DEC private modes (\x1b[?...h/l),
+// cursor positioning with ?, and other CSI variants.
+const ANSI_STRIP_RE = /\x1b\[[\x20-\x3f]*[\x40-\x7e]|\x1b\].*?(?:\x07|\x1b\\)|\x1b[()][0-9A-B]|\r/g;
+
+// Characters that are pure decoration/spinner — not meaningful terminal output.
+// If the stripped text contains ONLY these (no alphanumeric), don't broadcast.
+const NOISE_RE = /^[\s✽✳✻✶✢·★⏺⏵⠂⠐⠈↓↑←→×─│┌┐└┘├┤┬┴┼❯\u00a0\u2500-\u257f\u2580-\u259f\u25a0-\u25ff\u2800-\u28ff]*$/;
+
+function flushOutputBuffer(sessionId: string, buf: OutputBuffer): void {
+  if (buf.timer) { clearTimeout(buf.timer); buf.timer = null; }
+  if (buf.maxTimer) { clearTimeout(buf.maxTimer); buf.maxTimer = null; }
+  const text = buf.chunks.join('').trim();
+  buf.chunks = [];
+  buf.firstChunkTs = 0;
+  if (!text) return;
+
+  // Filter out noise-only frames (spinners, box-drawing, braille dots).
+  // Only broadcast lines that contain actual readable text.
+  if (NOISE_RE.test(text)) return;
+
+  broadcast({
+    type: 'terminal_line',
+    sessionId,
+    text,
+    ts: Date.now(),
+  });
+}
+
+function handleOutputLine(sessionId: string, rawContent: string): void {
+  let buf = outputBuffers.get(sessionId);
+  if (!buf) {
+    buf = { chunks: [], timer: null, firstChunkTs: 0, maxTimer: null };
+    outputBuffers.set(sessionId, buf);
+  }
+
+  // Decode octal escapes from tmux control mode, then strip ANSI
+  const decoded = decodeOctalEscapes(rawContent);
+  const clean = decoded.replace(ANSI_STRIP_RE, '');
+  if (clean.trim()) buf.chunks.push(clean);
+
+  // Track when the first chunk arrived for the max-wait ceiling
+  if (!buf.firstChunkTs) buf.firstChunkTs = Date.now();
+
+  // Restart idle debounce timer (trailing edge — fires 100ms after last output)
+  if (buf.timer) clearTimeout(buf.timer);
+  buf.timer = setTimeout(() => flushOutputBuffer(sessionId, buf!), OUTPUT_DEBOUNCE_MS);
+
+  // Start max-wait ceiling timer if not already running. This ensures output
+  // reaches the chat even during continuous streaming (spinners at ~50ms/frame
+  // would starve a pure debounce).
+  if (!buf.maxTimer) {
+    buf.maxTimer = setTimeout(() => flushOutputBuffer(sessionId, buf!), OUTPUT_MAX_WAIT_MS);
+  }
+}
+
 // ─── tmux helpers ────────────────────────────────────────────────────────────
 
 function tmuxSessionExists(sessionId: string): boolean {
@@ -190,10 +267,24 @@ function spawnControlMode(sessionId: string, session: PTYSession): pty.IPty | nu
 function handleControlLine(line: string, sessionId: string, session: PTYSession): void {
   if (!line || line[0] !== '%') return;
 
-  const match = line.match(NOTIFY_RE);
+  // tmux control mode lines end with \r\n; split('\n') leaves trailing \r
+  // which breaks NOTIFY_RE's $ anchor (JS dot doesn't match \r).
+  const match = line.trimEnd().match(NOTIFY_RE);
   if (!match) return;
   const kind = match[1];
   const rest = match[2] ?? '';
+
+  // %output — terminal content. Feed into the debounce buffer which collapses
+  // streaming/spinner bursts to settled text, then broadcasts as terminal_line.
+  // This is the data source for the chat-as-terminal rendering path.
+  if (kind === 'output') {
+    // Format: %output %<pane-id> <content>
+    // Strip the pane-id prefix to get the raw content
+    const contentStart = rest.indexOf(' ');
+    const content = contentStart >= 0 ? rest.slice(contentStart + 1) : rest;
+    handleOutputLine(sessionId, content);
+    return;
+  }
 
   // Special case: silence alert still drives prompt detection and broadcasts
   // its own `terminal_silence` message for backwards compat. Also persisted

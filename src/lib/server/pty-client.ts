@@ -19,6 +19,7 @@ export type TerminalEvent = {
   data: Record<string, unknown>;
 };
 type EventCallback = (event: TerminalEvent) => void;
+type LineCallback = (sessionId: string, text: string) => void;
 
 class PTYClient {
   private socket: net.Socket | null = null;
@@ -28,6 +29,7 @@ class PTYClient {
   private dataListeners: DataCallback[] = [];
   private silenceListeners: SilenceCallback[] = [];
   private eventListeners: EventCallback[] = [];
+  private lineListeners: LineCallback[] = [];
   // Keyed by "sessionId:callId" to prevent concurrent callers clobbering each other
   private pendingSpawns   = new Map<string, (result: any) => void>();
   private pendingCaptures = new Map<string, (result: any) => void>();
@@ -103,6 +105,10 @@ class PTYClient {
             for (const cb of this.silenceListeners) {
               try { cb(msg.sessionId, msg.isPrompt, msg.text); } catch {}
             }
+          } else if (msg.type === 'terminal_line') {
+            for (const cb of this.lineListeners) {
+              try { cb(msg.sessionId, msg.text); } catch {}
+            }
           } else if (msg.type === 'terminal_event') {
             const event: TerminalEvent = {
               sessionId: msg.sessionId,
@@ -172,6 +178,12 @@ class PTYClient {
   onEvent(callback: EventCallback): () => void {
     this.eventListeners.push(callback);
     return () => { this.eventListeners = this.eventListeners.filter(cb => cb !== callback); };
+  }
+
+  /** Settled terminal output lines from tmux control mode (debounced, ANSI-stripped). */
+  onLine(callback: LineCallback): () => void {
+    this.lineListeners.push(callback);
+    return () => { this.lineListeners = this.lineListeners.filter(cb => cb !== callback); };
   }
 
   capture(sessionId: string, lines = 50): Promise<string> {

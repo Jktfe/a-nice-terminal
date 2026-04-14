@@ -254,11 +254,9 @@ getPtyManager().then(async ptm => {
         flushTranscript(sessionId);
       }, 30_000));
     }
-    // Agent event bus — detect interactive events and post to linked chats
-    // (dynamic import is cached after first call; no await needed since feed() is fire-and-forget)
-    import('./src/lib/server/agent-event-bus.js')
-      .then(({ feed }) => feed(sessionId, data))
-      .catch(() => {});
+    // Agent event bus — fed from ptm.onLine() (debounced, ANSI-stripped text)
+    // instead of raw PTY data. Raw bytes contain cursor-movement sequences
+    // that, when stripped, concatenate words ("Doyouwanttoproceed?").
   });
 
   // Persist tmux control-mode structured events — the "what happened in this
@@ -270,9 +268,27 @@ getPtyManager().then(async ptm => {
     } catch {}
   });
 
-  // ─── Terminal-state → linked-chat bridge ──────────────────────────────────
+  // ─── Terminal output → linked chat (the "chat IS the terminal" path) ──────
   //
-  // Two complementary signals feed linked chats, both tmux-native:
+  // Settled text from tmux control mode (%output, debounced 100ms in the
+  // daemon) streams into the linked chat as terminal_line messages. This is
+  // the primary rendering path — the chat pane shows terminal output as
+  // monospace text blocks, with interactive events as AgentEventCard cards.
+  ptm.onLine(async (sessionId: string, text: string) => {
+    const session = queries.getSession(sessionId);
+    if (!session?.linked_chat_id) return;
+    // Post to linked chat as terminal_line
+    postToLinkedChat(sessionId, session.linked_chat_id, text, 'terminal_line');
+    // Feed to agent event bus for interactive event detection
+    import('./src/lib/server/agent-event-bus.js')
+      .then(({ feed }) => feed(sessionId, text))
+      .catch(() => {});
+  });
+
+  // ─── Legacy terminal-state signals (silence + title polling) ────────────
+  //
+  // These predate the control-mode terminal_line path above. Kept for
+  // sessions without a linked chat, and as a fallback.
   //
   //   1. `terminal_silence` — fired when either the ctrl-mode %alert-silence
   //      parser OR the belt-and-braces set-hook helper detects 3s of silence.
@@ -364,7 +380,7 @@ getPtyManager().then(async ptm => {
   //
   const lastTitleBySession = new Map<string, string>();
   const lastTitlePostTime = new Map<string, number>();
-  const TITLE_POST_COOLDOWN_MS = 30_000;
+  const TITLE_POST_COOLDOWN_MS = 60_000;
 
   // Strip ALL leading glyphs for comparison — braille + status indicators.
   // This prevents ✳↔⠂ oscillation from counting as a semantic change.
@@ -417,8 +433,18 @@ getPtyManager().then(async ptm => {
       if (normNew === normPrev) continue;
       if (isDefaultTitle(normNew)) continue;
 
-      // Rate-limit: max 1 post per 30s per session
+      // Rate-limit: max 1 post per 60s per session. On first check, seed from
+      // the DB so server restarts don't cause a burst of duplicate title posts.
       const now = Date.now();
+      if (!lastTitlePostTime.has(sid)) {
+        // Seed from most recent title message in DB for this chat
+        try {
+          const recent: any = queries.getMostRecentTitleMessage?.(chatId);
+          if (recent?.created_at) {
+            lastTitlePostTime.set(sid, new Date(recent.created_at + 'Z').getTime());
+          }
+        } catch {}
+      }
       const lastPost = lastTitlePostTime.get(sid) ?? 0;
       if (now - lastPost < TITLE_POST_COOLDOWN_MS) continue;
       lastTitlePostTime.set(sid, now);

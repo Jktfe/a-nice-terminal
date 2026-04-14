@@ -44,8 +44,9 @@ const CONFIRM_RE = /(shall I go ahead|want me to proceed|confirm.*delete|are you
 // Error + recovery offer
 const ERROR_RETRY_RE = /(doesn't exist|does not exist|not found|failed|error)[^]*?(would you like|want me to|shall I|did you mean)/is;
 
-// Free-text: lone question (no numbered list, no TUI box)
-const FREE_TEXT_RE = /\?\s*$/;
+// Free-text: a question with at least 10 chars of actual words before the `?`.
+// Avoids false positives on status bar text like "? for shortcuts" or short fragments.
+const FREE_TEXT_RE = /[a-zA-Z]{3,}[^?]{6,}\?\s*$/;
 
 // Progress: Claude Code spinner characters + gerund word
 const SPINNER_RE       = /[✽✳✻✶·★]\s+\w[^\n]*…/;
@@ -103,6 +104,17 @@ export class ClaudeCodeDriver implements AgentDriver {
     // Free-text question (must come after multi_choice/confirmation/error_retry guards)
     if (FREE_TEXT_RE.test(text) && !NUMBERED_LIST_RE.test(text) && !DIVIDER_RE.test(text)) {
       return this.makeEvent(ts, raw.raw, text, 'free_text', { question: text.trim() });
+    }
+
+    // Progress — tool execution indicators that appear in ALL permission modes
+    // (bypass, accept-edits, and ask-every-time). These are the ⏺ lines Claude
+    // Code emits when starting a tool call.
+    if (PROGRESS_TOOL_RE.test(text)) {
+      const match = text.match(PROGRESS_TOOL_RE);
+      return this.makeEvent(ts, raw.raw, text, 'progress', {
+        action: match?.[1] ?? 'Working',
+        detail: text.trim(),
+      });
     }
 
     return null;

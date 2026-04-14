@@ -132,10 +132,10 @@
           <div class="flex gap-2">
             <button class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
                     style="background:#22C55E;" disabled={!active}
-                    onclick={() => respond('confirm', { action: 'confirm' })}>Confirm</button>
+                    onclick={() => respond('confirm', { yes: true })}>Confirm</button>
             <button class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
                     style="background:#EF4444;" disabled={!active}
-                    onclick={() => respond('confirm', { action: 'cancel' })}>Cancel</button>
+                    onclick={() => respond('confirm', { yes: false })}>Cancel</button>
           </div>
         {/if}
 
@@ -154,7 +154,7 @@
                     style="background:#3B82F6;" disabled={!active}
                     onclick={() => {
                       const el = document.getElementById(inputId) as HTMLInputElement;
-                      if (el?.value.trim()) respond('text', { text: el.value.trim() });
+                      if (el?.value.trim()) respond('text', { value: el.value.trim() });
                     }}>Submit</button>
           </div>
         {/if}

@@ -332,6 +332,11 @@ export const queries = {
   getLinkedTerminalSessions: () =>
     prepare(`SELECT id, linked_chat_id FROM sessions WHERE type = 'terminal' AND archived = 0 AND deleted_at IS NULL AND linked_chat_id IS NOT NULL`).all(),
 
+  // Most recent title/prompt message in a chat — used to seed the title poller
+  // cooldown map on server restart so we don't spam duplicate titles.
+  getMostRecentTitleMessage: (chatId: string) =>
+    prepare(`SELECT created_at FROM messages WHERE session_id = ? AND msg_type IN ('title','prompt') ORDER BY created_at DESC LIMIT 1`).get(chatId),
+
   // Messages
   listMessages: (sessionId: string) => prepare(`SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC`).all(sessionId),
 
