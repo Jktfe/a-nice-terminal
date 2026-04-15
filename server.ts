@@ -164,6 +164,12 @@ wss.on('connection', async (ws) => {
         case 'check_health':
           ws.send(JSON.stringify({ type: 'session_health', sessionId: msg.sessionId, alive: ptm.isAlive(msg.sessionId) }));
           break;
+        case 'check_chrome': {
+          const { isChrome } = await import('./src/lib/server/agent-event-bus.js');
+          const result = isChrome(msg.sessionId, msg.line);
+          ptm.writeRaw(JSON.stringify({ type: 'is_chrome_result', sessionId: msg.sessionId, line: msg.line, isChrome: result }) + '\n');
+          break;
+        }
       }
     } catch (e) {
       console.error('[ws] Error:', e);

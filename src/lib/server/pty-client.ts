@@ -239,6 +239,13 @@ class PTYClient {
     this.send({ type: 'write', sessionId, data });
   }
 
+  /** Write raw bytes to the daemon socket (used for IPC responses like is_chrome_result). */
+  writeRaw(data: string): void {
+    if (this.connected && this.socket) {
+      this.socket.write(data);
+    }
+  }
+
   resize(sessionId: string, cols: number, rows: number): void {
     this.send({ type: 'resize', sessionId, cols, rows });
   }

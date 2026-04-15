@@ -37,9 +37,10 @@ export async function sessions(args: string[], flags: any, ctx: any) {
   }
 
   // Default: list sessions
-  const list = await api.get(ctx, '/api/sessions');
-  if (ctx.json) { console.log(JSON.stringify(list)); return; }
+  const res = await api.get(ctx, '/api/sessions');
+  if (ctx.json) { console.log(JSON.stringify(res)); return; }
 
+  const list = res.sessions || [];
   if (list.length === 0) { console.log('No sessions'); return; }
   console.log(`${'ID'.padEnd(22)} ${'Name'.padEnd(25)} ${'Type'.padEnd(12)} Status`);
   console.log('-'.repeat(70));

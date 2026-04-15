@@ -35,7 +35,7 @@ export async function msg(args: string[], flags: any, ctx: any) {
       sender_id = execFileSync('tmux', ['display-message', '-p', '#{session_name}'], { stdio: 'pipe' }).toString().trim();
     } catch {}
   }
-  if (!sender_id) sender_id = config.get('handle') || 'cli';
+  if (!sender_id) sender_id = config.get('handle') || 'Gemini';
 
   const result = await api.post(ctx, `/api/sessions/${sessionId}/messages`, {
     role: 'user',
