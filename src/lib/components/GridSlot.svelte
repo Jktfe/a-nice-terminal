@@ -52,7 +52,8 @@
     )
   );
 
-  function openPicker() {
+  function openPicker(e?: MouseEvent) {
+    e?.stopPropagation();
     pickerSearch = '';
     showPicker = true;
   }
@@ -236,7 +237,7 @@
   {#if cell.sessionId === null}
     <!-- ── Empty slot ── -->
     <button
-      onclick={openPicker}
+      onclick={(e) => openPicker(e)}
       class="flex-1 flex flex-col items-center justify-center gap-2 transition-colors"
       style="
         background: transparent;
@@ -328,7 +329,7 @@
 
       <!-- Swap / replace icon -->
       <button
-        onclick={openPicker}
+        onclick={(e) => openPicker(e)}
         title="Replace session"
         style="background: none; border: none; padding: 2px; cursor: pointer; color: #9CA3AF; line-height: 0; border-radius: 4px;"
         onmouseover={(e) => (e.currentTarget.style.color = '#6B7280')}
