@@ -77,21 +77,29 @@
     if (e.key === 'Escape') showPicker = false;
   }
 
+  // ── View toggle (terminal sessions can flip to chat view) ────────
+  let showChat = $state(false);
+
   // ── Content preview data ─────────────────────────────────────────
   let chatMessages = $state<Message[]>([]);
   let terminalLines = $state<TerminalRow[]>([]);
   let loadingContent = $state(false);
 
+  let linkedChatId = $state<string | null>(null);
+
   async function loadContent(sid: string, type: string) {
     loadingContent = true;
     try {
-      if (type === 'chat' || type === 'agent') {
-        const res = await fetch(`/api/sessions/${sid}/messages?limit=20`);
+      if (type === 'chat' || type === 'agent' || (type === 'terminal' && showChat)) {
+        // For terminal+showChat, load the linked chat's messages
+        const chatSid = (type === 'terminal' && showChat && linkedChatId) ? linkedChatId : sid;
+        const res = await fetch(`/api/sessions/${chatSid}/messages?limit=20`);
         if (res.ok) {
           const data = await res.json();
           chatMessages = data.messages ?? [];
         }
-      } else if (type === 'terminal') {
+      }
+      if (type === 'terminal' && !showChat) {
         const res = await fetch(`/api/sessions/${sid}/terminal/history?since=5m&limit=10`);
         if (res.ok) {
           const data = await res.json();
@@ -105,6 +113,17 @@
     }
   }
 
+  // Fetch linked_chat_id for terminal sessions
+  async function fetchLinkedChatId(sid: string) {
+    try {
+      const res = await fetch(`/api/sessions/${sid}`);
+      if (res.ok) {
+        const data = await res.json();
+        linkedChatId = data.linked_chat_id ?? null;
+      }
+    } catch {}
+  }
+
   let contentScrollEl = $state<HTMLElement | null>(null);
   let pollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -114,8 +133,18 @@
     }
   }
 
+  // Fetch linked chat ID when session changes
+  $effect(() => {
+    if (session?.type === 'terminal') {
+      fetchLinkedChatId(session.id);
+    }
+  });
+
+  // Reload content when session or showChat changes
   $effect(() => {
     if (session) {
+      // Access showChat to make this effect depend on it
+      const _chat = showChat;
       chatMessages = [];
       terminalLines = [];
       loadContent(session.id, session.type).then(scrollContentToBottom);
@@ -279,15 +308,21 @@
       <!-- Toggle icon: only for terminal sessions — flips to chat view -->
       {#if session.type === 'terminal'}
         <button
-          title="View linked chat"
-          style="background: none; border: none; padding: 2px; cursor: pointer; color: #9CA3AF; line-height: 0; border-radius: 4px;"
-          onmouseover={(e) => (e.currentTarget.style.color = '#6B7280')}
-          onmouseout={(e) => (e.currentTarget.style.color = '#9CA3AF')}
+          title={showChat ? 'View terminal output' : 'View linked chat'}
+          style="background: none; border: none; padding: 2px; cursor: pointer; color: {showChat ? '#6366F1' : '#9CA3AF'}; line-height: 0; border-radius: 4px;"
+          onclick={() => (showChat = !showChat)}
         >
-          <!-- message-square icon -->
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-          </svg>
+          {#if showChat}
+            <!-- terminal icon (switch back) -->
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line>
+            </svg>
+          {:else}
+            <!-- message-square icon -->
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+          {/if}
         </button>
       {/if}
 
@@ -314,7 +349,7 @@
     <!-- Slot body: content preview -->
     <div class="flex-1 min-h-0 overflow-hidden">
 
-      {#if session.type === 'terminal'}
+      {#if session.type === 'terminal' && !showChat}
         <!-- ── Terminal preview ── -->
         <div
           class="h-full overflow-y-auto"
