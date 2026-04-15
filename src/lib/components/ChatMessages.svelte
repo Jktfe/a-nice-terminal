@@ -93,6 +93,7 @@
   let linkedChatInput = $state('');
 
   function handleLinkedSend() {
+    console.log('[ChatMessages] handleLinkedSend called, input="' + linkedChatInput + '"');
     if (!linkedChatInput.trim()) return;
     onPostToLinkedChat(linkedChatInput.trim());
     linkedChatInput = '';
@@ -196,7 +197,7 @@
         onkeydown={(e) => { if (e.key === 'Enter') handleLinkedSend(); }}
       />
       <button
-        onclick={handleLinkedSend}
+        onclick={(e: MouseEvent) => { e.stopPropagation(); handleLinkedSend(); }}
         class="px-3 py-2 text-sm rounded-lg font-medium"
         style="background:#6366F1;color:#fff;"
       >Send</button>
