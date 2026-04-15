@@ -236,7 +236,17 @@
     ws = s;
 
     s.onopen = () => {
-      s.send(JSON.stringify({ type: 'join_session', sessionId }));
+      // For terminal sessions, spawn the PTY (tmux session) if it doesn't exist.
+      // This replaces the old xterm.js Terminal.svelte spawn — the chat view now
+      // needs the PTY running so messages can be forwarded as keystrokes.
+      const isTerminal = session?.type === 'terminal';
+      s.send(JSON.stringify({
+        type: 'join_session',
+        sessionId,
+        spawnPty: isTerminal,
+        cols: 120,
+        rows: 40,
+      }));
       if (linkedChatId && linkedChatId !== sessionId) {
         s.send(JSON.stringify({ type: 'join_session', sessionId: linkedChatId }));
       }
