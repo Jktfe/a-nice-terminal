@@ -9,6 +9,7 @@ interface Session {
   deleted_at: string | null;
   last_activity: string | null;
   updated_at: string;
+  linked_chat_id: string | null;
 }
 
 let sessions = $state<Session[]>([]);
