@@ -403,17 +403,21 @@
 
   async function sendCommand(cmd: string) {
     const text = cmd.endsWith('\n') || cmd.endsWith('\r') ? cmd.slice(0, -1) : cmd;
-    await fetch(`/api/sessions/${sessionId}/terminal/input`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ data: text }),
-    });
-    await new Promise(r => setTimeout(r, 5));
-    await fetch(`/api/sessions/${sessionId}/terminal/input`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ data: '\r' }),
-    });
+    // Send keystrokes directly via WS (instant)
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: 'terminal_input', sessionId, data: text + '\r' }));
+    }
+    // Also save to linked chat history (async, non-blocking)
+    if (linkedChatId) {
+      fetch(`/api/sessions/${linkedChatId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: 'user', content: text,
+          format: 'text', sender_id: null, msg_type: 'message',
+        }),
+      }).catch(() => {});
+    }
   }
 
   async function copySessionId() {
