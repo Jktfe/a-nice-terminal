@@ -14,6 +14,91 @@
   let creatingTerminal = $state(false);
   let creatingChat = $state(false);
 
+  // ── Native DOM refs for click fix (Svelte 5 onclick bug) ──────────
+  let themeBtnEl = $state<HTMLButtonElement | null>(null);
+  let gridToggleBtnEl = $state<HTMLButtonElement | null>(null);
+  let newTerminalBtnEl = $state<HTMLButtonElement | null>(null);
+  let newChatBtnEl = $state<HTMLButtonElement | null>(null);
+  let retryBtnEl = $state<HTMLButtonElement | null>(null);
+  // Grid dimension buttons
+  let colMinusBtnEl = $state<HTMLButtonElement | null>(null);
+  let colPlusBtnEl = $state<HTMLButtonElement | null>(null);
+  let rowMinusBtnEl = $state<HTMLButtonElement | null>(null);
+  let rowPlusBtnEl = $state<HTMLButtonElement | null>(null);
+
+  // ── Native addEventListener effects ───────────────────────────────
+  $effect(() => {
+    if (themeBtnEl) {
+      const handler = () => { theme.toggle(); };
+      themeBtnEl.addEventListener('click', handler);
+      return () => themeBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (gridToggleBtnEl) {
+      const handler = () => { grid.toggle(); };
+      gridToggleBtnEl.addEventListener('click', handler);
+      return () => gridToggleBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (newTerminalBtnEl) {
+      const handler = () => { createTerminal(); };
+      newTerminalBtnEl.addEventListener('click', handler);
+      return () => newTerminalBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (newChatBtnEl) {
+      const handler = () => { createChat(); };
+      newChatBtnEl.addEventListener('click', handler);
+      return () => newChatBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (retryBtnEl) {
+      const handler = () => { store.load(); };
+      retryBtnEl.addEventListener('click', handler);
+      return () => retryBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (colMinusBtnEl) {
+      const handler = () => { grid.setDimensions(grid.cols - 1, grid.rows); };
+      colMinusBtnEl.addEventListener('click', handler);
+      return () => colMinusBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (colPlusBtnEl) {
+      const handler = () => { grid.setDimensions(grid.cols + 1, grid.rows); };
+      colPlusBtnEl.addEventListener('click', handler);
+      return () => colPlusBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (rowMinusBtnEl) {
+      const handler = () => { grid.setDimensions(grid.cols, grid.rows - 1); };
+      rowMinusBtnEl.addEventListener('click', handler);
+      return () => rowMinusBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (rowPlusBtnEl) {
+      const handler = () => { grid.setDimensions(grid.cols, grid.rows + 1); };
+      rowPlusBtnEl.addEventListener('click', handler);
+      return () => rowPlusBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
   const filtered = $derived(
     store.sessions.filter(s =>
       s.name.toLowerCase().includes(searchText.toLowerCase())
@@ -82,6 +167,7 @@
     <div class="flex items-center gap-1 flex-wrap">
       <!-- Theme toggle -->
       <button
+        bind:this={themeBtnEl}
         onclick={() => theme.toggle()}
         class="p-2 rounded-lg transition-all duration-200"
         style="color: var(--text-muted); background: transparent;"
@@ -120,6 +206,7 @@
 
       <!-- Grid toggle -->
       <button
+        bind:this={gridToggleBtnEl}
         onclick={() => grid.toggle()}
         class="p-2 rounded-lg transition-all duration-200"
         style={grid.enabled
@@ -140,16 +227,16 @@
       {#if grid.enabled}
         <div class="hidden sm:flex items-center gap-1 ml-1" style="color: var(--text-muted);">
           <span class="text-xs font-mono">C</span>
-          <button onclick={() => grid.setDimensions(grid.cols - 1, grid.rows)} disabled={grid.cols <= 1}
+          <button bind:this={colMinusBtnEl} onclick={() => grid.setDimensions(grid.cols - 1, grid.rows)} disabled={grid.cols <= 1}
             class="w-5 h-5 flex items-center justify-center rounded text-xs font-bold transition-colors hover:bg-white/10 disabled:opacity-30">−</button>
           <span class="text-xs w-3 text-center">{grid.cols}</span>
-          <button onclick={() => grid.setDimensions(grid.cols + 1, grid.rows)} disabled={grid.cols >= 5}
+          <button bind:this={colPlusBtnEl} onclick={() => grid.setDimensions(grid.cols + 1, grid.rows)} disabled={grid.cols >= 5}
             class="w-5 h-5 flex items-center justify-center rounded text-xs font-bold transition-colors hover:bg-white/10 disabled:opacity-30">+</button>
           <span class="text-xs font-mono ml-1">R</span>
-          <button onclick={() => grid.setDimensions(grid.cols, grid.rows - 1)} disabled={grid.rows <= 1}
+          <button bind:this={rowMinusBtnEl} onclick={() => grid.setDimensions(grid.cols, grid.rows - 1)} disabled={grid.rows <= 1}
             class="w-5 h-5 flex items-center justify-center rounded text-xs font-bold transition-colors hover:bg-white/10 disabled:opacity-30">−</button>
           <span class="text-xs w-3 text-center">{grid.rows}</span>
-          <button onclick={() => grid.setDimensions(grid.cols, grid.rows + 1)} disabled={grid.rows >= 5}
+          <button bind:this={rowPlusBtnEl} onclick={() => grid.setDimensions(grid.cols, grid.rows + 1)} disabled={grid.rows >= 5}
             class="w-5 h-5 flex items-center justify-center rounded text-xs font-bold transition-colors hover:bg-white/10 disabled:opacity-30">+</button>
         </div>
       {/if}
@@ -176,7 +263,7 @@
       <div class="flex-1 flex flex-col items-center justify-center gap-4">
         <p class="font-medium" style="color: var(--text);">Failed to load sessions</p>
         <p class="text-sm max-w-xs text-center" style="color: var(--text-faint);">{store.error}</p>
-        <button onclick={() => store.load()} class="text-[#22C55E] text-sm font-medium hover:text-[#4ADE80] transition-colors">Retry</button>
+        <button bind:this={retryBtnEl} onclick={() => store.load()} class="text-[#22C55E] text-sm font-medium hover:text-[#4ADE80] transition-colors">Retry</button>
       </div>
 
     {:else}
@@ -195,6 +282,7 @@
               {/if}
             </h2>
             <button
+              bind:this={newTerminalBtnEl}
               onclick={createTerminal}
               disabled={creatingTerminal}
               class="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition-all disabled:opacity-60 w-full sm:w-auto"
@@ -258,6 +346,7 @@
               {/if}
             </h2>
             <button
+              bind:this={newChatBtnEl}
               onclick={createChat}
               disabled={creatingChat}
               class="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition-all disabled:opacity-60 w-full sm:w-auto"

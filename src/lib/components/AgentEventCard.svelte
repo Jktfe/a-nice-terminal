@@ -29,6 +29,93 @@
 
   const chosenAction: string = $derived(meta.chosen || '');
 
+  // ── Native DOM refs for click fix (Svelte 5 onclick bug) ──────────
+  let approveBtnEl = $state<HTMLButtonElement | null>(null);
+  let denyBtnEl = $state<HTMLButtonElement | null>(null);
+  let submitBtnEl = $state<HTMLButtonElement | null>(null);
+  let confirmBtnEl = $state<HTMLButtonElement | null>(null);
+  let cancelBtnEl = $state<HTMLButtonElement | null>(null);
+  let retryBtnEl = $state<HTMLButtonElement | null>(null);
+  let abortBtnEl = $state<HTMLButtonElement | null>(null);
+  let authApproveBtnEl = $state<HTMLButtonElement | null>(null);
+  let authDenyBtnEl = $state<HTMLButtonElement | null>(null);
+
+  // ── Native addEventListener effects ───────────────────────────────
+  $effect(() => {
+    if (approveBtnEl) {
+      const handler = (e: Event) => { e.stopPropagation(); respond('approve', { action: 'approve' }); };
+      approveBtnEl.addEventListener('click', handler);
+      return () => approveBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (denyBtnEl) {
+      const handler = (e: Event) => { e.stopPropagation(); respond('deny', { action: 'deny' }); };
+      denyBtnEl.addEventListener('click', handler);
+      return () => denyBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (submitBtnEl) {
+      const handler = () => {
+        const el = document.getElementById(`free-text-${message.id}`) as HTMLInputElement;
+        if (el?.value.trim()) respond('text', { value: el.value.trim() });
+      };
+      submitBtnEl.addEventListener('click', handler);
+      return () => submitBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (confirmBtnEl) {
+      const handler = () => { respond('confirm', { yes: true }); };
+      confirmBtnEl.addEventListener('click', handler);
+      return () => confirmBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (cancelBtnEl) {
+      const handler = () => { respond('confirm', { yes: false }); };
+      cancelBtnEl.addEventListener('click', handler);
+      return () => cancelBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (retryBtnEl) {
+      const handler = () => { respond('retry', { action: 'retry' }); };
+      retryBtnEl.addEventListener('click', handler);
+      return () => retryBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (abortBtnEl) {
+      const handler = () => { respond('abort', { action: 'abort' }); };
+      abortBtnEl.addEventListener('click', handler);
+      return () => abortBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (authApproveBtnEl) {
+      const handler = () => { respond('approve', { action: 'authorise', tool: event.payload.tool }); };
+      authApproveBtnEl.addEventListener('click', handler);
+      return () => authApproveBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (authDenyBtnEl) {
+      const handler = () => { respond('deny', { action: 'deny', tool: event.payload.tool }); };
+      authDenyBtnEl.addEventListener('click', handler);
+      return () => authDenyBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
   function respond(type: string, choice: Record<string, any>) {
     console.log('[AgentEventCard] respond called:', type, JSON.stringify(choice));
     onRespond({
@@ -97,10 +184,10 @@
           </p>
         {:else}
           <div class="flex gap-2">
-            <button class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
+            <button bind:this={approveBtnEl} class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
                     style="background:#22C55E;" disabled={!active}
                     onclick={(e: MouseEvent) => { e.stopPropagation(); respond('approve', { action: 'approve' }); }}>Approve</button>
-            <button class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
+            <button bind:this={denyBtnEl} class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
                     style="background:#EF4444;" disabled={!active}
                     onclick={(e: MouseEvent) => { e.stopPropagation(); respond('deny', { action: 'deny' }); }}>Deny</button>
           </div>
@@ -131,10 +218,10 @@
           </p>
         {:else}
           <div class="flex gap-2">
-            <button class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
+            <button bind:this={confirmBtnEl} class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
                     style="background:#22C55E;" disabled={!active}
                     onclick={() => respond('confirm', { yes: true })}>Confirm</button>
-            <button class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
+            <button bind:this={cancelBtnEl} class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
                     style="background:#EF4444;" disabled={!active}
                     onclick={() => respond('confirm', { yes: false })}>Cancel</button>
           </div>
@@ -151,7 +238,7 @@
                    class="flex-1 px-2 py-1.5 text-xs rounded-md border"
                    style="background:var(--bg-input);border-color:var(--border-subtle);color:var(--text);font-family:'JetBrains Mono',monospace;"
                    disabled={!active} />
-            <button class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
+            <button bind:this={submitBtnEl} class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
                     style="background:#3B82F6;" disabled={!active}
                     onclick={() => {
                       const el = document.getElementById(inputId) as HTMLInputElement;
@@ -170,10 +257,10 @@
           </p>
         {:else}
           <div class="flex gap-2">
-            <button class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
+            <button bind:this={authApproveBtnEl} class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
                     style="background:#22C55E;" disabled={!active}
                     onclick={() => respond('approve', { action: 'authorise', tool: event.payload.tool })}>Authorise</button>
-            <button class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
+            <button bind:this={authDenyBtnEl} class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
                     style="background:#EF4444;" disabled={!active}
                     onclick={() => respond('deny', { action: 'deny', tool: event.payload.tool })}>Deny</button>
           </div>
@@ -193,10 +280,10 @@
           </p>
         {:else}
           <div class="flex gap-2">
-            <button class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
+            <button bind:this={retryBtnEl} class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
                     style="background:#3B82F6;" disabled={!active}
                     onclick={() => respond('retry', { action: 'retry' })}>Retry</button>
-            <button class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
+            <button bind:this={abortBtnEl} class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
                     style="background:#EF4444;" disabled={!active}
                     onclick={() => respond('abort', { action: 'abort' })}>Abort</button>
           </div>

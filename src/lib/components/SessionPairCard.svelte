@@ -28,6 +28,45 @@
     return { label: 'IDLE', color: '#F59E0B', bg: 'rgba(245,158,11,0.12)' };
   })());
 
+  // ── Native DOM refs for click fix (Svelte 5 onclick bug) ──────────
+  let cardEl = $state<HTMLDivElement | null>(null);
+  let chatHalfEl = $state<HTMLDivElement | null>(null);
+  let archiveBtnEl = $state<HTMLButtonElement | null>(null);
+  let deleteBtnEl = $state<HTMLButtonElement | null>(null);
+
+  // ── Native addEventListener effects ───────────────────────────────
+  $effect(() => {
+    if (cardEl) {
+      const handler = () => { handleCardClick(); };
+      cardEl.addEventListener('click', handler);
+      return () => cardEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (chatHalfEl) {
+      const handler = (e: Event) => { handleChatClick(e as MouseEvent); };
+      chatHalfEl.addEventListener('click', handler);
+      return () => chatHalfEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (archiveBtnEl) {
+      const handler = (e: Event) => { handleArchive(e as MouseEvent); };
+      archiveBtnEl.addEventListener('click', handler);
+      return () => archiveBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (deleteBtnEl) {
+      const handler = (e: Event) => { handleDelete(e as MouseEvent); };
+      deleteBtnEl.addEventListener('click', handler);
+      return () => deleteBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
   function handleCardClick() {
     goto(`/session/${terminal.id}`);
   }
@@ -55,6 +94,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
+  bind:this={cardEl}
   class="group relative rounded-xl border overflow-hidden cursor-pointer transition-all duration-200 card-hover"
   style="background: var(--bg-card); border-color: var(--border-light);"
   onclick={handleCardClick}
@@ -94,6 +134,7 @@
     <!-- Chat half -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
+      bind:this={chatHalfEl}
       class="flex-1 min-w-0 flex items-center gap-3 px-4 py-3.5 transition-colors duration-150 hover:bg-indigo-500/5"
       onclick={handleChatClick}
     >
@@ -124,6 +165,7 @@
   <div class="absolute top-2 right-2 hidden group-hover:flex items-center gap-1">
     {#if onArchive}
       <button
+        bind:this={archiveBtnEl}
         onclick={handleArchive}
         class="p-1.5 rounded-lg transition-all"
         style="color: var(--text-muted); background: var(--bg-elevated);"
@@ -137,6 +179,7 @@
     {/if}
     {#if onDelete}
       <button
+        bind:this={deleteBtnEl}
         onclick={handleDelete}
         class="p-1.5 rounded-lg transition-all text-red-400 hover:text-red-300"
         style="background: var(--bg-elevated);"

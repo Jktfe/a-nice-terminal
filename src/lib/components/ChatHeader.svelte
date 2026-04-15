@@ -52,6 +52,144 @@
   let nameInput = $state('');
   let showTmuxMenu = $state(false);
 
+  // ── Native DOM refs for click fix (Svelte 5 onclick bug) ──────────
+  let backBtnEl = $state<HTMLButtonElement | null>(null);
+  let editNameBtnEl = $state<HTMLButtonElement | null>(null);
+  let chatModeBtnEl = $state<HTMLButtonElement | null>(null);
+  let termModeBtnEl = $state<HTMLButtonElement | null>(null);
+  let tmuxBtnEl = $state<HTMLButtonElement | null>(null);
+  let tmuxBackdropEl = $state<HTMLDivElement | null>(null);
+  let tmuxLocalBtnEl = $state<HTMLButtonElement | null>(null);
+  let tmuxSshBtnEl = $state<HTMLButtonElement | null>(null);
+  let themeBtnEl = $state<HTMLButtonElement | null>(null);
+  let panelBtnEl = $state<HTMLButtonElement | null>(null);
+  let menuBtnEl = $state<HTMLButtonElement | null>(null);
+  let menuBackdropEl = $state<HTMLDivElement | null>(null);
+  let copyIdBtnEl = $state<HTMLButtonElement | null>(null);
+  let renameBtnEl = $state<HTMLButtonElement | null>(null);
+  let deleteBtnEl = $state<HTMLButtonElement | null>(null);
+
+  // ── Native addEventListener effects ───────────────────────────────
+  $effect(() => {
+    if (backBtnEl) {
+      const handler = () => { goto('/'); };
+      backBtnEl.addEventListener('click', handler);
+      return () => backBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (editNameBtnEl) {
+      const handler = () => { startEditName(); };
+      editNameBtnEl.addEventListener('click', handler);
+      return () => editNameBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (chatModeBtnEl) {
+      const handler = () => { onModeChange('chat'); };
+      chatModeBtnEl.addEventListener('click', handler);
+      return () => chatModeBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (termModeBtnEl) {
+      const handler = () => { onModeChange('terminal'); };
+      termModeBtnEl.addEventListener('click', handler);
+      return () => termModeBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (tmuxBtnEl) {
+      const handler = (e: Event) => { e.stopPropagation(); showTmuxMenu = !showTmuxMenu; };
+      tmuxBtnEl.addEventListener('click', handler);
+      return () => tmuxBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (tmuxBackdropEl) {
+      const handler = () => { showTmuxMenu = false; };
+      tmuxBackdropEl.addEventListener('click', handler);
+      return () => tmuxBackdropEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (tmuxLocalBtnEl) {
+      const handler = () => { copyTmuxCmd(`tmux attach-session -t ${sessionId}`); };
+      tmuxLocalBtnEl.addEventListener('click', handler);
+      return () => tmuxLocalBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (tmuxSshBtnEl) {
+      const handler = () => { copyTmuxCmd(`ssh mac.tail34caea.ts.net -t tmux attach-session -t ${sessionId}`); };
+      tmuxSshBtnEl.addEventListener('click', handler);
+      return () => tmuxSshBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (themeBtnEl) {
+      const handler = () => { theme.toggle(); };
+      themeBtnEl.addEventListener('click', handler);
+      return () => themeBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (panelBtnEl) {
+      const handler = () => { onPanelToggle(); };
+      panelBtnEl.addEventListener('click', handler);
+      return () => panelBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (menuBtnEl) {
+      const handler = () => { onMenuToggle(); };
+      menuBtnEl.addEventListener('click', handler);
+      return () => menuBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (menuBackdropEl) {
+      const handler = () => { onMenuClose(); };
+      menuBackdropEl.addEventListener('click', handler);
+      return () => menuBackdropEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (copyIdBtnEl) {
+      const handler = () => { onCopyId(); };
+      copyIdBtnEl.addEventListener('click', handler);
+      return () => copyIdBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (renameBtnEl) {
+      const handler = () => { onRename(); };
+      renameBtnEl.addEventListener('click', handler);
+      return () => renameBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
+  $effect(() => {
+    if (deleteBtnEl) {
+      const handler = () => { onDelete(); };
+      deleteBtnEl.addEventListener('click', handler);
+      return () => deleteBtnEl?.removeEventListener('click', handler);
+    }
+  });
+
   function copyTmuxCmd(cmd: string) {
     navigator.clipboard.writeText(cmd).catch(() => {
       const ta = document.createElement('textarea');
@@ -94,6 +232,7 @@
 >
   <!-- ANT logo + back -->
   <button
+    bind:this={backBtnEl}
     onclick={() => goto('/')}
     class="flex items-center gap-1 sm:gap-2 flex-shrink-0 rounded-lg px-1 sm:px-1.5 py-1 transition-all"
     style="color: var(--text-muted);"
@@ -128,6 +267,7 @@
       />
     {:else}
       <button
+        bind:this={editNameBtnEl}
         onclick={startEditName}
         class="flex items-center gap-1.5 group min-w-0"
         title="Click to rename"
@@ -161,6 +301,7 @@
         style="background: #F3F4F6; border: 1px solid #E5E7EB;"
       >
         <button
+          bind:this={chatModeBtnEl}
           class="px-2.5 py-1 text-xs rounded-full font-medium transition-all"
           style={mode === 'chat'
             ? 'background: #6366F1; color: #fff;'
@@ -169,6 +310,7 @@
           title="Chat view"
         >💬</button>
         <button
+          bind:this={termModeBtnEl}
           class="px-2.5 py-1 text-xs rounded-full font-medium transition-all"
           style={mode === 'terminal'
             ? 'background: #22C55E; color: #fff;'
@@ -181,6 +323,7 @@
       <!-- tmux dropdown: local or SSH -->
       <div class="relative">
         <button
+          bind:this={tmuxBtnEl}
           class="flex items-center gap-1.5 p-1.5 sm:px-2.5 sm:py-1.5 text-xs rounded-lg border transition-all"
           style="border-color: var(--border-subtle); color: var(--text-muted); background: var(--bg-card);"
           title="Copy tmux attach command"
@@ -195,10 +338,11 @@
         {#if showTmuxMenu}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="fixed inset-0 z-40" onclick={() => (showTmuxMenu = false)}></div>
+          <div bind:this={tmuxBackdropEl} class="fixed inset-0 z-40" onclick={() => (showTmuxMenu = false)}></div>
           <div class="absolute right-0 top-10 z-50 w-72 rounded-lg border shadow-xl overflow-hidden text-xs"
                style="background:var(--bg-card);border-color:var(--border-light);">
             <button
+              bind:this={tmuxLocalBtnEl}
               class="w-full text-left px-3 py-2.5 border-b transition-colors flex items-center gap-2"
               style="color:var(--text);border-color:var(--border-subtle);"
               onclick={() => { copyTmuxCmd(`tmux attach-session -t ${sessionId}`); }}
@@ -210,6 +354,7 @@
               </div>
             </button>
             <button
+              bind:this={tmuxSshBtnEl}
               class="w-full text-left px-3 py-2.5 transition-colors flex items-center gap-2"
               style="color:var(--text);"
               onclick={() => { copyTmuxCmd(`ssh mac.tail34caea.ts.net -t tmux attach-session -t ${sessionId}`); }}
@@ -232,6 +377,7 @@
 
     <!-- Moon / sun theme toggle — hidden on mobile (accessible via session list) -->
     <button
+      bind:this={themeBtnEl}
       onclick={() => theme.toggle()}
       class="hidden sm:flex p-1.5 rounded-lg transition-all"
       style="color: var(--text-muted);"
@@ -254,9 +400,7 @@
 
     <!-- Docs link — hidden on mobile -->
     <a
-      href="https://github.com/Jktfe/a-nice-terminal"
-      target="_blank"
-      rel="noopener noreferrer"
+      href="/help"
       class="hidden sm:flex p-1.5 rounded-lg transition-all"
       style="color: var(--text-muted);"
       title="Documentation"
@@ -270,6 +414,7 @@
 
     <!-- Panel toggle — panel-right-open icon, indigo when open -->
     <button
+      bind:this={panelBtnEl}
       onclick={onPanelToggle}
       class="relative p-1.5 rounded-lg transition-all"
       style={showPanel ? 'color: #6366F1;' : 'color: var(--text-muted);'}
@@ -296,6 +441,7 @@
     <!-- Three-dot menu -->
     <div class="relative">
       <button
+        bind:this={menuBtnEl}
         onclick={onMenuToggle}
         class="p-1.5 rounded-lg transition-all"
         style="color: var(--text-muted);"
@@ -310,12 +456,13 @@
       {#if showMenu}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="fixed inset-0 z-40" onclick={onMenuClose}></div>
+        <div bind:this={menuBackdropEl} class="fixed inset-0 z-40" onclick={onMenuClose}></div>
         <div
           class="absolute right-0 mt-1 w-44 rounded-xl border shadow-xl z-50 overflow-hidden text-sm"
           style="background: var(--bg-card); border-color: #E5E7EB;"
         >
           <button
+            bind:this={copyIdBtnEl}
             onclick={onCopyId}
             class="w-full text-left px-3 py-2 border-b transition-colors hover:bg-gray-50 dark:hover:bg-white/5"
             style="color: var(--text-muted); border-color: #F3F4F6;"
@@ -330,6 +477,7 @@
             </span>
           </button>
           <button
+            bind:this={renameBtnEl}
             onclick={onRename}
             class="w-full text-left px-3 py-2 border-b transition-colors hover:bg-gray-50 dark:hover:bg-white/5"
             style="color: var(--text-muted); border-color: #F3F4F6;"
@@ -343,6 +491,7 @@
             </span>
           </button>
           <button
+            bind:this={deleteBtnEl}
             onclick={onDelete}
             class="w-full text-left px-3 py-2 transition-colors text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"
           >
