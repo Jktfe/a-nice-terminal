@@ -94,7 +94,7 @@
     <!-- Chat half -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
-      class="w-44 flex-shrink-0 flex items-center gap-3 px-4 py-3.5 transition-colors duration-150 hover:bg-indigo-500/5"
+      class="flex-1 min-w-0 flex items-center gap-3 px-4 py-3.5 transition-colors duration-150 hover:bg-indigo-500/5"
       onclick={handleChatClick}
     >
       <!-- chat icon -->
