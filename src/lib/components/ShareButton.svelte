@@ -1,9 +1,12 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
+
   let { sessionId, sessionType }: { sessionId: string; sessionType: string } = $props();
   let copied = $state(false);
   let showPanel = $state(false);
   let commands = $state<Record<string, string>>({});
   let isLoading = $state(false);
+  let shareBtnEl = $state<HTMLButtonElement | null>(null);
 
   async function loadCommands() {
     if (isLoading) return;
@@ -21,17 +24,34 @@
   }
 
   async function copyCommand(cmd: string) {
-    await navigator.clipboard.writeText(cmd);
+    try {
+      await navigator.clipboard.writeText(cmd);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = cmd; ta.style.cssText = 'position:fixed;left:-9999px';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta);
+    }
     copied = true;
     setTimeout(() => (copied = false), 2000);
   }
+
+  // Native listener — Svelte 5 event delegation breaks in child components
+  $effect(() => {
+    if (shareBtnEl) {
+      const handler = () => loadCommands();
+      shareBtnEl.addEventListener('click', handler);
+      return () => shareBtnEl?.removeEventListener('click', handler);
+    }
+  });
 </script>
 
 <div class="relative">
   <button
-    onclick={loadCommands}
+    bind:this={shareBtnEl}
     disabled={isLoading}
-    class="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg bg-[#1A1A22] text-gray-300 hover:text-white hover:bg-[#24242E] border border-[var(--border-subtle)] hover:border-[var(--border-light)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+    class="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+    style="background:var(--bg-card);color:var(--text-muted);border-color:var(--border-subtle);"
     title="Share session with agents"
   >
     {#if isLoading}
@@ -48,7 +68,7 @@
   </button>
 
   {#if showPanel}
-    <div class="absolute top-12 right-0 z-50 w-96 bg-[#1A1A22] rounded-xl shadow-2xl border border-[var(--border-light)] p-5 space-y-4 animate-slide-in">
+    <div class="absolute top-12 right-0 z-50 w-96 rounded-xl shadow-2xl border p-5 space-y-4 animate-slide-in" style="background:var(--bg-card);border-color:var(--border-light);">
       <!-- Header -->
       <div>
         <h3 class="text-sm font-semibold text-white">Share with Agents</h3>

@@ -50,6 +50,24 @@
 
   let editingName = $state(false);
   let nameInput = $state('');
+  let showTmuxMenu = $state(false);
+
+  function copyTmuxCmd(cmd: string) {
+    navigator.clipboard.writeText(cmd).catch(() => {
+      const ta = document.createElement('textarea');
+      ta.value = cmd; ta.style.cssText = 'position:fixed;left:-9999px';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta);
+    });
+    showTmuxMenu = false;
+    // Use a simple alert-like feedback since we don't have toast access here
+    const btn = document.querySelector('[title="Copy tmux attach command"]');
+    if (btn) {
+      const orig = btn.querySelector('span')?.textContent;
+      const span = btn.querySelector('span');
+      if (span) { span.textContent = '✓ Copied!'; setTimeout(() => { span.textContent = orig || 'tmux'; }, 1500); }
+    }
+  }
 
   function startEditName() {
     nameInput = session?.name || '';
@@ -160,20 +178,51 @@
         >⌨</button>
       </div>
 
-      <!-- tmux button: icon-only on mobile, icon+label on sm+ -->
-      <button
-        class="flex items-center gap-1.5 p-1.5 sm:px-2.5 sm:py-1.5 text-xs rounded-lg border transition-all"
-        style="border-color: #E5E7EB; color: var(--text-muted); background: var(--bg);"
-        title="Copy SSH+tmux command to clipboard"
-        onclick={onCopyTmux}
-      >
-        <!-- clipboard-copy icon -->
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-            d="M8 5H6a2 2 0 00-2 2v11a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/>
-        </svg>
-        <span class="hidden sm:inline">tmux</span>
-      </button>
+      <!-- tmux dropdown: local or SSH -->
+      <div class="relative">
+        <button
+          class="flex items-center gap-1.5 p-1.5 sm:px-2.5 sm:py-1.5 text-xs rounded-lg border transition-all"
+          style="border-color: var(--border-subtle); color: var(--text-muted); background: var(--bg-card);"
+          title="Copy tmux attach command"
+          onclick={(e: MouseEvent) => { e.stopPropagation(); showTmuxMenu = !showTmuxMenu; }}
+        >
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M8 5H6a2 2 0 00-2 2v11a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/>
+          </svg>
+          <span class="hidden sm:inline">tmux</span>
+        </button>
+        {#if showTmuxMenu}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div class="fixed inset-0 z-40" onclick={() => (showTmuxMenu = false)}></div>
+          <div class="absolute right-0 top-10 z-50 w-72 rounded-lg border shadow-xl overflow-hidden text-xs"
+               style="background:var(--bg-card);border-color:var(--border-light);">
+            <button
+              class="w-full text-left px-3 py-2.5 border-b transition-colors flex items-center gap-2"
+              style="color:var(--text);border-color:var(--border-subtle);"
+              onclick={() => { copyTmuxCmd(`tmux attach-session -t ${sessionId}`); }}
+            >
+              <span style="color:var(--text-muted);">💻</span>
+              <div>
+                <p class="font-medium">Local</p>
+                <p style="color:var(--text-faint);">tmux attach-session -t {sessionId.slice(0,12)}…</p>
+              </div>
+            </button>
+            <button
+              class="w-full text-left px-3 py-2.5 transition-colors flex items-center gap-2"
+              style="color:var(--text);"
+              onclick={() => { copyTmuxCmd(`ssh mac.tail34caea.ts.net -t tmux attach-session -t ${sessionId}`); }}
+            >
+              <span style="color:var(--text-muted);">🌐</span>
+              <div>
+                <p class="font-medium">SSH (Tailscale)</p>
+                <p style="color:var(--text-faint);">ssh mac.tail… -t tmux attach…</p>
+              </div>
+            </button>
+          </div>
+        {/if}
+      </div>
     {/if}
 
     <!-- Share -->
