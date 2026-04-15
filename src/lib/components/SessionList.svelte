@@ -165,41 +165,6 @@
   {:else}
   <!-- ── List view ──────────────────────────────────────────────── -->
 
-    <!-- Search bar -->
-    <div class="px-4 sm:px-6 pt-4 sm:pt-5 pb-3 flex-shrink-0">
-      <div class="relative">
-        <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style="color: var(--text-faint);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-        </svg>
-        <input
-          type="text"
-          placeholder="Search sessions…"
-          bind:value={searchText}
-          class="w-full pl-10 pr-4 py-2 rounded-lg text-sm focus:ring-2 focus:ring-[#6366F1] transition-all"
-          style="background: var(--bg-card); color: var(--text); border: 1px solid var(--border-light);"
-        />
-      </div>
-    </div>
-
-    <!-- Recoverable rail -->
-    {#if store.recoverable.length > 0}
-      <div class="px-6 py-3 border-b flex-shrink-0" style="border-color: var(--border-subtle); background: var(--bg-surface);">
-        <p class="text-xs font-medium mb-2" style="color: var(--text-faint);">Recently deleted — tap to restore</p>
-        <div class="flex gap-2 overflow-x-auto pb-1">
-          {#each store.recoverable as session (session.id)}
-            <button
-              onclick={() => store.restoreSession(session.id)}
-              class="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs whitespace-nowrap transition-all flex-shrink-0"
-              style="background: var(--bg-card); border-color: var(--border-light); color: var(--text-muted);"
-              title="Restore {session.name}"
-            >
-              <span>{session.type === 'terminal' ? '>' : '💬'}</span>
-              <span>{session.name}</span>
-            </button>
-          {/each}
-        </div>
-      </div>
-    {/if}
 
     <!-- ── Loading / error states ── -->
     {#if store.loading && store.sessions.length === 0}
@@ -341,6 +306,25 @@
 
       </div>
     </div>
+
+    <!-- Archived / recoverable footer bar -->
+    {#if store.recoverable.length > 0}
+      <div class="flex items-center gap-3 px-4 sm:px-6 py-2 border-t flex-shrink-0 overflow-x-auto" style="border-color: var(--border-light);">
+        <span class="text-xs font-medium flex-shrink-0" style="color: var(--text-faint);">Archived:</span>
+        {#each store.recoverable as session (session.id)}
+          <div class="flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs whitespace-nowrap flex-shrink-0" style="border-color: var(--border-light); color: var(--text-muted);">
+            <span>{session.type === 'terminal' ? '>' : '💬'}</span>
+            <span>{session.name}</span>
+            <button onclick={() => store.restoreSession(session.id)} class="p-0.5 rounded transition-colors" style="color: var(--text-faint);" title="Restore">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            </button>
+            <button onclick={() => store.deleteSession(session.id)} class="p-0.5 rounded transition-colors" style="color: var(--text-faint);" title="Delete permanently">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            </button>
+          </div>
+        {/each}
+      </div>
+    {/if}
     {/if}
 
   {/if}
