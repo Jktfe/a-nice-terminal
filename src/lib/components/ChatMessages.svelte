@@ -91,6 +91,7 @@
   }
 
   let linkedChatInput = $state('');
+  let sendBtnEl = $state<HTMLButtonElement | null>(null);
 
   function handleLinkedSend() {
     console.log('[ChatMessages] handleLinkedSend called, input="' + linkedChatInput + '"');
@@ -98,6 +99,16 @@
     onPostToLinkedChat(linkedChatInput.trim());
     linkedChatInput = '';
   }
+
+  // Workaround: Svelte 5 event delegation sometimes fails on buttons in
+  // child components. Attach a native DOM listener as a belt-and-braces fix.
+  $effect(() => {
+    if (sendBtnEl) {
+      const handler = () => handleLinkedSend();
+      sendBtnEl.addEventListener('click', handler);
+      return () => sendBtnEl?.removeEventListener('click', handler);
+    }
+  });
 </script>
 
 <div class="flex-1 flex flex-col overflow-hidden">
@@ -197,7 +208,7 @@
         onkeydown={(e) => { if (e.key === 'Enter') handleLinkedSend(); }}
       />
       <button
-        onclick={(e: MouseEvent) => { e.stopPropagation(); handleLinkedSend(); }}
+        bind:this={sendBtnEl}
         class="px-3 py-2 text-sm rounded-lg font-medium"
         style="background:#6366F1;color:#fff;"
       >Send</button>
