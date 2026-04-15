@@ -2,11 +2,15 @@ const STORAGE_KEY = 'ant-theme';
 
 function createThemeStore() {
   const stored = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
-  let dark = $state(stored !== 'light');
+  let dark = $state(stored === 'dark');
 
   function apply(isDark: boolean) {
     const html = document.documentElement;
-    html.setAttribute('data-theme', isDark ? 'dark' : 'light');
+    if (isDark) {
+      html.setAttribute('data-theme', 'dark');
+    } else {
+      html.removeAttribute('data-theme');
+    }
     localStorage.setItem(STORAGE_KEY, isDark ? 'dark' : 'light');
   }
 

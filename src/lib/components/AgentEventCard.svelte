@@ -42,7 +42,7 @@
 {#if settled}
   <!-- Collapsed single-line summary -->
   <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs"
-       style="background:#1A1F2B;border:1px solid #30363D;color:#8B949E;font-family:Inter,sans-serif;">
+       style="background:var(--bg-card);border:1px solid var(--border-subtle);color:var(--text-muted);font-family:Inter,sans-serif;">
     <span class="opacity-60">✓</span>
     <span>
       {#if event.class === 'permission_request'}
@@ -67,12 +67,12 @@
 {:else}
   <!-- Full card -->
   <div class="rounded-lg overflow-hidden"
-       style="background:#1A1F2B;border:1px solid {active ? '#3B82F680' : '#30363D'};font-family:Inter,sans-serif;{active ? 'box-shadow:0 0 8px #3B82F620;' : ''}">
+       style="background:var(--bg-card);border:1px solid {active ? '#3B82F680' : 'var(--border-subtle)'};font-family:Inter,sans-serif;{active ? 'box-shadow:0 0 8px #3B82F620;' : ''}">
     <div class="px-4 py-3">
       <!-- Event class label -->
       <div class="flex items-center gap-2 mb-2">
         <span class="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded"
-              style="background:#30363D;color:#8B949E;">
+              style="background:var(--bg-input);color:var(--text-muted);">
           {event.class.replace('_', ' ')}
         </span>
       </div>
@@ -80,15 +80,15 @@
       {#if event.class === 'permission_request'}
         <div class="mb-3">
           {#if event.payload.command}
-            <p class="text-xs mb-1" style="color:#8B949E;">Command:</p>
-            <code class="block text-sm px-2 py-1.5 rounded" style="background:#0D1117;color:#E6EDF3;font-family:'JetBrains Mono',monospace;">{event.payload.command}</code>
+            <p class="text-xs mb-1" style="color:var(--text-muted);">Command:</p>
+            <code class="block text-sm px-2 py-1.5 rounded" style="background:var(--bg-input);color:var(--text);font-family:'JetBrains Mono',monospace;">{event.payload.command}</code>
           {/if}
           {#if event.payload.file}
-            <p class="text-xs mb-1 {event.payload.command ? 'mt-2' : ''}" style="color:#8B949E;">File:</p>
-            <code class="block text-sm px-2 py-1.5 rounded" style="background:#0D1117;color:#E6EDF3;font-family:'JetBrains Mono',monospace;">{event.payload.file}</code>
+            <p class="text-xs mb-1 {event.payload.command ? 'mt-2' : ''}" style="color:var(--text-muted);">File:</p>
+            <code class="block text-sm px-2 py-1.5 rounded" style="background:var(--bg-input);color:var(--text);font-family:'JetBrains Mono',monospace;">{event.payload.file}</code>
           {/if}
           {#if event.text && !event.payload.command && !event.payload.file}
-            <p class="text-sm" style="color:#E6EDF3;">{event.text}</p>
+            <p class="text-sm" style="color:var(--text);">{event.text}</p>
           {/if}
         </div>
         {#if responded}
@@ -112,7 +112,7 @@
           {#each options as opt, i}
             {@const label = typeof opt === 'string' ? opt : (opt.label || opt.name || `Option ${i + 1}`)}
             {#if responded}
-              <p class="text-xs px-2 py-1 rounded" style="color:{chosenAction === label ? '#E6EDF3' : '#8B949E'};background:{chosenAction === label ? '#3B82F6' : 'transparent'};">
+              <p class="text-xs px-2 py-1 rounded" style="color:{chosenAction === label ? 'var(--text)' : 'var(--text-muted)'};background:{chosenAction === label ? '#3B82F6' : 'transparent'};">
                 {chosenAction === label ? '✓ ' : ''}{label}
               </p>
             {:else}
@@ -124,7 +124,7 @@
         </div>
 
       {:else if event.class === 'confirmation'}
-        <p class="text-sm mb-3" style="color:#E6EDF3;">{event.payload.question || event.text || 'Please confirm.'}</p>
+        <p class="text-sm mb-3" style="color:var(--text);">{event.payload.question || event.text || 'Please confirm.'}</p>
         {#if responded}
           <p class="text-xs font-medium" style="color:{chosenAction === 'confirm' ? '#22C55E' : '#EF4444'};">
             ✓ {chosenAction === 'confirm' ? 'Confirmed' : 'Cancelled'}
@@ -141,7 +141,7 @@
         {/if}
 
       {:else if event.class === 'free_text'}
-        <p class="text-sm mb-2" style="color:#E6EDF3;">{event.payload.prompt || event.text || 'Enter your response:'}</p>
+        <p class="text-sm mb-2" style="color:var(--text);">{event.payload.prompt || event.text || 'Enter your response:'}</p>
         {#if responded}
           <p class="text-xs font-medium" style="color:#22C55E;">✓ Submitted</p>
         {:else}
@@ -149,7 +149,7 @@
           <div class="flex gap-2">
             <input id={inputId} type="text" placeholder="Type here…"
                    class="flex-1 px-2 py-1.5 text-xs rounded-md border"
-                   style="background:#0D1117;border-color:#30363D;color:#E6EDF3;font-family:'JetBrains Mono',monospace;"
+                   style="background:var(--bg-input);border-color:var(--border-subtle);color:var(--text);font-family:'JetBrains Mono',monospace;"
                    disabled={!active} />
             <button class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
                     style="background:#3B82F6;" disabled={!active}
@@ -161,7 +161,7 @@
         {/if}
 
       {:else if event.class === 'tool_auth'}
-        <p class="text-sm mb-3" style="color:#E6EDF3;">
+        <p class="text-sm mb-3" style="color:var(--text);">
           Authorise <code style="font-family:'JetBrains Mono',monospace;color:#3B82F6;">{event.payload.tool || 'tool'}</code>?
         </p>
         {#if responded}
@@ -182,7 +182,7 @@
       {:else if event.class === 'progress'}
         <div class="flex items-center gap-2">
           <span class="inline-block w-2 h-2 rounded-full animate-pulse" style="background:#3B82F6;"></span>
-          <p class="text-sm" style="color:#E6EDF3;">{event.payload.message || event.text || 'Working…'}</p>
+          <p class="text-sm" style="color:var(--text);">{event.payload.message || event.text || 'Working…'}</p>
         </div>
 
       {:else if event.class === 'error_retry'}
@@ -204,7 +204,7 @@
 
       {:else}
         <!-- Unknown event class fallback -->
-        <p class="text-sm" style="color:#E6EDF3;">{event.text || JSON.stringify(event.payload)}</p>
+        <p class="text-sm" style="color:var(--text);">{event.text || JSON.stringify(event.payload)}</p>
       {/if}
     </div>
   </div>

@@ -32,17 +32,17 @@
   <!-- Header row: source label + timestamp -->
   <div class="flex items-center gap-2 px-1 mb-0.5">
     <span class="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded"
-          style="background:#161B22;color:#484F58;border:1px solid #30363D;font-family:'JetBrains Mono',monospace;">
+          style="background:var(--bg-input);color:var(--text-muted);border:1px solid var(--border-subtle);font-family:'JetBrains Mono',monospace;">
       {sourceLabel}
     </span>
     {#if timeStr}
-      <span class="text-[10px]" style="color:#484F58;">{timeStr}</span>
+      <span class="text-[10px]" style="color:var(--text-muted);">{timeStr}</span>
     {/if}
   </div>
 
   <!-- Code block containing all consecutive lines -->
   <div class="rounded-lg overflow-x-auto px-3 py-2"
-       style="background:#0D1117;border:1px solid #30363D;font-family:'JetBrains Mono',monospace;font-size:12px;color:#E6EDF3;line-height:1.5;">
+       style="background:var(--terminal-bg);border:1px solid var(--border-subtle);font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text);line-height:1.5;">
     {#each lines as line (line.id)}
       <div class="whitespace-pre-wrap break-all">{line.content}</div>
     {/each}
