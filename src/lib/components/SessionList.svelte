@@ -68,7 +68,7 @@
 <div class="flex flex-col h-screen w-screen overflow-hidden" style="background: var(--bg); color: var(--text);">
 
   <!-- ── Header ─────────────────────────────────────────────────── -->
-  <div class="flex items-center justify-between px-6 py-4 border-b flex-shrink-0" style="border-color: var(--border-light);">
+  <div class="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b flex-shrink-0" style="border-color: var(--border-light);">
     <!-- Logo -->
     <div class="flex items-center gap-3">
       {#if theme.dark}
@@ -79,7 +79,7 @@
     </div>
 
     <!-- Header actions -->
-    <div class="flex items-center gap-1">
+    <div class="flex items-center gap-1 flex-wrap">
       <!-- Theme toggle -->
       <button
         onclick={() => theme.toggle()}
@@ -138,7 +138,7 @@
 
       <!-- Grid dimension controls -->
       {#if grid.enabled}
-        <div class="flex items-center gap-1 ml-1" style="color: var(--text-muted);">
+        <div class="hidden sm:flex items-center gap-1 ml-1" style="color: var(--text-muted);">
           <span class="text-xs font-mono">C</span>
           <button onclick={() => grid.setDimensions(grid.cols - 1, grid.rows)} disabled={grid.cols <= 1}
             class="w-5 h-5 flex items-center justify-center rounded text-xs font-bold transition-colors hover:bg-white/10 disabled:opacity-30">−</button>
@@ -166,7 +166,7 @@
   <!-- ── List view ──────────────────────────────────────────────── -->
 
     <!-- Search bar -->
-    <div class="px-6 pt-5 pb-3 flex-shrink-0">
+    <div class="px-4 sm:px-6 pt-4 sm:pt-5 pb-3 flex-shrink-0">
       <div class="relative">
         <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style="color: var(--text-faint);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -217,13 +217,13 @@
     {:else}
     <!-- ── Two-column layout ──────────────────────────────────────── -->
     <div class="flex-1 min-h-0 overflow-y-auto">
-      <div class="flex flex-col lg:flex-row gap-8 p-6 h-full">
+      <div class="flex flex-col lg:flex-row gap-6 lg:gap-8 p-4 sm:p-6 h-full">
 
         <!-- Terminals column — order-2 on mobile (below Chats), order-1 on desktop -->
         <div class="flex-1 min-w-0 order-2 lg:order-1">
           <!-- Section header -->
-          <div class="flex items-center justify-between mb-4">
-            <h2 class="text-base font-semibold" style="color: var(--text);">
+          <div class="flex items-center justify-between mb-4 gap-2">
+            <h2 class="text-base font-semibold flex-shrink-0" style="color: var(--text);">
               Terminals
               {#if terminals.length > 0}
                 <span class="ml-2 text-xs font-normal px-1.5 py-0.5 rounded-full" style="background: var(--bg-elevated); color: var(--text-faint);">{terminals.length}</span>
@@ -232,7 +232,7 @@
             <button
               onclick={createTerminal}
               disabled={creatingTerminal}
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition-all disabled:opacity-60"
+              class="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition-all disabled:opacity-60 w-full sm:w-auto"
               style="background: #4F46E5;"
             >
               {#if creatingTerminal}
@@ -285,8 +285,8 @@
         <!-- Chats column — order-1 on mobile (first), order-2 on desktop, fixed 300px -->
         <div class="lg:w-72 xl:w-80 flex-shrink-0 order-1 lg:order-2">
           <!-- Section header -->
-          <div class="flex items-center justify-between mb-4">
-            <h2 class="text-base font-semibold" style="color: var(--text);">
+          <div class="flex items-center justify-between mb-4 gap-2">
+            <h2 class="text-base font-semibold flex-shrink-0" style="color: var(--text);">
               Chats
               {#if standaloneChatsSrc.length > 0}
                 <span class="ml-2 text-xs font-normal px-1.5 py-0.5 rounded-full" style="background: var(--bg-elevated); color: var(--text-faint);">{standaloneChatsSrc.length}</span>
@@ -295,7 +295,7 @@
             <button
               onclick={createChat}
               disabled={creatingChat}
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition-all disabled:opacity-60"
+              class="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition-all disabled:opacity-60 w-full sm:w-auto"
               style="background: #10B981;"
             >
               {#if creatingChat}

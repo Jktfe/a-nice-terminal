@@ -138,7 +138,7 @@
 </script>
 
 <!-- Wrapper: left for participants/AI, right for own messages -->
-<div class="group flex gap-2 items-end" class:flex-row-reverse={isOwn}>
+<div class="group flex gap-1 sm:gap-2 items-end min-w-0 overflow-hidden" class:flex-row-reverse={isOwn}>
 
   <!-- Avatar (hidden for own messages on mobile, shown on larger screens) -->
   {#if !isOwn}
@@ -148,7 +148,7 @@
     </div>
   {/if}
 
-  <div class="flex flex-col max-w-[75%]" class:items-end={isOwn}>
+  <div class="flex flex-col max-w-[85%] sm:max-w-[75%] min-w-0" class:items-end={isOwn}>
     <!-- Sender row -->
     <div class="flex items-center gap-1.5 mb-0.5 px-1" class:flex-row-reverse={isOwn}>
       <span class="text-[11px] font-semibold font-mono" style="color: {colour};">{displayName}</span>
@@ -196,8 +196,8 @@
     {/if}
   </div>
 
-  <!-- Hover action row — appears between avatar slot and message on the opposite side -->
-  <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150 self-end mb-1 flex-shrink-0"
+  <!-- Action row — always visible on mobile (touch), hover-only on desktop -->
+  <div class="flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-150 self-end mb-1 flex-shrink-0"
        class:flex-row-reverse={!isOwn}>
     <button
       onclick={() => react('up')}
