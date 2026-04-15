@@ -135,5 +135,7 @@ export function useSessionStore() {
     archiveSession,
     deleteSession,
     restoreSession,
+    /** Remove from recoverable list without API call (already soft-deleted) */
+    dismissRecoverable(id: string) { recoverable = recoverable.filter(s => s.id !== id); },
   };
 }
