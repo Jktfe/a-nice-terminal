@@ -35,6 +35,9 @@
   let showPanel = $state(false);
   let panelTab = $state('participants');
 
+  // Hide side panel in terminal text mode (full-width dark view)
+  const effectiveShowPanel = $derived(showPanel && mode !== 'terminal');
+
   let tasks = $state<{ id: string; status: string; [key: string]: unknown }[]>([]);
   let fileRefs = $state<{ id: string; file_path?: string; [key: string]: unknown }[]>([]);
   let replyTo = $state<Record<string, unknown> | null>(null);
@@ -310,6 +313,7 @@
     session = await sessRes.json();
     allSessions = (await allSessRes.json()).sessions || [];
     mode = 'chat';
+    // Terminal sessions start with panel hidden (text view is full-width); chat sessions show panel
     showPanel = session?.type !== 'terminal';
 
     if (session?.type === 'terminal' && session) {
@@ -549,23 +553,46 @@
       {:else if mode === 'terminal'}
         <!-- Text terminal mode — searchable capture-pane output -->
         <div class="flex flex-col flex-1 overflow-hidden">
-          <div class="flex items-center px-3 py-1.5 border-b gap-2" style="border-color:var(--border-light);background:var(--bg-surface);">
-            <span class="text-xs font-medium" style="color:var(--text-muted);">⌨ Terminal Output</span>
+          <!-- Toolbar -->
+          <div class="flex items-center px-4 py-2 border-b gap-3 flex-shrink-0" style="border-color: #E5E7EB; background: var(--bg);">
+            <div class="flex items-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: #22C55E;">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+              </svg>
+              <span class="text-xs font-semibold" style="color: var(--text);">⌨ Terminal Output</span>
+            </div>
             <div class="flex-1"></div>
+            <!-- Search input -->
+            <div class="relative" style="width: 200px;">
+              <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: #9CA3AF;">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z"/>
+              </svg>
+              <input
+                class="w-full text-xs rounded-lg pl-8 pr-3 py-1.5 outline-none"
+                style="border: 1px solid #E5E7EB; background: #F9FAFB; color: var(--text);"
+                placeholder="Search output…"
+              />
+            </div>
+            <!-- Refresh -->
             <button
               onclick={refreshTerminalText}
-              class="p-1.5 rounded transition-all"
-              style="color:var(--text-faint);"
-              title="Refresh"
+              class="p-1.5 rounded-lg transition-all"
+              style="color: var(--text-muted); border: 1px solid #E5E7EB;"
+              title="Refresh terminal output"
             >
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                   d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
               </svg>
             </button>
           </div>
-          <div class="flex-1 overflow-y-auto p-4" style="background:#0D1117;">
-            <pre class="text-xs leading-relaxed whitespace-pre-wrap break-words" style="color:#E6EDF3;font-family:'JetBrains Mono',monospace;">{terminalText || 'Loading terminal output…'}</pre>
+          <!-- Full-width dark content area -->
+          <div class="flex-1 overflow-y-auto p-4" style="background: #0D1117;">
+            <pre
+              class="leading-relaxed whitespace-pre-wrap break-words"
+              style="color: #C9D1D9; font-family: 'JetBrains Mono', 'Fira Mono', monospace; font-size: 12px;"
+            >{terminalText || 'Loading terminal output…'}</pre>
           </div>
           <CLIInput onSubmit={sendCommand}/>
         </div>
@@ -597,8 +624,15 @@
       {/if}
     </div>
 
-    <!-- Side panel -->
-    {#if showPanel}
+    <!-- Side panel — hidden in terminal text mode (full-width) -->
+    {#if effectiveShowPanel}
+      <!-- Mobile backdrop: tap to dismiss -->
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="fixed inset-0 z-40 bg-black/40 lg:hidden"
+        onclick={() => (showPanel = false)}
+      ></div>
       <ChatSidePanel
         {session}
         {sessionId}
@@ -634,6 +668,7 @@
         onWakeParticipant={wakeParticipant}
         onSaveNickname={saveNickname}
         onCreateTask={createTask}
+        onClose={() => (showPanel = false)}
       />
     {/if}
   </div>
