@@ -237,9 +237,8 @@
 
     s.onopen = () => {
       // For terminal sessions, spawn the PTY (tmux session) if it doesn't exist.
-      // This replaces the old xterm.js Terminal.svelte spawn — the chat view now
-      // needs the PTY running so messages can be forwarded as keystrokes.
       const isTerminal = session?.type === 'terminal';
+      console.log(`[WS] onopen: sessionId=${sessionId} type=${session?.type} isTerminal=${isTerminal} linkedChatId=${linkedChatId}`);
       s.send(JSON.stringify({
         type: 'join_session',
         sessionId,
@@ -358,7 +357,25 @@
     tasks = (await tasksRes.json()).tasks || [];
     fileRefs = (await refsRes.json()).refs || [];
     loadMentionHandles();
+
     connectWs();
+
+    // After WS connects, ensure the terminal PTY is spawned by sending
+    // a second join_session with spawnPty after a short delay. The onopen
+    // handler should do this but has timing issues on fresh sessions.
+    if (session?.type === 'terminal') {
+      setTimeout(() => {
+        if (ws?.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'join_session',
+            sessionId,
+            spawnPty: true,
+            cols: 120,
+            rows: 40,
+          }));
+        }
+      }, 1000);
+    }
     loadMemories();
   });
 
