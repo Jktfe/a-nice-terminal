@@ -1,11 +1,11 @@
 <script lang="ts">
   import { useGridStore } from '$lib/stores/grid.svelte';
-  import GridCell from './GridCell.svelte';
+  import GridSlot from './GridSlot.svelte';
 
   interface Session {
     id: string;
     name: string;
-    type: string;
+    type: 'terminal' | 'chat' | 'agent' | string;
   }
 
   let { sessions }: { sessions: Session[] } = $props();
@@ -14,15 +14,17 @@
 </script>
 
 <div
-  class="w-full h-full p-1.5"
+  class="w-full h-full"
   style="
     display: grid;
     grid-template-columns: repeat({grid.cols}, minmax(0, 1fr));
     grid-template-rows: repeat({grid.rows}, minmax(0, 1fr));
-    gap: 6px;
+    gap: 16px;
+    padding: 16px;
+    box-sizing: border-box;
   "
 >
   {#each grid.cells as cell (cell.id)}
-    <GridCell {cell} {sessions} />
+    <GridSlot {cell} allSessions={sessions} />
   {/each}
 </div>
