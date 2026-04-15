@@ -84,11 +84,11 @@ export async function POST({ request }: RequestEvent) {
 
     // Upsert task in ANT
     try {
-      const existing: any = queries.getTask?.(sessionId, taskId);
+      const existing: any = queries.getTask(taskId);
       if (existing) {
-        queries.updateTask?.(sessionId, taskId, status);
+        queries.updateTask(taskId, status, null, null, null);
       } else {
-        queries.createTask?.(sessionId, taskId, taskName, status);
+        queries.createTask(taskId, sessionId, null, taskName, null);
       }
     } catch {}
 

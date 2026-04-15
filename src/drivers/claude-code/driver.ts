@@ -211,32 +211,6 @@ export class ClaudeCodeDriver implements AgentDriver {
     }
   }
 
-  /**
-   * Return true if this line is UI chrome (status bar, spinner, decoration)
-   * that should be filtered from the terminal text view.
-   */
-  isChrome(line: string): boolean {
-    const l = line.trimEnd();
-    if (!l) return true;
-
-    // Standard fingerprinted patterns for Claude Code UI
-    if (/^─{10,}$/.test(l)) return true;                          // Dividers
-    if (/^[✽✳✻✶✢·★⏺⠂⠐⠈]+(\s|$)/.test(l)) return true;          // Spinners
-    if (/^⏵⏵/.test(l)) return true;                               // Permission mode
-    if (/shift\+tab|esc to interrupt|for shortcuts/.test(l)) return true; // Key hints
-    if (/Update available.*brew upgrade/.test(l)) return true;     // Update banner
-    if (/Bramwick/.test(l)) return true;                           // Snail snail snail
-    if (/Remote Control active/.test(l)) return true;              // RC indicator
-    if (/^\s*[\u2800-\u28FF]+\s*$/.test(l)) return true;          // Braille status lines
-    if (/^[/\\|_`~\-.\s()*@^×]+$/.test(l)) return true;          // ASCII art / snail
-    if (/tokens?\)|thought for \d/.test(l)) return true;           // Token usage/thinking time
-    if (/^\s*[✔◼]\s+Task \d+/.test(l)) return true;               // Task list
-    if (/^❯\s*$/.test(l)) return true;                            // Empty prompt
-    if (l.includes('Claude Code v') && l.includes('Opus')) return true; // Header info
-
-    return false;
-  }
-
   // ─── Internal ────────────────────────────────────────────────────────────────
 
   private makeEvent(

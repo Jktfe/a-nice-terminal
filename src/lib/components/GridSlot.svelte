@@ -46,54 +46,6 @@
   let pickerSearch = $state('');
   let pickerEl = $state<HTMLElement | null>(null);
 
-  // ── Native DOM refs for click fix (Svelte 5 onclick bug) ──────────
-  let emptySlotBtnEl = $state<HTMLButtonElement | null>(null);
-  let clearBtnEl = $state<HTMLButtonElement | null>(null);
-  let chatToggleBtnEl = $state<HTMLButtonElement | null>(null);
-  let replaceBtnEl = $state<HTMLButtonElement | null>(null);
-  let cancelPickerBtnEl = $state<HTMLButtonElement | null>(null);
-
-  // ── Native addEventListener effects ───────────────────────────────
-  $effect(() => {
-    if (emptySlotBtnEl) {
-      const handler = (e: Event) => { openPicker(e as MouseEvent); };
-      emptySlotBtnEl.addEventListener('click', handler);
-      return () => emptySlotBtnEl?.removeEventListener('click', handler);
-    }
-  });
-
-  $effect(() => {
-    if (clearBtnEl) {
-      const handler = () => { clear(); };
-      clearBtnEl.addEventListener('click', handler);
-      return () => clearBtnEl?.removeEventListener('click', handler);
-    }
-  });
-
-  $effect(() => {
-    if (chatToggleBtnEl) {
-      const handler = () => { showChat = !showChat; };
-      chatToggleBtnEl.addEventListener('click', handler);
-      return () => chatToggleBtnEl?.removeEventListener('click', handler);
-    }
-  });
-
-  $effect(() => {
-    if (replaceBtnEl) {
-      const handler = (e: Event) => { openPicker(e as MouseEvent); };
-      replaceBtnEl.addEventListener('click', handler);
-      return () => replaceBtnEl?.removeEventListener('click', handler);
-    }
-  });
-
-  $effect(() => {
-    if (cancelPickerBtnEl) {
-      const handler = () => { showPicker = false; };
-      cancelPickerBtnEl.addEventListener('click', handler);
-      return () => cancelPickerBtnEl?.removeEventListener('click', handler);
-    }
-  });
-
   const filteredSessions = $derived(
     allSessions.filter(s =>
       s.name.toLowerCase().includes(pickerSearch.toLowerCase())
@@ -285,7 +237,6 @@
   {#if cell.sessionId === null}
     <!-- ── Empty slot ── -->
     <button
-      bind:this={emptySlotBtnEl}
       onclick={(e) => openPicker(e)}
       class="flex-1 flex flex-col items-center justify-center gap-2 transition-colors"
       style="
@@ -314,7 +265,6 @@
     <div class="flex-1 flex flex-col items-center justify-center gap-2 p-3">
       <p style="font-size: 12px; color: #9CA3AF; font-family: Inter, sans-serif;">Session not found</p>
       <button
-        bind:this={clearBtnEl}
         onclick={clear}
         style="font-size: 12px; color: #6B7280; background: #F3F4F6; border: none; border-radius: 6px; padding: 4px 10px; cursor: pointer;"
       >Clear</button>
@@ -359,10 +309,9 @@
       <!-- Toggle icon: only for terminal sessions — flips to chat view -->
       {#if session.type === 'terminal'}
         <button
-          bind:this={chatToggleBtnEl}
+          onclick={() => (showChat = !showChat)}
           title={showChat ? 'View terminal output' : 'View linked chat'}
           style="background: none; border: none; padding: 2px; cursor: pointer; color: {showChat ? '#6366F1' : '#9CA3AF'}; line-height: 0; border-radius: 4px;"
-          onclick={() => (showChat = !showChat)}
         >
           {#if showChat}
             <!-- terminal icon (switch back) -->
@@ -378,9 +327,9 @@
         </button>
       {/if}
 
+      <!-- svelte-ignore a11y_mouse_events_have_key_events -->
       <!-- Swap / replace icon -->
       <button
-        bind:this={replaceBtnEl}
         onclick={(e) => openPicker(e)}
         title="Replace session"
         style="background: none; border: none; padding: 2px; cursor: pointer; color: #9CA3AF; line-height: 0; border-radius: 4px;"
@@ -515,6 +464,7 @@
       style="background: #FFFFFF; border-radius: 10px; border: 1px solid #E5E7EB; box-shadow: 0 8px 24px rgba(0,0,0,0.12);"
     >
       <div style="padding: 10px 12px; border-bottom: 1px solid #E5E7EB;">
+        <!-- svelte-ignore a11y_autofocus -->
         <input
           type="text"
           placeholder="Search sessions…"
@@ -539,6 +489,7 @@
           </p>
         {:else}
           {#each filteredSessions as s (s.id)}
+            <!-- svelte-ignore a11y_mouse_events_have_key_events -->
             <button
               onclick={() => pick(s.id)}
               class="w-full text-left flex items-center gap-2 transition-colors"
@@ -563,7 +514,6 @@
       </div>
       <div style="padding: 8px 12px; border-top: 1px solid #E5E7EB;">
         <button
-          bind:this={cancelPickerBtnEl}
           onclick={() => (showPicker = false)}
           class="w-full"
           style="padding: 6px; border-radius: 6px; background: #F3F4F6; border: none; font-size: 12px; color: #6B7280; cursor: pointer; font-family: Inter, sans-serif;"

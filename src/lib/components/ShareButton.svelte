@@ -1,12 +1,9 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
-
   let { sessionId, sessionType }: { sessionId: string; sessionType: string } = $props();
   let copied = $state(false);
   let showPanel = $state(false);
   let commands = $state<Record<string, string>>({});
   let isLoading = $state(false);
-  let shareBtnEl = $state<HTMLButtonElement | null>(null);
 
   async function loadCommands() {
     if (isLoading) return;
@@ -35,20 +32,11 @@
     copied = true;
     setTimeout(() => (copied = false), 2000);
   }
-
-  // Native listener — Svelte 5 event delegation breaks in child components
-  $effect(() => {
-    if (shareBtnEl) {
-      const handler = () => loadCommands();
-      shareBtnEl.addEventListener('click', handler);
-      return () => shareBtnEl?.removeEventListener('click', handler);
-    }
-  });
 </script>
 
 <div class="relative">
   <button
-    bind:this={shareBtnEl}
+    onclick={loadCommands}
     disabled={isLoading}
     class="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-all disabled:opacity-50 disabled:cursor-not-allowed"
     style="background:var(--bg-card);color:var(--text-muted);border-color:var(--border-subtle);"
@@ -69,7 +57,6 @@
 
   {#if showPanel}
     <div class="absolute top-12 right-0 z-50 w-96 rounded-xl shadow-2xl border p-5 space-y-4 animate-slide-in" style="background:var(--bg-card);border-color:var(--border-light);">
-      <!-- Header -->
       <div>
         <h3 class="text-sm font-semibold text-white">Share with Agents</h3>
         <p class="text-xs text-gray-400 mt-1">
@@ -77,7 +64,6 @@
         </p>
       </div>
 
-      <!-- Commands -->
       {#if Object.keys(commands).length === 0}
         <div class="py-6 text-center">
           <p class="text-sm text-gray-400">No share commands available</p>
@@ -102,7 +88,6 @@
         </div>
       {/if}
 
-      <!-- Footer -->
       <button
         onclick={() => (showPanel = false)}
         class="w-full text-center text-xs text-gray-500 hover:text-gray-300 py-2 transition-colors"
