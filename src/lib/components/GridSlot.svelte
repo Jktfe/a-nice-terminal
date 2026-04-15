@@ -1,5 +1,6 @@
 <script lang="ts">
   import { useGridStore } from '$lib/stores/grid.svelte';
+  import { onDestroy } from 'svelte';
 
   interface Session {
     id: string;
@@ -85,7 +86,7 @@
     loadingContent = true;
     try {
       if (type === 'chat' || type === 'agent') {
-        const res = await fetch(`/api/sessions/${sid}/messages?limit=5`);
+        const res = await fetch(`/api/sessions/${sid}/messages?limit=20`);
         if (res.ok) {
           const data = await res.json();
           chatMessages = data.messages ?? [];
@@ -104,12 +105,37 @@
     }
   }
 
+  let contentScrollEl = $state<HTMLElement | null>(null);
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+  function scrollContentToBottom() {
+    if (contentScrollEl) {
+      contentScrollEl.scrollTop = contentScrollEl.scrollHeight;
+    }
+  }
+
   $effect(() => {
     if (session) {
       chatMessages = [];
       terminalLines = [];
-      loadContent(session.id, session.type);
+      loadContent(session.id, session.type).then(scrollContentToBottom);
+
+      // Poll every 5s for fresh content
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = setInterval(async () => {
+        if (!session) return;
+        const prevLen = chatMessages.length + terminalLines.length;
+        await loadContent(session.id, session.type);
+        const newLen = chatMessages.length + terminalLines.length;
+        if (newLen > prevLen) scrollContentToBottom();
+      }, 5000);
+    } else {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     }
+  });
+
+  onDestroy(() => {
+    if (pollTimer) clearInterval(pollTimer);
   });
 
   // ── Agent event card helpers ──────────────────────────────────────
@@ -293,6 +319,7 @@
         <div
           class="h-full overflow-y-auto"
           style="background: #0D1117; padding: 12px;"
+          bind:this={contentScrollEl}
         >
           {#if loadingContent}
             <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #8B949E;">Loading…</span>
@@ -312,6 +339,7 @@
         <div
           class="h-full overflow-y-auto flex flex-col gap-2"
           style="padding: 12px; background: #FFFFFF;"
+          bind:this={contentScrollEl}
         >
           {#if loadingContent}
             <span style="font-size: 10px; color: #9CA3AF; font-family: Inter, sans-serif;">Loading…</span>
