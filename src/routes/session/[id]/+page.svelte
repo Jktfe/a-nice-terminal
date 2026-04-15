@@ -32,7 +32,7 @@
   let allSessions = $state<PageSession[]>([]);
   let mode = $state('chat');
   let showMenu = $state(false);
-  let showPanel = $state(false);
+  let showPanel = $state(true); // open by default on desktop
   let panelTab = $state('participants');
 
   // Hide side panel in terminal text mode (full-width dark view)
@@ -515,8 +515,19 @@
     onDelete={deleteSession}
     onCopyTmux={() => {
       const cmd = `ssh mac.tail34caea.ts.net -t tmux attach-session -t ${sessionId}`;
-      navigator.clipboard.writeText(cmd);
-      toasts.show('Copied tmux command to clipboard');
+      navigator.clipboard.writeText(cmd).then(() => {
+        toasts.show('Copied tmux command to clipboard');
+      }).catch(() => {
+        // Fallback for when clipboard API is blocked
+        const ta = document.createElement('textarea');
+        ta.value = cmd;
+        ta.style.cssText = 'position:fixed;left:-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        toasts.show('Copied tmux command to clipboard');
+      });
     }}
   />
 
