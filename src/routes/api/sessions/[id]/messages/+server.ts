@@ -152,9 +152,14 @@ export async function POST({ params, request }: RequestEvent<{ id: string }>) {
         const { ptyClient } = await import('$lib/server/pty-client.js');
         for (const terminal of linkedTerminals) {
           if (terminal.id === sender_id) continue;
-          const rawMode = role === 'user' && terminal.auto_forward_chat !== 0;
+          // Web user (sender_id=null) sends keystrokes directly via WS —
+          // skip fan-out to prevent double-execution. Only forward messages
+          // from other agents/sessions (sender_id set).
+          const rawMode = role === 'user' && terminal.auto_forward_chat !== 0 && sender_id;
           if (rawMode) {
             ptyClient.write(terminal.id, content.trimEnd() + '\r');
+          } else if (!sender_id && role === 'user') {
+            // Web user — already sent via WS, skip
           } else {
             ptyClient.write(terminal.id, notification);
           }

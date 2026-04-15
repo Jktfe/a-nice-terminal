@@ -195,13 +195,14 @@
         format: 'text', sender_id: null, msg_type: 'message',
       }),
     });
+    // Send keystrokes directly via WS FIRST (instant delivery to terminal)
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: 'terminal_input', sessionId, data: text + '\r' }));
+    }
     const msg = await res.json();
     if (msg.id && !linkedChatMessages.find(m => m.id === msg.id)) {
       linkedChatMessages = [...linkedChatMessages, msg];
     }
-    // Don't send terminal_input directly — the messages API fan-out
-    // already forwards user messages to linked terminals via auto_forward_chat.
-    // Sending here too causes double-execution + garbage keystrokes.
   }
 
   async function wakeParticipant(targetSess: PageSession) {
