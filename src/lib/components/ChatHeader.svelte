@@ -256,12 +256,12 @@
             <button
               class="w-full text-left px-3 py-2.5 transition-colors flex items-center gap-2"
               style="color:var(--text);"
-              onclick={() => { copyTmuxCmd(`ssh mac.tail34caea.ts.net -t tmux attach-session -t ${sessionId}`); }}
+              onclick={() => { copyTmuxCmd(`ssh ${window.location.hostname} -t tmux attach-session -t ${sessionId}`); }}
             >
               <span style="color:var(--text-muted);">🌐</span>
               <div>
                 <p class="font-medium">SSH (Tailscale)</p>
-                <p style="color:var(--text-faint);">ssh mac.tail… -t tmux attach…</p>
+                <p style="color:var(--text-faint);">ssh [host] -t tmux attach…</p>
               </div>
             </button>
           </div>

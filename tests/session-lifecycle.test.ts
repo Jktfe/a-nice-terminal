@@ -1,14 +1,17 @@
 import { describe, it, expect } from 'vitest';
 
-// Use ANT_TEST_URL or default to Tailscale hostname (TLS cert is for this, not localhost)
-const BASE = process.env.ANT_TEST_URL || 'https://mac.tail34caea.ts.net:6458';
+const BASE = process.env.ANT_TEST_URL || 'https://localhost:6458';
 const API_KEY = process.env.ANT_API_KEY || '';
 const headers: Record<string, string> = {
   'Content-Type': 'application/json',
   ...(API_KEY ? { 'x-api-key': API_KEY } : {}),
 };
 
-describe('session lifecycle', () => {
+// Skip integration tests in CI (no live server) unless ANT_TEST_URL is set
+const hasServer = !!process.env.ANT_TEST_URL;
+const describeIntegration = hasServer ? describe : describe.skip;
+
+describeIntegration('session lifecycle', () => {
   it('creates a session and posts a message', async () => {
     // Create a chat session
     const res = await fetch(`${BASE}/api/sessions`, {

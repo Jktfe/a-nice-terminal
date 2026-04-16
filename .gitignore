@@ -13,6 +13,13 @@ certs/
 *.plist
 ANT-v3-plan.md
 CLAUDE.md
+.mcp.json
+.claude/settings.local.json
+docs/superpowers/
+
+# Design files and screenshots
+*.pen
+screenshots/
 
 # Logs
 *.log

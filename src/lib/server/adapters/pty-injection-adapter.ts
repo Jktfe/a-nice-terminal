@@ -30,7 +30,8 @@ export class PtyInjectionAdapter implements DeliveryAdapter {
       // Broadcast (all):     [antchat message for all participants] 'message' [reply instructions]
       const isTargeted = message.target && message.target !== '@everyone' && target.handle && message.target === target.handle;
       const header = isTargeted ? 'antchat message for you' : 'antchat message for all participants';
-      const replyCmd = `ant chat send ${message.sessionId} --msg "your reply" --server https://mac.tail34caea.ts.net:6458`;
+      const serverUrl = process.env.ANT_SERVER_URL || `https://localhost:${process.env.ANT_PORT || '6458'}`;
+      const replyCmd = `ant chat send ${message.sessionId} --msg "your reply" --server ${serverUrl}`;
       const plainText = `[${header}] '${message.content.slice(0, 300)}' (reply with: ${replyCmd})`;
 
       // Two-call protocol: text first, then \r 150ms later

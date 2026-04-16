@@ -29,12 +29,14 @@ if (browser) {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const saved = JSON.parse(raw);
-      enabled = saved.enabled ?? false;
-      cols = Math.min(MAX, Math.max(MIN, saved.cols ?? 2));
-      rows = Math.min(MAX, Math.max(MIN, saved.rows ?? 2));
-      // Ensure cells array length matches cols*rows
+      const savedEnabled = saved.enabled ?? false;
+      const savedCols = Math.min(MAX, Math.max(MIN, saved.cols ?? 2));
+      const savedRows = Math.min(MAX, Math.max(MIN, saved.rows ?? 2));
       const savedCells: GridCell[] = saved.cells ?? [];
-      const needed = cols * rows;
+      const needed = savedCols * savedRows;
+      enabled = savedEnabled;
+      cols = savedCols;
+      rows = savedRows;
       cells = Array.from({ length: needed }, (_, i) =>
         savedCells[i] ?? makeCell()
       );

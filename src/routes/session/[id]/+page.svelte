@@ -643,7 +643,7 @@
     onCliFlagChange={handleCliFlagChange}
     onChangeTtl={handleChangeTtl}
     onCopyTmux={() => {
-      const cmd = `ssh mac.tail34caea.ts.net -t tmux attach-session -t ${sessionId}`;
+      const cmd = `ssh ${window.location.hostname} -t tmux attach-session -t ${sessionId}`;
       navigator.clipboard.writeText(cmd).then(() => {
         toasts.show('Copied tmux command to clipboard');
       }).catch(() => {

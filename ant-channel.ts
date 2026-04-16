@@ -14,7 +14,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 
-const ANT_SERVER = process.env.ANT_SERVER || 'https://mac.tail34caea.ts.net:6458'
+const ANT_SERVER = process.env.ANT_SERVER || 'https://localhost:6458'
 const ANT_API_KEY = process.env.ANT_API_KEY || ''
 const ANT_CHAT_SESSION = process.env.ANT_CHAT_SESSION || ''
 const PORT = parseInt(process.env.ANT_CHANNEL_PORT || '8789')
