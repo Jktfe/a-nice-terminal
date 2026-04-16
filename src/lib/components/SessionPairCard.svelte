@@ -4,11 +4,15 @@
   let {
     terminal,
     linkedChat = null,
+    needsInput = null,
+    idleAttention = false,
     onArchive,
     onDelete,
   }: {
     terminal: any;
     linkedChat: any | null;
+    needsInput?: { eventClass: string; summary: string } | null;
+    idleAttention?: boolean;
     onArchive?: () => void;
     onDelete?: () => void;
   } = $props();
@@ -81,6 +85,25 @@
             class="text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide"
             style="color: {terminalStatus.color}; background: {terminalStatus.bg};"
           >{terminalStatus.label}</span>
+          {#if needsInput}
+            <span
+              class="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide"
+              style="color: #EF4444; background: rgba(239,68,68,0.12);"
+              title={needsInput.summary}
+            >
+              <span class="ant-pulse-dot" style="width:6px;height:6px;border-radius:50%;background:#EF4444;display:inline-block;"></span>
+              NEEDS INPUT
+            </span>
+          {:else if idleAttention}
+            <span
+              class="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded uppercase tracking-wide"
+              style="color: #F59E0B; background: rgba(245,158,11,0.08);"
+              title="Terminal has been idle for a while"
+            >
+              <span style="width:5px;height:5px;border-radius:50%;background:#F59E0B;display:inline-block;opacity:0.6;"></span>
+              IDLE
+            </span>
+          {/if}
           {#if terminal.ttl === 'forever'}
             <span class="text-[10px] font-medium" style="color: var(--text-faint);">Always On</span>
           {/if}
@@ -114,7 +137,7 @@
           <p class="text-[10px] mt-0.5" style="color: var(--text-faint);">Linked chat</p>
         {:else}
           <p class="font-medium text-xs" style="color: var(--text-muted);">No chat linked</p>
-          <p class="text-[10px] mt-0.5" style="color: var(--text-faint);">Opens on first visit</p>
+          <p class="text-[10px] mt-0.5" style="color: var(--text-faint);">Linked chat unavailable</p>
         {/if}
       </div>
     </div>
@@ -150,3 +173,13 @@
     {/if}
   </div>
 </div>
+
+<style>
+  :global(.ant-pulse-dot) {
+    animation: ant-pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes ant-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(1.4); }
+  }
+</style>

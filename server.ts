@@ -4,9 +4,9 @@
 import { config } from 'dotenv';
 config(); // Load .env
 
-import { createServer } from 'http';
-import { readFileSync, existsSync, mkdirSync, copyFileSync, chmodSync, appendFileSync } from 'fs';
-import { join } from 'path';
+import { createServer, type IncomingMessage, type ServerResponse } from 'http';
+import { readFileSync, existsSync, mkdirSync, copyFileSync, chmodSync, appendFileSync, createReadStream, statSync } from 'fs';
+import { extname, join, resolve } from 'path';
 import { createServer as createHttpsServer } from 'https';
 import { handler } from './build/handler.js';
 import { WebSocketServer } from 'ws';
@@ -31,6 +31,138 @@ const HOST = process.env.HOST || process.env.ANT_HOST || '0.0.0.0';
 const TLS_CERT = process.env.ANT_TLS_CERT;
 const TLS_KEY = process.env.ANT_TLS_KEY;
 const API_KEY = process.env.ANT_API_KEY;
+const CLIENT_ASSET_ROOT = resolve(process.cwd(), 'build/client');
+
+function assetContentType(pathname: string): string {
+  const ext = extname(pathname).toLowerCase();
+  switch (ext) {
+    case '.js':
+    case '.mjs':
+      return 'text/javascript; charset=utf-8';
+    case '.css':
+      return 'text/css; charset=utf-8';
+    case '.json':
+      return 'application/json; charset=utf-8';
+    case '.svg':
+      return 'image/svg+xml';
+    case '.png':
+      return 'image/png';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.webp':
+      return 'image/webp';
+    case '.ico':
+      return 'image/x-icon';
+    case '.txt':
+      return 'text/plain; charset=utf-8';
+    case '.woff':
+      return 'font/woff';
+    case '.woff2':
+      return 'font/woff2';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
+function sendStaticFile(
+  req: IncomingMessage,
+  res: ServerResponse,
+  filePath: string,
+  headers: Record<string, string | number>
+) {
+  const stream = createReadStream(filePath);
+  let opened = false;
+
+  stream.on('open', () => {
+    opened = true;
+    res.writeHead(200, headers);
+    if (req.method === 'HEAD') {
+      res.end();
+      stream.destroy();
+      return;
+    }
+    stream.pipe(res);
+  });
+
+  stream.on('error', (error: NodeJS.ErrnoException) => {
+    console.warn(`[assets] stream error for ${filePath}: ${error.code || error.message}`);
+    if (!opened && !res.headersSent) {
+      res.writeHead(error.code === 'ENOENT' ? 404 : 500, { 'Cache-Control': 'no-store' });
+      res.end();
+      return;
+    }
+    res.destroy(error);
+  });
+}
+
+function tryServeClientAsset(req: IncomingMessage, res: ServerResponse): boolean {
+  if (!req.url || !['GET', 'HEAD'].includes(req.method || 'GET')) return false;
+
+  let pathname: string;
+  try {
+    pathname = new URL(req.url, 'http://localhost').pathname;
+  } catch {
+    return false;
+  }
+
+  if (!pathname.startsWith('/_app/')) return false;
+
+  let decoded = pathname;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    // Ignore malformed escape sequences and use the raw path.
+  }
+
+  const assetPath = resolve(CLIENT_ASSET_ROOT, `.${decoded}`);
+  const assetRootPrefix = `${CLIENT_ASSET_ROOT}/`;
+  if (assetPath !== CLIENT_ASSET_ROOT && !assetPath.startsWith(assetRootPrefix)) {
+    res.writeHead(400, { 'Cache-Control': 'no-store' });
+    res.end('Bad Request');
+    return true;
+  }
+
+  const encodings = String(req.headers['accept-encoding'] || '');
+  const variants: Array<{ path: string; encoding?: 'br' | 'gzip' }> = [];
+  if (!decoded.endsWith('.br') && /\bbr\b/i.test(encodings)) {
+    variants.push({ path: `${assetPath}.br`, encoding: 'br' });
+  }
+  if (!decoded.endsWith('.gz') && /\bgzip\b/i.test(encodings)) {
+    variants.push({ path: `${assetPath}.gz`, encoding: 'gzip' });
+  }
+  variants.push({ path: assetPath });
+
+  for (const variant of variants) {
+    if (!existsSync(variant.path)) continue;
+    const stats = statSync(variant.path);
+    if (!stats.isFile()) continue;
+
+    const headers: Record<string, string | number> = {
+      'Content-Type': assetContentType(decoded),
+      'Content-Length': stats.size,
+      'Last-Modified': stats.mtime.toUTCString(),
+      'Cache-Control': decoded.startsWith('/_app/immutable/')
+        ? 'public,max-age=31536000,immutable'
+        : 'public,max-age=0,must-revalidate',
+      'Vary': 'Accept-Encoding',
+    };
+    if (variant.encoding) headers['Content-Encoding'] = variant.encoding;
+
+    sendStaticFile(req, res, variant.path, headers);
+    return true;
+  }
+
+  console.warn(`[assets] missing client asset: ${decoded}`);
+  res.writeHead(404, { 'Cache-Control': 'no-store' });
+  res.end('Not Found');
+  return true;
+}
+
+function requestHandler(req: IncomingMessage, res: ServerResponse) {
+  if (tryServeClientAsset(req, res)) return;
+  handler(req, res);
+}
 
 // Create HTTP or HTTPS server
 let server: ReturnType<typeof createServer>;
@@ -39,11 +171,11 @@ let protocol = 'http';
 if (TLS_CERT && TLS_KEY && existsSync(TLS_CERT) && existsSync(TLS_KEY)) {
   const cert = readFileSync(TLS_CERT);
   const key = readFileSync(TLS_KEY);
-  server = createHttpsServer({ cert, key }, handler);
+  server = createHttpsServer({ cert, key }, requestHandler);
   protocol = 'https';
   console.log(`[tls] Using cert: ${TLS_CERT}`);
 } else {
-  server = createServer(handler);
+  server = createServer(requestHandler);
 }
 
 // WebSocket server in noServer mode so we can auth before upgrading
@@ -54,6 +186,7 @@ const clients = new Map<any, WSClient>();
 
 // Shared broadcast registry — API routes use this to push events to WS clients
 import('./src/lib/server/ws-broadcast.js').catch(() => {});
+import('./src/lib/server/router-init.js').then((m) => { m.initRouter(); }).catch((e) => console.error('[message-router] init failed:', e));
 
 // Authenticate and upgrade WebSocket connections
 server.on('upgrade', (req, socket, head) => {
@@ -184,6 +317,10 @@ wss.on('connection', async (ws) => {
 
 // Wire PTY output → WebSocket broadcast + touch last_activity
 getPtyManager().then(async ptm => {
+  // Expose ptm.write on globalThis so API routes can use the SAME daemon connection
+  // that the WS terminal_input handler uses — this is the path that WORKS.
+  (globalThis as any).__antPtmWrite = (sessionId: string, data: string) => ptm.write(sessionId, data);
+
   // Rehydrate persistent sessions from DB
   const { rehydrateSessions, startTtlSweep } = await import('./src/lib/server/session-lifecycle.js');
   await rehydrateSessions(ptm);
@@ -194,6 +331,11 @@ getPtyManager().then(async ptm => {
 
   // Throttle last_activity updates (1 write per session per 10s max)
   const activityThrottle = new Map<string, number>();
+
+  // Track when each session last went silent (for idle-attention badges).
+  // Declared here so the onData handler (which clears silence on output)
+  // and the onSilence handler (which sets it) share the same Map.
+  const silenceStart = new Map<string, number>();
 
   // Buffer terminal output per session — flush to terminal_transcripts every ~10KB or 30s.
   // chunkCounters and byteOffsets are seeded from the DB on first flush per session per
@@ -264,6 +406,8 @@ getPtyManager().then(async ptm => {
         flushTranscript(sessionId);
       }, 30_000));
     }
+    // Clear silence tracking — terminal produced output, so it's not idle
+    silenceStart.delete(sessionId);
     // Agent event bus — fed from ptm.onLine() (debounced, ANSI-stripped text)
     // instead of raw PTY data. Raw bytes contain cursor-movement sequences
     // that, when stripped, concatenate words ("Doyouwanttoproceed?").
@@ -345,6 +489,7 @@ getPtyManager().then(async ptm => {
   }
 
   // Initialize agent event bus with server dependencies
+  const { broadcastGlobal } = await import('./src/lib/server/ws-broadcast.js');
   import('./src/lib/server/agent-event-bus.js').then(({ init }) => {
     init({
       getSession: queries.getSession,
@@ -352,18 +497,33 @@ getPtyManager().then(async ptm => {
       writeToTerminal: (sid: string, data: string) => ptm.write(sid, data),
       updateMessageMeta: queries.updateMessageMeta,
       broadcastToChat: broadcast,
+      broadcastGlobal,
     });
   }).catch(() => {});
 
-  // Signal 1: silence → chat.
-  // Disabled for sessions with a linked chat — terminal output flows via the
-  // terminal_line path (ptm.onLine above), making silence signals redundant.
-  // Sessions without a linked chat have no chat to post to, so this is a
-  // complete no-op for now; kept as a registration hook for future use.
-  ptm.onSilence(async (_sessionId: string, _isPrompt: boolean, _text: string) => {
-    // No-op: terminal_line pipeline supersedes silence signals for linked
-    // sessions, and unlinked sessions have no chat target to post to.
+  // Signal 1: silence → idle-attention badges.
+  // When a terminal goes quiet for >30s with no pending agent event, we
+  // broadcast a gentle "idle attention" indicator to the dashboard.
+  ptm.onSilence(async (sessionId: string, _isPrompt: boolean, _text: string) => {
+    const now = Date.now();
+    if (!silenceStart.has(sessionId)) {
+      silenceStart.set(sessionId, now);
+    }
+    const elapsed = now - (silenceStart.get(sessionId) ?? now);
+    // If silent >30s AND the agent-event-bus has NO active event, broadcast idle attention
+    if (elapsed > 30_000) {
+      try {
+        const { getPendingEvent } = await import('./src/lib/server/agent-event-bus.js');
+        const pending = getPendingEvent(sessionId);
+        if (!pending.needs_input) {
+          broadcastGlobal({ type: 'session_idle_attention', sessionId });
+        }
+      } catch {}
+    }
   });
+
+  // Silence tracking is cleared from within the existing ptm.onData handler
+  // (see silenceStart.delete call in the onData callback above).
 
   // Signal 2: pane_title polling — 2s interval, unlinked sessions only.
   // ─── Title poller ────────────────────────────────────────────────────────

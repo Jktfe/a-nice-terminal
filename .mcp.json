@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "ant-channel": {
+      "command": "bun",
+      "args": ["./ant-channel.ts"],
+      "env": {
+        "ANT_SERVER": "https://mac.tail34caea.ts.net:6458",
+        "ANT_API_KEY": "REDACTED",
+        "ANT_CHAT_SESSION": "tXpU9R89MeLJEz-C921vA",
+        "ANT_CHANNEL_PORT": "8789",
+        "ANT_HANDLE": "@claude"
+      }
+    }
+  }
+}

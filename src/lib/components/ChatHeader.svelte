@@ -2,6 +2,8 @@
   import { goto } from '$app/navigation';
   import ShareButton from '$lib/components/ShareButton.svelte';
   import { theme } from '$lib/stores/theme.svelte';
+  import { CLI_MODES } from '$lib/cli-modes';
+  import { TTL_OPTIONS } from '$lib/stores/sessions.svelte';
 
   interface PageSession {
     id: string;
@@ -11,6 +13,7 @@
     display_name?: string;
     linked_chat_id?: string;
     ttl?: string;
+    cli_flag?: string | null;
     [key: string]: unknown;
   }
 
@@ -26,9 +29,11 @@
     onMenuToggle: () => void;
     onMenuClose: () => void;
     onCopyId: () => void;
-    onRename: () => void;
+    onRename: (newName: string) => void;
     onDelete: () => void;
     onCopyTmux: () => void;
+    onCliFlagChange: (slug: string | null) => void;
+    onChangeTtl: (ttl: string) => void;
   }
 
   const {
@@ -46,11 +51,14 @@
     onRename,
     onDelete,
     onCopyTmux,
+    onCliFlagChange,
+    onChangeTtl,
   }: Props = $props();
 
   let editingName = $state(false);
   let nameInput = $state('');
   let showTmuxMenu = $state(false);
+  let showPersistenceMenu = $state(false);
 
   // Close dropdowns on outside click — uses window listener instead of backdrop overlay
   // (Svelte 5's synchronous DOM rendering causes backdrop onclick to fire on the same click that opens it)
@@ -64,6 +72,7 @@
     if (showMenu) {
       const menuWrapper = (e.target as Element)?.closest('[aria-label="Session menu"]')?.parentElement;
       if (!menuWrapper?.contains(e.target as Node)) {
+        showPersistenceMenu = false;
         onMenuClose();
       }
     }
@@ -93,7 +102,7 @@
   function commitEditName() {
     const trimmed = nameInput.trim();
     if (trimmed && trimmed !== session?.name) {
-      onRename();
+      onRename(trimmed);
     }
     editingName = false;
   }
@@ -161,6 +170,30 @@
       <span class="text-[11px] font-mono flex-shrink-0" style="color:#22C55E;">{session.handle}</span>
     {/if}
   </div>
+
+  <!-- CLI mode buttons — only for terminal sessions -->
+  {#if session?.type === 'terminal'}
+    <div class="flex items-center gap-0.5 overflow-x-auto flex-shrink-0 max-w-[50%]" style="scrollbar-width: none;">
+      {#each CLI_MODES as mode}
+        <button
+          class="flex-shrink-0 px-1.5 py-0.5 text-[10px] rounded-md transition-all border"
+          style={session.cli_flag === mode.slug
+            ? 'background: #6366F1; color: #fff; border-color: #6366F1;'
+            : 'background: transparent; color: var(--text-muted); border-color: transparent;'}
+          title={mode.label}
+          onclick={() => {
+            if (session?.cli_flag === mode.slug) {
+              onCliFlagChange(null);
+            } else {
+              onCliFlagChange(mode.slug);
+            }
+          }}
+        >
+          <span class="mr-0.5">{mode.icon}</span>{mode.label}
+        </button>
+      {/each}
+    </div>
+  {/if}
 
   <!-- Spacer -->
   <div class="flex-1"></div>
@@ -331,7 +364,7 @@
             </span>
           </button>
           <button
-            onclick={onRename}
+            onclick={() => { onMenuClose(); startEditName(); }}
             class="w-full text-left px-3 py-2 border-b transition-colors hover:bg-gray-50 dark:hover:bg-white/5"
             style="color: var(--text-muted); border-color: #F3F4F6;"
           >
@@ -343,6 +376,54 @@
               Rename
             </span>
           </button>
+          <button
+            onclick={() => { showPersistenceMenu = !showPersistenceMenu; }}
+            class="w-full text-left px-3 py-2 border-b transition-colors hover:bg-gray-50 dark:hover:bg-white/5"
+            style="color: var(--text-muted); border-color: #F3F4F6;"
+          >
+            <span class="inline-flex items-center gap-2 w-full">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+              Persistence
+              <span class="ml-auto text-[10px] font-medium px-1.5 py-0.5 rounded"
+                style={session?.ttl === 'forever'
+                  ? 'background: rgba(34,197,94,0.15); color: #22C55E;'
+                  : 'background: rgba(99,102,241,0.12); color: #6366F1;'}>
+                {TTL_OPTIONS.find(o => o.value === session?.ttl)?.label ?? session?.ttl ?? '—'}
+              </span>
+            </span>
+          </button>
+          {#if showPersistenceMenu}
+            <div class="border-b" style="border-color: #F3F4F6; background: var(--bg);">
+              {#each TTL_OPTIONS as opt}
+                <button
+                  onclick={() => {
+                    onChangeTtl(opt.value);
+                    showPersistenceMenu = false;
+                    onMenuClose();
+                  }}
+                  class="w-full text-left px-4 py-1.5 text-xs transition-colors hover:bg-gray-50 dark:hover:bg-white/5 flex items-center gap-2"
+                  style={session?.ttl === opt.value
+                    ? 'color: #6366F1; font-weight: 600;'
+                    : 'color: var(--text-muted);'}
+                >
+                  {#if session?.ttl === opt.value}
+                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
+                    </svg>
+                  {:else}
+                    <span class="w-3"></span>
+                  {/if}
+                  {opt.label}
+                  {#if opt.value === 'forever'}
+                    <span class="text-[9px]">⚡</span>
+                  {/if}
+                </button>
+              {/each}
+            </div>
+          {/if}
           <button
             onclick={onDelete}
             class="w-full text-left px-3 py-2 transition-colors text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"

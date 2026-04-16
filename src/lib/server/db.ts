@@ -15,7 +15,12 @@ const DB_PATH = join(DATA_DIR, 'ant.db');
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- globalThis.Bun is not in TS lib; runtime check only
 const isBun = typeof (globalThis as any).Bun !== 'undefined';
 
-let _db: any = null;
+// Use globalThis to ensure tsx (server.ts) and SvelteKit build share the SAME
+// DB instance. Without this, each module context creates its own connection and
+// the build's copy may not have run migrations.
+const G = globalThis as any;
+const DB_KEY = '__ant_db__';
+let _db: any = G[DB_KEY] ?? null;
 
 function getDb(): any {
   if (_db) return _db;
@@ -29,6 +34,7 @@ function getDb(): any {
     const Database = _require('better-sqlite3');
     _db = new Database(DB_PATH);
   }
+  G[DB_KEY] = _db;
 
   // Performance PRAGMAs for M4 Pro with 64GB RAM
   _db.exec("PRAGMA journal_mode = WAL");
@@ -40,7 +46,7 @@ function getDb(): any {
   _db.exec("PRAGMA temp_store = MEMORY");
 
   // Schema
-  _db.exec(`CREATE TABLE IF NOT EXISTS sessions (
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     type TEXT NOT NULL CHECK(type IN ('terminal','chat','agent')),
@@ -57,14 +63,47 @@ function getDb(): any {
   )`);
 
   // Migrations for existing DBs
-  const cols = _db.prepare(`PRAGMA table_info(sessions)`).all().map((c: any) => c.name);
-  if (!cols.includes('ttl'))           _db.exec(`ALTER TABLE sessions ADD COLUMN ttl TEXT DEFAULT '15m'`);
-  if (!cols.includes('deleted_at'))    _db.exec(`ALTER TABLE sessions ADD COLUMN deleted_at TEXT`);
-  if (!cols.includes('last_activity')) _db.exec(`ALTER TABLE sessions ADD COLUMN last_activity TEXT`);
-  if (!cols.includes('handle'))        _db.exec(`ALTER TABLE sessions ADD COLUMN handle TEXT`);
-  if (!cols.includes('display_name'))  _db.exec(`ALTER TABLE sessions ADD COLUMN display_name TEXT`);
+  const cols = G[DB_KEY].prepare(`PRAGMA table_info(sessions)`).all().map((c: any) => c.name);
+  if (!cols.includes('ttl'))           G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN ttl TEXT DEFAULT '15m'`);
+  if (!cols.includes('deleted_at'))    G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN deleted_at TEXT`);
+  if (!cols.includes('last_activity')) G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN last_activity TEXT`);
+  if (!cols.includes('handle'))        G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN handle TEXT`);
+  if (!cols.includes('display_name'))  G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN display_name TEXT`);
+  if (!cols.includes('cli_flag'))      G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN cli_flag TEXT`);
+  if (!cols.includes('alias'))         G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN alias TEXT`);
 
-  _db.exec(`CREATE TABLE IF NOT EXISTS messages (
+  // Chat room membership — tracks who participates vs who just posts
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS chat_room_members (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    room_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL,
+    role TEXT DEFAULT 'participant',
+    cli_flag TEXT,
+    joined_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(room_id, session_id)
+  )`);
+
+  // Channel registry — maps @handles to MCP channel server ports
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS channel_registry (
+    handle TEXT PRIMARY KEY,
+    port INTEGER NOT NULL,
+    session_id TEXT,
+    registered_at TEXT DEFAULT (datetime('now'))
+  )`);
+
+  // Delivery log — tracks message delivery for replay on reconnect
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS delivery_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    adapter TEXT NOT NULL,
+    delivered INTEGER DEFAULT 0,
+    error TEXT,
+    created_at INTEGER DEFAULT (unixepoch())
+  )`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_delivery_log_session ON delivery_log(session_id, created_at)`);
+
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS messages (
     id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     role TEXT NOT NULL,
@@ -79,32 +118,32 @@ function getDb(): any {
   )`);
 
   // Migrations for messages table
-  const msgCols = _db.prepare(`PRAGMA table_info(messages)`).all().map((c: any) => c.name);
-  if (!msgCols.includes('sender_id')) _db.exec(`ALTER TABLE messages ADD COLUMN sender_id TEXT`);
-  if (!msgCols.includes('target'))    _db.exec(`ALTER TABLE messages ADD COLUMN target TEXT`);
-  if (!msgCols.includes('msg_type'))  _db.exec(`ALTER TABLE messages ADD COLUMN msg_type TEXT DEFAULT 'message'`);
+  const msgCols = G[DB_KEY].prepare(`PRAGMA table_info(messages)`).all().map((c: any) => c.name);
+  if (!msgCols.includes('sender_id')) G[DB_KEY].exec(`ALTER TABLE messages ADD COLUMN sender_id TEXT`);
+  if (!msgCols.includes('target'))    G[DB_KEY].exec(`ALTER TABLE messages ADD COLUMN target TEXT`);
+  if (!msgCols.includes('msg_type'))  G[DB_KEY].exec(`ALTER TABLE messages ADD COLUMN msg_type TEXT DEFAULT 'message'`);
 
-  _db.exec(`CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id)`);
-  _db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_workspace ON sessions(workspace_id)`);
-  _db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_sessions_workspace ON sessions(workspace_id)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)`);
 
-  _db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+  G[DB_KEY].exec(`CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
     content, tokenize='trigram'
   )`);
 
-  _db.exec(`CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
+  G[DB_KEY].exec(`CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
     INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
   END`);
 
-  _db.exec(`CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE OF content ON messages BEGIN
+  G[DB_KEY].exec(`CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE OF content ON messages BEGIN
     UPDATE messages_fts SET content = new.content WHERE rowid = new.rowid;
   END`);
 
-  _db.exec(`CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+  G[DB_KEY].exec(`CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
     DELETE FROM messages_fts WHERE rowid = old.rowid;
   END`);
 
-  _db.exec(`CREATE TABLE IF NOT EXISTS terminal_transcripts (
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS terminal_transcripts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     chunk_index INTEGER NOT NULL,
@@ -112,40 +151,40 @@ function getDb(): any {
     timestamp TEXT DEFAULT (datetime('now'))
   )`);
 
-  _db.exec(`CREATE INDEX IF NOT EXISTS idx_transcripts_session ON terminal_transcripts(session_id)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_transcripts_session ON terminal_transcripts(session_id)`);
 
   // Migrations for terminal_transcripts — per-row millisecond precision + cumulative
   // byte offset per session, both needed by the history read paths and the idle-tick
   // script. Added in the same commit that introduces the history API.
-  const trCols = _db.prepare(`PRAGMA table_info(terminal_transcripts)`).all().map((c: any) => c.name);
-  if (!trCols.includes('ts_ms'))       _db.exec(`ALTER TABLE terminal_transcripts ADD COLUMN ts_ms INTEGER`);
-  if (!trCols.includes('byte_offset')) _db.exec(`ALTER TABLE terminal_transcripts ADD COLUMN byte_offset INTEGER`);
+  const trCols = G[DB_KEY].prepare(`PRAGMA table_info(terminal_transcripts)`).all().map((c: any) => c.name);
+  if (!trCols.includes('ts_ms'))       G[DB_KEY].exec(`ALTER TABLE terminal_transcripts ADD COLUMN ts_ms INTEGER`);
+  if (!trCols.includes('byte_offset')) G[DB_KEY].exec(`ALTER TABLE terminal_transcripts ADD COLUMN byte_offset INTEGER`);
 
   // Dedupe any (session_id, chunk_index) collisions that accumulated before the
   // restart bug was fixed — keep the row with the highest id for each pair, then
   // add a UNIQUE index so we can never collide again.
   try {
-    _db.exec(`
+    G[DB_KEY].exec(`
       DELETE FROM terminal_transcripts
       WHERE id NOT IN (
         SELECT MAX(id) FROM terminal_transcripts GROUP BY session_id, chunk_index
       )
     `);
   } catch { /* non-fatal */ }
-  _db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_transcripts_session_chunk
+  G[DB_KEY].exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_transcripts_session_chunk
             ON terminal_transcripts(session_id, chunk_index)`);
-  _db.exec(`CREATE INDEX IF NOT EXISTS idx_transcripts_session_ts
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_transcripts_session_ts
             ON terminal_transcripts(session_id, ts_ms)`);
 
   // FTS5 mirror of transcript text with ANSI stripped. rowid matches
   // terminal_transcripts.id so joins are cheap. Populated from TS (see
   // appendTranscriptWithText below) rather than a SQL trigger, because SQLite
   // can't strip ANSI without a user-defined function.
-  _db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS terminal_text_fts USING fts5(
+  G[DB_KEY].exec(`CREATE VIRTUAL TABLE IF NOT EXISTS terminal_text_fts USING fts5(
     text, tokenize='trigram'
   )`);
 
-  _db.exec(`CREATE TABLE IF NOT EXISTS tasks (
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     created_by TEXT,
@@ -158,9 +197,9 @@ function getDb(): any {
     updated_at TEXT DEFAULT (datetime('now'))
   )`);
 
-  _db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id)`);
 
-  _db.exec(`CREATE TABLE IF NOT EXISTS file_refs (
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS file_refs (
     id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     flagged_by TEXT,
@@ -169,21 +208,21 @@ function getDb(): any {
     created_at TEXT DEFAULT (datetime('now'))
   )`);
 
-  _db.exec(`CREATE INDEX IF NOT EXISTS idx_file_refs_session ON file_refs(session_id)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_file_refs_session ON file_refs(session_id)`);
 
-  _db.exec(`CREATE TABLE IF NOT EXISTS workspaces (
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS workspaces (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     root_dir TEXT,
     created_at TEXT DEFAULT (datetime('now'))
   )`);
 
-  _db.exec(`CREATE TABLE IF NOT EXISTS server_state (
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS server_state (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
   )`);
 
-  _db.exec(`CREATE TABLE IF NOT EXISTS memories (
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS memories (
     id TEXT PRIMARY KEY,
     key TEXT NOT NULL,
     value TEXT NOT NULL,
@@ -194,22 +233,22 @@ function getDb(): any {
     updated_at TEXT DEFAULT (datetime('now'))
   )`);
 
-  _db.exec(`CREATE INDEX IF NOT EXISTS idx_memories_key ON memories(key)`);
-  _db.exec(`CREATE INDEX IF NOT EXISTS idx_memories_session ON memories(session_id)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_memories_key ON memories(key)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_memories_session ON memories(session_id)`);
 
-  _db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+  G[DB_KEY].exec(`CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
     key, value, tokenize='trigram'
   )`);
 
-  _db.exec(`CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
+  G[DB_KEY].exec(`CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
     INSERT INTO memories_fts(rowid, key, value) VALUES (new.rowid, new.key, new.value);
   END`);
 
-  _db.exec(`CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE OF key, value ON memories BEGIN
+  G[DB_KEY].exec(`CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE OF key, value ON memories BEGIN
     UPDATE memories_fts SET key = new.key, value = new.value WHERE rowid = new.rowid;
   END`);
 
-  _db.exec(`CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
+  G[DB_KEY].exec(`CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
     DELETE FROM memories_fts WHERE rowid = old.rowid;
   END`);
 
@@ -218,17 +257,17 @@ function getDb(): any {
   // pty-daemon parsing `%window-*`, `%session-*`, `%layout-change`, `%exit`
   // and related control mode notifications. See docs/mempalace-schema.md
   // for how agents use these (idle-tick read, librarian digest input).
-  _db.exec(`CREATE TABLE IF NOT EXISTS terminal_events (
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS terminal_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     ts_ms INTEGER NOT NULL,
     kind TEXT NOT NULL,
     data TEXT DEFAULT '{}'
   )`);
-  _db.exec(`CREATE INDEX IF NOT EXISTS idx_term_events_session_ts ON terminal_events(session_id, ts_ms)`);
-  _db.exec(`CREATE INDEX IF NOT EXISTS idx_term_events_kind ON terminal_events(kind)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_term_events_session_ts ON terminal_events(session_id, ts_ms)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_term_events_kind ON terminal_events(kind)`);
 
-  _db.exec(`CREATE TABLE IF NOT EXISTS command_events (
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS command_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     command TEXT NOT NULL,
@@ -241,32 +280,32 @@ function getDb(): any {
     meta TEXT DEFAULT '{}'
   )`);
 
-  _db.exec(`CREATE INDEX IF NOT EXISTS idx_cmd_session ON command_events(session_id)`);
-  _db.exec(`CREATE INDEX IF NOT EXISTS idx_cmd_started ON command_events(started_at)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_cmd_session ON command_events(session_id)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_cmd_started ON command_events(started_at)`);
 
-  _db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS command_events_fts USING fts5(
+  G[DB_KEY].exec(`CREATE VIRTUAL TABLE IF NOT EXISTS command_events_fts USING fts5(
     command, output_snippet, cwd, tokenize='trigram'
   )`);
 
-  _db.exec(`CREATE TRIGGER IF NOT EXISTS cmd_ai AFTER INSERT ON command_events BEGIN
+  G[DB_KEY].exec(`CREATE TRIGGER IF NOT EXISTS cmd_ai AFTER INSERT ON command_events BEGIN
     INSERT INTO command_events_fts(rowid, command, output_snippet, cwd)
     VALUES (new.rowid, new.command, new.output_snippet, new.cwd);
   END`);
 
   // Migrations for sessions table — tmux + AON columns
-  if (!cols.includes('tmux_id'))        _db.exec(`ALTER TABLE sessions ADD COLUMN tmux_id TEXT`);
-  if (!cols.includes('kill_timer'))     _db.exec(`ALTER TABLE sessions ADD COLUMN kill_timer TEXT`);
-  if (!cols.includes('is_aon'))         _db.exec(`ALTER TABLE sessions ADD COLUMN is_aon INTEGER DEFAULT 0`);
-  if (!cols.includes('linked_chat_id')) _db.exec(`ALTER TABLE sessions ADD COLUMN linked_chat_id TEXT`);
+  if (!cols.includes('tmux_id'))        G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN tmux_id TEXT`);
+  if (!cols.includes('kill_timer'))     G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN kill_timer TEXT`);
+  if (!cols.includes('is_aon'))         G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN is_aon INTEGER DEFAULT 0`);
+  if (!cols.includes('linked_chat_id')) G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN linked_chat_id TEXT`);
   // If on, user-role messages posted to a chat are written to each linked
   // terminal's PTY as raw keystrokes (so you can answer (y)/n prompts from
   // the chat input). If off, they arrive as the existing notification block.
   // Default on. Flip off per-session for multi-agent broadcast rooms.
-  if (!cols.includes('auto_forward_chat')) _db.exec(`ALTER TABLE sessions ADD COLUMN auto_forward_chat INTEGER NOT NULL DEFAULT 1`);
+  if (!cols.includes('auto_forward_chat')) G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN auto_forward_chat INTEGER NOT NULL DEFAULT 1`);
 
   // Record startup
-  _db.prepare(`INSERT OR REPLACE INTO server_state (key, value) VALUES (?, ?)`).run('last_heartbeat', new Date().toISOString());
-  _db.exec(`INSERT OR REPLACE INTO server_state(key, value) VALUES ('last_started', datetime('now'))`);
+  G[DB_KEY].prepare(`INSERT OR REPLACE INTO server_state (key, value) VALUES (?, ?)`).run('last_heartbeat', new Date().toISOString());
+  G[DB_KEY].exec(`INSERT OR REPLACE INTO server_state(key, value) VALUES ('last_started', datetime('now'))`);
 
   console.log(`[db] Initialized ${isBun ? 'bun:sqlite' : 'better-sqlite3'} at ${DB_PATH}`);
   return _db;
@@ -324,6 +363,38 @@ export const queries = {
   setHandle: (id: string, handle: string | null, displayName: string | null) =>
     prepare(`UPDATE sessions SET handle = ?, display_name = ?, updated_at = datetime('now') WHERE id = ?`).run(handle, displayName, id),
   getSessionByHandle: (handle: string) => prepare(`SELECT * FROM sessions WHERE handle = ? AND archived = 0 AND deleted_at IS NULL`).get(handle),
+
+  // CLI flag + alias
+  setCliFlag: (id: string, cliFlag: string | null) =>
+    prepare(`UPDATE sessions SET cli_flag = ?, updated_at = datetime('now') WHERE id = ?`).run(cliFlag, id),
+  setAlias: (id: string, alias: string) =>
+    prepare(`UPDATE sessions SET alias = ?, handle = ?, display_name = ?, updated_at = datetime('now') WHERE id = ?`).run(alias, `@${alias}`, alias, id),
+
+  // Chat room members
+  addRoomMember: (roomId: string, sessionId: string, role: string, cliFlag: string | null) =>
+    prepare(`INSERT OR IGNORE INTO chat_room_members (room_id, session_id, role, cli_flag) VALUES (?, ?, ?, ?)`).run(roomId, sessionId, role, cliFlag),
+  removeRoomMember: (roomId: string, sessionId: string) =>
+    prepare(`DELETE FROM chat_room_members WHERE room_id = ? AND session_id = ?`).run(roomId, sessionId),
+  listRoomMembers: (roomId: string) =>
+    prepare(`SELECT crm.*, s.name, s.handle, s.display_name, s.type FROM chat_room_members crm LEFT JOIN sessions s ON s.id = crm.session_id WHERE crm.room_id = ?`).all(roomId),
+  getRoutableMembers: (roomId: string) =>
+    prepare(`SELECT crm.*, s.name, s.handle, s.display_name, s.type FROM chat_room_members crm LEFT JOIN sessions s ON s.id = crm.session_id WHERE crm.room_id = ? AND crm.role = 'participant'`).all(roomId),
+
+  // Channel registry
+  registerChannel: (handle: string, port: number, sessionId: string | null) =>
+    prepare(`INSERT OR REPLACE INTO channel_registry (handle, port, session_id) VALUES (?, ?, ?)`).run(handle, port, sessionId),
+  deregisterChannel: (handle: string) =>
+    prepare(`DELETE FROM channel_registry WHERE handle = ?`).run(handle),
+  getChannelPort: (handle: string) =>
+    prepare(`SELECT port FROM channel_registry WHERE handle = ?`).get(handle) as { port: number } | undefined,
+  listChannels: () =>
+    prepare(`SELECT * FROM channel_registry`).all(),
+
+  // Delivery log
+  logDelivery: (messageId: string, sessionId: string, adapter: string, delivered: number, error: string | null) =>
+    prepare(`INSERT INTO delivery_log (message_id, session_id, adapter, delivered, error) VALUES (?, ?, ?, ?, ?)`).run(messageId, sessionId, adapter, delivered, error),
+  pruneDeliveryLog: (olderThanSecs: number) =>
+    prepare(`DELETE FROM delivery_log WHERE created_at < (unixepoch() - ?)`).run(olderThanSecs),
   getTerminalsByLinkedChat: (chatId: string) =>
     prepare(`SELECT * FROM sessions WHERE linked_chat_id = ? AND type = 'terminal' AND archived = 0 AND deleted_at IS NULL`).all(chatId),
   // All live terminal sessions that have a linked chat — kept for reference.

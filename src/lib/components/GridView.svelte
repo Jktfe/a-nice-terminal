@@ -8,7 +8,11 @@
     type: 'terminal' | 'chat' | 'agent' | string;
   }
 
-  let { sessions }: { sessions: Session[] } = $props();
+  let { sessions, needsInputMap = new Map(), idleAttentionSet = new Set() }: {
+    sessions: Session[];
+    needsInputMap?: Map<string, { eventClass: string; summary: string }>;
+    idleAttentionSet?: Set<string>;
+  } = $props();
 
   const grid = useGridStore();
 
@@ -30,6 +34,6 @@
   "
 >
   {#each grid.cells as cell (cell.id)}
-    <GridSlot {cell} allSessions={sessions} />
+    <GridSlot {cell} allSessions={sessions} {needsInputMap} {idleAttentionSet} />
   {/each}
 </div>

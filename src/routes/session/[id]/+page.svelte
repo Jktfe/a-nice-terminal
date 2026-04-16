@@ -9,6 +9,7 @@
   import ChatMessages from '$lib/components/ChatMessages.svelte';
   import ChatSidePanel from '$lib/components/ChatSidePanel.svelte';
   import { useToasts } from '$lib/stores/toast.svelte';
+  import { normalizeSessionName } from '$lib/utils/session-naming';
   import { onMount, onDestroy } from 'svelte';
 
   interface PageSession {
@@ -19,6 +20,7 @@
     display_name?: string;
     linked_chat_id?: string;
     ttl?: string;
+    cli_flag?: string | null;
     [key: string]: unknown;
   }
 
@@ -32,7 +34,8 @@
   let allSessions = $state<PageSession[]>([]);
   let mode = $state('chat');
   let showMenu = $state(false);
-  let showPanel = $state(true); // open by default on desktop
+  // Panel closed by default on thin/mobile browsers (<1024px), open on desktop
+  let showPanel = $state(typeof window !== 'undefined' ? window.innerWidth >= 1024 : true);
   let panelTab = $state('participants');
 
   // Hide side panel in terminal text mode (full-width dark view)
@@ -46,16 +49,81 @@
   let terminalText = $state('');
   let terminalTextTimer: ReturnType<typeof setInterval> | null = null;
 
+  // Chrome patterns to strip from terminal text view (same as pty-daemon fast path)
+  const CHROME_RE = [
+    /^─{10,}$/,                          // long dividers
+    /^❯\s*$/,                            // cursor-only lines
+    /^[✽✳✻✶✢·★⏺⠂⠐⠈]+(\s|$)/,            // spinner chars
+    /^⏵⏵/,                               // Gemini prompt marker
+    /shift\+tab|esc to interrupt|for shortcuts/i, // help text
+    /^\s*[\u2800-\u28FF]+\s*$/,          // braille spinners
+    /^[/\\|_`~\-.\s()*@^×]+$/,          // all-punctuation lines
+    /tokens?\)|thought for \d/,          // token/thinking counters
+    /^\s*[✔◼]\s+Task \d+/,              // task status markers
+  ];
+
+  function cleanTerminalText(raw: string): string {
+    const lines = raw.split('\n');
+    const cleaned: string[] = [];
+    let consecutiveEmpty = 0;
+    let lastLine = '';
+
+    for (const line of lines) {
+      const trimmed = line.trimEnd();
+
+      // Collapse consecutive empty lines to max 1
+      if (!trimmed) {
+        consecutiveEmpty++;
+        if (consecutiveEmpty <= 1) cleaned.push('');
+        continue;
+      }
+      consecutiveEmpty = 0;
+
+      // Strip chrome lines
+      if (CHROME_RE.some(re => re.test(trimmed))) continue;
+
+      // Deduplicate consecutive identical lines (idle prompts, repeated output)
+      if (trimmed === lastLine) continue;
+
+      lastLine = trimmed;
+      cleaned.push(trimmed);
+    }
+
+    return cleaned.join('\n').trim();
+  }
+
+  let terminalTextLoaded = false;
+
   async function refreshTerminalText() {
     if (!sessionId || session?.type !== 'terminal') return;
+    // Only do a full fetch once on first load — after that, WS terminal_line appends
+    if (terminalTextLoaded) return;
     try {
-      const res = await fetch(`/api/sessions/${sessionId}/terminal/history?since=1h&limit=500`);
+      const res = await fetch(`/api/sessions/${sessionId}/terminal/history?since=1h&limit=200`);
       if (res.ok) {
         const data = await res.json();
         const rows = data.rows || [];
-        terminalText = rows.map((r: any) => r.text || '').join('\n').trim() || '(no output yet)';
+        const raw = rows.map((r: any) => r.text || '').join('\n');
+        terminalText = cleanTerminalText(raw) || '(no output yet)';
+        terminalTextLoaded = true;
       }
     } catch {}
+  }
+
+  // Append new terminal output from WS (already cleaned/diffed by pty-daemon)
+  function appendTerminalLine(text: string) {
+    if (!text.trim()) return;
+    const cleaned = cleanTerminalText(text);
+    if (!cleaned) return;
+    // Dedup against the last line of existing text
+    const lastLine = terminalText.split('\n').pop()?.trim() || '';
+    const firstNew = cleaned.split('\n')[0]?.trim() || '';
+    if (firstNew && firstNew === lastLine) {
+      const rest = cleaned.split('\n').slice(1).join('\n');
+      if (rest.trim()) terminalText += '\n' + rest;
+    } else {
+      terminalText += '\n' + cleaned;
+    }
   }
 
   // Auto-scroll
@@ -132,14 +200,16 @@
 
   // @ mention handles
   let mentionHandles = $state<{ handle: string; name: string }[]>([]);
+  let postsFrom = $state<Record<string, unknown>[]>([]);
 
   async function loadMentionHandles() {
     try {
       const res = await fetch(`/api/sessions/${sessionId}/participants`);
       const data = await res.json();
-      mentionHandles = (data.participants || [])
+      mentionHandles = (data.all || [])
         .filter((p: Record<string, string>) => p.handle)
         .map((p: Record<string, string>) => ({ handle: p.handle, name: p.name || p.handle }));
+      postsFrom = data.postsFrom || [];
     } catch {}
   }
 
@@ -187,6 +257,18 @@
 
   async function postToLinkedChat(text: string) {
     if (!linkedChatId || !text.trim()) return;
+    // WS terminal_input FIRST — instant delivery to tmux (the gold standard path)
+    // Two-call protocol: text first, then \r separately after 50ms delay.
+    // Sending text+\r as one write fails in bracketed paste mode (Claude Code, Copilot etc.)
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: 'terminal_input', sessionId, data: text }));
+      setTimeout(() => {
+        if (socket?.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: 'terminal_input', sessionId, data: '\r' }));
+        }
+      }, 150);
+    }
+    // Then record in chat history (async, non-blocking)
     const res = await fetch(`/api/sessions/${linkedChatId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -195,10 +277,6 @@
         format: 'text', sender_id: null, msg_type: 'message',
       }),
     });
-    // Send keystrokes directly via WS FIRST (instant delivery to terminal)
-    if (socket?.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: 'terminal_input', sessionId, data: text + '\r' }));
-    }
     const msg = await res.json();
     if (msg.id && !linkedChatMessages.find(m => m.id === msg.id)) {
       linkedChatMessages = [...linkedChatMessages, msg];
@@ -290,6 +368,9 @@
           case 'message_deleted':
             msgStore.messages = msgStore.messages.filter(m => m.id !== data.msgId);
             break;
+          case 'terminal_line':
+            if (mode === 'terminal' && data.text) appendTerminalLine(data.text);
+            break;
           case 'task_created':
             if (data.task && !tasks.find(t => t.id === data.task.id)) tasks = [...tasks, data.task];
             break;
@@ -308,6 +389,9 @@
           case 'handle_updated':
             session = { ...session!, handle: data.handle as string | undefined, display_name: data.display_name as string | undefined };
             break;
+          case 'cli_flag_updated':
+            session = { ...session!, cli_flag: data.cli_flag as string | null };
+            break;
         }
       } catch {}
     };
@@ -323,28 +407,15 @@
     session = await sessRes.json();
     allSessions = (await allSessRes.json()).sessions || [];
     mode = 'chat';
-    // Terminal sessions start with panel hidden (text view is full-width); chat sessions show panel
-    showPanel = session?.type !== 'terminal';
+    // Terminal sessions start with the panel hidden. Chat sessions keep the
+    // panel closed on narrower layouts so the conversation stays primary.
+    const wideChatLayout = window.matchMedia('(min-width: 1024px)').matches;
+    showPanel = session?.type !== 'terminal' && wideChatLayout;
 
     if (session?.type === 'terminal' && session) {
       if (session.linked_chat_id) {
         linkedChatId = session.linked_chat_id;
         await loadLinkedChat(session.linked_chat_id);
-      } else {
-        const res = await fetch('/api/sessions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: `${session.name} Chat`, type: 'chat', ttl: session.ttl || '15m' }),
-        });
-        const newChat = await res.json();
-        await fetch(`/api/sessions/${sessionId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ linked_chat_id: newChat.id }),
-        });
-        linkedChatId = newChat.id;
-        allSessions = [...allSessions, newChat];
-        await loadLinkedChat(newChat.id);
       }
     }
 
@@ -382,10 +453,7 @@
 
   $effect(() => {
     if (mode === 'terminal' && session?.type === 'terminal') {
-      refreshTerminalText();
-      terminalTextTimer = setInterval(refreshTerminalText, 2000);
-    } else {
-      if (terminalTextTimer) { clearInterval(terminalTextTimer); terminalTextTimer = null; }
+      refreshTerminalText(); // one-time load, then WS appends
     }
   });
 
@@ -403,9 +471,14 @@
 
   async function sendCommand(cmd: string) {
     const text = cmd.endsWith('\n') || cmd.endsWith('\r') ? cmd.slice(0, -1) : cmd;
-    // Send keystrokes directly via WS (instant)
+    // Two-call protocol: text first, then \r separately after 50ms
     if (socket?.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: 'terminal_input', sessionId, data: text + '\r' }));
+      socket.send(JSON.stringify({ type: 'terminal_input', sessionId, data: text }));
+      setTimeout(() => {
+        if (socket?.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: 'terminal_input', sessionId, data: '\r' }));
+        }
+      }, 150);
     }
     // Also save to linked chat history (async, non-blocking)
     if (linkedChatId) {
@@ -425,12 +498,17 @@
     showMenu = false;
   }
 
-  async function renameSession() {
-    const newName = prompt('New session name:', session?.name || '');
-    if (!newName?.trim()) return;
+  async function renameSession(newName: string) {
+    const trimmed = normalizeSessionName(newName || '');
+    if (!trimmed || trimmed === session?.name) return;
     showMenu = false;
-    await sessionStore.renameSession(sessionId, newName.trim());
-    session = { ...session!, name: newName.trim() };
+    try {
+      const updatedSession = await sessionStore.renameSession(sessionId, trimmed);
+      session = { ...session!, ...updatedSession, name: trimmed };
+      allSessions = [...sessionStore.sessions];
+    } catch (e) {
+      toasts.show(e instanceof Error ? e.message : 'Failed to rename session', 'error');
+    }
   }
 
   async function deleteSession() {
@@ -461,6 +539,23 @@
       const updated = await res.json();
       allSessions = allSessions.map(s => s.id === sess.id ? { ...s, handle: updated.handle } : s);
     }
+  }
+
+  async function handleCliFlagChange(slug: string | null) {
+    // PATCH persists cli_flag, updates meta, notifies daemon, and broadcasts WS
+    await fetch(`/api/sessions/${sessionId}/cli-flag`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cli_flag: slug }),
+    });
+    // Update local state immediately (WS broadcast will also arrive, but this is faster)
+    session = { ...session!, cli_flag: slug };
+  }
+
+  async function handleChangeTtl(ttl: string) {
+    await sessionStore.updateTtl(sessionId, ttl);
+    session = { ...session!, ttl };
+    toasts.show(`Persistence changed to ${ttl === 'forever' ? 'Always On' : ttl}`);
   }
 
   async function crossPost(targetId: string, text: string) {
@@ -545,6 +640,8 @@
     onCopyId={copySessionId}
     onRename={renameSession}
     onDelete={deleteSession}
+    onCliFlagChange={handleCliFlagChange}
+    onChangeTtl={handleChangeTtl}
     onCopyTmux={() => {
       const cmd = `ssh mac.tail34caea.ts.net -t tmux attach-session -t ${sessionId}`;
       navigator.clipboard.writeText(cmd).then(() => {
@@ -637,6 +734,29 @@
               style="color: #C9D1D9; font-family: 'JetBrains Mono', 'Fira Mono', monospace; font-size: 12px;"
             >{terminalText || 'Loading terminal output…'}</pre>
           </div>
+          <!-- Special key buttons -->
+          {#await import('$lib/shared/special-keys.js') then mod}
+            <div class="flex items-center gap-1 px-3 py-1.5 border-t shrink-0 overflow-x-auto scrollbar-none" style="border-color:#1E293B; background:#161B22;">
+              {#each mod.SPECIAL_KEYS as key}
+                <button
+                  onclick={() => {
+                    if (key.seq === '__paste__') {
+                      navigator.clipboard.readText().then(t => {
+                        if (socket?.readyState === WebSocket.OPEN) {
+                          socket.send(JSON.stringify({ type: 'terminal_input', sessionId, data: t }));
+                          setTimeout(() => { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'terminal_input', sessionId, data: '\r' })); }, 150);
+                        }
+                      });
+                    } else {
+                      if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'terminal_input', sessionId, data: key.seq }));
+                    }
+                  }}
+                  class="shrink-0 px-2.5 py-1 rounded text-[11px] font-mono transition-colors hover:bg-[#21262D]"
+                  style="color:#8B949E; border:1px solid #30363D;"
+                >{key.label}</button>
+              {/each}
+            </div>
+          {/await}
           <CLIInput onSubmit={sendCommand}/>
         </div>
       {:else}
@@ -694,6 +814,7 @@
         {memorySearch}
         {memorySearchResults}
         {memorySearching}
+        {postsFrom}
         participantsActive={participants.active}
         participantsAvailable={participants.available}
         onTabChange={(tab) => (panelTab = tab)}

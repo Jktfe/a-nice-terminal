@@ -59,11 +59,22 @@ export function GET({ params, url }: RequestEvent<{ id: string }>) {
   return json({ messages });
 }
 
+/** Resolve the sender session to get name/type for routing context. */
+function resolveSenderSession(senderId: string | null): { name: string; type: string | null } {
+  if (!senderId) return { name: 'web', type: null };
+  const session: any = queries.getSession(senderId) || queries.getSessionByHandle(senderId);
+  return {
+    name: session?.display_name || session?.name || senderId,
+    type: session?.type || null,
+  };
+}
+
 export async function POST({ params, request }: RequestEvent<{ id: string }>) {
   const { role, content, format, sender_id, target, msg_type } = await request.json();
   const id = nanoid();
   const msgType = msg_type || 'message';
 
+  // 1. Persist to DB
   queries.createMessage(
     id, params.id, role, content, format || 'text', 'complete',
     sender_id || null, target || null, msgType, '{}'
@@ -76,97 +87,65 @@ export async function POST({ params, request }: RequestEvent<{ id: string }>) {
     sender_id: sender_id || null, target: target || null, msg_type: msgType,
   };
 
-  // Broadcast to WS clients joined to this session, filtered by target
-  const { broadcast } = await import('$lib/server/ws-broadcast.js');
-  broadcast(params.id, { type: 'message_created', sessionId: params.id, ...msg }, target);
+  // Auto-populate chat_room_members when a sender posts
+  if (sender_id) {
+    try {
+      const senderSess = queries.getSession(sender_id) || queries.getSessionByHandle(sender_id);
+      const memberRole = senderSess?.type === 'terminal' ? 'participant' : 'external';
+      let cliFlag: string | null = null;
+      try { cliFlag = senderSess?.cli_flag || JSON.parse(senderSess?.meta || '{}').agent_driver || null; } catch {}
+      queries.addRoomMember(params.id, sender_id, memberRole, cliFlag);
+    } catch {}
+  }
 
-  // If message targets a handle, inject a notification into that terminal's PTY
-  // so the AI running in that terminal sees it directly
-  if (target && target !== '@everyone') {
-    const targetSession: any = queries.getSessionByHandle(target);
-    if (targetSession?.type === 'terminal') {
-      const senderSession: any = sender_id ? queries.getSession(sender_id) : null;
-      const senderName = senderSession?.name || sender_id || 'web';
-      // Inject as a clearly delimited notification block — safe for bash and AI CLIs
-      const notification =
-        `\r\n\x1b[36m┌─ ANT message ─────────────────────────────────\x1b[0m\r\n` +
-        `\x1b[36m│\x1b[0m From: \x1b[33m${senderName}\x1b[0m → \x1b[32m${target}\x1b[0m\r\n` +
-        `\x1b[36m│\x1b[0m "${content.slice(0, 200)}"\r\n` +
-        `\x1b[36m│\x1b[0m Reply: \x1b[90mant msg ${params.id} "your reply"\x1b[0m\r\n` +
-        `\x1b[36m└───────────────────────────────────────────────\x1b[0m\r\n`;
+  // 2. Route via MessageRouter
+  const { getRouter } = await import('$lib/server/message-router.js');
+  const router = getRouter();
+  console.log(`[messages POST] router adapters: ${router.adapterCount ?? 'unknown'}, sessionId=${params.id}, sender_id=${sender_id}`);
+  const sender = resolveSenderSession(sender_id);
+
+  // Forward human messages to Claude channels — but ONLY for non-linked chat sessions
+  // (group chats, standalone chats). Linked chat messages are terminal I/O and should
+  // NOT spam the channel.
+  const senderIsAgent = sender.type === 'terminal';
+  const linkedTerminals = queries.getTerminalsByLinkedChat(params.id) as any[];
+  const isLinkedChat = linkedTerminals.length > 0;
+  if (!senderIsAgent && !isLinkedChat) {
+    const channels = queries.listChannels() as { handle: string; port: number }[];
+    const payload = JSON.stringify({ content: content.slice(0, 500), sender: sender.name || sender_id || 'chat', session_id: params.id });
+    for (const ch of channels) {
       try {
-        // ptyClient preferred; falls back gracefully if session not in daemon
-        const { ptyClient } = await import('$lib/server/pty-client.js');
-        ptyClient.write(targetSession.id, notification);
+        fetch(`http://127.0.0.1:${ch.port}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload,
+        }).catch(() => {});
+      } catch {}
+    }
+    // Fallback: always try port 8789 even if registry is empty
+    if (!channels.some(c => c.port === 8789)) {
+      try {
+        fetch('http://127.0.0.1:8789', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload,
+        }).catch(() => {});
       } catch {}
     }
   }
 
-  // Agent response: user interacted with an AgentEventCard in the chat.
-  // Route the response back to the terminal via the agent event bus.
-  // Must be handled BEFORE the systemMsgTypes guard (which would skip it).
-  if (msgType === 'agent_response' && (!target || target === '@everyone')) {
-    const linkedTerminals: any[] = queries.getTerminalsByLinkedChat(params.id);
-    for (const terminal of linkedTerminals) {
-      if (terminal.id === sender_id) continue;
-      try {
-        const { handleResponse } = await import('$lib/server/agent-event-bus.js');
-        const payload = JSON.parse(content);
-        // AgentEventCard sends { type, event_content, choice } — merge type
-        // into choice to form a valid UserChoice for the driver
-        const userChoice = { type: payload.type, ...payload.choice };
-        await handleResponse(terminal.id, payload.event_content, userChoice);
-      } catch (e) {
-        console.error('[agent-event-bus] response failed:', e);
-      }
-    }
-  }
+  const result = await router.route({
+    id,
+    sessionId: params.id,
+    content,
+    role,
+    senderId: sender_id || null,
+    senderName: sender.name,
+    senderType: sender.type,
+    target: target || null,
+    msgType,
+  });
 
-  // Fan-out: messages posted to a chat that has linked terminals get forwarded
-  // to those terminals' PTYs. Two modes per terminal, controlled by the
-  // `auto_forward_chat` column:
-  //
-  //   • auto_forward_chat = 1 (default) + role === 'user' →
-  //       raw keystrokes (content + \r). Lets the user answer interactive
-  //       prompts like "Ok to proceed? (y)" directly from the linked chat.
-  //
-  //   • auto_forward_chat = 0, or role !== 'user' →
-  //       existing ANSI notification block. Right for AI-to-AI broadcasts
-  //       in multi-agent rooms where we don't want text executed as input.
-  //
-  // Skip system message types — those are generated by the terminal→chat
-  // bridge and re-injecting them would loop.
-  const systemMsgTypes = new Set(['prompt', 'silence', 'title', 'agent_response', 'agent_event', 'terminal_line']);
-  if ((!target || target === '@everyone') && !systemMsgTypes.has(msgType)) {
-    const linkedTerminals: any[] = queries.getTerminalsByLinkedChat(params.id);
-    if (linkedTerminals.length > 0) {
-      const senderSession: any = sender_id ? queries.getSession(sender_id) : null;
-      const senderName = senderSession?.name || sender_id || 'chat';
-      const notification =
-        `\r\n\x1b[36m┌─ ANT broadcast ────────────────────────────────\x1b[0m\r\n` +
-        `\x1b[36m│\x1b[0m From: \x1b[33m${senderName}\x1b[0m\r\n` +
-        `\x1b[36m│\x1b[0m "${content.slice(0, 200)}"\r\n` +
-        `\x1b[36m│\x1b[0m Reply: \x1b[90mant msg ${params.id} "your reply"\x1b[0m\r\n` +
-        `\x1b[36m└───────────────────────────────────────────────\x1b[0m\r\n`;
-      try {
-        const { ptyClient } = await import('$lib/server/pty-client.js');
-        for (const terminal of linkedTerminals) {
-          if (terminal.id === sender_id) continue;
-          // Web user (sender_id=null) sends keystrokes directly via WS —
-          // skip fan-out to prevent double-execution. Only forward messages
-          // from other agents/sessions (sender_id set).
-          const rawMode = role === 'user' && terminal.auto_forward_chat !== 0 && sender_id;
-          if (rawMode) {
-            ptyClient.write(terminal.id, content.trimEnd() + '\r');
-          } else if (!sender_id && role === 'user') {
-            // Web user — already sent via WS, skip
-          } else {
-            ptyClient.write(terminal.id, notification);
-          }
-        }
-      } catch {}
-    }
-  }
-
-  return json(msg, { status: 201 });
+  // 3. Return with delivery info
+  return json({ ...msg, deliveries: result.deliveries }, { status: 201 });
 }

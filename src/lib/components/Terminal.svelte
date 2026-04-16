@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { slide } from 'svelte/transition';
   import { browser } from '$app/environment';
+  import { SPECIAL_KEYS } from '$lib/shared/special-keys.js';
 
   let { sessionId, onData }: { sessionId: string; onData?: (data: string) => void } = $props();
 
@@ -23,18 +24,8 @@
   });
   let scrollThumbHeight = $derived(Math.max(40, 120));
 
-  // Special keys for mobile/touch input
-  const specialKeys = [
-    { label: 'Esc', seq: '\x1b' },
-    { label: '↑', seq: '\x1b[A' },
-    { label: '↓', seq: '\x1b[B' },
-    { label: '←', seq: '\x1b[D' },
-    { label: '→', seq: '\x1b[C' },
-    { label: 'Paste', seq: '__paste__' },
-    { label: '^C', seq: '\x03' },
-    { label: '⇧Tab', seq: '\x1b[Z' },
-    { label: 'Tab', seq: '\t' },
-  ];
+  // Special keys for mobile/touch input — sourced from shared definition
+  const specialKeys = SPECIAL_KEYS;
 
   function sendKey(seq: string) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;

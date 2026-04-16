@@ -1,6 +1,17 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
+import { isAutoLinkedChatForTerminal } from '$lib/server/linked-chat';
+import { SESSIONS_CHANNEL } from '$lib/ws-channels';
+import { buildLinkedChatName, normalizeSessionName } from '$lib/utils/session-naming';
+
+function findConflictingSession(name: string, excludeIds: string[] = []) {
+  const comparable = normalizeSessionName(name).toLowerCase();
+  return queries.listSessions().find((session: any) => {
+    if (excludeIds.includes(session.id)) return false;
+    return normalizeSessionName(session.name).toLowerCase() === comparable;
+  });
+}
 
 export function GET({ params }: RequestEvent<{ id: string }>) {
   const session = queries.getSession(params.id);
@@ -9,16 +20,48 @@ export function GET({ params }: RequestEvent<{ id: string }>) {
 }
 
 export async function PATCH({ params, request }: RequestEvent<{ id: string }>) {
+  const currentSession = queries.getSession(params.id);
+  if (!currentSession) throw error(404, 'Session not found');
+
   const body = await request.json();
+  const nextName = typeof body.name === 'string' ? normalizeSessionName(body.name) : null;
+  if (body.name !== undefined && !nextName) {
+    return json({ error: 'Session name is required' }, { status: 400 });
+  }
+
+  let autoLinkedChat: any | null = null;
+  if (currentSession.type === 'terminal' && currentSession.linked_chat_id) {
+    const linkedChat = queries.getSession(currentSession.linked_chat_id);
+    if (linkedChat && isAutoLinkedChatForTerminal((linkedChat as any).meta, params.id)) {
+      autoLinkedChat = linkedChat;
+    }
+  }
+
+  if (nextName && nextName !== currentSession.name) {
+    const conflictingSession = findConflictingSession(nextName, [params.id]);
+    if (conflictingSession) {
+      return json({ error: `"${nextName}" already exists` }, { status: 409 });
+    }
+    if (autoLinkedChat) {
+      const linkedChatName = buildLinkedChatName(nextName);
+      const conflictingLinkedChat = findConflictingSession(linkedChatName, [autoLinkedChat.id]);
+      if (conflictingLinkedChat) {
+        return json({ error: `"${linkedChatName}" already exists` }, { status: 409 });
+      }
+    }
+  }
+
   if (body.ttl) {
     queries.updateTtl(body.ttl, params.id);
   }
-  if (body.name || body.status || body.archived !== undefined || body.meta) {
+  if (nextName || body.status || body.archived !== undefined || body.meta !== undefined) {
     queries.updateSession(
-      body.name || null,
+      nextName || null,
       body.status || null,
       body.archived !== undefined ? (body.archived ? 1 : 0) : null,
-      body.meta ? JSON.stringify(body.meta) : null,
+      body.meta !== undefined
+        ? (typeof body.meta === 'string' ? body.meta : JSON.stringify(body.meta))
+        : null,
       params.id
     );
   }
@@ -27,6 +70,10 @@ export async function PATCH({ params, request }: RequestEvent<{ id: string }>) {
   }
   const session = queries.getSession(params.id);
   if (!session) throw error(404, 'Session not found');
+
+  if (nextName && nextName !== currentSession.name && autoLinkedChat) {
+    queries.updateSession(buildLinkedChatName(nextName), null, null, null, autoLinkedChat.id);
+  }
 
   // Auto-export to memory palace when a session is archived
   if (body.archived === true) {
@@ -54,13 +101,18 @@ export async function PATCH({ params, request }: RequestEvent<{ id: string }>) {
     }
   }
 
+  const { broadcast } = await import('$lib/server/ws-broadcast.js');
+  broadcast(SESSIONS_CHANNEL, { type: 'sessions_changed' });
+
   return json(session);
 }
 
 // Soft-delete: marks deleted_at, PTY keeps running, recoverable within TTL window
-export function DELETE({ params }: RequestEvent<{ id: string }>) {
+export async function DELETE({ params }: RequestEvent<{ id: string }>) {
   const session = queries.getSession(params.id);
   if (!session) throw error(404, 'Session not found');
   queries.softDeleteSession(params.id);
+  const { broadcast } = await import('$lib/server/ws-broadcast.js');
+  broadcast(SESSIONS_CHANNEL, { type: 'sessions_changed' });
   return new Response(null, { status: 204 });
 }

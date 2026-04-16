@@ -45,6 +45,11 @@ const OUTPUT_MAX_WAIT_MS = 2000; // ceiling — fire at most every 2s during con
 
 const lastCapture = new Map<string, string>();
 
+// Per-session stripLines count — how many bottom-of-screen lines to strip
+// before diffing (removes CLI chrome like input prompts, status bars, etc.).
+// Set via the `set_cli_flag` IPC when the user tags a session with a CLI mode.
+const stripLinesMap = new Map<string, number>();
+
 interface OutputTimer {
   timer: ReturnType<typeof setTimeout> | null;
   maxTimer: ReturnType<typeof setTimeout> | null;
@@ -61,8 +66,18 @@ async function flushViaCapture(sessionId: string, ot: OutputTimer): Promise<void
   ot.firstTs = 0;
 
   // Capture the current rendered screen (plain text, no ANSI)
-  const screen = captureClean(sessionId, 50);
+  let screen = captureClean(sessionId, 50);
   if (!screen) return;
+
+  // Strip bottom N lines based on cli_flag (removes CLI chrome like input bars,
+  // status lines, spinners, etc.) before diffing so they never enter the pipeline.
+  const stripN = stripLinesMap.get(sessionId) ?? 0;
+  if (stripN > 0) {
+    const lines = screen.split('\n');
+    if (lines.length > stripN) {
+      screen = lines.slice(0, lines.length - stripN).join('\n');
+    }
+  }
 
   const prev = lastCapture.get(sessionId) ?? '';
   lastCapture.set(sessionId, screen);
@@ -677,6 +692,21 @@ function handle(msg: any, socket: net.Socket) {
     case 'title': {
       const title = readPaneTitle(msg.sessionId);
       send(socket, { type: 'title', sessionId: msg.sessionId, callId: msg.callId, title });
+      break;
+    }
+
+    case 'set_cli_flag': {
+      // Store the stripLines count for this session based on the CLI mode.
+      // The client sends the cliFlag slug; we import the mode list to look up stripLines.
+      // To avoid importing the full cli-modes module in the daemon, the server
+      // sends stripLines directly alongside the flag.
+      const strip = typeof msg.stripLines === 'number' ? msg.stripLines : 0;
+      if (strip > 0) {
+        stripLinesMap.set(msg.sessionId, strip);
+      } else {
+        stripLinesMap.delete(msg.sessionId);
+      }
+      LOG(`set_cli_flag: ${msg.sessionId} → ${msg.cliFlag ?? 'none'} (stripLines=${strip})`);
       break;
     }
 

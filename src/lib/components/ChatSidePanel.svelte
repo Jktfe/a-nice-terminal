@@ -33,6 +33,7 @@
     memorySearching: boolean;
     participantsActive: { sess: PageSession; count: number; active: boolean }[];
     participantsAvailable: { sess: PageSession; count: number; active: boolean }[];
+    postsFrom: Record<string, unknown>[];
     onTabChange: (tab: string) => void;
     onTaskUpdated: (task: { id: string; status: string; [key: string]: unknown }) => void;
     onFileRefRemoved: (id: string) => void;
@@ -70,6 +71,7 @@
     memorySearching,
     participantsActive,
     participantsAvailable,
+    postsFrom = [],
     onTabChange,
     onTaskUpdated,
     onFileRefRemoved,
@@ -98,6 +100,7 @@
   let linkedChatInputLocal = $state('');
   let memoryNewKey = $state('');
   let memoryNewValue = $state('');
+  let defaultsApplied = $state(false);
 
   // Which sections are expanded
   let participantsOpen = $state(true);
@@ -105,6 +108,15 @@
   let filesOpen = $state(true);
   let chatRoomsOpen = $state(true);
   let memoryOpen = $state(false);
+  let otherSessionsOpen = $state(false); // collapsed by default per James's request
+
+  $effect(() => {
+    if (defaultsApplied || !session || session.type === 'terminal') return;
+    tasksOpen = false;
+    filesOpen = false;
+    memoryOpen = false;
+    defaultsApplied = true;
+  });
 
   function groupMessages(msgs: Record<string, unknown>[]): { key: string; type: string; items: Record<string, unknown>[] }[] {
     const groups: { key: string; type: string; items: Record<string, unknown>[] }[] = [];
@@ -186,6 +198,28 @@
   ]);
 
   const isTerminal = $derived(session?.type === 'terminal');
+
+  // Phase 6: map cli_flag to a display label
+  function cliLabel(flag: string | null | undefined): string {
+    if (!flag) return '';
+    const labels: Record<string, string> = {
+      claude: 'Claude',
+      gemini: 'Gemini',
+      copilot: 'Copilot',
+      aider: 'Aider',
+      cursor: 'Cursor',
+      codex: 'Codex',
+    };
+    return labels[flag] || flag;
+  }
+
+  // Phase 6: extract cli_flag from session meta JSON
+  function getCliFlag(sess: PageSession): string | null {
+    try {
+      const meta = typeof sess.meta === 'string' ? JSON.parse(sess.meta as string) : (sess.meta || {});
+      return (meta as Record<string, string>).cli_flag || (meta as Record<string, string>).cliFlag || null;
+    } catch { return null; }
+  }
 </script>
 
 <!-- Panel: full-width overlay on mobile, 280px fixed on lg+ -->
@@ -346,6 +380,7 @@
             {#each participantsActive as p}
               {@const col = participantDot(p.sess)}
               {@const label = p.sess.display_name || p.sess.name}
+              {@const flag = getCliFlag(p.sess)}
               <div class="rounded-lg overflow-hidden" style="border: 1px solid #E5E7EB;">
                 <div class="flex items-center gap-2.5 px-2.5 py-2">
                   <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background: {col};"></span>
@@ -364,7 +399,12 @@
                         onblur={() => handleSaveNickname(p.sess)}
                       />
                     {:else}
-                      <p class="text-xs font-semibold truncate" style="color: var(--text);">{label}</p>
+                      <div class="flex items-center gap-1">
+                        <p class="text-xs font-semibold truncate" style="color: var(--text);">{label}</p>
+                        {#if flag}
+                          <span class="text-[9px] px-1 py-0.5 rounded font-mono flex-shrink-0" style="background: {col}15; color: {col};">{cliLabel(flag)}</span>
+                        {/if}
+                      </div>
                       {#if p.sess.handle}
                         <p class="text-[10px] font-mono" style="color: {col}88;">{p.sess.handle}</p>
                       {/if}
@@ -433,66 +473,112 @@
 
             <!-- Available (not yet posted) sessions -->
             {#if participantsAvailable.length > 0}
-              {#if participantsActive.length > 0}
-                <p class="text-[10px] font-semibold uppercase tracking-wide pt-1 px-1" style="color: var(--text-faint);">Other sessions</p>
-              {/if}
-              {#each participantsAvailable as p}
-                {@const col = participantDot(p.sess)}
-                {@const label = p.sess.display_name || p.sess.name}
-                <div class="rounded-lg overflow-hidden opacity-70" style="border: 1px solid #E5E7EB;">
-                  <div class="flex items-center gap-2.5 px-2.5 py-2">
-                    <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background: {col}88;"></span>
-                    <div class="min-w-0 flex-1">
-                      <p class="text-xs font-medium truncate" style="color: var(--text-muted);">{label}</p>
-                      <p class="text-[10px] font-mono" style="color: var(--text-faint);">{p.sess.type}</p>
-                    </div>
-                    <div class="flex items-center gap-0.5">
-                      {#if p.sess.type === 'terminal' && p.sess.handle}
-                        <button onclick={() => onWakeParticipant(p.sess)} class="p-1 rounded" style="color: var(--text-faint);" title="Wake">📢</button>
-                      {/if}
-                    </div>
-                  </div>
-                  <!-- Post to X row -->
-                  <button
-                    onclick={() => { crossPostTarget = crossPostTarget === p.sess.id ? null : p.sess.id; crossPostText = ''; }}
-                    class="w-full flex items-center justify-between px-2.5 py-1.5 text-xs transition-colors"
-                    style="border-top: 1px solid #F3F4F6; color: #6366F1; background: {crossPostTarget === p.sess.id ? '#EEF2FF' : '#FAFAFA'};"
-                    title="Post to {label}"
-                  >
-                    <em>Post to {label}</em>
-                    <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+              <div class="rounded-lg overflow-hidden" style="border: 1px solid #E5E7EB; background: #FAFAFA;">
+                <button
+                  onclick={() => (otherSessionsOpen = !otherSessionsOpen)}
+                  class="w-full flex items-center justify-between px-2.5 py-2 text-xs transition-colors"
+                  style="color: var(--text-muted);"
+                >
+                  <span class="font-semibold uppercase tracking-wide">Other sessions</span>
+                  <span class="flex items-center gap-2">
+                    <span class="px-1.5 py-0.5 rounded-full text-[10px] font-bold" style="background: #fff; color: var(--text-faint);">
+                      {participantsAvailable.length}
+                    </span>
+                    <svg
+                      class="w-3.5 h-3.5 transition-transform"
+                      style="color: var(--text-faint); transform: {otherSessionsOpen ? 'rotate(180deg)' : 'rotate(0deg)'};"
+                      fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                    >
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
                     </svg>
-                  </button>
-                  {#if crossPostTarget === p.sess.id}
-                    <div class="px-2.5 pb-2.5 pt-1.5" style="background: #F9FAFB;">
-                      <div class="flex gap-1.5">
-                        <input
-                          class="flex-1 text-xs rounded-lg px-2.5 py-1.5 outline-none"
-                          style="border: 1px solid #6366F1; color: var(--text); background: var(--bg);"
-                          placeholder="Message to {label}…"
-                          bind:value={crossPostText}
-                          onkeydown={(e) => { if (e.key === 'Enter') handleCrossPost(p.sess.id); if (e.key === 'Escape') crossPostTarget = null; }}
-                        />
+                  </span>
+                </button>
+                {#if otherSessionsOpen}
+                  <div class="px-2.5 pb-2.5 space-y-1.5" style="border-top: 1px solid #F3F4F6;">
+                    {#each participantsAvailable as p}
+                      {@const col = participantDot(p.sess)}
+                      {@const label = p.sess.display_name || p.sess.name}
+                      <div class="rounded-lg overflow-hidden opacity-80" style="border: 1px solid #E5E7EB; background: var(--bg);">
+                        <div class="flex items-center gap-2.5 px-2.5 py-2">
+                          <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background: {col}88;"></span>
+                          <div class="min-w-0 flex-1">
+                            <p class="text-xs font-medium truncate" style="color: var(--text-muted);">{label}</p>
+                            <p class="text-[10px] font-mono" style="color: var(--text-faint);">{p.sess.type}</p>
+                          </div>
+                          <div class="flex items-center gap-0.5">
+                            {#if p.sess.type === 'terminal' && p.sess.handle}
+                              <button onclick={() => onWakeParticipant(p.sess)} class="p-1 rounded" style="color: var(--text-faint);" title="Wake">📢</button>
+                            {/if}
+                          </div>
+                        </div>
                         <button
-                          onclick={() => handleCrossPost(p.sess.id)}
-                          class="px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center"
-                          style="background: #6366F1; color: #fff;"
-                          aria-label="Send"
-                          title="Send"
+                          onclick={() => { crossPostTarget = crossPostTarget === p.sess.id ? null : p.sess.id; crossPostText = ''; }}
+                          class="w-full flex items-center justify-between px-2.5 py-1.5 text-xs transition-colors"
+                          style="border-top: 1px solid #F3F4F6; color: #6366F1; background: {crossPostTarget === p.sess.id ? '#EEF2FF' : '#FAFAFA'};"
+                          title="Post to {label}"
                         >
-                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <em>Post to {label}</em>
+                          <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
                           </svg>
                         </button>
+                        {#if crossPostTarget === p.sess.id}
+                          <div class="px-2.5 pb-2.5 pt-1.5" style="background: #F9FAFB;">
+                            <div class="flex gap-1.5">
+                              <input
+                                class="flex-1 text-xs rounded-lg px-2.5 py-1.5 outline-none"
+                                style="border: 1px solid #6366F1; color: var(--text); background: var(--bg);"
+                                placeholder="Message to {label}…"
+                                bind:value={crossPostText}
+                                onkeydown={(e) => { if (e.key === 'Enter') handleCrossPost(p.sess.id); if (e.key === 'Escape') crossPostTarget = null; }}
+                              />
+                              <button
+                                onclick={() => handleCrossPost(p.sess.id)}
+                                class="px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center"
+                                style="background: #6366F1; color: #fff;"
+                                aria-label="Send"
+                                title="Send"
+                              >
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+                                </svg>
+                              </button>
+                            </div>
+                          </div>
+                        {/if}
                       </div>
-                    </div>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
+            {/if}
+
+            <!-- Phase 6: External tools/MCPs that post but can't receive routing -->
+            {#if postsFrom.length > 0}
+              <p class="text-[10px] font-semibold uppercase tracking-wide pt-1 px-1" style="color: var(--text-faint);">External</p>
+              {#each postsFrom as ext (ext.id)}
+                {@const label = (ext.name as string) || (ext.id as string)}
+                {@const flag = ext.cli_flag as string | null}
+                <div class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg opacity-70" style="border: 1px solid #E5E7EB;">
+                  <!-- plug icon for external -->
+                  <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: var(--text-faint);">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                  </svg>
+                  <div class="min-w-0 flex-1">
+                    <p class="text-xs font-medium truncate" style="color: var(--text-muted);">{label}</p>
+                    {#if flag}
+                      <p class="text-[10px] font-mono" style="color: var(--text-faint);">{cliLabel(flag)}</p>
+                    {/if}
+                  </div>
+                  {#if ext.message_count}
+                    <span class="text-[9px] px-1.5 py-0.5 rounded-full" style="background: #F3F4F6; color: var(--text-faint);">{ext.message_count} msgs</span>
                   {/if}
                 </div>
               {/each}
             {/if}
 
-            {#if participantsActive.length === 0 && participantsAvailable.length === 0}
+            {#if participantsActive.length === 0 && participantsAvailable.length === 0 && postsFrom.length === 0}
               <p class="text-xs text-center py-4" style="color: var(--text-faint);">No other sessions</p>
             {/if}
           {/if}

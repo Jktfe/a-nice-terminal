@@ -37,6 +37,8 @@ Commands:
                         (--since 5m|1h  --grep "error"  --limit 100  --raw)
   terminal events <id>  Read tmux control-mode structured events
                         (--since 15m  --kind layout-change  --limit 50)
+  terminal key <id> <n> Send a special key to a terminal
+                        (ctrl-c, enter, tab, shift-tab, up, down, left, right, escape)
 
   chat <id>             Open chat session (interactive)
   chat send <id>        Send a message (--msg "hello")

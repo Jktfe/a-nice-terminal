@@ -54,6 +54,7 @@ let _postToChat: ((sessionId: string, chatId: string, content: string, msgType: 
 let _writeToTerminal: ((sessionId: string, data: string) => void) | null = null;
 let _updateMessageMeta: ((msgId: string, meta: string) => void) | null = null;
 let _broadcastToChat: ((chatId: string, msg: any) => void) | null = null;
+let _broadcastGlobal: ((msg: any) => void) | null = null;
 
 /** Call once from server.ts after pty manager is connected. */
 export function init(deps: {
@@ -62,12 +63,14 @@ export function init(deps: {
   writeToTerminal: (sessionId: string, data: string) => void;
   updateMessageMeta: (msgId: string, meta: string) => void;
   broadcastToChat: (chatId: string, msg: any) => void;
+  broadcastGlobal?: (msg: any) => void;
 }) {
   _getSession = deps.getSession;
   _postToChat = deps.postToChat;
   _writeToTerminal = deps.writeToTerminal;
   _updateMessageMeta = deps.updateMessageMeta;
   _broadcastToChat = deps.broadcastToChat;
+  _broadcastGlobal = deps.broadcastGlobal ?? null;
 }
 
 // ─── Strip ANSI escape codes ─────────────────────────────────────────────────
@@ -75,6 +78,26 @@ export function init(deps: {
 const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]|\x1b\].*?(?:\x07|\x1b\\)|\x1b[()][0-9A-B]|\r/g;
 function stripAnsi(s: string): string {
   return s.replace(ANSI_RE, '');
+}
+
+// ─── Summary builder for dashboard badges ────────────────────────────────────
+
+function buildSummary(event: any, eventClass: string): string {
+  const payload = event.payload ?? {};
+  if (eventClass === 'permission_request') {
+    const target = payload.command ?? payload.file ?? payload.tool ?? '';
+    return target ? `Approve: ${target.slice(0, 80)}` : 'Permission requested';
+  }
+  if (eventClass === 'multi_choice') {
+    return payload.question?.slice(0, 80) ?? 'Choose an option';
+  }
+  if (eventClass === 'confirmation') {
+    return payload.message?.slice(0, 80) ?? 'Confirmation needed';
+  }
+  if (eventClass === 'text_input') {
+    return payload.prompt?.slice(0, 80) ?? 'Input requested';
+  }
+  return event.text?.slice(0, 80) ?? `${eventClass.replace(/_/g, ' ')}`;
 }
 
 // ─── Core API ────────────────────────────────────────────────────────────────
@@ -149,6 +172,13 @@ async function onDebounce(sessionId: string, state: SessionState): Promise<void>
   const session = _getSession(sessionId);
   if (!session?.linked_chat_id) return;
 
+  // Update hooksActive if driver supports it
+  if (state.driver && 'setHooksActive' in state.driver) {
+    let meta: any = {};
+    try { meta = typeof session.meta === 'string' ? JSON.parse(session.meta) : (session.meta ?? {}); } catch {}
+    (state.driver as any).setHooksActive(!!meta.hooks_active);
+  }
+
   // Run detect() on each recent line (not just the last — events can appear mid-burst)
   const lastLine = state.buffer[state.buffer.length - 1];
   if (!lastLine) return;
@@ -203,6 +233,17 @@ async function onDebounce(sessionId: string, state: SessionState): Promise<void>
   const content = JSON.stringify(event);
   _postToChat(sessionId, session.linked_chat_id, content, 'agent_event');
   console.log(`[event-bus] POSTED ${eventClass} to chat ${session.linked_chat_id}`);
+
+  // Broadcast dashboard-level "needs input" badge to all connected clients
+  if (_broadcastGlobal) {
+    const summary = buildSummary(event, eventClass);
+    _broadcastGlobal({
+      type: 'session_needs_input',
+      sessionId,
+      eventClass,
+      summary,
+    });
+  }
 }
 
 /** Called from the messages endpoint when msg_type === 'agent_response'. */
@@ -234,6 +275,19 @@ export async function handleResponse(
   // accept an optional sendKeys callback as the 3rd arg for PTY key injection.
   // Cast through any to pass it — the driver throws if sendKeys is required but missing.
   await (state.driver as any).respond(event, choice, sendKeys);
+
+  // Clear the dashboard badge — response was sent, prompt is resolved.
+  // Remove any pending events matching this event class.
+  const eventClass = (event as any).class ?? event.type;
+  for (const [key, pending] of state.pendingEvents) {
+    const pendingClass = (pending.event as any).class ?? pending.event.type;
+    if (pendingClass === eventClass) {
+      state.pendingEvents.delete(key);
+    }
+  }
+  if (state.pendingEvents.size === 0 && _broadcastGlobal) {
+    _broadcastGlobal({ type: 'session_input_resolved', sessionId: terminalSessionId });
+  }
 }
 
 function checkSettled(sessionId: string, state: SessionState): void {
@@ -254,6 +308,11 @@ function checkSettled(sessionId: string, state: SessionState): void {
         meta: { status: 'settled' },
       });
       state.pendingEvents.delete(key);
+
+      // If no more pending events for this session, clear the dashboard badge
+      if (state.pendingEvents.size === 0 && _broadcastGlobal) {
+        _broadcastGlobal({ type: 'session_input_resolved', sessionId });
+      }
     }
   }
 }
@@ -271,6 +330,30 @@ export function isChrome(sessionId: string, line: string): boolean {
     return state.driver.isChrome(line);
   }
   return false;
+}
+
+/** Query the current pending event state for a session (used by status API). */
+export function getPendingEvent(sessionId: string): {
+  needs_input: boolean;
+  event_class?: string;
+  summary?: string;
+  since?: string;
+} {
+  const state = sessions.get(sessionId);
+  if (!state || state.pendingEvents.size === 0) {
+    return { needs_input: false };
+  }
+  // Return the oldest pending event
+  const first = state.pendingEvents.values().next().value;
+  if (!first) return { needs_input: false };
+  const event = first.event;
+  const eventClass = (event as any).class ?? event.type;
+  return {
+    needs_input: true,
+    event_class: eventClass,
+    summary: buildSummary(event, eventClass),
+    since: new Date(event.ts ?? Date.now()).toISOString(),
+  };
 }
 
 /** Clean up when a session is killed/archived. */

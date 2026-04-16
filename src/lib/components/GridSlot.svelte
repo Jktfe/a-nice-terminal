@@ -29,11 +29,21 @@
     text: string;
   }
 
-  let { cell, allSessions, onSwap }: {
+  let { cell, allSessions, onSwap, needsInputMap = new Map(), idleAttentionSet = new Set() }: {
     cell: GridCellDef;
     allSessions: Session[];
     onSwap?: (cellId: string, sessionId: string) => void;
+    needsInputMap?: Map<string, { eventClass: string; summary: string }>;
+    idleAttentionSet?: Set<string>;
   } = $props();
+
+  // Derive badge state for this cell's session
+  const cellNeedsInput = $derived(
+    cell.sessionId ? (needsInputMap.get(cell.sessionId) ?? null) : null
+  );
+  const cellIdleAttention = $derived(
+    cell.sessionId ? idleAttentionSet.has(cell.sessionId) : false
+  );
 
   const grid = useGridStore();
 
@@ -303,6 +313,19 @@
         style="font-family: Inter, sans-serif; font-size: 12px; font-weight: 600; color: #111827;"
       >{session.name}</span>
 
+      <!-- Needs-input badge -->
+      {#if cellNeedsInput}
+        <span
+          class="grid-pulse-dot"
+          title={cellNeedsInput.summary}
+        ></span>
+      {:else if cellIdleAttention}
+        <span
+          class="grid-idle-dot"
+          title="Terminal idle"
+        ></span>
+      {/if}
+
       <!-- Spacer -->
       <div style="flex:1;"></div>
 
@@ -522,3 +545,28 @@
     </div>
   {/if}
 </div>
+
+<style>
+  .grid-pulse-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #EF4444;
+    display: inline-block;
+    flex-shrink: 0;
+    animation: ant-grid-pulse 1.5s ease-in-out infinite;
+  }
+  .grid-idle-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #F59E0B;
+    display: inline-block;
+    flex-shrink: 0;
+    opacity: 0.5;
+  }
+  @keyframes ant-grid-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(1.5); }
+  }
+</style>

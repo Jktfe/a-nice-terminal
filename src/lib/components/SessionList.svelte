@@ -1,6 +1,7 @@
 <script lang="ts">
   import { useSessionStore } from '$lib/stores/sessions.svelte';
   import { useGridStore } from '$lib/stores/grid.svelte';
+  import { SESSIONS_CHANNEL } from '$lib/ws-channels';
   import SessionCard from './SessionCard.svelte';
   import SessionPairCard from './SessionPairCard.svelte';
   import GridView from './GridView.svelte';
@@ -13,6 +14,65 @@
   let searchText = $state('');
   let creatingTerminal = $state(false);
   let creatingChat = $state(false);
+
+  // ── Dashboard WS for badge events ──────────────────────────────────
+  // Track sessions that need input (pulsing indicator) and idle sessions (dimmer)
+  let needsInputMap = $state(new Map<string, { eventClass: string; summary: string }>());
+  let idleAttentionSet = $state(new Set<string>());
+
+  let dashboardWs: WebSocket | null = null;
+  let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function connectDashboardWs() {
+    if (typeof window === 'undefined') return;
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    dashboardWs = new WebSocket(`${protocol}//${location.host}/ws`);
+
+    dashboardWs.onopen = () => {
+      dashboardWs?.send(JSON.stringify({ type: 'join_session', sessionId: SESSIONS_CHANNEL }));
+    };
+
+    dashboardWs.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'sessions_changed') {
+          void store.load();
+        } else if (msg.type === 'session_needs_input') {
+          const next = new Map(needsInputMap);
+          next.set(msg.sessionId, { eventClass: msg.eventClass, summary: msg.summary });
+          needsInputMap = next;
+          // If it needs input, it's not just idle
+          const nextIdle = new Set(idleAttentionSet);
+          nextIdle.delete(msg.sessionId);
+          idleAttentionSet = nextIdle;
+        } else if (msg.type === 'session_input_resolved') {
+          const next = new Map(needsInputMap);
+          next.delete(msg.sessionId);
+          needsInputMap = next;
+        } else if (msg.type === 'session_idle_attention') {
+          // Only show idle if not already needs-input
+          if (!needsInputMap.has(msg.sessionId)) {
+            const next = new Set(idleAttentionSet);
+            next.add(msg.sessionId);
+            idleAttentionSet = next;
+          }
+        }
+      } catch {}
+    };
+
+    dashboardWs.onclose = () => {
+      dashboardWs = null;
+      wsReconnectTimer = setTimeout(connectDashboardWs, 3000);
+    };
+  }
+
+  $effect(() => {
+    connectDashboardWs();
+    return () => {
+      if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
+      dashboardWs?.close();
+    };
+  });
 
   const filtered = $derived(
     store.sessions.filter(s =>
@@ -42,23 +102,48 @@
     store.load();
   });
 
+  function getUniqueName(base: string, type: string): string {
+    const existing = new Set(store.sessions.filter(s => s.type === type).map(s => s.name));
+    if (!existing.has(base)) return base;
+    for (let i = 2; i < 100; i++) {
+      const candidate = `${base} ${i}`;
+      if (!existing.has(candidate)) return candidate;
+    }
+    return `${base} ${Date.now()}`;
+  }
+
   async function createTerminal() {
+    const defaultName = getUniqueName('Terminal', 'terminal');
+    const name = prompt('Terminal name:', defaultName);
+    if (!name?.trim()) return;
+    const trimmed = name.trim();
+    // Enforce unique names
+    const existing = store.sessions.find(s => s.name === trimmed);
+    if (existing) { alert(`"${trimmed}" already exists. Choose a different name.`); return; }
     creatingTerminal = true;
     try {
-      const name = `Terminal ${store.sessions.filter(s => s.type === 'terminal').length + 1}`;
-      const session = await store.createSession(name, 'terminal', 'forever');
+      const session = await store.createSession(trimmed, 'terminal', 'forever');
       goto(`/session/${session.id}`);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to create terminal');
     } finally {
       creatingTerminal = false;
     }
   }
 
   async function createChat() {
+    const defaultName = getUniqueName('Chat', 'chat');
+    const name = prompt('Chat name:', defaultName);
+    if (!name?.trim()) return;
+    const trimmed = name.trim();
+    const existing = store.sessions.find(s => s.name === trimmed);
+    if (existing) { alert(`"${trimmed}" already exists. Choose a different name.`); return; }
     creatingChat = true;
     try {
-      const name = `Chat ${store.sessions.filter(s => s.type === 'chat').length + 1}`;
-      const session = await store.createSession(name, 'chat', '15m');
+      const session = await store.createSession(trimmed, 'chat', '15m');
       goto(`/session/${session.id}`);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to create chat');
     } finally {
       creatingChat = false;
     }
@@ -159,7 +244,7 @@
   <!-- ── Grid view ──────────────────────────────────────────────── -->
   {#if grid.enabled}
     <div class="flex-1 min-h-0 overflow-hidden">
-      <GridView sessions={store.sessions} />
+      <GridView sessions={store.sessions} {needsInputMap} {idleAttentionSet} />
     </div>
 
   {:else}
@@ -232,6 +317,8 @@
                   <SessionPairCard
                     {terminal}
                     linkedChat={linkedChatFor(terminal)}
+                    needsInput={needsInputMap.get(terminal.id) ?? null}
+                    idleAttention={idleAttentionSet.has(terminal.id)}
                     onArchive={() => store.archiveSession(terminal.id)}
                     onDelete={() => store.deleteSession(terminal.id)}
                   />

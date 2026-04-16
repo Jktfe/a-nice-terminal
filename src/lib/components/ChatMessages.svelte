@@ -4,6 +4,7 @@
   import AgentEventCard from '$lib/components/AgentEventCard.svelte';
   import TerminalLine from '$lib/components/TerminalLine.svelte';
   import TerminalSummary from '$lib/components/TerminalSummary.svelte';
+  import { SPECIAL_KEYS } from '$lib/shared/special-keys.js';
 
   interface PageSession {
     id: string;
@@ -109,6 +110,51 @@
       return () => sendBtnEl?.removeEventListener('click', handler);
     }
   });
+
+  // ── Special key buttons for terminal-linked chat pages ──
+  // Send a key sequence to the terminal session via the REST endpoint.
+  // The terminal's sessionId is session.id (the terminal session itself).
+  let keyBtnEls = $state<(HTMLButtonElement | null)[]>([]);
+
+  async function sendSpecialKey(seq: string) {
+    if (!session || session.type !== 'terminal') return;
+    const terminalId = session.id;
+    if (seq === '__paste__') {
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+          await fetch(`/api/sessions/${terminalId}/terminal/input`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data: text }),
+          });
+        }
+      } catch (err) {
+        console.warn('[ChatMessages] clipboard read failed:', err);
+      }
+      return;
+    }
+    await fetch(`/api/sessions/${terminalId}/terminal/input`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: seq }),
+    });
+  }
+
+  // Native addEventListener for each key button (Svelte 5 onclick bug workaround)
+  $effect(() => {
+    const cleanups: (() => void)[] = [];
+    for (let i = 0; i < keyBtnEls.length; i++) {
+      const el = keyBtnEls[i];
+      if (!el) continue;
+      const seq = SPECIAL_KEYS[i]?.seq;
+      if (!seq) continue;
+      const handler = () => sendSpecialKey(seq);
+      el.addEventListener('click', handler);
+      cleanups.push(() => el.removeEventListener('click', handler));
+    }
+    return () => { for (const fn of cleanups) fn(); };
+  });
 </script>
 
 <div class="flex-1 flex flex-col overflow-hidden">
@@ -194,6 +240,19 @@
         </svg>
         Jump to bottom
       </button>
+    </div>
+  {/if}
+
+  <!-- Special key buttons for terminal sessions -->
+  {#if session?.type === 'terminal'}
+    <div class="flex items-center gap-1.5 px-2 h-9 overflow-x-auto shrink-0 scrollbar-none" style="background:var(--bg-card);">
+      {#each SPECIAL_KEYS as key, i}
+        <button
+          bind:this={keyBtnEls[i]}
+          class="shrink-0 px-3 py-1.5 rounded-md text-xs transition-colors"
+          style="background:var(--bg-card);color:var(--text-muted);border:1px solid var(--border-subtle);"
+        >{key.label}</button>
+      {/each}
     </div>
   {/if}
 

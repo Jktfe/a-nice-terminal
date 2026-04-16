@@ -63,6 +63,14 @@ export interface GeminiEvent extends NormalisedEvent {
 // ─── GeminiCliDriver ──────────────────────────────────────────────────────────
 
 export class GeminiCliDriver implements AgentDriver {
+  private hooksActive = false;
+
+  /**
+   * Enable/disable hook-based event prioritization.
+   */
+  setHooksActive(active: boolean) {
+    this.hooksActive = active;
+  }
 
   /**
    * Detect interactive events from a single raw tmux output line.
@@ -77,23 +85,26 @@ export class GeminiCliDriver implements AgentDriver {
   detect(raw: RawEvent): NormalisedEvent | null {
     const { text, ts } = raw;
 
-    // Progress — model generating a response
-    if (RESPONDING_RE.test(text)) {
-      return this.makeEvent(ts, raw.raw, text, 'progress', { model: text.trim() });
-    }
+    // If hooks are active, skip progress/tool detection as they are handled via hooks
+    if (!this.hooksActive) {
+      // Progress — model generating a response
+      if (RESPONDING_RE.test(text)) {
+        return this.makeEvent(ts, raw.raw, text, 'progress', { model: text.trim() });
+      }
 
-    // Completed tool results — emit progress so the runner knows a tool ran
-    if (TOOL_WRITE_RE.test(text)) {
-      const file = extractGroup(text.trim(), /WriteFile Writing to (.+)$/) ?? 'unknown';
-      return this.makeEvent(ts, raw.raw, text, 'progress', { tool: 'WriteFile', file });
-    }
-    if (TOOL_SHELL_RE.test(text)) {
-      const cmd = extractGroup(text.trim(), /Shell (.+?)\s*\[/) ?? 'unknown';
-      return this.makeEvent(ts, raw.raw, text, 'progress', { tool: 'Shell', command: cmd });
-    }
-    if (TOOL_READ_RE.test(text)) {
-      const file = extractGroup(text.trim(), /ReadFile (.+)$/) ?? 'unknown';
-      return this.makeEvent(ts, raw.raw, text, 'progress', { tool: 'ReadFile', file });
+      // Completed tool results — emit progress so the runner knows a tool ran
+      if (TOOL_WRITE_RE.test(text)) {
+        const file = extractGroup(text.trim(), /WriteFile Writing to (.+)$/) ?? 'unknown';
+        return this.makeEvent(ts, raw.raw, text, 'progress', { tool: 'WriteFile', file });
+      }
+      if (TOOL_SHELL_RE.test(text)) {
+        const cmd = extractGroup(text.trim(), /Shell (.+?)\s*\[/) ?? 'unknown';
+        return this.makeEvent(ts, raw.raw, text, 'progress', { tool: 'Shell', command: cmd });
+      }
+      if (TOOL_READ_RE.test(text)) {
+        const file = extractGroup(text.trim(), /ReadFile (.+)$/) ?? 'unknown';
+        return this.makeEvent(ts, raw.raw, text, 'progress', { tool: 'ReadFile', file });
+      }
     }
 
     // Text-level interactive patterns on ✦ response lines

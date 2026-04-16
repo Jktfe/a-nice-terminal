@@ -1,4 +1,5 @@
 import { api } from '../lib/api.js';
+import { getKeySequence, SPECIAL_KEYS } from '../../src/lib/shared/special-keys.js';
 import WebSocket from 'ws';
 
 function formatEventData(kind: string, data: any): string {
@@ -33,7 +34,7 @@ function formatEventData(kind: string, data: any): string {
 
 export async function terminal(args: string[], flags: any, ctx: any) {
   const sub = args[0];
-  const subsWithId = new Set(['send', 'watch', 'history', 'events']);
+  const subsWithId = new Set(['send', 'watch', 'history', 'events', 'key']);
   const id = subsWithId.has(sub) ? args[1] : sub;
 
   if (!id) {
@@ -48,6 +49,33 @@ export async function terminal(args: string[], flags: any, ctx: any) {
     await api.post(ctx, `/api/sessions/${id}/terminal/input`, { data: cmd + '\n' });
     if (ctx.json) { console.log(JSON.stringify({ ok: true })); return; }
     console.log(`Sent: ${cmd}`);
+    return;
+  }
+
+  // Send a special key sequence by name
+  //   ant terminal key <id> ctrl-c
+  //   ant terminal key <id> enter
+  //   ant terminal key <id> up
+  if (sub === 'key') {
+    const keyName = args[2];
+    if (!keyName) {
+      const valid = [...new Set(SPECIAL_KEYS.map(k => k.cli))].join(', ');
+      console.error(`Usage: ant terminal key <id> <key-name>\nValid keys: ${valid}`);
+      return;
+    }
+    const seq = getKeySequence(keyName);
+    if (!seq) {
+      const valid = [...new Set(SPECIAL_KEYS.map(k => k.cli))].join(', ');
+      console.error(`Unknown key: "${keyName}"\nValid keys: ${valid}`);
+      return;
+    }
+    if (seq === '__paste__') {
+      console.error('Paste is not supported from the CLI');
+      return;
+    }
+    await api.post(ctx, `/api/sessions/${id}/terminal/input`, { data: seq });
+    if (ctx.json) { console.log(JSON.stringify({ ok: true, key: keyName })); return; }
+    console.log(`Sent key: ${keyName}`);
     return;
   }
 

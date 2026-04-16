@@ -9,8 +9,11 @@ interface WSClient {
   readyState: number;
 }
 
-// Keyed by an opaque ID so the same socket can be deregistered cleanly
-const clients = new Map<symbol, WSClient>();
+// globalThis singleton — survives module duplication between tsx and SvelteKit build.
+// WITHOUT THIS, server.ts registers clients into one Map and API routes broadcast to a different empty Map.
+const G = globalThis as typeof globalThis & { __antWsBroadcast?: Map<symbol, WSClient> };
+if (!G.__antWsBroadcast) G.__antWsBroadcast = new Map();
+const clients = G.__antWsBroadcast;
 
 export function registerClient(key: symbol, client: WSClient) {
   clients.set(key, client);
@@ -38,6 +41,19 @@ export function broadcast(sessionId: string, msg: object, target?: string | null
     if (client.sessionId !== sessionId) continue;
     if (client.readyState !== 1) continue; // WS OPEN
     if (targeted && client.handle !== target) continue;
+    try { client.send(json); } catch {}
+  }
+}
+
+/**
+ * Broadcast a message to ALL connected WS clients regardless of which session
+ * they have joined. Used for dashboard-level notifications (needs-input badges,
+ * idle attention, etc.) that aren't scoped to a single chat/session channel.
+ */
+export function broadcastGlobal(msg: object) {
+  const json = JSON.stringify(msg);
+  for (const client of clients.values()) {
+    if (client.readyState !== 1) continue;
     try { client.send(json); } catch {}
   }
 }

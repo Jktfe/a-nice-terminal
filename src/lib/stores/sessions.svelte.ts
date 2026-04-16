@@ -48,9 +48,13 @@ export function useSessionStore() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, type, ttl }),
     });
+    if (!res.ok) {
+      const payload = await res.json().catch(() => null);
+      throw new Error(payload?.error || 'Failed to create session');
+    }
     const session = await res.json();
-    sessions = [session, ...sessions];
-    return session;
+    await load();
+    return sessions.find(s => s.id === session.id) ?? session;
   }
 
   async function renameSession(id: string, name: string) {
@@ -59,8 +63,13 @@ export function useSessionStore() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
     });
-    if (!res.ok) throw new Error('Failed to rename session');
-    sessions = sessions.map(s => s.id === id ? { ...s, name } : s);
+    if (!res.ok) {
+      const payload = await res.json().catch(() => null);
+      throw new Error(payload?.error || 'Failed to rename session');
+    }
+    const session = await res.json();
+    await load();
+    return sessions.find(s => s.id === id) ?? session;
   }
 
   async function updateTtl(id: string, ttl: string) {
@@ -121,6 +130,16 @@ export function useSessionStore() {
     }
   }
 
+  async function hardDeleteSession(id: string) {
+    try {
+      const res = await fetch(`/api/sessions/${id}?hard=true`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to hard delete');
+      recoverable = recoverable.filter(s => s.id !== id);
+    } catch (e: any) {
+      error = e.message;
+    }
+  }
+
   return {
     get sessions() { return sessions; },
     get recoverable() { return recoverable; },
@@ -135,6 +154,7 @@ export function useSessionStore() {
     archiveSession,
     deleteSession,
     restoreSession,
+    hardDeleteSession,
     /** Remove from recoverable list without API call (already soft-deleted) */
     dismissRecoverable(id: string) { recoverable = recoverable.filter(s => s.id !== id); },
   };
