@@ -19,7 +19,7 @@
     "fingerprint:codex": "tsx src/fingerprint/runner.ts --agent codex-cli",
     "fingerprint:all": "tsx src/fingerprint/runner.ts --all",
     "fingerprint:list": "tsx src/fingerprint/runner.ts --list",
-    "test": "vitest run",
+    "test": "npx svelte-kit sync 2>/dev/null; vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
