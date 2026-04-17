@@ -12,8 +12,7 @@
     type: string;
     handle?: string;
     display_name?: string;
-    linked_chat_id?: string;
-    [key: string]: unknown;
+    linked_chat_id?: string | null;
   }
 
   interface Props {

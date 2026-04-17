@@ -18,10 +18,9 @@
     type: string;
     handle?: string;
     display_name?: string;
-    linked_chat_id?: string;
+    linked_chat_id?: string | null;
     ttl?: string;
     cli_flag?: string | null;
-    [key: string]: unknown;
   }
 
   const toasts = useToasts();
