@@ -35,5 +35,15 @@ static/uploads/
 .playwright-cli/
 .playwright-mcp/
 
+# Runtime state
+.ant-runtime/
+
+# Probe test outputs
+ant-probe/output*.txt
+ant-probe/string_utils.py
+
+# Scratch docs
+suggested-hooks-for-gemini.md
+
 # macOS
 .DS_Store

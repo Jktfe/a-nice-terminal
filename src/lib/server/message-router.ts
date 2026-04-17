@@ -153,7 +153,11 @@ export class MessageRouter {
       const ptyAdapter = this.adapters.find(a => a.name === 'pty-injection');
       const mcpAdapter = this.adapters.find(a => a.name === 'mcp-channel');
 
-      const targetSession: any = queries.getSessionByHandle(message.target);
+      // Room-scoped alias lookup first, then fall back to global handle
+      const roomMember: any = queries.getMemberByAlias(message.sessionId, message.target);
+      const targetSession: any = roomMember
+        ? queries.getSession(roomMember.session_id)
+        : queries.getSessionByHandle(message.target);
 
       // Try PTY injection for terminal sessions
       if (ptyAdapter && targetSession?.type === 'terminal') {
@@ -223,31 +227,45 @@ export class MessageRouter {
       }
     }
 
-    // ── 5b. Group chat fan-out (non-linked chat → terminals) ──
-    //    If @mentions present: ONLY send to mentioned terminals
-    //    If no @mentions: send to ALL terminals (excluding bracketed)
+    // ── 5b. Group chat fan-out (non-linked chat → room participants) ──
+    //    Uses chat_room_members for scoped delivery. Room member aliases
+    //    take precedence over global handles for @mention resolution.
+    //    Fallback: if no room members, use global terminal list (transition).
     const linkedTerminals: any[] = queries.getTerminalsByLinkedChat(message.sessionId);
     if (linkedTerminals.length === 0) {
       const ptyAdapter = this.adapters.find(a => a.name === 'pty-injection');
       if (ptyAdapter) {
-        const allTerminals = (queries.listSessions() as any[]).filter(
-          (s: any) => s.handle && s.type === 'terminal' && s.id !== message.senderId
-        );
-        const knownHandles = allTerminals.map((s: any) => s.handle as string);
+        // Primary: use room membership
+        let terminals: any[] = (queries.getRoutableMembers(message.sessionId) as any[])
+          .filter((m: any) => m.type === 'terminal' && m.session_id !== message.senderId);
+
+        // Accessor: room members have session_id + alias, global list has id + handle
+        let getId = (t: any) => t.session_id;
+        let getHandle = (t: any) => t.alias || t.handle;
+
+        // Fallback: if no room members registered yet, use global terminal list
+        if (terminals.length === 0) {
+          terminals = (queries.listSessions() as any[]).filter(
+            (s: any) => s.handle && s.type === 'terminal' && s.id !== message.senderId
+          );
+          getId = (t: any) => t.id;
+          getHandle = (t: any) => t.handle;
+        }
+
+        const knownHandles = terminals.map(getHandle).filter(Boolean) as string[];
         const { targets, isAllParticipants } = parseMentions(message.content, knownHandles);
 
         const terminalsToSend = isAllParticipants
-          ? allTerminals.filter((s: any) => !excludedHandles.includes(s.handle))
-          : allTerminals.filter((s: any) => targets.includes(s.handle) && !excludedHandles.includes(s.handle));
+          ? terminals.filter((t: any) => !excludedHandles.includes(getHandle(t)))
+          : terminals.filter((t: any) => targets.includes(getHandle(t)) && !excludedHandles.includes(getHandle(t)));
 
         for (const terminal of terminalsToSend) {
           const target: RouteTarget = {
-            sessionId: terminal.id,
-            handle: terminal.handle,
+            sessionId: getId(terminal),
+            handle: getHandle(terminal),
             type: 'terminal',
           };
-          // Set the message target so the adapter knows if this is targeted or broadcast
-          const routedMessage = isAllParticipants ? message : { ...message, target: terminal.handle };
+          const routedMessage = isAllParticipants ? message : { ...message, target: getHandle(terminal) };
           if (ptyAdapter.canDeliver(routedMessage, target)) {
             const result = await ptyAdapter.deliver(routedMessage, target);
             deliveries.push(result);

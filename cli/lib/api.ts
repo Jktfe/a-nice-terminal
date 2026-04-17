@@ -18,13 +18,26 @@ async function request(ctx: Ctx, method: string, path: string, body?: any): Prom
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (ctx.apiKey) headers['Authorization'] = `Bearer ${ctx.apiKey}`;
 
-  const options = {
+  const options: any = {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
-    // @ts-ignore — Bun supports this for self-signed certs
+    // Bun: accepts self-signed certs via tls option
     tls: { rejectUnauthorized: false },
+    // Node.js (>=18): accepts self-signed certs via dispatcher/agent
+    // @ts-ignore — Node.js undici dispatcher for self-signed certs
+    dispatcher: undefined as any,
   };
+
+  // Node.js fetch (undici) uses a different mechanism than Bun
+  if (ctx.serverUrl.startsWith('https://') && typeof globalThis.Bun === 'undefined') {
+    try {
+      const { Agent } = await import('undici');
+      options.dispatcher = new Agent({ connect: { rejectUnauthorized: false } });
+    } catch {
+      // undici not available — rely on NODE_TLS_REJECT_UNAUTHORIZED=0
+    }
+  }
 
   const res = await doFetch(`${ctx.serverUrl}${path}`, options);
 

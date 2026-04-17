@@ -18,13 +18,14 @@ export function GET({ params }: RequestEvent<{ id: string }>) {
     const participants = roomMembers
       .filter((m: any) => m.role === 'participant')
       .map((m: any) => {
-        const msgData = msgCountMap.get(m.member_id);
+        const msgData = msgCountMap.get(m.session_id);
         return {
-          id: m.member_id,
-          name: m.member_name || m.member_id,
+          id: m.session_id,
+          name: m.display_name || m.name || m.session_id,
           handle: m.handle,
-          session_type: m.session_type,
-          session_status: m.session_status,
+          alias: m.alias,
+          session_type: m.type,
+          session_status: m.session_status || null,
           cli_flag: m.cli_flag,
           role: m.role,
           joined_at: m.joined_at,
@@ -37,11 +38,12 @@ export function GET({ params }: RequestEvent<{ id: string }>) {
     const postsFrom = roomMembers
       .filter((m: any) => m.role === 'external')
       .map((m: any) => {
-        const msgData = msgCountMap.get(m.member_id);
+        const msgData = msgCountMap.get(m.session_id);
         return {
-          id: m.member_id,
-          name: m.member_name || m.member_id,
+          id: m.session_id,
+          name: m.display_name || m.name || m.session_id,
           handle: m.handle,
+          alias: m.alias,
           cli_flag: m.cli_flag,
           role: m.role,
           joined_at: m.joined_at,

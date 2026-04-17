@@ -6,6 +6,29 @@ import { SESSIONS_CHANNEL } from '$lib/ws-channels';
 import { buildLinkedChatName, normalizeSessionName } from '$lib/utils/session-naming';
 import { nanoid } from 'nanoid';
 
+/** Derive a handle-safe alias from a session name. */
+function deriveAlias(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32);
+}
+
+/** Auto-assign a unique handle to a session, derived from its name. */
+function autoAssignHandle(sessionId: string, name: string): void {
+  const base = deriveAlias(name);
+  if (!base) return;
+  for (let i = 0; i < 10; i++) {
+    const candidate = i === 0 ? base : `${base}-${i + 1}`;
+    const existing = queries.getSessionByHandle(`@${candidate}`);
+    if (!existing || existing.id === sessionId) {
+      queries.setAlias(sessionId, candidate);
+      return;
+    }
+  }
+}
+
 function findConflictingSession(name: string, excludeIds: string[] = []) {
   const comparable = normalizeSessionName(name).toLowerCase();
   return queries.listSessions().find((session: any) => {
@@ -42,7 +65,10 @@ export async function POST({ request }: RequestEvent) {
   const id = nanoid();
   queries.createSession(id, normalizedName, type, ttl, workspace_id || null, root_dir || null, metaJson);
 
+  // Auto-assign handle for terminals (and their linked chats)
   if (type === 'terminal') {
+    try { autoAssignHandle(id, normalizedName); } catch {}
+
     const linkedChatName = buildLinkedChatName(normalizedName);
     const chatId = nanoid();
     queries.createSession(
@@ -55,6 +81,7 @@ export async function POST({ request }: RequestEvent) {
       JSON.stringify(buildAutoLinkedChatMeta(id))
     );
     queries.setLinkedChat(id, chatId);
+    try { autoAssignHandle(chatId, linkedChatName); } catch {}
   }
 
   const session = queries.getSession(id);

@@ -83,6 +83,10 @@ function getDb(): any {
     UNIQUE(room_id, session_id)
   )`);
 
+  // Migration: add alias column to chat_room_members for per-room identity
+  const crmCols = G[DB_KEY].prepare(`PRAGMA table_info(chat_room_members)`).all().map((c: any) => c.name);
+  if (!crmCols.includes('alias')) G[DB_KEY].exec(`ALTER TABLE chat_room_members ADD COLUMN alias TEXT`);
+
   // Channel registry — maps @handles to MCP channel server ports
   G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS channel_registry (
     handle TEXT PRIMARY KEY,
@@ -371,12 +375,16 @@ export const queries = {
     prepare(`UPDATE sessions SET alias = ?, handle = ?, display_name = ?, updated_at = datetime('now') WHERE id = ?`).run(alias, `@${alias}`, alias, id),
 
   // Chat room members
-  addRoomMember: (roomId: string, sessionId: string, role: string, cliFlag: string | null) =>
-    prepare(`INSERT OR IGNORE INTO chat_room_members (room_id, session_id, role, cli_flag) VALUES (?, ?, ?, ?)`).run(roomId, sessionId, role, cliFlag),
+  addRoomMember: (roomId: string, sessionId: string, role: string, cliFlag: string | null, alias?: string | null) =>
+    prepare(`INSERT OR IGNORE INTO chat_room_members (room_id, session_id, role, cli_flag, alias) VALUES (?, ?, ?, ?, ?)`).run(roomId, sessionId, role, cliFlag, alias ?? null),
   removeRoomMember: (roomId: string, sessionId: string) =>
     prepare(`DELETE FROM chat_room_members WHERE room_id = ? AND session_id = ?`).run(roomId, sessionId),
+  updateMemberAlias: (roomId: string, sessionId: string, alias: string | null) =>
+    prepare(`UPDATE chat_room_members SET alias = ? WHERE room_id = ? AND session_id = ?`).run(alias, roomId, sessionId),
+  getMemberByAlias: (roomId: string, alias: string) =>
+    prepare(`SELECT crm.*, s.name, s.handle, s.display_name, s.type FROM chat_room_members crm LEFT JOIN sessions s ON s.id = crm.session_id WHERE crm.room_id = ? AND crm.alias = ?`).get(roomId, alias),
   listRoomMembers: (roomId: string) =>
-    prepare(`SELECT crm.*, s.name, s.handle, s.display_name, s.type FROM chat_room_members crm LEFT JOIN sessions s ON s.id = crm.session_id WHERE crm.room_id = ?`).all(roomId),
+    prepare(`SELECT crm.*, s.name, s.handle, s.display_name, s.type, s.status as session_status FROM chat_room_members crm LEFT JOIN sessions s ON s.id = crm.session_id WHERE crm.room_id = ?`).all(roomId),
   getRoutableMembers: (roomId: string) =>
     prepare(`SELECT crm.*, s.name, s.handle, s.display_name, s.type FROM chat_room_members crm LEFT JOIN sessions s ON s.id = crm.session_id WHERE crm.room_id = ? AND crm.role = 'participant'`).all(roomId),
 

@@ -5,11 +5,131 @@ import { config } from 'dotenv';
 config(); // Load .env
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
-import { readFileSync, existsSync, mkdirSync, copyFileSync, chmodSync, appendFileSync, createReadStream, statSync } from 'fs';
+import {
+  appendFileSync,
+  chmodSync,
+  copyFileSync,
+  cpSync,
+  createReadStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'fs';
 import { extname, join, resolve } from 'path';
 import { createServer as createHttpsServer } from 'https';
-import { handler } from './build/handler.js';
+import { pathToFileURL } from 'url';
 import { WebSocketServer } from 'ws';
+
+const BUILD_DIR = resolve(process.cwd(), 'build');
+const SNAPSHOT_ROOT = resolve(process.cwd(), '.ant-runtime', 'build-snapshots');
+const ACTIVE_SNAPSHOT_FILE = resolve(SNAPSHOT_ROOT, '.active');
+const MAX_BUILD_SNAPSHOTS = 5;
+
+async function importValidatedSnapshot(snapshotDir: string) {
+  const manifestUrl = `${pathToFileURL(join(snapshotDir, 'server', 'manifest.js')).href}?ts=${Date.now()}`;
+  const handlerUrl = `${pathToFileURL(join(snapshotDir, 'handler.js')).href}?ts=${Date.now()}`;
+
+  const manifestModule = await import(manifestUrl);
+  const manifest = manifestModule.manifest;
+
+  // Validate the snapshot before serving it. The adapter rewrites hashed SSR
+  // chunks during each build, so a restart that points at a half-written build
+  // can pass startup and then explode with 500s on the first request.
+  await Promise.all((manifest?._?.nodes ?? []).map((load: () => Promise<unknown>) => load()));
+  await Promise.all(
+    (manifest?._?.routes ?? [])
+      .filter((route: { endpoint?: null | (() => Promise<unknown>) }) => typeof route.endpoint === 'function')
+      .map((route: { endpoint: () => Promise<unknown> }) => route.endpoint())
+  );
+
+  const handlerModule = await import(handlerUrl);
+  return { handler: handlerModule.handler as typeof import('./build/handler.js').handler };
+}
+
+function copyBuildSnapshot() {
+  if (!existsSync(join(BUILD_DIR, 'handler.js'))) {
+    throw new Error(`No build output found at ${BUILD_DIR}`);
+  }
+
+  mkdirSync(SNAPSHOT_ROOT, { recursive: true });
+  const snapshotId = `${Date.now().toString(36)}-${process.pid}`;
+  const snapshotDir = resolve(SNAPSHOT_ROOT, snapshotId);
+  cpSync(BUILD_DIR, snapshotDir, { recursive: true });
+  return { snapshotDir, snapshotId };
+}
+
+function readActiveSnapshot() {
+  if (!existsSync(ACTIVE_SNAPSHOT_FILE)) return null;
+
+  try {
+    const snapshotDir = readFileSync(ACTIVE_SNAPSHOT_FILE, 'utf8').trim();
+    if (!snapshotDir || !existsSync(snapshotDir)) return null;
+    return {
+      snapshotDir,
+      snapshotId: snapshotDir.split('/').pop() || 'unknown',
+    };
+  } catch {
+    return null;
+  }
+}
+
+function rememberActiveSnapshot(snapshotDir: string) {
+  mkdirSync(SNAPSHOT_ROOT, { recursive: true });
+  writeFileSync(ACTIVE_SNAPSHOT_FILE, snapshotDir, 'utf8');
+}
+
+function cleanupOldSnapshots(activeSnapshotDir: string) {
+  const entries = readdirSync(SNAPSHOT_ROOT, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => resolve(SNAPSHOT_ROOT, entry.name))
+    .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
+
+  for (const staleDir of entries.slice(MAX_BUILD_SNAPSHOTS)) {
+    if (staleDir === activeSnapshotDir) continue;
+    rmSync(staleDir, { recursive: true, force: true });
+  }
+}
+
+async function loadBuildSnapshot() {
+  const candidate = copyBuildSnapshot();
+
+  try {
+    const loaded = await importValidatedSnapshot(candidate.snapshotDir);
+    rememberActiveSnapshot(candidate.snapshotDir);
+    cleanupOldSnapshots(candidate.snapshotDir);
+    return {
+      ...loaded,
+      snapshotDir: candidate.snapshotDir,
+      snapshotId: candidate.snapshotId,
+    };
+  } catch (error) {
+    console.warn(`[build] Snapshot ${candidate.snapshotId} is incomplete; falling back to last good build`, error);
+    rmSync(candidate.snapshotDir, { recursive: true, force: true });
+  }
+
+  const fallback = readActiveSnapshot();
+  if (fallback) {
+    const loaded = await importValidatedSnapshot(fallback.snapshotDir);
+    return {
+      ...loaded,
+      snapshotDir: fallback.snapshotDir,
+      snapshotId: fallback.snapshotId,
+    };
+  }
+
+  throw new Error('Could not load a valid server build snapshot');
+}
+
+const {
+  handler,
+  snapshotDir: ACTIVE_BUILD_DIR,
+  snapshotId: BUILD_ID,
+} = await loadBuildSnapshot();
+console.log(`[build] Serving snapshot ${BUILD_ID} from ${ACTIVE_BUILD_DIR}`);
 
 // Connect to the persistent PTY daemon (survives server restarts)
 let ptyManager: any;
@@ -23,15 +143,12 @@ async function getPtyManager() {
   return ptyManager;
 }
 
-// Unique ID for this server process — changes on every restart
-const BUILD_ID = Date.now().toString(36);
-
 const PORT = parseInt(process.env.PORT || process.env.ANT_PORT || '6458');
 const HOST = process.env.HOST || process.env.ANT_HOST || '0.0.0.0';
 const TLS_CERT = process.env.ANT_TLS_CERT;
 const TLS_KEY = process.env.ANT_TLS_KEY;
 const API_KEY = process.env.ANT_API_KEY;
-const CLIENT_ASSET_ROOT = resolve(process.cwd(), 'build/client');
+const CLIENT_ASSET_ROOT = resolve(ACTIVE_BUILD_DIR, 'client');
 
 function assetContentType(pathname: string): string {
   const ext = extname(pathname).toLowerCase();
