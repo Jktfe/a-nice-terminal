@@ -15,6 +15,83 @@
   let creatingTerminal = $state(false);
   let creatingChat = $state(false);
 
+  // ── Inline modal state (replaces window.prompt / confirm) ──
+  let modal = $state<{
+    mode: 'create-terminal' | 'create-chat' | 'confirm-delete';
+    name: string;
+    defaultName: string;
+    error: string;
+    /** For confirm-delete: the session to delete */
+    targetSession?: any;
+  } | null>(null);
+  let modalInputEl = $state<HTMLInputElement | null>(null);
+
+  function openCreateModal(type: 'terminal' | 'chat') {
+    const defaultName = getUniqueName(type === 'terminal' ? 'Terminal' : 'Chat', type);
+    modal = {
+      mode: type === 'terminal' ? 'create-terminal' : 'create-chat',
+      name: defaultName,
+      defaultName,
+      error: '',
+    };
+    // Focus after DOM update
+    setTimeout(() => modalInputEl?.select(), 0);
+  }
+
+  function openDeleteModal(session: any) {
+    modal = {
+      mode: 'confirm-delete',
+      name: session.name,
+      defaultName: '',
+      error: '',
+      targetSession: session,
+    };
+  }
+
+  async function submitCreateModal() {
+    if (!modal || (modal.mode !== 'create-terminal' && modal.mode !== 'create-chat')) return;
+    const trimmed = modal.name.trim();
+    if (!trimmed) { modal.error = 'Name cannot be empty'; return; }
+    const existing = store.sessions.find(s => s.name === trimmed);
+    if (existing) { modal.error = `"${trimmed}" already exists`; return; }
+
+    const isTerminal = modal.mode === 'create-terminal';
+    if (isTerminal) creatingTerminal = true; else creatingChat = true;
+    modal = null;
+
+    try {
+      const session = await store.createSession(trimmed, isTerminal ? 'terminal' : 'chat', isTerminal ? 'forever' : '15m');
+      goto(`/session/${session.id}`);
+    } catch (e) {
+      // Re-open modal with error if creation fails
+      modal = {
+        mode: isTerminal ? 'create-terminal' : 'create-chat',
+        name: trimmed,
+        defaultName: trimmed,
+        error: e instanceof Error ? e.message : 'Failed to create session',
+      };
+    } finally {
+      creatingTerminal = false;
+      creatingChat = false;
+    }
+  }
+
+  async function submitDeleteModal() {
+    if (!modal || modal.mode !== 'confirm-delete' || !modal.targetSession) return;
+    const id = modal.targetSession.id;
+    modal = null;
+    store.dismissRecoverable(id);
+  }
+
+  function handleModalKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape') { modal = null; return; }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (modal?.mode === 'confirm-delete') submitDeleteModal();
+      else submitCreateModal();
+    }
+  }
+
   // ── Dashboard WS for badge events ──────────────────────────────────
   // Track sessions that need input (pulsing indicator) and idle sessions (dimmer)
   let needsInputMap = $state(new Map<string, { eventClass: string; summary: string }>());
@@ -112,42 +189,8 @@
     return `${base} ${Date.now()}`;
   }
 
-  async function createTerminal() {
-    const defaultName = getUniqueName('Terminal', 'terminal');
-    const name = prompt('Terminal name:', defaultName);
-    if (!name?.trim()) return;
-    const trimmed = name.trim();
-    // Enforce unique names
-    const existing = store.sessions.find(s => s.name === trimmed);
-    if (existing) { alert(`"${trimmed}" already exists. Choose a different name.`); return; }
-    creatingTerminal = true;
-    try {
-      const session = await store.createSession(trimmed, 'terminal', 'forever');
-      goto(`/session/${session.id}`);
-    } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to create terminal');
-    } finally {
-      creatingTerminal = false;
-    }
-  }
-
-  async function createChat() {
-    const defaultName = getUniqueName('Chat', 'chat');
-    const name = prompt('Chat name:', defaultName);
-    if (!name?.trim()) return;
-    const trimmed = name.trim();
-    const existing = store.sessions.find(s => s.name === trimmed);
-    if (existing) { alert(`"${trimmed}" already exists. Choose a different name.`); return; }
-    creatingChat = true;
-    try {
-      const session = await store.createSession(trimmed, 'chat', '15m');
-      goto(`/session/${session.id}`);
-    } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to create chat');
-    } finally {
-      creatingChat = false;
-    }
-  }
+  function createTerminal() { openCreateModal('terminal'); }
+  function createChat() { openCreateModal('chat'); }
 </script>
 
 <div class="flex flex-col h-screen w-screen overflow-hidden" style="background: var(--bg); color: var(--text);">
@@ -426,11 +469,7 @@
               <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
             </button>
             <!-- Delete permanently (with confirmation) -->
-            <button onclick={() => {
-              if (confirm(`Delete "${session.name}" permanently? This cannot be undone.`)) {
-                store.dismissRecoverable(session.id);
-              }
-            }} class="p-0.5 rounded transition-colors" style="color: var(--text-faint);" title="Delete permanently">
+            <button onclick={() => openDeleteModal(session)} class="p-0.5 rounded transition-colors" style="color: var(--text-faint);" title="Delete permanently">
               <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
             </button>
           </div>
@@ -439,5 +478,72 @@
     {/if}
     {/if}
 
+  {/if}
+
+  <!-- ── Inline modal (replaces prompt/confirm) ── -->
+  {#if modal}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="fixed inset-0 z-50 flex items-center justify-center"
+      style="background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);"
+      onkeydown={handleModalKeydown}
+      onmousedown={(e) => { if (e.target === e.currentTarget) modal = null; }}
+    >
+      <div
+        class="w-full max-w-sm mx-4 rounded-xl border shadow-2xl"
+        style="background: var(--bg-card, #1A1A22); border-color: var(--border-light, #ffffff10);"
+      >
+        {#if modal.mode === 'confirm-delete'}
+          <!-- Delete confirmation -->
+          <div class="p-5">
+            <h3 class="text-sm font-semibold mb-2" style="color: var(--text);">Delete permanently?</h3>
+            <p class="text-xs mb-4" style="color: var(--text-muted);">
+              Delete "<strong>{modal.name}</strong>" permanently? This cannot be undone.
+            </p>
+            <div class="flex justify-end gap-2">
+              <button
+                onclick={() => { modal = null; }}
+                class="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                style="color: var(--text-muted); background: var(--bg-elevated, #ffffff08);"
+              >Cancel</button>
+              <button
+                onclick={submitDeleteModal}
+                class="px-3 py-1.5 rounded-lg text-xs font-medium text-white transition-colors"
+                style="background: #EF4444;"
+              >Delete</button>
+            </div>
+          </div>
+        {:else}
+          <!-- Create terminal / chat -->
+          <div class="p-5">
+            <h3 class="text-sm font-semibold mb-3" style="color: var(--text);">
+              {modal.mode === 'create-terminal' ? 'New Terminal' : 'New Chat'}
+            </h3>
+            <input
+              bind:this={modalInputEl}
+              bind:value={modal.name}
+              placeholder={modal.defaultName}
+              class="w-full px-3 py-2 rounded-lg text-sm outline-none mb-1"
+              style="background: var(--bg, #0A1628); border: 1px solid {modal.error ? '#EF4444' : 'var(--border-subtle, #ffffff10)'}; color: var(--text);"
+            />
+            {#if modal.error}
+              <p class="text-xs mt-1 mb-2" style="color: #EF4444;">{modal.error}</p>
+            {/if}
+            <div class="flex justify-end gap-2 mt-3">
+              <button
+                onclick={() => { modal = null; }}
+                class="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                style="color: var(--text-muted); background: var(--bg-elevated, #ffffff08);"
+              >Cancel</button>
+              <button
+                onclick={submitCreateModal}
+                class="px-3 py-1.5 rounded-lg text-xs font-medium text-white transition-colors"
+                style="background: {modal.mode === 'create-terminal' ? '#4F46E5' : '#10B981'};"
+              >Create</button>
+            </div>
+          </div>
+        {/if}
+      </div>
+    </div>
   {/if}
 </div>
