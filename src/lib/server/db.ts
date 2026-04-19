@@ -307,6 +307,17 @@ function getDb(): any {
   // Default on. Flip off per-session for multi-agent broadcast rooms.
   if (!cols.includes('auto_forward_chat')) G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN auto_forward_chat INTEGER NOT NULL DEFAULT 1`);
 
+  // Read receipts — tracks who has seen each message
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS message_reads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL,
+    read_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(message_id, session_id)
+  )`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_message_reads_msg ON message_reads(message_id)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_message_reads_session ON message_reads(session_id)`);
+
   // Record startup
   G[DB_KEY].prepare(`INSERT OR REPLACE INTO server_state (key, value) VALUES (?, ?)`).run('last_heartbeat', new Date().toISOString());
   G[DB_KEY].exec(`INSERT OR REPLACE INTO server_state(key, value) VALUES ('last_started', datetime('now'))`);
@@ -639,6 +650,21 @@ export const queries = {
     prepare(`SELECT * FROM command_events WHERE session_id = ? ORDER BY started_at DESC LIMIT ?`).all(sessionId, limit),
   insertCommand: (sessionId: string, command: string, cwd: string | null, exitCode: number | null, startedAt: string | null, endedAt: string | null, durationMs: number | null, outputSnippet: string | null) =>
     prepare(`INSERT INTO command_events(session_id, command, cwd, exit_code, started_at, ended_at, duration_ms, output_snippet) VALUES (?,?,?,?,?,?,?,?)`).run(sessionId, command, cwd, exitCode, startedAt, endedAt, durationMs, outputSnippet),
+
+  // Read receipts
+  markRead: (messageId: string, sessionId: string) =>
+    prepare(`INSERT OR IGNORE INTO message_reads (message_id, session_id) VALUES (?, ?)`).run(messageId, sessionId),
+  getReadsForMessage: (messageId: string) =>
+    prepare(`SELECT mr.session_id, mr.read_at, COALESCE(s.display_name, s.name, mr.session_id) as reader_name, s.handle as reader_handle
+             FROM message_reads mr LEFT JOIN sessions s ON s.id = mr.session_id
+             WHERE mr.message_id = ? ORDER BY mr.read_at ASC`).all(messageId),
+  getReadsForSession: (chatSessionId: string) =>
+    prepare(`SELECT mr.message_id, mr.session_id, mr.read_at, COALESCE(s.display_name, s.name, mr.session_id) as reader_name, s.handle as reader_handle
+             FROM message_reads mr
+             LEFT JOIN sessions s ON s.id = mr.session_id
+             JOIN messages m ON m.id = mr.message_id
+             WHERE m.session_id = ?
+             ORDER BY mr.read_at ASC`).all(chatSessionId),
 };
 
 export default getDb;

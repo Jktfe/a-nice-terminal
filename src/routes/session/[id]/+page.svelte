@@ -149,6 +149,13 @@
     }
   });
 
+  // Mark messages as read when new messages arrive or we're at the bottom
+  $effect(() => {
+    if (displayMessages.length && atBottom) {
+      markVisibleMessagesAsRead();
+    }
+  });
+
   let termKey = $state(0);
   let cmdPoll: ReturnType<typeof setInterval> | null = null;
 
@@ -391,6 +398,12 @@
           case 'cli_flag_updated':
             session = { ...session!, cli_flag: data.cli_flag as string | null };
             break;
+          case 'message_read':
+            // Real-time read receipt update from WS broadcast
+            if (data.reads && data.messageId) {
+              readReceipts = { ...readReceipts, [data.messageId]: data.reads };
+            }
+            break;
         }
       } catch {}
     };
@@ -428,6 +441,10 @@
     tasks = (await tasksRes.json()).tasks || [];
     fileRefs = (await refsRes.json()).refs || [];
     loadMentionHandles();
+
+    // Load read receipts for the active chat
+    const readChatId = session?.type === 'terminal' ? session?.linked_chat_id : sessionId;
+    if (readChatId) loadReadReceipts(readChatId);
 
     connectWs();
 
@@ -621,6 +638,41 @@
   const displayMessages = $derived(
     (session?.type === 'terminal' ? linkedChatMessages : msgStore.messages) as Record<string, unknown>[]
   );
+
+  // Read receipts state — keyed by message_id → array of readers
+  let readReceipts = $state<Record<string, { session_id: string; reader_name: string; reader_handle: string | null; read_at: string }[]>>({});
+
+  async function loadReadReceipts(chatId: string) {
+    try {
+      const res = await fetch(`/api/sessions/${chatId}/reads`);
+      const data = await res.json();
+      readReceipts = data.reads || {};
+    } catch {}
+  }
+
+  // Mark visible messages as read (fires on scroll settle + new messages)
+  let readMarkTimer: ReturnType<typeof setTimeout> | null = null;
+  function markVisibleMessagesAsRead() {
+    if (readMarkTimer) clearTimeout(readMarkTimer);
+    readMarkTimer = setTimeout(async () => {
+      const chatId = session?.type === 'terminal' ? linkedChatId : sessionId;
+      if (!chatId) return;
+      const readerId = session?.type === 'terminal' ? sessionId : sessionId;
+      const msgs = displayMessages;
+      // Mark the last 5 visible messages as read (lightweight)
+      const recent = msgs.slice(-5);
+      for (const msg of recent) {
+        const msgId = msg.id as string;
+        const existingReads = readReceipts[msgId] || [];
+        if (existingReads.some(r => r.session_id === readerId)) continue;
+        fetch(`/api/sessions/${chatId}/messages/${msgId}/read`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reader_id: readerId }),
+        }).catch(() => {});
+      }
+    }, 1000);
+  }
 </script>
 
 <div class="h-screen w-screen flex flex-col overflow-hidden" style="background: var(--bg); color: var(--text);">
@@ -675,6 +727,7 @@
           {replyTo}
           {atBottom}
           {mentionHandles}
+          {readReceipts}
           onSend={sendMessage}
           onPostToLinkedChat={postToLinkedChat}
           onLoadOlder={loadOlderLinkedChatMessages}
