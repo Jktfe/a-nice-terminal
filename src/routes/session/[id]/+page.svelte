@@ -23,6 +23,18 @@
     cli_flag?: string | null;
   }
 
+  interface MessageSearchResult {
+    id: string;
+    session_id: string;
+    role: string;
+    content: string;
+    created_at: string;
+    sender_id?: string | null;
+    target?: string | null;
+    msg_type?: string;
+    snippet?: string;
+  }
+
   const toasts = useToasts();
 
   const sessionId = $derived($page.params.id as string);
@@ -220,6 +232,20 @@
   let linkedChatScrollEl = $state<HTMLElement | null>(null);
   const LINKED_CHAT_PAGE_SIZE = 50;
 
+  // Chat message search
+  let chatSearchQuery = $state('');
+  let chatSearchResults = $state<MessageSearchResult[]>([]);
+  let chatSearchSelectedIndex = $state(0);
+  let chatSearchLoading = $state(false);
+  let chatSearchTimer: ReturnType<typeof setTimeout> | null = null;
+  let chatSearchRequestSeq = 0;
+
+  const chatSearchSessionId = $derived(
+    session?.type === 'terminal' ? (linkedChatId || '') : sessionId
+  );
+  const activeSearchResult = $derived(chatSearchResults[chatSearchSelectedIndex] ?? null);
+  const activeSearchResultId = $derived(activeSearchResult?.id ?? null);
+
   async function loadLinkedChat(chatId: string) {
     if (!chatId) return;
     const res = await fetch(`/api/sessions/${chatId}/messages?limit=${LINKED_CHAT_PAGE_SIZE}`);
@@ -279,6 +305,80 @@
     const msg = await res.json();
     if (msg.id && !linkedChatMessages.find(m => m.id === msg.id)) {
       linkedChatMessages = [...linkedChatMessages, msg];
+    }
+  }
+
+  async function runChatSearch(query: string) {
+    const trimmed = query.trim();
+    const searchSessionId = session?.type === 'terminal' ? (linkedChatId || '') : sessionId;
+
+    if (!trimmed || !searchSessionId) {
+      chatSearchResults = [];
+      chatSearchSelectedIndex = 0;
+      chatSearchLoading = false;
+      return;
+    }
+
+    const requestId = ++chatSearchRequestSeq;
+    chatSearchLoading = true;
+
+    try {
+      const res = await fetch(
+        `/api/sessions/${searchSessionId}/messages/search?q=${encodeURIComponent(trimmed)}&limit=100`
+      );
+      const data = await res.json();
+      if (requestId !== chatSearchRequestSeq) return;
+
+      const results = (data.results || []) as MessageSearchResult[];
+      chatSearchResults = results;
+      chatSearchSelectedIndex = 0;
+    } catch {
+      if (requestId !== chatSearchRequestSeq) return;
+      chatSearchResults = [];
+      chatSearchSelectedIndex = 0;
+    } finally {
+      if (requestId === chatSearchRequestSeq) chatSearchLoading = false;
+    }
+  }
+
+  function clearChatSearch() {
+    chatSearchQuery = '';
+    chatSearchResults = [];
+    chatSearchSelectedIndex = 0;
+    chatSearchLoading = false;
+    chatSearchRequestSeq++;
+    if (chatSearchTimer) {
+      clearTimeout(chatSearchTimer);
+      chatSearchTimer = null;
+    }
+  }
+
+  function selectChatSearchResult(index: number) {
+    if (chatSearchResults.length === 0) return;
+    const count = chatSearchResults.length;
+    chatSearchSelectedIndex = ((index % count) + count) % count;
+  }
+
+  function selectNextChatSearchResult() {
+    selectChatSearchResult(chatSearchSelectedIndex + 1);
+  }
+
+  function selectPrevChatSearchResult() {
+    selectChatSearchResult(chatSearchSelectedIndex - 1);
+  }
+
+  async function ensureSearchResultLoaded(result: MessageSearchResult | null) {
+    if (!result || session?.type !== 'terminal' || !linkedChatId) return;
+
+    const targetId = result.id;
+    while (
+      activeSearchResultId === targetId &&
+      linkedChatHasMore &&
+      !linkedChatMessages.find((message) => message.id === targetId)
+    ) {
+      const previousCount = linkedChatMessages.length;
+      await loadOlderLinkedChatMessages();
+      if (linkedChatMessages.length === previousCount) break;
     }
   }
 
@@ -454,6 +554,46 @@
     if (mode === 'terminal' && session?.type === 'terminal') {
       refreshTerminalText(); // one-time load, then WS appends
     }
+  });
+
+  $effect(() => {
+    const query = chatSearchQuery;
+    const searchSession = chatSearchSessionId;
+
+    if (chatSearchTimer) {
+      clearTimeout(chatSearchTimer);
+      chatSearchTimer = null;
+    }
+
+    if (!query.trim()) {
+      chatSearchResults = [];
+      chatSearchSelectedIndex = 0;
+      chatSearchLoading = false;
+      return;
+    }
+
+    if (mode !== 'chat' || !searchSession) {
+      chatSearchLoading = false;
+      return;
+    }
+
+    chatSearchLoading = true;
+    chatSearchTimer = setTimeout(() => {
+      void runChatSearch(query);
+    }, 250);
+
+    return () => {
+      if (chatSearchTimer) {
+        clearTimeout(chatSearchTimer);
+        chatSearchTimer = null;
+      }
+    };
+  });
+
+  $effect(() => {
+    const result = activeSearchResult;
+    if (!result || mode !== 'chat') return;
+    void ensureSearchResultLoaded(result);
   });
 
   onDestroy(() => {
@@ -675,10 +815,19 @@
           {replyTo}
           {atBottom}
           {mentionHandles}
+          searchQuery={chatSearchQuery}
+          searchResults={chatSearchResults}
+          searchSelectedIndex={chatSearchSelectedIndex}
+          searchLoading={chatSearchLoading}
+          activeSearchResultId={activeSearchResultId}
           onSend={sendMessage}
           onPostToLinkedChat={postToLinkedChat}
           onLoadOlder={loadOlderLinkedChatMessages}
           onScrollToBottom={scrollToBottom}
+          onSearchQueryChange={(value) => { chatSearchQuery = value; }}
+          onSearchNext={selectNextChatSearchResult}
+          onSearchPrev={selectPrevChatSearchResult}
+          onSearchClear={clearChatSearch}
           onMessageDeleted={(id) => { msgStore.messages = msgStore.messages.filter(x => x.id !== id); }}
           onMessageMetaUpdated={(id, meta) => { msgStore.messages = msgStore.messages.map(x => x.id === id ? { ...x, meta: JSON.stringify(meta) } : x); }}
           onLinkedMessageDeleted={(id) => { linkedChatMessages = linkedChatMessages.filter(x => x.id !== id); }}

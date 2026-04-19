@@ -35,6 +35,16 @@ describeIntegration('session lifecycle', () => {
     expect(msg.id).toBeTruthy();
     expect(msg.content).toBe('hello from vitest');
 
+    // Search within the session via the new scoped message-search endpoint
+    const searchRes = await fetch(
+      `${BASE}/api/sessions/${session.id}/messages/search?q=${encodeURIComponent('hello vitest')}`,
+      { headers }
+    );
+    expect(searchRes.ok).toBe(true);
+    const searchData = await searchRes.json();
+    const results = searchData.results || [];
+    expect(results.some((m: any) => m.id === msg.id)).toBe(true);
+
     // Verify the message appears in the session
     const readRes = await fetch(`${BASE}/api/sessions/${session.id}/messages`, { headers });
     expect(readRes.ok).toBe(true);
