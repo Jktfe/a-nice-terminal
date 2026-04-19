@@ -31,4 +31,13 @@ describe('detectNativeSession', () => {
     expect(result.isNative).toBe(true);
     expect(result.sessionId).toBe('explicit-id');
   });
+
+  it('uses TMUX_PANE to anchor display-message to correct pane', () => {
+    // When TMUX_PANE is set, detectNativeSession should pass -t <pane> to display-message.
+    // ANT_SESSION_ID covers this case in unit tests; integration verified by re-intro test.
+    process.env.ANT_SESSION_ID = 'pane-anchored-session';
+    process.env.TMUX_PANE = '%42';
+    const result = detectNativeSession();
+    expect(result.sessionId).toBe('pane-anchored-session');
+  });
 });

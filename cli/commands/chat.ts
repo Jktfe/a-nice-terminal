@@ -13,7 +13,11 @@ export function detectNativeSession(): { isNative: boolean; sessionId: string | 
   // Inside tmux? The session name IS the ANT terminal session ID.
   if (process.env.TMUX) {
     try {
-      const name = execFileSync('tmux', ['display-message', '-p', '#{session_name}'], { stdio: 'pipe' }).toString().trim();
+      const pane = process.env.TMUX_PANE;
+      const tmuxArgs = pane
+        ? ['display-message', '-p', '-t', pane, '#{session_name}']
+        : ['display-message', '-p', '#{session_name}'];
+      const name = execFileSync('tmux', tmuxArgs, { stdio: 'pipe' }).toString().trim();
       if (name) return { isNative: true, sessionId: name };
     } catch {}
   }
