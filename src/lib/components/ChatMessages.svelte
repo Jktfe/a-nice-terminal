@@ -29,10 +29,19 @@
     atBottom: boolean;
     mentionHandles: { handle: string; name: string }[];
     readReceipts: Record<string, { session_id: string; reader_name: string; reader_handle: string | null; read_at: string }[]>;
+    searchQuery: string;
+    searchResults: { id: string }[];
+    searchSelectedIndex: number;
+    searchLoading: boolean;
+    activeSearchResultId: string | null;
     onSend: (text: string, replyToId?: string | null) => void;
     onPostToLinkedChat: (text: string, replyToId?: string | null) => void;
     onLoadOlder: () => void;
     onScrollToBottom: () => void;
+    onSearchQueryChange: (value: string) => void;
+    onSearchNext: () => void;
+    onSearchPrev: () => void;
+    onSearchClear: () => void;
     onMessageDeleted: (id: string) => void;
     onMessageMetaUpdated: (id: string, meta: Record<string, unknown>) => void;
     onLinkedMessageDeleted: (id: string) => void;
@@ -58,10 +67,19 @@
     atBottom,
     mentionHandles,
     readReceipts,
+    searchQuery,
+    searchResults,
+    searchSelectedIndex,
+    searchLoading,
+    activeSearchResultId,
     onSend,
     onPostToLinkedChat,
     onLoadOlder,
     onScrollToBottom,
+    onSearchQueryChange,
+    onSearchNext,
+    onSearchPrev,
+    onSearchClear,
     onMessageDeleted,
     onMessageMetaUpdated,
     onLinkedMessageDeleted,
@@ -136,6 +154,40 @@
     return `margin-left:${indent}px;padding-left:10px;border-left:1px solid var(--border-subtle);`;
   }
 
+  const groupedMessages = $derived(groupMessages(messages as any[]));
+  const matchedMessageIds = $derived.by(() => new Set(searchResults.map((result) => result.id)));
+  const messageAnchorMap = $derived.by(() => {
+    const map = new Map<string, string>();
+    for (const group of groupedMessages) {
+      for (const item of group.items) {
+        map.set(item.id, group.key);
+      }
+    }
+    return map;
+  });
+
+  function groupHasSearchMatch(group: { items: any[] }): boolean {
+    for (const item of group.items) {
+      if (matchedMessageIds.has(item.id)) return true;
+    }
+    return false;
+  }
+
+  function groupHasActiveSearchResult(group: { items: any[] }): boolean {
+    if (!activeSearchResultId) return false;
+    return group.items.some((item) => item.id === activeSearchResultId);
+  }
+
+  function groupSearchStyle(group: { items: any[] }): string {
+    if (groupHasActiveSearchResult(group)) {
+      return 'background:rgba(59,130,246,0.08); box-shadow:0 0 0 1px rgba(59,130,246,0.45), 0 0 18px rgba(59,130,246,0.18);';
+    }
+    if (groupHasSearchMatch(group)) {
+      return 'background:rgba(245,158,11,0.08); box-shadow:0 0 0 1px rgba(245,158,11,0.35);';
+    }
+    return 'background:transparent;';
+  }
+
   let linkedChatInput = $state('');
   let sendBtnEl = $state<HTMLButtonElement | null>(null);
 
@@ -201,9 +253,104 @@
     }
     return () => { for (const fn of cleanups) fn(); };
   });
+
+  $effect(() => {
+    const activeId = activeSearchResultId;
+    groupedMessages;
+
+    if (!scrollElLocal || !activeId) return;
+
+    const anchorId = messageAnchorMap.get(activeId) || activeId;
+    requestAnimationFrame(() => {
+      const target = scrollElLocal?.querySelector<HTMLElement>(`[data-message-anchor="${anchorId}"]`);
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    });
+  });
 </script>
 
 <div class="flex-1 flex flex-col overflow-hidden">
+  <div class="flex items-center gap-2 px-4 py-2 border-b shrink-0"
+       style="border-color:var(--border-light);background:var(--bg);">
+    <div class="relative flex-1">
+      <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none"
+           fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color:var(--text-faint);">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z"/>
+      </svg>
+      <input
+        class="w-full rounded-lg pl-8 pr-9 py-2 text-sm outline-none"
+        style="background:var(--bg-card);border:1px solid var(--border-subtle);color:var(--text);"
+        placeholder="Search messages…"
+        value={searchQuery}
+        oninput={(e) => onSearchQueryChange((e.currentTarget as HTMLInputElement).value)}
+        onkeydown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            if (searchResults.length > 0) {
+              if (e.shiftKey) onSearchPrev();
+              else onSearchNext();
+            }
+          } else if (e.key === 'Escape' && searchQuery.trim()) {
+            e.preventDefault();
+            onSearchClear();
+          }
+        }}
+      />
+      {#if searchQuery.trim()}
+        <button
+          class="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded transition-colors"
+          style="color:var(--text-faint);"
+          onclick={onSearchClear}
+          title="Clear search"
+        >
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      {/if}
+    </div>
+
+    <div class="flex items-center gap-1.5 shrink-0">
+      <span class="text-xs min-w-[64px] text-right" style="color:var(--text-muted);">
+        {#if searchLoading}
+          Searching…
+        {:else if searchQuery.trim()}
+          {#if searchResults.length > 0}
+            {searchSelectedIndex + 1}/{searchResults.length}
+          {:else}
+            No matches
+          {/if}
+        {:else}
+          Search
+        {/if}
+      </span>
+      <button
+        class="p-1.5 rounded-lg transition-all"
+        style="color:var(--text-muted);border:1px solid var(--border-subtle);"
+        disabled={searchResults.length === 0}
+        onclick={onSearchPrev}
+        title="Previous match"
+      >
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/>
+        </svg>
+      </button>
+      <button
+        class="p-1.5 rounded-lg transition-all"
+        style="color:var(--text-muted);border:1px solid var(--border-subtle);"
+        disabled={searchResults.length === 0}
+        onclick={onSearchNext}
+        title="Next match"
+      >
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
   <!-- Messages scroll area -->
   <div class="flex-1 overflow-y-auto px-4 py-4 space-y-3 relative"
        bind:this={scrollElLocal}
@@ -226,30 +373,34 @@
             >Load older messages</button>
           </div>
         {/if}
-        {#each groupMessages(messages) as group (group.key)}
-          {#if group.type === 'terminal_line'}
-            <TerminalSummary messages={group.items} />
-          {:else if group.type === 'agent_event'}
-            <AgentEventCard
-              message={group.items[0]}
-              sessionId={linkedChatId}
-              onRespond={async (payload) => { onAgentRespond(linkedChatId, payload); }}
-            />
-          {:else}
-            <div style={threadStyle(group.items[0])}>
-              <MessageBubble
+        {#each groupedMessages as group (group.key)}
+          <div class="rounded-xl p-1 transition-all duration-200"
+               data-message-anchor={group.key}
+               style={groupSearchStyle(group)}>
+            {#if group.type === 'terminal_line'}
+              <TerminalSummary messages={group.items} />
+            {:else if group.type === 'agent_event'}
+              <AgentEventCard
                 message={group.items[0]}
-                replyMessage={getReplyMessage(group.items[0])}
-                {sessionId}
-                {allSessions}
-                readReceipts={readReceipts[group.items[0].id] ?? []}
-                onReply={(msg) => { onReply(msg); }}
-                onDeleted={(id) => { onLinkedMessageDeleted(id); }}
-                onMetaUpdated={(id, meta) => { onLinkedMessageMetaUpdated(id, meta); }}
-                onPinToggled={(id, pinned) => { onLinkedMessagePinToggled?.(id, pinned); }}
+                sessionId={linkedChatId}
+                onRespond={async (payload) => { onAgentRespond(linkedChatId, payload); }}
               />
-            </div>
-          {/if}
+            {:else}
+              <div style={threadStyle(group.items[0])}>
+                <MessageBubble
+                  message={group.items[0]}
+                  replyMessage={getReplyMessage(group.items[0])}
+                  {sessionId}
+                  {allSessions}
+                  readReceipts={readReceipts[group.items[0].id] ?? []}
+                  onReply={(msg) => { onReply(msg); }}
+                  onDeleted={(id) => { onLinkedMessageDeleted(id); }}
+                  onMetaUpdated={(id, meta) => { onLinkedMessageMetaUpdated(id, meta); }}
+                  onPinToggled={(id, pinned) => { onLinkedMessagePinToggled?.(id, pinned); }}
+                />
+              </div>
+            {/if}
+          </div>
         {/each}
       {/if}
     {:else}
@@ -277,24 +428,28 @@
             {/each}
           </div>
         {/if}
-        {#each groupMessages(messages) as group (group.key)}
-          {#if group.type === 'terminal_line'}
-            <TerminalLine messages={group.items} />
-          {:else}
-            <div style={threadStyle(group.items[0])}>
-              <MessageBubble
-                message={group.items[0]}
-                replyMessage={getReplyMessage(group.items[0])}
-                {sessionId}
-                {allSessions}
-                readReceipts={readReceipts[group.items[0].id] ?? []}
-                onReply={(msg) => { onReply(msg); }}
-                onDeleted={(id) => { onMessageDeleted(id); }}
-                onMetaUpdated={(id, meta) => { onMessageMetaUpdated(id, meta); }}
-                onPinToggled={(id, pinned) => { onMessagePinToggled?.(id, pinned); }}
-              />
-            </div>
-          {/if}
+        {#each groupedMessages as group (group.key)}
+          <div class="rounded-xl p-1 transition-all duration-200"
+               data-message-anchor={group.key}
+               style={groupSearchStyle(group)}>
+            {#if group.type === 'terminal_line'}
+              <TerminalLine messages={group.items} />
+            {:else}
+              <div style={threadStyle(group.items[0])}>
+                <MessageBubble
+                  message={group.items[0]}
+                  replyMessage={getReplyMessage(group.items[0])}
+                  {sessionId}
+                  {allSessions}
+                  readReceipts={readReceipts[group.items[0].id] ?? []}
+                  onReply={(msg) => { onReply(msg); }}
+                  onDeleted={(id) => { onMessageDeleted(id); }}
+                  onMetaUpdated={(id, meta) => { onMessageMetaUpdated(id, meta); }}
+                  onPinToggled={(id, pinned) => { onMessagePinToggled?.(id, pinned); }}
+                />
+              </div>
+            {/if}
+          </div>
         {/each}
       {/if}
     {/if}

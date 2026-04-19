@@ -494,6 +494,15 @@ export const queries = {
     ORDER BY rank
     LIMIT ?
   `).all(query, limit),
+  searchSessionMessages: (sessionId: string, query: string, limit: number) => prepare(`
+    SELECT m.id, m.session_id, m.role, m.content, m.created_at, m.sender_id, m.target, m.msg_type,
+           snippet(messages_fts, 0, '<mark>', '</mark>', '...', 32) as snippet
+    FROM messages_fts
+    JOIN messages m ON messages_fts.rowid = m.rowid
+    WHERE m.session_id = ? AND messages_fts MATCH ?
+    ORDER BY rank, m.created_at DESC
+    LIMIT ?
+  `).all(sessionId, query, limit),
 
   // Terminal transcripts — legacy writer kept for callers that don't yet supply
   // stripped text or ts_ms. New code should use appendTranscriptWithText.
