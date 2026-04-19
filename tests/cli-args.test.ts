@@ -55,4 +55,17 @@ describe('CLI arg parser', () => {
     expect(result.args).toEqual([]);
     expect(result.flags).toEqual({});
   });
+
+  it('parses --external as boolean flag', () => {
+    const result = parseArgs(['chat', 'send', 'abc', '--msg', 'hello', '--external', '--server', 'https://example.com']);
+    expect(result.flags.external).toBe(true);
+    expect(result.flags.server).toBe('https://example.com');
+    expect(result.flags.msg).toBe('hello');
+  });
+
+  it('--external without --server still parses', () => {
+    const result = parseArgs(['chat', 'send', 'abc', '--msg', 'hello', '--external']);
+    expect(result.flags.external).toBe(true);
+    expect(result.flags.msg).toBe('hello');
+  });
 });

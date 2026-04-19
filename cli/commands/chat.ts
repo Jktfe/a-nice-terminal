@@ -4,18 +4,45 @@ import { createInterface } from 'readline';
 import WebSocket from 'ws';
 import { execFileSync } from 'child_process';
 
-function resolveIdentity(): string {
-  if (process.env.ANT_SESSION_ID) return process.env.ANT_SESSION_ID;
-  try {
-    const name = execFileSync('tmux', ['display-message', '-p', '#{session_name}'], { stdio: 'pipe' }).toString().trim();
-    if (name) return name;
-  } catch {}
+/** Detect whether we're inside an ANT-managed tmux session. */
+export function detectNativeSession(): { isNative: boolean; sessionId: string | null } {
+  // Explicit env var takes priority
+  if (process.env.ANT_SESSION_ID) {
+    return { isNative: true, sessionId: process.env.ANT_SESSION_ID };
+  }
+  // Inside tmux? The session name IS the ANT terminal session ID.
+  if (process.env.TMUX) {
+    try {
+      const name = execFileSync('tmux', ['display-message', '-p', '#{session_name}'], { stdio: 'pipe' }).toString().trim();
+      if (name) return { isNative: true, sessionId: name };
+    } catch {}
+  }
+  return { isNative: false, sessionId: null };
+}
+
+/**
+ * Resolve sender identity for chat messages.
+ *
+ * Native sessions (inside ANT tmux): returns the tmux session name, which is
+ * the ANT terminal session ID. The server resolves this to the terminal's
+ * handle and display_name automatically.
+ *
+ * External sessions (--external flag or no tmux): returns the configured
+ * handle or a generic 'cli-external' identifier.
+ */
+function resolveIdentity(external: boolean): string {
+  if (external) {
+    return config.get('handle') || 'cli-external';
+  }
+  const { isNative, sessionId } = detectNativeSession();
+  if (isNative && sessionId) return sessionId;
   return config.get('handle') || 'cli';
 }
 
 export async function chat(args: string[], flags: any, ctx: any) {
   const sub = args[0];
   const id = sub === 'send' || sub === 'read' || sub === 'reply' || sub === 'join' ? args[1] : sub;
+  const isExternal = !!flags.external;
 
   if (!id) {
     console.error('Usage: ant chat <session-id>');
@@ -26,7 +53,7 @@ export async function chat(args: string[], flags: any, ctx: any) {
   if (sub === 'send') {
     const msg = flags.msg || args[2];
     if (!msg) { console.error('Usage: ant chat send <id> --msg "message"'); return; }
-    const sender = resolveIdentity();
+    const sender = resolveIdentity(isExternal);
     const result = await api.post(ctx, `/api/sessions/${id}/messages`, { role: 'user', content: msg, format: 'text', sender_id: sender });
     if (ctx.json) { console.log(JSON.stringify(result)); return; }
     console.log(`Sent: ${msg}`);
@@ -50,7 +77,7 @@ export async function chat(args: string[], flags: any, ctx: any) {
   if (sub === 'reply') {
     const msg = flags.msg || args[2];
     if (!msg) { console.error('Usage: ant chat reply <id> --msg "message"'); return; }
-    const sender = resolveIdentity();
+    const sender = resolveIdentity(isExternal);
     const result = await api.post(ctx, `/api/sessions/${id}/messages`, { role: 'user', content: msg, format: 'text', sender_id: sender });
     if (ctx.json) { console.log(JSON.stringify(result)); return; }
     console.log(`Replied: ${msg}`);
@@ -94,7 +121,7 @@ export async function chat(args: string[], flags: any, ctx: any) {
     });
 
     // Interactive input
-    const joinSender = resolveIdentity();
+    const joinSender = resolveIdentity(isExternal);
     const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: '\x1b[36mYou\x1b[0m: ' });
     rl.prompt();
     rl.on('line', async (line) => {
@@ -121,7 +148,7 @@ export async function chat(args: string[], flags: any, ctx: any) {
   }
 
   console.log('\n--- Interactive chat (Ctrl+C to exit) ---\n');
-  const interactiveSender = resolveIdentity();
+  const interactiveSender = resolveIdentity(isExternal);
   const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: '\x1b[36mYou\x1b[0m: ' });
   rl.prompt();
   rl.on('line', async (line) => {

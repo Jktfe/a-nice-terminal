@@ -3,7 +3,7 @@
 
 import { parseArgs } from './lib/args.js';
 import { sessions } from './commands/sessions.js';
-import { chat } from './commands/chat.js';
+import { chat, detectNativeSession } from './commands/chat.js';
 import { terminal } from './commands/terminal.js';
 import { search } from './commands/search.js';
 import { share } from './commands/share.js';
@@ -42,6 +42,8 @@ Commands:
 
   chat <id>             Open chat session (interactive)
   chat send <id>        Send a message (--msg "hello")
+                        Native (inside ANT tmux): auto-detects server & handle
+                        External: ant chat send <id> --msg "hi" --server URL --external
   chat read <id>        Read message history (--limit 50)
   chat reply <id>       Reply to the latest message (--msg "yes do it")
 
@@ -82,8 +84,9 @@ Commands:
                         (--url https://... --key abc --handle @james --session <id>)
 
 Options:
-  --server, -s    Server URL (default: from ~/.ant/config.json)
+  --server, -s    Server URL (native: auto-detects localhost:6458; external: required)
   --key, -k       API key
+  --external      Force external mode (skip native tmux auto-detection)
   --json          Output as JSON
   --help, -h      Show help
 `;
@@ -94,7 +97,10 @@ async function main() {
     process.exit(0);
   }
 
-  const serverUrl = flags.server || config.get('serverUrl') || 'https://localhost:6458';
+  // Native mode: inside ANT tmux and not forced external → auto-detect localhost
+  const isExternal = !!flags.external;
+  const native = !isExternal && !flags.server ? detectNativeSession() : { isNative: false, sessionId: null };
+  const serverUrl = flags.server || config.get('serverUrl') || (native.isNative ? 'https://localhost:6458' : 'https://localhost:6458');
   const apiKey = flags.key || config.get('apiKey') || '';
 
   const ctx = { serverUrl, apiKey, json: !!flags.json };
