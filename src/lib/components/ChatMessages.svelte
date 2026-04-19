@@ -36,6 +36,8 @@
     onMessageMetaUpdated: (id: string, meta: Record<string, unknown>) => void;
     onLinkedMessageDeleted: (id: string) => void;
     onLinkedMessageMetaUpdated: (id: string, meta: Record<string, unknown>) => void;
+    onMessagePinToggled?: (id: string, pinned: boolean) => void;
+    onLinkedMessagePinToggled?: (id: string, pinned: boolean) => void;
     onReply: (msg: Record<string, unknown>) => void;
     onClearReply: () => void;
     onAgentRespond: (sessionId: string, payload: unknown) => void;
@@ -62,6 +64,8 @@
     onMessageMetaUpdated,
     onLinkedMessageDeleted,
     onLinkedMessageMetaUpdated,
+    onMessagePinToggled,
+    onLinkedMessagePinToggled,
     onReply,
     onClearReply,
     onAgentRespond,
@@ -196,6 +200,7 @@
               onReply={(msg) => { onReply(msg); }}
               onDeleted={(id) => { onLinkedMessageDeleted(id); }}
               onMetaUpdated={(id, meta) => { onLinkedMessageMetaUpdated(id, meta); }}
+              onPinToggled={(id, pinned) => { onLinkedMessagePinToggled?.(id, pinned); }}
             />
           {/if}
         {/each}
@@ -208,6 +213,23 @@
           <p class="text-sm mt-1" style="color:var(--text-muted);">Type below, or use <code class="font-mono text-xs">ant msg</code> from a terminal</p>
         </div>
       {:else}
+        <!-- Pinned messages section -->
+        {#if messages.some((m: any) => m.pinned)}
+          <div class="mb-3 p-2 rounded-lg border" style="background:var(--bg-card);border-color:var(--border-subtle);">
+            <div class="text-[10px] uppercase tracking-wider mb-2" style="color:var(--text-muted);">📌 Pinned</div>
+            {#each messages.filter((m: any) => m.pinned) as msg (msg.id)}
+              <MessageBubble
+                message={msg}
+                {sessionId}
+                {allSessions}
+                onReply={(msg) => { onReply(msg); }}
+                onDeleted={(id) => { onMessageDeleted(id); }}
+                onMetaUpdated={(id, meta) => { onMessageMetaUpdated(id, meta); }}
+                onPinToggled={(id, pinned) => { onMessagePinToggled?.(id, pinned); }}
+              />
+            {/each}
+          </div>
+        {/if}
         {#each groupMessages(messages) as group (group.key)}
           {#if group.type === 'terminal_line'}
             <TerminalLine messages={group.items} />
@@ -219,6 +241,7 @@
               onReply={(msg) => { onReply(msg); }}
               onDeleted={(id) => { onMessageDeleted(id); }}
               onMetaUpdated={(id, meta) => { onMessageMetaUpdated(id, meta); }}
+              onPinToggled={(id, pinned) => { onMessagePinToggled?.(id, pinned); }}
             />
           {/if}
         {/each}

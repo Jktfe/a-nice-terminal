@@ -126,6 +126,7 @@ function getDb(): any {
   if (!msgCols.includes('sender_id')) G[DB_KEY].exec(`ALTER TABLE messages ADD COLUMN sender_id TEXT`);
   if (!msgCols.includes('target'))    G[DB_KEY].exec(`ALTER TABLE messages ADD COLUMN target TEXT`);
   if (!msgCols.includes('msg_type'))  G[DB_KEY].exec(`ALTER TABLE messages ADD COLUMN msg_type TEXT DEFAULT 'message'`);
+  if (!msgCols.includes('pinned'))    G[DB_KEY].exec(`ALTER TABLE messages ADD COLUMN pinned INTEGER DEFAULT 0`);
 
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id)`);
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_sessions_workspace ON sessions(workspace_id)`);
@@ -450,6 +451,8 @@ export const queries = {
   deleteMessage: (id: string) => prepare(`DELETE FROM messages WHERE id = ?`).run(id),
   updateMessageMeta: (id: string, meta: string) =>
     prepare(`UPDATE messages SET meta = ? WHERE id = ?`).run(meta, id),
+  togglePinMessage: (id: string, pinned: boolean) =>
+    prepare(`UPDATE messages SET pinned = ? WHERE id = ?`).run(pinned ? 1 : 0, id),
 
   // Tasks
   listTasks: (sessionId: string) => prepare(`SELECT * FROM tasks WHERE session_id = ? ORDER BY created_at ASC`).all(sessionId),

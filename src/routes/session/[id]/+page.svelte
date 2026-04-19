@@ -683,6 +683,8 @@
           onMessageMetaUpdated={(id, meta) => { msgStore.messages = msgStore.messages.map(x => x.id === id ? { ...x, meta: JSON.stringify(meta) } : x); }}
           onLinkedMessageDeleted={(id) => { linkedChatMessages = linkedChatMessages.filter(x => x.id !== id); }}
           onLinkedMessageMetaUpdated={(id, meta) => { linkedChatMessages = linkedChatMessages.map(x => x.id === id ? { ...x, meta: JSON.stringify(meta) } : x); }}
+          onMessagePinToggled={(id, pinned) => { msgStore.messages = msgStore.messages.map(x => x.id === id ? { ...x, pinned } : x); }}
+          onLinkedMessagePinToggled={(id, pinned) => { linkedChatMessages = linkedChatMessages.map(x => x.id === id ? { ...x, pinned } : x); }}
           onReply={(msg) => { replyTo = msg; }}
           onClearReply={() => (replyTo = null)}
           onAgentRespond={handleAgentRespond}

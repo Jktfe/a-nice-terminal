@@ -15,6 +15,7 @@
     onReply,
     onDeleted,
     onMetaUpdated,
+    onPinToggled,
   }: {
     message: any;
     sessionId: string;
@@ -22,6 +23,7 @@
     onReply?: (msg: any) => void;
     onDeleted?: (id: string) => void;
     onMetaUpdated?: (id: string, meta: any) => void;
+    onPinToggled?: (id: string, pinned: boolean) => void;
   } = $props();
 
   // Identity logic:
@@ -72,6 +74,7 @@
   });
   const reactions = $derived(parsedMeta.reactions ?? { up: 0, down: 0 });
   const bookmarked = $derived(!!parsedMeta.bookmarked);
+  const pinned = $derived(!!message.pinned);
 
   // Timestamp
   const timeStr = $derived.by(() => {
@@ -135,6 +138,19 @@
     await fetch(`/api/sessions/${sessionId}/messages?msgId=${message.id}`, { method: 'DELETE' });
     onDeleted?.(message.id);
   }
+
+  async function togglePin() {
+    const newPinned = !pinned;
+    const res = await fetch(`/api/sessions/${sessionId}/messages/${message.id}/pin`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pinned: newPinned }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      onPinToggled?.(message.id, data.pinned);
+    }
+  }
 </script>
 
 <!-- Wrapper: left for participants/AI, right for own messages -->
@@ -158,6 +174,9 @@
       <span class="text-[10px] text-gray-600">{timeStr}</span>
       {#if bookmarked}
         <span class="text-[10px]" title="Bookmarked">🔖</span>
+      {/if}
+      {#if pinned}
+        <span class="text-[10px]" title="Pinned">📌</span>
       {/if}
     </div>
 
