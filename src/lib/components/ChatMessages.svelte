@@ -28,6 +28,7 @@
     replyTo: Record<string, unknown> | null;
     atBottom: boolean;
     mentionHandles: { handle: string; name: string }[];
+    readReceipts: Record<string, { session_id: string; reader_name: string; reader_handle: string | null; read_at: string }[]>;
     onSend: (text: string) => void;
     onPostToLinkedChat: (text: string) => void;
     onLoadOlder: () => void;
@@ -56,6 +57,7 @@
     replyTo,
     atBottom,
     mentionHandles,
+    readReceipts,
     onSend,
     onPostToLinkedChat,
     onLoadOlder,
@@ -197,6 +199,7 @@
               message={group.items[0]}
               {sessionId}
               {allSessions}
+              readReceipts={readReceipts[group.items[0].id] ?? []}
               onReply={(msg) => { onReply(msg); }}
               onDeleted={(id) => { onLinkedMessageDeleted(id); }}
               onMetaUpdated={(id, meta) => { onLinkedMessageMetaUpdated(id, meta); }}
@@ -238,6 +241,7 @@
               message={group.items[0]}
               {sessionId}
               {allSessions}
+              readReceipts={readReceipts[group.items[0].id] ?? []}
               onReply={(msg) => { onReply(msg); }}
               onDeleted={(id) => { onMessageDeleted(id); }}
               onMetaUpdated={(id, meta) => { onMessageMetaUpdated(id, meta); }}

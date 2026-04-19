@@ -12,6 +12,7 @@
     message,
     sessionId,
     allSessions = [],
+    readReceipts = [],
     onReply,
     onDeleted,
     onMetaUpdated,
@@ -20,6 +21,7 @@
     message: any;
     sessionId: string;
     allSessions?: any[];
+    readReceipts?: { session_id: string; reader_name: string; reader_handle: string | null; read_at: string }[];
     onReply?: (msg: any) => void;
     onDeleted?: (id: string) => void;
     onMetaUpdated?: (id: string, meta: any) => void;
@@ -211,6 +213,19 @@
             👎 {reactions.down}
           </span>
         {/if}
+      </div>
+    {/if}
+
+    <!-- Read receipts -->
+    {#if readReceipts.length > 0}
+      <div class="flex items-center gap-0.5 mt-0.5 px-1" class:justify-end={isOwn}>
+        {#each readReceipts as reader}
+          <span
+            class="w-4 h-4 rounded-full flex items-center justify-center text-[7px] font-bold text-white cursor-default"
+            style="background: {handleColour(reader.session_id)};"
+            title="Seen by {reader.reader_name}"
+          >{(reader.reader_name || '?').slice(0, 1).toUpperCase()}</span>
+        {/each}
       </div>
     {/if}
   </div>
