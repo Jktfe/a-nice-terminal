@@ -341,39 +341,6 @@
       {/if}
     </div>
 
-            <!-- Phase 6: External tools/MCPs that post but can't receive routing -->
-            {#if postsFrom.length > 0}
-              <p class="text-[10px] font-semibold uppercase tracking-wide pt-1 px-1" style="color: var(--text-faint);">External</p>
-              {#each postsFrom as ext (ext.id)}
-                {@const label = (ext.name as string) || (ext.id as string)}
-                {@const flag = ext.cli_flag as string | null}
-                <div class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg opacity-70" style="border: 1px solid #E5E7EB;">
-                  <!-- plug icon for external -->
-                  <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: var(--text-faint);">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                      d="M13 10V3L4 14h7v7l9-11h-7z"/>
-                  </svg>
-                  <div class="min-w-0 flex-1">
-                    <p class="text-xs font-medium truncate" style="color: var(--text-muted);">{label}</p>
-                    {#if flag}
-                      <p class="text-[10px] font-mono" style="color: var(--text-faint);">{cliLabel(flag)}</p>
-                    {/if}
-                  </div>
-                  {#if ext.message_count}
-                    <span class="text-[9px] px-1.5 py-0.5 rounded-full" style="background: #F3F4F6; color: var(--text-faint);">{ext.message_count} msgs</span>
-                  {/if}
-                </div>
-              {/each}
-            {/if}
-
-            {#if participantsActive.length === 0 && participantsAvailable.length === 0 && postsFrom.length === 0}
-              <p class="text-xs text-center py-4" style="color: var(--text-faint);">No other sessions</p>
-            {/if}
-          {/if}
-        </div>
-      {/if}
-    </div>
-
     <!-- ─── SECTION: Tasks / Agent Tasks ─── -->
     <div>
       <button
