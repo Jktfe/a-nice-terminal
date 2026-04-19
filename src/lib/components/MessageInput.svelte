@@ -5,7 +5,7 @@
     onClearReply,
     handles = [],
   }: {
-    onSend: (text: string) => void;
+    onSend: (text: string, replyToId?: string | null) => void;
     replyTo?: any;
     onClearReply?: () => void;
     handles?: { handle: string; name: string }[];
@@ -66,7 +66,7 @@
   function handleSubmit() {
     const trimmed = text.trim();
     if (!trimmed) return;
-    onSend(trimmed);
+    onSend(trimmed, replyTo?.id ?? null);
     text = '';
     showMentions = false;
     onClearReply?.();

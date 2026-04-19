@@ -70,21 +70,29 @@ function resolveSenderSession(senderId: string | null): { name: string; type: st
 }
 
 export async function POST({ params, request }: RequestEvent<{ id: string }>) {
-  const { role, content, format, sender_id, target, msg_type } = await request.json();
+  const { role, content, format, sender_id, target, reply_to, msg_type } = await request.json();
   const id = nanoid();
   const msgType = msg_type || 'message';
+  const replyTo = reply_to || null;
+
+  if (replyTo) {
+    const parent: any = queries.getMessage(replyTo);
+    if (!parent || parent.session_id !== params.id) {
+      return json({ error: 'reply_to must reference a message in this session' }, { status: 400 });
+    }
+  }
 
   // 1. Persist to DB
   queries.createMessage(
     id, params.id, role, content, format || 'text', 'complete',
-    sender_id || null, target || null, msgType, '{}'
+    sender_id || null, target || null, replyTo, msgType, '{}'
   );
   queries.updateSession(null, null, null, null, params.id);
 
   const msg = {
     id, session_id: params.id, role, content,
     format: format || 'text', status: 'complete',
-    sender_id: sender_id || null, target: target || null, msg_type: msgType,
+    sender_id: sender_id || null, target: target || null, reply_to: replyTo, msg_type: msgType,
   };
 
   // Auto-populate chat_room_members when a sender posts
@@ -163,6 +171,7 @@ export async function POST({ params, request }: RequestEvent<{ id: string }>) {
     senderName: sender.name,
     senderType: sender.type,
     target: target || null,
+    replyTo,
     msgType,
   });
 

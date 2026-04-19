@@ -7,6 +7,7 @@ interface Message {
   status: string;
   sender_id: string | null;
   target: string | null;
+  reply_to: string | null;
   msg_type: string;
   created_at: string;
   meta?: string | null;
@@ -22,7 +23,7 @@ export function useMessageStore() {
     messages = data.messages || [];
   }
 
-  async function send(sessionId: string, content: string, opts?: { sender_id?: string; target?: string }) {
+  async function send(sessionId: string, content: string, opts?: { sender_id?: string; target?: string; reply_to?: string | null }) {
     const res = await fetch(`/api/sessions/${sessionId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -32,6 +33,7 @@ export function useMessageStore() {
         format: 'text',
         sender_id: opts?.sender_id ?? null,
         target: opts?.target ?? null,
+        reply_to: opts?.reply_to ?? null,
         msg_type: 'message',
       }),
     });
@@ -50,7 +52,7 @@ export function useMessageStore() {
     } else {
       messages = [...messages, {
         id: msgId, session_id: '', role: 'assistant', content: chunk,
-        format: 'text', status: 'streaming', sender_id: null, target: null, msg_type: 'message',
+        format: 'text', status: 'streaming', sender_id: null, target: null, reply_to: null, msg_type: 'message',
         created_at: new Date().toISOString(),
       }];
     }

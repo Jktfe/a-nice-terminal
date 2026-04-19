@@ -26,6 +26,7 @@ export interface RouteMessage {
   senderName: string;
   senderType: string | null;  // 'terminal' | 'chat' | null (web user)
   target: string | null;
+  replyTo: string | null;
   msgType: string;
 }
 

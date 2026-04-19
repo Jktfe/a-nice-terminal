@@ -116,6 +116,7 @@ function getDb(): any {
     status TEXT DEFAULT 'complete',
     sender_id TEXT,
     target TEXT,
+    reply_to TEXT REFERENCES messages(id) ON DELETE SET NULL,
     msg_type TEXT DEFAULT 'message',
     meta TEXT DEFAULT '{}',
     created_at TEXT DEFAULT (datetime('now'))
@@ -125,9 +126,11 @@ function getDb(): any {
   const msgCols = G[DB_KEY].prepare(`PRAGMA table_info(messages)`).all().map((c: any) => c.name);
   if (!msgCols.includes('sender_id')) G[DB_KEY].exec(`ALTER TABLE messages ADD COLUMN sender_id TEXT`);
   if (!msgCols.includes('target'))    G[DB_KEY].exec(`ALTER TABLE messages ADD COLUMN target TEXT`);
+  if (!msgCols.includes('reply_to'))  G[DB_KEY].exec(`ALTER TABLE messages ADD COLUMN reply_to TEXT REFERENCES messages(id) ON DELETE SET NULL`);
   if (!msgCols.includes('msg_type'))  G[DB_KEY].exec(`ALTER TABLE messages ADD COLUMN msg_type TEXT DEFAULT 'message'`);
 
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_messages_reply_to ON messages(reply_to)`);
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_sessions_workspace ON sessions(workspace_id)`);
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)`);
 
@@ -422,6 +425,7 @@ export const queries = {
 
   // Messages
   listMessages: (sessionId: string) => prepare(`SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC`).all(sessionId),
+  getMessage: (id: string) => prepare(`SELECT * FROM messages WHERE id = ?`).get(id),
 
   // Participants — unique senders in a session, enriched with session name/handle
   listParticipants: (sessionId: string) =>
@@ -445,8 +449,8 @@ export const queries = {
     prepare(`SELECT * FROM messages WHERE session_id = ? AND created_at > ? ORDER BY created_at ASC LIMIT ?`).all(sessionId, since, limit),
   getMessagesBefore: (sessionId: string, before: string, limit: number) =>
     prepare(`SELECT * FROM messages WHERE session_id = ? AND created_at < ? ORDER BY created_at DESC LIMIT ?`).all(sessionId, before, limit),
-  createMessage: (id: string, sessionId: string, role: string, content: string, format: string, status: string, senderId: string | null, target: string | null, msgType: string, meta: string) =>
-    prepare(`INSERT INTO messages (id, session_id, role, content, format, status, sender_id, target, msg_type, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, sessionId, role, content, format, status, senderId, target, msgType, meta),
+  createMessage: (id: string, sessionId: string, role: string, content: string, format: string, status: string, senderId: string | null, target: string | null, replyTo: string | null, msgType: string, meta: string) =>
+    prepare(`INSERT INTO messages (id, session_id, role, content, format, status, sender_id, target, reply_to, msg_type, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, sessionId, role, content, format, status, senderId, target, replyTo, msgType, meta),
   deleteMessage: (id: string) => prepare(`DELETE FROM messages WHERE id = ?`).run(id),
   updateMessageMeta: (id: string, meta: string) =>
     prepare(`UPDATE messages SET meta = ? WHERE id = ?`).run(meta, id),
