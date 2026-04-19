@@ -598,6 +598,13 @@ function handle(msg: any, socket: net.Socket) {
       const session: PTYSession = { pty: term, ctrl: null, alive: true, lastSilenceAlert: 0 };
       sessions.set(msg.sessionId, session);
 
+      // Reinforce ANT_SESSION_ID at the session level so it survives any global
+      // tmux env pollution from nested processes (e.g. Claude Code's internal tmux).
+      // Per-session env takes precedence over global env for new windows/panes.
+      try {
+        execFileSync(TMUX, ['set-environment', '-t', msg.sessionId, 'ANT_SESSION_ID', msg.sessionId], { stdio: 'pipe' });
+      } catch {}
+
       term.onData((data: string) => {
         broadcast({ type: 'output', sessionId: msg.sessionId, data });
       });
