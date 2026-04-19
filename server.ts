@@ -345,7 +345,7 @@ wss.on('connection', async (ws) => {
   clients.set(ws, client);
 
   // Register in broadcast singleton so API routes can push events
-  const { registerClient, deregisterClient, updateClientHandle } = await import('./src/lib/server/ws-broadcast.js');
+  const { registerClient, deregisterClient, updateClientHandle, updateClientPresence } = await import('./src/lib/server/ws-broadcast.js');
   const clientKey = Symbol();
   // Will be updated when client joins a session
   const broadcastEntry = {
@@ -362,6 +362,10 @@ wss.on('connection', async (ws) => {
       const ptm = await getPtyManager();
 
       switch (msg.type) {
+        case 'presence_ping': {
+          updateClientPresence(clientKey);
+          break;
+        }
         case 'join_session': {
           // Update broadcast entry so API-route pushes (tasks, messages) reach this client
           broadcastEntry.sessionId = msg.sessionId;

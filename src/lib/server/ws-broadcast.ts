@@ -7,6 +7,7 @@ interface WSClient {
   handle: string | null;   // @handle of the joined session (null if unregistered)
   send: (msg: string) => void;
   readyState: number;
+  lastSeen?: number;       // timestamp of last heartbeat
 }
 
 // globalThis singleton — survives module duplication between tsx and SvelteKit build.
@@ -16,6 +17,7 @@ if (!G.__antWsBroadcast) G.__antWsBroadcast = new Map();
 const clients = G.__antWsBroadcast;
 
 export function registerClient(key: symbol, client: WSClient) {
+  client.lastSeen = Date.now();
   clients.set(key, client);
 }
 
@@ -26,6 +28,36 @@ export function deregisterClient(key: symbol) {
 export function updateClientHandle(key: symbol, handle: string | null) {
   const c = clients.get(key);
   if (c) c.handle = handle;
+}
+
+export function updateClientPresence(key: symbol) {
+  const c = clients.get(key);
+  if (c) c.lastSeen = Date.now();
+}
+
+/**
+ * Get the presence status for all clients in a session.
+ */
+export function getPresence(sessionId: string) {
+  const presence: Record<string, { lastSeen: number; status: 'active' | 'idle' | 'offline' }> = {};
+  const now = Date.now();
+
+  for (const client of clients.values()) {
+    if (client.sessionId !== sessionId || !client.handle) continue;
+    
+    const lastSeen = client.lastSeen || 0;
+    const diff = now - lastSeen;
+    let status: 'active' | 'idle' | 'offline' = 'active';
+    
+    if (diff > 300000) status = 'offline';
+    else if (diff > 60000) status = 'idle';
+    
+    // Only keep the most recent for a handle
+    if (!presence[client.handle] || presence[client.handle].lastSeen < lastSeen) {
+      presence[client.handle] = { lastSeen, status };
+    }
+  }
+  return presence;
 }
 
 /**

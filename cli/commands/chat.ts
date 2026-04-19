@@ -110,6 +110,15 @@ export async function chat(args: string[], flags: any, ctx: any) {
 
     ws.on('open', () => {
       ws.send(JSON.stringify({ type: 'join_session', sessionId: id }));
+      
+      // Heartbeat for presence tracking
+      const heartbeat = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'presence_ping' }));
+        }
+      }, 30000);
+      
+      ws.on('close', () => clearInterval(heartbeat));
     });
 
     ws.on('message', (raw: Buffer) => {
