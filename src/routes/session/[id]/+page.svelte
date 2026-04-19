@@ -261,7 +261,7 @@
     }
   }
 
-  async function postToLinkedChat(text: string) {
+  async function postToLinkedChat(text: string, replyToId: string | null = null) {
     if (!linkedChatId || !text.trim()) return;
     // WS terminal_input FIRST — instant delivery to tmux (the gold standard path)
     // Two-call protocol: text first, then \r separately after 50ms delay.
@@ -280,7 +280,7 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         role: 'user', content: text,
-        format: 'text', sender_id: null, msg_type: 'message',
+        format: 'text', sender_id: null, reply_to: replyToId, msg_type: 'message',
       }),
     });
     const msg = await res.json();
@@ -480,8 +480,8 @@
     if (terminalTextTimer) clearInterval(terminalTextTimer);
   });
 
-  async function sendMessage(text: string) {
-    await msgStore.send(sessionId, text);
+  async function sendMessage(text: string, replyToId: string | null = null) {
+    await msgStore.send(sessionId, text, { reply_to: replyToId });
     replyTo = null;
   }
 

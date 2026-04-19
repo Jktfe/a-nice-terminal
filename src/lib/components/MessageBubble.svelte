@@ -13,6 +13,7 @@
     sessionId,
     allSessions = [],
     readReceipts = [],
+    replyMessage = null,
     onReply,
     onDeleted,
     onMetaUpdated,
@@ -22,6 +23,7 @@
     sessionId: string;
     allSessions?: any[];
     readReceipts?: { session_id: string; reader_name: string; reader_handle: string | null; read_at: string }[];
+    replyMessage?: any;
     onReply?: (msg: any) => void;
     onDeleted?: (id: string) => void;
     onMetaUpdated?: (id: string, meta: any) => void;
@@ -69,6 +71,17 @@
     handle          ? handle :
     isAi            ? 'Assistant' : 'You'
   );
+
+  const replyHandle = $derived(replyMessage?.sender_id || null);
+  const replySession = $derived(
+    replyHandle ? allSessions.find((s: any) => s.id === replyHandle || s.handle === replyHandle) : null
+  );
+  const replyDisplayName = $derived(
+    replySession ? (replySession.display_name || replySession.name) :
+    replyHandle  ? replyHandle :
+    replyMessage ? (replyMessage.role === 'assistant' ? 'Assistant' : 'You') : ''
+  );
+  const replySnippet = $derived((replyMessage?.content || '').replace(/\s+/g, ' ').trim().slice(0, 120));
 
   // Parse meta for reactions and bookmark state
   let parsedMeta = $derived.by(() => {
@@ -183,12 +196,24 @@
     </div>
 
     <!-- Bubble -->
-    <div class="relative px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed shadow-sm"
-         class:rounded-br-sm={isOwn}
-         class:rounded-bl-sm={!isOwn}
-         style={isOwn
-           ? `background: ${colour}22; border: 1px solid ${colour}44; color: var(--text);`
-           : `background: var(--bg-card); border: 1px solid ${colour}44; color: var(--text); border-left: 2px solid ${colour};`}>
+     <div class="relative px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed shadow-sm"
+          class:rounded-br-sm={isOwn}
+          class:rounded-bl-sm={!isOwn}
+          style={isOwn
+            ? `background: ${colour}22; border: 1px solid ${colour}44; color: var(--text);`
+            : `background: var(--bg-card); border: 1px solid ${colour}44; color: var(--text); border-left: 2px solid ${colour};`}>
+      {#if replyMessage}
+        <button
+          type="button"
+          onclick={() => onReply?.(replyMessage)}
+          class="w-full text-left mb-2 px-2.5 py-2 rounded-xl border transition-colors hover:bg-[#ffffff08]"
+          style="background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.08);"
+          title="Reply to parent message"
+        >
+          <div class="text-[10px] font-semibold mb-0.5" style="color: {colour};">Replying to {replyDisplayName}</div>
+          <div class="text-xs opacity-75 break-words">{replySnippet}</div>
+        </button>
+      {/if}
       <div class="prose prose-sm break-words max-w-none
                   [&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0
                   [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5

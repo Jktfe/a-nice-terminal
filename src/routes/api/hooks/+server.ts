@@ -60,11 +60,11 @@ export async function POST({ request }: RequestEvent) {
       if (chatId) {
         const id = nanoid();
         const text = `🚀 Gemini session started: ${initialPrompt}`;
-        queries.createMessage(id, chatId, 'assistant', text, 'text', 'complete', sessionId, null, 'message', '{}');
+        queries.createMessage(id, chatId, 'assistant', text, 'text', 'complete', sessionId, null, null, 'message', '{}');
         await router.route({
           id, sessionId: chatId, content: text, role: 'assistant',
           senderId: sessionId, senderName: 'Gemini', senderType: 'terminal',
-          target: null, msgType: 'message'
+          target: null, replyTo: null, msgType: 'message'
         });
       }
       return json({ ok: true, event });
@@ -79,11 +79,11 @@ export async function POST({ request }: RequestEvent) {
           text: `Gemini is running ${toolName}`,
         });
         const id = nanoid();
-        queries.createMessage(id, chatId, 'assistant', content, 'text', 'complete', sessionId, null, 'agent_event', '{}');
+        queries.createMessage(id, chatId, 'assistant', content, 'text', 'complete', sessionId, null, null, 'agent_event', '{}');
         await router.route({
           id, sessionId: chatId, content, role: 'assistant',
           senderId: sessionId, senderName: 'Gemini', senderType: 'terminal',
-          target: null, msgType: 'agent_event'
+          target: null, replyTo: null, msgType: 'agent_event'
         });
       }
       return json({ ok: true, event });
@@ -103,19 +103,19 @@ export async function POST({ request }: RequestEvent) {
         });
 
         const id1 = nanoid();
-        queries.createMessage(id1, chatId, 'assistant', text, 'text', 'complete', sessionId, null, 'message', '{}');
+        queries.createMessage(id1, chatId, 'assistant', text, 'text', 'complete', sessionId, null, null, 'message', '{}');
         const id2 = nanoid();
-        queries.createMessage(id2, chatId, 'assistant', content, 'text', 'complete', sessionId, null, 'agent_event', '{}');
+        queries.createMessage(id2, chatId, 'assistant', content, 'text', 'complete', sessionId, null, null, 'agent_event', '{}');
 
         await router.route({
           id: id1, sessionId: chatId, content: text, role: 'assistant',
           senderId: sessionId, senderName: 'Gemini', senderType: 'terminal',
-          target: null, msgType: 'message'
+          target: null, replyTo: null, msgType: 'message'
         });
         await router.route({
           id: id2, sessionId: chatId, content, role: 'assistant',
           senderId: sessionId, senderName: 'Gemini', senderType: 'terminal',
-          target: null, msgType: 'agent_event'
+          target: null, replyTo: null, msgType: 'agent_event'
         });
       }
       return json({ ok: true, event });
@@ -129,11 +129,11 @@ export async function POST({ request }: RequestEvent) {
           text: 'Gemini finished turn',
         });
         const id = nanoid();
-        queries.createMessage(id, chatId, 'assistant', content, 'text', 'complete', sessionId, null, 'agent_event', '{}');
+        queries.createMessage(id, chatId, 'assistant', content, 'text', 'complete', sessionId, null, null, 'agent_event', '{}');
         await router.route({
           id, sessionId: chatId, content, role: 'assistant',
           senderId: sessionId, senderName: 'Gemini', senderType: 'terminal',
-          target: null, msgType: 'agent_event'
+          target: null, replyTo: null, msgType: 'agent_event'
         });
       }
       return json({ ok: true, event });
@@ -143,11 +143,11 @@ export async function POST({ request }: RequestEvent) {
       if (chatId) {
         const text = `🏁 Gemini session ended`;
         const id = nanoid();
-        queries.createMessage(id, chatId, 'assistant', text, 'text', 'complete', sessionId, null, 'message', '{}');
+        queries.createMessage(id, chatId, 'assistant', text, 'text', 'complete', sessionId, null, null, 'message', '{}');
         await router.route({
           id, sessionId: chatId, content: text, role: 'assistant',
           senderId: sessionId, senderName: 'Gemini', senderType: 'terminal',
-          target: null, msgType: 'message'
+          target: null, replyTo: null, msgType: 'message'
         });
       }
       return json({ ok: true, event });
@@ -172,14 +172,14 @@ export async function POST({ request }: RequestEvent) {
     const msgId = nanoid();
     queries.createMessage(
       msgId, chatId, 'assistant', content, 'text', 'complete',
-      sessionId || null, null, 'agent_event', '{}'
+      sessionId || null, null, null, 'agent_event', '{}'
     );
 
     // Route via MessageRouter
     await router.route({
       id: msgId, sessionId: chatId, content, role: 'assistant',
       senderId: sessionId || null, senderName: 'Claude', senderType: 'terminal',
-      target: null, msgType: 'agent_event'
+      target: null, replyTo: null, msgType: 'agent_event'
     });
 
     return json({ ok: true, msgId, event: 'notification', notifType });
@@ -210,13 +210,13 @@ export async function POST({ request }: RequestEvent) {
       const msgId = nanoid();
       queries.createMessage(
         msgId, chatId, 'assistant', text, 'text', 'complete',
-        sessionId, null, 'message', '{}'
+        sessionId, null, null, 'message', '{}'
       );
       
       await router.route({
         id: msgId, sessionId: chatId, content: text, role: 'assistant',
         senderId: sessionId || null, senderName: 'Claude', senderType: 'terminal',
-        target: null, msgType: 'message'
+        target: null, replyTo: null, msgType: 'message'
       });
     }
 
@@ -237,13 +237,13 @@ export async function POST({ request }: RequestEvent) {
       const text = `⏹ Claude stopped (${reason})`;
       queries.createMessage(
         msgId, chatId, 'assistant', text, 'text', 'complete',
-        sessionId, null, 'message', '{}'
+        sessionId, null, null, 'message', '{}'
       );
       
       await router.route({
         id: msgId, sessionId: chatId, content: text, role: 'assistant',
         senderId: sessionId || null, senderName: 'Claude', senderType: 'terminal',
-        target: null, msgType: 'message'
+        target: null, replyTo: null, msgType: 'message'
       });
     }
     return json({ ok: true, event: 'stop' });

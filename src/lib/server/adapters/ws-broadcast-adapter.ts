@@ -29,6 +29,7 @@ export class WsBroadcastAdapter implements DeliveryAdapter {
         status: 'complete',
         sender_id: message.senderId || null,
         target: message.target || null,
+        reply_to: message.replyTo || null,
         msg_type: message.msgType,
       };
 

@@ -592,7 +592,7 @@ getPtyManager().then(async ptm => {
         msgId, chatId,
         'assistant', content,
         'text', 'complete',
-        sessionId, null, msgType, '{}'
+        sessionId, null, null, msgType, '{}'
       );
       broadcast(chatId, {
         type: 'message_created',
@@ -601,6 +601,7 @@ getPtyManager().then(async ptm => {
         role: 'assistant',
         content,
         sender_id: sessionId,
+        reply_to: null,
         msg_type: msgType,
         created_at: new Date().toISOString(),
       });

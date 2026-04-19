@@ -35,12 +35,27 @@ describeIntegration('session lifecycle', () => {
     expect(msg.id).toBeTruthy();
     expect(msg.content).toBe('hello from vitest');
 
+    const replyRes = await fetch(`${BASE}/api/sessions/${session.id}/messages`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        role: 'user',
+        content: 'threaded reply from vitest',
+        format: 'text',
+        reply_to: msg.id,
+      }),
+    });
+    expect(replyRes.ok).toBe(true);
+    const reply = await replyRes.json();
+    expect(reply.reply_to).toBe(msg.id);
+
     // Verify the message appears in the session
     const readRes = await fetch(`${BASE}/api/sessions/${session.id}/messages`, { headers });
     expect(readRes.ok).toBe(true);
     const data = await readRes.json();
     const messages = data.messages || data;
     expect(messages.some((m: any) => m.content === 'hello from vitest')).toBe(true);
+    expect(messages.some((m: any) => m.content === 'threaded reply from vitest' && m.reply_to === msg.id)).toBe(true);
 
     // Clean up
     await fetch(`${BASE}/api/sessions/${session.id}?hard=true`, { method: 'DELETE', headers });

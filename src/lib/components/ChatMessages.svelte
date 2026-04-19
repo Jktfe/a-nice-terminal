@@ -29,8 +29,8 @@
     atBottom: boolean;
     mentionHandles: { handle: string; name: string }[];
     readReceipts: Record<string, { session_id: string; reader_name: string; reader_handle: string | null; read_at: string }[]>;
-    onSend: (text: string) => void;
-    onPostToLinkedChat: (text: string) => void;
+    onSend: (text: string, replyToId?: string | null) => void;
+    onPostToLinkedChat: (text: string, replyToId?: string | null) => void;
     onLoadOlder: () => void;
     onScrollToBottom: () => void;
     onMessageDeleted: (id: string) => void;
@@ -96,14 +96,55 @@
     return groups;
   }
 
+  const messageLookup = $derived.by(() => {
+    const lookup = new Map<string, any>();
+    for (const msg of messages) {
+      if (msg?.id && msg?.msg_type !== 'terminal_line') lookup.set(String(msg.id), msg);
+    }
+    return lookup;
+  });
+
+  function getReplyMessage(message: any) {
+    if (!message?.reply_to) return null;
+    return messageLookup.get(String(message.reply_to)) ?? null;
+  }
+
+  function getThreadDepth(message: any): number {
+    let depth = 0;
+    let current = message;
+    const seen = new Set<string>();
+
+    while (current?.reply_to && depth < 3) {
+      const replyId = String(current.reply_to);
+      if (seen.has(replyId)) break;
+      seen.add(replyId);
+
+      const parent = messageLookup.get(replyId);
+      if (!parent) break;
+
+      depth += 1;
+      current = parent;
+    }
+
+    return depth;
+  }
+
+  function threadStyle(message: any): string {
+    const depth = getThreadDepth(message);
+    if (depth === 0) return '';
+    const indent = depth * 18;
+    return `margin-left:${indent}px;padding-left:10px;border-left:1px solid var(--border-subtle);`;
+  }
+
   let linkedChatInput = $state('');
   let sendBtnEl = $state<HTMLButtonElement | null>(null);
 
   function handleLinkedSend() {
     console.log('[ChatMessages] handleLinkedSend called, input="' + linkedChatInput + '"');
     if (!linkedChatInput.trim()) return;
-    onPostToLinkedChat(linkedChatInput.trim());
+    onPostToLinkedChat(linkedChatInput.trim(), (replyTo?.id as string | undefined) ?? null);
     linkedChatInput = '';
+    onClearReply();
   }
 
   // Workaround: Svelte 5 event delegation sometimes fails on buttons in
@@ -195,16 +236,19 @@
               onRespond={async (payload) => { onAgentRespond(linkedChatId, payload); }}
             />
           {:else}
-            <MessageBubble
-              message={group.items[0]}
-              {sessionId}
-              {allSessions}
-              readReceipts={readReceipts[group.items[0].id] ?? []}
-              onReply={(msg) => { onReply(msg); }}
-              onDeleted={(id) => { onLinkedMessageDeleted(id); }}
-              onMetaUpdated={(id, meta) => { onLinkedMessageMetaUpdated(id, meta); }}
-              onPinToggled={(id, pinned) => { onLinkedMessagePinToggled?.(id, pinned); }}
-            />
+            <div style={threadStyle(group.items[0])}>
+              <MessageBubble
+                message={group.items[0]}
+                replyMessage={getReplyMessage(group.items[0])}
+                {sessionId}
+                {allSessions}
+                readReceipts={readReceipts[group.items[0].id] ?? []}
+                onReply={(msg) => { onReply(msg); }}
+                onDeleted={(id) => { onLinkedMessageDeleted(id); }}
+                onMetaUpdated={(id, meta) => { onLinkedMessageMetaUpdated(id, meta); }}
+                onPinToggled={(id, pinned) => { onLinkedMessagePinToggled?.(id, pinned); }}
+              />
+            </div>
           {/if}
         {/each}
       {/if}
@@ -237,16 +281,19 @@
           {#if group.type === 'terminal_line'}
             <TerminalLine messages={group.items} />
           {:else}
-            <MessageBubble
-              message={group.items[0]}
-              {sessionId}
-              {allSessions}
-              readReceipts={readReceipts[group.items[0].id] ?? []}
-              onReply={(msg) => { onReply(msg); }}
-              onDeleted={(id) => { onMessageDeleted(id); }}
-              onMetaUpdated={(id, meta) => { onMessageMetaUpdated(id, meta); }}
-              onPinToggled={(id, pinned) => { onMessagePinToggled?.(id, pinned); }}
-            />
+            <div style={threadStyle(group.items[0])}>
+              <MessageBubble
+                message={group.items[0]}
+                replyMessage={getReplyMessage(group.items[0])}
+                {sessionId}
+                {allSessions}
+                readReceipts={readReceipts[group.items[0].id] ?? []}
+                onReply={(msg) => { onReply(msg); }}
+                onDeleted={(id) => { onMessageDeleted(id); }}
+                onMetaUpdated={(id, meta) => { onMessageMetaUpdated(id, meta); }}
+                onPinToggled={(id, pinned) => { onMessagePinToggled?.(id, pinned); }}
+              />
+            </div>
           {/if}
         {/each}
       {/if}
@@ -284,6 +331,18 @@
 
   <!-- Input bar -->
   {#if session?.type === 'terminal'}
+    {#if replyTo}
+      <div class="mx-3 mb-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#1A1A22] border border-[#6366F133] text-xs">
+        <svg class="w-3 h-3 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/>
+        </svg>
+        <span class="text-gray-400">Replying to</span>
+        <span class="font-mono text-[#6366F1]">{String(replyTo.sender_id ?? (replyTo.role === 'assistant' ? 'Assistant' : 'You'))}</span>
+        <span class="text-gray-600 truncate flex-1">{String(replyTo.content ?? '').slice(0, 60)}</span>
+        <button onclick={onClearReply} class="text-gray-600 hover:text-gray-400 flex-shrink-0 ml-auto">✕</button>
+      </div>
+    {/if}
     <div class="flex gap-2 p-3 border-t" style="border-color:var(--border-light);">
       <input
         class="flex-1 rounded-lg px-3 py-2 text-sm outline-none"
