@@ -30,8 +30,9 @@ async function request(ctx: Ctx, method: string, path: string, body?: any): Prom
   };
 
   // Node.js fetch (undici) uses a different mechanism than Bun
-  if (ctx.serverUrl.startsWith('https://') && typeof globalThis.Bun === 'undefined') {
+  if (ctx.serverUrl.startsWith('https://') && typeof (globalThis as any).Bun === 'undefined') {
     try {
+      // @ts-ignore — undici types may not be installed in all environments
       const { Agent } = await import('undici');
       options.dispatcher = new Agent({ connect: { rejectUnauthorized: false } });
     } catch {
