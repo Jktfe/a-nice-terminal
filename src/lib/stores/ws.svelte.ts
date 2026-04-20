@@ -1,6 +1,7 @@
 let ws = $state<WebSocket | null>(null);
 let connected = $state(false);
 let knownBuildId: string | null = null;
+const typingHandles = $state<Record<string, ReturnType<typeof setTimeout>>>({});
 
 export function useWsStore() {
   function connect() {
@@ -28,6 +29,16 @@ export function useWsStore() {
             setTimeout(() => window.location.reload(), 200);
           }
         }
+        if (data.type === 'typing') {
+          const handle = data.handle as string;
+          if (data.typing) {
+            if (typingHandles[handle]) clearTimeout(typingHandles[handle]);
+            typingHandles[handle] = setTimeout(() => { delete typingHandles[handle]; }, 3000);
+          } else {
+            clearTimeout(typingHandles[handle]);
+            delete typingHandles[handle];
+          }
+        }
       } catch {}
     };
   }
@@ -38,11 +49,16 @@ export function useWsStore() {
     }
   }
 
+  function getTyping() {
+    return Object.keys(typingHandles);
+  }
+
   return {
     get connected() {
       return connected;
     },
     connect,
     send,
+    getTyping,
   };
 }

@@ -1,6 +1,7 @@
 <script lang="ts">
   import MessageBubble from '$lib/components/MessageBubble.svelte';
   import MessageInput from '$lib/components/MessageInput.svelte';
+  import { useWsStore } from '$lib/stores/ws.svelte.js';
   import AgentEventCard from '$lib/components/AgentEventCard.svelte';
   import TerminalLine from '$lib/components/TerminalLine.svelte';
   import TerminalSummary from '$lib/components/TerminalSummary.svelte';
@@ -94,6 +95,25 @@
   }: Props = $props();
 
   let scrollElLocal = $state<HTMLElement | null>(null);
+
+  const wsStore = useWsStore();
+
+  function notifyTyping(typing: boolean) {
+    const handle = session?.handle;
+    if (!handle) return;
+    fetch(`/api/sessions/${linkedChatId || sessionId}/typing`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ handle, typing }),
+    }).catch(() => {});
+  }
+
+  let typingTimeout: ReturnType<typeof setTimeout> | null = null;
+  function handleTypingInput() {
+    notifyTyping(true);
+    if (typingTimeout) clearTimeout(typingTimeout);
+    typingTimeout = setTimeout(() => notifyTyping(false), 2500);
+  }
 
   $effect(() => {
     if (scrollElLocal) onScrollElMounted?.(scrollElLocal);
@@ -498,12 +518,18 @@
         <button onclick={onClearReply} class="text-gray-600 hover:text-gray-400 flex-shrink-0 ml-auto">✕</button>
       </div>
     {/if}
+    {#if wsStore.getTyping().length > 0}
+      <div class="px-3 pb-1 text-xs" style="color:var(--text-muted);">
+        {wsStore.getTyping().join(', ')} {wsStore.getTyping().length === 1 ? 'is' : 'are'} typing…
+      </div>
+    {/if}
     <div class="flex gap-2 p-3 border-t" style="border-color:var(--border-light);">
       <input
         class="flex-1 rounded-lg px-3 py-2 text-sm outline-none"
         style="background:var(--bg-card);border:1px solid var(--border-subtle);color:var(--text);"
         placeholder="Message linked chat…"
         bind:value={linkedChatInput}
+        oninput={handleTypingInput}
         onkeydown={(e) => { if (e.key === 'Enter') handleLinkedSend(); }}
       />
       <button
