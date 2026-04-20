@@ -8,6 +8,7 @@
   import ChatHeader from '$lib/components/ChatHeader.svelte';
   import ChatMessages from '$lib/components/ChatMessages.svelte';
   import ChatSidePanel from '$lib/components/ChatSidePanel.svelte';
+  import DigestPanel from '$lib/components/DigestPanel.svelte';
   import { useToasts } from '$lib/stores/toast.svelte';
   import { normalizeSessionName } from '$lib/utils/session-naming';
   import { onMount, onDestroy } from 'svelte';
@@ -55,6 +56,7 @@
   let tasks = $state<{ id: string; status: string; [key: string]: unknown }[]>([]);
   let fileRefs = $state<{ id: string; file_path?: string; [key: string]: unknown }[]>([]);
   let replyTo = $state<Record<string, unknown> | null>(null);
+  let showDigest = $state(false);
 
   // Text terminal view — capture-pane output
   let terminalText = $state('');
@@ -849,7 +851,12 @@
         toasts.show('Copied tmux command to clipboard');
       });
     }}
+    onDigestToggle={() => (showDigest = !showDigest)}
   />
+
+  {#if showDigest}
+    <DigestPanel {sessionId} onClose={() => (showDigest = false)} />
+  {/if}
 
   <!-- Body -->
   <div class="flex flex-1 overflow-hidden min-h-0">
