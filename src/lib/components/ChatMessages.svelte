@@ -6,6 +6,7 @@
   import TerminalLine from '$lib/components/TerminalLine.svelte';
   import TerminalSummary from '$lib/components/TerminalSummary.svelte';
   import { SPECIAL_KEYS } from '$lib/shared/special-keys.js';
+  import QuickLaunchBar from '$lib/components/QuickLaunchBar.svelte';
 
   interface PageSession {
     id: string;
@@ -503,6 +504,8 @@
       {/each}
     </div>
   {/if}
+
+  <QuickLaunchBar {sessionId} onSend={(cmd) => onSend(cmd)} />
 
   <!-- Input bar -->
   {#if session?.type === 'terminal'}
