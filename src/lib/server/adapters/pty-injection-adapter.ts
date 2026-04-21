@@ -32,7 +32,7 @@ export class PtyInjectionAdapter implements DeliveryAdapter {
       const header = isTargeted ? 'antchat message for you' : 'antchat message for all participants';
       const serverUrl = process.env.ANT_SERVER_URL || `https://localhost:${process.env.ANT_PORT || '6458'}`;
       const replyCmd = `ant chat send ${message.sessionId} --msg "your reply" --server ${serverUrl}`;
-      const plainText = `[${header}] '${message.content.slice(0, 300)}' (reply with: ${replyCmd})`;
+      const plainText = `[${header}] '${message.content.slice(0, 2000)}' (reply with: ${replyCmd})`;
 
       // Two-call protocol: text first, then \r after a beat.
       // Claude Code requires a second \r (empty line) to submit the prompt —
