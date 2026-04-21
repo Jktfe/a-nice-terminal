@@ -34,6 +34,7 @@ export interface RouteTarget {
   sessionId: string;
   handle: string | null;
   type: string;  // 'terminal' | 'chat'
+  cliFlag?: string | null;
 }
 
 export interface DeliveryResult {
@@ -132,6 +133,7 @@ export class MessageRouter {
             sessionId: terminal.id,
             handle: terminal.handle || null,
             type: 'terminal',
+            cliFlag: terminal.cli_flag || null,
           };
           // Pass a special flag via the message for the adapter
           const agentMsg = { ...message, msgType: 'agent_response' };
@@ -168,6 +170,7 @@ export class MessageRouter {
             sessionId: targetSession.id,
             handle: message.target,
             type: 'terminal',
+            cliFlag: targetSession.cli_flag || null,
           };
           if (ptyAdapter.canDeliver(message, target)) {
             const result = await ptyAdapter.deliver(message, target);
@@ -219,6 +222,7 @@ export class MessageRouter {
           sessionId: terminal.id,
           handle: terminal.handle || null,
           type: 'terminal',
+          cliFlag: terminal.cli_flag || null,
         };
         if (linkedChatAdapter.canDeliver(message, target)) {
           const result = await linkedChatAdapter.deliver(message, target);
@@ -240,9 +244,10 @@ export class MessageRouter {
         let terminals: any[] = (queries.getRoutableMembers(message.sessionId) as any[])
           .filter((m: any) => m.type === 'terminal' && m.session_id !== message.senderId);
 
-        // Accessor: room members have session_id + alias, global list has id + handle
+        // Accessor: room members have session_id + alias + cli_flag, global list has id + handle + cli_flag
         let getId = (t: any) => t.session_id;
         let getHandle = (t: any) => t.alias || t.handle;
+        let getCliFlag = (t: any) => t.cli_flag || null;
 
         // Fallback: if no room members registered yet, use global terminal list
         if (terminals.length === 0) {
@@ -251,6 +256,7 @@ export class MessageRouter {
           );
           getId = (t: any) => t.id;
           getHandle = (t: any) => t.handle;
+          getCliFlag = (t: any) => t.cli_flag || null;
         }
 
         const knownHandles = terminals.map(getHandle).filter(Boolean) as string[];
@@ -265,6 +271,7 @@ export class MessageRouter {
             sessionId: getId(terminal),
             handle: getHandle(terminal),
             type: 'terminal',
+            cliFlag: getCliFlag(terminal),
           };
           const routedMessage = isAllParticipants ? message : { ...message, target: getHandle(terminal) };
           if (ptyAdapter.canDeliver(routedMessage, target)) {

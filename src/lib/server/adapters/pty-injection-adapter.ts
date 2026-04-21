@@ -34,9 +34,19 @@ export class PtyInjectionAdapter implements DeliveryAdapter {
       const replyCmd = `ant chat send ${message.sessionId} --msg "your reply" --server ${serverUrl}`;
       const plainText = `[${header}] '${message.content.slice(0, 300)}' (reply with: ${replyCmd})`;
 
-      // Two-call protocol: text first, then \r 150ms later
+      // Two-call protocol: text first, then \r after a beat.
+      // Claude Code requires a second \r (empty line) to submit the prompt —
+      // a single \r just adds a continuation line (quote> mode).
+      const needsDoubleReturn = target.cliFlag === 'claude-code';
+      const submitDelay = needsDoubleReturn ? 200 : 150;
+
       ptmWrite(target.sessionId, plainText);
-      setTimeout(() => { ptmWrite(target.sessionId, '\r'); }, 150);
+      setTimeout(() => {
+        ptmWrite(target.sessionId, '\r');
+        if (needsDoubleReturn) {
+          setTimeout(() => { ptmWrite(target.sessionId, '\r'); }, 150);
+        }
+      }, submitDelay);
 
       return {
         adapter: this.name,
