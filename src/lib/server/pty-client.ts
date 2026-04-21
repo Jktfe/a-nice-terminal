@@ -251,7 +251,7 @@ class PTYClient {
   }
 
   /** Notify the daemon of a session's CLI flag so it can apply per-model line stripping. */
-  setCliFlag(sessionId: string, cliFlag: string | null, stripLines = 0): void {
+  setCliFlag(sessionId: string, cliFlag: string | null, stripLines = 15): void {
     this.send({ type: 'set_cli_flag', sessionId, cliFlag, stripLines });
   }
 

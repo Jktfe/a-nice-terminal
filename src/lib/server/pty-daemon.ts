@@ -71,7 +71,7 @@ async function flushViaCapture(sessionId: string, ot: OutputTimer): Promise<void
 
   // Strip bottom N lines based on cli_flag (removes CLI chrome like input bars,
   // status lines, spinners, etc.) before diffing so they never enter the pipeline.
-  const stripN = stripLinesMap.get(sessionId) ?? 0;
+  const stripN = stripLinesMap.get(sessionId) ?? 15;
   if (stripN > 0) {
     const lines = screen.split('\n');
     if (lines.length > stripN) {
@@ -99,9 +99,12 @@ async function flushViaCapture(sessionId: string, ot: OutputTimer): Promise<void
 
   if (common === prevLines.length && common === newLines.length) return;
 
+  // Non-consecutive duplicate detection: only emit lines that were NOT in the previous
+  // capture. This prevents re-broadcasting static content that shifted but was
+  // already delivered.
   const rawFresh = newLines.slice(0, newLines.length - common)
     .map(l => l.trimEnd())
-    .filter(l => l.length > 0);
+    .filter(l => l.length > 0 && !prevLines.includes(l));
 
   if (rawFresh.length === 0) return;
 
