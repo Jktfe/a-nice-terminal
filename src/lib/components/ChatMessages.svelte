@@ -15,6 +15,7 @@
     handle?: string;
     display_name?: string;
     linked_chat_id?: string | null;
+    cli_flag?: string | null;
   }
 
   interface Props {
@@ -505,7 +506,7 @@
     </div>
   {/if}
 
-  <QuickLaunchBar {sessionId} onSend={(cmd) => onSend(cmd)} />
+  <QuickLaunchBar {sessionId} driver={session?.cli_flag} onSend={(cmd) => onSend(cmd)} />
 
   <!-- Input bar -->
   {#if session?.type === 'terminal'}

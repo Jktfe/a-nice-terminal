@@ -3,13 +3,15 @@
 
   let {
     sessionId,
+    driver,
     onSend,
   }: {
     sessionId: string;
+    driver?: string | null;
     onSend: (text: string) => void;
   } = $props();
 
-  const ql = useQuickLaunch(sessionId);
+  const ql = useQuickLaunch(sessionId, driver);
 
   // ── Edit mode state ──
   let editing = $state(false);

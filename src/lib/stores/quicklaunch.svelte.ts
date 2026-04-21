@@ -34,9 +34,9 @@ const DEFAULTS: QuickLaunchButton[] = [
 ];
 
 /** Reactive store: returns buttons for a given session and mutation helpers. */
-export function useQuickLaunch(sessionId: string) {
+export function useQuickLaunch(sessionId: string, driver?: string | null) {
   const allData = load();
-  let buttons = $state<QuickLaunchButton[]>(allData[sessionId] ?? [...DEFAULTS]);
+  let buttons = $state<QuickLaunchButton[]>(allData[sessionId] ?? [...getDefaults(driver)]);
 
   function persist() {
     const allData = load();
@@ -71,7 +71,7 @@ export function useQuickLaunch(sessionId: string) {
     },
 
     reset() {
-      buttons = [...DEFAULTS];
+      buttons = [...getDefaults(driver)];
       persist();
     },
   };
