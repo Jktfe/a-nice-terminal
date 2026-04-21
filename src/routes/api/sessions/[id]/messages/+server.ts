@@ -107,11 +107,9 @@ export async function POST({ params, request }: RequestEvent<{ id: string }>) {
     } catch {}
   }
 
-
   // 2. Route via MessageRouter
   const { getRouter } = await import('$lib/server/message-router.js');
   const router = getRouter();
-  console.log(`[messages POST] router adapters: ${router.adapterCount ?? 'unknown'}, sessionId=${params.id}, sender_id=${sender_id}`);
   const sender = resolveSenderSession(sender_id);
 
   // Forward human messages to Claude channels — but ONLY for non-linked chat sessions

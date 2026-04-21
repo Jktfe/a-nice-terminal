@@ -33,6 +33,10 @@ const DEFAULTS: QuickLaunchButton[] = [
   { id: 'default-2', label: 'ANT Project', icon: '🐜', command: 'cd ~/CascadeProjects/a-nice-terminal', color: '#10B981' },
 ];
 
+function getDefaults(_driver?: string | null): QuickLaunchButton[] {
+  return [...DEFAULTS];
+}
+
 /** Reactive store: returns buttons for a given session and mutation helpers. */
 export function useQuickLaunch(sessionId: string, driver?: string | null) {
   const allData = load();

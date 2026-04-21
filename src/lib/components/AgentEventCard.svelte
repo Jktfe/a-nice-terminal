@@ -117,7 +117,6 @@
   });
 
   function respond(type: string, choice: Record<string, any>) {
-    console.log('[AgentEventCard] respond called:', type, JSON.stringify(choice));
     onRespond({
       type,
       event_content: message.content,

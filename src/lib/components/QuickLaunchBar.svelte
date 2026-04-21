@@ -11,6 +11,7 @@
     onSend: (text: string) => void;
   } = $props();
 
+  // svelte-ignore state_referenced_locally -- sessionId and driver are stable per terminal session instance
   const ql = useQuickLaunch(sessionId, driver);
 
   // ── Edit mode state ──

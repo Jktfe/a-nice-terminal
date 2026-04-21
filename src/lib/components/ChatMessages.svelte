@@ -214,7 +214,6 @@
   let sendBtnEl = $state<HTMLButtonElement | null>(null);
 
   function handleLinkedSend() {
-    console.log('[ChatMessages] handleLinkedSend called, input="' + linkedChatInput + '"');
     if (!linkedChatInput.trim()) return;
     onPostToLinkedChat(linkedChatInput.trim(), (replyTo?.id as string | undefined) ?? null);
     linkedChatInput = '';
