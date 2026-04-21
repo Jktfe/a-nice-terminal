@@ -107,24 +107,6 @@ export async function POST({ params, request }: RequestEvent<{ id: string }>) {
     } catch {}
   }
 
-  // Auto-register all active terminals as participants for standalone group chats
-  // on the first message — so no manual step is needed before routing works.
-  {
-    const session: any = queries.getSession(params.id);
-    const isChat = session?.type === 'chat';
-    const linkedTerminals = isChat ? queries.getTerminalsByLinkedChat(params.id) as any[] : [];
-    const isStandaloneChat = isChat && linkedTerminals.length === 0;
-    if (isStandaloneChat) {
-      const existingMembers = queries.listRoomMembers(params.id) as any[];
-      if (existingMembers.length <= 1) {
-        const allSessions = queries.listSessions() as any[];
-        const terminals = allSessions.filter((s: any) => s.type === 'terminal' && !s.archived && !s.deleted_at);
-        for (const t of terminals) {
-          queries.addRoomMember(params.id, t.id, 'participant', t.cli_flag || null, t.handle || null);
-        }
-      }
-    }
-  }
 
   // 2. Route via MessageRouter
   const { getRouter } = await import('$lib/server/message-router.js');
