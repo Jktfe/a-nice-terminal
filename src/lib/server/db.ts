@@ -46,6 +46,13 @@ function getDb(): any {
   _db.exec("PRAGMA temp_store = MEMORY");
 
   // Schema
+    // Settings table for runtime configuration (TS-007)
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT DEFAULT (datetime("now"))
+  )`);
+
   G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -352,6 +359,18 @@ export function ttlMs(ttl: string): number {
 }
 
 export const queries = {
+  getSetting: (key: string) => {
+    const row = getDb().prepare("SELECT value FROM settings WHERE key = ?").get(key);
+    return row ? row.value : null;
+  },
+
+  setSetting: (key: string, value: string) => {
+    return getDb().prepare("INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime("now")) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at").run(key, value);
+  },
+
+  getAllSettings: () => {
+    return getDb().prepare("SELECT * FROM settings").all();
+  },
   // Sessions — active (not soft-deleted, not archived)
   listSessions: () => prepare(`SELECT * FROM sessions WHERE archived = 0 AND deleted_at IS NULL ORDER BY updated_at DESC`).all(),
   // Soft-deleted sessions still within their TTL window (recoverable)
