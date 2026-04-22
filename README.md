@@ -19,6 +19,7 @@ Most AI coding tools run in isolation. You can't easily have Claude Code review 
 - **Zero sidecar overhead** — no MCP server per agent, no framework runtime, just SQLite + PTY streams
 - **Radically lower token cost** — no MCP tool schemas injected per request, no polling loops, no system prompt bloat. Messages are plain text via PTY injection. Coordination overhead is a fraction of total spend — the vast majority of tokens go to actual work, not framework tax
 - **Local + cloud in the same session** — Ollama and LM Studio agents work identically to cloud agents (same PTY injection, same @mentions, same task delegation). Offload mechanical work to free local models, save API spend for agents that need reasoning
+- **Lessons learned** — see [docs/LESSONS.md](docs/LESSONS.md) for the design decisions, transferable insights, and commit-cited regressions that produced the substrate above
 
 ## Features
 
