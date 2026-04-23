@@ -200,39 +200,37 @@ export class MessageRouter {
       return { messageId: message.id, deliveries };
     }
 
-    // ── 5. Group fan-out to linked terminals ───────────────────────────
-    //    Skip if sender is an agent terminal (loop prevention)
-    if (message.senderType === 'terminal') {
-      return { messageId: message.id, deliveries };
-    }
-
     // Identify bracket-escaped mentions to exclude them from ALL delivery
     const bracketedMentions = [...(message.content.match(/\[@[\w.-]+\]/g) || [])];
     const excludedHandles = bracketedMentions.map(m => m.slice(2, -1));
 
-    // ── 5a. Linked chat fan-out (terminal ↔ its chat) ──────────────────
-    const linkedChatAdapter = this.adapters.find(a => a.name === 'linked-chat');
-    if (linkedChatAdapter) {
-      const linkedTerminals: any[] = queries.getTerminalsByLinkedChat(message.sessionId);
-      for (const terminal of linkedTerminals) {
-        if (terminal.id === message.senderId) continue;
-        if (terminal.handle && excludedHandles.includes(terminal.handle)) continue;
+    // ── 5. Linked chat fan-out (terminal ↔ its chat) ──────────────────
+    //    Skip if sender is an agent terminal (loop prevention: agents in
+    //    linked chats should not echo back to each other via that path)
+    if (message.senderType !== 'terminal') {
+      const linkedChatAdapter = this.adapters.find(a => a.name === 'linked-chat');
+      if (linkedChatAdapter) {
+        const linkedTerminals: any[] = queries.getTerminalsByLinkedChat(message.sessionId);
+        for (const terminal of linkedTerminals) {
+          if (terminal.id === message.senderId) continue;
+          if (terminal.handle && excludedHandles.includes(terminal.handle)) continue;
 
-        const target: RouteTarget = {
-          sessionId: terminal.id,
-          handle: terminal.handle || null,
-          type: 'terminal',
-          cliFlag: terminal.cli_flag || null,
-        };
-        if (linkedChatAdapter.canDeliver(message, target)) {
-          const result = await linkedChatAdapter.deliver(message, target);
-          deliveries.push(result);
-          this.logDelivery(message.id, result);
+          const target: RouteTarget = {
+            sessionId: terminal.id,
+            handle: terminal.handle || null,
+            type: 'terminal',
+            cliFlag: terminal.cli_flag || null,
+          };
+          if (linkedChatAdapter.canDeliver(message, target)) {
+            const result = await linkedChatAdapter.deliver(message, target);
+            deliveries.push(result);
+            this.logDelivery(message.id, result);
+          }
         }
       }
     }
 
-    // ── 5b. Group chat fan-out (non-linked chat → room participants) ──
+    // ── 6. Group chat fan-out (standalone chatroom → room participants) ─
     //    Uses chat_room_members for scoped delivery. Room member aliases
     //    take precedence over global handles for @mention resolution.
     //    Fallback: if no room members, use global terminal list (transition).

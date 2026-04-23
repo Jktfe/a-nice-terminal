@@ -436,6 +436,8 @@
       if (linkedChatId && linkedChatId !== sessionId) {
         s.send(JSON.stringify({ type: 'join_session', sessionId: linkedChatId }));
       }
+      // Join global sessions channel to receive sessions_changed events
+      s.send(JSON.stringify({ type: 'join_session', sessionId: 'SESSIONS_CHANNEL' }));
     };
 
     s.onmessage = (event) => {
@@ -454,6 +456,13 @@
           } else if (data.type === 'message_deleted') {
             linkedChatMessages = linkedChatMessages.filter(m => m.id !== data.msgId);
           }
+          return;
+        }
+
+        // Refresh allSessions + postsFrom when sessions change globally
+        if (data.type === 'sessions_changed') {
+          fetch('/api/sessions').then(r => r.json()).then(d => { allSessions = d.sessions || []; }).catch(() => {});
+          loadMentionHandles(); // also refreshes postsFrom
           return;
         }
 
@@ -764,16 +773,33 @@
     const counts = new Map();
     for (const m of msgStore.messages) {
       if (!m.sender_id) continue;
-      const key = allSessions.find(s => s.handle === m.sender_id)?.id ?? m.sender_id;
+      const key = allSessions.find(s => s.handle === m.sender_id || s.id === m.sender_id)?.id ?? m.sender_id;
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
     const active = allSessions
       .filter(s => s.id !== sessionId && counts.has(s.id))
       .map(s => ({ sess: s, count: counts.get(s.id) ?? 0, active: true }));
+    const activeIds = new Set(active.map(p => p.sess.id));
+
+    // Include external posters (e.g. @gemini) that don't match any session
+    const externalActive = postsFrom
+      .filter((p: Record<string, unknown>) => !activeIds.has(p.id as string))
+      .map((p: Record<string, unknown>) => ({
+        sess: {
+          id: p.id as string,
+          name: (p.name as string) || (p.id as string),
+          type: 'external',
+          handle: (p.handle as string) || null,
+          display_name: (p.name as string) || (p.id as string),
+        } as PageSession,
+        count: counts.get(p.id as string) ?? (p.message_count as number) ?? 0,
+        active: true,
+      }));
+
     const available = allSessions
       .filter(s => s.id !== sessionId && !counts.has(s.id))
       .map(s => ({ sess: s, count: 0, active: false }));
-    return { active, available };
+    return { active: [...active, ...externalActive], available };
   });
 
   // Messages to show in chat area: linked chat for terminals, msgStore for chat sessions

@@ -37,7 +37,7 @@
  *     keeps the raw material fresh.
  *
  * Environment:
- *   ANT_SERVER_URL     default http://localhost:6458
+ *   ANT_SERVER_URL     default https://mac.kingfisher-interval.ts.net:6458
  *   ANT_API_KEY        optional bearer token
  *   ANT_IDLE_TICK_MS   default 60000 (60 seconds)
  *   ANT_STALLED_MS     default 900000 (15 minutes)
@@ -48,7 +48,7 @@
 
 import { createHash } from 'node:crypto';
 
-const SERVER_URL = (process.env.ANT_SERVER_URL || 'http://localhost:6458').replace(/\/$/, '');
+const SERVER_URL = (process.env.ANT_SERVER_URL || 'https://mac.kingfisher-interval.ts.net:6458').replace(/\/$/, '');
 const API_KEY    = process.env.ANT_API_KEY || '';
 const TICK_MS    = parseInt(process.env.ANT_IDLE_TICK_MS || '60000', 10);
 const STALLED_MS = parseInt(process.env.ANT_STALLED_MS || '900000', 10);

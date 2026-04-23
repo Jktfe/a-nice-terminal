@@ -84,7 +84,7 @@ Commands:
                         (--url https://... --key abc --handle @james --session <id>)
 
 Options:
-  --server, -s    Server URL (native: auto-detects localhost:6458; external: required)
+  --server, -s    Server URL (native: auto-detects localhost:6458; external default: https://mac.kingfisher-interval.ts.net:6458)
   --key, -k       API key
   --external      Force external mode (skip native tmux auto-detection)
   --json          Output as JSON
@@ -100,7 +100,8 @@ async function main() {
   // Native mode: inside ANT tmux and not forced external → auto-detect localhost
   const isExternal = !!flags.external;
   const native = !isExternal && !flags.server ? detectNativeSession() : { isNative: false, sessionId: null };
-  const serverUrl = flags.server || config.get('serverUrl') || (native.isNative ? 'https://localhost:6458' : 'https://localhost:6458');
+  // Native (inside ANT tmux on the server host) → localhost. External → MacBook (ANT's new home).
+  const serverUrl = flags.server || config.get('serverUrl') || (native.isNative ? 'https://localhost:6458' : 'https://mac.kingfisher-interval.ts.net:6458');
   const apiKey = flags.key || config.get('apiKey') || '';
 
   const ctx = { serverUrl, apiKey, json: !!flags.json };

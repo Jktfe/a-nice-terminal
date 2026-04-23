@@ -14,6 +14,8 @@
   let searchText = $state('');
   let creatingTerminal = $state(false);
   let creatingChat = $state(false);
+  let selectedArchived = $state<Set<string>>(new Set());
+  let batchBusy = $state(false);
 
   // ── Inline modal state (replaces window.prompt / confirm) ──
   let modal = $state<{
@@ -437,43 +439,143 @@
       </div>
     </div>
 
-    <!-- Archived / recoverable footer bar -->
+    <!-- Archived / recoverable footer bar with multi-select -->
     {#if store.recoverable.length > 0}
-      <div class="flex items-center gap-3 px-4 sm:px-6 py-2 border-t flex-shrink-0 overflow-x-auto" style="border-color: var(--border-light);">
-        <span class="text-xs font-medium flex-shrink-0" style="color: var(--text-faint);">Archived:</span>
-        {#each store.recoverable as session (session.id)}
-          <div class="flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs whitespace-nowrap flex-shrink-0" style="border-color: var(--border-light); color: var(--text-muted);">
-            <span>{session.type === 'terminal' ? '>' : '💬'}</span>
-            <span>{session.name}</span>
-            <!-- Brain: save to memory palace then delete -->
-            <button
-              onclick={async () => {
-                // Archive triggers memory palace export, then hard-delete from DB + UI
-                await fetch(`/api/sessions/${session.id}`, {
-                  method: 'PATCH',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ archived: true }),
-                });
-                await fetch(`/api/sessions/${session.id}`, { method: 'DELETE' });
-                store.dismissRecoverable(session.id);
-              }}
-              class="p-0.5 rounded transition-colors hover:text-purple-500"
-              style="color: var(--text-faint);"
-              title="Save to memory & delete"
+      <div class="flex flex-col border-t flex-shrink-0" style="border-color: var(--border-light);">
+        <!-- Session badges row -->
+        <div class="flex items-center gap-3 px-4 sm:px-6 py-2 overflow-x-auto">
+          <button
+            onclick={() => {
+              if (selectedArchived.size === store.recoverable.length) {
+                selectedArchived = new Set();
+              } else {
+                selectedArchived = new Set(store.recoverable.map((s: any) => s.id));
+              }
+            }}
+            class="text-xs font-medium flex-shrink-0 hover:underline"
+            style="color: var(--text-faint);"
+            title={selectedArchived.size === store.recoverable.length ? 'Deselect all' : 'Select all'}
+          >Archived:</button>
+          {#each store.recoverable as session (session.id)}
+            {@const isSelected = selectedArchived.has(session.id)}
+            <div
+              class="flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs whitespace-nowrap flex-shrink-0 transition-colors"
+              style="border-color: {isSelected ? '#6366F1' : 'var(--border-light)'}; color: {isSelected ? '#6366F1' : 'var(--text-muted)'}; background: {isSelected ? '#6366F115' : 'transparent'};"
             >
-              <!-- brain icon (lucide brain) -->
+              <span>{session.type === 'terminal' ? '>' : '💬'}</span>
+              <!-- Clickable name toggles selection -->
+              <button
+                onclick={() => {
+                  const next = new Set(selectedArchived);
+                  if (next.has(session.id)) next.delete(session.id); else next.add(session.id);
+                  selectedArchived = next;
+                }}
+                class="hover:underline cursor-pointer"
+                title="Click to select"
+              >{session.name}</button>
+              <!-- Brain: save to memory palace then delete -->
+              <button
+                onclick={async () => {
+                  await fetch(`/api/sessions/${session.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ archived: true }),
+                  });
+                  await fetch(`/api/sessions/${session.id}`, { method: 'DELETE' });
+                  store.dismissRecoverable(session.id);
+                  const next = new Set(selectedArchived); next.delete(session.id); selectedArchived = next;
+                }}
+                class="p-0.5 rounded transition-colors hover:text-purple-500"
+                style="color: var(--text-faint);"
+                title="Save to memory & delete"
+              >
+                <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M12 18v4"/></svg>
+              </button>
+              <!-- Restore -->
+              <button onclick={() => { store.restoreSession(session.id); const next = new Set(selectedArchived); next.delete(session.id); selectedArchived = next; }} class="p-0.5 rounded transition-colors" style="color: var(--text-faint);" title="Restore">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              </button>
+              <!-- Delete permanently -->
+              <button onclick={() => openDeleteModal(session)} class="p-0.5 rounded transition-colors" style="color: var(--text-faint);" title="Delete permanently">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              </button>
+            </div>
+          {/each}
+        </div>
+        <!-- Batch action bar (visible when 1+ selected) -->
+        {#if selectedArchived.size > 0}
+          <div class="flex items-center gap-3 px-4 sm:px-6 py-1.5 border-t" style="border-color: var(--border-light); background: #6366F108;">
+            <span class="text-xs font-semibold flex-shrink-0" style="color: #6366F1;">{selectedArchived.size} selected</span>
+            <!-- Brain All -->
+            <button
+              disabled={batchBusy}
+              onclick={async () => {
+                batchBusy = true;
+                const ids = [...selectedArchived];
+                for (const id of ids) {
+                  await fetch(`/api/sessions/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archived: true }) });
+                  await fetch(`/api/sessions/${id}`, { method: 'DELETE' });
+                  store.dismissRecoverable(id);
+                }
+                selectedArchived = new Set();
+                batchBusy = false;
+              }}
+              class="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors hover:bg-purple-50"
+              style="color: #7C3AED;"
+              title="Save all selected to memory & delete"
+            >
               <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M12 18v4"/></svg>
+              Brain All
             </button>
-            <!-- Restore -->
-            <button onclick={() => store.restoreSession(session.id)} class="p-0.5 rounded transition-colors" style="color: var(--text-faint);" title="Restore">
+            <!-- Restore All -->
+            <button
+              disabled={batchBusy}
+              onclick={async () => {
+                batchBusy = true;
+                const ids = [...selectedArchived];
+                for (const id of ids) { await store.restoreSession(id); }
+                selectedArchived = new Set();
+                batchBusy = false;
+              }}
+              class="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors hover:bg-green-50"
+              style="color: #059669;"
+              title="Restore all selected"
+            >
               <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              Restore All
             </button>
-            <!-- Delete permanently (with confirmation) -->
-            <button onclick={() => openDeleteModal(session)} class="p-0.5 rounded transition-colors" style="color: var(--text-faint);" title="Delete permanently">
+            <!-- Delete All -->
+            <button
+              disabled={batchBusy}
+              onclick={async () => {
+                if (!confirm(`Permanently delete ${selectedArchived.size} session${selectedArchived.size > 1 ? 's' : ''}?`)) return;
+                batchBusy = true;
+                const ids = [...selectedArchived];
+                for (const id of ids) {
+                  await fetch(`/api/sessions/${id}`, { method: 'DELETE' });
+                  store.dismissRecoverable(id);
+                }
+                selectedArchived = new Set();
+                batchBusy = false;
+              }}
+              class="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors hover:bg-red-50"
+              style="color: #DC2626;"
+              title="Delete all selected permanently"
+            >
               <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              Delete All
+            </button>
+            <!-- Deselect -->
+            <button
+              onclick={() => { selectedArchived = new Set(); }}
+              class="p-1 rounded transition-colors hover:bg-gray-100"
+              style="color: var(--text-faint);"
+              title="Deselect all"
+            >
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
           </div>
-        {/each}
+        {/if}
       </div>
     {/if}
     {/if}
