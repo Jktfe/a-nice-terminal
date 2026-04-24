@@ -50,7 +50,7 @@ function getDb(): any {
   G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
-    updated_at TEXT DEFAULT (datetime("now"))
+    updated_at TEXT DEFAULT (datetime('now'))
   )`);
 
   G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS sessions (

@@ -29,11 +29,35 @@
     handles.filter(h => h.handle.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6)
   );
 
+  function resizeInput() {
+    if (!inputEl) return;
+    const maxHeight = typeof window === 'undefined'
+      ? 240
+      : Math.max(160, Math.floor(window.innerHeight * 0.35));
+    inputEl.style.height = 'auto';
+    const nextHeight = Math.min(inputEl.scrollHeight, maxHeight);
+    inputEl.style.height = `${nextHeight}px`;
+    inputEl.style.overflowY = inputEl.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }
+
+  function handleInput() {
+    detectMention();
+    resizeInput();
+  }
+
+  $effect(() => {
+    text;
+    queueMicrotask(resizeInput);
+  });
+
   $effect(() => {
     if (replyTo) {
       const mention = replyTo.sender_id ? `${replyTo.sender_id} ` : '';
       text = mention;
-      setTimeout(() => inputEl?.focus(), 0);
+      setTimeout(() => {
+        inputEl?.focus();
+        resizeInput();
+      }, 0);
     }
   });
 
@@ -73,6 +97,7 @@
     text = '';
     showMentions = false;
     onClearReply?.();
+    setTimeout(resizeInput, 0);
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -181,7 +206,7 @@
         bind:this={inputEl}
         placeholder="Send a message… (@ to mention)"
         bind:value={text}
-        oninput={detectMention}
+        oninput={handleInput}
         onfocus={() => (isFocused = true)}
         onblur={() => (isFocused = false)}
         onkeydown={handleKeydown}
@@ -192,10 +217,10 @@
           line-height: 1.55;
           letter-spacing: var(--tracking-body);
           color: var(--text);
-          min-height: 24px;
-          max-height: 120px;
+          min-height: 48px;
+          max-height: 35vh;
         "
-        rows="1"
+        rows="2"
       ></textarea>
     </div>
 

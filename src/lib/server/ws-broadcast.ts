@@ -3,8 +3,10 @@
 // API routes call broadcast(); server.ts registers/deregisters clients here.
 
 interface WSClient {
-  sessionId: string;       // which chat/terminal session this client has joined
-  handle: string | null;   // @handle of the joined session (null if unregistered)
+  sessionId?: string;       // legacy/current joined session
+  sessionIds?: Set<string>; // all chat/terminal sessions this client has joined
+  handle: string | null;    // legacy/current @handle of the joined session
+  handles?: Map<string, string | null>; // @handle per joined session
   send: (msg: string) => void;
   readyState: number;
   lastSeen?: number;       // timestamp of last heartbeat
@@ -27,12 +29,53 @@ export function deregisterClient(key: symbol) {
 
 export function updateClientHandle(key: symbol, handle: string | null) {
   const c = clients.get(key);
-  if (c) c.handle = handle;
+  if (!c) return;
+  c.handle = handle;
+  if (c.sessionId) {
+    if (!c.handles) c.handles = new Map();
+    c.handles.set(c.sessionId, handle);
+  }
+}
+
+export function joinClientSession(key: symbol, sessionId: string, handle: string | null) {
+  const c = clients.get(key);
+  if (!c) return;
+  if (!c.sessionIds) {
+    c.sessionIds = new Set(c.sessionId ? [c.sessionId] : []);
+  }
+  if (!c.handles) {
+    c.handles = new Map(c.sessionId ? [[c.sessionId, c.handle ?? null]] : []);
+  }
+  c.sessionIds.add(sessionId);
+  c.handles.set(sessionId, handle);
+  c.sessionId = sessionId;
+  c.handle = handle;
+}
+
+export function leaveClientSession(key: symbol, sessionId: string) {
+  const c = clients.get(key);
+  if (!c) return;
+  c.sessionIds?.delete(sessionId);
+  c.handles?.delete(sessionId);
+
+  if (c.sessionId === sessionId) {
+    const fallback = c.sessionIds ? Array.from(c.sessionIds).at(-1) : undefined;
+    c.sessionId = fallback;
+    c.handle = fallback ? (c.handles?.get(fallback) ?? null) : null;
+  }
 }
 
 export function updateClientPresence(key: symbol) {
   const c = clients.get(key);
   if (c) c.lastSeen = Date.now();
+}
+
+function hasJoinedSession(client: WSClient, sessionId: string): boolean {
+  return client.sessionIds?.has(sessionId) || client.sessionId === sessionId;
+}
+
+function handleForSession(client: WSClient, sessionId: string): string | null {
+  return client.handles?.get(sessionId) ?? client.handle ?? null;
 }
 
 /**
@@ -43,7 +86,9 @@ export function getPresence(sessionId: string) {
   const now = Date.now();
 
   for (const client of clients.values()) {
-    if (client.sessionId !== sessionId || !client.handle) continue;
+    if (!hasJoinedSession(client, sessionId)) continue;
+    const handle = handleForSession(client, sessionId);
+    if (!handle) continue;
     
     const lastSeen = client.lastSeen || 0;
     const diff = now - lastSeen;
@@ -53,8 +98,8 @@ export function getPresence(sessionId: string) {
     else if (diff > 60000) status = 'idle';
     
     // Only keep the most recent for a handle
-    if (!presence[client.handle] || presence[client.handle].lastSeen < lastSeen) {
-      presence[client.handle] = { lastSeen, status };
+    if (!presence[handle] || presence[handle].lastSeen < lastSeen) {
+      presence[handle] = { lastSeen, status };
     }
   }
   return presence;
@@ -70,9 +115,9 @@ export function broadcast(sessionId: string, msg: object, target?: string | null
   const targeted = target && target !== '@everyone';
 
   for (const client of clients.values()) {
-    if (client.sessionId !== sessionId) continue;
+    if (!hasJoinedSession(client, sessionId)) continue;
     if (client.readyState !== 1) continue; // WS OPEN
-    if (targeted && client.handle !== target) continue;
+    if (targeted && handleForSession(client, sessionId) !== target) continue;
     try { client.send(json); } catch {}
   }
 }

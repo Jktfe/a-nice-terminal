@@ -345,7 +345,13 @@ wss.on('connection', async (ws) => {
   clients.set(ws, client);
 
   // Register in broadcast singleton so API routes can push events
-  const { registerClient, deregisterClient, updateClientHandle, updateClientPresence } = await import('./src/lib/server/ws-broadcast.js');
+  const {
+    registerClient,
+    deregisterClient,
+    joinClientSession,
+    leaveClientSession,
+    updateClientPresence,
+  } = await import('./src/lib/server/ws-broadcast.js');
   const clientKey = Symbol();
   // Will be updated when client joins a session
   const broadcastEntry = {
@@ -368,10 +374,12 @@ wss.on('connection', async (ws) => {
         }
         case 'join_session': {
           // Update broadcast entry so API-route pushes (tasks, messages) reach this client
-          broadcastEntry.sessionId = msg.sessionId;
           const { queries: q2 } = await import('./src/lib/server/db.js');
           const sess = q2.getSession(msg.sessionId);
-          broadcastEntry.handle = sess?.handle ?? null;
+          const handle = sess?.handle ?? null;
+          broadcastEntry.sessionId = msg.sessionId;
+          broadcastEntry.handle = handle;
+          joinClientSession(clientKey, msg.sessionId, handle);
 
           // Only Terminal.svelte sends spawnPty:true — the page's own WS should NOT
           // trigger a spawn, because it doesn't know the actual terminal dimensions and
@@ -408,6 +416,7 @@ wss.on('connection', async (ws) => {
         }
         case 'leave_session':
           client.joinedSessions.delete(msg.sessionId);
+          leaveClientSession(clientKey, msg.sessionId);
           break;
         case 'terminal_input':
           ptm.write(msg.sessionId, msg.data);

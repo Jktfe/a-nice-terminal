@@ -4,11 +4,11 @@
   let {
     sessionId,
     driver,
-    onSend,
+    onInsertCommand,
   }: {
     sessionId: string;
     driver?: string | null;
-    onSend: (text: string) => void;
+    onInsertCommand: (text: string) => void;
   } = $props();
 
   // svelte-ignore state_referenced_locally -- sessionId and driver are stable per terminal session instance
@@ -30,7 +30,7 @@
       editingId = editingId === btn.id ? null : btn.id;
       return;
     }
-    onSend(btn.command);
+    onInsertCommand(btn.command);
   }
 
   function handleAdd() {
@@ -58,7 +58,7 @@
         class:editing-highlight={editing && editingId === btn.id}
         style="--accent:{btn.color ?? '#6366F1'};"
         onclick={() => handleTap(btn)}
-        title={editing ? 'Click to edit' : btn.command}
+        title={editing ? 'Click to edit' : `Insert: ${btn.command}`}
       >
         <span class="btn-icon">{btn.icon}</span>
         <span class="btn-label">{btn.label}</span>

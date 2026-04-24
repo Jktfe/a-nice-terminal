@@ -211,14 +211,53 @@
   }
 
   let linkedChatInput = $state('');
+  let linkedChatInputEl = $state<HTMLTextAreaElement | null>(null);
   let sendBtnEl = $state<HTMLButtonElement | null>(null);
+
+  function resizeLinkedChatInput() {
+    if (!linkedChatInputEl) return;
+    const maxHeight = typeof window === 'undefined'
+      ? 220
+      : Math.max(150, Math.floor(window.innerHeight * 0.32));
+    linkedChatInputEl.style.height = 'auto';
+    const nextHeight = Math.min(linkedChatInputEl.scrollHeight, maxHeight);
+    linkedChatInputEl.style.height = `${nextHeight}px`;
+    linkedChatInputEl.style.overflowY = linkedChatInputEl.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }
+
+  function handleLinkedChatInput() {
+    handleTypingInput();
+    resizeLinkedChatInput();
+  }
+
+  function insertQuickLaunchCommand(command: string) {
+    linkedChatInput = command;
+    queueMicrotask(() => {
+      resizeLinkedChatInput();
+      linkedChatInputEl?.focus();
+      linkedChatInputEl?.setSelectionRange(command.length, command.length);
+    });
+  }
+
+  function handleLinkedChatKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleLinkedSend();
+    }
+  }
 
   function handleLinkedSend() {
     if (!linkedChatInput.trim()) return;
     onPostToLinkedChat(linkedChatInput.trim(), (replyTo?.id as string | undefined) ?? null);
     linkedChatInput = '';
     onClearReply();
+    setTimeout(resizeLinkedChatInput, 0);
   }
+
+  $effect(() => {
+    linkedChatInput;
+    queueMicrotask(resizeLinkedChatInput);
+  });
 
   // Workaround: Svelte 5 event delegation sometimes fails on buttons in
   // child components. Attach a native DOM listener as a belt-and-braces fix.
@@ -505,7 +544,9 @@
     </div>
   {/if}
 
-  <QuickLaunchBar {sessionId} driver={session?.cli_flag} onSend={(cmd) => onSend(cmd)} />
+  {#if session?.type === 'terminal'}
+    <QuickLaunchBar {sessionId} driver={session?.cli_flag} onInsertCommand={insertQuickLaunchCommand} />
+  {/if}
 
   <!-- Input bar -->
   {#if session?.type === 'terminal'}
@@ -526,18 +567,20 @@
         {wsStore.getTyping().join(', ')} {wsStore.getTyping().length === 1 ? 'is' : 'are'} typing…
       </div>
     {/if}
-    <div class="flex gap-2 p-3 border-t" style="border-color:var(--border-light);">
-      <input
-        class="flex-1 rounded-lg px-3 py-2 text-sm outline-none"
+    <div class="flex items-end gap-2 p-3 border-t" style="border-color:var(--border-light);">
+      <textarea
+        bind:this={linkedChatInputEl}
+        class="flex-1 rounded-lg px-3 py-2 text-sm outline-none resize-none"
         style="background:var(--bg-card);border:1px solid var(--border-subtle);color:var(--text);"
         placeholder="Message linked chat…"
         bind:value={linkedChatInput}
-        oninput={handleTypingInput}
-        onkeydown={(e) => { if (e.key === 'Enter') handleLinkedSend(); }}
-      />
+        oninput={handleLinkedChatInput}
+        onkeydown={handleLinkedChatKeydown}
+        rows="2"
+      ></textarea>
       <button
         bind:this={sendBtnEl}
-        class="px-3 py-2 text-sm rounded-lg font-medium"
+        class="px-3 py-2 text-sm rounded-lg font-medium shrink-0"
         style="background:#6366F1;color:#fff;"
       >Send</button>
     </div>

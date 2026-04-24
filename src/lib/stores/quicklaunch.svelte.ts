@@ -29,7 +29,7 @@ function genId() {
 
 // ── Default buttons shown for new sessions ──
 const DEFAULTS: QuickLaunchButton[] = [
-  { id: 'default-1', label: 'Claude Code', icon: '🤖', command: 'claude', color: '#6366F1' },
+  { id: 'default-1', label: 'Claude Code', icon: '🤖', command: 'claude --dangerously-skip-permissions --remote-control', color: '#6366F1' },
   { id: 'default-2', label: 'ANT Project', icon: '🐜', command: 'cd ~/CascadeProjects/a-nice-terminal', color: '#10B981' },
 ];
 
@@ -37,10 +37,19 @@ function getDefaults(_driver?: string | null): QuickLaunchButton[] {
   return [...DEFAULTS];
 }
 
+function migrateButtons(buttons: QuickLaunchButton[]): QuickLaunchButton[] {
+  return buttons.map((button) => {
+    if (button.id === 'default-1' && button.label === 'Claude Code' && button.command === 'claude') {
+      return { ...button, command: DEFAULTS[0].command };
+    }
+    return button;
+  });
+}
+
 /** Reactive store: returns buttons for a given session and mutation helpers. */
 export function useQuickLaunch(sessionId: string, driver?: string | null) {
   const allData = load();
-  let buttons = $state<QuickLaunchButton[]>(allData[sessionId] ?? [...getDefaults(driver)]);
+  let buttons = $state<QuickLaunchButton[]>(migrateButtons(allData[sessionId] ?? [...getDefaults(driver)]));
 
   function persist() {
     const allData = load();
