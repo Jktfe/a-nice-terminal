@@ -20,6 +20,7 @@ import type {
   RawOutput,
   UserChoice,
 } from '../../fingerprint/types.js';
+import type { AgentStatus } from '../../lib/shared/agent-status.js';
 
 export type SendKeysFn = (keys: string[]) => Promise<void>;
 
@@ -233,5 +234,50 @@ export class GeminiCliDriver implements AgentDriver {
       default:
         return null;
     }
+  }
+
+  detectStatus(recentLines: string[]): AgentStatus | null {
+    const text = recentLines.join('\n');
+    const now = Date.now();
+
+    let state: AgentStatus['state'] = 'unknown';
+    let activity: string | undefined;
+    let model: string | undefined;
+
+    // Gemini state patterns
+    if (/\? for shortcuts/.test(text)) state = 'ready';
+    if (/Responding with (gemini-[\w.-]+)/i.test(text)) {
+      state = 'busy';
+      const match = text.match(/Responding with (gemini-[\w.-]+)/i);
+      if (match) model = match[1];
+    }
+
+    // Model from status line: "Auto Gemini 3" or "gemini-2.5-pro"
+    if (!model) {
+      const modelMatch = text.match(/(Gemini\s*[\d.]+|gemini-[\w.-]+)/i);
+      if (modelMatch) model = modelMatch[1];
+    }
+
+    // Context from status line: "0% used"
+    let contextUsedPct: number | undefined;
+    const ctxMatch = text.match(/(\d+)%\s+used/);
+    if (ctxMatch) contextUsedPct = parseInt(ctxMatch[1], 10);
+
+    // Tool completion as activity
+    const toolMatch = text.match(/│\s+✓\s+(Shell|WriteFile|ReadFile|SearchFile)\s+(.+?)(?:\s+\d|$)/);
+    if (toolMatch) {
+      activity = `${toolMatch[1]}: ${toolMatch[2].trim()}`;
+    }
+
+    if (state === 'unknown') return null;
+
+    return {
+      state,
+      activity,
+      model,
+      contextUsedPct,
+      contextRemainingPct: contextUsedPct != null ? 100 - contextUsedPct : undefined,
+      detectedAt: now,
+    };
   }
 }

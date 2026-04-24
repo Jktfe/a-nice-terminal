@@ -100,6 +100,29 @@ function buildSummary(event: any, eventClass: string): string {
   return event.text?.slice(0, 80) ?? `${eventClass.replace(/_/g, ' ')}`;
 }
 
+// ─── Waiting-context extraction ──────────────────────────────────────────────
+// Regex-based prototype: detects implicit waiting/question patterns in recent
+// agent text and extracts a short description of what the agent needs.
+
+const WAITING_PATTERNS = [
+  { re: /(?:shall I|should I|want me to|would you like me to)\s+(.{10,80})\??/i, prefix: '' },
+  { re: /(?:please confirm|please approve|please review)\s*:?\s*(.{5,80})/i, prefix: 'Confirm: ' },
+  { re: /(?:which (?:one|approach|option)|what should|how should)\s+(.{5,80})\??/i, prefix: '' },
+  { re: /(?:waiting for|blocked on|need your)\s+(.{5,60})/i, prefix: '' },
+  { re: /(?:do you want|would you prefer)\s+(.{5,80})\??/i, prefix: '' },
+];
+
+function extractWaitingContext(text: string): string | null {
+  for (const { re, prefix } of WAITING_PATTERNS) {
+    const match = text.match(re);
+    if (match) {
+      const clause = match[1].replace(/[.?!,;:]+$/, '').trim();
+      return prefix + clause.slice(0, 80);
+    }
+  }
+  return null;
+}
+
 // ─── Core API ────────────────────────────────────────────────────────────────
 
 function getState(sessionId: string): SessionState {
@@ -202,6 +225,27 @@ async function onDebounce(sessionId: string, state: SessionState): Promise<void>
     const window = state.buffer.slice(-20).map(e => e.text).join('\n');
     const classified = (state.driver as any).classifyFromWindow(window, lastLine.ts);
     if (classified) event = classified;
+  }
+
+  // Check for agent status telemetry (model, context, ready/busy state)
+  if (state.driver && 'detectStatus' in state.driver) {
+    const statusLines = state.buffer.slice(-15).map(e => e.text);
+    const status = (state.driver as any).detectStatus(statusLines);
+    if (status && _broadcastGlobal) {
+      // If agent is ready and recent text has a question, extract waiting context
+      if (status.state === 'ready') {
+        const recentText = statusLines.join('\n');
+        const waitingContext = extractWaitingContext(recentText);
+        if (waitingContext) {
+          (status as any).waitingFor = waitingContext;
+        }
+      }
+      _broadcastGlobal({
+        type: 'agent_status_updated',
+        sessionId,
+        status,
+      });
+    }
   }
 
   if (!event) {

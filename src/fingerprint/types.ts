@@ -126,6 +126,13 @@ export interface AgentDriver {
    * Optional — if not implemented, all lines pass through.
    */
   isChrome?(line: string): boolean;
+
+  /**
+   * Parse a window of recent terminal output and extract structured agent
+   * telemetry (model, context usage, ready/busy state, workspace, branch).
+   * Optional — if not implemented, no telemetry is extracted.
+   */
+  detectStatus?(recentLines: string[]): import('../lib/shared/agent-status.js').AgentStatus | null;
 }
 
 // ─── Probe runner interface (orchestration layer above AgentDriver) ───────────

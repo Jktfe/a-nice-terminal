@@ -9,6 +9,7 @@
   import ChatMessages from '$lib/components/ChatMessages.svelte';
   import ChatSidePanel from '$lib/components/ChatSidePanel.svelte';
   import DigestPanel from '$lib/components/DigestPanel.svelte';
+  import ActivityRail from '$lib/components/ActivityRail.svelte';
   import { useToasts } from '$lib/stores/toast.svelte';
   import { normalizeSessionName } from '$lib/utils/session-naming';
   import { onMount, onDestroy } from 'svelte';
@@ -61,6 +62,7 @@
   // Text terminal view — capture-pane output
   let terminalText = $state('');
   let terminalTextTimer: ReturnType<typeof setInterval> | null = null;
+  let terminalSpawnTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Chrome patterns to strip from terminal text view (same as pty-daemon fast path)
   const CHROME_RE = [
@@ -222,10 +224,11 @@
   let mentionHandles = $state<{ handle: string; name: string }[]>([]);
   let postsFrom = $state<Record<string, unknown>[]>([]);
 
-  async function loadMentionHandles() {
+  async function loadMentionHandles(targetSessionId = sessionId) {
     try {
-      const res = await fetch(`/api/sessions/${sessionId}/participants`);
+      const res = await fetch(`/api/sessions/${targetSessionId}/participants`);
       const data = await res.json();
+      if (targetSessionId !== sessionId) return;
       mentionHandles = (data.all || [])
         .filter((p: Record<string, string>) => p.handle)
         .map((p: Record<string, string>) => ({ handle: p.handle, name: p.name || p.handle }));
@@ -239,6 +242,9 @@
   let linkedChatHasMore = $state(false);
   let linkedChatLoadingMore = $state(false);
   let linkedChatScrollEl = $state<HTMLElement | null>(null);
+  let messageSyncInFlight = false;
+  let liveRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  let sessionLoadSeq = 0;
   const LINKED_CHAT_PAGE_SIZE = 50;
 
   // Chat message search
@@ -262,6 +268,88 @@
     const msgs: Record<string, unknown>[] = data.messages || [];
     linkedChatMessages = msgs;
     linkedChatHasMore = msgs.length === LINKED_CHAT_PAGE_SIZE;
+  }
+
+  function newestMessageTimestamp(messages: Record<string, unknown>[]): string | null {
+    let newest: string | null = null;
+    for (const message of messages) {
+      const createdAt = typeof message.created_at === 'string' ? message.created_at : null;
+      if (createdAt && (!newest || createdAt > newest)) newest = createdAt;
+    }
+    return newest;
+  }
+
+  function overlapSinceTimestamp(createdAt: string | null): string | null {
+    if (!createdAt) return null;
+    const parsed = new Date(`${createdAt.replace(' ', 'T')}Z`);
+    if (Number.isNaN(parsed.getTime())) return createdAt;
+    return new Date(parsed.getTime() - 5000).toISOString().slice(0, 19).replace('T', ' ');
+  }
+
+  function appendUniqueMessages(
+    current: Record<string, unknown>[],
+    incoming: Record<string, unknown>[]
+  ): { messages: Record<string, unknown>[]; added: boolean } {
+    const seen = new Set(current.map((message) => String(message.id ?? '')));
+    const next = [...current];
+    let added = false;
+
+    for (const message of incoming) {
+      const id = String(message.id ?? '');
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      next.push(message);
+      added = true;
+    }
+
+    return { messages: next, added };
+  }
+
+  async function fetchCatchupMessages(chatId: string, current: Record<string, unknown>[]) {
+    const since = overlapSinceTimestamp(newestMessageTimestamp(current));
+    const url = since
+      ? `/api/sessions/${chatId}/messages?since=${encodeURIComponent(since)}&limit=200`
+      : `/api/sessions/${chatId}/messages?limit=200`;
+    const res = await fetch(url);
+    if (!res.ok) return { messages: current, added: false };
+    const data = await res.json();
+    return appendUniqueMessages(current, data.messages || []);
+  }
+
+  async function syncLiveMessages() {
+    if (messageSyncInFlight || !session) return;
+    const chatId = session.type === 'terminal' ? linkedChatId : sessionId;
+    if (!chatId) return;
+
+    messageSyncInFlight = true;
+    const shouldStickToBottom = atBottom;
+    try {
+      if (session.type === 'terminal') {
+        const result = await fetchCatchupMessages(chatId, linkedChatMessages);
+        if (result.added) linkedChatMessages = result.messages;
+      } else {
+        const result = await fetchCatchupMessages(chatId, msgStore.messages as unknown as Record<string, unknown>[]);
+        if (result.added) msgStore.messages = result.messages as typeof msgStore.messages;
+      }
+      if (shouldStickToBottom) requestAnimationFrame(() => scrollToBottom());
+    } catch {
+      // WS remains the primary live path; the catch-up loop retries quietly.
+    } finally {
+      messageSyncInFlight = false;
+    }
+  }
+
+  function handleLiveRefreshWake() {
+    if (!document.hidden) void syncLiveMessages();
+    if (!ws || ws.readyState === WebSocket.CLOSED) connectWs();
+  }
+
+  function startLiveRefresh() {
+    window.addEventListener('focus', handleLiveRefreshWake);
+    document.addEventListener('visibilitychange', handleLiveRefreshWake);
+    liveRefreshTimer = setInterval(() => {
+      if (!document.hidden) void syncLiveMessages();
+    }, 5000);
   }
 
   async function loadOlderLinkedChatMessages() {
@@ -416,29 +504,37 @@
   let wsDestroyed = false;
   const socket = $derived(ws);
 
+  function joinCurrentWs(s: WebSocket) {
+    if (s.readyState !== WebSocket.OPEN || !session) return;
+
+    const isTerminal = session.type === 'terminal';
+    console.log(`[WS] join: sessionId=${sessionId} type=${session.type} isTerminal=${isTerminal} linkedChatId=${linkedChatId}`);
+    s.send(JSON.stringify({
+      type: 'join_session',
+      sessionId,
+      spawnPty: isTerminal,
+      cols: 120,
+      rows: 40,
+    }));
+    if (linkedChatId && linkedChatId !== sessionId) {
+      s.send(JSON.stringify({ type: 'join_session', sessionId: linkedChatId }));
+    }
+    s.send(JSON.stringify({ type: 'join_session', sessionId: 'SESSIONS_CHANNEL' }));
+    void syncLiveMessages();
+  }
+
   function connectWs() {
     if (wsDestroyed) return;
+    if (ws?.readyState === WebSocket.OPEN) {
+      joinCurrentWs(ws);
+      return;
+    }
+    if (ws?.readyState === WebSocket.CONNECTING) return;
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const s = new WebSocket(`${protocol}//${location.host}/ws`);
     ws = s;
 
-    s.onopen = () => {
-      // For terminal sessions, spawn the PTY (tmux session) if it doesn't exist.
-      const isTerminal = session?.type === 'terminal';
-      console.log(`[WS] onopen: sessionId=${sessionId} type=${session?.type} isTerminal=${isTerminal} linkedChatId=${linkedChatId}`);
-      s.send(JSON.stringify({
-        type: 'join_session',
-        sessionId,
-        spawnPty: isTerminal,
-        cols: 120,
-        rows: 40,
-      }));
-      if (linkedChatId && linkedChatId !== sessionId) {
-        s.send(JSON.stringify({ type: 'join_session', sessionId: linkedChatId }));
-      }
-      // Join global sessions channel to receive sessions_changed events
-      s.send(JSON.stringify({ type: 'join_session', sessionId: 'SESSIONS_CHANNEL' }));
-    };
+    s.onopen = () => joinCurrentWs(s);
 
     s.onmessage = (event) => {
       try {
@@ -522,14 +618,65 @@
     s.onclose = () => { if (!wsDestroyed) setTimeout(connectWs, 2000); };
   }
 
-  onMount(async () => {
+  function resetSessionState() {
+    session = null;
+    mode = 'chat';
+    showMenu = false;
+    replyTo = null;
+    showDigest = false;
+    terminalText = '';
+    terminalTextLoaded = false;
+    tasks = [];
+    fileRefs = [];
+    mentionHandles = [];
+    postsFrom = [];
+    linkedChatId = '';
+    linkedChatMessages = [];
+    linkedChatHasMore = false;
+    linkedChatLoadingMore = false;
+    chatSearchQuery = '';
+    chatSearchResults = [];
+    chatSearchSelectedIndex = 0;
+    chatSearchLoading = false;
+    chatSearchRequestSeq++;
+    readReceipts = {};
+    msgStore.messages = [];
+    if (terminalSpawnTimer) {
+      clearTimeout(terminalSpawnTimer);
+      terminalSpawnTimer = null;
+    }
+  }
+
+  function scheduleTerminalSpawn(targetSessionId: string) {
+    if (terminalSpawnTimer) clearTimeout(terminalSpawnTimer);
+    terminalSpawnTimer = setTimeout(() => {
+      if (sessionId !== targetSessionId) return;
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'join_session',
+          sessionId: targetSessionId,
+          spawnPty: true,
+          cols: 120,
+          rows: 40,
+        }));
+      }
+    }, 1000);
+  }
+
+  async function loadSessionPage(targetSessionId: string) {
+    const loadSeq = ++sessionLoadSeq;
+    resetSessionState();
+
     const [sessRes, allSessRes] = await Promise.all([
-      fetch(`/api/sessions/${sessionId}`),
+      fetch(`/api/sessions/${targetSessionId}`),
       fetch('/api/sessions'),
     ]);
-    session = await sessRes.json();
-    allSessions = (await allSessRes.json()).sessions || [];
-    mode = 'chat';
+    const loadedSession = await sessRes.json();
+    const loadedSessions = (await allSessRes.json()).sessions || [];
+    if (loadSeq !== sessionLoadSeq || targetSessionId !== sessionId) return;
+
+    session = loadedSession;
+    allSessions = loadedSessions;
     // Terminal sessions start with the panel hidden. Chat sessions keep the
     // panel closed on narrower layouts so the conversation stays primary.
     const wideChatLayout = window.matchMedia('(min-width: 1024px)').matches;
@@ -542,20 +689,22 @@
       }
     }
 
-    if (session?.type !== 'terminal') await msgStore.load(sessionId);
+    if (session?.type !== 'terminal') await msgStore.load(targetSessionId);
+    if (loadSeq !== sessionLoadSeq || targetSessionId !== sessionId) return;
     requestAnimationFrame(() => scrollToBottom());
 
     const [tasksRes, refsRes] = await Promise.all([
-      fetch(`/api/sessions/${sessionId}/tasks`),
-      fetch(`/api/sessions/${sessionId}/file-refs`),
+      fetch(`/api/sessions/${targetSessionId}/tasks`),
+      fetch(`/api/sessions/${targetSessionId}/file-refs`),
     ]);
+    if (loadSeq !== sessionLoadSeq || targetSessionId !== sessionId) return;
     tasks = (await tasksRes.json()).tasks || [];
     fileRefs = (await refsRes.json()).refs || [];
-    loadMentionHandles();
+    loadMentionHandles(targetSessionId);
 
     // Load read receipts for the active chat
-    const readChatId = session?.type === 'terminal' ? session?.linked_chat_id : sessionId;
-    if (readChatId) loadReadReceipts(readChatId);
+    const readChatId = session?.type === 'terminal' ? session?.linked_chat_id : targetSessionId;
+    if (readChatId) loadReadReceipts(readChatId, targetSessionId);
 
     connectWs();
 
@@ -563,19 +712,19 @@
     // a second join_session with spawnPty after a short delay. The onopen
     // handler should do this but has timing issues on fresh sessions.
     if (session?.type === 'terminal') {
-      setTimeout(() => {
-        if (ws?.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({
-            type: 'join_session',
-            sessionId,
-            spawnPty: true,
-            cols: 120,
-            rows: 40,
-          }));
-        }
-      }, 1000);
+      scheduleTerminalSpawn(targetSessionId);
     }
     loadMemories();
+  }
+
+  onMount(() => {
+    startLiveRefresh();
+  });
+
+  $effect(() => {
+    const targetSessionId = sessionId;
+    if (!targetSessionId) return;
+    void loadSessionPage(targetSessionId);
   });
 
   $effect(() => {
@@ -627,6 +776,10 @@
   onDestroy(() => {
     wsDestroyed = true;
     ws?.close();
+    window.removeEventListener('focus', handleLiveRefreshWake);
+    document.removeEventListener('visibilitychange', handleLiveRefreshWake);
+    if (liveRefreshTimer) clearInterval(liveRefreshTimer);
+    if (terminalSpawnTimer) clearTimeout(terminalSpawnTimer);
     if (cmdPoll !== null) clearInterval(cmdPoll);
     if (terminalTextTimer) clearInterval(terminalTextTimer);
   });
@@ -810,10 +963,11 @@
   // Read receipts state — keyed by message_id → array of readers
   let readReceipts = $state<Record<string, { session_id: string; reader_name: string; reader_handle: string | null; read_at: string }[]>>({});
 
-  async function loadReadReceipts(chatId: string) {
+  async function loadReadReceipts(chatId: string, targetSessionId = sessionId) {
     try {
       const res = await fetch(`/api/sessions/${chatId}/reads`);
       const data = await res.json();
+      if (targetSessionId !== sessionId) return;
       readReceipts = data.reads || {};
     } catch {}
   }
@@ -843,7 +997,12 @@
   }
 </script>
 
-<div class="h-screen w-screen flex flex-col overflow-hidden" style="background: var(--bg); color: var(--text);">
+<div class="h-screen w-screen flex overflow-hidden" style="background: var(--bg); color: var(--text);">
+  <!-- Activity Rail — persistent session switcher -->
+  <ActivityRail currentSessionId={sessionId} />
+
+  <!-- Main content column -->
+  <div class="flex-1 flex flex-col overflow-hidden min-w-0">
   <!-- Toolbar -->
   <ChatHeader
     {session}
@@ -1072,4 +1231,5 @@
       />
     {/if}
   </div>
+  </div><!-- /main content column -->
 </div>

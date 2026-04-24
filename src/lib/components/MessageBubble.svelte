@@ -59,7 +59,7 @@
 
   const displayName = $derived(
     resolvedSession ? (resolvedSession.display_name || resolvedSession.name) :
-    handle          ? handle :
+    handle          ? (handle.startsWith('@') ? handle : 'Participant') :
     isAi            ? 'Assistant' : 'James'
   );
 
@@ -87,7 +87,7 @@
   );
   const replyDisplayName = $derived(
     replySession ? (replySession.display_name || replySession.name) :
-    replyHandle  ? replyHandle :
+    replyHandle  ? (replyHandle.startsWith('@') ? replyHandle : 'Participant') :
     replyMessage ? (replyMessage.role === 'assistant' ? 'Assistant' : 'You') : ''
   );
   const replySnippet = $derived((replyMessage?.content || '').replace(/\s+/g, ' ').trim().slice(0, 120));

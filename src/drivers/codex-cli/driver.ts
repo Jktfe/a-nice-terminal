@@ -19,6 +19,7 @@ import type {
   RawOutput,
   UserChoice,
 } from '../../fingerprint/types.js';
+import type { AgentStatus } from '../../lib/shared/agent-status.js';
 
 export type SendKeysFn = (keys: string[]) => Promise<void>;
 
@@ -227,5 +228,43 @@ export class CodexCliDriver implements AgentDriver {
       default:
         return null;
     }
+  }
+
+  detectStatus(recentLines: string[]): AgentStatus | null {
+    const text = recentLines.join('\n');
+    const now = Date.now();
+
+    let state: AgentStatus['state'] = 'unknown';
+    let activity: string | undefined;
+    let model: string | undefined;
+
+    // Codex state patterns
+    if (/Ready/.test(text)) state = 'ready';
+    if (/• Working \(\d+s/.test(text)) {
+      state = 'busy';
+      const match = text.match(/• Working \((\d+)s/);
+      if (match) activity = `Working (${match[1]}s)`;
+    }
+    if (/Context \d+% left/.test(text)) state = state === 'unknown' ? 'ready' : state;
+
+    // Model from status line: "gpt-5.5 xhigh"
+    const modelMatch = text.match(/(gpt-[\d.]+\s*\w*)/i);
+    if (modelMatch) model = modelMatch[1].trim();
+
+    // Context from status line: "Context 100% left"
+    let contextRemainingPct: number | undefined;
+    const ctxMatch = text.match(/Context\s+(\d+)%\s+left/);
+    if (ctxMatch) contextRemainingPct = parseInt(ctxMatch[1], 10);
+
+    if (state === 'unknown') return null;
+
+    return {
+      state,
+      activity,
+      model,
+      contextUsedPct: contextRemainingPct != null ? 100 - contextRemainingPct : undefined,
+      contextRemainingPct,
+      detectedAt: now,
+    };
   }
 }

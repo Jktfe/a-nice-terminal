@@ -16,6 +16,7 @@ import type {
   RawOutput,
   UserChoice,
 } from '../../fingerprint/types.js';
+import type { AgentStatus } from '../../lib/shared/agent-status.js';
 
 // ─── Callback type injected by caller ────────────────────────────────────────
 
@@ -296,6 +297,59 @@ export class ClaudeCodeDriver implements AgentDriver {
     if (/^\s*⎿\s/.test(t)) return true;                         // tool result bracket
     if (/^\s*\d+\.\s+(Yes|No|Don't)/.test(t)) return true;      // TUI option list
     return false;
+  }
+
+  detectStatus(recentLines: string[]): AgentStatus | null {
+    const text = recentLines.join('\n');
+    const now = Date.now();
+
+    // Determine state
+    let state: AgentStatus['state'] = 'unknown';
+    let activity: string | undefined;
+
+    if (IDLE_STATUS_RE.test(text)) {
+      state = 'ready';
+    }
+    if (/esc to interrupt/.test(text)) {
+      state = 'busy';
+    }
+    if (/thought for \d/i.test(text)) {
+      state = 'thinking';
+    }
+
+    const progressMatch = text.match(/⏺\s+(Reading|Searching|Writing|Running|Fetching)\s+(.+?)…/);
+    if (progressMatch) {
+      state = 'busy';
+      activity = `${progressMatch[1]} ${progressMatch[2]}`;
+    }
+
+    // Extract model from status line patterns
+    let model: string | undefined;
+    const modelMatch = text.match(/(Opus|Sonnet|Haiku)\s+[\d.]+/i);
+    if (modelMatch) model = modelMatch[0];
+
+    // Extract token count as a rough context indicator
+    let contextUsedPct: number | undefined;
+    const ctxMatch = text.match(/ctx:(\d+)%/);
+    if (ctxMatch) contextUsedPct = parseInt(ctxMatch[1], 10);
+
+    // Extract rate limit
+    let rateLimitPct: number | undefined;
+    const rateMatch = text.match(/5h:(\d+)%/);
+    if (rateMatch) rateLimitPct = parseInt(rateMatch[1], 10);
+
+    if (state === 'unknown') return null;
+
+    return {
+      state,
+      activity,
+      model,
+      contextUsedPct,
+      contextRemainingPct: contextUsedPct != null ? 100 - contextUsedPct : undefined,
+      rateLimitPct,
+      rateLimitWindow: rateLimitPct != null ? '5h' : undefined,
+      detectedAt: now,
+    };
   }
 }
 
