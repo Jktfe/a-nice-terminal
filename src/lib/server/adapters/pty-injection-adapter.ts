@@ -5,6 +5,7 @@
 // Falls back to ptyClient.write() if globalThis isn't set yet.
 
 import type { DeliveryAdapter, RouteMessage, RouteTarget, DeliveryResult } from '../message-router.js';
+import { queries } from '../db.js';
 
 function ptmWrite(sessionId: string, data: string): void {
   const write = (globalThis as any).__antPtmWrite;
@@ -35,7 +36,21 @@ export class PtyInjectionAdapter implements DeliveryAdapter {
       // Sanitise message content: strip characters that shells interpret as syntax
       // (quotes, parens, backticks, $, semicolons) to prevent Gemini/other CLIs from choking
       const safeContent = message.content.slice(0, 2000).replace(/['"`()$;\\|&<>{}[\]!#~]/g, '');
-      const plainText = `[${header}] ${safeContent} -- reply with: ${replyCmd}`;
+
+      // Parent-context snippet for replies — gives terminal agents thread context
+      let replyContext = '';
+      if (message.replyTo) {
+        try {
+          const parent = queries.getMessage(message.replyTo) as any;
+          if (parent?.content) {
+            const snippet = parent.content.slice(0, 120).replace(/['"`()$;\\|&<>{}[\]!#~\n\r]/g, '').trim();
+            const sender = parent.sender_id?.startsWith('@') ? parent.sender_id : (parent.role === 'user' ? 'James' : 'someone');
+            replyContext = ` (replying to ${sender}: ${snippet})`;
+          }
+        } catch {}
+      }
+
+      const plainText = `[${header}] ${safeContent}${replyContext} -- reply with: ${replyCmd}`;
 
       // Two-call protocol: text first, then \r after a beat.
       // Claude Code requires a second \r (empty line) to submit the prompt —
