@@ -31,8 +31,11 @@ export class PtyInjectionAdapter implements DeliveryAdapter {
       const isTargeted = message.target && message.target !== '@everyone' && target.handle && message.target === target.handle;
       const header = isTargeted ? 'antchat message for you' : 'antchat message for all participants';
       const serverUrl = process.env.ANT_SERVER_URL || `https://localhost:${process.env.ANT_PORT || '6458'}`;
-      const replyCmd = `ant chat send ${message.sessionId} --msg "your reply" --server ${serverUrl}`;
-      const plainText = `[${header}] '${message.content.slice(0, 2000)}' (reply with: ${replyCmd})`;
+      const replyCmd = `ant chat send ${message.sessionId} --msg YOURREPLY --server ${serverUrl}`;
+      // Sanitise message content: strip characters that shells interpret as syntax
+      // (quotes, parens, backticks, $, semicolons) to prevent Gemini/other CLIs from choking
+      const safeContent = message.content.slice(0, 2000).replace(/['"`()$;\\|&<>{}[\]!#~]/g, '');
+      const plainText = `[${header}] ${safeContent} -- reply with: ${replyCmd}`;
 
       // Two-call protocol: text first, then \r after a beat.
       // Claude Code requires a second \r (empty line) to submit the prompt —

@@ -109,8 +109,8 @@ export class LinkedChatAdapter implements DeliveryAdapter {
       const notification =
         `\r\n\x1b[36m\u250c\u2500 ANT broadcast \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\x1b[0m\r\n` +
         `\x1b[36m\u2502\x1b[0m From: \x1b[33m${message.senderName}\x1b[0m\r\n` +
-        `\x1b[36m\u2502\x1b[0m "${message.content.slice(0, 200)}"\r\n` +
-        `\x1b[36m\u2502\x1b[0m Reply: \x1b[90mant msg ${message.sessionId} "your reply"\x1b[0m\r\n` +
+        `\x1b[36m\u2502\x1b[0m ${message.content.slice(0, 200).replace(/['"`()$;\\|&<>{}[\]!#~]/g, '')}\r\n` +
+        `\x1b[36m\u2502\x1b[0m Reply: \x1b[90mant msg ${message.sessionId} YOURREPLY\x1b[0m\r\n` +
         `\x1b[36m\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\x1b[0m\r\n`;
       ptmWrite(target.sessionId, notification);
     }
