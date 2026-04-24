@@ -12,8 +12,15 @@ export async function POST({ params, request }: RequestEvent<{ id: string }>) {
   const { title, description, created_by } = await request.json();
   if (!title) return json({ error: 'title required' }, { status: 400 });
 
+  // Validate created_by — only accept handles that resolve to a real session
+  let validCreator: string | null = null;
+  if (created_by) {
+    const creatorSess = queries.getSession(created_by) || queries.getSessionByHandle(created_by);
+    validCreator = creatorSess ? (creatorSess.handle || created_by) : 'cli';
+  }
+
   const id = nanoid();
-  queries.createTask(id, params.id, created_by || null, title, description || null);
+  queries.createTask(id, params.id, validCreator, title, description || null);
 
   const task = queries.getTask(id);
 

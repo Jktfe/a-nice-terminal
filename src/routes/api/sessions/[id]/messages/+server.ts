@@ -95,15 +95,18 @@ export async function POST({ params, request }: RequestEvent<{ id: string }>) {
     sender_id: sender_id || null, target: target || null, reply_to: replyTo, msg_type: msgType,
   };
 
-  // Auto-populate chat_room_members when a sender posts
+  // Auto-populate chat_room_members when a sender posts —
+  // only if sender_id resolves to an actual session (not a bare @handle with no session)
   if (sender_id) {
     try {
       const senderSess = queries.getSession(sender_id) || queries.getSessionByHandle(sender_id);
-      const memberRole = senderSess?.type === 'terminal' ? 'participant' : 'external';
-      let cliFlag: string | null = null;
-      try { cliFlag = senderSess?.cli_flag || JSON.parse(senderSess?.meta || '{}').agent_driver || null; } catch {}
-      const alias = senderSess?.handle || null;
-      queries.addRoomMember(params.id, sender_id, memberRole, cliFlag, alias);
+      if (senderSess) {
+        const memberRole = senderSess.type === 'terminal' ? 'participant' : 'external';
+        let cliFlag: string | null = null;
+        try { cliFlag = senderSess.cli_flag || JSON.parse(senderSess.meta || '{}').agent_driver || null; } catch {}
+        const alias = senderSess.handle || null;
+        queries.addRoomMember(params.id, senderSess.id, memberRole, cliFlag, alias);
+      }
     } catch {}
   }
 

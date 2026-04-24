@@ -231,51 +231,71 @@ export class MessageRouter {
     }
 
     // ── 6. Group chat fan-out (standalone chatroom → room participants) ─
-    //    Uses chat_room_members for scoped delivery. Room member aliases
-    //    take precedence over global handles for @mention resolution.
-    //    Fallback: if no room members, use global terminal list (transition).
-    const linkedTerminals: any[] = queries.getTerminalsByLinkedChat(message.sessionId);
-    if (linkedTerminals.length === 0) {
+    //    Only runs for standalone chatrooms (NOT linked chats — Section 5
+    //    already handled those). Uses chat_room_members for scoped delivery.
+    //    Room member aliases take precedence over global handles for
+    //    @mention resolution. NO global fallback — if no room members
+    //    exist, no delivery happens (prevents blast-to-all-terminals bug).
+    //
+    //    Routing per James's diagram:
+    //      No @mention or invalid @  → All participants' terminals
+    //      Valid @mention            → Only that @'s terminal(s)
+    //    In both cases, also cross-post to each target's linked chat
+    //    (but never back to the originating chatroom).
+    const isLinkedChat = (queries.getTerminalsByLinkedChat(message.sessionId) as any[]).length > 0;
+    if (!isLinkedChat) {
       const ptyAdapter = this.adapters.find(a => a.name === 'pty-injection');
       if (ptyAdapter) {
-        // Primary: use room membership
-        let terminals: any[] = (queries.getRoutableMembers(message.sessionId) as any[])
+        // Room-scoped participants only — no global fallback
+        const terminals: any[] = (queries.getRoutableMembers(message.sessionId) as any[])
           .filter((m: any) => m.type === 'terminal' && m.session_id !== message.senderId);
 
-        // Accessor: room members have session_id + alias + cli_flag, global list has id + handle + cli_flag
-        let getId = (t: any) => t.session_id;
-        let getHandle = (t: any) => t.alias || t.handle;
-        let getCliFlag = (t: any) => t.cli_flag || null;
+        if (terminals.length > 0) {
+          const getId = (t: any) => t.session_id;
+          const getHandle = (t: any) => t.alias || t.handle;
+          const getCliFlag = (t: any) => t.cli_flag || null;
 
-        // Fallback: if no room members registered yet, use global terminal list
-        if (terminals.length === 0) {
-          terminals = (queries.listSessions() as any[]).filter(
-            (s: any) => s.handle && s.type === 'terminal' && s.id !== message.senderId
-          );
-          getId = (t: any) => t.id;
-          getHandle = (t: any) => t.handle;
-          getCliFlag = (t: any) => t.cli_flag || null;
-        }
+          const knownHandles = terminals.map(getHandle).filter(Boolean) as string[];
+          const { targets, isAllParticipants } = parseMentions(message.content, knownHandles);
 
-        const knownHandles = terminals.map(getHandle).filter(Boolean) as string[];
-        const { targets, isAllParticipants } = parseMentions(message.content, knownHandles);
+          const terminalsToSend = isAllParticipants
+            ? terminals.filter((t: any) => !excludedHandles.includes(getHandle(t)))
+            : terminals.filter((t: any) => targets.includes(getHandle(t)) && !excludedHandles.includes(getHandle(t)));
 
-        const terminalsToSend = isAllParticipants
-          ? terminals.filter((t: any) => !excludedHandles.includes(getHandle(t)))
-          : terminals.filter((t: any) => targets.includes(getHandle(t)) && !excludedHandles.includes(getHandle(t)));
+          for (const terminal of terminalsToSend) {
+            const target: RouteTarget = {
+              sessionId: getId(terminal),
+              handle: getHandle(terminal),
+              type: 'terminal',
+              cliFlag: getCliFlag(terminal),
+            };
+            const routedMessage = isAllParticipants ? message : { ...message, target: getHandle(terminal) };
 
-        for (const terminal of terminalsToSend) {
-          const target: RouteTarget = {
-            sessionId: getId(terminal),
-            handle: getHandle(terminal),
-            type: 'terminal',
-            cliFlag: getCliFlag(terminal),
-          };
-          const routedMessage = isAllParticipants ? message : { ...message, target: getHandle(terminal) };
-          if (ptyAdapter.canDeliver(routedMessage, target)) {
-            const result = await ptyAdapter.deliver(routedMessage, target);
-            deliveries.push(result);
-            this.logDelivery(message.id, result);
+            // a. Deliver to the terminal's PTY
+            if (ptyAdapter.canDeliver(routedMessage, target)) {
+              const result = await ptyAdapter.deliver(routedMessage, target);
+              deliveries.push(result);
+              this.logDelivery(message.id, result);
+            }
+
+            // b. Cross-post to the terminal's linked chat (if any),
+            //    but never echo back to the originating chatroom
+            const termSession: any = queries.getSession(getId(terminal));
+            if (termSession?.linked_chat_id && termSession.linked_chat_id !== message.sessionId) {
+              const wsAdapter = this.adapters.find(a => a.name === 'ws-broadcast');
+              if (wsAdapter) {
+                const chatTarget: RouteTarget = {
+                  sessionId: termSession.linked_chat_id,
+                  handle: null,
+                  type: 'chat',
+                };
+                if (wsAdapter.canDeliver(routedMessage, chatTarget)) {
+                  const result = await wsAdapter.deliver(routedMessage, chatTarget);
+                  deliveries.push(result);
+                  this.logDelivery(message.id, result);
+                }
+              }
+            }
           }
         }
       }

@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { NOCTURNE } from '$lib/nocturne';
+  import NocturneIcon from './NocturneIcon.svelte';
+
   let { message, sessionId, onRespond }: {
     message: any;
     sessionId: string;
@@ -22,276 +25,230 @@
   });
 
   const status: string = $derived(meta.status || 'pending');
-
   const responded = $derived(status === 'responded');
   const settled = $derived(status === 'settled');
   const active = $derived(status === 'pending' || !meta.status);
-
   const chosenAction: string = $derived(meta.chosen || '');
 
-  // ── Native DOM refs for click fix (Svelte 5 onclick bug) ──────────
-  let approveBtnEl = $state<HTMLButtonElement | null>(null);
-  let denyBtnEl = $state<HTMLButtonElement | null>(null);
-  let submitBtnEl = $state<HTMLButtonElement | null>(null);
-  let confirmBtnEl = $state<HTMLButtonElement | null>(null);
-  let cancelBtnEl = $state<HTMLButtonElement | null>(null);
-  let retryBtnEl = $state<HTMLButtonElement | null>(null);
-  let abortBtnEl = $state<HTMLButtonElement | null>(null);
-  let authApproveBtnEl = $state<HTMLButtonElement | null>(null);
-  let authDenyBtnEl = $state<HTMLButtonElement | null>(null);
-
-  // ── Native addEventListener effects ───────────────────────────────
-  $effect(() => {
-    if (approveBtnEl) {
-      const handler = (e: Event) => { e.stopPropagation(); respond('approve', { action: 'approve' }); };
-      approveBtnEl.addEventListener('click', handler);
-      return () => approveBtnEl?.removeEventListener('click', handler);
-    }
+  const statusPill = $derived.by(() => {
+    if (settled) return { color: NOCTURNE.emerald[400], label: 'done' };
+    if (responded) return { color: NOCTURNE.emerald[400], label: 'responded' };
+    return { color: NOCTURNE.amber[400], label: 'pending' };
   });
 
-  $effect(() => {
-    if (denyBtnEl) {
-      const handler = (e: Event) => { e.stopPropagation(); respond('deny', { action: 'deny' }); };
-      denyBtnEl.addEventListener('click', handler);
-      return () => denyBtnEl?.removeEventListener('click', handler);
-    }
-  });
-
-  $effect(() => {
-    if (submitBtnEl) {
-      const handler = () => {
-        const el = document.getElementById(`free-text-${message.id}`) as HTMLInputElement;
-        if (el?.value.trim()) respond('text', { value: el.value.trim() });
-      };
-      submitBtnEl.addEventListener('click', handler);
-      return () => submitBtnEl?.removeEventListener('click', handler);
-    }
-  });
-
-  $effect(() => {
-    if (confirmBtnEl) {
-      const handler = () => { respond('confirm', { yes: true }); };
-      confirmBtnEl.addEventListener('click', handler);
-      return () => confirmBtnEl?.removeEventListener('click', handler);
-    }
-  });
-
-  $effect(() => {
-    if (cancelBtnEl) {
-      const handler = () => { respond('confirm', { yes: false }); };
-      cancelBtnEl.addEventListener('click', handler);
-      return () => cancelBtnEl?.removeEventListener('click', handler);
-    }
-  });
-
-  $effect(() => {
-    if (retryBtnEl) {
-      const handler = () => { respond('retry', { action: 'retry' }); };
-      retryBtnEl.addEventListener('click', handler);
-      return () => retryBtnEl?.removeEventListener('click', handler);
-    }
-  });
-
-  $effect(() => {
-    if (abortBtnEl) {
-      const handler = () => { respond('abort', { action: 'abort' }); };
-      abortBtnEl.addEventListener('click', handler);
-      return () => abortBtnEl?.removeEventListener('click', handler);
-    }
-  });
-
-  $effect(() => {
-    if (authApproveBtnEl) {
-      const handler = () => { respond('approve', { action: 'authorise', tool: event.payload.tool }); };
-      authApproveBtnEl.addEventListener('click', handler);
-      return () => authApproveBtnEl?.removeEventListener('click', handler);
-    }
-  });
-
-  $effect(() => {
-    if (authDenyBtnEl) {
-      const handler = () => { respond('deny', { action: 'deny', tool: event.payload.tool }); };
-      authDenyBtnEl.addEventListener('click', handler);
-      return () => authDenyBtnEl?.removeEventListener('click', handler);
-    }
-  });
+  const eventLabel = $derived(event.class.replace(/_/g, ' '));
 
   function respond(type: string, choice: Record<string, any>) {
-    onRespond({
-      type,
-      event_content: message.content,
-      choice,
-    });
+    onRespond({ type, event_content: message.content, choice });
   }
 </script>
 
 {#if settled}
-  <!-- Collapsed single-line summary -->
-  <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs"
-       style="background:var(--bg-card);border:1px solid var(--border-subtle);color:var(--text-muted);font-family:Inter,sans-serif;">
-    <span class="opacity-60">✓</span>
+  <!-- Collapsed summary -->
+  <div
+    class="flex items-center gap-2"
+    style="
+      padding: 8px 12px;
+      border-radius: var(--radius-input);
+      background: var(--hairline);
+      border: 0.5px solid var(--hairline-strong);
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: var(--text-muted);
+    "
+  >
+    <span style="color: {NOCTURNE.emerald[400]};">✓</span>
     <span>
       {#if event.class === 'permission_request'}
-        Permission {chosenAction || 'handled'}: <code style="font-family:'JetBrains Mono',monospace;font-size:11px;">{event.payload.command || event.payload.file || event.text || '—'}</code>
+        Permission {chosenAction || 'handled'}: <code style="color: var(--text);">{event.payload.command || event.payload.file || event.text || '—'}</code>
       {:else if event.class === 'multi_choice'}
         Selected: {chosenAction || 'option'}
       {:else if event.class === 'confirmation'}
         {chosenAction === 'confirm' ? 'Confirmed' : chosenAction === 'cancel' ? 'Cancelled' : 'Handled'}
-      {:else if event.class === 'free_text'}
-        Text submitted
       {:else if event.class === 'tool_auth'}
         {event.payload.tool || 'Tool'} {chosenAction || 'authorised'}
-      {:else if event.class === 'progress'}
-        {event.payload.message || event.text || 'Completed'}
-      {:else if event.class === 'error_retry'}
-        Error {chosenAction === 'retry' ? 'retried' : 'resolved'}
       {:else}
         Event handled
       {/if}
     </span>
   </div>
 {:else}
-  <!-- Full card -->
-  <div class="rounded-lg overflow-hidden"
-       style="background:var(--bg-card);border:1px solid {active ? '#3B82F680' : 'var(--border-subtle)'};font-family:Inter,sans-serif;{active ? 'box-shadow:0 0 8px #3B82F620;' : ''}">
-    <div class="px-4 py-3">
-      <!-- Event class label -->
-      <div class="flex items-center gap-2 mb-2">
-        <span class="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded"
-              style="background:var(--bg-input);color:var(--text-muted);">
-          {event.class.replace('_', ' ')}
-        </span>
-      </div>
+  <!-- Full Nocturne tool-call card -->
+  <div
+    style="
+      border-radius: var(--radius-card);
+      overflow: hidden;
+      background: var(--bg-card);
+      border: 0.5px solid {active ? NOCTURNE.blue[500] + '40' : 'var(--hairline-strong)'};
+      box-shadow: {active ? `0 0 12px ${NOCTURNE.blue[500]}15` : 'none'};
+    "
+  >
+    <!-- Header -->
+    <div
+      class="flex items-center gap-2"
+      style="
+        padding: 8px 12px;
+        border-bottom: 0.5px solid var(--hairline-strong);
+        background: {NOCTURNE.blue[500]}08;
+      "
+    >
+      <NocturneIcon name="terminal" size={12} color={NOCTURNE.blue[400]} />
+      <span style="font-family: var(--font-mono); font-size: 11.5px; font-weight: 600; letter-spacing: 0; color: {NOCTURNE.blue[300]};">
+        {eventLabel}
+      </span>
+      <span style="font-family: var(--font-mono); font-size: 10.5px; color: var(--text-faint); padding: 1px 6px; border-radius: 4px; background: var(--hairline);">
+        agent_event
+      </span>
+      <div class="flex-1"></div>
+      <!-- Status pill -->
+      <span class="flex items-center gap-1" style="font-family: var(--font-mono); font-size: 10.5px; color: {statusPill.color}; padding: 1px 6px; border-radius: 4px; background: {statusPill.color}18; border: 0.5px solid {statusPill.color}40;">
+        <div class="rounded-full" style="width: 5px; height: 5px; background: {statusPill.color}; box-shadow: 0 0 5px {statusPill.color};"></div>
+        {statusPill.label}
+      </span>
+    </div>
 
+    <!-- Content -->
+    <div style="padding: 10px 12px;">
       {#if event.class === 'permission_request'}
-        <div class="mb-3">
-          {#if event.payload.command}
-            <p class="text-xs mb-1" style="color:var(--text-muted);">Command:</p>
-            <code class="block text-sm px-2 py-1.5 rounded" style="background:var(--bg-input);color:var(--text);font-family:'JetBrains Mono',monospace;">{event.payload.command}</code>
-          {/if}
-          {#if event.payload.file}
-            <p class="text-xs mb-1 {event.payload.command ? 'mt-2' : ''}" style="color:var(--text-muted);">File:</p>
-            <code class="block text-sm px-2 py-1.5 rounded" style="background:var(--bg-input);color:var(--text);font-family:'JetBrains Mono',monospace;">{event.payload.file}</code>
-          {/if}
-          {#if event.text && !event.payload.command && !event.payload.file}
-            <p class="text-sm" style="color:var(--text);">{event.text}</p>
-          {/if}
-        </div>
-        {#if responded}
-          <p class="text-xs font-medium" style="color:{chosenAction === 'approve' ? '#22C55E' : '#EF4444'};">
-            ✓ {chosenAction === 'approve' ? 'Approved' : 'Denied'}
-          </p>
-        {:else}
-          <div class="flex gap-2">
-            <button bind:this={approveBtnEl} class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
-                    style="background:#22C55E;" disabled={!active}
-                    onclick={(e: MouseEvent) => { e.stopPropagation(); respond('approve', { action: 'approve' }); }}>Approve</button>
-            <button bind:this={denyBtnEl} class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
-                    style="background:#EF4444;" disabled={!active}
-                    onclick={(e: MouseEvent) => { e.stopPropagation(); respond('deny', { action: 'deny' }); }}>Deny</button>
+        {#if event.payload.command}
+          <div class="flex gap-2" style="font-family: var(--font-mono); font-size: 12px; line-height: 1.6;">
+            <span style="color: var(--text-faint); min-width: 68px;">command</span>
+            <span style="color: var(--text);">{event.payload.command}</span>
           </div>
+        {/if}
+        {#if event.payload.file}
+          <div class="flex gap-2" style="font-family: var(--font-mono); font-size: 12px; line-height: 1.6;">
+            <span style="color: var(--text-faint); min-width: 68px;">file</span>
+            <span style="color: var(--text);">{event.payload.file}</span>
+          </div>
+        {/if}
+        {#if event.text && !event.payload.command && !event.payload.file}
+          <div style="font-size: 13px; color: var(--text);">{event.text}</div>
         {/if}
 
       {:else if event.class === 'multi_choice'}
         {@const options = event.payload.options || (event.text ? event.text.split('\n').filter(Boolean) : [])}
-        <div class="flex flex-col gap-1.5 mb-1">
+        <div class="flex flex-col gap-1.5">
           {#each options as opt, i}
             {@const label = typeof opt === 'string' ? opt : (opt.label || opt.name || `Option ${i + 1}`)}
             {#if responded}
-              <p class="text-xs px-2 py-1 rounded" style="color:{chosenAction === label ? 'var(--text)' : 'var(--text-muted)'};background:{chosenAction === label ? '#3B82F6' : 'transparent'};">
+              <div style="font-family: var(--font-mono); font-size: 12px; color: {chosenAction === label ? 'var(--text)' : 'var(--text-faint)'}; padding: 4px 8px; border-radius: 6px; background: {chosenAction === label ? NOCTURNE.blue[500] + '22' : 'transparent'};">
                 {chosenAction === label ? '✓ ' : ''}{label}
-              </p>
+              </div>
             {:else}
-              <button class="px-3 py-1.5 text-xs font-medium rounded-md text-white text-left cursor-pointer"
-                      style="background:#3B82F6;" disabled={!active}
-                      onclick={() => respond('select', { selected: label, index: i })}>{label}</button>
+              <button
+                class="text-left cursor-pointer"
+                style="font-family: var(--font-mono); font-size: 12px; color: {NOCTURNE.blue[300]}; background: {NOCTURNE.blue[500]}12; border: 0.5px solid {NOCTURNE.blue[500]}30; padding: 6px 10px; border-radius: 6px;"
+                disabled={!active}
+                onclick={() => respond('select', { selected: label, index: i })}
+              >{label}</button>
             {/if}
           {/each}
         </div>
 
       {:else if event.class === 'confirmation'}
-        <p class="text-sm mb-3" style="color:var(--text);">{event.payload.question || event.text || 'Please confirm.'}</p>
-        {#if responded}
-          <p class="text-xs font-medium" style="color:{chosenAction === 'confirm' ? '#22C55E' : '#EF4444'};">
-            ✓ {chosenAction === 'confirm' ? 'Confirmed' : 'Cancelled'}
-          </p>
-        {:else}
-          <div class="flex gap-2">
-            <button bind:this={confirmBtnEl} class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
-                    style="background:#22C55E;" disabled={!active}
-                    onclick={() => respond('confirm', { yes: true })}>Confirm</button>
-            <button bind:this={cancelBtnEl} class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
-                    style="background:#EF4444;" disabled={!active}
-                    onclick={() => respond('confirm', { yes: false })}>Cancel</button>
-          </div>
-        {/if}
+        <div style="font-size: 13px; color: var(--text); margin-bottom: 8px;">{event.payload.question || event.text || 'Please confirm.'}</div>
 
       {:else if event.class === 'free_text'}
-        <p class="text-sm mb-2" style="color:var(--text);">{event.payload.prompt || event.text || 'Enter your response:'}</p>
-        {#if responded}
-          <p class="text-xs font-medium" style="color:#22C55E;">✓ Submitted</p>
-        {:else}
+        <div style="font-size: 13px; color: var(--text); margin-bottom: 8px;">{event.payload.prompt || event.text || 'Enter your response:'}</div>
+        {#if !responded}
           {@const inputId = `free-text-${message.id}`}
           <div class="flex gap-2">
-            <input id={inputId} type="text" placeholder="Type here…"
-                   class="flex-1 px-2 py-1.5 text-xs rounded-md border"
-                   style="background:var(--bg-input);border-color:var(--border-subtle);color:var(--text);font-family:'JetBrains Mono',monospace;"
-                   disabled={!active} />
-            <button bind:this={submitBtnEl} class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
-                    style="background:#3B82F6;" disabled={!active}
-                    onclick={() => {
-                      const el = document.getElementById(inputId) as HTMLInputElement;
-                      if (el?.value.trim()) respond('text', { value: el.value.trim() });
-                    }}>Submit</button>
+            <input
+              id={inputId}
+              type="text"
+              placeholder="Type here…"
+              class="flex-1"
+              style="font-family: var(--font-mono); font-size: 12px; padding: 6px 10px; border-radius: var(--radius-input); background: var(--bg-input); border: 0.5px solid var(--hairline-strong); color: var(--text);"
+              disabled={!active}
+            />
+            <button
+              class="cursor-pointer"
+              style="font-family: var(--font-sans); font-size: 12px; font-weight: 600; color: #fff; background: linear-gradient(180deg, {NOCTURNE.blue[500]}, {NOCTURNE.blue[600]}); border: 0.5px solid {NOCTURNE.blue[400]}; padding: 6px 12px; border-radius: 6px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 1px 0 rgba(0,0,0,0.15);"
+              disabled={!active}
+              onclick={() => {
+                const el = document.getElementById(inputId) as HTMLInputElement;
+                if (el?.value.trim()) respond('text', { value: el.value.trim() });
+              }}
+            >Submit</button>
           </div>
         {/if}
 
       {:else if event.class === 'tool_auth'}
-        <p class="text-sm mb-3" style="color:var(--text);">
-          Authorise <code style="font-family:'JetBrains Mono',monospace;color:#3B82F6;">{event.payload.tool || 'tool'}</code>?
-        </p>
-        {#if responded}
-          <p class="text-xs font-medium" style="color:{chosenAction === 'authorise' ? '#22C55E' : '#EF4444'};">
-            ✓ {chosenAction === 'authorise' ? 'Authorised' : 'Denied'}
-          </p>
-        {:else}
-          <div class="flex gap-2">
-            <button bind:this={authApproveBtnEl} class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
-                    style="background:#22C55E;" disabled={!active}
-                    onclick={() => respond('approve', { action: 'authorise', tool: event.payload.tool })}>Authorise</button>
-            <button bind:this={authDenyBtnEl} class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
-                    style="background:#EF4444;" disabled={!active}
-                    onclick={() => respond('deny', { action: 'deny', tool: event.payload.tool })}>Deny</button>
-          </div>
-        {/if}
+        <div style="font-size: 13px; color: var(--text);">
+          Authorise <code style="font-family: var(--font-mono); color: {NOCTURNE.blue[300]}; background: {NOCTURNE.blue[500]}14; padding: 1px 5px; border-radius: 4px;">{event.payload.tool || 'tool'}</code>?
+        </div>
 
       {:else if event.class === 'progress'}
         <div class="flex items-center gap-2">
-          <span class="inline-block w-2 h-2 rounded-full animate-pulse" style="background:#3B82F6;"></span>
-          <p class="text-sm" style="color:var(--text);">{event.payload.message || event.text || 'Working…'}</p>
+          <div class="rounded-full animate-breathe" style="width: 6px; height: 6px; background: {NOCTURNE.blue[400]};"></div>
+          <span style="font-size: 13px; color: var(--text);">{event.payload.message || event.text || 'Working…'}</span>
         </div>
 
       {:else if event.class === 'error_retry'}
-        <p class="text-sm mb-3" style="color:#EF4444;">{event.payload.error || event.text || 'An error occurred.'}</p>
-        {#if responded}
-          <p class="text-xs font-medium" style="color:{chosenAction === 'retry' ? '#3B82F6' : '#EF4444'};">
-            ✓ {chosenAction === 'retry' ? 'Retried' : 'Aborted'}
-          </p>
-        {:else}
-          <div class="flex gap-2">
-            <button bind:this={retryBtnEl} class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
-                    style="background:#3B82F6;" disabled={!active}
-                    onclick={() => respond('retry', { action: 'retry' })}>Retry</button>
-            <button bind:this={abortBtnEl} class="px-3 py-1.5 text-xs font-medium rounded-md text-white cursor-pointer"
-                    style="background:#EF4444;" disabled={!active}
-                    onclick={() => respond('abort', { action: 'abort' })}>Abort</button>
-          </div>
-        {/if}
+        <div style="font-size: 13px; color: {NOCTURNE.semantic.danger}; margin-bottom: 8px;">{event.payload.error || event.text || 'An error occurred.'}</div>
 
       {:else}
-        <!-- Unknown event class fallback -->
-        <p class="text-sm" style="color:var(--text);">{event.text || JSON.stringify(event.payload)}</p>
+        <div style="font-size: 13px; color: var(--text);">{event.text || JSON.stringify(event.payload)}</div>
+      {/if}
+
+      <!-- Response status -->
+      {#if responded}
+        <div class="mt-2" style="font-size: 11px; font-family: var(--font-mono); color: {chosenAction === 'deny' || chosenAction === 'cancel' || chosenAction === 'abort' ? NOCTURNE.semantic.danger : NOCTURNE.emerald[400]};">
+          ✓ {chosenAction === 'approve' ? 'Approved' : chosenAction === 'deny' ? 'Denied' : chosenAction === 'confirm' ? 'Confirmed' : chosenAction === 'cancel' ? 'Cancelled' : chosenAction === 'retry' ? 'Retried' : chosenAction === 'abort' ? 'Aborted' : chosenAction || 'Responded'}
+        </div>
       {/if}
     </div>
+
+    <!-- Approval row (for permission_request, confirmation, tool_auth, error_retry) -->
+    {#if active && !responded && (event.class === 'permission_request' || event.class === 'confirmation' || event.class === 'tool_auth' || event.class === 'error_retry')}
+      <div
+        class="flex gap-2"
+        style="
+          padding: 10px 12px;
+          border-top: 0.5px solid var(--hairline-strong);
+          background: {NOCTURNE.amber[400]}08;
+        "
+      >
+        <div class="flex-1 flex items-center gap-1.5">
+          <div class="rounded-full" style="width: 6px; height: 6px; background: {NOCTURNE.amber[400]}; box-shadow: 0 0 6px {NOCTURNE.amber[400]};"></div>
+          <span style="font-family: var(--font-mono); font-size: 11px; color: {NOCTURNE.amber[300]};">
+            Awaiting your approval
+          </span>
+        </div>
+
+        <!-- Deny / Cancel / Abort -->
+        <button
+          class="flex items-center gap-1.5 cursor-pointer"
+          style="font-family: var(--font-sans); font-size: 12px; font-weight: 600; color: var(--text); background: transparent; border: 0.5px solid var(--hairline-strong); padding: 5px 10px; border-radius: 6px;"
+          onclick={() => respond(
+            event.class === 'error_retry' ? 'abort' : event.class === 'confirmation' ? 'confirm' : 'deny',
+            event.class === 'error_retry' ? { action: 'abort' } :
+            event.class === 'confirmation' ? { yes: false } :
+            event.class === 'tool_auth' ? { action: 'deny', tool: event.payload.tool } :
+            { action: 'deny' }
+          )}
+        >
+          <NocturneIcon name="x" size={11} />
+          <span>{event.class === 'error_retry' ? 'Abort' : event.class === 'confirmation' ? 'Cancel' : 'Deny'}</span>
+        </button>
+
+        <!-- Approve / Confirm / Retry -->
+        <button
+          class="flex items-center gap-1.5 cursor-pointer"
+          style="font-family: var(--font-sans); font-size: 12px; font-weight: 600; color: #fff; background: linear-gradient(180deg, {NOCTURNE.blue[500]}, {NOCTURNE.blue[600]}); border: 0.5px solid {NOCTURNE.blue[400]}; padding: 5px 10px; border-radius: 6px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 1px 0 rgba(0,0,0,0.15);"
+          onclick={() => respond(
+            event.class === 'error_retry' ? 'retry' : event.class === 'confirmation' ? 'confirm' : 'approve',
+            event.class === 'error_retry' ? { action: 'retry' } :
+            event.class === 'confirmation' ? { yes: true } :
+            event.class === 'tool_auth' ? { action: 'authorise', tool: event.payload.tool } :
+            { action: 'approve' }
+          )}
+        >
+          <NocturneIcon name="play" size={11} color="#fff" />
+          <span>{event.class === 'error_retry' ? 'Retry' : event.class === 'confirmation' ? 'Confirm' : event.class === 'tool_auth' ? 'Authorise' : 'Run'}</span>
+        </button>
+      </div>
+    {/if}
   </div>
 {/if}

@@ -1,100 +1,128 @@
 <script lang="ts">
+  import { NOCTURNE, agentColorFromSession } from '$lib/nocturne';
+  import AgentDot from './AgentDot.svelte';
+  import NocturneIcon from './NocturneIcon.svelte';
+
   let { session, onclick, onArchive, onDelete } = $props();
 
+  let hover = $state(false);
+
   const isTerminal = $derived(session.type === 'terminal');
-  const accentColor = $derived(isTerminal ? '#22C55E' : '#6366F1');
-  const bgAccent = $derived(isTerminal ? 'rgba(34, 197, 94, 0.1)' : 'rgba(99, 102, 241, 0.1)');
-  const icon = $derived(isTerminal ? '>' : '💬');
+  const agent = $derived(agentColorFromSession(session));
+  const agentId = $derived(session.cli_flag || session.handle?.replace('@', '') || null);
 
   function timeAgo(dateStr: string) {
-    // SQLite datetime('now') returns UTC without 'Z' — add it so browsers parse as UTC not local time
     const utc = dateStr.includes('Z') || dateStr.includes('+') ? dateStr : dateStr.replace(' ', 'T') + 'Z';
     const diff = Date.now() - new Date(utc).getTime();
     const mins = Math.floor(diff / 60000);
     if (mins < 1) return 'just now';
-    if (mins < 60) return `${mins} min ago`;
+    if (mins < 60) return `${mins}m ago`;
     const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs} hr ago`;
+    if (hrs < 24) return `${hrs}h ago`;
     const days = Math.floor(hrs / 24);
-    return `${days} day${days > 1 ? 's' : ''} ago`;
+    return `${days}d ago`;
   }
 
-  function getStatusDot(status: string) {
-    const statusMap: Record<string, { color: string; label: string }> = {
-      active: { color: '#22C55E', label: 'Active' },
-      idle: { color: '#6366F1', label: 'Idle' },
-      completed: { color: '#8B5CF6', label: 'Completed' }
-    };
-    return statusMap[status] || { color: '#6B7280', label: status };
-  }
-
-  // Derive terminal status from last_activity (updated every ~10s by PTY output)
-  // rather than the static DB status field which is never auto-updated.
   function deriveStatus(s: typeof session) {
     if (s.type === 'terminal' && s.last_activity) {
       const utc = s.last_activity.includes('Z') || s.last_activity.includes('+')
         ? s.last_activity : s.last_activity.replace(' ', 'T') + 'Z';
       const ageMs = Date.now() - new Date(utc).getTime();
-      if (ageMs < 60_000)      return { color: '#22C55E', label: 'Active' };
-      if (ageMs < 5 * 60_000)  return { color: '#F59E0B', label: 'Running' };
+      if (ageMs < 60_000)      return { color: NOCTURNE.emerald[400], label: 'Active' };
+      if (ageMs < 5 * 60_000)  return { color: NOCTURNE.amber[400], label: 'Running' };
     }
-    return getStatusDot(s.status);
+    const statusMap: Record<string, { color: string; label: string }> = {
+      active:    { color: NOCTURNE.emerald[400], label: 'Active' },
+      idle:      { color: NOCTURNE.ink[300], label: 'Idle' },
+      completed: { color: NOCTURNE.blue[400], label: 'Completed' },
+    };
+    return statusMap[s.status] || { color: NOCTURNE.ink[300], label: s.status || 'Idle' };
   }
 
   const statusInfo = $derived(deriveStatus(session));
 
-  function handleDelete(e: MouseEvent) {
-    e.stopPropagation();
-    onDelete?.();
-  }
-
-  function handleArchive(e: MouseEvent) {
-    e.stopPropagation();
-    onArchive?.();
-  }
+  function handleDelete(e: MouseEvent) { e.stopPropagation(); onDelete?.(); }
+  function handleArchive(e: MouseEvent) { e.stopPropagation(); onArchive?.(); }
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="group relative px-4 py-3 rounded-lg border transition-all duration-200 card-hover overflow-hidden cursor-pointer"
-  style="background: var(--bg-surface); border-color: var(--border-subtle);"
+  class="group relative overflow-hidden cursor-pointer"
+  style="
+    background: var(--surface-elev);
+    border-radius: var(--radius-card);
+    padding: 12px 14px 10px;
+    font-family: var(--font-sans);
+    letter-spacing: var(--tracking-body);
+    color: var(--text);
+    box-shadow: inset 0 0 0 0.5px var(--hairline-strong),
+      0 1px 0 rgba(0,0,0,0.02),
+      0 8px 24px -18px rgba(0,0,0,{hover ? 0.16 : 0.06});
+    transform: translateY({hover ? -1 : 0}px);
+    transition: transform var(--duration-base) var(--spring-quick),
+                box-shadow var(--duration-base) var(--spring-default);
+  "
   onclick={onclick}
+  onmouseenter={() => hover = true}
+  onmouseleave={() => hover = false}
 >
-  <!-- Accent Border Left -->
+  <!-- Interior glow -->
   <div
-    class="absolute inset-y-0 left-0 w-1 opacity-0 group-hover:opacity-100 transition-opacity"
-    style="background-color: {accentColor}"
+    aria-hidden="true"
+    class="absolute inset-0 rounded-[inherit] pointer-events-none"
+    style="
+      background: radial-gradient(70% 90% at 50% -10%, {agent.color}14 0%, transparent 60%);
+      opacity: {hover ? 1 : 0.6};
+      transition: opacity var(--duration-slow) var(--spring-default);
+    "
   ></div>
 
-  <div class="flex items-center gap-3 pl-2">
-    <!-- Icon -->
-    <div
-      class="w-10 h-10 rounded-lg flex items-center justify-center text-lg font-bold flex-shrink-0"
-      style="background: {bgAccent}; color: {accentColor}"
-    >
-      {icon}
+  <!-- Top row -->
+  <div class="relative flex items-center gap-2.5">
+    <!-- Type glyph + agent dot -->
+    <div class="flex-shrink-0 relative" style="width: 18px; height: 18px;">
+      {#if agentId}
+        <AgentDot id={agentId} size={14} state={statusInfo.label === 'Active' ? 'active' : 'idle'} />
+      {:else}
+        <div
+          class="flex items-center justify-center rounded-full"
+          style="
+            width: 18px; height: 18px;
+            background: {isTerminal ? NOCTURNE.emerald[500] + '22' : NOCTURNE.blue[500] + '22'};
+            color: {isTerminal ? NOCTURNE.emerald[400] : NOCTURNE.blue[400]};
+            font-size: 11px; font-weight: 700;
+          "
+        >{isTerminal ? '>' : '#'}</div>
+      {/if}
     </div>
 
-    <!-- Content -->
     <div class="flex-1 min-w-0">
       <div class="flex items-center gap-1.5 min-w-0">
-        <p class="font-medium text-sm truncate" style="color: var(--text);">{session.name}</p>
+        <span class="font-semibold text-sm truncate" style="letter-spacing: -0.01em;">{session.name}</span>
         {#if session.handle}
-          <span class="text-[10px] font-mono px-1 py-px rounded flex-shrink-0" style="background:{accentColor}18;color:{accentColor}99;">{session.handle}</span>
+          <span
+            style="
+              font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0;
+              color: {agent.color}99; background: {agent.color}18;
+              padding: 1px 5px; border-radius: 4px; white-space: nowrap;
+            "
+          >{session.handle}</span>
         {/if}
       </div>
-      <div class="flex items-center gap-2 mt-1">
-        <span class="text-xs" style="color: var(--text-muted);">
-          {isTerminal ? 'Terminal' : 'Chat'}
-        </span>
-        <div class="w-1 h-1 rounded-full" style="background: var(--text-faint);"></div>
+      <div class="flex items-center gap-1.5 mt-0.5" style="font-size: 11.5px; font-family: var(--font-mono); letter-spacing: 0; color: var(--text-muted);">
+        <span>{isTerminal ? 'terminal' : 'chat'}</span>
+        <div class="rounded-full" style="width: 3px; height: 3px; background: var(--text-faint);"></div>
         <div class="flex items-center gap-1">
           <div
-            class="w-1.5 h-1.5 rounded-full"
-            style="background-color: {statusInfo.color}"
+            class="rounded-full"
+            style="
+              width: 6px; height: 6px;
+              background: {statusInfo.color};
+              box-shadow: {statusInfo.label === 'Active' ? `0 0 8px ${statusInfo.color}` : 'none'};
+            "
           ></div>
-          <span class="text-xs" style="color: var(--text-muted);">{statusInfo.label}</span>
+          <span>{statusInfo.label}</span>
         </div>
       </div>
     </div>
@@ -102,38 +130,34 @@
     <!-- Time + Actions -->
     <div class="flex items-center gap-2 flex-shrink-0">
       {#if session.ttl === 'forever'}
-        <span class="text-xs px-1.5 py-0.5 rounded font-medium group-hover:hidden"
-          style="background: rgba(34,197,94,0.15); color: #22C55E;">
-          ⚡ AON
-        </span>
+        <span
+          class="group-hover:hidden"
+          style="font-family: var(--font-mono); font-size: 10.5px; color: {NOCTURNE.emerald[400]}; background: {NOCTURNE.emerald[500]}18; border: 0.5px solid {NOCTURNE.emerald[500]}30; padding: 2px 6px; border-radius: 5px;"
+        >AON</span>
       {:else}
-        <span class="text-xs whitespace-nowrap group-hover:hidden" style="color: var(--text-faint);">
-          {timeAgo(session.updated_at)}
-        </span>
+        <span
+          class="group-hover:hidden"
+          style="font-family: var(--font-mono); font-size: 10.5px; color: var(--text-faint); letter-spacing: 0; font-variant-numeric: tabular-nums;"
+        >{timeAgo(session.updated_at)}</span>
       {/if}
 
-      <!-- Action buttons — visible on hover -->
+      <!-- Hover actions -->
       <div class="hidden group-hover:flex items-center gap-1">
         <button
           onclick={handleArchive}
-          class="p-1.5 rounded transition-all"
-          style="color: var(--text-muted);"
-          title="Archive session"
+          class="p-1.5 rounded cursor-pointer"
+          style="color: var(--text-faint); background: transparent; border: none;"
+          title="Archive"
         >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-          </svg>
+          <NocturneIcon name="check" size={14} />
         </button>
         <button
           onclick={handleDelete}
-          class="p-1.5 rounded transition-all text-red-400 hover:text-red-300"
-          title="Delete session"
+          class="p-1.5 rounded cursor-pointer"
+          style="color: {NOCTURNE.semantic.danger}; background: transparent; border: none;"
+          title="Delete"
         >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-          </svg>
+          <NocturneIcon name="x" size={14} />
         </button>
       </div>
     </div>

@@ -1,51 +1,171 @@
+/* ═══════════════════════════════════════════════════════════════════
+   ANT · Nocturne — Locked design tokens
+   Logo-true blue. Cursor-green emerald. Eye-gradient activity pulse.
+   Blued-navy ink. Geist Sans + JetBrains Mono.
+   ═══════════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
 @import 'tailwindcss';
 
+/* ── Brand colour ramps ───────────────────────────────────────────── */
 :root {
-  /* ANT Brand Colours */
-  --emerald: #22C55E;
-  --indigo: #6366F1;
-  --amber: #F59E0B;
+  /* Emerald — cursor-green, lead brand hue */
+  --emerald-50: #E8FAEC;  --emerald-100: #C6F3CF;
+  --emerald-200: #95E6A3;  --emerald-300: #5ED273;
+  --emerald-400: #34D06F;  --emerald-500: #22C55E;
+  --emerald-600: #17A14B;  --emerald-700: #107B3A;
+  --emerald-800: #0C5C2C;  --emerald-900: #083A1D;
+
+  /* Blue — logo-true #3B82F6, NOT indigo */
+  --blue-50: #EAF1FE;   --blue-100: #CFDFFD;
+  --blue-200: #A1BFFB;   --blue-300: #6E9BF8;
+  --blue-400: #5A93F7;   --blue-500: #3B82F6;
+  --blue-600: #2A70EC;   --blue-700: #1D5AD1;
+  --blue-800: #1747A8;   --blue-900: #0F2E6E;
+
+  /* Amber */
+  --amber-50: #FFF8EC;   --amber-100: #FEEDCA;
+  --amber-200: #FCD990;   --amber-300: #F9C052;
+  --amber-400: #F59E0B;   --amber-500: #D98804;
+  --amber-600: #B46D04;   --amber-700: #8B5306;
+  --amber-800: #673E07;   --amber-900: #432906;
+
+  /* Eye-gradient pulse — reserved for live activity */
+  --pulse-hot: #B8F03E;
+  --pulse-mid: #34D06F;
+  --pulse-deep: #107B3A;
+
+  /* Neutral — warm greige for light mode */
+  --neutral-50: #F7F7F5;   --neutral-100: #EDEDE9;
+  --neutral-200: #DAD9D2;   --neutral-300: #B5B3A7;
+  --neutral-400: #838173;   --neutral-500: #5A584B;
+  --neutral-600: #3E3D32;   --neutral-700: #2A2922;
+  --neutral-800: #1B1A15;   --neutral-900: #100F0B;
+
+  /* Ink — blued-navy charcoal for dark mode */
+  --ink-50: #E3E7F0;    --ink-100: #BFC6D6;
+  --ink-200: #8990A8;    --ink-300: #565E7A;
+  --ink-400: #363E58;    --ink-500: #222940;
+  --ink-600: #161C30;    --ink-700: #121828;
+  --ink-800: #0E1322;    --ink-900: #0C1021;
+
+  /* Semantic */
+  --color-info: #4285F4;
+  --color-success: #22C55E;
+  --color-warning: #F59E0B;
+  --color-danger: #F04438;
+
+  /* Agent identity colours */
+  --agent-claude: #E07856;   --agent-claude-glow: #F59A7E;
+  --agent-gemini: #5B8DEF;   --agent-gemini-glow: #8AB0F5;
+  --agent-codex: #2EBD85;    --agent-codex-glow: #5ED8A6;
+  --agent-copilot: #9B6BF0;  --agent-copilot-glow: #B896F5;
+  --agent-ollama: #F2B65A;   --agent-ollama-glow: #F6CE8A;
+  --agent-lmstudio: #EC89B4; --agent-lmstudio-glow: #F2A9C8;
+
+  /* ── Backward-compat aliases ──────────────────────────────────── */
+  --emerald: var(--emerald-500);
+  --indigo: var(--blue-500);
+  --amber: var(--amber-400);
   --gold: #C9A962;
 
-  /* Gradients */
-  --gradient-indigo: linear-gradient(135deg, #6366F1, #818CF8);
-  --gradient-emerald: linear-gradient(135deg, #22C55E, #4ADE80);
+  --gradient-indigo: linear-gradient(135deg, var(--blue-500), var(--blue-400));
+  --gradient-emerald: linear-gradient(135deg, var(--emerald-500), var(--emerald-300));
+  --gradient-blue: linear-gradient(180deg, var(--blue-500), var(--blue-600));
 
-  /* Semantic tokens — light theme defaults */
-  --bg: #F0F4F8;
+  /* ── Typography ─────────────────────────────────────────────────── */
+  --font-sans: 'Geist', 'Manrope', 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+  --tracking-display: -0.02em;
+  --tracking-body: -0.005em;
+  --tracking-mono: 0em;
+
+  /* ── Spacing ────────────────────────────────────────────────────── */
+  --space-0: 0;     --space-0-5: 2px;  --space-1: 4px;
+  --space-2: 8px;   --space-3: 12px;   --space-4: 16px;
+  --space-6: 24px;  --space-8: 32px;   --space-12: 48px;
+  --space-16: 64px; --space-24: 96px;
+
+  /* ── Radii — never 4px ──────────────────────────────────────────── */
+  --radius-input: 6px;
+  --radius-card: 10px;
+  --radius-panel: 14px;
+  --radius-hero: 20px;
+  --radius-full: 9999px;
+
+  /* ── Motion ─────────────────────────────────────────────────────── */
+  --duration-fast: 180ms;
+  --duration-base: 220ms;
+  --duration-slow: 260ms;
+  --spring-quick: cubic-bezier(0.34, 1.35, 0.64, 1);
+  --spring-default: cubic-bezier(0.22, 1.0, 0.36, 1);
+  --spring-lazy: cubic-bezier(0.16, 1.0, 0.3, 1);
+  --ease-cursor: steps(2, end);
+
+  /* ── Icon stroke ────────────────────────────────────────────────── */
+  --icon-stroke: 1.75;
+}
+
+/* ── Light theme (default) ─────────────────────────────────────────── */
+:root {
+  --bg: var(--neutral-50);
   --bg-surface: #FFFFFF;
-  --bg-elevated: #F8FAFC;
+  --bg-elevated: var(--neutral-50);
   --bg-card: #FFFFFF;
-  --bg-input: #EEF2F7;
-  --terminal-bg: #1A1A22;
-  --text: #111827;
-  --text-muted: #6B7280;
-  --text-faint: #9CA3AF;
-  --border-subtle: #E5E7EB;
-  --border-light: rgba(0, 0, 0, 0.1);
-  --scrollbar-thumb: rgba(99, 102, 241, 0.25);
-  --scrollbar-thumb-hover: rgba(99, 102, 241, 0.45);
+  --bg-input: var(--neutral-100);
+  --terminal-bg: var(--ink-900);
+
+  --text: var(--neutral-800);
+  --text-muted: var(--neutral-500);
+  --text-faint: var(--neutral-400);
+
+  --hairline: rgba(0, 0, 0, 0.06);
+  --hairline-strong: rgba(0, 0, 0, 0.10);
+  --border-subtle: rgba(0, 0, 0, 0.06);
+  --border-light: rgba(0, 0, 0, 0.10);
+
+  --surface-elev: #FFFFFF;
+  --surface-panel: #FBFBFA;
+  --surface-raised: #FFFFFF;
+
+  --scrollbar-thumb: rgba(59, 130, 246, 0.25);
+  --scrollbar-thumb-hover: rgba(59, 130, 246, 0.45);
 }
 
+/* ── Dark theme ────────────────────────────────────────────────────── */
 [data-theme="dark"] {
-  --bg: #0A1628;
-  --bg-surface: #16161A;
-  --bg-elevated: #1E1E24;
-  --bg-card: #1A1A22;
-  --bg-input: #0D0D12;
-  --terminal-bg: #0D0D12;
-  --text: #ffffff;
-  --text-muted: #9CA3AF;
-  --text-faint: #6B7280;
-  --border-subtle: rgba(255, 255, 255, 0.05);
-  --border-light: rgba(255, 255, 255, 0.1);
-  --scrollbar-thumb: rgba(99, 102, 241, 0.3);
-  --scrollbar-thumb-hover: rgba(99, 102, 241, 0.5);
+  --bg: var(--ink-900);
+  --bg-surface: var(--ink-700);
+  --bg-elevated: var(--ink-600);
+  --bg-card: var(--ink-700);
+  --bg-input: var(--ink-800);
+  --terminal-bg: var(--ink-900);
+
+  --text: var(--ink-50);
+  --text-muted: var(--ink-200);
+  --text-faint: var(--ink-300);
+
+  --hairline: rgba(255, 255, 255, 0.06);
+  --hairline-strong: rgba(255, 255, 255, 0.10);
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-light: rgba(255, 255, 255, 0.10);
+
+  --surface-elev: var(--ink-700);
+  --surface-panel: var(--ink-800);
+  --surface-raised: var(--ink-600);
+
+  --scrollbar-thumb: rgba(59, 130, 246, 0.3);
+  --scrollbar-thumb-hover: rgba(59, 130, 246, 0.5);
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Global styles
+   ═══════════════════════════════════════════════════════════════════ */
 
 html {
   background-color: var(--bg);
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition: background-color var(--duration-base) var(--spring-default),
+              color var(--duration-base) var(--spring-default);
 }
 
 html[data-theme="dark"] {
@@ -57,20 +177,33 @@ html:not([data-theme="dark"]) {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--font-sans);
   background-color: var(--bg);
   color: var(--text);
   overflow: hidden;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  letter-spacing: var(--tracking-body);
+  -webkit-font-smoothing: antialiased;
+  transition: background-color var(--duration-base) var(--spring-default),
+              color var(--duration-base) var(--spring-default);
 }
 
 /* Typography */
 h1, h2, h3, h4, h5, h6 {
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: var(--tracking-display);
 }
 
-/* Smooth Scrollbar Styling */
+/* Monospace */
+.terminal-text,
+.font-mono,
+code,
+pre {
+  font-family: var(--font-mono);
+  letter-spacing: var(--tracking-mono);
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────────────── */
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -82,43 +215,40 @@ h1, h2, h3, h4, h5, h6 {
 
 ::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
-  border-radius: 4px;
-  transition: background-color 0.2s ease;
+  border-radius: var(--radius-full);
+  transition: background-color var(--duration-base);
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
 }
 
-/* Firefox Scrollbar */
 * {
   scrollbar-color: var(--scrollbar-thumb) transparent;
   scrollbar-width: thin;
 }
 
-/* Global Transitions */
-button, input, textarea, select {
-  transition: all 0.2s ease;
-}
+/* ── Focus ring — 2px true-blue outer, 1px bg inner halo ──────────── */
 
-/* Focus Ring Styling */
 :focus {
   outline: none;
 }
 
 :focus-visible {
-  outline: 2px solid var(--indigo);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: 0 0 0 1px var(--bg), 0 0 0 3px var(--blue-600);
 }
 
-/* Terminal-Specific Monospace */
-.terminal-text,
-.font-mono {
-  font-family: 'Fira Code', 'Monaco', 'Courier New', monospace;
-  letter-spacing: 0.01em;
+/* ── Global transitions ────────────────────────────────────────────── */
+
+button, input, textarea, select {
+  transition: all var(--duration-base) var(--spring-default);
 }
 
-/* Utility Classes */
+/* ═══════════════════════════════════════════════════════════════════
+   Utility classes
+   ═══════════════════════════════════════════════════════════════════ */
+
 .bg-gradient-indigo {
   background: var(--gradient-indigo);
 }
@@ -127,8 +257,13 @@ button, input, textarea, select {
   background: var(--gradient-emerald);
 }
 
-.text-glow-indigo {
-  text-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
+.bg-gradient-blue {
+  background: var(--gradient-blue);
+}
+
+.text-glow-indigo,
+.text-glow-blue {
+  text-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
 }
 
 .text-glow-emerald {
@@ -136,12 +271,13 @@ button, input, textarea, select {
 }
 
 .card-hover {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform var(--duration-base) var(--spring-quick),
+              box-shadow var(--duration-base) var(--spring-default);
 }
 
 .card-hover:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.4);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 28px -16px rgba(0, 0, 0, 0.4);
 }
 
 .border-subtle {
@@ -149,39 +285,61 @@ button, input, textarea, select {
 }
 
 .blur-glass {
-  background: rgba(16, 22, 40, 0.8);
+  background: rgba(12, 16, 33, 0.8);
   backdrop-filter: blur(16px);
-  border: 1px solid var(--border-light);
+  border: 0.5px solid var(--hairline-strong);
 }
 
-/* Animations */
+/* ═══════════════════════════════════════════════════════════════════
+   ANT Animations
+   ═══════════════════════════════════════════════════════════════════ */
+
+@keyframes ant-breathe {
+  0%, 100% { transform: scale(0.98); opacity: 0.65; }
+  50%      { transform: scale(1.02); opacity: 1; }
+}
+
+@keyframes ant-shimmer {
+  0%   { background-position: 200% 50%; }
+  100% { background-position: -200% 50%; }
+}
+
+@keyframes ant-caret {
+  0%, 49%  { opacity: 1; }
+  50%, 100%{ opacity: 0; }
+}
+
+@keyframes ant-stream {
+  0%   { width: 0; opacity: 0.8; }
+  80%  { width: 100%; opacity: 1; }
+  100% { width: 100%; opacity: 1; }
+}
+
 @keyframes pulse-subtle {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.5; }
 }
 
 @keyframes slide-in {
-  from {
-    transform: translateY(10px);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
+  from { transform: translateY(10px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
 }
 
 @keyframes fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.animate-breathe {
+  animation: ant-breathe 2.4s ease-in-out infinite;
+}
+
+.animate-shimmer {
+  animation: ant-shimmer 2.2s linear infinite;
+}
+
+.animate-caret {
+  animation: ant-caret 1.05s var(--ease-cursor) infinite;
 }
 
 .animate-pulse-subtle {
