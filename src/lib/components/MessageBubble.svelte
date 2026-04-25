@@ -33,8 +33,8 @@
 
   let hover = $state(false);
 
-  const isOwn = $derived(!message.sender_id && message.role === 'user');
-  const isAi  = $derived(!message.sender_id && message.role !== 'user');
+  const isOwn = $derived(!message.sender_id && (message.role === 'user' || message.role === 'human'));
+  const isAi  = $derived(!message.sender_id && message.role !== 'user' && message.role !== 'human');
   const handle = $derived(message.sender_id || null);
 
   const resolvedSession = $derived(
