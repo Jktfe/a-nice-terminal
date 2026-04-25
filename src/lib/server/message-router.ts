@@ -28,6 +28,7 @@ export interface RouteMessage {
   target: string | null;
   replyTo: string | null;
   msgType: string;
+  meta?: string | null;
 }
 
 export interface RouteTarget {

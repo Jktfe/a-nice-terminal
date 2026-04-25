@@ -23,7 +23,11 @@ export function useMessageStore() {
     messages = data.messages || [];
   }
 
-  async function send(sessionId: string, content: string, opts?: { sender_id?: string; target?: string; reply_to?: string | null }) {
+  async function send(
+    sessionId: string,
+    content: string,
+    opts?: { sender_id?: string; target?: string; reply_to?: string | null; meta?: Record<string, unknown> }
+  ) {
     const res = await fetch(`/api/sessions/${sessionId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -35,6 +39,7 @@ export function useMessageStore() {
         target: opts?.target ?? null,
         reply_to: opts?.reply_to ?? null,
         msg_type: 'message',
+        meta: opts?.meta ?? {},
       }),
     });
     const msg = await res.json();

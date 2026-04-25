@@ -27,6 +27,25 @@ function ptmWrite(sessionId: string, data: string): void {
 
 import type { DeliveryAdapter, RouteMessage, RouteTarget, DeliveryResult } from '../message-router.js';
 
+function parseMeta(meta: string | null | undefined): Record<string, unknown> {
+  try {
+    return JSON.parse(meta || '{}') as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+export function isTerminalDirectMessage(message: Pick<RouteMessage, 'meta'>): boolean {
+  return parseMeta(message.meta).source === 'terminal_direct';
+}
+
+export function shouldRawForwardLinkedChatMessage(
+  message: Pick<RouteMessage, 'role' | 'meta'>,
+  autoForward: boolean,
+): boolean {
+  return message.role === 'user' && autoForward && !isTerminalDirectMessage(message);
+}
+
 export class LinkedChatAdapter implements DeliveryAdapter {
   name = 'linked-chat';
 
@@ -88,17 +107,17 @@ export class LinkedChatAdapter implements DeliveryAdapter {
     const terminalSession: any = queries.getSession(target.sessionId);
     const autoForward = terminalSession?.auto_forward_chat !== 0;
 
-    // Web user (sender_id=null) sends keystrokes directly via WS —
-    // skip fan-out to prevent double-execution. Only forward messages
-    // from other agents/sessions (sender_id set).
-    const rawMode = message.role === 'user' && autoForward && message.senderId;
+    // Terminal-page sends already wrote to the PTY over WS. Linked-chat page
+    // sends have no sender_id too, but still need adapter injection.
+    const alreadySentToTerminal = isTerminalDirectMessage(message);
+    const rawMode = shouldRawForwardLinkedChatMessage(message, autoForward);
 
     if (rawMode) {
       // Two-call protocol: text first, then \r 150ms later
       ptmWrite(target.sessionId, message.content.trimEnd());
       setTimeout(() => { ptmWrite(target.sessionId, '\r'); }, 150);
-    } else if (!message.senderId && message.role === 'user') {
-      // Web user — already sent via WS, skip
+    } else if (alreadySentToTerminal) {
+      // Terminal page already sent via WS, skip adapter injection.
       return {
         adapter: this.name,
         targetId: target.sessionId,

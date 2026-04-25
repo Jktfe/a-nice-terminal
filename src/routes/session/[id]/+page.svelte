@@ -397,6 +397,7 @@
       body: JSON.stringify({
         role: 'user', content: text,
         format: 'text', sender_id: null, reply_to: replyToId, msg_type: 'message',
+        meta: { source: 'terminal_direct' },
       }),
     });
     const msg = await res.json();
@@ -808,6 +809,7 @@
         body: JSON.stringify({
           role: 'user', content: text,
           format: 'text', sender_id: null, msg_type: 'message',
+          meta: { source: 'terminal_direct' },
         }),
       }).catch(() => {});
     }

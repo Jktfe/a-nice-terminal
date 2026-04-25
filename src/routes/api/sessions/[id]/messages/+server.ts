@@ -70,10 +70,13 @@ function resolveSenderSession(senderId: string | null): { name: string; type: st
 }
 
 export async function POST({ params, request }: RequestEvent<{ id: string }>) {
-  const { role, content, format, sender_id, target, reply_to, msg_type } = await request.json();
+  const { role, content, format, sender_id, target, reply_to, msg_type, meta } = await request.json();
   const id = nanoid();
   const msgType = msg_type || 'message';
   const replyTo = reply_to || null;
+  const metaJson = meta === undefined
+    ? '{}'
+    : (typeof meta === 'string' ? meta : JSON.stringify(meta ?? {}));
 
   if (replyTo) {
     const parent: any = queries.getMessage(replyTo);
@@ -85,7 +88,7 @@ export async function POST({ params, request }: RequestEvent<{ id: string }>) {
   // 1. Persist to DB
   queries.createMessage(
     id, params.id, role, content, format || 'text', 'complete',
-    sender_id || null, target || null, replyTo, msgType, '{}'
+    sender_id || null, target || null, replyTo, msgType, metaJson
   );
   queries.updateSession(null, null, null, null, params.id);
 
@@ -93,6 +96,7 @@ export async function POST({ params, request }: RequestEvent<{ id: string }>) {
     id, session_id: params.id, role, content,
     format: format || 'text', status: 'complete',
     sender_id: sender_id || null, target: target || null, reply_to: replyTo, msg_type: msgType,
+    meta: metaJson,
   };
 
   // Auto-populate chat_room_members when a sender posts —
@@ -156,6 +160,7 @@ export async function POST({ params, request }: RequestEvent<{ id: string }>) {
     target: target || null,
     replyTo,
     msgType,
+    meta: metaJson,
   });
 
   // 3. Return with delivery info
