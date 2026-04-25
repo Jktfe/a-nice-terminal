@@ -11,5 +11,6 @@ export interface AgentStatus {
   activity?: string;
   workspace?: string;
   branch?: string;
+  waitingFor?: string;
   detectedAt: number;
 }

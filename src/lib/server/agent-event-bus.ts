@@ -11,6 +11,7 @@
 
 import type { AgentDriver, RawEvent, RawOutput, UserChoice, NormalisedEvent } from '../../fingerprint/types.js';
 import type { SendKeysFn } from '../../drivers/claude-code/driver.js';
+import type { AgentStatus } from '../shared/agent-status.js';
 
 // ─── Driver registry ─────────────────────────────────────────────────────────
 // Lazy-loaded on first use per agent slug. Add new drivers here.
@@ -39,6 +40,8 @@ interface SessionState {
   pendingEvents: Map<string, { event: NormalisedEvent; msgId: string; chatId: string }>;
   debounceTimer: ReturnType<typeof setTimeout> | null;
   lastPosted: Map<string, number> | null;   // cooldown: "sessionId:class" → timestamp
+  lastEventFingerprints: Map<string, number> | null;
+  currentStatus: AgentStatus | null;
 }
 
 const sessions = new Map<string, SessionState>();
@@ -46,6 +49,8 @@ const driverCache = new Map<string, AgentDriver>();
 
 const DEBOUNCE_MS = 100;
 const BUFFER_SIZE = 50;
+const CLASS_COOLDOWN_MS = 30_000;
+const CONTENT_DEDUP_MS = 5 * 60_000;
 
 // ─── Injected dependencies (set during init) ────────────────────────────────
 
@@ -100,6 +105,25 @@ function buildSummary(event: any, eventClass: string): string {
   return event.text?.slice(0, 80) ?? `${eventClass.replace(/_/g, ' ')}`;
 }
 
+function eventFingerprint(event: any, eventClass: string): string {
+  const payload = event.payload ?? {};
+  const important =
+    payload.question ??
+    payload.prompt ??
+    payload.message ??
+    payload.command ??
+    payload.file ??
+    payload.tool ??
+    event.text ??
+    '';
+
+  return `${eventClass}:${String(important)
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 240)}`;
+}
+
 // ─── Waiting-context extraction ──────────────────────────────────────────────
 // Regex-based prototype: detects implicit waiting/question patterns in recent
 // agent text and extracts a short description of what the agent needs.
@@ -128,7 +152,16 @@ function extractWaitingContext(text: string): string | null {
 function getState(sessionId: string): SessionState {
   let s = sessions.get(sessionId);
   if (!s) {
-    s = { driver: null, driverSlug: null, buffer: [], pendingEvents: new Map(), debounceTimer: null, lastPosted: null };
+    s = {
+      driver: null,
+      driverSlug: null,
+      buffer: [],
+      pendingEvents: new Map(),
+      debounceTimer: null,
+      lastPosted: null,
+      lastEventFingerprints: null,
+      currentStatus: null,
+    };
     sessions.set(sessionId, s);
   }
   return s;
@@ -231,20 +264,23 @@ async function onDebounce(sessionId: string, state: SessionState): Promise<void>
   if (state.driver && 'detectStatus' in state.driver) {
     const statusLines = state.buffer.slice(-15).map(e => e.text);
     const status = (state.driver as any).detectStatus(statusLines);
-    if (status && _broadcastGlobal) {
+    if (status) {
       // If agent is ready and recent text has a question, extract waiting context
       if (status.state === 'ready') {
         const recentText = statusLines.join('\n');
         const waitingContext = extractWaitingContext(recentText);
         if (waitingContext) {
-          (status as any).waitingFor = waitingContext;
+          status.waitingFor = waitingContext;
         }
       }
-      _broadcastGlobal({
-        type: 'agent_status_updated',
-        sessionId,
-        status,
-      });
+      state.currentStatus = status;
+      if (_broadcastGlobal) {
+        _broadcastGlobal({
+          type: 'agent_status_updated',
+          sessionId,
+          status,
+        });
+      }
     }
   }
 
@@ -263,7 +299,18 @@ async function onDebounce(sessionId: string, state: SessionState): Promise<void>
   const cooldownKey = `${sessionId}:${eventClass}`;
   const now = Date.now();
   const lastPost = state.lastPosted?.get(cooldownKey) ?? 0;
-  if (now - lastPost < 30_000) return;
+  if (now - lastPost < CLASS_COOLDOWN_MS) return;
+
+  // Dedup: identical content fingerprint over a longer window. This prevents
+  // repeated "same question" cards while still allowing different free_text
+  // questions after the short class cooldown expires.
+  if (!state.lastEventFingerprints) state.lastEventFingerprints = new Map();
+  for (const [fingerprint, ts] of state.lastEventFingerprints) {
+    if (now - ts > CONTENT_DEDUP_MS) state.lastEventFingerprints.delete(fingerprint);
+  }
+  const fingerprint = eventFingerprint(event, eventClass);
+  const lastFingerprintPost = state.lastEventFingerprints.get(fingerprint) ?? 0;
+  if (now - lastFingerprintPost < CONTENT_DEDUP_MS) return;
 
   // Also skip if same class is already pending (user hasn't responded yet)
   for (const [, pending] of state.pendingEvents) {
@@ -273,6 +320,7 @@ async function onDebounce(sessionId: string, state: SessionState): Promise<void>
   // Post to linked chat
   if (!state.lastPosted) state.lastPosted = new Map();
   state.lastPosted.set(cooldownKey, now);
+  state.lastEventFingerprints.set(fingerprint, now);
 
   const content = JSON.stringify(event);
   _postToChat(sessionId, session.linked_chat_id, content, 'agent_event');
@@ -382,10 +430,14 @@ export function getPendingEvent(sessionId: string): {
   event_class?: string;
   summary?: string;
   since?: string;
+  agent_status?: AgentStatus;
 } {
   const state = sessions.get(sessionId);
   if (!state || state.pendingEvents.size === 0) {
-    return { needs_input: false };
+    return {
+      needs_input: false,
+      ...(state?.currentStatus ? { agent_status: state.currentStatus } : {}),
+    };
   }
   // Return the oldest pending event
   const first = state.pendingEvents.values().next().value;
@@ -397,6 +449,7 @@ export function getPendingEvent(sessionId: string): {
     event_class: eventClass,
     summary: buildSummary(event, eventClass),
     since: new Date(event.ts ?? Date.now()).toISOString(),
+    ...(state.currentStatus ? { agent_status: state.currentStatus } : {}),
   };
 }
 

@@ -252,9 +252,22 @@ export class GeminiCliDriver implements AgentDriver {
       if (match) model = match[1];
     }
 
+    // Gemini footer value line: "/workspace    branch    Auto Gemini 3    0% used"
+    let workspace: string | undefined;
+    let branch: string | undefined;
+    const tableLine = recentLines.find(line => /\d+%\s+used/.test(line));
+    if (tableLine) {
+      const parts = tableLine.trim().split(/\s{2,}/).filter(Boolean);
+      if (parts.length >= 4) {
+        workspace = parts[0];
+        branch = parts[1];
+        model = parts[2];
+      }
+    }
+
     // Model from status line: "Auto Gemini 3" or "gemini-2.5-pro"
     if (!model) {
-      const modelMatch = text.match(/(Gemini\s*[\d.]+|gemini-[\w.-]+)/i);
+      const modelMatch = text.match(/(Auto\s+Gemini\s*[\d.]+|Gemini\s*[\d.]+|gemini-[\w.-]+)/i);
       if (modelMatch) model = modelMatch[1];
     }
 
@@ -262,6 +275,7 @@ export class GeminiCliDriver implements AgentDriver {
     let contextUsedPct: number | undefined;
     const ctxMatch = text.match(/(\d+)%\s+used/);
     if (ctxMatch) contextUsedPct = parseInt(ctxMatch[1], 10);
+    if (contextUsedPct != null && state === 'unknown') state = 'ready';
 
     // Tool completion as activity
     const toolMatch = text.match(/│\s+✓\s+(Shell|WriteFile|ReadFile|SearchFile)\s+(.+?)(?:\s+\d|$)/);
@@ -277,6 +291,8 @@ export class GeminiCliDriver implements AgentDriver {
       model,
       contextUsedPct,
       contextRemainingPct: contextUsedPct != null ? 100 - contextUsedPct : undefined,
+      workspace,
+      branch,
       detectedAt: now,
     };
   }

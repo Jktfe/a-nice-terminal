@@ -255,6 +255,16 @@ export class CodexCliDriver implements AgentDriver {
     let contextRemainingPct: number | undefined;
     const ctxMatch = text.match(/Context\s+(\d+)%\s+left/);
     if (ctxMatch) contextRemainingPct = parseInt(ctxMatch[1], 10);
+    if (contextRemainingPct != null && state === 'unknown') state = 'ready';
+
+    // Codex status line: "gpt-5.5 xhigh · /path · Ready · Context 100% left"
+    let workspace: string | undefined;
+    const statusLine = recentLines.find(line => /Context\s+\d+%\s+left|Ready|gpt-[\d.]+/i.test(line));
+    if (statusLine) {
+      const parts = statusLine.split('·').map(part => part.trim()).filter(Boolean);
+      const workspacePart = parts.find(part => part.startsWith('/') || part.startsWith('~'));
+      if (workspacePart) workspace = workspacePart;
+    }
 
     if (state === 'unknown') return null;
 
@@ -264,6 +274,7 @@ export class CodexCliDriver implements AgentDriver {
       model,
       contextUsedPct: contextRemainingPct != null ? 100 - contextRemainingPct : undefined,
       contextRemainingPct,
+      workspace,
       detectedAt: now,
     };
   }

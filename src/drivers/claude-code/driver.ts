@@ -307,7 +307,7 @@ export class ClaudeCodeDriver implements AgentDriver {
     let state: AgentStatus['state'] = 'unknown';
     let activity: string | undefined;
 
-    if (IDLE_STATUS_RE.test(text)) {
+    if (IDLE_STATUS_RE.test(text) || /👋/.test(text) || /ctx:\d+%/.test(text)) {
       state = 'ready';
     }
     if (/esc to interrupt/.test(text)) {
@@ -327,6 +327,20 @@ export class ClaudeCodeDriver implements AgentDriver {
     let model: string | undefined;
     const modelMatch = text.match(/(Opus|Sonnet|Haiku)\s+[\d.]+/i);
     if (modelMatch) model = modelMatch[0];
+
+    // Claude status line: "user@host    workspace branch    Opus 4.6 ..."
+    let workspace: string | undefined;
+    let branch: string | undefined;
+    const statusLine = recentLines.find(line => /ctx:\d+%|5h:\d+%|(Opus|Sonnet|Haiku)\s+[\d.]+/i.test(line));
+    if (statusLine) {
+      const parts = statusLine.trim().split(/\s{2,}/);
+      const workspaceBranch = parts[1];
+      const wbMatch = workspaceBranch?.match(/^(.+)\s+([^\s]+)$/);
+      if (wbMatch) {
+        workspace = wbMatch[1];
+        branch = wbMatch[2];
+      }
+    }
 
     // Extract token count as a rough context indicator
     let contextUsedPct: number | undefined;
@@ -348,6 +362,8 @@ export class ClaudeCodeDriver implements AgentDriver {
       contextRemainingPct: contextUsedPct != null ? 100 - contextUsedPct : undefined,
       rateLimitPct,
       rateLimitWindow: rateLimitPct != null ? '5h' : undefined,
+      workspace,
+      branch,
       detectedAt: now,
     };
   }
