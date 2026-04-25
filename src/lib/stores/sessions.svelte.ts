@@ -10,6 +10,7 @@ interface Session {
   last_activity: string | null;
   updated_at: string;
   linked_chat_id: string | null;
+  meta?: string | Record<string, unknown> | null;
 }
 
 let sessions = $state<Session[]>([]);

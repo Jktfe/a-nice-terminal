@@ -4,6 +4,7 @@
   import AgentEventCard from '$lib/components/AgentEventCard.svelte';
   import TerminalLine from '$lib/components/TerminalLine.svelte';
   import ChatParticipants from '$lib/components/ChatParticipants.svelte';
+  import { isAutoLinkedChatSession } from '$lib/utils/linked-chat';
 
   interface PageSession {
     id: string;
@@ -176,6 +177,9 @@
   ]);
 
   const isTerminal = $derived(session?.type === 'terminal');
+  const selectableChats = $derived(
+    allSessions.filter(s => s.type === 'chat' && (!isAutoLinkedChatSession(s) || s.id === linkedChatId))
+  );
 
   // Phase 6: map cli_flag to a display label
   function cliLabel(flag: string | null | undefined): string {
@@ -262,7 +266,7 @@
               style="background: #F3F4F6; border: 1px solid #E5E7EB; color: var(--text);"
             >
               <option value="">— pick chat session —</option>
-              {#each allSessions.filter(s => s.type === 'chat') as s}
+              {#each selectableChats as s}
                 <option value={s.id}>{s.display_name || s.name}</option>
               {/each}
             </select>

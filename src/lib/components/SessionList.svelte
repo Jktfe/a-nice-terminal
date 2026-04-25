@@ -7,6 +7,7 @@
   import GridView from './GridView.svelte';
   import { goto } from '$app/navigation';
   import { theme } from '$lib/stores/theme.svelte';
+  import { isAutoLinkedChatSession } from '$lib/utils/linked-chat';
 
   const grid = useGridStore();
   const store = useSessionStore();
@@ -175,7 +176,7 @@
       .filter(s => s.type === 'terminal' && s.linked_chat_id)
       .map(s => s.linked_chat_id as string)
   ));
-  const standaloneChatsSrc = $derived(chats.filter(s => !linkedChatIds.has(s.id)));
+  const standaloneChatsSrc = $derived(chats.filter(s => !linkedChatIds.has(s.id) && !isAutoLinkedChatSession(s)));
 
   $effect(() => {
     store.load();

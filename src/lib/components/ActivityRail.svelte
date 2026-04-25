@@ -2,6 +2,7 @@
   import { goto } from '$app/navigation';
   import { NOCTURNE, agentColorFromSession } from '$lib/nocturne';
   import { SESSIONS_CHANNEL } from '$lib/ws-channels';
+  import { isAutoLinkedChatSession } from '$lib/utils/linked-chat';
   import AgentDot from './AgentDot.svelte';
   import { onMount, onDestroy } from 'svelte';
 
@@ -16,6 +17,7 @@
     last_activity?: string;
     updated_at?: string;
     linked_chat_id?: string | null;
+    meta?: string | Record<string, unknown> | null;
   }
 
   let { currentSessionId }: { currentSessionId: string } = $props();
@@ -127,7 +129,11 @@
 
   // Standalone chatrooms always visible; terminals/linked chats only when needs-input
   const standaloneChatIds = $derived(new Set(
-    sessions.filter(s => s.type === 'chat' && !sessions.some(t => t.type === 'terminal' && t.linked_chat_id === s.id))
+    sessions.filter(s =>
+      s.type === 'chat' &&
+      !isAutoLinkedChatSession(s) &&
+      !sessions.some(t => t.type === 'terminal' && t.linked_chat_id === s.id)
+    )
       .map(s => s.id)
   ));
   const standaloneChats = $derived(sessions.filter(s => standaloneChatIds.has(s.id)));

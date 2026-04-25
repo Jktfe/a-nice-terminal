@@ -66,7 +66,15 @@ export async function PATCH({ params, request }: RequestEvent<{ id: string }>) {
     );
   }
   if (body.linked_chat_id !== undefined) {
-    queries.setLinkedChat(params.id, body.linked_chat_id);
+    const nextLinkedChatId = body.linked_chat_id || null;
+    queries.setLinkedChat(params.id, nextLinkedChatId);
+    if (
+      currentSession.type === 'terminal' &&
+      autoLinkedChat &&
+      nextLinkedChatId !== autoLinkedChat.id
+    ) {
+      queries.updateSession(null, null, 1, null, autoLinkedChat.id);
+    }
   }
   const session = queries.getSession(params.id);
   if (!session) throw error(404, 'Session not found');
