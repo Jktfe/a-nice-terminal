@@ -468,7 +468,10 @@ export function isChrome(sessionId: string, line: string): boolean {
 /** Query the current pending event state for a session (used by status API). */
 export function getPendingEvent(sessionId: string): {
   needs_input: boolean;
+  event_id?: string;
+  event_chat_id?: string;
   event_class?: string;
+  event?: NormalisedEvent;
   summary?: string;
   since?: string;
   agent_status?: AgentStatus;
@@ -487,7 +490,10 @@ export function getPendingEvent(sessionId: string): {
   const eventClass = (event as any).class ?? event.type;
   return {
     needs_input: true,
+    event_id: first.msgId,
+    event_chat_id: first.chatId,
     event_class: eventClass,
+    event,
     summary: buildSummary(event, eventClass),
     since: new Date(event.ts ?? Date.now()).toISOString(),
     ...(state.currentStatus ? { agent_status: state.currentStatus } : {}),

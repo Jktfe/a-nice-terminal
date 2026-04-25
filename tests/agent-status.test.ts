@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { ClaudeCodeDriver } from '../src/drivers/claude-code/driver.js';
 import { CodexCliDriver } from '../src/drivers/codex-cli/driver.js';
 import { GeminiCliDriver } from '../src/drivers/gemini-cli/driver.js';
-import { dispose, feed, getPendingEvent, init } from '../src/lib/server/agent-event-bus.js';
+import { dispose, feed, getPendingEvent, init, trackEvent } from '../src/lib/server/agent-event-bus.js';
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -86,6 +86,29 @@ describe('agent status endpoint state', () => {
         workspace: '/CascadeProjects/newmodelgvpl',
         contextRemainingPct: 100,
       },
+    });
+
+    dispose(sessionId);
+  });
+
+  it('returns pending event identity and payload for interactive clients', () => {
+    const sessionId = `event-status-test-${Date.now()}`;
+    const event = {
+      class: 'free_text',
+      payload: { question: 'Which branch should I use?' },
+      text: 'Which branch should I use?',
+      ts: 123456,
+    } as any;
+
+    trackEvent(sessionId, 'msg-123', 'chat-123', event);
+
+    expect(getPendingEvent(sessionId)).toMatchObject({
+      needs_input: true,
+      event_id: 'msg-123',
+      event_chat_id: 'chat-123',
+      event_class: 'free_text',
+      event,
+      summary: 'Which branch should I use?',
     });
 
     dispose(sessionId);
