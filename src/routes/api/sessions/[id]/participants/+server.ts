@@ -2,6 +2,15 @@ import { json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
 
+function resolveCliFlag(session: any): string | null {
+  if (session.cli_flag) return session.cli_flag;
+  try {
+    return JSON.parse(session.meta || '{}').agent_driver || null;
+  } catch {
+    return null;
+  }
+}
+
 export function GET({ params }: RequestEvent<{ id: string }>) {
   const session = queries.getSession(params.id);
   if (!session) return json({ error: 'not found' }, { status: 404 });
@@ -67,4 +76,43 @@ export function GET({ params }: RequestEvent<{ id: string }>) {
     postsFrom: [],
     all: messageDerived,
   });
+}
+
+export async function POST({ params, request }: RequestEvent<{ id: string }>) {
+  const room = queries.getSession(params.id);
+  if (!room) return json({ error: 'not found' }, { status: 404 });
+  if (room.type !== 'chat') return json({ error: 'room must be a chat session' }, { status: 400 });
+
+  const body = await request.json().catch(() => ({}));
+  const rawSessionId = typeof body.session_id === 'string' ? body.session_id.trim() : '';
+  const rawHandle = typeof body.handle === 'string' ? body.handle.trim() : '';
+  const role = body.role === 'external' ? 'external' : 'participant';
+
+  if (!rawSessionId && !rawHandle) {
+    return json({ error: 'session_id or handle required' }, { status: 400 });
+  }
+
+  const member = rawSessionId
+    ? queries.getSession(rawSessionId)
+    : queries.getSessionByHandle(rawHandle.startsWith('@') ? rawHandle : `@${rawHandle}`);
+
+  if (!member) return json({ error: 'member session not found' }, { status: 404 });
+
+  const aliasInput = typeof body.alias === 'string' ? body.alias.trim() : '';
+  const alias = aliasInput || member.handle || null;
+  const cliFlag = resolveCliFlag(member);
+  queries.addRoomMember(params.id, member.id, role, cliFlag, alias);
+  if (alias) queries.updateMemberAlias(params.id, member.id, alias);
+
+  const added = (queries.listRoomMembers(params.id) as any[]).find((m: any) => m.session_id === member.id);
+  return json({
+    id: member.id,
+    name: member.display_name || member.name || member.id,
+    handle: member.handle,
+    alias: added?.alias ?? alias,
+    session_type: member.type,
+    role,
+    cli_flag: added?.cli_flag ?? cliFlag,
+    joined_at: added?.joined_at ?? null,
+  }, { status: 201 });
 }

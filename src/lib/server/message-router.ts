@@ -76,6 +76,15 @@ export function parseMentions(content: string, knownHandles: string[]): {
   return { targets, isAllParticipants: targets.length === 0 };
 }
 
+export function handlesForMember(member: { alias?: string | null; handle?: string | null }): string[] {
+  return [...new Set([member.alias, member.handle].filter((h): h is string => !!h))];
+}
+
+function memberHasAnyHandle(member: { alias?: string | null; handle?: string | null }, handles: string[]): boolean {
+  const handleSet = new Set(handles);
+  return handlesForMember(member).some(handle => handleSet.has(handle));
+}
+
 // ─── System message types that must NOT fan out ─────────────────────────────
 
 const SYSTEM_MSG_TYPES = new Set([
@@ -252,24 +261,27 @@ export class MessageRouter {
 
         if (terminals.length > 0) {
           const getId = (t: any) => t.session_id;
-          const getHandle = (t: any) => t.alias || t.handle;
+          const getHandle = (t: any) => handlesForMember(t)[0] ?? null;
           const getCliFlag = (t: any) => t.cli_flag || null;
 
-          const knownHandles = terminals.map(getHandle).filter(Boolean) as string[];
+          const knownHandles = [...new Set(terminals.flatMap(handlesForMember))];
           const { targets, isAllParticipants } = parseMentions(message.content, knownHandles);
 
           const terminalsToSend = isAllParticipants
-            ? terminals.filter((t: any) => !excludedHandles.includes(getHandle(t)))
-            : terminals.filter((t: any) => targets.includes(getHandle(t)) && !excludedHandles.includes(getHandle(t)));
+            ? terminals.filter((t: any) => !memberHasAnyHandle(t, excludedHandles))
+            : terminals.filter((t: any) => memberHasAnyHandle(t, targets) && !memberHasAnyHandle(t, excludedHandles));
 
           for (const terminal of terminalsToSend) {
+            const matchingTarget = isAllParticipants
+              ? getHandle(terminal)
+              : handlesForMember(terminal).find(handle => targets.includes(handle)) ?? getHandle(terminal);
             const target: RouteTarget = {
               sessionId: getId(terminal),
-              handle: getHandle(terminal),
+              handle: matchingTarget,
               type: 'terminal',
               cliFlag: getCliFlag(terminal),
             };
-            const routedMessage = isAllParticipants ? message : { ...message, target: getHandle(terminal) };
+            const routedMessage = isAllParticipants ? message : { ...message, target: matchingTarget };
 
             // a. Deliver to the terminal's PTY
             if (ptyAdapter.canDeliver(routedMessage, target)) {
