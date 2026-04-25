@@ -18,6 +18,8 @@
   let text = $state('');
   let isFocused = $state(false);
   let inputEl = $state<HTMLTextAreaElement | null>(null);
+  let fileInputEl = $state<HTMLInputElement | null>(null);
+  let uploading = $state(false);
 
   // @ mention autocomplete
   let mentionQuery = $state('');
@@ -98,6 +100,27 @@
     showMentions = false;
     onClearReply?.();
     setTimeout(resizeInput, 0);
+  }
+
+  async function handleFileSelect(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    uploading = true;
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/upload', { method: 'POST', body: formData });
+      if (res.ok) {
+        const { url } = await res.json();
+        text += (text && !text.endsWith('\n') ? '\n' : '') + `![image](${url})`;
+        inputEl?.focus();
+        setTimeout(resizeInput, 0);
+      }
+    } catch {} finally {
+      uploading = false;
+      if (fileInputEl) fileInputEl.value = '';
+    }
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -223,6 +246,26 @@
         rows="2"
       ></textarea>
     </div>
+
+    <!-- Attachment button -->
+    <input bind:this={fileInputEl} type="file" accept="image/*" onchange={handleFileSelect} class="hidden" />
+    <button
+      onclick={() => fileInputEl?.click()}
+      disabled={uploading}
+      class="flex-shrink-0 cursor-pointer disabled:opacity-40"
+      style="color: var(--text-faint); background: none; border: none; padding: 4px; margin-bottom: 2px;"
+      title="Attach image"
+    >
+      {#if uploading}
+        <svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" stroke-dasharray="32" stroke-dashoffset="8" /></svg>
+      {:else}
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+          <circle cx="8.5" cy="8.5" r="1.5" />
+          <polyline points="21 15 16 10 5 21" />
+        </svg>
+      {/if}
+    </button>
 
     <!-- Send button -->
     <button

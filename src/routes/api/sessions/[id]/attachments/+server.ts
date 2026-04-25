@@ -10,7 +10,9 @@ export const config = { body: { maxSize: '10m' } };
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const UPLOAD_DIR = join(process.cwd(), 'static', 'uploads');
 
-export async function POST({ request }: RequestEvent) {
+export async function POST({ request, params }: RequestEvent) {
+  const _sessionId = params.id; // available for future per-session storage
+
   const contentType = request.headers.get('content-type') || '';
   if (!contentType.includes('multipart/form-data')) {
     throw error(400, 'Expected multipart/form-data');
@@ -31,7 +33,6 @@ export async function POST({ request }: RequestEvent) {
     throw error(413, 'File exceeds 10 MB limit');
   }
 
-  // Derive extension from mime type
   const ext = file.type.split('/')[1]?.replace('jpeg', 'jpg') || 'bin';
   const filename = `${Date.now()}-${nanoid(8)}.${ext}`;
 
@@ -40,5 +41,8 @@ export async function POST({ request }: RequestEvent) {
   const buffer = Buffer.from(await file.arrayBuffer());
   await writeFile(join(UPLOAD_DIR, filename), buffer);
 
-  return json({ url: `/uploads/${filename}` });
+  const url = `/uploads/${filename}`;
+  const markdown = `![image](${url})`;
+
+  return json({ url, markdown });
 }

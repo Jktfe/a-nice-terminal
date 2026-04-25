@@ -4,6 +4,9 @@
 import { config } from 'dotenv';
 config(); // Load .env
 
+// adapter-node enforces this before SvelteKit route handlers run.
+process.env.BODY_SIZE_LIMIT ||= '10M';
+
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import {
   appendFileSync,
@@ -276,8 +279,26 @@ function tryServeClientAsset(req: IncomingMessage, res: ServerResponse): boolean
   return true;
 }
 
+function tryServeUpload(req: IncomingMessage, res: ServerResponse): boolean {
+  if (!req.url?.startsWith('/uploads/')) return false;
+  const decoded = decodeURIComponent(req.url);
+  const filePath = join(process.cwd(), 'static', decoded);
+  if (!existsSync(filePath)) {
+    res.writeHead(404);
+    res.end('Not Found');
+    return true;
+  }
+  const ext = filePath.split('.').pop()?.toLowerCase() || '';
+  const mimeMap: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml' };
+  const mime = mimeMap[ext] || 'application/octet-stream';
+  res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'public, max-age=31536000, immutable' });
+  createReadStream(filePath).pipe(res);
+  return true;
+}
+
 function requestHandler(req: IncomingMessage, res: ServerResponse) {
   if (tryServeClientAsset(req, res)) return;
+  if (tryServeUpload(req, res)) return;
   handler(req, res);
 }
 
