@@ -7,6 +7,7 @@
   import TerminalSummary from '$lib/components/TerminalSummary.svelte';
   import { SPECIAL_KEYS } from '$lib/shared/special-keys.js';
   import QuickLaunchBar from '$lib/components/QuickLaunchBar.svelte';
+  import TerminalContextStrip from '$lib/components/TerminalContextStrip.svelte';
   import AgentDot from '$lib/components/AgentDot.svelte';
   import { agentColor } from '$lib/nocturne';
   import { activeRoutingMentions, bracketRoutingMention } from '$lib/utils/mentions';
@@ -19,6 +20,10 @@
     display_name?: string;
     linked_chat_id?: string | null;
     cli_flag?: string | null;
+    status?: string | null;
+    ttl?: string | null;
+    last_activity?: string | null;
+    meta?: string | Record<string, unknown> | null;
   }
 
   interface Props {
@@ -438,6 +443,10 @@
       </button>
     </div>
   </div>
+
+  {#if session?.type === 'terminal'}
+    <TerminalContextStrip {session} {allSessions} {linkedChatId} />
+  {/if}
 
   <!-- Messages scroll area -->
   <div class="flex-1 overflow-y-auto px-4 py-4 space-y-3 relative"
