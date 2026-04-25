@@ -50,7 +50,8 @@ export class PtyInjectionAdapter implements DeliveryAdapter {
         } catch {}
       }
 
-      const plainText = `[${header}] ${safeContent}${replyContext} -- reply with: ${replyCmd}`;
+      const routingHint = 'Routing: plain replies stay in the chat only; include @handle to notify one agent; use @everyone to notify all.';
+      const plainText = `[${header}] ${safeContent}${replyContext} -- reply with: ${replyCmd} -- ${routingHint}`;
 
       // Two-call protocol: text first, then \r after a beat.
       // Claude Code requires a second \r (empty line) to submit the prompt —
