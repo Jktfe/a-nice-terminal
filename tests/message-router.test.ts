@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { shouldRawForwardLinkedChatMessage } from '../src/lib/server/adapters/linked-chat-adapter.js';
-import { handlesForMember, parseMentions } from '../src/lib/server/message-router.js';
+import { handlesForMember, parseMentions, resolveRoomFanout } from '../src/lib/server/message-router.js';
 
 describe('message router mentions', () => {
   it('returns both room alias and real handle for a member', () => {
@@ -42,5 +42,49 @@ describe('linked chat source markers', () => {
       role: 'user',
       meta: JSON.stringify({ source: 'terminal_direct' }),
     }, true)).toBe(false);
+  });
+});
+
+describe('room fan-out scope', () => {
+  const handles = ['@claude', '@gemini', '@codex'];
+
+  it('keeps terminal acknowledgements chat-visible only', () => {
+    expect(resolveRoomFanout('on it', handles, 'terminal')).toEqual({
+      targets: [],
+      isAllParticipants: true,
+      shouldFanOutToTerminals: false,
+    });
+  });
+
+  it('routes terminal-originated active mentions to the named terminal', () => {
+    expect(resolveRoomFanout('@gemini can you help', handles, 'terminal')).toEqual({
+      targets: ['@gemini'],
+      isAllParticipants: false,
+      shouldFanOutToTerminals: true,
+    });
+  });
+
+  it('lets terminal-originated @everyone fan out to all terminals', () => {
+    expect(resolveRoomFanout('@everyone status update', handles, 'terminal')).toEqual({
+      targets: [],
+      isAllParticipants: true,
+      shouldFanOutToTerminals: true,
+    });
+  });
+
+  it('does not treat terminal-originated unknown mentions as broadcasts', () => {
+    expect(resolveRoomFanout('@unknown on it', handles, 'terminal')).toEqual({
+      targets: [],
+      isAllParticipants: true,
+      shouldFanOutToTerminals: false,
+    });
+  });
+
+  it('preserves human broadcast behaviour', () => {
+    expect(resolveRoomFanout('can someone check this', handles, null)).toEqual({
+      targets: [],
+      isAllParticipants: true,
+      shouldFanOutToTerminals: true,
+    });
   });
 });

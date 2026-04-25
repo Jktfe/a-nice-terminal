@@ -77,6 +77,34 @@ export function parseMentions(content: string, knownHandles: string[]): {
   return { targets, isAllParticipants: targets.length === 0 };
 }
 
+function activeMentionHandles(content: string): string[] {
+  const bracketEscaped = content.replace(/\[@[\w.-]+\]/g, '');
+  return [...new Set(bracketEscaped.match(/@[\w.-]+/g) || [])];
+}
+
+export function resolveRoomFanout(
+  content: string,
+  knownHandles: string[],
+  senderType: string | null,
+): {
+  targets: string[];
+  isAllParticipants: boolean;
+  shouldFanOutToTerminals: boolean;
+} {
+  const { targets, isAllParticipants } = parseMentions(content, knownHandles);
+
+  if (senderType !== 'terminal') {
+    return { targets, isAllParticipants, shouldFanOutToTerminals: true };
+  }
+
+  const hasEveryone = activeMentionHandles(content).includes('@everyone');
+  return {
+    targets,
+    isAllParticipants,
+    shouldFanOutToTerminals: hasEveryone || targets.length > 0,
+  };
+}
+
 export function handlesForMember(member: { alias?: string | null; handle?: string | null }): string[] {
   return [...new Set([member.alias, member.handle].filter((h): h is string => !!h))];
 }
@@ -248,10 +276,12 @@ export class MessageRouter {
     //    exist, no delivery happens (prevents blast-to-all-terminals bug).
     //
     //    Routing per James's diagram:
-    //      No @mention or invalid @  → All participants' terminals
-    //      Valid @mention            → Only that @'s terminal(s)
-    //    In both cases, also cross-post to each target's linked chat
-    //    (but never back to the originating chatroom).
+    //      Human with no @mention or invalid @ → All participants' terminals
+    //      Terminal with no @mention           → Chatroom only, no PTY fan-out
+    //      Valid @mention                      → Only that @'s terminal(s)
+    //      @everyone                           → All participants' terminals
+    //    For routed terminal deliveries, also cross-post to each target's
+    //    linked chat (but never back to the originating chatroom).
     const isLinkedChat = (queries.getTerminalsByLinkedChat(message.sessionId) as any[]).length > 0;
     if (!isLinkedChat) {
       const ptyAdapter = this.adapters.find(a => a.name === 'pty-injection');
@@ -266,7 +296,14 @@ export class MessageRouter {
           const getCliFlag = (t: any) => t.cli_flag || null;
 
           const knownHandles = [...new Set(terminals.flatMap(handlesForMember))];
-          const { targets, isAllParticipants } = parseMentions(message.content, knownHandles);
+          const { targets, isAllParticipants, shouldFanOutToTerminals } = resolveRoomFanout(
+            message.content,
+            knownHandles,
+            message.senderType,
+          );
+          if (!shouldFanOutToTerminals) {
+            return { messageId: message.id, deliveries };
+          }
 
           const terminalsToSend = isAllParticipants
             ? terminals.filter((t: any) => !memberHasAnyHandle(t, excludedHandles))
