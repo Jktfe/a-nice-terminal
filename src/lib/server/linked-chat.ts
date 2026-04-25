@@ -26,3 +26,9 @@ export function isAutoLinkedChatForTerminal(meta: unknown, terminalId: string) {
   const parsed = parseSessionMeta(meta);
   return parsed[AUTO_LINKED_TERMINAL_ID_KEY] === terminalId;
 }
+
+export function autoLinkedTerminalId(meta: unknown): string | null {
+  const parsed = parseSessionMeta(meta);
+  const terminalId = parsed[AUTO_LINKED_TERMINAL_ID_KEY];
+  return typeof terminalId === 'string' && terminalId ? terminalId : null;
+}

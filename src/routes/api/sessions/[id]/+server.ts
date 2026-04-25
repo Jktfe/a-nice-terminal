@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
-import { isAutoLinkedChatForTerminal } from '$lib/server/linked-chat';
+import { autoLinkedTerminalId, isAutoLinkedChatForTerminal } from '$lib/server/linked-chat';
 import { SESSIONS_CHANNEL } from '$lib/ws-channels';
 import { buildLinkedChatName, normalizeSessionName } from '$lib/utils/session-naming';
 
@@ -96,6 +96,22 @@ export async function PATCH({ params, request }: RequestEvent<{ id: string }>) {
       const linkedTerminals = queries.getTerminalsByLinkedChat(params.id) as any[];
       for (const t of linkedTerminals) {
         maybeWriteSessionSummary(t.id);
+      }
+    }
+
+    // Cascade archive only across the private terminal <-> auto-linked chat
+    // pair. Shared chatrooms can have many participants and must not archive
+    // terminals just because they appear in room routing.
+    if ((session as any).type === 'terminal' && autoLinkedChat) {
+      queries.updateSession(null, null, 1, null, autoLinkedChat.id);
+    } else if ((session as any).type === 'chat') {
+      const terminalId = autoLinkedTerminalId((session as any).meta);
+      const terminal = terminalId ? queries.getSession(terminalId) as any : null;
+      if (terminal?.type === 'terminal') {
+        maybeWriteSessionSummary(terminal.id);
+        queries.updateSession(null, null, 1, null, terminal.id);
+        const { ptyClient } = await import('$lib/server/pty-client.js');
+        ptyClient.kill(terminal.id);
       }
     }
 
