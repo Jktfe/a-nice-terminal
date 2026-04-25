@@ -614,7 +614,7 @@ getPtyManager().then(async ptm => {
     sessionId: string,
     chatId: string,
     content: string,
-    msgType: 'prompt' | 'title',
+    msgType: string,
   ) {
     const msgId = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
     try {
@@ -635,6 +635,14 @@ getPtyManager().then(async ptm => {
         msg_type: msgType,
         created_at: new Date().toISOString(),
       });
+      if (msgType === 'agent_event') {
+        try {
+          const { trackEvent } = await import('./src/lib/server/agent-event-bus.js');
+          trackEvent(sessionId, msgId, chatId, JSON.parse(content));
+        } catch (e) {
+          console.error('[linkedchat] track agent_event failed:', e);
+        }
+      }
     } catch (e) {
       console.error(`[linkedchat] forward ${msgType} failed:`, e);
     }

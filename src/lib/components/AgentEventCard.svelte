@@ -63,7 +63,7 @@
   );
 
   function respond(type: string, choice: Record<string, any>) {
-    onRespond({ type, event_content: message.content, choice });
+    onRespond({ type, event_id: message.id, event_content: message.content, choice });
   }
 </script>
 

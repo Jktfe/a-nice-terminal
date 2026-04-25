@@ -188,6 +188,17 @@ async function resolveDriver(sessionId: string): Promise<AgentDriver | null> {
   return driver;
 }
 
+async function ensureDriver(sessionId: string, state: SessionState): Promise<AgentDriver | null> {
+  if (state.driver) return state.driver;
+  if (!_getSession) return null;
+  if (state.driverSlug === 'none') return null;
+
+  state.driver = await resolveDriver(sessionId);
+  state.driverSlug = state.driver ? 'loaded' : 'none';
+  if (state.driver) console.log(`[event-bus] driver loaded for ${sessionId}: ${state.driverSlug}`);
+  return state.driver;
+}
+
 /** Called from server.ts ptm.onData() for every chunk of terminal output. */
 export async function feed(sessionId: string, rawData: string): Promise<void> {
   const state = getState(sessionId);
@@ -196,10 +207,7 @@ export async function feed(sessionId: string, rawData: string): Promise<void> {
   // been called — feed() fires before init() completes due to async import race.
   if (!state.driver) {
     if (!_getSession) return; // init() hasn't run yet — skip silently, retry next call
-    if (state.driverSlug === 'none') return; // already confirmed no driver configured
-    state.driver = await resolveDriver(sessionId);
-    state.driverSlug = state.driver ? 'loaded' : 'none';
-    if (state.driver) console.log(`[event-bus] driver loaded for ${sessionId}: ${state.driverSlug}`);
+    await ensureDriver(sessionId, state);
   }
   if (!state.driver) return;
 
@@ -343,13 +351,17 @@ export async function handleResponse(
   terminalSessionId: string,
   eventContent: string,
   choice: UserChoice,
+  eventMsgId?: string | null,
 ): Promise<void> {
   const state = getState(terminalSessionId);
-  if (!state.driver || !_writeToTerminal) return;
+  const driver = await ensureDriver(terminalSessionId, state);
+  if (!driver) throw new Error(`No agent driver configured for ${terminalSessionId}`);
+  if (!_writeToTerminal) throw new Error('Terminal writer is not initialised');
 
   // Parse the original event from the content
   let event: NormalisedEvent;
-  try { event = JSON.parse(eventContent); } catch { return; }
+  try { event = JSON.parse(eventContent); }
+  catch { throw new Error('Invalid agent event payload'); }
 
   // Build the sendKeys callback
   const sendKeys: SendKeysFn = async (keys: string[]) => {
@@ -366,7 +378,22 @@ export async function handleResponse(
   // AgentDriver interface declares respond(event, choice) but concrete drivers
   // accept an optional sendKeys callback as the 3rd arg for PTY key injection.
   // Cast through any to pass it — the driver throws if sendKeys is required but missing.
-  await (state.driver as any).respond(event, choice, sendKeys);
+  await (driver as any).respond(event, choice, sendKeys);
+
+  const session = _getSession?.(terminalSessionId);
+  if (eventMsgId && session?.linked_chat_id && _updateMessageMeta && _broadcastToChat) {
+    const chosen = choice.type === 'confirm'
+      ? (choice.yes ? 'confirm' : 'cancel')
+      : choice.type;
+    const meta = { status: 'responded', chosen };
+    _updateMessageMeta(eventMsgId, JSON.stringify(meta));
+    _broadcastToChat(session.linked_chat_id, {
+      type: 'message_updated',
+      sessionId: session.linked_chat_id,
+      msgId: eventMsgId,
+      meta,
+    });
+  }
 
   // Clear the dashboard badge — response was sent, prompt is resolved.
   // Remove any pending events matching this event class.

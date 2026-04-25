@@ -196,7 +196,7 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         role: 'user',
-        content: JSON.stringify({ type, event_content: msg.content, choice }),
+        content: JSON.stringify({ type, event_id: msg.id, event_content: msg.content, choice }),
         format: 'json',
         msg_type: 'agent_response',
       }),

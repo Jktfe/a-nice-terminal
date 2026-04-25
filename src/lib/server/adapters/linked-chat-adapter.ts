@@ -81,7 +81,7 @@ export class LinkedChatAdapter implements DeliveryAdapter {
       // AgentEventCard sends { type, event_content, choice } — merge type
       // into choice to form a valid UserChoice for the driver
       const userChoice = { type: payload.type, ...payload.choice };
-      await handleResponse(target.sessionId, payload.event_content, userChoice);
+      await handleResponse(target.sessionId, payload.event_content, userChoice, payload.event_id ?? null);
 
       return {
         adapter: this.name,
