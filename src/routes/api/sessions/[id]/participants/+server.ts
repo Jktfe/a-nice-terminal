@@ -116,3 +116,36 @@ export async function POST({ params, request }: RequestEvent<{ id: string }>) {
     joined_at: added?.joined_at ?? null,
   }, { status: 201 });
 }
+
+export async function DELETE({ params, url, request }: RequestEvent<{ id: string }>) {
+  const room = queries.getSession(params.id);
+  if (!room) return json({ error: 'not found' }, { status: 404 });
+  if (room.type !== 'chat') return json({ error: 'room must be a chat session' }, { status: 400 });
+
+  const body = await request.json().catch(() => ({}));
+  const bodySessionId = typeof body.session_id === 'string' ? body.session_id : '';
+  const bodyHandle = typeof body.handle === 'string' ? body.handle : '';
+  const rawSessionId = (url.searchParams.get('session_id') || bodySessionId).trim();
+  const rawHandle = (url.searchParams.get('handle') || bodyHandle).trim();
+
+  if (!rawSessionId && !rawHandle) {
+    return json({ error: 'session_id or handle required' }, { status: 400 });
+  }
+
+  const member = rawSessionId
+    ? queries.getSession(rawSessionId)
+    : queries.getSessionByHandle(rawHandle.startsWith('@') ? rawHandle : `@${rawHandle}`);
+
+  if (!member) return json({ error: 'member session not found' }, { status: 404 });
+
+  const result = queries.removeRoomMember(params.id, member.id) as { changes?: number };
+
+  const { broadcastGlobal } = await import('$lib/server/ws-broadcast.js');
+  broadcastGlobal({ type: 'sessions_changed' });
+
+  return json({
+    ok: true,
+    removed: (result.changes ?? 0) > 0,
+    id: member.id,
+  });
+}

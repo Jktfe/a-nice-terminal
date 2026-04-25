@@ -2,10 +2,11 @@
   import { NOCTURNE } from '$lib/nocturne';
   import NocturneIcon from './NocturneIcon.svelte';
 
-  let { message, sessionId, onRespond }: {
+  let { message, sessionId, onRespond, onDiscard }: {
     message: any;
     sessionId: string;
     onRespond: (choice: any) => void;
+    onDiscard?: (message: any) => void | Promise<void>;
   } = $props();
 
   interface NormalisedEvent {
@@ -27,6 +28,7 @@
   const status: string = $derived(meta.status || 'pending');
   const responded = $derived(status === 'responded');
   const settled = $derived(status === 'settled');
+  const discarded = $derived(status === 'discarded' || status === 'dismissed');
   const active = $derived(status === 'pending' || !meta.status);
   const chosenAction: string = $derived(meta.chosen || '');
 
@@ -65,10 +67,29 @@
   function respond(type: string, choice: Record<string, any>) {
     onRespond({ type, event_id: message.id, event_content: message.content, choice });
   }
+
+  function discard() {
+    onDiscard?.(message);
+  }
 </script>
 
 <!-- ─── Settled: collapsed single-line summary ─── -->
-{#if settled}
+{#if discarded}
+  <div
+    class="flex items-center gap-2"
+    style="
+      padding: 6px 12px;
+      border-radius: var(--radius-input);
+      background: var(--hairline);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-faint);
+    "
+  >
+    <span style="color: var(--text-faint);">✕</span>
+    <span>Discarded: <span style="color: var(--text-muted);">{label}</span></span>
+  </div>
+{:else if settled}
   <div
     class="flex items-center gap-2"
     style="
@@ -161,6 +182,12 @@
     {#if active && !responded}
       <div class="event-actions" style="background: {accent}06;">
         <div class="flex-1"></div>
+        {#if onDiscard}
+          <button class="event-btn event-btn-secondary" onclick={discard}>
+            <NocturneIcon name="x" size={11} />
+            <span>Discard</span>
+          </button>
+        {/if}
         <button class="event-btn event-btn-secondary" onclick={() => respond(
           event.class === 'tool_auth' ? 'deny' : 'deny',
           event.class === 'tool_auth' ? { action: 'deny', tool: event.payload.tool } : { action: 'deny' }
@@ -196,6 +223,12 @@
     {#if active && !responded}
       <div class="event-actions" style="background: {accent}06;">
         <div class="flex-1"></div>
+        {#if onDiscard}
+          <button class="event-btn event-btn-secondary" onclick={discard}>
+            <NocturneIcon name="x" size={11} />
+            <span>Discard</span>
+          </button>
+        {/if}
         <button class="event-btn event-btn-secondary" onclick={() => respond('abort', { action: 'abort' })}>
           <NocturneIcon name="x" size={11} />
           <span>Abort</span>
@@ -245,6 +278,15 @@
             {/if}
           {/each}
         </div>
+        {#if active && !responded && onDiscard}
+          <div class="event-actions mt-3" style="border-top: none; padding: 0;">
+            <div class="flex-1"></div>
+            <button class="event-btn event-btn-secondary" onclick={discard}>
+              <NocturneIcon name="x" size={11} />
+              <span>Discard</span>
+            </button>
+          </div>
+        {/if}
 
       {:else if event.class === 'free_text' && !responded}
         {@const inputId = `free-text-${message.id}`}
@@ -253,6 +295,12 @@
             class="event-input" disabled={!active}
             onkeydown={(e) => { if (e.key === 'Enter') { const el = e.target as HTMLInputElement; if (el.value.trim()) respond('text', { value: el.value.trim() }); } }}
           />
+          {#if active && onDiscard}
+            <button class="event-btn event-btn-secondary" onclick={discard}>
+              <NocturneIcon name="x" size={11} />
+              <span>Discard</span>
+            </button>
+          {/if}
           <button class="event-btn event-btn-primary" style="--btn-color: {accent};" disabled={!active}
             onclick={() => { const el = document.getElementById(inputId) as HTMLInputElement; if (el?.value.trim()) respond('text', { value: el.value.trim() }); }}
           >
@@ -263,6 +311,12 @@
       {:else if event.class === 'confirmation' && active && !responded}
         <div class="event-actions mt-3" style="border-top: none; padding: 0;">
           <div class="flex-1"></div>
+          {#if onDiscard}
+            <button class="event-btn event-btn-secondary" onclick={discard}>
+              <NocturneIcon name="x" size={11} />
+              <span>Discard</span>
+            </button>
+          {/if}
           <button class="event-btn event-btn-secondary" onclick={() => respond('confirm', { yes: false })}>
             <NocturneIcon name="x" size={11} />
             <span>Cancel</span>

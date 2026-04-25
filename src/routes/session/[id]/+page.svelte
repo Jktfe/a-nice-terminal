@@ -222,16 +222,21 @@
 
   // @ mention handles
   let mentionHandles = $state<{ handle: string; name: string }[]>([]);
+  let roomParticipants = $state<Record<string, unknown>[]>([]);
   let postsFrom = $state<Record<string, unknown>[]>([]);
 
-  async function loadMentionHandles(targetSessionId = sessionId) {
+  async function loadMentionHandles(
+    sourceSessionId = session?.type === 'terminal' && linkedChatId ? linkedChatId : sessionId,
+    pageSessionId = sessionId,
+  ) {
     try {
-      const res = await fetch(`/api/sessions/${targetSessionId}/participants`);
+      const res = await fetch(`/api/sessions/${sourceSessionId}/participants`);
       const data = await res.json();
-      if (targetSessionId !== sessionId) return;
+      if (pageSessionId !== sessionId) return;
       mentionHandles = (data.all || [])
         .filter((p: Record<string, string>) => p.handle)
         .map((p: Record<string, string>) => ({ handle: p.handle, name: p.name || p.handle }));
+      roomParticipants = data.participants || [];
       postsFrom = data.postsFrom || [];
     } catch {}
   }
@@ -630,6 +635,7 @@
     tasks = [];
     fileRefs = [];
     mentionHandles = [];
+    roomParticipants = [];
     postsFrom = [];
     linkedChatId = '';
     linkedChatMessages = [];
@@ -701,7 +707,10 @@
     if (loadSeq !== sessionLoadSeq || targetSessionId !== sessionId) return;
     tasks = (await tasksRes.json()).tasks || [];
     fileRefs = (await refsRes.json()).refs || [];
-    loadMentionHandles(targetSessionId);
+    loadMentionHandles(
+      session?.type === 'terminal' && linkedChatId ? linkedChatId : targetSessionId,
+      targetSessionId,
+    );
 
     // Load read receipts for the active chat
     const readChatId = session?.type === 'terminal' ? session?.linked_chat_id : targetSessionId;
@@ -863,6 +872,25 @@
     }
   }
 
+  async function removeParticipant(sess: PageSession) {
+    const label = sess.display_name || sess.name || sess.handle || sess.id;
+    if (!confirm(`Remove ${label} from this room?`)) return;
+
+    const res = await fetch(`/api/sessions/${sessionId}/participants?session_id=${encodeURIComponent(sess.id)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      toasts.show('Failed to remove participant', 'error');
+      return;
+    }
+
+    roomParticipants = roomParticipants.filter((p) => p.id !== sess.id);
+    mentionHandles = mentionHandles.filter((h) => h.handle !== sess.handle);
+    postsFrom = postsFrom.filter((p) => p.id !== sess.id);
+    toasts.show(`Removed ${label}`);
+    await loadMentionHandles();
+  }
+
   async function handleCliFlagChange(slug: string | null) {
     // PATCH persists cli_flag, updates meta, notifies daemon, and broadcasts WS
     await fetch(`/api/sessions/${sessionId}/cli-flag`, {
@@ -931,8 +959,10 @@
       const key = allSessions.find(s => s.handle === m.sender_id || s.id === m.sender_id)?.id ?? m.sender_id;
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
+    const roomMemberIds = new Set(roomParticipants.map((p) => p.id as string));
+    const hasRoomMembership = roomParticipants.length > 0;
     const active = allSessions
-      .filter(s => s.id !== sessionId && counts.has(s.id))
+      .filter(s => s.id !== sessionId && (hasRoomMembership ? roomMemberIds.has(s.id) : counts.has(s.id)))
       .map(s => ({ sess: s, count: counts.get(s.id) ?? 0, active: true }));
     const activeIds = new Set(active.map(p => p.sess.id));
 
@@ -952,7 +982,7 @@
       }));
 
     const available = allSessions
-      .filter(s => s.id !== sessionId && !counts.has(s.id))
+      .filter(s => s.id !== sessionId && !activeIds.has(s.id))
       .map(s => ({ sess: s, count: 0, active: false }));
     return { active: [...active, ...externalActive], available };
   });
@@ -1217,7 +1247,10 @@
         onTabChange={(tab) => (panelTab = tab)}
         onTaskUpdated={(u) => { tasks = tasks.map(x => x.id === u.id ? u : x); }}
         onFileRefRemoved={(id) => { fileRefs = fileRefs.filter(x => x.id !== id); }}
-        onLinkedChatIdChange={(id) => (linkedChatId = id)}
+        onLinkedChatIdChange={(id) => {
+          linkedChatId = id;
+          if (id) loadMentionHandles(id, sessionId);
+        }}
         onLoadLinkedChat={loadLinkedChat}
         onLoadOlderLinkedChat={loadOlderLinkedChatMessages}
         onPostToLinkedChat={postToLinkedChat}
@@ -1228,6 +1261,7 @@
         onCrossPost={crossPost}
         onWakeParticipant={wakeParticipant}
         onSaveNickname={saveNickname}
+        onRemoveParticipant={removeParticipant}
         onCreateTask={createTask}
         onClose={() => (showPanel = false)}
       />

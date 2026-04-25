@@ -7,6 +7,9 @@
   import TerminalSummary from '$lib/components/TerminalSummary.svelte';
   import { SPECIAL_KEYS } from '$lib/shared/special-keys.js';
   import QuickLaunchBar from '$lib/components/QuickLaunchBar.svelte';
+  import AgentDot from '$lib/components/AgentDot.svelte';
+  import { agentColor } from '$lib/nocturne';
+  import { activeRoutingMentions, bracketRoutingMention } from '$lib/utils/mentions';
 
   interface PageSession {
     id: string;
@@ -213,6 +216,11 @@
   let linkedChatInput = $state('');
   let linkedChatInputEl = $state<HTMLTextAreaElement | null>(null);
   let sendBtnEl = $state<HTMLButtonElement | null>(null);
+  const routingMentionHandles = $derived.by(() => {
+    if (mentionHandles.some((h) => h.handle === '@everyone')) return mentionHandles;
+    return [...mentionHandles, { handle: '@everyone', name: 'Everyone' }];
+  });
+  const linkedMentionChips = $derived(activeRoutingMentions(linkedChatInput, routingMentionHandles));
 
   function resizeLinkedChatInput() {
     if (!linkedChatInputEl) return;
@@ -237,6 +245,26 @@
       linkedChatInputEl?.focus();
       linkedChatInputEl?.setSelectionRange(command.length, command.length);
     });
+  }
+
+  function bracketLinkedMention(handle: string) {
+    linkedChatInput = bracketRoutingMention(linkedChatInput, handle);
+    queueMicrotask(() => {
+      resizeLinkedChatInput();
+      linkedChatInputEl?.focus();
+    });
+  }
+
+  async function discardAgentEvent(message: any, chatId: string, linked: boolean) {
+    const res = await fetch(`/api/sessions/${chatId}/messages?msgId=${message.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ meta: { status: 'discarded', chosen: 'discard' } }),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (linked) onLinkedMessageMetaUpdated(message.id, data.meta);
+    else onMessageMetaUpdated(message.id, data.meta);
   }
 
   function handleLinkedChatKeydown(e: KeyboardEvent) {
@@ -444,6 +472,7 @@
                 message={group.items[0]}
                 sessionId={linkedChatId}
                 onRespond={async (payload) => { onAgentRespond(linkedChatId, payload); }}
+                onDiscard={async (message) => { await discardAgentEvent(message, linkedChatId, true); }}
               />
             {:else}
               <div style={threadStyle(group.items[0])}>
@@ -494,6 +523,13 @@
                style={groupSearchStyle(group)}>
             {#if group.type === 'terminal_line'}
               <TerminalLine messages={group.items} />
+            {:else if group.type === 'agent_event'}
+              <AgentEventCard
+                message={group.items[0]}
+                sessionId={sessionId}
+                onRespond={async (payload) => { onAgentRespond(sessionId, payload); }}
+                onDiscard={async (message) => { await discardAgentEvent(message, sessionId, false); }}
+              />
             {:else}
               <div style={threadStyle(group.items[0])}>
                 <MessageBubble
@@ -565,6 +601,38 @@
     {#if wsStore.getTyping().length > 0}
       <div class="px-3 pb-1 text-xs" style="color:var(--text-muted);">
         {wsStore.getTyping().join(', ')} {wsStore.getTyping().length === 1 ? 'is' : 'are'} typing…
+      </div>
+    {/if}
+    {#if linkedMentionChips.length > 0}
+      <div class="px-3 pb-1 flex items-center gap-1.5 overflow-x-auto" style="font-size:11px;color:var(--text-faint);">
+        <span class="shrink-0 font-medium">Tagged</span>
+        {#each linkedMentionChips as h (h.handle)}
+          {@const ac = agentColor(h.handle)}
+          <span
+            class="inline-flex items-center gap-1.5 shrink-0"
+            style="
+              padding: 3px 6px;
+              border-radius: var(--radius-full);
+              background: {ac.color}12;
+              border: 0.5px solid {ac.color}35;
+              color: {ac.color};
+            "
+            title="This mention will notify {h.name}. Click x to make it visible only."
+          >
+            <AgentDot id={h.handle.replace('@', '')} size={6} />
+            <span style="font-family:var(--font-mono);font-weight:600;">{h.handle}</span>
+            <button
+              type="button"
+              class="cursor-pointer"
+              style="color:{ac.color};background:none;border:none;padding:0;line-height:1;"
+              title="Do not notify {h.handle}"
+              aria-label="Do not notify {h.handle}"
+              onclick={() => bracketLinkedMention(h.handle)}
+            >
+              ✕
+            </button>
+          </span>
+        {/each}
       </div>
     {/if}
     <div class="flex items-end gap-2 p-3 border-t" style="border-color:var(--border-light);">

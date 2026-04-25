@@ -442,6 +442,20 @@ export function trackEvent(sessionId: string, msgId: string, chatId: string, eve
   state.pendingEvents.set(msgId, { event, msgId, chatId });
 }
 
+/** Discard a pending event that was answered somewhere else. */
+export function discardEvent(sessionId: string, msgId: string): void {
+  const state = sessions.get(sessionId);
+  if (!state) {
+    _broadcastGlobal?.({ type: 'session_input_resolved', sessionId });
+    return;
+  }
+
+  state.pendingEvents.delete(msgId);
+  if (state.pendingEvents.size === 0) {
+    _broadcastGlobal?.({ type: 'session_input_resolved', sessionId });
+  }
+}
+
 /** Check if a line is UI chrome for the given session's driver. */
 export function isChrome(sessionId: string, line: string): boolean {
   const state = sessions.get(sessionId);

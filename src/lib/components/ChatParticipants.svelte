@@ -18,6 +18,7 @@
     onWakeParticipant: (sess: PageSession) => void;
     onSaveNickname: (sess: PageSession, handle: string) => void;
     onCrossPost: (targetId: string, text: string) => void;
+    onRemoveParticipant?: (sess: PageSession) => void;
   }
 
   const {
@@ -26,7 +27,8 @@
     participantsAvailable,
     onWakeParticipant,
     onSaveNickname,
-    onCrossPost
+    onCrossPost,
+    onRemoveParticipant
   }: Props = $props();
 
   let presence = $state<Record<string, { status: 'active' | 'idle' | 'offline' }>>({});
@@ -173,6 +175,19 @@
               style="color: var(--text-faint);"
               title="Wake"
             >📢</button>
+          {/if}
+          {#if p.sess.type !== 'external'}
+            <button
+              onclick={() => onRemoveParticipant?.(p.sess)}
+              class="p-1 rounded transition-all"
+              style="color: var(--text-faint);"
+              title="Remove from room"
+              aria-label="Remove {label} from room"
+            >
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
           {/if}
         </div>
       </div>

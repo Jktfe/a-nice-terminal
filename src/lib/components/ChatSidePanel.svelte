@@ -50,6 +50,7 @@
     onCrossPost: (targetId: string, text: string) => void;
     onWakeParticipant: (sess: PageSession) => void;
     onSaveNickname: (sess: PageSession, handle: string) => void;
+    onRemoveParticipant: (sess: PageSession) => void;
     onCreateTask: (title: string) => void;
   }
 
@@ -88,6 +89,7 @@
     onCrossPost,
     onWakeParticipant,
     onSaveNickname,
+    onRemoveParticipant,
     onCreateTask,
   onClose = undefined,
   }: Props & { onClose?: () => void } = $props();
@@ -287,6 +289,13 @@
                           message={group.items[0]}
                           sessionId={linkedChatId}
                           onRespond={async (payload) => { onAgentRespond(linkedChatId, payload); }}
+                          onDiscard={async (message) => {
+                            await fetch(`/api/sessions/${linkedChatId}/messages?msgId=${message.id}`, {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ meta: { status: 'discarded', chosen: 'discard' } }),
+                            });
+                          }}
                         />
                       {:else}
                         {@const m = group.items[0]}
@@ -335,6 +344,7 @@
               onWakeParticipant={(sess) => onWakeParticipant(sess)}
               onSaveNickname={(sess, handle) => onSaveNickname(sess, handle)}
               onCrossPost={(targetId, text) => onCrossPost(targetId, text)}
+              onRemoveParticipant={(sess) => onRemoveParticipant(sess)}
             />
           {/if}
         </div>

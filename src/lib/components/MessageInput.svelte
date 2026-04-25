@@ -2,6 +2,7 @@
   import { NOCTURNE, agentColor } from '$lib/nocturne';
   import AgentDot from './AgentDot.svelte';
   import NocturneIcon from './NocturneIcon.svelte';
+  import { activeRoutingMentions, bracketRoutingMention } from '$lib/utils/mentions';
 
   let {
     onSend,
@@ -27,9 +28,14 @@
   let mentionStart = $state(-1);
   let mentionSelectedIdx = $state(0);
 
+  const routingHandles = $derived.by(() => {
+    if (handles.some((h) => h.handle === '@everyone')) return handles;
+    return [...handles, { handle: '@everyone', name: 'Everyone' }];
+  });
   const filteredHandles = $derived(
-    handles.filter(h => h.handle.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6)
+    routingHandles.filter(h => h.handle.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6)
   );
+  const activeMentionChips = $derived(activeRoutingMentions(text, routingHandles));
 
   function resizeInput() {
     if (!inputEl) return;
@@ -66,8 +72,8 @@
   function detectMention() {
     const cursorPos = inputEl?.selectionStart ?? text.length;
     const textBefore = text.slice(0, cursorPos);
-    const atMatch = textBefore.match(/@(\w*)$/);
-    if (atMatch && handles.length > 0) {
+    const atMatch = textBefore.match(/@([\w.-]*)$/);
+    if (atMatch && routingHandles.length > 0) {
       mentionStart = cursorPos - atMatch[0].length;
       mentionQuery = atMatch[1];
       mentionSelectedIdx = 0;
@@ -89,6 +95,14 @@
       inputEl?.focus();
       const pos = (before + handle + ' ').length;
       inputEl?.setSelectionRange(pos, pos);
+    }, 0);
+  }
+
+  function bracketMention(handle: string) {
+    text = bracketRoutingMention(text, handle);
+    setTimeout(() => {
+      inputEl?.focus();
+      resizeInput();
     }, 0);
   }
 
@@ -198,6 +212,43 @@
       <button onclick={onClearReply} class="cursor-pointer" style="color: var(--text-faint); background: none; border: none; padding: 2px;">
         <NocturneIcon name="x" size={12} />
       </button>
+    </div>
+  {/if}
+
+  <!-- Active routing mentions -->
+  {#if activeMentionChips.length > 0}
+    <div
+      class="flex items-center gap-1.5 mb-2 overflow-x-auto"
+      style="font-size: 11px; color: var(--text-faint);"
+    >
+      <span class="shrink-0 font-medium">Tagged</span>
+      {#each activeMentionChips as h (h.handle)}
+        {@const ac = agentColor(h.handle)}
+        <span
+          class="inline-flex items-center gap-1.5 shrink-0"
+          style="
+            padding: 3px 6px;
+            border-radius: var(--radius-full);
+            background: {ac.color}12;
+            border: 0.5px solid {ac.color}35;
+            color: {ac.color};
+          "
+          title="This mention will notify {h.name}. Click x to make it visible only."
+        >
+          <AgentDot id={h.handle.replace('@', '')} size={6} />
+          <span style="font-family: var(--font-mono); font-weight: 600;">{h.handle}</span>
+          <button
+            type="button"
+            class="cursor-pointer"
+            style="color: {ac.color}; background: none; border: none; padding: 0; line-height: 1;"
+            title="Do not notify {h.handle}"
+            aria-label="Do not notify {h.handle}"
+            onclick={() => bracketMention(h.handle)}
+          >
+            <NocturneIcon name="x" size={10} color={ac.color} />
+          </button>
+        </span>
+      {/each}
     </div>
   {/if}
 

@@ -24,6 +24,17 @@ export async function PATCH({ params, url, request }: RequestEvent<{ id: string 
   const { broadcast } = await import('$lib/server/ws-broadcast.js');
   broadcast(params.id, { type: 'message_updated', sessionId: params.id, msgId, meta: merged });
 
+  if (
+    existing.msg_type === 'agent_event' &&
+    (merged.status === 'discarded' || merged.status === 'dismissed') &&
+    existing.sender_id
+  ) {
+    const sender = queries.getSession(existing.sender_id) || queries.getSessionByHandle(existing.sender_id);
+    const terminalSessionId = sender?.id || existing.sender_id;
+    const { discardEvent } = await import('$lib/server/agent-event-bus.js');
+    discardEvent(terminalSessionId, msgId);
+  }
+
   return json({ msgId, meta: merged });
 }
 
