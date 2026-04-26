@@ -541,6 +541,29 @@ function readPaneTitle(sessionId: string): string {
   } catch { return ''; }
 }
 
+function writeViaTmux(sessionId: string, data: string): boolean {
+  if (!tmuxSessionExists(sessionId)) return false;
+
+  try {
+    if (data === '\r' || data === '\n' || data === '\r\n') {
+      execFileSync(TMUX, ['send-keys', '-t', sessionId, 'Enter'], { stdio: 'pipe' });
+      return true;
+    }
+
+    const bufferName = `ant-write-${process.pid}-${Date.now()}`;
+    execFileSync(TMUX, ['load-buffer', '-b', bufferName, '-'], { input: data, stdio: ['pipe', 'pipe', 'pipe'] });
+    try {
+      execFileSync(TMUX, ['paste-buffer', '-b', bufferName, '-t', sessionId], { stdio: 'pipe' });
+    } finally {
+      try { execFileSync(TMUX, ['delete-buffer', '-b', bufferName], { stdio: 'pipe' }); } catch {}
+    }
+    return true;
+  } catch (e) {
+    LOG(`tmux write fallback failed for ${sessionId}:`, (e as Error).message);
+    return false;
+  }
+}
+
 // ─── Unix socket server ───────────────────────────────────────────────────────
 
 mkdirSync(ANT_DIR, { recursive: true });
@@ -652,7 +675,14 @@ function handle(msg: any, socket: net.Socket) {
 
     case 'write': {
       const s = sessions.get(msg.sessionId);
-      if (s?.alive) s.pty.write(msg.data);
+      if (s?.alive) {
+        s.pty.write(msg.data);
+      } else {
+        // Server restarts can leave a tmux session alive while the daemon has
+        // no raw PTY object in memory. Fall back to tmux itself so chat routing
+        // still delivers to long-lived agents.
+        writeViaTmux(msg.sessionId, msg.data);
+      }
       break;
     }
 
