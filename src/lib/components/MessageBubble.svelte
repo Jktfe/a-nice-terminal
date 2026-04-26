@@ -37,8 +37,12 @@
   const isAi  = $derived(!message.sender_id && message.role !== 'user' && message.role !== 'human');
   const handle = $derived(message.sender_id || null);
 
+  function unresolvedSenderLabel(senderId: string): string {
+    return `Session ${senderId.slice(0, 8)}`;
+  }
+
   const resolvedSession = $derived(
-    handle ? allSessions.find((s: any) => s.id === handle || s.handle === handle) : null
+    handle ? allSessions.find((s: any) => s.id === handle || s.handle === handle || s.alias === handle) : null
   );
 
   // Agent identity from Nocturne palette
@@ -59,7 +63,7 @@
 
   const displayName = $derived(
     resolvedSession ? (resolvedSession.display_name || resolvedSession.name) :
-    handle          ? (handle.startsWith('@') ? handle : 'Participant') :
+    handle          ? (handle.startsWith('@') ? handle : unresolvedSenderLabel(handle)) :
     isAi            ? 'Assistant' : 'James'
   );
 
@@ -83,11 +87,11 @@
   // Reply context
   const replyHandle = $derived(replyMessage?.sender_id || null);
   const replySession = $derived(
-    replyHandle ? allSessions.find((s: any) => s.id === replyHandle || s.handle === replyHandle) : null
+    replyHandle ? allSessions.find((s: any) => s.id === replyHandle || s.handle === replyHandle || s.alias === replyHandle) : null
   );
   const replyDisplayName = $derived(
     replySession ? (replySession.display_name || replySession.name) :
-    replyHandle  ? (replyHandle.startsWith('@') ? replyHandle : 'Participant') :
+    replyHandle  ? (replyHandle.startsWith('@') ? replyHandle : unresolvedSenderLabel(replyHandle)) :
     replyMessage ? (replyMessage.role === 'assistant' ? 'Assistant' : 'You') : ''
   );
   const replySnippet = $derived((replyMessage?.content || '').replace(/\s+/g, ' ').trim().slice(0, 120));

@@ -19,6 +19,7 @@
     name: string;
     type: string;
     handle?: string;
+    alias?: string | null;
     display_name?: string;
     linked_chat_id?: string | null;
     ttl?: string;
@@ -952,6 +953,47 @@
     })) as unknown as Record<string, unknown>[]
   );
 
+  function roomIdentitySession(p: Record<string, unknown>): PageSession | null {
+    const id = typeof p.id === 'string' ? p.id : '';
+    if (!id) return null;
+
+    const handle = typeof p.handle === 'string' && p.handle
+      ? p.handle
+      : typeof p.alias === 'string' && p.alias
+        ? p.alias
+        : undefined;
+    const name = typeof p.name === 'string' && p.name ? p.name : handle || id;
+    const displayName = typeof p.display_name === 'string' && p.display_name
+      ? p.display_name
+      : name;
+
+    return {
+      id,
+      name,
+      type: (typeof p.session_type === 'string' && p.session_type)
+        ? p.session_type
+        : (typeof p.type === 'string' && p.type) ? p.type : 'external',
+      handle,
+      alias: typeof p.alias === 'string' ? p.alias : null,
+      display_name: displayName,
+      cli_flag: typeof p.cli_flag === 'string' ? p.cli_flag : null,
+    };
+  }
+
+  const messageIdentitySessions = $derived.by(() => {
+    const byId = new Map<string, PageSession>();
+    const add = (s: PageSession | null) => {
+      if (!s?.id) return;
+      byId.set(s.id, { ...byId.get(s.id), ...s });
+    };
+
+    allSessions.forEach(add);
+    roomParticipants.map(roomIdentitySession).forEach(add);
+    postsFrom.map(roomIdentitySession).forEach(add);
+
+    return [...byId.values()];
+  });
+
   const participants = $derived.by(() => {
     const counts = new Map();
     for (const m of msgStore.messages) {
@@ -1084,7 +1126,7 @@
           messages={displayMessages}
           {sessionId}
           {session}
-          {allSessions}
+          allSessions={messageIdentitySessions}
           {linkedChatId}
           {linkedChatHasMore}
           {linkedChatLoadingMore}

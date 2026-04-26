@@ -220,7 +220,7 @@
 
   function senderLabel(msg: Message): string {
     if (msg.role === 'user') return 'You';
-    if (msg.sender_id) return msg.sender_id.startsWith('@') ? msg.sender_id : 'Participant';
+    if (msg.sender_id) return msg.sender_id.startsWith('@') ? msg.sender_id : `Session ${msg.sender_id.slice(0, 8)}`;
     return 'Assistant';
   }
 
