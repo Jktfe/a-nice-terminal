@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ANT Terminal Signal Model</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #080b12;
+      --panel: #111827;
+      --panel-2: #0f172a;
+      --line: #334155;
+      --text: #eef2ff;
+      --muted: #a8b3cf;
+      --subtle: #6b7280;
+      --blue: #60a5fa;
+      --green: #34d399;
+      --amber: #fbbf24;
+      --red: #fb7185;
+      --violet: #a78bfa;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.45 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main {
+      width: min(100%, 740px);
+      margin: 0 auto;
+      padding: 20px 14px 36px;
+    }
+
+    header {
+      padding: 10px 2px 18px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(24px, 7vw, 38px);
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    .lede {
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, var(--panel), var(--panel-2));
+      border-radius: 8px;
+      padding: 14px;
+    }
+
+    .card h2 {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin: 0 0 10px;
+      font-size: 16px;
+      line-height: 1.2;
+    }
+
+    .badge {
+      display: inline-flex;
+      width: 24px;
+      height: 24px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      background: #1f2937;
+      color: var(--blue);
+      font: 700 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      flex: 0 0 auto;
+    }
+
+    .card p {
+      margin: 0 0 10px;
+      color: var(--muted);
+    }
+
+    .card p:last-child { margin-bottom: 0; }
+
+    code {
+      padding: 2px 5px;
+      border-radius: 5px;
+      background: #020617;
+      color: #dbeafe;
+      font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    .split {
+      display: grid;
+      gap: 10px;
+    }
+
+    .lane {
+      border-left: 3px solid var(--line);
+      padding-left: 12px;
+    }
+
+    .lane.raw { border-color: var(--violet); }
+    .lane.clean { border-color: var(--green); }
+    .lane.status { border-color: var(--amber); }
+    .lane.route { border-color: var(--blue); }
+
+    .label {
+      display: block;
+      color: var(--text);
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .flow {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .step {
+      position: relative;
+      border: 1px solid #263244;
+      background: #0b1220;
+      border-radius: 8px;
+      padding: 11px 12px;
+    }
+
+    .step + .step::before {
+      content: "";
+      position: absolute;
+      left: 24px;
+      top: -9px;
+      width: 1px;
+      height: 9px;
+      background: var(--line);
+    }
+
+    .step strong {
+      display: block;
+      margin-bottom: 3px;
+      font-size: 14px;
+    }
+
+    .step span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .decision {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: 1fr;
+    }
+
+    .pill {
+      display: inline-flex;
+      width: fit-content;
+      gap: 6px;
+      align-items: center;
+      padding: 4px 8px;
+      border: 1px solid #334155;
+      border-radius: 999px;
+      color: var(--muted);
+      background: #0b1220;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .good { color: var(--green); }
+    .warn { color: var(--amber); }
+    .stop { color: var(--red); }
+    .info { color: var(--blue); }
+
+    @media (min-width: 680px) {
+      main { padding-top: 32px; }
+      .split { grid-template-columns: 1fr 1fr; }
+      .decision { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>ANT terminal signal model</h1>
+      <p class="lede">Mobile-readable map of how tmux output becomes terminal UI, status telemetry, interaction cards, and routing decisions.</p>
+    </header>
+
+    <section class="stack">
+      <article class="card">
+        <h2><span class="badge">1</span>Two tmux connections per terminal</h2>
+        <div class="split">
+          <div class="lane raw">
+            <span class="label">Raw PTY</span>
+            <p><code>tmux attach-session</code> carries live bytes for xterm.js and user input. This is the real terminal.</p>
+          </div>
+          <div class="lane status">
+            <span class="label">Control PTY</span>
+            <p><code>tmux -C attach-session</code> emits text events such as <code>%output</code>, <code>%exit</code>, and <code>%session-changed</code>.</p>
+          </div>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2><span class="badge">2</span>Important nuance: <code>%output</code> is a signal</h2>
+        <p>ANT does not currently treat the <code>%output</code> payload as the canonical readable transcript. It uses <code>%output</code> to know the pane changed, then asks tmux for the rendered screen.</p>
+        <div class="flow">
+          <div class="step"><strong>Control mode emits <code>%output</code></strong><span>Pane changed. Something happened.</span></div>
+          <div class="step"><strong>Daemon debounces the burst</strong><span>100ms idle window, 2s maximum wait during constant output.</span></div>
+          <div class="step"><strong>Daemon calls <code>tmux capture-pane -p -J</code></strong><span>Gets plain rendered text from tmux itself.</span></div>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2><span class="badge">3</span>The content splits into two lanes</h2>
+        <div class="split">
+          <div class="lane clean">
+            <span class="label">Clean chat/event lane</span>
+            <p>Strip bottom CLI chrome, diff against the previous capture, filter spinners/dividers, then feed interaction detection.</p>
+            <p><span class="pill good">Used for agent_event cards</span></p>
+          </div>
+          <div class="lane status">
+            <span class="label">Unstripped status lane</span>
+            <p>Keep the bottom footer/status lines so drivers can read Ready, Busy, model, workspace, context, and rate limit.</p>
+            <p><span class="pill warn">Used for routing state</span></p>
+          </div>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2><span class="badge">4</span>What status controls</h2>
+        <div class="decision">
+          <div class="step"><strong class="good">ready / idle / stale</strong><span>Plain room updates can be injected. This keeps momentum alive without manual nudges.</span></div>
+          <div class="step"><strong class="stop">busy / thinking</strong><span>Plain updates stay visible in chat but do not interrupt that terminal.</span></div>
+          <div class="step"><strong class="info">@handle</strong><span>Explicit targeted interrupt. Route to that agent even if busy.</span></div>
+          <div class="step"><strong class="info">@everyone</strong><span>Explicit group interrupt. Route to all room terminals.</span></div>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2><span class="badge">5</span>The endurance loop</h2>
+        <div class="flow">
+          <div class="step"><strong>One agent posts a progress update</strong><span>The room sees it immediately.</span></div>
+          <div class="step"><strong>Idle agents receive it</strong><span>They treat it as context and often chime in without a direct nudge.</span></div>
+          <div class="step"><strong>Working agents are left alone</strong><span>No attention theft while they are building, testing, or thinking.</span></div>
+          <div class="step"><strong>Momentum continues</strong><span>As long as one agent keeps posting, the room stays alive.</span></div>
+        </div>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

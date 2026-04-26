@@ -8,6 +8,7 @@
 // as ws-broadcast.ts).
 
 import { queries } from './db.js';
+import type { AgentStatus } from '../shared/agent-status.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -50,6 +51,8 @@ export interface RouteResult {
   deliveries: DeliveryResult[];
 }
 
+const WORKING_STATUS_STALE_MS = 45_000;
+
 // ─── @mention parsing ───────────────────────────────────────────────────────
 
 /**
@@ -90,18 +93,27 @@ export function resolveRoomFanout(
   targets: string[];
   isAllParticipants: boolean;
   shouldFanOutToTerminals: boolean;
+  protectWorkingTerminals: boolean;
 } {
   const { targets, isAllParticipants } = parseMentions(content, knownHandles);
+  const activeMentions = activeMentionHandles(content);
+  const hasEveryone = activeMentions.includes('@everyone');
 
   if (senderType !== 'terminal') {
-    return { targets, isAllParticipants, shouldFanOutToTerminals: true };
+    return { targets, isAllParticipants, shouldFanOutToTerminals: true, protectWorkingTerminals: false };
   }
 
-  const hasEveryone = activeMentionHandles(content).includes('@everyone');
+  // Agent typo guard: @mentions that do not resolve to a room member stay
+  // chat-visible only. This prevents a misspelled handle from waking everyone.
+  if (activeMentions.length > 0 && !hasEveryone && targets.length === 0) {
+    return { targets, isAllParticipants, shouldFanOutToTerminals: false, protectWorkingTerminals: false };
+  }
+
   return {
     targets,
     isAllParticipants,
-    shouldFanOutToTerminals: hasEveryone || targets.length > 0,
+    shouldFanOutToTerminals: true,
+    protectWorkingTerminals: !hasEveryone && targets.length === 0,
   };
 }
 
@@ -119,6 +131,35 @@ export function shouldDeliverLinkedChatToTerminal(
 function memberHasAnyHandle(member: { alias?: string | null; handle?: string | null }, handles: string[]): boolean {
   const handleSet = new Set(handles);
   return handlesForMember(member).some(handle => handleSet.has(handle));
+}
+
+export function isWorkingAgentStatus(
+  status: AgentStatus | null,
+  now = Date.now(),
+  staleMs = WORKING_STATUS_STALE_MS,
+): boolean {
+  if (!status) return false;
+  if (now - status.detectedAt > staleMs) return false;
+  return status.state === 'busy' || status.state === 'thinking';
+}
+
+async function isTerminalWorking(sessionId: string): Promise<boolean> {
+  try {
+    const { getAgentStatus, refreshStatusFromCapture } = await import('./agent-event-bus.js');
+    const cached = getAgentStatus(sessionId);
+    if (isWorkingAgentStatus(cached)) return true;
+
+    // After server/daemon restarts the in-memory status cache is empty until
+    // the next output burst. For routing decisions, refresh from the current
+    // pane so a busy TUI does not get treated as idle just because ANT restarted.
+    if (!cached || Date.now() - cached.detectedAt > WORKING_STATUS_STALE_MS) {
+      return isWorkingAgentStatus(await refreshStatusFromCapture(sessionId));
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 // ─── System message types that must NOT fan out ─────────────────────────────
@@ -142,8 +183,8 @@ export class MessageRouter {
    * Route a message to its targets via registered adapters.
    *
    * Centralised loop-prevention rules:
-   *   - sender is agent (senderType === 'terminal') → skip group fan-out
-   *     (agents respond to their own chat, not to other terminals)
+   *   - terminal-originated plain updates only fan out to idle/ready terminals
+   *     (busy/thinking terminals are protected)
    *   - target is sender → skip (don't echo back)
    *   - system message types → skip fan-out entirely
    */
@@ -281,9 +322,10 @@ export class MessageRouter {
     //    @mention resolution. NO global fallback — if no room members
     //    exist, no delivery happens (prevents blast-to-all-terminals bug).
     //
-    //    Routing per James's diagram:
+    //    Routing:
     //      Human with no @mention or invalid @ → All participants' terminals
-    //      Terminal with no @mention           → Chatroom only, no PTY fan-out
+    //      Terminal with no @mention           → Idle/ready terminals only
+    //      Terminal with invalid @mention      → Chatroom only, no PTY fan-out
     //      Valid @mention                      → Only that @'s terminal(s)
     //      @everyone                           → All participants' terminals
     //    For routed terminal deliveries, also cross-post to each target's
@@ -302,7 +344,12 @@ export class MessageRouter {
           const getCliFlag = (t: any) => t.cli_flag || null;
 
           const knownHandles = [...new Set(terminals.flatMap(handlesForMember))];
-          const { targets, isAllParticipants, shouldFanOutToTerminals } = resolveRoomFanout(
+          const {
+            targets,
+            isAllParticipants,
+            shouldFanOutToTerminals,
+            protectWorkingTerminals,
+          } = resolveRoomFanout(
             message.content,
             knownHandles,
             message.senderType,
@@ -311,9 +358,21 @@ export class MessageRouter {
             return { messageId: message.id, deliveries };
           }
 
-          const terminalsToSend = isAllParticipants
+          const candidateTerminals = isAllParticipants
             ? terminals.filter((t: any) => !memberHasAnyHandle(t, excludedHandles))
             : terminals.filter((t: any) => memberHasAnyHandle(t, targets) && !memberHasAnyHandle(t, excludedHandles));
+
+          const terminalsToSend = protectWorkingTerminals
+            ? []
+            : candidateTerminals;
+
+          if (protectWorkingTerminals) {
+            for (const terminal of candidateTerminals) {
+              if (!(await isTerminalWorking(getId(terminal)))) {
+                terminalsToSend.push(terminal);
+              }
+            }
+          }
 
           for (const terminal of terminalsToSend) {
             const matchingTarget = isAllParticipants

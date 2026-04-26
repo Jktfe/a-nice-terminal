@@ -591,6 +591,14 @@ getPtyManager().then(async ptm => {
       .catch(() => {});
   });
 
+  // Unstripped bottom-of-pane samples from control mode. These include the CLI
+  // footer/status line that the chat-output path intentionally strips away.
+  ptm.onStatusSample(async (sessionId: string, text: string) => {
+    import('./src/lib/server/agent-event-bus.js')
+      .then(({ feedStatus }) => feedStatus(sessionId, text))
+      .catch(() => {});
+  });
+
   // ─── Legacy terminal-state signals (silence + title polling) ────────────
   //
   // These predate the control-mode terminal_line path above. Both are now

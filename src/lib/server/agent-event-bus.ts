@@ -42,27 +42,56 @@ interface SessionState {
   lastPosted: Map<string, number> | null;   // cooldown: "sessionId:class" → timestamp
   lastEventFingerprints: Map<string, number> | null;
   currentStatus: AgentStatus | null;
+  lastStatusFingerprint: string | null;
+  lastStatusBroadcast: number;
 }
 
-const sessions = new Map<string, SessionState>();
-const driverCache = new Map<string, AgentDriver>();
+const initialSessions = new Map<string, SessionState>();
+const initialDriverCache = new Map<string, AgentDriver>();
+
+interface AgentEventBusDeps {
+  getSession: ((id: string) => any) | null;
+  postToChat: ((sessionId: string, chatId: string, content: string, msgType: string) => void) | null;
+  writeToTerminal: ((sessionId: string, data: string) => void) | null;
+  updateMessageMeta: ((msgId: string, meta: string) => void) | null;
+  broadcastToChat: ((chatId: string, msg: any) => void) | null;
+  broadcastGlobal: ((msg: any) => void) | null;
+}
+
+interface AgentEventBusRuntime {
+  sessions: Map<string, SessionState>;
+  driverCache: Map<string, AgentDriver>;
+  deps: AgentEventBusDeps;
+}
+
+const EVENT_BUS_KEY = '__ant_agent_event_bus__';
+const runtime: AgentEventBusRuntime = ((globalThis as any)[EVENT_BUS_KEY] ??= {
+  sessions: initialSessions,
+  driverCache: initialDriverCache,
+  deps: {
+    getSession: null,
+    postToChat: null,
+    writeToTerminal: null,
+    updateMessageMeta: null,
+    broadcastToChat: null,
+    broadcastGlobal: null,
+  },
+});
+
+const sessions = runtime.sessions;
+const driverCache = runtime.driverCache;
+const busDeps = runtime.deps;
 
 const DEBOUNCE_MS = 100;
 const BUFFER_SIZE = 50;
 const CLASS_COOLDOWN_MS = 30_000;
 const CONTENT_DEDUP_MS = 5 * 60_000;
+const STATUS_BROADCAST_REFRESH_MS = 10_000;
 
 // ─── Injected dependencies (set during init) ────────────────────────────────
 
-let _getSession: ((id: string) => any) | null = null;
-let _postToChat: ((sessionId: string, chatId: string, content: string, msgType: string) => void) | null = null;
-let _writeToTerminal: ((sessionId: string, data: string) => void) | null = null;
-let _updateMessageMeta: ((msgId: string, meta: string) => void) | null = null;
-let _broadcastToChat: ((chatId: string, msg: any) => void) | null = null;
-let _broadcastGlobal: ((msg: any) => void) | null = null;
-
 /** Call once from server.ts after pty manager is connected. */
-export function init(deps: {
+export function init(initDeps: {
   getSession: (id: string) => any;
   postToChat: (sessionId: string, chatId: string, content: string, msgType: string) => void;
   writeToTerminal: (sessionId: string, data: string) => void;
@@ -70,12 +99,12 @@ export function init(deps: {
   broadcastToChat: (chatId: string, msg: any) => void;
   broadcastGlobal?: (msg: any) => void;
 }) {
-  _getSession = deps.getSession;
-  _postToChat = deps.postToChat;
-  _writeToTerminal = deps.writeToTerminal;
-  _updateMessageMeta = deps.updateMessageMeta;
-  _broadcastToChat = deps.broadcastToChat;
-  _broadcastGlobal = deps.broadcastGlobal ?? null;
+  busDeps.getSession = initDeps.getSession;
+  busDeps.postToChat = initDeps.postToChat;
+  busDeps.writeToTerminal = initDeps.writeToTerminal;
+  busDeps.updateMessageMeta = initDeps.updateMessageMeta;
+  busDeps.broadcastToChat = initDeps.broadcastToChat;
+  busDeps.broadcastGlobal = initDeps.broadcastGlobal ?? null;
 }
 
 // ─── Strip ANSI escape codes ─────────────────────────────────────────────────
@@ -161,6 +190,8 @@ function getState(sessionId: string): SessionState {
       lastPosted: null,
       lastEventFingerprints: null,
       currentStatus: null,
+      lastStatusFingerprint: null,
+      lastStatusBroadcast: 0,
     };
     sessions.set(sessionId, s);
   }
@@ -168,8 +199,8 @@ function getState(sessionId: string): SessionState {
 }
 
 async function resolveDriver(sessionId: string): Promise<AgentDriver | null> {
-  if (!_getSession) return null;
-  const session = _getSession(sessionId);
+  if (!busDeps.getSession) return null;
+  const session = busDeps.getSession(sessionId);
   if (!session) return null;
 
   let meta: any = {};
@@ -190,7 +221,7 @@ async function resolveDriver(sessionId: string): Promise<AgentDriver | null> {
 
 async function ensureDriver(sessionId: string, state: SessionState): Promise<AgentDriver | null> {
   if (state.driver) return state.driver;
-  if (!_getSession) return null;
+  if (!busDeps.getSession) return null;
   if (state.driverSlug === 'none') return null;
 
   state.driver = await resolveDriver(sessionId);
@@ -206,7 +237,7 @@ export async function feed(sessionId: string, rawData: string): Promise<void> {
   // Lazy-load driver on first call. Don't cache "no driver" until init() has
   // been called — feed() fires before init() completes due to async import race.
   if (!state.driver) {
-    if (!_getSession) return; // init() hasn't run yet — skip silently, retry next call
+    if (!busDeps.getSession) return; // init() hasn't run yet — skip silently, retry next call
     await ensureDriver(sessionId, state);
   }
   if (!state.driver) return;
@@ -229,11 +260,28 @@ export async function feed(sessionId: string, rawData: string): Promise<void> {
   state.debounceTimer = setTimeout(() => onDebounce(sessionId, state), DEBOUNCE_MS);
 }
 
+/** Called from server.ts with an unstripped bottom-of-pane sample for telemetry. */
+export async function feedStatus(sessionId: string, rawData: string): Promise<void> {
+  const state = getState(sessionId);
+  if (!state.driver) {
+    if (!busDeps.getSession) return;
+    await ensureDriver(sessionId, state);
+  }
+  if (!state.driver) return;
+
+  const lines = stripAnsi(rawData)
+    .split('\n')
+    .map(line => line.trimEnd())
+    .filter(line => line.trim());
+
+  updateStatusFromLines(sessionId, state, lines);
+}
+
 async function onDebounce(sessionId: string, state: SessionState): Promise<void> {
   state.debounceTimer = null;
-  if (!state.driver || !_postToChat || !_getSession) return;
+  if (!state.driver || !busDeps.postToChat || !busDeps.getSession) return;
 
-  const session = _getSession(sessionId);
+  const session = busDeps.getSession(sessionId);
   if (!session?.linked_chat_id) return;
 
   // Update hooksActive if driver supports it
@@ -268,28 +316,12 @@ async function onDebounce(sessionId: string, state: SessionState): Promise<void>
     if (classified) event = classified;
   }
 
-  // Check for agent status telemetry (model, context, ready/busy state)
-  if (state.driver && 'detectStatus' in state.driver) {
-    const statusLines = state.buffer.slice(-15).map(e => e.text);
-    const status = (state.driver as any).detectStatus(statusLines);
-    if (status) {
-      // If agent is ready and recent text has a question, extract waiting context
-      if (status.state === 'ready') {
-        const recentText = statusLines.join('\n');
-        const waitingContext = extractWaitingContext(recentText);
-        if (waitingContext) {
-          status.waitingFor = waitingContext;
-        }
-      }
-      state.currentStatus = status;
-      if (_broadcastGlobal) {
-        _broadcastGlobal({
-          type: 'agent_status_updated',
-          sessionId,
-          status,
-        });
-      }
-    }
+  // Fallback status telemetry from the cleaned stream. The primary path is
+  // feedStatus(), which receives an unstripped bottom-of-pane sample before
+  // chrome/footer lines are removed from chat/event detection. Only use this
+  // fallback when we do not already have a fresh status sample.
+  if (!state.currentStatus || Date.now() - state.currentStatus.detectedAt > STATUS_BROADCAST_REFRESH_MS) {
+    updateStatusFromLines(sessionId, state, state.buffer.slice(-15).map(e => e.text));
   }
 
   if (!event) {
@@ -331,17 +363,63 @@ async function onDebounce(sessionId: string, state: SessionState): Promise<void>
   state.lastEventFingerprints.set(fingerprint, now);
 
   const content = JSON.stringify(event);
-  _postToChat(sessionId, session.linked_chat_id, content, 'agent_event');
+  busDeps.postToChat(sessionId, session.linked_chat_id, content, 'agent_event');
   console.log(`[event-bus] POSTED ${eventClass} to chat ${session.linked_chat_id}`);
 
   // Broadcast dashboard-level "needs input" badge to all connected clients
-  if (_broadcastGlobal) {
+  if (busDeps.broadcastGlobal) {
     const summary = buildSummary(event, eventClass);
-    _broadcastGlobal({
+    busDeps.broadcastGlobal({
       type: 'session_needs_input',
       sessionId,
       eventClass,
       summary,
+    });
+  }
+}
+
+function statusFingerprint(status: AgentStatus): string {
+  return JSON.stringify({
+    state: status.state,
+    activity: status.activity ?? null,
+    model: status.model ?? null,
+    contextUsedPct: status.contextUsedPct ?? null,
+    contextRemainingPct: status.contextRemainingPct ?? null,
+    rateLimitPct: status.rateLimitPct ?? null,
+    rateLimitWindow: status.rateLimitWindow ?? null,
+    workspace: status.workspace ?? null,
+    branch: status.branch ?? null,
+    waitingFor: status.waitingFor ?? null,
+  });
+}
+
+function updateStatusFromLines(sessionId: string, state: SessionState, statusLines: string[]): void {
+  if (!state.driver || !('detectStatus' in state.driver) || statusLines.length === 0) return;
+
+  const status = (state.driver as any).detectStatus(statusLines);
+  if (!status) return;
+
+  // If agent is ready and recent text has a question, extract waiting context.
+  if (status.state === 'ready') {
+    const waitingContext = extractWaitingContext(statusLines.join('\n'));
+    if (waitingContext) status.waitingFor = waitingContext;
+  }
+
+  state.currentStatus = status;
+
+  const now = Date.now();
+  const fingerprint = statusFingerprint(status);
+  const shouldBroadcast =
+    fingerprint !== state.lastStatusFingerprint ||
+    now - state.lastStatusBroadcast >= STATUS_BROADCAST_REFRESH_MS;
+
+  if (shouldBroadcast && busDeps.broadcastGlobal) {
+    state.lastStatusFingerprint = fingerprint;
+    state.lastStatusBroadcast = now;
+    busDeps.broadcastGlobal({
+      type: 'agent_status_updated',
+      sessionId,
+      status,
     });
   }
 }
@@ -356,7 +434,7 @@ export async function handleResponse(
   const state = getState(terminalSessionId);
   const driver = await ensureDriver(terminalSessionId, state);
   if (!driver) throw new Error(`No agent driver configured for ${terminalSessionId}`);
-  if (!_writeToTerminal) throw new Error('Terminal writer is not initialised');
+  if (!busDeps.writeToTerminal) throw new Error('Terminal writer is not initialised');
 
   // Parse the original event from the content
   let event: NormalisedEvent;
@@ -366,10 +444,10 @@ export async function handleResponse(
   // Build the sendKeys callback
   const sendKeys: SendKeysFn = async (keys: string[]) => {
     for (const key of keys) {
-      if (key === 'Enter') _writeToTerminal!(terminalSessionId, '\r');
-      else if (key === 'Escape') _writeToTerminal!(terminalSessionId, '\x1b');
-      else if (key === 'Tab') _writeToTerminal!(terminalSessionId, '\t');
-      else _writeToTerminal!(terminalSessionId, key);
+      if (key === 'Enter') busDeps.writeToTerminal!(terminalSessionId, '\r');
+      else if (key === 'Escape') busDeps.writeToTerminal!(terminalSessionId, '\x1b');
+      else if (key === 'Tab') busDeps.writeToTerminal!(terminalSessionId, '\t');
+      else busDeps.writeToTerminal!(terminalSessionId, key);
       // Small delay between keys for TUI processing
       await new Promise(r => setTimeout(r, 50));
     }
@@ -380,14 +458,14 @@ export async function handleResponse(
   // Cast through any to pass it — the driver throws if sendKeys is required but missing.
   await (driver as any).respond(event, choice, sendKeys);
 
-  const session = _getSession?.(terminalSessionId);
-  if (eventMsgId && session?.linked_chat_id && _updateMessageMeta && _broadcastToChat) {
+  const session = busDeps.getSession?.(terminalSessionId);
+  if (eventMsgId && session?.linked_chat_id && busDeps.updateMessageMeta && busDeps.broadcastToChat) {
     const chosen = choice.type === 'confirm'
       ? (choice.yes ? 'confirm' : 'cancel')
       : choice.type;
     const meta = { status: 'responded', chosen };
-    _updateMessageMeta(eventMsgId, JSON.stringify(meta));
-    _broadcastToChat(session.linked_chat_id, {
+    busDeps.updateMessageMeta(eventMsgId, JSON.stringify(meta));
+    busDeps.broadcastToChat(session.linked_chat_id, {
       type: 'message_updated',
       sessionId: session.linked_chat_id,
       msgId: eventMsgId,
@@ -404,13 +482,13 @@ export async function handleResponse(
       state.pendingEvents.delete(key);
     }
   }
-  if (state.pendingEvents.size === 0 && _broadcastGlobal) {
-    _broadcastGlobal({ type: 'session_input_resolved', sessionId: terminalSessionId });
+  if (state.pendingEvents.size === 0 && busDeps.broadcastGlobal) {
+    busDeps.broadcastGlobal({ type: 'session_input_resolved', sessionId: terminalSessionId });
   }
 }
 
 function checkSettled(sessionId: string, state: SessionState): void {
-  if (!state.driver || !_updateMessageMeta || !_broadcastToChat) return;
+  if (!state.driver || !busDeps.updateMessageMeta || !busDeps.broadcastToChat) return;
 
   const output: RawOutput = {
     lines: state.buffer.slice(-20),
@@ -419,8 +497,8 @@ function checkSettled(sessionId: string, state: SessionState): void {
 
   for (const [key, pending] of state.pendingEvents) {
     if (state.driver.isSettled(pending.event, output)) {
-      _updateMessageMeta(pending.msgId, JSON.stringify({ status: 'settled' }));
-      _broadcastToChat(pending.chatId, {
+      busDeps.updateMessageMeta(pending.msgId, JSON.stringify({ status: 'settled' }));
+      busDeps.broadcastToChat(pending.chatId, {
         type: 'message_updated',
         sessionId: pending.chatId,
         msgId: pending.msgId,
@@ -429,8 +507,8 @@ function checkSettled(sessionId: string, state: SessionState): void {
       state.pendingEvents.delete(key);
 
       // If no more pending events for this session, clear the dashboard badge
-      if (state.pendingEvents.size === 0 && _broadcastGlobal) {
-        _broadcastGlobal({ type: 'session_input_resolved', sessionId });
+      if (state.pendingEvents.size === 0 && busDeps.broadcastGlobal) {
+        busDeps.broadcastGlobal({ type: 'session_input_resolved', sessionId });
       }
     }
   }
@@ -446,13 +524,13 @@ export function trackEvent(sessionId: string, msgId: string, chatId: string, eve
 export function discardEvent(sessionId: string, msgId: string): void {
   const state = sessions.get(sessionId);
   if (!state) {
-    _broadcastGlobal?.({ type: 'session_input_resolved', sessionId });
+    busDeps.broadcastGlobal?.({ type: 'session_input_resolved', sessionId });
     return;
   }
 
   state.pendingEvents.delete(msgId);
   if (state.pendingEvents.size === 0) {
-    _broadcastGlobal?.({ type: 'session_input_resolved', sessionId });
+    busDeps.broadcastGlobal?.({ type: 'session_input_resolved', sessionId });
   }
 }
 
@@ -498,6 +576,29 @@ export function getPendingEvent(sessionId: string): {
     since: new Date(event.ts ?? Date.now()).toISOString(),
     ...(state.currentStatus ? { agent_status: state.currentStatus } : {}),
   };
+}
+
+/** Query the latest status detected for a terminal session. */
+export function getAgentStatus(sessionId: string): AgentStatus | null {
+  return sessions.get(sessionId)?.currentStatus ?? null;
+}
+
+/** Refresh status telemetry from the current rendered pane without posting events. */
+export async function refreshStatusFromCapture(sessionId: string): Promise<AgentStatus | null> {
+  const state = getState(sessionId);
+  if (!state.driver) {
+    if (!busDeps.getSession) return null;
+    await ensureDriver(sessionId, state);
+  }
+  if (!state.driver) return null;
+
+  try {
+    const { ptyClient } = await import('./pty-client.js');
+    const text = await ptyClient.capture(sessionId, 50);
+    if (text) await feedStatus(sessionId, text);
+  } catch {}
+
+  return state.currentStatus;
 }
 
 /** Clean up when a session is killed/archived. */

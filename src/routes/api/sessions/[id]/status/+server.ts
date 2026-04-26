@@ -63,11 +63,18 @@ function resolveTerminalContext(session: SessionRow | null | undefined): {
 }
 
 export async function GET({ params }: RequestEvent<{ id: string }>) {
-  const { getPendingEvent } = await import('$lib/server/agent-event-bus.js');
+  const { getPendingEvent, refreshStatusFromCapture } = await import('$lib/server/agent-event-bus.js');
   const session = queries.getSession(params.id) as SessionRow | null;
   const { terminal, linkedChat } = resolveTerminalContext(session);
   const terminalId = terminal?.id ?? params.id;
-  const status = getPendingEvent(terminalId);
+  let status = getPendingEvent(terminalId);
+  const staleStatus =
+    !status.agent_status ||
+    Date.now() - status.agent_status.detectedAt > 45_000;
+  if (terminal && staleStatus) {
+    await refreshStatusFromCapture(terminalId);
+    status = getPendingEvent(terminalId);
+  }
   const mode = terminal
     ? (linkedChat ? 'private_terminal_input' : 'terminal')
     : (session?.type === 'chat' ? 'chatroom' : 'unknown');

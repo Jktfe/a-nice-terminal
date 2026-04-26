@@ -66,11 +66,25 @@ async function flushViaCapture(sessionId: string, ot: OutputTimer): Promise<void
   ot.firstTs = 0;
 
   // Capture the current rendered screen (plain text, no ANSI)
-  let screen = captureClean(sessionId, 50);
-  if (!screen) return;
+  const fullScreen = captureClean(sessionId, 50);
+  if (!fullScreen) return;
+
+  // Status detection needs the TUI footer/status bar that chat rendering strips.
+  // Control-mode %output tells us the pane changed; capture-pane gives us the
+  // current rendered text. Send a bottom-window sample before stripping chrome.
+  const statusSample = fullScreen.split('\n').slice(-30).join('\n').trim();
+  if (statusSample) {
+    broadcast({
+      type: 'terminal_status_sample',
+      sessionId,
+      text: statusSample,
+      ts: Date.now(),
+    });
+  }
 
   // Strip bottom N lines based on cli_flag (removes CLI chrome like input bars,
   // status lines, spinners, etc.) before diffing so they never enter the pipeline.
+  let screen = fullScreen;
   const stripN = stripLinesMap.get(sessionId) ?? 15;
   if (stripN > 0) {
     const lines = screen.split('\n');

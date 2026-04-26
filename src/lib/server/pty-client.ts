@@ -20,6 +20,7 @@ export type TerminalEvent = {
 };
 type EventCallback = (event: TerminalEvent) => void;
 type LineCallback = (sessionId: string, text: string) => void;
+type StatusSampleCallback = (sessionId: string, text: string) => void;
 
 class PTYClient {
   private socket: net.Socket | null = null;
@@ -30,6 +31,7 @@ class PTYClient {
   private silenceListeners: SilenceCallback[] = [];
   private eventListeners: EventCallback[] = [];
   private lineListeners: LineCallback[] = [];
+  private statusSampleListeners: StatusSampleCallback[] = [];
   // Keyed by "sessionId:callId" to prevent concurrent callers clobbering each other
   private pendingSpawns   = new Map<string, (result: any) => void>();
   private pendingCaptures = new Map<string, (result: any) => void>();
@@ -109,6 +111,10 @@ class PTYClient {
             for (const cb of this.lineListeners) {
               try { cb(msg.sessionId, msg.text); } catch {}
             }
+          } else if (msg.type === 'terminal_status_sample') {
+            for (const cb of this.statusSampleListeners) {
+              try { cb(msg.sessionId, msg.text); } catch {}
+            }
           } else if (msg.type === 'terminal_event') {
             const event: TerminalEvent = {
               sessionId: msg.sessionId,
@@ -184,6 +190,12 @@ class PTYClient {
   onLine(callback: LineCallback): () => void {
     this.lineListeners.push(callback);
     return () => { this.lineListeners = this.lineListeners.filter(cb => cb !== callback); };
+  }
+
+  /** Bottom pane sample before chrome stripping, used for CLI status telemetry. */
+  onStatusSample(callback: StatusSampleCallback): () => void {
+    this.statusSampleListeners.push(callback);
+    return () => { this.statusSampleListeners = this.statusSampleListeners.filter(cb => cb !== callback); };
   }
 
   capture(sessionId: string, lines = 50): Promise<string> {

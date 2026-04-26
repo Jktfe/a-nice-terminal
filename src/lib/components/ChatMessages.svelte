@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy, onMount } from 'svelte';
   import MessageBubble from '$lib/components/MessageBubble.svelte';
   import MessageInput from '$lib/components/MessageInput.svelte';
   import { useWsStore } from '$lib/stores/ws.svelte.js';
@@ -11,6 +12,7 @@
   import AgentDot from '$lib/components/AgentDot.svelte';
   import { agentColor } from '$lib/nocturne';
   import { activeRoutingMentions, bracketRoutingMention } from '$lib/utils/mentions';
+  import type { AgentStatus } from '$lib/shared/agent-status';
 
   interface PageSession {
     id: string;
@@ -26,6 +28,19 @@
     meta?: string | Record<string, unknown> | null;
   }
 
+  interface ParticipantEntry {
+    sess: PageSession;
+    count: number;
+    active: boolean;
+  }
+
+  interface StatusPayload {
+    needs_input?: boolean;
+    summary?: string;
+    agent_status?: AgentStatus;
+    session?: { status?: string | null };
+  }
+
   interface Props {
     // For terminal sessions, these are the linked chat messages;
     // for chat sessions, these are the main session messages.
@@ -33,6 +48,7 @@
     sessionId: string;
     session: PageSession | null;
     allSessions: PageSession[];
+    participantsActive?: ParticipantEntry[];
     linkedChatId: string;
     linkedChatHasMore: boolean;
     linkedChatLoadingMore: boolean;
@@ -71,6 +87,7 @@
     sessionId,
     session,
     allSessions,
+    participantsActive = [],
     linkedChatId,
     linkedChatHasMore,
     linkedChatLoadingMore,
@@ -105,8 +122,117 @@
   }: Props = $props();
 
   let scrollElLocal = $state<HTMLElement | null>(null);
+  let agentStatuses = $state<Record<string, StatusPayload>>({});
+  let statusPollTimer: ReturnType<typeof setInterval> | null = null;
+  let typingTimeout: ReturnType<typeof setTimeout> | null = null;
 
   const wsStore = useWsStore();
+
+  const footerStatusParticipants = $derived.by(() => {
+    if (session?.type === 'terminal') return [];
+    const seen = new Set<string>();
+    return participantsActive.filter((participant) => {
+      const sess = participant.sess;
+      if (sess.type !== 'terminal' || seen.has(sess.id)) return false;
+      seen.add(sess.id);
+      return true;
+    });
+  });
+
+  const footerStatusSessionIds = $derived(footerStatusParticipants.map((participant) => participant.sess.id));
+
+  async function fetchAgentStatuses() {
+    const ids = footerStatusSessionIds;
+    if (ids.length === 0) {
+      agentStatuses = {};
+      return;
+    }
+
+    const entries = await Promise.all(ids.map(async (id) => {
+      try {
+        const res = await fetch(`/api/sessions/${id}/status`);
+        if (!res.ok) return null;
+        const data = await res.json();
+        return [id, data as StatusPayload] as const;
+      } catch {
+        return null;
+      }
+    }));
+
+    const next: Record<string, StatusPayload> = {};
+    for (const entry of entries) {
+      if (entry) next[entry[0]] = entry[1];
+    }
+    agentStatuses = next;
+  }
+
+  onMount(() => {
+    fetchAgentStatuses();
+    statusPollTimer = setInterval(fetchAgentStatuses, 8000);
+  });
+
+  onDestroy(() => {
+    if (typingTimeout) clearTimeout(typingTimeout);
+    if (statusPollTimer) clearInterval(statusPollTimer);
+  });
+
+  $effect(() => {
+    const key = footerStatusSessionIds.join('|');
+    if (key) fetchAgentStatuses();
+    else agentStatuses = {};
+  });
+
+  function statusPayload(sess: PageSession): StatusPayload | null {
+    return agentStatuses[sess.id] ?? null;
+  }
+
+  function statusState(sess: PageSession): AgentStatus['state'] | 'needs_input' | 'unknown' {
+    const payload = statusPayload(sess);
+    if (payload?.needs_input) return 'needs_input';
+    if (payload?.agent_status?.state) return payload.agent_status.state;
+    const sessionState = payload?.session?.status || sess.status;
+    if (sessionState === 'idle') return 'idle';
+    if (sessionState === 'active') return 'ready';
+    if (sessionState === 'offline') return 'unknown';
+    return 'unknown';
+  }
+
+  function statusStyle(state: AgentStatus['state'] | 'needs_input' | 'unknown'): { label: string; color: string; bg: string; border: string } {
+    const map: Record<string, { label: string; color: string; bg: string; border: string }> = {
+      ready:       { label: 'Ready',       color: '#16A34A', bg: '#DCFCE7', border: '#86EFAC' },
+      idle:        { label: 'Idle',        color: '#64748B', bg: '#F1F5F9', border: '#CBD5E1' },
+      busy:        { label: 'Working',     color: '#D97706', bg: '#FEF3C7', border: '#FCD34D' },
+      thinking:    { label: 'Thinking',    color: '#7C3AED', bg: '#EDE9FE', border: '#C4B5FD' },
+      needs_input: { label: 'Needs input', color: '#DC2626', bg: '#FEE2E2', border: '#FCA5A5' },
+      error:       { label: 'Error',       color: '#DC2626', bg: '#FEE2E2', border: '#FCA5A5' },
+      unknown:     { label: 'Unknown',     color: '#6B7280', bg: '#F3F4F6', border: '#D1D5DB' },
+    };
+    return map[state] ?? map.unknown;
+  }
+
+  function contextLabel(status: AgentStatus | undefined): string {
+    if (!status) return '';
+    if (typeof status.contextRemainingPct === 'number') return `${status.contextRemainingPct}% ctx`;
+    if (typeof status.contextUsedPct === 'number') return `${status.contextUsedPct}% used`;
+    return '';
+  }
+
+  function participantLabel(sess: PageSession): string {
+    return sess.handle || sess.display_name || sess.name || sess.id.slice(0, 8);
+  }
+
+  function statusDetail(sess: PageSession): string {
+    const payload = statusPayload(sess);
+    const status = payload?.agent_status;
+    if (payload?.needs_input) return payload.summary || 'Waiting for a response';
+    if (status?.waitingFor) return `Waiting: ${status.waitingFor}`;
+    if (status?.activity) return status.activity;
+    const bits = [status?.model, contextLabel(status)].filter(Boolean);
+    if (bits.length > 0) return bits.join(' · ');
+    const sessionState = payload?.session?.status || sess.status;
+    if (sessionState) return `No live CLI status yet · session ${sessionState}`;
+    return '';
+  }
 
   function notifyTyping(typing: boolean) {
     const handle = session?.handle;
@@ -118,7 +244,6 @@
     }).catch(() => {});
   }
 
-  let typingTimeout: ReturnType<typeof setTimeout> | null = null;
   function handleTypingInput() {
     notifyTyping(true);
     if (typingTimeout) clearTimeout(typingTimeout);
@@ -518,6 +643,7 @@
                 message={msg}
                 {sessionId}
                 {allSessions}
+                readReceipts={readReceipts[msg.id] ?? []}
                 onReply={(msg) => { onReply(msg); }}
                 onDeleted={(id) => { onMessageDeleted(id); }}
                 onMetaUpdated={(id, meta) => { onMessageMetaUpdated(id, meta); }}
@@ -662,6 +788,44 @@
       >Send</button>
     </div>
   {:else}
+    {#if footerStatusParticipants.length > 0}
+      <div
+        class="shrink-0 px-3 py-2 border-t overflow-x-auto scrollbar-none"
+        style="border-color:var(--border-light);background:var(--bg-surface);"
+        aria-label="Agent status"
+      >
+        <div class="flex items-center gap-2 min-w-max">
+          <span
+            class="text-[10px] uppercase tracking-wide shrink-0"
+            style="color:var(--text-faint);font-family:var(--font-mono);letter-spacing:0;"
+          >Agents</span>
+          {#each footerStatusParticipants as participant (participant.sess.id)}
+            {@const sess = participant.sess}
+            {@const state = statusState(sess)}
+            {@const stateStyle = statusStyle(state)}
+            {@const payload = statusPayload(sess)}
+            {@const status = payload?.agent_status}
+            {@const detail = statusDetail(sess)}
+            {@const ctx = contextLabel(status)}
+            <div
+              class="inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs shrink-0"
+              style="background:{stateStyle.bg};border-color:{stateStyle.border};color:{stateStyle.color};"
+              title={detail || `${participantLabel(sess)}: ${stateStyle.label}`}
+            >
+              <span
+                class="w-2 h-2 rounded-full shrink-0"
+                style="background:{stateStyle.color};box-shadow:0 0 0 2px rgba(255,255,255,0.75);"
+              ></span>
+              <span class="font-semibold truncate max-w-[96px]">{participantLabel(sess)}</span>
+              <span style="color:{stateStyle.color}CC;">{stateStyle.label}</span>
+              {#if ctx}
+                <span class="font-mono text-[10px]" style="color:{stateStyle.color}AA;">{ctx}</span>
+              {/if}
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
     <MessageInput
       onSend={onSend}
       {replyTo}

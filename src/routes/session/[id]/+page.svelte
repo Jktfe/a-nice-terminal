@@ -1127,6 +1127,7 @@
           {sessionId}
           {session}
           allSessions={messageIdentitySessions}
+          participantsActive={participants.active}
           {linkedChatId}
           {linkedChatHasMore}
           {linkedChatLoadingMore}

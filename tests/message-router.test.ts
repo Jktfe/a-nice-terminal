@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { shouldRawForwardLinkedChatMessage } from '../src/lib/server/adapters/linked-chat-adapter.js';
 import {
   handlesForMember,
+  isWorkingAgentStatus,
   parseMentions,
   resolveRoomFanout,
   shouldDeliverLinkedChatToTerminal,
@@ -58,11 +59,12 @@ describe('linked chat source markers', () => {
 describe('room fan-out scope', () => {
   const handles = ['@claude', '@gemini', '@codex'];
 
-  it('keeps terminal acknowledgements chat-visible only', () => {
+  it('routes terminal acknowledgements only to idle/ready terminals', () => {
     expect(resolveRoomFanout('on it', handles, 'terminal')).toEqual({
       targets: [],
       isAllParticipants: true,
-      shouldFanOutToTerminals: false,
+      shouldFanOutToTerminals: true,
+      protectWorkingTerminals: true,
     });
   });
 
@@ -71,6 +73,7 @@ describe('room fan-out scope', () => {
       targets: ['@gemini'],
       isAllParticipants: false,
       shouldFanOutToTerminals: true,
+      protectWorkingTerminals: false,
     });
   });
 
@@ -79,6 +82,7 @@ describe('room fan-out scope', () => {
       targets: [],
       isAllParticipants: true,
       shouldFanOutToTerminals: true,
+      protectWorkingTerminals: false,
     });
   });
 
@@ -87,6 +91,7 @@ describe('room fan-out scope', () => {
       targets: [],
       isAllParticipants: true,
       shouldFanOutToTerminals: false,
+      protectWorkingTerminals: false,
     });
   });
 
@@ -95,6 +100,31 @@ describe('room fan-out scope', () => {
       targets: [],
       isAllParticipants: true,
       shouldFanOutToTerminals: true,
+      protectWorkingTerminals: false,
     });
+  });
+
+  it('only protects fresh busy or thinking status from plain updates', () => {
+    const now = 1_000_000;
+
+    expect(isWorkingAgentStatus({
+      state: 'busy',
+      detectedAt: now - 10_000,
+    }, now)).toBe(true);
+
+    expect(isWorkingAgentStatus({
+      state: 'thinking',
+      detectedAt: now - 10_000,
+    }, now)).toBe(true);
+
+    expect(isWorkingAgentStatus({
+      state: 'ready',
+      detectedAt: now - 10_000,
+    }, now)).toBe(false);
+
+    expect(isWorkingAgentStatus({
+      state: 'busy',
+      detectedAt: now - 60_000,
+    }, now)).toBe(false);
   });
 });

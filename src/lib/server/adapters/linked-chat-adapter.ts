@@ -1,4 +1,4 @@
-import type {} from '../message-router.js'; // type-only, ensures module resolves
+import type { DeliveryAdapter, RouteMessage, RouteTarget, DeliveryResult } from '../message-router.js';
 
 function ptmWrite(sessionId: string, data: string): void {
   const write = (globalThis as any).__antPtmWrite;
@@ -7,6 +7,22 @@ function ptmWrite(sessionId: string, data: string): void {
   } else {
     import('../pty-client.js').then(m => m.ptyClient.write(sessionId, data)).catch(() => {});
   }
+}
+
+async function markTerminalRead(message: RouteMessage, target: RouteTarget): Promise<void> {
+  try {
+    const { queries } = await import('../db.js');
+    queries.markRead(message.id, target.sessionId);
+    const reads = queries.getReadsForMessage(message.id);
+    const { broadcast } = await import('../ws-broadcast.js');
+    broadcast(message.sessionId, {
+      type: 'message_read',
+      sessionId: message.sessionId,
+      messageId: message.id,
+      readerId: target.sessionId,
+      reads,
+    });
+  } catch {}
 }
 
 // ANT v3 — Linked Chat Adapter
@@ -24,8 +40,6 @@ function ptmWrite(sessionId: string, data: string): void {
 //
 // For agent_response messages, routes the response through the agent
 // event bus back to the terminal.
-
-import type { DeliveryAdapter, RouteMessage, RouteTarget, DeliveryResult } from '../message-router.js';
 
 function parseMeta(meta: string | null | undefined): Record<string, unknown> {
   try {
@@ -133,6 +147,7 @@ export class LinkedChatAdapter implements DeliveryAdapter {
         `\x1b[36m\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\x1b[0m\r\n`;
       ptmWrite(target.sessionId, notification);
     }
+    await markTerminalRead(message, target);
 
     return {
       adapter: this.name,

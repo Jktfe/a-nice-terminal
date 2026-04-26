@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { ClaudeCodeDriver } from '../src/drivers/claude-code/driver.js';
 import { CodexCliDriver } from '../src/drivers/codex-cli/driver.js';
 import { GeminiCliDriver } from '../src/drivers/gemini-cli/driver.js';
-import { dispose, feed, getPendingEvent, init, trackEvent } from '../src/lib/server/agent-event-bus.js';
+import { dispose, feed, feedStatus, getPendingEvent, init, trackEvent } from '../src/lib/server/agent-event-bus.js';
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -85,6 +85,41 @@ describe('agent status endpoint state', () => {
         model: 'gpt-5.5 xhigh',
         workspace: '/CascadeProjects/newmodelgvpl',
         contextRemainingPct: 100,
+      },
+    });
+
+    dispose(sessionId);
+  });
+
+  it('caches telemetry from unstripped status samples', async () => {
+    const sessionId = `status-sample-test-${Date.now()}`;
+    const broadcasts: any[] = [];
+
+    init({
+      getSession: id => id === sessionId
+        ? { id, linked_chat_id: 'linked-chat', meta: JSON.stringify({ agent_driver: 'claude-code' }) }
+        : null,
+      postToChat: () => {},
+      writeToTerminal: () => {},
+      updateMessageMeta: () => {},
+      broadcastToChat: () => {},
+      broadcastGlobal: msg => broadcasts.push(msg),
+    });
+
+    await feedStatus(sessionId, [
+      'Useful answer line that should remain in the pane',
+      'jamesking@Jamess-Mac-mini    manorfarmios main    Opus 4.6 1M context    ctx:94%    5h:81%',
+    ].join('\n'));
+
+    expect(broadcasts.some(msg => msg.type === 'agent_status_updated')).toBe(true);
+    expect(getPendingEvent(sessionId)).toMatchObject({
+      needs_input: false,
+      agent_status: {
+        state: 'ready',
+        model: 'Opus 4.6',
+        workspace: 'manorfarmios',
+        branch: 'main',
+        contextUsedPct: 94,
       },
     });
 

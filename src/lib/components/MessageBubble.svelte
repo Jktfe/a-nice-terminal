@@ -71,6 +71,45 @@
     displayName.replace('@', '').slice(0, 1).toUpperCase()
   );
 
+  function resolveReader(reader: { session_id: string; reader_name: string; reader_handle: string | null }) {
+    return allSessions.find((s: any) =>
+      s.id === reader.session_id ||
+      s.handle === reader.reader_handle ||
+      s.alias === reader.reader_handle ||
+      s.name === reader.reader_name ||
+      s.display_name === reader.reader_name
+    ) ?? null;
+  }
+
+  function readerLabel(reader: { session_id: string; reader_name: string; reader_handle: string | null }): string {
+    const sess = resolveReader(reader);
+    if (sess) return sess.display_name || sess.name || sess.handle || reader.reader_name || reader.session_id;
+    return reader.reader_handle || reader.reader_name || `Session ${reader.session_id.slice(0, 8)}`;
+  }
+
+  function readerTitle(reader: { session_id: string; reader_name: string; reader_handle: string | null; read_at: string }): string {
+    const sess = resolveReader(reader);
+    const label = readerLabel(reader);
+    const handleText = sess?.handle && sess.handle !== label ? ` (${sess.handle})` : '';
+    const readAt = reader.read_at ? new Date(reader.read_at.replace(' ', 'T') + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+    return `${label}${handleText} saw this${readAt ? ` at ${readAt}` : ''}`;
+  }
+
+  function readerColor(reader: { session_id: string; reader_name: string; reader_handle: string | null }): string {
+    const sess = resolveReader(reader);
+    return sess
+      ? agentColorFromSession(sess).color
+      : agentColor(reader.reader_handle || reader.reader_name || reader.session_id).color;
+  }
+
+  const visibleReadReceipts = $derived.by(() => {
+    if (isOwn) return [];
+    return readReceipts.filter((reader) =>
+      reader.session_id !== sessionId &&
+      reader.session_id !== message.sender_id
+    );
+  });
+
   // Timestamp
   const timeStr = $derived.by(() => {
     if (!message.created_at) return '';
@@ -280,15 +319,16 @@
   {/if}
 
   <!-- Read receipts -->
-  {#if readReceipts.length > 0}
+  {#if visibleReadReceipts.length > 0}
     <div class="flex items-center gap-0.5 mt-1 pl-7">
-      {#each readReceipts as reader}
-        {@const rc = agentColor(reader.session_id)}
+      {#each visibleReadReceipts as reader}
+        {@const rc = readerColor(reader)}
         <span
-          class="w-4 h-4 rounded-full flex items-center justify-center text-[7px] font-bold text-white cursor-default"
-          style="background: {rc.color};"
-          title="Seen by {reader.reader_name}"
-        >{(reader.reader_name || '?').slice(0, 1).toUpperCase()}</span>
+          class="w-2.5 h-2.5 rounded-full cursor-help"
+          style="background: {rc}; border: 1px solid var(--bg); box-shadow: 0 0 0 1px var(--hairline-strong);"
+          title={readerTitle(reader)}
+          aria-label={readerTitle(reader)}
+        ></span>
       {/each}
     </div>
   {/if}

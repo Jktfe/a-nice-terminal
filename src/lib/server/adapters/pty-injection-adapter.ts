@@ -26,6 +26,22 @@ function sanitizeInline(value: string, max = 2000): string {
     .trim();
 }
 
+function markTerminalRead(message: RouteMessage, target: RouteTarget): void {
+  try {
+    queries.markRead(message.id, target.sessionId);
+    const reads = queries.getReadsForMessage(message.id);
+    import('../ws-broadcast.js').then(({ broadcast }) => {
+      broadcast(message.sessionId, {
+        type: 'message_read',
+        sessionId: message.sessionId,
+        messageId: message.id,
+        readerId: target.sessionId,
+        reads,
+      });
+    }).catch(() => {});
+  } catch {}
+}
+
 export class PtyInjectionAdapter implements DeliveryAdapter {
   name = 'pty-injection';
 
@@ -63,7 +79,7 @@ export class PtyInjectionAdapter implements DeliveryAdapter {
         } catch {}
       }
 
-      const routingHint = 'Routing: plain replies stay in the chat only; include @handle to notify one agent; use @everyone to notify all.';
+      const routingHint = 'Routing: plain replies post to the room and notify idle agents only; include @handle to interrupt one agent; use @everyone to interrupt all.';
       const plainText = `[${header}] room: ${sourceLabel} -- ${safeContent}${replyContext} -- reply with: ${replyCmd} -- ${routingHint}`;
 
       // Two-call protocol: text first, then \r after a beat.
@@ -79,6 +95,7 @@ export class PtyInjectionAdapter implements DeliveryAdapter {
           setTimeout(() => { ptmWrite(target.sessionId, '\r'); }, 150);
         }
       }, submitDelay);
+      markTerminalRead(message, target);
 
       return {
         adapter: this.name,
