@@ -83,7 +83,7 @@
     if (!modal || modal.mode !== 'confirm-delete' || !modal.targetSession) return;
     const id = modal.targetSession.id;
     modal = null;
-    store.dismissRecoverable(id);
+    await store.hardDeleteSession(id);
   }
 
   function handleModalKeydown(e: KeyboardEvent) {
@@ -194,6 +194,34 @@
 
   function createTerminal() { openCreateModal('terminal'); }
   function createChat() { openCreateModal('chat'); }
+
+  async function commitArchivedToMemoryAndDelete(id: string) {
+    await fetch(`/api/sessions/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ archived: true }),
+    });
+    await fetch(`/api/sessions/${id}?hard=true`, { method: 'DELETE' });
+    await store.load();
+    selectedArchived = new Set([...selectedArchived].filter((sessionId) =>
+      store.recoverable.some((session) => session.id === sessionId)
+    ));
+  }
+
+  async function restoreArchived(id: string) {
+    await store.restoreSession(id);
+    const next = new Set(selectedArchived);
+    next.delete(id);
+    selectedArchived = next;
+  }
+
+  async function hardDeleteArchived(id: string) {
+    await store.hardDeleteSession(id);
+    await store.load();
+    selectedArchived = new Set([...selectedArchived].filter((sessionId) =>
+      store.recoverable.some((session) => session.id === sessionId)
+    ));
+  }
 </script>
 
 <div class="flex flex-col h-screen w-screen overflow-hidden" style="background: var(--bg); color: var(--text);">
@@ -445,6 +473,12 @@
       <div class="flex flex-col border-t flex-shrink-0" style="border-color: var(--border-light);">
         <!-- Session badges row -->
         <div class="flex items-center gap-3 px-4 sm:px-6 py-2 overflow-x-auto">
+          <a
+            href="/archive"
+            class="text-xs font-medium flex-shrink-0 hover:underline"
+            style="color: var(--text-faint);"
+            title="Open archive manager"
+          >Archived:</a>
           <button
             onclick={() => {
               if (selectedArchived.size === store.recoverable.length) {
@@ -454,9 +488,9 @@
               }
             }}
             class="text-xs font-medium flex-shrink-0 hover:underline"
-            style="color: var(--text-faint);"
+            style="color: #6366F1;"
             title={selectedArchived.size === store.recoverable.length ? 'Deselect all' : 'Select all'}
-          >Archived:</button>
+          >Select all</button>
           {#each store.recoverable as session (session.id)}
             {@const isSelected = selectedArchived.has(session.id)}
             <div
@@ -476,16 +510,7 @@
               >{session.name}</button>
               <!-- Brain: save to memory palace then delete -->
               <button
-                onclick={async () => {
-                  await fetch(`/api/sessions/${session.id}`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ archived: true }),
-                  });
-                  await fetch(`/api/sessions/${session.id}`, { method: 'DELETE' });
-                  store.dismissRecoverable(session.id);
-                  const next = new Set(selectedArchived); next.delete(session.id); selectedArchived = next;
-                }}
+                onclick={() => commitArchivedToMemoryAndDelete(session.id)}
                 class="p-0.5 rounded transition-colors hover:text-purple-500"
                 style="color: var(--text-faint);"
                 title="Save to memory & delete"
@@ -493,7 +518,7 @@
                 <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M12 18v4"/></svg>
               </button>
               <!-- Restore -->
-              <button onclick={() => { store.restoreSession(session.id); const next = new Set(selectedArchived); next.delete(session.id); selectedArchived = next; }} class="p-0.5 rounded transition-colors" style="color: var(--text-faint);" title="Restore">
+              <button onclick={() => restoreArchived(session.id)} class="p-0.5 rounded transition-colors" style="color: var(--text-faint);" title="Restore">
                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
               </button>
               <!-- Delete permanently -->
@@ -514,9 +539,7 @@
                 batchBusy = true;
                 const ids = [...selectedArchived];
                 for (const id of ids) {
-                  await fetch(`/api/sessions/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archived: true }) });
-                  await fetch(`/api/sessions/${id}`, { method: 'DELETE' });
-                  store.dismissRecoverable(id);
+                  await commitArchivedToMemoryAndDelete(id);
                 }
                 selectedArchived = new Set();
                 batchBusy = false;
@@ -534,7 +557,7 @@
               onclick={async () => {
                 batchBusy = true;
                 const ids = [...selectedArchived];
-                for (const id of ids) { await store.restoreSession(id); }
+                for (const id of ids) { await restoreArchived(id); }
                 selectedArchived = new Set();
                 batchBusy = false;
               }}
@@ -553,8 +576,7 @@
                 batchBusy = true;
                 const ids = [...selectedArchived];
                 for (const id of ids) {
-                  await fetch(`/api/sessions/${id}`, { method: 'DELETE' });
-                  store.dismissRecoverable(id);
+                  await hardDeleteArchived(id);
                 }
                 selectedArchived = new Set();
                 batchBusy = false;

@@ -93,6 +93,7 @@ export function useSessionStore() {
         body: JSON.stringify({ archived: true }),
       });
       if (!res.ok) throw new Error('Failed to archive session');
+      await load();
     } catch (e: any) {
       sessions = prev;
       error = e.message;

@@ -379,8 +379,13 @@ export const queries = {
   },
   // Sessions — active (not soft-deleted, not archived)
   listSessions: () => prepare(`SELECT * FROM sessions WHERE archived = 0 AND deleted_at IS NULL ORDER BY updated_at DESC`).all(),
-  // Soft-deleted sessions still within their TTL window (recoverable)
-  listRecoverable: () => prepare(`SELECT * FROM sessions WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC`).all(),
+  // Sessions hidden from the main dashboard: archived-only rows and soft-deleted
+  // rows that are still inside their restore window.
+  listRecoverable: () => prepare(`
+    SELECT * FROM sessions
+    WHERE deleted_at IS NOT NULL OR archived = 1
+    ORDER BY COALESCE(deleted_at, updated_at) DESC
+  `).all(),
   // All terminal sessions for rehydration on startup
   listTerminalSessions: () => prepare(`SELECT * FROM sessions WHERE type = 'terminal' AND archived = 0`).all(),
   getSession: (id: string) => prepare(`SELECT * FROM sessions WHERE id = ?`).get(id),

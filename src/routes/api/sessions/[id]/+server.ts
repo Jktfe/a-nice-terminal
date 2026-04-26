@@ -131,11 +131,40 @@ export async function PATCH({ params, request }: RequestEvent<{ id: string }>) {
   return json(session);
 }
 
-// Soft-delete: marks deleted_at, PTY keeps running, recoverable within TTL window
-export async function DELETE({ params }: RequestEvent<{ id: string }>) {
+// Soft-delete by default: marks deleted_at, PTY keeps running, recoverable within
+// TTL window. `?hard=true` permanently removes the session.
+export async function DELETE({ params, url }: RequestEvent<{ id: string }>) {
   const session = queries.getSession(params.id);
   if (!session) throw error(404, 'Session not found');
-  queries.softDeleteSession(params.id);
+  if (url.searchParams.get('hard') === 'true') {
+    const idsToDelete = new Set<string>([params.id]);
+    const terminalIdsToKill = new Set<string>();
+
+    if ((session as any).type === 'terminal') {
+      terminalIdsToKill.add(params.id);
+      const linkedChatId = (session as any).linked_chat_id;
+      const linkedChat = linkedChatId ? queries.getSession(linkedChatId) as any : null;
+      if (linkedChat && isAutoLinkedChatForTerminal(linkedChat.meta, params.id)) {
+        idsToDelete.add(linkedChat.id);
+      }
+    } else if ((session as any).type === 'chat') {
+      const terminalId = autoLinkedTerminalId((session as any).meta);
+      const terminal = terminalId ? queries.getSession(terminalId) as any : null;
+      if (terminal?.type === 'terminal') {
+        idsToDelete.add(terminal.id);
+        terminalIdsToKill.add(terminal.id);
+      }
+    }
+
+    if (terminalIdsToKill.size > 0) {
+      const { ptyClient } = await import('$lib/server/pty-client.js');
+      for (const id of terminalIdsToKill) ptyClient.kill(id);
+    }
+
+    for (const id of idsToDelete) queries.hardDeleteSession(id);
+  } else {
+    queries.softDeleteSession(params.id);
+  }
   const { broadcast } = await import('$lib/server/ws-broadcast.js');
   broadcast(SESSIONS_CHANNEL, { type: 'sessions_changed' });
   return new Response(null, { status: 204 });
