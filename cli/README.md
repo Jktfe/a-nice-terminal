@@ -32,9 +32,13 @@ ant terminal watch <id>
 ant chat <id>
 ant chat send <id> --msg "hello"
 ant chat read <id> --limit 50
+ant chat leave <id>
 
 # Full-text search
 ant search "query terms"
+
+# Memory hygiene
+ant memory audit
 
 # Config
 ant config

@@ -1,22 +1,21 @@
 // ANT v3 — Obsidian Vault Writer + Memory Palace ingest
-// Writes session summaries as markdown with YAML frontmatter,
-// AND writes a memory entry to the ANT memories table for in-app search.
+// Writes concise, learnable session summaries as markdown with YAML
+// frontmatter, AND writes a memory entry to the ANT memories table for
+// in-app search. Raw transcripts stay in ANT's DB, not the vault.
 // Never throws — all errors are caught silently to protect the server.
 
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
-import { nanoid } from 'nanoid';
 import { queries } from '../db.js';
 
 // ── Vault location ────────────────────────────────────────────────────────────
-const VAULT_ROOT = join(homedir(), 'Documents', 'Obsidian');
-const ANT_VAULT  = join(VAULT_ROOT, 'ANT');
+const ANT_VAULT = process.env.ANT_OBSIDIAN_VAULT || join(homedir(), 'CascadeProjects', 'ObsidianANT');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function vaultExists(): boolean {
-  return existsSync(VAULT_ROOT);
+  return existsSync(ANT_VAULT);
 }
 
 function pad2(n: number): string {
@@ -37,6 +36,51 @@ function safeName(raw: string): string {
 
 function shortId(id: string): string {
   return id.slice(0, 8);
+}
+
+function normaliseContent(content: unknown): string {
+  return String(content ?? '').trim().replace(/\s+/g, ' ');
+}
+
+function isJsonBlob(content: string): boolean {
+  if (!content.startsWith('{') && !content.startsWith('[')) return false;
+  try {
+    JSON.parse(content);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isBoilerplateExchange(content: string): boolean {
+  const lower = content.toLowerCase();
+  if (content.length < 12) return true;
+  if (/^(cd|pwd|ls|clear)(\s|$)/.test(lower)) return true;
+  if (/^(claude|codex|gemini|npm|bun)(\s|$)/.test(lower) && content.length < 90) return true;
+  if (/^ant chat send\b/.test(lower)) return true;
+  if (/^(test|testing|hello|hi|ok|okay|on it|done|thanks|cheers)[.! ]*$/.test(lower)) return true;
+  if (/arrival:\s*@/.test(lower) && content.length < 120) return true;
+  return false;
+}
+
+function isLearnableExchange(content: string): boolean {
+  return /\b(decision|decided|root cause|lesson|learned|remember|protocol|constraint|rule|fix(?:ed)?|bug|regression|architecture|design|endpoint|api|commit|deployed|shipped|working|broken|must|should|need|needs|avoid|prefer|never|always)\b/i.test(content)
+    || /\b[A-Za-z0-9_-]+\.(?:ts|svelte|swift|js|json|md|sql|css)\b/.test(content)
+    || /\b(?:src|docs|cli|scripts|app|lib)\//.test(content);
+}
+
+function meaningfulMessages(messages: any[]): any[] {
+  return messages.filter((m: any) => {
+    if (m.msg_type === 'agent_event' || m.msg_type === 'agent_response' || m.msg_type === 'terminal_line') return false;
+    const content = normaliseContent(m.content);
+    if (!content || isJsonBlob(content) || isBoilerplateExchange(content)) return false;
+    return true;
+  });
+}
+
+function hasLearnableContent(tasks: any[], fileRefs: any[], messages: any[]): boolean {
+  if (tasks.length > 0 || fileRefs.length > 0) return true;
+  return messages.some((m: any) => isLearnableExchange(normaliseContent(m.content)));
 }
 
 // ── Core writer ───────────────────────────────────────────────────────────────
@@ -71,42 +115,54 @@ export function writeSessionSummary(sessionId: string): string | null {
     ? fileRefs.map((f: any) => `${f.file_path}${f.note ? ` — ${f.note}` : ''}`).join('\n')
     : 'no file refs';
 
-  const fullTranscript = allMessages
+  const usefulMessages = meaningfulMessages(allMessages);
+  const shouldWriteMemory = hasLearnableContent(tasks, fileRefs, usefulMessages);
+
+  // Build concise summary — NOT raw transcript. Key exchanges only.
+  const keyMessages = usefulMessages
+    .slice(-20) // last 20 meaningful messages only
     .map((m: any) => {
-      const sender = m.sender_id ?? (m.role === 'user' ? 'user' : 'assistant');
-      return `[${sender}]: ${m.content}`;
+      const sender = m.sender_id?.startsWith('@') ? m.sender_id : (m.role === 'user' || m.role === 'human' ? 'James' : 'Agent');
+      const content = normaliseContent(m.content).slice(0, 200);
+      return `${sender}: ${content}`;
     })
-    .join('\n\n');
+    .join('\n');
 
   const memoryValue = [
     `Session: ${session.name} (${session.type})`,
     `Period: ${session.created_at ?? ''} → ${session.last_activity ?? ''}`,
     `Participants: ${participantList}`,
-    `Commands: ${cmdRows.length}`,
+    `Messages: ${allMessages.length} | Commands: ${cmdRows.length}`,
     '',
-    '## Tasks',
-    taskSummary,
-    '',
-    '## File refs',
-    fileRefSummary,
-    '',
-    '## Full transcript',
-    fullTranscript,
-  ].join('\n');
+    tasks.length ? '## Tasks\n' + taskSummary : '',
+    fileRefs.length ? '## File refs\n' + fileRefSummary : '',
+    '## Key exchanges (last 20)',
+    keyMessages || '(no meaningful messages)',
+  ].filter(Boolean).join('\n');
 
   // ── Write to ANT memories table (in-app memory palace) ───────────────────
   try {
-    const memId = nanoid();
-    const tags  = JSON.stringify(['ant', 'session', session.type, `${year}-${month}`]);
-    queries.upsertMemory(memId, `session:${safeName(session.name)}`, memoryValue, tags, sessionId, 'ant-export');
-    console.log(`[mempalace] Saved session ${sessionId} to memories table`);
+    const memKey = `session:${safeName(session.name)}`;
+    if (shouldWriteMemory) {
+      const tags  = JSON.stringify(['ant', 'archive', 'session-summary', session.type, `${year}-${month}`]);
+      queries.upsertMemoryByKey(memKey, memoryValue, tags, sessionId, 'ant-export');
+      console.log(`[mempalace] Saved session ${sessionId} to memories table`);
+    } else {
+      queries.deleteMemoryByKey(memKey);
+      console.log(`[mempalace] Skipped non-learnable session ${sessionId}`);
+    }
   } catch (e: any) {
     console.warn(`[mempalace] Failed to write memory for ${sessionId}: ${e?.message}`);
   }
 
   // ── Write to Obsidian vault (if present) ──────────────────────────────────
   if (!vaultExists()) {
-    console.log(`[obsidian] Vault not found at ${VAULT_ROOT} — skipping file write`);
+    console.log(`[obsidian] Vault not found at ${ANT_VAULT} — skipping file write`);
+    return null;
+  }
+
+  if (!shouldWriteMemory) {
+    console.log(`[obsidian] Skipping non-learnable session export: ${sessionId}`);
     return null;
   }
 
@@ -129,7 +185,7 @@ export function writeSessionSummary(sessionId: string): string | null {
     `command_count: ${cmdRows.length}`,
     `participant_count: ${participants.length}`,
     `mempalace_wing: ant`,
-    `tags: [ant, session, ${session.type}, ${year}-${month}]`,
+    `tags: [ant, archive, session-summary, ${session.type}, ${year}-${month}]`,
     '---',
   ].join('\n');
 
@@ -154,15 +210,7 @@ export function writeSessionSummary(sessionId: string): string | null {
         `- \`${f.file_path}\`${f.note ? ` — ${f.note}` : ''}`
       ).join('\n');
 
-  // ── Full transcript (all messages) ────────────────────────────────────────
-  const transcriptSection = allMessages.length === 0
-    ? '_No messages_'
-    : allMessages.map((m: any) => {
-        const sender = m.sender_id ?? (m.role === 'user' ? 'user' : 'assistant');
-        const ts     = m.created_at?.slice(11, 16) ?? '';
-        const body   = String(m.content ?? '').slice(0, 800);
-        return `**${sender}** \`${ts}\`\n${body}`;
-      }).join('\n\n---\n\n');
+  const keyExchangeSection = keyMessages || '_No meaningful key exchanges_';
 
   // ── Markdown body ──────────────────────────────────────────────────────────
   const body = `
@@ -187,9 +235,13 @@ ${tasksSection}
 
 ${fileRefsSection}
 
-## Full Transcript
+## Key Exchanges
 
-${transcriptSection}
+${keyExchangeSection}
+
+## Transcript Source
+
+Raw transcripts stay in ANT session history and are not mirrored into Obsidian.
 
 ## Notes
 
@@ -226,7 +278,7 @@ interface SessionSummaryLegacy {
 
 export function writeSessionToVault(session: SessionSummaryLegacy): string | null {
   if (!vaultExists()) {
-    console.log(`[obsidian] Vault not found at ${VAULT_ROOT}`);
+    console.log(`[obsidian] Vault not found at ${ANT_VAULT}`);
     return null;
   }
 

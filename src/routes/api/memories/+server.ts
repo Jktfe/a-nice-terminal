@@ -1,32 +1,47 @@
 import { json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db.js';
-import { randomUUID } from 'crypto';
 
 export async function GET({ url }: RequestEvent) {
   const q = url.searchParams.get('q')?.trim();
   const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 200);
+  const scope = url.searchParams.get('scope') || (url.searchParams.get('include_archives') === '1' ? 'all' : 'operational');
 
   if (q) {
-    const results = queries.searchMemories(q, limit);
-    return json({ memories: results });
+    const results = scope === 'all'
+      ? queries.searchMemories(q, limit)
+      : scope === 'archive'
+        ? queries.searchArchiveMemories(q, limit)
+        : queries.searchOperationalMemories(q, limit);
+    return json({ memories: results, scope });
   }
 
-  const memories = queries.listMemories(limit);
-  return json({ memories });
+  const memories = scope === 'all'
+    ? queries.listMemories(limit)
+    : scope === 'archive'
+      ? queries.listArchiveMemories(limit)
+      : queries.listOperationalMemories(limit);
+  return json({ memories, scope });
 }
 
 export async function POST({ request }: RequestEvent) {
   const body = await request.json();
   const { key, value, tags = [], session_id = null, created_by = null } = body;
 
-  if (!key?.trim() || !value?.trim()) {
+  const cleanKey = typeof key === 'string' ? key.trim() : '';
+  const cleanValue = typeof value === 'string'
+    ? value.trim()
+    : value == null
+      ? ''
+      : JSON.stringify(value);
+
+  if (!cleanKey || !cleanValue) {
     return json({ ok: false, error: 'key and value are required' }, { status: 400 });
   }
 
-  const id = randomUUID();
-  queries.upsertMemory(id, key.trim(), value.trim(), JSON.stringify(tags), session_id, created_by);
-  const memory = queries.getMemory(id);
+  const tagValue = typeof tags === 'string' ? tags : JSON.stringify(Array.isArray(tags) ? tags : []);
+  queries.upsertMemoryByKey(cleanKey, cleanValue, tagValue, session_id, created_by);
+  const memory = queries.getMemoryByKey(cleanKey);
   return json({ ok: true, memory }, { status: 201 });
 }
 

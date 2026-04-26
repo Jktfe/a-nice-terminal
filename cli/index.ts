@@ -46,6 +46,8 @@ Commands:
                         External: ant chat send <id> --msg "hi" --server URL --external
   chat read <id>        Read message history (--limit 50)
   chat reply <id>       Reply to the latest message (--msg "yes do it")
+  chat leave <id>       Remove this terminal/agent from a chatroom
+                        (--session <id> or --handle @name to override identity)
 
   msg <id> "text"       Broadcast a message to all session participants
   msg <id> @handle "t" Send a targeted message to one handle
@@ -70,7 +72,8 @@ Commands:
   memory get <key>            Read one mempalace row by key
   memory put <key> <value>    Upsert one mempalace row (value = JSON or string)
   memory list <prefix>        List all rows under a key prefix (tasks/, agents/…)
-  memory search <query>       FTS5 search across all memory
+  memory search <query>       FTS5 search operational memory (--all for archives too)
+  memory audit                Report duplicate, oversize, and noisy memory rows
   memory delete <key>         Delete one row by key
                               (see docs/mempalace-schema.md for conventions)
 
@@ -81,10 +84,10 @@ Commands:
 
   config                Show current config
   config set            Set server URL / API key / handle / session ID
-                        (--url https://... --key abc --handle @james --session <id>)
+                        (--url https://... --key abc --handle @myhandle --session <id>)
 
 Options:
-  --server, -s    Server URL (native: auto-detects localhost:6458; external default: https://mac.kingfisher-interval.ts.net:6458)
+  --server, -s    Server URL (native: auto-detects localhost:6458; external: uses ANT_SERVER_URL env or configured serverUrl)
   --key, -k       API key
   --external      Force external mode (skip native tmux auto-detection)
   --json          Output as JSON
@@ -101,7 +104,7 @@ async function main() {
   const isExternal = !!flags.external;
   const native = !isExternal && !flags.server ? detectNativeSession() : { isNative: false, sessionId: null };
   // Native (inside ANT tmux on the server host) → localhost. External → MacBook (ANT's new home).
-  const serverUrl = flags.server || config.get('serverUrl') || (native.isNative ? 'https://localhost:6458' : 'https://mac.kingfisher-interval.ts.net:6458');
+  const serverUrl = flags.server || config.get('serverUrl') || process.env.ANT_SERVER_URL || `https://localhost:${process.env.ANT_PORT || '6458'}`;
   const apiKey = flags.key || config.get('apiKey') || '';
 
   const ctx = { serverUrl, apiKey, json: !!flags.json };

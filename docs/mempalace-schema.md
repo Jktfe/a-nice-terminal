@@ -81,7 +81,28 @@ row value into `done/<date>/<id>` verbatim. The live `tasks/<id>` row stays
 around with `status: done` for a while then is cleaned up by the idle-tick
 script (older than 14 days → deleted from `tasks/`, kept in `done/`).
 
-### 4. Agents — the registry
+### 4. Session archives — summaries, not working memory
+
+```
+session:<safe-session-name>     Concise archive summary for one ANT session
+```
+
+Session archive rows are allowed in the memories table so old work remains
+searchable, but they are **not** operational context. They must contain a
+short session summary, participants, task/file references, and a bounded
+set of key exchanges. They must not contain raw tmux output, agent event JSON,
+or full transcripts. Full transcripts live in ANT session history, not in live
+memory and not in the Obsidian vault.
+
+Do not create a memory for a session with no learnable content. Test terminals,
+empty setup sessions, launch smoke tests, and pure command-routing checks may
+be useful logs, but they are not memory palace material. They should stay in
+session history or Obsidian only.
+
+Default memory reads and searches exclude `session:*` rows. Use explicit
+archive scope when an agent or user really wants historical session material.
+
+### 5. Agents — the registry
 
 ```
 agents/<id>                     One agent's capability and reliability row
@@ -127,6 +148,7 @@ heartbeat/terminals/<session-id>   { hash, last_change, idle_for }
 heartbeat/git/<repo>                { ahead_count, behind_count, last_fetch }
 heartbeat/fs/<repo>                 { dirty_files, last_hash }
 heartbeat/latest                    one consolidated row for quick reads
+heartbeat/memories/latest           latest non-LLM memory hygiene audit
 ```
 
 Written by `scripts/idle-tick.sh` (coming next) at zero LLM cost. Agents
@@ -166,16 +188,31 @@ Use sparingly. These are not read by other agents except via search. They
 exist so an agent can write "I decided X because Y" without cluttering
 tasks/ or chat.
 
+### Audit — hygiene reports
+
+```
+audit/<domain>/<yyyy-mm-dd>       Optional persisted audit reports
+```
+
+Most audits are exposed via endpoints and `heartbeat/*`; persist an `audit/*`
+row only when a human needs a durable report. Audit rows should be concise
+JSON reports with issue counts and references to affected keys, not copies of
+the affected memory values.
+
 ## Lifecycle rules
 
 - **`goals/*`** — rarely changes. `goals/current` is pinned.
 - **`tasks/*`** — live state. Mutated freely during work.
 - **`done/*`** — append-only. Never mutated after creation.
+- **`session:*`** — archive-only. Updated on export, never injected as
+  default operational context.
 - **`agents/*`** — updated on every task verification (accept or reject)
   and by the idle-tick script for `last_seen`.
 - **`heartbeat/*`** — high churn. Older than 1 hour is overwritten.
 - **`digest/*`** — append-only. Older than 30 days is pruned.
 - **`thinking/*`** — append-only. Older than 7 days is pruned.
+- **`audit/*`** — append-only only when deliberately persisted. Older than
+  30 days is pruned unless pinned in Obsidian.
 
 Pruning is done by `scripts/idle-tick.sh`, not by agents.
 
@@ -189,8 +226,12 @@ ant memory get tasks/t-42
 ant memory list tasks/
 ant memory list agents/
 
-# Full-text search across all memory
+# Full-text search operational memory
 ant memory search "rename getCwd"
+ant memory search "rename getCwd" --all
+
+# Hygiene report
+ant memory audit
 
 # Upsert one row (overwrites any existing row with the same key)
 ant memory put tasks/t-42 '{"title":"…","status":"doing", …}'
@@ -199,9 +240,9 @@ ant memory put tasks/t-42 '{"title":"…","status":"doing", …}'
 ant memory delete tasks/t-42
 ```
 
-All four are thin wrappers over the existing `/api/memories` HTTP surface
-plus the new `/api/memories/key/<key>` and `/api/memories/prefix` routes.
-No MCP server, no framework, no per-turn token tax.
+These commands are thin wrappers over the existing `/api/memories` HTTP surface
+plus the `/api/memories/key/<key>`, `/api/memories/prefix`, and
+`/api/memories/audit` routes. No MCP server, no framework, no per-turn token tax.
 
 ## Why this works without a framework
 

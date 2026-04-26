@@ -3,7 +3,8 @@
 //   ant memory get <key>                Read one row by key
 //   ant memory put <key> <value>        Upsert one row (value as JSON or string)
 //   ant memory list <prefix>            List all rows under a key prefix
-//   ant memory search <query>           FTS5 search across all memory
+//   ant memory search <query>           FTS5 search operational memory
+//   ant memory audit                    Report duplicate/oversize/noisy rows
 //   ant memory delete <key>             Delete one row by key
 //
 // See docs/mempalace-schema.md for the key conventions agents should
@@ -15,7 +16,7 @@ export async function memory(args: string[], flags: any, ctx: any) {
   const sub = args[0];
 
   if (!sub) {
-    console.error('Usage: ant memory <get|put|list|search|delete> [args]');
+    console.error('Usage: ant memory <get|put|list|search|audit|delete> [args]');
     console.error('See docs/mempalace-schema.md for key conventions.');
     return;
   }
@@ -69,13 +70,21 @@ export async function memory(args: string[], flags: any, ctx: any) {
     const q = args.slice(1).join(' ');
     if (!q) { console.error('Usage: ant memory search <query>'); return; }
     const limit = flags.limit ? `&limit=${flags.limit}` : '';
-    const result = await api.get(ctx, `/api/memories?q=${encodeURIComponent(q)}${limit}`);
+    const scope = flags.all ? '&scope=all' : flags.archive ? '&scope=archive' : '';
+    const result = await api.get(ctx, `/api/memories?q=${encodeURIComponent(q)}${limit}${scope}`);
     if (ctx.json) { console.log(JSON.stringify(result, null, 2)); return; }
     if (!result.memories?.length) { console.log(`(no matches for "${q}")`); return; }
     for (const m of result.memories) {
       console.log(`\x1b[1m${m.key}\x1b[0m`);
       if (m.snippet) console.log(`  ${m.snippet}`);
     }
+    return;
+  }
+
+  if (sub === 'audit') {
+    const result = await api.get(ctx, '/api/memories/audit');
+    if (ctx.json) { console.log(JSON.stringify(result, null, 2)); return; }
+    printAudit(result);
     return;
   }
 
@@ -89,6 +98,41 @@ export async function memory(args: string[], flags: any, ctx: any) {
   }
 
   console.error(`Unknown memory subcommand: ${sub}`);
+}
+
+function printAudit(report: any) {
+  const counts = report.counts ?? {};
+  const bytes = report.bytes ?? {};
+  const status = report.ok ? '\x1b[32mOK\x1b[0m' : '\x1b[31mNEEDS CLEANUP\x1b[0m';
+  console.log(`Memory audit: ${status}`);
+  console.log(`  rows: ${counts.total ?? 0} total, ${counts.operational ?? 0} operational, ${counts.archive ?? 0} archive`);
+  console.log(`  bytes: ${bytes.total ?? 0} total, ${bytes.operational ?? 0} operational, ${bytes.archive ?? 0} archive`);
+  console.log(`  issues: ${counts.errors ?? 0} errors, ${counts.warnings ?? 0} warnings`);
+
+  if (report.classes && Object.keys(report.classes).length > 0) {
+    console.log('\nClasses:');
+    for (const [name, count] of Object.entries(report.classes)) {
+      console.log(`  ${name}: ${count}`);
+    }
+  }
+
+  if (report.largest?.length) {
+    console.log('\nLargest rows:');
+    for (const row of report.largest.slice(0, 5)) {
+      console.log(`  ${row.size} bytes  ${row.key}  (${row.class})`);
+    }
+  }
+
+  if (report.issues?.length) {
+    console.log('\nIssues:');
+    for (const issue of report.issues.slice(0, 20)) {
+      const label = issue.severity === 'error' ? '\x1b[31merror\x1b[0m' : '\x1b[33mwarning\x1b[0m';
+      console.log(`  ${label} ${issue.code} ${issue.key}: ${issue.message}`);
+    }
+    if (report.issues.length > 20) {
+      console.log(`  ... ${report.issues.length - 20} more`);
+    }
+  }
 }
 
 // Minimal PUT helper because api.ts doesn't export `put` today.

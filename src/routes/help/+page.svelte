@@ -28,6 +28,7 @@
         { cmd: 'ant chat read <id>', desc: 'Read message history', flags: '--limit 50' },
         { cmd: 'ant chat reply <id>', desc: 'Reply to the latest message', flags: '--msg "yes do it"' },
         { cmd: 'ant chat join <id>', desc: 'Join a real-time streaming chat (Ctrl+C to exit)' },
+        { cmd: 'ant chat leave <id>', desc: 'Remove this terminal/agent from a chatroom', flags: '--session <id> or --handle @name' },
         { cmd: 'ant chat participants <id>', desc: 'List all participants in a chat session' },
       ],
     },
@@ -74,12 +75,25 @@
       ],
     },
     {
+      title: 'Memory',
+      color: '#818CF8',
+      commands: [
+        { cmd: 'ant memory get <key>', desc: 'Read one mempalace row by key' },
+        { cmd: 'ant memory put <key> <value>', desc: 'Upsert one row using a stable key' },
+        { cmd: 'ant memory list <prefix>', desc: 'List rows under a prefix', flags: 'tasks/ agents/ docs/' },
+        { cmd: 'ant memory search <query>', desc: 'Search operational memory', flags: '--all to include archives' },
+        { cmd: 'ant memory audit', desc: 'Report duplicate, oversize, and noisy rows' },
+        { cmd: 'ant memory delete <key>', desc: 'Delete one row by key' },
+      ],
+      note: 'Operational memory excludes session archives by default so agents do not burn tokens on old transcripts.',
+    },
+    {
       title: 'Setup & Config',
       color: '#AB47BC',
       commands: [
         { cmd: 'ant hooks install', desc: 'Install ANT shell hooks into ~/.zshrc (enables command capture)' },
         { cmd: 'ant config', desc: 'Show current config (server URL, API key, handle)' },
-        { cmd: 'ant config set', desc: 'Set connection details', flags: '--url https://... --key abc --handle @james' },
+        { cmd: 'ant config set', desc: 'Set connection details', flags: '--url https://... --key abc --handle @myhandle' },
       ],
     },
   ];

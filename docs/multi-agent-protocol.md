@@ -6,6 +6,10 @@ convention that lets multiple agents collaborate over ANT's existing
 terminal + chat + memory substrate without a framework, without MCP tool
 tax, and without stepping on each other.
 
+For a feature-by-feature command handbook covering sessions, terminals,
+linked chats, routing, tasks, memories, research docs, Obsidian, status, and
+attachments, read `docs/ant-agent-feature-protocols.md`.
+
 **CLAUDE.md is intentionally gitignored in this repo** (host-specific).
 The recommended pattern is to put one line in your personal `CLAUDE.md`
 that imports this file so agents running under Claude Code read it on
@@ -57,7 +61,8 @@ already does, stop and use the tool.
 | `ant memory get <key>` | Read one memory row by key |
 | `ant memory put <key> <value>` | Write/upsert one memory row by key |
 | `ant memory list <prefix>` | List all keys under a prefix (`agents/`, `tasks/`, etc.) |
-| `ant memory search "q"` | FTS5 full-text search across memory |
+| `ant memory search "q"` | FTS5 search operational memory (`--all` includes archives) |
+| `ant memory audit` | Report duplicate, oversize, and noisy memory rows |
 | `ant agents list` | Pretty-printed registry of agents and their strengths |
 | `ant agents show <id>` | One agent's full row |
 | `ant task <session> list` | Per-session tasks (legacy; prefer `memory list tasks/` for cross-session) |
@@ -179,6 +184,7 @@ See `docs/mempalace-schema.md` for the full schema. One-liner:
 | What's already been done? | `done/<date>/*` and `tasks/*` where `status = done` |
 | Who's available? | `agents/*` |
 | What did the world look like recently? | `heartbeat/*` (script-populated) and `digest/*` (LLM-compiled) |
+| What old sessions are searchable but not live context? | `session:*` archive summaries |
 
 ---
 

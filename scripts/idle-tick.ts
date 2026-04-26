@@ -20,7 +20,10 @@
  *      updated_at older than STALLED_MS is moved to status=blocked with
  *      block_reason="stalled (Nm)". No chat posting — the block state
  *      surfaces on the next agent wake read.
- *   5. Upsert heartbeat/latest with a consolidated summary: tick number,
+ *   5. Periodically run /api/memories/audit and upsert
+ *      heartbeat/memories/latest so memory hygiene drift is visible without
+ *      waking an LLM.
+ *   6. Upsert heartbeat/latest with a consolidated summary: tick number,
  *      active-terminal count, and the per-terminal idle_for_ms values.
  *      Agents read this one row on wake as a cheap "has anything happened"
  *      probe before deciding to drill into heartbeat/terminals/*.
@@ -37,10 +40,11 @@
  *     keeps the raw material fresh.
  *
  * Environment:
- *   ANT_SERVER_URL     default https://mac.kingfisher-interval.ts.net:6458
+ *   ANT_SERVER_URL     default https://localhost:6458
  *   ANT_API_KEY        optional bearer token
  *   ANT_IDLE_TICK_MS   default 60000 (60 seconds)
  *   ANT_STALLED_MS     default 900000 (15 minutes)
+ *   ANT_MEMORY_AUDIT_TICKS default 60 (roughly hourly at the default tick)
  *
  * See docs/multi-agent-protocol.md and docs/mempalace-schema.md for the
  * agent-side contract this script supports.
@@ -48,10 +52,11 @@
 
 import { createHash } from 'node:crypto';
 
-const SERVER_URL = (process.env.ANT_SERVER_URL || 'https://mac.kingfisher-interval.ts.net:6458').replace(/\/$/, '');
+const SERVER_URL = (process.env.ANT_SERVER_URL || `https://localhost:${process.env.ANT_PORT || '6458'}`).replace(/\/$/, '');
 const API_KEY    = process.env.ANT_API_KEY || '';
 const TICK_MS    = parseInt(process.env.ANT_IDLE_TICK_MS || '60000', 10);
 const STALLED_MS = parseInt(process.env.ANT_STALLED_MS || '900000', 10);
+const MEMORY_AUDIT_TICKS = parseInt(process.env.ANT_MEMORY_AUDIT_TICKS || '60', 10);
 
 const MAX_CONSECUTIVE_ERRORS = 20;
 
@@ -128,6 +133,10 @@ async function listMemoriesByPrefix(prefix: string, limit = 500): Promise<Memory
 async function putMemory(key: string, value: unknown): Promise<void> {
   const stringValue = typeof value === 'string' ? value : JSON.stringify(value);
   await request<unknown>('PUT', `/api/memories/key/${encodeURIComponent(key)}`, { value: stringValue });
+}
+
+async function getMemoryAudit(): Promise<unknown> {
+  return request<unknown>('GET', '/api/memories/audit');
 }
 
 // ─── Logic ───────────────────────────────────────────────────────────────────
@@ -228,6 +237,14 @@ async function writeLatestSummary(): Promise<void> {
   await putMemory('heartbeat/latest', summary);
 }
 
+async function writeMemoryAuditSummary(): Promise<void> {
+  if (!MEMORY_AUDIT_TICKS || MEMORY_AUDIT_TICKS < 1) return;
+  if (state.tickCount % MEMORY_AUDIT_TICKS !== 0) return;
+
+  const report = await getMemoryAudit();
+  await putMemory('heartbeat/memories/latest', report);
+}
+
 async function tick(): Promise<void> {
   state.tickCount++;
 
@@ -240,6 +257,12 @@ async function tick(): Promise<void> {
     stalled = await detectStalledTasks();
   } catch (e) {
     console.error(`[idle-tick] stalled scan: ${errMsg(e)}`);
+  }
+
+  try {
+    await writeMemoryAuditSummary();
+  } catch (e) {
+    console.error(`[idle-tick] memory audit: ${errMsg(e)}`);
   }
 
   try {

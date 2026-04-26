@@ -43,9 +43,28 @@ function resolveIdentity(external: boolean): string {
   return config.get('handle') || 'cli';
 }
 
+function resolveMemberIdentifier(external: boolean, flags: any): { key: 'session_id' | 'handle'; value: string } {
+  if (typeof flags.session === 'string' && flags.session.trim()) {
+    return { key: 'session_id', value: flags.session.trim() };
+  }
+  if (typeof flags.handle === 'string' && flags.handle.trim()) {
+    const handle = flags.handle.trim();
+    return { key: 'handle', value: handle.startsWith('@') ? handle : `@${handle}` };
+  }
+  if (!external) {
+    const { isNative, sessionId } = detectNativeSession();
+    if (isNative && sessionId) return { key: 'session_id', value: sessionId };
+  }
+  const configuredSession = config.get('sessionId');
+  if (configuredSession) return { key: 'session_id', value: configuredSession };
+  const configuredHandle = config.get('handle');
+  if (configuredHandle) return { key: 'handle', value: configuredHandle };
+  return { key: 'session_id', value: resolveIdentity(external) };
+}
+
 export async function chat(args: string[], flags: any, ctx: any) {
   const sub = args[0];
-  const id = sub === 'send' || sub === 'read' || sub === 'reply' || sub === 'join' ? args[1] : sub;
+  const id = ['send', 'read', 'reply', 'join', 'leave'].includes(sub) ? args[1] : sub;
   const isExternal = !!flags.external;
 
   if (!id) {
@@ -61,6 +80,20 @@ export async function chat(args: string[], flags: any, ctx: any) {
     const result = await api.post(ctx, `/api/sessions/${id}/messages`, { role: 'user', content: msg, format: 'text', sender_id: sender });
     if (ctx.json) { console.log(JSON.stringify(result)); return; }
     console.log(`Sent: ${msg}`);
+    return;
+  }
+
+  // Leave a chatroom as the current terminal/agent
+  if (sub === 'leave') {
+    const identity = resolveMemberIdentifier(isExternal, flags);
+    const path = `/api/sessions/${id}/participants?${identity.key}=${encodeURIComponent(identity.value)}`;
+    const result = await api.del(ctx, path);
+    if (ctx.json) { console.log(JSON.stringify(result)); return; }
+    if (result.removed) {
+      console.log(`Left ${id} as ${identity.value}`);
+    } else {
+      console.log(`No membership found for ${identity.value} in ${id}`);
+    }
     return;
   }
 

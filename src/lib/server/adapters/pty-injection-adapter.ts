@@ -17,6 +17,15 @@ function ptmWrite(sessionId: string, data: string): void {
   }
 }
 
+function sanitizeInline(value: string, max = 2000): string {
+  return value
+    .slice(0, max)
+    .replace(/[\n\r]+/g, ' ')
+    .replace(/['"`()$;\\|&<>{}[\]!#~]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export class PtyInjectionAdapter implements DeliveryAdapter {
   name = 'pty-injection';
 
@@ -33,9 +42,13 @@ export class PtyInjectionAdapter implements DeliveryAdapter {
       const header = isTargeted ? 'antchat message for you' : 'antchat message for all participants';
       const serverUrl = process.env.ANT_SERVER_URL || `https://localhost:${process.env.ANT_PORT || '6458'}`;
       const replyCmd = `ant chat send ${message.sessionId} --msg YOURREPLY --server ${serverUrl}`;
+      const room = queries.getSession(message.sessionId) as any;
+      const roomName = sanitizeInline(room?.name || 'unknown room', 120);
+      const roomId = sanitizeInline(message.sessionId, 80);
+      const sourceLabel = `${roomName || 'unknown room'} id ${roomId}`;
       // Sanitise message content: strip characters that shells interpret as syntax
       // (quotes, parens, backticks, $, semicolons) to prevent Gemini/other CLIs from choking
-      const safeContent = message.content.slice(0, 2000).replace(/['"`()$;\\|&<>{}[\]!#~]/g, '');
+      const safeContent = sanitizeInline(message.content);
 
       // Parent-context snippet for replies — gives terminal agents thread context
       let replyContext = '';
@@ -43,7 +56,7 @@ export class PtyInjectionAdapter implements DeliveryAdapter {
         try {
           const parent = queries.getMessage(message.replyTo) as any;
           if (parent?.content) {
-            const snippet = parent.content.slice(0, 120).replace(/['"`()$;\\|&<>{}[\]!#~\n\r]/g, '').trim();
+            const snippet = sanitizeInline(parent.content, 120);
             const sender = parent.sender_id?.startsWith('@') ? parent.sender_id : (parent.role === 'user' ? 'James' : 'someone');
             replyContext = ` (replying to ${sender}: ${snippet})`;
           }
@@ -51,7 +64,7 @@ export class PtyInjectionAdapter implements DeliveryAdapter {
       }
 
       const routingHint = 'Routing: plain replies stay in the chat only; include @handle to notify one agent; use @everyone to notify all.';
-      const plainText = `[${header}] ${safeContent}${replyContext} -- reply with: ${replyCmd} -- ${routingHint}`;
+      const plainText = `[${header}] room: ${sourceLabel} -- ${safeContent}${replyContext} -- reply with: ${replyCmd} -- ${routingHint}`;
 
       // Two-call protocol: text first, then \r after a beat.
       // Claude Code requires a second \r (empty line) to submit the prompt —

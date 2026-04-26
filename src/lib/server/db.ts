@@ -10,6 +10,12 @@ const _require = createRequire(import.meta.url);
 
 const DATA_DIR = process.env.ANT_DATA_DIR || join(process.env.HOME || '/tmp', '.ant-v3');
 const DB_PATH = join(DATA_DIR, 'ant.db');
+const OPERATIONAL_MEMORY_WHERE = `
+    key NOT LIKE 'session:%'
+    AND key NOT LIKE 'archive/%'
+    AND COALESCE(tags, '') NOT LIKE '%"archive"%'
+    AND COALESCE(tags, '') NOT LIKE '%archive-only%'
+  `;
 
 // Detect runtime
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- globalThis.Bun is not in TS lib; runtime check only
@@ -410,9 +416,15 @@ export const queries = {
 
   // Chat room members
   addRoomMember: (roomId: string, sessionId: string, role: string, cliFlag: string | null, alias?: string | null) =>
-    prepare(`INSERT OR IGNORE INTO chat_room_members (room_id, session_id, role, cli_flag, alias) VALUES (?, ?, ?, ?, ?)`).run(roomId, sessionId, role, cliFlag, alias ?? null),
+    prepare(`INSERT INTO chat_room_members (room_id, session_id, role, cli_flag, alias, joined_at)
+             VALUES (?, ?, ?, ?, ?, datetime('now'))
+             ON CONFLICT(room_id, session_id) DO UPDATE SET
+               role = excluded.role,
+               cli_flag = excluded.cli_flag,
+               alias = excluded.alias,
+               joined_at = datetime('now')`).run(roomId, sessionId, role, cliFlag, alias ?? null),
   removeRoomMember: (roomId: string, sessionId: string) =>
-    prepare(`DELETE FROM chat_room_members WHERE room_id = ? AND session_id = ?`).run(roomId, sessionId),
+    prepare(`UPDATE chat_room_members SET role = 'left' WHERE room_id = ? AND session_id = ? AND role != 'left'`).run(roomId, sessionId),
   updateMemberAlias: (roomId: string, sessionId: string, alias: string | null) =>
     prepare(`UPDATE chat_room_members SET alias = ? WHERE room_id = ? AND session_id = ?`).run(alias, roomId, sessionId),
   getMemberByAlias: (roomId: string, alias: string) =>
@@ -622,6 +634,29 @@ export const queries = {
 
   // Memories
   listMemories: (limit: number) => prepare(`SELECT * FROM memories ORDER BY updated_at DESC LIMIT ?`).all(limit),
+  listOperationalMemories: (limit: number) => prepare(`
+    SELECT * FROM memories
+    WHERE ${OPERATIONAL_MEMORY_WHERE}
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `).all(limit),
+  listArchiveMemories: (limit: number) => prepare(`
+    SELECT * FROM memories
+    WHERE key LIKE 'session:%'
+       OR key LIKE 'archive/%'
+       OR COALESCE(tags, '') LIKE '%"archive"%'
+       OR COALESCE(tags, '') LIKE '%archive-only%'
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `).all(limit),
+  listMemoryAuditRows: () => prepare(`
+    SELECT id, key, tags, session_id, created_by, created_at, updated_at,
+           LENGTH(value) AS value_size,
+           SUBSTR(value, 1, 5000) AS preview,
+           CASE WHEN INSTR(value, '## Full transcript') > 0 THEN 1 ELSE 0 END AS has_full_transcript
+    FROM memories
+    ORDER BY updated_at DESC
+  `).all(),
   getMemory: (id: string) => prepare(`SELECT * FROM memories WHERE id = ?`).get(id),
   upsertMemory: (id: string, key: string, value: string, tags: string, sessionId: string | null, createdBy: string | null) =>
     prepare(`INSERT INTO memories (id, key, value, tags, session_id, created_by) VALUES (?, ?, ?, ?, ?, ?)
@@ -657,6 +692,34 @@ export const queries = {
     FROM memories_fts
     JOIN memories m ON memories_fts.rowid = m.rowid
     WHERE memories_fts MATCH ?
+    ORDER BY rank
+    LIMIT ?
+  `).all(query, limit),
+  searchOperationalMemories: (query: string, limit: number) => prepare(`
+    SELECT m.id, m.key, m.value, m.tags, m.session_id, m.created_by, m.created_at,
+           snippet(memories_fts, 1, '<mark>', '</mark>', '...', 24) as snippet
+    FROM memories_fts
+    JOIN memories m ON memories_fts.rowid = m.rowid
+    WHERE memories_fts MATCH ?
+      AND m.key NOT LIKE 'session:%'
+      AND m.key NOT LIKE 'archive/%'
+      AND COALESCE(m.tags, '') NOT LIKE '%"archive"%'
+      AND COALESCE(m.tags, '') NOT LIKE '%archive-only%'
+    ORDER BY rank
+    LIMIT ?
+  `).all(query, limit),
+  searchArchiveMemories: (query: string, limit: number) => prepare(`
+    SELECT m.id, m.key, m.value, m.tags, m.session_id, m.created_by, m.created_at,
+           snippet(memories_fts, 1, '<mark>', '</mark>', '...', 24) as snippet
+    FROM memories_fts
+    JOIN memories m ON memories_fts.rowid = m.rowid
+    WHERE memories_fts MATCH ?
+      AND (
+        m.key LIKE 'session:%'
+        OR m.key LIKE 'archive/%'
+        OR COALESCE(m.tags, '') LIKE '%"archive"%'
+        OR COALESCE(m.tags, '') LIKE '%archive-only%'
+      )
     ORDER BY rank
     LIMIT ?
   `).all(query, limit),

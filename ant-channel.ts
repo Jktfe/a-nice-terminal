@@ -14,9 +14,8 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 
-// ANT server lives on the MacBook post-migration (2026-04-22). Override with ANT_SERVER
-// if running the ANT server locally for dev.
-const ANT_SERVER = process.env.ANT_SERVER || 'https://mac.kingfisher-interval.ts.net:6458'
+// ANT server URL. Set ANT_SERVER env var for remote access (e.g. Tailscale hostname).
+const ANT_SERVER = process.env.ANT_SERVER || `https://localhost:${process.env.ANT_PORT || '6458'}`
 const ANT_API_KEY = process.env.ANT_API_KEY || ''
 const ANT_CHAT_SESSION = process.env.ANT_CHAT_SESSION || ''
 const PORT = parseInt(process.env.ANT_CHANNEL_PORT || '8789')

@@ -3,7 +3,7 @@ import { config } from '../lib/config.js';
 import qrcode from 'qrcode-terminal';
 
 export async function qr(args: string[], flags: any, ctx: any) {
-  const url = ctx.serverUrl || config.get('serverUrl') || 'https://mac.kingfisher-interval.ts.net:6458';
+  const url = ctx.serverUrl || config.get('serverUrl') || `https://localhost:${process.env.ANT_PORT || '6458'}`;
   const key = ctx.apiKey || config.get('apiKey') || '';
 
   if (!key) {

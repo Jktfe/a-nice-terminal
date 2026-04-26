@@ -30,7 +30,7 @@ function genId() {
 // ── Default buttons shown for new sessions ──
 const DEFAULTS: QuickLaunchButton[] = [
   { id: 'default-1', label: 'Claude Code', icon: '🤖', command: 'claude --dangerously-skip-permissions --remote-control', color: '#6366F1' },
-  { id: 'default-2', label: 'ANT Project', icon: '🐜', command: 'cd ~/CascadeProjects/a-nice-terminal', color: '#10B981' },
+  { id: 'default-2', label: 'ANT Project', icon: '🐜', command: 'cd $ANT_PROJECT_DIR', color: '#10B981' },
 ];
 
 function getDefaults(_driver?: string | null): QuickLaunchButton[] {
