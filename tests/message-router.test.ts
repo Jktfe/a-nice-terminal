@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { shouldRawForwardLinkedChatMessage } from '../src/lib/server/adapters/linked-chat-adapter.js';
-import { handlesForMember, parseMentions, resolveRoomFanout } from '../src/lib/server/message-router.js';
+import {
+  handlesForMember,
+  parseMentions,
+  resolveRoomFanout,
+  shouldDeliverLinkedChatToTerminal,
+} from '../src/lib/server/message-router.js';
 
 describe('message router mentions', () => {
   it('returns both room alias and real handle for a member', () => {
@@ -42,6 +47,11 @@ describe('linked chat source markers', () => {
       role: 'user',
       meta: JSON.stringify({ source: 'terminal_direct' }),
     }, true)).toBe(false);
+  });
+
+  it('allows coordinator terminals to type into another terminal linked chat', () => {
+    expect(shouldDeliverLinkedChatToTerminal('target-terminal', 'coordinator-terminal')).toBe(true);
+    expect(shouldDeliverLinkedChatToTerminal('target-terminal', 'target-terminal')).toBe(false);
   });
 });
 

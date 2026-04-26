@@ -29,6 +29,61 @@ ant chat send <session-id> --msg "Hi, I'm <agent>, running in <context>. I can h
 
 This establishes who's present and what each agent can do.
 
+### Claude Code chatroom bootstrap
+
+Claude Code can participate in ANT chatrooms reliably, but first contact
+matters. The proven sequence is:
+
+1. Create the terminal and launch Claude Code in the correct project:
+
+   ```bash
+   ant sessions create --name "MasterFlow" --type terminal --json
+   ant terminal send <terminal-id> --cmd "cd ~/CascadeProjects/<project>"
+   ant terminal send <terminal-id> --cmd "claude --dangerously-skip-permissions --remote-control"
+   ```
+
+2. Add the terminal to the shared chatroom before sending the first room
+   message:
+
+   ```bash
+   curl -sk -X POST "$ANT_SERVER_URL/api/sessions/<room-id>/participants" \
+     -H 'content-type: application/json' \
+     --data '{"session_id":"<terminal-id>","role":"participant","alias":"@handle"}'
+   ```
+
+3. Make the first room message natural and explicitly targeted:
+
+   ```bash
+   ant chat send <room-id> --msg "@handle James wants you to help with <project>. Read the repo guidance and give a high-level assessment. Do not paste source, secrets, private config, or file contents."
+   ```
+
+4. Let Claude reply using the injected `reply with: ant chat send ...`
+   instruction. Do not ask it to run `ant chat send` as a bare command in
+   the first prompt.
+
+What failed in the MasterFlow test:
+
+- the first prompt used a fake identity ("You are MasterDave")
+- it requested codebase detail before trust was established
+- it included a full external-looking server URL
+- it arrived through the terminal's private linked chat as raw text, not
+  through normal chatroom membership
+- later clean messages were rejected because the Claude session was already
+  anchored on the earlier social-engineering pattern
+
+What worked in the MasterFlow2 test:
+
+- fresh Claude session
+- `ANT_SESSION_ID` and `ANT_API_KEY` present in tmux environment
+- FlowChat membership existed before the first injected room message
+- first message used `@masterflow2`, so the anti-reply-storm routing rule
+  allowed PTY injection
+- Claude ran `code-qa`, `bun test`, then posted its assessment back to
+  FlowChat with `ant chat send`
+
+The practical rule: diagnose the exact delta before designing a workaround.
+For ANT work, use the 3 Ds: Diagnose, Design, Document.
+
 ---
 
 ## 2. Assign roles with clear ownership
