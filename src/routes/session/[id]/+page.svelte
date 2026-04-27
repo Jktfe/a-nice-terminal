@@ -65,8 +65,8 @@
   let showPanel = $state(typeof window !== 'undefined' ? window.innerWidth >= 1024 : true);
   let panelTab = $state('participants');
 
-  // Hide side panel in terminal text mode (full-width dark view)
-  const effectiveShowPanel = $derived(showPanel && mode !== 'terminal');
+  // Hide side panel in terminal modes so ANT Terminal and Raw Terminal get full width.
+  const effectiveShowPanel = $derived(showPanel && mode !== 'terminal' && mode !== 'raw');
 
   let tasks = $state<{ id: string; status: string; [key: string]: unknown }[]>([]);
   let fileRefs = $state<{ id: string; file_path?: string; [key: string]: unknown }[]>([]);
@@ -1198,7 +1198,7 @@
           {/await}
           <CLIInput onSubmit={sendCommand}/>
         </div>
-      {:else}
+      {:else if mode === 'raw'}
         <!-- Raw terminal mode (xterm.js) -->
         <div class="flex flex-col flex-1 overflow-hidden">
           <div class="flex items-center px-3 py-1.5 border-b gap-2" style="border-color:var(--border-light);background:var(--bg-surface);">
@@ -1222,6 +1222,10 @@
             {#key termKey}<Terminal {sessionId}/>{/key}
           </div>
           <CLIInput onSubmit={sendCommand}/>
+        </div>
+      {:else}
+        <div class="flex flex-1 items-center justify-center text-sm" style="color: var(--text-muted);">
+          Unknown view mode.
         </div>
       {/if}
     </div>

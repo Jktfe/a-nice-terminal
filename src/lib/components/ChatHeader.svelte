@@ -205,25 +205,43 @@
     <!-- Mode toggle — only for terminal sessions -->
     {#if session?.type === 'terminal'}
       <div
-        class="flex rounded-full p-0.5"
+        class="flex rounded-full p-0.5 gap-0.5"
         style="background: #F3F4F6; border: 1px solid #E5E7EB;"
+        aria-label="Terminal view mode"
       >
         <button
-          class="px-2.5 py-1 text-xs rounded-full font-medium transition-all"
+          class="flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium transition-all"
           style={mode === 'chat'
             ? 'background: #6366F1; color: #fff;'
             : 'color: #6B7280; background: transparent;'}
           onclick={() => onModeChange('chat')}
-          title="Chat view"
-        >💬</button>
+          title="Linked Chat: messages, questions, approvals, and results"
+          aria-label="Linked Chat view"
+        >
+          <span>💬</span><span class="hidden sm:inline">Chat</span>
+        </button>
         <button
-          class="px-2.5 py-1 text-xs rounded-full font-medium transition-all"
+          class="flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium transition-all"
           style={mode === 'terminal'
             ? 'background: #22C55E; color: #fff;'
             : 'color: #6B7280; background: transparent;'}
           onclick={() => onModeChange('terminal')}
-          title="Terminal text view"
-        >⌨</button>
+          title="ANT Terminal: interpreted activity log from run events"
+          aria-label="ANT Terminal view"
+        >
+          <span>✦</span><span class="hidden sm:inline">ANT</span>
+        </button>
+        <button
+          class="flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium transition-all"
+          style={mode === 'raw'
+            ? 'background: #111827; color: #fff;'
+            : 'color: #6B7280; background: transparent;'}
+          onclick={() => onModeChange('raw')}
+          title="Raw Terminal: xterm.js ground-truth fallback"
+          aria-label="Raw Terminal view"
+        >
+          <span>⌨</span><span class="hidden sm:inline">Raw</span>
+        </button>
       </div>
 
       <!-- tmux dropdown: local or SSH -->
