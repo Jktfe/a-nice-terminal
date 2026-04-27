@@ -52,6 +52,7 @@
     onWakeParticipant: (sess: PageSession) => void;
     onSaveNickname: (sess: PageSession, handle: string) => void;
     onRemoveParticipant: (sess: PageSession) => void;
+    onOpenLinkedChat: (sess: PageSession) => void;
     onCreateTask: (title: string) => void;
   }
 
@@ -91,6 +92,7 @@
     onWakeParticipant,
     onSaveNickname,
     onRemoveParticipant,
+    onOpenLinkedChat,
     onCreateTask,
   onClose = undefined,
   }: Props & { onClose?: () => void } = $props();
@@ -349,6 +351,7 @@
               onSaveNickname={(sess, handle) => onSaveNickname(sess, handle)}
               onCrossPost={(targetId, text) => onCrossPost(targetId, text)}
               onRemoveParticipant={(sess) => onRemoveParticipant(sess)}
+              onOpenLinkedChat={(sess) => onOpenLinkedChat(sess)}
             />
           {/if}
         </div>

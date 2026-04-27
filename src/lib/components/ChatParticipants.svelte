@@ -19,6 +19,7 @@
     onSaveNickname: (sess: PageSession, handle: string) => void;
     onCrossPost: (targetId: string, text: string) => void;
     onRemoveParticipant?: (sess: PageSession) => void;
+    onOpenLinkedChat?: (sess: PageSession) => void;
   }
 
   const {
@@ -28,7 +29,8 @@
     onWakeParticipant,
     onSaveNickname,
     onCrossPost,
-    onRemoveParticipant
+    onRemoveParticipant,
+    onOpenLinkedChat
   }: Props = $props();
 
   let presence = $state<Record<string, { status: 'active' | 'idle' | 'offline' }>>({});
@@ -127,10 +129,23 @@
     {@const statusCol = getStatusColor(p.sess.handle)}
     <div class="rounded-lg overflow-hidden" style="border: 1px solid #E5E7EB;">
       <div class="flex items-center gap-2.5 px-2.5 py-2">
-        <div class="relative flex-shrink-0">
-          <span class="w-2.5 h-2.5 rounded-full block" style="background: {col};"></span>
-          <span class="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-white" style="background: {statusCol};"></span>
-        </div>
+        {#if p.sess.linked_chat_id && onOpenLinkedChat}
+          <button
+            class="relative flex-shrink-0 p-1 -m-1 rounded"
+            onclick={() => onOpenLinkedChat(p.sess)}
+            title="Open linked chat for {label}"
+            aria-label="Open linked chat for {label}"
+            style="background: transparent; border: 0;"
+          >
+            <span class="w-2.5 h-2.5 rounded-full block" style="background: {col};"></span>
+            <span class="absolute bottom-0 right-0 w-2 h-2 rounded-full border border-white" style="background: {statusCol};"></span>
+          </button>
+        {:else}
+          <div class="relative flex-shrink-0">
+            <span class="w-2.5 h-2.5 rounded-full block" style="background: {col};"></span>
+            <span class="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-white" style="background: {statusCol};"></span>
+          </div>
+        {/if}
         <div class="min-w-0 flex-1">
           {#if editingNickname === p.sess.id}
             <!-- svelte-ignore a11y_autofocus -->
@@ -259,7 +274,19 @@
             {@const label = p.sess.display_name || p.sess.name}
             <div class="rounded-lg overflow-hidden opacity-80" style="border: 1px solid #E5E7EB; background: var(--bg);">
               <div class="flex items-center gap-2.5 px-2.5 py-2">
-                <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background: {col}88;"></span>
+                {#if p.sess.linked_chat_id && onOpenLinkedChat}
+                  <button
+                    class="w-4 h-4 rounded flex-shrink-0 flex items-center justify-center"
+                    onclick={() => onOpenLinkedChat(p.sess)}
+                    title="Open linked chat for {label}"
+                    aria-label="Open linked chat for {label}"
+                    style="background: transparent; border: 0;"
+                  >
+                    <span class="w-2.5 h-2.5 rounded-full block" style="background: {col}88;"></span>
+                  </button>
+                {:else}
+                  <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background: {col}88;"></span>
+                {/if}
                 <div class="min-w-0 flex-1">
                   <p class="text-xs font-medium truncate" style="color: var(--text-muted);">{label}</p>
                   <p class="text-[10px] font-mono" style="color: var(--text-faint);">{p.sess.type}</p>

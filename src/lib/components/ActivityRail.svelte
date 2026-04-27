@@ -109,9 +109,14 @@
 
   // Client-side navigation — session page uses $effect on sessionId to
   // reset state, reconnect WS, and reload data on route changes.
-  function navigateTo(sessionId: string) {
+  function navigationTarget(s: RailSession): string {
+    return s.type === 'terminal' && s.linked_chat_id ? s.linked_chat_id : s.id;
+  }
+
+  function navigateTo(sessionId: string, sourceSessionId = sessionId) {
     const next = new Set(unreadSet);
     next.delete(sessionId);
+    next.delete(sourceSessionId);
     unreadSet = next;
     goto(`/session/${sessionId}`);
   }
@@ -217,7 +222,7 @@
         <button
           class="rail-item"
           class:current={isCurrent}
-          onclick={() => navigateTo(sess.id)}
+          onclick={() => navigateTo(navigationTarget(sess), sess.id)}
           onmouseenter={(e: MouseEvent) => {
             hoveredId = sess.id;
             const el = e.currentTarget;
@@ -229,7 +234,7 @@
             }
           }}
           onmouseleave={() => { hoveredId = null; tooltipPos = null; }}
-          title="{sess.display_name || sess.name}{hasNeedsInput ? ' — needs input' : ''}"
+          title="{sess.display_name || sess.name}{sess.linked_chat_id ? ' — open linked chat' : ''}{hasNeedsInput ? ' — needs input' : ''}"
           style="
             --agent-color: {agent.color};
             --agent-glow: {agent.glow};

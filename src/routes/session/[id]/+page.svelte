@@ -854,6 +854,11 @@
     await loadMentionHandles();
   }
 
+  function openLinkedChat(sess: PageSession) {
+    const targetId = sess.type === 'terminal' && sess.linked_chat_id ? sess.linked_chat_id : sess.id;
+    goto(`/session/${targetId}`);
+  }
+
   async function handleCliFlagChange(slug: string | null) {
     // PATCH persists cli_flag, updates meta, notifies daemon, and broadcasts WS
     await fetch(`/api/sessions/${sessionId}/cli-flag`, {
@@ -1278,6 +1283,7 @@
         onWakeParticipant={wakeParticipant}
         onSaveNickname={saveNickname}
         onRemoveParticipant={removeParticipant}
+        onOpenLinkedChat={openLinkedChat}
         onCreateTask={createTask}
         onClose={() => (showPanel = false)}
       />

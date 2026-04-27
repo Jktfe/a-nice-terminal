@@ -45,6 +45,18 @@ function isButton(value: any): value is QuickLaunchButton {
     && typeof value.command === 'string';
 }
 
+function mergeLocalButtons(current: QuickLaunchButton[], local: QuickLaunchButton[]): QuickLaunchButton[] {
+  const localIds = new Set(local.map((button) => button.id));
+  const localCommands = new Set(local.map((button) => button.command));
+  const defaultIds = new Set(DEFAULTS.map((button) => button.id));
+  const extras = current.filter((button) =>
+    !localIds.has(button.id) &&
+    !localCommands.has(button.command) &&
+    !defaultIds.has(button.id)
+  );
+  return migrateButtons([...local, ...extras]);
+}
+
 function migrateButtons(buttons: QuickLaunchButton[]): QuickLaunchButton[] {
   return buttons.map((button) => {
     if (button.id === 'default-1' && button.label === 'Claude Code' && button.command === 'claude') {
@@ -57,7 +69,6 @@ function migrateButtons(buttons: QuickLaunchButton[]): QuickLaunchButton[] {
 /** Reactive store: returns buttons for a given session and mutation helpers. */
 export function useQuickLaunch(sessionId: string, driver?: string | null) {
   const allData = load();
-  const hasStoredButtons = Object.prototype.hasOwnProperty.call(allData, sessionId);
   let buttons = $state<QuickLaunchButton[]>(migrateButtons(allData[sessionId] ?? [...getDefaults(driver)]));
   let loadedLocalDefaults = false;
 
@@ -99,7 +110,7 @@ export function useQuickLaunch(sessionId: string, driver?: string | null) {
     },
 
     async loadLocalDefaults() {
-      if (hasStoredButtons || loadedLocalDefaults) return;
+      if (loadedLocalDefaults) return;
       loadedLocalDefaults = true;
 
       try {
@@ -109,7 +120,7 @@ export function useQuickLaunch(sessionId: string, driver?: string | null) {
         if (!Array.isArray(data?.buttons) || data.buttons.length === 0) return;
         const localButtons = data.buttons.filter(isButton);
         if (localButtons.length === 0) return;
-        buttons = migrateButtons(localButtons);
+        buttons = mergeLocalButtons(buttons, localButtons);
         persist();
       } catch {
         // Local quick-launch presets are optional.
