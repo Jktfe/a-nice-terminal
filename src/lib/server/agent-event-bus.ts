@@ -85,6 +85,14 @@ interface AgentEventBusRuntime {
   deps: AgentEventBusDeps;
 }
 
+export interface DecisionContext {
+  responseMsgId?: string | null;
+  responderId?: string | null;
+  responderName?: string | null;
+  justification?: string | null;
+  source?: string | null;
+}
+
 const EVENT_BUS_KEY = '__ant_agent_event_bus__';
 const runtime: AgentEventBusRuntime = ((globalThis as any)[EVENT_BUS_KEY] ??= {
   sessions: initialSessions,
@@ -183,6 +191,22 @@ function eventFingerprint(event: any, eventClass: string): string {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 240)}`;
+}
+
+function choiceLabel(choice: UserChoice): string {
+  if (choice.type === 'confirm') return choice.yes ? 'confirm' : 'cancel';
+  if (choice.type === 'select') {
+    const selected = (choice as any).selected;
+    return typeof selected === 'string' && selected ? selected : `option ${choice.index + 1}`;
+  }
+  return choice.type;
+}
+
+function eventDecisionText(event: NormalisedEvent, eventClass: string, chosen: string, context?: DecisionContext): string {
+  const actor = context?.responderName || context?.responderId || 'user';
+  const reason = context?.justification?.trim();
+  const target = buildSummary(event, eventClass);
+  return `${actor} chose ${chosen} for ${target}${reason ? ` — ${reason}` : ''}`;
 }
 
 // ─── Waiting-context extraction ──────────────────────────────────────────────
@@ -481,6 +505,7 @@ export async function handleResponse(
   eventContent: string,
   choice: UserChoice,
   eventMsgId?: string | null,
+  decisionContext?: DecisionContext,
 ): Promise<void> {
   const state = getState(terminalSessionId);
   const driver = await ensureDriver(terminalSessionId, state);
@@ -511,10 +536,20 @@ export async function handleResponse(
 
   const session = busDeps.getSession?.(terminalSessionId);
   if (eventMsgId && session?.linked_chat_id && busDeps.updateMessageMeta && busDeps.broadcastToChat) {
-    const chosen = choice.type === 'confirm'
-      ? (choice.yes ? 'confirm' : 'cancel')
-      : choice.type;
-    const meta = { status: 'responded', chosen };
+    const chosen = choiceLabel(choice);
+    const decision = decisionContext
+      ? {
+          by: decisionContext.responderName || decisionContext.responderId || 'unknown',
+          responder_id: decisionContext.responderId ?? null,
+          response_msg_id: decisionContext.responseMsgId ?? null,
+          source: decisionContext.source ?? 'linked_chat',
+          justification: decisionContext.justification?.trim() || null,
+          decided_at: new Date().toISOString(),
+        }
+      : undefined;
+    const meta = decision
+      ? { status: 'responded', chosen, decision }
+      : { status: 'responded', chosen };
     busDeps.updateMessageMeta(eventMsgId, JSON.stringify(meta));
     busDeps.broadcastToChat(session.linked_chat_id, {
       type: 'message_updated',
@@ -527,6 +562,31 @@ export async function handleResponse(
   // Clear the dashboard badge — response was sent, prompt is resolved.
   // Remove any pending events matching this event class.
   const eventClass = (event as any).class ?? event.type;
+  const chosen = choiceLabel(choice);
+  busDeps.appendRunEvent?.(
+    terminalSessionId,
+    'json',
+    'high',
+    'approval_decision',
+    eventDecisionText(event, eventClass, chosen, decisionContext),
+    {
+      event,
+      event_id: eventMsgId ?? null,
+      choice,
+      chosen,
+      decision: decisionContext
+        ? {
+            by: decisionContext.responderName || decisionContext.responderId || 'unknown',
+            responder_id: decisionContext.responderId ?? null,
+            response_msg_id: decisionContext.responseMsgId ?? null,
+            source: decisionContext.source ?? 'linked_chat',
+            justification: decisionContext.justification?.trim() || null,
+          }
+        : null,
+    },
+    eventMsgId ?? null,
+  );
+
   for (const [key, pending] of state.pendingEvents) {
     const pendingClass = (pending.event as any).class ?? pending.event.type;
     if (pendingClass === eventClass) {

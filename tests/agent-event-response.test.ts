@@ -67,4 +67,63 @@ describe('agent event responses', () => {
       { type: 'confirm', yes: true },
     )).rejects.toThrow('No agent driver configured');
   });
+
+  it('stores delegated decision provenance and an audit run event', async () => {
+    const writes: string[] = [];
+    const metaUpdates: Array<{ msgId: string; meta: string }> = [];
+    const broadcasts: any[] = [];
+    const runEvents: any[] = [];
+
+    init({
+      getSession: (id: string) => ({
+        id,
+        meta: JSON.stringify({ agent_driver: 'claude-code' }),
+        linked_chat_id: 'linked-chat',
+      }),
+      postToChat: () => {},
+      writeToTerminal: (_sessionId: string, data: string) => { writes.push(data); },
+      updateMessageMeta: (msgId: string, meta: string) => { metaUpdates.push({ msgId, meta }); },
+      broadcastToChat: (_chatId: string, msg: any) => { broadcasts.push(msg); },
+      appendRunEvent: (sessionId, source, trust, kind, text, payload, rawRef) => {
+        runEvents.push({ sessionId, source, trust, kind, text, payload, rawRef });
+      },
+    });
+
+    await handleResponse(
+      'terminal-delegated-decision',
+      confirmationEvent(),
+      { type: 'confirm', yes: false },
+      'event-message-id',
+      {
+        responseMsgId: 'response-message-id',
+        responderId: 'dave-terminal',
+        responderName: 'MasterDave',
+        justification: 'Destructive command is not justified.',
+        source: 'cli_decision',
+      },
+    );
+
+    expect(writes).toEqual(['no', '\r']);
+    expect(JSON.parse(metaUpdates[0].meta)).toMatchObject({
+      status: 'responded',
+      chosen: 'cancel',
+      decision: {
+        by: 'MasterDave',
+        responder_id: 'dave-terminal',
+        response_msg_id: 'response-message-id',
+        source: 'cli_decision',
+        justification: 'Destructive command is not justified.',
+      },
+    });
+    expect(broadcasts[0].meta.decision.by).toBe('MasterDave');
+    expect(runEvents[0]).toMatchObject({
+      sessionId: 'terminal-delegated-decision',
+      source: 'json',
+      trust: 'high',
+      kind: 'approval_decision',
+      rawRef: 'event-message-id',
+    });
+    expect(runEvents[0].text).toContain('MasterDave chose cancel');
+    expect(runEvents[0].payload.decision.justification).toBe('Destructive command is not justified.');
+  });
 });

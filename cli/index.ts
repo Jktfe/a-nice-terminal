@@ -46,6 +46,9 @@ Commands:
                         External: ant chat send <id> --msg "hi" --server URL --external
   chat read <id>        Read message history (--limit 50)
   chat reply <id>       Reply to the latest message (--msg "yes do it")
+  chat pending <id>     Show pending interactive prompt for a terminal/linked chat
+  chat decide <id>      Approve/deny/respond to a prompt with justification
+                        (approve|deny|yes|no|retry|abort|text|select --why "...")
   chat leave <id>       Remove this terminal/agent from a chatroom
                         (--session <id> or --handle @name to override identity)
 

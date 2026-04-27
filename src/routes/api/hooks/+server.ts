@@ -13,7 +13,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
-import { broadcast } from '$lib/server/ws-broadcast';
+import { broadcast, broadcastGlobal } from '$lib/server/ws-broadcast';
 import { nanoid } from 'nanoid';
 
 function normalizeRunEvent(row: any) {
@@ -246,6 +246,20 @@ export async function POST({ request }: RequestEvent) {
       senderId: sessionId || null, senderName: 'Claude', senderType: 'terminal',
       target: null, replyTo: null, msgType: 'agent_event'
     });
+
+    if (sessionId) {
+      try {
+        const eventPayload = JSON.parse(content);
+        const { trackEvent } = await import('$lib/server/agent-event-bus.js');
+        trackEvent(sessionId, msgId, chatId, eventPayload);
+        broadcastGlobal({
+          type: 'session_needs_input',
+          sessionId,
+          eventClass: eventPayload.class,
+          summary: body.message || `Claude is waiting (${notifType})`,
+        });
+      } catch {}
+    }
 
     return json({ ok: true, msgId, event: 'notification', notifType });
   }
