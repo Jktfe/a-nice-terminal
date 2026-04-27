@@ -46,6 +46,16 @@ SQLite (WAL + FTS5, 15+ tables)
 CLI (ant) — Bun-native TypeScript
 ```
 
+### Three-Tier Terminal Model
+
+ANT exposes three views over the same terminal session:
+
+- **Linked Chat is the navigator** — a private 1:1 companion chat for actionable messages, questions, approvals, decisions, and results.
+- **ANT Terminal is the renderer** — a Svelte activity log built from append-only `run_events`, showing interpreted terminal progress, hook events, status changes, tool activity, and trust indicators as readable HTML.
+- **Raw Terminal is the data pipe** — the xterm.js/tmux PTY ground truth, kept available as the faithful fallback when the interpreted view is wrong, incomplete, or the agent needs direct terminal control.
+
+The trust hierarchy is explicit: structured hook/JSON events are highest trust, parsed terminal diffs are medium trust, and the raw tmux transcript remains the audit source.
+
 ## Quick Start
 
 ```bash
