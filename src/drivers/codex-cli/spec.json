@@ -1,16 +1,18 @@
 {
   "agent": "codex-cli",
   "version_tested": "0.118.0",
+  "version_observed_live": "0.125.0",
   "launch_command": "codex",
   "capture_source": "tmux_output",
   "probe_date": "2026-04-14",
-  "notes": "See NOTES.md for deviations from spec predictions.",
+  "notes": "See NOTES.md for deviations from spec predictions. Slot 5 live audit on 2026-04-27 observed codex-cli 0.125.0 as persistent.",
 
   "session_model": {
-    "type": "non-persistent",
-    "notes": "Codex 0.118.0 exits after completing each response. The session UUID is displayed and can be resumed with 'codex resume <UUID>'. This is fundamentally different from Claude Code's persistent REPL model.",
+    "type": "version-dependent",
+    "notes": "Codex 0.118.0 exits after completing each response. Slot 5 observed codex-cli 0.125.0 staying interactive after responses.",
     "exit_signal": "Line matching 'To continue this session, run codex resume [a-f0-9-]+'",
-    "resume_command": "codex resume <UUID> OR codex (starts fresh)"
+    "resume_command": "codex resume <UUID> OR codex (starts fresh)",
+    "persistent_observation": "codex-cli 0.125.0 launched with codex --yolo stayed alive and accepted further ANT chat input"
   },
 
   "events": [

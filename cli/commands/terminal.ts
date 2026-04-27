@@ -32,6 +32,60 @@ function formatEventData(kind: string, data: any): string {
   }
 }
 
+function wsUrlFor(ctx: any): string {
+  return ctx.serverUrl.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws';
+}
+
+function connectHeaders(ctx: any) {
+  return {
+    headers: ctx.apiKey ? { 'Authorization': `Bearer ${ctx.apiKey}` } : {},
+    rejectUnauthorized: false,
+  };
+}
+
+async function sendViaSpawnedTerminal(ctx: any, sessionId: string, data: string) {
+  await new Promise<void>((resolve, reject) => {
+    const ws = new WebSocket(wsUrlFor(ctx), connectHeaders(ctx));
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try { ws.close(); } catch {}
+      reject(new Error('Timed out waiting for terminal session to spawn'));
+    }, 8000);
+
+    function done(error?: Error) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      try { ws.close(); } catch {}
+      error ? reject(error) : resolve();
+    }
+
+    ws.on('open', () => {
+      ws.send(JSON.stringify({ type: 'join_session', sessionId, spawnPty: true, cols: 120, rows: 30 }));
+    });
+
+    ws.on('message', (raw: Buffer) => {
+      try {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type !== 'session_health' || msg.sessionId !== sessionId) return;
+        if (!msg.alive) {
+          done(new Error('Terminal session is not alive'));
+          return;
+        }
+        ws.send(JSON.stringify({ type: 'terminal_input', sessionId, data }));
+        setTimeout(() => done(), 150);
+      } catch {}
+    });
+
+    ws.on('error', (err) => done(err instanceof Error ? err : new Error(String(err))));
+    ws.on('close', () => {
+      if (!settled) done(new Error('WebSocket closed before terminal input was sent'));
+    });
+  });
+}
+
 export async function terminal(args: string[], flags: any, ctx: any) {
   const sub = args[0];
   const subsWithId = new Set(['send', 'watch', 'history', 'events', 'key']);
@@ -46,7 +100,7 @@ export async function terminal(args: string[], flags: any, ctx: any) {
   if (sub === 'send') {
     const cmd = flags.cmd || args[2];
     if (!cmd) { console.error('Usage: ant terminal send <id> --cmd "command"'); return; }
-    await api.post(ctx, `/api/sessions/${id}/terminal/input`, { data: cmd + '\n' });
+    await sendViaSpawnedTerminal(ctx, id, cmd + '\r');
     if (ctx.json) { console.log(JSON.stringify({ ok: true })); return; }
     console.log(`Sent: ${cmd}`);
     return;
@@ -73,7 +127,7 @@ export async function terminal(args: string[], flags: any, ctx: any) {
       console.error('Paste is not supported from the CLI');
       return;
     }
-    await api.post(ctx, `/api/sessions/${id}/terminal/input`, { data: seq });
+    await sendViaSpawnedTerminal(ctx, id, seq);
     if (ctx.json) { console.log(JSON.stringify({ ok: true, key: keyName })); return; }
     console.log(`Sent key: ${keyName}`);
     return;
@@ -168,14 +222,10 @@ export async function terminal(args: string[], flags: any, ctx: any) {
     if (!id) { console.error('Usage: ant terminal watch <session-id>'); return; }
     console.log(`Watching terminal session ${id} (read-only, Ctrl+C to exit)...`);
 
-    const wsUrl = ctx.serverUrl.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws';
-    const ws = new WebSocket(wsUrl, {
-      headers: ctx.apiKey ? { 'Authorization': `Bearer ${ctx.apiKey}` } : {},
-      rejectUnauthorized: false,
-    });
+    const ws = new WebSocket(wsUrlFor(ctx), connectHeaders(ctx));
 
     ws.on('open', () => {
-      ws.send(JSON.stringify({ type: 'join_session', sessionId: id }));
+      ws.send(JSON.stringify({ type: 'join_session', sessionId: id, spawnPty: true, cols: 120, rows: 30 }));
     });
 
     ws.on('message', (raw: Buffer) => {
@@ -196,15 +246,12 @@ export async function terminal(args: string[], flags: any, ctx: any) {
   // Interactive terminal connection
   console.log(`Connecting to terminal session ${id}...`);
 
-  const wsUrl = ctx.serverUrl.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws';
-  const ws = new WebSocket(wsUrl, {
-    headers: ctx.apiKey ? { 'Authorization': `Bearer ${ctx.apiKey}` } : {},
-    rejectUnauthorized: false,
-  });
+  const ws = new WebSocket(wsUrlFor(ctx), connectHeaders(ctx));
 
   ws.on('open', () => {
-    // Join the session
-    ws.send(JSON.stringify({ type: 'join_session', sessionId: id }));
+    // Join the session AND spawn PTY if not alive (same as browser Terminal.svelte)
+    const { columns, rows } = process.stdout;
+    ws.send(JSON.stringify({ type: 'join_session', sessionId: id, spawnPty: true, cols: columns || 120, rows: rows || 30 }));
 
     // Enter raw mode for real terminal experience
     if (process.stdin.isTTY) {
@@ -216,7 +263,6 @@ export async function terminal(args: string[], flags: any, ctx: any) {
     });
 
     // Send terminal size
-    const { columns, rows } = process.stdout;
     ws.send(JSON.stringify({ type: 'terminal_resize', sessionId: id, cols: columns, rows: rows }));
 
     // Handle terminal resize

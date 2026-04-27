@@ -323,12 +323,29 @@
     <div class="flex items-center gap-0.5 mt-1 pl-7">
       {#each visibleReadReceipts as reader}
         {@const rc = readerColor(reader)}
-        <span
-          class="w-2.5 h-2.5 rounded-full cursor-help"
-          style="background: {rc}; border: 1px solid var(--bg); box-shadow: 0 0 0 1px var(--hairline-strong);"
-          title={readerTitle(reader)}
-          aria-label={readerTitle(reader)}
-        ></span>
+        {@const title = readerTitle(reader)}
+        <button
+          type="button"
+          class="group/receipt relative inline-flex h-4 w-4 items-center justify-center rounded-full outline-none"
+          style="background: transparent; border: 0; padding: 0;"
+          aria-label={title}
+        >
+          <span
+            class="w-2.5 h-2.5 rounded-full"
+            style="background: {rc}; border: 1px solid var(--bg); box-shadow: 0 0 0 1px var(--hairline-strong);"
+          ></span>
+          <span
+            class="pointer-events-none absolute bottom-full left-1/2 z-30 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md px-2 py-1 opacity-0 shadow-lg transition-opacity duration-100 group-hover/receipt:opacity-100 group-focus/receipt:opacity-100"
+            style="
+              background: var(--bg-card);
+              border: 0.5px solid var(--hairline-strong);
+              color: var(--text);
+              font-family: var(--font-mono);
+              font-size: 10.5px;
+              letter-spacing: 0;
+            "
+          >{title}</span>
+        </button>
       {/each}
     </div>
   {/if}

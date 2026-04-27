@@ -10,7 +10,7 @@ import { homedir } from 'os';
 import { queries } from '../db.js';
 
 // ── Vault location ────────────────────────────────────────────────────────────
-const ANT_VAULT = process.env.ANT_OBSIDIAN_VAULT || join(homedir(), 'CascadeProjects', 'ObsidianANT');
+const ANT_VAULT = process.env.ANT_OBSIDIAN_VAULT || join(homedir(), 'CascadeProjects', 'ObsidiANT');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

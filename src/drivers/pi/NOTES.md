@@ -3,7 +3,7 @@
 Probe date: 2026-04-27
 Detected version: 0.67.6
 
-Pi is installed locally at `/Users/jamesking/.nvm/versions/node/v22.22.1/bin/pi`.
+Pi should be available on `PATH`; check with `which pi` and `pi --version`.
 
 Useful modes for ANT:
 

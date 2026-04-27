@@ -13,7 +13,7 @@ docs/ant-agent-feature-protocols.md
 Obsidian vault mirror:
 
 ```bash
-/Users/jamesking/CascadeProjects/ObsidianANT/knowledge/ant-agent-feature-protocols.md
+$ANT_OBSIDIAN_VAULT/knowledge/ant-agent-feature-protocols.md
 ```
 
 ## 0. First Principles
@@ -41,7 +41,7 @@ name is the ANT terminal session id.
 External clients should configure connection once:
 
 ```bash
-ant config set --url https://mac.kingfisher-interval.ts.net:6458 --handle @agent-name
+ant config set --url https://your-ant-host.example:6458 --handle @agent-name
 ant config
 ```
 
@@ -54,7 +54,7 @@ ant chat send <room-id> --msg "hello" --server https://localhost:6458
 Use remote server from outside:
 
 ```bash
-ant chat send <room-id> --msg "hello" --server https://mac.kingfisher-interval.ts.net:6458 --external
+ant chat send <room-id> --msg "hello" --server https://your-ant-host.example:6458 --external
 ```
 
 JSON output is available on most commands:
@@ -502,13 +502,13 @@ Obsidian.
 Current vault:
 
 ```bash
-/Users/jamesking/CascadeProjects/ObsidianANT
+$ANT_OBSIDIAN_VAULT
 ```
 
 Research docs path:
 
 ```bash
-/Users/jamesking/CascadeProjects/ObsidianANT/research
+$ANT_OBSIDIAN_VAULT/research
 ```
 
 Create a doc:
@@ -557,12 +557,12 @@ Protocol:
 4. Sign off when your section is done.
 5. Present the Obsidian path to James.
 
-## 13. ObsidianANT Vault
+## 13. ObsidiANT Vault
 
 ANT-specific Obsidian vault:
 
 ```bash
-/Users/jamesking/CascadeProjects/ObsidianANT
+$ANT_OBSIDIAN_VAULT
 ```
 
 Important folders:
@@ -805,7 +805,7 @@ Obsidian:
 
 - James may review research docs on mobile through Obsidian Sync.
 - Keep research docs as readable Markdown, not API-shaped JSON dumps.
-- Current vault path is `/Users/jamesking/CascadeProjects/ObsidianANT`.
+- Current vault path is configured with `ANT_OBSIDIAN_VAULT`.
 
 ## 23. Rescue Protocol
 

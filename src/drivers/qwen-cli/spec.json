@@ -1,0 +1,133 @@
+{
+  "agent": "qwen-cli",
+  "version_tested": "0.15.3",
+  "launch_command": "qwen --model qwen3.6:latest --openai-base-url http://localhost:11434/v1 --openai-api-key ollama --auth-type openai --yolo",
+  "capture_source": "tmux_output",
+  "probe_date": "2026-04-27",
+  "notes": "Initial spec from live Slot 7 audit. Qwen CLI reached full bidirectional ANTchat with local Ollama qwen3.6:latest.",
+
+  "session_model": {
+    "type": "persistent",
+    "notes": "Interactive TUI remained alive during Slot 7. Qwen used native shell tool execution for outbound ant chat send and responded autonomously to a targeted inbound room ping."
+  },
+
+  "events": [
+    {
+      "class": "progress",
+      "label": "Model generating",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "\\((?:\\d+m\\s*)?\\d+s(?:\\s+[_·]\\s+\\d+\\s+tokens)?\\s+esc to cancel\\)",
+        "notes": "Qwen shows rotating activity text with elapsed time, token count, and an escape hint while generating."
+      },
+      "response": {
+        "method": "none"
+      },
+      "settled_signal": "Prompt line containing 'Type your message or @path/to/file' reappears and no busy line is visible."
+    },
+    {
+      "class": "progress",
+      "label": "Tool execution",
+      "detection": {
+        "source": "tmux_output",
+        "patterns": [
+          "Shell|run_shell_command|Run Shell Command|Bash",
+          "Message sent successfully|Command completed|completed successfully"
+        ],
+        "notes": "In --yolo mode these are completed activity signals, not pre-tool approval prompts."
+      },
+      "response": {
+        "method": "none"
+      },
+      "settled_signal": "Prompt line reappears."
+    },
+    {
+      "class": "confirmation",
+      "label": "Yes/no confirmation",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "(shall I|want me to|proceed\\?|are you sure|do you want|would you like)",
+        "notes": "Text-level detection only; not observed as a tool auth dialog during Slot 7."
+      },
+      "response": {
+        "method": "text",
+        "confirm_yes": "yes + Enter",
+        "confirm_no": "no + Enter"
+      },
+      "settled_signal": "Prompt line reappears and no busy line is visible."
+    },
+    {
+      "class": "multi_choice",
+      "label": "Numbered selection",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "choice question plus numbered list",
+        "notes": "Speculative text-level detection inherited from the shared CLI driver pattern."
+      },
+      "response": {
+        "method": "number + Enter",
+        "indexing": "Driver maps zero-based selection to one-based CLI answer."
+      },
+      "settled_signal": "Prompt line reappears and no busy line is visible."
+    },
+    {
+      "class": "free_text",
+      "label": "Question requiring text",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "^\\s*✦.+\\?\\s*$"
+      },
+      "response": {
+        "method": "typed text + Enter"
+      },
+      "settled_signal": "Prompt line reappears and no busy line is visible."
+    },
+    {
+      "class": "error_retry",
+      "label": "Recoverable error asking for direction",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "(error|failed|not found|doesn't exist).*?(would you like|want me to|shall I|try again)"
+      },
+      "response": {
+        "method": "typed instruction + Enter, or Escape for abort"
+      },
+      "settled_signal": "Prompt line reappears and no busy line is visible."
+    },
+    {
+      "class": "permission_request",
+      "label": "Tool permission request",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": null,
+        "notes": "Not triggered in Slot 7 because launch used --yolo."
+      },
+      "response": null,
+      "settled_signal": "n/a"
+    },
+    {
+      "class": "tool_auth",
+      "label": "Tool authorization",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": null,
+        "notes": "Not triggered in Slot 7 because launch used --yolo."
+      },
+      "response": null,
+      "settled_signal": "n/a"
+    }
+  ],
+
+  "status": {
+    "ready": "^\\s*(?:>\\s|\\*\\s+Type your message or @path/to/file)",
+    "busy": "Initializing|\\((?:\\d+m\\s*)?\\d+s.*esc to cancel\\)",
+    "model": "API Key\\s*\\|\\s*(\\S+)|active_model=([A-Za-z0-9._:/-]+)",
+    "workspace": "((?:~|/Users/[^/\\s]+)/(?:CascadeProjects|[^/\\s]+)/[A-Za-z0-9._-]+)"
+  },
+
+  "structured_output": {
+    "output_formats": ["text", "json", "stream-json"],
+    "dual_output": ["--json-fd", "--json-file"],
+    "input_bridge": "--input-file"
+  }
+}

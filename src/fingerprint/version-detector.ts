@@ -44,6 +44,16 @@ const STRATEGIES: Record<string, VersionStrategy> = {
     return h.stdout.match(/v(\d+\.\d+\.\d+)/)?.[1] ?? null;
   },
 
+  'copilot-cli': async () => {
+    const r = await execFileNoThrow('copilot', ['--version']);
+    return `${r.stdout}\n${r.stderr}`.trim().match(/(\d+\.\d+\.\d+)/)?.[1] ?? null;
+  },
+
+  'qwen-cli': async () => {
+    const r = await execFileNoThrow('qwen', ['--version']);
+    return `${r.stdout}\n${r.stderr}`.trim().match(/(\d+\.\d+\.\d+)/)?.[1] ?? null;
+  },
+
   'pi': async () => {
     const r = await execFileNoThrow('pi', ['--version']);
     return `${r.stdout}\n${r.stderr}`.trim().match(/(\d+\.\d+\.\d+)/)?.[1] ?? null;

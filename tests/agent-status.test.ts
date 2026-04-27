@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { ClaudeCodeDriver } from '../src/drivers/claude-code/driver.js';
 import { CodexCliDriver } from '../src/drivers/codex-cli/driver.js';
+import { CopilotCliDriver } from '../src/drivers/copilot-cli/driver.js';
 import { GeminiCliDriver } from '../src/drivers/gemini-cli/driver.js';
+import { QwenCliDriver } from '../src/drivers/qwen-cli/driver.js';
 import { dispose, feed, feedStatus, getPendingEvent, init, trackEvent } from '../src/lib/server/agent-event-bus.js';
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -54,6 +56,72 @@ describe('agent status line parsing', () => {
       contextRemainingPct: 100,
       workspace: '/CascadeProjects/newmodelgvpl',
       branch: 'main',
+    });
+  });
+
+  it('parses Copilot model, workspace, branch, and ready state', () => {
+    const driver = new CopilotCliDriver();
+    const status = driver.detectStatus([
+      '~/CascadeProjects/a-nice-terminal [⎇ main*%]',
+      ' / commands · ? help                                      Claude Sonnet 4.6',
+      '❯ ',
+    ]);
+
+    expect(status).toMatchObject({
+      state: 'ready',
+      model: 'Claude Sonnet 4.6',
+      workspace: '~/CascadeProjects/a-nice-terminal',
+      branch: 'main',
+    });
+  });
+
+  it('parses Qwen model, workspace, and ready state', () => {
+    const driver = new QwenCliDriver();
+    const status = driver.detectStatus([
+      '>_ Qwen Code (v0.15.3)',
+      'API Key | qwen3.6:latest (/model to change)',
+      '~/CascadeProjects/a-nice-terminal',
+      '*   Type your message or @path/to/file',
+      'YOLO mode (shift + tab to cycle)',
+    ]);
+
+    expect(status).toMatchObject({
+      state: 'ready',
+      model: 'qwen3.6:latest',
+      workspace: '~/CascadeProjects/a-nice-terminal',
+    });
+  });
+});
+
+describe('copilot-cli driver event parsing', () => {
+  it('detects shell tool progress and success markers', () => {
+    const driver = new CopilotCliDriver();
+    const shellLine = '● Bash(ant chat send c88sHdaaFG00qV4QVVJ-f --msg "hi")(shell)';
+    const successLine = '✅ Command completed';
+
+    expect(driver.detect({ source: 'tmux_output', ts: 1, text: shellLine, raw: shellLine })).toMatchObject({
+      class: 'progress',
+      payload: { tool: 'Shell' },
+    });
+    expect(driver.detect({ source: 'tmux_output', ts: 2, text: successLine, raw: successLine })).toMatchObject({
+      class: 'progress',
+      payload: { signal: 'success' },
+    });
+  });
+});
+
+describe('qwen-cli driver event parsing', () => {
+  it('detects busy state and shell success progress', () => {
+    const driver = new QwenCliDriver();
+    const busyLine = '_ Updating the syntax for reality... (1m 1s  _ 68 tokens  esc to cancel)';
+    const successLine = '_ Message sent successfully to the ANT chat channel c88sHdaaFG00qV4QVVJ-f via your terminal.';
+
+    expect(driver.detect({ source: 'tmux_output', ts: 1, text: busyLine, raw: busyLine })).toMatchObject({
+      class: 'progress',
+    });
+    expect(driver.detect({ source: 'tmux_output', ts: 2, text: successLine, raw: successLine })).toMatchObject({
+      class: 'progress',
+      payload: { signal: 'success' },
     });
   });
 });

@@ -1,13 +1,14 @@
 // ANT — CodexCliDriver
 // File: src/drivers/codex-cli/driver.ts
 //
-// Implements the AgentDriver interface for Codex CLI 0.118.0 (OpenAI).
+// Implements the AgentDriver interface for Codex CLI (OpenAI).
 // Generated from probe run 2026-04-14 against codex v0.118.0.
+// Slot 5 audit on 2026-04-27 confirmed v0.125.0 is persistent.
 // See spec.json for detection patterns and NOTES.md for deviations.
 //
 // Key deviation: Codex 0.118.0 (gpt-5.4 xhigh) auto-runs ALL operations
-// (read, write, execute) without any permission TUI. The session also
-// exits after each response — it is non-persistent.
+// (read, write, execute) without any permission TUI. v0.118.0 exited after
+// each response; v0.125.0 remains interactive after responses.
 //
 // Design: respond() accepts a sendKeys callback (same pattern as ClaudeCodeDriver).
 
@@ -68,6 +69,7 @@ export class CodexCliDriver implements AgentDriver {
    * Detect interactive events from a single raw tmux output line.
    *
    * NOTE: Codex 0.118.0 auto-runs all tool calls without approval TUIs.
+   * Slot 5 showed v0.125.0 in YOLO mode remains persistent after responses.
    * This driver never emits permission_request or tool_auth events.
    * It focuses on:
    *  - progress: "• Working (Ns • esc to interrupt)"
@@ -144,7 +146,8 @@ export class CodexCliDriver implements AgentDriver {
 
   /**
    * True once Codex has settled.
-   * Settled = session exit signal OR prompt re-appeared AND no progress indicator.
+   * Settled = session exit signal on older Codex OR prompt re-appeared AND no
+   * progress indicator on persistent Codex.
    */
   isSettled(event: NormalisedEvent, output: RawOutput): boolean {
     const window = output.lines.slice(-10).map(e => e.text).join('\n');

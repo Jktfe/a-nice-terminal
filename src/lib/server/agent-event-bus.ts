@@ -16,6 +16,11 @@ import type { AgentStatus } from '../shared/agent-status.js';
 // ─── Driver registry ─────────────────────────────────────────────────────────
 // Lazy-loaded on first use per agent slug. Add new drivers here.
 
+const createCopilotCliDriver = async () => {
+  const { CopilotCliDriver } = await import('../../drivers/copilot-cli/driver.js');
+  return new CopilotCliDriver();
+};
+
 const DRIVER_FACTORIES: Record<string, () => Promise<AgentDriver>> = {
   'claude-code': async () => {
     const { ClaudeCodeDriver } = await import('../../drivers/claude-code/driver.js');
@@ -28,6 +33,16 @@ const DRIVER_FACTORIES: Record<string, () => Promise<AgentDriver>> = {
   'codex-cli': async () => {
     const { CodexCliDriver } = await import('../../drivers/codex-cli/driver.js');
     return new CodexCliDriver();
+  },
+  'copilot-cli': createCopilotCliDriver,
+  copilot: createCopilotCliDriver,
+  'qwen-cli': async () => {
+    const { QwenCliDriver } = await import('../../drivers/qwen-cli/driver.js');
+    return new QwenCliDriver();
+  },
+  qwen: async () => {
+    const { QwenCliDriver } = await import('../../drivers/qwen-cli/driver.js');
+    return new QwenCliDriver();
   },
   pi: async () => {
     const { PiDriver } = await import('../../drivers/pi/driver.js');
@@ -450,7 +465,7 @@ function statusFingerprint(status: AgentStatus): string {
 }
 
 function statusSummary(status: AgentStatus): string {
-  const parts = [status.state];
+  const parts: string[] = [status.state];
   if (status.activity) parts.push(status.activity);
   if (status.model) parts.push(status.model);
   if (typeof status.contextRemainingPct === 'number') parts.push(`${status.contextRemainingPct}% context left`);

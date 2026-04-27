@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 
 const DOC_PREFIX = 'docs/';
-const OBSIDIAN_ANT = process.env.ANT_OBSIDIAN_VAULT || join(homedir(), 'CascadeProjects', 'ObsidianANT');
+const OBSIDIAN_ANT = process.env.ANT_OBSIDIAN_VAULT || join(homedir(), 'CascadeProjects', 'ObsidiANT');
 const DOCS_DIR = join(OBSIDIAN_ANT, 'research');
 
 function mirrorToObsidian(docId: string, meta: any, markdown: string) {
@@ -55,7 +55,8 @@ function refreshObsidianMirror(docId: string) {
 
 /** Get a doc with all its sections, rendered as a single markdown document */
 export function GET({ params }: RequestEvent) {
-  const docKey = DOC_PREFIX + params.docId;
+  const docId = params.docId!;
+  const docKey = DOC_PREFIX + docId;
   const docRow = queries.getMemoryByKey(docKey) as any;
   if (!docRow) throw error(404, 'Doc not found');
 
@@ -82,7 +83,7 @@ export function GET({ params }: RequestEvent) {
 
   // Render as markdown
   const lines: string[] = [];
-  lines.push(`# ${meta.title || params.docId}`);
+  lines.push(`# ${meta.title || params.docId!}`);
   if (meta.description) lines.push(`\n> ${meta.description}`);
   lines.push(`\n**Status:** ${meta.status || 'draft'} | **Authors:** ${(meta.authors || []).join(', ') || 'none'}`);
   lines.push('');
@@ -97,10 +98,10 @@ export function GET({ params }: RequestEvent) {
   const markdown = lines.join('\n');
 
   // Mirror to Obsidian vault for mobile viewing
-  mirrorToObsidian(params.docId, meta, markdown);
+  mirrorToObsidian(params.docId!, meta, markdown);
 
   return json({
-    id: params.docId,
+    id: params.docId!,
     title: meta.title,
     status: meta.status || 'draft',
     authors: meta.authors || [],
@@ -111,7 +112,7 @@ export function GET({ params }: RequestEvent) {
 
 /** Update doc metadata or add/update a section */
 export async function PUT({ params, request }: RequestEvent) {
-  const docKey = DOC_PREFIX + params.docId;
+  const docKey = DOC_PREFIX + params.docId!;
   const docRow = queries.getMemoryByKey(docKey) as any;
   if (!docRow) throw error(404, 'Doc not found');
 
@@ -136,7 +137,7 @@ export async function PUT({ params, request }: RequestEvent) {
       queries.upsertMemoryByKey(docKey, JSON.stringify(meta), 'doc', null, null);
     }
 
-    refreshObsidianMirror(params.docId);
+    refreshObsidianMirror(params.docId!);
     return json({ key: sectionKey, sectionId: body.sectionId, status: 'updated' });
   }
 
@@ -148,13 +149,13 @@ export async function PUT({ params, request }: RequestEvent) {
   if (body.description !== undefined) meta.description = body.description;
   queries.upsertMemoryByKey(docKey, JSON.stringify(meta), 'doc', null, null);
 
-  refreshObsidianMirror(params.docId);
-  return json({ id: params.docId, status: meta.status });
+  refreshObsidianMirror(params.docId!);
+  return json({ id: params.docId!, status: meta.status });
 }
 
 /** Sign off — mark doc as ready for review */
 export async function POST({ params, request }: RequestEvent) {
-  const docKey = DOC_PREFIX + params.docId;
+  const docKey = DOC_PREFIX + params.docId!;
   const docRow = queries.getMemoryByKey(docKey) as any;
   if (!docRow) throw error(404, 'Doc not found');
 
@@ -178,6 +179,6 @@ export async function POST({ params, request }: RequestEvent) {
   }
 
   queries.upsertMemoryByKey(docKey, JSON.stringify(meta), 'doc', null, null);
-  refreshObsidianMirror(params.docId);
-  return json({ id: params.docId, status: meta.status, signOffs: meta.signOffs });
+  refreshObsidianMirror(params.docId!);
+  return json({ id: params.docId!, status: meta.status, signOffs: meta.signOffs });
 }

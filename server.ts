@@ -607,6 +607,9 @@ getPtyManager().then(async ptm => {
     import('./src/lib/server/agent-event-bus.js')
       .then(({ feed }) => feed(sessionId, text))
       .catch(() => {});
+    import('./src/lib/server/prompt-bridge.js')
+      .then(({ feedPromptBridge }) => feedPromptBridge(sessionId, text))
+      .catch(() => {});
   });
 
   // Unstripped bottom-of-pane samples from control mode. These include the CLI
@@ -788,6 +791,15 @@ getPtyManager().then(async ptm => {
       appendRunEvent,
     });
   }).catch(() => {});
+  import('./src/lib/server/prompt-bridge.js').then(({ initPromptBridge }) => {
+    initPromptBridge({
+      getSession: queries.getSession,
+      postToChat: postToLinkedChat,
+      writeToTerminal: (sid: string, data: string) => ptm.write(sid, data),
+      broadcastGlobal,
+      appendRunEvent,
+    });
+  }).catch(() => {});
 
   // Signal 1: silence → idle-attention badges.
   // When a terminal goes quiet for >30s with no pending agent event, we
@@ -870,6 +882,27 @@ getPtyManager().then(async ptm => {
       // No linked chat means no broadcast target; nothing more to do here.
     }
   }, 2000);
+
+  // ─── Watchdog: resource monitor + stall detection ──────────────────────────
+  import('./src/lib/server/watchdog.js').then(({ startWatchdog }) => {
+    startWatchdog({
+      getActiveSessions: () => {
+        try {
+          return (queries.listTerminalSessions() as any[])
+            .filter((s: any) => !s.deleted_at)
+            .map((s: any) => s.id);
+        } catch { return []; }
+      },
+      getLastActivity: (sessionId: string) => {
+        try {
+          const session = queries.getSession(sessionId) as any;
+          if (!session?.last_activity) return null;
+          return new Date(session.last_activity).getTime();
+        } catch { return null; }
+      },
+      broadcastGlobal,
+    });
+  }).catch((e) => console.warn('[watchdog] init failed:', e));
 
   console.log('[server] connected to PTY daemon — silence hook + title poller active');
 });

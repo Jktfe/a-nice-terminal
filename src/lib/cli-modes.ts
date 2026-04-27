@@ -6,7 +6,8 @@ export const CLI_MODES = [
   { slug: 'claude-code',  label: 'Claude',      icon: '🟣', stripLines: 15 },
   { slug: 'codex-cli',    label: 'Codex',       icon: '🟢', stripLines: 15 },
   { slug: 'gemini-cli',   label: 'Gemini',      icon: '🔵', stripLines: 15 },
-  { slug: 'copilot',      label: 'Copilot',     icon: '⚪', stripLines: 15 },
+  { slug: 'copilot-cli',  label: 'Copilot',     icon: '⚪', stripLines: 15 },
+  { slug: 'qwen-cli',     label: 'Qwen',        icon: 'Q', stripLines: 15 },
   { slug: 'ollama',       label: 'Ollama',      icon: '🦙', stripLines: 15 },
   { slug: 'perspective',  label: 'Perspective',  icon: '🍎', stripLines: 15 },
   { slug: 'msty',         label: 'Msty',        icon: '🔮', stripLines: 15 },
@@ -20,11 +21,17 @@ export const CLI_MODES = [
 
 export type CliSlug = (typeof CLI_MODES)[number]['slug'];
 
+const CLI_MODE_ALIASES: Record<string, CliSlug> = {
+  copilot: 'copilot-cli',
+  qwen: 'qwen-cli',
+};
+
 /** Lookup a mode by slug. Returns undefined if not found. */
 export function getCliMode(slug: string | null | undefined) {
   if (!slug) return undefined;
-  return CLI_MODES.find(m => m.slug === slug);
+  const canonical = CLI_MODE_ALIASES[slug] ?? slug;
+  return CLI_MODES.find(m => m.slug === canonical);
 }
 
 /** Set of valid slugs for validation. */
-export const CLI_SLUGS = new Set(CLI_MODES.map(m => m.slug));
+export const CLI_SLUGS = new Set([...CLI_MODES.map(m => m.slug), ...Object.keys(CLI_MODE_ALIASES)]);

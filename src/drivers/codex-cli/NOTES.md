@@ -2,13 +2,14 @@
 
 **Agent:** Codex CLI (OpenAI)  
 **Version tested:** 0.118.0  
+**Live audit observation:** 0.125.0  
 **Model:** gpt-5.4 xhigh (default)  
 **Probe date:** 2026-04-14  
 **Probe directory:** `ant-probe/`
 
 ---
 
-## Critical Discovery: Non-Persistent Session Model
+## Critical Discovery: Session Persistence Changed
 
 Codex 0.118.0 **exits after each response**. After completing a task, the session prints:
 
@@ -21,6 +22,18 @@ This means:
 - The driver's `isSettled()` should treat `SESSION_EXIT_RE` as a settled signal
 - The fingerprinting runner cannot run multiple probes in a single Codex session
 - Each probe must start (or resume) a session
+
+Slot 5 audit on 2026-04-27 showed Codex CLI 0.125.0 behaves differently:
+
+- Launch: `codex --yolo`
+- Model/status bar: `gpt-5.5 xhigh`
+- Version: `codex-cli 0.125.0`
+- The TUI stayed interactive after sending `ant chat send` replies.
+- ANT chat messages arrived automatically in the session via PTY injection.
+- A direct `@slotcodex` routing test returned `CODEX_INBOUND_OK`.
+
+Driver impact: keep `SESSION_EXIT_RE` as a backwards-compatible settled signal
+for 0.118.x, but do not assume current Codex sessions are non-persistent.
 
 ---
 

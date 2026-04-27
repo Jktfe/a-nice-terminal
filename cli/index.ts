@@ -14,6 +14,7 @@ import { flag } from './commands/flag.js';
 import { hooks } from './commands/hooks.js';
 import { memory } from './commands/memory.js';
 import { agents } from './commands/agents.js';
+import { prompt } from './commands/prompt.js';
 import { config } from './lib/config.js';
 
 const { command, args, flags } = parseArgs(process.argv.slice(2));
@@ -83,6 +84,11 @@ Commands:
   agents list                 Pretty-print the agent registry (agents/*)
   agents show <id>            Full row for one agent
 
+  prompt config               Show/configure generic prompt bridge
+                        (--enable --target linked|chat:<id>|webhook:<url>)
+  prompt pending <id>         Show pending prompt bridge event for a terminal
+  prompt respond <id>         Inject a raw prompt response (--text "yes")
+
   hooks install         Install ANT shell capture hooks into ~/.zshrc
 
   config                Show current config
@@ -123,6 +129,7 @@ async function main() {
       case 'search':   await search(args, flags, ctx); break;
       case 'memory':   await memory(args, flags, ctx); break;
       case 'agents':   await agents(args, flags, ctx); break;
+      case 'prompt':   await prompt(args, flags, ctx); break;
       case 'hooks':    await hooks(args.slice(1), flags); break;
       case 'share':    await share(args, flags, ctx); break;
       case 'qr':       await qr(args, flags, ctx); break;

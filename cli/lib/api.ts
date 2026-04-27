@@ -54,6 +54,7 @@ async function request(ctx: Ctx, method: string, path: string, body?: any): Prom
 export const api = {
   get: (ctx: Ctx, path: string) => request(ctx, 'GET', path),
   post: (ctx: Ctx, path: string, body: any) => request(ctx, 'POST', path, body),
+  put: (ctx: Ctx, path: string, body: any) => request(ctx, 'PUT', path, body),
   patch: (ctx: Ctx, path: string, body: any) => request(ctx, 'PATCH', path, body),
   del: (ctx: Ctx, path: string) => request(ctx, 'DELETE', path),
 };

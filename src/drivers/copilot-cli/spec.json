@@ -1,0 +1,130 @@
+{
+  "agent": "copilot-cli",
+  "version_tested": "1.0.36",
+  "launch_command": "copilot --allow-all",
+  "capture_source": "tmux_output",
+  "probe_date": "2026-04-27",
+  "notes": "Initial spec from live Slot 3 audit. Copilot CLI accepted --allow-all and --yolo locally; slot docs prefer --allow-all for clarity.",
+
+  "session_model": {
+    "type": "persistent",
+    "notes": "Interactive TUI remained alive during Slot 3. ANT room routing worked via PTY-injected prompts and ant chat send; ant-channel MCP startup failure was non-blocking."
+  },
+
+  "events": [
+    {
+      "class": "progress",
+      "label": "Model thinking",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "^◐\\s+",
+        "notes": "Copilot shows a spinner/status line while generating."
+      },
+      "response": {
+        "method": "none"
+      },
+      "settled_signal": "Prompt line matching ^❯ reappears and no thinking line is visible."
+    },
+    {
+      "class": "progress",
+      "label": "Tool execution",
+      "detection": {
+        "source": "tmux_output",
+        "patterns": [
+          "^●\\s+.+\\(shell\\)",
+          "^●\\s+Read\\s+",
+          "^●\\s+Edit\\s+",
+          "^●\\s+Write\\s+",
+          "✅"
+        ],
+        "notes": "In --allow-all mode these are completed activity signals, not pre-tool approval prompts."
+      },
+      "response": {
+        "method": "none"
+      },
+      "settled_signal": "Prompt line matching ^❯ reappears."
+    },
+    {
+      "class": "confirmation",
+      "label": "Yes/no confirmation",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "(shall I|want me to|proceed\\?|are you sure|do you want|would you like)",
+        "notes": "Text-level confirmation detection only; not observed as a tool auth dialog during Slot 3."
+      },
+      "response": {
+        "method": "text",
+        "confirm_yes": "yes + Enter",
+        "confirm_no": "no + Enter"
+      },
+      "settled_signal": "Prompt line matching ^❯ reappears and no thinking line is visible."
+    },
+    {
+      "class": "multi_choice",
+      "label": "Numbered selection",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "choice question plus numbered list",
+        "notes": "Speculative text-level detection inherited from the shared CLI driver pattern."
+      },
+      "response": {
+        "method": "number + Enter",
+        "indexing": "Driver maps zero-based selection to one-based CLI answer."
+      },
+      "settled_signal": "Prompt line matching ^❯ reappears and no thinking line is visible."
+    },
+    {
+      "class": "free_text",
+      "label": "Question requiring text",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "question ending in ? on a prompt or bullet line"
+      },
+      "response": {
+        "method": "typed text + Enter"
+      },
+      "settled_signal": "Prompt line matching ^❯ reappears and no thinking line is visible."
+    },
+    {
+      "class": "error_retry",
+      "label": "Recoverable error asking for direction",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": "(error|failed|not found|doesn't exist).*?(would you like|want me to|shall I|try again)"
+      },
+      "response": {
+        "method": "typed instruction + Enter, or Escape for abort"
+      },
+      "settled_signal": "Prompt line matching ^❯ reappears and no thinking line is visible."
+    },
+    {
+      "class": "permission_request",
+      "label": "Tool permission request",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": null,
+        "notes": "Not triggered in Slot 3 because launch used --allow-all."
+      },
+      "response": null,
+      "settled_signal": "n/a"
+    },
+    {
+      "class": "tool_auth",
+      "label": "Tool authorization",
+      "detection": {
+        "source": "tmux_output",
+        "pattern": null,
+        "notes": "Not triggered in Slot 3 because launch used --allow-all."
+      },
+      "response": null,
+      "settled_signal": "n/a"
+    }
+  ],
+
+  "status": {
+    "ready": "^❯\\s*",
+    "busy": "^◐\\s+",
+    "model": "(Claude (Sonnet|Opus|Haiku) [\\d.]+|GPT-[\\d.]+|Gemini [\\d.]+)",
+    "workspace_branch": "^\\s*(~/\\S+)\\s+\\[⎇\\s+([^\\]\\s]+)"
+  }
+}
