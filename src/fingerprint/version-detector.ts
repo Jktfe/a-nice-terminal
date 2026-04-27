@@ -44,6 +44,16 @@ const STRATEGIES: Record<string, VersionStrategy> = {
     return h.stdout.match(/v(\d+\.\d+\.\d+)/)?.[1] ?? null;
   },
 
+  'pi': async () => {
+    const r = await execFileNoThrow('pi', ['--version']);
+    return `${r.stdout}\n${r.stderr}`.trim().match(/(\d+\.\d+\.\d+)/)?.[1] ?? null;
+  },
+
+  'kimi-code': async () => {
+    const r = await execFileNoThrow('kimi', ['--version']);
+    return `${r.stdout}\n${r.stderr}`.trim().match(/(\d+\.\d+\.\d+)/)?.[1] ?? null;
+  },
+
   'ollama': async () => {
     const r = await execFileNoThrow('ollama', ['--version']);
     return r.stdout.trim().match(/(\d+\.\d+\.\d+)/)?.[1] ?? null;

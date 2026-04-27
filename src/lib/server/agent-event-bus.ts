@@ -29,6 +29,18 @@ const DRIVER_FACTORIES: Record<string, () => Promise<AgentDriver>> = {
     const { CodexCliDriver } = await import('../../drivers/codex-cli/driver.js');
     return new CodexCliDriver();
   },
+  pi: async () => {
+    const { PiDriver } = await import('../../drivers/pi/driver.js');
+    return new PiDriver();
+  },
+  'kimi-code': async () => {
+    const { KimiCodeDriver } = await import('../../drivers/kimi-code/driver.js');
+    return new KimiCodeDriver();
+  },
+  kimi: async () => {
+    const { KimiCodeDriver } = await import('../../drivers/kimi-code/driver.js');
+    return new KimiCodeDriver();
+  },
 };
 
 // ─── Per-session state ───────────────────────────────────────────────────────

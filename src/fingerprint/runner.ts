@@ -331,8 +331,8 @@ async function main(): Promise<void> {
     const { AGENTS, checkAvailability } = await import('./agent-registry.js');
     await checkAvailability(AGENTS);
 
-    const available = AGENTS.filter(a => a.available && a.tier === 1); // Tier 1 only for --all
-    console.log(`[fingerprint] --all: running ${available.length} Tier 1 agents`);
+    const available = AGENTS.filter(a => a.available && a.tier === 1 && a.specPath); // Tier 1 specs only for --all
+    console.log(`[fingerprint] --all: running ${available.length} Tier 1 agents with specs`);
 
     for (const agent of available) {
       const sessionName = args['session'] ?? `ant-${agent.name}`;

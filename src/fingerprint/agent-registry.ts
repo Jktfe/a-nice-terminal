@@ -57,6 +57,26 @@ export const AGENTS: AgentEntry[] = [
     driverPath: 'src/drivers/codex-cli/driver.ts',
     specPath: 'src/drivers/codex-cli/spec.json',
   },
+  {
+    name: 'pi',
+    tier: 1,
+    launchCommand: 'pi',
+    binary: 'pi',
+    available: false,
+    driverPath: 'src/drivers/pi/driver.ts',
+    specPath: null,
+    notes: 'structured modes: --mode json and --mode rpc; spec pending',
+  },
+  {
+    name: 'kimi-code',
+    tier: 1,
+    launchCommand: 'kimi',
+    binary: 'kimi',
+    available: false,
+    driverPath: 'src/drivers/kimi-code/driver.ts',
+    specPath: null,
+    notes: 'Moonshot Kimi Code CLI; stream-json and ACP documented; not installed locally',
+  },
 
   // Tier 2 — Local inference CLIs
   {
