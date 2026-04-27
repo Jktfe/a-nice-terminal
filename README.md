@@ -211,6 +211,7 @@ Copy `.env.example` to `.env`:
 | `ANT_TLS_KEY` | — | Path to TLS private key |
 | `ANT_ROOT_DIR` | — | Root directory for project browsing |
 | `ANT_OBSIDIAN_VAULT` | — | Obsidian vault path for session export |
+| `ANT_QUICK_LAUNCH_FILE` | `~/.ant/quick-launch.json` | Local-only terminal quick-launch button presets |
 | `ANT_SERVER_URL` | — | Public URL for share commands and CLI instructions |
 
 ## Stack

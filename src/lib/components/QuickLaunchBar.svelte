@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { useQuickLaunch, type QuickLaunchButton } from '$lib/stores/quicklaunch.svelte.js';
 
   let {
@@ -13,6 +14,10 @@
 
   // svelte-ignore state_referenced_locally -- sessionId and driver are stable per terminal session instance
   const ql = useQuickLaunch(sessionId, driver);
+
+  onMount(() => {
+    ql.loadLocalDefaults();
+  });
 
   // ── Edit mode state ──
   let editing = $state(false);

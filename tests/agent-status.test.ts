@@ -12,7 +12,7 @@ describe('agent status line parsing', () => {
   it('parses Claude model, context, rate limit, workspace, and branch', () => {
     const driver = new ClaudeCodeDriver();
     const status = driver.detectStatus([
-      'jamesking@Jamess-Mac-mini    manorfarmios main    Opus 4.6 1M context    ctx:94%    5h:81%',
+      'dev@workstation    sample-app main    Opus 4.6 1M context    ctx:94%    5h:81%',
     ]);
 
     expect(status).toMatchObject({
@@ -22,7 +22,7 @@ describe('agent status line parsing', () => {
       contextRemainingPct: 6,
       rateLimitPct: 81,
       rateLimitWindow: '5h',
-      workspace: 'manorfarmios',
+      workspace: 'sample-app',
       branch: 'main',
     });
   });
@@ -176,7 +176,7 @@ describe('agent status endpoint state', () => {
 
     await feedStatus(sessionId, [
       'Useful answer line that should remain in the pane',
-      'jamesking@Jamess-Mac-mini    manorfarmios main    Opus 4.6 1M context    ctx:94%    5h:81%',
+      'dev@workstation    sample-app main    Opus 4.6 1M context    ctx:94%    5h:81%',
     ].join('\n'));
 
     expect(broadcasts.some(msg => msg.type === 'agent_status_updated')).toBe(true);
@@ -185,7 +185,7 @@ describe('agent status endpoint state', () => {
       agent_status: {
         state: 'ready',
         model: 'Opus 4.6',
-        workspace: 'manorfarmios',
+        workspace: 'sample-app',
         branch: 'main',
         contextUsedPct: 94,
       },

@@ -37,6 +37,14 @@ function getDefaults(_driver?: string | null): QuickLaunchButton[] {
   return [...DEFAULTS];
 }
 
+function isButton(value: any): value is QuickLaunchButton {
+  return value
+    && typeof value.id === 'string'
+    && typeof value.label === 'string'
+    && typeof value.icon === 'string'
+    && typeof value.command === 'string';
+}
+
 function migrateButtons(buttons: QuickLaunchButton[]): QuickLaunchButton[] {
   return buttons.map((button) => {
     if (button.id === 'default-1' && button.label === 'Claude Code' && button.command === 'claude') {
@@ -49,7 +57,9 @@ function migrateButtons(buttons: QuickLaunchButton[]): QuickLaunchButton[] {
 /** Reactive store: returns buttons for a given session and mutation helpers. */
 export function useQuickLaunch(sessionId: string, driver?: string | null) {
   const allData = load();
+  const hasStoredButtons = Object.prototype.hasOwnProperty.call(allData, sessionId);
   let buttons = $state<QuickLaunchButton[]>(migrateButtons(allData[sessionId] ?? [...getDefaults(driver)]));
+  let loadedLocalDefaults = false;
 
   function persist() {
     const allData = load();
@@ -86,6 +96,24 @@ export function useQuickLaunch(sessionId: string, driver?: string | null) {
     reset() {
       buttons = [...getDefaults(driver)];
       persist();
+    },
+
+    async loadLocalDefaults() {
+      if (hasStoredButtons || loadedLocalDefaults) return;
+      loadedLocalDefaults = true;
+
+      try {
+        const res = await fetch('/api/quick-launch');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!Array.isArray(data?.buttons) || data.buttons.length === 0) return;
+        const localButtons = data.buttons.filter(isButton);
+        if (localButtons.length === 0) return;
+        buttons = migrateButtons(localButtons);
+        persist();
+      } catch {
+        // Local quick-launch presets are optional.
+      }
     },
   };
 }
