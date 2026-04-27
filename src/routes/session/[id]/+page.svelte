@@ -10,6 +10,7 @@
   import ChatSidePanel from '$lib/components/ChatSidePanel.svelte';
   import DigestPanel from '$lib/components/DigestPanel.svelte';
   import ActivityRail from '$lib/components/ActivityRail.svelte';
+  import RunView from '$lib/components/RunView.svelte';
   import { useToasts } from '$lib/stores/toast.svelte';
   import { normalizeSessionName } from '$lib/utils/session-naming';
   import { onMount, onDestroy } from 'svelte';
@@ -38,6 +39,18 @@
     snippet?: string;
   }
 
+  interface RunEvent {
+    id: string;
+    session_id: string;
+    ts: number;
+    source: 'hook' | 'json' | 'terminal' | 'status' | 'tmux';
+    trust: 'high' | 'medium' | 'raw';
+    kind: string;
+    text: string;
+    payload?: Record<string, unknown>;
+    raw_ref?: string | null;
+  }
+
   const toasts = useToasts();
 
   const sessionId = $derived($page.params.id as string);
@@ -60,86 +73,34 @@
   let replyTo = $state<Record<string, unknown> | null>(null);
   let showDigest = $state(false);
 
-  // Text terminal view — capture-pane output
-  let terminalText = $state('');
-  let terminalTextTimer: ReturnType<typeof setInterval> | null = null;
+  // ANT Terminal view — normalized append-only run events
+  let runEvents = $state<RunEvent[]>([]);
+  let runEventsLoaded = $state(false);
+  let runSearchQuery = $state('');
+  let runEventsLoading = $state(false);
+
   let terminalSpawnTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Chrome patterns to strip from terminal text view (same as pty-daemon fast path)
-  const CHROME_RE = [
-    /^─{10,}$/,                          // long dividers
-    /^❯\s*$/,                            // cursor-only lines
-    /^[✽✳✻✶✢·★⏺⠂⠐⠈]+(\s|$)/,            // spinner chars
-    /^⏵⏵/,                               // Gemini prompt marker
-    /shift\+tab|esc to interrupt|for shortcuts/i, // help text
-    /^\s*[\u2800-\u28FF]+\s*$/,          // braille spinners
-    /^[/\\|_`~\-.\s()*@^×]+$/,          // all-punctuation lines
-    /tokens?\)|thought for \d/,          // token/thinking counters
-    /^\s*[✔◼]\s+Task \d+/,              // task status markers
-  ];
-
-  function cleanTerminalText(raw: string): string {
-    const lines = raw.split('\n');
-    const cleaned: string[] = [];
-    let consecutiveEmpty = 0;
-    let lastLine = '';
-
-    for (const line of lines) {
-      const trimmed = line.trimEnd();
-
-      // Collapse consecutive empty lines to max 1
-      if (!trimmed) {
-        consecutiveEmpty++;
-        if (consecutiveEmpty <= 1) cleaned.push('');
-        continue;
-      }
-      consecutiveEmpty = 0;
-
-      // Strip chrome lines
-      if (CHROME_RE.some(re => re.test(trimmed))) continue;
-
-      // Deduplicate consecutive identical lines (idle prompts, repeated output)
-      if (trimmed === lastLine) continue;
-
-      lastLine = trimmed;
-      cleaned.push(trimmed);
-    }
-
-    return cleaned.join('\n').trim();
-  }
-
-  let terminalTextLoaded = false;
-
-  async function refreshTerminalText() {
+  async function refreshRunEvents(force = false) {
     if (!sessionId || session?.type !== 'terminal') return;
-    // Only do a full fetch once on first load — after that, WS terminal_line appends
-    if (terminalTextLoaded) return;
+    if (runEventsLoaded && !force) return;
+    runEventsLoading = true;
     try {
-      const res = await fetch(`/api/sessions/${sessionId}/terminal/history?since=1h&limit=200`);
+      const res = await fetch(`/api/sessions/${sessionId}/run-events?since=6h&limit=500`);
       if (res.ok) {
         const data = await res.json();
-        const rows = data.rows || [];
-        const raw = rows.map((r: any) => r.text || '').join('\n');
-        terminalText = cleanTerminalText(raw) || '(no output yet)';
-        terminalTextLoaded = true;
+        runEvents = data.events || [];
+        runEventsLoaded = true;
       }
-    } catch {}
+    } catch {
+    } finally {
+      runEventsLoading = false;
+    }
   }
 
-  // Append new terminal output from WS (already cleaned/diffed by pty-daemon)
-  function appendTerminalLine(text: string) {
-    if (!text.trim()) return;
-    const cleaned = cleanTerminalText(text);
-    if (!cleaned) return;
-    // Dedup against the last line of existing text
-    const lastLine = terminalText.split('\n').pop()?.trim() || '';
-    const firstNew = cleaned.split('\n')[0]?.trim() || '';
-    if (firstNew && firstNew === lastLine) {
-      const rest = cleaned.split('\n').slice(1).join('\n');
-      if (rest.trim()) terminalText += '\n' + rest;
-    } else {
-      terminalText += '\n' + cleaned;
-    }
+  function appendRunEvent(event: RunEvent) {
+    if (!event?.id || runEvents.some(e => e.id === event.id)) return;
+    runEvents = [...runEvents, event].slice(-1000);
   }
 
   // Auto-scroll
@@ -588,8 +549,8 @@
           case 'message_deleted':
             msgStore.messages = msgStore.messages.filter(m => m.id !== data.msgId);
             break;
-          case 'terminal_line':
-            if (mode === 'terminal' && data.text) appendTerminalLine(data.text);
+          case 'run_event_created':
+            if (data.event) appendRunEvent(data.event as RunEvent);
             break;
           case 'task_created':
             if (data.task && !tasks.find(t => t.id === data.task.id)) tasks = [...tasks, data.task];
@@ -631,8 +592,10 @@
     showMenu = false;
     replyTo = null;
     showDigest = false;
-    terminalText = '';
-    terminalTextLoaded = false;
+    runEvents = [];
+    runEventsLoaded = false;
+    runSearchQuery = '';
+    runEventsLoading = false;
     tasks = [];
     fileRefs = [];
     mentionHandles = [];
@@ -740,7 +703,7 @@
 
   $effect(() => {
     if (mode === 'terminal' && session?.type === 'terminal') {
-      refreshTerminalText(); // one-time load, then WS appends
+      void refreshRunEvents(); // one-time load, then WS appends
     }
   });
 
@@ -792,7 +755,6 @@
     if (liveRefreshTimer) clearInterval(liveRefreshTimer);
     if (terminalSpawnTimer) clearTimeout(terminalSpawnTimer);
     if (cmdPoll !== null) clearInterval(cmdPoll);
-    if (terminalTextTimer) clearInterval(terminalTextTimer);
   });
 
   async function sendMessage(text: string, replyToId: string | null = null) {
@@ -1161,7 +1123,7 @@
           onScroll={onChatScroll}
         />
       {:else if mode === 'terminal'}
-        <!-- Text terminal mode — searchable capture-pane output -->
+        <!-- ANT Terminal mode — normalized append-only run events -->
         <div class="flex flex-col flex-1 overflow-hidden">
           <!-- Toolbar -->
           <div class="flex items-center px-4 py-2 border-b gap-3 flex-shrink-0" style="border-color: #E5E7EB; background: var(--bg);">
@@ -1170,7 +1132,10 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                   d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
               </svg>
-              <span class="text-xs font-semibold" style="color: var(--text);">⌨ Terminal Output</span>
+              <span class="text-xs font-semibold" style="color: var(--text);">ANT Terminal</span>
+              <span class="hidden sm:inline text-[11px]" style="color: var(--text-faint);">
+                interpreted run events
+              </span>
             </div>
             <div class="flex-1"></div>
             <!-- Search input -->
@@ -1179,17 +1144,18 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z"/>
               </svg>
               <input
+                bind:value={runSearchQuery}
                 class="w-full text-xs rounded-lg pl-8 pr-3 py-1.5 outline-none"
                 style="border: 1px solid #E5E7EB; background: #F9FAFB; color: var(--text);"
-                placeholder="Search output…"
+                placeholder="Search run…"
               />
             </div>
             <!-- Refresh -->
             <button
-              onclick={refreshTerminalText}
+              onclick={() => refreshRunEvents(true)}
               class="p-1.5 rounded-lg transition-all"
               style="color: var(--text-muted); border: 1px solid #E5E7EB;"
-              title="Refresh terminal output"
+              title="Refresh ANT Terminal"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -1197,13 +1163,16 @@
               </svg>
             </button>
           </div>
-          <!-- Full-width dark content area -->
-          <div class="flex-1 overflow-y-auto p-4" style="background: #0D1117;">
-            <pre
-              class="leading-relaxed whitespace-pre-wrap break-words"
-              style="color: #C9D1D9; font-family: 'JetBrains Mono', 'Fira Mono', monospace; font-size: 12px;"
-            >{terminalText || 'Loading terminal output…'}</pre>
-          </div>
+          <RunView
+            events={runEvents}
+            {sessionId}
+            searchQuery={runSearchQuery}
+          />
+          {#if runEventsLoading && runEvents.length === 0}
+            <div class="px-4 py-2 text-xs border-t" style="color: var(--text-faint); border-color: var(--border-subtle);">
+              Loading ANT Terminal…
+            </div>
+          {/if}
           <!-- Special key buttons -->
           {#await import('$lib/shared/special-keys.js') then mod}
             <div class="flex items-center gap-1 px-3 py-1.5 border-t shrink-0 overflow-x-auto scrollbar-none" style="border-color:#1E293B; background:#161B22;">

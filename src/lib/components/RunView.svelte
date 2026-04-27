@@ -149,7 +149,7 @@
 
   <!-- Scroll to bottom button -->
   {#if !atBottom}
-    <button class="run-scroll-btn" onclick={scrollToBottom}>
+    <button class="run-scroll-btn" onclick={scrollToBottom} aria-label="Scroll ANT Terminal to bottom">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <polyline points="6 9 12 15 18 9" />
       </svg>
