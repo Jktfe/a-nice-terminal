@@ -89,6 +89,62 @@ export async function POST({ params, request }: RequestEvent<{ id: string }>) {
     ? '{}'
     : (typeof meta === 'string' ? meta : JSON.stringify(meta ?? {}));
 
+  if (msgType === 'agent_response') {
+    try {
+      const payload = JSON.parse(content);
+      const sourceEvent = payload.event_id ? queries.getMessage(payload.event_id) as any : null;
+      const terminalSessionId = payload.terminal_session_id || sourceEvent?.sender_id;
+      const eventContent = payload.event_content || sourceEvent?.content;
+
+      if (!terminalSessionId || !eventContent) {
+        return json({ error: 'agent_response requires an event_id or terminal_session_id/event_content' }, { status: 400 });
+      }
+
+      const terminal = queries.getSession(terminalSessionId) as any;
+      if (!terminal || terminal.type !== 'terminal') {
+        return json({ error: 'agent_response target terminal not found' }, { status: 404 });
+      }
+
+      let parsedMeta: Record<string, unknown> = {};
+      try { parsedMeta = JSON.parse(metaJson || '{}'); } catch {}
+      const sender = resolveSenderSession(sender_id);
+      const { handleResponse } = await import('$lib/server/agent-event-bus.js');
+      await handleResponse(
+        terminalSessionId,
+        eventContent,
+        { type: payload.type, ...(payload.choice ?? {}) },
+        payload.event_id ?? sourceEvent?.id ?? null,
+        {
+          responseMsgId: null,
+          responderId: sender_id || null,
+          responderName: sender.name,
+          justification: payload.justification ?? payload.reason ?? null,
+          source: String(payload.source ?? parsedMeta.source ?? 'linked_chat'),
+        },
+      );
+
+      return json({
+        id,
+        session_id: params.id,
+        role,
+        format: format || 'json',
+        status: 'complete',
+        sender_id: sender_id || null,
+        target: target || null,
+        reply_to: replyTo,
+        msg_type: msgType,
+        handled: true,
+        deliveries: [{
+          adapter: 'agent-event-bus',
+          targetId: terminalSessionId,
+          delivered: true,
+        }],
+      });
+    } catch (e: any) {
+      return json({ error: e?.message || String(e) }, { status: 500 });
+    }
+  }
+
   if (replyTo) {
     const parent: any = queries.getMessage(replyTo);
     if (!parent || parent.session_id !== params.id) {
