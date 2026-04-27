@@ -68,6 +68,15 @@ interface AgentEventBusDeps {
   updateMessageMeta: ((msgId: string, meta: string) => void) | null;
   broadcastToChat: ((chatId: string, msg: any) => void) | null;
   broadcastGlobal: ((msg: any) => void) | null;
+  appendRunEvent: ((
+    sessionId: string,
+    source: 'hook' | 'json' | 'terminal' | 'status' | 'tmux',
+    trust: 'high' | 'medium' | 'raw',
+    kind: string,
+    text: string,
+    payload?: Record<string, unknown>,
+    rawRef?: string | null,
+  ) => void) | null;
 }
 
 interface AgentEventBusRuntime {
@@ -87,6 +96,7 @@ const runtime: AgentEventBusRuntime = ((globalThis as any)[EVENT_BUS_KEY] ??= {
     updateMessageMeta: null,
     broadcastToChat: null,
     broadcastGlobal: null,
+    appendRunEvent: null,
   },
 });
 
@@ -110,6 +120,15 @@ export function init(initDeps: {
   updateMessageMeta: (msgId: string, meta: string) => void;
   broadcastToChat: (chatId: string, msg: any) => void;
   broadcastGlobal?: (msg: any) => void;
+  appendRunEvent?: (
+    sessionId: string,
+    source: 'hook' | 'json' | 'terminal' | 'status' | 'tmux',
+    trust: 'high' | 'medium' | 'raw',
+    kind: string,
+    text: string,
+    payload?: Record<string, unknown>,
+    rawRef?: string | null,
+  ) => void;
 }) {
   busDeps.getSession = initDeps.getSession;
   busDeps.postToChat = initDeps.postToChat;
@@ -117,6 +136,7 @@ export function init(initDeps: {
   busDeps.updateMessageMeta = initDeps.updateMessageMeta;
   busDeps.broadcastToChat = initDeps.broadcastToChat;
   busDeps.broadcastGlobal = initDeps.broadcastGlobal ?? null;
+  busDeps.appendRunEvent = initDeps.appendRunEvent ?? null;
 }
 
 // ─── Strip ANSI escape codes ─────────────────────────────────────────────────
@@ -405,6 +425,16 @@ function statusFingerprint(status: AgentStatus): string {
   });
 }
 
+function statusSummary(status: AgentStatus): string {
+  const parts = [status.state];
+  if (status.activity) parts.push(status.activity);
+  if (status.model) parts.push(status.model);
+  if (typeof status.contextRemainingPct === 'number') parts.push(`${status.contextRemainingPct}% context left`);
+  if (typeof status.contextUsedPct === 'number') parts.push(`${status.contextUsedPct}% context used`);
+  if (status.waitingFor) parts.push(`waiting: ${status.waitingFor}`);
+  return parts.join(' · ');
+}
+
 function updateStatusFromLines(sessionId: string, state: SessionState, statusLines: string[]): void {
   if (!state.driver || !('detectStatus' in state.driver) || statusLines.length === 0) return;
 
@@ -428,6 +458,15 @@ function updateStatusFromLines(sessionId: string, state: SessionState, statusLin
   if (shouldBroadcast && busDeps.broadcastGlobal) {
     state.lastStatusFingerprint = fingerprint;
     state.lastStatusBroadcast = now;
+    busDeps.appendRunEvent?.(
+      sessionId,
+      'status',
+      'medium',
+      'status',
+      statusSummary(status),
+      status as unknown as Record<string, unknown>,
+      null,
+    );
     busDeps.broadcastGlobal({
       type: 'agent_status_updated',
       sessionId,

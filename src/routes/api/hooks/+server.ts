@@ -13,7 +13,68 @@
 import { json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
+import { broadcast } from '$lib/server/ws-broadcast';
 import { nanoid } from 'nanoid';
+
+function normalizeRunEvent(row: any) {
+  if (!row) return null;
+  let payload: unknown = {};
+  try { payload = typeof row.payload === 'string' ? JSON.parse(row.payload) : (row.payload ?? {}); }
+  catch { payload = {}; }
+  return {
+    id: row.id,
+    session_id: row.session_id,
+    ts: row.ts_ms,
+    ts_ms: row.ts_ms,
+    source: row.source,
+    trust: row.trust,
+    kind: row.kind,
+    text: row.text ?? '',
+    payload,
+    raw_ref: row.raw_ref ?? null,
+    created_at: row.created_at,
+  };
+}
+
+function hookKind(event: string, body: any): string {
+  const notifType = body.notification_type || '';
+  if (notifType === 'permission_prompt') return 'permission';
+  if (event === 'Notification') return 'question';
+  if (event === 'BeforeTool' || event === 'PreToolUse') return 'tool_call';
+  if (event === 'AfterTool' || event === 'PostToolUse') return 'tool_result';
+  if (event === 'TaskCreated' || event === 'TaskCompleted') return 'progress';
+  if (event === 'SessionStart' || event === 'SessionEnd' || event === 'Stop' || event === 'AfterAgent') return 'status';
+  if (/error|fail/i.test(event)) return 'error';
+  return 'system';
+}
+
+function hookText(agent: string, event: string, body: any): string {
+  const tool = body.tool_name || body.tool?.name || body.tool || body.name;
+  if (tool && (event === 'BeforeTool' || event === 'PreToolUse')) return `${agent} running ${tool}`;
+  if (tool && (event === 'AfterTool' || event === 'PostToolUse')) return `${agent} finished ${tool}`;
+  if (event === 'Notification') return body.message || `${agent} waiting for input`;
+  if (event === 'TaskCreated') return `Task created: ${body.task_name || body.description || 'Unnamed task'}`;
+  if (event === 'TaskCompleted') return `Task completed: ${body.task_name || body.description || 'Unnamed task'}`;
+  if (event === 'Stop') return `${agent} stopped (${body.stop_reason || 'end_turn'})`;
+  return `${agent} hook: ${event}`;
+}
+
+function appendHookRunEvent(sessionId: string, agent: string, event: string, body: any) {
+  try {
+    const row = queries.appendRunEvent(
+      sessionId,
+      Date.now(),
+      'hook',
+      'high',
+      hookKind(event, body),
+      hookText(agent, event, body).slice(0, 12_000),
+      JSON.stringify({ agent, event, body }),
+      null,
+    );
+    const runEvent = normalizeRunEvent(row);
+    if (runEvent) broadcast(sessionId, { type: 'run_event_created', sessionId, event: runEvent });
+  } catch {}
+}
 
 export async function POST({ request }: RequestEvent) {
   let body: any;
@@ -44,6 +105,10 @@ export async function POST({ request }: RequestEvent) {
 
   const { getRouter } = await import('$lib/server/message-router.js');
   const router = getRouter();
+
+  if (sessionId) {
+    appendHookRunEvent(sessionId, agent, event, body);
+  }
 
   // ─── Route by Agent & Event Type ──────────────────────────────────────
 

@@ -570,6 +570,15 @@ getPtyManager().then(async ptm => {
   ptm.onEvent((event: { sessionId: string; ts: number; kind: string; data: Record<string, unknown> }) => {
     try {
       queries.appendTerminalEvent(event.sessionId, event.ts, event.kind, JSON.stringify(event.data ?? {}));
+      appendRunEvent(
+        event.sessionId,
+        'tmux',
+        'raw',
+        'system',
+        tmuxEventText(event.kind, event.data ?? {}),
+        { tmux_kind: event.kind, ...(event.data ?? {}) },
+        null,
+      );
     } catch {}
   });
 
@@ -585,6 +594,15 @@ getPtyManager().then(async ptm => {
   // agent_event message to the chat — that's the only path terminal content
   // reaches the chat.
   ptm.onLine(async (sessionId: string, text: string) => {
+    appendRunEvent(
+      sessionId,
+      'terminal',
+      'medium',
+      kindFromTerminalText(text),
+      text,
+      { source_event: 'terminal_line' },
+      null,
+    );
     // Feed to agent event bus for interactive event detection
     import('./src/lib/server/agent-event-bus.js')
       .then(({ feed }) => feed(sessionId, text))
@@ -618,6 +636,97 @@ getPtyManager().then(async ptm => {
 
   const { broadcast } = await import('./src/lib/server/ws-broadcast.js');
 
+  type RunEventSource = 'hook' | 'json' | 'terminal' | 'status' | 'tmux';
+  type RunEventTrust = 'high' | 'medium' | 'raw';
+
+  function normalizeRunEvent(row: any) {
+    if (!row) return null;
+    let payload: unknown = {};
+    try { payload = typeof row.payload === 'string' ? JSON.parse(row.payload) : (row.payload ?? {}); }
+    catch { payload = {}; }
+    return {
+      id: row.id,
+      session_id: row.session_id,
+      ts: row.ts_ms,
+      ts_ms: row.ts_ms,
+      source: row.source,
+      trust: row.trust,
+      kind: row.kind,
+      text: row.text ?? '',
+      payload,
+      raw_ref: row.raw_ref ?? null,
+      created_at: row.created_at,
+    };
+  }
+
+  function appendRunEvent(
+    sessionId: string,
+    source: RunEventSource,
+    trust: RunEventTrust,
+    kind: string,
+    text: string,
+    payload: Record<string, unknown> = {},
+    rawRef: string | null = null,
+  ) {
+    const cleanText = text.trim();
+    if (!cleanText && Object.keys(payload).length === 0) return null;
+    try {
+      const row = queries.appendRunEvent(
+        sessionId,
+        Date.now(),
+        source,
+        trust,
+        kind,
+        cleanText.slice(0, 12_000),
+        JSON.stringify(payload),
+        rawRef,
+      );
+      const event = normalizeRunEvent(row);
+      if (event) {
+        broadcast(sessionId, { type: 'run_event_created', sessionId, event });
+      }
+      return event;
+    } catch {
+      return null;
+    }
+  }
+
+  function kindFromTerminalText(text: string): string {
+    if (/\b(error|failed|exception|traceback|fatal|denied)\b/i.test(text)) return 'error';
+    if (/\b(reading|searching|running|writing|edited|added|created|updated|deleted|test|build)\b/i.test(text)) return 'progress';
+    return 'message';
+  }
+
+  function kindFromAgentEvent(event: any): string {
+    const eventClass = String(event?.class ?? event?.type ?? '');
+    if (eventClass === 'permission_request' || eventClass === 'tool_auth') return 'permission';
+    if (eventClass === 'free_text' || eventClass === 'multi_choice' || eventClass === 'confirmation') return 'question';
+    if (eventClass === 'error_retry') return 'error';
+    if (eventClass === 'progress' || eventClass === 'thinking') return 'progress';
+    return 'message';
+  }
+
+  function textFromAgentEvent(event: any): string {
+    return String(
+      event?.text ??
+      event?.payload?.message ??
+      event?.payload?.question ??
+      event?.payload?.prompt ??
+      event?.payload?.status ??
+      event?.class ??
+      event?.type ??
+      'Agent event',
+    );
+  }
+
+  function tmuxEventText(kind: string, data: Record<string, unknown>): string {
+    if (kind === 'alert-silence') return 'Terminal went quiet';
+    if (kind === 'ctrl-exit') return 'tmux control connection exited';
+    const name = typeof data.name === 'string' ? `: ${data.name}` : '';
+    const raw = typeof data.raw === 'string' ? ` ${data.raw}` : '';
+    return `tmux ${kind}${name}${raw}`.trim();
+  }
+
   async function postToLinkedChat(
     sessionId: string,
     chatId: string,
@@ -645,8 +754,18 @@ getPtyManager().then(async ptm => {
       });
       if (msgType === 'agent_event') {
         try {
+          const event = JSON.parse(content);
+          appendRunEvent(
+            sessionId,
+            'terminal',
+            'medium',
+            kindFromAgentEvent(event),
+            textFromAgentEvent(event),
+            { event, chat_id: chatId, message_id: msgId },
+            null,
+          );
           const { trackEvent } = await import('./src/lib/server/agent-event-bus.js');
-          trackEvent(sessionId, msgId, chatId, JSON.parse(content));
+          trackEvent(sessionId, msgId, chatId, event);
         } catch (e) {
           console.error('[linkedchat] track agent_event failed:', e);
         }
@@ -666,6 +785,7 @@ getPtyManager().then(async ptm => {
       updateMessageMeta: queries.updateMessageMeta,
       broadcastToChat: broadcast,
       broadcastGlobal,
+      appendRunEvent,
     });
   }).catch(() => {});
 

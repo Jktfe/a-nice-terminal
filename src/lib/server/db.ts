@@ -288,6 +288,26 @@ function getDb(): any {
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_term_events_session_ts ON terminal_events(session_id, ts_ms)`);
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_term_events_kind ON terminal_events(kind)`);
 
+  // Unified append-only timeline for the ANT Terminal view. This is the
+  // interpreted, trust-labelled stream that sits between linked chat and raw
+  // terminal: hooks/JSON where available, parsed terminal diffs otherwise,
+  // with optional pointers back to raw transcript chunks for audit.
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS run_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    ts_ms INTEGER NOT NULL,
+    source TEXT NOT NULL CHECK(source IN ('hook','json','terminal','status','tmux')),
+    trust TEXT NOT NULL CHECK(trust IN ('high','medium','raw')),
+    kind TEXT NOT NULL,
+    text TEXT DEFAULT '',
+    payload TEXT DEFAULT '{}',
+    raw_ref TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_run_events_session_ts ON run_events(session_id, ts_ms)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_run_events_source ON run_events(source)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_run_events_kind ON run_events(kind)`);
+
   G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS command_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -746,6 +766,58 @@ export const queries = {
       WHERE session_id = ? AND ts_ms >= ?
       ORDER BY ts_ms DESC LIMIT ?
     `).all(sessionId, sinceMs, limit);
+  },
+
+  appendRunEvent: (
+    sessionId: string,
+    tsMs: number,
+    source: string,
+    trust: string,
+    kind: string,
+    text: string,
+    payload: string,
+    rawRef: string | null = null,
+  ) => {
+    const result = prepare(`
+      INSERT INTO run_events (session_id, ts_ms, source, trust, kind, text, payload, raw_ref)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(sessionId, tsMs, source, trust, kind, text, payload, rawRef);
+    return prepare(`
+      SELECT id, session_id, ts_ms, source, trust, kind, text, payload, raw_ref, created_at
+      FROM run_events WHERE id = ?
+    `).get(result.lastInsertRowid);
+  },
+
+  getRunEvents: (
+    sessionId: string,
+    sinceMs: number,
+    source: string | null,
+    kind: string | null,
+    q: string | null,
+    limit: number,
+  ) => {
+    const clauses = ['session_id = ?', 'ts_ms >= ?'];
+    const args: unknown[] = [sessionId, sinceMs];
+    if (source) {
+      clauses.push('source = ?');
+      args.push(source);
+    }
+    if (kind) {
+      clauses.push('kind = ?');
+      args.push(kind);
+    }
+    if (q) {
+      clauses.push('text LIKE ?');
+      args.push(`%${q}%`);
+    }
+    args.push(limit);
+    return prepare(`
+      SELECT id, session_id, ts_ms, source, trust, kind, text, payload, raw_ref, created_at
+      FROM run_events
+      WHERE ${clauses.join(' AND ')}
+      ORDER BY ts_ms DESC, id DESC
+      LIMIT ?
+    `).all(...args);
   },
 
   // Command events
