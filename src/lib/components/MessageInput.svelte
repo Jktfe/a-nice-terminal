@@ -2,6 +2,7 @@
   import { NOCTURNE, agentColor } from '$lib/nocturne';
   import AgentDot from './AgentDot.svelte';
   import NocturneIcon from './NocturneIcon.svelte';
+  import QuickLaunchBar from './QuickLaunchBar.svelte';
   import { activeRoutingMentions, bracketRoutingMention } from '$lib/utils/mentions';
 
   let {
@@ -9,11 +10,15 @@
     replyTo = null,
     onClearReply,
     handles = [],
+    quickLaunchSessionId = null,
+    quickLaunchDriver = null,
   }: {
     onSend: (text: string, replyToId?: string | null) => void;
     replyTo?: any;
     onClearReply?: () => void;
     handles?: { handle: string; name: string }[];
+    quickLaunchSessionId?: string | null;
+    quickLaunchDriver?: string | null;
   } = $props();
 
   let text = $state('');
@@ -106,6 +111,15 @@
     }, 0);
   }
 
+  function insertQuickLaunchCommand(command: string) {
+    text = command;
+    setTimeout(() => {
+      inputEl?.focus();
+      inputEl?.setSelectionRange(command.length, command.length);
+      resizeInput();
+    }, 0);
+  }
+
   function handleSubmit() {
     const trimmed = text.trim();
     if (!trimmed) return;
@@ -158,7 +172,16 @@
   }
 </script>
 
-<div class="relative" style="padding: 12px 16px; border-top: 0.5px solid var(--hairline-strong);">
+<div class="relative" style="padding: 0; border-top: 0.5px solid var(--hairline-strong);">
+  {#if quickLaunchSessionId}
+    <QuickLaunchBar
+      sessionId={quickLaunchSessionId}
+      driver={quickLaunchDriver}
+      onInsertCommand={insertQuickLaunchCommand}
+    />
+  {/if}
+
+  <div style="padding: 12px 16px;">
   <!-- @ mention dropdown -->
   {#if showMentions && filteredHandles.length > 0}
     <div
@@ -339,5 +362,6 @@
       <span>Send</span>
       <NocturneIcon name="send" size={11} color="#fff" />
     </button>
+  </div>
   </div>
 </div>

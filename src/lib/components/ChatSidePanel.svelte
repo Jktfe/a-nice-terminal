@@ -4,6 +4,7 @@
   import AgentEventCard from '$lib/components/AgentEventCard.svelte';
   import TerminalLine from '$lib/components/TerminalLine.svelte';
   import ChatParticipants from '$lib/components/ChatParticipants.svelte';
+  import QuickLaunchBar from '$lib/components/QuickLaunchBar.svelte';
   import { isAutoLinkedChatSession } from '$lib/utils/linked-chat';
 
   interface PageSession {
@@ -154,6 +155,10 @@
     if (!linkedChatInputLocal.trim()) return;
     onPostToLinkedChat(linkedChatInputLocal.trim());
     linkedChatInputLocal = '';
+  }
+
+  function insertLinkedQuickLaunch(command: string) {
+    linkedChatInputLocal = command;
   }
 
   function handleCreateTask() {
@@ -319,6 +324,11 @@
               </div>
 
               <!-- Quick reply -->
+              <QuickLaunchBar
+                sessionId={linkedChatId || sessionId}
+                driver={session?.cli_flag ?? null}
+                onInsertCommand={insertLinkedQuickLaunch}
+              />
               <div class="flex gap-1.5 mt-1.5">
                 <input
                   class="flex-1 text-xs rounded-lg px-2.5 py-1.5 outline-none"

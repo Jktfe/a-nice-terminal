@@ -140,6 +140,10 @@
   });
 
   const footerStatusSessionIds = $derived(footerStatusParticipants.map((participant) => participant.sess.id));
+  const chatQuickLaunchDriver = $derived.by(() => {
+    if (session?.type === 'terminal') return session.cli_flag ?? null;
+    return allSessions.find((s) => s.type === 'terminal' && s.linked_chat_id === sessionId)?.cli_flag ?? null;
+  });
 
   async function fetchAgentStatuses() {
     const ids = footerStatusSessionIds;
@@ -831,6 +835,8 @@
       {replyTo}
       onClearReply={onClearReply}
       handles={mentionHandles}
+      quickLaunchSessionId={sessionId}
+      quickLaunchDriver={chatQuickLaunchDriver}
     />
   {/if}
 </div>
