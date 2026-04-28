@@ -411,7 +411,12 @@ wss.on('connection', async (ws) => {
           // cols/rows come from fitAddon.fit(), which has run before connect() is called.
           console.log(`[ws] join_session ${msg.sessionId} spawnPty=${!!msg.spawnPty} cols=${msg.cols} rows=${msg.rows} type=${sess?.type}`);
 
-          if (msg.spawnPty && sess?.type === 'terminal') {
+          const canSpawnTerminal =
+            sess?.type === 'terminal' &&
+            !(sess as any).deleted_at &&
+            !(sess as any).archived;
+
+          if (msg.spawnPty && canSpawnTerminal) {
             const cols = typeof msg.cols === 'number' ? msg.cols : 120;
             const rows = typeof msg.rows === 'number' ? msg.rows : 30;
             const result = await ptm.spawn(msg.sessionId, msg.cwd || process.env.HOME || '/tmp', cols, rows);
@@ -432,6 +437,14 @@ wss.on('connection', async (ws) => {
                 ptm.resize(msg.sessionId, c, r);
               }, 300);
             }
+          } else if (msg.spawnPty && sess?.type === 'terminal') {
+            console.warn(`[ws] refusing to spawn inactive terminal ${msg.sessionId} archived=${!!(sess as any).archived} deleted=${!!(sess as any).deleted_at}`);
+            ws.send(JSON.stringify({
+              type: 'session_health',
+              sessionId: msg.sessionId,
+              alive: false,
+              unavailable: true,
+            }));
           }
 
           // Now start receiving live output (after scrollback has been queued for send)
@@ -443,40 +456,53 @@ wss.on('connection', async (ws) => {
           leaveClientSession(clientKey, msg.sessionId);
           break;
         case 'terminal_input':
-          ptm.write(msg.sessionId, msg.data);
-          // Auto-detect CLI from first terminal input (set once, overrideable)
-          if (msg.data && !autoDetectedSessions.has(msg.sessionId)) {
-            const input = msg.data.toLowerCase();
-            const CLI_DETECT: [RegExp, string][] = [
-              [/\bclaude\b/, 'claude-code'],
-              [/\bcodex\b/, 'codex-cli'],
-              [/\bgemini\b/, 'gemini-cli'],
-              [/\bcopilot\b/, 'copilot-cli'],
-              [/\bqwen\b/, 'qwen-cli'],
-              [/\bpi\b(?:\s+--|$)/, 'pi'],
-              [/\baider\b/, 'lm-studio'],
-              [/\bperspective\b/, 'perspective'],
-              [/\bollama\b/, 'ollama'],
-            ];
-            for (const [re, slug] of CLI_DETECT) {
-              if (re.test(input)) {
-                autoDetectedSessions.add(msg.sessionId);
-                // Only set if session doesn't already have a cli_flag
-                const sess = queries.getSession(msg.sessionId) as any;
-                if (sess && !sess.cli_flag) {
-                  // Set cli_flag directly via DB + PTY daemon (same as the REST endpoint)
-                  queries.setCliFlag(msg.sessionId, slug);
-                  const meta = JSON.parse((sess.meta as string) || '{}');
-                  meta.agent_driver = slug;
-                  queries.updateSession(null, null, null, JSON.stringify(meta), msg.sessionId);
-                  import('./src/lib/cli-modes.js').then(({ getCliMode }) => {
-                    const mode = getCliMode(slug);
-                    ptm.setCliFlag(msg.sessionId, slug, mode?.stripLines ?? 0);
-                  }).catch(() => {});
-                  broadcast(msg.sessionId, { type: 'cli_flag_updated', sessionId: msg.sessionId, cli_flag: slug });
-                  console.log(`[auto-detect] ${msg.sessionId} → ${slug}`);
+          {
+            const { queries: q2 } = await import('./src/lib/server/db.js');
+            const inputSession = q2.getSession(msg.sessionId) as any;
+            if (
+              !inputSession ||
+              inputSession.type !== 'terminal' ||
+              inputSession.deleted_at ||
+              inputSession.archived
+            ) {
+              console.warn(`[ws] refusing terminal_input for inactive terminal ${msg.sessionId}`);
+              break;
+            }
+            ptm.write(msg.sessionId, msg.data);
+            // Auto-detect CLI from first terminal input (set once, overrideable)
+            if (msg.data && !autoDetectedSessions.has(msg.sessionId)) {
+              const input = msg.data.toLowerCase();
+              const CLI_DETECT: [RegExp, string][] = [
+                [/\bclaude\b/, 'claude-code'],
+                [/\bcodex\b/, 'codex-cli'],
+                [/\bgemini\b/, 'gemini-cli'],
+                [/\bcopilot\b/, 'copilot-cli'],
+                [/\bqwen\b/, 'qwen-cli'],
+                [/\bpi\b(?:\s+--|$)/, 'pi'],
+                [/\baider\b/, 'lm-studio'],
+                [/\bperspective\b/, 'perspective'],
+                [/\bollama\b/, 'ollama'],
+              ];
+              for (const [re, slug] of CLI_DETECT) {
+                if (re.test(input)) {
+                  autoDetectedSessions.add(msg.sessionId);
+                  // Only set if session doesn't already have a cli_flag
+                  const sess = inputSession;
+                  if (sess && !sess.cli_flag) {
+                    // Set cli_flag directly via DB + PTY daemon (same as the REST endpoint)
+                    q2.setCliFlag(msg.sessionId, slug);
+                    const meta = JSON.parse((sess.meta as string) || '{}');
+                    meta.agent_driver = slug;
+                    q2.updateSession(null, null, null, JSON.stringify(meta), msg.sessionId);
+                    import('./src/lib/cli-modes.js').then(({ getCliMode }) => {
+                      const mode = getCliMode(slug);
+                      ptm.setCliFlag(msg.sessionId, slug, mode?.stripLines ?? 0);
+                    }).catch(() => {});
+                    broadcast(msg.sessionId, { type: 'cli_flag_updated', sessionId: msg.sessionId, cli_flag: slug });
+                    console.log(`[auto-detect] ${msg.sessionId} → ${slug}`);
+                  }
+                  break;
                 }
-                break;
               }
             }
           }

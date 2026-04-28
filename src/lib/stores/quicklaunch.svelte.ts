@@ -1,4 +1,5 @@
 /** Per-session quick-launch button configs, persisted in localStorage. */
+import { browser } from '$app/environment';
 
 export interface QuickLaunchButton {
   id: string;
@@ -11,6 +12,7 @@ export interface QuickLaunchButton {
 const STORAGE_KEY = 'ant:quick-launch';
 
 function load(): Record<string, QuickLaunchButton[]> {
+  if (!browser) return {};
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     return raw ? JSON.parse(raw) : {};
@@ -20,7 +22,12 @@ function load(): Record<string, QuickLaunchButton[]> {
 }
 
 function save(data: Record<string, QuickLaunchButton[]>) {
+  if (!browser) return;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+function hasOwn(data: Record<string, QuickLaunchButton[]>, sessionId: string) {
+  return Object.prototype.hasOwnProperty.call(data, sessionId);
 }
 
 function genId() {
@@ -45,15 +52,25 @@ function isButton(value: any): value is QuickLaunchButton {
     && typeof value.command === 'string';
 }
 
-function mergeLocalButtons(current: QuickLaunchButton[], local: QuickLaunchButton[]): QuickLaunchButton[] {
-  // User-edited buttons (already in current) take priority over server presets.
-  // Only ADD server buttons that don't already exist by id or command.
-  const currentIds = new Set(current.map((b) => b.id));
-  const currentCommands = new Set(current.map((b) => b.command));
-  const defaultIds = new Set(DEFAULTS.map((b) => b.id));
+function sameButton(a: QuickLaunchButton, b: QuickLaunchButton) {
+  return a.id === b.id
+    && a.label === b.label
+    && a.icon === b.icon
+    && a.command === b.command
+    && (a.color ?? '') === (b.color ?? '');
+}
 
-  // Remove stale defaults that the server presets replace
-  const withoutStaleDefaults = current.filter((b) => !defaultIds.has(b.id));
+function isUntouchedDefault(button: QuickLaunchButton) {
+  return DEFAULTS.some((defaultButton) => sameButton(button, defaultButton));
+}
+
+function mergeLocalButtons(current: QuickLaunchButton[], local: QuickLaunchButton[]): QuickLaunchButton[] {
+  // User-edited buttons take priority over server presets. Only replace stock
+  // defaults that are still untouched; default IDs alone are not enough because
+  // edited defaults keep their original IDs.
+  const withoutStaleDefaults = current.filter((b) => !isUntouchedDefault(b));
+  const currentIds = new Set(withoutStaleDefaults.map((b) => b.id));
+  const currentCommands = new Set(withoutStaleDefaults.map((b) => b.command));
 
   // Add server buttons that aren't already present
   const newFromServer = local.filter((b) =>
@@ -72,52 +89,77 @@ function migrateButtons(buttons: QuickLaunchButton[]): QuickLaunchButton[] {
   });
 }
 
+type QuickLaunchState = {
+  buttons: QuickLaunchButton[];
+  loadedLocalDefaults: boolean;
+  hasSavedSession: boolean;
+};
+
+const states = new Map<string, QuickLaunchState>();
+
+function getState(sessionId: string, driver?: string | null) {
+  const existing = browser ? states.get(sessionId) : null;
+  if (existing) return existing;
+
+  const allData = load();
+  const hasSavedSession = hasOwn(allData, sessionId);
+  const savedButtons = hasSavedSession && Array.isArray(allData[sessionId])
+    ? allData[sessionId]
+    : null;
+  const state = $state<QuickLaunchState>({
+    buttons: migrateButtons(savedButtons ?? [...getDefaults(driver)]),
+    loadedLocalDefaults: false,
+    hasSavedSession,
+  });
+  if (browser) states.set(sessionId, state);
+  return state;
+}
+
 /** Reactive store: returns buttons for a given session and mutation helpers. */
 export function useQuickLaunch(sessionId: string, driver?: string | null) {
-  const allData = load();
-  let buttons = $state<QuickLaunchButton[]>(migrateButtons(allData[sessionId] ?? [...getDefaults(driver)]));
-  let loadedLocalDefaults = false;
+  const state = getState(sessionId, driver);
 
   function persist() {
     const allData = load();
-    allData[sessionId] = buttons;
+    allData[sessionId] = state.buttons;
     save(allData);
+    state.hasSavedSession = true;
   }
 
   return {
-    get buttons() { return buttons; },
+    get buttons() { return state.buttons; },
 
     add(btn: Omit<QuickLaunchButton, 'id'>) {
-      buttons = [...buttons, { ...btn, id: genId() }];
+      state.buttons = [...state.buttons, { ...btn, id: genId() }];
       persist();
     },
 
     update(id: string, patch: Partial<Omit<QuickLaunchButton, 'id'>>) {
-      buttons = buttons.map(b => b.id === id ? { ...b, ...patch } : b);
+      state.buttons = state.buttons.map(b => b.id === id ? { ...b, ...patch } : b);
       persist();
     },
 
     remove(id: string) {
-      buttons = buttons.filter(b => b.id !== id);
+      state.buttons = state.buttons.filter(b => b.id !== id);
       persist();
     },
 
     reorder(fromIdx: number, toIdx: number) {
-      const arr = [...buttons];
+      const arr = [...state.buttons];
       const [moved] = arr.splice(fromIdx, 1);
       arr.splice(toIdx, 0, moved);
-      buttons = arr;
+      state.buttons = arr;
       persist();
     },
 
     reset() {
-      buttons = [...getDefaults(driver)];
+      state.buttons = [...getDefaults(driver)];
       persist();
     },
 
     async loadLocalDefaults() {
-      if (loadedLocalDefaults) return;
-      loadedLocalDefaults = true;
+      if (state.loadedLocalDefaults || state.hasSavedSession) return;
+      state.loadedLocalDefaults = true;
 
       try {
         const res = await fetch('/api/quick-launch');
@@ -126,7 +168,7 @@ export function useQuickLaunch(sessionId: string, driver?: string | null) {
         if (!Array.isArray(data?.buttons) || data.buttons.length === 0) return;
         const localButtons = data.buttons.filter(isButton);
         if (localButtons.length === 0) return;
-        buttons = mergeLocalButtons(buttons, localButtons);
+        state.buttons = mergeLocalButtons(state.buttons, localButtons);
         persist();
       } catch {
         // Local quick-launch presets are optional.
