@@ -1078,7 +1078,7 @@
       });
     }}
     onDigestToggle={() => (showDigest = !showDigest)}
-    onCreateDiscussion={async () => {
+    onCreateDiscussion={session?.type === 'chat' ? async () => {
       try {
         const res = await fetch(`/api/sessions/${sessionId}/links`, {
           method: 'POST',
@@ -1090,7 +1090,7 @@
           goto(`/session/${data.targetRoomId}`);
         }
       } catch {}
-    }}
+    } : undefined}
   />
 
   {#if showDigest}
