@@ -216,4 +216,59 @@ describe('agent status endpoint state', () => {
 
     dispose(sessionId);
   });
+
+  it('marks stale actionable prompts discarded when the agent moves on', async () => {
+    const sessionId = `event-moved-on-test-${Date.now()}`;
+    const metaUpdates: Array<{ msgId: string; meta: any }> = [];
+    const broadcasts: any[] = [];
+
+    init({
+      getSession: id => id === sessionId
+        ? { id, linked_chat_id: 'linked-chat', meta: JSON.stringify({ agent_driver: 'claude-code' }) }
+        : null,
+      postToChat: () => {},
+      writeToTerminal: () => {},
+      updateMessageMeta: (msgId, meta) => metaUpdates.push({ msgId, meta: JSON.parse(meta) }),
+      broadcastToChat: (_chatId, msg) => broadcasts.push(msg),
+      broadcastGlobal: msg => broadcasts.push(msg),
+    });
+
+    trackEvent(sessionId, 'msg-stale', 'chat-stale', {
+      class: 'confirmation',
+      payload: { question: 'Should I keep waiting?' },
+      text: 'Should I keep waiting?',
+      ts: 123456,
+    } as any);
+
+    await feed(sessionId, '⏺ Running npm test…\n');
+    await wait(150);
+
+    expect(metaUpdates).toEqual([{
+      msgId: 'msg-stale',
+      meta: expect.objectContaining({
+        status: 'discarded',
+        chosen: 'moved_on',
+        discard_reason: 'agent_moved_on',
+      }),
+    }]);
+    expect(broadcasts.some(msg => msg.type === 'session_input_resolved')).toBe(true);
+    expect(getPendingEvent(sessionId)).toMatchObject({ needs_input: false });
+
+    dispose(sessionId);
+  });
+
+  it('does not track progress events as needs-input prompts', () => {
+    const sessionId = `progress-not-pending-test-${Date.now()}`;
+
+    trackEvent(sessionId, 'msg-progress', 'chat-progress', {
+      class: 'progress',
+      payload: { action: 'Running tests' },
+      text: 'Running tests',
+      ts: 123456,
+    } as any);
+
+    expect(getPendingEvent(sessionId)).toMatchObject({ needs_input: false });
+
+    dispose(sessionId);
+  });
 });
