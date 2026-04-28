@@ -322,6 +322,9 @@ const wss = new WebSocketServer({ noServer: true });
 interface WSClient { joinedSessions: Set<string> }
 const clients = new Map<any, WSClient>();
 
+// Track sessions where CLI auto-detection has already fired (set once per session)
+const autoDetectedSessions = new Set<string>();
+
 // Shared broadcast registry — API routes use this to push events to WS clients
 import('./src/lib/server/ws-broadcast.js').catch(() => {});
 import('./src/lib/server/router-init.js').then((m) => { m.initRouter(); }).catch((e) => console.error('[message-router] init failed:', e));
@@ -441,6 +444,42 @@ wss.on('connection', async (ws) => {
           break;
         case 'terminal_input':
           ptm.write(msg.sessionId, msg.data);
+          // Auto-detect CLI from first terminal input (set once, overrideable)
+          if (msg.data && !autoDetectedSessions.has(msg.sessionId)) {
+            const input = msg.data.toLowerCase();
+            const CLI_DETECT: [RegExp, string][] = [
+              [/\bclaude\b/, 'claude-code'],
+              [/\bcodex\b/, 'codex-cli'],
+              [/\bgemini\b/, 'gemini-cli'],
+              [/\bcopilot\b/, 'copilot-cli'],
+              [/\bqwen\b/, 'qwen-cli'],
+              [/\bpi\b(?:\s+--|$)/, 'pi'],
+              [/\baider\b/, 'lm-studio'],
+              [/\bperspective\b/, 'perspective'],
+              [/\bollama\b/, 'ollama'],
+            ];
+            for (const [re, slug] of CLI_DETECT) {
+              if (re.test(input)) {
+                autoDetectedSessions.add(msg.sessionId);
+                // Only set if session doesn't already have a cli_flag
+                const sess = queries.getSession(msg.sessionId) as any;
+                if (sess && !sess.cli_flag) {
+                  // Set cli_flag directly via DB + PTY daemon (same as the REST endpoint)
+                  queries.setCliFlag(msg.sessionId, slug);
+                  const meta = JSON.parse((sess.meta as string) || '{}');
+                  meta.agent_driver = slug;
+                  queries.updateSession(null, null, null, JSON.stringify(meta), msg.sessionId);
+                  import('./src/lib/cli-modes.js').then(({ getCliMode }) => {
+                    const mode = getCliMode(slug);
+                    ptm.setCliFlag(msg.sessionId, slug, mode?.stripLines ?? 0);
+                  }).catch(() => {});
+                  broadcast(msg.sessionId, { type: 'cli_flag_updated', sessionId: msg.sessionId, cli_flag: slug });
+                  console.log(`[auto-detect] ${msg.sessionId} → ${slug}`);
+                }
+                break;
+              }
+            }
+          }
           break;
         case 'terminal_resize':
           ptm.resize(msg.sessionId, msg.cols, msg.rows);
