@@ -467,6 +467,15 @@ Do not persist copied ANT operational state in Dave records:
 - Store ANT IDs and evidence references instead, then rebuild snapshots from
   ANT when needed.
 
+Private routing configuration should treat provider economics and locality as a
+separate layer from capability. A `ProviderConfig` record can describe which
+account/provider is appropriate for a task without leaking private account
+details into shared docs. Track `inference_locality` and `data_locality`
+separately: `inference_locality` describes where model execution happens, while
+`data_locality` describes whether connectors or source systems require external
+data movement. Local inference does not imply local data, and cloud connectors
+do not automatically mean cloud inference.
+
 ## Fixture Checklist
 
 Adapter tests should use fixture responses shaped like the real ANT surface.

@@ -3,6 +3,26 @@ import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
 import { nanoid } from 'nanoid';
 
+const RESOLVED_AGENT_EVENT_STATUSES = new Set(['discarded', 'dismissed', 'settled', 'responded']);
+
+function terminalIdsForAgentEvent(chatId: string, message: any): string[] {
+  const ids = new Set<string>();
+
+  if (message.sender_id) {
+    const sender = queries.getSession(message.sender_id) || queries.getSessionByHandle(message.sender_id);
+    ids.add(sender?.id || message.sender_id);
+  }
+
+  try {
+    const linkedTerminals = queries.getTerminalsByLinkedChat(chatId) as any[];
+    for (const terminal of linkedTerminals) {
+      if (terminal?.id) ids.add(terminal.id);
+    }
+  } catch {}
+
+  return [...ids];
+}
+
 // PATCH /api/sessions/:id/messages?msgId= — update meta (reactions, bookmarks)
 export async function PATCH({ params, url, request }: RequestEvent<{ id: string }>) {
   const msgId = url.searchParams.get('msgId');
@@ -24,15 +44,12 @@ export async function PATCH({ params, url, request }: RequestEvent<{ id: string 
   const { broadcast } = await import('$lib/server/ws-broadcast.js');
   broadcast(params.id, { type: 'message_updated', sessionId: params.id, msgId, meta: merged });
 
-  if (
-    existing.msg_type === 'agent_event' &&
-    (merged.status === 'discarded' || merged.status === 'dismissed') &&
-    existing.sender_id
-  ) {
-    const sender = queries.getSession(existing.sender_id) || queries.getSessionByHandle(existing.sender_id);
-    const terminalSessionId = sender?.id || existing.sender_id;
+  if (existing.msg_type === 'agent_event' && RESOLVED_AGENT_EVENT_STATUSES.has(merged.status)) {
     const { discardEvent } = await import('$lib/server/agent-event-bus.js');
-    discardEvent(terminalSessionId, msgId);
+    const terminalIds = terminalIdsForAgentEvent(params.id, existing);
+    for (const terminalSessionId of terminalIds) {
+      discardEvent(terminalSessionId, msgId);
+    }
   }
 
   return json({ msgId, meta: merged });
