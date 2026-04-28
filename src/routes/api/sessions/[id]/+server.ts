@@ -131,8 +131,9 @@ export async function PATCH({ params, request }: RequestEvent<{ id: string }>) {
   return json(session);
 }
 
-// Soft-delete by default: marks deleted_at, PTY keeps running, recoverable within
-// TTL window. `?hard=true` permanently removes the session.
+// Soft-delete by default: marks deleted_at and keeps the row recoverable within
+// the TTL window. Terminal deletes still tear down the live PTY immediately so
+// hidden sessions do not leave zsh/agent processes running.
 export async function DELETE({ params, url }: RequestEvent<{ id: string }>) {
   const session = queries.getSession(params.id);
   if (!session) throw error(404, 'Session not found');
@@ -163,6 +164,10 @@ export async function DELETE({ params, url }: RequestEvent<{ id: string }>) {
 
     for (const id of idsToDelete) queries.hardDeleteSession(id);
   } else {
+    if ((session as any).type === 'terminal') {
+      const { ptyClient } = await import('$lib/server/pty-client.js');
+      ptyClient.kill(params.id);
+    }
     queries.softDeleteSession(params.id);
   }
   const { broadcast } = await import('$lib/server/ws-broadcast.js');

@@ -100,7 +100,7 @@ export function useSessionStore() {
     }
   }
 
-  // Soft-delete: session moves to recoverable list, PTY keeps running
+  // Soft-delete: session moves to recoverable list; terminal PTYs are killed server-side.
   async function deleteSession(id: string) {
     const prev = sessions;
     const session = sessions.find(s => s.id === id);

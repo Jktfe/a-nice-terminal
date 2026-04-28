@@ -5,7 +5,9 @@
 //  2. The soft-delete recovery window (how long before a deleted session is gone for good)
 //
 // A LIVE running PTY is NEVER killed based on idle time.
-// The only automatic kills are: hard-expiring soft-deleted sessions past their TTL window.
+// User-initiated terminal DELETE kills the live PTY immediately. The only
+// automatic kills are idempotent cleanup for soft-deleted sessions past their
+// TTL window.
 
 import { queries, ttlMs } from './db.js';
 
@@ -49,8 +51,9 @@ export async function rehydrateSessions(pty: PTYClient): Promise<void> {
   let skipped = 0;
 
   for (const session of sessions) {
-    // Soft-deleted sessions: keep PTY running (for recovery) but don't reconnect
-    // to them — they're hidden from the user until restored or expired.
+    // Soft-deleted sessions: never reconnect. Terminal deletes should have
+    // already killed their PTY; the row stays recoverable until restored or
+    // expired.
     if (session.deleted_at) {
       const deletedAt = new Date(session.deleted_at).getTime();
       const withinWindow = session.ttl === 'forever' || (now - deletedAt) < ttlMs(session.ttl);
@@ -116,7 +119,7 @@ function runSweep(pty: PTYClient): void {
     const pastWindow = (now - deletedAt) >= ttlMs(session.ttl || '15m');
 
     if (pastWindow) {
-      // Recovery window closed — kill PTY (if still running) and hard-delete
+      // Recovery window closed — kill PTY if any stale process survived, then hard-delete
       pty.kill(session.id);
       queries.hardDeleteSession(session.id);
       console.log(`[lifecycle] recovery window expired → purged: ${session.name} (${session.id})`);
