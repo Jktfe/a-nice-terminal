@@ -34,6 +34,7 @@
     onCliFlagChange: (slug: string | null) => void;
     onChangeTtl: (ttl: string) => void;
     onDigestToggle: () => void;
+    onCreateDiscussion?: () => void;
   }
 
   const {
@@ -54,6 +55,7 @@
     onCliFlagChange,
     onChangeTtl,
     onDigestToggle,
+    onCreateDiscussion,
   }: Props = $props();
 
   let editingName = $state(false);
@@ -455,6 +457,21 @@
                 </button>
               {/each}
             </div>
+          {/if}
+          {#if onCreateDiscussion}
+            <button
+              onclick={() => { onMenuClose(); onCreateDiscussion?.(); }}
+              class="w-full text-left px-3 py-2 border-b transition-colors hover:bg-gray-50 dark:hover:bg-white/5"
+              style="color: var(--text-muted); border-color: #F3F4F6;"
+            >
+              <span class="inline-flex items-center gap-2">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2m-4 0H5a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v10zM7 11h4M7 15h2"/>
+                </svg>
+                New Discussion
+              </span>
+            </button>
           {/if}
           <button
             onclick={onDelete}

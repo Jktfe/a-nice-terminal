@@ -46,15 +46,21 @@ function isButton(value: any): value is QuickLaunchButton {
 }
 
 function mergeLocalButtons(current: QuickLaunchButton[], local: QuickLaunchButton[]): QuickLaunchButton[] {
-  const localIds = new Set(local.map((button) => button.id));
-  const localCommands = new Set(local.map((button) => button.command));
-  const defaultIds = new Set(DEFAULTS.map((button) => button.id));
-  const extras = current.filter((button) =>
-    !localIds.has(button.id) &&
-    !localCommands.has(button.command) &&
-    !defaultIds.has(button.id)
+  // User-edited buttons (already in current) take priority over server presets.
+  // Only ADD server buttons that don't already exist by id or command.
+  const currentIds = new Set(current.map((b) => b.id));
+  const currentCommands = new Set(current.map((b) => b.command));
+  const defaultIds = new Set(DEFAULTS.map((b) => b.id));
+
+  // Remove stale defaults that the server presets replace
+  const withoutStaleDefaults = current.filter((b) => !defaultIds.has(b.id));
+
+  // Add server buttons that aren't already present
+  const newFromServer = local.filter((b) =>
+    !currentIds.has(b.id) && !currentCommands.has(b.command)
   );
-  return migrateButtons([...local, ...extras]);
+
+  return migrateButtons([...withoutStaleDefaults, ...newFromServer]);
 }
 
 function migrateButtons(buttons: QuickLaunchButton[]): QuickLaunchButton[] {

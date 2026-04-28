@@ -132,6 +132,15 @@ const BUFFER_SIZE = 50;
 const CLASS_COOLDOWN_MS = 30_000;
 const CONTENT_DEDUP_MS = 5 * 60_000;
 const STATUS_BROADCAST_REFRESH_MS = 10_000;
+const ACTIONABLE_EVENT_CLASSES = new Set([
+  'permission_request',
+  'tool_auth',
+  'multi_choice',
+  'confirmation',
+  'free_text',
+  'text_input',
+  'error_retry',
+]);
 
 // ─── Injected dependencies (set during init) ────────────────────────────────
 
@@ -190,8 +199,12 @@ function buildSummary(event: any, eventClass: string): string {
 }
 
 function eventFingerprint(event: any, eventClass: string): string {
+  return `${eventClass}:${normaliseEventText(eventImportantText(event)).slice(0, 240)}`;
+}
+
+function eventImportantText(event: any): string {
   const payload = event.payload ?? {};
-  const important =
+  return String(
     payload.question ??
     payload.prompt ??
     payload.message ??
@@ -199,13 +212,26 @@ function eventFingerprint(event: any, eventClass: string): string {
     payload.file ??
     payload.tool ??
     event.text ??
-    '';
+    '',
+  );
+}
 
-  return `${eventClass}:${String(important)
+function normaliseEventText(text: string): string {
+  return text
     .toLowerCase()
     .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 240)}`;
+    .trim();
+}
+
+function isActionableEventClass(eventClass: string): boolean {
+  return ACTIONABLE_EVENT_CLASSES.has(eventClass);
+}
+
+function isEventStillVisible(event: NormalisedEvent, output: RawOutput): boolean {
+  const important = normaliseEventText(eventImportantText(event));
+  if (important.length < 8) return false;
+  const visible = normaliseEventText(output.lines.map(line => line.text).join('\n'));
+  return visible.includes(important.slice(0, 160));
 }
 
 function choiceLabel(choice: UserChoice): string {
@@ -404,6 +430,10 @@ async function onDebounce(sessionId: string, state: SessionState): Promise<void>
   const eventClass = (event as any).class ?? event.type;
   console.log(`[event-bus] DETECTED ${eventClass} in ${sessionId}`);
 
+  if (!isActionableEventClass(eventClass)) {
+    discardPendingEvents(sessionId, state, 'agent_moved_on');
+  }
+
   // Dedup: cooldown per event class — don't re-post the same class within 30s.
   // This prevents rapid-fire detection from capture-pane diffs that keep
   // showing the same screen content (spinner moves, same prompt stays).
@@ -438,7 +468,7 @@ async function onDebounce(sessionId: string, state: SessionState): Promise<void>
   console.log(`[event-bus] POSTED ${eventClass} to chat ${session.linked_chat_id}`);
 
   // Broadcast dashboard-level "needs input" badge to all connected clients
-  if (busDeps.broadcastGlobal) {
+  if (isActionableEventClass(eventClass) && busDeps.broadcastGlobal) {
     const summary = buildSummary(event, eventClass);
     busDeps.broadcastGlobal({
       type: 'session_needs_input',
@@ -622,13 +652,22 @@ function checkSettled(sessionId: string, state: SessionState): void {
   };
 
   for (const [key, pending] of state.pendingEvents) {
-    if (state.driver.isSettled(pending.event, output)) {
-      busDeps.updateMessageMeta(pending.msgId, JSON.stringify({ status: 'settled' }));
+    if (state.driver.isSettled(pending.event, output) && !isEventStillVisible(pending.event, output)) {
+      const eventClass = (pending.event as any).class ?? pending.event.type;
+      const meta = isActionableEventClass(eventClass)
+        ? {
+            status: 'discarded',
+            chosen: 'moved_on',
+            discard_reason: 'agent_moved_on',
+            discarded_at: new Date().toISOString(),
+          }
+        : { status: 'settled' };
+      busDeps.updateMessageMeta(pending.msgId, JSON.stringify(meta));
       busDeps.broadcastToChat(pending.chatId, {
         type: 'message_updated',
         sessionId: pending.chatId,
         msgId: pending.msgId,
-        meta: { status: 'settled' },
+        meta,
       });
       state.pendingEvents.delete(key);
 
@@ -642,8 +681,39 @@ function checkSettled(sessionId: string, state: SessionState): void {
 
 /** Track a posted event so we can check settled state later. */
 export function trackEvent(sessionId: string, msgId: string, chatId: string, event: NormalisedEvent): void {
+  const eventClass = (event as any).class ?? event.type;
+  if (!isActionableEventClass(eventClass)) return;
+
   const state = getState(sessionId);
   state.pendingEvents.set(msgId, { event, msgId, chatId });
+}
+
+function discardPendingEvents(sessionId: string, state: SessionState, reason: string): void {
+  if (state.pendingEvents.size === 0 || !busDeps.updateMessageMeta || !busDeps.broadcastToChat) return;
+
+  for (const [key, pending] of state.pendingEvents) {
+    const eventClass = (pending.event as any).class ?? pending.event.type;
+    if (!isActionableEventClass(eventClass)) continue;
+
+    const meta = {
+      status: 'discarded',
+      chosen: 'moved_on',
+      discard_reason: reason,
+      discarded_at: new Date().toISOString(),
+    };
+    busDeps.updateMessageMeta(pending.msgId, JSON.stringify(meta));
+    busDeps.broadcastToChat(pending.chatId, {
+      type: 'message_updated',
+      sessionId: pending.chatId,
+      msgId: pending.msgId,
+      meta,
+    });
+    state.pendingEvents.delete(key);
+  }
+
+  if (state.pendingEvents.size === 0) {
+    busDeps.broadcastGlobal?.({ type: 'session_input_resolved', sessionId });
+  }
 }
 
 /** Discard a pending event that was answered somewhere else. */

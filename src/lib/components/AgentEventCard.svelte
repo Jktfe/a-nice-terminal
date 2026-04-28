@@ -31,6 +31,25 @@
   const discarded = $derived(status === 'discarded' || status === 'dismissed');
   const active = $derived(status === 'pending' || !meta.status);
   const chosenAction: string = $derived(meta.chosen || '');
+  const eventDetail = $derived.by(() => {
+    const payload = event.payload ?? {};
+    return String(
+      payload.command ||
+      payload.file ||
+      payload.tool ||
+      payload.question ||
+      payload.prompt ||
+      payload.message ||
+      payload.error ||
+      event.text ||
+      JSON.stringify(payload)
+    );
+  });
+  const discardedLabel = $derived(
+    meta.discard_reason === 'agent_moved_on' || chosenAction === 'moved_on'
+      ? 'Agent moved on'
+      : 'Discarded'
+  );
 
   const isPerm = $derived(event.class === 'permission_request' || event.class === 'tool_auth');
   const isQuestion = $derived(event.class === 'free_text' || event.class === 'multi_choice' || event.class === 'confirmation');
@@ -76,9 +95,9 @@
 <!-- ─── Settled: collapsed single-line summary ─── -->
 {#if discarded}
   <div
-    class="flex items-center gap-2"
+    class="flex flex-col gap-1"
     style="
-      padding: 6px 12px;
+      padding: 8px 12px;
       border-radius: var(--radius-input);
       background: var(--hairline);
       font-family: var(--font-mono);
@@ -86,8 +105,20 @@
       color: var(--text-faint);
     "
   >
-    <span style="color: var(--text-faint);">✕</span>
-    <span>Discarded: <span style="color: var(--text-muted);">{label}</span></span>
+    <div class="flex items-center gap-2">
+      <span style="color: var(--text-faint);">✕</span>
+      <span>{discardedLabel}: <span style="color: var(--text-muted);">{label}</span></span>
+    </div>
+    {#if eventDetail && eventDetail !== '{}'}
+      <div
+        style="
+          color: var(--text-muted);
+          white-space: pre-wrap;
+          overflow-wrap: anywhere;
+          line-height: 1.4;
+        "
+      >{eventDetail}</div>
+    {/if}
   </div>
 {:else if settled}
   <div

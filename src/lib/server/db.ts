@@ -100,6 +100,20 @@ function getDb(): any {
   const crmCols = G[DB_KEY].prepare(`PRAGMA table_info(chat_room_members)`).all().map((c: any) => c.name);
   if (!crmCols.includes('alias')) G[DB_KEY].exec(`ALTER TABLE chat_room_members ADD COLUMN alias TEXT`);
 
+  // Room links — typed relationships between chat sessions (discussions, elevations, etc.)
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS room_links (
+    id TEXT PRIMARY KEY,
+    source_room_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    target_room_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    relationship TEXT NOT NULL,
+    title TEXT,
+    created_by TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_room_links_source ON room_links(source_room_id)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_room_links_target ON room_links(target_room_id)`);
+  G[DB_KEY].exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_room_links_unique ON room_links(source_room_id, target_room_id, relationship)`);
+
   // Channel registry — maps @handles to MCP channel server ports
   G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS channel_registry (
     handle TEXT PRIMARY KEY,
@@ -468,6 +482,18 @@ export const queries = {
     prepare(`SELECT port FROM channel_registry WHERE handle = ?`).get(handle) as { port: number } | undefined,
   listChannels: () =>
     prepare(`SELECT * FROM channel_registry`).all(),
+
+  // Room links
+  createRoomLink: (id: string, sourceRoomId: string, targetRoomId: string, relationship: string, title: string | null, createdBy: string | null) =>
+    prepare(`INSERT INTO room_links (id, source_room_id, target_room_id, relationship, title, created_by) VALUES (?, ?, ?, ?, ?, ?)`).run(id, sourceRoomId, targetRoomId, relationship, title, createdBy),
+  getRoomLinks: (roomId: string) =>
+    prepare(`SELECT rl.*, s.name as target_name, s.type as target_type FROM room_links rl JOIN sessions s ON s.id = rl.target_room_id WHERE rl.source_room_id = ? ORDER BY rl.created_at`).all(roomId),
+  getRoomBacklinks: (roomId: string) =>
+    prepare(`SELECT rl.*, s.name as source_name, s.type as source_type FROM room_links rl JOIN sessions s ON s.id = rl.source_room_id WHERE rl.target_room_id = ? ORDER BY rl.created_at`).all(roomId),
+  deleteRoomLinkForRoom: (id: string, roomId: string) =>
+    prepare(`DELETE FROM room_links WHERE id = ? AND source_room_id = ?`).run(id, roomId),
+  deleteRoomLink: (id: string) =>
+    prepare(`DELETE FROM room_links WHERE id = ?`).run(id),
 
   // Delivery log
   logDelivery: (messageId: string, sessionId: string, adapter: string, delivered: number, error: string | null) =>
