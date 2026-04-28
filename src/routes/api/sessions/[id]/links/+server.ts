@@ -43,7 +43,8 @@ export async function POST({ params, request }: RequestEvent) {
 
     const linkId = genId();
     try {
-      queries.createRoomLink(linkId, roomId, body.targetRoomId, relationship, body.title || null, body.createdBy || null);
+      const settings = JSON.stringify({ inherit_parent_context: body.inheritContext !== false, ...body.settings });
+      queries.createRoomLink(linkId, roomId, body.targetRoomId, relationship, body.title || null, body.createdBy || null, settings);
     } catch {
       throw error(409, 'Room link already exists');
     }
@@ -67,7 +68,8 @@ export async function POST({ params, request }: RequestEvent) {
   // Create the link
   const linkId = genId();
   try {
-    queries.createRoomLink(linkId, roomId, discussionId, relationship, body.title || title, body.createdBy || null);
+    const discussionSettings = JSON.stringify({ inherit_parent_context: true, ...body.settings });
+    queries.createRoomLink(linkId, roomId, discussionId, relationship, body.title || title, body.createdBy || null, discussionSettings);
   } catch {
     throw error(409, 'Room link already exists');
   }

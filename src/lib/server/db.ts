@@ -114,6 +114,10 @@ function getDb(): any {
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_room_links_target ON room_links(target_room_id)`);
   G[DB_KEY].exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_room_links_unique ON room_links(source_room_id, target_room_id, relationship)`);
 
+  // Migration: add settings column to room_links for propagation/visibility config
+  const rlCols = G[DB_KEY].prepare(`PRAGMA table_info(room_links)`).all().map((c: any) => c.name);
+  if (!rlCols.includes('settings')) G[DB_KEY].exec(`ALTER TABLE room_links ADD COLUMN settings TEXT DEFAULT '{}'`);
+
   // Channel registry — maps @handles to MCP channel server ports
   G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS channel_registry (
     handle TEXT PRIMARY KEY,
@@ -484,8 +488,10 @@ export const queries = {
     prepare(`SELECT * FROM channel_registry`).all(),
 
   // Room links
-  createRoomLink: (id: string, sourceRoomId: string, targetRoomId: string, relationship: string, title: string | null, createdBy: string | null) =>
-    prepare(`INSERT INTO room_links (id, source_room_id, target_room_id, relationship, title, created_by) VALUES (?, ?, ?, ?, ?, ?)`).run(id, sourceRoomId, targetRoomId, relationship, title, createdBy),
+  createRoomLink: (id: string, sourceRoomId: string, targetRoomId: string, relationship: string, title: string | null, createdBy: string | null, settings: string = '{}') =>
+    prepare(`INSERT INTO room_links (id, source_room_id, target_room_id, relationship, title, created_by, settings) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(id, sourceRoomId, targetRoomId, relationship, title, createdBy, settings),
+  updateRoomLinkSettings: (id: string, settings: string) =>
+    prepare(`UPDATE room_links SET settings = ? WHERE id = ?`).run(settings, id),
   getRoomLinks: (roomId: string) =>
     prepare(`SELECT rl.*, s.name as target_name, s.type as target_type FROM room_links rl JOIN sessions s ON s.id = rl.target_room_id WHERE rl.source_room_id = ? ORDER BY rl.created_at`).all(roomId),
   getRoomBacklinks: (roomId: string) =>
