@@ -2,6 +2,7 @@
   import { NOCTURNE, agentColorFromSession } from '$lib/nocturne';
   import AgentDot from './AgentDot.svelte';
   import NocturneIcon from './NocturneIcon.svelte';
+  import { deriveTerminalActivityState } from '$lib/shared/terminal-activity';
 
   let { session, onclick, onArchive, onDelete } = $props();
 
@@ -25,11 +26,9 @@
 
   function deriveStatus(s: typeof session) {
     if (s.type === 'terminal' && s.last_activity) {
-      const utc = s.last_activity.includes('Z') || s.last_activity.includes('+')
-        ? s.last_activity : s.last_activity.replace(' ', 'T') + 'Z';
-      const ageMs = Date.now() - new Date(utc).getTime();
-      if (ageMs < 60_000)      return { color: NOCTURNE.emerald[400], label: 'Active' };
-      if (ageMs < 5 * 60_000)  return { color: NOCTURNE.amber[400], label: 'Running' };
+      const activity = deriveTerminalActivityState(s.last_activity);
+      if (activity.state === 'working')  return { color: NOCTURNE.emerald[400], label: 'Working' };
+      if (activity.state === 'thinking') return { color: NOCTURNE.amber[400], label: 'Thinking' };
     }
     const statusMap: Record<string, { color: string; label: string }> = {
       active:    { color: NOCTURNE.emerald[400], label: 'Active' },
@@ -83,7 +82,7 @@
     <!-- Type glyph + agent dot -->
     <div class="flex-shrink-0 relative" style="width: 18px; height: 18px;">
       {#if agentId}
-        <AgentDot id={agentId} size={14} state={statusInfo.label === 'Active' ? 'active' : 'idle'} />
+        <AgentDot id={agentId} size={14} state={['Active', 'Working', 'Thinking'].includes(statusInfo.label) ? 'active' : 'idle'} />
       {:else}
         <div
           class="flex items-center justify-center rounded-full"

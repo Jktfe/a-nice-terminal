@@ -136,6 +136,8 @@
             next.add(msg.sessionId);
             idleAttentionSet = next;
           }
+        } else if (msg.type === 'session_activity') {
+          void store.load();
         }
       } catch {}
     };

@@ -4,7 +4,7 @@ import { CodexCliDriver } from '../src/drivers/codex-cli/driver.js';
 import { CopilotCliDriver } from '../src/drivers/copilot-cli/driver.js';
 import { GeminiCliDriver } from '../src/drivers/gemini-cli/driver.js';
 import { QwenCliDriver } from '../src/drivers/qwen-cli/driver.js';
-import { dispose, feed, feedStatus, getPendingEvent, init, trackEvent } from '../src/lib/server/agent-event-bus.js';
+import { dispose, feed, feedStatus, getPendingEvent, init, markTerminalActivity, trackEvent } from '../src/lib/server/agent-event-bus.js';
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -190,6 +190,42 @@ describe('agent status endpoint state', () => {
         contextUsedPct: 94,
       },
     });
+
+    dispose(sessionId);
+  });
+
+  it('uses terminal-visible activity as the primary working signal', async () => {
+    const sessionId = `terminal-activity-status-test-${Date.now()}`;
+    const broadcasts: any[] = [];
+
+    init({
+      getSession: id => id === sessionId
+        ? { id, linked_chat_id: 'linked-chat', meta: JSON.stringify({ agent_driver: 'codex-cli' }) }
+        : null,
+      postToChat: () => {},
+      writeToTerminal: () => {},
+      updateMessageMeta: () => {},
+      broadcastToChat: () => {},
+      broadcastGlobal: msg => broadcasts.push(msg),
+    });
+
+    await feedStatus(sessionId, 'gpt-5.5 xhigh · /repo · Ready · Context 100% left');
+    markTerminalActivity(sessionId);
+    await feedStatus(sessionId, 'gpt-5.5 xhigh · /repo · Ready · Context 100% left');
+
+    expect(getPendingEvent(sessionId)).toMatchObject({
+      needs_input: false,
+      agent_status: {
+        state: 'busy',
+        model: 'gpt-5.5 xhigh',
+        workspace: '/repo',
+      },
+    });
+    expect(broadcasts.some(msg =>
+      msg.type === 'agent_status_updated' &&
+      msg.sessionId === sessionId &&
+      msg.status?.state === 'busy'
+    )).toBe(true);
 
     dispose(sessionId);
   });

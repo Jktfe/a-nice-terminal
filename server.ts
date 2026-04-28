@@ -466,7 +466,7 @@ wss.on('connection', async (ws) => {
   });
 });
 
-// Wire PTY output → WebSocket broadcast + touch last_activity
+// Wire PTY output → WebSocket broadcast, transcript persistence, and terminal-visible activity.
 getPtyManager().then(async ptm => {
   // Expose ptm.write on globalThis so API routes can use the SAME daemon connection
   // that the WS terminal_input handler uses — this is the path that WORKS.
@@ -482,10 +482,11 @@ getPtyManager().then(async ptm => {
 
   // Throttle last_activity updates (1 write per session per 10s max)
   const activityThrottle = new Map<string, number>();
+  let broadcastGlobalForActivity: ((msg: object) => void) | null = null;
 
   // Track when each session last went silent (for idle-attention badges).
-  // Declared here so the onData handler (which clears silence on output)
-  // and the onSilence handler (which sets it) share the same Map.
+  // Declared here so the terminal_line handler (which clears silence on visible
+  // output) and the onSilence handler (which sets it) share the same Map.
   const silenceStart = new Map<string, number>();
 
   // Buffer terminal output per session — flush to terminal_transcripts every ~10KB or 30s.
@@ -537,12 +538,6 @@ getPtyManager().then(async ptm => {
         try { ws.send(msg); } catch {}
       }
     }
-    // Touch last_activity at most every 10s per session
-    const now = Date.now();
-    if ((now - (activityThrottle.get(sessionId) ?? 0)) > 10_000) {
-      activityThrottle.set(sessionId, now);
-      try { queries.touchActivity(sessionId); } catch {}
-    }
     // Buffer raw output for transcript persistence
     transcriptBufs.set(sessionId, (transcriptBufs.get(sessionId) ?? '') + data);
     // Flush immediately if buffer exceeds 10KB
@@ -557,8 +552,6 @@ getPtyManager().then(async ptm => {
         flushTranscript(sessionId);
       }, 30_000));
     }
-    // Clear silence tracking — terminal produced output, so it's not idle
-    silenceStart.delete(sessionId);
     // Agent event bus — fed from ptm.onLine() (debounced, ANSI-stripped text)
     // instead of raw PTY data. Raw bytes contain cursor-movement sequences
     // that, when stripped, concatenate words ("Doyouwanttoproceed?").
@@ -594,6 +587,21 @@ getPtyManager().then(async ptm => {
   // agent_event message to the chat — that's the only path terminal content
   // reaches the chat.
   ptm.onLine(async (sessionId: string, text: string) => {
+    const now = Date.now();
+    // Touch last_activity from terminal-visible output only. Raw PTY bytes can
+    // contain redraw/chrome noise; this path is the cleaned ANT terminal stream.
+    if ((now - (activityThrottle.get(sessionId) ?? 0)) > 10_000) {
+      activityThrottle.set(sessionId, now);
+      try { queries.touchActivity(sessionId); } catch {}
+      broadcastGlobalForActivity?.({
+        type: 'session_activity',
+        sessionId,
+        last_activity: new Date(now).toISOString(),
+        activity_source: 'terminal_line',
+      });
+    }
+    // Clear silence tracking from visible terminal output, not raw PTY noise.
+    silenceStart.delete(sessionId);
     appendRunEvent(
       sessionId,
       'terminal',
@@ -605,7 +613,10 @@ getPtyManager().then(async ptm => {
     );
     // Feed to agent event bus for interactive event detection
     import('./src/lib/server/agent-event-bus.js')
-      .then(({ feed }) => feed(sessionId, text))
+      .then(({ feed, markTerminalActivity }) => {
+        markTerminalActivity(sessionId, now);
+        return feed(sessionId, text);
+      })
       .catch(() => {});
     import('./src/lib/server/prompt-bridge.js')
       .then(({ feedPromptBridge }) => feedPromptBridge(sessionId, text))
@@ -780,6 +791,7 @@ getPtyManager().then(async ptm => {
 
   // Initialize agent event bus with server dependencies
   const { broadcastGlobal } = await import('./src/lib/server/ws-broadcast.js');
+  broadcastGlobalForActivity = broadcastGlobal;
   import('./src/lib/server/agent-event-bus.js').then(({ init }) => {
     init({
       getSession: queries.getSession,
@@ -822,8 +834,8 @@ getPtyManager().then(async ptm => {
     }
   });
 
-  // Silence tracking is cleared from within the existing ptm.onData handler
-  // (see silenceStart.delete call in the onData callback above).
+  // Silence tracking is cleared from the terminal_line handler above, so raw
+  // PTY redraw noise does not mask an idle terminal.
 
   // Signal 2: pane_title polling — 2s interval, unlinked sessions only.
   // ─── Title poller ────────────────────────────────────────────────────────

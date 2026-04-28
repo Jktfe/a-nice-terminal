@@ -9,6 +9,7 @@
 
 import { queries } from './db.js';
 import type { AgentStatus } from '../shared/agent-status.js';
+import { deriveTerminalActivityState } from '../shared/terminal-activity.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -145,6 +146,10 @@ export function isWorkingAgentStatus(
 
 async function isTerminalWorking(sessionId: string): Promise<boolean> {
   try {
+    const session = queries.getSession(sessionId) as any;
+    const terminalActivity = deriveTerminalActivityState(session?.last_activity);
+    if (terminalActivity.state !== 'idle') return true;
+
     const { getAgentStatus, refreshStatusFromCapture } = await import('./agent-event-bus.js');
     const cached = getAgentStatus(sessionId);
     if (isWorkingAgentStatus(cached)) return true;

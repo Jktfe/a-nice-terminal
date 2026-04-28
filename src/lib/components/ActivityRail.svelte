@@ -3,6 +3,7 @@
   import { NOCTURNE, agentColorFromSession } from '$lib/nocturne';
   import { SESSIONS_CHANNEL } from '$lib/ws-channels';
   import { isAutoLinkedChatSession } from '$lib/utils/linked-chat';
+  import { deriveTerminalActivityState } from '$lib/shared/terminal-activity';
   import AgentDot from './AgentDot.svelte';
   import { onMount, onDestroy } from 'svelte';
 
@@ -90,6 +91,10 @@
           const next = new Map(agentStatusMap);
           next.set(msg.sessionId, msg.status);
           agentStatusMap = next;
+        } else if (msg.type === 'session_activity') {
+          sessions = sessions.map((s) => s.id === msg.sessionId
+            ? { ...s, last_activity: msg.last_activity ?? s.last_activity, status: 'active' }
+            : s);
         } else if (msg.type === 'message_created') {
           // Mark other sessions as having unread activity
           if (msg.sessionId && msg.sessionId !== currentSessionId) {
@@ -172,10 +177,8 @@
 
   function sessionStatus(s: RailSession): 'active' | 'idle' {
     if (s.last_activity) {
-      const utc = s.last_activity.includes('Z') || s.last_activity.includes('+')
-        ? s.last_activity : s.last_activity.replace(' ', 'T') + 'Z';
-      const ageMs = Date.now() - new Date(utc).getTime();
-      if (ageMs < 60_000) return 'active';
+      const activity = deriveTerminalActivityState(s.last_activity);
+      if (activity.state !== 'idle') return 'active';
     }
     return s.status === 'active' ? 'active' : 'idle';
   }

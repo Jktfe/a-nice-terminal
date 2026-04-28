@@ -170,7 +170,16 @@
   >
     <div class="terminal-context__identity">
       <div class="terminal-context__dot">
-        <AgentDot id={agentDotId} size={14} state={statusPayload.needs_input ? 'thinking' : agentStatus?.state === 'ready' ? 'active' : 'idle'} ring={false} />
+        <AgentDot
+          id={agentDotId}
+          size={14}
+          state={statusPayload.needs_input
+            ? 'thinking'
+            : (agentStatus?.state === 'ready' || agentStatus?.state === 'busy' || agentStatus?.state === 'thinking')
+              ? 'active'
+              : 'idle'}
+          ring={false}
+        />
       </div>
       <div class="terminal-context__titles">
         <div class="terminal-context__name">

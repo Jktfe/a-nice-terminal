@@ -1,6 +1,8 @@
 import { json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db.js';
+import { deriveTerminalActivityState } from '$lib/shared/terminal-activity.js';
+import type { AgentStatus } from '$lib/shared/agent-status.js';
 
 // GET /api/sessions/:id/status
 // Returns terminal cockpit status for a session while preserving the
@@ -62,6 +64,23 @@ function resolveTerminalContext(session: SessionRow | null | undefined): {
   return { terminal: null, linkedChat: session.type === 'chat' ? session : null };
 }
 
+function applyTerminalActivityStatus(
+  agentStatus: AgentStatus | undefined,
+  terminal: SessionRow | null,
+): AgentStatus | undefined {
+  if (!terminal) return agentStatus;
+  const activity = deriveTerminalActivityState(terminal.last_activity);
+  if (activity.state === 'idle') return agentStatus;
+  const state: AgentStatus['state'] = activity.state === 'working' ? 'busy' : 'thinking';
+  if (agentStatus?.state === 'error') return agentStatus;
+  return {
+    ...(agentStatus ?? {}),
+    state,
+    activity: agentStatus?.activity ?? (state === 'busy' ? 'Recent terminal output' : 'Recently active'),
+    detectedAt: Date.now() - Math.max(activity.ageMs ?? 0, 0),
+  };
+}
+
 export async function GET({ params }: RequestEvent<{ id: string }>) {
   const { getPendingEvent, refreshStatusFromCapture } = await import('$lib/server/agent-event-bus.js');
   const session = queries.getSession(params.id) as SessionRow | null;
@@ -75,12 +94,15 @@ export async function GET({ params }: RequestEvent<{ id: string }>) {
     await refreshStatusFromCapture(terminalId);
     status = getPendingEvent(terminalId);
   }
+  const effectiveAgentStatus = applyTerminalActivityStatus(status.agent_status, terminal);
+  const terminalActivity = terminal ? deriveTerminalActivityState(terminal.last_activity) : null;
   const mode = terminal
     ? (linkedChat ? 'private_terminal_input' : 'terminal')
     : (session?.type === 'chat' ? 'chatroom' : 'unknown');
 
   return json({
     ...status,
+    ...(effectiveAgentStatus ? { agent_status: effectiveAgentStatus } : {}),
     session: publicSession(session),
     terminal: publicSession(terminal),
     linked_chat: publicSession(linkedChat),
@@ -91,9 +113,12 @@ export async function GET({ params }: RequestEvent<{ id: string }>) {
       executes_in_terminal: !!terminal && !!linkedChat && terminal.auto_forward_chat !== 0,
     },
     capture: {
-      status_source: status.agent_status ? 'driver_status_line' : 'none',
+      status_source: terminalActivity?.state !== 'idle'
+        ? 'terminal_activity'
+        : (status.agent_status ? 'driver_status_line' : 'none'),
       interactive_source: status.needs_input ? 'agent_event_bus' : 'none',
-      detected_at: status.agent_status?.detectedAt ?? null,
+      detected_at: effectiveAgentStatus?.detectedAt ?? null,
+      terminal_activity: terminalActivity,
     },
   });
 }

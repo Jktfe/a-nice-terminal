@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { deriveTerminalActivityState } from '$lib/shared/terminal-activity';
 
   let {
     terminal,
@@ -20,12 +21,9 @@
   // Derive terminal active/idle status from last_activity
   const terminalStatus = $derived((() => {
     if (terminal.last_activity) {
-      const utc = terminal.last_activity.includes('Z') || terminal.last_activity.includes('+')
-        ? terminal.last_activity
-        : terminal.last_activity.replace(' ', 'T') + 'Z';
-      const ageMs = Date.now() - new Date(utc).getTime();
-      if (ageMs < 60_000)     return { label: 'ACTIVE', color: '#22C55E', bg: 'rgba(34,197,94,0.12)' };
-      if (ageMs < 5 * 60_000) return { label: 'RUNNING', color: '#F59E0B', bg: 'rgba(245,158,11,0.12)' };
+      const activity = deriveTerminalActivityState(terminal.last_activity);
+      if (activity.state === 'working')  return { label: 'WORKING', color: '#22C55E', bg: 'rgba(34,197,94,0.12)' };
+      if (activity.state === 'thinking') return { label: 'THINKING', color: '#F59E0B', bg: 'rgba(245,158,11,0.12)' };
     }
     const s = terminal.status ?? 'idle';
     if (s === 'active') return { label: 'ACTIVE', color: '#22C55E', bg: 'rgba(34,197,94,0.12)' };

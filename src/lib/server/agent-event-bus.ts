@@ -71,6 +71,7 @@ interface SessionState {
   currentStatus: AgentStatus | null;
   lastStatusFingerprint: string | null;
   lastStatusBroadcast: number;
+  lastTerminalActivity: number | null;
 }
 
 const initialSessions = new Map<string, SessionState>();
@@ -132,6 +133,8 @@ const BUFFER_SIZE = 50;
 const CLASS_COOLDOWN_MS = 30_000;
 const CONTENT_DEDUP_MS = 5 * 60_000;
 const STATUS_BROADCAST_REFRESH_MS = 10_000;
+const TERMINAL_WORKING_MS = 10_000;
+const TERMINAL_THINKING_MS = 30_000;
 const ACTIONABLE_EVENT_CLASSES = new Set([
   'permission_request',
   'tool_auth',
@@ -289,10 +292,32 @@ function getState(sessionId: string): SessionState {
       currentStatus: null,
       lastStatusFingerprint: null,
       lastStatusBroadcast: 0,
+      lastTerminalActivity: null,
     };
     sessions.set(sessionId, s);
   }
   return s;
+}
+
+function activityOverrideState(lastActivity: number | null, now = Date.now()): AgentStatus['state'] | null {
+  if (!lastActivity) return null;
+  const ageMs = now - lastActivity;
+  if (ageMs < TERMINAL_WORKING_MS) return 'busy';
+  if (ageMs < TERMINAL_THINKING_MS) return 'thinking';
+  return null;
+}
+
+function applyTerminalActivityOverride(status: AgentStatus, state: SessionState, now = Date.now()): AgentStatus {
+  const override = activityOverrideState(state.lastTerminalActivity, now);
+  if (!override) return status;
+  if (status.state === 'error') return status;
+  if (override === 'thinking' && (status.state === 'busy' || status.state === 'thinking')) return status;
+  return {
+    ...status,
+    state: override,
+    activity: status.activity ?? (override === 'busy' ? 'Recent terminal output' : 'Recently active'),
+    detectedAt: Math.max(status.detectedAt ?? now, state.lastTerminalActivity ?? now),
+  };
 }
 
 async function resolveDriver(sessionId: string): Promise<AgentDriver | null> {
@@ -516,10 +541,11 @@ function updateStatusFromLines(sessionId: string, state: SessionState, statusLin
     if (waitingContext) status.waitingFor = waitingContext;
   }
 
-  state.currentStatus = status;
+  const effectiveStatus = applyTerminalActivityOverride(status, state);
+  state.currentStatus = effectiveStatus;
 
   const now = Date.now();
-  const fingerprint = statusFingerprint(status);
+  const fingerprint = statusFingerprint(effectiveStatus);
   const shouldBroadcast =
     fingerprint !== state.lastStatusFingerprint ||
     now - state.lastStatusBroadcast >= STATUS_BROADCAST_REFRESH_MS;
@@ -532,16 +558,45 @@ function updateStatusFromLines(sessionId: string, state: SessionState, statusLin
       'status',
       'medium',
       'status',
-      statusSummary(status),
-      status as unknown as Record<string, unknown>,
+      statusSummary(effectiveStatus),
+      effectiveStatus as unknown as Record<string, unknown>,
       null,
     );
+    busDeps.broadcastGlobal({
+      type: 'agent_status_updated',
+      sessionId,
+      status: effectiveStatus,
+    });
+  }
+}
+
+/** Called when ANT receives terminal-visible output, not raw PTY bytes. */
+export function markTerminalActivity(sessionId: string, now = Date.now()): AgentStatus {
+  const state = getState(sessionId);
+  state.lastTerminalActivity = now;
+  const previous = state.currentStatus ?? {
+    state: 'unknown',
+    detectedAt: now,
+  };
+  const status = applyTerminalActivityOverride(previous, state, now);
+  state.currentStatus = status;
+
+  const fingerprint = statusFingerprint(status);
+  const shouldBroadcast =
+    fingerprint !== state.lastStatusFingerprint ||
+    now - state.lastStatusBroadcast >= STATUS_BROADCAST_REFRESH_MS;
+
+  if (shouldBroadcast && busDeps.broadcastGlobal) {
+    state.lastStatusFingerprint = fingerprint;
+    state.lastStatusBroadcast = now;
     busDeps.broadcastGlobal({
       type: 'agent_status_updated',
       sessionId,
       status,
     });
   }
+
+  return status;
 }
 
 /** Called from the messages endpoint when msg_type === 'agent_response'. */
