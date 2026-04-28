@@ -1078,6 +1078,19 @@
       });
     }}
     onDigestToggle={() => (showDigest = !showDigest)}
+    onCreateDiscussion={async () => {
+      try {
+        const res = await fetch(`/api/sessions/${sessionId}/links`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: `Discussion: ${session?.name || sessionId}` }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          goto(`/session/${data.targetRoomId}`);
+        }
+      } catch {}
+    }}
   />
 
   {#if showDigest}

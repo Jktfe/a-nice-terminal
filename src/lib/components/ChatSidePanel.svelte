@@ -5,6 +5,7 @@
   import TerminalLine from '$lib/components/TerminalLine.svelte';
   import ChatParticipants from '$lib/components/ChatParticipants.svelte';
   import QuickLaunchBar from '$lib/components/QuickLaunchBar.svelte';
+  import RoomLinksPanel from '$lib/components/RoomLinksPanel.svelte';
   import { isAutoLinkedChatSession } from '$lib/utils/linked-chat';
 
   interface PageSession {
@@ -367,6 +368,13 @@
         </div>
       {/if}
     </div>
+
+    <!-- ─── SECTION: Discussions (Room Links) ─── -->
+    {#if !isTerminal}
+      <div style="border-top: 1px solid #E5E7EB;">
+        <RoomLinksPanel {sessionId} />
+      </div>
+    {/if}
 
     <!-- ─── SECTION: Tasks / Agent Tasks ─── -->
     <div>
