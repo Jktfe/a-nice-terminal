@@ -29,6 +29,10 @@
   let creating = $state(false);
   let newTitle = $state('');
   let showCreateForm = $state(false);
+  let showLinkForm = $state(false);
+  let availableRooms = $state<{ id: string; name: string }[]>([]);
+  let selectedRoomId = $state('');
+  let selectedRelationship = $state('discussion_of');
 
   const RELATIONSHIP_LABELS: Record<string, string> = {
     discussion_of: 'Discussion',
@@ -78,6 +82,37 @@
     creating = false;
   }
 
+  async function linkExistingRoom() {
+    if (!selectedRoomId) return;
+    creating = true;
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/links`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetRoomId: selectedRoomId, relationship: selectedRelationship }),
+      });
+      if (res.ok) {
+        selectedRoomId = '';
+        showLinkForm = false;
+        await loadLinks();
+      }
+    } catch { /* silent */ }
+    creating = false;
+  }
+
+  async function loadAvailableRooms() {
+    try {
+      const res = await fetch('/api/sessions');
+      if (res.ok) {
+        const data = await res.json();
+        const linked = new Set([...outgoing.map(l => l.target_room_id), ...incoming.map(l => l.source_room_id)]);
+        availableRooms = (data.sessions || [])
+          .filter((s: any) => s.type === 'chat' && s.id !== sessionId && !linked.has(s.id) && !s.deleted_at)
+          .map((s: any) => ({ id: s.id, name: s.display_name || s.name }));
+      }
+    } catch { /* silent */ }
+  }
+
   async function removeLink(linkId: string) {
     await fetch(`/api/sessions/${sessionId}/links?linkId=${linkId}`, { method: 'DELETE' });
     await loadLinks();
@@ -92,11 +127,19 @@
 <div class="room-links-panel">
   <div class="section-header">
     <span class="section-title">Discussions</span>
-    <button
-      class="add-btn"
-      onclick={() => { showCreateForm = !showCreateForm; }}
-      title="Create discussion"
-    >+</button>
+    <div class="flex items-center gap-1">
+      <button
+        class="add-btn"
+        onclick={() => { showLinkForm = !showLinkForm; showCreateForm = false; if (showLinkForm) loadAvailableRooms(); }}
+        title="Link existing room"
+        style="font-size: 11px;"
+      >~</button>
+      <button
+        class="add-btn"
+        onclick={() => { showCreateForm = !showCreateForm; showLinkForm = false; }}
+        title="Create new discussion"
+      >+</button>
+    </div>
   </div>
 
   {#if showCreateForm}
@@ -112,6 +155,38 @@
         onclick={createDiscussion}
         disabled={!newTitle.trim() || creating}
       >{creating ? '...' : 'Create'}</button>
+    </div>
+  {/if}
+
+  {#if showLinkForm}
+    <div class="create-form" style="flex-direction: column; gap: 6px;">
+      <select
+        class="create-input"
+        bind:value={selectedRoomId}
+        style="width: 100%;"
+      >
+        <option value="">— select room —</option>
+        {#each availableRooms as room (room.id)}
+          <option value={room.id}>{room.name}</option>
+        {/each}
+      </select>
+      <div class="flex items-center gap-2">
+        <select
+          class="create-input"
+          bind:value={selectedRelationship}
+          style="flex: 1;"
+        >
+          <option value="discussion_of">Discussion</option>
+          <option value="promoted_summary_for">Summary</option>
+          <option value="follows_up">Follow-up</option>
+          <option value="spawned_from">Spawned from</option>
+        </select>
+        <button
+          class="create-btn"
+          onclick={linkExistingRoom}
+          disabled={!selectedRoomId || creating}
+        >{creating ? '...' : 'Link'}</button>
+      </div>
     </div>
   {/if}
 
