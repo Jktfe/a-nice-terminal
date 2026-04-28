@@ -203,6 +203,28 @@
     } catch {}
   }
 
+  // Parent context for discussion rooms
+  let parentContext = $state<{ roomName: string; messages: Record<string, unknown>[] } | null>(null);
+
+  async function loadParentContext() {
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/links`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const parent = (data.incoming || []).find((l: any) => l.relationship === 'discussion_of');
+      if (!parent) return;
+
+      // Fetch recent messages from parent room
+      const msgRes = await fetch(`/api/sessions/${parent.source_room_id}/messages?limit=20`);
+      if (!msgRes.ok) return;
+      const msgData = await msgRes.json();
+      parentContext = {
+        roomName: parent.source_name || 'Parent room',
+        messages: msgData.messages || [],
+      };
+    } catch { /* no parent context — fine */ }
+  }
+
   // Linked chat state
   let linkedChatId = $state('');
   let linkedChatMessages = $state<Record<string, unknown>[]>([]);
@@ -680,6 +702,9 @@
     const readChatId = session?.type === 'terminal' ? session?.linked_chat_id : targetSessionId;
     if (readChatId) loadReadReceipts(readChatId, targetSessionId);
 
+    // Load parent context for discussion rooms
+    if (session?.type === 'chat') loadParentContext();
+
     connectWs();
 
     // After WS connects, ensure the terminal PTY is spawned by sending
@@ -1139,6 +1164,7 @@
           onAgentRespond={handleAgentRespond}
           onScrollElMounted={(el) => { chatScrollEl = el; }}
           onScroll={onChatScroll}
+          {parentContext}
         />
       {:else if mode === 'terminal'}
         <!-- ANT Terminal mode — normalized append-only run events -->

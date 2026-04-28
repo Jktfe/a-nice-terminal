@@ -80,6 +80,7 @@
     onAgentRespond: (sessionId: string, payload: unknown) => void;
     onScrollElMounted?: (el: HTMLElement) => void;
     onScroll?: () => void;
+    parentContext?: { roomName: string; messages: Record<string, unknown>[] } | null;
   }
 
   const {
@@ -119,7 +120,10 @@
     onAgentRespond,
     onScrollElMounted,
     onScroll,
+    parentContext = null,
   }: Props = $props();
+
+  let parentContextOpen = $state(false);
 
   let scrollElLocal = $state<HTMLElement | null>(null);
   let agentStatuses = $state<Record<string, StatusPayload>>({});
@@ -597,6 +601,31 @@
               class="text-xs px-3 py-1 rounded-full border transition-all"
               style="border-color:var(--border-subtle);color:var(--text-muted);"
             >Load older messages</button>
+          </div>
+        {/if}
+        {#if parentContext && parentContext.messages.length > 0}
+          <div class="mx-2 mb-3 rounded-lg overflow-hidden" style="border: 1px dashed #6366F140; background: #6366F108;">
+            <button
+              class="w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors"
+              style="color: #6366F1; background: transparent; border: none; cursor: pointer;"
+              onclick={() => parentContextOpen = !parentContextOpen}
+            >
+              <svg class="w-3 h-3 transition-transform" style="transform: {parentContextOpen ? 'rotate(180deg)' : 'rotate(0)'}; flex-shrink: 0;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+              </svg>
+              <span style="font-weight: 500;">Context from {parentContext.roomName}</span>
+              <span class="ml-auto px-1.5 py-0.5 rounded text-[10px] font-medium" style="background: #6366F120; color: #6366F1;">{parentContext.messages.length}</span>
+            </button>
+            {#if parentContextOpen}
+              <div class="px-3 pb-2 space-y-1.5" style="max-height: 300px; overflow-y: auto; border-top: 1px solid #6366F115;">
+                {#each parentContext.messages as msg ((msg as any).id)}
+                  <div class="flex gap-2 py-1 text-xs" style="opacity: 0.8;">
+                    <span class="font-medium flex-shrink-0" style="color: #6366F1; min-width: 60px;">{(msg as any).sender_name || (msg as any).role || 'unknown'}</span>
+                    <span style="color: var(--text-muted); word-break: break-word;">{((msg as any).content || '').slice(0, 200)}{((msg as any).content || '').length > 200 ? '...' : ''}</span>
+                  </div>
+                {/each}
+              </div>
+            {/if}
           </div>
         {/if}
         {#each groupedMessages as group (group.key)}
