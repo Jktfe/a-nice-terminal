@@ -37,6 +37,9 @@ export async function msg(args: string[], flags: any, ctx: any) {
   }
   if (!sender_id) sender_id = config.get('handle') || 'Gemini';
 
+  // Auto-attach the per-room bearer token saved by `ant join-room`.
+  const tok = config.getRoomToken(sessionId);
+  const opts = tok?.token ? { roomToken: tok.token } : undefined;
   const result = await api.post(ctx, `/api/sessions/${sessionId}/messages`, {
     role: 'user',
     content,
@@ -44,7 +47,7 @@ export async function msg(args: string[], flags: any, ctx: any) {
     sender_id,
     target,
     msg_type: 'message',
-  });
+  }, opts);
 
   if (ctx.json) { console.log(JSON.stringify(result)); return; }
 

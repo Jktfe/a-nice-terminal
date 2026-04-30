@@ -43,6 +43,14 @@ function resolveIdentity(external: boolean): string {
   return config.get('handle') || 'cli';
 }
 
+// Auto-attach the per-room bearer token saved by `ant join-room` so remote ANTs
+// don't need to pass --key. Narrower than master apiKey — scoped to one room
+// and revocable from the inviter side. Falls through to apiKey if no token.
+function roomOpts(id: string): { roomToken?: string } | undefined {
+  const t = config.getRoomToken(id);
+  return t?.token ? { roomToken: t.token } : undefined;
+}
+
 function formatPendingEvent(status: any): string {
   if (!status?.needs_input) return 'No pending interactive prompt.';
   const event = status.event || {};
@@ -162,7 +170,7 @@ export async function chat(args: string[], flags: any, ctx: any) {
     const msg = flags.msg || args[2];
     if (!msg) { console.error('Usage: ant chat send <id> --msg "message"'); return; }
     const sender = resolveIdentity(isExternal);
-    const result = await api.post(ctx, `/api/sessions/${id}/messages`, { role: 'user', content: msg, format: 'text', sender_id: sender });
+    const result = await api.post(ctx, `/api/sessions/${id}/messages`, { role: 'user', content: msg, format: 'text', sender_id: sender }, roomOpts(id));
     if (ctx.json) { console.log(JSON.stringify(result)); return; }
     console.log(`Sent: ${msg}`);
     return;
@@ -225,7 +233,7 @@ export async function chat(args: string[], flags: any, ctx: any) {
   // Read chat history
   if (sub === 'read') {
     const limit = flags.limit || 50;
-    const data = await api.get(ctx, `/api/sessions/${id}/messages?limit=${limit}`);
+    const data = await api.get(ctx, `/api/sessions/${id}/messages?limit=${limit}`, roomOpts(id));
     const messages = data.messages || [];
     if (ctx.json) { console.log(JSON.stringify(messages)); return; }
     for (const m of messages) {
@@ -240,7 +248,7 @@ export async function chat(args: string[], flags: any, ctx: any) {
     const msg = flags.msg || args[2];
     if (!msg) { console.error('Usage: ant chat reply <id> --msg "message"'); return; }
     const sender = resolveIdentity(isExternal);
-    const result = await api.post(ctx, `/api/sessions/${id}/messages`, { role: 'user', content: msg, format: 'text', sender_id: sender });
+    const result = await api.post(ctx, `/api/sessions/${id}/messages`, { role: 'user', content: msg, format: 'text', sender_id: sender }, roomOpts(id));
     if (ctx.json) { console.log(JSON.stringify(result)); return; }
     console.log(`Replied: ${msg}`);
     return;
