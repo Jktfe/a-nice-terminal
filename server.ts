@@ -329,6 +329,10 @@ const autoDetectedSessions = new Set<string>();
 import('./src/lib/server/ws-broadcast.js').catch(() => {});
 import('./src/lib/server/router-init.js').then((m) => { m.initRouter(); }).catch((e) => console.error('[message-router] init failed:', e));
 
+// Room-token resolver — used at WS upgrade to scope clients to one room.
+// Top-level await so the resolver is ready before the first connection.
+const { extractTokenFromHeaders, resolveToken } = await import('./src/lib/server/room-invites.js');
+
 // Authenticate and upgrade WebSocket connections
 server.on('upgrade', (req, socket, head) => {
   if (!req.url?.startsWith('/ws')) {
@@ -336,7 +340,30 @@ server.on('upgrade', (req, socket, head) => {
     return;
   }
 
-  if (API_KEY) {
+  const upgradeUrl = new URL(req.url, `http://localhost`);
+
+  // Room-token-scoped clients (Sec-WebSocket-Protocol: ant.token.<plaintext>
+  // or ?token=<plaintext>). When a valid token is presented, we pin the WS
+  // to the token's room and drop any out-of-room frames in the connection
+  // handler below. An invalid token → 401 even if API_KEY would have passed.
+  let roomScope: { roomId: string; kind: string; handle: string | null; tokenId: string } | null = null;
+  const tokenPlain = extractTokenFromHeaders(req.headers as Record<string, string | undefined>, upgradeUrl);
+  if (tokenPlain) {
+    const resolved = resolveToken(tokenPlain);
+    if (!resolved) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    roomScope = {
+      roomId: resolved.token.room_id,
+      kind: resolved.token.kind,
+      handle: resolved.token.handle,
+      tokenId: resolved.token.id,
+    };
+  }
+
+  if (API_KEY && !roomScope) {
     // Same-origin browser connections don't carry auth headers —
     // allow them through just like the HTTP hook does.
     const origin = req.headers['origin'] as string | undefined;
@@ -344,9 +371,8 @@ server.on('upgrade', (req, socket, head) => {
     const isSameOrigin = !origin || origin === serverOrigin;
 
     if (!isSameOrigin) {
-      const url = new URL(req.url, `http://localhost`);
       const provided =
-        url.searchParams.get('apiKey') ||
+        upgradeUrl.searchParams.get('apiKey') ||
         (req.headers['x-api-key'] as string) ||
         (req.headers['authorization'] as string)?.replace('Bearer ', '');
       if (provided !== API_KEY) {
@@ -358,12 +384,20 @@ server.on('upgrade', (req, socket, head) => {
   }
 
   wss.handleUpgrade(req, socket, head, (ws) => {
+    if (roomScope) (req as any).__antRoomScope = roomScope;
     wss.emit('connection', ws, req);
   });
 });
 
-wss.on('connection', async (ws) => {
+wss.on('connection', async (ws, req) => {
   const client: WSClient = { joinedSessions: new Set() };
+  // If the upgrade attached a room scope (via valid invite token), this WS
+  // is restricted to that one room — see roomScope check inside the message
+  // dispatch below. Same-origin browser clients have no scope and retain
+  // their pre-existing dashboard-wide reach.
+  const roomScope = (req as any)?.__antRoomScope as
+    | { roomId: string; kind: string; handle: string | null; tokenId: string }
+    | undefined;
   // Send build ID immediately — client reloads if its page was loaded from a different build
   ws.send(JSON.stringify({ type: 'build_id', buildId: BUILD_ID }));
   clients.set(ws, client);
@@ -390,6 +424,23 @@ wss.on('connection', async (ws) => {
     try {
       const msg = JSON.parse(raw.toString());
       const ptm = await getPtyManager();
+
+      // Token-scoped clients can only act on their granted room. We let
+      // presence_ping through (it's session-less) and reject everything else
+      // whose sessionId targets a different room. Sending an explicit error
+      // frame back lets the CLI surface what went wrong instead of guessing.
+      if (roomScope && msg.type !== 'presence_ping') {
+        if (typeof msg.sessionId === 'string' && msg.sessionId !== roomScope.roomId) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            error: 'token_room_mismatch',
+            scope: roomScope.roomId,
+            requested: msg.sessionId,
+            message: 'this token is scoped to a different room',
+          }));
+          return;
+        }
+      }
 
       switch (msg.type) {
         case 'presence_ping': {

@@ -14,9 +14,13 @@ async function doFetch(url: string, options: any): Promise<Response> {
   }
 }
 
-async function request(ctx: Ctx, method: string, path: string, body?: any): Promise<any> {
+interface RequestOpts { roomToken?: string }
+
+async function request(ctx: Ctx, method: string, path: string, body?: any, opts?: RequestOpts): Promise<any> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (ctx.apiKey) headers['Authorization'] = `Bearer ${ctx.apiKey}`;
+  // Per-call room token wins over the master api key — it's narrower-scoped.
+  if (opts?.roomToken) headers['Authorization'] = `Bearer ${opts.roomToken}`;
+  else if (ctx.apiKey) headers['Authorization'] = `Bearer ${ctx.apiKey}`;
 
   const options: any = {
     method,
@@ -52,9 +56,9 @@ async function request(ctx: Ctx, method: string, path: string, body?: any): Prom
 }
 
 export const api = {
-  get: (ctx: Ctx, path: string) => request(ctx, 'GET', path),
-  post: (ctx: Ctx, path: string, body: any) => request(ctx, 'POST', path, body),
-  put: (ctx: Ctx, path: string, body: any) => request(ctx, 'PUT', path, body),
-  patch: (ctx: Ctx, path: string, body: any) => request(ctx, 'PATCH', path, body),
-  del: (ctx: Ctx, path: string) => request(ctx, 'DELETE', path),
+  get: (ctx: Ctx, path: string, opts?: RequestOpts) => request(ctx, 'GET', path, undefined, opts),
+  post: (ctx: Ctx, path: string, body: any, opts?: RequestOpts) => request(ctx, 'POST', path, body, opts),
+  put: (ctx: Ctx, path: string, body: any, opts?: RequestOpts) => request(ctx, 'PUT', path, body, opts),
+  patch: (ctx: Ctx, path: string, body: any, opts?: RequestOpts) => request(ctx, 'PATCH', path, body, opts),
+  del: (ctx: Ctx, path: string, opts?: RequestOpts) => request(ctx, 'DELETE', path, undefined, opts),
 };

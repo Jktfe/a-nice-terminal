@@ -3,7 +3,7 @@
 
 import { parseArgs } from './lib/args.js';
 import { sessions } from './commands/sessions.js';
-import { chat, detectNativeSession } from './commands/chat.js';
+import { chat } from './commands/chat.js';
 import { terminal } from './commands/terminal.js';
 import { search } from './commands/search.js';
 import { share } from './commands/share.js';
@@ -15,7 +15,10 @@ import { hooks } from './commands/hooks.js';
 import { memory } from './commands/memory.js';
 import { agents } from './commands/agents.js';
 import { prompt } from './commands/prompt.js';
+import { register as registerIdentity } from './commands/register.js';
+import { joinRoom } from './commands/joinRoom.js';
 import { config } from './lib/config.js';
+import { identitySourceLabel, resolveIdentityDetails, resolveIdentityDetailsAsync } from './lib/identity.js';
 
 const { command, args, flags } = parseArgs(process.argv.slice(2));
 
@@ -43,8 +46,7 @@ Commands:
 
   chat <id>             Open chat session (interactive)
   chat send <id>        Send a message (--msg "hello")
-                        Native (inside ANT tmux): auto-detects server & handle
-                        External: ant chat send <id> --msg "hi" --server URL --external
+                        Auto-detects server and identity in normal ANT shells
   chat read <id>        Read message history (--limit 50)
   chat reply <id>       Reply to the latest message (--msg "yes do it")
   chat pending <id>     Show pending interactive prompt for a terminal/linked chat
@@ -52,6 +54,10 @@ Commands:
                         (approve|deny|yes|no|retry|abort|text|select --why "...")
   chat leave <id>       Remove this terminal/agent from a chatroom
                         (--session <id> or --handle @name to override identity)
+  chat focus <id>       Queue normal room messages for a participant
+                        (--handle @name|--session <id> --ttl 30m --reason "building")
+  chat unfocus <id>     Exit focus mode and deliver one server digest
+                        (--handle @name|--session <id>)
 
   msg <id> "text"       Broadcast a message to all session participants
   msg <id> @handle "t" Send a targeted message to one handle
@@ -70,6 +76,9 @@ Commands:
 
   share <id>            Generate a read-only share link for a session
   qr                    Show QR code to connect ANTios to this server
+
+  join-room <share>     Exchange an invite password for a room token
+                        (--password X --handle @name --kind cli|mcp|web)
 
   search <query>        Search across all sessions (FTS5)
 
@@ -91,12 +100,17 @@ Commands:
 
   hooks install         Install ANT shell capture hooks into ~/.zshrc
 
+  whoami                Show the identity ANT will stamp on outbound chat
+                        (--external, --from, --session, or --handle)
+  register              Register this shell's parent process to a handle
+                        (--handle @name, optional --ttl 12h, --chain for nested shells)
+
   config                Show current config
   config set            Set server URL / API key / handle / session ID
                         (--url https://... --key abc --handle @myhandle --session <id>)
 
 Options:
-  --server, -s    Server URL (native: auto-detects localhost:6458; external: uses ANT_SERVER_URL env or configured serverUrl)
+  --server, -s    Server URL override (default: ANT_SERVER_URL / ANT_SERVER / config / https://localhost:6458)
   --key, -k       API key
   --external      Force external mode (skip native tmux auto-detection)
   --json          Output as JSON
@@ -109,11 +123,11 @@ async function main() {
     process.exit(0);
   }
 
-  // Native mode: inside ANT tmux and not forced external → auto-detect localhost
-  const isExternal = !!flags.external;
-  const native = !isExternal && !flags.server ? detectNativeSession() : { isNative: false, sessionId: null };
-  // Native (inside ANT tmux on the server host) → localhost. External → MacBook (ANT's new home).
-  const serverUrl = flags.server || config.get('serverUrl') || process.env.ANT_SERVER_URL || `https://localhost:${process.env.ANT_PORT || '6458'}`;
+  const serverUrl = flags.server
+    || process.env.ANT_SERVER_URL
+    || process.env.ANT_SERVER
+    || config.get('serverUrl')
+    || `https://localhost:${process.env.ANT_PORT || '6458'}`;
   const apiKey = flags.key || config.get('apiKey') || '';
 
   const ctx = { serverUrl, apiKey, json: !!flags.json };
@@ -131,8 +145,11 @@ async function main() {
       case 'agents':   await agents(args, flags, ctx); break;
       case 'prompt':   await prompt(args, flags, ctx); break;
       case 'hooks':    await hooks(args.slice(1), flags); break;
+      case 'register': await registerIdentity(args, flags, ctx); break;
+      case 'join-room': await joinRoom(args, flags, ctx); break;
       case 'share':    await share(args, flags, ctx); break;
       case 'qr':       await qr(args, flags, ctx); break;
+      case 'whoami':   await whoamiCmd(flags, ctx); break;
       case 'config':   configCmd(args, flags); break;
       default:
         console.error(`Unknown command: ${command}`);
@@ -151,10 +168,48 @@ function configCmd(args: string[], flags: Record<string, any>) {
     if (flags.key)     config.set('apiKey', flags.key);
     if (flags.handle)  config.set('handle', flags.handle.startsWith('@') ? flags.handle : `@${flags.handle}`);
     if (flags.session) config.set('sessionId', flags.session);
-    console.log('Config updated');
+    const identity = resolveIdentityDetails(!!flags.external);
+    console.log(`Config updated. Chat will post as ${identity.senderId} (${identitySourceLabel(identity.source)}).`);
   } else {
     console.log(JSON.stringify(config.getAll(), null, 2));
   }
+}
+
+async function whoamiCmd(flags: Record<string, any>, ctx: { serverUrl: string; apiKey?: string; json?: boolean }) {
+  const identity = await resolveIdentityDetailsAsync(ctx as any, !!flags.external, {
+    from: typeof flags.from === 'string' ? flags.from : undefined,
+    sessionId: typeof flags.session === 'string' ? flags.session : undefined,
+    handle: typeof flags.handle === 'string' ? flags.handle : undefined,
+  });
+  const payload = {
+    posting_as: identity.senderId,
+    source: identity.source,
+    source_label: identitySourceLabel(identity.source),
+    native_session_id: identity.native.sessionId,
+    handle: identity.handle || null,
+    display_name: identity.displayName || null,
+    pid: identity.pid || null,
+    configured_handle: identity.configuredHandle,
+    configured_session_id: identity.configuredSessionId,
+    server_url: ctx.serverUrl,
+    config_file: config.path,
+  };
+
+  if (flags.json) {
+    console.log(JSON.stringify(payload, null, 2));
+    return;
+  }
+
+  console.log(`Posting as: ${payload.posting_as}`);
+  console.log(`Source: ${payload.source_label}`);
+  if (payload.handle) console.log(`Handle: ${payload.handle}`);
+  if (payload.display_name) console.log(`Display name: ${payload.display_name}`);
+  if (payload.pid) console.log(`Registered PID: ${payload.pid}`);
+  if (payload.native_session_id) console.log(`Native session: ${payload.native_session_id}`);
+  console.log(`Configured handle: ${payload.configured_handle || '(unset)'}`);
+  console.log(`Configured session: ${payload.configured_session_id || '(unset)'}`);
+  console.log(`Server: ${payload.server_url}`);
+  console.log(`Config file: ${payload.config_file}`);
 }
 
 main();

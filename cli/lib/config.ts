@@ -20,8 +20,36 @@ function save() {
 
 load();
 
+export interface RoomTokenInfo {
+  token: string;
+  token_id: string;
+  invite_id: string;
+  room_id: string;
+  kind: string;
+  handle: string | null;
+  joined_at: string;
+}
+
 export const config = {
   get(key: string): string | undefined { return _config[key]; },
   set(key: string, value: string) { _config[key] = value; save(); },
   getAll() { return { ..._config }; },
+  path: CONFIG_FILE,
+  setRoomToken(roomId: string, info: RoomTokenInfo) {
+    if (!_config.tokens || typeof _config.tokens !== 'object') _config.tokens = {};
+    _config.tokens[roomId] = info;
+    save();
+  },
+  getRoomToken(roomId: string): RoomTokenInfo | undefined {
+    return _config.tokens?.[roomId];
+  },
+  removeRoomToken(roomId: string) {
+    if (_config.tokens && typeof _config.tokens === 'object') {
+      delete _config.tokens[roomId];
+      save();
+    }
+  },
+  listRoomTokens(): Record<string, RoomTokenInfo> {
+    return { ...(_config.tokens || {}) };
+  },
 };
