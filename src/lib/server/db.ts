@@ -70,6 +70,7 @@ function getDb(): any {
     ttl TEXT DEFAULT '15m',
     deleted_at TEXT,
     last_activity TEXT,
+    sort_index INTEGER,
     meta TEXT DEFAULT '{}',
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
@@ -84,6 +85,7 @@ function getDb(): any {
   if (!cols.includes('display_name'))  G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN display_name TEXT`);
   if (!cols.includes('cli_flag'))      G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN cli_flag TEXT`);
   if (!cols.includes('alias'))         G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN alias TEXT`);
+  if (!cols.includes('sort_index'))    G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN sort_index INTEGER`);
 
   // Chat room membership — tracks who participates vs who just posts
   G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS chat_room_members (
@@ -99,6 +101,11 @@ function getDb(): any {
   // Migration: add alias column to chat_room_members for per-room identity
   const crmCols = G[DB_KEY].prepare(`PRAGMA table_info(chat_room_members)`).all().map((c: any) => c.name);
   if (!crmCols.includes('alias')) G[DB_KEY].exec(`ALTER TABLE chat_room_members ADD COLUMN alias TEXT`);
+  if (!crmCols.includes('attention_state')) G[DB_KEY].exec(`ALTER TABLE chat_room_members ADD COLUMN attention_state TEXT DEFAULT 'available'`);
+  if (!crmCols.includes('attention_reason')) G[DB_KEY].exec(`ALTER TABLE chat_room_members ADD COLUMN attention_reason TEXT`);
+  if (!crmCols.includes('attention_set_by')) G[DB_KEY].exec(`ALTER TABLE chat_room_members ADD COLUMN attention_set_by TEXT`);
+  if (!crmCols.includes('attention_expires_at')) G[DB_KEY].exec(`ALTER TABLE chat_room_members ADD COLUMN attention_expires_at INTEGER`);
+  if (!crmCols.includes('attention_updated_at')) G[DB_KEY].exec(`ALTER TABLE chat_room_members ADD COLUMN attention_updated_at INTEGER`);
 
   // Room links — typed relationships between chat sessions (discussions, elevations, etc.)
   G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS room_links (
@@ -138,6 +145,21 @@ function getDb(): any {
   )`);
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_delivery_log_session ON delivery_log(session_id, created_at)`);
 
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS chat_focus_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    room_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    sender_id TEXT,
+    sender_name TEXT,
+    target TEXT,
+    content TEXT NOT NULL,
+    kind TEXT DEFAULT 'message',
+    created_at INTEGER DEFAULT (unixepoch()),
+    UNIQUE(room_id, session_id, message_id)
+  )`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_chat_focus_queue_member ON chat_focus_queue(room_id, session_id, created_at)`);
+
   G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS messages (
     id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -165,6 +187,7 @@ function getDb(): any {
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_messages_reply_to ON messages(reply_to)`);
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_sessions_workspace ON sessions(workspace_id)`);
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_sessions_sort_index ON sessions(sort_index)`);
 
   G[DB_KEY].exec(`CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
     content, tokenize='trigram'
@@ -342,6 +365,20 @@ function getDb(): any {
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_cmd_session ON command_events(session_id)`);
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_cmd_started ON command_events(started_at)`);
 
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS terminal_identity_roots (
+    id TEXT PRIMARY KEY,
+    root_pid INTEGER NOT NULL,
+    pid_start TEXT,
+    handle TEXT,
+    session_id TEXT,
+    source TEXT DEFAULT 'manual',
+    registered_at INTEGER DEFAULT (unixepoch()),
+    expires_at INTEGER,
+    meta TEXT DEFAULT '{}'
+  )`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_terminal_identity_root_pid ON terminal_identity_roots(root_pid, registered_at DESC)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_terminal_identity_expiry ON terminal_identity_roots(expires_at)`);
+
   G[DB_KEY].exec(`CREATE VIRTUAL TABLE IF NOT EXISTS command_events_fts USING fts5(
     command, output_snippet, cwd, tokenize='trigram'
   )`);
@@ -372,6 +409,45 @@ function getDb(): any {
   )`);
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_message_reads_msg ON message_reads(message_id)`);
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_message_reads_session ON message_reads(session_id)`);
+
+  // Room invites — per-room shareable invitations gated by user-set password.
+  // One invite can be used by multiple devices/transports (cli/mcp/web). Revoke
+  // on the invite kills all derived tokens; revoke on a single token kicks one device.
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS room_invites (
+    id TEXT PRIMARY KEY,
+    room_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    kinds TEXT NOT NULL DEFAULT 'cli,mcp,web',
+    created_by TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    revoked_at TEXT
+  )`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_room_invites_room ON room_invites(room_id)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_room_invites_active ON room_invites(room_id, revoked_at)`);
+
+  // Migration: failure tracking for auto-revoke after N bad passwords
+  const inviteCols = G[DB_KEY].prepare(`PRAGMA table_info(room_invites)`).all().map((c: any) => c.name);
+  if (!inviteCols.includes('failed_attempts')) G[DB_KEY].exec(`ALTER TABLE room_invites ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0`);
+  if (!inviteCols.includes('last_failed_at')) G[DB_KEY].exec(`ALTER TABLE room_invites ADD COLUMN last_failed_at TEXT`);
+
+  // Room tokens — bearer tokens issued via password exchange. token_hash is
+  // sha-256 of the plaintext bearer; the bearer itself is never stored.
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS room_tokens (
+    id TEXT PRIMARY KEY,
+    invite_id TEXT NOT NULL REFERENCES room_invites(id) ON DELETE CASCADE,
+    room_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL,
+    handle TEXT,
+    meta TEXT DEFAULT '{}',
+    created_at TEXT DEFAULT (datetime('now')),
+    last_seen_at TEXT,
+    revoked_at TEXT
+  )`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_room_tokens_invite ON room_tokens(invite_id)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_room_tokens_room ON room_tokens(room_id)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_room_tokens_active ON room_tokens(invite_id, revoked_at)`);
 
   // Record startup
   G[DB_KEY].prepare(`INSERT OR REPLACE INTO server_state (key, value) VALUES (?, ?)`).run('last_heartbeat', new Date().toISOString());
@@ -416,7 +492,44 @@ export const queries = {
     return getDb().prepare("SELECT * FROM settings").all();
   },
   // Sessions — active (not soft-deleted, not archived)
-  listSessions: () => prepare(`SELECT * FROM sessions WHERE archived = 0 AND deleted_at IS NULL ORDER BY updated_at DESC`).all(),
+  listSessions: () => prepare(`
+    WITH active_focus AS (
+      SELECT
+        crm.*,
+        r.name AS focus_room_name,
+        ROW_NUMBER() OVER (
+          PARTITION BY crm.session_id
+          ORDER BY COALESCE(crm.attention_expires_at, 2147483647) DESC, crm.attention_updated_at DESC
+        ) AS rn
+      FROM chat_room_members crm
+      JOIN sessions r ON r.id = crm.room_id
+      WHERE crm.role = 'participant'
+        AND crm.attention_state = 'focus'
+        AND (crm.attention_expires_at IS NULL OR crm.attention_expires_at > unixepoch())
+    )
+    SELECT
+      s.*,
+      af.attention_state AS attention_state,
+      af.attention_reason AS attention_reason,
+      af.attention_set_by AS attention_set_by,
+      af.attention_expires_at AS attention_expires_at,
+      af.room_id AS focus_room_id,
+      af.focus_room_name AS focus_room_name,
+      CASE
+        WHEN af.session_id IS NULL THEN NULL
+        ELSE (
+          SELECT COUNT(*) FROM chat_focus_queue cfq
+          WHERE cfq.room_id = af.room_id AND cfq.session_id = s.id
+        )
+      END AS focus_queue_count
+    FROM sessions s
+    LEFT JOIN active_focus af ON af.session_id = s.id AND af.rn = 1
+    WHERE s.archived = 0 AND s.deleted_at IS NULL
+    ORDER BY
+      CASE WHEN s.sort_index IS NULL THEN 1 ELSE 0 END,
+      s.sort_index ASC,
+      s.updated_at DESC
+  `).all(),
   // Sessions hidden from the main dashboard: archived-only rows and soft-deleted
   // rows that are still inside their restore window.
   listRecoverable: () => prepare(`
@@ -441,6 +554,17 @@ export const queries = {
     prepare(`UPDATE sessions SET deleted_at = NULL, archived = 0, updated_at = datetime('now') WHERE id = ?`).run(id),
   hardDeleteSession: (id: string) => prepare(`DELETE FROM sessions WHERE id = ?`).run(id),
   archiveSession: (id: string) => prepare(`UPDATE sessions SET archived = 1, updated_at = datetime('now') WHERE id = ?`).run(id),
+  reorderSessions: (ids: string[]) => {
+    const db = getDb();
+    const tx = db.transaction((orderedIds: string[]) => {
+      db.prepare(`UPDATE sessions SET sort_index = NULL WHERE archived = 0 AND deleted_at IS NULL`).run();
+      const stmt = db.prepare(`UPDATE sessions SET sort_index = ? WHERE id = ? AND archived = 0 AND deleted_at IS NULL`);
+      orderedIds.forEach((id, index) => stmt.run(index, id));
+    });
+    return tx(ids);
+  },
+  resetSessionOrder: () =>
+    prepare(`UPDATE sessions SET sort_index = NULL WHERE archived = 0 AND deleted_at IS NULL`).run(),
 
   // Sessions — linked chat
   setLinkedChat: (sessionId: string, chatId: string) =>
@@ -450,6 +574,34 @@ export const queries = {
   setHandle: (id: string, handle: string | null, displayName: string | null) =>
     prepare(`UPDATE sessions SET handle = ?, display_name = ?, updated_at = datetime('now') WHERE id = ?`).run(handle, displayName, id),
   getSessionByHandle: (handle: string) => prepare(`SELECT * FROM sessions WHERE handle = ? AND archived = 0 AND deleted_at IS NULL`).get(handle),
+
+  // Terminal identity registry — maps a long-lived shell/process-tree root to
+  // a handle/session without mutating shared CLI config.
+  registerTerminalIdentity: (id: string, rootPid: number, pidStart: string | null, handle: string | null, sessionId: string | null, source: string, expiresAt: number | null, meta: string) =>
+    prepare(`INSERT INTO terminal_identity_roots (id, root_pid, pid_start, handle, session_id, source, expires_at, meta)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(id, rootPid, pidStart, handle, sessionId, source, expiresAt, meta),
+  resolveTerminalIdentity: (pids: { pid: number; pid_start?: string | null }[], now: number) => {
+    const clean = pids
+      .filter((entry) => Number.isInteger(entry.pid) && entry.pid > 1)
+      .slice(0, 64);
+    if (clean.length === 0) return null;
+    const placeholders = clean.map(() => '?').join(',');
+    const rows = prepare(`
+      SELECT tir.*, s.handle AS session_handle, s.display_name, s.name, s.type
+      FROM terminal_identity_roots tir
+      LEFT JOIN sessions s ON s.id = tir.session_id
+      WHERE tir.root_pid IN (${placeholders})
+        AND (tir.expires_at IS NULL OR tir.expires_at > ?)
+      ORDER BY tir.registered_at DESC, tir.rowid DESC
+    `).all(...clean.map((entry) => entry.pid), now);
+    const starts = new Map(clean.map((entry) => [entry.pid, entry.pid_start || null]));
+    return rows.find((row: any) => {
+      const currentStart = starts.get(row.root_pid) || null;
+      return !row.pid_start || !currentStart || row.pid_start === currentStart;
+    }) ?? null;
+  },
+  pruneTerminalIdentities: (now: number) =>
+    prepare(`DELETE FROM terminal_identity_roots WHERE expires_at IS NOT NULL AND expires_at <= ?`).run(now),
 
   // CLI flag + alias
   setCliFlag: (id: string, cliFlag: string | null) =>
@@ -470,12 +622,49 @@ export const queries = {
     prepare(`UPDATE chat_room_members SET role = 'left' WHERE room_id = ? AND session_id = ? AND role != 'left'`).run(roomId, sessionId),
   updateMemberAlias: (roomId: string, sessionId: string, alias: string | null) =>
     prepare(`UPDATE chat_room_members SET alias = ? WHERE room_id = ? AND session_id = ?`).run(alias, roomId, sessionId),
+  getRoomMember: (roomId: string, sessionId: string) =>
+    prepare(`SELECT crm.*, s.name, s.handle, s.display_name, s.type, s.status as session_status
+             FROM chat_room_members crm LEFT JOIN sessions s ON s.id = crm.session_id
+             WHERE crm.room_id = ? AND crm.session_id = ?`).get(roomId, sessionId),
   getMemberByAlias: (roomId: string, alias: string) =>
     prepare(`SELECT crm.*, s.name, s.handle, s.display_name, s.type FROM chat_room_members crm LEFT JOIN sessions s ON s.id = crm.session_id WHERE crm.room_id = ? AND crm.alias = ?`).get(roomId, alias),
   listRoomMembers: (roomId: string) =>
     prepare(`SELECT crm.*, s.name, s.handle, s.display_name, s.type, s.status as session_status FROM chat_room_members crm LEFT JOIN sessions s ON s.id = crm.session_id WHERE crm.room_id = ?`).all(roomId),
   getRoutableMembers: (roomId: string) =>
     prepare(`SELECT crm.*, s.name, s.handle, s.display_name, s.type FROM chat_room_members crm LEFT JOIN sessions s ON s.id = crm.session_id WHERE crm.room_id = ? AND crm.role = 'participant'`).all(roomId),
+  getActiveFocusForSession: (sessionId: string) =>
+    prepare(`SELECT
+               crm.*,
+               r.name AS room_name,
+               (SELECT COUNT(*) FROM chat_focus_queue cfq WHERE cfq.room_id = crm.room_id AND cfq.session_id = crm.session_id) AS focus_queue_count
+             FROM chat_room_members crm
+             JOIN sessions r ON r.id = crm.room_id
+             WHERE crm.session_id = ?
+               AND crm.role = 'participant'
+               AND crm.attention_state = 'focus'
+               AND (crm.attention_expires_at IS NULL OR crm.attention_expires_at > unixepoch())
+             ORDER BY COALESCE(crm.attention_expires_at, 2147483647) DESC, crm.attention_updated_at DESC
+             LIMIT 1`).get(sessionId),
+  setMemberAttention: (roomId: string, sessionId: string, state: string, reason: string | null, setBy: string | null, expiresAt: number | null) =>
+    prepare(`UPDATE chat_room_members
+             SET attention_state = ?, attention_reason = ?, attention_set_by = ?, attention_expires_at = ?, attention_updated_at = unixepoch()
+             WHERE room_id = ? AND session_id = ?`).run(state, reason, setBy, expiresAt, roomId, sessionId),
+  listExpiredFocusedMembers: (roomId: string | null, now: number) => {
+    if (roomId) {
+      return prepare(`SELECT crm.*, s.name, s.handle, s.display_name, s.type
+                      FROM chat_room_members crm LEFT JOIN sessions s ON s.id = crm.session_id
+                      WHERE crm.room_id = ? AND crm.role = 'participant'
+                        AND crm.attention_state = 'focus'
+                        AND crm.attention_expires_at IS NOT NULL
+                        AND crm.attention_expires_at <= ?`).all(roomId, now);
+    }
+    return prepare(`SELECT crm.*, s.name, s.handle, s.display_name, s.type
+                    FROM chat_room_members crm LEFT JOIN sessions s ON s.id = crm.session_id
+                    WHERE crm.role = 'participant'
+                      AND crm.attention_state = 'focus'
+                      AND crm.attention_expires_at IS NOT NULL
+                      AND crm.attention_expires_at <= ?`).all(now);
+  },
 
   // Channel registry
   registerChannel: (handle: string, port: number, sessionId: string | null) =>
@@ -506,6 +695,21 @@ export const queries = {
     prepare(`INSERT INTO delivery_log (message_id, session_id, adapter, delivered, error) VALUES (?, ?, ?, ?, ?)`).run(messageId, sessionId, adapter, delivered, error),
   pruneDeliveryLog: (olderThanSecs: number) =>
     prepare(`DELETE FROM delivery_log WHERE created_at < (unixepoch() - ?)`).run(olderThanSecs),
+  queueFocusMessage: (roomId: string, sessionId: string, messageId: string, senderId: string | null, senderName: string | null, target: string | null, content: string, kind: string) =>
+    prepare(`INSERT OR IGNORE INTO chat_focus_queue (room_id, session_id, message_id, sender_id, sender_name, target, content, kind)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(roomId, sessionId, messageId, senderId, senderName, target, content, kind),
+  listFocusQueue: (roomId: string, sessionId: string, limit: number) =>
+    prepare(`SELECT * FROM chat_focus_queue WHERE room_id = ? AND session_id = ? ORDER BY created_at ASC LIMIT ?`).all(roomId, sessionId, limit),
+  countFocusQueue: (roomId: string, sessionId: string) =>
+    (prepare(`SELECT COUNT(*) as count FROM chat_focus_queue WHERE room_id = ? AND session_id = ?`).get(roomId, sessionId) as any)?.count ?? 0,
+  clearFocusQueue: (roomId: string, sessionId: string) =>
+    prepare(`DELETE FROM chat_focus_queue WHERE room_id = ? AND session_id = ?`).run(roomId, sessionId),
+  countRecentFocusBypasses: (roomId: string, senderId: string | null, sinceIso: string) => {
+    if (senderId) {
+      return (prepare(`SELECT COUNT(*) as count FROM messages WHERE session_id = ? AND sender_id = ? AND msg_type = 'focus_bypass' AND created_at >= ?`).get(roomId, senderId, sinceIso) as any)?.count ?? 0;
+    }
+    return (prepare(`SELECT COUNT(*) as count FROM messages WHERE session_id = ? AND sender_id IS NULL AND msg_type = 'focus_bypass' AND created_at >= ?`).get(roomId, sinceIso) as any)?.count ?? 0;
+  },
   getTerminalsByLinkedChat: (chatId: string) =>
     prepare(`SELECT * FROM sessions WHERE linked_chat_id = ? AND type = 'terminal' AND archived = 0 AND deleted_at IS NULL`).all(chatId),
   // All live terminal sessions that have a linked chat — kept for reference.
@@ -872,6 +1076,53 @@ export const queries = {
              JOIN messages m ON m.id = mr.message_id
              WHERE m.session_id = ?
              ORDER BY mr.read_at ASC`).all(chatSessionId),
+
+  // Room invites
+  createRoomInvite: (row: {
+    id: string;
+    room_id: string;
+    label: string;
+    password_hash: string;
+    kinds: string;
+    created_by: string | null;
+  }) =>
+    prepare(`INSERT INTO room_invites (id, room_id, label, password_hash, kinds, created_by)
+             VALUES (?, ?, ?, ?, ?, ?)`).run(
+      row.id, row.room_id, row.label, row.password_hash, row.kinds, row.created_by,
+    ),
+  getRoomInvite: (id: string) =>
+    prepare(`SELECT * FROM room_invites WHERE id = ?`).get(id),
+  listRoomInvites: (roomId: string) =>
+    prepare(`SELECT * FROM room_invites WHERE room_id = ? ORDER BY created_at DESC`).all(roomId),
+  revokeRoomInvite: (id: string) =>
+    prepare(`UPDATE room_invites SET revoked_at = datetime('now') WHERE id = ? AND revoked_at IS NULL`).run(id),
+  incrementInviteFailures: (id: string) =>
+    prepare(`UPDATE room_invites SET failed_attempts = failed_attempts + 1, last_failed_at = datetime('now') WHERE id = ?`).run(id),
+  resetInviteFailures: (id: string) =>
+    prepare(`UPDATE room_invites SET failed_attempts = 0, last_failed_at = NULL WHERE id = ?`).run(id),
+
+  // Room tokens
+  createRoomToken: (row: {
+    id: string;
+    invite_id: string;
+    room_id: string;
+    token_hash: string;
+    kind: string;
+    handle: string | null;
+    meta: string;
+  }) =>
+    prepare(`INSERT INTO room_tokens (id, invite_id, room_id, token_hash, kind, handle, meta)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+      row.id, row.invite_id, row.room_id, row.token_hash, row.kind, row.handle, row.meta,
+    ),
+  getRoomTokenByHash: (hash: string) =>
+    prepare(`SELECT * FROM room_tokens WHERE token_hash = ?`).get(hash),
+  touchRoomToken: (id: string) =>
+    prepare(`UPDATE room_tokens SET last_seen_at = datetime('now') WHERE id = ?`).run(id),
+  revokeRoomToken: (id: string) =>
+    prepare(`UPDATE room_tokens SET revoked_at = datetime('now') WHERE id = ? AND revoked_at IS NULL`).run(id),
+  listRoomTokens: (inviteId: string) =>
+    prepare(`SELECT * FROM room_tokens WHERE invite_id = ? ORDER BY created_at DESC`).all(inviteId),
 };
 
 export default getDb;
