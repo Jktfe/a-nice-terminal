@@ -11,6 +11,7 @@
   import DigestPanel from '$lib/components/DigestPanel.svelte';
   import ActivityRail from '$lib/components/ActivityRail.svelte';
   import RunView from '$lib/components/RunView.svelte';
+  import RoomShortcutsBar from '$lib/components/RoomShortcutsBar.svelte';
   import { useToasts } from '$lib/stores/toast.svelte';
   import { normalizeSessionName } from '$lib/utils/session-naming';
   import { onMount, onDestroy } from 'svelte';
@@ -25,6 +26,11 @@
     linked_chat_id?: string | null;
     ttl?: string;
     cli_flag?: string | null;
+    attention_state?: string | null;
+    attention_reason?: string | null;
+    attention_set_by?: string | null;
+    attention_expires_at?: number | null;
+    focus_queue_count?: number | null;
   }
 
   interface MessageSearchResult {
@@ -879,6 +885,38 @@
     await loadMentionHandles();
   }
 
+  async function setParticipantFocus(sess: PageSession) {
+    const label = sess.display_name || sess.name || sess.handle || sess.id;
+    const isFocused = sess.attention_state === 'focus';
+    let reason = '';
+    if (!isFocused) {
+      reason = prompt(`Focus reason for ${label}`, sess.attention_reason || 'building')?.trim() || '';
+      if (!reason) {
+        toasts.show('Focus reason required', 'error');
+        return;
+      }
+    }
+
+    const res = await fetch(`/api/sessions/${sessionId}/participants`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id: sess.id,
+        attention_state: isFocused ? 'available' : 'focus',
+        ttl: '30m',
+        reason,
+        set_by: 'web',
+      }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      toasts.show(data.error || 'Failed to update focus', 'error');
+      return;
+    }
+    toasts.show(isFocused ? `Focus cleared for ${label}` : `${label} is now in focus mode`);
+    await loadMentionHandles();
+  }
+
   function openLinkedChat(sess: PageSession) {
     const targetId = sess.type === 'terminal' && sess.linked_chat_id ? sess.linked_chat_id : sess.id;
     goto(`/session/${targetId}`);
@@ -969,6 +1007,13 @@
       alias: typeof p.alias === 'string' ? p.alias : null,
       display_name: displayName,
       cli_flag: typeof p.cli_flag === 'string' ? p.cli_flag : null,
+      attention_state: typeof p.attention_state === 'string' ? p.attention_state : null,
+      attention_reason: typeof p.attention_reason === 'string' ? p.attention_reason : null,
+      attention_set_by: typeof p.attention_set_by === 'string' ? p.attention_set_by : null,
+      attention_expires_at: typeof p.attention_expires_at === 'number'
+        ? p.attention_expires_at
+        : (typeof p.attention_expires_at === 'string' && p.attention_expires_at ? Number(p.attention_expires_at) : null),
+      focus_queue_count: typeof p.focus_queue_count === 'number' ? p.focus_queue_count : null,
     };
   }
 
@@ -997,7 +1042,10 @@
     const hasRoomMembership = roomParticipants.length > 0;
     const active = allSessions
       .filter(s => s.id !== sessionId && (hasRoomMembership ? roomMemberIds.has(s.id) : counts.has(s.id)))
-      .map(s => ({ sess: s, count: counts.get(s.id) ?? 0, active: true }));
+      .map(s => {
+        const roomInfo = roomParticipants.map(roomIdentitySession).find(p => p.id === s.id);
+        return { sess: { ...s, ...roomInfo }, count: counts.get(s.id) ?? 0, active: true };
+      });
     const activeIds = new Set(active.map(p => p.sess.id));
 
     // Include external posters (e.g. @gemini) that don't match any session
@@ -1117,6 +1165,10 @@
       } catch {}
     } : undefined}
   />
+
+  {#if session?.type === 'chat'}
+    <RoomShortcutsBar currentSessionId={sessionId} />
+  {/if}
 
   {#if showDigest}
     <DigestPanel {sessionId} onClose={() => (showDigest = false)} />
@@ -1322,6 +1374,7 @@
         onWakeParticipant={wakeParticipant}
         onSaveNickname={saveNickname}
         onRemoveParticipant={removeParticipant}
+        onFocusParticipant={setParticipantFocus}
         onOpenLinkedChat={openLinkedChat}
         onCreateTask={createTask}
         onClose={() => (showPanel = false)}

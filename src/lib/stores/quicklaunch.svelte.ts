@@ -124,6 +124,12 @@ export function useQuickLaunch(sessionId: string, driver?: string | null) {
     allData[sessionId] = state.buttons;
     save(allData);
     state.hasSavedSession = true;
+    // Best-effort sync to server — keeps ~/.ant/quick-launch.json in step
+    fetch('/api/quick-launch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ buttons: state.buttons }),
+    }).catch(() => {});
   }
 
   return {

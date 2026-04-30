@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
-import { readFile } from 'fs/promises';
+import { readFile, writeFile, mkdir } from 'fs/promises';
 import { homedir } from 'os';
 import { join } from 'path';
+import type { RequestEvent } from '@sveltejs/kit';
 
 type LocalQuickLaunchButton = {
   id?: unknown;
@@ -46,5 +47,25 @@ export async function GET() {
   } catch (err: any) {
     if (err?.code === 'ENOENT') return json({ buttons: [] });
     return json({ buttons: [], error: 'Invalid local quick launch config' }, { status: 400 });
+  }
+}
+
+export async function POST({ request }: RequestEvent) {
+  const file = process.env.ANT_QUICK_LAUNCH_FILE || DEFAULT_QUICK_LAUNCH_FILE;
+
+  let body: unknown;
+  try { body = await request.json(); } catch { return json({ error: 'Invalid JSON' }, { status: 400 }); }
+
+  const source = Array.isArray(body) ? body : (body as any)?.buttons;
+  if (!Array.isArray(source)) return json({ error: 'Expected { buttons: [...] }' }, { status: 400 });
+
+  const buttons = source.map(cleanButton).filter((b): b is NonNullable<typeof b> => b != null);
+
+  try {
+    await mkdir(join(homedir(), '.ant'), { recursive: true });
+    await writeFile(file, JSON.stringify({ buttons }, null, 2), 'utf8');
+    return json({ ok: true, buttons });
+  } catch (err: any) {
+    return json({ error: `Failed to save: ${err?.message}` }, { status: 500 });
   }
 }
