@@ -517,6 +517,9 @@ function installSilenceHook(sessionId: string) {
     execFileSync(TMUX, [
       'set-environment', '-t', sessionId, 'ANT_SERVER', `https://localhost:${process.env.ANT_PORT || '6458'}`,
     ], { stdio: 'pipe' });
+    execFileSync(TMUX, [
+      'set-environment', '-t', sessionId, 'ANT_SERVER_URL', `https://localhost:${process.env.ANT_PORT || '6458'}`,
+    ], { stdio: 'pipe' });
 
     // Shell-quote the session ID defensively. tmux session IDs are
     // alphanumeric + `-` in practice, but a stray `'` would break run-shell.
@@ -674,15 +677,16 @@ function handle(msg: any, socket: net.Socket) {
     }
 
     case 'write': {
+      // Prefer tmux paste-buffer (reliable, server-side) over the daemon's
+      // node-pty client handle. Daemon-spawned tmux clients can silently
+      // detach across reconnects, leaving s.alive=true but s.pty.write()
+      // delivering bytes to a dead PTY. paste-buffer hits the tmux server
+      // directly and lands in the active pane every time.
+      // Fall back to s.pty.write only when the tmux session truly doesn't
+      // exist (e.g. brand-new spawn before tmux has settled).
+      if (writeViaTmux(msg.sessionId, msg.data)) break;
       const s = sessions.get(msg.sessionId);
-      if (s?.alive) {
-        s.pty.write(msg.data);
-      } else {
-        // Server restarts can leave a tmux session alive while the daemon has
-        // no raw PTY object in memory. Fall back to tmux itself so chat routing
-        // still delivers to long-lived agents.
-        writeViaTmux(msg.sessionId, msg.data);
-      }
+      if (s?.alive) s.pty.write(msg.data);
       break;
     }
 
