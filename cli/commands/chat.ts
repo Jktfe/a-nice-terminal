@@ -1,7 +1,6 @@
 import { api } from '../lib/api.js';
 import { config } from '../lib/config.js';
 import { createInterface } from 'readline';
-import WebSocket from 'ws';
 import { execFileSync } from 'child_process';
 
 /** Detect whether we're inside an ANT-managed tmux session. */
@@ -258,8 +257,15 @@ export async function chat(args: string[], flags: any, ctx: any) {
   if (sub === 'join') {
     if (!id) { console.error('Usage: ant chat join <session-id>'); return; }
 
+    // Per-room token wins over the master apiKey for both HTTP backfill and
+    // the WS upgrade — same precedence as the request() helper. Without this,
+    // remote ANTs (Funnel-only, no master key) get 401 on the join path even
+    // though `ant chat send` works fine for them.
+    const room = roomOpts(id);
+    const roomToken = room?.roomToken;
+
     // Load recent history first
-    const data = await api.get(ctx, `/api/sessions/${id}/messages?limit=10`);
+    const data = await api.get(ctx, `/api/sessions/${id}/messages?limit=10`, room);
     for (const m of (data.messages || [])) {
       const prefix = m.role === 'user' ? '\x1b[36mYou\x1b[0m' : '\x1b[33mANT\x1b[0m';
       console.log(`${prefix}: ${m.content}`);
@@ -267,37 +273,75 @@ export async function chat(args: string[], flags: any, ctx: any) {
 
     console.log('\n--- Joined chat (streaming, Ctrl+C to exit) ---\n');
 
-    // Connect WebSocket — always prefer wss:// (http:// → wss:// since server is TLS-only)
-    const wsUrl = ctx.serverUrl.replace('https://', 'wss://').replace('http://', 'wss://') + '/ws';
-    const ws = new WebSocket(wsUrl, {
-      headers: ctx.apiKey ? { 'Authorization': `Bearer ${ctx.apiKey}` } : {},
-      rejectUnauthorized: false,
-    });
-
-    ws.on('open', () => {
-      ws.send(JSON.stringify({ type: 'join_session', sessionId: id }));
-      
-      // Heartbeat for presence tracking
-      const heartbeat = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'presence_ping' }));
+    // Receive live messages over Server-Sent Events.
+    //
+    // We deliberately avoid WebSockets here: bun's `node:http` shim has a
+    // WS-upgrade bug that delivers the initial server-pushed frame
+    // (`build_id`) but silently drops every subsequent broadcast — so under
+    // the bun-installed `ant` CLI, `ant chat join` saw history and never the
+    // live messages. The server already exposes `/mcp/room/:id/stream` as
+    // SSE for the read-only web viewer; the broadcast loop registers the
+    // SSE writer as a virtual WS client, so the same `message_created`
+    // payloads arrive there. Plain HTTP/1.1 chunked streaming is robust
+    // across both bun and node runtimes.
+    //
+    // SSE requires a per-room bearer token, so the streaming receiver only
+    // works when one is available. Without one (master-apiKey path), we
+    // skip live streaming and degrade to backfill-only.
+    let abort: AbortController | null = null;
+    if (roomToken) {
+      abort = new AbortController();
+      const streamUrl = `${ctx.serverUrl}/mcp/room/${encodeURIComponent(id)}/stream?token=${encodeURIComponent(roomToken)}`;
+      (async () => {
+        try {
+          const res = await fetch(streamUrl, {
+            headers: { Accept: 'text/event-stream' },
+            signal: abort!.signal,
+            // @ts-ignore — bun + node both honour this for self-signed local TLS.
+            //              real Funnel cert paths ignore it.
+            tls: { rejectUnauthorized: false },
+          });
+          if (!res.ok || !res.body) {
+            console.error(`Stream failed: HTTP ${res.status}`);
+            return;
+          }
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buf = '';
+          // The broadcast loop fans the same message_created event out via
+          // both the primary delivery path and the message-router, so each id
+          // arrives twice on the SSE stream. Dedup on the client.
+          const seen = new Set<string>();
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            // SSE frames are separated by a blank line; each frame is one or
+            // more `field: value` lines. We only care about the `data:` field.
+            let idx;
+            while ((idx = buf.indexOf('\n\n')) >= 0) {
+              const frame = buf.slice(0, idx);
+              buf = buf.slice(idx + 2);
+              const dataLines = frame.split('\n').filter((l) => l.startsWith('data: ')).map((l) => l.slice(6));
+              if (!dataLines.length) continue;
+              try {
+                const msg = JSON.parse(dataLines.join('\n'));
+                if (msg.type === 'message_created' && msg.sessionId === id) {
+                  if (msg.id && seen.has(msg.id)) continue;
+                  if (msg.id) seen.add(msg.id);
+                  const prefix = msg.role === 'user' ? '\x1b[36mYou\x1b[0m' : '\x1b[33mANT\x1b[0m';
+                  process.stdout.write(`\r\x1b[K${prefix}: ${msg.content}\n\x1b[36mYou\x1b[0m: `);
+                }
+              } catch {}
+            }
+          }
+        } catch (e: any) {
+          if (e?.name !== 'AbortError') console.error(`Stream error: ${e?.message ?? e}`);
         }
-      }, 30000);
-      
-      ws.on('close', () => clearInterval(heartbeat));
-    });
-
-    ws.on('message', (raw: Buffer) => {
-      try {
-        const msg = JSON.parse(raw.toString());
-        if (msg.type === 'message_created' && msg.sessionId === id) {
-          const prefix = msg.role === 'user' ? '\x1b[36mYou\x1b[0m' : '\x1b[33mANT\x1b[0m';
-          console.log(`${prefix}: ${msg.content}`);
-        } else if (msg.type === 'stream_chunk' && msg.sessionId === id) {
-          process.stdout.write(msg.content || '');
-        }
-      } catch {}
-    });
+      })();
+    } else {
+      console.error('(no room token — running backfill-only; use `ant join-room` to enable live streaming)');
+    }
 
     // Interactive input
     const joinSender = resolveIdentity(isExternal);
@@ -307,14 +351,14 @@ export async function chat(args: string[], flags: any, ctx: any) {
       const trimmed = line.trim();
       if (!trimmed) { rl.prompt(); return; }
       try {
-        await api.post(ctx, `/api/sessions/${id}/messages`, { role: 'user', content: trimmed, format: 'text', sender_id: joinSender });
+        await api.post(ctx, `/api/sessions/${id}/messages`, { role: 'user', content: trimmed, format: 'text', sender_id: joinSender }, room);
       } catch (e: any) {
         console.error(`Error: ${e.message}`);
       }
       rl.prompt();
     });
-    rl.on('close', () => { ws.close(); process.exit(0); });
-    process.on('SIGINT', () => { ws.close(); process.exit(0); });
+    rl.on('close', () => { abort?.abort(); process.exit(0); });
+    process.on('SIGINT', () => { abort?.abort(); process.exit(0); });
     return;
   }
 
