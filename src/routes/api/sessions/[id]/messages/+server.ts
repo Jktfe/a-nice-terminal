@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
 import { nanoid } from 'nanoid';
-import { assertNotRoomScoped } from '$lib/server/room-scope';
+import { assertNotRoomScoped, assertCanWrite } from '$lib/server/room-scope';
 
 const RESOLVED_AGENT_EVENT_STATUSES = new Set(['discarded', 'dismissed', 'settled', 'responded']);
 
@@ -107,7 +107,11 @@ function resolveSenderSession(senderId: string | null): { name: string; type: st
   };
 }
 
-export async function POST({ params, request }: RequestEvent<{ id: string }>) {
+export async function POST(event: RequestEvent<{ id: string }>) {
+  // Read-only kinds (web viewer) must NOT be able to escalate to posting via
+  // direct curl. The kind annotation on the bearer is the gate.
+  assertCanWrite(event);
+  const { params, request } = event;
   const { role, content, format, sender_id, target, reply_to, msg_type, meta } = await request.json();
   const id = nanoid();
   const msgType = msg_type || 'message';

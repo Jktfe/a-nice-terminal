@@ -41,6 +41,13 @@ interface RoomContext {
   handle: string | null;
   tokenId: string;
   inviteId: string;
+  kind: string | null;
+}
+
+const WRITE_KINDS = new Set(['cli', 'mcp']);
+function canWrite(ctx: RoomContext): boolean {
+  if (ctx.kind === null) return true; // legacy/unknown — be permissive
+  return WRITE_KINDS.has(ctx.kind);
 }
 
 // Match upstream's tool shape: name, description, inputSchema (JSON Schema).
@@ -104,6 +111,7 @@ export function resolveMcpContext(request: Request, url: URL, expectedRoomId: st
     handle: resolved.token.handle,
     tokenId: resolved.token.id,
     inviteId: resolved.invite.id,
+    kind: resolved.token.kind ?? null,
   };
 }
 
@@ -145,6 +153,9 @@ async function handleToolCall(name: string, args: Record<string, unknown>, ctx: 
     }
 
     case 'post_message': {
+      if (!canWrite(ctx)) {
+        return textResult(`post_message: tokens of kind '${ctx.kind}' are read-only`, true);
+      }
       const content = typeof args.content === 'string' ? args.content : '';
       if (!content) return textResult('post_message: content is required', true);
       const target = typeof args.target === 'string' && args.target ? args.target : null;

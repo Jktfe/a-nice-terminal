@@ -32,7 +32,7 @@ function urlRoomId(pathname: string): string | null {
 //   - 'none'          → no Bearer, or an unknown one
 type BearerState =
   | { kind: 'admin' }
-  | { kind: 'room-scoped'; roomId: string }
+  | { kind: 'room-scoped'; roomId: string; tokenKind: string | null }
   | { kind: 'wrong-room' }
   | { kind: 'none' };
 
@@ -57,7 +57,11 @@ function classifyBearer(event: Parameters<Handle>[0]['event']): BearerState {
   const targetRoom = urlRoomId(event.url.pathname);
   if (!targetRoom) return { kind: 'wrong-room' };
   if (targetRoom !== resolved.invite.room_id) return { kind: 'wrong-room' };
-  return { kind: 'room-scoped', roomId: resolved.invite.room_id };
+  return {
+    kind: 'room-scoped',
+    roomId: resolved.invite.room_id,
+    tokenKind: resolved.token.kind ?? null,
+  };
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
@@ -72,6 +76,7 @@ export const handle: Handle = async ({ event, resolve }) => {
   }
 
   const scopedRoomId = bearer.kind === 'room-scoped' ? bearer.roomId : null;
+  const scopedTokenKind = bearer.kind === 'room-scoped' ? bearer.tokenKind : null;
   const isPublic = isExchange || scopedRoomId !== null || bearer.kind === 'admin';
 
   // Tailscale IP check (optional — only enforce if ANT_TAILSCALE_ONLY is set).
@@ -107,7 +112,12 @@ export const handle: Handle = async ({ event, resolve }) => {
 
   // P2b will read this in route handlers to enforce per-room scope on writes.
   // Wrapped to avoid TS noise in repos without an app.d.ts Locals declaration.
-  if (scopedRoomId) (event.locals as Record<string, unknown>).roomScope = { roomId: scopedRoomId };
+  if (scopedRoomId) {
+    (event.locals as Record<string, unknown>).roomScope = {
+      roomId: scopedRoomId,
+      kind: scopedTokenKind,
+    };
+  }
   return resolve(event);
 };
 
