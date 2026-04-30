@@ -290,6 +290,27 @@ export function authenticateRoomRequest(roomId: string, headers: Headers | Recor
   };
 }
 
+// Resolve the externally-routable origin a joiner should hit.
+//
+// Preference order:
+//   1. ANT_PUBLIC_ORIGIN — host-only, used when the server binds to a private
+//      port (e.g. :6458) but is fronted by a reverse proxy / Tailscale Funnel
+//      on 443. This is what Funnel-style deployments need so joiners don't
+//      see :6458 baked into their share strings.
+//   2. ANT_SERVER_URL — the legacy single-source-of-truth. Often includes the
+//      bind port; fine for Tailnet-only or LAN deployments.
+//   3. Request URL — last-resort fallback for dev where neither env is set.
+export function publicOrigin(req?: { url: URL | string }): string {
+  if (process.env.ANT_PUBLIC_ORIGIN) return process.env.ANT_PUBLIC_ORIGIN;
+  if (process.env.ANT_SERVER_URL) return process.env.ANT_SERVER_URL;
+  if (req?.url) {
+    const u = typeof req.url === 'string' ? new URL(req.url) : req.url;
+    return `${u.protocol}//${u.host}`;
+  }
+  // No request, no envs — should never happen at runtime.
+  return 'http://localhost';
+}
+
 export function buildShareString(opts: { serverUrl: string; roomId: string; inviteId: string; kind: InviteKind }): string {
   const u = new URL(opts.serverUrl);
   if (opts.kind === 'cli') {

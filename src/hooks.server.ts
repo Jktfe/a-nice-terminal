@@ -8,25 +8,45 @@ import { resolveToken } from '$lib/server/room-invites';
 // Auth is enforced inside the route by the per-invite password gate.
 const EXCHANGE_RE = /^\/api\/sessions\/[^/]+\/invites\/[^/]+\/exchange$/;
 
-// Returns the room id this request is scoped to via a per-room bearer token,
-// or null if no valid token is presented. The token grants access only to
-// /api/sessions/<roomId>/* (and the WS upgrade for that room).
-function roomScopeFor(event: Parameters<Handle>[0]['event']): string | null {
+// Three states a Bearer header can be in for /api/* requests:
+//   - 'admin'         → it's the master ANT_API_KEY, full access
+//   - 'room-scoped'   → it's a valid room token AND the URL targets its room
+//   - 'wrong-room'    → it's a valid room token but the URL targets a
+//                       different room — explicit 403, do NOT fall through
+//                       to the same-origin shortcut and let the request slip
+//   - 'none'          → no Bearer, or an unknown one
+type BearerState =
+  | { kind: 'admin' }
+  | { kind: 'room-scoped'; roomId: string }
+  | { kind: 'wrong-room' }
+  | { kind: 'none' };
+
+function classifyBearer(event: Parameters<Handle>[0]['event']): BearerState {
   const auth = event.request.headers.get('authorization') || '';
   const bearer = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  if (!bearer) return null;
+  if (!bearer) return { kind: 'none' };
+  if (process.env.ANT_API_KEY && bearer === process.env.ANT_API_KEY) return { kind: 'admin' };
   const resolved = resolveToken(bearer);
-  if (!resolved) return null;
-  // Token only authorises requests targeting its own room.
+  if (!resolved) return { kind: 'none' };
   const m = event.url.pathname.match(/^\/api\/sessions\/([^/]+)/);
-  if (!m || m[1] !== resolved.invite.room_id) return null;
-  return resolved.invite.room_id;
+  if (!m) return { kind: 'wrong-room' };
+  if (m[1] !== resolved.invite.room_id) return { kind: 'wrong-room' };
+  return { kind: 'room-scoped', roomId: resolved.invite.room_id };
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
   const isExchange = EXCHANGE_RE.test(event.url.pathname);
-  const scopedRoomId = isExchange ? null : roomScopeFor(event);
-  const isPublic = isExchange || scopedRoomId !== null;
+  const bearer = isExchange ? { kind: 'none' as const } : classifyBearer(event);
+
+  if (bearer.kind === 'wrong-room') {
+    return new Response(JSON.stringify({ error: 'Token does not authorise this room' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  const scopedRoomId = bearer.kind === 'room-scoped' ? bearer.roomId : null;
+  const isPublic = isExchange || scopedRoomId !== null || bearer.kind === 'admin';
 
   // Tailscale IP check (optional — only enforce if ANT_TAILSCALE_ONLY is set).
   // Public routes bypass: invite exchange has its own password gate; room-token

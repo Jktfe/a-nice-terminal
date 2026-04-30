@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
 import { nanoid } from 'nanoid';
+import { assertNotRoomScoped } from '$lib/server/room-scope';
 
 const RESOLVED_AGENT_EVENT_STATUSES = new Set(['discarded', 'dismissed', 'settled', 'responded']);
 
@@ -24,7 +25,13 @@ function terminalIdsForAgentEvent(chatId: string, message: any): string[] {
 }
 
 // PATCH /api/sessions/:id/messages?msgId= — update meta (reactions, bookmarks)
-export async function PATCH({ params, url, request }: RequestEvent<{ id: string }>) {
+export async function PATCH(event: RequestEvent<{ id: string }>) {
+  // Mutating arbitrary message meta (status flags, etc.) is admin-only —
+  // there's no per-message ownership check yet, so a remote ANT could
+  // change anyone's message metadata otherwise. Sender-bound editing is
+  // a planned follow-up.
+  assertNotRoomScoped(event);
+  const { params, url, request } = event;
   const msgId = url.searchParams.get('msgId');
   if (!msgId) return json({ error: 'msgId required' }, { status: 400 });
 
@@ -56,7 +63,10 @@ export async function PATCH({ params, url, request }: RequestEvent<{ id: string 
 }
 
 // DELETE /api/sessions/:id/messages?msgId=
-export async function DELETE({ params, url }: RequestEvent<{ id: string }>) {
+export async function DELETE(event: RequestEvent<{ id: string }>) {
+  // Same reasoning as PATCH — admin-only until per-message ownership lands.
+  assertNotRoomScoped(event);
+  const { params, url } = event;
   const msgId = url.searchParams.get('msgId');
   if (!msgId) return json({ error: 'msgId required' }, { status: 400 });
 
@@ -105,6 +115,16 @@ export async function POST({ params, request }: RequestEvent<{ id: string }>) {
   const metaJson = meta === undefined
     ? '{}'
     : (typeof meta === 'string' ? meta : JSON.stringify(meta ?? {}));
+  let parsedMeta: Record<string, any> = {};
+  try { parsedMeta = JSON.parse(metaJson || '{}'); } catch {}
+  const urgentRequested = parsedMeta.urgent === true || parsedMeta.urgent_bypass === true || parsedMeta.focus_bypass === true;
+  const urgentReason = typeof parsedMeta.urgent_reason === 'string' ? parsedMeta.urgent_reason.trim()
+    : typeof parsedMeta.bypass_reason === 'string' ? parsedMeta.bypass_reason.trim()
+      : typeof parsedMeta.reason === 'string' ? parsedMeta.reason.trim()
+        : '';
+  if (urgentRequested && !urgentReason) {
+    return json({ error: 'urgent/focus bypass requires a reason' }, { status: 400 });
+  }
 
   if (msgType === 'agent_response') {
     try {
@@ -122,8 +142,6 @@ export async function POST({ params, request }: RequestEvent<{ id: string }>) {
         return json({ error: 'agent_response target terminal not found' }, { status: 404 });
       }
 
-      let parsedMeta: Record<string, unknown> = {};
-      try { parsedMeta = JSON.parse(metaJson || '{}'); } catch {}
       const sender = resolveSenderSession(sender_id);
       const { handleResponse } = await import('$lib/server/agent-event-bus.js');
       await handleResponse(

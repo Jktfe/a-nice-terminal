@@ -8,10 +8,12 @@ import {
   buildShareString,
   serializeKinds,
   parseKinds,
+  publicOrigin,
   MAX_FAILED_ATTEMPTS,
   type InviteKind,
   type InviteRow,
 } from '$lib/server/room-invites';
+import { assertNotRoomScoped } from '$lib/server/room-scope';
 
 function publicInvite(invite: InviteRow, serverUrl: string) {
   const kinds = parseKinds(invite.kinds);
@@ -41,12 +43,16 @@ function publicInvite(invite: InviteRow, serverUrl: string) {
 export function GET({ params, url }: RequestEvent<{ id: string }>) {
   const room = queries.getSession(params.id);
   if (!room) throw error(404, 'Room not found');
-  const serverUrl = process.env.ANT_SERVER_URL || `${url.protocol}//${url.host}`;
+  const serverUrl = publicOrigin({ url });
   const invites = listInvitesForRoom(params.id).map((i) => publicInvite(i, serverUrl));
   return json({ invites });
 }
 
-export async function POST({ params, request, url }: RequestEvent<{ id: string }>) {
+export async function POST(event: RequestEvent<{ id: string }>) {
+  // Minting new invites is admin-only — a guest can't make their own keys
+  // to the room.
+  assertNotRoomScoped(event);
+  const { params, request, url } = event;
   const room = queries.getSession(params.id);
   if (!room) throw error(404, 'Room not found');
 
@@ -76,6 +82,6 @@ export async function POST({ params, request, url }: RequestEvent<{ id: string }
     createdBy,
   });
 
-  const serverUrl = process.env.ANT_SERVER_URL || `${url.protocol}//${url.host}`;
+  const serverUrl = publicOrigin({ url });
   return json({ invite: publicInvite(invite, serverUrl), kinds: parseKinds(invite.kinds), serialized_kinds: serializeKinds(parseKinds(invite.kinds)) }, { status: 201 });
 }

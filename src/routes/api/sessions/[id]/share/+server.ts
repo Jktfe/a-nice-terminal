@@ -1,26 +1,28 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
+import { publicOrigin } from '$lib/server/room-invites';
 
 export function GET({ params, url }: RequestEvent<{ id: string }>) {
   const session = queries.getSession(params.id);
   if (!session) throw error(404, 'Session not found');
 
-  // Use the actual request origin so https:// URLs stay https://
-  const serverUrl = process.env.ANT_SERVER_URL || `${url.protocol}//${url.host}`;
+  // Prefer ANT_PUBLIC_ORIGIN > ANT_SERVER_URL > request origin so off-Tailnet
+  // joiners get a routable URL in their copy-paste curl line.
+  const serverUrl = publicOrigin({ url });
 
   const commands: Record<string, string> = {};
 
   if (session.type === 'terminal') {
-    commands.connect = `ant terminal ${session.id} --server ${serverUrl}`;
-    commands.watch = `ant terminal watch ${session.id} --server ${serverUrl}`;
-    commands.send = `ant terminal send ${session.id} --cmd "YOUR_COMMAND" --server ${serverUrl}`;
+    commands.connect = `ant terminal ${session.id}`;
+    commands.watch = `ant terminal watch ${session.id}`;
+    commands.send = `ant terminal send ${session.id} --cmd "YOUR_COMMAND"`;
   }
 
   if (session.type === 'chat' || session.type === 'agent') {
-    commands.join = `ant chat join ${session.id} --server ${serverUrl}`;
-    commands.send = `ant chat send ${session.id} --msg "YOUR_MESSAGE" --server ${serverUrl}`;
-    commands.read = `ant chat read ${session.id} --server ${serverUrl}`;
+    commands.join = `ant chat join ${session.id}`;
+    commands.send = `ant chat send ${session.id} --msg "YOUR_MESSAGE"`;
+    commands.read = `ant chat read ${session.id}`;
   }
 
   // Universal commands
@@ -36,4 +38,8 @@ export function GET({ params, url }: RequestEvent<{ id: string }>) {
       ? commands.connect
       : commands.join,
   });
+}
+
+export function POST(event: RequestEvent<{ id: string }>) {
+  return GET(event);
 }

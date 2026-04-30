@@ -4,6 +4,7 @@ import { queries } from '$lib/server/db';
 import { autoLinkedTerminalId, isAutoLinkedChatForTerminal } from '$lib/server/linked-chat';
 import { SESSIONS_CHANNEL } from '$lib/ws-channels';
 import { buildLinkedChatName, normalizeSessionName } from '$lib/utils/session-naming';
+import { assertNotRoomScoped } from '$lib/server/room-scope';
 
 function findConflictingSession(name: string, excludeIds: string[] = []) {
   const comparable = normalizeSessionName(name).toLowerCase();
@@ -19,7 +20,11 @@ export function GET({ params }: RequestEvent<{ id: string }>) {
   return json(session);
 }
 
-export async function PATCH({ params, request }: RequestEvent<{ id: string }>) {
+export async function PATCH(event: RequestEvent<{ id: string }>) {
+  // Renaming, archiving, relinking — all admin-only. A guest with a room
+  // bearer can chat in the room but can't reshape it.
+  assertNotRoomScoped(event);
+  const { params, request } = event;
   const currentSession = queries.getSession(params.id);
   if (!currentSession) throw error(404, 'Session not found');
 
@@ -134,7 +139,10 @@ export async function PATCH({ params, request }: RequestEvent<{ id: string }>) {
 // Soft-delete by default: marks deleted_at and keeps the row recoverable within
 // the TTL window. Terminal deletes still tear down the live PTY immediately so
 // hidden sessions do not leave zsh/agent processes running.
-export async function DELETE({ params, url }: RequestEvent<{ id: string }>) {
+export async function DELETE(event: RequestEvent<{ id: string }>) {
+  // Deleting/archiving the session itself is admin-only.
+  assertNotRoomScoped(event);
+  const { params, url } = event;
   const session = queries.getSession(params.id);
   if (!session) throw error(404, 'Session not found');
   if (url.searchParams.get('hard') === 'true') {

@@ -1,10 +1,14 @@
 import { json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
+import { assertNotRoomScoped } from '$lib/server/room-scope';
 
 // PATCH /api/sessions/:id/handle
 // Body: { handle: '@myhandle' | null, display_name?: string }
-export async function PATCH({ params, request }: RequestEvent<{ id: string }>) {
+export async function PATCH(event: RequestEvent<{ id: string }>) {
+  // Changing the room's handle is admin-only — guests can't rename the room.
+  assertNotRoomScoped(event);
+  const { params, request } = event;
   const { handle, display_name } = await request.json();
 
   // Normalise: ensure handle starts with @ if provided

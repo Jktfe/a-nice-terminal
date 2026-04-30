@@ -2,8 +2,12 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
 import { revokeToken } from '$lib/server/room-invites';
+import { assertNotRoomScoped } from '$lib/server/room-scope';
 
-export function DELETE({ params }: RequestEvent<{ id: string; inviteId: string; tokenId: string }>) {
+export function DELETE(event: RequestEvent<{ id: string; inviteId: string; tokenId: string }>) {
+  // Revoking another bearer's token is admin-only.
+  assertNotRoomScoped(event);
+  const { params } = event;
   const invite = queries.getRoomInvite(params.inviteId) as any;
   if (!invite || invite.room_id !== params.id) throw error(404, 'Invite not found');
 
