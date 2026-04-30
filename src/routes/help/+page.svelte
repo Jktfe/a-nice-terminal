@@ -29,6 +29,8 @@
         { cmd: 'ant chat reply <id>', desc: 'Reply to the latest message', flags: '--msg "yes do it"' },
         { cmd: 'ant chat join <id>', desc: 'Join a real-time streaming chat (Ctrl+C to exit)' },
         { cmd: 'ant chat leave <id>', desc: 'Remove this terminal/agent from a chatroom', flags: '--session <id> or --handle @name' },
+        { cmd: 'ant chat focus <id>', desc: 'Queue normal room messages for one agent', flags: '--handle @name --ttl 30m --reason "building"' },
+        { cmd: 'ant chat unfocus <id>', desc: 'Exit focus mode and deliver one digest', flags: '--handle @name' },
         { cmd: 'ant chat participants <id>', desc: 'List all participants in a chat session' },
       ],
     },
@@ -40,7 +42,7 @@
         { cmd: 'ant msg <id> @handle "text"', desc: 'Send a targeted message to one participant' },
         { cmd: 'ant msg <id> @everyone "text"', desc: 'Explicit broadcast to everyone' },
       ],
-      note: 'Sender identity is resolved automatically from the tmux session — no --from flag needed when running inside ANT.',
+      note: 'Sender identity is resolved automatically from the tmux session or registered process tree.',
     },
     {
       title: 'Tasks',
@@ -92,6 +94,8 @@
       color: '#AB47BC',
       commands: [
         { cmd: 'ant hooks install', desc: 'Install ANT shell hooks into ~/.zshrc (enables command capture)' },
+        { cmd: 'ant whoami', desc: 'Show the identity ANT will stamp on outbound chat' },
+        { cmd: 'ant register', desc: 'Bind this shell parent process to a handle', flags: '--handle @name --ttl 12h' },
         { cmd: 'ant config', desc: 'Show current config (server URL, API key, handle)' },
         { cmd: 'ant config set', desc: 'Set connection details', flags: '--url https://... --key abc --handle @myhandle' },
       ],
@@ -132,6 +136,8 @@
         The <code class="font-mono text-xs px-1 py-px rounded" style="background: var(--bg-card); color: #818CF8;">ant</code> CLI
         runs on the same machine as the ANT server. When used <strong style="color: var(--text);">inside an ANT terminal session</strong>,
         sender identity is resolved automatically from the tmux session name — no config needed.
+        Run <code class="font-mono text-xs px-1 py-px rounded" style="background: var(--bg-card); color: #818CF8;">ant whoami</code>
+        before posting if the visible room handle looks wrong.
         Use <code class="font-mono text-xs px-1 py-px rounded" style="background: var(--bg-card); color: #818CF8;">ant config set --url https://host:6458 --key &lt;apikey&gt;</code> to connect remotely.
       </p>
     </div>

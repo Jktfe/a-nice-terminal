@@ -81,6 +81,28 @@ function applyTerminalActivityStatus(
   };
 }
 
+function applyFocusStatus(agentStatus: AgentStatus | undefined, focus: SessionRow | null): AgentStatus | undefined {
+  if (!focus) return agentStatus;
+  const queueCount = typeof focus.focus_queue_count === 'number' ? focus.focus_queue_count : 0;
+  const reason = typeof focus.attention_reason === 'string' ? focus.attention_reason : null;
+  return {
+    ...(agentStatus ?? {}),
+    state: 'focus',
+    activity: reason ? `Focus mode: ${reason}` : 'Focus mode',
+    waitingFor: queueCount > 0 ? `${queueCount} queued message${queueCount === 1 ? '' : 's'}` : undefined,
+    detectedAt: typeof focus.attention_updated_at === 'number'
+      ? focus.attention_updated_at * 1000
+      : (agentStatus?.detectedAt ?? Date.now()),
+    focus: {
+      roomId: String(focus.room_id),
+      roomName: typeof focus.room_name === 'string' ? focus.room_name : null,
+      reason,
+      expiresAt: typeof focus.attention_expires_at === 'number' ? focus.attention_expires_at : null,
+      queueCount,
+    },
+  };
+}
+
 export async function GET({ params }: RequestEvent<{ id: string }>) {
   const { getPendingEvent, refreshStatusFromCapture } = await import('$lib/server/agent-event-bus.js');
   const session = queries.getSession(params.id) as SessionRow | null;
@@ -95,6 +117,8 @@ export async function GET({ params }: RequestEvent<{ id: string }>) {
     status = getPendingEvent(terminalId);
   }
   const effectiveAgentStatus = applyTerminalActivityStatus(status.agent_status, terminal);
+  const activeFocus = terminal ? queries.getActiveFocusForSession(terminal.id) as SessionRow | null : null;
+  const focusAgentStatus = applyFocusStatus(effectiveAgentStatus, activeFocus);
   const terminalActivity = terminal ? deriveTerminalActivityState(terminal.last_activity) : null;
   const mode = terminal
     ? (linkedChat ? 'private_terminal_input' : 'terminal')
@@ -102,7 +126,17 @@ export async function GET({ params }: RequestEvent<{ id: string }>) {
 
   return json({
     ...status,
-    ...(effectiveAgentStatus ? { agent_status: effectiveAgentStatus } : {}),
+    ...(focusAgentStatus ? { agent_status: focusAgentStatus } : {}),
+    ...(activeFocus ? {
+      focus: {
+        room_id: activeFocus.room_id,
+        room_name: activeFocus.room_name ?? null,
+        attention_reason: activeFocus.attention_reason ?? null,
+        attention_set_by: activeFocus.attention_set_by ?? null,
+        attention_expires_at: activeFocus.attention_expires_at ?? null,
+        focus_queue_count: activeFocus.focus_queue_count ?? 0,
+      },
+    } : {}),
     session: publicSession(session),
     terminal: publicSession(terminal),
     linked_chat: publicSession(linkedChat),
@@ -113,11 +147,13 @@ export async function GET({ params }: RequestEvent<{ id: string }>) {
       executes_in_terminal: !!terminal && !!linkedChat && terminal.auto_forward_chat !== 0,
     },
     capture: {
-      status_source: terminalActivity?.state !== 'idle'
+      status_source: activeFocus
+        ? 'focus_mode'
+        : terminalActivity?.state !== 'idle'
         ? 'terminal_activity'
         : (status.agent_status ? 'driver_status_line' : 'none'),
       interactive_source: status.needs_input ? 'agent_event_bus' : 'none',
-      detected_at: effectiveAgentStatus?.detectedAt ?? null,
+      detected_at: focusAgentStatus?.detectedAt ?? null,
       terminal_activity: terminalActivity,
     },
   });

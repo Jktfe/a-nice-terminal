@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { shouldRawForwardLinkedChatMessage } from '../src/lib/server/adapters/linked-chat-adapter.js';
 import {
   handlesForMember,
+  focusAttentionStatus,
   isWorkingAgentStatus,
   parseMentions,
   resolveRoomFanout,
   shouldDeliverLinkedChatToTerminal,
+  sqliteDateTimeAgo,
 } from '../src/lib/server/message-router.js';
 
 describe('message router mentions', () => {
@@ -34,6 +36,19 @@ describe('message router mentions', () => {
       targets: [],
       isAllParticipants: true,
     });
+  });
+});
+
+describe('focus attention state', () => {
+  it('treats focused members as active until their TTL expires', () => {
+    expect(focusAttentionStatus({ attention_state: 'available' }, 100)).toBe('available');
+    expect(focusAttentionStatus({ attention_state: 'focus', attention_expires_at: 120 }, 100)).toBe('active');
+    expect(focusAttentionStatus({ attention_state: 'focus', attention_expires_at: 100 }, 100)).toBe('expired');
+  });
+
+  it('formats bypass windows for SQLite datetime comparisons', () => {
+    const now = Date.parse('2026-04-28T18:40:00.000Z');
+    expect(sqliteDateTimeAgo(10 * 60 * 1000, now)).toBe('2026-04-28 18:30:00');
   });
 });
 

@@ -56,8 +56,7 @@ export class PtyInjectionAdapter implements DeliveryAdapter {
       // Broadcast (all):     [antchat message for all participants] 'message' [reply instructions]
       const isTargeted = message.target && message.target !== '@everyone' && target.handle && message.target === target.handle;
       const header = isTargeted ? 'antchat message for you' : 'antchat message for all participants';
-      const serverUrl = process.env.ANT_SERVER_URL || `https://localhost:${process.env.ANT_PORT || '6458'}`;
-      const replyCmd = `ant chat send ${message.sessionId} --msg YOURREPLY --server ${serverUrl}`;
+      const replyCmd = `ant chat send ${message.sessionId} --msg YOURREPLY`;
       const room = queries.getSession(message.sessionId) as any;
       const roomName = sanitizeInline(room?.name || 'unknown room', 120);
       const roomId = sanitizeInline(message.sessionId, 80);

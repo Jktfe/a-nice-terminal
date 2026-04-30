@@ -18,6 +18,10 @@
     last_activity?: string;
     updated_at?: string;
     linked_chat_id?: string | null;
+    attention_state?: string | null;
+    attention_reason?: string | null;
+    focus_room_name?: string | null;
+    focus_queue_count?: number | null;
     meta?: string | Record<string, unknown> | null;
   }
 
@@ -38,6 +42,7 @@
     state: string;
     activity?: string;
     waitingFor?: string;
+    focus?: { roomName?: string | null; queueCount?: number | null; reason?: string | null };
   }
   let agentStatusMap = $state(new Map<string, AgentTelemetry>());
 
@@ -148,7 +153,7 @@
   ));
   const standaloneChats = $derived(sessions.filter(s => standaloneChatIds.has(s.id)));
   const needsAttentionTerminals = $derived(
-    sessions.filter(s => s.type === 'terminal' && needsInputMap.has(s.id))
+    sessions.filter(s => s.type === 'terminal' && (needsInputMap.has(s.id) || s.attention_state === 'focus'))
   );
   // Always show current session regardless of type
   const currentSession = $derived(sessions.find(s => s.id === currentSessionId));
@@ -176,6 +181,7 @@
   }
 
   function sessionStatus(s: RailSession): 'active' | 'idle' {
+    if (s.attention_state === 'focus') return 'active';
     if (s.last_activity) {
       const activity = deriveTerminalActivityState(s.last_activity);
       if (activity.state !== 'idle') return 'active';
@@ -218,6 +224,7 @@
       {@const hasNeedsInput = needsInputMap.has(sess.id)}
       {@const hasIdleAttention = idleAttentionSet.has(sess.id)}
       {@const hasUnread = unreadSet.has(sess.id)}
+      {@const hasFocus = sess.attention_state === 'focus'}
       {@const aid = agentId(sess)}
       {@const isHovered = hoveredId === sess.id}
 
@@ -237,7 +244,7 @@
             }
           }}
           onmouseleave={() => { hoveredId = null; tooltipPos = null; }}
-          title="{sess.display_name || sess.name}{sess.linked_chat_id ? ' — open linked chat' : ''}{hasNeedsInput ? ' — needs input' : ''}"
+          title="{sess.display_name || sess.name}{sess.linked_chat_id ? ' — open linked chat' : ''}{hasNeedsInput ? ' — needs input' : ''}{hasFocus ? ' — focus mode' : ''}"
           style="
             --agent-color: {agent.color};
             --agent-glow: {agent.glow};
@@ -276,6 +283,8 @@
           <!-- Badges -->
           {#if hasNeedsInput}
             <div class="rail-badge rail-badge-urgent" title="Needs input — {needsInputMap.get(sess.id)?.summary ?? 'waiting for you'}"></div>
+          {:else if hasFocus}
+            <div class="rail-badge rail-badge-focus" title="Focus mode — {sess.focus_queue_count || 0} queued"></div>
           {:else if hasUnread && !isCurrent}
             <div class="rail-badge rail-badge-unread" title="Unread activity"></div>
           {:else if hasIdleAttention}
@@ -293,6 +302,7 @@
     {#if sess}
       {@const agent = agentColorFromSession(sess)}
       {@const hasNeedsInput = needsInputMap.has(sess.id)}
+      {@const hasFocus = sess.attention_state === 'focus'}
       <div
         class="rail-tooltip"
         style="
@@ -309,6 +319,10 @@
           <span class="rail-tooltip-type" style="color: {NOCTURNE.semantic.danger};">
             Needs input: {needsInputMap.get(sess.id)?.summary ?? 'waiting for you'}
           </span>
+        {:else if hasFocus}
+          <span class="rail-tooltip-type" style="color: {NOCTURNE.amber[500]};">
+            Focus mode{sess.focus_room_name ? ` in ${sess.focus_room_name}` : ''} · {sess.focus_queue_count || 0} queued
+          </span>
         {:else}
           <span class="rail-tooltip-type">
             {sess.type === 'terminal' ? '>' : '#'}
@@ -320,7 +334,7 @@
           <span class="rail-tooltip-telemetry">
             {#if telemetry.model}{telemetry.model}{/if}
             {#if telemetry.contextUsedPct != null} · ctx {telemetry.contextUsedPct}%{/if}
-            {#if telemetry.state === 'ready'} · Ready{:else if telemetry.state === 'busy'} · Busy{:else if telemetry.state === 'thinking'} · Thinking{/if}
+            {#if telemetry.state === 'ready'} · Ready{:else if telemetry.state === 'busy'} · Busy{:else if telemetry.state === 'thinking'} · Thinking{:else if telemetry.state === 'focus'} · Focus{/if}
             {#if telemetry.activity} — {telemetry.activity}{/if}
             {#if telemetry.waitingFor}
               <br><span style="color: {NOCTURNE.amber[400]};">⏳ {telemetry.waitingFor}</span>
@@ -453,6 +467,13 @@
     height: 7px;
     background: var(--blue-500);
     box-shadow: 0 0 4px rgba(59, 130, 246, 0.4);
+  }
+
+  .rail-badge-focus {
+    width: 8px;
+    height: 8px;
+    background: var(--amber-400);
+    box-shadow: 0 0 6px rgba(245, 158, 11, 0.55);
   }
 
   .rail-badge-idle {

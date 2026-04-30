@@ -211,6 +211,7 @@
       idle:        { label: 'Idle',        color: '#64748B', bg: '#F1F5F9', border: '#CBD5E1' },
       busy:        { label: 'Working',     color: '#D97706', bg: '#FEF3C7', border: '#FCD34D' },
       thinking:    { label: 'Thinking',    color: '#7C3AED', bg: '#EDE9FE', border: '#C4B5FD' },
+      focus:       { label: 'Focus',       color: '#92400E', bg: '#FEF3C7', border: '#FCD34D' },
       needs_input: { label: 'Needs input', color: '#DC2626', bg: '#FEE2E2', border: '#FCA5A5' },
       error:       { label: 'Error',       color: '#DC2626', bg: '#FEE2E2', border: '#FCA5A5' },
       unknown:     { label: 'Unknown',     color: '#6B7280', bg: '#F3F4F6', border: '#D1D5DB' },
@@ -233,6 +234,12 @@
     const payload = statusPayload(sess);
     const status = payload?.agent_status;
     if (payload?.needs_input) return payload.summary || 'Waiting for a response';
+    if (status?.state === 'focus') {
+      const focus = status.focus;
+      const room = focus?.roomName ? ` in ${focus.roomName}` : '';
+      const queued = typeof focus?.queueCount === 'number' ? ` · ${focus.queueCount} queued` : '';
+      return `${status.activity || 'Focus mode'}${room}${queued}`;
+    }
     if (status?.waitingFor) return `Waiting: ${status.waitingFor}`;
     if (status?.activity) return status.activity;
     const bits = [status?.model, contextLabel(status)].filter(Boolean);

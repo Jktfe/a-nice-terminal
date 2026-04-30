@@ -10,6 +10,7 @@
 import { queries } from './db.js';
 import type { AgentStatus } from '../shared/agent-status.js';
 import { deriveTerminalActivityState } from '../shared/terminal-activity.js';
+import { nanoid } from 'nanoid';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -53,6 +54,8 @@ export interface RouteResult {
 }
 
 const WORKING_STATUS_STALE_MS = 45_000;
+const FOCUS_BYPASS_LIMIT = 3;
+const FOCUS_BYPASS_WINDOW_MS = 10 * 60 * 1000;
 
 // ─── @mention parsing ───────────────────────────────────────────────────────
 
@@ -84,6 +87,96 @@ export function parseMentions(content: string, knownHandles: string[]): {
 function activeMentionHandles(content: string): string[] {
   const bracketEscaped = content.replace(/\[@[\w.-]+\]/g, '');
   return [...new Set(bracketEscaped.match(/@[\w.-]+/g) || [])];
+}
+
+function hasEveryoneMention(content: string): boolean {
+  return activeMentionHandles(content).includes('@everyone');
+}
+
+export function focusAttentionStatus(
+  member: { attention_state?: string | null; attention_expires_at?: number | string | null },
+  nowSeconds = Math.floor(Date.now() / 1000),
+): 'available' | 'active' | 'expired' {
+  if (member.attention_state !== 'focus') return 'available';
+  const expiresAt = Number(member.attention_expires_at || 0);
+  if (expiresAt > 0 && expiresAt <= nowSeconds) return 'expired';
+  return 'active';
+}
+
+function metaObject(message: RouteMessage): Record<string, any> {
+  if (!message.meta) return {};
+  try {
+    return typeof message.meta === 'string' ? JSON.parse(message.meta || '{}') : message.meta as any;
+  } catch {
+    return {};
+  }
+}
+
+function urgentBypass(message: RouteMessage): { requested: boolean; reason: string | null } {
+  const meta = metaObject(message);
+  const requested = meta.urgent === true || meta.urgent_bypass === true || meta.focus_bypass === true;
+  const reason = typeof meta.urgent_reason === 'string' ? meta.urgent_reason.trim()
+    : typeof meta.bypass_reason === 'string' ? meta.bypass_reason.trim()
+      : typeof meta.reason === 'string' ? meta.reason.trim()
+        : null;
+  return { requested, reason: reason || null };
+}
+
+function focusQueueKind(message: RouteMessage, explicitTarget: string | null): string {
+  if (explicitTarget || activeMentionHandles(message.content).length > 0) return 'mention';
+  const lower = message.content.toLowerCase();
+  if (/\b(blocked|blocker|stuck|failed|error|needs|waiting)\b/.test(lower)) return 'blocker';
+  if (/\b(approved|approve|accepted|rejected|decision|decided|merged|go for it|signed off|sign-off)\b/.test(lower)) return 'decision';
+  if (/\b(task|todo|doing|review|owner|build lane|score|scoreboard)\b/.test(lower)) return 'task';
+  return 'message';
+}
+
+export function sqliteDateTimeAgo(ms: number, nowMs = Date.now()): string {
+  return new Date(nowMs - ms).toISOString().replace('T', ' ').slice(0, 19);
+}
+
+function focusDigestFor(member: any, rows: any[], cause: 'manual' | 'expired'): string {
+  const handle = handlesForMember(member)[0] || member.session_id;
+  const room = queries.getSession(member.room_id) as any;
+  const roomName = room?.name || member.room_id;
+  const grouped: Record<string, any[]> = {
+    mention: [],
+    decision: [],
+    task: [],
+    blocker: [],
+    message: [],
+  };
+  for (const row of rows) {
+    const kind = grouped[row.kind] ? row.kind : 'message';
+    grouped[kind].push(row);
+  }
+
+  const lines = [
+    `Focus digest for ${handle}: ${rows.length} queued message${rows.length === 1 ? '' : 's'} while you were in focus mode (${cause}).`,
+    `Room: ${roomName} (${member.room_id}).`,
+  ];
+
+  const append = (title: string, items: any[], max: number) => {
+    if (items.length === 0) return;
+    lines.push(`${title}:`);
+    for (const item of items.slice(0, max)) {
+      const sender = item.sender_name || item.sender_id || 'unknown';
+      const text = String(item.content || '').replace(/\s+/g, ' ').slice(0, 180);
+      lines.push(`- ${sender}: ${text}`);
+    }
+    if (items.length > max) lines.push(`- ...${items.length - max} more`);
+  };
+
+  append('Direct mentions', grouped.mention, 5);
+  append('Decisions', grouped.decision, 5);
+  append('Tasks/status', grouped.task, 5);
+  append('Blockers', grouped.blocker, 5);
+  if (grouped.mention.length + grouped.decision.length + grouped.task.length + grouped.blocker.length === 0) {
+    append('Other room activity', grouped.message, 4);
+  }
+
+  lines.push(`Full backlog if needed: ant chat read ${member.room_id} --limit 80`);
+  return lines.join('\n');
 }
 
 export function resolveRoomFanout(
@@ -171,6 +264,7 @@ async function isTerminalWorking(sessionId: string): Promise<boolean> {
 
 const SYSTEM_MSG_TYPES = new Set([
   'prompt', 'silence', 'title', 'agent_response', 'agent_event', 'terminal_line',
+  'focus_status', 'focus_bypass', 'focus_digest',
 ]);
 
 // ─── MessageRouter ──────────────────────────────────────────────────────────
@@ -183,6 +277,196 @@ export class MessageRouter {
   }
 
   get adapterCount(): number { return this.adapters.length; }
+
+  async expireFocusForRoom(roomId: string): Promise<void> {
+    const expired = queries.listExpiredFocusedMembers(roomId, Math.floor(Date.now() / 1000)) as any[];
+    for (const member of expired) {
+      await this.releaseFocus(roomId, member.session_id, 'system', 'focus TTL expired', 'expired');
+    }
+  }
+
+  async expireAllFocus(): Promise<void> {
+    const expired = queries.listExpiredFocusedMembers(null, Math.floor(Date.now() / 1000)) as any[];
+    for (const member of expired) {
+      await this.releaseFocus(member.room_id, member.session_id, 'system', 'focus TTL expired', 'expired');
+    }
+  }
+
+  async releaseFocus(
+    roomId: string,
+    sessionId: string,
+    releasedBy: string | null,
+    reason: string | null,
+    cause: 'manual' | 'expired' = 'manual',
+  ): Promise<{ queued: number; digest: string | null; delivered: boolean }> {
+    const member = queries.getRoomMember(roomId, sessionId) as any;
+    if (!member) return { queued: 0, digest: null, delivered: false };
+
+    const rows = queries.listFocusQueue(roomId, sessionId, 200) as any[];
+    queries.setMemberAttention(roomId, sessionId, 'available', null, releasedBy, null);
+    queries.clearFocusQueue(roomId, sessionId);
+
+    const handle = handlesForMember(member)[0] || sessionId;
+    this.postFocusRoomEvent(
+      roomId,
+      'focus_status',
+      `${handle} left focus mode (${cause}${reason ? `: ${reason}` : ''}). ${rows.length} queued message${rows.length === 1 ? '' : 's'} summarised.`,
+      releasedBy,
+      { focus: { action: 'exit', cause, target_session_id: sessionId, target: handle, queued: rows.length, reason } },
+    );
+
+    if (rows.length === 0) return { queued: 0, digest: null, delivered: false };
+
+    const digest = focusDigestFor(member, rows, cause);
+    const ptyAdapter = this.adapters.find(a => a.name === 'pty-injection');
+    const targetSession = queries.getSession(sessionId) as any;
+    if (!ptyAdapter || targetSession?.type !== 'terminal') {
+      return { queued: rows.length, digest, delivered: false };
+    }
+
+    const digestMessage: RouteMessage = {
+      id: nanoid(),
+      sessionId: roomId,
+      content: digest,
+      role: 'assistant',
+      senderId: releasedBy,
+      senderName: 'ANT focus digest',
+      senderType: 'chat',
+      target: handle,
+      replyTo: null,
+      msgType: 'focus_digest',
+      meta: JSON.stringify({ focus_digest: true, queued: rows.length, cause }),
+    };
+    const result = await ptyAdapter.deliver(digestMessage, {
+      sessionId,
+      handle,
+      type: 'terminal',
+      cliFlag: member.cli_flag || targetSession.cli_flag || null,
+    });
+    return { queued: rows.length, digest, delivered: result.delivered };
+  }
+
+  postFocusRoomEvent(
+    roomId: string,
+    msgType: 'focus_status' | 'focus_bypass',
+    content: string,
+    senderId: string | null,
+    meta: Record<string, unknown>,
+  ): void {
+    try {
+      const id = nanoid();
+      const metaJson = JSON.stringify(meta);
+      queries.createMessage(id, roomId, 'system', content, 'text', 'complete', senderId, null, null, msgType, metaJson);
+      const wsAdapter = this.adapters.find(a => a.name === 'ws-broadcast');
+      if (wsAdapter) {
+        wsAdapter.deliver({
+          id,
+          sessionId: roomId,
+          content,
+          role: 'system',
+          senderId,
+          senderName: 'ANT focus',
+          senderType: 'chat',
+          target: null,
+          replyTo: null,
+          msgType,
+          meta: metaJson,
+        }, { sessionId: roomId, handle: null, type: 'chat' }).catch(() => {});
+      }
+      import('./ws-broadcast.js').then(({ broadcastGlobal }) => {
+        broadcastGlobal({ type: 'sessions_changed' });
+        const focus = (meta as any)?.focus;
+        if (focus?.target_session_id && (focus.action === 'enter' || focus.action === 'exit')) {
+          const queueCount = queries.countFocusQueue(roomId, focus.target_session_id);
+          const room = queries.getSession(roomId) as any;
+          broadcastGlobal({
+            type: 'agent_status_updated',
+            sessionId: focus.target_session_id,
+            status: focus.action === 'enter'
+              ? {
+                  state: 'focus',
+                  activity: focus.reason ? `Focus mode: ${focus.reason}` : 'Focus mode',
+                  waitingFor: queueCount > 0 ? `${queueCount} queued message${queueCount === 1 ? '' : 's'}` : undefined,
+                  detectedAt: Date.now(),
+                  focus: {
+                    roomId,
+                    roomName: room?.name || null,
+                    reason: focus.reason || null,
+                    expiresAt: focus.ttl_seconds ? Math.floor(Date.now() / 1000) + Number(focus.ttl_seconds) : null,
+                    queueCount,
+                  },
+                }
+              : {
+                  state: 'idle',
+                  activity: 'Focus mode cleared',
+                  detectedAt: Date.now(),
+                },
+          });
+        }
+      }).catch(() => {});
+    } catch (e) {
+      console.error('[message-router] focus room event failed:', e);
+    }
+  }
+
+  private async focusedDeliveryDecision(
+    message: RouteMessage,
+    member: any,
+    targetHandle: string | null,
+    isEveryone: boolean,
+  ): Promise<'deliver' | 'queued'> {
+    const status = focusAttentionStatus(member);
+    if (status === 'available') return 'deliver';
+
+    if (status === 'expired') {
+      await this.releaseFocus(member.room_id, member.session_id, 'system', 'focus TTL expired', 'expired');
+      return 'deliver';
+    }
+
+    if (isEveryone || hasEveryoneMention(message.content)) return 'deliver';
+
+    const urgent = urgentBypass(message);
+    if (urgent.requested && urgent.reason) {
+      const recent = queries.countRecentFocusBypasses(
+        member.room_id,
+        message.senderId,
+        sqliteDateTimeAgo(FOCUS_BYPASS_WINDOW_MS),
+      );
+      if (recent < FOCUS_BYPASS_LIMIT) {
+        const handle = targetHandle || handlesForMember(member)[0] || member.session_id;
+        this.postFocusRoomEvent(
+          member.room_id,
+          'focus_bypass',
+          `${message.senderName || message.senderId || 'Someone'} bypassed ${handle}'s focus mode. Reason: ${urgent.reason}`,
+          message.senderId,
+          {
+            focus: {
+              action: 'bypass',
+              target_session_id: member.session_id,
+              target: handle,
+              sender_id: message.senderId,
+              reason: urgent.reason,
+              focus_reason: member.attention_reason || null,
+            },
+          },
+        );
+        return 'deliver';
+      }
+    }
+
+    const kind = focusQueueKind(message, targetHandle);
+    queries.queueFocusMessage(
+      member.room_id,
+      member.session_id,
+      message.id,
+      message.senderId,
+      message.senderName,
+      targetHandle,
+      message.content,
+      kind,
+    );
+    return 'queued';
+  }
 
   /**
    * Route a message to its targets via registered adapters.
@@ -242,6 +526,8 @@ export class MessageRouter {
       return { messageId: message.id, deliveries };
     }
 
+    await this.expireFocusForRoom(message.sessionId);
+
     // ── 4. Targeted @handle → inject into that terminal's PTY ──────────
     if (message.target && message.target !== '@everyone') {
       const ptyAdapter = this.adapters.find(a => a.name === 'pty-injection');
@@ -252,6 +538,16 @@ export class MessageRouter {
       const targetSession: any = roomMember
         ? queries.getSession(roomMember.session_id)
         : queries.getSessionByHandle(message.target);
+
+      if (roomMember && targetSession?.id !== message.senderId) {
+        const attentionDecision = await this.focusedDeliveryDecision(message, roomMember, message.target, false);
+        if (attentionDecision === 'queued') {
+          const result = { adapter: 'focus-queue', targetId: roomMember.session_id, delivered: true };
+          deliveries.push(result);
+          this.logDelivery(message.id, result);
+          return { messageId: message.id, deliveries };
+        }
+      }
 
       // Try PTY injection for terminal sessions
       if (ptyAdapter && targetSession?.type === 'terminal') {
@@ -379,10 +675,19 @@ export class MessageRouter {
             }
           }
 
+          const isEveryoneBypass = hasEveryoneMention(message.content);
           for (const terminal of terminalsToSend) {
             const matchingTarget = isAllParticipants
               ? getHandle(terminal)
               : handlesForMember(terminal).find(handle => targets.includes(handle)) ?? getHandle(terminal);
+            const focusTarget = isAllParticipants ? null : matchingTarget;
+            const attentionDecision = await this.focusedDeliveryDecision(message, terminal, focusTarget, isEveryoneBypass);
+            if (attentionDecision === 'queued') {
+              const result = { adapter: 'focus-queue', targetId: getId(terminal), delivered: true };
+              deliveries.push(result);
+              this.logDelivery(message.id, result);
+              continue;
+            }
             const target: RouteTarget = {
               sessionId: getId(terminal),
               handle: matchingTarget,

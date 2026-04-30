@@ -20,6 +20,9 @@
 
   // Derive terminal active/idle status from last_activity
   const terminalStatus = $derived((() => {
+    if (terminal.attention_state === 'focus') {
+      return { label: 'FOCUS', color: '#92400E', bg: 'rgba(245,158,11,0.16)' };
+    }
     if (terminal.last_activity) {
       const activity = deriveTerminalActivityState(terminal.last_activity);
       if (activity.state === 'working')  return { label: 'WORKING', color: '#22C55E', bg: 'rgba(34,197,94,0.12)' };
@@ -91,6 +94,15 @@
             >
               <span class="ant-pulse-dot" style="width:6px;height:6px;border-radius:50%;background:#EF4444;display:inline-block;"></span>
               NEEDS INPUT
+            </span>
+          {:else if terminal.attention_state === 'focus'}
+            <span
+              class="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide"
+              style="color: #92400E; background: rgba(245,158,11,0.14);"
+              title={terminal.attention_reason || `Focus mode${terminal.focus_room_name ? ` in ${terminal.focus_room_name}` : ''}`}
+            >
+              <span class="ant-pulse-dot" style="width:6px;height:6px;border-radius:50%;background:#F59E0B;display:inline-block;"></span>
+              {terminal.focus_queue_count || 0} queued
             </span>
           {:else if idleAttention}
             <span

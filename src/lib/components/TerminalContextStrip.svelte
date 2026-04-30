@@ -58,6 +58,7 @@
       case 'ready': return NOCTURNE.emerald[400];
       case 'busy': return NOCTURNE.blue[400];
       case 'thinking': return NOCTURNE.amber[400];
+      case 'focus': return NOCTURNE.amber[500];
       case 'error': return NOCTURNE.semantic.danger;
       case 'idle': return NOCTURNE.neutral[400];
       default: return agent.color;
@@ -70,6 +71,7 @@
       case 'ready': return 'Ready';
       case 'busy': return 'Busy';
       case 'thinking': return 'Thinking';
+      case 'focus': return 'Focus';
       case 'error': return 'Error';
       case 'idle': return 'Idle';
       default: return session?.status === 'active' ? 'Active' : 'Monitoring';
@@ -89,6 +91,12 @@
 
   const detailLabel = $derived.by(() => {
     if (statusPayload.needs_input) return statusPayload.summary || 'Waiting for a response';
+    if (agentStatus?.state === 'focus') {
+      const queued = agentStatus.focus?.queueCount;
+      const room = agentStatus.focus?.roomName ? ` in ${agentStatus.focus.roomName}` : '';
+      const queueText = typeof queued === 'number' ? ` · ${queued} queued` : '';
+      return `${agentStatus.activity || 'Focus mode'}${room}${queueText}`;
+    }
     if (agentStatus?.waitingFor) return agentStatus.waitingFor;
     if (agentStatus?.activity) return agentStatus.activity;
     if (agentStatus?.workspace && agentStatus?.branch) return `${agentStatus.workspace} · ${agentStatus.branch}`;
@@ -175,7 +183,7 @@
           size={14}
           state={statusPayload.needs_input
             ? 'thinking'
-            : (agentStatus?.state === 'ready' || agentStatus?.state === 'busy' || agentStatus?.state === 'thinking')
+            : (agentStatus?.state === 'ready' || agentStatus?.state === 'busy' || agentStatus?.state === 'thinking' || agentStatus?.state === 'focus')
               ? 'active'
               : 'idle'}
           ring={false}

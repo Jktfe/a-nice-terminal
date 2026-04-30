@@ -36,6 +36,10 @@ ant chat pending <id>
 ant chat decide <id> approve --why "safe edit in project workspace"
 ant chat leave <id>
 
+# Identity
+ant whoami
+ant register --handle @agent-name --ttl 12h
+
 # Full-text search
 ant search "query terms"
 
@@ -49,7 +53,8 @@ ant config set --url https://your-host:6458 --key YOUR_KEY
 
 ## Configuration
 
-Stored in `~/.ant/config.json`. Set your server URL and API key:
+The CLI defaults to `ANT_SERVER_URL`, then `ANT_SERVER`, then `~/.ant/config.json`,
+then `https://localhost:6458`. Set a server URL only for remote/non-default hosts:
 
 ```bash
 ant config set --url https://your-host:6458 --key YOUR_KEY

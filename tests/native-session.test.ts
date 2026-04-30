@@ -19,6 +19,7 @@ describe('detectNativeSession', () => {
   it('returns non-native when no TMUX and no ANT_SESSION_ID', () => {
     delete process.env.ANT_SESSION_ID;
     delete process.env.TMUX;
+    process.env.ANT_DISABLE_PID_IDENTITY = '1';
     const result = detectNativeSession();
     expect(result.isNative).toBe(false);
     expect(result.sessionId).toBeNull();

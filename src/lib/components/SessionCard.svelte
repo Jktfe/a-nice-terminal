@@ -25,6 +25,9 @@
   }
 
   function deriveStatus(s: typeof session) {
+    if (s.attention_state === 'focus') {
+      return { color: NOCTURNE.amber[400], label: 'Focus' };
+    }
     if (s.type === 'terminal' && s.last_activity) {
       const activity = deriveTerminalActivityState(s.last_activity);
       if (activity.state === 'working')  return { color: NOCTURNE.emerald[400], label: 'Working' };
@@ -108,6 +111,18 @@
             "
           >{session.handle}</span>
         {/if}
+        {#if session.attention_state === 'focus'}
+          <span
+            class="font-mono uppercase"
+            style="
+              font-size: 9.5px; letter-spacing: 0;
+              color: {NOCTURNE.amber[700]}; background: {NOCTURNE.amber[300]}33;
+              border: 0.5px solid {NOCTURNE.amber[400]}66;
+              padding: 1px 5px; border-radius: 4px; white-space: nowrap;
+            "
+            title={session.attention_reason || `Focus mode${session.focus_room_name ? ` in ${session.focus_room_name}` : ''}`}
+          >FOCUS</span>
+        {/if}
       </div>
       <div class="flex items-center gap-1.5 mt-0.5" style="font-size: 11.5px; font-family: var(--font-mono); letter-spacing: 0; color: var(--text-muted);">
         <span>{isTerminal ? 'terminal' : 'chat'}</span>
@@ -123,6 +138,12 @@
           ></div>
           <span>{statusInfo.label}</span>
         </div>
+        {#if session.attention_state === 'focus'}
+          <div class="rounded-full" style="width: 3px; height: 3px; background: var(--text-faint);"></div>
+          <span title={session.attention_reason || ''}>
+            {session.focus_queue_count || 0} queued
+          </span>
+        {/if}
       </div>
     </div>
 

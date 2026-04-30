@@ -8,6 +8,11 @@
     handle?: string;
     display_name?: string;
     linked_chat_id?: string | null;
+    attention_state?: string | null;
+    attention_reason?: string | null;
+    attention_set_by?: string | null;
+    attention_expires_at?: number | null;
+    focus_queue_count?: number | null;
     meta?: string | Record<string, unknown> | null;
   }
 
@@ -19,6 +24,7 @@
     onSaveNickname: (sess: PageSession, handle: string) => void;
     onCrossPost: (targetId: string, text: string) => void;
     onRemoveParticipant?: (sess: PageSession) => void;
+    onFocusParticipant?: (sess: PageSession) => void;
     onOpenLinkedChat?: (sess: PageSession) => void;
   }
 
@@ -30,6 +36,7 @@
     onSaveNickname,
     onCrossPost,
     onRemoveParticipant,
+    onFocusParticipant,
     onOpenLinkedChat
   }: Props = $props();
 
@@ -118,6 +125,12 @@
       return (meta as Record<string, string>).cli_flag || (meta as Record<string, string>).cliFlag || null;
     } catch { return null; }
   }
+
+  function focusMinutesLeft(sess: PageSession): string {
+    if (sess.attention_state !== 'focus' || !sess.attention_expires_at) return '';
+    const secs = Math.max(0, Math.round(sess.attention_expires_at - Date.now() / 1000));
+    return `${Math.ceil(secs / 60)}m`;
+  }
 </script>
 
 <div class="px-3 pb-3 space-y-1.5">
@@ -163,12 +176,26 @@
           {:else}
             <div class="flex items-center gap-1">
               <p class="text-xs font-semibold truncate" style="color: var(--text);">{label}</p>
-              {#if flag}
+            {#if flag}
                 <span class="text-[9px] px-1 py-0.5 rounded font-mono flex-shrink-0" style="background: {col}15; color: {col};">{cliLabel(flag)}</span>
+              {/if}
+              {#if p.sess.attention_state === 'focus'}
+                <span
+                  class="text-[9px] px-1 py-0.5 rounded font-mono flex-shrink-0"
+                  style="background: #FEF3C7; color: #92400E;"
+                  title={p.sess.attention_reason || 'Focus mode'}
+                >
+                  FOCUS {focusMinutesLeft(p.sess)}
+                </span>
               {/if}
             </div>
             {#if p.sess.handle}
               <p class="text-[10px] font-mono" style="color: {col}88;">{p.sess.handle}</p>
+            {/if}
+            {#if p.sess.attention_state === 'focus'}
+              <p class="text-[10px] truncate" style="color: #92400E;">
+                {p.sess.focus_queue_count || 0} queued{p.sess.attention_reason ? ` · ${p.sess.attention_reason}` : ''}
+              </p>
             {/if}
           {/if}
         </div>
@@ -190,6 +217,19 @@
               style="color: var(--text-faint);"
               title="Wake"
             >📢</button>
+          {/if}
+          {#if p.sess.type === 'terminal' && onFocusParticipant}
+            <button
+              onclick={() => onFocusParticipant?.(p.sess)}
+              class="p-1 rounded transition-all"
+              style="color: {p.sess.attention_state === 'focus' ? '#92400E' : 'var(--text-faint)'};"
+              title={p.sess.attention_state === 'focus' ? 'Exit focus mode' : 'Enter focus mode'}
+              aria-label={p.sess.attention_state === 'focus' ? `Exit focus mode for ${label}` : `Enter focus mode for ${label}`}
+            >
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v3m0 12v3m9-9h-3M6 12H3m14.1-5.1l-2.1 2.1M9 15l-2.1 2.1m0-10.2L9 9m6 6l2.1 2.1"/>
+              </svg>
+            </button>
           {/if}
           {#if p.sess.type !== 'external'}
             <button

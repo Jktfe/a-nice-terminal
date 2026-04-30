@@ -11,7 +11,6 @@
   import DigestPanel from '$lib/components/DigestPanel.svelte';
   import ActivityRail from '$lib/components/ActivityRail.svelte';
   import RunView from '$lib/components/RunView.svelte';
-  import RoomShortcutsBar from '$lib/components/RoomShortcutsBar.svelte';
   import { useToasts } from '$lib/stores/toast.svelte';
   import { normalizeSessionName } from '$lib/utils/session-naming';
   import { onMount, onDestroy } from 'svelte';
@@ -1165,10 +1164,6 @@
       } catch {}
     } : undefined}
   />
-
-  {#if session?.type === 'chat'}
-    <RoomShortcutsBar currentSessionId={sessionId} />
-  {/if}
 
   {#if showDigest}
     <DigestPanel {sessionId} onClose={() => (showDigest = false)} />

@@ -15,6 +15,11 @@
     handle?: string;
     display_name?: string;
     linked_chat_id?: string | null;
+    attention_state?: string | null;
+    attention_reason?: string | null;
+    attention_set_by?: string | null;
+    attention_expires_at?: number | null;
+    focus_queue_count?: number | null;
     meta?: string | Record<string, unknown> | null;
   }
 
@@ -54,6 +59,7 @@
     onWakeParticipant: (sess: PageSession) => void;
     onSaveNickname: (sess: PageSession, handle: string) => void;
     onRemoveParticipant: (sess: PageSession) => void;
+    onFocusParticipant: (sess: PageSession) => void;
     onOpenLinkedChat: (sess: PageSession) => void;
     onCreateTask: (title: string) => void;
   }
@@ -94,6 +100,7 @@
     onWakeParticipant,
     onSaveNickname,
     onRemoveParticipant,
+    onFocusParticipant,
     onOpenLinkedChat,
     onCreateTask,
   onClose = undefined,
@@ -113,6 +120,117 @@
   let filesOpen = $state(true);
   let chatRoomsOpen = $state(true);
   let memoryOpen = $state(false);
+  let remoteAntsOpen = $state(false);
+
+  // Remote ANTs (per-room invites) — fetched lazily when section opens
+  type InviteToken = { id: string; kind: string; handle: string | null; created_at: number; last_seen_at: number | null; revoked_at: number | null };
+  type Invite = {
+    id: string;
+    room_id: string;
+    label: string;
+    kinds: string[];
+    created_by: string | null;
+    created_at: number;
+    revoked_at: number | null;
+    failed_attempts: number;
+    last_failed_at: number | null;
+    max_failed_attempts: number;
+    share: Record<string, string>;
+    tokens: InviteToken[];
+  };
+  let invites = $state<Invite[]>([]);
+  let invitesLoading = $state(false);
+  let invitesError = $state<string | null>(null);
+  let showCreateInvite = $state(false);
+  let inviteLabel = $state('');
+  let invitePassword = $state('');
+  let inviteKindCli = $state(true);
+  let inviteKindMcp = $state(false);
+  let inviteKindWeb = $state(true);
+  let creatingInvite = $state(false);
+  let copiedKey = $state<string | null>(null);
+
+  async function loadInvites() {
+    if (!sessionId) return;
+    invitesLoading = true;
+    invitesError = null;
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/invites`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      invites = data.invites || [];
+    } catch (e: any) {
+      invitesError = e.message || 'Failed to load invites';
+    } finally {
+      invitesLoading = false;
+    }
+  }
+
+  async function createInvite() {
+    const label = inviteLabel.trim();
+    const password = invitePassword;
+    if (!label || password.length < 4) return;
+    const kinds: string[] = [];
+    if (inviteKindCli) kinds.push('cli');
+    if (inviteKindMcp) kinds.push('mcp');
+    if (inviteKindWeb) kinds.push('web');
+    if (kinds.length === 0) return;
+    creatingInvite = true;
+    invitesError = null;
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/invites`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label, password, kinds }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      inviteLabel = '';
+      invitePassword = '';
+      showCreateInvite = false;
+      await loadInvites();
+    } catch (e: any) {
+      invitesError = e.message || 'Failed to create invite';
+    } finally {
+      creatingInvite = false;
+    }
+  }
+
+  async function revokeInviteCmd(inviteId: string) {
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/invites/${inviteId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await loadInvites();
+    } catch (e: any) {
+      invitesError = e.message || 'Failed to revoke invite';
+    }
+  }
+
+  async function revokeTokenCmd(inviteId: string, tokenId: string) {
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/invites/${inviteId}/tokens/${tokenId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await loadInvites();
+    } catch (e: any) {
+      invitesError = e.message || 'Failed to revoke token';
+    }
+  }
+
+  async function copyShare(key: string, value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      copiedKey = key;
+      setTimeout(() => { if (copiedKey === key) copiedKey = null; }, 1500);
+    } catch {}
+  }
+
+  $effect(() => {
+    if (remoteAntsOpen && session?.type === 'chat' && sessionId) {
+      loadInvites();
+    }
+  });
 
   $effect(() => {
     if (defaultsApplied || !session || session.type === 'terminal') return;
@@ -362,6 +480,7 @@
               onSaveNickname={(sess, handle) => onSaveNickname(sess, handle)}
               onCrossPost={(targetId, text) => onCrossPost(targetId, text)}
               onRemoveParticipant={(sess) => onRemoveParticipant(sess)}
+              onFocusParticipant={(sess) => onFocusParticipant(sess)}
               onOpenLinkedChat={(sess) => onOpenLinkedChat(sess)}
             />
           {/if}
@@ -373,6 +492,187 @@
     {#if !isTerminal}
       <div style="border-top: 1px solid #E5E7EB;">
         <RoomLinksPanel {sessionId} />
+      </div>
+    {/if}
+
+    <!-- ─── SECTION: Remote ANTs (per-room invites) ─── -->
+    {#if !isTerminal}
+      <div>
+        <button
+          onclick={() => (remoteAntsOpen = !remoteAntsOpen)}
+          class="w-full flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-gray-50"
+          style="background: var(--bg);"
+        >
+          <div class="flex items-center gap-2">
+            <!-- link icon -->
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: #6366F1;">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+            </svg>
+            <span class="text-xs font-semibold" style="color: var(--text);">Remote ANTs</span>
+            {#if invites.length > 0}
+              <span class="px-1.5 py-0.5 rounded-full text-[10px] font-bold" style="background: #F3F4F6; color: #6B7280;">{invites.filter(i => !i.revoked_at).length}</span>
+            {/if}
+          </div>
+          <svg
+            class="w-3.5 h-3.5 transition-transform"
+            style="color: var(--text-faint); transform: {remoteAntsOpen ? 'rotate(180deg)' : 'rotate(0deg)'};"
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+          </svg>
+        </button>
+
+        {#if remoteAntsOpen}
+          <div class="px-3 pb-3 space-y-2">
+            <!-- Error banner -->
+            {#if invitesError}
+              <div class="text-[11px] px-2 py-1.5 rounded-lg" style="background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA;">
+                {invitesError}
+              </div>
+            {/if}
+
+            <!-- New invite form / button -->
+            {#if showCreateInvite}
+              <div class="space-y-1.5 rounded-lg p-2.5" style="border: 1px solid #6366F1; background: #EEF2FF;">
+                <input
+                  bind:value={inviteLabel}
+                  placeholder="Label (e.g. Stevo's Mac)"
+                  class="w-full text-xs rounded-lg px-2.5 py-1.5 outline-none"
+                  style="border: 1px solid #E5E7EB; color: var(--text); background: var(--bg);"
+                  onkeydown={(e) => { if (e.key === 'Enter') createInvite(); }}
+                />
+                <input
+                  bind:value={invitePassword}
+                  type="password"
+                  placeholder="Password (min 4 chars)"
+                  class="w-full text-xs rounded-lg px-2.5 py-1.5 outline-none"
+                  style="border: 1px solid #E5E7EB; color: var(--text); background: var(--bg);"
+                  onkeydown={(e) => { if (e.key === 'Enter') createInvite(); }}
+                />
+                <div class="flex gap-3 text-[11px] px-1" style="color: var(--text-muted);">
+                  <label class="flex items-center gap-1 cursor-pointer">
+                    <input type="checkbox" bind:checked={inviteKindCli} class="w-3 h-3" />
+                    CLI
+                  </label>
+                  <label class="flex items-center gap-1 cursor-pointer">
+                    <input type="checkbox" bind:checked={inviteKindMcp} class="w-3 h-3" />
+                    MCP
+                  </label>
+                  <label class="flex items-center gap-1 cursor-pointer">
+                    <input type="checkbox" bind:checked={inviteKindWeb} class="w-3 h-3" />
+                    Web
+                  </label>
+                </div>
+                <div class="flex gap-1.5">
+                  <button
+                    onclick={createInvite}
+                    disabled={creatingInvite || !inviteLabel.trim() || invitePassword.length < 4 || (!inviteKindCli && !inviteKindMcp && !inviteKindWeb)}
+                    class="flex-1 px-2.5 py-1.5 text-xs rounded-lg font-medium disabled:opacity-40"
+                    style="background: #6366F1; color: #fff;"
+                  >{creatingInvite ? 'Creating…' : 'Create invite'}</button>
+                  <button
+                    onclick={() => { showCreateInvite = false; inviteLabel = ''; invitePassword = ''; invitesError = null; }}
+                    class="px-2.5 py-1.5 text-xs rounded-lg"
+                    style="color: var(--text-faint); border: 1px solid #E5E7EB;"
+                  >Cancel</button>
+                </div>
+              </div>
+            {:else}
+              <button
+                onclick={() => { showCreateInvite = true; invitesError = null; }}
+                class="w-full py-1.5 text-xs rounded-lg border border-dashed transition-all text-center"
+                style="border-color: #E5E7EB; color: var(--text-faint);"
+              >+ Invite a remote ANT</button>
+            {/if}
+
+            <!-- Invite list -->
+            {#if invitesLoading && invites.length === 0}
+              <p class="text-center text-xs py-3" style="color: var(--text-faint);">Loading…</p>
+            {:else if invites.length === 0}
+              <div class="text-center py-4 opacity-60">
+                <p class="text-[11px]" style="color: var(--text-muted);">No invites yet</p>
+                <p class="text-[10px] mt-0.5" style="color: var(--text-faint);">Create one above to bring a remote ANT into this room</p>
+              </div>
+            {:else}
+              {#each invites as inv (inv.id)}
+                {@const failureRatio = inv.max_failed_attempts > 0 ? inv.failed_attempts / inv.max_failed_attempts : 0}
+                {@const isLocked = inv.failed_attempts >= inv.max_failed_attempts}
+                {@const activeTokens = inv.tokens.filter(t => !t.revoked_at)}
+                <div class="rounded-lg overflow-hidden" style="border: 1px solid {inv.revoked_at ? '#FCA5A5' : isLocked ? '#FCA5A5' : '#E5E7EB'}; background: {inv.revoked_at ? '#FEF2F2' : '#FAFAFA'};">
+                  <!-- Header row -->
+                  <div class="px-2.5 py-2 flex items-start justify-between gap-2" style="border-bottom: 1px solid #E5E7EB;">
+                    <div class="flex-1 min-w-0">
+                      <p class="text-xs font-semibold truncate" style="color: var(--text);">{inv.label}</p>
+                      <p class="text-[10px] mt-0.5" style="color: var(--text-faint);">
+                        {inv.kinds.join(' · ')}
+                        {#if activeTokens.length > 0}· {activeTokens.length} active{/if}
+                        {#if inv.revoked_at}· revoked{/if}
+                      </p>
+                    </div>
+                    {#if !inv.revoked_at}
+                      <button
+                        onclick={() => revokeInviteCmd(inv.id)}
+                        class="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded"
+                        style="color: #B91C1C; border: 1px solid #FCA5A5;"
+                        title="Revoke invite (kills all tokens)"
+                      >Revoke</button>
+                    {/if}
+                  </div>
+
+                  <!-- Failed attempts warning -->
+                  {#if !inv.revoked_at && inv.failed_attempts > 0}
+                    <div class="px-2.5 py-1 text-[10px]" style="background: {failureRatio >= 0.8 ? '#FEF2F2' : '#FFFBEB'}; color: {failureRatio >= 0.8 ? '#B91C1C' : '#92400E'};">
+                      {#if isLocked}
+                        🔒 Locked — {inv.failed_attempts}/{inv.max_failed_attempts} failed attempts. Revoke and create a new invite.
+                      {:else}
+                        ⚠ {inv.failed_attempts}/{inv.max_failed_attempts} failed password attempts
+                      {/if}
+                    </div>
+                  {/if}
+
+                  <!-- Share strings -->
+                  {#if !inv.revoked_at}
+                    <div class="px-2.5 py-1.5 space-y-1">
+                      {#each Object.entries(inv.share) as [kind, str]}
+                        {@const copyKey = `${inv.id}:${kind}`}
+                        <div class="flex items-center gap-1.5">
+                          <span class="text-[10px] uppercase font-semibold w-8 flex-shrink-0" style="color: var(--text-faint);">{kind}</span>
+                          <code class="flex-1 min-w-0 text-[10px] font-mono truncate px-1.5 py-1 rounded" style="background: var(--bg); border: 1px solid #E5E7EB; color: var(--text-muted);">{str}</code>
+                          <button
+                            onclick={() => copyShare(copyKey, str)}
+                            class="text-[10px] px-1.5 py-1 rounded flex-shrink-0"
+                            style="color: #6366F1; border: 1px solid #C7D2FE; background: var(--bg);"
+                            title="Copy share string"
+                          >{copiedKey === copyKey ? '✓' : 'Copy'}</button>
+                        </div>
+                      {/each}
+                    </div>
+                  {/if}
+
+                  <!-- Active tokens -->
+                  {#if activeTokens.length > 0}
+                    <div class="px-2.5 py-1.5 space-y-1" style="border-top: 1px solid #E5E7EB;">
+                      <p class="text-[10px] font-semibold uppercase tracking-wide" style="color: var(--text-faint);">Connected</p>
+                      {#each activeTokens as t (t.id)}
+                        <div class="flex items-center gap-1.5">
+                          <span class="text-[10px] uppercase font-mono" style="color: #10B981;">{t.kind}</span>
+                          <span class="flex-1 min-w-0 text-[11px] truncate" style="color: var(--text);">{t.handle || '(no handle)'}</span>
+                          <button
+                            onclick={() => revokeTokenCmd(inv.id, t.id)}
+                            class="text-[10px] px-1 py-0.5 rounded"
+                            style="color: #B91C1C;"
+                            title="Revoke this token only"
+                          >✕</button>
+                        </div>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+              {/each}
+            {/if}
+          </div>
+        {/if}
       </div>
     {/if}
 

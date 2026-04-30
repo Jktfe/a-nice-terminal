@@ -8,6 +8,9 @@
   import { goto } from '$app/navigation';
   import { theme } from '$lib/stores/theme.svelte';
   import { isAutoLinkedChatSession } from '$lib/utils/linked-chat';
+  import { onMount } from 'svelte';
+  import GlobalShortcutsMenu from './GlobalShortcutsMenu.svelte';
+  import PersonalSettingsModal from './PersonalSettingsModal.svelte';
 
   const grid = useGridStore();
   const store = useSessionStore();
@@ -15,8 +18,16 @@
   let searchText = $state('');
   let creatingTerminal = $state(false);
   let creatingChat = $state(false);
+  let showPersonalSettings = $state(false);
   let selectedArchived = $state<Set<string>>(new Set());
   let batchBusy = $state(false);
+  type DashboardOrderMode = 'activity' | 'manual';
+  type DashboardOrderSection = 'terminal' | 'chat';
+  const ORDER_MODE_KEY = 'ant.dashboard.orderMode';
+  let orderMode = $state<DashboardOrderMode>('activity');
+  let hasStoredOrderMode = $state(false);
+  let draggedSession = $state<{ section: DashboardOrderSection; id: string } | null>(null);
+  let dragOverSession = $state<{ section: DashboardOrderSection; id: string } | null>(null);
 
   // ── Inline modal state (replaces window.prompt / confirm) ──
   let modal = $state<{
@@ -156,10 +167,60 @@
     };
   });
 
+  const hasManualOrder = $derived(store.sessions.some((session) => typeof session.sort_index === 'number'));
+
+  onMount(() => {
+    const saved = localStorage.getItem(ORDER_MODE_KEY);
+    if (saved === 'activity' || saved === 'manual') {
+      orderMode = saved;
+      hasStoredOrderMode = true;
+    }
+  });
+
+  $effect(() => {
+    if (!hasStoredOrderMode && hasManualOrder) {
+      orderMode = 'manual';
+    }
+  });
+
+  function setOrderMode(mode: DashboardOrderMode) {
+    orderMode = mode;
+    hasStoredOrderMode = true;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(ORDER_MODE_KEY, mode);
+    }
+  }
+
+  async function resetOrder() {
+    setOrderMode('activity');
+    await store.resetSessionOrder();
+  }
+
+  function timestamp(value: string | null | undefined): number {
+    if (!value) return 0;
+    const normalized = value.includes('Z') || value.includes('+') ? value : value.replace(' ', 'T') + 'Z';
+    return new Date(normalized).getTime() || 0;
+  }
+
+  function activityCompare(a: any, b: any): number {
+    return timestamp(b.updated_at) - timestamp(a.updated_at);
+  }
+
+  function manualCompare(a: any, b: any): number {
+    const aOrder = typeof a.sort_index === 'number' ? a.sort_index : Number.MAX_SAFE_INTEGER;
+    const bOrder = typeof b.sort_index === 'number' ? b.sort_index : Number.MAX_SAFE_INTEGER;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    return activityCompare(a, b);
+  }
+
+  function sortDashboardSessions(list: any[]): any[] {
+    return [...list].sort(orderMode === 'manual' ? manualCompare : activityCompare);
+  }
+
   const filtered = $derived(
-    store.sessions.filter(s =>
+    sortDashboardSessions(store.sessions.filter(s =>
       s.name.toLowerCase().includes(searchText.toLowerCase())
-    )
+    ))
   );
 
   // Split by type
@@ -179,6 +240,81 @@
       .map(s => s.linked_chat_id as string)
   ));
   const standaloneChatsSrc = $derived(chats.filter(s => !linkedChatIds.has(s.id) && !isAutoLinkedChatSession(s)));
+
+  function reorderById<T extends { id: string }>(items: T[], fromId: string, toId: string): T[] {
+    if (fromId === toId) return items;
+    const next = [...items];
+    const fromIndex = next.findIndex((item) => item.id === fromId);
+    if (fromIndex < 0) return items;
+    const [item] = next.splice(fromIndex, 1);
+    const toIndex = next.findIndex((candidate) => candidate.id === toId);
+    if (toIndex < 0) return items;
+    next.splice(toIndex, 0, item);
+    return next;
+  }
+
+  function buildDashboardOrderIds(nextTerminals = terminals, nextStandaloneChats = standaloneChatsSrc): string[] {
+    const ordered: string[] = [];
+    const seen = new Set<string>();
+    const push = (id: string | null | undefined) => {
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      ordered.push(id);
+    };
+
+    for (const terminal of nextTerminals) {
+      push(terminal.id);
+      push(terminal.linked_chat_id);
+    }
+    for (const chat of nextStandaloneChats) {
+      push(chat.id);
+    }
+    for (const session of sortDashboardSessions(store.sessions)) {
+      push(session.id);
+    }
+    return ordered;
+  }
+
+  function handleDragStart(event: DragEvent, section: DashboardOrderSection, id: string) {
+    if (orderMode !== 'manual') return;
+    draggedSession = { section, id };
+    event.dataTransfer?.setData('text/plain', id);
+    event.dataTransfer?.setDragImage(event.currentTarget as Element, 10, 10);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+  }
+
+  function handleDragOver(event: DragEvent, section: DashboardOrderSection, id: string) {
+    if (!draggedSession || draggedSession.section !== section || draggedSession.id === id) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    dragOverSession = { section, id };
+  }
+
+  async function handleDrop(event: DragEvent, section: DashboardOrderSection, id: string) {
+    event.preventDefault();
+    if (!draggedSession || draggedSession.section !== section || draggedSession.id === id) {
+      draggedSession = null;
+      dragOverSession = null;
+      return;
+    }
+
+    const nextTerminals = section === 'terminal'
+      ? reorderById(terminals, draggedSession.id, id)
+      : terminals;
+    const nextStandaloneChats = section === 'chat'
+      ? reorderById(standaloneChatsSrc, draggedSession.id, id)
+      : standaloneChatsSrc;
+
+    draggedSession = null;
+    dragOverSession = null;
+    setOrderMode('manual');
+    await store.reorderSessions(buildDashboardOrderIds(nextTerminals, nextStandaloneChats));
+  }
+
+  function handleDragEnd() {
+    draggedSession = null;
+    dragOverSession = null;
+  }
 
   $effect(() => {
     store.load();
@@ -241,6 +377,23 @@
 
     <!-- Header actions -->
     <div class="flex items-center gap-1 flex-wrap">
+      <GlobalShortcutsMenu onOpenSettings={() => { showPersonalSettings = true; }} />
+
+      <!-- Personal settings -->
+      <button
+        onclick={() => { showPersonalSettings = true; }}
+        class="p-2 rounded-lg transition-all duration-200"
+        style="color: var(--text-muted); background: transparent;"
+        title="Personal settings"
+        aria-label="Personal settings"
+      >
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+        </svg>
+      </button>
+
       <!-- Theme toggle -->
       <button
         onclick={() => theme.toggle()}
@@ -296,6 +449,35 @@
           <rect x="11" y="11" width="7" height="7" rx="1.5"/>
         </svg>
       </button>
+
+      {#if !grid.enabled}
+        <div class="flex items-center rounded-lg p-0.5" style="background: var(--bg-elevated); border: 1px solid var(--border-light);">
+          <button
+            onclick={() => setOrderMode('activity')}
+            class="px-2.5 py-1 rounded-md text-xs font-semibold transition-colors"
+            style={orderMode === 'activity'
+              ? 'background: #6366F1; color: #fff;'
+              : 'background: transparent; color: var(--text-muted);'}
+            title="Order by latest activity"
+          >Activity</button>
+          <button
+            onclick={() => setOrderMode('manual')}
+            class="px-2.5 py-1 rounded-md text-xs font-semibold transition-colors"
+            style={orderMode === 'manual'
+              ? 'background: #6366F1; color: #fff;'
+              : 'background: transparent; color: var(--text-muted);'}
+            title="Drag cards to reorder"
+          >Manual</button>
+          {#if hasManualOrder}
+            <button
+              onclick={resetOrder}
+              class="px-2 py-1 rounded-md text-xs font-semibold transition-colors"
+              style="background: transparent; color: var(--text-faint);"
+              title="Reset manual order"
+            >Reset</button>
+          {/if}
+        </div>
+      {/if}
 
       <!-- Grid dimension controls -->
       {#if grid.enabled}
@@ -389,15 +571,43 @@
           {:else}
             <div class="space-y-2.5">
               {#each terminals as terminal (terminal.id)}
-                <div class="animate-slide-in">
-                  <SessionPairCard
-                    {terminal}
-                    linkedChat={linkedChatFor(terminal)}
-                    needsInput={needsInputMap.get(terminal.id) ?? null}
-                    idleAttention={idleAttentionSet.has(terminal.id)}
-                    onArchive={() => store.archiveSession(terminal.id)}
-                    onDelete={() => store.deleteSession(terminal.id)}
-                  />
+                <div
+                  class="animate-slide-in dashboard-order-row"
+                  class:drag-over={dragOverSession?.section === 'terminal' && dragOverSession.id === terminal.id}
+                  role="listitem"
+                  ondragover={(event) => handleDragOver(event, 'terminal', terminal.id)}
+                  ondrop={(event) => handleDrop(event, 'terminal', terminal.id)}
+                >
+                  <div class="flex items-stretch gap-2">
+                    {#if orderMode === 'manual'}
+                      <button
+                        type="button"
+                        class="drag-handle"
+                        draggable="true"
+                        ondragstart={(event) => handleDragStart(event, 'terminal', terminal.id)}
+                        ondragend={handleDragEnd}
+                        onclick={(event) => event.stopPropagation()}
+                        title="Drag to reorder"
+                        aria-label="Drag terminal to reorder"
+                      >
+                        <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                          <circle cx="7" cy="5" r="1.3"/><circle cx="13" cy="5" r="1.3"/>
+                          <circle cx="7" cy="10" r="1.3"/><circle cx="13" cy="10" r="1.3"/>
+                          <circle cx="7" cy="15" r="1.3"/><circle cx="13" cy="15" r="1.3"/>
+                        </svg>
+                      </button>
+                    {/if}
+                    <div class="min-w-0 flex-1">
+                      <SessionPairCard
+                        {terminal}
+                        linkedChat={linkedChatFor(terminal)}
+                        needsInput={needsInputMap.get(terminal.id) ?? null}
+                        idleAttention={idleAttentionSet.has(terminal.id)}
+                        onArchive={() => store.archiveSession(terminal.id)}
+                        onDelete={() => store.deleteSession(terminal.id)}
+                      />
+                    </div>
+                  </div>
                 </div>
               {/each}
             </div>
@@ -454,13 +664,41 @@
           {:else}
             <div class="space-y-2">
               {#each standaloneChatsSrc as chat (chat.id)}
-                <div class="animate-slide-in">
-                  <SessionCard
-                    session={chat}
-                    onclick={() => goto(`/session/${chat.id}`)}
-                    onArchive={() => store.archiveSession(chat.id)}
-                    onDelete={() => store.deleteSession(chat.id)}
-                  />
+                <div
+                  class="animate-slide-in dashboard-order-row"
+                  class:drag-over={dragOverSession?.section === 'chat' && dragOverSession.id === chat.id}
+                  role="listitem"
+                  ondragover={(event) => handleDragOver(event, 'chat', chat.id)}
+                  ondrop={(event) => handleDrop(event, 'chat', chat.id)}
+                >
+                  <div class="flex items-stretch gap-2">
+                    {#if orderMode === 'manual'}
+                      <button
+                        type="button"
+                        class="drag-handle"
+                        draggable="true"
+                        ondragstart={(event) => handleDragStart(event, 'chat', chat.id)}
+                        ondragend={handleDragEnd}
+                        onclick={(event) => event.stopPropagation()}
+                        title="Drag to reorder"
+                        aria-label="Drag chat to reorder"
+                      >
+                        <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                          <circle cx="7" cy="5" r="1.3"/><circle cx="13" cy="5" r="1.3"/>
+                          <circle cx="7" cy="10" r="1.3"/><circle cx="13" cy="10" r="1.3"/>
+                          <circle cx="7" cy="15" r="1.3"/><circle cx="13" cy="15" r="1.3"/>
+                        </svg>
+                      </button>
+                    {/if}
+                    <div class="min-w-0 flex-1">
+                      <SessionCard
+                        session={chat}
+                        onclick={() => goto(`/session/${chat.id}`)}
+                        onArchive={() => store.archiveSession(chat.id)}
+                        onDelete={() => store.deleteSession(chat.id)}
+                      />
+                    </div>
+                  </div>
                 </div>
               {/each}
             </div>
@@ -607,6 +845,10 @@
 
   {/if}
 
+  {#if showPersonalSettings}
+    <PersonalSettingsModal onClose={() => { showPersonalSettings = false; }} />
+  {/if}
+
   <!-- ── Inline modal (replaces prompt/confirm) ── -->
   {#if modal}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -674,3 +916,36 @@
     </div>
   {/if}
 </div>
+
+<style>
+  .dashboard-order-row {
+    border-radius: var(--radius-card);
+    transition: outline-color var(--duration-base) var(--spring-quick),
+      background-color var(--duration-base) var(--spring-quick);
+  }
+
+  .dashboard-order-row.drag-over {
+    outline: 1.5px solid #6366F1;
+    outline-offset: 3px;
+    background: rgba(99, 102, 241, 0.08);
+  }
+
+  .drag-handle {
+    width: 32px;
+    min-height: 44px;
+    border: 0.5px solid var(--border-light);
+    border-radius: 10px;
+    background: var(--bg-elevated);
+    color: var(--text-faint);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .drag-handle:active {
+    cursor: grabbing;
+    color: #6366F1;
+  }
+</style>

@@ -8,8 +8,16 @@ interface Session {
   archived: number;
   deleted_at: string | null;
   last_activity: string | null;
+  sort_index: number | null;
   updated_at: string;
   linked_chat_id: string | null;
+  attention_state?: string | null;
+  attention_reason?: string | null;
+  attention_set_by?: string | null;
+  attention_expires_at?: number | null;
+  focus_room_id?: string | null;
+  focus_room_name?: string | null;
+  focus_queue_count?: number | null;
   meta?: string | Record<string, unknown> | null;
 }
 
@@ -142,6 +150,51 @@ export function useSessionStore() {
     }
   }
 
+  async function reorderSessions(ids: string[]) {
+    const previous = sessions;
+    const order = new Map(ids.map((id, index) => [id, index]));
+    sessions = sessions.map((session) => (
+      order.has(session.id) ? { ...session, sort_index: order.get(session.id)! } : session
+    ));
+    try {
+      const res = await fetch('/api/sessions/order', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        throw new Error(payload?.error || 'Failed to reorder sessions');
+      }
+      await load();
+    } catch (e: any) {
+      sessions = previous;
+      error = e.message;
+      throw e;
+    }
+  }
+
+  async function resetSessionOrder() {
+    const previous = sessions;
+    sessions = sessions.map((session) => ({ ...session, sort_index: null }));
+    try {
+      const res = await fetch('/api/sessions/order', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reset: true }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        throw new Error(payload?.error || 'Failed to reset session order');
+      }
+      await load();
+    } catch (e: any) {
+      sessions = previous;
+      error = e.message;
+      throw e;
+    }
+  }
+
   return {
     get sessions() { return sessions; },
     get recoverable() { return recoverable; },
@@ -155,6 +208,8 @@ export function useSessionStore() {
     updateTtl,
     archiveSession,
     deleteSession,
+    reorderSessions,
+    resetSessionOrder,
     restoreSession,
     hardDeleteSession,
     /** Remove from recoverable list without API call (already soft-deleted) */
