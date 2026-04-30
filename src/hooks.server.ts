@@ -8,6 +8,21 @@ import { resolveToken } from '$lib/server/room-invites';
 // Auth is enforced inside the route by the per-invite password gate.
 const EXCHANGE_RE = /^\/api\/sessions\/[^/]+\/invites\/[^/]+\/exchange$/;
 
+// URL prefixes that map to a room id. Used to verify that a presented room
+// token authorises the URL it's being used against.
+const ROOM_URL_PATTERNS = [
+  /^\/api\/sessions\/([^/]+)/,  // primary HTTP API
+  /^\/mcp\/room\/([^/]+)/,      // remote MCP transport (P3)
+];
+
+function urlRoomId(pathname: string): string | null {
+  for (const re of ROOM_URL_PATTERNS) {
+    const m = pathname.match(re);
+    if (m) return m[1];
+  }
+  return null;
+}
+
 // Three states a Bearer header can be in for /api/* requests:
 //   - 'admin'         → it's the master ANT_API_KEY, full access
 //   - 'room-scoped'   → it's a valid room token AND the URL targets its room
@@ -21,16 +36,27 @@ type BearerState =
   | { kind: 'wrong-room' }
   | { kind: 'none' };
 
-function classifyBearer(event: Parameters<Handle>[0]['event']): BearerState {
+function extractBearer(event: Parameters<Handle>[0]['event']): string {
   const auth = event.request.headers.get('authorization') || '';
-  const bearer = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (auth.startsWith('Bearer ')) return auth.slice(7);
+  // MCP clients that can't set headers may pass the token via ?token=.
+  // Restricted to /mcp/* paths so we don't broaden the API auth surface.
+  if (event.url.pathname.startsWith('/mcp/')) {
+    const q = event.url.searchParams.get('token');
+    if (q) return q;
+  }
+  return '';
+}
+
+function classifyBearer(event: Parameters<Handle>[0]['event']): BearerState {
+  const bearer = extractBearer(event);
   if (!bearer) return { kind: 'none' };
   if (process.env.ANT_API_KEY && bearer === process.env.ANT_API_KEY) return { kind: 'admin' };
   const resolved = resolveToken(bearer);
   if (!resolved) return { kind: 'none' };
-  const m = event.url.pathname.match(/^\/api\/sessions\/([^/]+)/);
-  if (!m) return { kind: 'wrong-room' };
-  if (m[1] !== resolved.invite.room_id) return { kind: 'wrong-room' };
+  const targetRoom = urlRoomId(event.url.pathname);
+  if (!targetRoom) return { kind: 'wrong-room' };
+  if (targetRoom !== resolved.invite.room_id) return { kind: 'wrong-room' };
   return { kind: 'room-scoped', roomId: resolved.invite.room_id };
 }
 
