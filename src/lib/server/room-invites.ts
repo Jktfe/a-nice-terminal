@@ -213,12 +213,41 @@ export function resolveToken(plaintext: string): ResolvedToken | null {
 
 export function revokeInvite(inviteId: string): boolean {
   const result = queries.revokeRoomInvite(inviteId);
-  return Boolean(result?.changes);
+  const changed = Boolean(result?.changes);
+  if (changed) {
+    // Tear down any live MCP-SSE streams authorised by this invite — without
+    // this, an already-open stream survives revocation until the client
+    // closes it, which defeats the "one revoke kills everything" guarantee
+    // that CLI/MCP/web all share.
+    void closeInviteStreams(inviteId);
+  }
+  return changed;
 }
 
 export function revokeToken(tokenId: string): boolean {
   const result = queries.revokeRoomToken(tokenId);
-  return Boolean(result?.changes);
+  const changed = Boolean(result?.changes);
+  if (changed) {
+    void closeTokenStreams(tokenId);
+  }
+  return changed;
+}
+
+// Lazy import — mcp-streams itself has no deps but this keeps the module
+// graph one-way (route handlers → mcp-streams ← room-invites) and avoids
+// pulling SvelteKit-side code into early boot of this module.
+async function closeInviteStreams(inviteId: string): Promise<void> {
+  try {
+    const { closeByInviteId } = await import('./mcp-streams.js');
+    closeByInviteId(inviteId);
+  } catch {}
+}
+
+async function closeTokenStreams(tokenId: string): Promise<void> {
+  try {
+    const { closeByTokenId } = await import('./mcp-streams.js');
+    closeByTokenId(tokenId);
+  } catch {}
 }
 
 export function listInvitesForRoom(roomId: string): InviteRow[] {
