@@ -60,15 +60,15 @@ The trust hierarchy is explicit: structured hook/JSON events are highest trust, 
 
 ```bash
 # Install
-npm install
+bun install
 
 # Configure
 cp .env.example .env
 # Edit .env — at minimum set ANT_API_KEY (generate with: openssl rand -hex 32)
 
 # Build and start
-npm run build
-npm run start
+bun run build
+bun run start
 # Server runs at https://localhost:6458 (or http:// without TLS certs)
 ```
 
@@ -165,11 +165,11 @@ ANT includes an automated probe pipeline that detects how different AI CLI tools
 ### Running fingerprints
 
 ```bash
-npm run fingerprint:claude                # Probe Claude Code
-npm run fingerprint:gemini                # Probe Gemini CLI
-npm run fingerprint:codex                 # Probe Codex CLI
-npm run fingerprint:all                   # Probe all agents
-npm run fingerprint:list                  # List available agents
+bun run fingerprint:claude                # Probe Claude Code
+bun run fingerprint:gemini                # Probe Gemini CLI
+bun run fingerprint:codex                 # Probe Codex CLI
+bun run fingerprint:all                   # Probe all agents
+bun run fingerprint:list                  # List available agents
 ```
 
 ### Supported Agents
@@ -257,9 +257,9 @@ launchctl load ~/Library/LaunchAgents/ant.server.plist
 ## Development
 
 ```bash
-npm run dev          # Vite dev server
-npm test             # Run tests (vitest)
-npm run test:watch   # Watch mode
+bun run dev          # Vite dev server
+bun run test         # Run tests (vitest)
+bun run test:watch   # Watch mode
 ```
 
 ## Contributing

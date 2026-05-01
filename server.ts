@@ -279,10 +279,45 @@ function tryServeClientAsset(req: IncomingMessage, res: ServerResponse): boolean
   return true;
 }
 
+const UPLOADS_ROOT = resolve(process.cwd(), 'static', 'uploads');
+const UPLOADS_ROOT_PREFIX = `${UPLOADS_ROOT}/`;
+
 function tryServeUpload(req: IncomingMessage, res: ServerResponse): boolean {
   if (!req.url?.startsWith('/uploads/')) return false;
-  const decoded = decodeURIComponent(req.url);
-  const filePath = join(process.cwd(), 'static', decoded);
+
+  let pathname: string;
+  try {
+    pathname = new URL(req.url, 'http://localhost').pathname;
+  } catch {
+    res.writeHead(400);
+    res.end('Bad Request');
+    return true;
+  }
+
+  let decoded = pathname;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    // Malformed escape — fall back to raw pathname.
+  }
+
+  // Reject null bytes or any literal traversal segment after decoding.
+  if (decoded.includes('\0') || decoded.split('/').some((seg) => seg === '..')) {
+    res.writeHead(400);
+    res.end('Bad Request');
+    return true;
+  }
+
+  // Resolve under uploads root and enforce containment — pre-auth route, so
+  // a missing check here lets any unauthenticated client read arbitrary files.
+  const rel = decoded.replace(/^\/uploads\/?/, '');
+  const filePath = resolve(UPLOADS_ROOT, rel);
+  if (filePath !== UPLOADS_ROOT && !filePath.startsWith(UPLOADS_ROOT_PREFIX)) {
+    res.writeHead(400);
+    res.end('Bad Request');
+    return true;
+  }
+
   if (!existsSync(filePath)) {
     res.writeHead(404);
     res.end('Not Found');

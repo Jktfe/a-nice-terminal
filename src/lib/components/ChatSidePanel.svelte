@@ -7,6 +7,15 @@
   import QuickLaunchBar from '$lib/components/QuickLaunchBar.svelte';
   import RoomLinksPanel from '$lib/components/RoomLinksPanel.svelte';
   import { isAutoLinkedChatSession } from '$lib/utils/linked-chat';
+  import DOMPurify from 'isomorphic-dompurify';
+
+  // FTS5 snippet() output is user-authored memory content with <b>…</b>
+  // markers around matched terms. Sanitise before {@html}, allowing only
+  // the highlight markers.
+  function sanitizeSnippet(html: unknown): string {
+    if (typeof html !== 'string' || !html) return '';
+    return DOMPurify.sanitize(html, { ALLOWED_TAGS: ['b', 'i', 'mark'], ALLOWED_ATTR: [] });
+  }
 
   interface PageSession {
     id: string;
@@ -951,7 +960,7 @@
                     </button>
                   </div>
                   {#if mem.snippet}
-                    <p class="mt-0.5 break-words line-clamp-3" style="color: var(--text-muted);">{@html mem.snippet}</p>
+                    <p class="mt-0.5 break-words line-clamp-3" style="color: var(--text-muted);">{@html sanitizeSnippet(mem.snippet)}</p>
                   {:else}
                     <p class="mt-0.5 break-words line-clamp-3" style="color: var(--text-muted);">{mem.value}</p>
                   {/if}

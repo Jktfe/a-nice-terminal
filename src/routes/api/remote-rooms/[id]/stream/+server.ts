@@ -5,7 +5,7 @@
 import type { RequestEvent } from '@sveltejs/kit';
 import { getRemoteRoom } from '$lib/server/remote-rooms';
 import { assertNotRoomScoped } from '$lib/server/room-scope';
-import { insecureFetch } from '$lib/server/insecure-fetch';
+import { insecureFetch, type InsecureResponse } from '$lib/server/insecure-fetch';
 
 export async function GET(event: RequestEvent<{ id: string }>) {
   assertNotRoomScoped(event);
@@ -17,7 +17,7 @@ export async function GET(event: RequestEvent<{ id: string }>) {
   const upstreamUrl = new URL(`${room.server_url}/mcp/room/${room.room_id}/stream`);
   upstreamUrl.searchParams.set('token', room.token);
 
-  let upstream: Response;
+  let upstream: InsecureResponse;
   try {
     upstream = await insecureFetch(upstreamUrl.toString(), {
       headers: { Accept: 'text/event-stream' },

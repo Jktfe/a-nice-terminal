@@ -526,9 +526,6 @@
     <!-- Attach -->
     <button class="w-[34px] h-[34px] rounded-lg flex items-center justify-center hover:opacity-80 transition-opacity" style="background: var(--bg-input); color: var(--text-muted);">📎</button>
 
-    <!-- Chat switcher -->
-    <button onclick={() => { /* TODO: dispatch switchToChat event */ }} class="h-[34px] rounded-lg px-2.5 flex items-center gap-1 text-xs hover:opacity-80 transition-opacity" style="background: var(--bg-input); color: var(--text-muted);">💬 Chat</button>
-
     <!-- Send -->
     <button
       onclick={() => { if (ws && slowEditText) sendSlowEdit(terminal, ws); }}

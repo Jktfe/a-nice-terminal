@@ -1,5 +1,6 @@
 <script lang="ts">
   import { marked } from 'marked';
+  import DOMPurify from 'isomorphic-dompurify';
   import { NOCTURNE, agentColor, agentColorFromSession } from '$lib/nocturne';
   import { agentDotStateFromStatus, type AgentStatus as TelemetryAgentStatus } from '$lib/shared/agent-status';
   import { getAgentStatus as getLiveAgentStatus } from '$lib/stores/agent-status.svelte';
@@ -8,7 +9,11 @@
 
   function renderMarkdown(text: string): string {
     if (!text) return '';
-    return marked.parse(text, { breaks: true, gfm: true }) as string;
+    // marked v17 has no built-in sanitiser and passes inline HTML through verbatim.
+    // Message content is attacker-controlled (any cli/mcp invite-token holder can post),
+    // so sanitise before {@html}.
+    const raw = marked.parse(text, { breaks: true, gfm: true }) as string;
+    return DOMPurify.sanitize(raw);
   }
 
   let {
