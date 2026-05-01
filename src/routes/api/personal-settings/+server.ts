@@ -13,7 +13,6 @@ import {
 
 const SETTINGS_FILE = process.env.ANT_PERSONAL_SETTINGS_FILE
   || join(homedir(), '.ant', 'personal-settings.json');
-const LEGACY_SHORTCUTS_FILE = join(homedir(), '.ant', 'room-shortcuts.json');
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -21,17 +20,17 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function cleanShortcut(value: unknown, index: number): PersonalShortcut | null {
   if (!isObject(value)) return null;
-  if (typeof value.label !== 'string' || typeof value.sessionId !== 'string') return null;
+  if (typeof value.label !== 'string' || typeof value.command !== 'string') return null;
 
   const label = value.label.trim();
-  const sessionId = value.sessionId.trim();
-  if (!label || !sessionId) return null;
+  const command = value.command;
+  if (!label || !command) return null;
 
   return {
     id: typeof value.id === 'string' && value.id.trim() ? value.id.trim() : `shortcut-${index + 1}`,
     label,
-    icon: typeof value.icon === 'string' && value.icon.trim() ? value.icon.trim() : '*',
-    sessionId,
+    icon: typeof value.icon === 'string' && value.icon.trim() ? value.icon.trim() : '⚡',
+    command,
     color: typeof value.color === 'string' && /^#[0-9a-f]{6}$/i.test(value.color.trim())
       ? value.color.trim()
       : '#6366F1',
@@ -45,28 +44,23 @@ function cleanShortcutList(value: unknown): PersonalShortcut[] {
     .filter((shortcut): shortcut is PersonalShortcut => shortcut != null);
 }
 
-function normaliseSettings(value: unknown): PersonalSettings {
+function normaliseSettings(value: unknown, fallbackSeeds = false): PersonalSettings {
   const settings = createDefaultPersonalSettings();
   if (!isObject(value)) return settings;
 
-  const shortcuts = isObject(value.shortcuts) ? value.shortcuts : {};
-  for (const scope of SHORTCUT_SCOPES) {
-    settings.shortcuts[scope] = cleanShortcutList(shortcuts[scope]);
+  const shortcuts = isObject(value.shortcuts) ? value.shortcuts : null;
+  if (shortcuts) {
+    for (const scope of SHORTCUT_SCOPES) {
+      // Replace seeds when the on-disk record explicitly contains a `shortcuts`
+      // object — even an empty array — so users can clear their list.
+      settings.shortcuts[scope] = cleanShortcutList(shortcuts[scope]);
+    }
+  } else if (!fallbackSeeds) {
+    for (const scope of SHORTCUT_SCOPES) settings.shortcuts[scope] = [];
   }
 
   settings.preferences = isObject(value.preferences) ? value.preferences : {};
   return settings;
-}
-
-async function loadLegacyShortcuts(): Promise<PersonalShortcut[]> {
-  try {
-    const raw = await readFile(LEGACY_SHORTCUTS_FILE, 'utf8');
-    const parsed = JSON.parse(raw);
-    const source = Array.isArray(parsed) ? parsed : parsed?.shortcuts;
-    return cleanShortcutList(source);
-  } catch {
-    return [];
-  }
 }
 
 async function readSettings(): Promise<PersonalSettings> {
@@ -77,9 +71,8 @@ async function readSettings(): Promise<PersonalSettings> {
     if (err?.code !== 'ENOENT') throw err;
   }
 
-  const settings = createDefaultPersonalSettings();
-  settings.shortcuts.chatrooms = await loadLegacyShortcuts();
-  return settings;
+  // No on-disk settings yet → seed with starter chips.
+  return createDefaultPersonalSettings();
 }
 
 function writeableSettings(settings: PersonalSettings): PersonalSettings {

@@ -444,8 +444,7 @@
 
               <!-- Quick reply -->
               <QuickLaunchBar
-                sessionId={linkedChatId || sessionId}
-                driver={session?.cli_flag ?? null}
+                scope="linkedChats"
                 onInsertCommand={insertLinkedQuickLaunch}
               />
               <div class="flex gap-1.5 mt-1.5">

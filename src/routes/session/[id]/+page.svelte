@@ -13,6 +13,7 @@
   import RunView from '$lib/components/RunView.svelte';
   import { useToasts } from '$lib/stores/toast.svelte';
   import { normalizeSessionName } from '$lib/utils/session-naming';
+  import { isAutoLinkedChatSession } from '$lib/utils/linked-chat';
   import { onMount, onDestroy } from 'svelte';
 
   interface PageSession {
@@ -53,7 +54,9 @@
     kind: string;
     text: string;
     payload?: Record<string, unknown>;
-    raw_ref?: string | null;
+    // RunView expects string | undefined; the API can return null, so we
+    // normalise on ingest (see refreshRunEvents/appendRunEvent below).
+    raw_ref?: string;
   }
 
   const toasts = useToasts();
@@ -64,6 +67,16 @@
 
   let session = $state<PageSession | null>(null);
   let allSessions = $state<PageSession[]>([]);
+  const shortcutScope = $derived.by(() => {
+    if (session?.type === 'terminal') return 'linkedChats';
+    if (session?.type === 'chat') {
+      const linkedChat = allSessions.some((candidate) =>
+        candidate.type === 'terminal' && candidate.linked_chat_id === session?.id
+      );
+      return linkedChat || isAutoLinkedChatSession(session) ? 'linkedChats' : 'chatrooms';
+    }
+    return 'all';
+  });
   let mode = $state('chat');
   let showMenu = $state(false);
   // Panel closed by default on thin/mobile browsers (<1024px), open on desktop
@@ -86,6 +99,10 @@
 
   let terminalSpawnTimer: ReturnType<typeof setTimeout> | null = null;
 
+  function normaliseRunEvent(e: RunEvent & { raw_ref?: string | null }): RunEvent {
+    return { ...e, raw_ref: e.raw_ref ?? undefined };
+  }
+
   async function refreshRunEvents(force = false) {
     if (!sessionId || session?.type !== 'terminal') return;
     if (runEventsLoaded && !force) return;
@@ -94,7 +111,7 @@
       const res = await fetch(`/api/sessions/${sessionId}/run-events?since=6h&limit=500`);
       if (res.ok) {
         const data = await res.json();
-        runEvents = data.events || [];
+        runEvents = (data.events || []).map(normaliseRunEvent);
         runEventsLoaded = true;
       }
     } catch {
@@ -105,7 +122,7 @@
 
   function appendRunEvent(event: RunEvent) {
     if (!event?.id || runEvents.some(e => e.id === event.id)) return;
-    runEvents = [...runEvents, event].slice(-1000);
+    runEvents = [...runEvents, normaliseRunEvent(event)].slice(-1000);
   }
 
   // Auto-scroll
@@ -323,7 +340,7 @@
         if (result.added) linkedChatMessages = result.messages;
       } else {
         const result = await fetchCatchupMessages(chatId, msgStore.messages as unknown as Record<string, unknown>[]);
-        if (result.added) msgStore.messages = result.messages as typeof msgStore.messages;
+        if (result.added) msgStore.messages = result.messages as unknown as typeof msgStore.messages;
       }
       if (shouldStickToBottom) requestAnimationFrame(() => scrollToBottom());
     } catch {
@@ -1042,7 +1059,7 @@
     const active = allSessions
       .filter(s => s.id !== sessionId && (hasRoomMembership ? roomMemberIds.has(s.id) : counts.has(s.id)))
       .map(s => {
-        const roomInfo = roomParticipants.map(roomIdentitySession).find(p => p.id === s.id);
+        const roomInfo = roomParticipants.map(roomIdentitySession).find(p => p?.id === s.id);
         return { sess: { ...s, ...roomInfo }, count: counts.get(s.id) ?? 0, active: true };
       });
     const activeIds = new Set(active.map(p => p.sess.id));
@@ -1212,6 +1229,7 @@
           onScrollElMounted={(el) => { chatScrollEl = el; }}
           onScroll={onChatScroll}
           {parentContext}
+          {shortcutScope}
         />
       {:else if mode === 'terminal'}
         <!-- ANT Terminal mode — normalized append-only run events -->

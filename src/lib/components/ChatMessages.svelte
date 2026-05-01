@@ -13,6 +13,7 @@
   import { agentColor } from '$lib/nocturne';
   import { activeRoutingMentions, bracketRoutingMention } from '$lib/utils/mentions';
   import type { AgentStatus } from '$lib/shared/agent-status';
+  import type { ShortcutScope } from '$lib/shared/personal-settings';
 
   interface PageSession {
     id: string;
@@ -81,6 +82,7 @@
     onScrollElMounted?: (el: HTMLElement) => void;
     onScroll?: () => void;
     parentContext?: { roomName: string; messages: Record<string, unknown>[] } | null;
+    shortcutScope?: ShortcutScope | 'all';
   }
 
   const {
@@ -121,6 +123,7 @@
     onScrollElMounted,
     onScroll,
     parentContext = null,
+    shortcutScope = 'all',
   }: Props = $props();
 
   let parentContextOpen = $state(false);
@@ -144,10 +147,9 @@
   });
 
   const footerStatusSessionIds = $derived(footerStatusParticipants.map((participant) => participant.sess.id));
-  const chatQuickLaunchDriver = $derived.by(() => {
-    if (session?.type === 'terminal') return session.cli_flag ?? null;
-    return allSessions.find((s) => s.type === 'terminal' && s.linked_chat_id === sessionId)?.cli_flag ?? null;
-  });
+  const quickLaunchScope = $derived<ShortcutScope | null>(
+    shortcutScope === 'all' ? null : shortcutScope
+  );
 
   async function fetchAgentStatuses() {
     const ids = footerStatusSessionIds;
@@ -683,7 +685,7 @@
                 message={msg}
                 {sessionId}
                 {allSessions}
-                readReceipts={readReceipts[msg.id] ?? []}
+                readReceipts={readReceipts[String(msg.id)] ?? []}
                 onReply={(msg) => { onReply(msg); }}
                 onDeleted={(id) => { onMessageDeleted(id); }}
                 onMetaUpdated={(id, meta) => { onMessageMetaUpdated(id, meta); }}
@@ -756,7 +758,7 @@
   {/if}
 
   {#if session?.type === 'terminal'}
-    <QuickLaunchBar {sessionId} driver={session?.cli_flag} onInsertCommand={insertQuickLaunchCommand} />
+    <QuickLaunchBar scope="linkedChats" onInsertCommand={insertQuickLaunchCommand} />
   {/if}
 
   <!-- Input bar -->
@@ -871,8 +873,10 @@
       {replyTo}
       onClearReply={onClearReply}
       handles={mentionHandles}
-      quickLaunchSessionId={sessionId}
-      quickLaunchDriver={chatQuickLaunchDriver}
+      quickLaunchScope={quickLaunchScope}
     />
   {/if}
 </div>
+
+<style>
+</style>

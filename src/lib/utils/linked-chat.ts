@@ -21,3 +21,27 @@ export function autoLinkedTerminalId(session: { meta?: unknown } | null | undefi
 export function isAutoLinkedChatSession(session: { type?: string; meta?: unknown } | null | undefined): boolean {
   return session?.type === 'chat' && autoLinkedTerminalId(session) !== null;
 }
+
+import type { ShortcutScope } from '$lib/shared/personal-settings';
+
+/**
+ * Decide which QuickLaunchBar scope applies to a session.
+ *
+ * - `linkedChats` for terminal sessions and chat sessions paired with a terminal
+ *   (auto-linked or pointed-to by another terminal's `linked_chat_id`).
+ * - `chatrooms` for multi-participant chat sessions that aren't paired.
+ * - `null` for everything else (no quick-action bar shown).
+ */
+export function shortcutScopeFor(
+  session: { type?: string; id?: string; meta?: unknown } | null | undefined,
+  allSessions: { type?: string; linked_chat_id?: string | null }[] = [],
+): ShortcutScope | null {
+  if (!session) return null;
+  if (session.type === 'terminal') return 'linkedChats';
+  if (session.type !== 'chat') return null;
+  if (isAutoLinkedChatSession(session)) return 'linkedChats';
+  const pointedToByTerminal = allSessions.some(
+    (s) => s.type === 'terminal' && s.linked_chat_id === session.id,
+  );
+  return pointedToByTerminal ? 'linkedChats' : 'chatrooms';
+}

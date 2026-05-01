@@ -1,25 +1,23 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { useQuickLaunch, type QuickLaunchButton } from '$lib/stores/quicklaunch.svelte.js';
+  import { usePersonalSettings } from '$lib/stores/personal-settings.svelte';
+  import type { PersonalShortcut, ShortcutScope } from '$lib/shared/personal-settings';
 
   let {
-    sessionId,
-    driver,
+    scope,
     onInsertCommand,
   }: {
-    sessionId: string;
-    driver?: string | null;
+    scope: ShortcutScope;
     onInsertCommand: (text: string) => void;
   } = $props();
 
-  // svelte-ignore state_referenced_locally -- sessionId and driver are stable per terminal session instance
-  const ql = useQuickLaunch(sessionId, driver);
+  const personal = usePersonalSettings();
 
   onMount(() => {
-    ql.loadLocalDefaults();
+    void personal.load();
   });
 
-  // ── Edit mode state ──
+  // ── Edit-mode state ──
   let editing = $state(false);
   let editingId = $state<string | null>(null);
   let showAddForm = $state(false);
@@ -30,7 +28,9 @@
   let newCommand = $state('');
   let newColor = $state('#6366F1');
 
-  function handleTap(btn: QuickLaunchButton) {
+  const buttons = $derived<PersonalShortcut[]>(personal.settings.shortcuts[scope] ?? []);
+
+  function handleTap(btn: PersonalShortcut) {
     if (editing) {
       editingId = editingId === btn.id ? null : btn.id;
       return;
@@ -40,7 +40,12 @@
 
   function handleAdd() {
     if (!newLabel.trim() || !newCommand.trim()) return;
-    ql.add({ label: newLabel.trim(), icon: newIcon, command: newCommand.trim(), color: newColor });
+    personal.addShortcut(scope, {
+      label: newLabel.trim(),
+      icon: newIcon,
+      command: newCommand.trim(),
+      color: newColor,
+    });
     newLabel = '';
     newIcon = '⚡';
     newCommand = '';
@@ -49,15 +54,19 @@
   }
 
   function handleRemove(id: string) {
-    ql.remove(id);
+    personal.removeShortcut(scope, id);
     editingId = null;
+  }
+
+  function handleUpdate(id: string, patch: Partial<Omit<PersonalShortcut, 'id'>>) {
+    personal.updateShortcut(scope, id, patch);
   }
 </script>
 
 <div class="quick-launch-bar">
   <!-- Button strip -->
   <div class="flex items-center gap-1.5 px-2 py-1.5 overflow-x-auto scrollbar-none">
-    {#each ql.buttons as btn (btn.id)}
+    {#each buttons as btn (btn.id)}
       <button
         class="quick-btn"
         class:editing-highlight={editing && editingId === btn.id}
@@ -75,7 +84,7 @@
       class="config-btn"
       class:config-active={editing}
       onclick={() => { editing = !editing; editingId = null; showAddForm = false; }}
-      title={editing ? 'Done editing' : 'Configure buttons'}
+      title={editing ? 'Done editing' : 'Configure quick actions'}
     >
       {editing ? '✓' : '⚙'}
     </button>
@@ -84,27 +93,27 @@
       <button
         class="config-btn add-btn"
         onclick={() => { showAddForm = !showAddForm; editingId = null; }}
-        title="Add button"
+        title="Add quick action"
       >+</button>
     {/if}
   </div>
 
   <!-- Inline editor for selected button -->
   {#if editing && editingId}
-    {@const btn = ql.buttons.find(b => b.id === editingId)}
+    {@const btn = buttons.find(b => b.id === editingId)}
     {#if btn}
       <div class="edit-panel">
         <div class="edit-row">
           <input class="edit-input w-12" value={btn.icon}
-            oninput={(e) => ql.update(btn.id, { icon: (e.target as HTMLInputElement).value })} placeholder="🔥" />
+            oninput={(e) => handleUpdate(btn.id, { icon: (e.target as HTMLInputElement).value })} placeholder="🔥" />
           <input class="edit-input flex-1" value={btn.label}
-            oninput={(e) => ql.update(btn.id, { label: (e.target as HTMLInputElement).value })} placeholder="Label" />
-          <input class="edit-input w-5 p-0 border-0" type="color" value={btn.color ?? '#6366F1'}
-            oninput={(e) => ql.update(btn.id, { color: (e.target as HTMLInputElement).value })} />
+            oninput={(e) => handleUpdate(btn.id, { label: (e.target as HTMLInputElement).value })} placeholder="Label" />
+          <input class="edit-input w-5 p-0 border-0" type="color" value={btn.color}
+            oninput={(e) => handleUpdate(btn.id, { color: (e.target as HTMLInputElement).value })} />
         </div>
         <div class="edit-row">
           <input class="edit-input flex-1 font-mono" value={btn.command}
-            oninput={(e) => ql.update(btn.id, { command: (e.target as HTMLInputElement).value })} placeholder="cd ~/project && claude" />
+            oninput={(e) => handleUpdate(btn.id, { command: (e.target as HTMLInputElement).value })} placeholder="Text to insert into the composer" />
           <button class="remove-btn" onclick={() => handleRemove(btn.id)} title="Remove">🗑</button>
         </div>
       </div>
@@ -116,12 +125,12 @@
     <div class="edit-panel">
       <div class="edit-row">
         <input class="edit-input w-12" bind:value={newIcon} placeholder="⚡" />
-        <input class="edit-input flex-1" bind:value={newLabel} placeholder="Button label" />
+        <input class="edit-input flex-1" bind:value={newLabel} placeholder="Quick action label" />
         <input class="edit-input w-5 p-0 border-0" type="color" bind:value={newColor} />
       </div>
       <div class="edit-row">
         <input class="edit-input flex-1 font-mono" bind:value={newCommand}
-          placeholder="cd ~/project && claude"
+          placeholder="Text to insert into the composer"
           onkeydown={(e) => { if (e.key === 'Enter') handleAdd(); }} />
         <button class="add-confirm-btn" onclick={handleAdd} disabled={!newLabel.trim() || !newCommand.trim()}>Add</button>
       </div>

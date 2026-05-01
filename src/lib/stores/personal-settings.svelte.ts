@@ -2,6 +2,7 @@ import { browser } from '$app/environment';
 import {
   SHORTCUT_SCOPES,
   createDefaultPersonalSettings,
+  isPersonalShortcut,
   type PersonalSettings,
   type PersonalShortcut,
   type ShortcutScope,
@@ -43,16 +44,20 @@ function normalise(settings: unknown): PersonalSettings {
   const defaults = createDefaultPersonalSettings();
   const value = settings && typeof settings === 'object' && !Array.isArray(settings)
     ? settings as Partial<PersonalSettings>
-    : {};
+    : null;
 
-  const shortcuts = value.shortcuts && typeof value.shortcuts === 'object'
-    ? value.shortcuts as Partial<Record<ShortcutScope, PersonalShortcut[]>>
+  // No on-disk record yet → seed both scopes with starter chips.
+  if (!value || !value.shortcuts) return defaults;
+
+  const shortcuts = typeof value.shortcuts === 'object'
+    ? value.shortcuts as Partial<Record<ShortcutScope, unknown[]>>
     : {};
 
   for (const scope of SHORTCUT_SCOPES) {
-    defaults.shortcuts[scope] = Array.isArray(shortcuts[scope])
-      ? [...shortcuts[scope] as PersonalShortcut[]]
-      : [];
+    const raw = Array.isArray(shortcuts[scope]) ? shortcuts[scope] as unknown[] : [];
+    // Drop legacy navigation-style entries (PersonalShortcut.sessionId from the
+    // retired GlobalShortcutsMenu); only keep entries with a `command` field.
+    defaults.shortcuts[scope] = raw.filter(isPersonalShortcut).map((s) => ({ ...s }));
   }
 
   defaults.preferences = value.preferences && typeof value.preferences === 'object' && !Array.isArray(value.preferences)
@@ -146,6 +151,13 @@ export function usePersonalSettings() {
       const [moved] = list.splice(fromIndex, 1);
       list.splice(toIndex, 0, moved);
       next.shortcuts[scope] = list;
+      state.settings = next;
+      void persist(next);
+    },
+
+    setShortcuts(scope: ShortcutScope, shortcuts: PersonalShortcut[]) {
+      const next = cloneSettings(state.settings);
+      next.shortcuts[scope] = shortcuts;
       state.settings = next;
       void persist(next);
     },

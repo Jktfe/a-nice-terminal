@@ -609,7 +609,11 @@ function handle(msg: any, socket: net.Socket) {
 
     case 'spawn': {
       const existing = sessions.get(msg.sessionId);
-      if (existing?.alive) {
+      // Trust the cached `alive` flag only if tmux confirms the session still
+      // exists. Otherwise the cache is stale (e.g. tmux died externally without
+      // triggering term.onExit, or the daemon was started inside tmux and the
+      // earlier spawn silently failed) and we need to drop it and respawn.
+      if (existing?.alive && tmuxSessionExists(msg.sessionId)) {
         // Reconnect path: serve scrollback from tmux's own buffer.
         // capture-pane handles alt-screen automatically — no prefix injection needed.
         // Re-apply the silence hook — idempotent and survives daemon restarts.
@@ -618,6 +622,26 @@ function handle(msg: any, socket: net.Socket) {
         send(socket, { type: 'spawned', sessionId: msg.sessionId, callId: msg.callId, alive: true, scrollback });
         return;
       }
+      if (existing) {
+        // Stale cache — drop the dead PTY handle before spawning a fresh tmux.
+        try { existing.ctrl?.kill(); } catch {}
+        try { existing.pty.kill(); } catch {}
+        sessions.delete(msg.sessionId);
+        LOG(`evicted stale session cache: ${msg.sessionId}`);
+      }
+
+      // Strip TMUX env vars before spawning — if the daemon was started from
+      // inside an existing tmux session, $TMUX/$TMUX_PANE leak into the child
+      // and tmux refuses to nest, causing the spawn to die silently.
+      const childEnv: Record<string, string> = {
+        ...process.env,
+        ANT_SESSION_ID: msg.sessionId,
+        ANT_CAPTURE_DEPTH: '0',
+        TERM: 'xterm-256color',
+      } as Record<string, string>;
+      delete childEnv.TMUX;
+      delete childEnv.TMUX_PANE;
+      delete childEnv.TMUX_PLUGIN_MANAGER_PATH;
 
       const term = pty.spawn(TMUX, [
         'new-session', '-A',
@@ -630,12 +654,7 @@ function handle(msg: any, socket: net.Socket) {
         cols: msg.cols || 220,
         rows: msg.rows || 50,
         cwd: msg.cwd || HOME,
-        env: {
-          ...process.env,
-          ANT_SESSION_ID: msg.sessionId,
-          ANT_CAPTURE_DEPTH: '0',
-          TERM: 'xterm-256color',
-        } as Record<string, string>,
+        env: childEnv,
       });
 
       const session: PTYSession = { pty: term, ctrl: null, alive: true, lastSilenceAlert: 0 };

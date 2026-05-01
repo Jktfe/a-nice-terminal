@@ -3,13 +3,13 @@
   import { useGridStore } from '$lib/stores/grid.svelte';
   import { SESSIONS_CHANNEL } from '$lib/ws-channels';
   import SessionCard from './SessionCard.svelte';
-  import SessionPairCard from './SessionPairCard.svelte';
+  import TerminalRow from './TerminalRow.svelte';
   import GridView from './GridView.svelte';
+  import DashboardHeader from './DashboardHeader.svelte';
+  import ArchiveStrip from './ArchiveStrip.svelte';
   import { goto } from '$app/navigation';
-  import { theme } from '$lib/stores/theme.svelte';
   import { isAutoLinkedChatSession } from '$lib/utils/linked-chat';
   import { onMount } from 'svelte';
-  import GlobalShortcutsMenu from './GlobalShortcutsMenu.svelte';
   import PersonalSettingsModal from './PersonalSettingsModal.svelte';
 
   const grid = useGridStore();
@@ -19,13 +19,14 @@
   let creatingTerminal = $state(false);
   let creatingChat = $state(false);
   let showPersonalSettings = $state(false);
-  let selectedArchived = $state<Set<string>>(new Set());
-  let batchBusy = $state(false);
   type DashboardOrderMode = 'activity' | 'manual';
   type DashboardOrderSection = 'terminal' | 'chat';
+  type DashboardTypeFilter = 'all' | 'terminals' | 'chats';
   const ORDER_MODE_KEY = 'ant.dashboard.orderMode';
+  const TYPE_FILTER_KEY = 'ant.dashboard.typeFilter';
   let orderMode = $state<DashboardOrderMode>('activity');
   let hasStoredOrderMode = $state(false);
+  let typeFilter = $state<DashboardTypeFilter>('all');
   let draggedSession = $state<{ section: DashboardOrderSection; id: string } | null>(null);
   let dragOverSession = $state<{ section: DashboardOrderSection; id: string } | null>(null);
 
@@ -175,7 +176,18 @@
       orderMode = saved;
       hasStoredOrderMode = true;
     }
+    const savedType = localStorage.getItem(TYPE_FILTER_KEY);
+    if (savedType === 'all' || savedType === 'terminals' || savedType === 'chats') {
+      typeFilter = savedType;
+    }
   });
+
+  function setTypeFilter(value: DashboardTypeFilter) {
+    typeFilter = value;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(TYPE_FILTER_KEY, value);
+    }
+  }
 
   $effect(() => {
     if (!hasStoredOrderMode && hasManualOrder) {
@@ -333,171 +345,24 @@
   function createTerminal() { openCreateModal('terminal'); }
   function createChat() { openCreateModal('chat'); }
 
-  async function commitArchivedToMemoryAndDelete(id: string) {
-    await fetch(`/api/sessions/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ archived: true }),
-    });
-    await fetch(`/api/sessions/${id}?hard=true`, { method: 'DELETE' });
-    await store.load();
-    selectedArchived = new Set([...selectedArchived].filter((sessionId) =>
-      store.recoverable.some((session) => session.id === sessionId)
-    ));
-  }
-
   async function restoreArchived(id: string) {
     await store.restoreSession(id);
-    const next = new Set(selectedArchived);
-    next.delete(id);
-    selectedArchived = next;
-  }
-
-  async function hardDeleteArchived(id: string) {
-    await store.hardDeleteSession(id);
-    await store.load();
-    selectedArchived = new Set([...selectedArchived].filter((sessionId) =>
-      store.recoverable.some((session) => session.id === sessionId)
-    ));
   }
 </script>
 
 <div class="flex flex-col h-screen w-screen overflow-hidden" style="background: var(--bg); color: var(--text);">
 
-  <!-- ── Header ─────────────────────────────────────────────────── -->
-  <div class="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b flex-shrink-0" style="border-color: var(--border-light);">
-    <!-- Logo -->
-    <div class="flex items-center gap-3">
-      {#if theme.dark}
-        <img src="/ANTlogo.png" alt="ANT" class="h-9 w-auto" />
-      {:else}
-        <img src="/ANTlogo-black-text.png" alt="ANT" class="h-9 w-auto" />
-      {/if}
-    </div>
-
-    <!-- Header actions -->
-    <div class="flex items-center gap-1 flex-wrap">
-      <GlobalShortcutsMenu onOpenSettings={() => { showPersonalSettings = true; }} />
-
-      <!-- Personal settings -->
-      <button
-        onclick={() => { showPersonalSettings = true; }}
-        class="p-2 rounded-lg transition-all duration-200"
-        style="color: var(--text-muted); background: transparent;"
-        title="Personal settings"
-        aria-label="Personal settings"
-      >
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-        </svg>
-      </button>
-
-      <!-- Theme toggle -->
-      <button
-        onclick={() => theme.toggle()}
-        class="p-2 rounded-lg transition-all duration-200"
-        style="color: var(--text-muted); background: transparent;"
-        title={theme.dark ? 'Switch to light mode' : 'Switch to dark mode'}
-      >
-        {#if theme.dark}
-          <!-- Sun -->
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M17.657 17.657l-.707-.707M6.343 6.343l-.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z" />
-          </svg>
-        {:else}
-          <!-- Moon -->
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
-          </svg>
-        {/if}
-      </button>
-
-      <!-- Docs / help -->
-      <a
-        href="/help"
-        class="p-2 rounded-lg transition-all duration-200"
-        style="color: var(--text-muted);"
-        title="CLI command reference"
-      >
-        <!-- file-question icon -->
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-            d="M9 12h6m-3-3v6M7 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2h-2" />
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-            d="M9 12h.01M12 9a3 3 0 010 6" />
-        </svg>
-      </a>
-
-      <!-- Grid toggle -->
-      <button
-        onclick={() => grid.toggle()}
-        class="p-2 rounded-lg transition-all duration-200"
-        style={grid.enabled
-          ? 'color: #6366F1; background: rgba(99,102,241,0.12);'
-          : 'color: var(--text-muted); background: transparent;'}
-        title="Toggle grid view"
-      >
-        <!-- layout-grid icon -->
-        <svg class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
-          <rect x="2" y="2" width="7" height="7" rx="1.5"/>
-          <rect x="11" y="2" width="7" height="7" rx="1.5"/>
-          <rect x="2" y="11" width="7" height="7" rx="1.5"/>
-          <rect x="11" y="11" width="7" height="7" rx="1.5"/>
-        </svg>
-      </button>
-
-      {#if !grid.enabled}
-        <div class="flex items-center rounded-lg p-0.5" style="background: var(--bg-elevated); border: 1px solid var(--border-light);">
-          <button
-            onclick={() => setOrderMode('activity')}
-            class="px-2.5 py-1 rounded-md text-xs font-semibold transition-colors"
-            style={orderMode === 'activity'
-              ? 'background: #6366F1; color: #fff;'
-              : 'background: transparent; color: var(--text-muted);'}
-            title="Order by latest activity"
-          >Activity</button>
-          <button
-            onclick={() => setOrderMode('manual')}
-            class="px-2.5 py-1 rounded-md text-xs font-semibold transition-colors"
-            style={orderMode === 'manual'
-              ? 'background: #6366F1; color: #fff;'
-              : 'background: transparent; color: var(--text-muted);'}
-            title="Drag cards to reorder"
-          >Manual</button>
-          {#if hasManualOrder}
-            <button
-              onclick={resetOrder}
-              class="px-2 py-1 rounded-md text-xs font-semibold transition-colors"
-              style="background: transparent; color: var(--text-faint);"
-              title="Reset manual order"
-            >Reset</button>
-          {/if}
-        </div>
-      {/if}
-
-      <!-- Grid dimension controls -->
-      {#if grid.enabled}
-        <div class="hidden sm:flex items-center gap-1 ml-1" style="color: var(--text-muted);">
-          <span class="text-xs font-mono">C</span>
-          <button onclick={() => grid.setDimensions(grid.cols - 1, grid.rows)} disabled={grid.cols <= 1}
-            class="w-5 h-5 flex items-center justify-center rounded text-xs font-bold transition-colors hover:bg-white/10 disabled:opacity-30">−</button>
-          <span class="text-xs w-3 text-center">{grid.cols}</span>
-          <button onclick={() => grid.setDimensions(grid.cols + 1, grid.rows)} disabled={grid.cols >= 5}
-            class="w-5 h-5 flex items-center justify-center rounded text-xs font-bold transition-colors hover:bg-white/10 disabled:opacity-30">+</button>
-          <span class="text-xs font-mono ml-1">R</span>
-          <button onclick={() => grid.setDimensions(grid.cols, grid.rows - 1)} disabled={grid.rows <= 1}
-            class="w-5 h-5 flex items-center justify-center rounded text-xs font-bold transition-colors hover:bg-white/10 disabled:opacity-30">−</button>
-          <span class="text-xs w-3 text-center">{grid.rows}</span>
-          <button onclick={() => grid.setDimensions(grid.cols, grid.rows + 1)} disabled={grid.rows >= 5}
-            class="w-5 h-5 flex items-center justify-center rounded text-xs font-bold transition-colors hover:bg-white/10 disabled:opacity-30">+</button>
-        </div>
-      {/if}
-    </div>
-  </div>
+  <DashboardHeader
+    {orderMode}
+    {hasManualOrder}
+    {typeFilter}
+    {searchText}
+    onSetOrderMode={setOrderMode}
+    onResetOrder={resetOrder}
+    onSetTypeFilter={setTypeFilter}
+    onSetSearchText={(value) => { searchText = value; }}
+    onTogglePersonalSettings={() => { showPersonalSettings = true; }}
+  />
 
   <!-- ── Grid view ──────────────────────────────────────────────── -->
   {#if grid.enabled}
@@ -528,6 +393,7 @@
       <div class="flex flex-col lg:flex-row gap-6 lg:gap-8 p-4 sm:p-6 h-full">
 
         <!-- Terminals column — order-2 on mobile (below Chats), order-1 on desktop -->
+        {#if typeFilter !== 'chats'}
         <div class="flex-1 min-w-0 order-2 lg:order-1">
           <!-- Section header -->
           <div class="flex items-center justify-between mb-4 gap-2">
@@ -598,7 +464,7 @@
                       </button>
                     {/if}
                     <div class="min-w-0 flex-1">
-                      <SessionPairCard
+                      <TerminalRow
                         {terminal}
                         linkedChat={linkedChatFor(terminal)}
                         needsInput={needsInputMap.get(terminal.id) ?? null}
@@ -613,14 +479,18 @@
             </div>
           {/if}
         </div>
+        {/if}
 
-        <!-- Vertical divider (desktop only) -->
-        <div class="hidden lg:block w-px flex-shrink-0 self-stretch" style="background: var(--border-light);"></div>
+        {#if typeFilter === 'all'}
+          <!-- Vertical divider (desktop only) -->
+          <div class="hidden lg:block w-px flex-shrink-0 self-stretch" style="background: var(--border-light);"></div>
 
-        <!-- Horizontal divider (mobile only) -->
-        <div class="lg:hidden h-px w-full order-15" style="background: var(--border-light);"></div>
+          <!-- Horizontal divider (mobile only) -->
+          <div class="lg:hidden h-px w-full order-15" style="background: var(--border-light);"></div>
+        {/if}
 
         <!-- Chats column — order-1 on mobile (first), order-2 on desktop -->
+        {#if typeFilter !== 'terminals'}
         <div class="flex-1 min-w-0 order-1 lg:order-2">
           <!-- Section header -->
           <div class="flex items-center justify-between mb-4 gap-2">
@@ -704,143 +574,16 @@
             </div>
           {/if}
         </div>
+        {/if}
 
       </div>
     </div>
 
-    <!-- Archived / recoverable footer bar with multi-select -->
-    {#if store.recoverable.length > 0}
-      <div class="flex flex-col border-t flex-shrink-0" style="border-color: var(--border-light);">
-        <!-- Session badges row -->
-        <div class="flex items-center gap-3 px-4 sm:px-6 py-2 overflow-x-auto">
-          <a
-            href="/archive"
-            class="text-xs font-medium flex-shrink-0 hover:underline"
-            style="color: var(--text-faint);"
-            title="Open archive manager"
-          >Archived:</a>
-          <button
-            onclick={() => {
-              if (selectedArchived.size === store.recoverable.length) {
-                selectedArchived = new Set();
-              } else {
-                selectedArchived = new Set(store.recoverable.map((s: any) => s.id));
-              }
-            }}
-            class="text-xs font-medium flex-shrink-0 hover:underline"
-            style="color: #6366F1;"
-            title={selectedArchived.size === store.recoverable.length ? 'Deselect all' : 'Select all'}
-          >Select all</button>
-          {#each store.recoverable as session (session.id)}
-            {@const isSelected = selectedArchived.has(session.id)}
-            <div
-              class="flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs whitespace-nowrap flex-shrink-0 transition-colors"
-              style="border-color: {isSelected ? '#6366F1' : 'var(--border-light)'}; color: {isSelected ? '#6366F1' : 'var(--text-muted)'}; background: {isSelected ? '#6366F115' : 'transparent'};"
-            >
-              <span>{session.type === 'terminal' ? '>' : '💬'}</span>
-              <!-- Clickable name toggles selection -->
-              <button
-                onclick={() => {
-                  const next = new Set(selectedArchived);
-                  if (next.has(session.id)) next.delete(session.id); else next.add(session.id);
-                  selectedArchived = next;
-                }}
-                class="hover:underline cursor-pointer"
-                title="Click to select"
-              >{session.name}</button>
-              <!-- Brain: save to memory palace then delete -->
-              <button
-                onclick={() => commitArchivedToMemoryAndDelete(session.id)}
-                class="p-0.5 rounded transition-colors hover:text-purple-500"
-                style="color: var(--text-faint);"
-                title="Save to memory & delete"
-              >
-                <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M12 18v4"/></svg>
-              </button>
-              <!-- Restore -->
-              <button onclick={() => restoreArchived(session.id)} class="p-0.5 rounded transition-colors" style="color: var(--text-faint);" title="Restore">
-                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-              </button>
-              <!-- Delete permanently -->
-              <button onclick={() => openDeleteModal(session)} class="p-0.5 rounded transition-colors" style="color: var(--text-faint);" title="Delete permanently">
-                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-              </button>
-            </div>
-          {/each}
-        </div>
-        <!-- Batch action bar (visible when 1+ selected) -->
-        {#if selectedArchived.size > 0}
-          <div class="flex items-center gap-3 px-4 sm:px-6 py-1.5 border-t" style="border-color: var(--border-light); background: #6366F108;">
-            <span class="text-xs font-semibold flex-shrink-0" style="color: #6366F1;">{selectedArchived.size} selected</span>
-            <!-- Brain All -->
-            <button
-              disabled={batchBusy}
-              onclick={async () => {
-                batchBusy = true;
-                const ids = [...selectedArchived];
-                for (const id of ids) {
-                  await commitArchivedToMemoryAndDelete(id);
-                }
-                selectedArchived = new Set();
-                batchBusy = false;
-              }}
-              class="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors hover:bg-purple-50"
-              style="color: #7C3AED;"
-              title="Save all selected to memory & delete"
-            >
-              <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M12 18v4"/></svg>
-              Brain All
-            </button>
-            <!-- Restore All -->
-            <button
-              disabled={batchBusy}
-              onclick={async () => {
-                batchBusy = true;
-                const ids = [...selectedArchived];
-                for (const id of ids) { await restoreArchived(id); }
-                selectedArchived = new Set();
-                batchBusy = false;
-              }}
-              class="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors hover:bg-green-50"
-              style="color: #059669;"
-              title="Restore all selected"
-            >
-              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-              Restore All
-            </button>
-            <!-- Delete All -->
-            <button
-              disabled={batchBusy}
-              onclick={async () => {
-                if (!confirm(`Permanently delete ${selectedArchived.size} session${selectedArchived.size > 1 ? 's' : ''}?`)) return;
-                batchBusy = true;
-                const ids = [...selectedArchived];
-                for (const id of ids) {
-                  await hardDeleteArchived(id);
-                }
-                selectedArchived = new Set();
-                batchBusy = false;
-              }}
-              class="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors hover:bg-red-50"
-              style="color: #DC2626;"
-              title="Delete all selected permanently"
-            >
-              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-              Delete All
-            </button>
-            <!-- Deselect -->
-            <button
-              onclick={() => { selectedArchived = new Set(); }}
-              class="p-1 rounded transition-colors hover:bg-gray-100"
-              style="color: var(--text-faint);"
-              title="Deselect all"
-            >
-              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-            </button>
-          </div>
-        {/if}
-      </div>
-    {/if}
+    <ArchiveStrip
+      recoverable={store.recoverable}
+      onRestore={restoreArchived}
+      onDelete={openDeleteModal}
+    />
     {/if}
 
   {/if}

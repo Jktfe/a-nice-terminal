@@ -1,4 +1,4 @@
-interface Session {
+export interface Session {
   id: string;
   name: string;
   type: 'terminal' | 'chat' | 'agent';
@@ -19,6 +19,7 @@ interface Session {
   focus_room_name?: string | null;
   focus_queue_count?: number | null;
   meta?: string | Record<string, unknown> | null;
+  cli_flag?: string | null;
 }
 
 let sessions = $state<Session[]>([]);

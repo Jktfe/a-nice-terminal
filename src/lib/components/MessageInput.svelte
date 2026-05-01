@@ -4,21 +4,20 @@
   import NocturneIcon from './NocturneIcon.svelte';
   import QuickLaunchBar from './QuickLaunchBar.svelte';
   import { activeRoutingMentions, bracketRoutingMention } from '$lib/utils/mentions';
+  import type { ShortcutScope } from '$lib/shared/personal-settings';
 
   let {
     onSend,
     replyTo = null,
     onClearReply,
     handles = [],
-    quickLaunchSessionId = null,
-    quickLaunchDriver = null,
+    quickLaunchScope = null,
   }: {
     onSend: (text: string, replyToId?: string | null) => void;
     replyTo?: any;
     onClearReply?: () => void;
     handles?: { handle: string; name: string }[];
-    quickLaunchSessionId?: string | null;
-    quickLaunchDriver?: string | null;
+    quickLaunchScope?: ShortcutScope | null;
   } = $props();
 
   let text = $state('');
@@ -173,10 +172,9 @@
 </script>
 
 <div class="relative" style="padding: 0; border-top: 0.5px solid var(--hairline-strong);">
-  {#if quickLaunchSessionId}
+  {#if quickLaunchScope}
     <QuickLaunchBar
-      sessionId={quickLaunchSessionId}
-      driver={quickLaunchDriver}
+      scope={quickLaunchScope}
       onInsertCommand={insertQuickLaunchCommand}
     />
   {/if}

@@ -4,7 +4,6 @@
   import { theme } from '$lib/stores/theme.svelte';
   import { CLI_MODES } from '$lib/cli-modes';
   import { TTL_OPTIONS } from '$lib/stores/sessions.svelte';
-  import GlobalShortcutsMenu from '$lib/components/GlobalShortcutsMenu.svelte';
   import PersonalSettingsModal from '$lib/components/PersonalSettingsModal.svelte';
 
   interface PageSession {
@@ -206,8 +205,6 @@
 
   <!-- Right-side controls -->
   <div class="flex items-center gap-1 flex-shrink-0">
-    <GlobalShortcutsMenu currentSessionId={sessionId} onOpenSettings={() => { showPersonalSettings = true; }} />
-
     <button
       onclick={() => { showPersonalSettings = true; }}
       class="hidden sm:flex p-1.5 rounded-lg transition-all"

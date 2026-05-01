@@ -303,6 +303,7 @@
       {@const agent = agentColorFromSession(sess)}
       {@const hasNeedsInput = needsInputMap.has(sess.id)}
       {@const hasFocus = sess.attention_state === 'focus'}
+      {@const telemetry = agentStatusMap.get(sess.id)}
       <div
         class="rail-tooltip"
         style="
@@ -329,8 +330,7 @@
             {sess.type}
           </span>
         {/if}
-        {#if agentStatusMap.has(sess.id)}
-          {@const telemetry = agentStatusMap.get(sess.id)}
+        {#if telemetry}
           <span class="rail-tooltip-telemetry">
             {#if telemetry.model}{telemetry.model}{/if}
             {#if telemetry.contextUsedPct != null} · ctx {telemetry.contextUsedPct}%{/if}

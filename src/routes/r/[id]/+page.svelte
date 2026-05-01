@@ -23,7 +23,7 @@
     role?: string;
   };
 
-  let roomId = $derived($page.params.id);
+  let roomId = $derived($page.params.id ?? '');
   let inviteId = $derived($page.url.searchParams.get('invite') || '');
   let storageKey = $derived(`ant_room_token_${roomId}`);
 
@@ -285,6 +285,7 @@
       </p>
       <label>
         Password
+        <!-- svelte-ignore a11y_autofocus -- this is a single-purpose unlock gate; the only sensible action on landing is typing the password -->
         <input
           type="password"
           bind:value={password}

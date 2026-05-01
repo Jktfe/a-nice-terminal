@@ -48,10 +48,16 @@ class PTYClient {
     console.log('[pty-client] daemon not running — starting it');
     // Use node + tsx — node-pty's native addon works correctly under Node but not Bun
     const tsxLoader = join(process.cwd(), 'node_modules/tsx/dist/esm/index.mjs');
+    // Strip $TMUX from the daemon's env. If we're nested inside an existing
+    // tmux session, the daemon and every tmux it spawns will inherit $TMUX
+    // and refuse to nest, killing newly-created sessions silently.
+    const daemonEnv: Record<string, string> = { ...process.env } as Record<string, string>;
+    delete daemonEnv.TMUX;
+    delete daemonEnv.TMUX_PANE;
     const proc = spawn('node', ['--import', tsxLoader, DAEMON_BIN], {
       detached: true,
       stdio: 'ignore',
-      env: { ...process.env },
+      env: daemonEnv,
     });
     proc.unref(); // Let it outlive this process
 
