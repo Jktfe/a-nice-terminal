@@ -246,12 +246,19 @@
   async function respondToEvent(msg: Message, type: string, choice: Record<string, any>) {
     if (!session) return;
     const targetSessionId = activeChatSessionId() || session.id;
+    const responsePayload = {
+      type,
+      event_id: msg.id,
+      event_content: msg.content,
+      choice,
+      ...(session.type === 'terminal' ? { terminal_session_id: session.id } : {}),
+    };
     await fetch(`/api/sessions/${targetSessionId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         role: 'user',
-        content: JSON.stringify({ type, event_id: msg.id, event_content: msg.content, terminal_session_id: session.id, choice }),
+        content: JSON.stringify(responsePayload),
         format: 'json',
         msg_type: 'agent_response',
       }),
