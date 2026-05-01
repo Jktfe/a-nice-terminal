@@ -18,6 +18,7 @@ export function GET(event: RequestEvent) {
     handle: r.handle,
     joined_at: r.joined_at,
     label: r.label,
+    server_url_inferred: r.server_url_inferred,
     // Token deliberately omitted — see proxy routes.
   }));
   return json({ rooms });
