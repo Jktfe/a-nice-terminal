@@ -1,11 +1,17 @@
 <script lang="ts">
   import { useGridStore } from '$lib/stores/grid.svelte';
-  import { onDestroy } from 'svelte';
+  import { onDestroy, tick } from 'svelte';
+  import { agentColor, agentColorFromSession } from '$lib/nocturne';
 
   interface Session {
     id: string;
     name: string;
     type: 'terminal' | 'chat' | 'agent' | string;
+    handle?: string | null;
+    alias?: string | null;
+    display_name?: string | null;
+    cli_flag?: string | null;
+    linked_chat_id?: string | null;
   }
 
   interface GridCellDef {
@@ -19,8 +25,10 @@
     content: string;
     format: string;
     msg_type?: string;
-    meta?: string;
-    sender_id?: string;
+    meta?: string | Record<string, unknown> | null;
+    sender_id?: string | null;
+    target?: string | null;
+    created_at?: string;
   }
 
   interface TerminalRow {
@@ -95,32 +103,58 @@
   let chatMessages = $state<Message[]>([]);
   let terminalLines = $state<TerminalRow[]>([]);
   let loadingContent = $state(false);
+  let contentAtBottom = $state(true);
+  let contentLoadSeq = 0;
 
   let linkedChatId = $state<string | null>(null);
+  let chatInput = $state('');
+  let chatInputEl = $state<HTMLTextAreaElement | null>(null);
+  let sendingChat = $state(false);
+  let sendError = $state('');
 
-  async function loadContent(sid: string, type: string) {
+  function isChatSessionType(type: string) {
+    return type === 'chat' || type === 'agent';
+  }
+
+  function activeChatSessionId(): string | null {
+    if (!session) return null;
+    if (session.type === 'terminal') return showChat ? linkedChatId : null;
+    if (isChatSessionType(session.type)) return session.id;
+    return null;
+  }
+
+  function shouldShowComposer(): boolean {
+    return !!activeChatSessionId();
+  }
+
+  async function loadContent(sid: string, type: string, chatMode = showChat, currentLinkedChatId = linkedChatId) {
+    const seq = ++contentLoadSeq;
     loadingContent = true;
     try {
-      if (type === 'chat' || type === 'agent' || (type === 'terminal' && showChat)) {
+      if (isChatSessionType(type) || (type === 'terminal' && chatMode)) {
         // For terminal+showChat, load the linked chat's messages
-        const chatSid = (type === 'terminal' && showChat && linkedChatId) ? linkedChatId : sid;
-        const res = await fetch(`/api/sessions/${chatSid}/messages?limit=20`);
+        const chatSid = type === 'terminal' ? currentLinkedChatId : sid;
+        if (!chatSid) {
+          if (seq === contentLoadSeq) chatMessages = [];
+          return;
+        }
+        const res = await fetch(`/api/sessions/${chatSid}/messages?limit=50`);
         if (res.ok) {
           const data = await res.json();
-          chatMessages = data.messages ?? [];
+          if (seq === contentLoadSeq) chatMessages = data.messages ?? [];
         }
       }
-      if (type === 'terminal' && !showChat) {
+      if (type === 'terminal' && !chatMode) {
         const res = await fetch(`/api/sessions/${sid}/terminal/history?since=5m&limit=10`);
         if (res.ok) {
           const data = await res.json();
-          terminalLines = data.rows ?? [];
+          if (seq === contentLoadSeq) terminalLines = data.rows ?? [];
         }
       }
     } catch {
       // Network error — leave empty
     } finally {
-      loadingContent = false;
+      if (seq === contentLoadSeq) loadingContent = false;
     }
   }
 
@@ -138,36 +172,55 @@
   let contentScrollEl = $state<HTMLElement | null>(null);
   let pollTimer: ReturnType<typeof setInterval> | null = null;
 
-  function scrollContentToBottom() {
-    if (contentScrollEl) {
-      contentScrollEl.scrollTop = contentScrollEl.scrollHeight;
-    }
+  async function scrollContentToBottom() {
+    await tick();
+    if (!contentScrollEl) return;
+    contentScrollEl.scrollTop = contentScrollEl.scrollHeight;
+    contentAtBottom = true;
+  }
+
+  function onContentScroll() {
+    if (!contentScrollEl) return;
+    const threshold = 36;
+    contentAtBottom = contentScrollEl.scrollHeight - contentScrollEl.scrollTop - contentScrollEl.clientHeight < threshold;
   }
 
   // Fetch linked chat ID when session changes
   $effect(() => {
     if (session?.type === 'terminal') {
+      linkedChatId = session.linked_chat_id ?? null;
       fetchLinkedChatId(session.id);
+    } else {
+      linkedChatId = null;
     }
   });
 
   // Reload content when session or showChat changes
   $effect(() => {
     if (session) {
-      // Access showChat to make this effect depend on it
-      const _chat = showChat;
+      const chatMode = showChat;
+      const currentLinkedChatId = linkedChatId;
       chatMessages = [];
       terminalLines = [];
-      loadContent(session.id, session.type).then(scrollContentToBottom);
+      contentAtBottom = true;
+      sendError = '';
+      loadContent(session.id, session.type, chatMode, currentLinkedChatId).then(() => {
+        if (isChatSessionType(session.type) || (session.type === 'terminal' && chatMode)) {
+          scrollContentToBottom();
+        }
+      });
 
       // Poll every 5s for fresh content
       if (pollTimer) clearInterval(pollTimer);
       pollTimer = setInterval(async () => {
         if (!session) return;
         const prevLen = chatMessages.length + terminalLines.length;
-        await loadContent(session.id, session.type);
+        const wasAtBottom = contentAtBottom;
+        const pollChatMode = showChat;
+        const pollLinkedChatId = linkedChatId;
+        await loadContent(session.id, session.type, pollChatMode, pollLinkedChatId);
         const newLen = chatMessages.length + terminalLines.length;
-        if (newLen > prevLen) scrollContentToBottom();
+        if (newLen > prevLen && wasAtBottom) void scrollContentToBottom();
       }, 5000);
     } else {
       if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
@@ -184,19 +237,21 @@
     catch { return { class: 'unknown', payload: {}, text: content }; }
   }
 
-  function parseMeta(meta: string | undefined) {
+  function parseMeta(meta: Message['meta']) {
+    if (meta && typeof meta === 'object') return meta;
     try { return meta ? JSON.parse(meta) : {}; }
     catch { return {}; }
   }
 
   async function respondToEvent(msg: Message, type: string, choice: Record<string, any>) {
     if (!session) return;
-    await fetch(`/api/sessions/${session.id}/messages`, {
+    const targetSessionId = activeChatSessionId() || session.id;
+    await fetch(`/api/sessions/${targetSessionId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         role: 'user',
-        content: JSON.stringify({ type, event_id: msg.id, event_content: msg.content, choice }),
+        content: JSON.stringify({ type, event_id: msg.id, event_content: msg.content, terminal_session_id: session.id, choice }),
         format: 'json',
         msg_type: 'agent_response',
       }),
@@ -205,23 +260,139 @@
     await loadContent(session.id, session.type);
   }
 
-  // Bubble colour by role
-  function bubbleBg(role: string, senderId?: string) {
-    if (role === 'user') return '#F3F4F6';
-    if (senderId) return '#EEF2FF'; // assistant/AI
-    return '#ECFDF5';
+  function resizeChatInput() {
+    if (!chatInputEl) return;
+    chatInputEl.style.height = 'auto';
+    const nextHeight = Math.min(chatInputEl.scrollHeight, 84);
+    chatInputEl.style.height = `${nextHeight}px`;
+    chatInputEl.style.overflowY = chatInputEl.scrollHeight > 84 ? 'auto' : 'hidden';
   }
 
-  function bubbleText(role: string, senderId?: string) {
-    if (role === 'user') return '#374151';
-    if (senderId) return '#4338CA';
-    return '#065F46';
+  $effect(() => {
+    chatInput;
+    queueMicrotask(resizeChatInput);
+  });
+
+  async function writeTerminalInput(terminalId: string, text: string) {
+    const first = await fetch(`/api/sessions/${terminalId}/terminal/input`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: text }),
+    });
+    if (!first.ok) throw new Error('terminal input failed');
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const enter = await fetch(`/api/sessions/${terminalId}/terminal/input`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: '\r' }),
+    });
+    if (!enter.ok) throw new Error('terminal enter failed');
+  }
+
+  async function sendChatMessage() {
+    const text = chatInput.trim();
+    const targetChatId = activeChatSessionId();
+    if (!text || !session || !targetChatId || sendingChat) return;
+
+    sendingChat = true;
+    sendError = '';
+    chatInput = '';
+
+    try {
+      if (session.type === 'terminal' && showChat) {
+        await writeTerminalInput(session.id, text);
+      }
+
+      const res = await fetch(`/api/sessions/${targetChatId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: 'user',
+          content: text,
+          format: 'text',
+          sender_id: null,
+          msg_type: 'message',
+          meta: { source: session.type === 'terminal' ? 'grid_terminal_chat' : 'grid_chat' },
+        }),
+      });
+      if (!res.ok) throw new Error('message post failed');
+      const msg = await res.json();
+      if (msg?.id && !chatMessages.find(m => m.id === msg.id)) {
+        chatMessages = [...chatMessages, msg];
+      }
+      await loadContent(session.id, session.type, showChat, linkedChatId);
+      sendingChat = false;
+      await scrollContentToBottom();
+      chatInputEl?.focus();
+    } catch {
+      chatInput = text;
+      sendError = 'Could not send';
+      queueMicrotask(resizeChatInput);
+    } finally {
+      sendingChat = false;
+    }
+  }
+
+  function handleChatInputKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendChatMessage();
+    }
+  }
+
+  function resolveSenderSession(senderId: string | null | undefined): Session | null {
+    if (!senderId) return null;
+    return allSessions.find(s =>
+      s.id === senderId ||
+      s.handle === senderId ||
+      s.alias === senderId ||
+      (s.handle && senderId === s.handle.replace(/^@/, ''))
+    ) ?? null;
   }
 
   function senderLabel(msg: Message): string {
-    if (msg.role === 'user') return 'You';
+    const sender = resolveSenderSession(msg.sender_id);
+    if (sender) return sender.display_name || sender.handle || sender.name || sender.id.slice(0, 8);
     if (msg.sender_id) return msg.sender_id.startsWith('@') ? msg.sender_id : `Session ${msg.sender_id.slice(0, 8)}`;
+    if (msg.role === 'user' || msg.role === 'human') return 'You';
     return 'Assistant';
+  }
+
+  function senderDetail(msg: Message): string {
+    const sender = resolveSenderSession(msg.sender_id);
+    if (sender?.handle && sender.handle !== senderLabel(msg)) return sender.handle;
+    if (msg.target && msg.target !== '@everyone') return `to ${msg.target}`;
+    if (msg.role === 'assistant') return 'assistant';
+    if (msg.role === 'user' || msg.role === 'human') return 'posted from dashboard';
+    return msg.role || 'message';
+  }
+
+  function senderAccent(msg: Message): string {
+    const sender = resolveSenderSession(msg.sender_id);
+    if (sender) return agentColorFromSession(sender).color;
+    if (msg.sender_id) return agentColor(msg.sender_id).color;
+    if (msg.role === 'user' || msg.role === 'human') return '#374151';
+    return '#10B981';
+  }
+
+  function messageTone(msg: Message): { background: string; border: string; color: string } {
+    const accent = senderAccent(msg);
+    if (msg.role === 'user' || msg.role === 'human') {
+      return { background: '#F8FAFC', border: '#CBD5E1', color: '#1F2937' };
+    }
+    return { background: `${accent}10`, border: `${accent}45`, color: '#111827' };
+  }
+
+  function senderInitial(msg: Message): string {
+    return senderLabel(msg).replace(/^@/, '').slice(0, 1).toUpperCase() || '?';
+  }
+
+  function formatTime(value: string | undefined): string {
+    if (!value) return '';
+    const iso = value.includes('Z') || value.includes('+') ? value : `${value.replace(' ', 'T')}Z`;
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
 
   // ── Icon helpers ──────────────────────────────────────────────────
@@ -313,66 +484,65 @@
         style="font-family: Inter, sans-serif; font-size: 12px; font-weight: 600; color: #111827;"
       >{session.name}</span>
 
-      <!-- Needs-input badge -->
-      {#if cellNeedsInput}
-        <span
-          class="grid-pulse-dot"
-          title={cellNeedsInput.summary}
-        ></span>
-      {:else if cellIdleAttention}
-        <span
-          class="grid-idle-dot"
-          title="Terminal idle"
-        ></span>
-      {/if}
+      <!-- Trailing: badge + action buttons (right-aligned, never shrink) -->
+      <div style="margin-left: auto; display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
+        {#if cellNeedsInput}
+          <span
+            class="grid-pulse-dot"
+            title={cellNeedsInput.summary}
+          ></span>
+        {:else if cellIdleAttention}
+          <span
+            class="grid-idle-dot"
+            title="Terminal idle"
+          ></span>
+        {/if}
 
-      <!-- Spacer -->
-      <div style="flex:1;"></div>
+        <!-- Toggle icon: only for terminal sessions — flips to chat view -->
+        {#if session.type === 'terminal'}
+          <button
+            onclick={() => (showChat = !showChat)}
+            title={showChat ? 'View terminal output' : 'View linked chat'}
+            style="background: none; border: none; padding: 2px; cursor: pointer; color: {showChat ? '#6366F1' : '#9CA3AF'}; line-height: 0; border-radius: 4px;"
+          >
+            {#if showChat}
+              <!-- terminal icon (switch back) -->
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line>
+              </svg>
+            {:else}
+              <!-- message-square icon -->
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+            {/if}
+          </button>
+        {/if}
 
-      <!-- Toggle icon: only for terminal sessions — flips to chat view -->
-      {#if session.type === 'terminal'}
+        <!-- svelte-ignore a11y_mouse_events_have_key_events -->
+        <!-- Swap / replace icon -->
         <button
-          onclick={() => (showChat = !showChat)}
-          title={showChat ? 'View terminal output' : 'View linked chat'}
-          style="background: none; border: none; padding: 2px; cursor: pointer; color: {showChat ? '#6366F1' : '#9CA3AF'}; line-height: 0; border-radius: 4px;"
+          onclick={(e) => openPicker(e)}
+          title="Replace session"
+          style="background: none; border: none; padding: 2px; cursor: pointer; color: #9CA3AF; line-height: 0; border-radius: 4px;"
+          onmouseover={(e) => (e.currentTarget.style.color = '#6B7280')}
+          onmouseout={(e) => (e.currentTarget.style.color = '#9CA3AF')}
         >
-          {#if showChat}
-            <!-- terminal icon (switch back) -->
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line>
-            </svg>
-          {:else}
-            <!-- message-square icon -->
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
-          {/if}
+          <!-- replace / swap icon -->
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 3l4 4-4 4" />
+            <path d="M9 7H3" />
+            <path d="M19 21l-4-4 4-4" />
+            <path d="M15 17h6" />
+            <line x1="21" y1="7" x2="3" y2="7" />
+            <line x1="3" y1="17" x2="21" y2="17" />
+          </svg>
         </button>
-      {/if}
-
-      <!-- svelte-ignore a11y_mouse_events_have_key_events -->
-      <!-- Swap / replace icon -->
-      <button
-        onclick={(e) => openPicker(e)}
-        title="Replace session"
-        style="background: none; border: none; padding: 2px; cursor: pointer; color: #9CA3AF; line-height: 0; border-radius: 4px;"
-        onmouseover={(e) => (e.currentTarget.style.color = '#6B7280')}
-        onmouseout={(e) => (e.currentTarget.style.color = '#9CA3AF')}
-      >
-        <!-- replace / swap icon -->
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M5 3l4 4-4 4" />
-          <path d="M9 7H3" />
-          <path d="M19 21l-4-4 4-4" />
-          <path d="M15 17h6" />
-          <line x1="21" y1="7" x2="3" y2="7" />
-          <line x1="3" y1="17" x2="21" y2="17" />
-        </svg>
-      </button>
+      </div>
     </div>
 
     <!-- Slot body: content preview -->
-    <div class="flex-1 min-h-0 overflow-hidden">
+    <div class="flex-1 min-h-0 overflow-hidden flex flex-col">
 
       {#if session.type === 'terminal' && !showChat}
         <!-- ── Terminal preview ── -->
@@ -380,6 +550,7 @@
           class="h-full overflow-y-auto"
           style="background: #0D1117; padding: 12px;"
           bind:this={contentScrollEl}
+          onscroll={onContentScroll}
         >
           {#if loadingContent}
             <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #8B949E;">Loading…</span>
@@ -397,81 +568,124 @@
       {:else}
         <!-- ── Chat preview ── -->
         <div
-          class="h-full overflow-y-auto flex flex-col gap-2"
-          style="padding: 12px; background: #FFFFFF;"
+          class="flex-1 min-h-0 overflow-y-auto"
+          style="padding: 10px 10px 8px; background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);"
           bind:this={contentScrollEl}
+          onscroll={onContentScroll}
         >
-          {#if loadingContent}
-            <span style="font-size: 10px; color: #9CA3AF; font-family: Inter, sans-serif;">Loading…</span>
-          {:else if chatMessages.length === 0}
-            <span style="font-size: 10px; color: #9CA3AF; font-family: Inter, sans-serif;">No messages yet</span>
-          {:else}
-            {#each chatMessages as msg (msg.id)}
-              {#if msg.msg_type === 'agent_event'}
-                <!-- ── Mini AgentEventCard ── -->
-                {@const ev = parseEvent(msg.content)}
-                {@const mt = parseMeta(msg.meta)}
-                {@const responded = mt.status === 'responded' || mt.status === 'settled'}
-                <div
-                  style="
-                    border-radius: 8px;
-                    background: #EEF2FF;
-                    border: 1px solid #6366F180;
-                    padding: 8px 12px;
-                    font-family: Inter, sans-serif;
-                  "
-                >
-                  <div style="font-size: 8px; font-weight: 700; color: #6366F1; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">
-                    {ev.class?.replace(/_/g, ' ') ?? 'event'}
-                  </div>
-                  {#if ev.class === 'permission_request'}
-                    <div style="font-size: 10px; color: #374151; margin-bottom: 6px;">
-                      {ev.payload?.command ?? ev.payload?.file ?? ev.text ?? ''}
+          <div class="grid-chat-stack">
+            {#if loadingContent}
+              <span class="grid-chat-empty">Loading...</span>
+            {:else if session.type === 'terminal' && showChat && !linkedChatId}
+              <span class="grid-chat-empty">No linked chat for this terminal</span>
+            {:else if chatMessages.length === 0}
+              <span class="grid-chat-empty">No messages yet</span>
+            {:else}
+              {#each chatMessages as msg (msg.id)}
+                {#if msg.msg_type === 'agent_event'}
+                  <!-- ── Mini AgentEventCard ── -->
+                  {@const ev = parseEvent(msg.content)}
+                  {@const mt = parseMeta(msg.meta)}
+                  {@const responded = mt.status === 'responded' || mt.status === 'settled'}
+                  <div class="grid-event-card">
+                    <div class="grid-event-card__label">
+                      {ev.class?.replace(/_/g, ' ') ?? 'event'}
                     </div>
-                    {#if responded}
-                      <div style="font-size: 10px; font-weight: 600; color: {mt.chosen === 'approve' ? '#22C55E' : '#EF4444'};">
-                        ✓ {mt.chosen === 'approve' ? 'Approved' : 'Denied'}
+                    {#if ev.class === 'permission_request'}
+                      <div class="grid-event-card__body">
+                        {ev.payload?.command ?? ev.payload?.file ?? ev.text ?? ''}
                       </div>
+                      {#if responded}
+                        <div class="grid-event-card__resolved" style="color: {mt.chosen === 'approve' ? '#16A34A' : '#DC2626'};">
+                          {mt.chosen === 'approve' ? 'Approved' : 'Denied'}
+                        </div>
+                      {:else}
+                        <div class="flex gap-1.5">
+                          <button
+                            onclick={() => respondToEvent(msg, 'approve', { action: 'approve' })}
+                            class="grid-event-card__button grid-event-card__button--approve"
+                          >Approve</button>
+                          <button
+                            onclick={() => respondToEvent(msg, 'deny', { action: 'deny' })}
+                            class="grid-event-card__button grid-event-card__button--deny"
+                          >Deny</button>
+                        </div>
+                      {/if}
                     {:else}
-                      <div class="flex gap-1.5">
-                        <button
-                          onclick={() => respondToEvent(msg, 'approve', { action: 'approve' })}
-                          style="padding: 4px 10px; border-radius: 6px; background: #22C55E; color: #fff; border: none; font-size: 10px; font-weight: 600; cursor: pointer;"
-                        >Approve</button>
-                        <button
-                          onclick={() => respondToEvent(msg, 'deny', { action: 'deny' })}
-                          style="padding: 4px 10px; border-radius: 6px; background: transparent; color: #EF4444; border: 1px solid #EF4444; font-size: 10px; font-weight: 600; cursor: pointer;"
-                        >Deny</button>
+                      <div class="grid-event-card__body">
+                        {ev.payload?.message ?? ev.text ?? ev.payload?.question ?? ''}
                       </div>
                     {/if}
-                  {:else}
-                    <div style="font-size: 10px; color: #374151;">
-                      {ev.payload?.message ?? ev.text ?? ev.payload?.question ?? ''}
-                    </div>
-                  {/if}
-                </div>
+                  </div>
 
-              {:else}
-                <!-- ── Regular message bubble ── -->
-                <div
-                  style="
-                    border-radius: 8px;
-                    background: {bubbleBg(msg.role, msg.sender_id)};
-                    padding: 6px 10px;
-                    font-family: Inter, sans-serif;
-                  "
-                >
-                  <div style="font-size: 8px; font-weight: 600; color: #9CA3AF; margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.04em;">
-                    {senderLabel(msg)}
+                {:else}
+                  <!-- ── Regular message bubble ── -->
+                  {@const tone = messageTone(msg)}
+                  {@const accent = senderAccent(msg)}
+                  <div
+                    class="grid-message"
+                    style="
+                      --accent: {accent};
+                      background: {tone.background};
+                      border-color: {tone.border};
+                      color: {tone.color};
+                    "
+                  >
+                    <div class="grid-message__header">
+                      <span class="grid-message__avatar" style="background: {accent};">{senderInitial(msg)}</span>
+                      <span class="grid-message__name" style="color: {accent};">{senderLabel(msg)}</span>
+                      <span class="grid-message__detail">{senderDetail(msg)}</span>
+                      {#if formatTime(msg.created_at)}
+                        <span class="grid-message__time">{formatTime(msg.created_at)}</span>
+                      {/if}
+                    </div>
+                    <div class="grid-message__content">
+                      {msg.content.slice(0, 500)}{msg.content.length > 500 ? '...' : ''}
+                    </div>
                   </div>
-                  <div style="font-size: 10px; color: {bubbleText(msg.role, msg.sender_id)}; line-height: 1.5; word-break: break-word;">
-                    {msg.content.slice(0, 200)}{msg.content.length > 200 ? '…' : ''}
-                  </div>
-                </div>
-              {/if}
-            {/each}
-          {/if}
+                {/if}
+              {/each}
+            {/if}
+          </div>
         </div>
+
+        {#if shouldShowComposer()}
+          <div class="grid-chat-composer">
+            {#if sendError}
+              <div class="grid-chat-error">{sendError}</div>
+            {/if}
+            <div class="grid-chat-input-row">
+              <textarea
+                bind:this={chatInputEl}
+                bind:value={chatInput}
+                oninput={() => { sendError = ''; resizeChatInput(); }}
+                onkeydown={handleChatInputKeydown}
+                disabled={sendingChat}
+                rows="1"
+                placeholder={session.type === 'terminal' ? 'Send to linked terminal chat...' : 'Message this chat...'}
+                class="grid-chat-input"
+              ></textarea>
+              <button
+                onclick={sendChatMessage}
+                disabled={!chatInput.trim() || sendingChat}
+                class="grid-chat-send"
+                title="Send message"
+                aria-label="Send message"
+              >
+                {#if sendingChat}
+                  <svg class="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3" stroke-dasharray="28" stroke-dashoffset="8" />
+                  </svg>
+                {:else}
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 2L11 13" />
+                    <path d="M22 2L15 22L11 13L2 9L22 2Z" />
+                  </svg>
+                {/if}
+              </button>
+            </div>
+          </div>
+        {/if}
       {/if}
     </div>
   {/if}
@@ -547,6 +761,218 @@
 </div>
 
 <style>
+  .grid-chat-stack {
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .grid-chat-empty {
+    align-self: center;
+    margin: auto 0;
+    font-family: Inter, sans-serif;
+    font-size: 10.5px;
+    color: #94A3B8;
+  }
+
+  .grid-message {
+    border: 1px solid;
+    border-left: 3px solid var(--accent);
+    border-radius: 8px;
+    padding: 7px 9px 8px;
+    font-family: Inter, sans-serif;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  }
+
+  .grid-message__header {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    margin-bottom: 4px;
+  }
+
+  .grid-message__avatar {
+    width: 16px;
+    height: 16px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: white;
+    font-size: 8px;
+    font-weight: 800;
+    line-height: 1;
+  }
+
+  .grid-message__name {
+    min-width: 0;
+    max-width: 46%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 10.5px;
+    font-weight: 750;
+  }
+
+  .grid-message__detail {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #94A3B8;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .grid-message__time {
+    margin-left: auto;
+    flex-shrink: 0;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    color: #94A3B8;
+    font-size: 9px;
+    letter-spacing: 0;
+  }
+
+  .grid-message__content {
+    color: #1F2937;
+    font-size: 11px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 112px;
+    overflow: hidden;
+  }
+
+  .grid-event-card {
+    border-radius: 8px;
+    background: #EEF2FF;
+    border: 1px solid #6366F180;
+    padding: 8px 10px;
+    font-family: Inter, sans-serif;
+  }
+
+  .grid-event-card__label {
+    font-size: 8px;
+    font-weight: 800;
+    color: #4F46E5;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+  }
+
+  .grid-event-card__body {
+    font-size: 10px;
+    color: #374151;
+    line-height: 1.45;
+    margin-bottom: 6px;
+    overflow-wrap: anywhere;
+  }
+
+  .grid-event-card__resolved {
+    font-size: 10px;
+    font-weight: 700;
+  }
+
+  .grid-event-card__button {
+    padding: 4px 9px;
+    border-radius: 6px;
+    font-size: 10px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .grid-event-card__button--approve {
+    background: #16A34A;
+    color: #FFFFFF;
+    border: 1px solid #16A34A;
+  }
+
+  .grid-event-card__button--deny {
+    background: #FFFFFF;
+    color: #DC2626;
+    border: 1px solid #FCA5A5;
+  }
+
+  .grid-chat-composer {
+    flex-shrink: 0;
+    padding: 8px 10px 10px;
+    border-top: 1px solid #E5E7EB;
+    background: #FFFFFF;
+  }
+
+  .grid-chat-error {
+    margin-bottom: 5px;
+    font-family: Inter, sans-serif;
+    font-size: 10px;
+    color: #DC2626;
+  }
+
+  .grid-chat-input-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 7px;
+    min-height: 38px;
+    padding: 6px;
+    border: 1px solid #CBD5E1;
+    border-radius: 8px;
+    background: #F8FAFC;
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+
+  .grid-chat-input-row:focus-within {
+    border-color: #6366F1;
+    background: #FFFFFF;
+  }
+
+  .grid-chat-input {
+    flex: 1;
+    min-width: 0;
+    resize: none;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: #111827;
+    font-family: Inter, sans-serif;
+    font-size: 11.5px;
+    line-height: 1.35;
+    max-height: 84px;
+    padding: 3px 1px;
+  }
+
+  .grid-chat-input::placeholder {
+    color: #94A3B8;
+  }
+
+  .grid-chat-send {
+    width: 28px;
+    height: 28px;
+    border: 1px solid #4F46E5;
+    border-radius: 7px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: #FFFFFF;
+    background: #4F46E5;
+    cursor: pointer;
+    transition: opacity 120ms ease, transform 120ms ease;
+  }
+
+  .grid-chat-send:disabled {
+    opacity: 0.38;
+    cursor: not-allowed;
+  }
+
+  .grid-chat-send:not(:disabled):active {
+    transform: translateY(1px);
+  }
+
   .grid-pulse-dot {
     width: 7px;
     height: 7px;
