@@ -7,6 +7,16 @@ config(); // Load .env
 // adapter-node enforces this before SvelteKit route handlers run.
 process.env.BODY_SIZE_LIMIT ||= '10M';
 
+// SvelteKit adapter-node's get_origin() defaults the protocol to "https" when
+// PROTOCOL_HEADER is unset. On a plain-HTTP deployment that means
+// event.url.origin = "https://host:port" while the browser sends
+// "Origin: http://host:port" — the same-origin check in hooks.server.ts then
+// fails and any browser-driven /api/* write returns 401. Auto-deriving
+// ORIGIN from ANT_SERVER_URL avoids the foot-gun for HTTP-only deployments.
+if (!process.env.ORIGIN && process.env.ANT_SERVER_URL) {
+  process.env.ORIGIN = process.env.ANT_SERVER_URL;
+}
+
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import {
   appendFileSync,
