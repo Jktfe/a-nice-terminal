@@ -8,6 +8,10 @@ import { resolveToken } from '$lib/server/room-invites';
 // Auth is enforced inside the route by the per-invite password gate.
 const EXCHANGE_RE = /^\/api\/sessions\/[^/]+\/invites\/[^/]+\/exchange$/;
 
+// Room viewer page (SPA shell) — must be reachable without a bearer so the
+// client-side password gate can run and exchange the invite for a token.
+const ROOM_PAGE_RE = /^\/r\/[^/]+\/?$/;
+
 // URL prefixes that map to a room id. Used to verify that a presented room
 // token authorises the URL it's being used against.
 const ROOM_URL_PATTERNS = [
@@ -77,7 +81,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 
   const scopedRoomId = bearer.kind === 'room-scoped' ? bearer.roomId : null;
   const scopedTokenKind = bearer.kind === 'room-scoped' ? bearer.tokenKind : null;
-  const isPublic = isExchange || scopedRoomId !== null || bearer.kind === 'admin';
+  const isPublic = isExchange || ROOM_PAGE_RE.test(event.url.pathname) || scopedRoomId !== null || bearer.kind === 'admin';
 
   // Tailscale IP check (optional — only enforce if ANT_TAILSCALE_ONLY is set).
   // Public routes bypass: invite exchange has its own password gate; room-token
