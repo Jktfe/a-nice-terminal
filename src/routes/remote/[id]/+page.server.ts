@@ -18,6 +18,7 @@ export const load: PageServerLoad = async ({ params }) => {
       handle: room.handle,
       label: room.label,
       joined_at: room.joined_at,
+      server_url_inferred: room.server_url_inferred,
     },
   };
 };

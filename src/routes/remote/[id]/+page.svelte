@@ -179,6 +179,14 @@
     </div>
   </header>
 
+  {#if room.server_url_inferred}
+    <div class="warn-banner">
+      Server URL was migrated from a legacy token (no per-token server_url stored).
+      If posts fail or land on the wrong server, refresh by re-running:
+      <code>ant join-room &lt;share-string&gt;</code>
+    </div>
+  {/if}
+
   <div class="messages" bind:this={listEl}>
     {#if messages.length === 0 && !connecting}
       <div class="empty">No messages yet.</div>
@@ -265,6 +273,15 @@
   .err-banner {
     background: #fee; color: #b71c1c; padding: 6px 16px; font-size: 12px;
     border-top: 1px solid #fbb;
+  }
+  .warn-banner {
+    background: #fff8e1; color: #5d4a00; padding: 8px 16px; font-size: 12px;
+    border-bottom: 1px solid #f3d97a;
+  }
+  .warn-banner code {
+    background: rgba(0,0,0,0.06); padding: 1px 4px; border-radius: 3px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 11px;
   }
   .compose {
     display: flex;
