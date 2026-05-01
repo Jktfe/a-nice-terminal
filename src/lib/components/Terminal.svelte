@@ -445,7 +445,7 @@
 
 <div class="w-full flex-1 min-h-0 flex flex-col">
   <!-- 1. tmux status bar -->
-  <div class="flex items-center justify-between px-2 h-[22px] bg-[#22C55E] text-[#0D0D12] text-[10px] font-mono shrink-0">
+  <div class="flex items-center justify-between px-2 h-[22px] text-[10px] font-mono shrink-0" style="background: var(--bg-surface); color: var(--text-muted); border-bottom: 1px solid var(--border-subtle);">
     <span>[{sessionId.slice(0,10)}*]</span>
     <span>{paneTitle || sessionId} {new Date().toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'})}</span>
   </div>
@@ -456,7 +456,7 @@
     <div id="xterm-container" bind:this={termRef} class="flex-1 min-h-0" class:opacity-30={slowEdit}></div>
 
     <!-- Scroll track -->
-    <div class="w-8 bg-[#111318] relative shrink-0" class:opacity-30={slowEdit}>
+    <div class="w-8 relative shrink-0 border-l" style="background: var(--bg-surface); border-color: var(--border-subtle);" class:opacity-30={slowEdit}>
       <div
         role="scrollbar"
         aria-controls="xterm-container"
@@ -465,32 +465,34 @@
         aria-valuemax={100}
         aria-orientation="vertical"
         tabindex="-1"
-        class="absolute left-1 w-6 rounded-xl bg-[#30363D] hover:bg-[#4B5563] cursor-grab transition-colors"
-        style="top: {scrollThumbTop}px; height: {scrollThumbHeight}px; touch-action: none;"
+        class="absolute left-1 w-6 rounded-xl cursor-grab transition-colors hover:opacity-80"
+        style="background: var(--scrollbar-thumb); top: {scrollThumbTop}px; height: {scrollThumbHeight}px; touch-action: none;"
         onpointerdown={startScrollDrag}
       ></div>
     </div>
   </div>
 
   <!-- 3. Special keys row -->
-  <div class="flex items-center gap-1.5 px-2 h-9 bg-[#111318] overflow-x-auto shrink-0 scrollbar-none">
+  <div class="flex items-center gap-1.5 px-2 h-9 overflow-x-auto shrink-0 scrollbar-none border-t" style="background: var(--bg-surface); border-color: var(--border-subtle);">
     {#each specialKeys as key}
       <button
         onclick={() => sendKey(key.seq)}
-        class="shrink-0 px-3 py-1.5 rounded-md bg-[#1E2228] text-xs text-[#8B949E] hover:bg-[#2A2F38] active:bg-[#363B44] transition-colors"
+        class="shrink-0 px-3 py-1.5 rounded-md text-xs transition-colors hover:opacity-80 active:scale-95"
+        style="background: var(--bg-input); color: var(--text-muted);"
       >{key.label}</button>
     {/each}
   </div>
 
   <!-- 4. Slow Edit panel -->
   {#if slowEdit}
-    <div class="bg-[#161B22] rounded-t-xl px-3 py-3 flex flex-col gap-2 shrink-0" transition:slide={{ duration: 200 }}>
+    <div class="rounded-t-xl px-3 py-3 flex flex-col gap-2 shrink-0 border-t" style="background: var(--bg-elevated); border-color: var(--border-light);" transition:slide={{ duration: 200 }}>
       <div class="flex items-center justify-between">
-        <span class="text-xs font-semibold text-white">Slow Edit</span>
-        <button onclick={() => { slowEdit = false; requestAnimationFrame(() => terminal?.focus()); }} class="text-sm text-[#8B949E]">✕</button>
+        <span class="text-xs font-semibold" style="color: var(--text);">Slow Edit</span>
+        <button onclick={() => { slowEdit = false; requestAnimationFrame(() => terminal?.focus()); }} class="text-sm" style="color: var(--text-muted);">✕</button>
       </div>
       <textarea
-        class="bg-[#1E2228] text-white font-mono text-sm p-3 rounded-lg border border-[#3B82F6] resize-none focus:outline-none min-h-[80px] max-h-[120px]"
+        class="font-mono text-sm p-3 rounded-lg border resize-none focus:outline-none min-h-[80px] max-h-[120px]"
+        style="background: var(--bg-input); color: var(--text); border-color: var(--color-info);"
         placeholder="Type your command..."
         bind:value={slowEditText}
         bind:this={slowEditRef}
@@ -502,40 +504,36 @@
           if (e.key === 'Escape') { slowEdit = false; requestAnimationFrame(() => terminal?.focus()); }
         }}
       ></textarea>
-      <span class="text-[11px] text-[#8B949E]">Paste, type, or use voice — then tap Send</span>
+      <span class="text-[11px]" style="color: var(--text-muted);">Paste, type, or use voice — then tap Send</span>
     </div>
   {/if}
 
   <!-- 5. Input row -->
-  <div class="flex items-center gap-1.5 px-2 py-1.5 bg-[#0D0D12] shrink-0">
+  <div class="flex items-center gap-1.5 px-2 py-1.5 shrink-0 border-t" style="background: var(--bg-surface); border-color: var(--border-subtle);">
     <!-- Back -->
-    <button onclick={() => history.back()} class="w-[34px] h-[34px] rounded-lg bg-[#1E2228] flex items-center justify-center text-[#8B949E] hover:bg-[#2A2F38]">←</button>
+    <button onclick={() => history.back()} class="w-[34px] h-[34px] rounded-lg flex items-center justify-center hover:opacity-80 transition-opacity" style="background: var(--bg-input); color: var(--text-muted);">←</button>
 
     <!-- Refresh -->
-    <button onclick={() => { if (ws && ws.readyState === WebSocket.OPEN) { ws.send(JSON.stringify({ type: 'join_session', sessionId, spawnPty: true, cols: terminal?.cols ?? 120, rows: terminal?.rows ?? 30 })); } }} class="w-[34px] h-[34px] rounded-lg bg-[#1E2228] flex items-center justify-center text-[#8B949E] hover:bg-[#2A2F38]" title="Refresh terminal">↻</button>
+    <button onclick={() => { if (ws && ws.readyState === WebSocket.OPEN) { ws.send(JSON.stringify({ type: 'join_session', sessionId, spawnPty: true, cols: terminal?.cols ?? 120, rows: terminal?.rows ?? 30 })); } }} class="w-[34px] h-[34px] rounded-lg flex items-center justify-center hover:opacity-80 transition-opacity" style="background: var(--bg-input); color: var(--text-muted);" title="Refresh terminal">↻</button>
 
     <!-- Input pill (tap target for slow edit) -->
     <button
       onclick={() => { slowEdit = true; }}
-      class="flex-1 h-[34px] rounded-full bg-[#1E2228] px-3 text-left text-sm truncate"
-      class:text-[#8B949E]={!slowEditText}
-      class:text-[#E6EDF3]={!!slowEditText}
-      class:ring-1={slowEdit}
-      class:ring-[#3B82F6]={slowEdit}
+      class="flex-1 h-[34px] rounded-full px-3 text-left text-sm truncate transition-all"
+      style="background: var(--bg-input); color: {slowEditText ? 'var(--text)' : 'var(--text-muted)'}; {slowEdit ? 'box-shadow: 0 0 0 1px var(--color-info);' : ''}"
     >{slowEditText || 'Type a command...'}</button>
 
     <!-- Attach -->
-    <button class="w-[34px] h-[34px] rounded-lg bg-[#1E2228] flex items-center justify-center text-[#8B949E]">📎</button>
+    <button class="w-[34px] h-[34px] rounded-lg flex items-center justify-center hover:opacity-80 transition-opacity" style="background: var(--bg-input); color: var(--text-muted);">📎</button>
 
     <!-- Chat switcher -->
-    <button onclick={() => { /* TODO: dispatch switchToChat event */ }} class="h-[34px] rounded-lg bg-[#1E2228] px-2.5 flex items-center gap-1 text-xs text-[#8B949E]">💬 Chat</button>
+    <button onclick={() => { /* TODO: dispatch switchToChat event */ }} class="h-[34px] rounded-lg px-2.5 flex items-center gap-1 text-xs hover:opacity-80 transition-opacity" style="background: var(--bg-input); color: var(--text-muted);">💬 Chat</button>
 
     <!-- Send -->
     <button
       onclick={() => { if (ws && slowEditText) sendSlowEdit(terminal, ws); }}
-      class="w-[34px] h-[34px] rounded-full flex items-center justify-center text-white font-bold"
-      class:bg-[#3B82F6]={!slowEditText}
-      class:bg-[#22C55E]={!!slowEditText}
+      class="w-[34px] h-[34px] rounded-full flex items-center justify-center font-bold transition-colors"
+      style="background: {slowEditText ? 'var(--color-success)' : 'var(--color-info)'}; color: #fff;"
     >↑</button>
   </div>
 </div>
