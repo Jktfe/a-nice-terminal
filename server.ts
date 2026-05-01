@@ -500,6 +500,21 @@ wss.on('connection', async (ws, req) => {
 
           // Now start receiving live output (after scrollback has been queued for send)
           client.joinedSessions.add(msg.sessionId);
+
+          // Push current status so the freshly-connected client doesn't have to
+          // wait for the next refresh tick or status change to know what state
+          // this agent is in. No-op if no status has ever been computed.
+          try {
+            const { getAgentStatus } = await import('./src/lib/server/agent-event-bus.js');
+            const current = getAgentStatus(msg.sessionId);
+            if (current) {
+              ws.send(JSON.stringify({
+                type: 'agent_status_updated',
+                sessionId: msg.sessionId,
+                status: current,
+              }));
+            }
+          } catch {}
           break;
         }
         case 'leave_session':

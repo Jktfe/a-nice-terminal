@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { AGENTS, type AgentId, type AgentStatus } from '$lib/nocturne';
+  import { AGENTS, type AgentId } from '$lib/nocturne';
+  import type { AgentDotState } from '$lib/shared/agent-status';
 
   let {
     id,
@@ -9,12 +10,13 @@
   }: {
     id: AgentId | string;
     size?: number;
-    state?: AgentStatus;
+    state?: AgentDotState;
     ring?: boolean;
   } = $props();
 
   const agent = $derived(AGENTS[id as AgentId] ?? { color: '#838173', glow: '#B5B3A7' });
   const breathe = $derived(state === 'active' || state === 'thinking');
+  const opacity = $derived(state === 'offline' ? 0.45 : 1);
 </script>
 
 <div class="relative flex-shrink-0" style="width: {size}px; height: {size}px;">
@@ -33,6 +35,7 @@
       width: {size}px;
       height: {size}px;
       background: {agent.color};
+      opacity: {opacity};
       box-shadow: {ring
         ? `0 0 0 2px ${agent.color}22, inset 0 1px 0 rgba(255,255,255,0.25)`
         : 'inset 0 1px 0 rgba(255,255,255,0.25)'};

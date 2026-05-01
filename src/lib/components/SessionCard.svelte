@@ -2,6 +2,7 @@
   import { NOCTURNE, agentColorFromSession } from '$lib/nocturne';
   import AgentDot from './AgentDot.svelte';
   import NocturneIcon from './NocturneIcon.svelte';
+  import { agentDotStateFromStatus } from '$lib/shared/agent-status';
   import { deriveTerminalActivityState } from '$lib/shared/terminal-activity';
 
   let { session, onclick, onArchive, onDelete } = $props();
@@ -42,6 +43,10 @@
   }
 
   const statusInfo = $derived(deriveStatus(session));
+  const agentDotState = $derived(agentDotStateFromStatus(null, {
+    focus: session.attention_state === 'focus',
+    sessionStatus: statusInfo.label.toLowerCase(),
+  }));
 
   function handleDelete(e: MouseEvent) { e.stopPropagation(); onDelete?.(); }
   function handleArchive(e: MouseEvent) { e.stopPropagation(); onArchive?.(); }
@@ -85,7 +90,7 @@
     <!-- Type glyph + agent dot -->
     <div class="flex-shrink-0 relative" style="width: 18px; height: 18px;">
       {#if agentId}
-        <AgentDot id={agentId} size={14} state={['Active', 'Working', 'Thinking'].includes(statusInfo.label) ? 'active' : 'idle'} />
+        <AgentDot id={agentId} size={14} state={agentDotState} />
       {:else}
         <div
           class="flex items-center justify-center rounded-full"

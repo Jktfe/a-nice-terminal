@@ -122,7 +122,23 @@ function runSweep(pty: PTYClient): void {
       // Recovery window closed — kill PTY if any stale process survived, then hard-delete
       pty.kill(session.id);
       queries.hardDeleteSession(session.id);
+      void disposeSessionState(session.id).catch((e) => {
+        console.warn(`[lifecycle] failed to dispose purged session ${session.id}:`, e);
+      });
       console.log(`[lifecycle] recovery window expired → purged: ${session.name} (${session.id})`);
     }
   }
+}
+
+// Drop in-memory state held by other server modules (agent-event-bus, prompt-bridge).
+// Safe to call on archive, soft-delete, or hard-delete; if state was never populated
+// these dispose calls are no-ops. Without this, deleted sessions leak SessionState
+// entries and emit zombie agent_status_updated broadcasts forever.
+export async function disposeSessionState(sessionId: string): Promise<void> {
+  const [{ dispose: disposeAgentEvents }, { disposePromptBridge }] = await Promise.all([
+    import('./agent-event-bus.js'),
+    import('./prompt-bridge.js'),
+  ]);
+  disposeAgentEvents(sessionId);
+  disposePromptBridge(sessionId);
 }

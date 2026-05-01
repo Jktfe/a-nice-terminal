@@ -3,7 +3,7 @@
   import AgentDot from '$lib/components/AgentDot.svelte';
   import { agentColorFromSession, NOCTURNE } from '$lib/nocturne';
   import { SESSIONS_CHANNEL } from '$lib/ws-channels';
-  import type { AgentStatus } from '$lib/shared/agent-status';
+  import { agentDotStateFromStatus, type AgentStatus } from '$lib/shared/agent-status';
 
   interface PageSession {
     id: string;
@@ -51,6 +51,10 @@
   const agent = $derived(agentColorFromSession(session));
   const agentDotId = $derived(session?.cli_flag || session?.handle?.replace('@', '') || session?.name || 'terminal');
   const agentStatus = $derived(statusPayload.agent_status);
+  const agentDotState = $derived(agentDotStateFromStatus(agentStatus, {
+    needsInput: statusPayload.needs_input,
+    sessionStatus: session?.status ?? null,
+  }));
 
   const stateTone = $derived.by(() => {
     if (statusPayload.needs_input) return NOCTURNE.semantic.danger;
@@ -181,11 +185,7 @@
         <AgentDot
           id={agentDotId}
           size={14}
-          state={statusPayload.needs_input
-            ? 'thinking'
-            : (agentStatus?.state === 'ready' || agentStatus?.state === 'busy' || agentStatus?.state === 'thinking' || agentStatus?.state === 'focus')
-              ? 'active'
-              : 'idle'}
+          state={agentDotState}
           ring={false}
         />
       </div>

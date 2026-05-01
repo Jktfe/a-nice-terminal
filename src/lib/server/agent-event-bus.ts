@@ -529,6 +529,44 @@ function statusSummary(status: AgentStatus): string {
   return parts.join(' · ');
 }
 
+// Single point that decides "did status change → write through → broadcast".
+// All callers (driver detect, terminal activity, future explicit setters) MUST
+// route through here so status updates do not diverge across writers.
+//   recordRunEvent: append a status row to the run timeline. True for driver
+//     detections (meaningful state change), false for activity pings.
+function setStatus(
+  sessionId: string,
+  state: SessionState,
+  status: AgentStatus,
+  opts: { recordRunEvent: boolean },
+  now: number = Date.now(),
+): void {
+  state.currentStatus = status;
+  const fingerprint = statusFingerprint(status);
+  const fingerprintChanged = fingerprint !== state.lastStatusFingerprint;
+  const refreshElapsed = now - state.lastStatusBroadcast >= STATUS_BROADCAST_REFRESH_MS;
+  if (!fingerprintChanged && !refreshElapsed) return;
+  if (!busDeps.broadcastGlobal) return;
+  state.lastStatusFingerprint = fingerprint;
+  state.lastStatusBroadcast = now;
+  if (opts.recordRunEvent && fingerprintChanged) {
+    busDeps.appendRunEvent?.(
+      sessionId,
+      'status',
+      'medium',
+      'status',
+      statusSummary(status),
+      status as unknown as Record<string, unknown>,
+      null,
+    );
+  }
+  busDeps.broadcastGlobal({
+    type: 'agent_status_updated',
+    sessionId,
+    status,
+  });
+}
+
 function updateStatusFromLines(sessionId: string, state: SessionState, statusLines: string[]): void {
   if (!state.driver || !('detectStatus' in state.driver) || statusLines.length === 0) return;
 
@@ -542,32 +580,7 @@ function updateStatusFromLines(sessionId: string, state: SessionState, statusLin
   }
 
   const effectiveStatus = applyTerminalActivityOverride(status, state);
-  state.currentStatus = effectiveStatus;
-
-  const now = Date.now();
-  const fingerprint = statusFingerprint(effectiveStatus);
-  const shouldBroadcast =
-    fingerprint !== state.lastStatusFingerprint ||
-    now - state.lastStatusBroadcast >= STATUS_BROADCAST_REFRESH_MS;
-
-  if (shouldBroadcast && busDeps.broadcastGlobal) {
-    state.lastStatusFingerprint = fingerprint;
-    state.lastStatusBroadcast = now;
-    busDeps.appendRunEvent?.(
-      sessionId,
-      'status',
-      'medium',
-      'status',
-      statusSummary(effectiveStatus),
-      effectiveStatus as unknown as Record<string, unknown>,
-      null,
-    );
-    busDeps.broadcastGlobal({
-      type: 'agent_status_updated',
-      sessionId,
-      status: effectiveStatus,
-    });
-  }
+  setStatus(sessionId, state, effectiveStatus, { recordRunEvent: true });
 }
 
 /** Called when ANT receives terminal-visible output, not raw PTY bytes. */
@@ -579,23 +592,7 @@ export function markTerminalActivity(sessionId: string, now = Date.now()): Agent
     detectedAt: now,
   };
   const status = applyTerminalActivityOverride(previous, state, now);
-  state.currentStatus = status;
-
-  const fingerprint = statusFingerprint(status);
-  const shouldBroadcast =
-    fingerprint !== state.lastStatusFingerprint ||
-    now - state.lastStatusBroadcast >= STATUS_BROADCAST_REFRESH_MS;
-
-  if (shouldBroadcast && busDeps.broadcastGlobal) {
-    state.lastStatusFingerprint = fingerprint;
-    state.lastStatusBroadcast = now;
-    busDeps.broadcastGlobal({
-      type: 'agent_status_updated',
-      sessionId,
-      status,
-    });
-  }
-
+  setStatus(sessionId, state, status, { recordRunEvent: false }, now);
   return status;
 }
 

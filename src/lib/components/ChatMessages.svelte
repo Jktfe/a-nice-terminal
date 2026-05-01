@@ -135,8 +135,7 @@
 
   const wsStore = useWsStore();
 
-  const footerStatusParticipants = $derived.by(() => {
-    if (session?.type === 'terminal') return [];
+  const statusParticipants = $derived.by(() => {
     const seen = new Set<string>();
     return participantsActive.filter((participant) => {
       const sess = participant.sess;
@@ -146,13 +145,16 @@
     });
   });
 
-  const footerStatusSessionIds = $derived(footerStatusParticipants.map((participant) => participant.sess.id));
+  const footerStatusParticipants = $derived(
+    session?.type === 'terminal' ? [] : statusParticipants
+  );
+  const statusSessionIds = $derived(statusParticipants.map((participant) => participant.sess.id));
   const quickLaunchScope = $derived<ShortcutScope | null>(
     shortcutScope === 'all' ? null : shortcutScope
   );
 
   async function fetchAgentStatuses() {
-    const ids = footerStatusSessionIds;
+    const ids = statusSessionIds;
     if (ids.length === 0) {
       agentStatuses = {};
       return;
@@ -177,6 +179,7 @@
   }
 
   onMount(() => {
+    wsStore.connect();
     fetchAgentStatuses();
     statusPollTimer = setInterval(fetchAgentStatuses, 8000);
   });
@@ -187,13 +190,35 @@
   });
 
   $effect(() => {
-    const key = footerStatusSessionIds.join('|');
+    const key = statusSessionIds.join('|');
     if (key) fetchAgentStatuses();
     else agentStatuses = {};
   });
 
   function statusPayload(sess: PageSession): StatusPayload | null {
     return agentStatuses[sess.id] ?? null;
+  }
+
+  function senderSession(msg: Record<string, unknown>): PageSession | null {
+    const senderId = typeof msg.sender_id === 'string' ? msg.sender_id : null;
+    if (!senderId) return null;
+    return allSessions.find((s) =>
+      s.id === senderId ||
+      s.handle === senderId ||
+      (s as any).alias === senderId
+    ) ?? null;
+  }
+
+  function agentStatusForMessage(msg: Record<string, unknown>): AgentStatus | null {
+    const sess = senderSession(msg);
+    if (!sess) return null;
+    return statusPayload(sess)?.agent_status ?? null;
+  }
+
+  function agentNeedsInputForMessage(msg: Record<string, unknown>): boolean {
+    const sess = senderSession(msg);
+    if (!sess) return false;
+    return !!statusPayload(sess)?.needs_input;
   }
 
   function statusState(sess: PageSession): AgentStatus['state'] | 'needs_input' | 'unknown' {
@@ -657,6 +682,8 @@
                   replyMessage={getReplyMessage(group.items[0])}
                   {sessionId}
                   {allSessions}
+                  agentStatus={agentStatusForMessage(group.items[0])}
+                  agentNeedsInput={agentNeedsInputForMessage(group.items[0])}
                   readReceipts={readReceipts[group.items[0].id] ?? []}
                   onReply={(msg) => { onReply(msg); }}
                   onDeleted={(id) => { onLinkedMessageDeleted(id); }}
@@ -685,6 +712,8 @@
                 message={msg}
                 {sessionId}
                 {allSessions}
+                agentStatus={agentStatusForMessage(msg)}
+                agentNeedsInput={agentNeedsInputForMessage(msg)}
                 readReceipts={readReceipts[String(msg.id)] ?? []}
                 onReply={(msg) => { onReply(msg); }}
                 onDeleted={(id) => { onMessageDeleted(id); }}
@@ -714,6 +743,8 @@
                   replyMessage={getReplyMessage(group.items[0])}
                   {sessionId}
                   {allSessions}
+                  agentStatus={agentStatusForMessage(group.items[0])}
+                  agentNeedsInput={agentNeedsInputForMessage(group.items[0])}
                   readReceipts={readReceipts[group.items[0].id] ?? []}
                   onReply={(msg) => { onReply(msg); }}
                   onDeleted={(id) => { onMessageDeleted(id); }}

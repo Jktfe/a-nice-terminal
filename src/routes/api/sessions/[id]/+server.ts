@@ -88,8 +88,11 @@ export async function PATCH(event: RequestEvent<{ id: string }>) {
     queries.updateSession(buildLinkedChatName(nextName), null, null, null, autoLinkedChat.id);
   }
 
+  let removedIds: string[] | null = null;
+
   // Auto-export to memory palace when a session is archived
   if (body.archived === true) {
+    const idsToDispose = new Set<string>([params.id]);
     const { maybeWriteSessionSummary } = await import('$lib/server/capture/obsidian-writer.js');
     // Export this session
     maybeWriteSessionSummary(params.id);
@@ -109,6 +112,7 @@ export async function PATCH(event: RequestEvent<{ id: string }>) {
     // terminals just because they appear in room routing.
     if ((session as any).type === 'terminal' && autoLinkedChat) {
       queries.updateSession(null, null, 1, null, autoLinkedChat.id);
+      idsToDispose.add(autoLinkedChat.id);
     } else if ((session as any).type === 'chat') {
       const terminalId = autoLinkedTerminalId((session as any).meta);
       const terminal = terminalId ? queries.getSession(terminalId) as any : null;
@@ -117,6 +121,7 @@ export async function PATCH(event: RequestEvent<{ id: string }>) {
         queries.updateSession(null, null, 1, null, terminal.id);
         const { ptyClient } = await import('$lib/server/pty-client.js');
         ptyClient.kill(terminal.id);
+        idsToDispose.add(terminal.id);
       }
     }
 
@@ -128,10 +133,17 @@ export async function PATCH(event: RequestEvent<{ id: string }>) {
       const { ptyClient } = await import('$lib/server/pty-client.js');
       ptyClient.kill(params.id);
     }
+
+    const { disposeSessionState } = await import('$lib/server/session-lifecycle.js');
+    for (const id of idsToDispose) await disposeSessionState(id);
+    removedIds = [...idsToDispose];
   }
 
   const { broadcast } = await import('$lib/server/ws-broadcast.js');
-  broadcast(SESSIONS_CHANNEL, { type: 'sessions_changed' });
+  broadcast(SESSIONS_CHANNEL, {
+    type: 'sessions_changed',
+    ...(removedIds ? { removedIds } : {}),
+  });
 
   return json(session);
 }
@@ -145,6 +157,8 @@ export async function DELETE(event: RequestEvent<{ id: string }>) {
   const { params, url } = event;
   const session = queries.getSession(params.id);
   if (!session) throw error(404, 'Session not found');
+  let removedIds = [params.id];
+
   if (url.searchParams.get('hard') === 'true') {
     const idsToDelete = new Set<string>([params.id]);
     const terminalIdsToKill = new Set<string>();
@@ -171,14 +185,19 @@ export async function DELETE(event: RequestEvent<{ id: string }>) {
     }
 
     for (const id of idsToDelete) queries.hardDeleteSession(id);
+    const { disposeSessionState } = await import('$lib/server/session-lifecycle.js');
+    for (const id of idsToDelete) await disposeSessionState(id);
+    removedIds = [...idsToDelete];
   } else {
     if ((session as any).type === 'terminal') {
       const { ptyClient } = await import('$lib/server/pty-client.js');
       ptyClient.kill(params.id);
     }
     queries.softDeleteSession(params.id);
+    const { disposeSessionState } = await import('$lib/server/session-lifecycle.js');
+    await disposeSessionState(params.id);
   }
   const { broadcast } = await import('$lib/server/ws-broadcast.js');
-  broadcast(SESSIONS_CHANNEL, { type: 'sessions_changed' });
+  broadcast(SESSIONS_CHANNEL, { type: 'sessions_changed', removedIds });
   return new Response(null, { status: 204 });
 }

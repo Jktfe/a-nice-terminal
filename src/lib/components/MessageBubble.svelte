@@ -1,6 +1,8 @@
 <script lang="ts">
   import { marked } from 'marked';
   import { NOCTURNE, agentColor, agentColorFromSession } from '$lib/nocturne';
+  import { agentDotStateFromStatus, type AgentStatus as TelemetryAgentStatus } from '$lib/shared/agent-status';
+  import { getAgentStatus as getLiveAgentStatus } from '$lib/stores/agent-status.svelte';
   import AgentDot from './AgentDot.svelte';
   import NocturneIcon from './NocturneIcon.svelte';
 
@@ -15,6 +17,8 @@
     allSessions = [],
     readReceipts = [],
     replyMessage = null,
+    agentStatus = null,
+    agentNeedsInput = false,
     onReply,
     onDeleted,
     onMetaUpdated,
@@ -25,6 +29,8 @@
     allSessions?: any[];
     readReceipts?: { session_id: string; reader_name: string; reader_handle: string | null; read_at: string }[];
     replyMessage?: any;
+    agentStatus?: TelemetryAgentStatus | null;
+    agentNeedsInput?: boolean;
     onReply?: (msg: any) => void;
     onDeleted?: (id: string) => void;
     onMetaUpdated?: (id: string, meta: any) => void;
@@ -60,6 +66,23 @@
   const agentId = $derived(
     resolvedSession?.cli_flag || resolvedSession?.handle?.replace('@', '') || (isAi ? 'claude' : null)
   );
+
+  function newestAgentStatus(
+    fallback: TelemetryAgentStatus | null | undefined,
+    live: TelemetryAgentStatus | null | undefined,
+  ): TelemetryAgentStatus | null {
+    if (!fallback) return live ?? null;
+    if (!live) return fallback;
+    return live.detectedAt > fallback.detectedAt ? live : fallback;
+  }
+
+  const liveAgentStatus = $derived(getLiveAgentStatus(resolvedSession?.id));
+  const effectiveAgentStatus = $derived(newestAgentStatus(agentStatus, liveAgentStatus));
+  const agentDotState = $derived(agentDotStateFromStatus(effectiveAgentStatus, {
+    needsInput: agentNeedsInput,
+    sessionStatus: resolvedSession?.status ?? null,
+    focus: resolvedSession?.attention_state === 'focus',
+  }));
 
   const displayName = $derived(
     resolvedSession ? (resolvedSession.display_name || resolvedSession.name) :
@@ -231,7 +254,7 @@
       <!-- Agent/participant dot -->
       <div class="relative flex-shrink-0 flex items-center justify-center" style="width: 18px; height: 18px;">
         {#if agentId}
-          <AgentDot id={agentId} size={12} state="idle" />
+          <AgentDot id={agentId} size={12} state={agentDotState} />
         {:else}
           <div class="rounded-full" style="width: 12px; height: 12px; background: {colour}; box-shadow: inset 0 1px 0 rgba(255,255,255,0.25);"></div>
         {/if}
