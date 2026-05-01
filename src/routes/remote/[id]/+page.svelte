@@ -3,7 +3,7 @@
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
-  const room = data.room;
+  const room = $derived(data.room);
 
   type Message = {
     id: string;
