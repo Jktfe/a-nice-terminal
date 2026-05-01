@@ -75,7 +75,14 @@
     evt.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
-        if (data.type === 'message_added' && data.message) {
+        // Canonical broadcast shape from ws-broadcast-adapter: message fields
+        // are flat at the top level alongside `type: 'message_created'`.
+        if (data.type === 'message_created' && data.id) {
+          upsertMessage(data as Message);
+        } else if (data.type === 'message_added' && data.message) {
+          // Legacy shape from mcp-handler — kept for federation peers still
+          // emitting the older envelope. Safe to remove once all peers run
+          // ws-broadcast-adapter exclusively.
           upsertMessage(data.message);
         } else if (data.type === 'message_updated' && data.msgId) {
           const existing = messages.find((m) => m.id === data.msgId);
