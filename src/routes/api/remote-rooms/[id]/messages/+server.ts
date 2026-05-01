@@ -30,14 +30,23 @@ export async function POST(event: RequestEvent<{ id: string }>) {
   const room = getRemoteRoom(event.params.id);
   if (!room) return json({ error: 'remote room not found' }, { status: 404 });
 
-  const body = await event.request.text();
+  // Inject sender_id from the room token's handle when the body lacks one,
+  // mirroring how the CLI's chat-send command stamps outgoing messages.
+  // Without this, posts arrive at the upstream with sender_id=null and the
+  // upstream's resolveSenderSession defaults to 'web' — losing the human
+  // identity for everyone reading the room.
+  const rawBody = await event.request.text();
+  let payload: Record<string, unknown> = {};
+  try { payload = rawBody ? JSON.parse(rawBody) : {}; } catch { payload = {}; }
+  if (!payload.sender_id && room.handle) payload.sender_id = room.handle;
+
   const upstream = await insecureFetch(`${room.server_url}/api/sessions/${room.room_id}/messages`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${room.token}`,
       'Content-Type': 'application/json',
     },
-    body,
+    body: JSON.stringify(payload),
   });
   const respBody = await upstream.text();
   return new Response(respBody, {
