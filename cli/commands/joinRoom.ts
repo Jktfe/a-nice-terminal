@@ -21,14 +21,21 @@ interface ParsedShare {
 
 function parseShareString(raw: string): ParsedShare {
   const trimmed = raw.trim();
-  const m = trimmed.match(/^(ant|https?):\/\/([^/]+)\/r\/([^/?]+)\?(.+)$/);
+  // Accepted schemes:
+  //   ant://         — transport-agnostic, defaults to HTTPS (existing behaviour)
+  //   ant+http://    — explicit HTTP override (Tailnet-internal, LAN, dev)
+  //   ant+https://   — explicit HTTPS (same as ant://, just unambiguous)
+  //   http:// / https:// — passthrough
+  const m = trimmed.match(/^(ant\+https?|ant|https?):\/\/([^/]+)\/r\/([^/?]+)\?(.+)$/);
   if (!m) throw new Error(`Invalid share string. Expected ant://host/r/<id>?invite=<inviteId>, got: ${trimmed}`);
   const [, scheme, host, roomId, query] = m;
   const params = new URLSearchParams(query);
   const inviteId = params.get('invite');
   if (!inviteId) throw new Error('Share string missing ?invite=<inviteId>');
-  // ant:// is transport-agnostic — we always speak HTTPS to the ANT server
-  const protocol = scheme === 'ant' ? 'https' : scheme;
+  let protocol: string;
+  if (scheme === 'ant' || scheme === 'ant+https') protocol = 'https';
+  else if (scheme === 'ant+http') protocol = 'http';
+  else protocol = scheme;
   return { serverUrl: `${protocol}://${host}`, roomId, inviteId };
 }
 
