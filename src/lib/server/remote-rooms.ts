@@ -30,14 +30,18 @@ function loadRaw(): Record<string, any> {
 
 export function listRemoteRooms(): RemoteRoom[] {
   const raw = loadRaw();
-  const fallbackUrl = typeof raw.serverUrl === 'string' ? raw.serverUrl : '';
   const tokens = (raw.tokens && typeof raw.tokens === 'object') ? raw.tokens : {};
   const out: RemoteRoom[] = [];
   for (const [roomId, t] of Object.entries(tokens) as Array<[string, any]>) {
     if (!t || typeof t !== 'object') continue;
+    // Skip legacy entries with no per-token server_url. Top-level config.serverUrl
+    // is "the last server I joined", not "the server this token was issued by",
+    // so falling back to it would silently re-attribute old tokens to whichever
+    // server was joined most recently. Re-run 'ant join-room' to upgrade them.
+    if (!t.server_url || typeof t.server_url !== 'string') continue;
     out.push({
       room_id: t.room_id || roomId,
-      server_url: t.server_url || fallbackUrl,
+      server_url: t.server_url,
       token: t.token,
       token_id: t.token_id,
       invite_id: t.invite_id,
