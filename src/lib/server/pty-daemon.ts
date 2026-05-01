@@ -12,12 +12,13 @@
 
 import * as net from 'net';
 import * as pty from 'node-pty';
-import { unlinkSync, existsSync, mkdirSync } from 'fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { execFileSync } from 'child_process';
 
 const ANT_DIR  = join(process.env.HOME || '/tmp', '.ant');
 const SOCK_PATH = join(ANT_DIR, 'pty.sock');
+const LOCK_PATH = join(ANT_DIR, 'pty-daemon.lock');
 const LOG = (...a: any[]) => console.log('[pty-daemon]', ...a);
 const HOME = process.env.HOME || '/tmp';
 const TMUX = '/opt/homebrew/bin/tmux';
@@ -253,6 +254,65 @@ interface PTYSession {
 
 const sessions = new Map<string, PTYSession>();
 const clients  = new Set<net.Socket>();
+let lockFd: number | null = null;
+
+function processExists(pid: number): boolean {
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+function readLockPid(): number | null {
+  try {
+    const raw = readFileSync(LOCK_PATH, 'utf8').trim();
+    const pid = Number(raw);
+    return Number.isFinite(pid) ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function acquireDaemonLock(): void {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      lockFd = openSync(LOCK_PATH, 'wx');
+      writeFileSync(lockFd, `${process.pid}\n`);
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'EEXIST') throw err;
+
+      const existingPid = readLockPid();
+      if (existingPid && processExists(existingPid)) {
+        LOG(`daemon already running as pid ${existingPid}; exiting`);
+        process.exit(0);
+      }
+
+      try { unlinkSync(LOCK_PATH); } catch {}
+    }
+  }
+
+  throw new Error(`Could not acquire daemon lock at ${LOCK_PATH}`);
+}
+
+function releaseDaemonLock(): void {
+  if (lockFd !== null) {
+    try { closeSync(lockFd); } catch {}
+    lockFd = null;
+  }
+
+  if (readLockPid() === process.pid) {
+    try { unlinkSync(LOCK_PATH); } catch {}
+  }
+}
+
+function unlinkDaemonSocket(): void {
+  try { unlinkSync(SOCK_PATH); } catch {}
+}
 
 // ─── Control mode ─────────────────────────────────────────────────────────────
 //
@@ -570,7 +630,8 @@ function writeViaTmux(sessionId: string, data: string): boolean {
 // ─── Unix socket server ───────────────────────────────────────────────────────
 
 mkdirSync(ANT_DIR, { recursive: true });
-if (existsSync(SOCK_PATH)) unlinkSync(SOCK_PATH);
+acquireDaemonLock();
+if (existsSync(SOCK_PATH)) unlinkDaemonSocket();
 
 const server = net.createServer((socket) => {
   clients.add(socket);
@@ -807,6 +868,13 @@ server.on('error', err => {
   process.exit(1);
 });
 
+function cleanupDaemonFiles() {
+  if (readLockPid() === process.pid) {
+    unlinkDaemonSocket();
+  }
+  releaseDaemonLock();
+}
+
 function shutdown() {
   LOG('shutting down');
   for (const [, s] of sessions) {
@@ -818,3 +886,4 @@ function shutdown() {
 }
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
+process.on('exit', cleanupDaemonFiles);
