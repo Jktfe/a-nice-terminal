@@ -18,10 +18,14 @@
     events = [],
     sessionId,
     searchQuery = '',
+    showStatusEvents = false,
+    showProgressEvents = true,
   }: {
     events: RunEvent[];
     sessionId: string;
     searchQuery?: string;
+    showStatusEvents?: boolean;
+    showProgressEvents?: boolean;
   } = $props();
 
   let scrollEl = $state<HTMLElement | null>(null);
@@ -48,12 +52,26 @@
     expandedIds = next;
   }
 
-  // Filter by search
-  const filtered = $derived(
-    searchQuery
-      ? events.filter(e => e.text.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          e.kind.toLowerCase().includes(searchQuery.toLowerCase()))
-      : events
+  function isStatusEvent(event: RunEvent): boolean {
+    return event.kind === 'status' || event.source === 'status';
+  }
+
+  function eventMatchesSearch(event: RunEvent, query: string): boolean {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      event.text.toLowerCase().includes(q) ||
+      event.kind.toLowerCase().includes(q) ||
+      event.source.toLowerCase().includes(q)
+    );
+  }
+
+  const filtered = $derived.by(() =>
+    events.filter((event) => {
+      if (!showStatusEvents && isStatusEvent(event)) return false;
+      if (!showProgressEvents && event.kind === 'progress') return false;
+      return eventMatchesSearch(event, searchQuery);
+    })
   );
 
   // Group consecutive same-kind events (e.g. multiple progress lines)
@@ -116,7 +134,7 @@
   {#if filtered.length === 0}
     <div class="run-empty">
       <NocturneIcon name="sparkle" size={24} color="var(--text-faint)" />
-      <p>No events yet</p>
+      <p>{events.length === 0 ? 'No events yet' : 'No events match current filters'}</p>
     </div>
   {:else}
     {#each grouped as group}

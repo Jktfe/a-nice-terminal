@@ -95,6 +95,8 @@
   let runEvents = $state<RunEvent[]>([]);
   let runEventsLoaded = $state(false);
   let runSearchQuery = $state('');
+  let runShowStatusEvents = $state(false);
+  let runShowProgressEvents = $state(true);
   let runEventsLoading = $state(false);
 
   let terminalSpawnTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1247,6 +1249,31 @@
               </span>
             </div>
             <div class="flex-1"></div>
+            <!-- Noise filters -->
+            <div class="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                onclick={() => (runShowStatusEvents = !runShowStatusEvents)}
+                class="px-2 py-1.5 rounded-lg text-[11px] font-mono transition-all"
+                style="
+                  border: 1px solid {runShowStatusEvents ? '#22C55E66' : '#E5E7EB'};
+                  background: {runShowStatusEvents ? '#22C55E18' : 'var(--bg-surface)'};
+                  color: {runShowStatusEvents ? '#15803D' : 'var(--text-faint)'};
+                "
+                title={runShowStatusEvents ? 'Hide status update events' : 'Show status update events'}
+              >Status</button>
+              <button
+                type="button"
+                onclick={() => (runShowProgressEvents = !runShowProgressEvents)}
+                class="px-2 py-1.5 rounded-lg text-[11px] font-mono transition-all"
+                style="
+                  border: 1px solid {runShowProgressEvents ? '#3B82F666' : '#E5E7EB'};
+                  background: {runShowProgressEvents ? '#3B82F618' : 'var(--bg-surface)'};
+                  color: {runShowProgressEvents ? '#2563EB' : 'var(--text-faint)'};
+                "
+                title={runShowProgressEvents ? 'Hide progress events' : 'Show progress events'}
+              >Progress</button>
+            </div>
             <!-- Search input -->
             <div class="relative" style="width: 200px;">
               <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: #9CA3AF;">
@@ -1276,6 +1303,8 @@
             events={runEvents}
             {sessionId}
             searchQuery={runSearchQuery}
+            showStatusEvents={runShowStatusEvents}
+            showProgressEvents={runShowProgressEvents}
           />
           {#if runEventsLoading && runEvents.length === 0}
             <div class="px-4 py-2 text-xs border-t" style="color: var(--text-faint); border-color: var(--border-subtle);">
