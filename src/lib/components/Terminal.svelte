@@ -465,8 +465,8 @@
         aria-valuemax={100}
         aria-orientation="vertical"
         tabindex="-1"
-        class="absolute left-1 w-6 rounded-xl cursor-grab transition-colors hover:opacity-80"
-        style="background: var(--scrollbar-thumb); top: {scrollThumbTop}px; height: {scrollThumbHeight}px; touch-action: none;"
+        class="terminal-scroll-thumb absolute left-1 w-6 rounded-xl cursor-grab transition-colors"
+        style="top: {scrollThumbTop}px; height: {scrollThumbHeight}px; touch-action: none;"
         onpointerdown={startScrollDrag}
       ></div>
     </div>
@@ -477,7 +477,7 @@
     {#each specialKeys as key}
       <button
         onclick={() => sendKey(key.seq)}
-        class="shrink-0 px-3 py-1.5 rounded-md text-xs transition-colors hover:opacity-80 active:scale-95"
+        class="shrink-0 px-3 py-1.5 rounded-md text-xs transition-colors hover:opacity-80"
         style="background: var(--bg-input); color: var(--text-muted);"
       >{key.label}</button>
     {/each}
@@ -537,3 +537,13 @@
     >↑</button>
   </div>
 </div>
+
+<style>
+  .terminal-scroll-thumb {
+    background: var(--scrollbar-thumb);
+  }
+
+  .terminal-scroll-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+  }
+</style>
