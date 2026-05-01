@@ -28,6 +28,11 @@ export interface RoomTokenInfo {
   kind: string;
   handle: string | null;
   joined_at: string;
+  // Server hosting this room. Optional for backwards compat with tokens stored
+  // before this field existed — readers should fall back to top-level config.serverUrl.
+  server_url?: string;
+  // Optional human label set via 'ant join-room --label'.
+  label?: string;
 }
 
 export const config = {

@@ -94,6 +94,7 @@ export async function joinRoom(args: string[], flags: any, ctx: any) {
   }
 
   config.set('serverUrl', parsed.serverUrl);
+  const labelInput = typeof flags.label === 'string' ? flags.label.trim() : '';
   config.setRoomToken(parsed.roomId, {
     token: result.token,
     token_id: result.token_id,
@@ -102,6 +103,8 @@ export async function joinRoom(args: string[], flags: any, ctx: any) {
     kind: result.kind,
     handle: result.handle ?? handle,
     joined_at: new Date().toISOString(),
+    server_url: parsed.serverUrl,
+    ...(labelInput ? { label: labelInput } : {}),
   });
 
   if (ctx.json) {
