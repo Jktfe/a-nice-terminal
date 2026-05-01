@@ -9,8 +9,24 @@ const STORAGE_KEY = 'ant-grid-v1';
 const MIN = 1;
 const MAX = 5;
 
+// crypto.randomUUID is only exposed on secure contexts (HTTPS, localhost,
+// file://). Accessing the dashboard over plain HTTP via a Tailscale
+// hostname is non-secure, so fall back to getRandomValues which is always
+// available.
+function uuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const h = Array.from(bytes, (b) => b.toString(16).padStart(2, '0'));
+  return `${h.slice(0, 4).join('')}-${h.slice(4, 6).join('')}-${h.slice(6, 8).join('')}-${h.slice(8, 10).join('')}-${h.slice(10, 16).join('')}`;
+}
+
 function makeCell(sessionId: string | null = null): GridCell {
-  return { id: crypto.randomUUID(), sessionId };
+  return { id: uuid(), sessionId };
 }
 
 function defaultCells(cols: number, rows: number): GridCell[] {

@@ -129,7 +129,9 @@
   }
 
   function onKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    // Enter sends, Shift+Enter for newline. Cmd/Ctrl+Enter still sends for
+    // muscle-memory parity with the legacy behaviour.
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
     }
@@ -210,7 +212,7 @@
     <textarea
       bind:value={composeText}
       onkeydown={onKeydown}
-      placeholder="Type a message — ⌘+Enter to send"
+      placeholder="Type a message — Enter to send, Shift+Enter for newline"
       rows="2"
     ></textarea>
     <button type="submit" disabled={sending || !composeText.trim()}>
