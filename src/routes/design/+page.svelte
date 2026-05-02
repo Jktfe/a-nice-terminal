@@ -6,10 +6,18 @@
   import Composer from '$lib/components/Composer.svelte';
   import InlineCode from '$lib/components/InlineCode.svelte';
   import Grain from '$lib/components/Grain.svelte';
+  import CommandBlock from '$lib/components/CommandBlock.svelte';
+  import { sampleRunEvents } from '$lib/components/CommandBlock/_fixture';
 
   let mode: 'dark' | 'light' = $state('dark');
   const s = $derived(surfaceTokens(mode));
   const isDark = $derived(mode === 'dark');
+
+  // M3 CommandBlock visual harness — backs R4 §6 acceptance gate.
+  const cbEvents = sampleRunEvents;
+  function handleRerun(cmd: string, id: string) { console.log('rerun', id, cmd); }
+  function handleBookmark(id: string) { console.log('bookmark', id); }
+  function handleRespond(promptId: string, choice: string) { console.log('respond', promptId, choice); }
 </script>
 
 <svelte:head>
@@ -284,6 +292,110 @@
             contextPills={['#deploy', 'staging', '+2 files']}
           />
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ M3 CommandBlock Section (R4 §3a / §6 acceptance harness) ═══════════════ -->
+  <div class="p-10 pt-0" id="m3-commandblock">
+    <h2 class="text-lg font-semibold mb-2" style="color: #2A2922; letter-spacing: -0.02em;">
+      M3 · CommandBlock
+    </h2>
+    <p style="font-size: 13px; color: #5A584B; max-width: 640px; margin-bottom: 24px;">
+      Renders from <code style="font-family: var(--font-mono); font-size: 12px;">run_event &#123;kind, payload, trust, raw_ref&#125;</code>
+      per R4 §3a. Three kinds: command_block, agent_prompt, artifact. Trust-tier-locked: trust:raw never rich.
+      Hover a block to reveal the toolbar; click chevron to expand.
+    </p>
+
+    <div
+      class="relative rounded-2xl overflow-hidden"
+      style="background: {s.bg}; padding: 32px; color: {s.text};"
+    >
+      {#if isDark}<Grain opacity={0.025} />{/if}
+
+      <!-- The 3-event OSC-133 acceptance flow: ls && false && echo ok -->
+      <div
+        style="
+          font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+          letter-spacing: 1.4px; text-transform: uppercase; color: {s.textFaint};
+          margin-bottom: 10px;
+        "
+      >M1 acceptance flow · ls &amp;&amp; false &amp;&amp; echo ok</div>
+      <div style="margin-bottom: 32px;">
+        {#each cbEvents.slice(0, 3) as event (event.id)}
+          <CommandBlock
+            {event}
+            themeMode={mode}
+            onRerun={handleRerun}
+            onBookmark={handleBookmark}
+          />
+        {/each}
+      </div>
+
+      <!-- Long-output collapse -->
+      <div
+        style="
+          font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+          letter-spacing: 1.4px; text-transform: uppercase; color: {s.textFaint};
+          margin-bottom: 10px;
+        "
+      >Long output · collapse-by-default</div>
+      <div style="margin-bottom: 32px;">
+        <CommandBlock
+          event={cbEvents[3]}
+          themeMode={mode}
+          onRerun={handleRerun}
+          onBookmark={handleBookmark}
+        />
+      </div>
+
+      <!-- trust:raw — never rich -->
+      <div
+        style="
+          font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+          letter-spacing: 1.4px; text-transform: uppercase; color: {s.textFaint};
+          margin-bottom: 10px;
+        "
+      >trust:raw · alt-screen TUI capture (no rich render, byte-faithful)</div>
+      <div style="margin-bottom: 32px;">
+        <CommandBlock
+          event={cbEvents[4]}
+          themeMode={mode}
+          defaultExpanded
+        />
+      </div>
+
+      <!-- agent_prompt with options -->
+      <div
+        style="
+          font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+          letter-spacing: 1.4px; text-transform: uppercase; color: {s.textFaint};
+          margin-bottom: 10px;
+        "
+      >agent_prompt · inline overlay (R4 §3c)</div>
+      <div style="margin-bottom: 32px;">
+        <CommandBlock
+          event={cbEvents[5]}
+          themeMode={mode}
+          defaultExpanded
+          onRespond={handleRespond}
+        />
+      </div>
+
+      <!-- artifact via /api/artifacts/:hash -->
+      <div
+        style="
+          font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+          letter-spacing: 1.4px; text-transform: uppercase; color: {s.textFaint};
+          margin-bottom: 10px;
+        "
+      >artifact · content-addressed via /api/artifacts/:hash (R4 §3b)</div>
+      <div>
+        <CommandBlock
+          event={cbEvents[6]}
+          themeMode={mode}
+          defaultExpanded
+        />
       </div>
     </div>
   </div>
