@@ -68,6 +68,12 @@ function parsePayload(payload: unknown): unknown {
   catch { return {}; }
 }
 
+function parseRawRef(rawRef: unknown): unknown {
+  if (!rawRef || typeof rawRef !== 'string') return rawRef ?? null;
+  try { return JSON.parse(rawRef); }
+  catch { return rawRef; }
+}
+
 export function GET({ params, url }: RequestEvent<{ id: string }>) {
   const session = queries.getSession(params.id) as SessionRow | null;
   if (!session) throw error(404, 'Session not found');
@@ -94,7 +100,7 @@ export function GET({ params, url }: RequestEvent<{ id: string }>) {
       kind: row.kind,
       text: row.text ?? '',
       payload: parsePayload(row.payload),
-      raw_ref: row.raw_ref ?? null,
+      raw_ref: parseRawRef(row.raw_ref),
       created_at: row.created_at,
     }));
 

@@ -1,15 +1,4 @@
-# ANT shell integration for bash
-# Sources automatically when ANT_SESSION_ID is set.
-#
-# Emits OSC 133 prompt markers and posts structured command events
-# to antd via the capture event log.
-#
-# This gives ANT:
-#   - Precise command boundaries (not quiet-period heuristics)
-#   - Exit codes, timing, CWD per command
-#   - Works even if antd is down (events written to file, ingested on reconnect)
-
-# Guard: only activate if running inside an ANT capture session
+# ANT shell integration for bash.
 [ -z "$ANT_SESSION_ID" ] && return
 
 if [ -n "${__ANT_SHELL_INTEGRATION_LOADED:-}" ]; then
@@ -17,7 +6,6 @@ if [ -n "${__ANT_SHELL_INTEGRATION_LOADED:-}" ]; then
 fi
 __ANT_SHELL_INTEGRATION_LOADED=1
 
-# Guard: don't double-capture nested shells (e.g. tmux pane spawning a sub-shell)
 if [ "${ANT_CAPTURE_DEPTH:-0}" -gt 1 ]; then
   return
 fi
@@ -25,7 +13,6 @@ fi
 __ant_event_dir="${ANT_CAPTURE_DIR:-${HOME}/.local/state/ant/capture}"
 __ant_event_file="${__ant_event_dir}/${ANT_SESSION_ID}.events"
 
-# Timestamp in milliseconds
 __ant_ms() {
   if command -v gdate &>/dev/null; then
     gdate +%s%3N
@@ -40,12 +27,11 @@ __ant_ms() {
   fi
 }
 
-# Write a JSON event line to the events file (newline-delimited JSON)
 __ant_emit() {
+  mkdir -p "$__ant_event_dir" 2>/dev/null || true
   echo "$1" >> "$__ant_event_file"
 }
 
-# JSON-escape a string
 __ant_json_str() {
   local s="$1"
   s="${s//\\/\\\\}"
@@ -56,22 +42,17 @@ __ant_json_str() {
   printf '"%s"' "$s"
 }
 
-# Track state between preexec and precmd
 __ant_cmd_start_ms=""
 __ant_current_cmd=""
 
-# --- preexec: fires just before a command executes ---
 __ant_preexec() {
   __ant_cmd_start_ms="$(__ant_ms)"
   __ant_current_cmd="$1"
-
   printf '\033]133;B\007'
   printf '\033]133;C\007'
-
   __ant_emit "{\"event\":\"command_start\",\"session\":\"${ANT_SESSION_ID}\",\"command\":$(__ant_json_str "$1"),\"cwd\":\"${PWD}\",\"ts\":${__ant_cmd_start_ms}}"
 }
 
-# --- precmd: fires just before the prompt is displayed ---
 __ant_precmd() {
   local exit_code=$?
   local end_ms="$(__ant_ms)"
@@ -86,12 +67,10 @@ __ant_precmd() {
   fi
 
   printf '\033]133;A\007'
-
   printf '\033]7;file://%s%s\007' "$(hostname)" "$PWD"
   printf '\033]1337;CurrentDir=%s\007' "$PWD"
 }
 
-# --- Install hooks ---
 if [[ -n "${bash_preexec_imported:-}" ]]; then
   precmd_functions+=(__ant_precmd)
   preexec_functions+=(__ant_preexec)

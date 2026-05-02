@@ -19,7 +19,6 @@ if (!process.env.ORIGIN && process.env.ANT_SERVER_URL) {
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import {
-  appendFileSync,
   chmodSync,
   copyFileSync,
   cpSync,
@@ -674,6 +673,7 @@ getPtyManager().then(async ptm => {
   const chunkCounters   = new Map<string, number>();
   const byteOffsets     = new Map<string, number>();
   const seeded          = new Set<string>();
+  const rawRefSearchOffsets = new Map<string, number>();
 
   function seedCountersIfNeeded(sessionId: string) {
     if (seeded.has(sessionId)) return;
@@ -701,6 +701,26 @@ getPtyManager().then(async ptm => {
       const stripped = stripAnsi(buf);
       queries.appendTranscriptWithText(sessionId, idx, buf, stripped, Date.now(), offset);
     } catch {}
+  }
+
+  function rawRefForCommand(sessionId: string, command: string): { start_byte: number; end_byte: number } | null {
+    const buf = transcriptBufs.get(sessionId) ?? '';
+    if (!buf || !command) return null;
+
+    seedCountersIfNeeded(sessionId);
+    const flushedBytes = byteOffsets.get(sessionId) ?? 0;
+    const searchFrom = Math.max(rawRefSearchOffsets.get(sessionId) ?? flushedBytes, flushedBytes);
+    const relativeStart = Math.max(0, searchFrom - flushedBytes);
+    const idx = buf.indexOf(command, relativeStart);
+    if (idx < 0) return null;
+
+    const before = buf.slice(0, idx);
+    const matched = buf.slice(idx, idx + command.length);
+    const start = flushedBytes + Buffer.byteLength(before);
+    const end = start + Buffer.byteLength(matched);
+    const rangeEnd = Math.max(end, flushedBytes + Buffer.byteLength(buf));
+    rawRefSearchOffsets.set(sessionId, rangeEnd);
+    return { start_byte: start, end_byte: rangeEnd };
   }
 
   ptm.onData((sessionId: string, data: string) => {
@@ -749,6 +769,30 @@ getPtyManager().then(async ptm => {
         null,
       );
     } catch {}
+  });
+
+  ptm.onBlockEvent((event: {
+    sessionId: string;
+    ts: number;
+    source: 'hook';
+    trust: 'high';
+    kind: 'command_block';
+    text: string;
+    payload: Record<string, unknown>;
+    raw_ref: Record<string, unknown>;
+  }) => {
+    const command = typeof event.payload?.command === 'string' ? event.payload.command : event.text;
+    const transcriptRef = rawRefForCommand(event.sessionId, command);
+    appendRunEvent(
+      event.sessionId,
+      event.source,
+      event.trust,
+      event.kind,
+      event.text,
+      event.payload ?? {},
+      JSON.stringify(transcriptRef ?? { source: 'osc_control', ...(event.raw_ref ?? {}) }),
+      event.ts,
+    );
   });
 
   // ─── Terminal output → linked chat (the "chat IS the terminal" path) ──────
@@ -857,13 +901,14 @@ getPtyManager().then(async ptm => {
     text: string,
     payload: Record<string, unknown> = {},
     rawRef: string | null = null,
+    tsMs = Date.now(),
   ) {
     const cleanText = text.trim();
     if (!cleanText && Object.keys(payload).length === 0) return null;
     try {
       const row = queries.appendRunEvent(
         sessionId,
-        Date.now(),
+        tsMs,
         source,
         trust,
         kind,
@@ -1104,19 +1149,21 @@ import('./src/lib/server/capture/capture-ingest.js')
   .then(mod => mod.startCaptureIngest?.())
   .catch(() => console.log('[capture] Capture ingest not available'));
 
-// Refresh ANT hook-dir contents on every server start, and patch ~/.zshrc
-// on first install. Helper scripts (ant-capture, ant-silence-notify) are
-// always re-copied so they track the repo copy — they're referenced by
-// tmux hooks + the pty-daemon and must exist on disk regardless of whether
-// the one-time .zshrc patch has already been applied.
+// Refresh ANT hook-dir contents on every server start. Helper scripts are
+// always re-copied so they track the repo copy. Shell integration is injected
+// by pty-daemon at spawn time; this path does not patch user rc files.
 (function autoInstallHooks() {
   const home = process.env.HOME || '/tmp';
   const srcDir = join(process.cwd(), 'ant-capture');
+  const shellSrcDir = join(process.cwd(), 'static', 'shell-integration');
   if (!existsSync(srcDir)) return;
   const hookDir = join(home, '.ant', 'hooks');
 
   try {
     mkdirSync(hookDir, { recursive: true });
+    if (existsSync(shellSrcDir)) {
+      cpSync(shellSrcDir, join(hookDir, 'shell-integration'), { recursive: true, force: true });
+    }
     const helpers: Array<{ file: string; exec: boolean }> = [
       { file: 'ant.zsh',            exec: false },
       { file: 'ant.bash',           exec: false },
@@ -1132,15 +1179,6 @@ import('./src/lib/server/capture/capture-ingest.js')
   } catch (e) {
     console.warn('[hooks] Could not refresh hook dir:', e);
     return;
-  }
-
-  const zshrc = join(home, '.zshrc');
-  try {
-    if (!existsSync(zshrc) || readFileSync(zshrc, 'utf8').includes('ant/hooks/ant.zsh')) return;
-    appendFileSync(zshrc, '\n# ANT shell capture hooks\n[ -f "$HOME/.ant/hooks/ant.zsh" ] && source "$HOME/.ant/hooks/ant.zsh"\n');
-    console.log('[hooks] Patched ~/.zshrc to source ANT capture hooks — run: source ~/.zshrc');
-  } catch (e) {
-    console.warn('[hooks] Could not patch ~/.zshrc:', e);
   }
 })();
 

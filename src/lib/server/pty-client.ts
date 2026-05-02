@@ -18,7 +18,18 @@ export type TerminalEvent = {
   kind: string;
   data: Record<string, unknown>;
 };
+export type BlockEvent = {
+  sessionId: string;
+  ts: number;
+  source: 'hook';
+  trust: 'high';
+  kind: 'command_block';
+  text: string;
+  payload: Record<string, unknown>;
+  raw_ref: Record<string, unknown>;
+};
 type EventCallback = (event: TerminalEvent) => void;
+type BlockEventCallback = (event: BlockEvent) => void;
 type LineCallback = (sessionId: string, text: string) => void;
 type StatusSampleCallback = (sessionId: string, text: string) => void;
 
@@ -30,6 +41,7 @@ class PTYClient {
   private dataListeners: DataCallback[] = [];
   private silenceListeners: SilenceCallback[] = [];
   private eventListeners: EventCallback[] = [];
+  private blockEventListeners: BlockEventCallback[] = [];
   private lineListeners: LineCallback[] = [];
   private statusSampleListeners: StatusSampleCallback[] = [];
   // Keyed by "sessionId:callId" to prevent concurrent callers clobbering each other
@@ -131,6 +143,20 @@ class PTYClient {
             for (const cb of this.eventListeners) {
               try { cb(event); } catch {}
             }
+          } else if (msg.type === 'block_event') {
+            const event: BlockEvent = {
+              sessionId: msg.sessionId,
+              ts: msg.ts ?? Date.now(),
+              source: msg.source ?? 'hook',
+              trust: msg.trust ?? 'high',
+              kind: msg.kind ?? 'command_block',
+              text: msg.text ?? '',
+              payload: msg.payload ?? {},
+              raw_ref: msg.raw_ref ?? {},
+            };
+            for (const cb of this.blockEventListeners) {
+              try { cb(event); } catch {}
+            }
           } else if (msg.type === 'spawned') {
             // callId is echoed back so we resolve exactly the right pending spawn
             const key = `${msg.sessionId}:${msg.callId}`;
@@ -190,6 +216,11 @@ class PTYClient {
   onEvent(callback: EventCallback): () => void {
     this.eventListeners.push(callback);
     return () => { this.eventListeners = this.eventListeners.filter(cb => cb !== callback); };
+  }
+
+  onBlockEvent(callback: BlockEventCallback): () => void {
+    this.blockEventListeners.push(callback);
+    return () => { this.blockEventListeners = this.blockEventListeners.filter(cb => cb !== callback); };
   }
 
   /** Settled terminal output lines from tmux control mode (debounced, ANSI-stripped). */

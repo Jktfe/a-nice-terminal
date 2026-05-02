@@ -12,9 +12,10 @@
 
 import * as net from 'net';
 import * as pty from 'node-pty';
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { execFileSync } from 'child_process';
+import { Osc133BlockParser, type Osc133CommandBlock } from './osc133.js';
 
 const ANT_DIR  = join(process.env.HOME || '/tmp', '.ant');
 const SOCK_PATH = join(ANT_DIR, 'pty.sock');
@@ -23,6 +24,11 @@ const LOG = (...a: any[]) => console.log('[pty-daemon]', ...a);
 const HOME = process.env.HOME || '/tmp';
 const TMUX = '/opt/homebrew/bin/tmux';
 const SILENCE_HOOK_SCRIPT = join(HOME, '.ant', 'hooks', 'ant-silence-notify');
+const HOOK_DIR = join(HOME, '.ant', 'hooks');
+const CAPTURE_DIR = join(HOME, '.local', 'state', 'ant', 'capture');
+const INSTALLED_SHELL_INTEGRATION_DIR = join(HOOK_DIR, 'shell-integration');
+const STATIC_SHELL_INTEGRATION_DIR = join(process.cwd(), 'static', 'shell-integration');
+const LEGACY_SHELL_INTEGRATION_DIR = join(process.cwd(), 'ant-capture');
 
 // After this many ms of silence, fire a prompt-detection check.
 // Must match the monitor-silence value set on each window (3s).
@@ -60,6 +66,10 @@ const outputTimers = new Map<string, OutputTimer>();
 
 // Pending chrome-check requests — keyed by "sessionId:line"
 const chromeChecks = new Map<string, (isChrome: boolean) => void>();
+
+const oscParsers = new Map<string, Osc133BlockParser>();
+const rawByteOffsets = new Map<string, number>();
+const controlByteOffsets = new Map<string, number>();
 
 async function flushViaCapture(sessionId: string, ot: OutputTimer): Promise<void> {
   if (ot.timer) { clearTimeout(ot.timer); ot.timer = null; }
@@ -167,6 +177,70 @@ function checkChrome(sessionId: string, line: string): Promise<boolean> {
         resolve(false);
       }
     }, 150);
+  });
+}
+
+function parserFor(sessionId: string): Osc133BlockParser {
+  let parser = oscParsers.get(sessionId);
+  if (!parser) {
+    parser = new Osc133BlockParser();
+    oscParsers.set(sessionId, parser);
+  }
+  return parser;
+}
+
+function handleOscOutput(sessionId: string, data: string, startByte: number): void {
+  for (const block of parserFor(sessionId).push(data, startByte)) {
+    broadcastBlockEvent(sessionId, block);
+  }
+}
+
+function handleRawOutput(sessionId: string, data: string): void {
+  const startByte = rawByteOffsets.get(sessionId) ?? 0;
+  rawByteOffsets.set(sessionId, startByte + Buffer.byteLength(data));
+}
+
+function handleControlOutput(sessionId: string, content: string): void {
+  const decoded = decodeTmuxControlOutput(content);
+  if (!decoded) return;
+  const startByte = controlByteOffsets.get(sessionId) ?? 0;
+  controlByteOffsets.set(sessionId, startByte + Buffer.byteLength(decoded));
+  handleOscOutput(sessionId, decoded, startByte);
+}
+
+function decodeTmuxControlOutput(content: string): string {
+  return content
+    .replace(/\\([0-7]{3})/g, (_m, octal: string) => String.fromCharCode(Number.parseInt(octal, 8)))
+    .replace(/\\e/g, '\x1b')
+    .replace(/\\r/g, '\r')
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t')
+    .replace(/\\\\/g, '\\');
+}
+
+function broadcastBlockEvent(sessionId: string, block: Osc133CommandBlock): void {
+  const durationMs = Math.max(0, block.endedAtMs - block.startedAtMs);
+  broadcast({
+    type: 'block_event',
+    sessionId,
+    ts: block.endedAtMs,
+    source: 'hook',
+    trust: 'high',
+    kind: 'command_block',
+    text: block.command,
+    payload: {
+      command: block.command,
+      exit_code: block.exitCode,
+      cwd: block.cwd,
+      duration_ms: durationMs,
+      started_at: new Date(block.startedAtMs).toISOString(),
+      ended_at: new Date(block.endedAtMs).toISOString(),
+      osc133: block.markers,
+    },
+    raw_ref: {
+      start_byte: block.rawStartByte,
+      end_byte: block.rawEndByte,
+    },
   });
 }
 
@@ -422,6 +496,7 @@ function handleControlLine(line: string, sessionId: string, session: PTYSession)
     // Strip the pane-id prefix to get the raw content
     const contentStart = rest.indexOf(' ');
     const content = contentStart >= 0 ? rest.slice(contentStart + 1) : rest;
+    handleControlOutput(sessionId, content);
     handleOutputLine(sessionId, content);
     return;
   }
@@ -593,6 +668,73 @@ function installSilenceHook(sessionId: string) {
   }
 }
 
+function shellIntegrationDir(): string | null {
+  for (const dir of [INSTALLED_SHELL_INTEGRATION_DIR, STATIC_SHELL_INTEGRATION_DIR, LEGACY_SHELL_INTEGRATION_DIR]) {
+    if (existsSync(join(dir, 'ant.zsh')) || existsSync(join(dir, 'ant.bash')) || existsSync(join(dir, 'ant.fish'))) {
+      return dir;
+    }
+  }
+  return null;
+}
+
+function safeRuntimeName(sessionId: string): string {
+  return sessionId.replace(/[^A-Za-z0-9_.-]/g, '_');
+}
+
+function prepareShellIntegration(sessionId: string, env: Record<string, string>): string | null {
+  const integrationDir = shellIntegrationDir();
+  if (!integrationDir) return null;
+
+  const runtimeDir = join(HOOK_DIR, 'runtime', safeRuntimeName(sessionId));
+  const zdotdir = join(runtimeDir, 'zdotdir');
+  const bashrc = join(runtimeDir, 'bashrc');
+  const launcher = join(runtimeDir, 'launch-shell');
+  mkdirSync(zdotdir, { recursive: true });
+  mkdirSync(CAPTURE_DIR, { recursive: true });
+
+  const originalZdotdir = env.ZDOTDIR || HOME;
+  writeFileSync(join(zdotdir, '.zshrc'), [
+    `ANT_ORIGINAL_ZDOTDIR="${escapeDoubleQuoted(originalZdotdir)}"`,
+    'if [ -f "$ANT_ORIGINAL_ZDOTDIR/.zshrc" ]; then source "$ANT_ORIGINAL_ZDOTDIR/.zshrc"; fi',
+    '[ -f "$ANT_SHELL_INTEGRATION_DIR/ant.zsh" ] && source "$ANT_SHELL_INTEGRATION_DIR/ant.zsh"',
+    '',
+  ].join('\n'));
+
+  writeFileSync(bashrc, [
+    '[ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc"',
+    '[ -f "$ANT_SHELL_INTEGRATION_DIR/ant.bash" ] && source "$ANT_SHELL_INTEGRATION_DIR/ant.bash"',
+    '',
+  ].join('\n'));
+
+  writeFileSync(launcher, [
+    '#!/bin/sh',
+    'shell="${SHELL:-/bin/zsh}"',
+    'name="${shell##*/}"',
+    'case "$name" in',
+    '  bash) exec "$shell" --rcfile "$ANT_BASH_RC" -i ;;',
+    '  zsh) exec "$shell" -i ;;',
+    '  fish) exec "$shell" --init-command "source \\"$ANT_SHELL_INTEGRATION_DIR/ant.fish\\"" ;;',
+    '  *) exec "$shell" -i ;;',
+    'esac',
+    '',
+  ].join('\n'));
+  chmodSync(launcher, 0o755);
+
+  env.ANT_CAPTURE_DIR = CAPTURE_DIR;
+  env.ANT_SHELL_INTEGRATION_DIR = integrationDir;
+  env.ANT_BASH_RC = bashrc;
+  env.BASH_ENV = bashrc;
+  env.ENV = bashrc;
+  env.ANT_ORIGINAL_ZDOTDIR = originalZdotdir;
+  env.ZDOTDIR = zdotdir;
+
+  return launcher;
+}
+
+function escapeDoubleQuoted(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '\\$').replace(/`/g, '\\`');
+}
+
 // Read the current pane_title for a session via a one-shot tmux display call.
 // Sub-millisecond; used by the server-side 2s polling loop to catch OSC title
 // updates from claude (⠂/✳ task summary) and gemini ("Action Required…").
@@ -700,17 +842,29 @@ function handle(msg: any, socket: net.Socket) {
         ANT_CAPTURE_DEPTH: '0',
         TERM: 'xterm-256color',
       } as Record<string, string>;
+      const shellLauncher = prepareShellIntegration(msg.sessionId, childEnv);
       delete childEnv.TMUX;
       delete childEnv.TMUX_PANE;
       delete childEnv.TMUX_PLUGIN_MANAGER_PATH;
 
-      const term = pty.spawn(TMUX, [
+      const tmuxArgs = [
         'new-session', '-A',
         '-s', msg.sessionId,
         '-e', `ANT_SESSION_ID=${msg.sessionId}`,
+        '-e', `ANT_CAPTURE_DIR=${childEnv.ANT_CAPTURE_DIR ?? CAPTURE_DIR}`,
+        '-e', `ANT_CAPTURE_DEPTH=0`,
+        ...(childEnv.ANT_SHELL_INTEGRATION_DIR ? ['-e', `ANT_SHELL_INTEGRATION_DIR=${childEnv.ANT_SHELL_INTEGRATION_DIR}`] : []),
+        ...(childEnv.ANT_BASH_RC ? ['-e', `ANT_BASH_RC=${childEnv.ANT_BASH_RC}`] : []),
+        ...(childEnv.BASH_ENV ? ['-e', `BASH_ENV=${childEnv.BASH_ENV}`] : []),
+        ...(childEnv.ENV ? ['-e', `ENV=${childEnv.ENV}`] : []),
+        ...(childEnv.ZDOTDIR ? ['-e', `ZDOTDIR=${childEnv.ZDOTDIR}`] : []),
+        ...(childEnv.ANT_ORIGINAL_ZDOTDIR ? ['-e', `ANT_ORIGINAL_ZDOTDIR=${childEnv.ANT_ORIGINAL_ZDOTDIR}`] : []),
         '-x', String(msg.cols || 220),
         '-y', String(msg.rows || 50),
-      ], {
+      ];
+      if (shellLauncher) tmuxArgs.push(shellLauncher);
+
+      const term = pty.spawn(TMUX, tmuxArgs, {
         name: 'xterm-256color',
         cols: msg.cols || 220,
         rows: msg.rows || 50,
@@ -726,29 +880,42 @@ function handle(msg: any, socket: net.Socket) {
       // Per-session env takes precedence over global env for new windows/panes.
       try {
         execFileSync(TMUX, ['set-environment', '-t', msg.sessionId, 'ANT_SESSION_ID', msg.sessionId], { stdio: 'pipe' });
+        execFileSync(TMUX, ['set-environment', '-t', msg.sessionId, 'ANT_CAPTURE_DIR', childEnv.ANT_CAPTURE_DIR ?? CAPTURE_DIR], { stdio: 'pipe' });
+        execFileSync(TMUX, ['set-environment', '-t', msg.sessionId, 'ANT_CAPTURE_DEPTH', '0'], { stdio: 'pipe' });
+        if (childEnv.ANT_SHELL_INTEGRATION_DIR) execFileSync(TMUX, ['set-environment', '-t', msg.sessionId, 'ANT_SHELL_INTEGRATION_DIR', childEnv.ANT_SHELL_INTEGRATION_DIR], { stdio: 'pipe' });
+        if (childEnv.ANT_BASH_RC) execFileSync(TMUX, ['set-environment', '-t', msg.sessionId, 'ANT_BASH_RC', childEnv.ANT_BASH_RC], { stdio: 'pipe' });
+        if (childEnv.BASH_ENV) execFileSync(TMUX, ['set-environment', '-t', msg.sessionId, 'BASH_ENV', childEnv.BASH_ENV], { stdio: 'pipe' });
+        if (childEnv.ENV) execFileSync(TMUX, ['set-environment', '-t', msg.sessionId, 'ENV', childEnv.ENV], { stdio: 'pipe' });
+        if (childEnv.ZDOTDIR) execFileSync(TMUX, ['set-environment', '-t', msg.sessionId, 'ZDOTDIR', childEnv.ZDOTDIR], { stdio: 'pipe' });
+        if (childEnv.ANT_ORIGINAL_ZDOTDIR) execFileSync(TMUX, ['set-environment', '-t', msg.sessionId, 'ANT_ORIGINAL_ZDOTDIR', childEnv.ANT_ORIGINAL_ZDOTDIR], { stdio: 'pipe' });
       } catch {}
 
       term.onData((data: string) => {
+        handleRawOutput(msg.sessionId, data);
         broadcast({ type: 'output', sessionId: msg.sessionId, data });
       });
 
       term.onExit(() => {
         session.alive = false;
         try { session.ctrl?.kill(); } catch {}
+        oscParsers.delete(msg.sessionId);
+        rawByteOffsets.delete(msg.sessionId);
+        controlByteOffsets.delete(msg.sessionId);
         broadcast({ type: 'exit', sessionId: msg.sessionId });
         LOG(`session exited: ${msg.sessionId}`);
       });
 
-      // Start control mode once the raw PTY has settled and tmux session is ready.
+      // Start control mode quickly enough to catch the first command sent by
+      // CLI/browser clients immediately after the spawn health response.
       setTimeout(() => {
         if (session.alive) session.ctrl = spawnControlMode(msg.sessionId, session);
-      }, 1200);
+      }, 100);
 
       // Install the belt-and-braces native tmux set-hook in parallel with
       // control mode. If ctrl mode flakes, this still delivers silence.
       setTimeout(() => {
         if (session.alive) installSilenceHook(msg.sessionId);
-      }, 600);
+      }, 250);
 
       LOG(`spawned session: ${msg.sessionId}`);
       // New session — no scrollback yet
@@ -793,6 +960,9 @@ function handle(msg: any, socket: net.Socket) {
         sessions.delete(msg.sessionId);
       }
       lastSilenceBroadcast.delete(msg.sessionId);
+      oscParsers.delete(msg.sessionId);
+      rawByteOffsets.delete(msg.sessionId);
+      controlByteOffsets.delete(msg.sessionId);
       try { execFileSync(TMUX, ['kill-session', '-t', msg.sessionId], { stdio: 'pipe' }); } catch {}
       LOG(`killed session: ${msg.sessionId}`);
       break;

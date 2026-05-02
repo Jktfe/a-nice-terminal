@@ -1,10 +1,4 @@
-# ANT shell integration for zsh
-# Sources automatically when ANT_SESSION_ID is set.
-#
-# Emits OSC 133 prompt markers and posts structured command events
-# to antd via the capture event log.
-
-# Guard: only activate if running inside an ANT capture session
+# ANT shell integration for zsh.
 [ -z "$ANT_SESSION_ID" ] && return
 
 if [[ -n "${__ANT_SHELL_INTEGRATION_LOADED:-}" ]]; then
@@ -12,7 +6,6 @@ if [[ -n "${__ANT_SHELL_INTEGRATION_LOADED:-}" ]]; then
 fi
 typeset -g __ANT_SHELL_INTEGRATION_LOADED=1
 
-# Guard: don't double-capture nested shells (e.g. tmux pane spawning a sub-shell)
 if [ "${ANT_CAPTURE_DEPTH:-0}" -gt 1 ]; then
   return
 fi
@@ -25,7 +18,6 @@ fi
 __ant_event_dir="${ANT_CAPTURE_DIR:-${HOME}/.local/state/ant/capture}"
 __ant_event_file="${__ant_event_dir}/${ANT_SESSION_ID}.events"
 
-# Timestamp in milliseconds
 __ant_ms() {
   if command -v gdate &>/dev/null; then
     gdate +%s%3N
@@ -40,16 +32,14 @@ __ant_ms() {
   fi
 }
 
-# Write a JSON event line
 __ant_emit() {
+  mkdir -p "$__ant_event_dir" 2>/dev/null || true
   echo "$1" >> "$__ant_event_file"
 }
 
-# State
 typeset -g __ant_cmd_start_ms=""
 typeset -g __ant_current_cmd=""
 
-# --- preexec: fires just before command execution ---
 __ant_preexec() {
   __ant_cmd_start_ms="$(__ant_ms)"
   __ant_current_cmd="$1"
@@ -58,7 +48,6 @@ __ant_preexec() {
   __ant_emit "{\"event\":\"command_start\",\"session\":\"${ANT_SESSION_ID}\",\"command\":${(qqq)1},\"cwd\":\"${PWD}\",\"ts\":${__ant_cmd_start_ms}}"
 }
 
-# --- precmd: fires just before prompt display ---
 __ant_precmd() {
   local exit_code=$?
   local end_ms="$(__ant_ms)"
@@ -67,7 +56,6 @@ __ant_precmd() {
 
   if [[ -n "$__ant_cmd_start_ms" ]]; then
     local duration_ms=$(( end_ms - __ant_cmd_start_ms ))
-    # Include command in command_end so the ingest can match it to command_start
     __ant_emit "{\"event\":\"command_end\",\"session\":\"${ANT_SESSION_ID}\",\"command\":${(qqq)__ant_current_cmd},\"exit_code\":${exit_code},\"cwd\":\"${PWD}\",\"duration_ms\":${duration_ms},\"ts\":${end_ms}}"
     __ant_cmd_start_ms=""
     __ant_current_cmd=""
@@ -78,9 +66,7 @@ __ant_precmd() {
   printf '\033]1337;CurrentDir=%s\007' "$PWD"
 }
 
-# --- Install hooks (zsh has native support) ---
 add-zsh-hook precmd __ant_precmd
 add-zsh-hook preexec __ant_preexec
 
-# Emit initial prompt marker
 printf '\033]133;A\007'

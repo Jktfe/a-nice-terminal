@@ -8,15 +8,9 @@ cp "$(dirname "$0")/ant.bash" "$HOOK_DIR/ant.bash"
 cp "$(dirname "$0")/ant-capture" "$HOOK_DIR/ant-capture"
 chmod +x "$HOOK_DIR/ant-capture"
 
-# Add to ~/.zshrc if not already there
-ZSHRC="$HOME/.zshrc"
-ZSH_LINE='[ -f "$HOME/.ant/hooks/ant.zsh" ] && source "$HOME/.ant/hooks/ant.zsh"'
-if ! grep -qF 'ant/hooks/ant.zsh' "$ZSHRC" 2>/dev/null; then
-  echo "" >> "$ZSHRC"
-  echo "# ANT shell capture hooks" >> "$ZSHRC"
-  echo "$ZSH_LINE" >> "$ZSHRC"
-  echo "Installed ANT hooks into $ZSHRC"
-else
-  echo "ANT hooks already in $ZSHRC"
+if [ -d "$(dirname "$0")/../static/shell-integration" ]; then
+  rm -rf "$HOOK_DIR/shell-integration"
+  cp -R "$(dirname "$0")/../static/shell-integration" "$HOOK_DIR/shell-integration"
 fi
-echo "Done. Restart your shell or run: source ~/.zshrc"
+
+echo "Done. ANT terminal sessions inject shell integration at PTY spawn without modifying user rc files."

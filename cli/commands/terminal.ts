@@ -32,6 +32,20 @@ function formatEventData(kind: string, data: any): string {
   }
 }
 
+function formatRunEvent(event: any): string {
+  const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
+  if (event.kind === 'command_block') {
+    const exit = payload.exit_code == null ? '?' : String(payload.exit_code);
+    const cwd = payload.cwd ? `  cwd=${payload.cwd}` : '';
+    const raw = event.raw_ref?.start_byte != null && event.raw_ref?.end_byte != null
+      ? `  raw=${event.raw_ref.start_byte}-${event.raw_ref.end_byte}`
+      : '';
+    return `exit=${exit}${cwd}${raw}  ${payload.command ?? event.text ?? ''}`;
+  }
+  const raw = event.raw_ref ? `  raw=${JSON.stringify(event.raw_ref)}` : '';
+  return `${event.source}/${event.trust}${raw}  ${event.text ?? ''}`;
+}
+
 function wsUrlFor(ctx: any): string {
   return ctx.serverUrl.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws';
 }
@@ -181,21 +195,40 @@ export async function terminal(args: string[], flags: any, ctx: any) {
     return;
   }
 
-  // Events — tmux control-mode structured timeline (window add/close/rename,
-  // session change, layout change, pane mode change, exit). Useful for
-  // "what happened in this terminal" questions without parsing raw bytes.
-  //   ant terminal events <id>                          last 1h
-  //   ant terminal events <id> --since 15m --kind exit
-  //   ant terminal events <id> --kind layout-change --limit 20
+  // Events — run_events by default. Use --tmux for the older tmux control-mode
+  // event stream.
+  //   ant terminal events <id>                          last 1h run_events
+  //   ant terminal events <id> --kind command_block
+  //   ant terminal events <id> --source hook --limit 20
+  //   ant terminal events <id> --tmux --kind layout-change
   if (sub === 'events') {
     const qs = new URLSearchParams();
     if (flags.since) qs.set('since', String(flags.since));
     if (flags.kind)  qs.set('kind',  String(flags.kind));
+    if (flags.source) qs.set('source', String(flags.source));
+    if (flags.q) qs.set('q', String(flags.q));
     if (flags.limit) qs.set('limit', String(flags.limit));
-    const path = `/api/sessions/${id}/terminal/events${qs.toString() ? '?' + qs.toString() : ''}`;
+    const path = flags.tmux
+      ? `/api/sessions/${id}/terminal/events${qs.toString() ? '?' + qs.toString() : ''}`
+      : `/api/sessions/${id}/run-events${qs.toString() ? '?' + qs.toString() : ''}`;
     const result = await api.get(ctx, path);
 
     if (ctx.json) { console.log(JSON.stringify(result, null, 2)); return; }
+
+    if (!flags.tmux) {
+      const events = result.events || [];
+      if (!events.length) {
+        const kindLabel = result.kind ? ` kind=${result.kind}` : '';
+        console.log(`(no run events for ${id}${kindLabel})`);
+        return;
+      }
+      console.log(`${events.length} run events in ${id}:\n`);
+      for (const event of events) {
+        const ts = new Date(event.ts_ms ?? event.ts).toISOString();
+        console.log(`\x1b[90m${ts}\x1b[0m  \x1b[1m${event.kind}\x1b[0m  ${formatRunEvent(event)}`);
+      }
+      return;
+    }
 
     const rows = result.rows || [];
     if (!rows.length) {

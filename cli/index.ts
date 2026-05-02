@@ -7,7 +7,6 @@ import { chat } from './commands/chat.js';
 import { terminal } from './commands/terminal.js';
 import { search } from './commands/search.js';
 import { share } from './commands/share.js';
-import { qr } from './commands/qr.js';
 import { msg } from './commands/msg.js';
 import { task } from './commands/task.js';
 import { flag } from './commands/flag.js';
@@ -148,7 +147,7 @@ async function main() {
       case 'register': await registerIdentity(args, flags, ctx); break;
       case 'join-room': await joinRoom(args, flags, ctx); break;
       case 'share':    await share(args, flags, ctx); break;
-      case 'qr':       await qr(args, flags, ctx); break;
+      case 'qr':       await (await import('./commands/qr.js')).qr(args, flags, ctx); break;
       case 'whoami':   await whoamiCmd(flags, ctx); break;
       case 'config':   configCmd(args, flags); break;
       default:
