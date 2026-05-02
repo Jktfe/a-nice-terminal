@@ -1056,6 +1056,22 @@ export const queries = {
     `).all(...args);
   },
 
+
+
+  // Plan events — M3.5 projector read helper (no schema change, JSON_EXTRACT on payload)
+  getPlanEvents: (sessionId: string, planId: string, kinds: string[], limit: number = 1000) => {
+    const placeholders = kinds.map(() => '?').join(',');
+    const sql = [
+      'SELECT id, session_id, ts_ms, source, trust, kind, text, payload, raw_ref, created_at',
+      'FROM run_events',
+      'WHERE session_id = ?',
+      'AND kind IN (' + placeholders + ')',
+      "AND JSON_EXTRACT(payload, '$.plan_id') = ?",
+      'ORDER BY ts_ms ASC, id ASC',
+      'LIMIT ?',
+    ].join(' ');
+    return prepare(sql).all(sessionId, ...kinds, planId, limit);
+  },
   // Command events
   getCommands: (sessionId: string, limit: number) =>
     prepare(`SELECT * FROM command_events WHERE session_id = ? ORDER BY started_at DESC LIMIT ?`).all(sessionId, limit),
