@@ -29,15 +29,46 @@
       .sort((a, b) => a.payload.order - b.payload.order),
   );
 
-  function decisionsForSection(sectionId: string) {
+  function slug(value: string | undefined): string {
+    return (value ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9.]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
+  function eventAliases(event: PlanEvent): string[] {
+    return Array.from(
+      new Set([
+        event.id,
+        event.payload.title,
+        slug(event.payload.title),
+        event.payload.milestone_id,
+        event.payload.acceptance_id,
+      ].filter((value): value is string => Boolean(value))),
+    );
+  }
+
+  function belongsTo(parent: PlanEvent, child: PlanEvent): boolean {
+    const parentId = child.payload.parent_id;
+    if (!parentId) return false;
+    return eventAliases(parent).includes(parentId);
+  }
+
+  function isMilestonesSection(section: PlanEvent): boolean {
+    const aliases = eventAliases(section);
+    return aliases.includes('sec-milestones') || aliases.includes('milestones');
+  }
+
+  function decisionsForSection(section: PlanEvent) {
     return events
-      .filter((e) => e.kind === 'plan_decision' && e.payload.parent_id === sectionId)
+      .filter((e) => e.kind === 'plan_decision' && belongsTo(section, e))
       .sort((a, b) => a.payload.order - b.payload.order);
   }
 
-  function milestonesForSection(sectionId: string) {
+  function milestonesForSection(section: PlanEvent) {
     return events
-      .filter((e) => e.kind === 'plan_milestone' && e.payload.parent_id === sectionId)
+      .filter((e) => e.kind === 'plan_milestone' && belongsTo(section, e))
       .sort((a, b) => a.payload.order - b.payload.order);
   }
 
@@ -119,9 +150,9 @@
             {/if}
           </div>
 
-          {#if section.id === 'sec-milestones'}
+          {#if isMilestonesSection(section)}
             <div class="plan-milestones">
-              {#each milestonesForSection(section.id) as m (m.id)}
+              {#each milestonesForSection(section) as m (m.id)}
                 {@const acc = acceptanceFor(m.payload.milestone_id ?? m.id)}
                 {@const tests = testsFor(m.payload.milestone_id ?? m.id)}
                 <details class="plan-milestone" data-status={m.payload.status ?? 'planned'}>
@@ -177,7 +208,7 @@
               {/each}
             </div>
           {:else}
-            {@const decisions = decisionsForSection(section.id)}
+            {@const decisions = decisionsForSection(section)}
             {#if decisions.length}
               <ul class="plan-decisions">
                 {#each decisions as d, i (d.id)}
