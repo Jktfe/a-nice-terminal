@@ -592,6 +592,8 @@ export const queries = {
     prepare(`UPDATE sessions SET name = COALESCE(?, name), status = COALESCE(?, status), archived = COALESCE(?, archived), meta = COALESCE(?, meta), updated_at = datetime('now') WHERE id = ?`).run(name, status, archived, meta, id),
   updateTtl: (ttl: string, id: string) =>
     prepare(`UPDATE sessions SET ttl = ?, updated_at = datetime('now') WHERE id = ?`).run(ttl, id),
+  updateRootDir: (rootDir: string | null, id: string) =>
+    prepare(`UPDATE sessions SET root_dir = ?, updated_at = datetime('now') WHERE id = ?`).run(rootDir, id),
   touchActivity: (id: string) =>
     prepare(`UPDATE sessions SET last_activity = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(id),
   softDeleteSession: (id: string) =>

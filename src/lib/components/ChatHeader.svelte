@@ -2,7 +2,7 @@
   import { goto } from '$app/navigation';
   import ShareButton from '$lib/components/ShareButton.svelte';
   import { theme } from '$lib/stores/theme.svelte';
-  import { CLI_MODES } from '$lib/cli-modes';
+  import { CLI_MODES, getCliMode } from '$lib/cli-modes';
   import { TTL_OPTIONS } from '$lib/stores/sessions.svelte';
   import PersonalSettingsModal from '$lib/components/PersonalSettingsModal.svelte';
 
@@ -64,6 +64,7 @@
   let showTmuxMenu = $state(false);
   let showPersistenceMenu = $state(false);
   let showPersonalSettings = $state(false);
+  const selectedCliMode = $derived(getCliMode(session?.cli_flag) ?? null);
 
   // Close dropdowns on outside click — uses window listener instead of backdrop overlay
   // (Svelte 5's synchronous DOM rendering causes backdrop onclick to fire on the same click that opens it)
@@ -176,28 +177,25 @@
     {/if}
   </div>
 
-  <!-- CLI mode buttons — only for terminal sessions -->
+  <!-- CLI mode selector — only for terminal sessions -->
   {#if session?.type === 'terminal'}
-    <div class="flex items-center gap-0.5 overflow-x-auto flex-shrink-0 max-w-[50%]" style="scrollbar-width: none;">
-      {#each CLI_MODES as mode}
-        <button
-          class="flex-shrink-0 px-1.5 py-0.5 text-[10px] rounded-md transition-all border"
-          style={session.cli_flag === mode.slug
-            ? 'background: #6366F1; color: #fff; border-color: #6366F1;'
-            : 'background: transparent; color: var(--text-muted); border-color: transparent;'}
-          title={mode.label}
-          onclick={() => {
-            if (session?.cli_flag === mode.slug) {
-              onCliFlagChange(null);
-            } else {
-              onCliFlagChange(mode.slug);
-            }
-          }}
-        >
-          <span class="mr-0.5">{mode.icon}</span>{mode.label}
-        </button>
-      {/each}
-    </div>
+    <label class="cli-select-wrap" title="CLI model driver">
+      <span class="cli-select-icon">{selectedCliMode?.icon ?? '⌁'}</span>
+      <select
+        class="cli-select"
+        aria-label="CLI model driver"
+        value={session.cli_flag ?? ''}
+        onchange={(e) => {
+          const value = (e.currentTarget as HTMLSelectElement).value;
+          onCliFlagChange(value || null);
+        }}
+      >
+        <option value="">Plain terminal</option>
+        {#each CLI_MODES as mode}
+          <option value={mode.slug}>{mode.label}</option>
+        {/each}
+      </select>
+    </label>
   {/if}
 
   <!-- Spacer -->
@@ -509,3 +507,49 @@
 {#if showPersonalSettings}
   <PersonalSettingsModal onClose={() => { showPersonalSettings = false; }} />
 {/if}
+
+<style>
+  .cli-select-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 30px;
+    max-width: 180px;
+    flex-shrink: 0;
+    border: 1px solid #E5E7EB;
+    border-radius: 999px;
+    background: var(--bg-card);
+    color: var(--text-muted);
+    padding: 0 8px;
+  }
+
+  .cli-select-icon {
+    width: 16px;
+    text-align: center;
+    font-size: 12px;
+    line-height: 1;
+    flex: 0 0 auto;
+  }
+
+  .cli-select {
+    min-width: 0;
+    max-width: 130px;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: inherit;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  @media (max-width: 720px) {
+    .cli-select-wrap {
+      max-width: 116px;
+      padding: 0 6px;
+    }
+
+    .cli-select {
+      max-width: 82px;
+    }
+  }
+</style>

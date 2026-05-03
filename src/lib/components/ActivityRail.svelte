@@ -15,6 +15,7 @@
     display_name?: string | null;
     cli_flag?: string | null;
     status?: string;
+    ttl?: string | null;
     last_activity?: string;
     updated_at?: string;
     linked_chat_id?: string | null;
@@ -152,8 +153,14 @@
       .map(s => s.id)
   ));
   const standaloneChats = $derived(sessions.filter(s => standaloneChatIds.has(s.id)));
+  const cliNeedsInputCount = $derived(
+    sessions.filter(s => s.type === 'terminal' && !!s.cli_flag && needsInputMap.has(s.id)).length
+  );
   const needsAttentionTerminals = $derived(
-    sessions.filter(s => s.type === 'terminal' && (needsInputMap.has(s.id) || s.attention_state === 'focus'))
+    sessions.filter(s => s.type === 'terminal' && ((!!s.cli_flag && needsInputMap.has(s.id)) || s.attention_state === 'focus'))
+  );
+  const pinnedTerminals = $derived(
+    sessions.filter(s => s.type === 'terminal' && s.ttl === 'forever')
   );
   // Always show current session regardless of type
   const currentSession = $derived(sessions.find(s => s.id === currentSessionId));
@@ -167,6 +174,10 @@
     }
     // Terminals needing input
     for (const s of needsAttentionTerminals) {
+      if (!ids.has(s.id)) { result.push(s); ids.add(s.id); }
+    }
+    // Pinned terminals stay surfaced in the rail even when idle.
+    for (const s of pinnedTerminals) {
       if (!ids.has(s.id)) { result.push(s); ids.add(s.id); }
     }
     // Standalone chatrooms
@@ -216,12 +227,21 @@
 
   <div class="rail-divider"></div>
 
+  {#if cliNeedsInputCount > 0}
+    <button
+      class="rail-waiting-counter"
+      title="{cliNeedsInputCount} CLI terminal{cliNeedsInputCount === 1 ? '' : 's'} waiting for input"
+    >
+      {cliNeedsInputCount}
+    </button>
+  {/if}
+
   <!-- Session items -->
   <div class="rail-sessions">
     {#each orderedSessions as sess (sess.id)}
       {@const isCurrent = sess.id === currentSessionId}
       {@const agent = agentColorFromSession(sess)}
-      {@const hasNeedsInput = needsInputMap.has(sess.id)}
+      {@const hasNeedsInput = !!sess.cli_flag && needsInputMap.has(sess.id)}
       {@const hasIdleAttention = idleAttentionSet.has(sess.id)}
       {@const hasUnread = unreadSet.has(sess.id)}
       {@const hasFocus = sess.attention_state === 'focus'}
@@ -417,6 +437,24 @@
 
   .rail-home {
     flex-shrink: 0;
+  }
+
+  .rail-waiting-counter {
+    width: 28px;
+    height: 22px;
+    border-radius: 999px;
+    background: #FEE2E2;
+    border: 1px solid #FCA5A5;
+    color: #DC2626;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 4px;
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.18);
   }
 
   .rail-active-bar {

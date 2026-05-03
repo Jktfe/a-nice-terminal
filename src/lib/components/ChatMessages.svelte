@@ -53,6 +53,7 @@
     linkedChatId: string;
     linkedChatHasMore: boolean;
     linkedChatLoadingMore: boolean;
+    terminalHasCliDriver?: boolean;
     replyTo: Record<string, unknown> | null;
     atBottom: boolean;
     mentionHandles: { handle: string; name: string }[];
@@ -94,6 +95,7 @@
     linkedChatId,
     linkedChatHasMore,
     linkedChatLoadingMore,
+    terminalHasCliDriver = false,
     replyTo,
     atBottom,
     mentionHandles,
@@ -393,6 +395,9 @@
     return [...mentionHandles, { handle: '@everyone', name: 'Everyone' }];
   });
   const linkedMentionChips = $derived(activeRoutingMentions(linkedChatInput, routingMentionHandles));
+  const linkedInputPlaceholder = $derived(
+    terminalHasCliDriver ? 'Message linked CLI…' : 'Message linked chat…'
+  );
 
   function resizeLinkedChatInput() {
     if (!linkedChatInputEl) return;
@@ -843,12 +848,17 @@
         {/each}
       </div>
     {/if}
+    {#if !terminalHasCliDriver}
+      <div class="px-3 pb-1 text-[11px]" style="color:var(--text-faint);">
+        Chat only. Pick a CLI driver above to send this box into the terminal.
+      </div>
+    {/if}
     <div class="flex items-end gap-2 p-3 border-t" style="border-color:var(--border-light);">
       <textarea
         bind:this={linkedChatInputEl}
         class="flex-1 rounded-lg px-3 py-2 text-sm outline-none resize-none"
         style="background:var(--bg-card);border:1px solid var(--border-subtle);color:var(--text);"
-        placeholder="Message linked chat…"
+        placeholder={linkedInputPlaceholder}
         bind:value={linkedChatInput}
         oninput={handleLinkedChatInput}
         onkeydown={handleLinkedChatKeydown}

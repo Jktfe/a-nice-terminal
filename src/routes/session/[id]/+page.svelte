@@ -26,6 +26,7 @@
     linked_chat_id?: string | null;
     ttl?: string;
     cli_flag?: string | null;
+    root_dir?: string | null;
     attention_state?: string | null;
     attention_reason?: string | null;
     attention_set_by?: string | null;
@@ -59,6 +60,22 @@
     raw_ref?: string;
   }
 
+  interface WorkspaceOption {
+    id: string;
+    name: string;
+    root_dir?: string | null;
+  }
+
+  interface UploadRecord {
+    id: string;
+    original_name: string;
+    mime_type: string;
+    content_hash: string;
+    size_bytes: number;
+    public_url: string;
+    created_at?: string;
+  }
+
   const toasts = useToasts();
 
   const sessionId = $derived($page.params.id as string);
@@ -83,11 +100,12 @@
   let showPanel = $state(typeof window !== 'undefined' ? window.innerWidth >= 1024 : true);
   let panelTab = $state('participants');
 
-  // Hide side panel in terminal modes so ANT Terminal and Raw Terminal get full width.
-  const effectiveShowPanel = $derived(showPanel && mode !== 'terminal' && mode !== 'raw');
+  const effectiveShowPanel = $derived(showPanel);
 
   let tasks = $state<{ id: string; status: string; [key: string]: unknown }[]>([]);
   let fileRefs = $state<{ id: string; file_path?: string; [key: string]: unknown }[]>([]);
+  let uploads = $state<UploadRecord[]>([]);
+  let workspaces = $state<WorkspaceOption[]>([]);
   let replyTo = $state<Record<string, unknown> | null>(null);
   let showDigest = $state(false);
 
@@ -171,6 +189,15 @@
     const res = await fetch('/api/memories?limit=50');
     const data = await res.json();
     memories = data.memories || [];
+  }
+
+  async function loadUploads(targetSessionId = sessionId) {
+    try {
+      const res = await fetch(`/api/sessions/${targetSessionId}/attachments`);
+      if (!res.ok) return;
+      const data = await res.json();
+      uploads = data.uploads || [];
+    } catch {}
   }
 
   async function addMemory(key: string, value: string) {
@@ -271,8 +298,13 @@
   const chatSearchSessionId = $derived(
     session?.type === 'terminal' ? (linkedChatId || '') : sessionId
   );
+  const terminalHasCliDriver = $derived(session?.type === 'terminal' && !!session?.cli_flag);
   const activeSearchResult = $derived(chatSearchResults[chatSearchSelectedIndex] ?? null);
   const activeSearchResultId = $derived(activeSearchResult?.id ?? null);
+
+  function shellQuotePath(path: string): string {
+    return `'${path.replace(/'/g, `'\\''`)}'`;
+  }
 
   async function loadLinkedChat(chatId: string) {
     if (!chatId) return;
@@ -392,10 +424,11 @@
 
   async function postToLinkedChat(text: string, replyToId: string | null = null) {
     if (!linkedChatId || !text.trim()) return;
-    // WS terminal_input FIRST — instant delivery to tmux (the gold standard path)
-    // Two-call protocol: text first, then \r separately after 50ms delay.
-    // Sending text+\r as one write fails in bracketed paste mode (Claude Code, Copilot etc.)
-    if (socket?.readyState === WebSocket.OPEN) {
+    const routeIntoTerminal = terminalHasCliDriver;
+
+    // LinkedChat only drives the PTY when this terminal has an explicit CLI driver.
+    // Plain terminals keep the chat history, but do not surprise-run text as shell input.
+    if (routeIntoTerminal && socket?.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: 'terminal_input', sessionId, data: text }));
       setTimeout(() => {
         if (socket?.readyState === WebSocket.OPEN) {
@@ -410,12 +443,18 @@
       body: JSON.stringify({
         role: 'user', content: text,
         format: 'text', sender_id: null, reply_to: replyToId, msg_type: 'message',
-        meta: { source: 'terminal_direct' },
+        meta: {
+          source: routeIntoTerminal ? 'terminal_direct' : 'linked_chat_only',
+          terminal_routing: routeIntoTerminal ? 'cli_driver' : 'chat_only_no_cli_driver',
+        },
       }),
     });
     const msg = await res.json();
     if (msg.id && !linkedChatMessages.find(m => m.id === msg.id)) {
       linkedChatMessages = [...linkedChatMessages, msg];
+    }
+    if (!routeIntoTerminal && session?.type === 'terminal') {
+      toasts.show('Saved to linked chat. Pick a CLI driver to send chat text into the terminal.');
     }
   }
 
@@ -644,6 +683,7 @@
     runEventsLoading = false;
     tasks = [];
     fileRefs = [];
+    uploads = [];
     mentionHandles = [];
     roomParticipants = [];
     postsFrom = [];
@@ -651,6 +691,7 @@
     linkedChatMessages = [];
     linkedChatHasMore = false;
     linkedChatLoadingMore = false;
+    workspaces = [];
     chatSearchQuery = '';
     chatSearchResults = [];
     chatSearchSelectedIndex = 0;
@@ -694,10 +735,8 @@
 
     session = loadedSession;
     allSessions = loadedSessions;
-    // Terminal sessions start with the panel hidden. Chat sessions keep the
-    // panel closed on narrower layouts so the conversation stays primary.
     const wideChatLayout = window.matchMedia('(min-width: 1024px)').matches;
-    showPanel = session?.type !== 'terminal' && wideChatLayout;
+    showPanel = wideChatLayout;
 
     if (session?.type === 'terminal' && session) {
       if (session.linked_chat_id) {
@@ -710,13 +749,18 @@
     if (loadSeq !== sessionLoadSeq || targetSessionId !== sessionId) return;
     requestAnimationFrame(() => scrollToBottom());
 
-    const [tasksRes, refsRes] = await Promise.all([
+    const [tasksRes, refsRes, uploadsRes, workspacesRes] = await Promise.all([
       fetch(`/api/sessions/${targetSessionId}/tasks`),
       fetch(`/api/sessions/${targetSessionId}/file-refs`),
+      fetch(`/api/sessions/${targetSessionId}/attachments`),
+      fetch('/api/workspaces'),
     ]);
     if (loadSeq !== sessionLoadSeq || targetSessionId !== sessionId) return;
     tasks = (await tasksRes.json()).tasks || [];
     fileRefs = (await refsRes.json()).refs || [];
+    uploads = (await uploadsRes.json()).uploads || [];
+    const workspaceData = await workspacesRes.json();
+    workspaces = Array.isArray(workspaceData) ? workspaceData : (workspaceData.workspaces || []);
     loadMentionHandles(
       session?.type === 'terminal' && linkedChatId ? linkedChatId : targetSessionId,
       targetSessionId,
@@ -808,6 +852,7 @@
 
   async function sendMessage(text: string, replyToId: string | null = null) {
     await msgStore.send(sessionId, text, { reply_to: replyToId });
+    await loadUploads(sessionId);
     replyTo = null;
   }
 
@@ -955,6 +1000,21 @@
     await sessionStore.updateTtl(sessionId, ttl);
     session = { ...session!, ttl };
     toasts.show(`Persistence changed to ${ttl === 'forever' ? 'Always On' : ttl}`);
+  }
+
+  async function jumpToWorkspace(workspace: WorkspaceOption) {
+    const rootDir = workspace.root_dir?.trim();
+    if (!rootDir || session?.type !== 'terminal') return;
+
+    const command = `cd ${shellQuotePath(rootDir)}`;
+    await fetch(`/api/sessions/${sessionId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ root_dir: rootDir }),
+    });
+    session = { ...session!, root_dir: rootDir };
+    await sendCommand(command);
+    toasts.show(`Changed folder to ${workspace.name || rootDir}`);
   }
 
   async function crossPost(targetId: string, text: string) {
@@ -1202,6 +1262,7 @@
           {linkedChatId}
           {linkedChatHasMore}
           {linkedChatLoadingMore}
+          {terminalHasCliDriver}
           {replyTo}
           {atBottom}
           {mentionHandles}
@@ -1383,9 +1444,12 @@
         {panelTab}
         {tasks}
         {fileRefs}
+        {uploads}
+        {workspaces}
         {allSessions}
         {linkedChatId}
         {linkedChatMessages}
+        referenceMessages={displayMessages}
         {linkedChatHasMore}
         {linkedChatLoadingMore}
         {activeTasks}
@@ -1401,6 +1465,7 @@
         onTabChange={(tab) => (panelTab = tab)}
         onTaskUpdated={(u) => { tasks = tasks.map(x => x.id === u.id ? u : x); }}
         onFileRefRemoved={(id) => { fileRefs = fileRefs.filter(x => x.id !== id); }}
+        onWorkspaceJump={jumpToWorkspace}
         onLinkedChatIdChange={(id) => {
           linkedChatId = id;
           if (id) loadMentionHandles(id, sessionId);

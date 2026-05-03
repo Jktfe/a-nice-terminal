@@ -338,7 +338,8 @@
         [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5
         [&_strong]:font-semibold
         [&_code]:px-1 [&_code]:py-px [&_code]:rounded [&_code]:text-xs
-        [&_pre]:my-1 [&_pre]:p-2 [&_pre]:rounded-lg [&_pre]:overflow-x-auto [&_pre]:text-xs"
+        [&_pre]:my-1 [&_pre]:p-2 [&_pre]:rounded-lg [&_pre]:overflow-x-auto [&_pre]:text-xs
+        [&_img]:my-2 [&_img]:max-w-full [&_img]:max-h-[420px] [&_img]:rounded-lg [&_img]:border [&_img]:border-gray-200 [&_img]:object-contain"
       style="
         font-size: 14px; line-height: 1.55; color: var(--text);
         --tw-prose-body: var(--text); --tw-prose-headings: var(--text);

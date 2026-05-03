@@ -7,6 +7,7 @@
   import QuickLaunchBar from '$lib/components/QuickLaunchBar.svelte';
   import RoomLinksPanel from '$lib/components/RoomLinksPanel.svelte';
   import { isAutoLinkedChatSession } from '$lib/utils/linked-chat';
+  import { getCliMode } from '$lib/cli-modes';
   import DOMPurify from 'isomorphic-dompurify';
 
   // FTS5 snippet() output is user-authored memory content with <b>…</b>
@@ -29,7 +30,25 @@
     attention_set_by?: string | null;
     attention_expires_at?: number | null;
     focus_queue_count?: number | null;
+    cli_flag?: string | null;
+    root_dir?: string | null;
     meta?: string | Record<string, unknown> | null;
+  }
+
+  interface UploadRecord {
+    id: string;
+    original_name: string;
+    mime_type: string;
+    content_hash: string;
+    size_bytes: number;
+    public_url: string;
+    created_at?: string;
+  }
+
+  interface WorkspaceOption {
+    id: string;
+    name: string;
+    root_dir?: string | null;
   }
 
   interface Props {
@@ -38,9 +57,12 @@
     panelTab: string;
     tasks: { id: string; status: string; [key: string]: unknown }[];
     fileRefs: { id: string; file_path?: string; [key: string]: unknown }[];
+    uploads?: UploadRecord[];
+    workspaces?: WorkspaceOption[];
     allSessions: PageSession[];
     linkedChatId: string;
     linkedChatMessages: Record<string, unknown>[];
+    referenceMessages?: Record<string, unknown>[];
     linkedChatHasMore: boolean;
     linkedChatLoadingMore: boolean;
     activeTasks: { id: string; status: string; [key: string]: unknown }[];
@@ -56,6 +78,7 @@
     onTabChange: (tab: string) => void;
     onTaskUpdated: (task: { id: string; status: string; [key: string]: unknown }) => void;
     onFileRefRemoved: (id: string) => void;
+    onWorkspaceJump?: (workspace: WorkspaceOption) => void;
     onLinkedChatIdChange: (id: string) => void;
     onLoadLinkedChat: (id: string) => void;
     onLoadOlderLinkedChat: () => void;
@@ -79,9 +102,12 @@
     panelTab,
     tasks,
     fileRefs,
+    uploads = [],
+    workspaces = [],
     allSessions,
     linkedChatId,
     linkedChatMessages,
+    referenceMessages = [],
     linkedChatHasMore,
     linkedChatLoadingMore,
     activeTasks,
@@ -97,6 +123,7 @@
     onTabChange,
     onTaskUpdated,
     onFileRefRemoved,
+    onWorkspaceJump,
     onLinkedChatIdChange,
     onLoadLinkedChat,
     onLoadOlderLinkedChat,
@@ -126,6 +153,7 @@
   // Which sections are expanded
   let participantsOpen = $state(true);
   let tasksOpen = $state(true);
+  let workspacesOpen = $state(true);
   let filesOpen = $state(true);
   let chatRoomsOpen = $state(true);
   let memoryOpen = $state(false);
@@ -310,24 +338,47 @@
     ...fileRefs.filter(r => !r.file_path?.startsWith('msg:')),
     ...fileRefs.filter(r => r.file_path?.startsWith('msg:')),
   ]);
-
+  const messageLinks = $derived.by(() => {
+    const seen = new Set<string>();
+    const links: { href: string; label: string; messageId: string }[] = [];
+    for (const message of referenceMessages) {
+      const content = typeof message.content === 'string' ? message.content : '';
+      const messageId = String(message.id ?? '');
+      for (const match of content.matchAll(/https?:\/\/[^\s<>)"']+/g)) {
+        const href = match[0].replace(/[.,;:!?]+$/, '');
+        if (!href || seen.has(href)) continue;
+        seen.add(href);
+        let label = href;
+        try {
+          const url = new URL(href);
+          label = `${url.hostname}${url.pathname === '/' ? '' : url.pathname}`;
+        } catch {}
+        links.push({ href, label, messageId });
+        if (links.length >= 20) return links;
+      }
+    }
+    return links;
+  });
   const isTerminal = $derived(session?.type === 'terminal');
+  const imageUploads = $derived(uploads.filter(u => u.mime_type?.startsWith('image/')));
+  const otherUploads = $derived(uploads.filter(u => !u.mime_type?.startsWith('image/')));
+  const filePanelCount = $derived(allFileRefs.length + uploads.length + messageLinks.length);
+  const terminalHasCliDriver = $derived(isTerminal && !!session?.cli_flag);
+
   const selectableChats = $derived(
     allSessions.filter(s => s.type === 'chat' && (!isAutoLinkedChatSession(s) || s.id === linkedChatId))
   );
 
   // Phase 6: map cli_flag to a display label
   function cliLabel(flag: string | null | undefined): string {
-    if (!flag) return '';
-    const labels: Record<string, string> = {
-      claude: 'Claude',
-      gemini: 'Gemini',
-      copilot: 'Copilot',
-      aider: 'Aider',
-      cursor: 'Cursor',
-      codex: 'Codex',
-    };
-    return labels[flag] || flag;
+    return getCliMode(flag)?.label || flag || '';
+  }
+
+  function formatBytes(bytes: number): string {
+    if (!Number.isFinite(bytes) || bytes <= 0) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 </script>
 
@@ -354,6 +405,61 @@
     </button>
   </div>
   <div class="flex-1 overflow-y-auto min-h-0 divide-y" style="divide-color: #F3F4F6;">
+
+    <!-- ─── SECTION: Folder Navigation ─── -->
+    {#if isTerminal}
+      <div>
+        <button
+          onclick={() => (workspacesOpen = !workspacesOpen)}
+          class="w-full flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-gray-50"
+          style="background: var(--bg);"
+        >
+          <div class="flex items-center gap-2 min-w-0">
+            <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: #6366F1;">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+            </svg>
+            <span class="text-xs font-semibold" style="color: var(--text);">Folders</span>
+            {#if session?.root_dir}
+              <span class="min-w-0 truncate text-[10px] font-mono" style="color: var(--text-faint);">{session.root_dir}</span>
+            {/if}
+          </div>
+          <svg
+            class="w-3.5 h-3.5 transition-transform flex-shrink-0"
+            style="color: var(--text-faint); transform: {workspacesOpen ? 'rotate(180deg)' : 'rotate(0deg)'};"
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+          </svg>
+        </button>
+
+        {#if workspacesOpen}
+          <div class="px-3 pb-3 space-y-1.5">
+            {#if workspaces.filter(w => w.root_dir).length === 0}
+              <div class="text-center py-4 opacity-50">
+                <p class="text-xs" style="color: var(--text-muted);">No folders saved</p>
+              </div>
+            {:else}
+              {#each workspaces.filter(w => w.root_dir) as workspace (workspace.id)}
+                <button
+                  type="button"
+                  onclick={() => onWorkspaceJump?.(workspace)}
+                  class="w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-gray-50"
+                  style="border: 1px solid #E5E7EB; background: {session?.root_dir === workspace.root_dir ? '#EEF2FF' : '#FAFAFA'};"
+                  title="Run cd {workspace.root_dir}"
+                >
+                  <span class="text-[10px] font-mono px-1.5 py-0.5 rounded" style="background: #111827; color: #F9FAFB;">cd</span>
+                  <span class="flex-1 min-w-0">
+                    <span class="block truncate text-xs font-semibold" style="color: var(--text);">{workspace.name}</span>
+                    <span class="block truncate text-[10px] font-mono" style="color: var(--text-faint);">{workspace.root_dir}</span>
+                  </span>
+                </button>
+              {/each}
+            {/if}
+          </div>
+        {/if}
+      </div>
+    {/if}
 
     <!-- ─── SECTION: Participants / Chat Rooms ─── -->
     <div>
@@ -456,11 +562,16 @@
                 scope="linkedChats"
                 onInsertCommand={insertLinkedQuickLaunch}
               />
+              {#if !terminalHasCliDriver}
+                <div class="text-[11px] px-2 py-1.5 rounded-lg mt-1.5" style="background:#F9FAFB;border:1px solid #E5E7EB;color:var(--text-faint);">
+                  Chat only. Pick a CLI driver to send this box into the terminal.
+                </div>
+              {/if}
               <div class="flex gap-1.5 mt-1.5">
                 <input
                   class="flex-1 text-xs rounded-lg px-2.5 py-1.5 outline-none"
                   style="background: #F3F4F6; border: 1px solid #E5E7EB; color: var(--text);"
-                  placeholder="Post to chat…"
+                  placeholder={terminalHasCliDriver ? 'Send to linked CLI…' : 'Post to chat…'}
                   bind:value={linkedChatInputLocal}
                   onkeydown={(e) => { if (e.key === 'Enter') handleLinkedChatSend(); }}
                 />
@@ -814,8 +925,8 @@
               d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
           </svg>
           <span class="text-xs font-semibold" style="color: var(--text);">File References</span>
-          {#if allFileRefs.length > 0}
-            <span class="px-1.5 py-0.5 rounded-full text-[10px] font-bold" style="background: #F3F4F6; color: #6B7280;">{allFileRefs.length}</span>
+          {#if filePanelCount > 0}
+            <span class="px-1.5 py-0.5 rounded-full text-[10px] font-bold" style="background: #F3F4F6; color: #6B7280;">{filePanelCount}</span>
           {/if}
         </div>
         <svg
@@ -829,7 +940,7 @@
 
       {#if filesOpen}
         <div class="px-3 pb-3 space-y-1">
-          {#if allFileRefs.length === 0 && bookmarkedMessages.length === 0}
+          {#if filePanelCount === 0 && bookmarkedMessages.length === 0}
             <div class="text-center py-6 opacity-50">
               <p class="text-xs" style="color: var(--text-muted);">No flagged files</p>
               <p class="text-[11px] mt-0.5" style="color: var(--text-faint);">Use 🔖 on a message or <code class="font-mono">ant flag</code></p>
@@ -855,6 +966,81 @@
                 </button>
               </div>
             {/each}
+
+            {#if messageLinks.length > 0}
+              <p class="text-[10px] font-semibold uppercase tracking-wide mt-2 mb-1 px-1" style="color: var(--text-faint);">Links</p>
+              {#each messageLinks as link (link.href)}
+                <a
+                  href={link.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  class="flex items-center gap-2 rounded-lg px-2.5 py-2"
+                  style="border: 1px solid #E5E7EB; background: #FAFAFA;"
+                  title={link.href}
+                >
+                  <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: #6366F1;">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+                  </svg>
+                  <span class="flex-1 min-w-0">
+                    <span class="block truncate text-xs" style="color: var(--text);">{link.label}</span>
+                    {#if link.messageId}
+                      <span class="block truncate text-[10px] font-mono" style="color: var(--text-faint);">msg:{link.messageId}</span>
+                    {/if}
+                  </span>
+                </a>
+              {/each}
+            {/if}
+
+            {#if imageUploads.length > 0}
+              <p class="text-[10px] font-semibold uppercase tracking-wide mt-2 mb-1 px-1" style="color: var(--text-faint);">Images</p>
+              <div class="grid grid-cols-2 gap-1.5">
+                {#each imageUploads as upload (upload.id)}
+                  <a
+                    href={upload.public_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    class="group block rounded-lg overflow-hidden"
+                    style="border:1px solid #E5E7EB;background:#FAFAFA;"
+                    title="{upload.original_name} · {formatBytes(upload.size_bytes)}"
+                  >
+                    <img
+                      src={upload.public_url}
+                      alt={upload.original_name}
+                      loading="lazy"
+                      class="w-full object-cover"
+                      style="aspect-ratio: 1 / 1;"
+                    />
+                    <div class="px-1.5 py-1">
+                      <p class="truncate text-[10px] font-mono" style="color:var(--text-muted);">{upload.original_name}</p>
+                      <p class="text-[9px]" style="color:var(--text-faint);">{formatBytes(upload.size_bytes)}</p>
+                    </div>
+                  </a>
+                {/each}
+              </div>
+            {/if}
+
+            {#if otherUploads.length > 0}
+              <p class="text-[10px] font-semibold uppercase tracking-wide mt-2 mb-1 px-1" style="color: var(--text-faint);">Uploads</p>
+              {#each otherUploads as upload (upload.id)}
+                <a
+                  href={upload.public_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  class="flex items-center gap-2 rounded-lg px-2.5 py-2"
+                  style="border: 1px solid #E5E7EB; background: #FAFAFA;"
+                >
+                  <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: #6366F1;">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M12 4v12m0 0l4-4m-4 4l-4-4M4 20h16"/>
+                  </svg>
+                  <span class="flex-1 min-w-0">
+                    <span class="block truncate text-xs font-mono" style="color: var(--text);">{upload.original_name}</span>
+                    <span class="block text-[10px]" style="color: var(--text-faint);">{upload.mime_type} · {formatBytes(upload.size_bytes)}</span>
+                  </span>
+                </a>
+              {/each}
+            {/if}
 
             {#if bookmarkedMessages.length > 0}
               <p class="text-[10px] font-semibold uppercase tracking-wide mt-2 mb-1 px-1" style="color: var(--text-faint);">Bookmarked messages</p>

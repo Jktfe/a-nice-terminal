@@ -59,6 +59,12 @@ export async function PATCH(event: RequestEvent<{ id: string }>) {
   if (body.ttl) {
     queries.updateTtl(body.ttl, params.id);
   }
+  if (body.root_dir !== undefined) {
+    const rootDir = typeof body.root_dir === 'string' && body.root_dir.trim()
+      ? body.root_dir.trim()
+      : null;
+    queries.updateRootDir(rootDir, params.id);
+  }
   if (nextName || body.status || body.archived !== undefined || body.meta !== undefined) {
     queries.updateSession(
       nextName || null,
