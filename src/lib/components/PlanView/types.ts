@@ -78,11 +78,14 @@ export interface PlanEvent {
   id: string;
   session_id: string;
   ts: number;
+  ts_ms?: number;
   source: PlanEventSource;
   trust: PlanEventTrust;
   kind: PlanEventKind;
+  text?: string;
   payload: PlanEventPayload;
   raw_ref?: string;
+  created_at?: string | null;
 }
 
 // Resolution result for a provenance reference. §6.5: "Do not silently drop

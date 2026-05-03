@@ -1144,11 +1144,30 @@ export const queries = {
       'FROM run_events',
       'WHERE session_id = ?',
       'AND kind IN (' + placeholders + ')',
+      'AND JSON_VALID(payload)',
       "AND JSON_EXTRACT(payload, '$.plan_id') = ?",
       'ORDER BY ts_ms ASC, id ASC',
       'LIMIT ?',
     ].join(' ');
     return prepare(sql).all(sessionId, ...kinds, planId, limit);
+  },
+
+  listPlanRefs: (kinds: string[], limit: number = 50) => {
+    // Trusted-kind helper for the Plan View source selector. Keeps discovery on
+    // plan_* run_events only and ignores malformed JSON payloads.
+    const placeholders = kinds.map(() => '?').join(',');
+    const sql = [
+      "SELECT session_id, JSON_EXTRACT(payload, '$.plan_id') AS plan_id,",
+      'COUNT(*) AS event_count, MAX(ts_ms) AS updated_ts_ms',
+      'FROM run_events',
+      'WHERE kind IN (' + placeholders + ')',
+      'AND JSON_VALID(payload)',
+      "AND JSON_TYPE(payload, '$.plan_id') = 'text'",
+      'GROUP BY session_id, plan_id',
+      'ORDER BY updated_ts_ms DESC',
+      'LIMIT ?',
+    ].join(' ');
+    return prepare(sql).all(...kinds, limit);
   },
   // Command events
   getCommands: (sessionId: string, limit: number) =>

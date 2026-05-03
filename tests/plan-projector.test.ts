@@ -11,6 +11,10 @@ import {
   resolveAllProvenance,
   type ResolveContext,
 } from '../src/lib/server/projector/provenance-resolver.js';
+import {
+  getPlanViewData,
+  listPlanRefs,
+} from '../src/lib/server/projector/plan-view.js';
 
 const TEST_SESSION = 'test-session-plan-projector';
 const TEST_PLAN = 'plan-m35-smoke';
@@ -160,6 +164,39 @@ describe('plan-projector first-patch gate', () => {
     const ordered = rows.slice().sort((a: any, b: any) => a.ts_ms - b.ts_ms);
     expect(ordered[0].kind).toBe('plan_section');
     expect(ordered[1].kind).toBe('plan_milestone');
+  });
+
+  it('hydrates Plan View data from live plan_* run_events', () => {
+    const livePlan = 'plan-live-route-smoke';
+    queries.appendRunEvent(
+      TEST_SESSION,
+      Date.now() + 10,
+      'json',
+      'high',
+      'plan_section',
+      'Live plan section',
+      seedPayload('plan_section', {
+        plan_id: livePlan,
+        title: 'Live plan section',
+        order: 0,
+      }),
+      null,
+    );
+
+    const refs = listPlanRefs(20);
+    expect(refs.some((r) => r.session_id === TEST_SESSION && r.plan_id === livePlan)).toBe(true);
+
+    const data = getPlanViewData({
+      sessionId: TEST_SESSION,
+      planId: livePlan,
+      limit: 20,
+    });
+    expect(data.source).toBe('live');
+    expect(data.session_id).toBe(TEST_SESSION);
+    expect(data.plan_id).toBe(livePlan);
+    expect(data.events).toHaveLength(1);
+    expect(data.events[0].kind).toBe('plan_section');
+    expect(data.events[0].payload.title).toBe('Live plan section');
   });
 
   it('resolves provenance exact → fallback → degraded ladder', () => {

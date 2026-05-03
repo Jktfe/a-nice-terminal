@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import getDb, { queries } from '../src/lib/server/db.js';
-import { GET } from '../src/routes/api/plan/+server.js';
+import { GET } from '../src/routes/api/plan/+server';
 
 const TEST_SESSION = 'test-session-plan-live-api';
 const OTHER_SESSION = 'test-session-plan-live-api-other';
