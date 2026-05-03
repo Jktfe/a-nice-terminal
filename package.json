@@ -28,16 +28,20 @@
   "license": "MIT",
   "engines": {
     "node": ">=20.19.4 <21",
-    "bun": ">=1.1.0"
+    "bun": ">=1.3.13"
   },
+  "overrides": {
+    "cookie": "^0.7.2"
+  },
+  "packageManager": "bun@1.3.13",
   "type": "module",
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "postbuild": "lsof -ti TCP:${ANT_PORT:-6458} | xargs kill -TERM 2>/dev/null && sleep 1 && nohup node --import ./node_modules/tsx/dist/esm/index.mjs ./server.ts >> /tmp/ant-server.log 2>&1 & disown || true",
     "preview": "vite preview",
     "start": "node --import ./node_modules/tsx/dist/esm/index.mjs ./server.ts",
     "start:prod": "npm run build && npm run start",
+    "restart:local": "lsof -ti TCP:${ANT_PORT:-6458} | xargs kill -TERM 2>/dev/null && sleep 1 && nohup node --import ./node_modules/tsx/dist/esm/index.mjs ./server.ts >> /tmp/ant-server.log 2>&1 & disown || true",
     "dev:full": "lsof -ti TCP:6458 | xargs kill -TERM 2>/dev/null; concurrently -n vite,server -c cyan,green \"vite build --watch\" \"nodemon --watch build --delay 1.5 --exec 'node --import ./node_modules/tsx/dist/esm/index.mjs ./server.ts'\"",
     "daemon:start": "node --import ./node_modules/tsx/dist/esm/index.mjs ./src/lib/server/pty-daemon.ts &",
     "daemon:stop": "node -e \"const fs=require('fs'); const p=(process.env.HOME||'/tmp')+'/.ant/pty-daemon.lock'; try { const pid=Number(fs.readFileSync(p,'utf8')); if (pid) process.kill(pid,'SIGTERM'); } catch {}\"",
@@ -48,13 +52,15 @@
     "fingerprint:codex": "tsx src/fingerprint/runner.ts --agent codex-cli",
     "fingerprint:all": "tsx src/fingerprint/runner.ts --all",
     "fingerprint:list": "tsx src/fingerprint/runner.ts --list",
-    "test": "npx svelte-kit sync 2>/dev/null; vitest run",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "svelte-kit sync 2>/dev/null; vitest run",
     "test:watch": "vitest",
-    "test:integration": "ANT_TEST_URL=${ANT_TEST_URL:-https://localhost:6458} vitest run --config vitest.integration.config.ts"
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "verify": "bun run check && bun run test && bun run build"
   },
   "dependencies": {
     "@sveltejs/adapter-node": "^5.5.4",
-    "@sveltejs/kit": "^2.56.1",
+    "@sveltejs/kit": "^2.59.0",
     "@sveltejs/vite-plugin-svelte": "^7.0.0",
     "@tailwindcss/vite": "^4.2.2",
     "@types/node": "^25.5.2",
@@ -73,7 +79,7 @@
     "svelte": "^5.55.1",
     "tailwindcss": "^4.2.2",
     "typescript": "^6.0.2",
-    "vite": "^8.0.3",
+    "vite": "^8.0.10",
     "ws": "^8.20.0"
   },
   "devDependencies": {
@@ -81,6 +87,7 @@
     "@types/ws": "^8.18.1",
     "concurrently": "^9.2.1",
     "nodemon": "^3.1.14",
+    "svelte-check": "^4.3.4",
     "tsx": "^4.21.0",
     "vitest": "^4.1.4"
   }

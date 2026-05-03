@@ -7,6 +7,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [Unreleased]
 
 ### Added
+- iOS experience catch-up planning is active: safe-area layout, touch hit targets, keyboard reflow, gestures, composer ergonomics, and folder-drawer mobile acceptance criteria.
+
+## [0.2.0] — 2026-05-04
+
+### Added
 - B1 — folder navigation drawer (Cmd+P / Ctrl+P, plus toolbar and side-panel tap targets for mobile)
 - B2 — blocked-prompt visibility surfaced in ActivityRail and SessionList
 - B3 — searchable CLI dropdown replacing the native `<select>` in ChatHeader
@@ -31,7 +36,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Security
 - Untrusted upload links hardened (M3 §1)
 - Reference panel inline image rendering gated on `/uploads/` prefix (B7)
+- SvelteKit and Vite updated to audited non-vulnerable ranges; `cookie` forced to a safe transitive version.
 
-## [0.2.0] — 2026-04 (pre-changelog)
+## [0.1.0] — 2026-04 (pre-changelog)
 
 Initial v3 architecture: SvelteKit + Node + WebSocket + SQLite (better-sqlite3, FTS5), with PTY daemon survival across server restarts. See [docs/LESSONS.md](docs/LESSONS.md) for design decisions and the commit log for the full history.

@@ -27,15 +27,15 @@ Commands run from the M4 worktree:
 ./node_modules/.bin/vitest run tests/pi-rpc-projection.test.ts
 # PASS: 1 file / 4 tests
 
-env PATH=/Users/jamesking/.nvm/versions/node/v22.22.1/bin:$PATH ./node_modules/.bin/vitest run
+env PATH=$HOME/.nvm/versions/node/v20.19.4/bin:$PATH ./node_modules/.bin/vitest run
 # PASS: 11 files passed / 1 skipped, 71 tests passed / 1 skipped
 
-env PATH=/Users/jamesking/.nvm/versions/node/v22.22.1/bin:$PATH npx --yes svelte-check
+env PATH=$HOME/.nvm/versions/node/v20.19.4/bin:$PATH npx --yes svelte-check
 # PASS: 0 errors / 0 warnings
 
-env PATH=/Users/jamesking/.nvm/versions/node/v22.22.1/bin:$PATH ./node_modules/.bin/vite build
+env PATH=$HOME/.nvm/versions/node/v20.19.4/bin:$PATH ./node_modules/.bin/vite build
 # PASS
 
-env PATH=/Users/jamesking/.nvm/versions/node/v20.19.5/bin:$PATH ANT_DATA_DIR=$(mktemp -d) node --import ./node_modules/tsx/dist/esm/index.mjs -e 'const { queries } = await import("./src/lib/server/db.js"); queries.createSession("m4-test","m4-test","terminal","15m",null,null,"{}"); const row = queries.appendRunEvent("m4-test", Date.now(), "rpc", "high", "tool_call", "bash started", JSON.stringify({ ok: true }), "pi-rpc:bytes=0-2;line=1;sha256=test"); console.log(row.source + ":" + row.trust + ":" + row.kind);'
+env PATH=$HOME/.nvm/versions/node/v20.19.4/bin:$PATH ANT_DATA_DIR=$(mktemp -d) node --import ./node_modules/tsx/dist/esm/index.mjs -e 'const { queries } = await import("./src/lib/server/db.js"); queries.createSession("m4-test","m4-test","terminal","15m",null,null,"{}"); const row = queries.appendRunEvent("m4-test", Date.now(), "rpc", "high", "tool_call", "bash started", JSON.stringify({ ok: true }), "pi-rpc:bytes=0-2;line=1;sha256=test"); console.log(row.source + ":" + row.trust + ":" + row.kind);'
 # PASS: inserted row returned rpc:high:tool_call
 ```

@@ -19,7 +19,7 @@ live room/session/evidence state from ANT when making decisions.
 ## Contract Notes
 
 - Base URL is the running ANT server, for example
-  `https://mac.kingfisher-interval.ts.net:6458`.
+  `https://your-ant-host.example:6458`.
 - External API callers should send `Authorization: Bearer <ANT_API_KEY>`,
   `X-API-Key: <ANT_API_KEY>`, or `?apiKey=<ANT_API_KEY>` when `ANT_API_KEY`
   is configured. Same-origin browser calls are exempt.

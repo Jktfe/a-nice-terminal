@@ -601,7 +601,7 @@ Scope: James expanded the required CLI coverage beyond Claude Code / Gemini CLI 
 | GitHub Copilot CLI | `copilot --version` -> `GitHub Copilot CLI 1.0.40` | `docs/agent-setup/COPILOT.md`, `src/drivers/copilot-cli/` |
 | Pi / shittycodingagent | `pi --version` -> `0.70.6`; binary is `@mariozechner/pi-coding-agent` | `docs/agent-setup/PI.md`, `src/drivers/pi/` |
 | Perspective | Homebrew `techopolis/tap/perspective` 0.3.0; `/opt/homebrew/bin/perspective` | `src/lib/cli-modes.ts` slug only; no driver |
-| Hermes | `Hermes Agent v0.12.0 (2026.4.30)`; `/Users/jamesking/.local/bin/hermes` | no slug/driver yet |
+| Hermes | `Hermes Agent v0.12.0 (2026.4.30)`; `~/.local/bin/hermes` | no slug/driver yet |
 
 ### Three Integration Modes
 
@@ -702,7 +702,7 @@ Source: https://github.com/techopolis/PerspectiveCLI
 
 **Origin**: Nous Research. Local copy is 2026-04-30 release. Python 3.11.11, OpenAI SDK 2.33.0.
 
-**Local binary**: `/Users/jamesking/.local/bin/hermes`. Project: `/Users/jamesking/.hermes/hermes-agent/` (~12k LOC AIAgent + ~11k LOC HermesCLI per local AGENTS.md).
+**Local binary**: `~/.local/bin/hermes`. Project: `~/.hermes/hermes-agent/` (~12k LOC AIAgent + ~11k LOC HermesCLI per local AGENTS.md).
 
 **Subcommand surface (40+ subcommands, structural surfaces highlighted)**:
 - Core: `chat`, `model`, `setup`, `auth`, `status`, `config`, `version`, `update`, `login`, `logout`.
@@ -991,8 +991,8 @@ Scope: replace stale @gemma4local probe with direct-shell verification, without 
 Scope: replace stale @gemini review with direct review of `6e7dc4c` on `delivery/m3-commandblock-ui`.
 
 - Result: FAIL with one contract blocker.
-- Finding: [CommandBlock.svelte](/Users/jamesking/CascadeProjects/a-nice-terminal-m3-commandblock/src/lib/components/CommandBlock.svelte:251) renders artifact images from `event.kind === 'artifact'` and `mime.startsWith('image/')` without checking `event.trust`. A `trust:'raw'` artifact event would therefore render rich image content, violating R4 §1 (`trust:'raw' bytes never render as rich content`) and R4 §3e trust-tier-locked rendering.
-- Related concern: [CommandBlock.svelte](/Users/jamesking/CascadeProjects/a-nice-terminal-m3-commandblock/src/lib/components/CommandBlock.svelte:238) renders `agent_prompt` option buttons without a trust gate. If a raw-trust prompt-shaped event reaches this branch, it becomes an interactive rich control.
+- Finding: [CommandBlock.svelte](src/lib/components/CommandBlock.svelte:251) renders artifact images from `event.kind === 'artifact'` and `mime.startsWith('image/')` without checking `event.trust`. A `trust:'raw'` artifact event would therefore render rich image content, violating R4 §1 (`trust:'raw' bytes never render as rich content`) and R4 §3e trust-tier-locked rendering.
+- Related concern: [CommandBlock.svelte](src/lib/components/CommandBlock.svelte:238) renders `agent_prompt` option buttons without a trust gate. If a raw-trust prompt-shaped event reaches this branch, it becomes an interactive rich control.
 - Narrow fix requested: gate rich artifact rendering and prompt option controls behind explicit non-raw trust policy. `trust:'raw'` should show escaped/plain metadata, raw_ref, and the Raw Terminal escape hint only.
 - Non-blocking positives: component now accepts a `RunEvent` object, timestamps remain visible, status is not injected into PTY output, text is Svelte-escaped, artifacts use `/api/artifacts/:hash` rather than PTY bytes, and the visual harness is scoped to the design route.
 

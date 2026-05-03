@@ -16,7 +16,7 @@ export const sampleRunEvents: RunEvent[] = [
     raw_ref: 'transcript_001:0-128',
     payload: {
       command: 'ls',
-      cwd: '/Users/jamesking/CascadeProjects/a-nice-terminal',
+      cwd: '/workspace/a-nice-terminal',
       exit_code: 0,
       started_at: '2026-05-02T18:30:00.000Z',
       finished_at: '2026-05-02T18:30:00.014Z',
@@ -35,7 +35,7 @@ export const sampleRunEvents: RunEvent[] = [
     raw_ref: 'transcript_001:128-176',
     payload: {
       command: 'false',
-      cwd: '/Users/jamesking/CascadeProjects/a-nice-terminal',
+      cwd: '/workspace/a-nice-terminal',
       exit_code: 1,
       started_at: '2026-05-02T18:30:01.000Z',
       finished_at: '2026-05-02T18:30:01.003Z',
@@ -54,7 +54,7 @@ export const sampleRunEvents: RunEvent[] = [
     raw_ref: 'transcript_001:176-220',
     payload: {
       command: 'echo ok',
-      cwd: '/Users/jamesking/CascadeProjects/a-nice-terminal',
+      cwd: '/workspace/a-nice-terminal',
       exit_code: 0,
       started_at: '2026-05-02T18:30:02.000Z',
       finished_at: '2026-05-02T18:30:02.002Z',
@@ -73,7 +73,7 @@ export const sampleRunEvents: RunEvent[] = [
     raw_ref: 'transcript_001:220-15400',
     payload: {
       command: 'bun install',
-      cwd: '/Users/jamesking/CascadeProjects/a-nice-terminal',
+      cwd: '/workspace/a-nice-terminal',
       exit_code: 0,
       started_at: '2026-05-02T18:30:10.000Z',
       finished_at: '2026-05-02T18:30:14.820Z',
@@ -99,7 +99,7 @@ export const sampleRunEvents: RunEvent[] = [
     raw_ref: 'transcript_001:15400-15800',
     payload: {
       command: 'vim README.md',
-      cwd: '/Users/jamesking/CascadeProjects/a-nice-terminal',
+      cwd: '/workspace/a-nice-terminal',
       exit_code: null,
       started_at: '2026-05-02T18:30:20.000Z',
       duration_ms: null,

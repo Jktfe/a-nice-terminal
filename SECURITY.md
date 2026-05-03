@@ -4,7 +4,11 @@
 
 Please do not open a public GitHub issue for security-sensitive reports.
 
-Instead, report the issue privately to the project maintainer with:
+Instead, use GitHub private vulnerability reporting for this repository:
+
+<https://github.com/Jktfe/a-nice-terminal/security/advisories/new>
+
+Include:
 
 - a description of the vulnerability
 - affected files, routes, or commands

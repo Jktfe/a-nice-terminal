@@ -428,7 +428,7 @@ had poisoned the shared native module for the daemon runtime.
 **Fix pattern**: rebuild the native dependency with the same Node
 binary launchd uses, then restart the service. For the observed
 failure, that meant explicitly using
-`/Users/jamesking/.nvm/versions/node/v20.19.4/bin/node` for the rebuild
+`$HOME/.nvm/versions/node/v20.19.4/bin/node` for the rebuild
 and then running `launchctl kickstart -k gui/UID/com.ant.server`.
 
 **Lesson**: launchd runtime, shell runtime, and worktree install

@@ -3,12 +3,12 @@
 [![CI](https://github.com/Jktfe/a-nice-terminal/actions/workflows/ci.yml/badge.svg)](https://github.com/Jktfe/a-nice-terminal/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-20.19.4-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
-[![Bun](https://img.shields.io/badge/bun-1.1+-000000?logo=bun&logoColor=white)](https://bun.sh/)
+[![Bun](https://img.shields.io/badge/bun-1.3.13-000000?logo=bun&logoColor=white)](https://bun.sh/)
 [![SvelteKit](https://img.shields.io/badge/SvelteKit-2-FF3E00?logo=svelte&logoColor=white)](https://kit.svelte.dev/)
 
 **The missing layer between "I have 13 AI CLIs" and "they actually work together."**
 
-ANT is a self-hosted agent orchestrator that coordinates multiple AI CLI tools (Claude Code, Gemini CLI, Codex, Copilot, Ollama, and more) through shared terminal sessions, persistent chat, and a convention-based coordination protocol — without requiring MCP servers, custom plugins, or framework lock-in.
+ANT is a self-hosted agent orchestrator that coordinates multiple AI CLI tools (Claude Code, Gemini CLI, Codex, Copilot, Qwen, Pi, Hermes, Ollama, and more) through shared terminal sessions, persistent chat, and a convention-based coordination protocol — without requiring MCP servers, custom plugins, or framework lock-in.
 
 ## Why ANT?
 
@@ -30,9 +30,15 @@ Most AI coding tools run in isolation. You can't easily have Claude Code review 
 ## Features
 
 - **Live terminal sessions** — full PTY streaming via WebSocket and xterm.js
+- **Rich ANT Terminal** — readable command blocks projected from append-only `run_events`, with a one-click Raw Terminal escape hatch
+- **Plan View** — live, provenance-backed milestone and acceptance-test view over the same event log
 - **Persistent chat** — message threads with FTS5 full-text search (trigram tokeniser for code-friendly matching)
 - **Multi-agent coordination** — agent registry, @mention routing, task delegation, shared memory
+- **Mobile-friendly controls** — pinned terminals, searchable CLI picker, folder drawer, file/reference panel, and Add Terminal shortcut
+- **Structured agent adapters** — Pi RPC and Hermes ACP project trusted JSON/ACP streams into the same event model as terminal capture
 - **CLI tool** (`ant`) — full session management, chat, tasks, memory, and agent control from anywhere
+- **Trust-tier rendering** — raw bytes never render as rich content; medium events stay escaped; high-trust events can render controlled cards/images
+- **Upload hardening** — authenticated, rate-limited, content-addressed uploads for chat/reference surfaces
 - **API key auth + Tailscale gating** — restrict access to your private network
 - **HTTPS/TLS** — self-signed cert support
 - **Session recovery** — PTY daemon survives server restarts
@@ -65,17 +71,20 @@ The trust hierarchy is explicit: structured hook/JSON events are highest trust, 
 ## Quick Start
 
 ```bash
-# Install
+# Install the app dependencies
 bun install
 
 # Configure
 cp .env.example .env
 # Edit .env — at minimum set ANT_API_KEY (generate with: openssl rand -hex 32)
 
-# Build and start
+# Build and start. Build is side-effect free; start runs the server.
 bun run build
 bun run start
 # Server runs at https://localhost:6458 (or http:// without TLS certs)
+
+# Local convenience: rebuild then restart the local server process.
+bun run restart:local
 ```
 
 ## CLI
@@ -185,7 +194,11 @@ bun run fingerprint:list                  # List available agents
 | Claude Code | 1 | Fully validated |
 | Gemini CLI | 1 | Fully validated |
 | Codex CLI | 1 | Fully validated |
-| GitHub Copilot | 2 | Partially validated |
+| Pi coding agent | 1 | Structured RPC adapter |
+| Hermes | 1 | Hermes ACP adapter |
+| GitHub Copilot | 2 | Partially validated / hook-capable |
+| Qwen CLI | 2 | Tmux/regex fallback |
+| Perspective CLI | 2 | Experimental macOS driver |
 | Ollama | 2 | Partially validated |
 | LM Studio | 2 | Experimental |
 
@@ -247,6 +260,10 @@ GET    /api/memories?q=...&limit=
 POST   /api/memories
 DELETE /api/memories?id=
 GET    /api/workspaces
+GET    /api/plan
+GET    /api/sessions/:id/run-events
+GET    /api/sessions/:id/file-refs
+POST   /api/upload
 WS     /ws
 ```
 
@@ -263,9 +280,21 @@ launchctl load ~/Library/LaunchAgents/ant.server.plist
 ## Development
 
 ```bash
-bun run dev          # Vite dev server
-bun run test         # Run tests (vitest)
-bun run test:watch   # Watch mode
+bun run dev              # Vite dev server
+bun run check            # svelte-check; must be 0 errors / 0 warnings
+bun run test             # Unit tests
+bun run test:integration # Live-server integration tests; set ANT_TEST_URL to enable
+bun run build            # Production build; no server restart side effects
+bun run verify           # check + unit tests + build
+bun run test:watch       # Watch mode
+```
+
+CI mirrors production by running under Node 20.19.4. If native modules drift after using a different Node version in a worktree, rebuild with the same Node version used by launchd before restarting the service.
+
+Integration tests are skipped unless `ANT_TEST_URL` points at a running server:
+
+```bash
+ANT_TEST_URL=https://your-ant-host.example:6458 bun run test:integration
 ```
 
 ## Contributing

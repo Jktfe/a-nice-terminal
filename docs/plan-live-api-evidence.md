@@ -18,12 +18,12 @@ Worktree: `../a-nice-terminal-plan-live-api`
 Commands run from the Plan Live API worktree under Node 20:
 
 ```bash
-PATH="/Users/jamesking/.nvm/versions/node/v20.19.4/bin:$PATH" npm exec vitest -- tests/plan-projector.test.ts tests/plan-live-api.test.ts --run
+PATH="$HOME/.nvm/versions/node/v20.19.4/bin:$PATH" npm exec vitest -- tests/plan-projector.test.ts tests/plan-live-api.test.ts --run
 # PASS: 2 files / 11 tests
 
-PATH="/Users/jamesking/.nvm/versions/node/v20.19.4/bin:$PATH" npm exec svelte-check -- --tsconfig ./tsconfig.json
+PATH="$HOME/.nvm/versions/node/v20.19.4/bin:$PATH" npm exec svelte-check -- --tsconfig ./tsconfig.json
 # PASS: 0 errors / 0 warnings
 
-PATH="/Users/jamesking/.nvm/versions/node/v20.19.4/bin:$PATH" npm exec vite build
+PATH="$HOME/.nvm/versions/node/v20.19.4/bin:$PATH" npm exec vite build
 # PASS
 ```

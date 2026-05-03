@@ -19,15 +19,15 @@ Commands run from the B2 worktree under Node 20:
 ```bash
 ./node_modules/.bin/svelte-kit sync
 
-env PATH=/Users/jamesking/.nvm/versions/node/v20.19.5/bin:$PATH ./node_modules/.bin/vitest run tests/prompt-bridge.test.ts
+env PATH=$HOME/.nvm/versions/node/v20.19.4/bin:$PATH ./node_modules/.bin/vitest run tests/prompt-bridge.test.ts
 # PASS: 1 file / 7 tests
 
-env PATH=/Users/jamesking/.nvm/versions/node/v20.19.5/bin:$PATH ./node_modules/.bin/vitest run
+env PATH=$HOME/.nvm/versions/node/v20.19.4/bin:$PATH ./node_modules/.bin/vitest run
 # PASS: 18 files / 109 tests, 1 skipped
 
-env PATH=/Users/jamesking/.nvm/versions/node/v20.19.5/bin:$PATH npx --yes svelte-check
+env PATH=$HOME/.nvm/versions/node/v20.19.4/bin:$PATH npx --yes svelte-check
 # PASS: 0 errors / 0 warnings
 
-env PATH=/Users/jamesking/.nvm/versions/node/v20.19.5/bin:$PATH ./node_modules/.bin/vite build
+env PATH=$HOME/.nvm/versions/node/v20.19.4/bin:$PATH ./node_modules/.bin/vite build
 # PASS
 ```
