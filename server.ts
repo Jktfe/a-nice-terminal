@@ -389,10 +389,12 @@ server.on('upgrade', (req, socket, head) => {
   // Room-token-scoped clients (Sec-WebSocket-Protocol: ant.token.<plaintext>
   // or ?token=<plaintext>). When a valid token is presented, we pin the WS
   // to the token's room and drop any out-of-room frames in the connection
-  // handler below. An invalid token → 401 even if API_KEY would have passed.
+  // handler below. Master API key auth must be classified first so configured
+  // CLI clients do not have their admin Bearer rejected as an invalid invite.
   let roomScope: { roomId: string; kind: string; handle: string | null; tokenId: string } | null = null;
   const tokenPlain = extractTokenFromHeaders(req.headers as Record<string, string | undefined>, upgradeUrl);
-  if (tokenPlain) {
+  const tokenIsMasterApiKey = !!API_KEY && tokenPlain === API_KEY;
+  if (tokenPlain && !tokenIsMasterApiKey) {
     const resolved = resolveToken(tokenPlain);
     if (!resolved) {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');

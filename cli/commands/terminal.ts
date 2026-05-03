@@ -46,8 +46,18 @@ function formatRunEvent(event: any): string {
   return `${event.source}/${event.trust}${raw}  ${event.text ?? ''}`;
 }
 
+export function wsUrlCandidatesFor(ctx: any): string[] {
+  const base = String(ctx.serverUrl || '').replace(/\/+$/, '');
+  const primary = base.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws';
+  const candidates = [primary];
+  if (primary.startsWith('ws://')) {
+    candidates.push(primary.replace('ws://', 'wss://'));
+  }
+  return [...new Set(candidates)];
+}
+
 function wsUrlFor(ctx: any): string {
-  return ctx.serverUrl.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws';
+  return wsUrlCandidatesFor(ctx)[0];
 }
 
 function connectHeaders(ctx: any) {
@@ -59,12 +69,14 @@ function connectHeaders(ctx: any) {
 
 async function sendViaSpawnedTerminal(ctx: any, sessionId: string, data: string) {
   await new Promise<void>((resolve, reject) => {
-    const ws = new WebSocket(wsUrlFor(ctx), connectHeaders(ctx));
+    const urls = wsUrlCandidatesFor(ctx);
+    let ws: WebSocket | null = null;
+    let urlIndex = 0;
     let settled = false;
     const timeout = setTimeout(() => {
       if (settled) return;
       settled = true;
-      try { ws.close(); } catch {}
+      try { ws?.close(); } catch {}
       reject(new Error('Timed out waiting for terminal session to spawn'));
     }, 8000);
 
@@ -72,31 +84,63 @@ async function sendViaSpawnedTerminal(ctx: any, sessionId: string, data: string)
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      try { ws.close(); } catch {}
+      try { ws?.close(); } catch {}
       error ? reject(error) : resolve();
     }
 
-    ws.on('open', () => {
-      ws.send(JSON.stringify({ type: 'join_session', sessionId, spawnPty: true, cols: 120, rows: 30 }));
-    });
+    function canRetry(url: string): boolean {
+      return url.startsWith('ws://') && urlIndex < urls.length - 1;
+    }
 
-    ws.on('message', (raw: Buffer) => {
-      try {
-        const msg = JSON.parse(raw.toString());
-        if (msg.type !== 'session_health' || msg.sessionId !== sessionId) return;
-        if (!msg.alive) {
-          done(new Error('Terminal session is not alive'));
+    function connectNext(lastError?: Error) {
+      if (settled) return;
+      const url = urls[urlIndex];
+      if (!url) {
+        done(lastError ?? new Error('No WebSocket URL available for terminal send'));
+        return;
+      }
+
+      let retrying = false;
+      let healthSeen = false;
+      ws = new WebSocket(url, connectHeaders(ctx));
+
+      function retryOrDone(error: Error) {
+        if (settled) return;
+        if (!healthSeen && canRetry(url)) {
+          retrying = true;
+          urlIndex += 1;
+          try { ws?.close(); } catch {}
+          connectNext(error);
           return;
         }
-        ws.send(JSON.stringify({ type: 'terminal_input', sessionId, data }));
-        setTimeout(() => done(), 150);
-      } catch {}
-    });
+        done(error);
+      }
 
-    ws.on('error', (err) => done(err instanceof Error ? err : new Error(String(err))));
-    ws.on('close', () => {
-      if (!settled) done(new Error('WebSocket closed before terminal input was sent'));
-    });
+      ws.on('open', () => {
+        ws?.send(JSON.stringify({ type: 'join_session', sessionId, spawnPty: true, cols: 120, rows: 30 }));
+      });
+
+      ws.on('message', (raw: Buffer) => {
+        try {
+          const msg = JSON.parse(raw.toString());
+          if (msg.type !== 'session_health' || msg.sessionId !== sessionId) return;
+          healthSeen = true;
+          if (!msg.alive) {
+            done(new Error('Terminal session is not alive'));
+            return;
+          }
+          ws?.send(JSON.stringify({ type: 'terminal_input', sessionId, data }));
+          setTimeout(() => done(), 150);
+        } catch {}
+      });
+
+      ws.on('error', (err) => retryOrDone(err instanceof Error ? err : new Error(String(err))));
+      ws.on('close', () => {
+        if (!settled && !retrying) retryOrDone(new Error('WebSocket closed before terminal input was sent'));
+      });
+    }
+
+    connectNext();
   });
 }
 
