@@ -183,6 +183,27 @@ means something is wrong — investigate or reassign.
 Enforce the one thing that matters in code (the schema). Leave the
 rest in markdown. Agents follow it.
 
+### 1.11 Boundary-hop diagnosis beats single-cause fixes
+
+When a live integration fails, map every boundary and test each hop
+directly before patching. Reproduce the user-path symptom, then split
+the path into independently provable steps: local config, URL/protocol
+selection, auth/upgrade, server log entry, daemon call, persisted
+evidence.
+
+This pattern caught the M1 WS-send failure in May 2026. The first
+diagnosis found that `http://` CLI config produced `ws://` against an
+HTTPS ANT server. A second audit pass found a separate auth-ordering
+bug: the WebSocket upgrade treated the configured master API key as an
+invalid room invite token before checking admin auth. Either fix alone
+would have shipped half-correct.
+
+**Lesson**: don't stop after the first plausible root cause. If a
+workflow crosses process, protocol, auth, or persistence boundaries,
+prove each boundary with the smallest direct probe and make the
+failure move. The patch is allowed only after the boundary map explains
+the symptom end to end.
+
 ---
 
 ## Part 2 — ANT-specific decisions not to re-litigate
@@ -380,6 +401,41 @@ safe.
 rebuild" needs to be a posted convention, not an assumption. Mystery
 500s in this repo were almost always stale chunks.
 
+### 3.10 Native module ABI must match the launchd Node
+
+The server can appear to start and still die before it is actually
+usable if a native dependency was rebuilt under a different Node than
+the launchd service uses. In May 2026, the server logged its normal
+"ANT v3 running at 6458" line, then immediately crashed in `db.ts`
+while loading `better_sqlite3.node`. The process looked alive briefly,
+but nothing was listening on the port.
+
+The root cause was a native ABI mismatch: `better-sqlite3` had been
+rebuilt against Node 22 (`NODE_MODULE_VERSION` 141), while the launchd
+plist ran Node 20.19.4 (`NODE_MODULE_VERSION` 115). A worktree install
+had poisoned the shared native module for the daemon runtime.
+
+**Diagnosis checklist**:
+
+1. Check the server logs for a native addon load failure after the
+   normal startup banner.
+2. Compare the launchd Node path with the shell Node path.
+3. Compare `process.versions.modules` for the runtime that built the
+   addon and the runtime that launches ANT.
+4. Confirm the port with `lsof -iTCP:6458` instead of trusting the
+   startup log line.
+
+**Fix pattern**: rebuild the native dependency with the same Node
+binary launchd uses, then restart the service. For the observed
+failure, that meant explicitly using
+`/Users/jamesking/.nvm/versions/node/v20.19.4/bin/node` for the rebuild
+and then running `launchctl kickstart -k gui/UID/com.ant.server`.
+
+**Lesson**: launchd runtime, shell runtime, and worktree install
+runtime are separate boundaries. Any dependency with a `.node` binary
+must be rebuilt under the daemon's Node version, not whichever Node an
+agent happened to use in a worktree.
+
 ---
 
 ## Part 4 — Changelog
@@ -392,3 +448,13 @@ Append new dated entries here as substrate-level lessons accumulate.
   `FINGERPRINTING.md`, and 58 commits (2026-04-15 through
   2026-04-22) into one retrospective. Source for Part 3 is the
   `git log` on this repo's visible branches.
+- **2026-05-03**: added the boundary-hop diagnosis pattern after the
+  M1 WS-send investigation. The useful reusable practice was not only
+  the two-part fix, but the method: reproduce the user path, then
+  independently test config -> protocol -> auth -> server log -> PTY
+  write -> persisted evidence before accepting a root cause.
+- **2026-05-03**: recorded the launchd/native-module ABI pattern after
+  the `better-sqlite3` crash. Worktree installs can rebuild `.node`
+  dependencies under a different Node version than the daemon uses; the
+  fix is to rebuild with the launchd Node binary and restart the
+  service.

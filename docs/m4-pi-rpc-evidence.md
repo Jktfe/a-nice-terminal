@@ -1,6 +1,6 @@
 # M4 Pi RPC Evidence
 
-Branch: `delivery/m4-pi-rpc`  
+Branch: `delivery/m4-pi-rpc`
 Worktree: `../a-nice-terminal-m4-pi-rpc`
 
 ## Scope
