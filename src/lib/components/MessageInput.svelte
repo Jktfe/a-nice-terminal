@@ -36,9 +36,49 @@
     if (handles.some((h) => h.handle === '@everyone')) return handles;
     return [...handles, { handle: '@everyone', name: 'Everyone' }];
   });
-  const filteredHandles = $derived(
-    routingHandles.filter(h => h.handle.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6)
-  );
+
+  // ── B9 — Fuzzy/scored mention matching (replaces plain substring filter) ──
+  // Scoring tiers, descending:
+  //   1000  exact match
+  //    500  prefix match (lower if target longer than query)
+  //    200  substring match
+  //     50+ subsequence match with prefix-bonus + consecutive-char bonus
+  // We score the @handle and the display name independently and take the max,
+  // so typing "cl" or "claude" or even "cd" (subsequence of "claude") all
+  // surface @claude / Claude as the top hit. Empty query returns first 6 in
+  // insertion order so the dropdown is useful before the user types anything.
+  function fuzzyScore(query: string, target: string): number {
+    const q = query.toLowerCase();
+    const t = target.toLowerCase();
+    if (!q) return 1;
+    if (t === q) return 1000;
+    if (t.startsWith(q)) return 500 - (t.length - q.length);
+    if (t.includes(q)) return 200 - (t.length - q.length);
+    let qi = 0;
+    let lastIdx = -1;
+    let bonus = 0;
+    for (let i = 0; i < t.length && qi < q.length; i++) {
+      if (t[i] === q[qi]) {
+        if (qi === 0 && i === 0) bonus += 30;
+        if (i === lastIdx + 1) bonus += 5;
+        lastIdx = i;
+        qi++;
+      }
+    }
+    if (qi !== q.length) return 0;
+    return 50 + bonus - (t.length - q.length);
+  }
+
+  const filteredHandles = $derived.by(() => {
+    const q = mentionQuery.trim();
+    if (!q) return routingHandles.slice(0, 6);
+    return routingHandles
+      .map(h => ({ h, score: Math.max(fuzzyScore(q, h.handle), fuzzyScore(q, h.name)) }))
+      .filter(x => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 6)
+      .map(x => x.h);
+  });
   const activeMentionChips = $derived(activeRoutingMentions(text, routingHandles));
 
   function resizeInput() {
