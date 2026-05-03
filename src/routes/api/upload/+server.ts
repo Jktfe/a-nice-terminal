@@ -1,44 +1,110 @@
-import { json, error } from '@sveltejs/kit';
-import type { RequestEvent } from '@sveltejs/kit';
-import { nanoid } from 'nanoid';
-import { writeFile, mkdir } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { error, json } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
+import { queries } from '$lib/server/db';
+import {
+  contentAddressedFilename,
+  getUploadPolicy,
+  isMimeAllowed,
+  resolveUploadIdentity,
+  sha256Hex,
+  uploadBodyMaxSize,
+} from '$lib/server/uploads';
 
-// Allow up to 10 MB uploads (SvelteKit default is 512 KB)
-export const config = { body: { maxSize: '10m' } };
+export const config = { body: { maxSize: uploadBodyMaxSize() } };
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const UPLOAD_DIR = join(process.cwd(), 'static', 'uploads');
+const UPLOAD_URL_PREFIX = '/uploads';
 
-export async function POST({ request }: RequestEvent) {
-  const contentType = request.headers.get('content-type') || '';
+function uploadPolicyFromConfig() {
+  return getUploadPolicy({
+    maxFileSizeMb: queries.getSetting('uploads.max_file_size_mb'),
+    rateLimitPerHandle: queries.getSetting('uploads.rate_limit_per_handle'),
+    dailyBytesPerHandle: queries.getSetting('uploads.daily_bytes_per_handle'),
+    mimeAllowlist: queries.getSetting('uploads.mime_allowlist'),
+  });
+}
+
+function handleLimitExceeded(handle: string, fileSize: number, policy: ReturnType<typeof getUploadPolicy>): void {
+  if (policy.rateLimitPerHandle !== null) {
+    const uploadsThisHour = Number(queries.countUploadsForHandleSince(handle, 60 * 60));
+    if (uploadsThisHour >= policy.rateLimitPerHandle) {
+      throw error(429, 'Upload rate limit exceeded for this handle');
+    }
+  }
+
+  if (policy.dailyBytesPerHandle !== null) {
+    const bytesToday = Number(queries.sumUploadBytesForHandleSince(handle, 24 * 60 * 60));
+    if (bytesToday + fileSize > policy.dailyBytesPerHandle) {
+      throw error(429, 'Daily upload byte quota exceeded for this handle');
+    }
+  }
+}
+
+export async function POST(event: RequestEvent) {
+  const identityResult = resolveUploadIdentity(event, queries);
+  if (!identityResult.ok) {
+    throw error(identityResult.status, identityResult.message);
+  }
+  const identity = identityResult.identity;
+
+  const contentType = event.request.headers.get('content-type') || '';
   if (!contentType.includes('multipart/form-data')) {
     throw error(400, 'Expected multipart/form-data');
   }
 
-  const formData = await request.formData();
+  const formData = await event.request.formData();
   const file = formData.get('file');
 
   if (!file || !(file instanceof File)) {
     throw error(400, 'Missing "file" field');
   }
 
-  if (!file.type.startsWith('image/')) {
-    throw error(400, 'Only image/* mime types are accepted');
+  const policy = uploadPolicyFromConfig();
+  const mimeType = file.type || 'application/octet-stream';
+  if (!isMimeAllowed(mimeType, policy.mimeAllowlist)) {
+    throw error(400, 'File MIME type is not allowed by upload policy');
   }
 
-  if (file.size > MAX_FILE_SIZE) {
-    throw error(413, 'File exceeds 10 MB limit');
+  if (file.size > policy.maxFileSizeBytes) {
+    throw error(413, `File exceeds configured ${policy.maxFileSizeMb} MB limit`);
   }
 
-  // Derive extension from mime type
-  const ext = file.type.split('/')[1]?.replace('jpeg', 'jpg') || 'bin';
-  const filename = `${Date.now()}-${nanoid(8)}.${ext}`;
-
-  await mkdir(UPLOAD_DIR, { recursive: true });
+  handleLimitExceeded(identity.handle, file.size, policy);
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  await writeFile(join(UPLOAD_DIR, filename), buffer);
+  const contentHash = sha256Hex(buffer);
+  const filename = contentAddressedFilename(contentHash, mimeType, file.name);
+  const storagePath = join('static', 'uploads', filename);
+  const publicUrl = `${UPLOAD_URL_PREFIX}/${filename}`;
 
-  return json({ url: `/uploads/${filename}` });
+  await mkdir(UPLOAD_DIR, { recursive: true });
+  try {
+    await writeFile(join(UPLOAD_DIR, filename), buffer, { flag: 'wx' });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') throw err;
+  }
+
+  queries.recordUpload(
+    randomUUID(),
+    identity.sessionId,
+    identity.handle,
+    file.name || null,
+    mimeType,
+    contentHash,
+    buffer.length,
+    storagePath,
+    publicUrl,
+  );
+
+  return json({
+    url: publicUrl,
+    markdown: `![image](${publicUrl})`,
+    session_id: identity.sessionId,
+    handle: identity.handle,
+    hash: contentHash,
+    size: buffer.length,
+  });
 }
