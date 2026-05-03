@@ -389,12 +389,61 @@
           letter-spacing: 1.4px; text-transform: uppercase; color: {s.textFaint};
           margin-bottom: 10px;
         "
-      >artifact · content-addressed via /api/artifacts/:hash (R4 §3b)</div>
-      <div>
+      >trust:high · artifact · inline image via /api/artifacts/:hash (R4 §3b)</div>
+      <div style="margin-bottom: 32px;">
         <CommandBlock
           event={cbEvents[6]}
           themeMode={mode}
           defaultExpanded
+        />
+      </div>
+
+      <!-- trust:medium artifact — link only, never inline render -->
+      <div
+        style="
+          font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+          letter-spacing: 1.4px; text-transform: uppercase; color: {s.textFaint};
+          margin-bottom: 10px;
+        "
+      >trust:medium · artifact · structured but escaped — link only (R4 §3e)</div>
+      <div style="margin-bottom: 32px;">
+        <CommandBlock
+          event={cbEvents[7]}
+          themeMode={mode}
+          defaultExpanded
+        />
+      </div>
+
+      <!-- trust:raw artifact — no img, no caption, only raw_ref + audit link -->
+      <div
+        style="
+          font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+          letter-spacing: 1.4px; text-transform: uppercase; color: {s.textFaint};
+          margin-bottom: 10px;
+        "
+      >trust:raw · artifact · §1 non-negotiable — no rich render, raw_ref + audit link only</div>
+      <div style="margin-bottom: 32px;">
+        <CommandBlock
+          event={cbEvents[8]}
+          themeMode={mode}
+          defaultExpanded
+        />
+      </div>
+
+      <!-- trust:raw agent_prompt — no @agent highlight, no option buttons -->
+      <div
+        style="
+          font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+          letter-spacing: 1.4px; text-transform: uppercase; color: {s.textFaint};
+          margin-bottom: 10px;
+        "
+      >trust:raw · agent_prompt · §1 non-negotiable — escaped text only, no buttons</div>
+      <div>
+        <CommandBlock
+          event={cbEvents[9]}
+          themeMode={mode}
+          defaultExpanded
+          onRespond={handleRespond}
         />
       </div>
     </div>

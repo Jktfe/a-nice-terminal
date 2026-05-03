@@ -35,7 +35,18 @@
 
   // R4 §1: trust:'raw' bytes never render as rich content. Hard rule.
   // R4 §3e: trust tiers gate the render path uniformly across kinds.
+  //
+  // Three tiers (consolidated reviewer guidance):
+  //   trust:high   → rich allowed (inline img, markdown, @agent highlight)
+  //   trust:medium → structured but escaped (link-only artifact, options
+  //                  buttons OK, no inline img, no @agent highlight, no markdown)
+  //   trust:raw    → no rich, no structured controls (escaped text + raw_ref +
+  //                  audit link to /api/artifacts/, no img, no buttons,
+  //                  no @agent highlight, no markdown)
   const trustTier = $derived(event.trust);
+  const isRaw = $derived(event.trust === 'raw');
+  const richAllowed = $derived(event.trust === 'high');
+  const structuredAllowed = $derived(event.trust !== 'raw');
 
   // Status dot — intent + outcome only, not session chrome.
   const statusColor = $derived.by(() => {
@@ -128,10 +139,17 @@
       </div>
     {:else if event.kind === 'agent_prompt'}
       {@const p = event.payload as AgentPromptPayload | undefined}
-      <span class="cb-cmd cb-cmd--prompt">
-        <span class="cb-agent">{p?.agent ?? '@agent'}</span>
-        <span class="cb-prompt-text">{p?.prompt ?? ''}</span>
-      </span>
+      {#if richAllowed}
+        <span class="cb-cmd cb-cmd--prompt">
+          <span class="cb-agent">{p?.agent ?? '@agent'}</span>
+          <span class="cb-prompt-text">{p?.prompt ?? ''}</span>
+        </span>
+      {:else}
+        <!-- §3e: medium and raw never render the @agent highlight; render as plain prefixed text -->
+        <span class="cb-cmd cb-cmd--prompt">
+          <span class="cb-prompt-text">{p?.agent ? p.agent + ': ' : ''}{p?.prompt ?? ''}</span>
+        </span>
+      {/if}
       <div class="cb-meta">
         <time class="cb-meta-item" datetime={new Date(event.ts).toISOString()}>{fmtTime(new Date(event.ts).toISOString())}</time>
       </div>
@@ -237,7 +255,8 @@
     {/if}
   {:else if event.kind === 'agent_prompt' && expanded}
     {@const p = event.payload as AgentPromptPayload | undefined}
-    {#if p?.options && p.options.length}
+    {#if structuredAllowed && p?.options && p.options.length}
+      <!-- §3e: high + medium may render structured option buttons -->
       <div class="cb-prompt-options">
         {#each p.options as opt}
           <button
@@ -247,19 +266,32 @@
           >{opt}</button>
         {/each}
       </div>
+    {:else if isRaw && p?.prompt}
+      <!-- §1 + §3e: trust:raw renders escaped prompt text only — no buttons, no rich -->
+      <pre class="cb-prompt-raw">{p.prompt}</pre>
+      <div class="cb-trunc">prompt is trust:raw — no interactive controls; check Raw Terminal at {event.raw_ref ?? '(no raw_ref)'} for byte-faithful source.</div>
     {/if}
   {:else if event.kind === 'artifact' && expanded}
     {@const p = event.payload as ArtifactPayload | undefined}
     {#if p?.hash}
-      {#if p.mime?.startsWith('image/')}
+      {#if richAllowed && p.mime?.startsWith('image/')}
+        <!-- §3e: trust:high may inline-render images via /api/artifacts/:hash -->
         <figure class="cb-artifact">
           <img src="/api/artifacts/{p.hash}" alt={p.caption ?? p.label ?? 'artifact'} loading="lazy" />
           {#if p.caption}<figcaption>{p.caption}</figcaption>{/if}
         </figure>
-      {:else}
+      {:else if structuredAllowed}
+        <!-- §3e: trust:medium gets a link only — never an inline image -->
         <a class="cb-artifact-link" href="/api/artifacts/{p.hash}" target="_blank" rel="noopener">
           {p.label ?? p.hash}
         </a>
+      {:else}
+        <!-- §1: trust:raw artifact — escaped raw_ref + audit link only, no img, no rich -->
+        <div class="cb-artifact-raw">
+          <code class="cb-artifact-rawref">{event.raw_ref ?? p.hash}</code>
+          <a class="cb-artifact-rawlink" href="/api/artifacts/{p.hash}" target="_blank" rel="noopener">audit bytes →</a>
+          <div class="cb-trunc">artifact is trust:raw — no inline render; open Raw Terminal for byte-faithful source.</div>
+        </div>
       {/if}
     {/if}
   {/if}
@@ -516,4 +548,43 @@
     text-decoration: none;
   }
   .cb-artifact-link:hover { text-decoration: underline; }
+
+  /* §3e: trust:raw renders artifact as escaped raw_ref + audit link only */
+  .cb-artifact-raw {
+    padding: 8px 12px 10px 26px;
+    border-top: 0.5px solid var(--cb-border);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 12px;
+  }
+  .cb-artifact-rawref {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--cb-text-faint);
+    background: rgba(0, 0, 0, 0.06);
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+  .cb-artifact-rawlink {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--cb-text-faint);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--cb-text-faint);
+  }
+  .cb-artifact-rawlink:hover { color: var(--cb-text-muted); }
+
+  /* §3e: trust:raw renders agent_prompt as escaped pre, no buttons */
+  .cb-prompt-raw {
+    margin: 0;
+    padding: 8px 12px 4px 26px;
+    border-top: 0.5px solid var(--cb-border);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    line-height: 1.55;
+    color: var(--cb-text-faint);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
 </style>

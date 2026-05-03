@@ -140,4 +140,53 @@ export const sampleRunEvents: RunEvent[] = [
       caption: 'Screenshot from headless Playwright run, captured by claude-code',
     },
   },
+  // ── trust:medium variants — structured but escaped (link-only, no inline render)
+  {
+    id: 'evt_008',
+    session_id: 'ses_demo',
+    ts: 1746189040000,
+    source: 'terminal',
+    trust: 'medium',
+    kind: 'artifact',
+    raw_ref: 'transcript_001:16040-16200',
+    payload: {
+      hash: 'sha256:1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b',
+      mime: 'image/png',
+      bytes: 24580,
+      label: 'medium-trust-image.png',
+      caption: 'Regex-classified terminal artifact — link only, no inline render per §3e',
+    },
+  },
+  // ── trust:raw variants — proves §1 + §3e gating: no img, no buttons, no @agent highlight
+  {
+    id: 'evt_009',
+    session_id: 'ses_demo',
+    ts: 1746189045000,
+    source: 'terminal',
+    trust: 'raw',
+    kind: 'artifact',
+    raw_ref: 'transcript_001:16200-16480',
+    payload: {
+      hash: 'sha256:9999aaaabbbbccccddddeeeeffff0000111122223333444455556677889900aa',
+      mime: 'image/png',
+      bytes: 12288,
+      label: 'raw-trust-screenshot.png',
+      caption: 'Caption suppressed at trust:raw — only raw_ref + audit link render',
+    },
+  },
+  {
+    id: 'evt_010',
+    session_id: 'ses_demo',
+    ts: 1746189050000,
+    source: 'terminal',
+    trust: 'raw',
+    kind: 'agent_prompt',
+    raw_ref: 'transcript_001:16480-16640',
+    payload: {
+      agent: '@unknown',
+      prompt: '⚠ Confirm wipe of /tmp/scratch (y/N): ',
+      options: ['y', 'N'],
+      prompt_id: 'prompt_raw_demo',
+    },
+  },
 ];
