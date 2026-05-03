@@ -1,6 +1,35 @@
 {
   "name": "ant-v3",
   "version": "0.2.0",
+  "description": "Self-hosted multi-agent terminal orchestrator that coordinates multiple AI CLIs (Claude Code, Gemini CLI, Codex, Copilot, Ollama, and more) through shared sessions, persistent chat, and convention-based protocols.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jktfe/a-nice-terminal.git"
+  },
+  "homepage": "https://github.com/Jktfe/a-nice-terminal#readme",
+  "bugs": {
+    "url": "https://github.com/Jktfe/a-nice-terminal/issues"
+  },
+  "keywords": [
+    "terminal",
+    "ai",
+    "agents",
+    "multi-agent",
+    "claude",
+    "gemini",
+    "codex",
+    "ollama",
+    "tmux",
+    "websocket",
+    "sveltekit",
+    "pty"
+  ],
+  "author": "James King <j.w.p.king@gmail.com> (https://github.com/Jktfe)",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.19.4 <21",
+    "bun": ">=1.1.0"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite dev",

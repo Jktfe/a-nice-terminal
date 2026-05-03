@@ -1,0 +1,12 @@
+# Default owner for everything in this repo.
+# Adjust per-path lines below as the maintainer set grows.
+*                       @Jktfe
+
+# Workflows + repo metadata stay with the project owner.
+/.github/               @Jktfe
+
+# Architecture-critical: server core, capture pipeline, run-events ladder.
+# Touching these usually warrants extra review attention (see R4 §1 in
+# docs/LESSONS.md) but technically still routes to the default owner today.
+/src/lib/server/        @Jktfe
+/server.ts              @Jktfe

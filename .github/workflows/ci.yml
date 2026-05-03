@@ -12,14 +12,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Match the runtime: launchd starts the server under Node 20.19.4.
+      # Native modules built against Node 22 in CI silently break against the
+      # launchd Node, so CI mirrors prod (see better-sqlite3 ABI memory).
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: '20.19.4'
           cache: npm
 
-      - run: npm ci
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.1.0'
 
-      - run: npx svelte-check --tsconfig ./tsconfig.json
-        continue-on-error: true
+      - run: bun install --frozen-lockfile
 
-      - run: npm test
+      - name: svelte-check (must be 0/0)
+        run: bunx svelte-check --tsconfig ./tsconfig.json
+
+      - name: unit tests
+        run: bun run test
+
+      - name: production build
+        run: bunx vite build

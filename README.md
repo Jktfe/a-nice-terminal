@@ -1,5 +1,11 @@
 # ANT — A Nice Terminal
 
+[![CI](https://github.com/Jktfe/a-nice-terminal/actions/workflows/ci.yml/badge.svg)](https://github.com/Jktfe/a-nice-terminal/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-20.19.4-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Bun](https://img.shields.io/badge/bun-1.1+-000000?logo=bun&logoColor=white)](https://bun.sh/)
+[![SvelteKit](https://img.shields.io/badge/SvelteKit-2-FF3E00?logo=svelte&logoColor=white)](https://kit.svelte.dev/)
+
 **The missing layer between "I have 13 AI CLIs" and "they actually work together."**
 
 ANT is a self-hosted agent orchestrator that coordinates multiple AI CLI tools (Claude Code, Gemini CLI, Codex, Copilot, Ollama, and more) through shared terminal sessions, persistent chat, and a convention-based coordination protocol — without requiring MCP servers, custom plugins, or framework lock-in.
