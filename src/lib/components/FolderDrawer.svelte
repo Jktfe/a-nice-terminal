@@ -161,6 +161,7 @@
       e.preventDefault();
       const it = filtered[focusIdx];
       if (it) commit(it);
+      else if (query.trim()) commit({ path: query.trim(), source: 'recent' });
     }
     else if (e.key === 'Escape') { e.preventDefault(); onClose(); }
   }

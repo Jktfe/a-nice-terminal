@@ -43,6 +43,11 @@ static/uploads/
 ant-probe/output*.txt
 ant-probe/string_utils.py
 
+# Playwright + evidence captures
+output/
+docs/*-evidence.png
+docs/*-expanded.png
+
 # Scratch docs
 suggested-hooks-for-gemini.md
 

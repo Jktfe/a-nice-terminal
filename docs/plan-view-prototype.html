@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ANT — Plan View (R4 Prototype)</title>
+<style>
+  :root {
+    --bg: #0d0d0e;
+    --surface: #161618;
+    --surface-hover: #1a1a1d;
+    --border: #232327;
+    --border-strong: #2e2e33;
+    --text: #e8e6e1;
+    --text-dim: #8a8a86;
+    --text-faint: #4a4a48;
+    --accent-active: #c89866;
+    --accent-done: #6b8e6b;
+    --accent-fail: #b4716e;
+    --accent-link: #8a9ab4;
+    --mono: ui-monospace, "SF Mono", "Menlo", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.55 -apple-system, "Inter", system-ui, sans-serif;
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+  }
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 220px;
+    gap: 48px;
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 56px 32px 120px;
+  }
+  /* Header */
+  header.plan {
+    grid-column: 1 / -1;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 24px;
+    margin-bottom: 16px;
+  }
+  header.plan h1 {
+    font-size: 22px;
+    font-weight: 500;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+  header.plan .subtitle {
+    color: var(--text-dim);
+    font-size: 13px;
+    margin-top: 6px;
+  }
+  /* Main column */
+  main {
+    min-width: 0;
+  }
+  section.plan-section {
+    margin-bottom: 44px;
+  }
+  section.plan-section > .section-header {
+    position: sticky;
+    top: 0;
+    background: linear-gradient(to bottom, var(--bg) 70%, transparent);
+    padding: 16px 0 10px;
+    margin: 0 0 14px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    z-index: 5;
+  }
+  section.plan-section h2 {
+    font-size: 16px;
+    font-weight: 500;
+    margin: 0;
+    letter-spacing: -0.005em;
+  }
+  section.plan-section .meta {
+    color: var(--text-faint);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Plain rule rows (Non-negotiables) */
+  ul.rules {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  ul.rules li {
+    color: var(--text);
+    font-size: 14px;
+    padding-left: 18px;
+    position: relative;
+  }
+  ul.rules li::before {
+    content: "·";
+    position: absolute;
+    left: 4px;
+    top: -2px;
+    color: var(--text-faint);
+    font-size: 18px;
+  }
+  ul.rules li em {
+    color: var(--text-dim);
+    font-style: normal;
+  }
+  /* Architecture paragraphs */
+  .arch p {
+    margin: 0 0 12px;
+    color: var(--text);
+  }
+  .arch p .term {
+    color: var(--accent-link);
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+  /* Decision rows */
+  ul.decisions {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  ul.decisions li {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+  }
+  ul.decisions li:last-child { border-bottom: none; }
+  ul.decisions li .marker {
+    flex: 0 0 auto;
+    color: var(--text-faint);
+    font-family: var(--mono);
+    font-size: 12px;
+    width: 18px;
+  }
+  ul.decisions li .body { flex: 1 1 auto; }
+  ul.decisions li .provenance {
+    display: block;
+    font-size: 12px;
+    color: var(--text-faint);
+    margin-top: 4px;
+  }
+  ul.decisions li .provenance a {
+    color: var(--accent-link);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--text-faint);
+    padding-bottom: 1px;
+  }
+  ul.decisions li .provenance a:hover {
+    color: var(--text);
+    border-bottom-color: var(--accent-link);
+  }
+  /* Milestone cards */
+  .milestones {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  details.milestone {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0;
+    transition: border-color 0.2s ease;
+  }
+  details.milestone:hover {
+    border-color: var(--border-strong);
+  }
+  details.milestone[open] {
+    border-color: var(--border-strong);
+  }
+  details.milestone summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 14px 18px;
+    display: grid;
+    grid-template-columns: 24px 1fr auto;
+    gap: 14px;
+    align-items: baseline;
+  }
+  details.milestone summary::-webkit-details-marker { display: none; }
+  details.milestone summary::marker { display: none; }
+  details.milestone .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    align-self: center;
+    margin-top: 2px;
+    flex: 0 0 auto;
+    background: var(--text-faint);
+  }
+  details.milestone[data-status="active"] .status-dot {
+    background: var(--accent-active);
+    box-shadow: 0 0 0 4px rgba(200, 152, 102, 0.12);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  details.milestone[data-status="done"] .status-dot { background: var(--accent-done); }
+  details.milestone[data-status="failed"] .status-dot { background: var(--accent-fail); }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 4px rgba(200, 152, 102, 0.12); }
+    50% { box-shadow: 0 0 0 7px rgba(200, 152, 102, 0.04); }
+  }
+  details.milestone .label { font-size: 14px; }
+  details.milestone .label .id {
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 12px;
+    margin-right: 8px;
+  }
+  details.milestone .meta-row {
+    color: var(--text-faint);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  details.milestone .meta-row .owner {
+    color: var(--accent-link);
+  }
+  details.milestone .body {
+    padding: 0 18px 18px 56px;
+    border-top: 1px solid var(--border);
+    margin-top: 4px;
+    padding-top: 14px;
+  }
+  details.milestone .body h4 {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-dim);
+    margin: 0 0 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  details.milestone .body .acceptance {
+    background: rgba(255,255,255,0.02);
+    border-left: 2px solid var(--border-strong);
+    padding: 10px 14px;
+    margin: 0 0 14px;
+    color: var(--text);
+    font-size: 13.5px;
+  }
+  details.milestone .body .checklist {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  details.milestone .body .checklist li {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    color: var(--text);
+    font-size: 13.5px;
+  }
+  details.milestone .body .checklist li .check {
+    color: var(--text-faint);
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+  details.milestone .body .checklist li[data-state="passing"] .check { color: var(--accent-done); }
+  details.milestone .body .checklist li[data-state="failing"] .check { color: var(--accent-fail); }
+  details.milestone .body .links {
+    display: flex;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--text-faint);
+  }
+  details.milestone .body .links a {
+    color: var(--accent-link);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--text-faint);
+  }
+  details.milestone .body .links a:hover { color: var(--text); }
+  /* Deferred bets */
+  ul.deferred {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  ul.deferred li {
+    color: var(--text-dim);
+    font-size: 13px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  ul.deferred li:last-child { border: none; }
+  ul.deferred li strong {
+    color: var(--text);
+    font-weight: 500;
+  }
+  ul.deferred li .why {
+    color: var(--text-faint);
+    font-size: 12px;
+    display: block;
+    margin-top: 2px;
+  }
+  /* Side rail (status) */
+  aside.status-rail {
+    position: sticky;
+    top: 32px;
+    align-self: start;
+    height: fit-content;
+    border-left: 1px solid var(--border);
+    padding-left: 24px;
+    font-size: 12.5px;
+  }
+  aside.status-rail h3 {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-dim);
+    margin: 0 0 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  aside.status-rail .live-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 6px 0;
+    color: var(--text);
+  }
+  aside.status-rail .live-row .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-faint);
+    flex: 0 0 auto;
+  }
+  aside.status-rail .live-row.active .dot {
+    background: var(--accent-active);
+    animation: pulse-small 2.4s ease-in-out infinite;
+  }
+  aside.status-rail .live-row.done .dot { background: var(--accent-done); }
+  aside.status-rail .live-row .label {
+    flex: 1;
+    color: var(--text);
+  }
+  aside.status-rail .live-row .when {
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+    font-size: 11px;
+  }
+  @keyframes pulse-small {
+    0%, 100% { box-shadow: 0 0 0 3px rgba(200, 152, 102, 0.15); }
+    50% { box-shadow: 0 0 0 5px rgba(200, 152, 102, 0.04); }
+  }
+  aside.status-rail .group {
+    margin-bottom: 28px;
+  }
+  aside.status-rail .group:last-child { margin-bottom: 0; }
+  /* Provenance footer */
+  footer.notes {
+    grid-column: 1 / -1;
+    margin-top: 64px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    color: var(--text-faint);
+    font-size: 11.5px;
+    line-height: 1.7;
+    font-family: var(--mono);
+  }
+  /* Ensure anchored links don't slide under sticky headers */
+  section[id] { scroll-margin-top: 80px; }
+  /* Responsive */
+  @media (max-width: 880px) {
+    .layout {
+      grid-template-columns: 1fr;
+      gap: 32px;
+      padding: 32px 20px 80px;
+    }
+    aside.status-rail {
+      position: static;
+      border-left: none;
+      border-top: 1px solid var(--border);
+      padding: 24px 0 0;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <header class="plan">
+    <h1>ANT — Plan</h1>
+    <div class="subtitle">R4 Decision Output · 4 agents · 9 sections · last updated 2 min ago</div>
+  </header>
+
+  <main>
+    <section class="plan-section" id="non-negotiables">
+      <div class="section-header">
+        <h2>Non-negotiables</h2>
+        <span class="meta">7 rules · override everything below</span>
+      </div>
+      <ul class="rules">
+        <li>The Raw Terminal is byte-faithful. <em>No structured layer can drop, reorder, or summarise PTY bytes.</em></li>
+        <li>Timestamps are required signal on every event.</li>
+        <li>trust:'raw' bytes never render as rich content.</li>
+        <li>Status displays separately from the timeline.</li>
+        <li>The user's intent is the main grid.</li>
+        <li>Trust belongs to events, not agents.</li>
+        <li>No code is shipped from ANTstorm.</li>
+      </ul>
+    </section>
+
+    <section class="plan-section" id="architecture">
+      <div class="section-header">
+        <h2>Source-of-truth architecture</h2>
+        <span class="meta">one log, four projections</span>
+      </div>
+      <div class="arch">
+        <p>Canonical truth = <span class="term">append-only JSONL log</span> per session on disk. The only artifact that cannot be lost or rebuilt from elsewhere.</p>
+        <p><span class="term">SQL projections</span> (run_events, command_events, FTS5) rebuilt from the log via a single writeLogAndProject() function.</p>
+        <p><span class="term">Markdown views</span> are derived — generated from the log on demand, never the source of truth.</p>
+        <p><span class="term">Artifacts</span> content-addressed by SHA-256, served via /api/artifacts/:hash, referenced from run_events.payload.</p>
+      </div>
+    </section>
+
+    <section class="plan-section" id="track1">
+      <div class="section-header">
+        <h2>Track 1 — ANT Terminal</h2>
+        <span class="meta">rich · quiet · readable</span>
+      </div>
+      <ul class="decisions">
+        <li><span class="marker">a</span><span class="body">run_events is the primary interpretative projection. CommandBlock renders from a run_event object, not flat props. Three kinds to start: command_block, agent_prompt, artifact.<span class="provenance"><a href="#prov-a">@ocloudant R1 §1</a> · <a href="#prov-a">@antclaude R1 supporter §4</a></span></span></li>
+        <li><span class="marker">b</span><span class="body">Rich content via /api/artifacts/, never PTY. Inline graphics (Sixel / Kitty / OSC 1337) NOT enabled in Phase 1. Raw Terminal never receives placeholder bytes — placeholders are UI annotations anchored by raw_ref.<span class="provenance"><a href="#prov-b">@antclaude R1 supporter §4</a> · <a href="#prov-b">@gemini R3 §3</a></span></span></li>
+        <li><span class="marker">c</span><span class="body">Inline overlay prompt cards anchored to scroll position. Overlay exists only in the ANT Terminal layer; only injected response keystrokes enter the PTY.<span class="provenance"><a href="#prov-c">@ocloudant R1 §4</a> · <a href="#prov-c">@antcodex R4 review</a></span></span></li>
+        <li><span class="marker">d</span><span class="body">Cool-AF visual rules: hide chrome by default; compress aggressively; one typeface, two weights, two sizes; motion that means something; no status babble.<span class="provenance"><a href="#prov-d">james · terminalChat thread</a></span></span></li>
+        <li><span class="marker">e</span><span class="body">Sanitised renderer. trust:'high' renders rich; trust:'medium' renders structured but escaped; trust:'raw' never rich.</span></li>
+        <li><span class="marker">f</span><span class="body">Raw Terminal is one tab/click away — escape hatch, not default.</span></li>
+      </ul>
+    </section>
+
+    <section class="plan-section" id="track2">
+      <div class="section-header">
+        <h2>Track 2 — RAW Browser Terminal</h2>
+        <span class="meta">the contract that lets Track 1 be beautiful without becoming misleading</span>
+      </div>
+      <ul class="decisions">
+        <li><span class="marker">a</span><span class="body">xterm.js is the live-tail renderer, not the transcript database. Bounded scrollback only.</span></li>
+        <li><span class="marker">b</span><span class="body">Canonical log + SQLite own transcript/search. Deep history is virtualized, never replayed into xterm.</span></li>
+        <li><span class="marker">c</span><span class="body">tmux is recovery/control, not source of truth. Reconnect events tagged source:'tmux' trust:'raw' with byte-range gap recorded.</span></li>
+        <li><span class="marker">d</span><span class="body">Five explicit scroll-anchor states: following, user_scrolled, replaying, alt_screen, hidden.</span></li>
+        <li><span class="marker">e</span><span class="body">Backpressure is explicit: terminal_throttle → tmux %pause / %continue. Dropping bytes is never valid.</span></li>
+        <li><span class="marker">f</span><span class="body">DOM renderer default; WebGL behind feature flag, after document.fonts.ready, fallback on contextlost.</span></li>
+        <li><span class="marker">g</span><span class="body">tmux allow-passthrough OFF by default. Phase 2 only with regression tests proving stability.</span></li>
+        <li><span class="marker">h</span><span class="body">Nine failure modes named for direct test: duplicate replay, missing bytes during throttle, scroll jumps mid-read, alt-screen corruption, font/WebGL race, hidden-tab burst, clear-screen flicker, capture truncation, mobile resize.</span></li>
+      </ul>
+    </section>
+
+    <section class="plan-section" id="milestones">
+      <div class="section-header">
+        <h2>Milestones</h2>
+        <span class="meta">5 + 1 · ordered · with measurable acceptance</span>
+      </div>
+      <div class="milestones">
+
+        <details class="milestone" data-status="active" open>
+          <summary>
+            <span class="status-dot"></span>
+            <span class="label"><span class="id">M1</span>OSC 133 shell hooks foundation</span>
+            <span class="meta-row">Track 2 baseline · <span class="owner">@antcodex</span> · started 14:32</span>
+          </summary>
+          <div class="body">
+            <h4>Acceptance</h4>
+            <div class="acceptance">
+              <code>ls &amp;&amp; false &amp;&amp; echo ok</code> in a fresh session produces exactly three run_events with kinds command_block and exit-code values 0, 1, 0. Same test must pass through tmux-mediated reconnect: no duplicate events, no missing event, monotonic timestamps, non-overlapping raw byte offsets, and visible terminal state matching <code>tmux capture-pane -e -J</code> for the active screen.
+            </div>
+            <h4>Tests</h4>
+            <ul class="checklist">
+              <li data-state="passing"><span class="check">✓</span>shell-integration files inject without modifying user rc</li>
+              <li data-state="passing"><span class="check">✓</span>OSC 133 A/B/C/D parsed in pty-daemon</li>
+              <li data-state="failing"><span class="check">·</span>three run_events landed for ls && false && echo ok</li>
+              <li><span class="check">·</span>tmux reconnect produces no duplicate or missing events</li>
+              <li><span class="check">·</span>byte offsets non-overlapping across reconnect</li>
+            </ul>
+            <div class="links">
+              <a href="#localANTtasks">localANTtasks · gc6Dti9F</a>
+              <a href="#prov-m1">from R1 §6 (Codex)</a>
+              <a href="#raw">view raw evidence</a>
+            </div>
+          </div>
+        </details>
+
+        <details class="milestone" data-status="pending">
+          <summary>
+            <span class="status-dot"></span>
+            <span class="label"><span class="id">M2</span>WebGL renderer behind feature flag</span>
+            <span class="meta-row">Track 2 quick win · <span class="owner">@antcodex</span> · queued</span>
+          </summary>
+          <div class="body">
+            <h4>Acceptance</h4>
+            <div class="acceptance">
+              100k-line burst output renders without main-thread stalls. Chrome DevTools Performance shows ~5× scripting-time reduction vs DOM. Reproduction: <code>node -e 'for (let i = 0; i &lt; 100000; i++) console.log(...)'</code>. Playwright pixel diff &lt; 0.5% across desktop Safari, Chrome, mobile Safari, mobile Chrome.
+            </div>
+            <div class="links">
+              <a href="#prov-m2">from R2 §3 (Gemini)</a>
+            </div>
+          </div>
+        </details>
+
+        <details class="milestone" data-status="pending">
+          <summary>
+            <span class="status-dot"></span>
+            <span class="label"><span class="id">M3</span>CommandBlock visual prototype</span>
+            <span class="meta-row">Track 1 cool-AF · <span class="owner">@antclaude</span> · design</span>
+          </summary>
+          <div class="body">
+            <h4>Acceptance</h4>
+            <div class="acceptance">
+              A non-technical viewer skims a 30-minute session and can describe what happened in under 30 seconds without reading any inline timestamps. Status badges live separately from the flow.
+            </div>
+          </div>
+        </details>
+
+        <details class="milestone" data-status="pending">
+          <summary>
+            <span class="status-dot"></span>
+            <span class="label"><span class="id">M3.5</span>Plan View — dogfood the architecture</span>
+            <span class="meta-row">Track 1 meta · <span class="owner">@antclaude</span> · design</span>
+          </summary>
+          <div class="body">
+            <h4>Acceptance</h4>
+            <div class="acceptance">
+              A non-technical viewer reads the R4 plan rendered in ANT in under 5 minutes and can explain what we're building. New run_event kinds (plan_section, plan_milestone, plan_decision, plan_acceptance) projected through the same component infrastructure as M3. The doc you're reading right now is the prototype.
+            </div>
+            <div class="links">
+              <a href="#prov-m35">from terminalChat (james · 'an md doesnt cut it')</a>
+            </div>
+          </div>
+        </details>
+
+        <details class="milestone" data-status="pending">
+          <summary>
+            <span class="status-dot"></span>
+            <span class="label"><span class="id">M4</span>Pi RPC structured transport adapter</span>
+            <span class="meta-row">high-trust integration · <span class="owner">@antcodex</span> · queued</span>
+          </summary>
+          <div class="body">
+            <h4>Acceptance</h4>
+            <div class="acceptance">
+              Pi session under ANT shows tool-call card, prompt card, and approval card in the ANT Terminal, all from JSONL events. Byte-equivalence test: tee Pi RPC stdin/stdout to raw transcript before parsing; replay parser from raw offsets; assert reproduction matches live run on count, kinds, payload hashes, timestamp order, raw_ref ranges. Reload preserves transcript SHA-256.
+            </div>
+          </div>
+        </details>
+
+        <details class="milestone" data-status="pending">
+          <summary>
+            <span class="status-dot"></span>
+            <span class="label"><span class="id">M5</span>Hermes ACP integration</span>
+            <span class="meta-row">pattern validation · <span class="owner">@antcodex</span> · queued</span>
+          </summary>
+          <div class="body">
+            <h4>Acceptance</h4>
+            <div class="acceptance">
+              Hermes session under ANT shows the same block types as Pi (tool-call, prompt, approval) populated from ACP events through the same render path. Cross-protocol equivalence test: Pi RPC and Hermes ACP fixtures for the same task normalize to the same run_events kind sequence, trust rules, component variants. Only source (rpc vs acp) and protocol-native payload fields may differ.
+            </div>
+          </div>
+        </details>
+
+      </div>
+    </section>
+
+    <section class="plan-section" id="deferred">
+      <div class="section-header">
+        <h2>Deferred bets</h2>
+        <span class="meta">10 · considered, pushed out, with rationale</span>
+      </div>
+      <ul class="deferred">
+        <li><strong>Inline graphics protocols</strong><span class="why">Phase 2 behind feature flag. Phase 1 sidesteps via /api/artifacts/.</span></li>
+        <li><strong>ANT-as-ACP-server</strong><span class="why">Defer until ANT-as-ACP-client (M5) is validated.</span></li>
+        <li><strong>Multiplex Hermes profiles per ANT session</strong><span class="why">After 1:1 mapping is boring.</span></li>
+        <li><strong>LLM-driven projections</strong><span class="why">Too expensive / non-deterministic for default. Opt-in only.</span></li>
+        <li><strong>Custom xterm.js replacement</strong><span class="why">Only if WebGL + DOM both fail.</span></li>
+        <li><strong>tmux replacement</strong><span class="why">Only if flow control + scroll fixes don't ship Track 2.</span></li>
+        <li><strong>Codex CLI hooks/MCP</strong><span class="why">Pending re-probe of 0.128.0. Lift to high-trust before M4 if available.</span></li>
+        <li><strong>Markdown-first storage</strong><span class="why">Considered (james storage thread) and rejected for canonical. Markdown stays a projection.</span></li>
+        <li><strong>Perspective --tools structured upgrade</strong><span class="why">Probe-gated. Single-mode regex driver ships first.</span></li>
+        <li><strong>Inline-overlay prompts in Raw Terminal</strong><span class="why">Track 1 only. Raw stays byte-faithful.</span></li>
+      </ul>
+    </section>
+
+  </main>
+
+  <aside class="status-rail">
+    <div class="group">
+      <h3>Live</h3>
+      <div class="live-row active">
+        <span class="dot"></span>
+        <span class="label">M1 build · gc6Dti9F</span>
+        <span class="when">14:32</span>
+      </div>
+      <div class="live-row">
+        <span class="dot"></span>
+        <span class="label">5 milestones queued</span>
+        <span class="when">—</span>
+      </div>
+    </div>
+    <div class="group">
+      <h3>Recent</h3>
+      <div class="live-row done">
+        <span class="dot"></span>
+        <span class="label">R4 signed off</span>
+        <span class="when">2m</span>
+      </div>
+      <div class="live-row done">
+        <span class="dot"></span>
+        <span class="label">R3 converged</span>
+        <span class="when">11m</span>
+      </div>
+      <div class="live-row done">
+        <span class="dot"></span>
+        <span class="label">R2 converged</span>
+        <span class="when">18m</span>
+      </div>
+      <div class="live-row done">
+        <span class="dot"></span>
+        <span class="label">R1 converged</span>
+        <span class="when">31m</span>
+      </div>
+    </div>
+    <div class="group">
+      <h3>Agents</h3>
+      <div class="live-row">
+        <span class="dot"></span>
+        <span class="label">@antclaude</span>
+        <span class="when">lead</span>
+      </div>
+      <div class="live-row">
+        <span class="dot"></span>
+        <span class="label">@antcodex</span>
+        <span class="when">T2</span>
+      </div>
+      <div class="live-row">
+        <span class="dot"></span>
+        <span class="label">@ocloudant</span>
+        <span class="when">T1</span>
+      </div>
+      <div class="live-row">
+        <span class="dot"></span>
+        <span class="label">@gemini</span>
+        <span class="when">support</span>
+      </div>
+      <div class="live-row">
+        <span class="dot"></span>
+        <span class="label">@gemma4local</span>
+        <span class="when">tests</span>
+      </div>
+    </div>
+  </aside>
+
+  <footer class="notes">
+    Plan View prototype · static HTML mockup of the M3.5 deliverable · canonical events not yet wired.
+    The actual implementation projects from run_events with kinds plan_section / plan_milestone / plan_decision / plan_acceptance.
+    Same source-of-truth architecture as everything else in the plan — section §2.
+  </footer>
+</div>
+</body>
+</html>
