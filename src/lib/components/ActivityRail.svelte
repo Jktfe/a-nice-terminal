@@ -321,7 +321,7 @@
     {@const sess = orderedSessions.find(s => s.id === hoveredId)}
     {#if sess}
       {@const agent = agentColorFromSession(sess)}
-      {@const hasNeedsInput = needsInputMap.has(sess.id)}
+      {@const hasNeedsInput = !!sess.cli_flag && needsInputMap.has(sess.id)}
       {@const hasFocus = sess.attention_state === 'focus'}
       {@const telemetry = agentStatusMap.get(sess.id)}
       <div
