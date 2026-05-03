@@ -360,7 +360,29 @@
     return links;
   });
   const isTerminal = $derived(session?.type === 'terminal');
-  const imageUploads = $derived(uploads.filter(u => u.mime_type?.startsWith('image/')));
+
+  // ── B7 — Reference panel hardening (R4 §1 trust-tier + B10 upload pipeline) ──
+  // An upload may render as an inline <img> only when BOTH conditions hold:
+  //   (a) MIME starts with 'image/' (already-existing check), and
+  //   (b) public_url starts with '/uploads/' (the B10-hardened content-addressed
+  //       path). Defense-in-depth on top of the upload route's own constraint —
+  //       any future upload source that bypasses /api/upload (e.g. URL paste,
+  //       remote fallback Vercel Blob path, third-party integration) won't be
+  //       able to inject a rich render path even if it claims an image MIME.
+  // Anything that fails the URL trust gate falls into untrustedImageUploads
+  // and renders as a download-link-only entry (same treatment as otherUploads),
+  // mirroring the M3 CommandBlock 'trust:raw artifact' rule: never silently
+  // upgrade an untrusted source to a rich render path.
+  function isTrustedUploadUrl(url: string | undefined | null): boolean {
+    if (!url) return false;
+    return url.startsWith('/uploads/');
+  }
+  const imageUploads = $derived(
+    uploads.filter(u => u.mime_type?.startsWith('image/') && isTrustedUploadUrl(u.public_url)),
+  );
+  const untrustedImageUploads = $derived(
+    uploads.filter(u => u.mime_type?.startsWith('image/') && !isTrustedUploadUrl(u.public_url)),
+  );
   const otherUploads = $derived(uploads.filter(u => !u.mime_type?.startsWith('image/')));
   const filePanelCount = $derived(allFileRefs.length + uploads.length + messageLinks.length);
   const terminalHasCliDriver = $derived(isTerminal && !!session?.cli_flag);
@@ -1037,6 +1059,30 @@
                   <span class="flex-1 min-w-0">
                     <span class="block truncate text-xs font-mono" style="color: var(--text);">{upload.original_name}</span>
                     <span class="block text-[10px]" style="color: var(--text-faint);">{upload.mime_type} · {formatBytes(upload.size_bytes)}</span>
+                  </span>
+                </a>
+              {/each}
+            {/if}
+
+            {#if untrustedImageUploads.length > 0}
+              <!-- B7: image uploads from a non-/uploads/ source — link only, never inline render. R4 §1. -->
+              <p class="text-[10px] font-semibold uppercase tracking-wide mt-2 mb-1 px-1" style="color: var(--text-faint);">External images (link only)</p>
+              {#each untrustedImageUploads as upload (upload.id)}
+                <a
+                  href={upload.public_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  class="flex items-center gap-2 rounded-lg px-2.5 py-2"
+                  style="border: 1px dashed #E5E7EB; background: #FAFAFA;"
+                  title="Image source is outside /uploads/ — opening in a new tab instead of rendering inline."
+                >
+                  <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: #B45309;">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M12 9v2m0 4h.01M5 19h14a2 2 0 0 0 1.84-2.75L13.74 4a2 2 0 0 0-3.48 0L3.16 16.25A2 2 0 0 0 5 19z"/>
+                  </svg>
+                  <span class="flex-1 min-w-0">
+                    <span class="block truncate text-xs font-mono" style="color: var(--text);">{upload.original_name}</span>
+                    <span class="block text-[10px]" style="color: var(--text-faint);">{upload.mime_type} · {formatBytes(upload.size_bytes)} · external source</span>
                   </span>
                 </a>
               {/each}
