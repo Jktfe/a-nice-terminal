@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # Match the runtime: launchd starts the server under Node 20.19.4.
       # Native modules built against Node 22 in CI silently break against the
