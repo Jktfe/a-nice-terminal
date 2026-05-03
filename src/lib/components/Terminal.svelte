@@ -73,8 +73,17 @@
     onMove(e);
   }
 
-  // Block DA1/DA2/DSR cursor-report responses from looping back into the PTY (v2 lesson)
-  const TERM_RESPONSE_RE = /^\x1b\[\??[>]?[\d;]*c$|^\x1b\[\d+;\d+[Rn]$|^\x1b\[\d*n$/;
+  // Block terminal-emulator query responses from looping back into the PTY
+  // (v2 lesson). Besides DA1/DA2/DSR cursor reports, xterm can answer OSC
+  // colour queries such as OSC 10/11; those bytes are terminal responses, not
+  // user input, and must never be pasted into the shell prompt.
+  const CSI_RESPONSE_RE = /^\x1b\[\??[>]?[\d;]*c$|^\x1b\[\d+;\d+[Rn]$|^\x1b\[\d*n$/;
+  const OSC_RESPONSE_RE = /\x1b\](?:4;\d+|10|11|12);[^\x07\x1b]*(?:\x07|\x1b\\)/g;
+
+  function isTerminalResponse(data: string): boolean {
+    if (CSI_RESPONSE_RE.test(data)) return true;
+    return data.replace(OSC_RESPONSE_RE, '') === '';
+  }
 
   // Adaptive output buffering (v2 lesson):
   // <256B → microtask (near-zero keystroke echo latency)
@@ -476,7 +485,7 @@
     // Forward user input — always reads ws at call-time so reconnects work (v2 lesson fix)
     term.onData((data: string) => {
       if (slowEdit) return; // Slow edit captures input separately
-      if (TERM_RESPONSE_RE.test(data)) return; // Block DA1/DA2/DSR cursor reports
+      if (isTerminalResponse(data)) return; // Block terminal query responses
       if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'terminal_input', sessionId, data }));
       }

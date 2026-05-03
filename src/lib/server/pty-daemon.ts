@@ -197,6 +197,7 @@ function handleOscOutput(sessionId: string, data: string, startByte: number): vo
 
 function handleRawOutput(sessionId: string, data: string): void {
   const startByte = rawByteOffsets.get(sessionId) ?? 0;
+  handleOscOutput(sessionId, data, startByte);
   rawByteOffsets.set(sessionId, startByte + Buffer.byteLength(data));
 }
 
@@ -205,7 +206,6 @@ function handleControlOutput(sessionId: string, content: string): void {
   if (!decoded) return;
   const startByte = controlByteOffsets.get(sessionId) ?? 0;
   controlByteOffsets.set(sessionId, startByte + Buffer.byteLength(decoded));
-  handleOscOutput(sessionId, decoded, startByte);
 }
 
 function decodeTmuxControlOutput(content: string): string {

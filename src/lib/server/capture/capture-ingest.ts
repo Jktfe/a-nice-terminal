@@ -14,6 +14,7 @@ const POLL_INTERVAL_MS = 500;
 
 // In-memory offset cache (filename → bytes consumed)
 const offsets = new Map<string, number>();
+const pendingStarts = new Map<string, any>();
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let _insertStmt: any = null;
@@ -198,37 +199,59 @@ function ingestEventsFile(filename: string): void {
 
   saveOffset(filename, offset + bytesToRead);
 
-  // Parse NDJSON — correlate command_start/command_end within this chunk
-  const lines = buffer.toString('utf-8').split('\n').filter(Boolean);
-  const pending = new Map<string, any>();
-
-  for (const line of lines) {
+  // Parse NDJSON. Track byte offsets inside the hook capture file so run_events
+  // can point back to the high-trust hook evidence even when tmux strips OSC
+  // control sequences from the rendered transcript stream.
+  let cursor = 0;
+  while (cursor < buffer.length) {
+    const newline = buffer.indexOf(0x0a, cursor);
+    const end = newline >= 0 ? newline : buffer.length;
+    const lineBuffer = buffer.subarray(cursor, end);
+    const line = lineBuffer.toString('utf-8');
+    const rawRef = {
+      filename,
+      startByte: offset + cursor,
+      endByte: offset + end,
+    };
+    cursor = newline >= 0 ? newline + 1 : buffer.length;
+    if (!line.trim()) continue;
     try {
-      processEvent(JSON.parse(line), pending);
+      processEvent(JSON.parse(line), rawRef);
     } catch {
       // Skip malformed lines
     }
   }
 }
 
-function processEvent(event: any, pending: Map<string, any>): void {
+function pendingKey(filename: string, sessionId: string, command: string): string {
+  return `${filename}:${sessionId}:${command}`;
+}
+
+function processEvent(event: any, rawLineRef: { filename: string; startByte: number; endByte: number }): void {
+  const sessionId: string = event.session ?? '';
+  const command: string = event.command ?? '(unknown)';
+
   if (event.event === 'command_start') {
-    pending.set(event.command ?? '', event);
+    if (sessionId) {
+      pendingStarts.set(pendingKey(rawLineRef.filename, sessionId, command), {
+        ...event,
+        rawLineRef,
+      });
+    }
     return;
   }
 
   if (event.event !== 'command_end') return;
 
-  const sessionId: string = event.session ?? '';
   if (!sessionId) return; // hooks fired outside an ANT capture session
 
-  const command: string = event.command ?? '(unknown)';
   const cwd: string | null = event.cwd ?? null;
   const exitCode: number | null = event.exit_code ?? null;
   const durationMs: number | null = event.duration_ms ?? null;
   const endTs: number = event.ts ?? Date.now();
 
-  const startEvent = pending.get(command) ?? null;
+  const key = pendingKey(rawLineRef.filename, sessionId, command);
+  const startEvent = pendingStarts.get(key) ?? null;
   const startedAt: string = startEvent
     ? new Date(startEvent.ts).toISOString()
     : new Date(endTs - (durationMs ?? 0)).toISOString();
@@ -239,11 +262,60 @@ function processEvent(event: any, pending: Map<string, any>): void {
     ? String(event.output_snippet).slice(0, 500)
     : null;
 
-  if (startEvent) pending.delete(command);
+  if (startEvent) pendingStarts.delete(key);
 
   try {
     insertCommand(sessionId, command, cwd, exitCode, startedAt, endedAt, durationMs, outputSnippet);
+    appendCommandRunEvent(sessionId, command, cwd, exitCode, startedAt, endedAt, durationMs, endTs, {
+      source: 'shell_capture',
+      file: rawLineRef.filename,
+      start_byte: startEvent?.rawLineRef?.startByte ?? rawLineRef.startByte,
+      end_byte: rawLineRef.endByte,
+    });
   } catch {
     // Non-fatal — session may not exist in DB yet (hooks run before session is registered)
   }
+}
+
+function appendCommandRunEvent(
+  sessionId: string,
+  command: string,
+  cwd: string | null,
+  exitCode: number | null,
+  startedAt: string,
+  endedAt: string,
+  durationMs: number | null,
+  endTs: number,
+  rawRef: Record<string, unknown>
+): void {
+  const db = getDb();
+  const existing = db.prepare(`
+    SELECT id FROM run_events
+    WHERE session_id = ?
+      AND source = 'hook'
+      AND kind = 'command_block'
+      AND text = ?
+      AND ABS(ts_ms - ?) <= 1000
+    LIMIT 1
+  `).get(sessionId, command, endTs);
+  if (existing) return;
+
+  queries.appendRunEvent(
+    sessionId,
+    endTs,
+    'hook',
+    'high',
+    'command_block',
+    command,
+    JSON.stringify({
+      command,
+      exit_code: exitCode,
+      cwd,
+      duration_ms: durationMs,
+      started_at: startedAt,
+      ended_at: endedAt,
+      source_event: 'shell_capture',
+    }),
+    JSON.stringify(rawRef),
+  );
 }
