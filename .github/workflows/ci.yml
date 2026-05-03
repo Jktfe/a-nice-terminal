@@ -15,7 +15,7 @@ jobs:
       # Match the runtime: launchd starts the server under Node 20.19.4.
       # Native modules built against Node 22 in CI silently break against the
       # launchd Node, so CI mirrors prod (see better-sqlite3 ABI memory).
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '20.19.4'
           cache: npm
