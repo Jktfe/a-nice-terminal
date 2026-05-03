@@ -1060,6 +1060,9 @@ export const queries = {
 
   // Plan events — M3.5 projector read helper (no schema change, JSON_EXTRACT on payload)
   getPlanEvents: (sessionId: string, planId: string, kinds: string[], limit: number = 1000) => {
+    // Observation A: callers must pass PLAN_EVENT_KINDS or a trusted constant
+    // subset. Values are parameterized, but this helper is not a general
+    // user-supplied kind search surface.
     const placeholders = kinds.map(() => '?').join(',');
     const sql = [
       'SELECT id, session_id, ts_ms, source, trust, kind, text, payload, raw_ref, created_at',

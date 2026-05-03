@@ -20,8 +20,18 @@ export type PlanStatus =
   | 'failing'
   | 'done';
 
+export const EVIDENCE_KINDS = [
+  'run_event',
+  'raw_ref',
+  'task',
+  'source_url',
+  'file',
+] as const;
+
+export type EvidenceKind = (typeof EVIDENCE_KINDS)[number];
+
 export interface EvidenceRef {
-  kind: 'run_event' | 'raw_ref' | 'task' | 'source_url' | 'file';
+  kind: EvidenceKind;
   ref: string;
   label?: string;
 }
@@ -90,6 +100,7 @@ function isValidEvidenceRef(x: unknown): x is EvidenceRef {
   const r = x as Record<string, unknown>;
   return (
     isString(r.kind) &&
+    EVIDENCE_KINDS.includes(r.kind as EvidenceKind) &&
     isString(r.ref) &&
     (r.label === undefined || isString(r.label))
   );

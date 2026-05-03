@@ -72,6 +72,19 @@ describe('plan-projector first-patch gate', () => {
     }
   });
 
+  it('rejects unknown evidence kinds', () => {
+    const result = validatePlanPayload({
+      plan_id: TEST_PLAN,
+      title: 'Bad evidence',
+      order: 1,
+      evidence: [{ kind: 'unknown', ref: 'abc' }],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toContain('evidence contains invalid entries');
+    }
+  });
+
   it('validates payload from a JSON string', () => {
     const valid = JSON.stringify({ plan_id: TEST_PLAN, title: 'Test', order: 1 });
     const result = validatePlanPayloadString(valid);
