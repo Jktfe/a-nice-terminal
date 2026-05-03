@@ -6,7 +6,7 @@
     id: string;
     session_id: string;
     ts: number;
-    source: 'hook' | 'json' | 'rpc' | 'terminal' | 'status' | 'tmux';
+    source: 'acp' | 'hook' | 'json' | 'rpc' | 'terminal' | 'status' | 'tmux';
     trust: 'high' | 'medium' | 'raw';
     kind: string;
     text: string;
@@ -131,8 +131,12 @@
     return text.includes('```') || text.startsWith('  ') || text.includes('\n  ');
   }
 
-  function isHighTrustRpc(event: RunEvent, kind: string): boolean {
-    return event.source === 'rpc' && event.trust === 'high' && event.kind === kind;
+  function isHighTrustStructured(event: RunEvent, kind: string): boolean {
+    return (event.source === 'rpc' || event.source === 'acp') && event.trust === 'high' && event.kind === kind;
+  }
+
+  function protocolLabel(event: RunEvent): string {
+    return event.source === 'acp' ? 'Hermes ACP' : 'Pi';
   }
 
   function payloadValue(event: RunEvent, key: string): unknown {
@@ -161,11 +165,11 @@
     return choices.map((choice) => asText(choice) ?? jsonPreview(choice) ?? '').filter(Boolean);
   }
 
-  function rpcCommand(event: RunEvent): string {
+  function structuredCommand(event: RunEvent): string {
     return payloadText(event, 'command') ?? payloadText(event, 'tool_name') ?? event.text;
   }
 
-  function rpcQuestion(event: RunEvent): string {
+  function structuredQuestion(event: RunEvent): string {
     return payloadText(event, 'question') ?? event.text;
   }
 </script>
@@ -235,15 +239,15 @@
         <span class="run-time">{formatTime(event.ts)}</span>
       </div>
 
-      {#if isHighTrustRpc(event, 'tool_call') || isHighTrustRpc(event, 'tool_result')}
+      {#if isHighTrustStructured(event, 'tool_call') || isHighTrustStructured(event, 'tool_result')}
         <div class="rpc-card rpc-card--tool">
           <div class="rpc-card-title">
-            <span>{event.kind === 'tool_result' ? 'Pi tool result' : 'Pi tool call'}</span>
+            <span>{protocolLabel(event)} {event.kind === 'tool_result' ? 'tool result' : 'tool call'}</span>
             {#if payloadText(event, 'status')}
               <span class="rpc-card-status">{payloadText(event, 'status')}</span>
             {/if}
           </div>
-          <code class="run-code">{rpcCommand(event)}</code>
+          <code class="run-code">{structuredCommand(event)}</code>
           {#if jsonPreview(payloadValue(event, 'args'))}
             <pre class="run-output">{jsonPreview(payloadValue(event, 'args'))}</pre>
           {/if}
@@ -251,12 +255,12 @@
             <pre class="run-output">{payloadText(event, 'output')}</pre>
           {/if}
         </div>
-      {:else if isHighTrustRpc(event, 'agent_prompt')}
+      {:else if isHighTrustStructured(event, 'agent_prompt')}
         <div class="rpc-card rpc-card--prompt">
           <div class="rpc-card-title">
-            <span>Pi prompt</span>
+            <span>{protocolLabel(event)} prompt</span>
           </div>
-          <p class="run-text">{rpcQuestion(event)}</p>
+          <p class="run-text">{structuredQuestion(event)}</p>
           {#if choiceList(event).length}
             <div class="rpc-choice-list">
               {#each choiceList(event) as choice}
@@ -265,15 +269,15 @@
             </div>
           {/if}
         </div>
-      {:else if isHighTrustRpc(event, 'approval')}
+      {:else if isHighTrustStructured(event, 'approval')}
         <div class="rpc-card rpc-card--approval">
           <div class="rpc-card-title">
-            <span>Pi approval</span>
+            <span>{protocolLabel(event)} approval</span>
             {#if payloadText(event, 'tool_name')}
               <span class="rpc-card-status">{payloadText(event, 'tool_name')}</span>
             {/if}
           </div>
-          <p class="run-text">{rpcQuestion(event)}</p>
+          <p class="run-text">{structuredQuestion(event)}</p>
           {#if jsonPreview(payloadValue(event, 'args'))}
             <pre class="run-output">{jsonPreview(payloadValue(event, 'args'))}</pre>
           {/if}

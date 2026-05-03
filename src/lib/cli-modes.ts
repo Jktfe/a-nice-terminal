@@ -8,6 +8,7 @@ export const CLI_MODES = [
   { slug: 'gemini-cli',   label: 'Gemini',      icon: '🔵', stripLines: 15 },
   { slug: 'copilot-cli',  label: 'Copilot',     icon: '⚪', stripLines: 15 },
   { slug: 'qwen-cli',     label: 'Qwen',        icon: 'Q', stripLines: 15 },
+  { slug: 'hermes-acp',   label: 'Hermes ACP',  icon: 'H', stripLines: 0 },
   { slug: 'ollama',       label: 'Ollama',      icon: '🦙', stripLines: 15 },
   { slug: 'perspective',  label: 'Perspective',  icon: '🍎', stripLines: 15 },
   { slug: 'msty',         label: 'Msty',        icon: '🔮', stripLines: 15 },

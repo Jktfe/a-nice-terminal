@@ -86,7 +86,7 @@ interface AgentEventBusDeps {
   broadcastGlobal: ((msg: any) => void) | null;
   appendRunEvent: ((
     sessionId: string,
-    source: 'hook' | 'json' | 'rpc' | 'terminal' | 'status' | 'tmux',
+    source: 'acp' | 'hook' | 'json' | 'rpc' | 'terminal' | 'status' | 'tmux',
     trust: 'high' | 'medium' | 'raw',
     kind: string,
     text: string,
@@ -157,7 +157,7 @@ export function init(initDeps: {
   broadcastGlobal?: (msg: any) => void;
   appendRunEvent?: (
     sessionId: string,
-    source: 'hook' | 'json' | 'rpc' | 'terminal' | 'status' | 'tmux',
+    source: 'acp' | 'hook' | 'json' | 'rpc' | 'terminal' | 'status' | 'tmux',
     trust: 'high' | 'medium' | 'raw',
     kind: string,
     text: string,
