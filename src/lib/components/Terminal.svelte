@@ -3,6 +3,12 @@
   import { slide } from 'svelte/transition';
   import { browser } from '$app/environment';
   import { SPECIAL_KEYS } from '$lib/shared/special-keys.js';
+  import {
+    TERMINAL_RENDERER_STORAGE_KEY,
+    resolveTerminalRendererFlag,
+    waitForTerminalFonts,
+    type TerminalRendererMode,
+  } from '$lib/components/Terminal/renderer.js';
 
   let { sessionId, onData }: { sessionId: string; onData?: (data: string) => void } = $props();
 
@@ -13,6 +19,8 @@
   let slowEditText = $state('');
   let slowEditRef = $state<HTMLTextAreaElement | null>(null);
   let paneTitle = $state('');
+  let rendererMode = $state<TerminalRendererMode>('dom');
+  let rendererFallbackReason = $state<string | null>(null);
 
   // Scroll track state
   let scrollRatio = $state(1);
@@ -159,11 +167,37 @@
     requestAnimationFrame(() => term.focus());
   }
 
+  function storageRendererFlag(): string | null {
+    try {
+      return localStorage.getItem(TERMINAL_RENDERER_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  }
+
+  function rendererEnvValues(): Array<string | null | undefined> {
+    const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
+    return [
+      env?.VITE_RENDERER,
+      env?.VITE_TERMINAL_RENDERER,
+      env?.PUBLIC_RENDERER,
+      env?.PUBLIC_TERMINAL_RENDERER,
+      env?.RENDERER,
+    ];
+  }
+
+  function publishRendererStatus(mode: TerminalRendererMode, fallbackReason: string | null) {
+    window.dispatchEvent(new CustomEvent('ant:terminal-renderer-status', {
+      detail: { sessionId, mode, fallbackReason },
+    }));
+  }
+
   onMount(() => {
     if (!browser || !termRef) return;
 
     // Dynamic imports require async, but onMount cleanup must be returned synchronously.
     // Capture the teardown in a closure so Svelte can call it on destroy.
+    let destroyed = false;
     let destroyFn: (() => void) | undefined;
     (async () => {
 
@@ -171,6 +205,7 @@
     const { FitAddon } = await import('@xterm/addon-fit');
     const { SerializeAddon } = await import('@xterm/addon-serialize');
     await import('@xterm/xterm/css/xterm.css');
+    if (destroyed) return;
 
     // iOS/mobile Safari: use system monospace — JetBrains Mono isn't available and causes metric issues
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
@@ -218,12 +253,76 @@
     term.loadAddon(fitAddon);
     term.loadAddon(serializeAddon);
 
-    // DOM renderer only — WebGL glyph atlas can build before the font is ready,
-    // producing garbled/replacement-character output on first render.
-
     term.open(termRef);
     term.focus(); // Must call after open() — arrows/Tab stop working without this (v2 lesson)
     terminal = term;
+
+    const rendererFlag = resolveTerminalRendererFlag({
+      search: window.location.search,
+      storageValue: storageRendererFlag(),
+      envValues: rendererEnvValues(),
+    });
+    rendererMode = 'dom';
+    rendererFallbackReason = null;
+    publishRendererStatus(rendererMode, rendererFallbackReason);
+
+    type WebglAddonHandle = { dispose: () => void; onContextLoss: (handler: () => void) => { dispose: () => void } };
+    let webglAddon: WebglAddonHandle | null = null;
+
+    function disposeWebglAddon() {
+      if (!webglAddon) return;
+      webglAddon.dispose();
+      webglAddon = null;
+    }
+
+    async function loadWebglRenderer() {
+      if (rendererFlag.mode !== 'webgl') return;
+
+      const fontsReady = await waitForTerminalFonts(document);
+      if (destroyed) return;
+      if (!fontsReady) {
+        rendererMode = 'dom';
+        rendererFallbackReason = 'fonts-unavailable';
+        publishRendererStatus(rendererMode, rendererFallbackReason);
+        console.warn('[ant] WebGL renderer disabled: document.fonts.ready was unavailable or rejected');
+        return;
+      }
+
+      try {
+        const { WebglAddon } = await import('@xterm/addon-webgl');
+        if (destroyed) return;
+        const addon = new WebglAddon();
+        const contextLossDisposable = addon.onContextLoss(() => {
+          rendererMode = 'dom';
+          rendererFallbackReason = 'contextlost';
+          publishRendererStatus(rendererMode, rendererFallbackReason);
+          console.warn('[ant] WebGL context lost — falling back to DOM renderer');
+          contextLossDisposable.dispose();
+          disposeWebglAddon();
+          requestAnimationFrame(() => {
+            fitAddon.fit();
+            term.refresh(0, term.rows - 1);
+          });
+        });
+        term.loadAddon(addon);
+        webglAddon = addon;
+        rendererMode = 'webgl';
+        rendererFallbackReason = null;
+        publishRendererStatus(rendererMode, rendererFallbackReason);
+      } catch (error) {
+        rendererMode = 'dom';
+        rendererFallbackReason = 'load-failed';
+        publishRendererStatus(rendererMode, rendererFallbackReason);
+        console.warn('[ant] WebGL renderer failed to load — falling back to DOM renderer', error);
+      }
+    }
+
+    await loadWebglRenderer();
+    if (destroyed) {
+      disposeWebglAddon();
+      term.dispose();
+      return;
+    }
 
     // Wire scroll position to the custom scroll track
     term.onScroll(() => {
@@ -243,7 +342,6 @@
 
     // WebSocket connection — extracted to a function so reconnects reuse all handlers
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    let destroyed = false;
 
     // ── Infinite scrollback: fetch full DB history before live output ──
     // When a WS connects, the server sends session_health then terminal_output
@@ -435,11 +533,15 @@
         resizeObserver.disconnect();
         document.removeEventListener('visibilitychange', handleVisibility);
         ws?.close();
+        disposeWebglAddon();
         term.dispose();
       };
     })();
 
-    return () => destroyFn?.();
+    return () => {
+      destroyed = true;
+      destroyFn?.();
+    };
   });
 </script>
 
@@ -453,7 +555,14 @@
   <!-- 2. Terminal + scroll track -->
   <div class="flex flex-1 min-h-0">
     <!-- xterm.js container -->
-    <div id="xterm-container" bind:this={termRef} class="flex-1 min-h-0" class:opacity-30={slowEdit}></div>
+    <div
+      id="xterm-container"
+      bind:this={termRef}
+      class="flex-1 min-h-0"
+      class:opacity-30={slowEdit}
+      data-renderer={rendererMode}
+      data-renderer-fallback={rendererFallbackReason ?? undefined}
+    ></div>
 
     <!-- Scroll track -->
     <div class="w-8 relative shrink-0 border-l" style="background: var(--bg-surface); border-color: var(--border-subtle);" class:opacity-30={slowEdit}>
