@@ -160,7 +160,7 @@
                     <span class="plan-status-dot" style="background: {statusColor(m.payload.status)};"></span>
                     <span class="plan-mile-label">
                       <span class="plan-mile-id">{m.payload.milestone_id ?? m.id}</span>
-                      {m.payload.title}
+                      <span class="plan-mile-title">{m.payload.title}</span>
                     </span>
                     <span class="plan-mile-meta">
                       {#if m.payload.body}<span>{m.payload.body}</span>{/if}
@@ -424,7 +424,7 @@
     cursor: pointer;
     padding: 14px 18px;
     display: grid;
-    grid-template-columns: auto 1fr auto;
+    grid-template-columns: auto minmax(220px, 0.8fr) minmax(260px, 1.2fr);
     gap: 14px;
     align-items: baseline;
   }
@@ -445,20 +445,40 @@
     0%, 100% { box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.12); }
     50%      { box-shadow: 0 0 0 7px rgba(245, 158, 11, 0.04); }
   }
-  .plan-mile-label { font-size: 14px; color: var(--plan-text); }
+  .plan-mile-label {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+    font-size: 14px;
+    color: var(--plan-text);
+  }
   .plan-mile-id {
+    flex: 0 0 auto;
     color: var(--plan-text-muted);
     font-family: var(--font-mono);
     font-size: 12px;
-    margin-right: 8px;
+  }
+  .plan-mile-title {
+    min-width: 0;
+    overflow-wrap: normal;
   }
   .plan-mile-meta {
     display: flex;
     align-items: baseline;
+    justify-content: flex-end;
     gap: 10px;
+    min-width: 0;
     color: var(--plan-text-faint);
     font-size: 12px;
     font-variant-numeric: tabular-nums;
+  }
+  .plan-mile-meta > span:first-child {
+    min-width: 0;
+    max-width: 46ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .plan-mile-owner { color: var(--plan-link); font-family: var(--font-mono); }
   .plan-mile-status {
@@ -584,6 +604,18 @@
       border-left: none;
       border-top: 1px solid var(--plan-border);
       padding: 24px 0 0;
+    }
+    .plan-milestone summary {
+      grid-template-columns: auto 1fr;
+    }
+    .plan-mile-meta {
+      grid-column: 2;
+      justify-content: flex-start;
+      flex-wrap: wrap;
+    }
+    .plan-mile-meta > span:first-child {
+      max-width: 100%;
+      white-space: normal;
     }
   }
 </style>
