@@ -272,6 +272,23 @@ function getDb(): any {
 
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_file_refs_session ON file_refs(session_id)`);
 
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS uploads (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    uploader_handle TEXT NOT NULL,
+    original_name TEXT,
+    mime_type TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    storage_path TEXT NOT NULL,
+    public_url TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_uploads_session ON uploads(session_id)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_uploads_handle_created ON uploads(uploader_handle, created_at)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_uploads_hash ON uploads(content_hash)`);
+
   G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS workspaces (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -775,6 +792,35 @@ export const queries = {
   createFileRef: (id: string, sessionId: string, flaggedBy: string | null, filePath: string, note: string | null) =>
     prepare(`INSERT INTO file_refs (id, session_id, flagged_by, file_path, note) VALUES (?, ?, ?, ?, ?)`).run(id, sessionId, flaggedBy, filePath, note),
   deleteFileRef: (id: string) => prepare(`DELETE FROM file_refs WHERE id = ?`).run(id),
+
+  // Upload audit trail
+  recordUpload: (
+    id: string,
+    sessionId: string,
+    uploaderHandle: string,
+    originalName: string | null,
+    mimeType: string,
+    contentHash: string,
+    sizeBytes: number,
+    storagePath: string,
+    publicUrl: string,
+  ) =>
+    prepare(`INSERT INTO uploads
+      (id, session_id, uploader_handle, original_name, mime_type, content_hash, size_bytes, storage_path, public_url)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, sessionId, uploaderHandle, originalName, mimeType, contentHash, sizeBytes, storagePath, publicUrl),
+  countUploadsForHandleSince: (handle: string, windowSeconds: number) =>
+    (prepare(`SELECT COUNT(*) as count FROM uploads
+      WHERE uploader_handle = ? AND unixepoch(created_at) >= unixepoch('now') - ?`)
+      .get(handle, windowSeconds) as any)?.count ?? 0,
+  sumUploadBytesForHandleSince: (handle: string, windowSeconds: number) =>
+    (prepare(`SELECT COALESCE(SUM(size_bytes), 0) as bytes FROM uploads
+      WHERE uploader_handle = ? AND unixepoch(created_at) >= unixepoch('now') - ?`)
+      .get(handle, windowSeconds) as any)?.bytes ?? 0,
+  listUploadsForSession: (sessionId: string) =>
+    prepare(`SELECT * FROM uploads WHERE session_id = ? ORDER BY created_at DESC`).all(sessionId),
+  getUploadByHash: (contentHash: string) =>
+    prepare(`SELECT * FROM uploads WHERE content_hash = ? ORDER BY created_at DESC LIMIT 1`).get(contentHash),
 
   // Search
   searchMessages: (query: string, limit: number) => prepare(`
