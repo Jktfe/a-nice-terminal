@@ -304,15 +304,16 @@
     {#if onOpenFolders}
       <button
         onclick={onOpenFolders}
-        class="flex p-1.5 rounded-lg transition-all"
-        style="color: var(--text-muted);"
-        title="Jump to folder (⌘P)"
-        aria-label="Jump to folder"
+        class="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border transition-all"
+        style="border-color: var(--border-subtle); color: var(--text-muted); background: var(--bg-card);"
+        title="Open folders"
+        aria-label="Open folders"
       >
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
             d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>
         </svg>
+        <span class="text-xs font-medium">Folders</span>
       </button>
     {/if}
     <button

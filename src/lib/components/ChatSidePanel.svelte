@@ -94,6 +94,7 @@
     onFocusParticipant: (sess: PageSession) => void;
     onOpenLinkedChat: (sess: PageSession) => void;
     onAddTerminalToRoom?: (sess: PageSession) => void;
+    onOpenFolderDrawer?: () => void;
     onCreateTask: (title: string) => void;
   }
 
@@ -140,6 +141,7 @@
     onFocusParticipant,
     onOpenLinkedChat,
     onAddTerminalToRoom,
+    onOpenFolderDrawer,
     onCreateTask,
   onClose = undefined,
   }: Props & { onClose?: () => void } = $props();
@@ -469,6 +471,18 @@
 
         {#if workspacesOpen}
           <div class="px-3 pb-3 space-y-1.5">
+            <button
+              type="button"
+              onclick={() => onOpenFolderDrawer?.()}
+              class="w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-gray-50"
+              style="border: 1px solid #E5E7EB; background: #FAFAFA;"
+            >
+              <span class="text-[10px] font-mono px-1.5 py-0.5 rounded" style="background: #111827; color: #F9FAFB;">cd</span>
+              <span class="flex-1 min-w-0">
+                <span class="block truncate text-xs font-semibold" style="color: var(--text);">Search folders</span>
+                <span class="block truncate text-[10px]" style="color: var(--text-faint);">Type or pick a path</span>
+              </span>
+            </button>
             {#if workspaces.filter(w => w.root_dir).length === 0}
               <div class="text-center py-4 opacity-50">
                 <p class="text-xs" style="color: var(--text-muted);">No folders saved</p>

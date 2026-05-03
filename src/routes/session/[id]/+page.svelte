@@ -816,11 +816,11 @@
     loadMemories();
   }
 
-  // ── B1 — Folder navigation drawer (Cmd+P / Ctrl+P) ──
+  // ── B1 — Folder navigation drawer (visible button + Cmd+P shortcut) ──
   let folderDrawerOpen = $state(false);
 
   function onGlobalKeydown(e: KeyboardEvent) {
-    // Cmd+P (macOS) / Ctrl+P (everywhere else) opens the folder drawer.
+    // Cmd+P opens the folder drawer on Mac; Ctrl+P remains a non-Mac fallback.
     // Suppressed when typing into an input/textarea/contenteditable so the user
     // can still print or paste text without triggering the drawer.
     if ((e.metaKey || e.ctrlKey) && e.key === 'p' && !e.shiftKey && !e.altKey) {
@@ -838,7 +838,7 @@
     if (!path) return;
     if (socket?.readyState !== WebSocket.OPEN) return;
     // Plain-text PTY injection per project rule: text first, 150ms gap, then \r.
-    socket.send(JSON.stringify({ type: 'terminal_input', sessionId, data: `cd ${path}` }));
+    socket.send(JSON.stringify({ type: 'terminal_input', sessionId, data: `cd ${shellQuotePath(path)}` }));
     setTimeout(() => {
       if (socket?.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: 'terminal_input', sessionId, data: '\r' }));
@@ -1296,7 +1296,7 @@
       });
     }}
     onDigestToggle={() => (showDigest = !showDigest)}
-    onOpenFolders={() => (folderDrawerOpen = true)}
+    onOpenFolders={session?.type === 'terminal' ? () => (folderDrawerOpen = true) : undefined}
     onCreateDiscussion={session?.type === 'chat' ? async () => {
       try {
         const res = await fetch(`/api/sessions/${sessionId}/links`, {
@@ -1552,6 +1552,7 @@
         onFocusParticipant={setParticipantFocus}
         onOpenLinkedChat={openLinkedChat}
         onAddTerminalToRoom={addTerminalToRoom}
+        onOpenFolderDrawer={() => (folderDrawerOpen = true)}
         onCreateTask={createTask}
         onClose={() => (showPanel = false)}
       />
@@ -1560,7 +1561,7 @@
   </div><!-- /main content column -->
 </div>
 
-<!-- B1: folder navigation drawer (Cmd+P / Ctrl+P) -->
+<!-- B1: folder navigation drawer (visible button + Cmd+P shortcut) -->
 <FolderDrawer
   open={folderDrawerOpen}
   {workspaces}

@@ -1,5 +1,5 @@
 <script lang="ts">
-  // B1 — Folder navigation drawer. Cmd+P / Ctrl+P trigger from the parent page.
+  // B1 — Folder navigation drawer. Opened by the header button or Cmd+P.
   // The drawer is purely presentational + selection: it surfaces workspaces +
   // recent paths, lets the user fuzzy-filter, and emits onSelect(path) when a
   // choice is committed. The parent owns the actual paste-into-terminal call so
@@ -180,12 +180,17 @@
         <input
           class="folder-search"
           type="text"
-          placeholder="Jump to folder… (↑↓ to navigate, Enter to cd, Esc to close)"
+          placeholder="Search or type a folder path…"
           bind:value={query}
           bind:this={inputEl}
           onkeydown={handleKey}
           aria-label="Filter folders"
         />
+        <button type="button" class="folder-close" onclick={onClose} aria-label="Close folder drawer">
+          <svg class="folder-close-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
       </div>
       <ul class="folder-list" role="listbox" aria-label="Folders">
         {#each filtered as item, i (item.path)}
@@ -283,6 +288,21 @@
     color: var(--text);
   }
   .folder-search::placeholder { color: var(--text-faint); font-size: 13px; }
+  .folder-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-faint);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .folder-close:hover { background: #F3F4F6; color: var(--text); }
+  .folder-close-icon { width: 16px; height: 16px; }
 
   .folder-list {
     list-style: none;
