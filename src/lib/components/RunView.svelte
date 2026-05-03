@@ -6,7 +6,7 @@
     id: string;
     session_id: string;
     ts: number;
-    source: 'hook' | 'json' | 'terminal' | 'status' | 'tmux';
+    source: 'hook' | 'json' | 'rpc' | 'terminal' | 'status' | 'tmux';
     trust: 'high' | 'medium' | 'raw';
     kind: string;
     text: string;
@@ -99,7 +99,8 @@
   function kindIcon(kind: string): string {
     switch (kind) {
       case 'tool_call': case 'tool_result': return 'terminal';
-      case 'permission': return 'cpu';
+      case 'permission': case 'approval': return 'cpu';
+      case 'agent_prompt': return 'send';
       case 'message': case 'assistant': return 'send';
       case 'status': return 'sparkle';
       case 'progress': return 'play';
@@ -112,7 +113,8 @@
   function kindAccent(kind: string): string {
     switch (kind) {
       case 'tool_call': case 'tool_result': return NOCTURNE.blue[400];
-      case 'permission': return NOCTURNE.amber[400];
+      case 'permission': case 'approval': return NOCTURNE.amber[400];
+      case 'agent_prompt': return NOCTURNE.emerald[400];
       case 'message': case 'assistant': return NOCTURNE.ink[100];
       case 'status': return NOCTURNE.emerald[400];
       case 'progress': return NOCTURNE.ink[200];
@@ -127,6 +129,44 @@
 
   function isCodeBlock(text: string): boolean {
     return text.includes('```') || text.startsWith('  ') || text.includes('\n  ');
+  }
+
+  function isHighTrustRpc(event: RunEvent, kind: string): boolean {
+    return event.source === 'rpc' && event.trust === 'high' && event.kind === kind;
+  }
+
+  function payloadValue(event: RunEvent, key: string): unknown {
+    return event.payload?.[key];
+  }
+
+  function asText(value: unknown): string | null {
+    if (typeof value === 'string' && value.trim()) return value;
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    return null;
+  }
+
+  function payloadText(event: RunEvent, key: string): string | null {
+    return asText(payloadValue(event, key));
+  }
+
+  function jsonPreview(value: unknown): string | null {
+    if (!value || typeof value !== 'object') return null;
+    try { return JSON.stringify(value, null, 2); }
+    catch { return null; }
+  }
+
+  function choiceList(event: RunEvent): string[] {
+    const choices = payloadValue(event, 'choices');
+    if (!Array.isArray(choices)) return [];
+    return choices.map((choice) => asText(choice) ?? jsonPreview(choice) ?? '').filter(Boolean);
+  }
+
+  function rpcCommand(event: RunEvent): string {
+    return payloadText(event, 'command') ?? payloadText(event, 'tool_name') ?? event.text;
+  }
+
+  function rpcQuestion(event: RunEvent): string {
+    return payloadText(event, 'question') ?? event.text;
   }
 </script>
 
@@ -195,7 +235,50 @@
         <span class="run-time">{formatTime(event.ts)}</span>
       </div>
 
-      {#if event.kind === 'tool_call' && event.payload?.command}
+      {#if isHighTrustRpc(event, 'tool_call') || isHighTrustRpc(event, 'tool_result')}
+        <div class="rpc-card rpc-card--tool">
+          <div class="rpc-card-title">
+            <span>{event.kind === 'tool_result' ? 'Pi tool result' : 'Pi tool call'}</span>
+            {#if payloadText(event, 'status')}
+              <span class="rpc-card-status">{payloadText(event, 'status')}</span>
+            {/if}
+          </div>
+          <code class="run-code">{rpcCommand(event)}</code>
+          {#if jsonPreview(payloadValue(event, 'args'))}
+            <pre class="run-output">{jsonPreview(payloadValue(event, 'args'))}</pre>
+          {/if}
+          {#if payloadText(event, 'output')}
+            <pre class="run-output">{payloadText(event, 'output')}</pre>
+          {/if}
+        </div>
+      {:else if isHighTrustRpc(event, 'agent_prompt')}
+        <div class="rpc-card rpc-card--prompt">
+          <div class="rpc-card-title">
+            <span>Pi prompt</span>
+          </div>
+          <p class="run-text">{rpcQuestion(event)}</p>
+          {#if choiceList(event).length}
+            <div class="rpc-choice-list">
+              {#each choiceList(event) as choice}
+                <span class="rpc-choice">{choice}</span>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {:else if isHighTrustRpc(event, 'approval')}
+        <div class="rpc-card rpc-card--approval">
+          <div class="rpc-card-title">
+            <span>Pi approval</span>
+            {#if payloadText(event, 'tool_name')}
+              <span class="rpc-card-status">{payloadText(event, 'tool_name')}</span>
+            {/if}
+          </div>
+          <p class="run-text">{rpcQuestion(event)}</p>
+          {#if jsonPreview(payloadValue(event, 'args'))}
+            <pre class="run-output">{jsonPreview(payloadValue(event, 'args'))}</pre>
+          {/if}
+        </div>
+      {:else if event.kind === 'tool_call' && event.payload?.command}
         <code class="run-code">{event.payload.command}</code>
       {:else if event.kind === 'tool_result' && event.payload?.output}
         <button class="run-expand-btn" onclick={() => toggleExpand(event.id)}>
@@ -344,6 +427,53 @@
     max-height: 300px;
     overflow-y: auto;
     margin-top: 4px;
+  }
+
+  .rpc-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border: 0.5px solid var(--hairline-strong);
+    border-radius: 6px;
+    padding: 8px 10px;
+    background: var(--bg-card);
+  }
+
+  .rpc-card--tool {
+    border-left: 2px solid #3B82F6;
+  }
+
+  .rpc-card--prompt {
+    border-left: 2px solid #22C55E;
+  }
+
+  .rpc-card--approval {
+    border-left: 2px solid #F59E0B;
+  }
+
+  .rpc-card-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .rpc-card-status,
+  .rpc-choice {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    background: var(--hairline);
+    border-radius: 4px;
+    padding: 2px 6px;
+  }
+
+  .rpc-choice-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
   }
 
   .run-expand-btn {

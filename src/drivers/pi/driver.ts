@@ -15,6 +15,7 @@ import type {
   UserChoice,
 } from '../../fingerprint/types.js';
 import type { AgentStatus } from '../../lib/shared/agent-status.js';
+import { projectPiRecord, sha256Hex } from '../../lib/server/pi-rpc/projection.js';
 
 export interface PiEvent extends NormalisedEvent {
   class: EventClass;
@@ -26,21 +27,24 @@ export class PiDriver implements AgentDriver {
     const parsed = parseJson(raw.text);
     if (!parsed) return null;
 
-    const type = String(parsed.type ?? '');
-    if (type === 'message_update') {
-      return this.makeEvent(raw, 'progress', { phase: 'streaming' });
-    }
-    if (type === 'tool_execution_start' || type === 'tool_execution_update' || type === 'tool_execution_end') {
-      return this.makeEvent(raw, 'progress', {
-        phase: type.replace('tool_execution_', 'tool_'),
-        tool: parsed.toolName ?? parsed.tool ?? parsed.name,
+    const line = raw.raw || raw.text;
+    const lineBytes = Buffer.from(line, 'utf8');
+    const projected = projectPiRecord(parsed, {
+      start: 0,
+      end: lineBytes.length,
+      line: 1,
+      sha256: sha256Hex(lineBytes),
+    }, raw.ts);
+
+    if (projected) {
+      return this.makeEvent(raw, eventClassForRunEvent(projected.kind), {
+        ...projected.payload,
+        run_event_kind: projected.kind,
+        run_event_source: projected.source,
+        run_event_trust: projected.trust,
+        run_event_text: projected.text,
+        raw_ref: projected.raw_ref,
       });
-    }
-    if (type === 'turn_start' || type === 'agent_start') {
-      return this.makeEvent(raw, 'progress', { phase: type });
-    }
-    if (type === 'agent_end' || type === 'turn_end') {
-      return this.makeEvent(raw, 'progress', { phase: type, settled: true });
     }
 
     return null;
@@ -96,4 +100,10 @@ function parseJson(text: string): Record<string, any> | null {
   } catch {
     return null;
   }
+}
+
+function eventClassForRunEvent(kind: string): EventClass {
+  if (kind === 'approval') return 'permission_request';
+  if (kind === 'agent_prompt') return 'free_text';
+  return 'progress';
 }

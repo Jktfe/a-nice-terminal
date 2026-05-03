@@ -16,6 +16,7 @@ const OPERATIONAL_MEMORY_WHERE = `
     AND COALESCE(tags, '') NOT LIKE '%"archive"%'
     AND COALESCE(tags, '') NOT LIKE '%archive-only%'
   `;
+const RUN_EVENT_SOURCE_VALUES = "'hook','json','rpc','terminal','status','tmux'";
 
 // Detect runtime
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- globalThis.Bun is not in TS lib; runtime check only
@@ -27,6 +28,44 @@ const isBun = typeof (globalThis as any).Bun !== 'undefined';
 const G = globalThis as any;
 const DB_KEY = '__ant_db__';
 let _db: any = G[DB_KEY] ?? null;
+
+function runEventsTableSql(tableName = 'run_events', ifNotExists = true): string {
+  return `CREATE TABLE ${ifNotExists ? 'IF NOT EXISTS ' : ''}${tableName} (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    ts_ms INTEGER NOT NULL,
+    source TEXT NOT NULL CHECK(source IN (${RUN_EVENT_SOURCE_VALUES})),
+    trust TEXT NOT NULL CHECK(trust IN ('high','medium','raw')),
+    kind TEXT NOT NULL,
+    text TEXT DEFAULT '',
+    payload TEXT DEFAULT '{}',
+    raw_ref TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`;
+}
+
+function migrateRunEventsSourceCheck(db: any): void {
+  const row = db.prepare(`
+    SELECT sql FROM sqlite_master
+    WHERE type = 'table' AND name = 'run_events'
+  `).get() as { sql?: string } | undefined;
+  if (!row?.sql || row.sql.includes("'rpc'")) return;
+
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    db.exec(runEventsTableSql('run_events_m4_rpc', false));
+    db.exec(`
+      INSERT INTO run_events_m4_rpc
+        (id, session_id, ts_ms, source, trust, kind, text, payload, raw_ref, created_at)
+      SELECT id, session_id, ts_ms, source, trust, kind, text, payload, raw_ref, created_at
+      FROM run_events
+    `);
+    db.exec('DROP TABLE run_events');
+    db.exec('ALTER TABLE run_events_m4_rpc RENAME TO run_events');
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
 
 function getDb(): any {
   if (_db) return _db;
@@ -333,18 +372,8 @@ function getDb(): any {
   // interpreted, trust-labelled stream that sits between linked chat and raw
   // terminal: hooks/JSON where available, parsed terminal diffs otherwise,
   // with optional pointers back to raw transcript chunks for audit.
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS run_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    ts_ms INTEGER NOT NULL,
-    source TEXT NOT NULL CHECK(source IN ('hook','json','terminal','status','tmux')),
-    trust TEXT NOT NULL CHECK(trust IN ('high','medium','raw')),
-    kind TEXT NOT NULL,
-    text TEXT DEFAULT '',
-    payload TEXT DEFAULT '{}',
-    raw_ref TEXT,
-    created_at TEXT DEFAULT (datetime('now'))
-  )`);
+  G[DB_KEY].exec(runEventsTableSql());
+  migrateRunEventsSourceCheck(G[DB_KEY]);
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_run_events_session_ts ON run_events(session_id, ts_ms)`);
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_run_events_source ON run_events(source)`);
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_run_events_kind ON run_events(kind)`);

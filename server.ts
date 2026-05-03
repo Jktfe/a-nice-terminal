@@ -655,6 +655,7 @@ getPtyManager().then(async ptm => {
 
   const { queries } = await import('./src/lib/server/db.js');
   const { default: stripAnsi } = await import('strip-ansi');
+  const { PiRpcStreamAdapter } = await import('./src/lib/server/pi-rpc/projection.js');
 
   // Throttle last_activity updates (1 write per session per 10s max)
   const activityThrottle = new Map<string, number>();
@@ -664,6 +665,49 @@ getPtyManager().then(async ptm => {
   // Declared here so the terminal_line handler (which clears silence on visible
   // output) and the onSilence handler (which sets it) share the same Map.
   const silenceStart = new Map<string, number>();
+  const piRpcAdapters = new Map<string, InstanceType<typeof PiRpcStreamAdapter>>();
+  const piRpcSessionCache = new Map<string, { checkedAt: number; isPi: boolean }>();
+
+  function isPiSession(sessionId: string): boolean {
+    const now = Date.now();
+    const cached = piRpcSessionCache.get(sessionId);
+    if (cached && now - cached.checkedAt < 1000) return cached.isPi;
+    let isPi = false;
+    try {
+      const session = queries.getSession(sessionId) as any;
+      let meta: any = {};
+      try { meta = typeof session?.meta === 'string' ? JSON.parse(session.meta) : (session?.meta ?? {}); } catch {}
+      const slug = session?.cli_flag || meta.agent_driver;
+      isPi = slug === 'pi' || slug === 'pi-coding-agent';
+    } catch {}
+    piRpcSessionCache.set(sessionId, { checkedAt: now, isPi });
+    return isPi;
+  }
+
+  function ingestPiRpcOutput(sessionId: string, data: string): void {
+    if (!isPiSession(sessionId)) return;
+    let adapter = piRpcAdapters.get(sessionId);
+    if (!adapter) {
+      adapter = new PiRpcStreamAdapter({ baseTsMs: Date.now() });
+      piRpcAdapters.set(sessionId, adapter);
+    }
+    const events = adapter.feedStdout(data);
+    for (const event of events) {
+      appendRunEvent(
+        sessionId,
+        'rpc',
+        'high',
+        event.kind,
+        event.text,
+        {
+          ...event.payload,
+          payload_hash: event.payload_hash,
+          transcript_sha256_so_far: adapter.transcriptSha256(),
+        },
+        event.raw_ref,
+      );
+    }
+  }
 
   // Buffer terminal output per session — flush to terminal_transcripts every ~10KB or 30s.
   // chunkCounters and byteOffsets are seeded from the DB on first flush per session per
@@ -716,6 +760,7 @@ getPtyManager().then(async ptm => {
     }
     // Buffer raw output for transcript persistence
     transcriptBufs.set(sessionId, (transcriptBufs.get(sessionId) ?? '') + data);
+    ingestPiRpcOutput(sessionId, data);
     // Flush immediately if buffer exceeds 10KB
     if ((transcriptBufs.get(sessionId)?.length ?? 0) > 10_240) {
       clearTimeout(transcriptFlush.get(sessionId));
@@ -826,7 +871,7 @@ getPtyManager().then(async ptm => {
 
   const { broadcast } = await import('./src/lib/server/ws-broadcast.js');
 
-  type RunEventSource = 'hook' | 'json' | 'terminal' | 'status' | 'tmux';
+  type RunEventSource = 'hook' | 'json' | 'rpc' | 'terminal' | 'status' | 'tmux';
   type RunEventTrust = 'high' | 'medium' | 'raw';
 
   function normalizeRunEvent(row: any) {

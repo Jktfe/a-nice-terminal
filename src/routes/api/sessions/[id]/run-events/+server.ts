@@ -2,7 +2,7 @@
 //
 // GET /api/sessions/:id/run-events
 //   ?since=<iso | ms | relative like 5m, 1h, 1d>
-//   ?source=hook|json|terminal|status|tmux
+//   ?source=hook|json|rpc|terminal|status|tmux
 //   ?kind=message|tool_call|tool_result|permission|question|status|progress|error|system
 //   ?q=<text search>
 //   ?limit=<n, default 200, max 1000>

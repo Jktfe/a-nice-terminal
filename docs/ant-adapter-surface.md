@@ -260,7 +260,7 @@ Important approval boundary:
 
 | Surface | Mutates? | Request | Response Shape | Consumer Use | Caveats |
 |---|---:|---|---|---|---|
-| `GET /api/sessions/:id/run-events` | No | `?since=<iso|ms|5m>`, `?source=hook|json|terminal|status|tmux`, `?kind=...`, `?q=...`, `?limit=200` | `{ session_id, terminal_id, since_ms, limit, count, events }` | Read interpreted evidence timeline. | If `:id` is a linked chat, resolves to owning terminal when possible. Default window is last hour. Limit max is `1000`. |
+| `GET /api/sessions/:id/run-events` | No | `?since=<iso|ms|5m>`, `?source=hook|json|rpc|terminal|status|tmux`, `?kind=...`, `?q=...`, `?limit=200` | `{ session_id, terminal_id, since_ms, limit, count, events }` | Read interpreted evidence timeline. | If `:id` is a linked chat, resolves to owning terminal when possible. Default window is last hour. Limit max is `1000`. |
 | `GET /api/sessions/:id/terminal/history` | No | `?since=<iso|ms|5m>`, `?grep=<fts>`, `?raw=1`, `?limit=100` | Range or search result | Read terminal transcript chunks. | `grep` mode ignores `since` and `raw`. Default range strips ANSI; `raw=1` returns raw bytes as string. |
 | `GET /api/sessions/:id/terminal/events` | No | `?since=<iso|ms|5m>`, `?kind=...`, `?limit=100` | `{ session_id, since_ms, kind, limit, count, rows }` | Read tmux control-mode events. | Default window is last hour; limit max is `1000`. |
 | `GET /api/sessions/:id/commands` | No | `?limit=100` | Array of command events | Read recorded command execution events. | Command ingestion depends on shell hooks/collectors; not every terminal command is guaranteed to appear. |
@@ -275,7 +275,7 @@ Run event object shape:
   session_id: string;
   ts: number;
   ts_ms: number;
-  source: "hook" | "json" | "terminal" | "status" | "tmux";
+  source: "hook" | "json" | "rpc" | "terminal" | "status" | "tmux";
   trust: "high" | "medium" | "raw";
   kind: string;
   text: string;
