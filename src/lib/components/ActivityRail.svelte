@@ -25,15 +25,57 @@
     focus_queue_count?: number | null;
     meta?: string | Record<string, unknown> | null;
   }
+  type NeedsInputStatus = {
+    eventClass: string;
+    summary: string;
+    source?: string;
+    since?: string;
+  };
 
   let { currentSessionId }: { currentSessionId: string } = $props();
 
   let sessions = $state<RailSession[]>([]);
-  let needsInputMap = $state(new Map<string, { eventClass: string; summary: string }>());
+  let needsInputMap = $state(new Map<string, NeedsInputStatus>());
   let idleAttentionSet = $state(new Set<string>());
   let unreadSet = $state(new Set<string>());
   let hoveredId = $state<string | null>(null);
   let tooltipPos = $state<{ top: number; left: number } | null>(null);
+
+  // B5 — explicit sidebar pinning. Persistence stays client-local for now:
+  // no schema/API changes, and TTL remains session persistence rather than pin state.
+  const PIN_STORAGE_KEY = 'ant.sidebar.pinned';
+  let pinnedIds = $state<Set<string>>(new Set());
+
+  function loadPinned() {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = localStorage.getItem(PIN_STORAGE_KEY);
+      if (!raw) return;
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        pinnedIds = new Set(arr.filter((x): x is string => typeof x === 'string'));
+      }
+    } catch {}
+  }
+
+  function savePinned() {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(PIN_STORAGE_KEY, JSON.stringify(Array.from(pinnedIds)));
+    } catch {}
+  }
+
+  function togglePin(sessionId: string) {
+    const next = new Set(pinnedIds);
+    if (next.has(sessionId)) next.delete(sessionId);
+    else next.add(sessionId);
+    pinnedIds = next;
+    savePinned();
+  }
+
+  function onStorageEvent(e: StorageEvent) {
+    if (e.key === PIN_STORAGE_KEY) loadPinned();
+  }
 
   // Agent telemetry — model, context %, state from CLI status lines
   interface AgentTelemetry {
@@ -52,8 +94,53 @@
     try {
       const res = await fetch('/api/sessions');
       const data = await res.json();
-      sessions = (data.sessions || []).filter((s: RailSession) => s.status !== 'archived');
+      const rows = (data.sessions || []).filter((s: RailSession) => s.status !== 'archived');
+      sessions = rows;
+      void refreshNeedsInputStatuses(rows);
     } catch {}
+  }
+
+  async function refreshNeedsInputStatuses(rows: RailSession[] = sessions) {
+    const terminals = rows.filter((session) => session.type === 'terminal');
+    const terminalIds = new Set(terminals.map((session) => session.id));
+    const next = new Map(needsInputMap);
+    for (const id of terminalIds) next.delete(id);
+
+    await Promise.all(terminals.map(async (terminal) => {
+      try {
+        const res = await fetch(`/api/sessions/${terminal.id}/status`);
+        if (!res.ok) return;
+        const status = await res.json();
+        if (!status?.needs_input) return;
+        if (!terminalHasCliDriver(terminal)) return;
+        next.set(terminal.id, {
+          eventClass: status.event_class ?? 'prompt_bridge',
+          summary: status.summary ?? 'Waiting for input',
+          source: status.capture?.interactive_source,
+          since: status.since,
+        });
+      } catch {}
+    }));
+
+    needsInputMap = next;
+  }
+
+  function parseMeta(meta: unknown): Record<string, unknown> {
+    if (!meta) return {};
+    if (typeof meta === 'object') return meta as Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(String(meta));
+      return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function terminalHasCliDriver(session: RailSession | undefined | null): boolean {
+    if (!session || session.type !== 'terminal') return false;
+    if (typeof session.cli_flag === 'string' && session.cli_flag.trim()) return true;
+    const meta = parseMeta(session.meta);
+    return ['agent_driver', 'driver'].some((key) => typeof meta[key] === 'string' && String(meta[key]).trim());
   }
 
   // WS connection for live updates
@@ -77,8 +164,15 @@
         if (msg.type === 'sessions_changed') {
           loadSessions();
         } else if (msg.type === 'session_needs_input') {
+          const target = sessions.find((s) => s.id === msg.sessionId);
+          if (!terminalHasCliDriver(target)) return;
           const next = new Map(needsInputMap);
-          next.set(msg.sessionId, { eventClass: msg.eventClass, summary: msg.summary });
+          next.set(msg.sessionId, {
+            eventClass: msg.eventClass,
+            summary: msg.summary,
+            source: msg.source,
+            since: msg.since,
+          });
           needsInputMap = next;
           const nextIdle = new Set(idleAttentionSet);
           nextIdle.delete(msg.sessionId);
@@ -132,15 +226,25 @@
     goto(`/session/${sessionId}`);
   }
 
+  function openFirstWaiting() {
+    if (!firstWaitingSessionId) return;
+    const waiting = sessions.find((s) => s.id === firstWaitingSessionId);
+    if (!waiting) return;
+    navigateTo(navigationTarget(waiting), waiting.id);
+  }
+
   onMount(() => {
     loadSessions();
     connectWs();
+    loadPinned();
+    if (typeof window !== 'undefined') window.addEventListener('storage', onStorageEvent);
   });
 
   onDestroy(() => {
     wsDestroyed = true;
     if (reconnectTimer) clearTimeout(reconnectTimer);
     ws?.close();
+    if (typeof window !== 'undefined') window.removeEventListener('storage', onStorageEvent);
   });
 
   // Standalone chatrooms always visible; terminals/linked chats only when needs-input
@@ -153,14 +257,13 @@
       .map(s => s.id)
   ));
   const standaloneChats = $derived(sessions.filter(s => standaloneChatIds.has(s.id)));
-  const cliNeedsInputCount = $derived(
-    sessions.filter(s => s.type === 'terminal' && !!s.cli_flag && needsInputMap.has(s.id)).length
+  const waitingSessions = $derived(
+    sessions.filter(s => terminalHasCliDriver(s) && needsInputMap.has(s.id))
   );
+  const waitingCount = $derived(waitingSessions.length);
+  const firstWaitingSessionId = $derived(waitingSessions[0]?.id ?? null);
   const needsAttentionTerminals = $derived(
-    sessions.filter(s => s.type === 'terminal' && ((!!s.cli_flag && needsInputMap.has(s.id)) || s.attention_state === 'focus'))
-  );
-  const pinnedTerminals = $derived(
-    sessions.filter(s => s.type === 'terminal' && s.ttl === 'forever')
+    sessions.filter(s => s.type === 'terminal' && ((terminalHasCliDriver(s) && needsInputMap.has(s.id)) || s.attention_state === 'focus'))
   );
   // Always show current session regardless of type
   const currentSession = $derived(sessions.find(s => s.id === currentSessionId));
@@ -176,22 +279,27 @@
     for (const s of needsAttentionTerminals) {
       if (!ids.has(s.id)) { result.push(s); ids.add(s.id); }
     }
-    // Pinned terminals stay surfaced in the rail even when idle.
-    for (const s of pinnedTerminals) {
-      if (!ids.has(s.id)) { result.push(s); ids.add(s.id); }
-    }
     // Standalone chatrooms
     for (const s of standaloneChats) {
       if (!ids.has(s.id)) { result.push(s); ids.add(s.id); }
     }
-    return result;
+    return result.filter(s => !pinnedIds.has(s.id));
+  });
+
+  const pinnedSessions = $derived.by(() => {
+    const order = Array.from(pinnedIds);
+    const byId = new Map(sessions.map(s => [s.id, s] as const));
+    return order
+      .map(id => byId.get(id))
+      .filter((s): s is RailSession => Boolean(s));
   });
 
   function agentId(s: RailSession): string | null {
     return s.cli_flag || s.handle?.replace('@', '') || null;
   }
 
-  function sessionStatus(s: RailSession): 'active' | 'idle' {
+  function sessionStatus(s: RailSession): 'active' | 'thinking' | 'idle' {
+    if (terminalHasCliDriver(s) && needsInputMap.has(s.id)) return 'thinking';
     if (s.attention_state === 'focus') return 'active';
     if (s.last_activity) {
       const activity = deriveTerminalActivityState(s.last_activity);
@@ -227,101 +335,38 @@
 
   <div class="rail-divider"></div>
 
-  {#if cliNeedsInputCount > 0}
+  {#if waitingCount > 0}
     <button
       class="rail-waiting-counter"
-      title="{cliNeedsInputCount} CLI terminal{cliNeedsInputCount === 1 ? '' : 's'} waiting for input"
-    >
-      {cliNeedsInputCount}
-    </button>
+      onclick={openFirstWaiting}
+      title="{waitingCount} CLI terminal{waitingCount === 1 ? '' : 's'} waiting for input"
+      aria-label="{waitingCount} CLI terminal{waitingCount === 1 ? '' : 's'} waiting for input"
+    >{waitingCount}</button>
+
+    <div class="rail-divider rail-divider--tight"></div>
   {/if}
 
   <!-- Session items -->
   <div class="rail-sessions">
+    {#if pinnedSessions.length}
+      {#each pinnedSessions as sess (sess.id)}
+        {@render railItem(sess, true)}
+      {/each}
+      {#if orderedSessions.length}
+        <div class="rail-pin-divider" aria-hidden="true"></div>
+      {/if}
+    {/if}
     {#each orderedSessions as sess (sess.id)}
-      {@const isCurrent = sess.id === currentSessionId}
-      {@const agent = agentColorFromSession(sess)}
-      {@const hasNeedsInput = !!sess.cli_flag && needsInputMap.has(sess.id)}
-      {@const hasIdleAttention = idleAttentionSet.has(sess.id)}
-      {@const hasUnread = unreadSet.has(sess.id)}
-      {@const hasFocus = sess.attention_state === 'focus'}
-      {@const aid = agentId(sess)}
-      {@const isHovered = hoveredId === sess.id}
-
-      <div class="rail-item-wrapper">
-        <button
-          class="rail-item"
-          class:current={isCurrent}
-          onclick={() => navigateTo(navigationTarget(sess), sess.id)}
-          onmouseenter={(e: MouseEvent) => {
-            hoveredId = sess.id;
-            const el = e.currentTarget;
-            if (el instanceof HTMLElement) {
-              const rect = el.getBoundingClientRect();
-              tooltipPos = { top: rect.top + rect.height / 2, left: rect.right + 12 };
-            } else {
-              tooltipPos = { top: e.clientY, left: 68 };
-            }
-          }}
-          onmouseleave={() => { hoveredId = null; tooltipPos = null; }}
-          title="{sess.display_name || sess.name}{sess.linked_chat_id ? ' — open linked chat' : ''}{hasNeedsInput ? ' — needs input' : ''}{hasFocus ? ' — focus mode' : ''}"
-          style="
-            --agent-color: {agent.color};
-            --agent-glow: {agent.glow};
-          "
-        >
-          <!-- Active indicator bar -->
-          {#if isCurrent}
-            <div class="rail-active-bar" style="background: {agent.color};"></div>
-          {/if}
-
-          <!-- Session dot -->
-          <div class="rail-dot" class:rail-dot-current={isCurrent}>
-            {#if aid}
-              <AgentDot id={aid} size={isCurrent ? 14 : 12} state={sessionStatus(sess)} ring={false} />
-            {:else}
-              <div
-                class="rail-type-dot"
-                style="
-                  width: {isCurrent ? 28 : 24}px;
-                  height: {isCurrent ? 28 : 24}px;
-                  background: {agent.color}22;
-                  border: 1.5px solid {agent.color}55;
-                  box-shadow: {isCurrent ? `0 0 10px ${agent.color}44` : 'none'};
-                  display: flex;
-                  align-items: center;
-                  justify-content: center;
-                  font-size: {isCurrent ? 11 : 10}px;
-                  font-weight: 700;
-                  color: {agent.color};
-                  font-family: var(--font-mono);
-                "
-              >{sess.type === 'terminal' ? '>' : '#'}</div>
-            {/if}
-          </div>
-
-          <!-- Badges -->
-          {#if hasNeedsInput}
-            <div class="rail-badge rail-badge-urgent" title="Needs input — {needsInputMap.get(sess.id)?.summary ?? 'waiting for you'}"></div>
-          {:else if hasFocus}
-            <div class="rail-badge rail-badge-focus" title="Focus mode — {sess.focus_queue_count || 0} queued"></div>
-          {:else if hasUnread && !isCurrent}
-            <div class="rail-badge rail-badge-unread" title="Unread activity"></div>
-          {:else if hasIdleAttention}
-            <div class="rail-badge rail-badge-idle" title="Idle — no recent activity"></div>
-          {/if}
-        </button>
-
-      </div>
+      {@render railItem(sess, false)}
     {/each}
   </div>
 
   <!-- Fixed tooltip (outside scroll container to avoid clipping) -->
   {#if hoveredId && tooltipPos}
-    {@const sess = orderedSessions.find(s => s.id === hoveredId)}
+    {@const sess = pinnedSessions.find(s => s.id === hoveredId) ?? orderedSessions.find(s => s.id === hoveredId)}
     {#if sess}
       {@const agent = agentColorFromSession(sess)}
-      {@const hasNeedsInput = !!sess.cli_flag && needsInputMap.has(sess.id)}
+      {@const hasNeedsInput = terminalHasCliDriver(sess) && needsInputMap.has(sess.id)}
       {@const hasFocus = sess.attention_state === 'focus'}
       {@const telemetry = agentStatusMap.get(sess.id)}
       <div
@@ -367,6 +412,102 @@
 
 </div>
 
+{#snippet railItem(sess: RailSession, isPinned: boolean)}
+  {@const isCurrent = sess.id === currentSessionId}
+  {@const agent = agentColorFromSession(sess)}
+  {@const hasNeedsInput = terminalHasCliDriver(sess) && needsInputMap.has(sess.id)}
+  {@const hasIdleAttention = idleAttentionSet.has(sess.id)}
+  {@const hasUnread = unreadSet.has(sess.id)}
+  {@const hasFocus = sess.attention_state === 'focus'}
+  {@const aid = agentId(sess)}
+  {@const isHovered = hoveredId === sess.id}
+
+  <div class="rail-item-wrapper" class:pinned={isPinned}>
+    <button
+      class="rail-item"
+      class:current={isCurrent}
+      onclick={() => navigateTo(navigationTarget(sess), sess.id)}
+      onmouseenter={(e: MouseEvent) => {
+        hoveredId = sess.id;
+        const el = e.currentTarget;
+        if (el instanceof HTMLElement) {
+          const rect = el.getBoundingClientRect();
+          tooltipPos = { top: rect.top + rect.height / 2, left: rect.right + 12 };
+        } else {
+          tooltipPos = { top: e.clientY, left: 68 };
+        }
+      }}
+      onmouseleave={() => { hoveredId = null; tooltipPos = null; }}
+      title="{sess.display_name || sess.name}{sess.linked_chat_id ? ' — open linked chat' : ''}{hasNeedsInput ? ' — needs input' : ''}{hasFocus ? ' — focus mode' : ''}{isPinned ? ' — pinned' : ''}"
+      style="
+        --agent-color: {agent.color};
+        --agent-glow: {agent.glow};
+      "
+    >
+      {#if isCurrent}
+        <div class="rail-active-bar" style="background: {agent.color};"></div>
+      {/if}
+      {#if isPinned}
+        <div class="rail-pin-marker" aria-hidden="true" title="Pinned"></div>
+      {/if}
+
+      <div class="rail-dot" class:rail-dot-current={isCurrent}>
+        {#if aid}
+          <AgentDot id={aid} size={isCurrent ? 14 : 12} state={sessionStatus(sess)} ring={false} />
+        {:else}
+          <div
+            class="rail-type-dot"
+            style="
+              width: {isCurrent ? 28 : 24}px;
+              height: {isCurrent ? 28 : 24}px;
+              background: {agent.color}22;
+              border: 1.5px solid {agent.color}55;
+              box-shadow: {isCurrent ? `0 0 10px ${agent.color}44` : 'none'};
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: {isCurrent ? 11 : 10}px;
+              font-weight: 700;
+              color: {agent.color};
+              font-family: var(--font-mono);
+            "
+          >{sess.type === 'terminal' ? '>' : '#'}</div>
+        {/if}
+      </div>
+
+      {#if hasNeedsInput}
+        <div class="rail-badge rail-badge-urgent" title="Needs input — {needsInputMap.get(sess.id)?.summary ?? 'waiting for you'}"></div>
+      {:else if hasFocus}
+        <div class="rail-badge rail-badge-focus" title="Focus mode — {sess.focus_queue_count || 0} queued"></div>
+      {:else if hasUnread && !isCurrent}
+        <div class="rail-badge rail-badge-unread" title="Unread activity"></div>
+      {:else if hasIdleAttention}
+        <div class="rail-badge rail-badge-idle" title="Idle — no recent activity"></div>
+      {/if}
+    </button>
+
+    {#if isHovered}
+      <button
+        class="rail-pin-btn"
+        type="button"
+        aria-label={isPinned ? 'Unpin from sidebar' : 'Pin to sidebar'}
+        title={isPinned ? 'Unpin from sidebar' : 'Pin to sidebar'}
+        onclick={(e) => { e.stopPropagation(); togglePin(sess.id); }}
+      >
+        {#if isPinned}
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+          </svg>
+        {:else}
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+          </svg>
+        {/if}
+      </button>
+    {/if}
+  </div>
+{/snippet}
+
 <style>
   .activity-rail {
     display: flex;
@@ -389,6 +530,29 @@
     background: var(--border-light);
     margin: 6px 0;
     flex-shrink: 0;
+  }
+
+  .rail-divider--tight {
+    margin: 4px 0;
+  }
+
+  .rail-waiting-counter {
+    width: 28px;
+    height: 24px;
+    border: 0.5px solid rgba(239, 68, 68, 0.35);
+    border-radius: 7px;
+    background: rgba(239, 68, 68, 0.12);
+    color: #EF4444;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: 0 0 10px rgba(239, 68, 68, 0.16);
+  }
+
+  .rail-waiting-counter:hover {
+    background: rgba(239, 68, 68, 0.18);
   }
 
   .rail-sessions {
@@ -437,24 +601,6 @@
 
   .rail-home {
     flex-shrink: 0;
-  }
-
-  .rail-waiting-counter {
-    width: 28px;
-    height: 22px;
-    border-radius: 999px;
-    background: #FEE2E2;
-    border: 1px solid #FCA5A5;
-    color: #DC2626;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 700;
-    line-height: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 4px;
-    box-shadow: 0 0 8px rgba(239, 68, 68, 0.18);
   }
 
   .rail-active-bar {
@@ -586,5 +732,57 @@
     .activity-rail {
       display: none;
     }
+  }
+
+  .rail-pin-divider {
+    height: 1px;
+    margin: 6px 8px;
+    background: var(--border-light);
+    opacity: 0.4;
+  }
+
+  .rail-item-wrapper.pinned .rail-item:not(:hover):not(.current) {
+    background: rgba(245, 158, 11, 0.04);
+  }
+
+  .rail-pin-marker {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--text-faint);
+    pointer-events: none;
+  }
+
+  .rail-pin-btn {
+    position: absolute;
+    top: 50%;
+    right: -2px;
+    transform: translate(100%, -50%);
+    z-index: 4;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    background: var(--bg-surface);
+    border: 0.5px solid var(--border-light);
+    border-radius: 4px;
+    color: var(--text-faint);
+    cursor: pointer;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  }
+
+  .rail-pin-btn:hover {
+    color: var(--text);
+    border-color: var(--text-faint);
+    background: var(--border-light);
+  }
+
+  .rail-pin-btn:focus-visible {
+    outline: 1px solid var(--text);
+    outline-offset: 1px;
   }
 </style>

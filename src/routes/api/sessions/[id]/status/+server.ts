@@ -105,6 +105,7 @@ function applyFocusStatus(agentStatus: AgentStatus | undefined, focus: SessionRo
 
 export async function GET({ params }: RequestEvent<{ id: string }>) {
   const { getPendingEvent, refreshStatusFromCapture } = await import('$lib/server/agent-event-bus.js');
+  const { getPendingPrompt, promptNeedsInput } = await import('$lib/server/prompt-bridge.js');
   const session = queries.getSession(params.id) as SessionRow | null;
   const { terminal, linkedChat } = resolveTerminalContext(session);
   const terminalId = terminal?.id ?? params.id;
@@ -120,13 +121,32 @@ export async function GET({ params }: RequestEvent<{ id: string }>) {
   const activeFocus = terminal ? queries.getActiveFocusForSession(terminal.id) as SessionRow | null : null;
   const focusAgentStatus = applyFocusStatus(effectiveAgentStatus, activeFocus);
   const terminalActivity = terminal ? deriveTerminalActivityState(terminal.last_activity) : null;
+  const pendingPrompt = terminal ? getPendingPrompt(terminalId) : null;
+  const promptStatus = pendingPrompt ? promptNeedsInput(pendingPrompt) : null;
+  const needsInput = status.needs_input || !!promptStatus;
+  const eventClass = status.event_class ?? promptStatus?.eventClass;
+  const summary = status.summary ?? promptStatus?.summary;
+  const since = status.since ?? promptStatus?.since;
   const mode = terminal
     ? (linkedChat ? 'private_terminal_input' : 'terminal')
     : (session?.type === 'chat' ? 'chatroom' : 'unknown');
 
   return json({
     ...status,
+    needs_input: needsInput,
+    ...(eventClass ? { event_class: eventClass } : {}),
+    ...(summary ? { summary } : {}),
+    ...(since ? { since } : {}),
     ...(focusAgentStatus ? { agent_status: focusAgentStatus } : {}),
+    prompt_bridge: pendingPrompt
+      ? {
+          prompt_id: pendingPrompt.id,
+          detector: pendingPrompt.detector,
+          summary: promptStatus?.summary ?? null,
+          since: promptStatus?.since ?? null,
+          status: pendingPrompt.status,
+        }
+      : null,
     ...(activeFocus ? {
       focus: {
         room_id: activeFocus.room_id,
@@ -152,7 +172,7 @@ export async function GET({ params }: RequestEvent<{ id: string }>) {
         : terminalActivity?.state !== 'idle'
         ? 'terminal_activity'
         : (status.agent_status ? 'driver_status_line' : 'none'),
-      interactive_source: status.needs_input ? 'agent_event_bus' : 'none',
+      interactive_source: status.needs_input ? 'agent_event_bus' : (promptStatus ? 'prompt_bridge' : 'none'),
       detected_at: focusAgentStatus?.detectedAt ?? null,
       terminal_activity: terminalActivity,
     },

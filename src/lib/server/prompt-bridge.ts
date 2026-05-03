@@ -30,6 +30,15 @@ export interface PromptDetectedEvent {
   status: 'pending' | 'responded';
 }
 
+export interface PromptBridgeNeedsInput {
+  eventClass: 'prompt_bridge';
+  summary: string;
+  since: string;
+  promptId: string;
+  detector: string;
+  source: 'prompt_bridge';
+}
+
 interface PromptBridgeDeps {
   getSession: ((id: string) => any) | null;
   postToChat: ((terminalSessionId: string, chatId: string, content: string, msgType: string) => void) | null;
@@ -119,6 +128,24 @@ function parseJsonObject(value: unknown): Record<string, any> {
   } catch {
     return {};
   }
+}
+
+export function promptBridgeDriverForSession(session: any): string | null {
+  if (!session || session.type !== 'terminal') return null;
+  const meta = parseJsonObject(session.meta);
+  const candidates = [
+    session.cli_flag,
+    meta.agent_driver,
+    meta.driver,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+  }
+  return null;
+}
+
+export function sessionSupportsPromptBridge(session: any): boolean {
+  return !!promptBridgeDriverForSession(session);
 }
 
 export function normalisePromptBridgeConfig(value: unknown): PromptBridgeConfig {
@@ -225,6 +252,26 @@ function fingerprint(text: string): string {
   return text.toLowerCase().replace(/\s+/g, ' ').trim().slice(-500);
 }
 
+export function summarizePromptText(rawText: string): string {
+  const lines = rawText
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const summary = lines.at(-1) || rawText.replace(/\s+/g, ' ').trim() || 'Waiting for input';
+  return summary.length > 160 ? `${summary.slice(0, 157)}...` : summary;
+}
+
+export function promptNeedsInput(event: PromptDetectedEvent): PromptBridgeNeedsInput {
+  return {
+    eventClass: 'prompt_bridge',
+    summary: summarizePromptText(event.raw_text),
+    since: new Date(event.ts).toISOString(),
+    promptId: event.id,
+    detector: event.detector,
+    source: 'prompt_bridge',
+  };
+}
+
 function routeTargets(sessionId: string, session: any, config: PromptBridgeConfig): PromptBridgeTarget[] {
   return (
     config.routes[sessionId] ??
@@ -278,6 +325,7 @@ export async function feedPromptBridge(sessionId: string, text: string): Promise
 
   const session = deps.getSession(sessionId);
   if (!session || session.type !== 'terminal') return;
+  if (!sessionSupportsPromptBridge(session)) return;
 
   const state = getState(sessionId);
   const stripped = stripAnsi(text);
@@ -319,6 +367,7 @@ export async function feedPromptBridge(sessionId: string, text: string): Promise
   state.pending = event;
 
   deps.appendRunEvent?.(sessionId, 'terminal', 'medium', 'prompt', rawText, { prompt_bridge: event }, null);
+  const needsInput = promptNeedsInput(event);
   deps.broadcastGlobal?.({
     type: 'prompt_detected',
     sessionId,
@@ -327,7 +376,18 @@ export async function feedPromptBridge(sessionId: string, text: string): Promise
       terminal_id: event.terminal_id,
       raw_text: event.raw_text,
       ts: event.ts,
+      summary: needsInput.summary,
     },
+  });
+  deps.broadcastGlobal?.({
+    type: 'session_needs_input',
+    sessionId,
+    eventClass: needsInput.eventClass,
+    summary: needsInput.summary,
+    source: needsInput.source,
+    promptId: needsInput.promptId,
+    detector: needsInput.detector,
+    since: needsInput.since,
   });
 }
 
@@ -358,6 +418,14 @@ export async function respondToPrompt(sessionId: string, response: string, optio
     entered: enter,
   }, null);
   deps.broadcastGlobal?.({ type: 'prompt_bridge_resolved', sessionId, promptId: pending?.id ?? null });
+  if (pending) {
+    deps.broadcastGlobal?.({
+      type: 'session_input_resolved',
+      sessionId,
+      source: 'prompt_bridge',
+      promptId: pending.id,
+    });
+  }
 
   return pending;
 }

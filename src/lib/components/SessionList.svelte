@@ -22,6 +22,12 @@
   type DashboardOrderMode = 'activity' | 'manual';
   type DashboardOrderSection = 'terminal' | 'chat';
   type DashboardTypeFilter = 'all' | 'terminals' | 'chats';
+  type NeedsInputStatus = {
+    eventClass: string;
+    summary: string;
+    source?: string;
+    since?: string;
+  };
   const ORDER_MODE_KEY = 'ant.dashboard.orderMode';
   const TYPE_FILTER_KEY = 'ant.dashboard.typeFilter';
   let orderMode = $state<DashboardOrderMode>('activity');
@@ -109,11 +115,41 @@
 
   // ── Dashboard WS for badge events ──────────────────────────────────
   // Track sessions that need input (pulsing indicator) and idle sessions (dimmer)
-  let needsInputMap = $state(new Map<string, { eventClass: string; summary: string }>());
+  let needsInputMap = $state(new Map<string, NeedsInputStatus>());
   let idleAttentionSet = $state(new Set<string>());
+  const agentsWaitingCount = $derived(needsInputMap.size);
 
   let dashboardWs: WebSocket | null = null;
   let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  async function refreshNeedsInputStatuses(list = store.sessions) {
+    const terminals = list.filter((session) => session.type === 'terminal');
+    const terminalIds = new Set(terminals.map((session) => session.id));
+    const next = new Map(needsInputMap);
+    for (const id of terminalIds) next.delete(id);
+
+    await Promise.all(terminals.map(async (terminal) => {
+      try {
+        const res = await fetch(`/api/sessions/${terminal.id}/status`);
+        if (!res.ok) return;
+        const status = await res.json();
+        if (!status?.needs_input) return;
+        next.set(terminal.id, {
+          eventClass: status.event_class ?? 'prompt_bridge',
+          summary: status.summary ?? 'Waiting for input',
+          source: status.capture?.interactive_source,
+          since: status.since,
+        });
+      } catch {}
+    }));
+
+    needsInputMap = next;
+  }
+
+  async function loadDashboardSessions() {
+    await store.load();
+    await refreshNeedsInputStatuses(store.sessions);
+  }
 
   function connectDashboardWs() {
     if (typeof window === 'undefined') return;
@@ -128,10 +164,15 @@
       try {
         const msg = JSON.parse(event.data);
         if (msg.type === 'sessions_changed') {
-          void store.load();
+          void loadDashboardSessions();
         } else if (msg.type === 'session_needs_input') {
           const next = new Map(needsInputMap);
-          next.set(msg.sessionId, { eventClass: msg.eventClass, summary: msg.summary });
+          next.set(msg.sessionId, {
+            eventClass: msg.eventClass,
+            summary: msg.summary,
+            source: msg.source,
+            since: msg.since,
+          });
           needsInputMap = next;
           // If it needs input, it's not just idle
           const nextIdle = new Set(idleAttentionSet);
@@ -329,7 +370,7 @@
   }
 
   $effect(() => {
-    store.load();
+    void loadDashboardSessions();
   });
 
   function getUniqueName(base: string, type: string): string {
@@ -401,6 +442,13 @@
               Terminals
               {#if terminals.length > 0}
                 <span class="ml-2 text-xs font-normal px-1.5 py-0.5 rounded-full" style="background: var(--bg-elevated); color: var(--text-faint);">{terminals.length}</span>
+              {/if}
+              {#if agentsWaitingCount > 0}
+                <span
+                  class="ml-2 text-xs font-normal px-1.5 py-0.5 rounded-full"
+                  style="background: rgba(239,68,68,0.12); color: #EF4444;"
+                  title="{agentsWaitingCount} terminal agent{agentsWaitingCount === 1 ? '' : 's'} waiting for input"
+                >{agentsWaitingCount} waiting</span>
               {/if}
             </h2>
             <button
