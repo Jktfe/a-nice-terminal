@@ -1296,6 +1296,7 @@
       });
     }}
     onDigestToggle={() => (showDigest = !showDigest)}
+    onOpenFolders={() => (folderDrawerOpen = true)}
     onCreateDiscussion={session?.type === 'chat' ? async () => {
       try {
         const res = await fetch(`/api/sessions/${sessionId}/links`, {
