@@ -11,6 +11,7 @@
   import DigestPanel from '$lib/components/DigestPanel.svelte';
   import ActivityRail from '$lib/components/ActivityRail.svelte';
   import RunView from '$lib/components/RunView.svelte';
+  import FolderDrawer from '$lib/components/FolderDrawer.svelte';
   import { useToasts } from '$lib/stores/toast.svelte';
   import { normalizeSessionName } from '$lib/utils/session-naming';
   import { isAutoLinkedChatSession } from '$lib/utils/linked-chat';
@@ -815,8 +816,43 @@
     loadMemories();
   }
 
+  // ── B1 — Folder navigation drawer (Cmd+P / Ctrl+P) ──
+  let folderDrawerOpen = $state(false);
+
+  function onGlobalKeydown(e: KeyboardEvent) {
+    // Cmd+P (macOS) / Ctrl+P (everywhere else) opens the folder drawer.
+    // Suppressed when typing into an input/textarea/contenteditable so the user
+    // can still print or paste text without triggering the drawer.
+    if ((e.metaKey || e.ctrlKey) && e.key === 'p' && !e.shiftKey && !e.altKey) {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      const isEditable = tag === 'input' || tag === 'textarea' || target?.isContentEditable;
+      if (!isEditable) {
+        e.preventDefault();
+        folderDrawerOpen = true;
+      }
+    }
+  }
+
+  function pasteCdToTerminal(path: string) {
+    if (!path) return;
+    if (socket?.readyState !== WebSocket.OPEN) return;
+    // Plain-text PTY injection per project rule: text first, 150ms gap, then \r.
+    socket.send(JSON.stringify({ type: 'terminal_input', sessionId, data: `cd ${path}` }));
+    setTimeout(() => {
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'terminal_input', sessionId, data: '\r' }));
+      }
+    }, 150);
+  }
+
   onMount(() => {
     startLiveRefresh();
+    if (typeof window !== 'undefined') window.addEventListener('keydown', onGlobalKeydown);
+  });
+
+  onDestroy(() => {
+    if (typeof window !== 'undefined') window.removeEventListener('keydown', onGlobalKeydown);
   });
 
   $effect(() => {
@@ -1522,3 +1558,11 @@
   </div>
   </div><!-- /main content column -->
 </div>
+
+<!-- B1: folder navigation drawer (Cmd+P / Ctrl+P) -->
+<FolderDrawer
+  open={folderDrawerOpen}
+  {workspaces}
+  onSelect={pasteCdToTerminal}
+  onClose={() => (folderDrawerOpen = false)}
+/>
