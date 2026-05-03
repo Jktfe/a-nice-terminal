@@ -66,6 +66,60 @@
   let showPersonalSettings = $state(false);
   const selectedCliMode = $derived(getCliMode(session?.cli_flag) ?? null);
 
+  // ── B3 — Searchable CLI dropdown (replaces native <select>) ──
+  let showCliDropdown = $state(false);
+  let cliSearchText = $state('');
+  let cliFocusIndex = $state(0);
+  let cliSearchInputEl = $state<HTMLInputElement | null>(null);
+
+  // null entry represents "Plain terminal" — the no-driver option from the original select.
+  type CliOption = { slug: string | null; label: string; icon: string };
+  const PLAIN_OPTION: CliOption = { slug: null, label: 'Plain terminal', icon: '⌁' };
+  const filteredCliOptions = $derived.by<CliOption[]>(() => {
+    const q = cliSearchText.trim().toLowerCase();
+    const all: CliOption[] = [PLAIN_OPTION, ...CLI_MODES.map(m => ({ slug: m.slug, label: m.label, icon: m.icon }))];
+    if (!q) return all;
+    return all.filter(o => o.label.toLowerCase().includes(q) || (o.slug ?? 'plain').toLowerCase().includes(q));
+  });
+
+  function openCliDropdown() {
+    showCliDropdown = true;
+    cliSearchText = '';
+    cliFocusIndex = 0;
+    setTimeout(() => cliSearchInputEl?.focus(), 0);
+  }
+
+  function closeCliDropdown() {
+    showCliDropdown = false;
+    cliSearchText = '';
+    cliFocusIndex = 0;
+  }
+
+  function selectCliOption(opt: CliOption) {
+    onCliFlagChange(opt.slug);
+    closeCliDropdown();
+  }
+
+  function handleCliKeydown(e: KeyboardEvent) {
+    const max = filteredCliOptions.length - 1;
+    if (e.key === 'ArrowDown') { e.preventDefault(); cliFocusIndex = Math.min(cliFocusIndex + 1, max); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); cliFocusIndex = Math.max(cliFocusIndex - 1, 0); }
+    else if (e.key === 'Home') { e.preventDefault(); cliFocusIndex = 0; }
+    else if (e.key === 'End') { e.preventDefault(); cliFocusIndex = max; }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      const opt = filteredCliOptions[cliFocusIndex];
+      if (opt) selectCliOption(opt);
+    }
+    else if (e.key === 'Escape') { e.preventDefault(); closeCliDropdown(); }
+  }
+
+  // Reset focused index whenever the filter narrows so it can never point past the end
+  $effect(() => {
+    cliSearchText;
+    cliFocusIndex = 0;
+  });
+
   // Close dropdowns on outside click — uses window listener instead of backdrop overlay
   // (Svelte 5's synchronous DOM rendering causes backdrop onclick to fire on the same click that opens it)
   function onWindowClick(e: MouseEvent) {
@@ -80,6 +134,12 @@
       if (!menuWrapper?.contains(e.target as Node)) {
         showPersistenceMenu = false;
         onMenuClose();
+      }
+    }
+    if (showCliDropdown) {
+      const cliWrapper = document.querySelector('[data-cli-dropdown]');
+      if (cliWrapper && !cliWrapper.contains(e.target as Node)) {
+        closeCliDropdown();
       }
     }
   }
@@ -177,25 +237,61 @@
     {/if}
   </div>
 
-  <!-- CLI mode selector — only for terminal sessions -->
+  <!-- CLI mode selector — searchable dropdown (B3) — only for terminal sessions -->
   {#if session?.type === 'terminal'}
-    <label class="cli-select-wrap" title="CLI model driver">
-      <span class="cli-select-icon">{selectedCliMode?.icon ?? '⌁'}</span>
-      <select
-        class="cli-select"
-        aria-label="CLI model driver"
-        value={session.cli_flag ?? ''}
-        onchange={(e) => {
-          const value = (e.currentTarget as HTMLSelectElement).value;
-          onCliFlagChange(value || null);
-        }}
+    <div class="cli-dropdown" data-cli-dropdown>
+      <button
+        type="button"
+        class="cli-trigger"
+        title="CLI model driver — click to choose"
+        aria-haspopup="listbox"
+        aria-expanded={showCliDropdown}
+        onclick={(e) => { e.stopPropagation(); if (showCliDropdown) closeCliDropdown(); else openCliDropdown(); }}
       >
-        <option value="">Plain terminal</option>
-        {#each CLI_MODES as mode}
-          <option value={mode.slug}>{mode.label}</option>
-        {/each}
-      </select>
-    </label>
+        <span class="cli-trigger-icon">{selectedCliMode?.icon ?? '⌁'}</span>
+        <span class="cli-trigger-label">{selectedCliMode?.label ?? 'Plain terminal'}</span>
+        <svg class="cli-trigger-chevron" class:open={showCliDropdown} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+      {#if showCliDropdown}
+        <div class="cli-popover" role="dialog" aria-label="CLI model driver picker">
+          <input
+            class="cli-search"
+            type="text"
+            placeholder="Search CLI… (↑↓ to navigate, Enter to select, Esc to close)"
+            bind:value={cliSearchText}
+            bind:this={cliSearchInputEl}
+            onkeydown={handleCliKeydown}
+            aria-label="Search CLI models"
+          />
+          <ul class="cli-list" role="listbox" aria-label="CLI models">
+            {#each filteredCliOptions as opt, i (opt.slug ?? 'plain')}
+              {@const isCurrent = (session.cli_flag ?? null) === opt.slug}
+              {@const isFocused = i === cliFocusIndex}
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- Keyboard nav (Up/Down/Enter) is handled at the search input via handleCliKeydown;
+                   each <li> is a mouse-only click target inside an ARIA listbox. -->
+              <li
+                class="cli-option"
+                class:current={isCurrent}
+                class:focused={isFocused}
+                role="option"
+                aria-selected={isCurrent}
+                onclick={(e) => { e.stopPropagation(); selectCliOption(opt); }}
+                onmouseenter={() => (cliFocusIndex = i)}
+              >
+                <span class="cli-option-icon">{opt.icon}</span>
+                <span class="cli-option-label">{opt.label}</span>
+                {#if isCurrent}<span class="cli-option-current" aria-hidden="true">✓</span>{/if}
+              </li>
+            {:else}
+              <li class="cli-option-empty">No matches for "{cliSearchText}"</li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
+    </div>
   {/if}
 
   <!-- Spacer -->
@@ -509,47 +605,127 @@
 {/if}
 
 <style>
-  .cli-select-wrap {
+  /* ── B3 — Searchable CLI dropdown (replaces native <select>) ── */
+  .cli-dropdown {
+    position: relative;
+    flex-shrink: 0;
+  }
+
+  .cli-trigger {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
     height: 30px;
-    max-width: 180px;
-    flex-shrink: 0;
+    max-width: 200px;
     border: 1px solid #E5E7EB;
     border-radius: 999px;
     background: var(--bg-card);
     color: var(--text-muted);
-    padding: 0 8px;
+    padding: 0 10px 0 8px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+  .cli-trigger:hover { border-color: #D1D5DB; }
+  .cli-trigger[aria-expanded='true'] {
+    border-color: #6366F1;
+    background: #EEF2FF;
   }
 
-  .cli-select-icon {
+  .cli-trigger-icon {
     width: 16px;
     text-align: center;
     font-size: 12px;
     line-height: 1;
     flex: 0 0 auto;
   }
-
-  .cli-select {
+  .cli-trigger-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     min-width: 0;
-    max-width: 130px;
-    border: 0;
+  }
+  .cli-trigger-chevron {
+    flex: 0 0 auto;
+    transition: transform 160ms ease;
+    color: var(--text-faint);
+  }
+  .cli-trigger-chevron.open { transform: rotate(180deg); }
+
+  .cli-popover {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 50;
+    width: 260px;
+    background: var(--bg-card, #FFFFFF);
+    border: 1px solid #E5E7EB;
+    border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .cli-search {
+    padding: 8px 10px;
+    border: none;
+    border-bottom: 1px solid #E5E7EB;
     outline: none;
+    font-size: 12px;
     background: transparent;
-    color: inherit;
+    color: var(--text);
+  }
+  .cli-search::placeholder {
+    color: var(--text-faint);
     font-size: 11px;
-    font-weight: 600;
+  }
+
+  .cli-list {
+    list-style: none;
+    margin: 0;
+    padding: 4px 0;
+    max-height: 280px;
+    overflow-y: auto;
+  }
+  .cli-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 12px;
+    font-size: 12.5px;
+    color: var(--text);
+    cursor: pointer;
+    line-height: 1.3;
+  }
+  .cli-option.focused { background: #F3F4F6; }
+  .cli-option.current { color: #4F46E5; font-weight: 600; }
+  .cli-option-icon {
+    width: 18px;
+    text-align: center;
+    flex: 0 0 auto;
+  }
+  .cli-option-label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .cli-option-current {
+    color: #6366F1;
+    font-size: 12px;
+    flex: 0 0 auto;
+  }
+  .cli-option-empty {
+    padding: 10px 12px;
+    font-size: 11.5px;
+    color: var(--text-faint);
+    font-style: italic;
   }
 
   @media (max-width: 720px) {
-    .cli-select-wrap {
-      max-width: 116px;
-      padding: 0 6px;
-    }
-
-    .cli-select {
-      max-width: 82px;
-    }
+    .cli-trigger { max-width: 140px; padding: 0 8px 0 6px; }
+    .cli-popover { width: 240px; }
   }
 </style>
