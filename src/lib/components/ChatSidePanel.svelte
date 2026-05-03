@@ -93,6 +93,7 @@
     onRemoveParticipant: (sess: PageSession) => void;
     onFocusParticipant: (sess: PageSession) => void;
     onOpenLinkedChat: (sess: PageSession) => void;
+    onAddTerminalToRoom?: (sess: PageSession) => void;
     onCreateTask: (title: string) => void;
   }
 
@@ -138,6 +139,7 @@
     onRemoveParticipant,
     onFocusParticipant,
     onOpenLinkedChat,
+    onAddTerminalToRoom,
     onCreateTask,
   onClose = undefined,
   }: Props & { onClose?: () => void } = $props();
@@ -633,6 +635,7 @@
               onRemoveParticipant={(sess) => onRemoveParticipant(sess)}
               onFocusParticipant={(sess) => onFocusParticipant(sess)}
               onOpenLinkedChat={(sess) => onOpenLinkedChat(sess)}
+              onAddTerminalToRoom={onAddTerminalToRoom}
             />
           {/if}
         </div>

@@ -302,8 +302,12 @@
   const activeSearchResult = $derived(chatSearchResults[chatSearchSelectedIndex] ?? null);
   const activeSearchResultId = $derived(activeSearchResult?.id ?? null);
 
+  function shellQuote(value: string): string {
+    return `'${value.replace(/'/g, `'\\''`)}'`;
+  }
+
   function shellQuotePath(path: string): string {
-    return `'${path.replace(/'/g, `'\\''`)}'`;
+    return shellQuote(path);
   }
 
   async function loadLinkedChat(chatId: string) {
@@ -550,6 +554,33 @@
       }),
     });
     toasts.show(`Woke ${targetSess.display_name || targetSess.name}`);
+  }
+
+  async function addTerminalToRoom(targetSess: PageSession) {
+    if (targetSess.type !== 'terminal') {
+      toasts.show('Only terminal sessions can be added this way', 'error');
+      return;
+    }
+
+    const label = targetSess.display_name || targetSess.name || targetSess.handle || 'terminal';
+    const hello = `Hello, I am ${label}. I have joined the chatroom.`;
+    const command = `ant chat send ${sessionId} --msg ${shellQuote(hello)}`;
+
+    const send = async (data: string) => fetch(`/api/sessions/${targetSess.id}/terminal/input`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data }),
+    });
+
+    const first = await send(command);
+    if (!first.ok) {
+      toasts.show(`Failed to send join command to ${label}`, 'error');
+      return;
+    }
+    setTimeout(() => {
+      send('\r').catch(() => {});
+    }, 150);
+    toasts.show(`Sent join command to ${label}`);
   }
 
   // WS
@@ -1483,6 +1514,7 @@
         onRemoveParticipant={removeParticipant}
         onFocusParticipant={setParticipantFocus}
         onOpenLinkedChat={openLinkedChat}
+        onAddTerminalToRoom={addTerminalToRoom}
         onCreateTask={createTask}
         onClose={() => (showPanel = false)}
       />

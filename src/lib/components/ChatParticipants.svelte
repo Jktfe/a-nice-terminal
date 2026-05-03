@@ -26,6 +26,7 @@
     onRemoveParticipant?: (sess: PageSession) => void;
     onFocusParticipant?: (sess: PageSession) => void;
     onOpenLinkedChat?: (sess: PageSession) => void;
+    onAddTerminalToRoom?: (sess: PageSession) => void;
   }
 
   const {
@@ -37,7 +38,8 @@
     onCrossPost,
     onRemoveParticipant,
     onFocusParticipant,
-    onOpenLinkedChat
+    onOpenLinkedChat,
+    onAddTerminalToRoom
   }: Props = $props();
 
   let presence = $state<Record<string, { status: 'active' | 'idle' | 'offline' }>>({});
@@ -334,6 +336,19 @@
                 <div class="flex items-center gap-0.5">
                   {#if p.sess.type === 'terminal' && p.sess.handle}
                     <button onclick={() => onWakeParticipant(p.sess)} class="p-1 rounded" style="color: var(--text-faint);" title="Wake">📢</button>
+                  {/if}
+                  {#if p.sess.type === 'terminal' && onAddTerminalToRoom}
+                    <button
+                      onclick={() => onAddTerminalToRoom?.(p.sess)}
+                      class="p-1 rounded"
+                      style="color: #6366F1;"
+                      title="Send join command to terminal"
+                      aria-label="Send join command to {label}"
+                    >
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14m7-7H5"/>
+                      </svg>
+                    </button>
                   {/if}
                 </div>
               </div>
