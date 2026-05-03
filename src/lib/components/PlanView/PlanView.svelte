@@ -480,8 +480,14 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .plan-mile-owner { color: var(--plan-link); font-family: var(--font-mono); }
+  .plan-mile-owner {
+    flex: 0 0 auto;
+    color: var(--plan-link);
+    font-family: var(--font-mono);
+    white-space: nowrap;
+  }
   .plan-mile-status {
+    flex: 0 0 auto;
     color: var(--plan-text-faint);
     font-family: var(--font-mono);
     text-transform: uppercase;
