@@ -377,6 +377,16 @@
     if (!url) return false;
     return url.startsWith('/uploads/');
   }
+  function safeUploadLink(url: string | undefined | null): string | null {
+    if (!url) return null;
+    try {
+      const parsed = new URL(url, 'https://ant.local');
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+      return url;
+    } catch {
+      return null;
+    }
+  }
   const imageUploads = $derived(
     uploads.filter(u => u.mime_type?.startsWith('image/') && isTrustedUploadUrl(u.public_url)),
   );
@@ -1068,13 +1078,17 @@
               <!-- B7: image uploads from a non-/uploads/ source — link only, never inline render. R4 §1. -->
               <p class="text-[10px] font-semibold uppercase tracking-wide mt-2 mb-1 px-1" style="color: var(--text-faint);">External images (link only)</p>
               {#each untrustedImageUploads as upload (upload.id)}
-                <a
-                  href={upload.public_url}
-                  target="_blank"
-                  rel="noreferrer"
+                {@const safeHref = safeUploadLink(upload.public_url)}
+                <svelte:element
+                  this={safeHref ? 'a' : 'div'}
+                  href={safeHref ?? undefined}
+                  target={safeHref ? '_blank' : undefined}
+                  rel={safeHref ? 'noreferrer' : undefined}
                   class="flex items-center gap-2 rounded-lg px-2.5 py-2"
                   style="border: 1px dashed #E5E7EB; background: #FAFAFA;"
-                  title="Image source is outside /uploads/ — opening in a new tab instead of rendering inline."
+                  title={safeHref
+                    ? 'Image source is outside /uploads/ — opening in a new tab instead of rendering inline.'
+                    : 'Image source is outside /uploads/ and has an unsafe URL scheme — not rendering or linking.'}
                 >
                   <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: #B45309;">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -1082,9 +1096,9 @@
                   </svg>
                   <span class="flex-1 min-w-0">
                     <span class="block truncate text-xs font-mono" style="color: var(--text);">{upload.original_name}</span>
-                    <span class="block text-[10px]" style="color: var(--text-faint);">{upload.mime_type} · {formatBytes(upload.size_bytes)} · external source</span>
+                    <span class="block text-[10px]" style="color: var(--text-faint);">{upload.mime_type} · {formatBytes(upload.size_bytes)} · {safeHref ? 'external source' : 'unsafe link blocked'}</span>
                   </span>
-                </a>
+                </svelte:element>
               {/each}
             {/if}
 
