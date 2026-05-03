@@ -174,7 +174,7 @@ export function validatePlanPayload(payload: unknown): ValidationResult<PlanEven
   if (errors.length > 0) {
     return { ok: false, errors };
   }
-  return { ok: true, value: p as PlanEventPayload };
+  return { ok: true, value: p as unknown as PlanEventPayload };
 }
 
 export function validatePlanPayloadString(payload: string): ValidationResult<PlanEventPayload> {

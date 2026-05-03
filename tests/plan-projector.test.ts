@@ -141,7 +141,7 @@ describe('plan-projector first-patch gate', () => {
     const rows = queries.getPlanEvents(
       TEST_SESSION,
       TEST_PLAN,
-      PLAN_EVENT_KINDS,
+      [...PLAN_EVENT_KINDS],
       10,
     );
     expect(rows.length).toBeGreaterThanOrEqual(2);
