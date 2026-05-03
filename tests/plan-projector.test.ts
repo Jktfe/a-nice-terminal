@@ -1,0 +1,220 @@
+import { describe, expect, it, beforeAll, afterAll } from 'vitest';
+import getDb, { queries } from '../src/lib/server/db.js';
+import {
+  validatePlanPayload,
+  validatePlanPayloadString,
+  PLAN_EVENT_KINDS,
+  type PlanEventPayload,
+} from '../src/lib/server/projector/types.js';
+import {
+  resolveProvenance,
+  resolveAllProvenance,
+  type ResolveContext,
+} from '../src/lib/server/projector/provenance-resolver.js';
+
+const TEST_SESSION = 'test-session-plan-projector';
+const TEST_PLAN = 'plan-m35-smoke';
+
+function seedPayload(kind: string, overrides?: Partial<PlanEventPayload>): string {
+  const base: PlanEventPayload = {
+    plan_id: TEST_PLAN,
+    title: 'Smoke test title',
+    order: 1,
+    ...overrides,
+  };
+  return JSON.stringify(base);
+}
+
+describe('plan-projector first-patch gate', () => {
+  beforeAll(() => {
+    // Ensure DB is initialized and seed test session
+    const db = getDb();
+    db.prepare('INSERT OR IGNORE INTO sessions (id, name, type) VALUES (?, ?, ?)').run(TEST_SESSION, 'test-plan-session', 'chat');
+  });
+
+  afterAll(() => {
+    // Clean up test rows
+    const db = getDb();
+    db.prepare('DELETE FROM run_events WHERE session_id = ?').run(TEST_SESSION);
+  });
+
+  it('validates a correct §6.5 payload', () => {
+    const payload: PlanEventPayload = {
+      plan_id: TEST_PLAN,
+      title: 'Section 1',
+      order: 0,
+      status: 'active',
+      owner: '@cloud-kimi',
+      evidence: [{ kind: 'run_event', ref: '42', label: 'R1 decision' }],
+      provenance: [{ run_event_id: '7', fallback: { source: 'tmux', query: 'decision' } }],
+    };
+    const result = validatePlanPayload(payload);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.plan_id).toBe(TEST_PLAN);
+      expect(result.value.status).toBe('active');
+    }
+  });
+
+  it('rejects a malformed payload with detailed errors', () => {
+    const result = validatePlanPayload({
+      plan_id: '',
+      title: '',
+      order: 'not-a-number',
+      status: 'invalid-status',
+    } as unknown as PlanEventPayload);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toContain('plan_id must be a non-empty string');
+      expect(result.errors).toContain('title must be a non-empty string');
+      expect(result.errors).toContain('order must be a finite number');
+      expect(result.errors).toContain('status must be one of planned, active, blocked, passing, failing, done');
+    }
+  });
+
+  it('rejects unknown evidence kinds', () => {
+    const result = validatePlanPayload({
+      plan_id: TEST_PLAN,
+      title: 'Bad evidence',
+      order: 1,
+      evidence: [{ kind: 'unknown', ref: 'abc' }],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toContain('evidence contains invalid entries');
+    }
+  });
+
+  it('validates payload from a JSON string', () => {
+    const valid = JSON.stringify({ plan_id: TEST_PLAN, title: 'Test', order: 1 });
+    const result = validatePlanPayloadString(valid);
+    expect(result.ok).toBe(true);
+
+    const invalid = 'not json {';
+    const result2 = validatePlanPayloadString(invalid);
+    expect(result2.ok).toBe(false);
+    if (!result2.ok) {
+      expect(result2.errors).toContain('payload is not valid JSON');
+    }
+  });
+
+  it('inserts and retrieves plan events via getPlanEvents (db helper)', () => {
+    // Insert a plan_section event
+    const payload = seedPayload('plan_section', {
+      title: 'M3.5 Architecture',
+      order: 0,
+      body: 'Top-level section frame.',
+    });
+    const event = queries.appendRunEvent(
+      TEST_SESSION,
+      Date.now(),
+      'json',
+      'high',
+      'plan_section',
+      'M3.5 Architecture',
+      payload,
+      null,
+    );
+    expect(event).toBeDefined();
+    expect(event.kind).toBe('plan_section');
+
+    // Insert a plan_milestone event
+    const msPayload = seedPayload('plan_milestone', {
+      title: 'Milestone 1: Types + Validator',
+      order: 1,
+      status: 'done',
+      owner: '@cloud-kimi',
+    });
+    const msEvent = queries.appendRunEvent(
+      TEST_SESSION,
+      Date.now() + 1,
+      'json',
+      'high',
+      'plan_milestone',
+      'Milestone 1: Types + Validator',
+      msPayload,
+      null,
+    );
+    expect(msEvent).toBeDefined();
+
+    // Query via getPlanEvents
+    const rows = queries.getPlanEvents(
+      TEST_SESSION,
+      TEST_PLAN,
+      PLAN_EVENT_KINDS,
+      10,
+    );
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+
+    // Validate payloads from DB
+    for (const row of rows) {
+      const parsed = JSON.parse(row.payload);
+      const validated = validatePlanPayload(parsed);
+      expect(validated.ok).toBe(true);
+      if (validated.ok) {
+        expect(validated.value.plan_id).toBe(TEST_PLAN);
+      }
+    }
+
+    // Order check: first row should be section (order 0), second milestone (order 1)
+    const ordered = rows.slice().sort((a: any, b: any) => a.ts_ms - b.ts_ms);
+    expect(ordered[0].kind).toBe('plan_section');
+    expect(ordered[1].kind).toBe('plan_milestone');
+  });
+
+  it('resolves provenance exact → fallback → degraded ladder', () => {
+    const fakeCtx: ResolveContext = {
+      sessionId: TEST_SESSION,
+      getRunEventById: (id) =>
+        id === 42
+          ? { id: 42, ts_ms: 1, source: 'json', kind: 'plan_decision', text: 'Exact hit' }
+          : undefined,
+      queryRunEvents: (opts) =>
+        opts.textLike === 'fallback-query'
+          ? [{ id: 99, ts_ms: 2, source: 'json', kind: 'plan_decision', text: 'Fallback hit' }]
+          : [],
+    };
+
+    // Exact
+    const exact = resolveProvenance({ run_event_id: '42' }, fakeCtx);
+    expect(exact.kind).toBe('exact');
+    expect(exact.label).toBe('Exact hit');
+    expect(exact.href).toBe('#run-event-42');
+
+    // Fallback
+    const fallback = resolveProvenance(
+      { fallback: { source: 'json', query: 'fallback-query' } },
+      fakeCtx,
+    );
+    expect(fallback.kind).toBe('fallback');
+    expect(fallback.label).toContain('Fallback hit');
+    expect(fallback.warning).toBeDefined();
+
+    // Degraded
+    const degraded = resolveProvenance({}, fakeCtx);
+    expect(degraded.kind).toBe('degraded');
+    expect(degraded.warning).toContain('⚠');
+    expect(degraded.warning).toContain('missing');
+  });
+
+  it('never silently drops provenance in resolveAllProvenance', () => {
+    const fakeCtx: ResolveContext = {
+      sessionId: TEST_SESSION,
+      getRunEventById: () => undefined,
+      queryRunEvents: () => [],
+    };
+
+    const refs = [
+      { run_event_id: '999' },
+      { fallback: { source: 'json', author: '@nobody' } },
+      {},
+    ];
+
+    const resolved = resolveAllProvenance(refs, fakeCtx);
+    expect(resolved.length).toBe(3);
+    expect(resolved[0].kind).toBe('degraded');
+    expect(resolved[1].kind).toBe('degraded');
+    expect(resolved[2].kind).toBe('degraded');
+    expect(resolved.every((r) => r.warning && r.warning.includes('⚠'))).toBe(true);
+  });
+});
