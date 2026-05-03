@@ -207,7 +207,31 @@
     }
   }
 
+  // B6 — two-step confirm. First click arms; second click within DELETE_CONFIRM_MS
+  // commits. Mouse leaving the action row or the timeout firing reverts to neutral.
+  // Pattern chosen over optimistic-delete-with-undo because in-place confirm needs
+  // zero server coupling — the existing DELETE endpoint is unchanged.
+  const DELETE_CONFIRM_MS = 3000;
+  let deleteArmedAt = $state<number | null>(null);
+  let deleteTimer: ReturnType<typeof setTimeout> | null = null;
+  const deleteArmed = $derived(deleteArmedAt !== null);
+
+  function disarmDelete() {
+    deleteArmedAt = null;
+    if (deleteTimer) {
+      clearTimeout(deleteTimer);
+      deleteTimer = null;
+    }
+  }
+
   async function deleteMsg() {
+    if (!deleteArmed) {
+      deleteArmedAt = Date.now();
+      if (deleteTimer) clearTimeout(deleteTimer);
+      deleteTimer = setTimeout(() => { disarmDelete(); }, DELETE_CONFIRM_MS);
+      return;
+    }
+    disarmDelete();
     await fetch(`/api/sessions/${sessionId}/messages?msgId=${message.id}`, { method: 'DELETE' });
     onDeleted?.(message.id);
   }
@@ -239,7 +263,7 @@
     transition: background var(--duration-base) var(--spring-default);
   "
   onmouseenter={() => hover = true}
-  onmouseleave={() => hover = false}
+  onmouseleave={() => { hover = false; if (deleteArmed) disarmDelete(); }}
 >
   <!-- Identity strip -->
   <div class="flex items-center gap-2.5 mb-1.5">
@@ -396,7 +420,29 @@
       style="font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); background: var(--hairline); border: 0.5px solid var(--hairline-strong); padding: 4px 8px; border-radius: 6px;"
       title="React 👍"
     >👍</button>
-    {@render actionChip('x', 'Delete', deleteMsg)}
+    <!-- B6: armed state replaces the neutral chip with a danger-tinted "Confirm?" button -->
+    {#if deleteArmed}
+      <button
+        onclick={deleteMsg}
+        onmouseleave={disarmDelete}
+        class="flex items-center gap-1.5 cursor-pointer"
+        style="
+          font-family: var(--font-mono); font-size: 11px; letter-spacing: 0;
+          color: {NOCTURNE.semantic.danger};
+          background: {NOCTURNE.semantic.danger}1a;
+          border: 0.5px solid {NOCTURNE.semantic.danger}60;
+          padding: 4px 8px; border-radius: 6px;
+          transition: background var(--duration-fast);
+        "
+        aria-label="Confirm delete"
+        title="Click again to delete · auto-cancels in 3s"
+      >
+        <NocturneIcon name="x" size={11} color={NOCTURNE.semantic.danger} />
+        <span>Confirm?</span>
+      </button>
+    {:else}
+      {@render actionChip('x', 'Delete', deleteMsg)}
+    {/if}
 
     <div class="flex-1"></div>
 
