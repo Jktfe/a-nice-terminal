@@ -20,7 +20,8 @@
     "fingerprint:all": "tsx src/fingerprint/runner.ts --all",
     "fingerprint:list": "tsx src/fingerprint/runner.ts --list",
     "test": "npx svelte-kit sync 2>/dev/null; vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:integration": "ANT_TEST_URL=${ANT_TEST_URL:-https://localhost:6458} vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
     "@sveltejs/adapter-node": "^5.5.4",
