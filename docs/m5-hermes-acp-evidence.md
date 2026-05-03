@@ -1,6 +1,7 @@
 # M5 Hermes ACP Evidence
 
-Branch: `delivery/m5-hermes-acp`  
+Branch: `delivery/m5-hermes-acp`
+
 Worktree: `../a-nice-terminal-m5-hermes-acp`
 
 ## Scope
