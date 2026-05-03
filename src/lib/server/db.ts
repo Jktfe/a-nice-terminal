@@ -16,7 +16,7 @@ const OPERATIONAL_MEMORY_WHERE = `
     AND COALESCE(tags, '') NOT LIKE '%"archive"%'
     AND COALESCE(tags, '') NOT LIKE '%archive-only%'
   `;
-const RUN_EVENT_SOURCE_VALUES = "'hook','json','rpc','terminal','status','tmux'";
+const RUN_EVENT_SOURCE_VALUES = "'acp','hook','json','rpc','terminal','status','tmux'";
 
 // Detect runtime
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- globalThis.Bun is not in TS lib; runtime check only
@@ -49,19 +49,19 @@ function migrateRunEventsSourceCheck(db: any): void {
     SELECT sql FROM sqlite_master
     WHERE type = 'table' AND name = 'run_events'
   `).get() as { sql?: string } | undefined;
-  if (!row?.sql || row.sql.includes("'rpc'")) return;
+  if (!row?.sql || row.sql.includes("'acp'")) return;
 
   db.exec('PRAGMA foreign_keys = OFF');
   try {
-    db.exec(runEventsTableSql('run_events_m4_rpc', false));
+    db.exec(runEventsTableSql('run_events_source_migration', false));
     db.exec(`
-      INSERT INTO run_events_m4_rpc
+      INSERT INTO run_events_source_migration
         (id, session_id, ts_ms, source, trust, kind, text, payload, raw_ref, created_at)
       SELECT id, session_id, ts_ms, source, trust, kind, text, payload, raw_ref, created_at
       FROM run_events
     `);
     db.exec('DROP TABLE run_events');
-    db.exec('ALTER TABLE run_events_m4_rpc RENAME TO run_events');
+    db.exec('ALTER TABLE run_events_source_migration RENAME TO run_events');
   } finally {
     db.exec('PRAGMA foreign_keys = ON');
   }

@@ -49,7 +49,7 @@
     id: string;
     session_id: string;
     ts: number;
-    source: 'hook' | 'json' | 'rpc' | 'terminal' | 'status' | 'tmux';
+    source: 'acp' | 'hook' | 'json' | 'rpc' | 'terminal' | 'status' | 'tmux';
     trust: 'high' | 'medium' | 'raw';
     kind: string;
     text: string;

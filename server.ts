@@ -590,6 +590,7 @@ wss.on('connection', async (ws, req) => {
                 [/\bgemini\b/, 'gemini-cli'],
                 [/\bcopilot\b/, 'copilot-cli'],
                 [/\bqwen\b/, 'qwen-cli'],
+                [/\bhermes\s+acp\b/, 'hermes-acp'],
                 [/\bpi\b(?:\s+--|$)/, 'pi'],
                 [/\baider\b/, 'lm-studio'],
                 [/\bperspective\b/, 'perspective'],
@@ -657,6 +658,7 @@ getPtyManager().then(async ptm => {
   const { queries } = await import('./src/lib/server/db.js');
   const { default: stripAnsi } = await import('strip-ansi');
   const { PiRpcStreamAdapter } = await import('./src/lib/server/pi-rpc/projection.js');
+  const { AcpStreamAdapter } = await import('./src/lib/server/acp/projection.js');
 
   // Throttle last_activity updates (1 write per session per 10s max)
   const activityThrottle = new Map<string, number>();
@@ -668,6 +670,8 @@ getPtyManager().then(async ptm => {
   const silenceStart = new Map<string, number>();
   const piRpcAdapters = new Map<string, InstanceType<typeof PiRpcStreamAdapter>>();
   const piRpcSessionCache = new Map<string, { checkedAt: number; isPi: boolean }>();
+  const acpAdapters = new Map<string, InstanceType<typeof AcpStreamAdapter>>();
+  const acpSessionCache = new Map<string, { checkedAt: number; isAcp: boolean }>();
 
   function isPiSession(sessionId: string): boolean {
     const now = Date.now();
@@ -697,6 +701,47 @@ getPtyManager().then(async ptm => {
       appendRunEvent(
         sessionId,
         'rpc',
+        'high',
+        event.kind,
+        event.text,
+        {
+          ...event.payload,
+          payload_hash: event.payload_hash,
+          transcript_sha256_so_far: adapter.transcriptSha256(),
+        },
+        event.raw_ref,
+      );
+    }
+  }
+
+  function isHermesAcpSession(sessionId: string): boolean {
+    const now = Date.now();
+    const cached = acpSessionCache.get(sessionId);
+    if (cached && now - cached.checkedAt < 1000) return cached.isAcp;
+    let isAcp = false;
+    try {
+      const session = queries.getSession(sessionId) as any;
+      let meta: any = {};
+      try { meta = typeof session?.meta === 'string' ? JSON.parse(session.meta) : (session?.meta ?? {}); } catch {}
+      const slug = session?.cli_flag || meta.agent_driver;
+      isAcp = slug === 'hermes-acp';
+    } catch {}
+    acpSessionCache.set(sessionId, { checkedAt: now, isAcp });
+    return isAcp;
+  }
+
+  function ingestAcpOutput(sessionId: string, data: string): void {
+    if (!isHermesAcpSession(sessionId)) return;
+    let adapter = acpAdapters.get(sessionId);
+    if (!adapter) {
+      adapter = new AcpStreamAdapter({ baseTsMs: Date.now() });
+      acpAdapters.set(sessionId, adapter);
+    }
+    const events = adapter.feedStdout(data);
+    for (const event of events) {
+      appendRunEvent(
+        sessionId,
+        'acp',
         'high',
         event.kind,
         event.text,
@@ -783,6 +828,7 @@ getPtyManager().then(async ptm => {
     // Buffer raw output for transcript persistence
     transcriptBufs.set(sessionId, (transcriptBufs.get(sessionId) ?? '') + data);
     ingestPiRpcOutput(sessionId, data);
+    ingestAcpOutput(sessionId, data);
     // Flush immediately if buffer exceeds 10KB
     if ((transcriptBufs.get(sessionId)?.length ?? 0) > 10_240) {
       clearTimeout(transcriptFlush.get(sessionId));
@@ -917,7 +963,7 @@ getPtyManager().then(async ptm => {
 
   const { broadcast } = await import('./src/lib/server/ws-broadcast.js');
 
-  type RunEventSource = 'hook' | 'json' | 'rpc' | 'terminal' | 'status' | 'tmux';
+  type RunEventSource = 'acp' | 'hook' | 'json' | 'rpc' | 'terminal' | 'status' | 'tmux';
   type RunEventTrust = 'high' | 'medium' | 'raw';
 
   function normalizeRunEvent(row: any) {
