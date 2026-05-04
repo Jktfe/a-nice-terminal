@@ -146,7 +146,7 @@
       <div class="flex items-center gap-2.5 px-2.5 py-2">
         {#if p.sess.linked_chat_id && onOpenLinkedChat}
           <button
-            class="relative flex-shrink-0 p-1 -m-1 rounded"
+            class="touch-target relative flex-shrink-0 p-1 -m-1 rounded"
             onclick={() => onOpenLinkedChat(p.sess)}
             title="Open linked chat for {label}"
             aria-label="Open linked chat for {label}"
@@ -204,7 +204,7 @@
         <div class="flex items-center gap-0.5 flex-shrink-0">
           <button
             onclick={() => { editingNickname = p.sess.id; nicknameInput = p.sess.handle || ''; }}
-            class="p-1 rounded transition-all"
+            class="touch-target p-1 rounded transition-all"
             style="color: var(--text-faint);"
             title="Set handle"
           >
@@ -215,7 +215,7 @@
           {#if p.sess.type === 'terminal' && p.sess.handle}
             <button
               onclick={() => onWakeParticipant(p.sess)}
-              class="p-1 rounded transition-all"
+              class="touch-target p-1 rounded transition-all"
               style="color: var(--text-faint);"
               title="Wake"
             >📢</button>
@@ -223,7 +223,7 @@
           {#if p.sess.type === 'terminal' && onFocusParticipant}
             <button
               onclick={() => onFocusParticipant?.(p.sess)}
-              class="p-1 rounded transition-all"
+              class="touch-target p-1 rounded transition-all"
               style="color: {p.sess.attention_state === 'focus' ? '#92400E' : 'var(--text-faint)'};"
               title={p.sess.attention_state === 'focus' ? 'Exit focus mode' : 'Enter focus mode'}
               aria-label={p.sess.attention_state === 'focus' ? `Exit focus mode for ${label}` : `Enter focus mode for ${label}`}
@@ -236,7 +236,7 @@
           {#if p.sess.type !== 'external'}
             <button
               onclick={() => onRemoveParticipant?.(p.sess)}
-              class="p-1 rounded transition-all"
+              class="touch-target p-1 rounded transition-all"
               style="color: var(--text-faint);"
               title="Remove from room"
               aria-label="Remove {label} from room"
@@ -335,12 +335,12 @@
                 </div>
                 <div class="flex items-center gap-0.5">
                   {#if p.sess.type === 'terminal' && p.sess.handle}
-                    <button onclick={() => onWakeParticipant(p.sess)} class="p-1 rounded" style="color: var(--text-faint);" title="Wake">📢</button>
+                    <button onclick={() => onWakeParticipant(p.sess)} class="touch-target p-1 rounded" style="color: var(--text-faint);" title="Wake">📢</button>
                   {/if}
                   {#if p.sess.type === 'terminal' && onAddTerminalToRoom}
                     <button
                       onclick={() => onAddTerminalToRoom?.(p.sess)}
-                      class="p-1 rounded"
+                      class="touch-target p-1 rounded"
                       style="color: #6366F1;"
                       title="Send join command to terminal"
                       aria-label="Send join command to {label}"

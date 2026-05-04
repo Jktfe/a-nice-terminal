@@ -304,7 +304,7 @@
     {#if onOpenFolders}
       <button
         onclick={onOpenFolders}
-        class="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border transition-all"
+        class="touch-target flex items-center gap-1.5 px-2 py-1.5 rounded-lg border transition-all"
         style="border-color: var(--border-subtle); color: var(--text-muted); background: var(--bg-card);"
         title="Open folders"
         aria-label="Open folders"
@@ -470,7 +470,7 @@
     <!-- Panel toggle -->
     <button
       onclick={onPanelToggle}
-      class="relative p-1.5 rounded-lg transition-all"
+      class="touch-target relative p-1.5 rounded-lg transition-all"
       style={showPanel ? 'color: #6366F1;' : 'color: var(--text-muted);'}
       title="Toggle side panel"
     >
@@ -495,7 +495,7 @@
     <div class="relative">
       <button
         onclick={onMenuToggle}
-        class="p-1.5 rounded-lg transition-all"
+        class="touch-target p-1.5 rounded-lg transition-all"
         style="color: var(--text-muted);"
         aria-label="Session menu"
       >

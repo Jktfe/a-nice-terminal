@@ -124,7 +124,7 @@
     </div>
     <button
       aria-label="more"
-      class="p-1 rounded cursor-pointer"
+      class="touch-target p-1 rounded cursor-pointer"
       style="
         background: transparent;
         border: none;
