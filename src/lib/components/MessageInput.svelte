@@ -83,9 +83,12 @@
 
   function resizeInput() {
     if (!inputEl) return;
+    const viewportHeight = typeof window === 'undefined'
+      ? 0
+      : (window.visualViewport?.height ?? window.innerHeight);
     const maxHeight = typeof window === 'undefined'
       ? 240
-      : Math.max(160, Math.floor(window.innerHeight * 0.35));
+      : Math.max(150, Math.floor(viewportHeight * 0.34));
     inputEl.style.height = 'auto';
     const nextHeight = Math.min(inputEl.scrollHeight, maxHeight);
     inputEl.style.height = `${nextHeight}px`;
@@ -211,7 +214,7 @@
   }
 </script>
 
-<div class="relative" style="padding: 0; border-top: 0.5px solid var(--hairline-strong);">
+<div class="relative message-input-root" style="padding: 0; border-top: 0.5px solid var(--hairline-strong);">
   {#if quickLaunchScope}
     <QuickLaunchBar
       scope={quickLaunchScope}
@@ -219,11 +222,11 @@
     />
   {/if}
 
-  <div style="padding: 12px 16px;">
+  <div class="message-input-pad" style="padding: 12px 16px;">
   <!-- @ mention dropdown -->
   {#if showMentions && filteredHandles.length > 0}
     <div
-      class="absolute bottom-full left-4 right-4 mb-1 overflow-hidden z-10"
+      class="absolute bottom-full left-4 right-4 mb-1 overflow-hidden z-10 mention-popover"
       style="
         background: var(--bg-card);
         border-radius: var(--radius-card);
@@ -235,7 +238,7 @@
         {@const ac = agentColor(h.handle)}
         <button
           onmousedown={(e) => { e.preventDefault(); selectMention(h.handle); }}
-          class="w-full flex items-center gap-2.5 px-3 py-2 text-left cursor-pointer"
+          class="w-full touch-target flex items-center justify-start gap-2.5 px-3 py-2 text-left cursor-pointer"
           style="
             font-size: 12px;
             background: {i === mentionSelectedIdx ? 'var(--hairline)' : 'transparent'};
@@ -270,7 +273,7 @@
       <span style="color: var(--text-faint); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
         {replyTo.content.slice(0, 60)}
       </span>
-      <button onclick={onClearReply} class="cursor-pointer" style="color: var(--text-faint); background: none; border: none; padding: 2px;">
+      <button onclick={onClearReply} class="touch-target cursor-pointer" style="color: var(--text-faint); background: none; border: none; padding: 2px;">
         <NocturneIcon name="x" size={12} />
       </button>
     </div>
@@ -364,7 +367,7 @@
     <button
       onclick={() => fileInputEl?.click()}
       disabled={uploading}
-      class="flex-shrink-0 cursor-pointer disabled:opacity-40"
+      class="touch-target flex-shrink-0 cursor-pointer disabled:opacity-40"
       style="color: var(--text-faint); background: none; border: none; padding: 4px; margin-bottom: 2px;"
       title="Attach image"
     >
@@ -383,7 +386,7 @@
     <button
       onclick={handleSubmit}
       disabled={!text.trim()}
-      class="flex items-center gap-1.5 flex-shrink-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+      class="touch-target flex items-center gap-1.5 flex-shrink-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
       style="
         font-family: var(--font-sans);
         font-size: 12.5px;
@@ -403,3 +406,20 @@
   </div>
   </div>
 </div>
+
+<style>
+  .message-input-root {
+    padding-bottom: max(var(--ant-safe-bottom, 0px), var(--ant-keyboard-h, 0px));
+    transition: padding-bottom var(--duration-fast) var(--spring-default);
+  }
+
+  .message-input-pad {
+    padding-left: max(12px, var(--ant-safe-left, 0px));
+    padding-right: max(12px, var(--ant-safe-right, 0px));
+  }
+
+  .mention-popover {
+    max-height: min(280px, calc(var(--ant-viewport-h, 100vh) * 0.38));
+    overflow-y: auto;
+  }
+</style>

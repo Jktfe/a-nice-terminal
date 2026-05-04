@@ -100,8 +100,35 @@
   // Panel closed by default on thin/mobile browsers (<1024px), open on desktop
   let showPanel = $state(typeof window !== 'undefined' ? window.innerWidth >= 1024 : true);
   let panelTab = $state('participants');
+  let panelSwipeStart = $state<{ x: number; y: number; intent: 'open' | 'close' } | null>(null);
 
   const effectiveShowPanel = $derived(showPanel);
+
+  function beginPanelSwipe(e: TouchEvent, intent: 'open' | 'close') {
+    if (typeof window !== 'undefined' && window.innerWidth >= 1024) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    panelSwipeStart = { x: touch.clientX, y: touch.clientY, intent };
+  }
+
+  function movePanelSwipe(e: TouchEvent) {
+    const start = panelSwipeStart;
+    const touch = e.touches[0];
+    if (!start || !touch) return;
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    if (Math.abs(dy) > 64) {
+      panelSwipeStart = null;
+      return;
+    }
+    if (start.intent === 'open' && dx < -36) {
+      showPanel = true;
+      panelSwipeStart = null;
+    } else if (start.intent === 'close' && dx > 36) {
+      showPanel = false;
+      panelSwipeStart = null;
+    }
+  }
 
   let tasks = $state<{ id: string; status: string; [key: string]: unknown }[]>([]);
   let fileRefs = $state<{ id: string; file_path?: string; [key: string]: unknown }[]>([]);
@@ -1505,6 +1532,8 @@
       <div
         class="fixed inset-0 z-40 bg-black/40 lg:hidden"
         onclick={() => (showPanel = false)}
+        ontouchstart={(e) => beginPanelSwipe(e, 'close')}
+        ontouchmove={movePanelSwipe}
       ></div>
       <ChatSidePanel
         {session}
@@ -1556,6 +1585,18 @@
         onCreateTask={createTask}
         onClose={() => (showPanel = false)}
       />
+    {:else}
+      <button
+        type="button"
+        class="ios-panel-edge-handle lg:hidden"
+        aria-label="Open side panel"
+        title="Open side panel"
+        onclick={() => (showPanel = true)}
+        ontouchstart={(e) => beginPanelSwipe(e, 'open')}
+        ontouchmove={movePanelSwipe}
+      >
+        <span aria-hidden="true"></span>
+      </button>
     {/if}
   </div>
   </div><!-- /main content column -->
@@ -1568,3 +1609,33 @@
   onSelect={pasteCdToTerminal}
   onClose={() => (folderDrawerOpen = false)}
 />
+
+<style>
+  .ios-panel-edge-handle {
+    position: fixed;
+    top: 50%;
+    right: var(--ant-safe-right, 0px);
+    z-index: 35;
+    width: 28px;
+    min-height: 88px;
+    transform: translateY(-50%);
+    border: 0;
+    border-radius: 999px 0 0 999px;
+    background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14), inset 1px 0 0 var(--border-subtle);
+    color: var(--text-faint);
+    cursor: pointer;
+    touch-action: pan-y;
+    backdrop-filter: blur(8px);
+  }
+
+  .ios-panel-edge-handle span {
+    display: block;
+    width: 4px;
+    height: 32px;
+    margin: 0 auto;
+    border-radius: 999px;
+    background: currentColor;
+    opacity: 0.65;
+  }
+</style>

@@ -401,9 +401,12 @@
 
   function resizeLinkedChatInput() {
     if (!linkedChatInputEl) return;
+    const viewportHeight = typeof window === 'undefined'
+      ? 0
+      : (window.visualViewport?.height ?? window.innerHeight);
     const maxHeight = typeof window === 'undefined'
       ? 220
-      : Math.max(150, Math.floor(window.innerHeight * 0.32));
+      : Math.max(140, Math.floor(viewportHeight * 0.30));
     linkedChatInputEl.style.height = 'auto';
     const nextHeight = Math.min(linkedChatInputEl.scrollHeight, maxHeight);
     linkedChatInputEl.style.height = `${nextHeight}px`;
@@ -462,6 +465,14 @@
   $effect(() => {
     linkedChatInput;
     queueMicrotask(resizeLinkedChatInput);
+  });
+
+  $effect(() => {
+    if (!linkedChatInputEl) return;
+    linkedChatInputEl.setAttribute('autocorrect', terminalHasCliDriver ? 'off' : 'on');
+    linkedChatInputEl.setAttribute('autocapitalize', terminalHasCliDriver ? 'off' : 'sentences');
+    linkedChatInputEl.setAttribute('autocomplete', terminalHasCliDriver ? 'off' : 'on');
+    linkedChatInputEl.spellcheck = !terminalHasCliDriver;
   });
 
   // Workaround: Svelte 5 event delegation sometimes fails on buttons in
@@ -623,6 +634,7 @@
   <!-- Messages scroll area -->
   <div class="flex-1 overflow-y-auto px-4 py-4 space-y-3 relative"
        bind:this={scrollElLocal}
+       style="scroll-padding-bottom: calc(96px + max(var(--ant-safe-bottom, 0px), var(--ant-keyboard-h, 0px)));"
        onscroll={onScroll}>
     {#if session?.type === 'terminal'}
       {#if messages.length === 0}
@@ -853,7 +865,7 @@
         Chat only. Pick a CLI driver above to send this box into the terminal.
       </div>
     {/if}
-    <div class="flex items-end gap-2 p-3 border-t" style="border-color:var(--border-light);">
+    <div class="linked-composer-shell flex items-end gap-2 p-3 border-t" style="border-color:var(--border-light);">
       <textarea
         bind:this={linkedChatInputEl}
         class="flex-1 rounded-lg px-3 py-2 text-sm outline-none resize-none"
@@ -866,7 +878,7 @@
       ></textarea>
       <button
         bind:this={sendBtnEl}
-        class="px-3 py-2 text-sm rounded-lg font-medium shrink-0"
+        class="touch-target px-3 py-2 text-sm rounded-lg font-medium shrink-0"
         style="background:#6366F1;color:#fff;"
       >Send</button>
     </div>
@@ -920,4 +932,8 @@
 </div>
 
 <style>
+  .linked-composer-shell {
+    padding: 12px max(12px, var(--ant-safe-right, 0px)) calc(12px + max(var(--ant-safe-bottom, 0px), var(--ant-keyboard-h, 0px))) max(12px, var(--ant-safe-left, 0px));
+    transition: padding-bottom var(--duration-fast) var(--spring-default);
+  }
 </style>
