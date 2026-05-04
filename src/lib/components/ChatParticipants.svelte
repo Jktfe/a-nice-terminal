@@ -391,19 +391,24 @@
 <style>
   .participant-actions {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 44px));
-    gap: 2px;
+    grid-template-columns: repeat(3, 28px);
+    gap: 4px;
     justify-content: end;
     align-content: start;
-    max-width: 136px;
+    max-width: 92px;
   }
 
   .participant-actions :global(.touch-target) {
-    width: 44px;
-    height: 44px;
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    min-height: 28px;
+    padding: 0;
+    line-height: 1;
+    font-size: 13px;
   }
 
   .participant-actions--available {
-    grid-template-columns: repeat(3, minmax(0, 44px));
+    grid-template-columns: repeat(3, 28px);
   }
 </style>
