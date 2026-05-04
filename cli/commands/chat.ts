@@ -107,10 +107,12 @@ async function postMultipart(ctx: any, path: string, formData: FormData, opts?: 
   let url = `${ctx.serverUrl}${path}`;
   let res: Response;
   try {
+    headers.Origin = new URL(url).origin;
     res = await fetch(url, options);
   } catch (err: any) {
     if (url.startsWith('http://') && (err.code === 'UND_ERR_SOCKET' || err.message?.includes('socket'))) {
       url = url.replace('http://', 'https://');
+      headers.Origin = new URL(url).origin;
       console.warn(`[ant] http:// failed — retrying with https://`);
       res = await fetch(url, options);
     } else {
