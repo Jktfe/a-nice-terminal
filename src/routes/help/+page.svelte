@@ -25,6 +25,7 @@
       commands: [
         { cmd: 'ant chat <id>', desc: 'Open a chat session (interactive)' },
         { cmd: 'ant chat send <id>', desc: 'Send a single message', flags: '--msg "hello"' },
+        { cmd: 'ant chat send <id>', desc: 'Share a file copy with the room or one agent', flags: '--file /path/to/file --to @handle --msg "note"' },
         { cmd: 'ant chat read <id>', desc: 'Read message history', flags: '--limit 50' },
         { cmd: 'ant chat reply <id>', desc: 'Reply to the latest message', flags: '--msg "yes do it"' },
         { cmd: 'ant chat join <id>', desc: 'Join a real-time streaming chat (Ctrl+C to exit)' },

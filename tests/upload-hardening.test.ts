@@ -83,6 +83,10 @@ describe('upload hardening policy', () => {
     expect(defaults.rateLimitPerHandle).toBeGreaterThanOrEqual(1000);
     expect(defaults.dailyBytesPerHandle).toBeGreaterThanOrEqual(100 * 1024 * 1024 * 1024);
     expect(isMimeAllowed('image/png', defaults.mimeAllowlist)).toBe(true);
+    expect(isMimeAllowed('text/markdown', defaults.mimeAllowlist)).toBe(true);
+    expect(isMimeAllowed('application/pdf', defaults.mimeAllowlist)).toBe(true);
+    expect(isMimeAllowed('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', defaults.mimeAllowlist)).toBe(true);
+    expect(isMimeAllowed('application/vnd.openxmlformats-officedocument.wordprocessingml.document', defaults.mimeAllowlist)).toBe(true);
 
     process.env.MAX_FILE_SIZE_MB = '2';
     process.env.UPLOAD_RATE_LIMIT_PER_HANDLE = '3';

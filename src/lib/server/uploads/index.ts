@@ -4,7 +4,15 @@ import type { RequestEvent } from '@sveltejs/kit';
 const DEFAULT_MAX_FILE_SIZE_MB = 100;
 const DEFAULT_RATE_LIMIT_PER_HANDLE = 1000;
 const DEFAULT_DAILY_BYTES_PER_HANDLE = 100 * 1024 * 1024 * 1024;
-const DEFAULT_MIME_ALLOWLIST = ['image/*'];
+const DEFAULT_MIME_ALLOWLIST = [
+  'image/*',
+  'text/*',
+  'application/json',
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+];
 
 const MIME_EXTENSION: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -14,7 +22,16 @@ const MIME_EXTENSION: Record<string, string> = {
   'image/avif': 'avif',
   'image/svg+xml': 'svg',
   'text/plain': 'txt',
+  'text/markdown': 'md',
+  'text/typescript': 'ts',
+  'text/javascript': 'js',
+  'text/csv': 'csv',
+  'text/tab-separated-values': 'tsv',
+  'application/json': 'json',
   'application/pdf': 'pdf',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
 };
 
 export interface UploadPolicySettings {

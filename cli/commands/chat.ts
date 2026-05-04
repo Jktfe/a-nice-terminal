@@ -2,6 +2,8 @@ import { api } from '../lib/api.js';
 import { config } from '../lib/config.js';
 import { createInterface } from 'readline';
 import { execFileSync } from 'child_process';
+import { readFileSync, statSync } from 'fs';
+import { basename, extname, resolve } from 'path';
 
 /** Detect whether we're inside an ANT-managed tmux session. */
 export function detectNativeSession(): { isNative: boolean; sessionId: string | null } {
@@ -48,6 +50,135 @@ function resolveIdentity(external: boolean): string {
 function roomOpts(id: string): { roomToken?: string } | undefined {
   const t = config.getRoomToken(id);
   return t?.token ? { roomToken: t.token } : undefined;
+}
+
+const MIME_BY_EXT: Record<string, string> = {
+  '.avif': 'image/avif',
+  '.csv': 'text/csv',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.gif': 'image/gif',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.js': 'text/javascript',
+  '.json': 'application/json',
+  '.md': 'text/markdown',
+  '.pdf': 'application/pdf',
+  '.png': 'image/png',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.svg': 'image/svg+xml',
+  '.ts': 'text/typescript',
+  '.tsx': 'text/typescript',
+  '.txt': 'text/plain',
+  '.webp': 'image/webp',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+};
+
+function normalizeTarget(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const trimmed = value.trim();
+  if (trimmed === '@everyone') return null;
+  return trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
+}
+
+function mimeForPath(path: string): string {
+  return MIME_BY_EXT[extname(path).toLowerCase()] || 'application/octet-stream';
+}
+
+async function postMultipart(ctx: any, path: string, formData: FormData, opts?: { roomToken?: string }): Promise<any> {
+  const headers: Record<string, string> = {};
+  if (opts?.roomToken) headers.Authorization = `Bearer ${opts.roomToken}`;
+  else if (ctx.apiKey) headers.Authorization = `Bearer ${ctx.apiKey}`;
+
+  const options: any = {
+    method: 'POST',
+    headers,
+    body: formData,
+    tls: { rejectUnauthorized: false },
+    dispatcher: undefined as any,
+  };
+
+  if (ctx.serverUrl.startsWith('https://') && typeof (globalThis as any).Bun === 'undefined') {
+    try {
+      const { Agent } = await import('undici');
+      options.dispatcher = new Agent({ connect: { rejectUnauthorized: false } });
+    } catch {}
+  }
+
+  let url = `${ctx.serverUrl}${path}`;
+  let res: Response;
+  try {
+    res = await fetch(url, options);
+  } catch (err: any) {
+    if (url.startsWith('http://') && (err.code === 'UND_ERR_SOCKET' || err.message?.includes('socket'))) {
+      url = url.replace('http://', 'https://');
+      console.warn(`[ant] http:// failed — retrying with https://`);
+      res = await fetch(url, options);
+    } else {
+      throw err;
+    }
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+async function sendFileMessage(args: {
+  ctx: any;
+  roomId: string;
+  filePath: string;
+  sender: string;
+  target: string | null;
+  note: string;
+  room: { roomToken?: string } | undefined;
+}) {
+  const absPath = resolve(args.filePath);
+  const stat = statSync(absPath);
+  if (!stat.isFile()) throw new Error(`Not a file: ${absPath}`);
+
+  const bytes = readFileSync(absPath);
+  const name = basename(absPath);
+  const mime = mimeForPath(absPath);
+  const formData = new FormData();
+  formData.append('file', new Blob([bytes], { type: mime }), name);
+
+  const qs = new URLSearchParams({ session_id: args.roomId, handle: args.sender });
+  const uploaded = await postMultipart(args.ctx, `/api/upload?${qs.toString()}`, formData, args.room);
+
+  const targetLine = args.target ? `${args.target} ` : '';
+  const intro = args.note.trim() ? `${args.note.trim()}\n\n` : '';
+  const content = `${targetLine}${intro}Shared file: ${name}\n${uploaded.url}\nSHA-256: ${uploaded.hash}\nSource: ${absPath}`;
+
+  const result = await api.post(args.ctx, `/api/sessions/${args.roomId}/messages`, {
+    role: 'user',
+    content,
+    format: 'text',
+    sender_id: args.sender,
+    target: args.target,
+    msg_type: 'file_share',
+    meta: {
+      source: 'cli_file_share',
+      file: {
+        name,
+        original_path: absPath,
+        url: uploaded.url,
+        hash: uploaded.hash,
+        size: uploaded.size,
+        mime_type: mime,
+      },
+    },
+  }, args.room);
+
+  try {
+    await api.post(args.ctx, `/api/sessions/${args.roomId}/file-refs`, {
+      file_path: absPath,
+      note: `Shared${args.target ? ` to ${args.target}` : ''}: ${uploaded.url}`,
+      flagged_by: args.sender,
+    }, args.room);
+  } catch {}
+
+  return { uploaded, message: result };
 }
 
 function formatPendingEvent(status: any): string {
@@ -166,10 +297,21 @@ export async function chat(args: string[], flags: any, ctx: any) {
 
   // Send a single message
   if (sub === 'send') {
-    const msg = flags.msg || args[2];
-    if (!msg) { console.error('Usage: ant chat send <id> --msg "message"'); return; }
+    const positionalTarget = args[2]?.startsWith('@') ? normalizeTarget(args[2]) : null;
+    const target = normalizeTarget(flags.to || flags.target) || positionalTarget;
+    const msgArgIndex = args[2]?.startsWith('@') ? 3 : 2;
+    const msg = flags.msg || args[msgArgIndex] || '';
+    const filePath = typeof flags.file === 'string' ? flags.file : '';
+    if (!msg && !filePath) { console.error('Usage: ant chat send <id> [@handle] --msg "message" [--file /path/to/file]'); return; }
     const sender = resolveIdentity(isExternal);
-    const result = await api.post(ctx, `/api/sessions/${id}/messages`, { role: 'user', content: msg, format: 'text', sender_id: sender }, roomOpts(id));
+    const room = roomOpts(id);
+    if (filePath) {
+      const result = await sendFileMessage({ ctx, roomId: id, filePath, sender, target, note: msg, room });
+      if (ctx.json) { console.log(JSON.stringify(result)); return; }
+      console.log(`Shared: ${result.uploaded.url}`);
+      return;
+    }
+    const result = await api.post(ctx, `/api/sessions/${id}/messages`, { role: 'user', content: msg, format: 'text', sender_id: sender, target }, room);
     if (ctx.json) { console.log(JSON.stringify(result)); return; }
     console.log(`Sent: ${msg}`);
     return;

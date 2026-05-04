@@ -46,6 +46,7 @@ Commands:
 
   chat <id>             Open chat session (interactive)
   chat send <id>        Send a message (--msg "hello")
+                        Share a file (--file /path --to @handle --msg "note")
                         Auto-detects server and identity in normal ANT shells
   chat read <id>        Read message history (--limit 50)
   chat reply <id>       Reply to the latest message (--msg "yes do it")
