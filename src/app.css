@@ -228,6 +228,19 @@ a {
   overscroll-behavior: contain;
 }
 
+/* Honour iOS Settings → Accessibility → Motion → Reduce Motion (and the
+   equivalent on macOS / Android). Strips animation/transition durations and
+   disables our Tailwind animate-in helpers so users with vestibular concerns
+   aren't blasted by spring-eased transitions. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 html[data-theme="dark"] {
   color-scheme: dark;
 }
