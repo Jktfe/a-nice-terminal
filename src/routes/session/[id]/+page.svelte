@@ -1469,7 +1469,7 @@
           {/if}
           <!-- Special key buttons -->
           {#await import('$lib/shared/special-keys.js') then mod}
-            <div class="flex items-center gap-1 px-3 py-1.5 border-t shrink-0 overflow-x-auto scrollbar-none" style="border-color:#1E293B; background:#161B22;">
+            <div class="flex items-center gap-1 px-3 py-1 min-h-[52px] border-t shrink-0 overflow-x-auto scrollbar-none" style="border-color:#1E293B; background:#161B22;">
               {#each mod.SPECIAL_KEYS as key}
                 <button
                   onclick={() => {
@@ -1484,7 +1484,7 @@
                       if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'terminal_input', sessionId, data: key.seq }));
                     }
                   }}
-                  class="shrink-0 px-2.5 py-1 rounded text-[11px] font-mono transition-colors hover:bg-[#21262D]"
+                  class="touch-target shrink-0 px-2.5 py-1 rounded text-[11px] font-mono transition-colors hover:bg-[#21262D]"
                   style="color:#8B949E; border:1px solid #30363D;"
                 >{key.label}</button>
               {/each}

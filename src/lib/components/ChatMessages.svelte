@@ -794,11 +794,11 @@
 
   <!-- Special key buttons for terminal sessions -->
   {#if session?.type === 'terminal'}
-    <div class="flex items-center gap-1.5 px-2 h-9 overflow-x-auto shrink-0 scrollbar-none" style="background:var(--bg-card);">
+    <div class="flex items-center gap-1.5 px-2 py-1 min-h-[52px] overflow-x-auto shrink-0 scrollbar-none" style="background:var(--bg-card);">
       {#each SPECIAL_KEYS as key, i}
         <button
           bind:this={keyBtnEls[i]}
-          class="shrink-0 px-3 py-1.5 rounded-md text-xs transition-colors"
+          class="touch-target shrink-0 px-3 py-1.5 rounded-md text-xs transition-colors"
           style="background:var(--bg-card);color:var(--text-muted);border:1px solid var(--border-subtle);"
         >{key.label}</button>
       {/each}

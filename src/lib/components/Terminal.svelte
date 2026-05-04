@@ -591,11 +591,11 @@
   </div>
 
   <!-- 3. Special keys row -->
-  <div class="flex items-center gap-1.5 px-2 h-9 overflow-x-auto shrink-0 scrollbar-none border-t" style="background: var(--bg-surface); border-color: var(--border-subtle);">
+  <div class="flex items-center gap-1.5 px-2 py-1 min-h-[52px] overflow-x-auto shrink-0 scrollbar-none border-t" style="background: var(--bg-surface); border-color: var(--border-subtle);">
     {#each specialKeys as key}
       <button
         onclick={() => sendKey(key.seq)}
-        class="shrink-0 px-3 py-1.5 rounded-md text-xs transition-colors hover:opacity-80"
+        class="touch-target shrink-0 px-3 py-1.5 rounded-md text-xs transition-colors hover:opacity-80"
         style="background: var(--bg-input); color: var(--text-muted);"
       >{key.label}</button>
     {/each}
