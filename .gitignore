@@ -47,6 +47,7 @@ ant-probe/string_utils.py
 output/
 docs/*-evidence.png
 docs/*-expanded.png
+docs/visual-overhaul-*.png
 
 # Scratch docs
 suggested-hooks-for-gemini.md
