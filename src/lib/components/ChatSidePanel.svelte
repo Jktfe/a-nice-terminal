@@ -427,11 +427,11 @@
 >
   <!-- Mobile close bar -->
   <div class="flex items-center justify-between px-4 py-2 border-b lg:hidden flex-shrink-0"
-       style="border-color: #E5E7EB;">
+       style="border-color: #E5E7EB; padding-top: max(0.5rem, var(--ant-safe-top, 0px));">
     <span class="text-sm font-semibold" style="color: var(--text);">Panel</span>
     <button
       onclick={() => onClose?.()}
-      class="p-1.5 rounded-lg"
+      class="touch-target p-1.5 rounded-lg"
       style="color: var(--text-muted);"
       aria-label="Close panel"
     >
