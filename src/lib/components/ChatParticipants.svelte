@@ -145,7 +145,7 @@
     {@const flag = getCliFlag(p.sess)}
     {@const statusCol = getStatusColor(p.sess.handle)}
     <div class="rounded-lg overflow-hidden" style="border: 1px solid #E5E7EB;">
-      <div class="flex items-center gap-2.5 px-2.5 py-2">
+      <div class="flex items-start gap-2.5 px-2.5 py-2">
         {#if p.sess.linked_chat_id && onOpenLinkedChat}
           <button
             class="touch-target relative flex-shrink-0 p-1 -m-1 rounded"
@@ -203,7 +203,7 @@
             {/if}
           {/if}
         </div>
-        <div class="flex items-center gap-0.5 flex-shrink-0">
+        <div class="participant-actions flex-shrink-0">
           <button
             onclick={() => { editingNickname = p.sess.id; nicknameInput = p.sess.handle || ''; }}
             class="touch-target p-1 rounded transition-all"
@@ -330,7 +330,7 @@
             {@const col = participantDot(p.sess)}
             {@const label = p.sess.display_name || p.sess.name}
             <div class="rounded-lg overflow-hidden opacity-80" style="border: 1px solid #E5E7EB; background: var(--bg);">
-              <div class="flex items-center gap-2.5 px-2.5 py-2">
+              <div class="flex items-start gap-2.5 px-2.5 py-2">
                 {#if p.sess.linked_chat_id && onOpenLinkedChat}
                   <button
                     class="w-4 h-4 rounded flex-shrink-0 flex items-center justify-center"
@@ -348,7 +348,7 @@
                   <p class="text-xs font-medium truncate" style="color: var(--text-muted);">{label}</p>
                   <p class="text-[10px] font-mono" style="color: var(--text-faint);">{p.sess.type}</p>
                 </div>
-                <div class="flex items-center gap-0.5">
+                <div class="participant-actions participant-actions--available flex-shrink-0">
                   {#if p.sess.type === 'terminal' && p.sess.handle}
                     <button onclick={() => onWakeParticipant(p.sess)} class="touch-target p-1 rounded" style="color: var(--text-faint);" title="Wake">📢</button>
                   {/if}
@@ -387,3 +387,23 @@
     </div>
   {/if}
 </div>
+
+<style>
+  .participant-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 44px));
+    gap: 2px;
+    justify-content: end;
+    align-content: start;
+    max-width: 136px;
+  }
+
+  .participant-actions :global(.touch-target) {
+    width: 44px;
+    height: 44px;
+  }
+
+  .participant-actions--available {
+    grid-template-columns: repeat(3, minmax(0, 44px));
+  }
+</style>

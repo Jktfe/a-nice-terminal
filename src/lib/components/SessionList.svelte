@@ -9,6 +9,14 @@
   import ArchiveStrip from './ArchiveStrip.svelte';
   import { goto } from '$app/navigation';
   import { isAutoLinkedChatSession } from '$lib/utils/linked-chat';
+  import {
+    SIDEBAR_PIN_CHANGE_EVENT,
+    SIDEBAR_PIN_STORAGE_KEY,
+    notifySidebarPinsChanged,
+    readPinnedIds,
+    togglePinnedId,
+    writePinnedIds,
+  } from '$lib/utils/sidebar-pins';
   import { onMount } from 'svelte';
   import PersonalSettingsModal from './PersonalSettingsModal.svelte';
 
@@ -35,6 +43,7 @@
   let typeFilter = $state<DashboardTypeFilter>('all');
   let draggedSession = $state<{ section: DashboardOrderSection; id: string } | null>(null);
   let dragOverSession = $state<{ section: DashboardOrderSection; id: string } | null>(null);
+  let sidebarPinnedIds = $state<Set<string>>(new Set());
 
   // ── Inline modal state (replaces window.prompt / confirm) ──
   let modal = $state<{
@@ -221,7 +230,27 @@
     if (savedType === 'all' || savedType === 'terminals' || savedType === 'chats') {
       typeFilter = savedType;
     }
+    sidebarPinnedIds = readPinnedIds(localStorage);
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === SIDEBAR_PIN_STORAGE_KEY) sidebarPinnedIds = readPinnedIds(localStorage);
+    };
+    const handlePinChange = () => {
+      sidebarPinnedIds = readPinnedIds(localStorage);
+    };
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener(SIDEBAR_PIN_CHANGE_EVENT, handlePinChange);
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener(SIDEBAR_PIN_CHANGE_EVENT, handlePinChange);
+    };
   });
+
+  function toggleSidebarPin(id: string) {
+    if (typeof localStorage === 'undefined') return;
+    sidebarPinnedIds = togglePinnedId(sidebarPinnedIds, id);
+    writePinnedIds(sidebarPinnedIds, localStorage);
+    notifySidebarPinsChanged();
+  }
 
   function setTypeFilter(value: DashboardTypeFilter) {
     typeFilter = value;
@@ -276,9 +305,22 @@
     ))
   );
 
-  // Split by type
-  const terminals = $derived(filtered.filter(s => s.type === 'terminal'));
-  const chats = $derived(filtered.filter(s => s.type === 'chat'));
+  const sidebarPinRank = $derived.by(() =>
+    new Map(Array.from(sidebarPinnedIds).map((id, index) => [id, index]))
+  );
+
+  function sidebarPinCompare(a: any, b: any): number {
+    const aRank = sidebarPinRank.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+    const bRank = sidebarPinRank.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+    return aRank - bRank;
+  }
+
+  // Split by type. Sidebar-pinned sessions float to the top in pin order;
+  // everything else keeps the selected activity/manual ordering.
+  const terminals = $derived([...filtered.filter(s => s.type === 'terminal')]
+    .sort(sidebarPinCompare));
+  const chats = $derived([...filtered.filter(s => s.type === 'chat')]
+    .sort(sidebarPinCompare));
 
   // For each terminal, find its linked chat from the full (unfiltered) sessions list
   function linkedChatFor(terminal: any): any | null {
@@ -519,7 +561,8 @@
                         idleAttention={idleAttentionSet.has(terminal.id)}
                         onArchive={() => store.archiveSession(terminal.id)}
                         onDelete={() => store.deleteSession(terminal.id)}
-                        onTogglePin={(t) => store.updateTtl(t.id, t.ttl === 'forever' ? '15m' : 'forever')}
+                        pinnedToSidebar={sidebarPinnedIds.has(terminal.id)}
+                        onTogglePin={(t) => toggleSidebarPin(t.id)}
                       />
                     </div>
                   </div>

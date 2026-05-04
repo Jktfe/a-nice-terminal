@@ -9,6 +9,7 @@
     linkedChat = null,
     needsInput = null,
     idleAttention = false,
+    pinnedToSidebar = false,
     onArchive,
     onDelete,
     onTogglePin,
@@ -17,6 +18,7 @@
     linkedChat?: Session | null;
     needsInput?: { eventClass: string; summary: string } | null;
     idleAttention?: boolean;
+    pinnedToSidebar?: boolean;
     onArchive?: () => void;
     onDelete?: () => void;
     onTogglePin?: (terminal: Session) => void;
@@ -142,22 +144,20 @@
   class="terminal-row group"
   onclick={handleCardClick}
 >
-  <!-- Pin toggle (always-on terminals). Click toggles ttl between 'forever'
-       and the default. stopPropagation so the row's navigate handler doesn't
-       fire — that was the bug James hit. -->
+  <!-- Pin toggle for sidebar visibility/top ordering. stopPropagation so the
+       row's navigate handler doesn't fire — that was the bug James hit. -->
   {#if onTogglePin}
     <button
       type="button"
       class="row-pin"
-      class:row-pin--active={terminal.ttl === 'forever'}
-      title={terminal.ttl === 'forever' ? 'Pinned (Always On) — click to unpin' : 'Pin terminal (Always On)'}
-      aria-label={terminal.ttl === 'forever' ? `Unpin ${terminal.name}` : `Pin ${terminal.name}`}
-      aria-pressed={terminal.ttl === 'forever'}
+      class:row-pin--active={pinnedToSidebar}
+      title={pinnedToSidebar ? 'Pinned to sidebar — click to unpin' : 'Pin to sidebar'}
+      aria-label={pinnedToSidebar ? `Unpin ${terminal.name} from sidebar` : `Pin ${terminal.name} to sidebar`}
+      aria-pressed={pinnedToSidebar}
       onclick={(e) => { e.stopPropagation(); onTogglePin(terminal); }}
     >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M12 17v5"/>
-        <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill={pinnedToSidebar ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
       </svg>
     </button>
   {:else}

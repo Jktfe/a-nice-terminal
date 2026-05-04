@@ -3,6 +3,14 @@
   import { NOCTURNE, agentColorFromSession } from '$lib/nocturne';
   import { SESSIONS_CHANNEL } from '$lib/ws-channels';
   import { isAutoLinkedChatSession } from '$lib/utils/linked-chat';
+  import {
+    SIDEBAR_PIN_CHANGE_EVENT,
+    SIDEBAR_PIN_STORAGE_KEY,
+    notifySidebarPinsChanged,
+    readPinnedIds,
+    togglePinnedId,
+    writePinnedIds,
+  } from '$lib/utils/sidebar-pins';
   import { deriveTerminalActivityState } from '$lib/shared/terminal-activity';
   import AgentDot from './AgentDot.svelte';
   import { onMount, onDestroy } from 'svelte';
@@ -43,38 +51,26 @@
 
   // B5 — explicit sidebar pinning. Persistence stays client-local for now:
   // no schema/API changes, and TTL remains session persistence rather than pin state.
-  const PIN_STORAGE_KEY = 'ant.sidebar.pinned';
   let pinnedIds = $state<Set<string>>(new Set());
 
   function loadPinned() {
     if (typeof window === 'undefined') return;
-    try {
-      const raw = localStorage.getItem(PIN_STORAGE_KEY);
-      if (!raw) return;
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) {
-        pinnedIds = new Set(arr.filter((x): x is string => typeof x === 'string'));
-      }
-    } catch {}
+    pinnedIds = readPinnedIds(localStorage);
   }
 
   function savePinned() {
     if (typeof window === 'undefined') return;
-    try {
-      localStorage.setItem(PIN_STORAGE_KEY, JSON.stringify(Array.from(pinnedIds)));
-    } catch {}
+    writePinnedIds(pinnedIds, localStorage);
+    notifySidebarPinsChanged();
   }
 
   function togglePin(sessionId: string) {
-    const next = new Set(pinnedIds);
-    if (next.has(sessionId)) next.delete(sessionId);
-    else next.add(sessionId);
-    pinnedIds = next;
+    pinnedIds = togglePinnedId(pinnedIds, sessionId);
     savePinned();
   }
 
   function onStorageEvent(e: StorageEvent) {
-    if (e.key === PIN_STORAGE_KEY) loadPinned();
+    if (e.key === SIDEBAR_PIN_STORAGE_KEY) loadPinned();
   }
 
   // Agent telemetry — model, context %, state from CLI status lines
@@ -237,14 +233,20 @@
     loadSessions();
     connectWs();
     loadPinned();
-    if (typeof window !== 'undefined') window.addEventListener('storage', onStorageEvent);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', onStorageEvent);
+      window.addEventListener(SIDEBAR_PIN_CHANGE_EVENT, loadPinned);
+    }
   });
 
   onDestroy(() => {
     wsDestroyed = true;
     if (reconnectTimer) clearTimeout(reconnectTimer);
     ws?.close();
-    if (typeof window !== 'undefined') window.removeEventListener('storage', onStorageEvent);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('storage', onStorageEvent);
+      window.removeEventListener(SIDEBAR_PIN_CHANGE_EVENT, loadPinned);
+    }
   });
 
   // Standalone chatrooms always visible; terminals/linked chats only when needs-input
