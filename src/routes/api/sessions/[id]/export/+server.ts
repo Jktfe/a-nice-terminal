@@ -1,11 +1,20 @@
 import { json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
+import { existsSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
 import { createOsaurusConnector } from '$lib/server/capture/osaurus-connector.js';
 import { obsidianVaultPath, maybeWriteSessionSummary } from '$lib/server/capture/obsidian-writer.js';
 import { writeOpenSlideDeck } from '$lib/server/capture/open-slide-writer.js';
 import { assertNotRoomScoped } from '$lib/server/room-scope.js';
 
 const TARGETS = new Set(['obsidian', 'open-slide', 'osaurus']);
+
+function openSlideOutputDir(): string {
+  const raw = process.env.ANT_OPEN_SLIDE_DIR;
+  if (raw && raw.length > 0) return raw;
+  return join(homedir(), 'CascadeProjects', 'ANT-Open-Slide');
+}
 
 function parseTargets(body: any): string[] {
   const raw = body?.targets ?? body?.target;
@@ -16,6 +25,12 @@ function parseTargets(body: any): string[] {
 }
 
 export function GET() {
+  // Probe-on-GET: `configured` reflects whether the receiving target actually
+  // exists on disk where the writer would land. Catches the silent-no-op case
+  // where a target was assumed installed but the directory is missing.
+  const vaultPath = obsidianVaultPath();
+  const slidePath = openSlideOutputDir();
+
   return json({
     targets: [
       {
@@ -23,22 +38,24 @@ export function GET() {
         label: 'Obsidian',
         kind: 'vault',
         description: 'Writes the existing concise markdown session summary into the configured Obsidian vault and memory table.',
-        configured: true,
-        vault_path: obsidianVaultPath(),
+        configured: existsSync(vaultPath),
+        vault_path: vaultPath,
       },
       {
         id: 'open-slide',
         label: 'Open-Slide',
         kind: 'render',
         description: 'Writes a local Open-Slide-ready React evidence deck bundle from ANT session evidence.',
-        configured: true,
-        output_dir: process.env.ANT_OPEN_SLIDE_DIR || '~/CascadeProjects/ANT-Open-Slide',
+        configured: existsSync(slidePath),
+        output_dir: slidePath,
       },
       {
         id: 'osaurus',
         label: 'Osaurus',
         kind: 'mcp',
         description: 'Mints a scoped room MCP connector so Osaurus can read/post session evidence through ANT tools.',
+        // Osaurus is a server-side capability (token minting via the existing
+        // /api/sessions/:id/invites infrastructure); no client-side probe.
         configured: true,
       },
     ],
