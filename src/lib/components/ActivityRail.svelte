@@ -428,6 +428,7 @@
     <button
       class="rail-item"
       class:current={isCurrent}
+      aria-current={isCurrent ? 'page' : undefined}
       onclick={() => navigateTo(navigationTarget(sess), sess.id)}
       onmouseenter={(e: MouseEvent) => {
         hoveredId = sess.id;
