@@ -449,7 +449,7 @@
       <div>
         <button
           onclick={() => (workspacesOpen = !workspacesOpen)}
-          class="w-full flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-gray-50"
+          class="touch-target w-full flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-gray-50"
           style="background: var(--bg);"
         >
           <div class="flex items-center gap-2 min-w-0">
@@ -476,7 +476,7 @@
             <button
               type="button"
               onclick={() => onOpenFolderDrawer?.()}
-              class="w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-gray-50"
+              class="touch-target w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-gray-50"
               style="border: 1px solid #E5E7EB; background: #FAFAFA;"
             >
               <span class="text-[10px] font-mono px-1.5 py-0.5 rounded" style="background: #111827; color: #F9FAFB;">cd</span>
@@ -494,7 +494,7 @@
                 <button
                   type="button"
                   onclick={() => onWorkspaceJump?.(workspace)}
-                  class="w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-gray-50"
+                  class="touch-target w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-gray-50"
                   style="border: 1px solid #E5E7EB; background: {session?.root_dir === workspace.root_dir ? '#EEF2FF' : '#FAFAFA'};"
                   title="Run cd {workspace.root_dir}"
                 >
@@ -516,7 +516,7 @@
       <!-- Section header -->
       <button
         onclick={() => isTerminal ? (chatRoomsOpen = !chatRoomsOpen) : (participantsOpen = !participantsOpen)}
-        class="w-full flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-gray-50"
+        class="touch-target w-full flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-gray-50"
         style="background: var(--bg);"
       >
         <div class="flex items-center gap-2">
@@ -573,7 +573,7 @@
                       <div class="text-center text-xs py-1" style="color: var(--text-muted);">Loading…</div>
                     {:else if linkedChatHasMore}
                       <div class="flex justify-center py-1">
-                        <button onclick={onLoadOlderLinkedChat} class="text-xs px-2 py-0.5 rounded-full border" style="border-color: #E5E7EB; color: var(--text-muted);">Load older</button>
+                        <button onclick={onLoadOlderLinkedChat} class="touch-target text-xs px-2 py-0.5 rounded-full border" style="border-color: #E5E7EB; color: var(--text-muted);">Load older</button>
                       </div>
                     {/if}
                     {#each groupMessages(linkedChatMessages) as group (group.key)}
@@ -628,7 +628,7 @@
                 <button
                   onclick={handleLinkedChatSend}
                   disabled={!linkedChatInputLocal.trim()}
-                  class="px-2.5 py-1.5 rounded-lg disabled:opacity-40 flex items-center"
+                  class="touch-target px-2.5 py-1.5 rounded-lg disabled:opacity-40 flex items-center justify-center"
                   style="background: #6366F1; color: #fff;"
                 >
                   <!-- send icon -->
@@ -670,7 +670,7 @@
       <div>
         <button
           onclick={() => (remoteAntsOpen = !remoteAntsOpen)}
-          class="w-full flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-gray-50"
+          class="touch-target w-full flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-gray-50"
           style="background: var(--bg);"
         >
           <div class="flex items-center gap-2">
@@ -738,12 +738,12 @@
                   <button
                     onclick={createInvite}
                     disabled={creatingInvite || !inviteLabel.trim() || invitePassword.length < 4 || (!inviteKindCli && !inviteKindMcp && !inviteKindWeb)}
-                    class="flex-1 px-2.5 py-1.5 text-xs rounded-lg font-medium disabled:opacity-40"
+                    class="touch-target flex-1 px-2.5 py-1.5 text-xs rounded-lg font-medium disabled:opacity-40"
                     style="background: #6366F1; color: #fff;"
                   >{creatingInvite ? 'Creating…' : 'Create invite'}</button>
                   <button
                     onclick={() => { showCreateInvite = false; inviteLabel = ''; invitePassword = ''; invitesError = null; }}
-                    class="px-2.5 py-1.5 text-xs rounded-lg"
+                    class="touch-target px-2.5 py-1.5 text-xs rounded-lg"
                     style="color: var(--text-faint); border: 1px solid #E5E7EB;"
                   >Cancel</button>
                 </div>
@@ -751,7 +751,7 @@
             {:else}
               <button
                 onclick={() => { showCreateInvite = true; invitesError = null; }}
-                class="w-full py-1.5 text-xs rounded-lg border border-dashed transition-all text-center"
+                class="touch-target w-full py-1.5 text-xs rounded-lg border border-dashed transition-all text-center"
                 style="border-color: #E5E7EB; color: var(--text-faint);"
               >+ Invite a remote ANT</button>
             {/if}
@@ -830,7 +830,7 @@
                           <span class="flex-1 min-w-0 text-[11px] truncate" style="color: var(--text);">{t.handle || '(no handle)'}</span>
                           <button
                             onclick={() => revokeTokenCmd(inv.id, t.id)}
-                            class="text-[10px] px-1 py-0.5 rounded"
+                            class="touch-target text-[10px] px-1 py-0.5 rounded"
                             style="color: #B91C1C;"
                             title="Revoke this token only"
                           >✕</button>
@@ -850,7 +850,7 @@
     <div>
       <button
         onclick={() => (tasksOpen = !tasksOpen)}
-        class="w-full flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-gray-50"
+        class="touch-target w-full flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-gray-50"
         style="background: var(--bg);"
       >
         <div class="flex items-center gap-2">
@@ -895,19 +895,19 @@
               <button
                 onclick={handleCreateTask}
                 disabled={!newTaskTitle.trim()}
-                class="px-2.5 py-1.5 text-xs rounded-lg font-medium disabled:opacity-40"
+                class="touch-target px-2.5 py-1.5 text-xs rounded-lg font-medium disabled:opacity-40"
                 style="background: #6366F1; color: #fff;"
               >+</button>
               <button
                 onclick={() => { showNewTaskInput = false; newTaskTitle = ''; }}
-                class="px-2 text-xs rounded-lg"
+                class="touch-target px-2 text-xs rounded-lg"
                 style="color: var(--text-faint);"
               >✕</button>
             </div>
           {:else}
             <button
               onclick={() => (showNewTaskInput = true)}
-              class="w-full py-1.5 text-xs rounded-lg border border-dashed transition-all text-center"
+              class="touch-target w-full py-1.5 text-xs rounded-lg border border-dashed transition-all text-center"
               style="border-color: #E5E7EB; color: var(--text-faint);"
             >+ New task</button>
           {/if}
@@ -966,7 +966,7 @@
     <div>
       <button
         onclick={() => (filesOpen = !filesOpen)}
-        class="w-full flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-gray-50"
+        class="touch-target w-full flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-gray-50"
         style="background: var(--bg);"
       >
         <div class="flex items-center gap-2">
@@ -1007,7 +1007,7 @@
                 <span class="flex-1 min-w-0 text-xs truncate font-mono" style="color: var(--text);">{r.file_path || r.id}</span>
                 <button
                   onclick={() => onFileRefRemoved(r.id)}
-                  class="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                  class="touch-target opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
                   style="color: var(--text-faint);"
                   title="Remove reference"
                 >
@@ -1144,7 +1144,7 @@
     <div>
       <button
         onclick={() => (memoryOpen = !memoryOpen)}
-        class="w-full flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-gray-50"
+        class="touch-target w-full flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-gray-50"
         style="background: var(--bg);"
       >
         <div class="flex items-center gap-2">
@@ -1197,7 +1197,7 @@
               <button
                 onclick={handleMemoryAdd}
                 disabled={!memoryNewKey.trim() || !memoryNewValue.trim()}
-                class="px-2.5 py-1.5 text-xs rounded-lg font-medium disabled:opacity-40"
+                class="touch-target px-2.5 py-1.5 text-xs rounded-lg font-medium disabled:opacity-40"
                 style="background: #6366F1; color: #fff;"
               >Save</button>
             </div>
@@ -1215,7 +1215,7 @@
                     <p class="font-mono font-semibold text-[11px] truncate flex-1" style="color: #6366F1;">{mem.key}</p>
                     <button
                       onclick={() => onDeleteMemory(mem.id)}
-                      class="opacity-0 group-hover/mem:opacity-100 transition-all flex-shrink-0"
+                      class="touch-target opacity-0 group-hover/mem:opacity-100 transition-all flex-shrink-0"
                       style="color: var(--text-faint);"
                       title="Delete memory"
                     >

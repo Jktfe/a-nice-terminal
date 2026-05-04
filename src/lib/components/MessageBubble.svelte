@@ -417,7 +417,7 @@
     {@render actionChip('cornerDown', 'Thread', () => {})}
     <button
       onclick={() => react('up')}
-      class="flex items-center gap-1 cursor-pointer"
+      class="touch-target flex items-center gap-1 cursor-pointer"
       style="font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); background: var(--hairline); border: 0.5px solid var(--hairline-strong); padding: 4px 8px; border-radius: 6px;"
       title="React 👍"
     >👍</button>
