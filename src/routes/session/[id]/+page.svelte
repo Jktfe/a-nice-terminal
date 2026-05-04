@@ -649,6 +649,30 @@
     toasts.show(`Sent join command to ${label}`);
   }
 
+  async function stopParticipant(targetSess: PageSession) {
+    if (targetSess.type !== 'terminal') {
+      toasts.show('Only terminal sessions can be stopped', 'error');
+      return;
+    }
+
+    const label = targetSess.display_name || targetSess.name || targetSess.handle || 'terminal';
+    const res = await fetch(`/api/sessions/${targetSess.id}/terminal/stop`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        reason: `Stop button from ${session?.name || sessionId}`,
+        requested_by: 'web',
+      }),
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      toasts.show(data.error || `Failed to stop ${label}`, 'error');
+      return;
+    }
+    toasts.show(`Sent Ctrl-C to ${label}`);
+  }
+
   // WS
   let ws = $state<WebSocket | null>(null);
   let wsDestroyed = false;
@@ -1622,6 +1646,7 @@
         onFocusParticipant={setParticipantFocus}
         onOpenLinkedChat={openLinkedChat}
         onAddTerminalToRoom={addTerminalToRoom}
+        onStopParticipant={stopParticipant}
         onOpenFolderDrawer={() => (folderDrawerOpen = true)}
         onCreateTask={createTask}
         onClose={() => (showPanel = false)}

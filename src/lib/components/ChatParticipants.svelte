@@ -27,6 +27,7 @@
     onFocusParticipant?: (sess: PageSession) => void;
     onOpenLinkedChat?: (sess: PageSession) => void;
     onAddTerminalToRoom?: (sess: PageSession) => void;
+    onStopParticipant?: (sess: PageSession) => void;
   }
 
   const {
@@ -39,7 +40,8 @@
     onRemoveParticipant,
     onFocusParticipant,
     onOpenLinkedChat,
-    onAddTerminalToRoom
+    onAddTerminalToRoom,
+    onStopParticipant
   }: Props = $props();
 
   let presence = $state<Record<string, { status: 'active' | 'idle' | 'offline' }>>({});
@@ -220,6 +222,19 @@
               title="Wake"
             >📢</button>
           {/if}
+          {#if p.sess.type === 'terminal' && onStopParticipant}
+            <button
+              onclick={() => onStopParticipant?.(p.sess)}
+              class="touch-target p-1 rounded transition-all"
+              style="color: #DC2626;"
+              title="Stop current terminal action"
+              aria-label="Stop current terminal action for {label}"
+            >
+              <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="6" y="6" width="12" height="12" rx="1.5" />
+              </svg>
+            </button>
+          {/if}
           {#if p.sess.type === 'terminal' && onFocusParticipant}
             <button
               onclick={() => onFocusParticipant?.(p.sess)}
@@ -336,6 +351,19 @@
                 <div class="flex items-center gap-0.5">
                   {#if p.sess.type === 'terminal' && p.sess.handle}
                     <button onclick={() => onWakeParticipant(p.sess)} class="touch-target p-1 rounded" style="color: var(--text-faint);" title="Wake">📢</button>
+                  {/if}
+                  {#if p.sess.type === 'terminal' && onStopParticipant}
+                    <button
+                      onclick={() => onStopParticipant?.(p.sess)}
+                      class="touch-target p-1 rounded"
+                      style="color: #DC2626;"
+                      title="Stop current terminal action"
+                      aria-label="Stop current terminal action for {label}"
+                    >
+                      <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <rect x="6" y="6" width="12" height="12" rx="1.5" />
+                      </svg>
+                    </button>
                   {/if}
                   {#if p.sess.type === 'terminal' && onAddTerminalToRoom}
                     <button
