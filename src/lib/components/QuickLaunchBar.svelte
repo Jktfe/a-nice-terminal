@@ -147,7 +147,9 @@
   .quick-btn {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 4px;
+    min-height: 44px;
     padding: 4px 10px;
     border-radius: 6px;
     font-size: 12px;
@@ -179,8 +181,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    min-width: 44px;
+    min-height: 44px;
     border-radius: 6px;
     font-size: 14px;
     flex-shrink: 0;

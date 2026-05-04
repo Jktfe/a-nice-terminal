@@ -1482,7 +1482,7 @@
             <!-- Refresh -->
             <button
               onclick={() => refreshRunEvents(true)}
-              class="p-1.5 rounded-lg transition-all"
+              class="touch-target p-1.5 rounded-lg transition-all"
               style="color: var(--text-muted); border: 1px solid #E5E7EB;"
               title="Refresh ANT Terminal"
             >
@@ -1537,7 +1537,7 @@
             <div class="flex-1"></div>
             <button
               onclick={() => termKey++}
-              class="p-1.5 rounded transition-all"
+              class="touch-target p-1.5 rounded transition-all"
               style="color:var(--text-faint);"
               title="Refresh terminal (remount)"
               aria-label="Refresh terminal"

@@ -192,7 +192,7 @@
   <!-- ANT logo + back -->
   <button
     onclick={() => goto('/')}
-    class="flex items-center gap-1 sm:gap-2 flex-shrink-0 rounded-lg px-1 sm:px-1.5 py-1 transition-all"
+    class="touch-target flex items-center gap-1 sm:gap-2 flex-shrink-0 rounded-lg px-1 sm:px-1.5 py-1 transition-all"
     style="color: var(--text-muted);"
     title="Back to sessions"
   >
@@ -224,7 +224,7 @@
     {:else}
       <button
         onclick={startEditName}
-        class="flex items-center gap-1.5 group min-w-0"
+        class="touch-target flex items-center gap-1.5 group min-w-0 justify-start"
         title="Click to rename"
       >
         <span class="text-sm font-semibold truncate" style="color: var(--text);">
@@ -340,7 +340,7 @@
         aria-label="Terminal view mode"
       >
         <button
-          class="flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium transition-all"
+          class="touch-target flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium transition-all"
           style={mode === 'chat'
             ? 'background: #6366F1; color: #fff;'
             : 'color: #6B7280; background: transparent;'}
@@ -351,7 +351,7 @@
           <span>💬</span><span class="hidden sm:inline">Chat</span>
         </button>
         <button
-          class="flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium transition-all"
+          class="touch-target flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium transition-all"
           style={mode === 'terminal'
             ? 'background: #22C55E; color: #fff;'
             : 'color: #6B7280; background: transparent;'}
@@ -362,7 +362,7 @@
           <span>✦</span><span class="hidden sm:inline">ANT</span>
         </button>
         <button
-          class="flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium transition-all"
+          class="touch-target flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium transition-all"
           style={mode === 'raw'
             ? 'background: #111827; color: #fff;'
             : 'color: #6B7280; background: transparent;'}
@@ -377,7 +377,7 @@
       <!-- tmux dropdown: local or SSH -->
       <div class="relative" data-tmux-dropdown>
         <button
-          class="flex items-center gap-1.5 p-1.5 sm:px-2.5 sm:py-1.5 text-xs rounded-lg border transition-all"
+          class="touch-target flex items-center gap-1.5 p-1.5 sm:px-2.5 sm:py-1.5 text-xs rounded-lg border transition-all"
           style="border-color: var(--border-subtle); color: var(--text-muted); background: var(--bg-card);"
           title="Copy tmux attach command"
           onclick={() => { showTmuxMenu = !showTmuxMenu; }}
@@ -633,8 +633,10 @@
   .cli-trigger {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
-    height: 30px;
+    min-height: 44px;
+    min-width: 44px;
     max-width: 200px;
     border: 1px solid #E5E7EB;
     border-radius: 999px;

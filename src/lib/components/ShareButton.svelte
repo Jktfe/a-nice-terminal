@@ -38,7 +38,7 @@
   <button
     onclick={loadCommands}
     disabled={isLoading}
-    class="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+    class="touch-target flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-all disabled:opacity-50 disabled:cursor-not-allowed"
     style="background:var(--bg-card);color:var(--text-muted);border-color:var(--border-subtle);"
     title="Share session with agents"
   >
@@ -90,7 +90,7 @@
 
       <button
         onclick={() => (showPanel = false)}
-        class="w-full text-center text-xs text-gray-500 hover:text-gray-300 py-2 transition-colors"
+        class="touch-target w-full text-center text-xs text-gray-500 hover:text-gray-300 py-2 transition-colors"
       >
         Close
       </button>

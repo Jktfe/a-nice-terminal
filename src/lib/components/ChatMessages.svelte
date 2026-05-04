@@ -576,7 +576,7 @@
       />
       {#if searchQuery.trim()}
         <button
-          class="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded transition-colors"
+          class="touch-target absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded transition-colors"
           style="color:var(--text-faint);"
           onclick={onSearchClear}
           title="Clear search"
@@ -603,7 +603,7 @@
         {/if}
       </span>
       <button
-        class="p-1.5 rounded-lg transition-all"
+        class="touch-target p-1.5 rounded-lg transition-all"
         style="color:var(--text-muted);border:1px solid var(--border-subtle);"
         disabled={searchResults.length === 0}
         onclick={onSearchPrev}
@@ -614,7 +614,7 @@
         </svg>
       </button>
       <button
-        class="p-1.5 rounded-lg transition-all"
+        class="touch-target p-1.5 rounded-lg transition-all"
         style="color:var(--text-muted);border:1px solid var(--border-subtle);"
         disabled={searchResults.length === 0}
         onclick={onSearchNext}
@@ -820,7 +820,7 @@
         <span class="text-gray-400">Replying to</span>
         <span class="font-mono text-[#6366F1]">{String(replyTo.sender_id ?? (replyTo.role === 'assistant' ? 'Assistant' : 'You'))}</span>
         <span class="text-gray-600 truncate flex-1">{String(replyTo.content ?? '').slice(0, 60)}</span>
-        <button onclick={onClearReply} class="text-gray-600 hover:text-gray-400 flex-shrink-0 ml-auto">✕</button>
+        <button onclick={onClearReply} class="touch-target text-gray-600 hover:text-gray-400 flex-shrink-0 ml-auto">✕</button>
       </div>
     {/if}
     {#if wsStore.getTyping().length > 0}

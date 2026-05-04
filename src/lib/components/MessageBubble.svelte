@@ -379,7 +379,7 @@
         {@const title = readerTitle(reader)}
         <button
           type="button"
-          class="group/receipt relative inline-flex h-4 w-4 items-center justify-center rounded-full outline-none"
+          class="touch-target group/receipt relative inline-flex items-center justify-center rounded-full outline-none"
           style="background: transparent; border: 0; padding: 0;"
           aria-label={title}
         >
@@ -432,7 +432,7 @@
           color: {NOCTURNE.semantic.danger};
           background: {NOCTURNE.semantic.danger}1a;
           border: 0.5px solid {NOCTURNE.semantic.danger}60;
-          padding: 4px 8px; border-radius: 6px;
+          min-height: 44px; min-width: 44px; padding: 4px 8px; border-radius: 6px;
           transition: background var(--duration-fast);
         "
         aria-label="Confirm delete"
@@ -450,7 +450,7 @@
     {#if !bookmarked}
       <button
         onclick={toggleBookmark}
-        class="flex items-center gap-1 cursor-pointer"
+        class="touch-target flex items-center gap-1 cursor-pointer"
         style="font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); background: var(--hairline); border: 0.5px solid var(--hairline-strong); padding: 4px 8px; border-radius: 6px;"
       >
         <NocturneIcon name="check" size={11} color="var(--text-faint)" />
@@ -459,7 +459,7 @@
     {:else}
       <button
         onclick={toggleBookmark}
-        class="flex items-center gap-1 cursor-pointer"
+        class="touch-target flex items-center gap-1 cursor-pointer"
         style="font-family: var(--font-mono); font-size: 11px; color: {NOCTURNE.amber[400]}; background: {NOCTURNE.amber[400]}18; border: 0.5px solid {NOCTURNE.amber[400]}40; padding: 4px 8px; border-radius: 6px;"
       >🔖 Saved</button>
     {/if}
@@ -469,11 +469,11 @@
 {#snippet actionChip(icon: string, label: string, onclick: () => void)}
   <button
     {onclick}
-    class="flex items-center gap-1.5 cursor-pointer"
+    class="touch-target flex items-center gap-1.5 cursor-pointer"
     style="
-      font-family: var(--font-mono); font-size: 11px; letter-spacing: 0;
-      color: var(--text-faint); background: var(--hairline);
-      border: 0.5px solid var(--hairline-strong);
+          font-family: var(--font-mono); font-size: 11px; letter-spacing: 0;
+          color: var(--text-faint); background: var(--hairline);
+          border: 0.5px solid var(--hairline-strong);
       padding: 4px 8px; border-radius: 6px;
       transition: background var(--duration-fast);
     "
