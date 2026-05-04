@@ -204,6 +204,28 @@ html {
   background-color: var(--bg);
   transition: background-color var(--duration-base) var(--spring-default),
               color var(--duration-base) var(--spring-default);
+  /* Stop iOS Safari from auto-resizing text on rotation. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* iOS polish — applies on touch, harmless on desktop:
+   - tap-highlight: removes the grey/blue flash on iOS Safari tap
+   - touch-action: manipulation suppresses 300ms tap delay + double-tap zoom
+     on interactive elements (buttons, links, role=button) without affecting
+     pinch zoom on the page itself. */
+button,
+[role="button"],
+a {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* Stop rubber-band scroll on internal scroll containers from rebounding to
+   the body. Leaves natural overflow behaviour intact. */
+.overflow-y-auto,
+.overflow-auto {
+  overscroll-behavior: contain;
 }
 
 html[data-theme="dark"] {
