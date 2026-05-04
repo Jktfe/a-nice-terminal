@@ -186,8 +186,13 @@
           bind:this={inputEl}
           onkeydown={handleKey}
           aria-label="Filter folders"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          inputmode="text"
         />
-        <button type="button" class="folder-close" onclick={onClose} aria-label="Close folder drawer">
+        <button type="button" class="touch-target folder-close" onclick={onClose} aria-label="Close folder drawer">
           <svg class="folder-close-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
           </svg>
