@@ -320,6 +320,8 @@
     --rail-bg: var(--bg-surface);
     --rail-border: var(--border-light);
   "
+  role="navigation"
+  aria-label="Sessions"
 >
   <!-- Home button — back to dashboard -->
   <button

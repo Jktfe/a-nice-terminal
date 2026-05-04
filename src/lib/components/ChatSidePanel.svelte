@@ -424,6 +424,8 @@
          fixed inset-y-0 right-0 z-50 w-full
          lg:static lg:w-[280px] lg:z-auto"
   style="max-width: 100vw; border-color: #E5E7EB; background: var(--bg);"
+  role="complementary"
+  aria-label="Session details panel"
 >
   <!-- Mobile close bar -->
   <div class="flex items-center justify-between px-4 py-2 border-b lg:hidden flex-shrink-0"

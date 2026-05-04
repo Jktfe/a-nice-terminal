@@ -186,6 +186,8 @@
 <div
   class="flex items-center px-2 sm:px-3 border-b flex-shrink-0 gap-1 sm:gap-2 min-w-0"
   style="border-color: #E5E7EB; background: var(--bg); min-height: 52px; padding-top: var(--ant-safe-top, 0px);"
+  role="banner"
+  aria-label="Session toolbar"
 >
   <!-- ANT logo + back -->
   <button
