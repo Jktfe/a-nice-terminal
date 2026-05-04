@@ -606,7 +606,7 @@
     <div class="rounded-t-xl px-3 py-3 flex flex-col gap-2 shrink-0 border-t" style="background: var(--bg-elevated); border-color: var(--border-light);" transition:slide={{ duration: 200 }}>
       <div class="flex items-center justify-between">
         <span class="text-xs font-semibold" style="color: var(--text);">Slow Edit</span>
-        <button onclick={() => { slowEdit = false; requestAnimationFrame(() => terminal?.focus()); }} class="text-sm" style="color: var(--text-muted);">✕</button>
+        <button onclick={() => { slowEdit = false; requestAnimationFrame(() => terminal?.focus()); }} class="touch-target text-sm" style="color: var(--text-muted);">✕</button>
       </div>
       <textarea
         class="font-mono text-sm p-3 rounded-lg border resize-none focus:outline-none min-h-[80px] max-h-[120px]"
@@ -627,27 +627,27 @@
   {/if}
 
   <!-- 5. Input row -->
-  <div class="flex items-center gap-1.5 px-2 py-1.5 shrink-0 border-t" style="background: var(--bg-surface); border-color: var(--border-subtle);">
+  <div class="flex items-center gap-1.5 px-2 py-1.5 shrink-0 border-t min-h-[56px]" style="background: var(--bg-surface); border-color: var(--border-subtle);">
     <!-- Back -->
-    <button onclick={() => history.back()} class="w-[34px] h-[34px] rounded-lg flex items-center justify-center hover:opacity-80 transition-opacity" style="background: var(--bg-input); color: var(--text-muted);">←</button>
+    <button onclick={() => history.back()} class="touch-target rounded-lg hover:opacity-80 transition-opacity" style="background: var(--bg-input); color: var(--text-muted);">←</button>
 
     <!-- Refresh -->
-    <button onclick={() => { if (ws && ws.readyState === WebSocket.OPEN) { ws.send(JSON.stringify({ type: 'join_session', sessionId, spawnPty: true, cols: terminal?.cols ?? 120, rows: terminal?.rows ?? 30 })); } }} class="w-[34px] h-[34px] rounded-lg flex items-center justify-center hover:opacity-80 transition-opacity" style="background: var(--bg-input); color: var(--text-muted);" title="Refresh terminal">↻</button>
+    <button onclick={() => { if (ws && ws.readyState === WebSocket.OPEN) { ws.send(JSON.stringify({ type: 'join_session', sessionId, spawnPty: true, cols: terminal?.cols ?? 120, rows: terminal?.rows ?? 30 })); } }} class="touch-target rounded-lg hover:opacity-80 transition-opacity" style="background: var(--bg-input); color: var(--text-muted);" title="Refresh terminal">↻</button>
 
     <!-- Input pill (tap target for slow edit) -->
     <button
       onclick={() => { slowEdit = true; }}
-      class="flex-1 h-[34px] rounded-full px-3 text-left text-sm truncate transition-all"
+      class="flex-1 min-h-[44px] rounded-full px-3 text-left text-sm truncate transition-all"
       style="background: var(--bg-input); color: {slowEditText ? 'var(--text)' : 'var(--text-muted)'}; {slowEdit ? 'box-shadow: 0 0 0 1px var(--color-info);' : ''}"
     >{slowEditText || 'Type a command...'}</button>
 
     <!-- Attach -->
-    <button class="w-[34px] h-[34px] rounded-lg flex items-center justify-center hover:opacity-80 transition-opacity" style="background: var(--bg-input); color: var(--text-muted);">📎</button>
+    <button class="touch-target rounded-lg hover:opacity-80 transition-opacity" style="background: var(--bg-input); color: var(--text-muted);">📎</button>
 
     <!-- Send -->
     <button
       onclick={() => { if (ws && slowEditText) sendSlowEdit(terminal, ws); }}
-      class="w-[34px] h-[34px] rounded-full flex items-center justify-center font-bold transition-colors"
+      class="touch-target rounded-full font-bold transition-colors"
       style="background: {slowEditText ? 'var(--color-success)' : 'var(--color-info)'}; color: #fff;"
     >↑</button>
   </div>
