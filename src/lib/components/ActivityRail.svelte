@@ -513,11 +513,11 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    width: 56px;
+    width: calc(56px + var(--ant-safe-left, 0px));
     height: 100%;
     background: var(--rail-bg);
     border-right: 1px solid var(--rail-border);
-    padding: 8px 0;
+    padding: 8px 0 8px var(--ant-safe-left, 0px);
     flex-shrink: 0;
     overflow: visible;
     transition: width var(--duration-base) var(--spring-default);

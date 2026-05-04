@@ -184,8 +184,8 @@
 <svelte:window onclick={onWindowClick} />
 
 <div
-  class="flex items-center px-2 sm:px-3 h-13 border-b flex-shrink-0 gap-1 sm:gap-2 min-w-0"
-  style="border-color: #E5E7EB; background: var(--bg); min-height: 52px;"
+  class="flex items-center px-2 sm:px-3 border-b flex-shrink-0 gap-1 sm:gap-2 min-w-0"
+  style="border-color: #E5E7EB; background: var(--bg); min-height: 52px; padding-top: var(--ant-safe-top, 0px);"
 >
   <!-- ANT logo + back -->
   <button
