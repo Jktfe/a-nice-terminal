@@ -519,6 +519,7 @@
                         idleAttention={idleAttentionSet.has(terminal.id)}
                         onArchive={() => store.archiveSession(terminal.id)}
                         onDelete={() => store.deleteSession(terminal.id)}
+                        onTogglePin={(t) => store.updateTtl(t.id, t.ttl === 'forever' ? '15m' : 'forever')}
                       />
                     </div>
                   </div>

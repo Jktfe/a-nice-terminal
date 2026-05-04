@@ -11,6 +11,7 @@
     idleAttention = false,
     onArchive,
     onDelete,
+    onTogglePin,
   }: {
     terminal: Session;
     linkedChat?: Session | null;
@@ -18,6 +19,7 @@
     idleAttention?: boolean;
     onArchive?: () => void;
     onDelete?: () => void;
+    onTogglePin?: (terminal: Session) => void;
   } = $props();
 
   const toasts = useToasts();
@@ -140,15 +142,34 @@
   class="terminal-row group"
   onclick={handleCardClick}
 >
-  <!-- Pin icon (always-on terminals) -->
-  <div class="row-pin" title={terminal.ttl === 'forever' ? 'Always On' : ''}>
-    {#if terminal.ttl === 'forever'}
+  <!-- Pin toggle (always-on terminals). Click toggles ttl between 'forever'
+       and the default. stopPropagation so the row's navigate handler doesn't
+       fire — that was the bug James hit. -->
+  {#if onTogglePin}
+    <button
+      type="button"
+      class="row-pin"
+      class:row-pin--active={terminal.ttl === 'forever'}
+      title={terminal.ttl === 'forever' ? 'Pinned (Always On) — click to unpin' : 'Pin terminal (Always On)'}
+      aria-label={terminal.ttl === 'forever' ? `Unpin ${terminal.name}` : `Pin ${terminal.name}`}
+      aria-pressed={terminal.ttl === 'forever'}
+      onclick={(e) => { e.stopPropagation(); onTogglePin(terminal); }}
+    >
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M12 17v5"/>
         <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>
       </svg>
-    {/if}
-  </div>
+    </button>
+  {:else}
+    <div class="row-pin" title={terminal.ttl === 'forever' ? 'Always On' : ''}>
+      {#if terminal.ttl === 'forever'}
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 17v5"/>
+          <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>
+        </svg>
+      {/if}
+    </div>
+  {/if}
 
   <!-- Left: terminal info -->
   <div class="row-left">
@@ -276,10 +297,34 @@
 
   .row-pin {
     width: 28px;
+    height: 28px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     color: var(--text-faint);
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    padding: 0;
+    cursor: pointer;
+    opacity: 0.4;
+    transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
+  }
+
+  .row-pin:hover {
+    opacity: 1;
+    background: var(--bg-elevated, rgba(0, 0, 0, 0.04));
+    color: var(--text-muted);
+  }
+
+  .row-pin--active {
+    opacity: 1;
+    color: #F59E0B;
+  }
+
+  .row-pin--active:hover {
+    color: #D97706;
+    background: rgba(245, 158, 11, 0.1);
   }
 
   .row-left {
