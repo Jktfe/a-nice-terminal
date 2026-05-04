@@ -101,6 +101,7 @@
   let showPanel = $state(typeof window !== 'undefined' ? window.innerWidth >= 1024 : true);
   let panelTab = $state('participants');
   let panelSwipeStart = $state<{ x: number; y: number; intent: 'open' | 'close' } | null>(null);
+  let backSwipeStart = $state<{ x: number; y: number } | null>(null);
 
   const effectiveShowPanel = $derived(showPanel);
 
@@ -128,6 +129,42 @@
       showPanel = false;
       panelSwipeStart = null;
     }
+  }
+
+  // P0 — left-edge back-nav gutter. xterm canvas captures all touch events,
+  // so a horizontal swipe from a focused terminal would never reach a parent
+  // listener. The gutter is "explicit chrome" per @antcodex's scroll-stealing
+  // rule: a fixed 8px strip on the left edge that intercepts touches before
+  // xterm sees them. Right-swipe with dx > 60 + |dy| < 64 navigates back.
+  function beginBackSwipe(e: TouchEvent) {
+    if (typeof window !== 'undefined' && window.innerWidth >= 1024) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    backSwipeStart = { x: touch.clientX, y: touch.clientY };
+  }
+
+  function moveBackSwipe(e: TouchEvent) {
+    const start = backSwipeStart;
+    const touch = e.touches[0];
+    if (!start || !touch) return;
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    if (Math.abs(dy) > 64) {
+      backSwipeStart = null;
+      return;
+    }
+    if (dx > 60) {
+      backSwipeStart = null;
+      if (typeof window !== 'undefined' && window.history.length > 1) {
+        window.history.back();
+      } else {
+        goto('/');
+      }
+    }
+  }
+
+  function endBackSwipe() {
+    backSwipeStart = null;
   }
 
   let tasks = $state<{ id: string; status: string; [key: string]: unknown }[]>([]);
@@ -1610,7 +1647,32 @@
   onClose={() => (folderDrawerOpen = false)}
 />
 
+<!-- P0: left-edge back-nav gutter — captures right-swipe before xterm canvas
+     receives it, navigates back to the dashboard. Mobile only via lg:hidden. -->
+<div
+  class="ios-back-edge-gutter lg:hidden"
+  ontouchstart={beginBackSwipe}
+  ontouchmove={moveBackSwipe}
+  ontouchend={endBackSwipe}
+  ontouchcancel={endBackSwipe}
+  aria-hidden="true"
+></div>
+
 <style>
+  .ios-back-edge-gutter {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 8px;
+    z-index: 60;
+    /* Subtle translucent strip — visible enough to hint at the gesture
+       without competing with content. Falls back to transparent on
+       devices that don't support color-mix. */
+    background: color-mix(in srgb, var(--text-faint) 14%, transparent);
+    touch-action: pan-y;
+  }
+
   .ios-panel-edge-handle {
     position: fixed;
     top: 50%;
