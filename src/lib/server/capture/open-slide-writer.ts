@@ -222,10 +222,10 @@ export function writeOpenSlideDeck(sessionId: string): OpenSlideExportResult {
         scripts: {
           dev: 'open-slide dev',
           build: 'open-slide build',
+          preview: 'open-slide preview',
         },
         dependencies: {
           '@open-slide/core': 'latest',
-          '@open-slide/cli': 'latest',
           react: 'latest',
           'react-dom': 'latest',
         },

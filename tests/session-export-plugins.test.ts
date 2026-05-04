@@ -67,9 +67,14 @@ describe('session evidence plugin exports', () => {
 
     const evidence = readFileSync(result.evidence_path!, 'utf8');
     const slides = readFileSync(result.slides_path!, 'utf8');
+    const pkg = JSON.parse(readFileSync(join(result.deck_dir!, 'package.json'), 'utf8'));
     expect(evidence).toContain('Export Plugin Session');
     expect(evidence).toContain('Evidence bundle builder');
     expect(slides).toContain("export default [Cover, TasksAndFiles, Commands, Messages]");
+    expect(pkg.scripts.build).toBe('open-slide build');
+    expect(pkg.scripts.preview).toBe('open-slide preview');
+    expect(pkg.dependencies['@open-slide/core']).toBeTruthy();
+    expect(pkg.dependencies['@open-slide/cli']).toBeUndefined();
   });
 
   it('rejects unknown export targets instead of silently doing nothing', async () => {
