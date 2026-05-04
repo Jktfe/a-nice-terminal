@@ -106,6 +106,41 @@
   --icon-stroke: 1.75;
 }
 
+/* ── iOS lane primitives (mobile uplift, locked 2026-05-04) ─────────
+   --ant-* CSS variable conventions and helpers shared across the iOS
+   uplift workstream. Consume via component CSS / inline style.
+
+   Owned by @antclaude (visual / safe-area / drawer):
+     --ant-safe-top    env(safe-area-inset-top)
+     --ant-safe-bottom env(safe-area-inset-bottom)
+     --ant-safe-left   env(safe-area-inset-left)
+     --ant-safe-right  env(safe-area-inset-right)
+       Used by chrome regions (header, footer, side-rails, drawer
+       edges, right panel) so notch/home-indicator never occlude UI.
+     .touch-target — 44x44pt minimum hit zone for icon-only buttons
+       (iOS HIG floor). Icon visual size unchanged; only the tappable
+       area grows. Applied as an additive utility on existing buttons.
+
+   Owned by @antcodex (interaction / keyboard / gesture):
+     --ant-viewport-h  visualViewport.height in CSS px
+     --ant-keyboard-h  computed keyboard occlusion (= layout-h − vv-h)
+       Written by src/lib/utils/viewport.ts. Consumed by composer
+       footer and modal footers so the keyboard never traps content
+       underneath. Mounted at SvelteKit layout level.
+
+   Acceptance criteria + lane split locked in deliverANT. */
+:root {
+  --ant-safe-top: env(safe-area-inset-top, 0px);
+  --ant-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --ant-safe-left: env(safe-area-inset-left, 0px);
+  --ant-safe-right: env(safe-area-inset-right, 0px);
+}
+
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
 /* ── Light theme (default) ─────────────────────────────────────────── */
 :root {
   --bg: var(--neutral-50);
