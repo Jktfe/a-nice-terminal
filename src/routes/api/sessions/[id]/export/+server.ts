@@ -5,6 +5,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { obsidianVaultPath, maybeWriteSessionSummary } from '$lib/server/capture/obsidian-writer.js';
 import { writeOpenSlideDeck } from '$lib/server/capture/open-slide-writer.js';
+import { publicOrigin } from '$lib/server/room-invites.js';
 
 const TARGETS = new Set(['obsidian', 'open-slide']);
 
@@ -78,7 +79,12 @@ export async function POST(event: RequestEvent<{ id: string }>) {
     };
   }
   if (targets.includes('open-slide')) {
-    results.open_slide = writeOpenSlideDeck(params.id);
+    const deck = writeOpenSlideDeck(params.id);
+    results.open_slide = {
+      ...deck,
+      deck_page_url: deck.slug ? `${publicOrigin({ url: event.url })}/deck/${deck.slug}` : undefined,
+      file_api_url: deck.slug ? `${publicOrigin({ url: event.url })}/api/decks/${deck.slug}/files` : undefined,
+    };
   }
 
   return json({ ok: true, session_id: params.id, targets: results });

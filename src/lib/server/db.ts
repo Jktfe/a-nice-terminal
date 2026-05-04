@@ -495,6 +495,19 @@ function getDb(): any {
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_room_tokens_room ON room_tokens(room_id)`);
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_room_tokens_active ON room_tokens(invite_id, revoked_at)`);
 
+  // Open-Slide decks — local deck workspaces registered against one or more
+  // ANT rooms. Room invite tokens gate read/write access in /api/decks/*.
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS decks (
+    slug TEXT PRIMARY KEY,
+    owner_session_id TEXT NOT NULL REFERENCES sessions(id),
+    allowed_room_ids TEXT NOT NULL,
+    deck_dir TEXT NOT NULL,
+    dev_port INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_decks_owner ON decks(owner_session_id)`);
+
   // Record startup
   G[DB_KEY].prepare(`INSERT OR REPLACE INTO server_state (key, value) VALUES (?, ?)`).run('last_heartbeat', new Date().toISOString());
   G[DB_KEY].exec(`INSERT OR REPLACE INTO server_state(key, value) VALUES ('last_started', datetime('now'))`);
@@ -1232,12 +1245,46 @@ export const queries = {
     ),
   getRoomTokenByHash: (hash: string) =>
     prepare(`SELECT * FROM room_tokens WHERE token_hash = ?`).get(hash),
+  getRoomToken: (id: string) =>
+    prepare(`SELECT * FROM room_tokens WHERE id = ?`).get(id),
   touchRoomToken: (id: string) =>
     prepare(`UPDATE room_tokens SET last_seen_at = datetime('now') WHERE id = ?`).run(id),
   revokeRoomToken: (id: string) =>
     prepare(`UPDATE room_tokens SET revoked_at = datetime('now') WHERE id = ? AND revoked_at IS NULL`).run(id),
   listRoomTokens: (inviteId: string) =>
     prepare(`SELECT * FROM room_tokens WHERE invite_id = ? ORDER BY created_at DESC`).all(inviteId),
+
+  // Deck registry
+  upsertDeck: (row: {
+    slug: string;
+    owner_session_id: string;
+    allowed_room_ids: string;
+    deck_dir: string;
+    dev_port: number | null;
+    now_ms?: number;
+  }) =>
+    prepare(`INSERT INTO decks (slug, owner_session_id, allowed_room_ids, deck_dir, dev_port, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(slug) DO UPDATE SET
+               owner_session_id = excluded.owner_session_id,
+               allowed_room_ids = excluded.allowed_room_ids,
+               deck_dir = excluded.deck_dir,
+               dev_port = excluded.dev_port,
+               updated_at = excluded.updated_at`).run(
+      row.slug,
+      row.owner_session_id,
+      row.allowed_room_ids,
+      row.deck_dir,
+      row.dev_port,
+      row.now_ms ?? Date.now(),
+      row.now_ms ?? Date.now(),
+    ),
+  getDeck: (slug: string) =>
+    prepare(`SELECT * FROM decks WHERE slug = ?`).get(slug),
+  listDecks: () =>
+    prepare(`SELECT * FROM decks ORDER BY updated_at DESC`).all(),
+  deleteDeck: (slug: string) =>
+    prepare(`DELETE FROM decks WHERE slug = ?`).run(slug),
 };
 
 export default getDb;

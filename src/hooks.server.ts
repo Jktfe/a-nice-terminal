@@ -11,6 +11,7 @@ const EXCHANGE_RE = /^\/api\/sessions\/[^/]+\/invites\/[^/]+\/exchange$/;
 // Room viewer page (SPA shell) — must be reachable without a bearer so the
 // client-side password gate can run and exchange the invite for a token.
 const ROOM_PAGE_RE = /^\/r\/[^/]+\/?$/;
+const DECK_API_RE = /^\/api\/decks(?:\/|$)/;
 
 // URL prefixes that map to a room id. Used to verify that a presented room
 // token authorises the URL it's being used against.
@@ -59,6 +60,13 @@ function classifyBearer(event: Parameters<Handle>[0]['event']): BearerState {
   const resolved = resolveToken(bearer);
   if (!resolved) return { kind: 'none' };
   const targetRoom = urlRoomId(event.url.pathname);
+  if (!targetRoom && DECK_API_RE.test(event.url.pathname)) {
+    return {
+      kind: 'room-scoped',
+      roomId: resolved.invite.room_id,
+      tokenKind: resolved.token.kind ?? null,
+    };
+  }
   if (!targetRoom) return { kind: 'wrong-room' };
   if (targetRoom !== resolved.invite.room_id) return { kind: 'wrong-room' };
   return {
@@ -124,4 +132,3 @@ export const handle: Handle = async ({ event, resolve }) => {
   }
   return resolve(event);
 };
-

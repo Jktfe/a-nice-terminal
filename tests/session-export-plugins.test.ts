@@ -12,6 +12,7 @@ let missingVaultDir: string | null = null;
 
 function resetSession() {
   const db = getDb();
+  db.prepare('DELETE FROM decks WHERE owner_session_id = ?').run(TEST_SESSION);
   db.prepare('DELETE FROM sessions WHERE id = ?').run(TEST_SESSION);
   queries.createSession(TEST_SESSION, 'Export Plugin Session', 'chat', 'forever', null, '/tmp/ant-export-test', '{}');
   queries.createMessage(
@@ -53,6 +54,7 @@ describe('session evidence plugin exports', () => {
 
   afterAll(() => {
     const db = getDb();
+    db.prepare('DELETE FROM decks WHERE owner_session_id = ?').run(TEST_SESSION);
     db.prepare('DELETE FROM sessions WHERE id = ?').run(TEST_SESSION);
     delete process.env.ANT_OPEN_SLIDE_DIR;
   });

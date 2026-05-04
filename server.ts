@@ -17,7 +17,7 @@ if (!process.env.ORIGIN && process.env.ANT_SERVER_URL) {
   process.env.ORIGIN = process.env.ANT_SERVER_URL;
 }
 
-import { createServer, type IncomingMessage, type ServerResponse } from 'http';
+import { createServer, request as httpRequest, type IncomingMessage, type ServerResponse } from 'http';
 import {
   chmodSync,
   copyFileSync,
@@ -33,6 +33,7 @@ import {
 } from 'fs';
 import { extname, join, resolve } from 'path';
 import { createServer as createHttpsServer } from 'https';
+import type { Socket } from 'net';
 import { pathToFileURL } from 'url';
 import { WebSocketServer } from 'ws';
 
@@ -377,8 +378,97 @@ import('./src/lib/server/router-init.js').then((m) => { m.initRouter(); }).catch
 // Top-level await so the resolver is ready before the first connection.
 const { extractTokenFromHeaders, resolveToken } = await import('./src/lib/server/room-invites.js');
 
+function parseCookies(header: string | string[] | undefined): Map<string, string> {
+  const raw = Array.isArray(header) ? header.join(';') : header || '';
+  const cookies = new Map<string, string>();
+  for (const part of raw.split(';')) {
+    const index = part.indexOf('=');
+    if (index === -1) continue;
+    const name = part.slice(0, index).trim();
+    let value = part.slice(index + 1).trim();
+    if (!name) continue;
+    try {
+      value = decodeURIComponent(value);
+    } catch {
+      // Keep the raw cookie if a client sent malformed percent escapes.
+    }
+    cookies.set(name, value);
+  }
+  return cookies;
+}
+
+function writeUpgradeError(socket: Socket, status: number, message: string): void {
+  socket.write(`HTTP/1.1 ${status} ${message}\r\nConnection: close\r\n\r\n`);
+  socket.destroy();
+}
+
+async function handleDeckUpgrade(req: IncomingMessage, socket: Socket, head: Buffer): Promise<void> {
+  let upgradeUrl: URL;
+  try {
+    upgradeUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  } catch {
+    writeUpgradeError(socket, 400, 'Bad Request');
+    return;
+  }
+
+  const match = upgradeUrl.pathname.match(/^\/deck\/([^/]+)(?:\/(.*))?$/);
+  if (!match) {
+    writeUpgradeError(socket, 404, 'Not Found');
+    return;
+  }
+
+  const slug = decodeURIComponent(match[1]);
+  const restPath = `/${match[2] || ''}`;
+  const [{ readDeckMeta }, { deckCookieName, verifyDeckCookieValue }] = await Promise.all([
+    import('./src/lib/server/decks.js'),
+    import('./src/lib/server/deck-view-auth.js'),
+  ]);
+  const deck = readDeckMeta(slug);
+  if (!deck) {
+    writeUpgradeError(socket, 404, 'Not Found');
+    return;
+  }
+  const cookie = parseCookies(req.headers.cookie).get(deckCookieName(slug));
+  if (!verifyDeckCookieValue(slug, deck, cookie)) {
+    writeUpgradeError(socket, 401, 'Unauthorized');
+    return;
+  }
+  if (!deck.dev_port) {
+    writeUpgradeError(socket, 503, 'Service Unavailable');
+    return;
+  }
+
+  const headers = { ...req.headers, host: `localhost:${deck.dev_port}` };
+  const proxyReq = httpRequest({
+    host: '127.0.0.1',
+    port: deck.dev_port,
+    path: `${restPath}${upgradeUrl.search}`,
+    method: req.method,
+    headers,
+  });
+
+  proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {
+    const statusLine = `HTTP/1.1 ${proxyRes.statusCode || 101} ${proxyRes.statusMessage || 'Switching Protocols'}\r\n`;
+    const headerLines = Object.entries(proxyRes.headers)
+      .flatMap(([key, value]) => Array.isArray(value) ? value.map((v) => `${key}: ${v}`) : value == null ? [] : [`${key}: ${value}`])
+      .join('\r\n');
+    socket.write(`${statusLine}${headerLines}\r\n\r\n`);
+    if (proxyHead.length) socket.write(proxyHead);
+    if (head.length) proxySocket.write(head);
+    proxySocket.pipe(socket);
+    socket.pipe(proxySocket);
+  });
+  proxyReq.on('error', () => writeUpgradeError(socket, 502, 'Bad Gateway'));
+  proxyReq.end();
+}
+
 // Authenticate and upgrade WebSocket connections
 server.on('upgrade', (req, socket, head) => {
+  if (req.url?.startsWith('/deck/')) {
+    void handleDeckUpgrade(req, socket, head).catch(() => writeUpgradeError(socket, 500, 'Internal Server Error'));
+    return;
+  }
+
   if (!req.url?.startsWith('/ws')) {
     socket.destroy();
     return;

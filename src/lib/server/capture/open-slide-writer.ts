@@ -7,6 +7,7 @@ import {
   sessionEvidenceMarkdown,
   type SessionEvidence,
 } from './session-evidence.js';
+import { registerDeck } from '../decks.js';
 
 const DEFAULT_OPEN_SLIDE_DIR = join(homedir(), 'CascadeProjects', 'ANT-Open-Slide');
 
@@ -14,6 +15,7 @@ export interface OpenSlideExportResult {
   ok: boolean;
   skipped?: boolean;
   reason?: string;
+  slug?: string;
   deck_dir?: string;
   evidence_path?: string;
   readme_path?: string;
@@ -235,10 +237,18 @@ export function writeOpenSlideDeck(sessionId: string): OpenSlideExportResult {
     if (!existsSync(configPath)) {
       writeFileSync(configPath, "export default {};\n", 'utf-8');
     }
+    const slug = `${safeEvidenceName(evidence.session.name)}-${sessionId.slice(0, 8)}`;
+    const deck = registerDeck({
+      slug,
+      owner_session_id: sessionId,
+      allowed_room_ids: [sessionId],
+      deck_dir: deckDir,
+    });
 
     return {
       ok: true,
       note: 'Deterministic deck path: repeat exports update the same local bundle for this session.',
+      slug: deck.slug,
       deck_dir: deckDir,
       evidence_path: evidencePath,
       readme_path: readmePath,
