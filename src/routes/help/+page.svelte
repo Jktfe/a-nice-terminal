@@ -8,7 +8,7 @@
         { cmd: 'ant sessions create', desc: 'Create a new session', flags: '--name "My Session" --type terminal|chat' },
         { cmd: 'ant sessions archive <id>', desc: 'Archive a session' },
         { cmd: 'ant sessions delete <id>', desc: 'Delete a session' },
-        { cmd: 'ant sessions export <id>', desc: 'Export session evidence', flags: '--target obsidian|open-slide|osaurus|all' },
+        { cmd: 'ant sessions export <id>', desc: 'Export session evidence', flags: '--target obsidian|open-slide|all' },
       ],
     },
     {

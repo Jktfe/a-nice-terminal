@@ -109,7 +109,7 @@ ant sessions create --name "Chat" --type chat
 ant sessions archive <id>                 # Archive a session
 ant sessions delete <id>                  # Delete a session
 ant sessions export <id>                  # Export to Obsidian vault
-ant sessions export <id> --target all     # Export evidence to Obsidian, Open-Slide, and Osaurus
+ant sessions export <id> --target all     # Export evidence to Obsidian and Open-Slide
 ```
 
 ### Terminal

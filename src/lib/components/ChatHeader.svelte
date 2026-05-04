@@ -310,7 +310,7 @@
         onclick={onOpenExport}
         class="touch-target p-1.5 rounded-lg transition-all"
         style="color: var(--text-muted);"
-        title="Export evidence (Obsidian / Open-Slide / Osaurus)"
+        title="Export evidence (Obsidian / Open-Slide)"
         aria-label="Export evidence"
       >
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">

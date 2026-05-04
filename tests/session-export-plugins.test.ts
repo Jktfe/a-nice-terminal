@@ -4,8 +4,6 @@ import { join } from 'path';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import getDb, { queries } from '../src/lib/server/db.js';
 import { writeOpenSlideDeck } from '../src/lib/server/capture/open-slide-writer.js';
-import { createOsaurusConnector } from '../src/lib/server/capture/osaurus-connector.js';
-import { resolveToken } from '../src/lib/server/room-invites.js';
 import { POST } from '../src/routes/api/sessions/[id]/export/+server.js';
 
 const TEST_SESSION = 'test-session-export-plugins';
@@ -74,26 +72,6 @@ describe('session evidence plugin exports', () => {
     expect(slides).toContain("export default [Cover, TasksAndFiles, Commands, Messages]");
   });
 
-  it('mints a scoped Osaurus MCP connector for one room', () => {
-    const previousOrigin = process.env.ANT_PUBLIC_ORIGIN;
-    process.env.ANT_PUBLIC_ORIGIN = 'https://ant.example.test';
-
-    const result = createOsaurusConnector(TEST_SESSION, new URL('https://ignored.example.test/session/x'));
-    expect(result.ok).toBe(true);
-    expect(result.endpoint).toContain(`/mcp/room/${TEST_SESSION}?token=`);
-    expect(result.mcp_config?.mcpServers[`ant-room-${TEST_SESSION.slice(0, 8)}`].url).toBe(result.endpoint);
-
-    const token = new URL(result.endpoint!).searchParams.get('token');
-    expect(token).toBeTruthy();
-    const resolved = resolveToken(token!);
-    expect(resolved?.token.room_id).toBe(TEST_SESSION);
-    expect(resolved?.token.kind).toBe('mcp');
-    expect(resolved?.token.handle).toBe('@osaurus');
-
-    if (previousOrigin === undefined) delete process.env.ANT_PUBLIC_ORIGIN;
-    else process.env.ANT_PUBLIC_ORIGIN = previousOrigin;
-  });
-
   it('rejects unknown export targets instead of silently doing nothing', async () => {
     const response = await POST({
       params: { id: TEST_SESSION },
@@ -120,7 +98,7 @@ describe('session evidence plugin exports', () => {
       url: new URL(`https://ant.example.test/api/sessions/${TEST_SESSION}/export`),
       request: new Request('https://ant.example.test/export', {
         method: 'POST',
-        body: JSON.stringify({ targets: ['obsidian', 'open-slide', 'osaurus'] }),
+        body: JSON.stringify({ targets: ['obsidian', 'open-slide'] }),
       }),
       locals: {},
     } as unknown as Parameters<typeof POST>[0]);
@@ -131,7 +109,5 @@ describe('session evidence plugin exports', () => {
     expect(body.targets.obsidian).toMatchObject({ ok: false, skipped: true, path: null });
     expect(body.targets.open_slide.ok).toBe(true);
     expect(body.targets.open_slide.deck_dir).toContain(tempDir);
-    expect(body.targets.osaurus.ok).toBe(true);
-    expect(body.targets.osaurus.note).toContain('fresh token');
   });
 });

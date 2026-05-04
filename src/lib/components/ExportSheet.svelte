@@ -22,12 +22,6 @@
     deck_dir?: string;
     note?: string;
     vault_path?: string;
-    // Osaurus-specific (sensitive credential artifacts)
-    endpoint?: string;
-    mcp_config?: Record<string, unknown>;
-    token_id?: string;
-    invite_id?: string;
-    tools?: string[];
     [key: string]: unknown;
   }
 
@@ -235,44 +229,7 @@
               <span class="export-result-icon" aria-hidden="true">{statusGlyph(r)}</span>
               <div class="export-result-body">
                 <div class="export-result-target">{tid.replace('_', '-')}</div>
-
-                {#if tid === 'osaurus' && r.ok}
-                  <!-- Sensitive credential artifacts: token is embedded in the
-                       endpoint URL and the mcp_config JSON. Render as
-                       copy-only buttons with an explicit warning, never
-                       inline the token bytes themselves. -->
-                  <div class="export-credential" role="note">
-                    <span class="export-credential-warn" aria-hidden="true">⚠</span>
-                    <span>Contains a scoped bearer token. Treat as a credential — do not paste into shared docs, chat, or screenshots.</span>
-                  </div>
-                  {#if r.endpoint}
-                    <div class="export-credential-row">
-                      <span class="export-credential-label">MCP endpoint</span>
-                      <button
-                        type="button"
-                        class="export-credential-copy"
-                        onclick={() => copyToClipboard(r.endpoint || '', 'Endpoint copied')}
-                        aria-label="Copy MCP endpoint"
-                      >Copy endpoint</button>
-                    </div>
-                  {/if}
-                  {#if r.mcp_config}
-                    <div class="export-credential-row">
-                      <span class="export-credential-label">MCP client config</span>
-                      <button
-                        type="button"
-                        class="export-credential-copy"
-                        onclick={() => copyToClipboard(JSON.stringify(r.mcp_config, null, 2), 'Config copied')}
-                        aria-label="Copy MCP client config JSON"
-                      >Copy config</button>
-                    </div>
-                  {/if}
-                  {#if r.token_id}
-                    <div class="export-credential-meta">
-                      Token <code>{r.token_id}</code>{#if r.invite_id} · Invite <code>{r.invite_id}</code>{/if} · revoke from the room share panel
-                    </div>
-                  {/if}
-                {:else if resultPath(r)}
+                {#if resultPath(r)}
                   <div class="export-result-path">
                     <span>{resultPath(r)}</span>
                     <button
@@ -571,76 +528,6 @@
     color: var(--text-muted);
     margin-top: 2px;
     line-height: 1.4;
-  }
-
-  /* Sensitive-credential artifact treatment for Osaurus output.
-     Visual distinction: warning glyph + amber accent so users don't paste
-     this casually. */
-  .export-credential {
-    display: flex;
-    gap: 6px;
-    align-items: flex-start;
-    margin-top: 6px;
-    padding: 6px 8px;
-    background: #FEF3C7;
-    border: 1px solid #FCD34D;
-    border-radius: 6px;
-    font-size: 11px;
-    color: #92400E;
-    line-height: 1.4;
-  }
-
-  .export-credential-warn {
-    flex-shrink: 0;
-    font-weight: 700;
-  }
-
-  .export-credential-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 6px;
-    padding: 4px 6px;
-    border-radius: 4px;
-    background: #F9FAFB;
-  }
-
-  .export-credential-label {
-    flex: 1;
-    font-size: 11px;
-    color: var(--text-muted);
-    font-weight: 600;
-  }
-
-  .export-credential-copy {
-    border: 1px solid #E5E7EB;
-    background: #FFFFFF;
-    color: var(--text);
-    padding: 4px 10px;
-    font-size: 11px;
-    font-weight: 500;
-    border-radius: 4px;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-
-  .export-credential-copy:hover {
-    background: #F3F4F6;
-  }
-
-  .export-credential-meta {
-    font-size: 10px;
-    color: var(--text-faint);
-    margin-top: 4px;
-    line-height: 1.4;
-  }
-
-  .export-credential-meta code {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    background: #F3F4F6;
-    padding: 1px 4px;
-    border-radius: 3px;
   }
 
   .export-foot {

@@ -3,12 +3,10 @@ import type { RequestEvent } from '@sveltejs/kit';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
-import { createOsaurusConnector } from '$lib/server/capture/osaurus-connector.js';
 import { obsidianVaultPath, maybeWriteSessionSummary } from '$lib/server/capture/obsidian-writer.js';
 import { writeOpenSlideDeck } from '$lib/server/capture/open-slide-writer.js';
-import { assertNotRoomScoped } from '$lib/server/room-scope.js';
 
-const TARGETS = new Set(['obsidian', 'open-slide', 'osaurus']);
+const TARGETS = new Set(['obsidian', 'open-slide']);
 
 function openSlideOutputDir(): string {
   const raw = process.env.ANT_OPEN_SLIDE_DIR;
@@ -49,21 +47,12 @@ export function GET() {
         configured: existsSync(slidePath),
         output_dir: slidePath,
       },
-      {
-        id: 'osaurus',
-        label: 'Osaurus',
-        kind: 'mcp',
-        description: 'Mints a scoped room MCP connector so Osaurus can read/post session evidence through ANT tools.',
-        // Osaurus is a server-side capability (token minting via the existing
-        // /api/sessions/:id/invites infrastructure); no client-side probe.
-        configured: true,
-      },
     ],
   });
 }
 
 export async function POST(event: RequestEvent<{ id: string }>) {
-  const { params, request, url } = event;
+  const { params, request } = event;
   let body: any = {};
   try {
     body = await request.json();
@@ -75,12 +64,6 @@ export async function POST(event: RequestEvent<{ id: string }>) {
   const unknown = targets.filter((target) => !TARGETS.has(target));
   if (unknown.length) {
     return json({ ok: false, error: `Unknown export target(s): ${unknown.join(', ')}` }, { status: 400 });
-  }
-  if (targets.includes('osaurus')) {
-    // Minting a fresh room MCP token is a credential-management operation.
-    // Existing room-scoped bearers can export evidence, but cannot create
-    // another bearer with write-capable MCP access.
-    assertNotRoomScoped(event);
   }
 
   const results: Record<string, unknown> = {};
@@ -96,9 +79,6 @@ export async function POST(event: RequestEvent<{ id: string }>) {
   }
   if (targets.includes('open-slide')) {
     results.open_slide = writeOpenSlideDeck(params.id);
-  }
-  if (targets.includes('osaurus')) {
-    results.osaurus = createOsaurusConnector(params.id, url);
   }
 
   return json({ ok: true, session_id: params.id, targets: results });
