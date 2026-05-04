@@ -193,7 +193,7 @@ describe('deck file API helpers', () => {
     globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
       expect(String(url)).toBe('http://127.0.0.1:5176/slides');
       expect((init?.headers as Headers).get('host')).toBe('localhost:5176');
-      return new Response('<script type="module" src="/@vite/client"></script>', {
+      return new Response('<script type="module">import RefreshRuntime from "/@react-refresh"</script><script type="module" src="/@vite/client"></script>', {
         headers: { 'Content-Type': 'text/html; charset=utf-8' },
       });
     }) as typeof fetch;
@@ -205,6 +205,8 @@ describe('deck file API helpers', () => {
       cookies: { get: (name: string) => (name === 'ant-deck-team-deck' ? cookie : undefined) },
     } as any);
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain('src="/deck/team-deck/@vite/client"');
+    const html = await response.text();
+    expect(html).toContain('from "/deck/team-deck/@react-refresh"');
+    expect(html).toContain('src="/deck/team-deck/@vite/client"');
   });
 });

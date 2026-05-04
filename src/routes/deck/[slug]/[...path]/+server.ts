@@ -54,7 +54,11 @@ function rewriteHtml(slug: string, html: string): string {
   return html
     .replaceAll('href="/', `href="${prefix}/`)
     .replaceAll('src="/', `src="${prefix}/`)
-    .replaceAll('action="/', `action="${prefix}/`);
+    .replaceAll('action="/', `action="${prefix}/`)
+    .replaceAll('from "/', `from "${prefix}/`)
+    .replaceAll("from '/", `from '${prefix}/`)
+    .replaceAll('import("/', `import("${prefix}/`)
+    .replaceAll("import('/", `import('${prefix}/`);
 }
 
 async function proxyDeck(event: RequestEvent): Promise<Response> {
