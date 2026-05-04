@@ -37,6 +37,7 @@
     onDigestToggle: () => void;
     onCreateDiscussion?: () => void;
     onOpenFolders?: () => void;
+    onOpenExport?: () => void;
   }
 
   const {
@@ -59,6 +60,7 @@
     onDigestToggle,
     onCreateDiscussion,
     onOpenFolders,
+    onOpenExport,
   }: Props = $props();
 
   let editingName = $state(false);
@@ -303,6 +305,20 @@
 
   <!-- Right-side controls -->
   <div class="flex items-center gap-1 flex-shrink-0">
+    {#if onOpenExport}
+      <button
+        onclick={onOpenExport}
+        class="touch-target p-1.5 rounded-lg transition-all"
+        style="color: var(--text-muted);"
+        title="Export evidence (Obsidian / Open-Slide / Osaurus)"
+        aria-label="Export evidence"
+      >
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5-5m0 0l5 5m-5-5v12"/>
+        </svg>
+      </button>
+    {/if}
     {#if onOpenFolders}
       <button
         onclick={onOpenFolders}

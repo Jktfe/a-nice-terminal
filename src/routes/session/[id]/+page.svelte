@@ -12,6 +12,7 @@
   import ActivityRail from '$lib/components/ActivityRail.svelte';
   import RunView from '$lib/components/RunView.svelte';
   import FolderDrawer from '$lib/components/FolderDrawer.svelte';
+  import ExportSheet from '$lib/components/ExportSheet.svelte';
   import { useToasts } from '$lib/stores/toast.svelte';
   import { normalizeSessionName } from '$lib/utils/session-naming';
   import { isAutoLinkedChatSession } from '$lib/utils/linked-chat';
@@ -882,6 +883,8 @@
 
   // ── B1 — Folder navigation drawer (visible button + Cmd+P shortcut) ──
   let folderDrawerOpen = $state(false);
+  // ── Export sheet — UI affordance over POST /api/sessions/:id/export ──
+  let exportSheetOpen = $state(false);
 
   function onGlobalKeydown(e: KeyboardEvent) {
     // Cmd+P opens the folder drawer on Mac; Ctrl+P remains a non-Mac fallback.
@@ -1361,6 +1364,7 @@
     }}
     onDigestToggle={() => (showDigest = !showDigest)}
     onOpenFolders={session?.type === 'terminal' ? () => (folderDrawerOpen = true) : undefined}
+    onOpenExport={() => (exportSheetOpen = true)}
     onCreateDiscussion={session?.type === 'chat' ? async () => {
       try {
         const res = await fetch(`/api/sessions/${sessionId}/links`, {
@@ -1645,6 +1649,13 @@
   {workspaces}
   onSelect={pasteCdToTerminal}
   onClose={() => (folderDrawerOpen = false)}
+/>
+
+<!-- Export sheet: UI affordance over POST /api/sessions/:id/export -->
+<ExportSheet
+  open={exportSheetOpen}
+  {sessionId}
+  onClose={() => (exportSheetOpen = false)}
 />
 
 <!-- P0: left-edge back-nav gutter — captures right-swipe before xterm canvas
