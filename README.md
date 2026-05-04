@@ -109,6 +109,7 @@ ant sessions create --name "Chat" --type chat
 ant sessions archive <id>                 # Archive a session
 ant sessions delete <id>                  # Delete a session
 ant sessions export <id>                  # Export to Obsidian vault
+ant sessions export <id> --target all     # Export evidence to Obsidian, Open-Slide, and Osaurus
 ```
 
 ### Terminal
@@ -230,6 +231,7 @@ Copy `.env.example` to `.env`:
 | `ANT_TLS_KEY` | — | Path to TLS private key |
 | `ANT_ROOT_DIR` | — | Root directory for project browsing |
 | `ANT_OBSIDIAN_VAULT` | — | Obsidian vault path for session export |
+| `ANT_OPEN_SLIDE_DIR` | `~/CascadeProjects/ANT-Open-Slide` | Local folder for generated Open-Slide evidence decks |
 | `ANT_QUICK_LAUNCH_FILE` | `~/.ant/quick-launch.json` | Local-only terminal quick-launch button presets |
 | `ANT_SERVER_URL` | — | Public URL for share commands and CLI instructions |
 

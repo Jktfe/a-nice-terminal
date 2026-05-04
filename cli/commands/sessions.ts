@@ -30,9 +30,31 @@ export async function sessions(args: string[], flags: any, ctx: any) {
 
   if (sub === 'export') {
     const id = args[1];
-    if (!id) { console.error('Usage: ant sessions export <id>'); return; }
-    await api.post(ctx, `/api/sessions/${id}/export`, {});
-    console.log(`Exported session ${id} to Obsidian`);
+    if (!id) { console.error('Usage: ant sessions export <id> [--target obsidian|open-slide|osaurus|all]'); return; }
+    const rawTarget = flags.target || flags.targets || 'obsidian';
+    const targets = String(rawTarget).toLowerCase() === 'all'
+      ? ['obsidian', 'open-slide', 'osaurus']
+      : String(rawTarget).split(',').map((t) => t.trim()).filter(Boolean);
+    const result = await api.post(ctx, `/api/sessions/${id}/export`, { targets });
+    if (ctx.json) { console.log(JSON.stringify(result, null, 2)); return; }
+
+    console.log(`Exported session ${id}`);
+    const exported = result.targets || {};
+    if (exported.obsidian) {
+      const obsidian = exported.obsidian;
+      console.log(`  Obsidian:  ${obsidian.path || obsidian.note || 'skipped'}`);
+    }
+    if (exported.open_slide) {
+      const deck = exported.open_slide;
+      console.log(`  Open-Slide: ${deck.deck_dir || deck.reason || 'skipped'}`);
+      if (deck.dev_command) console.log(`    Dev:    ${deck.dev_command}`);
+      if (deck.render_command) console.log(`    Render: ${deck.render_command}`);
+    }
+    if (exported.osaurus) {
+      const osaurus = exported.osaurus;
+      console.log(`  Osaurus:   ${osaurus.endpoint || osaurus.reason || 'skipped'}`);
+      if (osaurus.token_id) console.log(`    Token:  ${osaurus.token_id} (scoped room MCP token)`);
+    }
     return;
   }
 

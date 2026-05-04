@@ -10,12 +10,16 @@ import { homedir } from 'os';
 import { queries } from '../db.js';
 
 // ── Vault location ────────────────────────────────────────────────────────────
-const ANT_VAULT = process.env.ANT_OBSIDIAN_VAULT || join(homedir(), 'CascadeProjects', 'ObsidiANT');
+const DEFAULT_ANT_VAULT = join(homedir(), 'CascadeProjects', 'ObsidiANT');
+
+export function obsidianVaultPath(): string {
+  return process.env.ANT_OBSIDIAN_VAULT || DEFAULT_ANT_VAULT;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function vaultExists(): boolean {
-  return existsSync(ANT_VAULT);
+  return existsSync(obsidianVaultPath());
 }
 
 function pad2(n: number): string {
@@ -157,7 +161,7 @@ export function writeSessionSummary(sessionId: string): string | null {
 
   // ── Write to Obsidian vault (if present) ──────────────────────────────────
   if (!vaultExists()) {
-    console.log(`[obsidian] Vault not found at ${ANT_VAULT} — skipping file write`);
+    console.log(`[obsidian] Vault not found at ${obsidianVaultPath()} — skipping file write`);
     return null;
   }
 
@@ -166,7 +170,7 @@ export function writeSessionSummary(sessionId: string): string | null {
     return null;
   }
 
-  const sessionDir = join(ANT_VAULT, 'sessions', year, month);
+  const sessionDir = join(obsidianVaultPath(), 'sessions', year, month);
   mkdirSync(sessionDir, { recursive: true });
 
   const fname    = `${safeName(session.name)}_${shortId(sessionId)}.md`;
@@ -255,11 +259,12 @@ _Add notes here_
 
 // ── Safe wrapper — never throws ───────────────────────────────────────────────
 
-export async function maybeWriteSessionSummary(sessionId: string): Promise<void> {
+export async function maybeWriteSessionSummary(sessionId: string): Promise<string | null> {
   try {
-    writeSessionSummary(sessionId);
+    return writeSessionSummary(sessionId);
   } catch (err: any) {
     console.warn(`[obsidian] Failed to write summary for ${sessionId}: ${err?.message ?? err}`);
+    return null;
   }
 }
 
@@ -278,14 +283,14 @@ interface SessionSummaryLegacy {
 
 export function writeSessionToVault(session: SessionSummaryLegacy): string | null {
   if (!vaultExists()) {
-    console.log(`[obsidian] Vault not found at ${ANT_VAULT}`);
+    console.log(`[obsidian] Vault not found at ${obsidianVaultPath()}`);
     return null;
   }
 
   const now = new Date();
   const year  = String(now.getFullYear());
   const month = pad2(now.getMonth() + 1);
-  const dir   = join(ANT_VAULT, 'sessions', year, month);
+  const dir   = join(obsidianVaultPath(), 'sessions', year, month);
 
   mkdirSync(dir, { recursive: true });
 

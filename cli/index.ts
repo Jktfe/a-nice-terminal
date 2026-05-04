@@ -31,7 +31,8 @@ Commands:
   sessions create       Create a new session (--name, --type terminal|chat)
   sessions archive <id> Archive a session
   sessions delete <id>  Delete a session
-  sessions export <id>  Export session summary to Obsidian vault
+  sessions export <id>  Export session evidence
+                        (--target obsidian|open-slide|osaurus|all)
 
   terminal <id>         Connect to a terminal session (interactive PTY)
   terminal send <id>    Send a command to a terminal (--cmd "ls -la")

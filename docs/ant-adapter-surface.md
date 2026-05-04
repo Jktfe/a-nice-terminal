@@ -264,7 +264,8 @@ Important approval boundary:
 | `GET /api/sessions/:id/terminal/history` | No | `?since=<iso|ms|5m>`, `?grep=<fts>`, `?raw=1`, `?limit=100` | Range or search result | Read terminal transcript chunks. | `grep` mode ignores `since` and `raw`. Default range strips ANSI; `raw=1` returns raw bytes as string. |
 | `GET /api/sessions/:id/terminal/events` | No | `?since=<iso|ms|5m>`, `?kind=...`, `?limit=100` | `{ session_id, since_ms, kind, limit, count, rows }` | Read tmux control-mode events. | Default window is last hour; limit max is `1000`. |
 | `GET /api/sessions/:id/commands` | No | `?limit=100` | Array of command events | Read recorded command execution events. | Command ingestion depends on shell hooks/collectors; not every terminal command is guaranteed to appear. |
-| `POST /api/sessions/:id/export` | Yes | none | `{ ok: true }` | Write session summary to capture/Obsidian pipeline. | Side-effectful local export; consumers should treat generated file paths as external evidence. |
+| `GET /api/sessions/:id/export` | No | none | `{ targets: [...] }` | Discover available evidence export targets. | Targets are local/private plugin contracts, not a hosted platform surface. |
+| `POST /api/sessions/:id/export` | Yes | `{ targets: ["obsidian" \| "open-slide" \| "osaurus"] }` default `["obsidian"]` | `{ ok, session_id, targets: { obsidian?, open_slide?, osaurus? } }` | Export session evidence to Obsidian, an Open-Slide deck bundle, or a scoped Osaurus MCP connector. | Open-Slide writes deterministic local files. Osaurus mints a fresh scoped MCP token because plaintext tokens are not recoverable; revoke via existing room invite/token surfaces. Per-target failures are reported without aborting other targets. |
 | `GET /api/sessions/:id/digest` | No | none | `{ messageCount, participantCount, durationMinutes, messagesPerHour, participants, keyTerms, firstMessage, lastMessage }` | Lightweight room digest. | Extractive heuristic only; not an LLM summary. |
 
 Run event object shape:
@@ -371,7 +372,7 @@ should prefer REST/WS and treat CLI output as operator convenience unless using
 | `ant sessions create --name <name> --type <terminal|chat>` | `POST /api/sessions` | CLI only sends `name` and `type`. |
 | `ant sessions archive <id>` | `PATCH /api/sessions/:id` | Sends `{ archived: true }`. |
 | `ant sessions delete <id>` | `DELETE /api/sessions/:id` | Soft delete by default. |
-| `ant sessions export <id>` | `POST /api/sessions/:id/export` | Obsidian/capture side effect. |
+| `ant sessions export <id> --target obsidian|open-slide|osaurus|all` | `POST /api/sessions/:id/export` | Evidence export side effect. Default target remains `obsidian` for compatibility. |
 | `ant chat send <id> --msg "..."` | `POST /api/sessions/:id/messages` | Sender identity auto-resolves from ANT tmux session, `ANT_SESSION_ID`, config handle, or external mode. |
 | `ant chat read <id> --limit N` | `GET /api/sessions/:id/messages?limit=N` | Does not expose `since`/`before`. |
 | `ant chat join <id>` | `GET messages` plus `/ws` | Joins real-time stream and sends `presence_ping`. |
