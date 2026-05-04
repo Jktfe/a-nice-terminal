@@ -24,9 +24,13 @@ export function initRouter(): void {
   router.register(new LinkedChatAdapter());
 
   focusExpiryTimer = setInterval(() => {
-    router.expireAllFocus().catch((err) => {
-      console.error('[message-router] focus expiry sweep failed:', err);
-    });
+    try {
+      router.expireAllFocus().catch((err) => {
+        console.error('[message-router] focus expiry sweep failed:', err);
+      });
+    } catch (err) {
+      console.error('[message-router] focus expiry sweep crashed synchronously:', err);
+    }
   }, 30_000);
   (focusExpiryTimer as any).unref?.();
 

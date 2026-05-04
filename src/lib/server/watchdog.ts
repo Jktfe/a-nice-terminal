@@ -241,7 +241,13 @@ export function startWatchdog(deps: {
   }
 
   // Initial poll
-  tick();
-  state.timer = setInterval(tick, POLL_INTERVAL_MS);
+  try { tick(); } catch (err) {
+    console.error('[watchdog] initial tick failed:', err);
+  }
+  state.timer = setInterval(() => {
+    try { tick(); } catch (err) {
+      console.error('[watchdog] tick failed:', err);
+    }
+  }, POLL_INTERVAL_MS);
   console.log('[watchdog] started — polling every 15s');
 }

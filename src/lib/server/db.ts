@@ -1285,6 +1285,8 @@ export const queries = {
     prepare(`SELECT * FROM decks ORDER BY updated_at DESC`).all(),
   deleteDeck: (slug: string) =>
     prepare(`DELETE FROM decks WHERE slug = ?`).run(slug),
+  listDecksOwnedBy: (ownerSessionId: string) =>
+    prepare(`SELECT * FROM decks WHERE owner_session_id = ?`).all(ownerSessionId),
 };
 
 export default getDb;

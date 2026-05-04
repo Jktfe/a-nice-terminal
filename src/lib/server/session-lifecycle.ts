@@ -9,7 +9,11 @@
 // automatic kills are idempotent cleanup for soft-deleted sessions past their
 // TTL window.
 
+import { writeFileSync, mkdirSync, existsSync } from 'fs';
+import { join } from 'path';
 import { queries, ttlMs } from './db.js';
+import { readDeckMeta, registerDeck, type DeckMeta } from './decks.js';
+import { obsidianVaultPath } from './capture/obsidian-writer.js';
 
 type PTYClient = {
   spawn: (id: string, cwd: string) => Promise<{ alive: boolean; scrollback: string }>;
@@ -118,16 +122,115 @@ function runSweep(pty: PTYClient): void {
     const deletedAt = new Date(session.deleted_at).getTime();
     const pastWindow = (now - deletedAt) >= ttlMs(session.ttl || '15m');
 
-    if (pastWindow) {
-      // Recovery window closed — kill PTY if any stale process survived, then hard-delete
+    if (!pastWindow) continue;
+
+    // Housekeeping must never crash the server. Any failure on a single
+    // session is logged and skipped; the next sweep retries.
+    try {
+      // Re-home or archive decks owned by this session before hard-delete,
+      // so FK constraints on decks.owner_session_id don't block the purge.
+      rehomeOrArchiveOrphanDecks(session.id);
+
       pty.kill(session.id);
       queries.hardDeleteSession(session.id);
       void disposeSessionState(session.id).catch((e) => {
         console.warn(`[lifecycle] failed to dispose purged session ${session.id}:`, e);
       });
       console.log(`[lifecycle] recovery window expired → purged: ${session.name} (${session.id})`);
+    } catch (e) {
+      console.warn(`[lifecycle] failed to purge ${session.id} (${session.name}); will retry next sweep:`, e);
     }
   }
+}
+
+// When a session that owns decks is hard-purged, transfer ownership to the
+// first still-live entry in allowed_room_ids (original order). If nothing
+// remains, write a recovery note to the Obsidian vault and drop the row so
+// the FK constraint stops blocking the session purge.
+function rehomeOrArchiveOrphanDecks(sessionId: string): void {
+  const rows = queries.listDecksOwnedBy(sessionId) as any[];
+  for (const row of rows) {
+    const deck = readDeckMeta(String(row.slug));
+    if (!deck) continue;
+
+    const candidates = deck.allowed_room_ids.filter((id) => id !== sessionId);
+    let newOwnerId: string | null = null;
+    for (const id of candidates) {
+      const candidate = queries.getSession(id) as any;
+      if (candidate && !candidate.deleted_at && candidate.archived === 0) {
+        newOwnerId = id; // original-order: first live wins
+        break;
+      }
+    }
+
+    if (newOwnerId) {
+      registerDeck({
+        slug: deck.slug,
+        owner_session_id: newOwnerId,
+        allowed_room_ids: candidates, // strip the purged owner from the allow-list
+      });
+      console.log(`[lifecycle] re-homed deck ${deck.slug}: ${sessionId} → ${newOwnerId}`);
+    } else {
+      archiveOrphanDeckToObsidian(deck, sessionId);
+      queries.deleteDeck(deck.slug);
+      console.log(`[lifecycle] archived orphan deck ${deck.slug} (no live re-home target)`);
+    }
+  }
+}
+
+function archiveOrphanDeckToObsidian(deck: DeckMeta, originalOwnerId: string): void {
+  const vault = obsidianVaultPath();
+  if (!existsSync(vault)) {
+    console.warn(`[lifecycle] obsidian vault not found at ${vault} — deck ${deck.slug} metadata only in logs`);
+    return;
+  }
+  const dir = join(vault, 'decks', 'orphaned');
+  mkdirSync(dir, { recursive: true });
+  const archivedAt = new Date();
+  const stamp = archivedAt.toISOString().replace(/[:.]/g, '-');
+  const filepath = join(dir, `${deck.slug}-${stamp}.md`);
+
+  const recoverPayload = JSON.stringify({
+    slug: deck.slug,
+    owner_session_id: '<NEW_SESSION_ID>',
+    allowed_room_ids: deck.allowed_room_ids,
+    deck_dir: deck.deck_dir,
+    dev_port: deck.dev_port,
+  });
+
+  const md =
+`---
+type: orphan-deck
+slug: ${deck.slug}
+deck_dir: ${deck.deck_dir}
+original_owner_session_id: ${originalOwnerId}
+allowed_room_ids: ${JSON.stringify(deck.allowed_room_ids)}
+dev_port: ${deck.dev_port ?? 'null'}
+created_at: ${deck.created_at ?? 'null'}
+archived_at: ${archivedAt.toISOString()}
+---
+
+# Orphan deck: ${deck.slug}
+
+The session (\`${originalOwnerId}\`) that owned this deck was hard-purged on
+${archivedAt.toISOString()}. No other live session in \`allowed_room_ids\`
+was available to take ownership.
+
+**Files are still on disk** at:
+
+    ${deck.deck_dir}
+
+## Re-register against another session
+
+\`\`\`
+curl -k -X POST https://localhost:6458/api/decks \\
+  -H "Content-Type: application/json" \\
+  -d '${recoverPayload}'
+\`\`\`
+`;
+
+  writeFileSync(filepath, md, 'utf8');
+  console.log(`[lifecycle] orphan deck archive: ${filepath}`);
 }
 
 // Drop in-memory state held by other server modules (agent-event-bus, prompt-bridge).
