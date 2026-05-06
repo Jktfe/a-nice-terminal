@@ -16,6 +16,7 @@
   import { useToasts } from '$lib/stores/toast.svelte';
   import { normalizeSessionName } from '$lib/utils/session-naming';
   import { isAutoLinkedChatSession } from '$lib/utils/linked-chat';
+  import { interviewMentions } from '$lib/utils/mentions';
   import { onMount, onDestroy } from 'svelte';
 
   interface PageSession {
@@ -1012,6 +1013,30 @@
     await msgStore.send(sessionId, text, { reply_to: replyToId });
     await loadUploads(sessionId);
     replyTo = null;
+
+    // M2 #1 — interview trigger via @mention
+    const mentionHandles = allSessions
+      .filter((s) => s.handle)
+      .map((s) => ({ handle: s.handle!, name: s.display_name || s.name || s.handle! }));
+    const interviewTargets = interviewMentions(text, mentionHandles);
+    for (const target of interviewTargets) {
+      const targetSession = allSessions.find((s) => s.handle === target.handle);
+      if (!targetSession) continue;
+      try {
+        const res = await fetch(`/api/sessions/${targetSession.id}/start-interview`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ origin_room_id: sessionId, caller_handle: session?.handle || null }),
+        });
+        if (!res.ok) continue;
+        const result = await res.json();
+        if (result?.ok && result?.created) {
+          toasts.show(`Started interview with ${targetSession.display_name || targetSession.name || targetSession.handle}`);
+        }
+      } catch {
+        // Silently ignore interview trigger failures
+      }
+    }
   }
 
   async function sendCommand(cmd: string) {
