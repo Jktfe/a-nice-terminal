@@ -8,8 +8,17 @@ import { mkdirSync } from 'fs';
 import { createRequire } from 'module';
 const _require = createRequire(import.meta.url);
 
-const DATA_DIR = process.env.ANT_DATA_DIR || join(process.env.HOME || '/tmp', '.ant-v3');
-const DB_PATH = join(DATA_DIR, 'ant.db');
+// Paths resolve lazily inside getDb(), not at module-init time, so tests can
+// swap ANT_DATA_DIR between cases and call _resetForTest() to re-init against
+// the new path. bun's vitest shim doesn't ship vi.resetModules(), so module-
+// cache busting is not portable; the explicit reset hook replaces it.
+let _dataDir = process.env.ANT_DATA_DIR || join(process.env.HOME || '/tmp', '.ant-v3');
+let _dbPath = join(_dataDir, 'ant.db');
+
+function resolveDbPaths(): void {
+  _dataDir = process.env.ANT_DATA_DIR || join(process.env.HOME || '/tmp', '.ant-v3');
+  _dbPath = join(_dataDir, 'ant.db');
+}
 const OPERATIONAL_MEMORY_WHERE = `
     key NOT LIKE 'session:%'
     AND key NOT LIKE 'archive/%'
@@ -70,14 +79,15 @@ function migrateRunEventsSourceCheck(db: any): void {
 function getDb(): any {
   if (_db) return _db;
 
-  mkdirSync(DATA_DIR, { recursive: true });
+  resolveDbPaths();
+  mkdirSync(_dataDir, { recursive: true });
 
   if (isBun) {
     const { Database } = _require('bun:sqlite');
-    _db = new Database(DB_PATH);
+    _db = new Database(_dbPath);
   } else {
     const Database = _require('better-sqlite3');
-    _db = new Database(DB_PATH);
+    _db = new Database(_dbPath);
   }
   G[DB_KEY] = _db;
 
@@ -540,7 +550,7 @@ function getDb(): any {
   G[DB_KEY].prepare(`INSERT OR REPLACE INTO server_state (key, value) VALUES (?, ?)`).run('last_heartbeat', new Date().toISOString());
   G[DB_KEY].exec(`INSERT OR REPLACE INTO server_state(key, value) VALUES ('last_started', datetime('now'))`);
 
-  console.log(`[db] Initialized ${isBun ? 'bun:sqlite' : 'better-sqlite3'} at ${DB_PATH}`);
+  console.log(`[db] Initialized ${isBun ? 'bun:sqlite' : 'better-sqlite3'} at ${_dbPath}`);
   return _db;
 }
 
@@ -552,6 +562,20 @@ function prepare(sql: string): any {
     stmtCache.set(sql, getDb().prepare(sql));
   }
   return stmtCache.get(sql);
+}
+
+// Test-only: close the cached connection, clear the prepared-statement cache,
+// and drop the globalThis handle so the next getDb() re-resolves ANT_DATA_DIR
+// and rebuilds schema. Tests pair this with mkdtempSync + ANT_DATA_DIR swap to
+// achieve per-case isolation without vi.resetModules() (which bun's vitest shim
+// doesn't ship). Safe to call from production code (returns immediately if no
+// db is open), but intended only for tests.
+export function _resetForTest(): void {
+  try { _db?.close?.(); } catch {}
+  _db = null;
+  G[DB_KEY] = null;
+  stmtCache.clear();
+  resolveDbPaths();
 }
 
 const TTL_MS: Record<string, number> = {

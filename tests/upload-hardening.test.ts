@@ -3,7 +3,11 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+// db._resetForTest() replaces vi.resetModules() — bun's vitest shim doesn't
+// ship the latter, so we close+null the cached connection via the explicit
+// hook and re-import the route module against the new ANT_DATA_DIR.
+import { _resetForTest as resetDbForTest } from '../src/lib/server/db';
 
 const ENV_KEYS = [
   'ANT_DATA_DIR',
@@ -26,19 +30,12 @@ function restoreEnv() {
   }
 }
 
-function closeDb() {
-  const globalDb = (globalThis as any).__ant_db__;
-  try { globalDb?.close?.(); } catch {}
-  delete (globalThis as any).__ant_db__;
-}
-
 async function freshWorkspace() {
-  closeDb();
-  vi.resetModules();
   const dir = await mkdtemp(join(tmpdir(), 'ant-upload-test-'));
   tempDirs.push(dir);
   process.env.ANT_DATA_DIR = join(dir, 'data');
   process.chdir(dir);
+  resetDbForTest();
   const db = await import('../src/lib/server/db');
   const route = await import('../src/routes/api/upload/+server');
   return { dir, queries: db.queries, POST: route.POST };
@@ -69,8 +66,7 @@ function createHandledSession(queries: any, id = 'session-james') {
 afterEach(async () => {
   process.chdir(originalCwd);
   restoreEnv();
-  closeDb();
-  vi.resetModules();
+  resetDbForTest();
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
