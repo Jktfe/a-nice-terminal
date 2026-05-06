@@ -314,7 +314,7 @@
         </button>
       {/if}
       {#if crossPostTarget === p.sess.id}
-        <div class="px-2.5 pb-2.5 pt-1.5" style="background: #F9FAFB;">
+        <div class="px-2.5 pb-2.5 pt-1.5" style="background: #EEF2FF;">
           <div class="flex gap-1.5">
             <input
               class="flex-1 text-xs rounded-lg px-2.5 py-1.5 outline-none"
