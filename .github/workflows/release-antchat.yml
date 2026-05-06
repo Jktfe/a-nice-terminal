@@ -63,11 +63,13 @@ jobs:
           BIN="dist/antchat-darwin-${ARCH}"
           ARCHIVE="antchat-${VERSION}-darwin-${ARCH}.tar.gz"
 
-          # Strip the dist/ prefix inside the tarball so users get a flat
-          # `antchat` binary they can drop straight into PATH.
-          cp "$BIN" antchat
-          tar -czf "$ARCHIVE" antchat
-          rm antchat
+          # Stage the binary in a temp dir so the archive contains a flat
+          # `antchat` entry (not `dist/...`). Using a temp dir avoids
+          # colliding with the `antchat/` source directory at the repo root.
+          STAGE="$(mktemp -d)"
+          cp "$BIN" "$STAGE/antchat"
+          tar -czf "$ARCHIVE" -C "$STAGE" antchat
+          rm -rf "$STAGE"
 
           SHA="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
           {
