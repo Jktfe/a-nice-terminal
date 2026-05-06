@@ -7,6 +7,7 @@ import { inferAsks } from '$lib/server/asks-inference';
 import { createAskId } from '$lib/server/ask-ids';
 import { inferAskFromMessage, titleFromAskContent } from '$lib/server/ask-inference';
 import { emitAskRunEvent } from '$lib/server/ask-events';
+import { consentGateAsk } from '$lib/server/consent/consent-gate-ask';
 
 const RESOLVED_AGENT_EVENT_STATUSES = new Set(['discarded', 'dismissed', 'settled', 'responded']);
 
@@ -332,6 +333,28 @@ export async function POST(event: RequestEvent<{ id: string }>) {
     finalMetaJson = JSON.stringify(parsedMeta);
     queries.updateMessageMeta(id, finalMetaJson);
     msg.meta = finalMetaJson;
+
+    // M3 #2: Consent-gated fan-out for inferred asks.
+    // When an inferred ask is auto-fanned-out, check consent_grants for the
+    // assigned target. Active grant → auto-answer (bump answer_count).
+    // Revoked/expired/exhausted grant → dismiss. No grant → proceed normally.
+    const consentOutcomes: Array<{ askId: string; outcome: any }> = [];
+    for (const ask of createdAsks) {
+      // Only gate inferred asks — explicit asks are user-authored and always go through
+      if (!ask.inferred) continue;
+      try {
+        const outcome = consentGateAsk(queries, queries, ask, { nowMs: Date.now() });
+        consentOutcomes.push({ askId: ask.id, outcome });
+      } catch {
+        // Consent gate failure must never break the message post
+      }
+    }
+    if (consentOutcomes.length > 0) {
+      parsedMeta.consent_gates = consentOutcomes;
+      finalMetaJson = JSON.stringify(parsedMeta);
+      queries.updateMessageMeta(id, finalMetaJson);
+      msg.meta = finalMetaJson;
+    }
   }
 
   // Auto-populate chat_room_members when a sender posts —
