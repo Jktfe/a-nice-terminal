@@ -7,7 +7,7 @@ import { mkdirSync } from 'fs';
 export interface ScreenshotDeps {
   execFile: (cmd: string, args: string[]) => Promise<{ stdout: string; stderr: string }>;
   readFile: (path: string) => Promise<Buffer>;
-  createHash: (algo: string) => { update: (data: Buffer) => void; digest: (enc: 'hex') => string };
+  createHash: (algo: string) => { update: (data: Buffer) => { digest: (enc: 'hex') => string } };
   nowMs: () => number;
   mkdir: (dir: string) => void;
   insertRunEvent: (args: {
