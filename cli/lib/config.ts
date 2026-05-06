@@ -1,21 +1,26 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 
-const CONFIG_DIR = join(process.env.HOME || '/tmp', '.ant');
-const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
+// Paths derive from $HOME at load() time, not module import, so tests can swap
+// HOME between runs and call _resetForTest() to re-read against the new path.
+let _configDir = join(process.env.HOME || '/tmp', '.ant');
+let _configFile = join(_configDir, 'config.json');
 
 let _config: Record<string, any> = {};
 
 function load() {
-  if (existsSync(CONFIG_FILE)) {
-    try { _config = JSON.parse(readFileSync(CONFIG_FILE, 'utf-8')); } catch {}
+  _configDir = join(process.env.HOME || '/tmp', '.ant');
+  _configFile = join(_configDir, 'config.json');
+  _config = {};
+  if (existsSync(_configFile)) {
+    try { _config = JSON.parse(readFileSync(_configFile, 'utf-8')); } catch {}
   }
   return _config;
 }
 
 function save() {
-  mkdirSync(CONFIG_DIR, { recursive: true });
-  writeFileSync(CONFIG_FILE, JSON.stringify(_config, null, 2));
+  mkdirSync(_configDir, { recursive: true });
+  writeFileSync(_configFile, JSON.stringify(_config, null, 2));
 }
 
 load();
@@ -76,7 +81,11 @@ export const config = {
   get(key: string): string | undefined { return _config[key]; },
   set(key: string, value: string) { _config[key] = value; save(); },
   getAll() { return { ..._config }; },
-  path: CONFIG_FILE,
+  get path() { return _configFile; },
+  // Test-only: re-read $HOME and reload the config file. The bun test runner
+  // doesn't ship vi.resetModules(), so we expose an explicit reset rather than
+  // relying on module-cache busting in tests/cli-config.test.ts.
+  _resetForTest() { load(); },
   // Upsert one room+handle pair. The most recently set handle becomes the
   // room's default for subsequent getRoomToken(roomId) calls; pass an explicit
   // handle to getRoomToken to address a non-default identity.

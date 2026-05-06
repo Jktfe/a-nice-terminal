@@ -1,7 +1,9 @@
 // Multi-token room config tests. Each test runs against an isolated $HOME so
-// the singleton doesn't pick up the developer's real ~/.ant/config.json. Module
-// reset between tests means the config file is re-loaded with the new HOME.
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+// the singleton doesn't pick up the developer's real ~/.ant/config.json. We
+// call config._resetForTest() between runs to re-read against the new HOME —
+// bun's vitest shim doesn't ship vi.resetModules() so module-cache busting is
+// not portable here.
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -25,8 +27,9 @@ function token(over: Partial<RoomTokenInfo>): RoomTokenInfo {
 }
 
 async function freshConfig() {
-  vi.resetModules();
-  return (await import('../cli/lib/config.js')).config;
+  const { config } = await import('../cli/lib/config.js');
+  config._resetForTest();
+  return config;
 }
 
 beforeEach(() => {
