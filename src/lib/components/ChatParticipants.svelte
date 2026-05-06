@@ -140,8 +140,8 @@
 </script>
 
 <div class="px-3 pb-3 space-y-1.5">
-  {#if onStartInterview && participantsActive.filter((p) => p.sess.type === 'terminal').length === 1}
-    {@const soleTerminal = participantsActive.filter((p) => p.sess.type === 'terminal')[0].sess}
+  {#if onStartInterview && participantsActive.filter((p) => p.sess.type === 'terminal' && p.sess.linked_chat_id !== sessionId).length === 1}
+    {@const soleTerminal = participantsActive.filter((p) => p.sess.type === 'terminal' && p.sess.linked_chat_id !== sessionId)[0].sess}
     {@const label = soleTerminal.display_name || soleTerminal.name}
     <button
       onclick={() => onStartInterview?.(soleTerminal.id)}
@@ -267,20 +267,6 @@
               </svg>
             </button>
           {/if}
-          {#if p.sess.type === 'terminal' && onStartInterview}
-            <button
-              onclick={() => onStartInterview?.(p.sess.id)}
-              class="touch-target p-1 rounded transition-all"
-              style="color: #6366F1;"
-              title="Start linked interview chat for {label}"
-              aria-label="Start interview for {label}"
-            >
-              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
-              </svg>
-            </button>
-          {/if}
           {#if p.sess.type !== 'external'}
             <button
               onclick={() => onRemoveParticipant?.(p.sess)}
@@ -308,6 +294,20 @@
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
         </svg>
       </button>
+      {#if p.sess.type === 'terminal' && onStartInterview && p.sess.linked_chat_id !== sessionId}
+        <button
+          onclick={() => onStartInterview?.(p.sess.id)}
+          class="w-full flex items-center justify-between px-2.5 py-1.5 text-xs transition-colors"
+          style="border-top: 1px solid #F3F4F6; color: #6366F1; background: #FAFAFA;"
+          title={p.sess.linked_chat_id ? `Open interview with ${label}` : `Start interview with ${label}`}
+        >
+          <em>{p.sess.linked_chat_id ? 'Open interview' : 'Start interview'} with {label}</em>
+          <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
+          </svg>
+        </button>
+      {/if}
       {#if crossPostTarget === p.sess.id}
         <div class="px-2.5 pb-2.5 pt-1.5" style="background: #F9FAFB;">
           <div class="flex gap-1.5">
@@ -411,20 +411,6 @@
                       </svg>
                     </button>
                   {/if}
-                  {#if p.sess.type === 'terminal' && onStartInterview}
-                    <button
-                      onclick={() => onStartInterview?.(p.sess.id)}
-                      class="touch-target p-1 rounded"
-                      style="color: #6366F1;"
-                      title="Start linked interview chat for {label}"
-                      aria-label="Start interview for {label}"
-                    >
-                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
-                      </svg>
-                    </button>
-                  {/if}
                 </div>
               </div>
             </div>
@@ -438,11 +424,11 @@
 <style>
   .participant-actions {
     display: grid;
-    grid-template-columns: repeat(4, 28px);
+    grid-template-columns: repeat(3, 28px);
     gap: 4px;
     justify-content: end;
     align-content: start;
-    max-width: 124px;
+    max-width: 92px;
   }
 
   .participant-actions :global(.touch-target) {
@@ -456,6 +442,6 @@
   }
 
   .participant-actions--available {
-    grid-template-columns: repeat(4, 28px);
+    grid-template-columns: repeat(3, 28px);
   }
 </style>

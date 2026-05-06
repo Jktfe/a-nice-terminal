@@ -1059,9 +1059,12 @@
         return;
       }
       const result = await res.json();
-      if (result?.ok && result?.linked_chat_id) {
-        goto(`/session/${result.linked_chat_id}`);
+      if (!result?.ok || !result?.linked_chat_id) return;
+      if (result.linked_chat_id === sessionId) {
+        toasts.show('You are already in the interview chat for this session');
+        return;
       }
+      goto(`/session/${result.linked_chat_id}`);
     } catch (e) {
       toasts.show(`Interview failed: ${e instanceof Error ? e.message : 'unknown error'}`, 'error');
     }
