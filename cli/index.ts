@@ -17,6 +17,7 @@ import { hooks } from './commands/hooks.js';
 import { memory } from './commands/memory.js';
 import { agents } from './commands/agents.js';
 import { prompt } from './commands/prompt.js';
+import { grant } from './commands/grant.js';
 import { register as registerIdentity } from './commands/register.js';
 import { joinRoom } from './commands/joinRoom.js';
 import { config } from './lib/config.js';
@@ -77,6 +78,12 @@ Commands:
   ask outstanding       Print all open asks as paste-ready CLI snippets
                         (--to @handle to filter)
   chat ask <id>         Alias for opening an ask in a chatroom
+
+  grant list             List consent grants (--to @handle --room <id> --status active)
+  grant create           Create a consent grant (--topic file-read --to @handle
+                        --room <id> --duration 1h --max-answers 5 --source a.ts,b.ts)
+  grant show <id>        Show a single grant (--room <id>)
+  grant revoke <id>      Revoke a grant (--room <id>)
 
   question "text" --room <id> [--to @h] [--recommend "..."]
                         One-shot: add a question to a room's sidebar.
@@ -169,6 +176,7 @@ async function main() {
       case 'chat':     await chat(args, flags, ctx); break;
       case 'msg':      await msg(args, flags, ctx); break;
       case 'ask':      await ask(args, flags, ctx); break;
+      case 'grant':     await grant(args, flags, ctx); break;
       case 'question': await question(args, flags, ctx); break;
       case 'deck':     await deck(args, flags, ctx); break;
       case 'task':     await task(args, flags, ctx); break;
