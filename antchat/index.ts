@@ -25,6 +25,7 @@ import { chat } from './commands/chat.js';
 import { open } from './commands/open.js';
 import { tasks } from './commands/tasks.js';
 import { plan } from './commands/plan.js';
+import { mcp } from './commands/mcp.js';
 
 const HELP = `
 antchat — lightweight ANT chat client (v0.1.0)
@@ -62,7 +63,13 @@ Commands:
                            --plan-id ID            Override plan id (default ant-r4)
                            --limit N               Cap events returned (default 200)
 
-  mcp <serve|install|...>  MCP proxy management for Claude Desktop.    (Wave 4C)
+  mcp serve <id>           Run the stdio MCP proxy (Claude Desktop spawn target).
+                           --handle @name          Pick a non-default identity
+  mcp install <id>         Register the proxy in claude_desktop_config.json.
+                           --name antchat-<id>     Override the server key
+                           --config /path/to/json  Override config file path
+  mcp uninstall <id>       Remove the proxy entry from claude_desktop_config.json.
+  mcp print [id]           Emit a JSON snippet (single room or all joined rooms).
   watch <install|...>      launchd watcher for @-mentions.             (Wave 4E)
 
 Global flags:
@@ -115,11 +122,10 @@ async function main() {
       return tasks(args, flags, ctx);
     case 'plan':
       return plan(args, flags, ctx);
+    case 'mcp':
+      return mcp(args, flags, ctx);
 
     // Stubs for waves still in flight — fail fast with a hint.
-    case 'mcp':
-      console.error('antchat mcp: not yet wired (Wave 4C). Track progress in docs/antchat-swarm-plan.md.');
-      process.exit(2);
     case 'watch':
       console.error('antchat watch: not yet wired (Wave 4E). Track progress in docs/antchat-swarm-plan.md.');
       process.exit(2);
