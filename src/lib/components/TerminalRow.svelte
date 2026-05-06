@@ -12,6 +12,7 @@
     onArchive,
     onDelete,
     onTogglePin,
+    onStartInterview,
   }: {
     terminal: Session;
     linkedChat?: Session | null;
@@ -21,6 +22,7 @@
     onArchive?: () => void;
     onDelete?: () => void;
     onTogglePin?: (terminal: Session) => void;
+    onStartInterview?: () => void;
   } = $props();
 
   const toasts = useToasts();
@@ -101,6 +103,12 @@
     e.preventDefault();
     e.stopPropagation();
     onDelete?.();
+  }
+
+  function handleStartInterview(e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    onStartInterview?.();
   }
 
   async function handleSend(e?: MouseEvent | KeyboardEvent) {
@@ -255,6 +263,21 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="row-actions" onclick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
+    {#if onStartInterview}
+      <button
+        type="button"
+        class="row-action row-action--interview"
+        onclick={handleStartInterview}
+        title="Start interview"
+        aria-label="Start interview with {terminal.name}"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="9" y="2" width="6" height="12" rx="3"/>
+          <path d="M5 10a7 7 0 0 0 14 0"/>
+          <line x1="12" y1="19" x2="12" y2="22"/>
+        </svg>
+      </button>
+    {/if}
     {#if onArchive}
       <button
         type="button"

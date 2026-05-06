@@ -9,6 +9,7 @@ import {
   resolveConsentGrant,
   type ConsentGrant,
   type ConsentGrantQueries,
+  type GrantStatus,
 } from '../src/lib/server/consent/grant-scope.js';
 
 // ── Fake query store ─────────────────────────────────────────────────
@@ -27,7 +28,7 @@ function makeFakeQueries(seed?: ConsentGrant[]): {
       updateConsentGrant: (id, status, answerCount, expiresAtMs) => {
         const existing = store.get(id);
         if (existing) {
-          store.set(id, { ...existing, status, answer_count: answerCount, expires_at_ms: expiresAtMs });
+          store.set(id, { ...existing, status: status as GrantStatus, answer_count: answerCount, expires_at_ms: expiresAtMs });
         }
       },
     },

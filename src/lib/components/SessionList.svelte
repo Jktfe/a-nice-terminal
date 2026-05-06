@@ -624,6 +624,7 @@
                         onDelete={() => store.deleteSession(terminal.id)}
                         pinnedToSidebar={sidebarPinnedIds.has(terminal.id)}
                         onTogglePin={(t) => toggleSidebarPin(t.id)}
+                        onStartInterview={() => startInterview(terminal.id)}
                       />
                     </div>
                   </div>
