@@ -23,6 +23,11 @@
   let atBottom = $state(true);
   let scrollEl = $state<HTMLElement | null>(null);
   let streamingId = $state<string | null>(null);
+  let textareaEl = $state<HTMLTextAreaElement | null>(null);
+  let composerWrap = $state<HTMLElement | null>(null);
+  let isDragOver = $state(false);
+  let uploading = $state(false);
+  let uploadError = $state<string | null>(null);
 
   function handleJumpToMessage(event: Event) {
     const detail = (event as CustomEvent<{ messageId?: string }>).detail;
@@ -64,6 +69,89 @@
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
+    }
+  }
+
+  function insertAtCursor(text: string) {
+    const el = textareaEl;
+    if (!el) {
+      inputText = inputText ? `${inputText} ${text}` : text;
+      return;
+    }
+    const start = el.selectionStart ?? inputText.length;
+    const end = el.selectionEnd ?? inputText.length;
+    const before = inputText.slice(0, start);
+    const after = inputText.slice(end);
+    const lead = before && !/\s$/.test(before) ? ' ' : '';
+    inputText = `${before}${lead}${text} ${after}`;
+    const newPos = before.length + lead.length + text.length + 1;
+    setTimeout(() => {
+      el.focus();
+      el.setSelectionRange(newPos, newPos);
+    }, 0);
+  }
+
+  async function uploadAndInsert(file: File) {
+    uploadError = null;
+    uploading = true;
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/upload', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        uploadError = `Upload failed (${res.status}) ${txt.slice(0, 120)}`.trim();
+        return;
+      }
+      const data = await res.json().catch(() => null);
+      const md = data?.markdown || (data?.url ? `![image](${data.url})` : null);
+      if (md) insertAtCursor(md);
+      else uploadError = 'Upload returned no URL';
+    } catch (e) {
+      uploadError = e instanceof Error ? e.message : 'Upload failed';
+    } finally {
+      uploading = false;
+    }
+  }
+
+  async function handlePaste(e: ClipboardEvent) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) {
+          e.preventDefault();
+          await uploadAndInsert(file);
+        }
+      }
+    }
+  }
+
+  function onDragEnter(e: DragEvent) {
+    if (!e.dataTransfer?.types.includes('Files')) return;
+    e.preventDefault();
+    isDragOver = true;
+  }
+  function onDragOver(e: DragEvent) {
+    if (!e.dataTransfer?.types.includes('Files')) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+  }
+  function onDragLeave(e: DragEvent) {
+    // dragleave fires on every child crossing — only clear when we leave the wrapper itself.
+    const next = e.relatedTarget as Node | null;
+    if (next && composerWrap?.contains(next)) return;
+    isDragOver = false;
+  }
+  async function onDrop(e: DragEvent) {
+    e.preventDefault();
+    isDragOver = false;
+    const files = Array.from(e.dataTransfer?.files ?? []).filter((f) => f.type.startsWith('image/'));
+    for (const f of files) {
+      // sequential so we can show one error at a time
+      // eslint-disable-next-line no-await-in-loop
+      await uploadAndInsert(f);
     }
   }
 
@@ -177,22 +265,51 @@
     {/if}
   </div>
 
-  <!-- Compact input -->
-  <div class="flex items-center gap-1 px-2 py-1.5 border-t flex-shrink-0" style="border-color: var(--border-light); background: var(--bg-surface);">
-    <textarea
-      bind:value={inputText}
-      onkeydown={handleKeydown}
-      placeholder="Message…"
-      rows="1"
-      class="flex-1 resize-none rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[#6366F1]"
-      style="background: var(--bg-input); color: var(--text); max-height: 80px;"
-    ></textarea>
-    <button
-      onclick={sendMessage}
-      disabled={!inputText.trim()}
-      class="px-2 py-1 rounded text-xs font-medium transition-colors disabled:opacity-40"
-      style="background: #6366F1; color: #fff;"
-      title="Send (Enter)"
-    >▶</button>
+  <!-- Compact input + image dropzone (paste/drag PNG/JPG → /api/upload → insert markdown) -->
+  <div
+    bind:this={composerWrap}
+    ondragenter={onDragEnter}
+    ondragover={onDragOver}
+    ondragleave={onDragLeave}
+    ondrop={onDrop}
+    role="group"
+    aria-label="Message composer with image drop zone"
+    class="relative flex flex-col border-t flex-shrink-0"
+    style="border-color: var(--border-light); background: var(--bg-surface);"
+  >
+    {#if uploadError}
+      <div class="px-2 py-1 text-[10px] flex items-center justify-between gap-2"
+        style="background: #FEF2F2; color: #B91C1C; border-bottom: 1px solid #FCA5A5;">
+        <span class="truncate">{uploadError}</span>
+        <button onclick={() => (uploadError = null)} class="text-[10px] underline" style="color: #B91C1C;">dismiss</button>
+      </div>
+    {/if}
+    <div class="flex items-center gap-1 px-2 py-1.5">
+      <textarea
+        bind:this={textareaEl}
+        bind:value={inputText}
+        onkeydown={handleKeydown}
+        onpaste={handlePaste}
+        placeholder={uploading ? 'Uploading image…' : 'Message… (paste or drop an image)'}
+        rows="1"
+        class="flex-1 resize-none rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[#6366F1]"
+        style="background: var(--bg-input); color: var(--text); max-height: 80px;"
+      ></textarea>
+      <button
+        onclick={sendMessage}
+        disabled={!inputText.trim() || uploading}
+        class="px-2 py-1 rounded text-xs font-medium transition-colors disabled:opacity-40"
+        style="background: #6366F1; color: #fff;"
+        title="Send (Enter)"
+      >▶</button>
+    </div>
+    {#if isDragOver}
+      <div
+        class="absolute inset-0 pointer-events-none flex items-center justify-center text-xs font-semibold"
+        style="background: rgba(99, 102, 241, 0.12); border: 2px dashed #6366F1; color: #4F46E5; border-radius: 6px;"
+      >
+        Drop image to attach
+      </div>
+    {/if}
   </div>
 </div>
