@@ -22,7 +22,7 @@ function jsonRequest(body: unknown): Request {
 }
 
 describe('ask queue inference', () => {
-  it('infers terminal-owned action questions without assigning them to James by default', () => {
+  it('infers terminal-owned action questions as candidates pending human review', () => {
     const draft = inferAskFromMessage({
       sessionId: 'room',
       messageId: 'msg',
@@ -32,7 +32,7 @@ describe('ask queue inference', () => {
     });
 
     expect(draft).toMatchObject({
-      status: 'open',
+      status: 'candidate',
       assignedTo: 'terminal',
       ownerKind: 'terminal',
       priority: 'normal',

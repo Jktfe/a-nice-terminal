@@ -141,7 +141,6 @@ export function isActionableAskContent(content: string, confidence = 0, inferred
   const clean = stripAntRoutingNoise(content).replace(/\s+/g, ' ').trim();
   if (!clean) return false;
   if (!inferred) return true;
-  if (confidence < 0.48) return false;
   if (isLikelyAskNoise(clean)) return false;
   return ACTIONABLE_PATTERNS.some((pattern) => pattern.test(clean));
 }
@@ -207,7 +206,7 @@ export function inferAskFromMessage(input: AskInferenceInput): AskDraft | null {
     title: titleFromAskContent(content),
     body: content,
     recommendation: extractRecommendation(content),
-    status: confidence >= 0.48 ? 'open' : 'candidate',
+    status: 'candidate',
     assignedTo: owner.assignedTo,
     ownerKind: owner.ownerKind,
     priority,

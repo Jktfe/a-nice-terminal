@@ -9,6 +9,7 @@ import {
 } from '$lib/server/ask-inference';
 import { assertCanWrite, roomScope } from '$lib/server/room-scope';
 import { emitAskRunEvent } from '$lib/server/ask-events';
+import { injectAskResolution } from '$lib/server/ask-pty-bridge';
 
 function parseJsonObject(value: unknown): Record<string, unknown> {
   if (!value) return {};
@@ -77,6 +78,25 @@ export async function PATCH(event: RequestEvent<{ id: string }>) {
     ? JSON.stringify({ ...existingMeta, ...patchMeta })
     : null;
 
+  // Optional asks → terminal stdin bridge: when a target_session_id is provided
+  // and the action is approve/reject/answer, inject the resolution into the
+  // owning terminal's PTY. The text becomes part of the audit trail via
+  // capturePromptInput. Failures are surfaced in the response but don't block
+  // the ask status update.
+  const targetSessionId = typeof body.target_session_id === 'string'
+    ? body.target_session_id
+    : typeof body.targetSessionId === 'string' ? body.targetSessionId : null;
+  let bridge: ReturnType<typeof injectAskResolution> | null = null;
+  if (targetSessionId && (action === 'approve' || action === 'reject' || action === 'answer')) {
+    bridge = injectAskResolution({
+      targetSessionId,
+      action,
+      answer,
+      askId: event.params.id,
+      roomId: existing.session_id,
+    });
+  }
+
   queries.updateAsk(
     event.params.id,
     status,
@@ -93,6 +113,7 @@ export async function PATCH(event: RequestEvent<{ id: string }>) {
   emitAskRunEvent('ask_updated', ask, {
     previousStatus: existing.status,
     action: action || null,
+    bridge: bridge ? { ok: bridge.ok, reason: bridge.reason ?? null, injected: bridge.injected ?? null, cliFlag: bridge.cliFlag ?? null } : null,
   });
 
   let sourceMetaUpdate: { sessionId: string; msgId: string; meta: Record<string, unknown> } | null = null;
@@ -143,7 +164,7 @@ export async function PATCH(event: RequestEvent<{ id: string }>) {
     });
   }
 
-  return json({ ask });
+  return json({ ask, bridge });
 }
 
 export async function DELETE(event: RequestEvent<{ id: string }>) {

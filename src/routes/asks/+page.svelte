@@ -32,6 +32,12 @@
     { key: 'all', status: 'all', view: '', limit: '500', label: 'All' },
   ];
 
+  interface TerminalOption {
+    id: string;
+    name: string;
+    handle?: string | null;
+  }
+
   let asks = $state<Ask[]>([]);
   let loading = $state(true);
   let busyId = $state<string | null>(null);
@@ -39,6 +45,8 @@
   let searchText = $state('');
   let statusFilter = $state('needs');
   let answerDrafts = $state<Record<string, string>>({});
+  let terminals = $state<TerminalOption[]>([]);
+  let bridgeTargets = $state<Record<string, string>>({});
 
   const visibleAsks = $derived(
     asks.filter((ask) => {
@@ -60,8 +68,27 @@
   onMount(() => {
     document.body.classList.add('asks-view-page');
     void load();
+    void loadTerminals();
     return () => document.body.classList.remove('asks-view-page');
   });
+
+  async function loadTerminals() {
+    try {
+      const res = await fetch('/api/sessions');
+      if (!res.ok) return;
+      const data = await res.json();
+      const list = (data.sessions ?? []) as Array<Record<string, unknown>>;
+      terminals = list
+        .filter((s) => s.type === 'terminal' && !s.archived && !s.deleted_at)
+        .map((s) => ({
+          id: String(s.id),
+          name: String(s.display_name || s.name || s.id),
+          handle: typeof s.handle === 'string' ? s.handle : null,
+        }));
+    } catch {
+      // Non-fatal — bridge dropdown just shows empty.
+    }
+  }
 
   async function load() {
     loading = true;
@@ -86,10 +113,15 @@
     error = null;
     try {
       const answer = answerDrafts[ask.id] || '';
+      const target = ask.owner_kind === 'terminal' ? bridgeTargets[ask.id] : '';
+      const requestBody: Record<string, unknown> = { action, answer };
+      if (target && (action === 'approve' || action === 'reject' || action === 'answer')) {
+        requestBody.target_session_id = target;
+      }
       const res = await fetch(`/api/asks/${ask.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, answer }),
+        body: JSON.stringify(requestBody),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -97,8 +129,33 @@
       }
       const data = await res.json();
       asks = asks.map((item) => item.id === ask.id ? data.ask : item);
+      if (data.bridge && !data.bridge.ok) {
+        error = `Bridge skipped: ${data.bridge.reason || 'unknown'}`;
+      }
     } catch (e) {
       error = e instanceof Error ? e.message : 'Update failed';
+    } finally {
+      busyId = null;
+    }
+  }
+
+  async function promoteAsk(ask: Ask) {
+    busyId = ask.id;
+    error = null;
+    try {
+      const res = await fetch(`/api/asks/${ask.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'open' }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Failed to promote ${ask.id}`);
+      }
+      const data = await res.json();
+      asks = asks.map((item) => item.id === ask.id ? data.ask : item);
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Promote failed';
     } finally {
       busyId = null;
     }
@@ -250,6 +307,30 @@
             </div>
 
             <div class="space-y-2">
+              {#if ask.status === 'candidate'}
+                <button
+                  type="button"
+                  onclick={() => promoteAsk(ask)}
+                  disabled={busyId === ask.id}
+                  class="action-btn w-full"
+                  style="--tone: #38BDF8;"
+                  title="Mark this candidate as actionable — moves it into Needs action without recording an answer."
+                >Promote → Needs action</button>
+              {/if}
+              {#if ask.owner_kind === 'terminal' && terminals.length > 0}
+                <select
+                  value={bridgeTargets[ask.id] || ''}
+                  onchange={(e) => { bridgeTargets = { ...bridgeTargets, [ask.id]: e.currentTarget.value }; }}
+                  class="w-full text-xs rounded-md px-2 py-1.5 outline-none"
+                  style="background: var(--bg-card); border: 1px solid var(--border-subtle); color: var(--text);"
+                  title="Pick a terminal to inject the resolution into when you click Approve/Reject/Answer."
+                >
+                  <option value="">No terminal injection</option>
+                  {#each terminals as t}
+                    <option value={t.id}>→ {t.name}{t.handle ? ` (${t.handle})` : ''}</option>
+                  {/each}
+                </select>
+              {/if}
               <textarea
                 value={answerDrafts[ask.id] || ''}
                 oninput={(event) => setDraft(ask.id, event.currentTarget.value)}

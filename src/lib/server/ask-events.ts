@@ -31,6 +31,12 @@ type AskRow = {
 type EmitOptions = {
   previousStatus?: string | null;
   action?: string | null;
+  bridge?: {
+    ok: boolean;
+    reason?: string | null;
+    injected?: string | null;
+    cliFlag?: string | null;
+  } | null;
 };
 
 export type AskRunEventKind = 'ask_created' | 'ask_updated';
@@ -59,6 +65,9 @@ export function emitAskRunEvent(
   }
   if (options.action) {
     payload.action = options.action;
+  }
+  if (options.bridge) {
+    payload.bridge = options.bridge;
   }
   if (kind === 'ask_updated' && ask.answer) {
     payload.answer = ask.answer;
