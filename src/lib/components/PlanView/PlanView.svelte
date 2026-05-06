@@ -12,12 +12,50 @@
     title = 'ANT — Plan',
     subtitle,
     themeMode = 'dark',
+    editable = false,
+    onRenameEvent,
+    onToggleDone,
+    onAddMilestone,
+    onAddDecision,
   }: {
     events: PlanEvent[];
     title?: string;
     subtitle?: string;
     themeMode?: 'dark' | 'light';
+    editable?: boolean;
+    onRenameEvent?: (ev: PlanEvent, nextTitle: string) => void | Promise<void>;
+    onToggleDone?: (ev: PlanEvent) => void | Promise<void>;
+    onAddMilestone?: (section: PlanEvent) => void | Promise<void>;
+    onAddDecision?: (section: PlanEvent) => void | Promise<void>;
   } = $props();
+
+  // Inline rename state — only one event editable at a time.
+  let renameTargetId: string | null = $state(null);
+  let renameDraft = $state('');
+
+  function startRename(ev: PlanEvent) {
+    renameTargetId = ev.id;
+    renameDraft = ev.payload.title;
+  }
+  function cancelRename() {
+    renameTargetId = null;
+    renameDraft = '';
+  }
+  function commitRename(ev: PlanEvent) {
+    const draft = renameDraft.trim();
+    renameTargetId = null;
+    if (draft && draft !== ev.payload.title) onRenameEvent?.(ev, draft);
+    renameDraft = '';
+  }
+  function onRenameKey(e: KeyboardEvent, ev: PlanEvent) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitRename(ev);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelRename();
+    }
+  }
 
   const s = $derived(surfaceTokens(themeMode));
   const isDark = $derived(themeMode === 'dark');
@@ -151,10 +189,44 @@
       {#each sections as section (section.id)}
         <section class="plan-section" id={section.id}>
           <div class="plan-section-head">
-            <h2>{section.payload.title}</h2>
-            {#if section.payload.body}
-              <span class="plan-section-meta">{section.payload.body}</span>
+            {#if editable && renameTargetId === section.id}
+              <input
+                class="plan-edit-input plan-edit-input--h2"
+                bind:value={renameDraft}
+                onblur={() => commitRename(section)}
+                onkeydown={(e) => onRenameKey(e, section)}
+                aria-label="Rename section"
+              />
+            {:else}
+              <h2>
+                {section.payload.title}
+                {#if editable}
+                  <button
+                    type="button"
+                    class="plan-edit-btn"
+                    title="Rename section"
+                    onclick={() => startRename(section)}>edit</button
+                  >
+                {/if}
+              </h2>
             {/if}
+            <span class="plan-section-meta">
+              {#if section.payload.body}<span>{section.payload.body}</span>{/if}
+              {#if editable}
+                <button
+                  type="button"
+                  class="plan-edit-btn"
+                  title="Add milestone"
+                  onclick={() => onAddMilestone?.(section)}>+ milestone</button
+                >
+                <button
+                  type="button"
+                  class="plan-edit-btn"
+                  title="Add decision"
+                  onclick={() => onAddDecision?.(section)}>+ decision</button
+                >
+              {/if}
+            </span>
           </div>
 
           {#if isMilestonesSection(section)}
@@ -167,12 +239,46 @@
                     <span class="plan-status-dot" style="background: {statusColor(m.payload.status)};"></span>
                     <span class="plan-mile-label">
                       <span class="plan-mile-id">{m.payload.milestone_id ?? m.id}</span>
-                      <span class="plan-mile-title">{m.payload.title}</span>
+                      {#if editable && renameTargetId === m.id}
+                        <input
+                          class="plan-edit-input"
+                          bind:value={renameDraft}
+                          onblur={() => commitRename(m)}
+                          onkeydown={(e) => onRenameKey(e, m)}
+                          onclick={(e) => e.preventDefault()}
+                          aria-label="Rename milestone"
+                        />
+                      {:else}
+                        <span class="plan-mile-title">{m.payload.title}</span>
+                      {/if}
                     </span>
                     <span class="plan-mile-meta">
                       {#if m.payload.body}<span>{m.payload.body}</span>{/if}
                       {#if m.payload.owner}<span class="plan-mile-owner">{m.payload.owner}</span>{/if}
                       <span class="plan-mile-status">{statusLabel(m.payload.status)}</span>
+                      {#if editable}
+                        <button
+                          type="button"
+                          class="plan-edit-btn"
+                          title="Rename milestone"
+                          onclick={(e) => {
+                            e.preventDefault();
+                            startRename(m);
+                          }}>edit</button
+                        >
+                        <button
+                          type="button"
+                          class="plan-edit-btn"
+                          title="Toggle done"
+                          onclick={(e) => {
+                            e.preventDefault();
+                            onToggleDone?.(m);
+                          }}
+                          >{m.payload.status === 'done' || m.payload.status === 'passing'
+                            ? '✓ done'
+                            : 'mark done'}</button
+                        >
+                      {/if}
                     </span>
                   </summary>
                   <div class="plan-mile-body">
@@ -222,7 +328,25 @@
                   <li>
                     <span class="plan-decision-marker">{String.fromCharCode(97 + i)}</span>
                     <div class="plan-decision-body">
-                      <strong>{d.payload.title}</strong>
+                      {#if editable && renameTargetId === d.id}
+                        <input
+                          class="plan-edit-input"
+                          bind:value={renameDraft}
+                          onblur={() => commitRename(d)}
+                          onkeydown={(e) => onRenameKey(e, d)}
+                          aria-label="Rename decision"
+                        />
+                      {:else}
+                        <strong>{d.payload.title}</strong>
+                        {#if editable}
+                          <button
+                            type="button"
+                            class="plan-edit-btn"
+                            title="Rename decision"
+                            onclick={() => startRename(d)}>edit</button
+                          >
+                        {/if}
+                      {/if}
                       {#if d.payload.body}
                         <span class="plan-decision-text"> {d.payload.body}</span>
                       {/if}
@@ -601,6 +725,44 @@
     animation: plan-pulse 2.4s ease-in-out infinite;
   }
   .plan-rail-label { flex: 1; }
+
+  /* Inline edit affordances (D.11) */
+  .plan-edit-btn {
+    margin-left: 8px;
+    padding: 1px 6px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--plan-text-faint);
+    background: transparent;
+    border: 0.5px solid var(--plan-border);
+    border-radius: 3px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    line-height: 1.4;
+    vertical-align: baseline;
+  }
+  .plan-edit-btn:hover {
+    color: var(--plan-text);
+    border-color: var(--plan-border-strong);
+  }
+  .plan-edit-input {
+    font: inherit;
+    color: var(--plan-text);
+    background: var(--plan-surface);
+    border: 1px solid var(--plan-border-strong);
+    border-radius: 3px;
+    padding: 2px 6px;
+    min-width: 12ch;
+    max-width: 36ch;
+    outline: none;
+  }
+  .plan-edit-input--h2 {
+    font-size: 16px;
+    font-weight: 500;
+    letter-spacing: -0.005em;
+    max-width: 60ch;
+  }
 
   /* Anchored sections don't slide under sticky headers */
   section[id] { scroll-margin-top: 80px; }

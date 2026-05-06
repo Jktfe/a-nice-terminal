@@ -1299,6 +1299,12 @@ export const queries = {
     `).get(result.lastInsertRowid);
   },
 
+  getRunEvent: (id: string | number) =>
+    prepare(`
+      SELECT id, session_id, ts_ms, source, trust, kind, text, payload, raw_ref, created_at
+      FROM run_events WHERE id = ?
+    `).get(id),
+
   getRunEvents: (
     sessionId: string,
     sinceMs: number,
