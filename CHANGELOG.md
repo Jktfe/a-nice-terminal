@@ -9,6 +9,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Added
 - iOS experience catch-up planning is active: safe-area layout, touch hit targets, keyboard reflow, gestures, composer ergonomics, and folder-drawer mobile acceptance criteria.
 
+## [antchat-0.1.0] — 2026-05-06
+
+First release of `antchat`, a single-binary macOS client for joining ANT rooms without running a server. Versioned and released independently of `a-nice-terminal` core via tags of the form `antchat-v*`; binaries are produced by `.github/workflows/release-antchat.yml`.
+
+### Added
+- WS1A — multi-token room config with per-room kind/handle/label and exported `parseShareString`
+- WS4A — `antchat` skeleton: `join`, `rooms`, `msg`
+- WS4B — `antchat chat` (SSE backfill + live), `open`, `tasks`, `plan`, plus macOS osascript notifier and `mentionsHandle()` helper
+- WS4C — `antchat mcp serve|install|uninstall|print` (stdio JSON-RPC proxy; cross-platform `claude_desktop_config.json` writer)
+- WS4E — `antchat watch run|install|uninstall|status` (LaunchAgent plist + `launchctl bootstrap` with `load -w` fallback)
+- WS5A — `bun run build:antchat:{arm64,x64}` + `antchat/scripts/smoke.sh` smoke harness
+- WS5B — `.github/workflows/release-antchat.yml` matrix build on macos-14 + macos-13 with tarballs, SHA-256 aggregate, and GitHub Release upload
+- WS5C — `homebrew/antchat.rb` formula + `homebrew/update-tap.sh` post-release helper for `Jktfe/homebrew-antchat`
+- WS6A — `antchat/README.md` user-facing walkthrough; root README "ANTchat" section
+
 ## [0.2.0] — 2026-05-04
 
 ### Added
