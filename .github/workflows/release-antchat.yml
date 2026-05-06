@@ -1,0 +1,143 @@
+name: Release antchat
+
+# Builds standalone macOS binaries when an `antchat-v*` tag is pushed and
+# attaches them to a GitHub Release. The version in the tag is informational —
+# the binary's own --version comes from antchat/package.json, so bump the
+# package.json version BEFORE tagging.
+#
+# Tag format: antchat-vMAJOR.MINOR.PATCH (e.g. antchat-v0.1.0).
+#
+# Security note: every `run:` block reads tag/version through the
+# GITHUB_REF_NAME env var (auto-populated, not user-supplied), never via
+# `${{ github.ref_name }}` interpolation, which would be a command-injection
+# vector if a tag name ever contained shell metacharacters.
+
+on:
+  push:
+    tags:
+      - 'antchat-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-13
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.13'
+
+      - run: bun install --frozen-lockfile
+
+      - name: compile antchat (${{ matrix.arch }})
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: bun run "build:antchat:$ARCH"
+
+      - name: smoke (${{ matrix.arch }})
+        # Smoke uses `uname -m` to pick which binary to test, so it only
+        # runs on the matching matrix arch (no cross-arch execution on
+        # GitHub's macOS runners).
+        run: bun run smoke:antchat
+
+      - name: package + checksum
+        id: pkg
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#antchat-v}"
+          BIN="dist/antchat-darwin-${ARCH}"
+          ARCHIVE="antchat-${VERSION}-darwin-${ARCH}.tar.gz"
+
+          # Strip the dist/ prefix inside the tarball so users get a flat
+          # `antchat` binary they can drop straight into PATH.
+          cp "$BIN" antchat
+          tar -czf "$ARCHIVE" antchat
+          rm antchat
+
+          SHA="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
+          {
+            echo "archive=$ARCHIVE"
+            echo "sha256=$SHA"
+            echo "version=$VERSION"
+          } >>"$GITHUB_OUTPUT"
+
+          {
+            echo "## ${ARCH} build"
+            echo ""
+            echo "- archive: \`$ARCHIVE\`"
+            echo "- sha256:  \`$SHA\`"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: antchat-darwin-${{ matrix.arch }}
+          path: ${{ steps.pkg.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: compute checksums
+        run: |
+          set -euo pipefail
+          cd artifacts
+          shasum -a 256 *.tar.gz | tee SHA256SUMS
+          {
+            echo "### SHA-256 checksums"
+            echo ""
+            echo '```'
+            cat SHA256SUMS
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          body: |
+            ## antchat (macOS binaries)
+
+            Standalone — no `bun` runtime required on the host.
+
+            ### Install (manual)
+
+            ```sh
+            tar -xzf antchat-*.tar.gz
+            chmod +x antchat
+            mv antchat /usr/local/bin/
+            antchat --version
+            ```
+
+            Homebrew tap: `brew install jktfe/antchat/antchat` (see `homebrew/antchat.rb`).
+
+            ### Checksums
+
+            See the `SHA256SUMS` asset attached below.
+          files: |
+            artifacts/*.tar.gz
+            artifacts/SHA256SUMS
+          fail_on_unmatched_files: true
