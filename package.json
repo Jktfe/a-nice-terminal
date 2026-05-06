@@ -52,7 +52,7 @@
     "fingerprint:codex": "tsx src/fingerprint/runner.ts --agent codex-cli",
     "fingerprint:all": "tsx src/fingerprint/runner.ts --all",
     "fingerprint:list": "tsx src/fingerprint/runner.ts --list",
-    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "check": "svelte-kit sync 2>/dev/null; svelte-check --tsconfig ./tsconfig.json",
     "test": "svelte-kit sync 2>/dev/null; vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
