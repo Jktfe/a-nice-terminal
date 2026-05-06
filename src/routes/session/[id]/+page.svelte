@@ -236,6 +236,11 @@
     }
   });
 
+  $effect(() => {
+    if (typeof document === 'undefined') return;
+    document.title = session?.name ? `${session.name} · ANT` : 'ANT';
+  });
+
   // Mark messages as read when new messages arrive or we're at the bottom
   $effect(() => {
     if (displayMessages.length && atBottom) {
