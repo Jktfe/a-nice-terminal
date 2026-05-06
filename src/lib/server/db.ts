@@ -546,6 +546,31 @@ function getDb(): any {
   )`);
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_decks_owner ON decks(owner_session_id)`);
 
+  // M3 #2 — Consent grants: scope-of-grant records per session.
+  // topic: what the grant allows (file-read, web-fetch, etc.).
+  // source_set: JSON array of file paths, URLs, or identifiers the grant covers.
+  // duration: human-readable TTL (5m, 2h, forever). Resolved to expires_at_ms.
+  // answer_count / max_answers: tracks usage; null max = unlimited.
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS consent_grants (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    granted_to TEXT NOT NULL,
+    topic TEXT NOT NULL,
+    source_set TEXT DEFAULT '[]',
+    duration TEXT DEFAULT '1h',
+    answer_count INTEGER DEFAULT 0,
+    max_answers INTEGER,
+    status TEXT DEFAULT 'active' CHECK(status IN ('active','revoked','expired')),
+    granted_at_ms INTEGER NOT NULL,
+    expires_at_ms INTEGER,
+    meta TEXT DEFAULT '{}',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  )`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_consent_grants_session ON consent_grants(session_id)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_consent_grants_granted_to ON consent_grants(granted_to, status)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_consent_grants_status ON consent_grants(status, expires_at_ms)`);
+
   // Record startup
   G[DB_KEY].prepare(`INSERT OR REPLACE INTO server_state (key, value) VALUES (?, ?)`).run('last_heartbeat', new Date().toISOString());
   G[DB_KEY].exec(`INSERT OR REPLACE INTO server_state(key, value) VALUES ('last_started', datetime('now'))`);
@@ -1445,6 +1470,35 @@ export const queries = {
     prepare(`DELETE FROM decks WHERE slug = ?`).run(slug),
   listDecksOwnedBy: (ownerSessionId: string) =>
     prepare(`SELECT * FROM decks WHERE owner_session_id = ?`).all(ownerSessionId),
+
+  // ── Consent grants (M3 #2) ─────────────────────────────────────────
+  getConsentGrant: (id: string) =>
+    prepare(`SELECT * FROM consent_grants WHERE id = ?`).get(id),
+  listConsentGrants: (sessionId: string) =>
+    prepare(`SELECT * FROM consent_grants WHERE session_id = ? ORDER BY created_at ASC`).all(sessionId),
+  listConsentGrantsByGrantee: (grantedTo: string) =>
+    prepare(`SELECT * FROM consent_grants WHERE granted_to = ? AND status = 'active' ORDER BY created_at ASC`).all(grantedTo),
+  createConsentGrant: (
+    id: string, sessionId: string, grantedTo: string, topic: string,
+    sourceSet: string, duration: string, answerCount: number,
+    maxAnswers: number | null, status: string, grantedAtMs: number,
+    expiresAtMs: number | null, meta: string,
+  ) =>
+    prepare(`INSERT INTO consent_grants (id, session_id, granted_to, topic, source_set, duration, answer_count, max_answers, status, granted_at_ms, expires_at_ms, meta)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      id, sessionId, grantedTo, topic, sourceSet, duration, answerCount, maxAnswers, status, grantedAtMs, expiresAtMs, meta,
+    ),
+  updateConsentGrant: (id: string, status: string, answerCount: number, expiresAtMs: number | null) =>
+    prepare(`UPDATE consent_grants SET status = ?, answer_count = ?, expires_at_ms = ?, updated_at = datetime('now') WHERE id = ?`).run(status, answerCount, expiresAtMs, id),
+  revokeConsentGrant: (id: string) =>
+    prepare(`UPDATE consent_grants SET status = 'revoked', updated_at = datetime('now') WHERE id = ? AND status = 'active'`).run(id),
+  expireConsentGrants: (nowMs: number) => {
+    const expired = prepare(`SELECT id FROM consent_grants WHERE status = 'active' AND expires_at_ms IS NOT NULL AND expires_at_ms <= ?`).all(nowMs);
+    if (expired.length > 0) {
+      prepare(`UPDATE consent_grants SET status = 'expired', updated_at = datetime('now') WHERE status = 'active' AND expires_at_ms IS NOT NULL AND expires_at_ms <= ?`).run(nowMs);
+    }
+    return expired.length;
+  },
 };
 
 export default getDb;
