@@ -228,7 +228,8 @@
             onclick={() => { editingNickname = p.sess.id; nicknameInput = p.sess.handle || ''; }}
             class="touch-target p-1 rounded transition-all"
             style="color: var(--text-faint);"
-            title="Set handle"
+            title="Set handle for {label}"
+            aria-label="Set handle for {label}"
           >
             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536M9 13l6.586-6.586a2 2 0 012.828 2.828L11.828 15.828a2 2 0 01-1.414.586H7v-3a2 2 0 01.586-1.414z"/>
@@ -239,7 +240,7 @@
               onclick={() => onWakeParticipant(p.sess)}
               class="touch-target p-1 rounded transition-all"
               style="color: var(--text-faint);"
-              title="Wake"
+              title="Wake {label}"
               aria-label="Wake {label}"
             >
               <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -397,7 +398,7 @@
                       onclick={() => onWakeParticipant(p.sess)}
                       class="touch-target p-1 rounded"
                       style="color: var(--text-faint);"
-                      title="Wake"
+                      title="Wake {label}"
                       aria-label="Wake {label}"
                     >
                       <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -444,24 +445,36 @@
 <style>
   .participant-actions {
     display: grid;
-    grid-template-columns: repeat(3, 28px);
+    grid-template-columns: repeat(3, 32px);
     gap: 4px;
     justify-content: end;
     align-content: start;
-    max-width: 92px;
+    max-width: 104px;
   }
 
   .participant-actions :global(.touch-target) {
-    width: 28px;
-    height: 28px;
-    min-width: 28px;
-    min-height: 28px;
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
     padding: 0;
     line-height: 1;
     font-size: 13px;
+    border-radius: 6px;
+    transition: background-color 0.12s ease, color 0.12s ease;
+  }
+
+  .participant-actions :global(.touch-target:hover) {
+    background-color: rgba(99, 102, 241, 0.12);
+    color: var(--text);
+  }
+
+  .participant-actions :global(.touch-target:focus-visible) {
+    outline: 2px solid #6366F1;
+    outline-offset: 1px;
   }
 
   .participant-actions--available {
-    grid-template-columns: repeat(3, 28px);
+    grid-template-columns: repeat(3, 32px);
   }
 </style>
