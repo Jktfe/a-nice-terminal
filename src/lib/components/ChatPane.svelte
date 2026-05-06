@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import MessageBubble from './MessageBubble.svelte';
   import PinnedAsksPanel from './PinnedAsksPanel.svelte';
+  import { insertAtCursor as computeInsertAtCursor } from './chat-composer-utils.js';
 
   let { sessionId }: { sessionId: string } = $props();
 
@@ -116,22 +117,31 @@
     }
   }
 
-  function insertAtCursor(text: string) {
+  function insertAtCursor(insert: string) {
     const el = textareaEl;
     if (!el) {
-      inputText = inputText ? `${inputText} ${text}` : text;
+      // No textarea bound yet — fall back to a plain append with a space
+      // separator. This is the same "no caret context" path the helper
+      // produces when selectionStart/end are null.
+      const result = computeInsertAtCursor({
+        text: inputText,
+        selectionStart: null,
+        selectionEnd: null,
+        insert,
+      });
+      inputText = result.text;
       return;
     }
-    const start = el.selectionStart ?? inputText.length;
-    const end = el.selectionEnd ?? inputText.length;
-    const before = inputText.slice(0, start);
-    const after = inputText.slice(end);
-    const lead = before && !/\s$/.test(before) ? ' ' : '';
-    inputText = `${before}${lead}${text} ${after}`;
-    const newPos = before.length + lead.length + text.length + 1;
+    const result = computeInsertAtCursor({
+      text: inputText,
+      selectionStart: el.selectionStart,
+      selectionEnd: el.selectionEnd,
+      insert,
+    });
+    inputText = result.text;
     setTimeout(() => {
       el.focus();
-      el.setSelectionRange(newPos, newPos);
+      el.setSelectionRange(result.caret, result.caret);
     }, 0);
   }
 
