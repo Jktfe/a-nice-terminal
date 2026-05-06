@@ -1,6 +1,5 @@
 import {
   existsSync,
-  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -8,14 +7,24 @@ import {
   statSync,
   writeFileSync,
 } from 'fs';
-import { dirname, join, relative, resolve } from 'path';
+import { dirname, join, resolve } from 'path';
 import { homedir } from 'os';
 import { queries } from './db.js';
+import {
+  ALLOWED_HIDDEN_FILES,
+  BLOCKED_SEGMENTS,
+  assertInside,
+  assertNoSymlinkSegments,
+  assertSafeDeckSlug,
+  cleanDeckPath,
+} from './artefact-fs.js';
 
 const DEFAULT_OPEN_SLIDE_DIR = join(homedir(), 'CascadeProjects', 'ANT-Open-Slide');
-const BLOCKED_SEGMENTS = new Set(['.git', 'node_modules', '.svelte-kit', 'dist']);
-const ALLOWED_HIDDEN_FILES = new Set(['.env.example']);
 const DEFAULT_MAX_FILE_BYTES = 5 * 1024 * 1024;
+
+// Re-export the path-safety helpers so existing import sites keep working.
+// Wave 2 (sheets, docs) should import directly from artefact-fs.ts.
+export { assertSafeDeckSlug };
 
 export interface DeckMeta {
   slug: string;
@@ -52,33 +61,10 @@ export function deckMaxFileBytes(): number {
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : DEFAULT_MAX_FILE_BYTES;
 }
 
-export function assertSafeDeckSlug(slug: string): string {
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$/.test(slug)) {
-    throw new Error('Invalid deck slug');
-  }
-  return slug;
-}
-
 function titleFromSlug(slug: string): string {
   return slug
     .replace(/[-_]+/g, ' ')
     .replace(/\b\w/g, (m) => m.toUpperCase());
-}
-
-function assertInside(root: string, target: string): void {
-  const rel = relative(root, target);
-  if (rel === '' || (!rel.startsWith('..') && !rel.startsWith('/'))) return;
-  throw new Error('Path escapes Open-Slide root');
-}
-
-function assertNoSymlinkSegments(root: string, relPath: string): void {
-  let current = root;
-  for (const part of relPath.split('/')) {
-    current = join(current, part);
-    if (existsSync(current) && lstatSync(current).isSymbolicLink()) {
-      throw new Error('Deck path symlinks are not editable');
-    }
-  }
 }
 
 export function defaultDeckDirForSlug(slug: string): string {
@@ -165,24 +151,6 @@ export function registerDeck(input: RegisterDeckInput): DeckMeta {
 
 export function listDecks(): DeckMeta[] {
   return (queries.listDecks() as any[]).map(rowToDeck);
-}
-
-function cleanDeckPath(path: string): string {
-  const raw = String(path || '').replace(/\\/g, '/').replace(/^\/+/, '');
-  if (raw.includes('\0') || /[\x00-\x1F\x7F]/.test(raw)) {
-    throw new Error('Deck path contains invalid bytes');
-  }
-  if (raw.includes('../') || raw === '..' || raw.startsWith('..')) {
-    throw new Error('Path traversal is not allowed');
-  }
-  const parts: string[] = [];
-  for (const part of raw.split('/')) {
-    if (!part || part === '.') continue;
-    if (part === '..') throw new Error('Path traversal is not allowed');
-    if (BLOCKED_SEGMENTS.has(part)) throw new Error(`Deck path segment "${part}" is not editable`);
-    parts.push(part);
-  }
-  return parts.join('/');
 }
 
 export function resolveDeckFile(deck: DeckMeta, path: string): { relPath: string; absPath: string } {
