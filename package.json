@@ -56,7 +56,11 @@
     "test": "svelte-kit sync 2>/dev/null; vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "verify": "bun run check && bun run test && bun run build"
+    "verify": "bun run check && bun run test && bun run build",
+    "build:antchat": "bun run build:antchat:arm64 && bun run build:antchat:x64",
+    "build:antchat:arm64": "bun build antchat/index.ts --compile --target=bun-darwin-arm64 --outfile dist/antchat-darwin-arm64",
+    "build:antchat:x64": "bun build antchat/index.ts --compile --target=bun-darwin-x64 --outfile dist/antchat-darwin-x64",
+    "smoke:antchat": "bash antchat/scripts/smoke.sh"
   },
   "dependencies": {
     "@sveltejs/adapter-node": "^5.5.4",
