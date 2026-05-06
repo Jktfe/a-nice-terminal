@@ -15,7 +15,7 @@
 // API over the network. This test validates the same contract at the
 // route-handler level.
 
-import { afterEach, afterAll, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'os';
@@ -62,15 +62,10 @@ function makeRequestEvent(body: any, locals: Record<string, any> = {}): any {
   };
 }
 
-afterEach(() => {
+afterEach(async () => {
   restoreEnv();
-});
-
-afterAll(async () => {
-  for (const dir of tempDirs) {
-    try { await rm(dir, { recursive: true, force: true }); } catch {}
-  }
-  tempDirs.length = 0;
+  resetDbForTest();
+  await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }).catch(() => {})));
 });
 
 describe('cross-machine consent pilot', () => {
