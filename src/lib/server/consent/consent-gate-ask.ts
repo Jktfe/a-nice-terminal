@@ -21,6 +21,8 @@ export type AskRow = {
   status: string;
   inferred: number | boolean;
   meta: string;
+  title?: string | null;
+  body?: string | null;
 };
 
 export interface AskQueries {
@@ -43,15 +45,15 @@ export interface ConsentGateQueries extends ConsentGrantQueries {
 
 export type ConsentGateOutcome =
   | { action: 'auto_answered'; grantId: string; grantTopic: string; remainingAnswers: number | null }
-  | { action: 'dismissed'; grantId: string; reason: 'revoked' | 'expired' | 'exhausted' }
+  | { action: 'dismissed'; grantId: string; reason: 'revoked' | 'expired' | 'exhausted' | 'not_found' }
   | { action: 'no_grant' };
 
 // Topic inference from ask content. Simple heuristic: if the ask body
 // references files → 'file-read'; URLs → 'web-fetch'; commands →
 // 'command-exec'; otherwise 'memory-read' as the broadest default.
 export function inferTopicFromAsk(ask: AskRow): string {
-  const body = typeof (ask as any).body === 'string' ? (ask as any).body : '';
-  const title = typeof (ask as any).title === 'string' ? (ask as any).title : '';
+  const body = typeof ask.body === 'string' ? ask.body : '';
+  const title = typeof ask.title === 'string' ? ask.title : '';
   const text = `${title} ${body}`.toLowerCase();
 
   if (/\b(read|open|view|show|cat|grep)\b.*\.(ts|js|py|rs|go|md|json|yaml)\b/.test(text)) return 'file-read';
