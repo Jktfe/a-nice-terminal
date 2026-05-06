@@ -25,10 +25,13 @@ export type SendKeysFn = (keys: string[]) => Promise<void>;
 
 // ─── Detection patterns ───────────────────────────────────────────────────────
 
-// LM Studio interactive chat prompt (TODO: validate exact string)
+// LM Studio interactive chat prompt — PROVISIONAL (see NOTES.md).
+// "You:" prefix observed in early probes; not validated against current LM
+// Studio CLI versions. Treat as a best-effort cue.
 const CHAT_PROMPT_RE = /^You:\s*$/m;
 
-// LM Studio response prefix (TODO: validate exact string)
+// LM Studio response prefix — PROVISIONAL (see NOTES.md).
+// "AI:" prefix observed in early probes; pairs with the You: prompt above.
 const RESPONSE_PREFIX_RE = /^AI:\s*/m;
 
 // Streaming: LM Studio may emit [?25l/h ANSI for cursor during streaming

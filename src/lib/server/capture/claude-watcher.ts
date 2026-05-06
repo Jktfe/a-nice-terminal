@@ -66,5 +66,15 @@ function ingestClaudeEntry(entry: any, sourcePath: string): void {
   const text = extractText(entry.message)?.slice(0, 80);
   if (!text) return;
 
-  // TODO: link to ANT session for full capture
+  // STUB: full capture path is unwired. To complete this, a sourcePath →
+  // ANT session_id mapping is needed (Claude Code stores sessions under
+  // ~/.claude/projects/<encoded-cwd>/<uuid>.jsonl, ANT has no equivalent
+  // anchor). Options: (1) lookup by cwd encoded in dirname; (2) explicit
+  // pairing command (`ant claude-link <session.jsonl>`); (3) infer from
+  // tmux pane env when watcher runs server-side. Until decided, this
+  // function is a no-op deliberately — the watcher daemon stays warm so
+  // it picks up future sessions once the linking strategy lands.
+  void role;
+  void text;
+  void sourcePath;
 }

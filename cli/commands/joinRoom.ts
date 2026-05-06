@@ -7,7 +7,7 @@
 //   https://host[:port]/r/<roomId>?invite=<inviteId>    — Browser/URL form
 //
 // Password resolution order: --password flag, ANT_INVITE_PASSWORD env var,
-// then interactive readline prompt (echoes — see TODO).
+// then interactive prompt (no-echo via stdin raw mode when TTY).
 
 import { createInterface } from 'readline';
 import { api } from '../lib/api.js';
@@ -49,6 +49,49 @@ async function readLineFromStdin(promptText: string): Promise<string> {
   });
 }
 
+async function readPasswordFromStdin(promptText: string): Promise<string> {
+  if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== 'function') {
+    return readLineFromStdin(promptText);
+  }
+  process.stdout.write(promptText);
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  process.stdin.setEncoding('utf8');
+  return new Promise<string>((resolve, reject) => {
+    let buf = '';
+    const onData = (key: string) => {
+      for (const ch of key) {
+        if (ch === '\r' || ch === '\n') {
+          process.stdin.setRawMode(false);
+          process.stdin.pause();
+          process.stdin.removeListener('data', onData);
+          process.stdout.write('\n');
+          resolve(buf);
+          return;
+        }
+        if (ch === '\u0003') {
+          process.stdin.setRawMode(false);
+          process.stdin.pause();
+          process.stdin.removeListener('data', onData);
+          process.stdout.write('\n');
+          reject(new Error('Aborted'));
+          return;
+        }
+        if (ch === '\u007f' || ch === '\b') {
+          if (buf.length > 0) {
+            buf = buf.slice(0, -1);
+            process.stdout.write('\b \b');
+          }
+          continue;
+        }
+        buf += ch;
+        process.stdout.write('*');
+      }
+    };
+    process.stdin.on('data', onData);
+  });
+}
+
 export async function joinRoom(args: string[], flags: any, ctx: any) {
   const shareInput = args[0];
   if (!shareInput) {
@@ -66,7 +109,12 @@ export async function joinRoom(args: string[], flags: any, ctx: any) {
       console.error('No --password flag, no ANT_INVITE_PASSWORD env, and stdin is not a TTY. Cannot prompt.');
       process.exit(1);
     }
-    password = (await readLineFromStdin(`Password for room ${parsed.roomId}: `)).trim();
+    try {
+      password = (await readPasswordFromStdin(`Password for room ${parsed.roomId}: `)).trim();
+    } catch {
+      console.error('Aborted.');
+      process.exit(130);
+    }
   }
   if (!password) {
     console.error('Password required.');

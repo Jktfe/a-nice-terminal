@@ -47,7 +47,11 @@ const SESSION_EXIT_RE = /To continue this session, run codex resume/;
 // Token usage line
 const TOKEN_USAGE_RE = /^Token usage:/m;
 
-// Text-level interactive patterns (TODO: validate P04/P06/P07/P10)
+// Text-level interactive patterns — PROVISIONAL.
+// spec.json marks these as "TODO: Not yet validated" pending probes
+// P04 (multi_choice), P06 (confirmation), P07 (free_text), P10 (error_retry).
+// Until those probes run, treat detections from these regexes as best-effort
+// cues rather than authoritative event boundaries.
 const CHOICE_QUESTION_RE = /(which one|please choose|pick one|choose one|select one|which would you)/i;
 const NUMBERED_LIST_RE   = /^\s*\d+\.\s+\S/m;
 const CONFIRM_RE         = /(shall I go ahead|want me to proceed|are you sure|proceed\?)/i;

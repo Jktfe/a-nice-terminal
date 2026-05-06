@@ -42,7 +42,10 @@ const MODE_PLAN_RE        = /^plan\s/m;
 const IDLE_STATUS_RE = /\? for shortcuts/;
 const RESPONDING_RE  = /Responding with gemini-[\w-]+/;
 
-// Text-level interaction patterns (TODO: validate against P04/P06/P07/P10)
+// Text-level interaction patterns — PROVISIONAL.
+// spec.json marks these as awaiting probes P04 (multi_choice), P06 (confirmation),
+// P07 (free_text), P10 (error_retry). Pattern detections are best-effort cues
+// until those probes run.
 const CHOICE_QUESTION_RE = /(which one|please choose|pick one|choose one|select one|which would you)/i;
 const NUMBERED_LIST_RE   = /^\s*\d+\.\s+\S/m;
 const CONFIRM_RE         = /(shall I go ahead|want me to proceed|are you sure|proceed\?)/i;

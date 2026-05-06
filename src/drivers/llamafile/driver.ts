@@ -31,7 +31,9 @@ export type SendKeysFn = (keys: string[]) => Promise<void>;
 
 // ─── Detection patterns ───────────────────────────────────────────────────────
 
-// llamafile --chat readline prompt (TODO: validate exact string)
+// llamafile --chat readline prompt — PROVISIONAL (see NOTES.md).
+// "> " prefix observed against early llamafile builds; varies between
+// llama.cpp-derived front-ends. Treat as a best-effort cue.
 const CHAT_PROMPT_RE = /^>\s*$/m;
 
 // llamafile loading / init output (llama.cpp logs to stderr)
