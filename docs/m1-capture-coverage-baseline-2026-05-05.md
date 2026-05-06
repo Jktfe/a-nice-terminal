@@ -1,8 +1,8 @@
 # M1 Capture-Coverage Baseline
 
-Date: 2026-05-05
-Status: Failing — 6 of 8 expected event-types reliably captured.
-Window: last 7 days (2026-04-28 → 2026-05-05) of the live `~/.ant-v3/ant.db`.
+Date: 2026-05-05 (refreshed 2026-05-06)
+Status: Failing — 7 of 8 expected event-types reliably captured. Screenshots remain.
+Window: last 7 days (2026-04-28 → 2026-05-05) of the live `~/.ant-v3/ant.db`, plus 2026-05-06 verification of artifact_write via the test suite.
 
 ## Method
 
@@ -33,9 +33,11 @@ The M1 test reads: "Capture-coverage baseline covers prompts, asks, plans, file 
 - Smoke-test (last 10 min, post-bounce): 5 tool_call (PreToolUse), 3 command_block (Bash PostToolUse), 2 tool_result (read-only tools), 1 file_write (Edit), 1 permission (Notification). Includes both synthetic-curl events and real Edit/Bash from this Claude Code session.
 - Result: agent file-mutations are first-class on the run_events timeline. Plan View consumers can filter `kind IN ('command_block', 'file_write')` for capture-coverage.
 
-### 5. Artifact writes — GAP
-- No run_events kind for artifact writes. The Open-Slide manifest has its own `.ant-deck.json` audit trail but does not surface to run_events.
-- Result: a deck manifest update or artifact regeneration is invisible to the unified evidence timeline.
+### 5. Artifact writes — OK (Open-Slide manifest bridge landed; verified 2026-05-06)
+- run_events kind: `artifact_write` (file_write rows) / `artifact_conflict` (409 rows) from source `json`, trust `high`. Bridge at `src/lib/server/decks.ts:486 appendDeckAuditRunEvent` fires every time a row lands in `.ant-deck/audit.jsonl`. Payload includes deck_slug, deck_dir, audit_type, actor, path, base_hash, sha256, manifest_path, audit_path. raw_ref = `deck_audit:<slug>:<ts>:<type>:<path>`.
+- Test coverage: `tests/deck-manifest.test.ts:171` (audit jsonl entries append artifact run_events for evidence timelines) — 17/17 pass under bun test.
+- Live count is zero in the 7-day window because no deck audit writes have happened against the live DB since the bridge landed; this is forward-only, not a wiring gap.
+- Result: deck manifest writes and conflicts are first-class run_events. Plan View consumers can filter `kind IN ('artifact_write', 'artifact_conflict')`.
 
 ### 6. Screenshots — GAP
 - No code surface for screenshot capture in `src/lib/server`. Zero events.
@@ -59,12 +61,12 @@ The M1 test reads: "Capture-coverage baseline covers prompts, asks, plans, file 
 | Asks             | OK     | 126 (table) / live bridge   | New asks emit ask_created/ask_updated; forward-only |
 | Plans            | OK     | 68          | — |
 | File writes      | OK     | command_block + file_write live | Both shell hook (cd/echo) and Claude Code hook (Bash + Edit/Write/MultiEdit) emit |
-| Artifact writes  | GAP    | 0           | No surface |
+| Artifact writes  | OK     | bridge live, forward-only | Open-Slide manifest emits `artifact_write` / `artifact_conflict`; test-verified |
 | Screenshots      | GAP    | 0           | No surface |
 | Run status       | OK     | 26,533      | — |
 | Failures         | OK     | 3,349       | — |
 
-6 of 8 reliably captured (asks → run_events bridge landed 14:24, file-writes via Claude Code hook surface landed 16:12, prompt isolation landed 17:36). Two concrete gaps remain: artifact writes (Item 4) and screenshots (Item 5).
+7 of 8 reliably captured (asks → run_events bridge landed 2026-05-05 14:24, file-writes via Claude Code hook surface landed 16:12, prompt isolation landed 17:36, artifact-writes via Open-Slide manifest bridge verified 2026-05-06 against tests/deck-manifest.test.ts). One concrete gap remains: screenshots (Item 5).
 
 ## Closing the gaps
 
@@ -73,15 +75,15 @@ Smallest-reversible-first ordering, in roughly increasing complexity:
 1. **Asks → run_events bridge.** When an ask is created or status-changed, append a corresponding run_event (kind `ask_created` / `ask_resolved`, source `json`, trust `high`, payload includes ask_id + status). Lets the Plan View evidence model link to asks via `run_event_id`. Estimate: 30 minutes.
 2. **Hook capture audit for file writes.** The hook is wired but only firing on `cd`. Investigate: which PostToolUse events land in the hook handler, which are filtered before `appendRunEvent`. Likely a one-line filter fix. Estimate: 1 hour to diagnose, 1 hour to test.
 3. **Prompt isolation.** Done 2026-05-05 17:36. New CLI-issued and chat-injected prompt chunks append `kind='prompt'` run_events; raw control/single-key input is ignored.
-4. **Artifact-write events.** When the deck audit log gets a new entry, also append a run_event (kind `artifact_write`, payload includes path + base_hash + author). Estimate: 1 hour, mostly wiring.
+4. **Artifact-write events.** Done. The Open-Slide manifest write path emits `artifact_write` / `artifact_conflict` run_events via `appendDeckAuditRunEvent` in `src/lib/server/decks.ts:486`. Test-verified by `tests/deck-manifest.test.ts:171` (17/17 pass).
 5. **Screenshot capture.** New surface entirely. Either a new CLI subcommand (`ant evidence screenshot`) that captures + uploads + emits a run_event, or hook into the existing screencapture path if there is one. Estimate: 4 hours to design and ship, more for first iteration.
 
-Order of work for week 1: items 1, 2, and 3 are done. Item 4 is next, then item 5 (largest, possibly punted to week 2).
+Order of work for week 1: items 1-4 are done. Item 5 (screenshots) is the only remaining gap to flip the M1 capture-coverage test to passing.
 
 ## Acceptance against the M1 test as written
 
 > "Capture-coverage baseline covers prompts, asks, plans, file writes, artifact writes, screenshots, run status, and failures."
 
-This baseline does not pass yet. It identifies the remaining two gaps above. Once items 4 and 5 are closed, the capture surface can be re-run to confirm passing status.
+This baseline does not pass yet — 7 of 8. Item 5 (screenshots) is the only remaining gap; once that surface lands, the capture coverage flips to passing.
 
-Test status: failing (with concrete close-out plan).
+Test status: failing (single remaining close-out: screenshot capture surface).
