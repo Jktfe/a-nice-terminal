@@ -12,8 +12,12 @@ import {
 // cover the same behaviours by exercising those helpers and the fetch flow
 // they back.
 
+// bun's vitest shim doesn't ship vi.stubGlobal/restoreAllMocks, so the two
+// fetch-flow tests below save/restore globalThis.fetch explicitly.
+const ORIGINAL_FETCH = globalThis.fetch;
 afterEach(() => {
-  vi.restoreAllMocks();
+  vi.restoreAllMocks?.();
+  globalThis.fetch = ORIGINAL_FETCH;
 });
 
 function makeMsg(
@@ -122,7 +126,7 @@ describe('toggleResolvedIndex', () => {
 describe('resolve flow (component-level fetch contract)', () => {
   it('PATCHes the asks endpoint with the new resolved list', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
-    vi.stubGlobal('fetch', fetchMock);
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const sessionId = 'sess-1';
     const message = makeMsg('m1', { asks: ['decide', 'ship'], asks_resolved: [] });
@@ -144,7 +148,7 @@ describe('resolve flow (component-level fetch contract)', () => {
 
   it('reverts optimistic state when the PATCH fails', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500 });
-    vi.stubGlobal('fetch', fetchMock);
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const baseResolved: number[] = [];
     const optimistic = toggleResolvedIndex(baseResolved, 0);
