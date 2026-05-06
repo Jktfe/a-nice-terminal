@@ -1,5 +1,6 @@
 import { api } from '../lib/api.js';
 import { config } from '../lib/config.js';
+import { subscribeRoomStream } from '../lib/sse.js';
 import { createInterface } from 'readline';
 import { execFileSync } from 'child_process';
 import { readFileSync, statSync } from 'fs';
@@ -434,55 +435,19 @@ export async function chat(args: string[], flags: any, ctx: any) {
     // skip live streaming and degrade to backfill-only.
     let abort: AbortController | null = null;
     if (roomToken) {
-      abort = new AbortController();
-      const streamUrl = `${ctx.serverUrl}/mcp/room/${encodeURIComponent(id)}/stream?token=${encodeURIComponent(roomToken)}`;
-      (async () => {
-        try {
-          const res = await fetch(streamUrl, {
-            headers: { Accept: 'text/event-stream' },
-            signal: abort!.signal,
-            // @ts-ignore — bun + node both honour this for self-signed local TLS.
-            //              real Funnel cert paths ignore it.
-            tls: { rejectUnauthorized: false },
-          });
-          if (!res.ok || !res.body) {
-            console.error(`Stream failed: HTTP ${res.status}`);
-            return;
+      abort = subscribeRoomStream({
+        serverUrl: ctx.serverUrl,
+        roomId: id,
+        token: roomToken,
+        onEvent: ({ data }) => {
+          const msg = data as { type?: string; sessionId?: string; id?: string; role?: string; content?: string };
+          if (msg?.type === 'message_created' && msg.sessionId === id) {
+            const prefix = msg.role === 'user' ? '\x1b[36mYou\x1b[0m' : '\x1b[33mANT\x1b[0m';
+            process.stdout.write(`\r\x1b[K${prefix}: ${msg.content ?? ''}\n\x1b[36mYou\x1b[0m: `);
           }
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder();
-          let buf = '';
-          // The broadcast loop fans the same message_created event out via
-          // both the primary delivery path and the message-router, so each id
-          // arrives twice on the SSE stream. Dedup on the client.
-          const seen = new Set<string>();
-          while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            buf += decoder.decode(value, { stream: true });
-            // SSE frames are separated by a blank line; each frame is one or
-            // more `field: value` lines. We only care about the `data:` field.
-            let idx;
-            while ((idx = buf.indexOf('\n\n')) >= 0) {
-              const frame = buf.slice(0, idx);
-              buf = buf.slice(idx + 2);
-              const dataLines = frame.split('\n').filter((l) => l.startsWith('data: ')).map((l) => l.slice(6));
-              if (!dataLines.length) continue;
-              try {
-                const msg = JSON.parse(dataLines.join('\n'));
-                if (msg.type === 'message_created' && msg.sessionId === id) {
-                  if (msg.id && seen.has(msg.id)) continue;
-                  if (msg.id) seen.add(msg.id);
-                  const prefix = msg.role === 'user' ? '\x1b[36mYou\x1b[0m' : '\x1b[33mANT\x1b[0m';
-                  process.stdout.write(`\r\x1b[K${prefix}: ${msg.content}\n\x1b[36mYou\x1b[0m: `);
-                }
-              } catch {}
-            }
-          }
-        } catch (e: any) {
-          if (e?.name !== 'AbortError') console.error(`Stream error: ${e?.message ?? e}`);
-        }
-      })();
+        },
+        onError: (err: any) => console.error(`Stream error: ${err?.message ?? err}`),
+      });
     } else {
       console.error('(no room token — running backfill-only; use `ant join-room` to enable live streaming)');
     }
