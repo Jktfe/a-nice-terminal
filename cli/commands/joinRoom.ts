@@ -13,13 +13,13 @@ import { createInterface } from 'readline';
 import { api } from '../lib/api.js';
 import { config } from '../lib/config.js';
 
-interface ParsedShare {
+export interface ParsedShare {
   serverUrl: string;
   roomId: string;
   inviteId: string;
 }
 
-function parseShareString(raw: string): ParsedShare {
+export function parseShareString(raw: string): ParsedShare {
   const trimmed = raw.trim();
   // Accepted schemes:
   //   ant://         — transport-agnostic, defaults to HTTPS (existing behaviour)
