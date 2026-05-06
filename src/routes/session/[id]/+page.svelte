@@ -1372,6 +1372,10 @@
   }
 </script>
 
+<svelte:head>
+  <title>{session?.name ? `${session.name} · ANT` : 'ANT'}</title>
+</svelte:head>
+
 <div class="h-screen w-screen flex overflow-hidden" style="background: var(--bg); color: var(--text);">
   <!-- Activity Rail — persistent session switcher -->
   <ActivityRail currentSessionId={sessionId} />
