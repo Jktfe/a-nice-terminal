@@ -4,7 +4,7 @@ import { CodexCliDriver } from '../src/drivers/codex-cli/driver.js';
 import { CopilotCliDriver } from '../src/drivers/copilot-cli/driver.js';
 import { GeminiCliDriver } from '../src/drivers/gemini-cli/driver.js';
 import { QwenCliDriver } from '../src/drivers/qwen-cli/driver.js';
-import { dispose, feed, feedStatus, getPendingEvent, init, markTerminalActivity, trackEvent } from '../src/lib/server/agent-event-bus.js';
+import { discardAllPendingEvents, dispose, feed, feedStatus, getPendingEvent, init, markTerminalActivity, trackEvent } from '../src/lib/server/agent-event-bus.js';
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -306,5 +306,72 @@ describe('agent status endpoint state', () => {
     expect(getPendingEvent(sessionId)).toMatchObject({ needs_input: false });
 
     dispose(sessionId);
+  });
+
+  it('discardAllPendingEvents clears pending entries and broadcasts session_input_resolved', () => {
+    // Models the Claude hook path (Stop / PreToolUse / PostToolUse): a
+    // Notification hook stored a pending event but the agent has now moved on
+    // outside of ANT's PTY-driver pipeline, so checkSettled never runs. The
+    // hook handler calls discardAllPendingEvents directly to flip the dashboard
+    // badge and the AgentEventCard meta back to a clean state.
+    const sessionId = `hook-discard-test-${Date.now()}`;
+    const metaUpdates: Array<{ msgId: string; meta: any }> = [];
+    const broadcasts: any[] = [];
+
+    init({
+      getSession: id => id === sessionId
+        ? { id, linked_chat_id: 'linked-chat', meta: JSON.stringify({ agent_driver: 'claude-code' }) }
+        : null,
+      postToChat: () => {},
+      writeToTerminal: () => {},
+      updateMessageMeta: (msgId, meta) => metaUpdates.push({ msgId, meta: JSON.parse(meta) }),
+      broadcastToChat: (_chatId, msg) => broadcasts.push(msg),
+      broadcastGlobal: msg => broadcasts.push(msg),
+    });
+
+    trackEvent(sessionId, 'msg-hook', 'chat-hook', {
+      class: 'permission_request',
+      payload: { tool: 'Bash', command: 'rm -rf /tmp/wat' },
+      text: 'Permission required for Bash: rm -rf /tmp/wat',
+      ts: 123456,
+    } as any);
+
+    expect(getPendingEvent(sessionId)).toMatchObject({ needs_input: true });
+
+    discardAllPendingEvents(sessionId, 'turn_ended');
+
+    expect(metaUpdates).toEqual([{
+      msgId: 'msg-hook',
+      meta: expect.objectContaining({
+        status: 'discarded',
+        chosen: 'moved_on',
+        discard_reason: 'turn_ended',
+      }),
+    }]);
+    expect(broadcasts.some(msg => msg.type === 'session_input_resolved' && msg.sessionId === sessionId)).toBe(true);
+    expect(getPendingEvent(sessionId)).toMatchObject({ needs_input: false });
+
+    dispose(sessionId);
+  });
+
+  it('discardAllPendingEvents on an unknown session still broadcasts session_input_resolved', () => {
+    // Defensive path for hook handlers that fire after the session was already
+    // disposed (Stop hook racing with archive). Should still nudge the
+    // dashboard so a stale badge clears.
+    const broadcasts: any[] = [];
+    init({
+      getSession: () => null,
+      postToChat: () => {},
+      writeToTerminal: () => {},
+      updateMessageMeta: () => {},
+      broadcastToChat: () => {},
+      broadcastGlobal: msg => broadcasts.push(msg),
+    });
+
+    discardAllPendingEvents('does-not-exist', 'turn_ended');
+
+    expect(broadcasts.some(msg =>
+      msg.type === 'session_input_resolved' && msg.sessionId === 'does-not-exist',
+    )).toBe(true);
   });
 });
