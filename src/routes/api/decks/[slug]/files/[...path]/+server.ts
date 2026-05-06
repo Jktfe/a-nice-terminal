@@ -3,6 +3,7 @@ import type { RequestEvent } from '@sveltejs/kit';
 import { existsSync, statSync } from 'fs';
 import { extname } from 'path';
 import {
+  DeckConflictError,
   defaultDeckDirForSlug,
   deleteDeckPath,
   deckMaxFileBytes,
@@ -13,6 +14,7 @@ import {
 } from '$lib/server/decks';
 import { assertDeckAccess, requireDeckCaller } from '$lib/server/deck-auth';
 import { assertCanWrite } from '$lib/server/room-scope';
+import { broadcast } from '$lib/server/ws-broadcast';
 
 function slugParam(event: RequestEvent): string {
   return String((event.params as Record<string, string>).slug ?? '');
@@ -49,7 +51,34 @@ function contentType(path: string): string {
   }
 }
 
+function callerActor(caller: ReturnType<typeof requireDeckCaller>): string {
+  if (caller.admin) return 'admin';
+  return `${caller.scope.kind || 'room'}:${caller.scope.roomId}`;
+}
+
+function writeGuard(event: RequestEvent, actor: string) {
+  const rawHash = event.request.headers.get('x-ant-base-hash') || event.url.searchParams.get('base_hash');
+  const rawMtime = event.request.headers.get('x-ant-if-match-mtime') || event.url.searchParams.get('if_match_mtime');
+  const ifMatchMtime = rawMtime == null || rawMtime === '' ? null : Number(rawMtime);
+  return {
+    base_hash: rawHash || null,
+    if_match_mtime: Number.isFinite(ifMatchMtime) ? ifMatchMtime : null,
+    actor,
+  };
+}
+
+function broadcastDeckEvent(deck: NonNullable<ReturnType<typeof readDeckMeta>>, payload: Record<string, unknown>) {
+  for (const roomId of deck.allowed_room_ids) {
+    broadcast(roomId, {
+      type: 'deck_updated',
+      deck_slug: deck.slug,
+      ...payload,
+    });
+  }
+}
+
 function mapDeckError(err: unknown): never {
+  if (err instanceof DeckConflictError) throw error(409, err.message);
   const message = err instanceof Error ? err.message : String(err);
   if (/traversal|outside|invalid bytes|not editable/i.test(message)) throw error(400, message);
   if (/too large|exceeds max/i.test(message)) throw error(413, message);
@@ -70,6 +99,9 @@ export function GET(event: RequestEvent) {
         'Content-Type': contentType(file.path),
         'Content-Length': String(file.size),
         'Cache-Control': 'no-store',
+        'ETag': `"${file.sha256}"`,
+        'X-ANT-Deck-Sha256': file.sha256,
+        'X-ANT-Deck-Mtime-Ms': String(file.mtime_ms),
       },
     });
   } catch (err) {
@@ -98,7 +130,13 @@ export async function PUT(event: RequestEvent) {
   const bytes = Buffer.from(await event.request.arrayBuffer());
   if (bytes.byteLength > deckMaxFileBytes()) throw error(413, 'file exceeds max size');
   try {
-    const written = writeDeckBytes(deck, pathParam(event), bytes);
+    const written = writeDeckBytes(deck, pathParam(event), bytes, writeGuard(event, callerActor(caller)));
+    broadcastDeckEvent(deck, {
+      action: 'file_write',
+      path: written.path,
+      size: written.size,
+      sha256: written.sha256,
+    });
     return json({ ok: true, ...written });
   } catch (err) {
     mapDeckError(err);
@@ -106,12 +144,16 @@ export async function PUT(event: RequestEvent) {
 }
 
 export function DELETE(event: RequestEvent) {
-  requireDeckCaller(event);
+  const caller = requireDeckCaller(event);
   const deck = readDeckMeta(slugParam(event));
   if (!deck) throw error(404, 'deck not found');
   assertDeckAccess(event, deck, { write: true });
   try {
-    const deleted = deleteDeckPath(deck, pathParam(event));
+    const deleted = deleteDeckPath(deck, pathParam(event), writeGuard(event, callerActor(caller)));
+    broadcastDeckEvent(deck, {
+      action: 'file_delete',
+      path: deleted.path,
+    });
     return json({ ok: true, ...deleted });
   } catch (err) {
     mapDeckError(err);

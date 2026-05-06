@@ -11,14 +11,19 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
+import { assertNotRoomScoped } from '$lib/server/room-scope.js';
 
-export function GET({ params }: RequestEvent<{ key: string }>) {
+export function GET(event: RequestEvent<{ key: string }>) {
+  assertNotRoomScoped(event);
+  const { params } = event;
   const row = queries.getMemoryByKey(params.key);
   if (!row) throw error(404, `No memory at key: ${params.key}`);
   return json({ memory: row });
 }
 
-export async function PUT({ params, request }: RequestEvent<{ key: string }>) {
+export async function PUT(event: RequestEvent<{ key: string }>) {
+  assertNotRoomScoped(event);
+  const { params, request } = event;
   const body = await request.json().catch(() => ({}));
   const value = typeof body.value === 'string' ? body.value : JSON.stringify(body.value ?? body);
   if (!value) throw error(400, 'value is required');
@@ -32,7 +37,9 @@ export async function PUT({ params, request }: RequestEvent<{ key: string }>) {
   return json({ ok: true, memory: row });
 }
 
-export function DELETE({ params }: RequestEvent<{ key: string }>) {
+export function DELETE(event: RequestEvent<{ key: string }>) {
+  assertNotRoomScoped(event);
+  const { params } = event;
   queries.deleteMemoryByKey(params.key);
   return new Response(null, { status: 204 });
 }

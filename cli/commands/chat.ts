@@ -81,6 +81,22 @@ function normalizeTarget(value: unknown): string | null {
   return trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
 }
 
+/** Collect every `--ask <value>` from raw argv, in order. parseArgs only keeps the last instance. */
+function collectAsks(argv: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--ask') {
+      const next = argv[i + 1];
+      if (typeof next === 'string' && !next.startsWith('-')) {
+        const trimmed = next.trim();
+        if (trimmed) out.push(trimmed);
+        i++;
+      }
+    }
+  }
+  return out;
+}
+
 function mimeForPath(path: string): string {
   return MIME_BY_EXT[extname(path).toLowerCase()] || 'application/octet-stream';
 }
@@ -290,11 +306,33 @@ function resolveMemberIdentifier(external: boolean, flags: any): { key: 'session
 
 export async function chat(args: string[], flags: any, ctx: any) {
   const sub = args[0];
-  const id = ['send', 'read', 'reply', 'join', 'leave', 'pending', 'decide'].includes(sub) ? args[1] : sub;
+  const id = ['send', 'read', 'reply', 'join', 'leave', 'pending', 'decide', 'ask'].includes(sub) ? args[1] : sub;
   const isExternal = !!flags.external;
 
   if (!id) {
     console.error('Usage: ant chat <session-id>');
+    return;
+  }
+
+  // Open a durable ask/action item from chat syntax.
+  if (sub === 'ask') {
+    const title = String(flags.msg || flags.question || args.slice(2).join(' ') || '').trim();
+    if (!title) { console.error('Usage: ant chat ask <id> "question" [--to @handle] [--priority high]'); return; }
+    const assignee = flags.to || flags.assigned || flags.assigned_to || flags.audience;
+    const ownerKind = flags.owner || flags.owner_kind || flags.kind || (assignee ? 'agent' : 'room');
+    const result = await api.post(ctx, `/api/sessions/${id}/asks`, {
+      session_id: id,
+      title,
+      body: flags.body || flags.context || '',
+      recommendation: flags.recommend || flags.recommendation || null,
+      assigned_to: assignee || ownerKind || 'room',
+      owner_kind: ownerKind,
+      priority: flags.priority || 'normal',
+      created_by: resolveIdentity(isExternal),
+      meta: { source: 'cli_chat_ask' },
+    }, roomOpts(id));
+    if (ctx.json) { console.log(JSON.stringify(result.ask)); return; }
+    console.log(`Ask opened: [${result.ask.id}] ${result.ask.status} ${result.ask.assigned_to || result.ask.owner_kind} ${result.ask.title}`);
     return;
   }
 
@@ -305,7 +343,8 @@ export async function chat(args: string[], flags: any, ctx: any) {
     const msgArgIndex = args[2]?.startsWith('@') ? 3 : 2;
     const msg = flags.msg || args[msgArgIndex] || '';
     const filePath = typeof flags.file === 'string' ? flags.file : '';
-    if (!msg && !filePath) { console.error('Usage: ant chat send <id> [@handle] --msg "message" [--file /path/to/file]'); return; }
+    const explicitAsks = collectAsks(process.argv.slice(2));
+    if (!msg && !filePath) { console.error('Usage: ant chat send <id> [@handle] --msg "message" [--file /path/to/file] [--ask "question"]'); return; }
     const sender = resolveIdentity(isExternal);
     const room = roomOpts(id);
     if (filePath) {
@@ -314,7 +353,9 @@ export async function chat(args: string[], flags: any, ctx: any) {
       console.log(`Shared: ${result.uploaded.url}`);
       return;
     }
-    const result = await api.post(ctx, `/api/sessions/${id}/messages`, { role: 'user', content: msg, format: 'text', sender_id: sender, target }, room);
+    const body: any = { role: 'user', content: msg, format: 'text', sender_id: sender, target };
+    if (explicitAsks.length) body.asks = explicitAsks;
+    const result = await api.post(ctx, `/api/sessions/${id}/messages`, body, room);
     if (ctx.json) { console.log(JSON.stringify(result)); return; }
     console.log(`Sent: ${msg}`);
     return;

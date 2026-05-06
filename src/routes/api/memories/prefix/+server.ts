@@ -10,11 +10,14 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
+import { assertNotRoomScoped } from '$lib/server/room-scope.js';
 
 const DEFAULT_LIMIT = 200;
 const MAX_LIMIT = 1000;
 
-export function GET({ url }: RequestEvent) {
+export function GET(event: RequestEvent) {
+  assertNotRoomScoped(event);
+  const { url } = event;
   const prefix = url.searchParams.get('prefix');
   if (!prefix) throw error(400, 'prefix is required');
 

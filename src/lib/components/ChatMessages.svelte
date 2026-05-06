@@ -12,6 +12,8 @@
   import AgentDot from '$lib/components/AgentDot.svelte';
   import { agentColor } from '$lib/nocturne';
   import { activeRoutingMentions, bracketRoutingMention } from '$lib/utils/mentions';
+  import { firstAskText } from '$lib/utils/asks';
+  import { useToasts } from '$lib/stores/toast.svelte';
   import type { AgentStatus } from '$lib/shared/agent-status';
   import type { ShortcutScope } from '$lib/shared/personal-settings';
 
@@ -296,6 +298,33 @@
 
   $effect(() => {
     if (scrollElLocal) onScrollElMounted?.(scrollElLocal);
+  });
+
+  // Surface NEW asks (asks created after the user opened the room) as a toast
+  // so a clipped notification still shows the question text on the first line.
+  // Use a mount-time cutoff so historical asks streamed in after mount aren't
+  // mistaken for "new"; the prime-on-first-run flag isn't enough because the
+  // messages array can be hydrated in batches after mount, and each batch
+  // would otherwise fire toasts for everything older than it.
+  const toasts = useToasts();
+  const seenAskIds = new Set<string>();
+  const askCutoff = Date.now();
+  $effect(() => {
+    const list = messages as { id?: string; meta?: unknown; created_at?: unknown }[];
+    for (const m of list) {
+      const id = typeof m?.id === 'string' ? m.id : null;
+      if (!id || seenAskIds.has(id)) continue;
+      seenAskIds.add(id);
+      const createdAt = typeof m?.created_at === 'string' ? m.created_at : null;
+      if (!createdAt) continue;
+      const utc = createdAt.includes('Z') || createdAt.includes('+')
+        ? createdAt
+        : createdAt.replace(' ', 'T') + 'Z';
+      const t = new Date(utc).getTime();
+      if (!Number.isFinite(t) || t < askCutoff) continue;
+      const ask = firstAskText(m.meta as string | Record<string, unknown> | null);
+      if (ask) toasts.show(ask, 'info');
+    }
   });
 
   // Group consecutive terminal_line messages into single blocks for compact rendering

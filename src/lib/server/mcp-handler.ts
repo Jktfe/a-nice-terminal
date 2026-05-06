@@ -210,14 +210,16 @@ async function handleToolCall(name: string, args: Record<string, unknown>, ctx: 
 
     case 'list_participants': {
       const members = queries.listRoomMembers(ctx.roomId) as Array<Record<string, unknown>>;
-      return jsonResult(members.map((m) => ({
-        session_id: m.session_id,
-        handle: m.handle,
-        alias: m.alias,
-        role: m.role,
-        joined_at: m.joined_at,
-        attention_state: m.attention_state || 'available',
-      })));
+      return jsonResult(members
+        .filter((m) => m.role !== 'left')
+        .map((m) => ({
+          session_id: m.session_id,
+          handle: m.handle,
+          alias: m.alias,
+          role: m.role,
+          joined_at: m.joined_at,
+          attention_state: m.attention_state || 'available',
+        })));
     }
 
     default:

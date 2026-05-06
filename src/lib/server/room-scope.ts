@@ -32,7 +32,7 @@ export interface RoomScope {
 }
 
 export function roomScope(event: RequestEvent): RoomScope | null {
-  const scope = (event.locals as Record<string, unknown>).roomScope;
+  const scope = ((event.locals ?? {}) as Record<string, unknown>).roomScope;
   if (!scope || typeof scope !== 'object') return null;
   const roomId = (scope as { roomId?: unknown }).roomId;
   if (typeof roomId !== 'string') return null;

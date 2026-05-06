@@ -52,17 +52,24 @@
   function handleArchive(e: MouseEvent) { e.stopPropagation(); onArchive?.(); }
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
+<!--
+  Render as <a href> so right-click → "Open in new tab" works. SvelteKit
+  intercepts left-click for SPA navigation, so the parent's onclick (which
+  may do extra bookkeeping) still fires; modifier-clicks and right-click
+  hand off to the browser as expected.
+-->
+<a
   class="group relative overflow-hidden cursor-pointer"
+  href="/session/{session.id}"
   style="
+    display: block;
+    text-decoration: none;
+    color: var(--text);
     background: var(--surface-elev);
     border-radius: var(--radius-card);
     padding: 12px 14px 10px;
     font-family: var(--font-sans);
     letter-spacing: var(--tracking-body);
-    color: var(--text);
     box-shadow: inset 0 0 0 0.5px var(--hairline-strong),
       0 1px 0 rgba(0,0,0,0.02),
       0 8px 24px -18px rgba(0,0,0,{hover ? 0.16 : 0.06});
@@ -187,4 +194,4 @@
       </div>
     </div>
   </div>
-</div>
+</a>

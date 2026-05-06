@@ -10,6 +10,28 @@
   let preferencesDirty = $state(false);
   let preferencesError = $state('');
 
+  let reapBusy = $state(false);
+  let reapMessage = $state('');
+  let reapError = $state('');
+
+  async function handleReapTmux() {
+    reapBusy = true;
+    reapMessage = '';
+    reapError = '';
+    try {
+      const res = await fetch('/api/admin/reap-tmux', { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = await res.json() as { killed: string[]; killedCount: number; knownCount: number };
+      reapMessage = body.killedCount === 0
+        ? `No orphans found (${body.knownCount} live terminals).`
+        : `Killed ${body.killedCount} orphan${body.killedCount === 1 ? '' : 's'}.`;
+    } catch (err) {
+      reapError = err instanceof Error ? err.message : String(err);
+    } finally {
+      reapBusy = false;
+    }
+  }
+
   onMount(async () => {
     await personal.load();
     syncPreferencesText();
@@ -95,6 +117,24 @@
         ></textarea>
         {#if preferencesError}
           <p class="error-text">{preferencesError}</p>
+        {/if}
+      </section>
+
+      <section class="settings-section">
+        <div class="section-title-row">
+          <h3>Maintenance</h3>
+          <button type="button" class="secondary-btn" onclick={handleReapTmux} disabled={reapBusy}>
+            {reapBusy ? 'Cleaning…' : 'Clean up tmux sessions'}
+          </button>
+        </div>
+        <p class="hint">
+          Kills tmux sessions that have no matching live ANT terminal row. Useful after a crash or test run that leaked PTYs.
+        </p>
+        {#if reapMessage}
+          <p class="hint" style="padding-top: 0;">{reapMessage}</p>
+        {/if}
+        {#if reapError}
+          <p class="error-text">{reapError}</p>
         {/if}
       </section>
     </div>

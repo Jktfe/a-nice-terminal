@@ -44,6 +44,7 @@
   let draggedSession = $state<{ section: DashboardOrderSection; id: string } | null>(null);
   let dragOverSession = $state<{ section: DashboardOrderSection; id: string } | null>(null);
   let sidebarPinnedIds = $state<Set<string>>(new Set());
+  let activeAskCount = $state(0);
 
   // ── Inline modal state (replaces window.prompt / confirm) ──
   let modal = $state<{
@@ -155,9 +156,19 @@
     needsInputMap = next;
   }
 
+  async function refreshAskCount() {
+    try {
+      const res = await fetch('/api/asks?status=open,candidate,deferred&limit=500');
+      if (!res.ok) return;
+      const data = await res.json();
+      activeAskCount = Array.isArray(data.asks) ? data.asks.length : 0;
+    } catch {}
+  }
+
   async function loadDashboardSessions() {
     await store.load();
     await refreshNeedsInputStatuses(store.sessions);
+    await refreshAskCount();
   }
 
   function connectDashboardWs() {
@@ -200,6 +211,8 @@
           }
         } else if (msg.type === 'session_activity') {
           void store.load();
+        } else if (msg.type === 'ask_created' || msg.type === 'ask_updated') {
+          void refreshAskCount();
         }
       } catch {}
     };
@@ -445,6 +458,7 @@
     onSetTypeFilter={setTypeFilter}
     onSetSearchText={(value) => { searchText = value; }}
     onTogglePersonalSettings={() => { showPersonalSettings = true; }}
+    askCount={activeAskCount}
   />
 
   <!-- ── Grid view ──────────────────────────────────────────────── -->

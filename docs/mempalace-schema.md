@@ -102,6 +102,26 @@ session history or Obsidian only.
 Default memory reads and searches exclude `session:*` rows. Use explicit
 archive scope when an agent or user really wants historical session material.
 
+### Remote-room exposure rule
+
+Room-scoped and remote-session callers must not receive global mempalace
+results. The mempalace can contain personal preferences, project history, and
+cross-room archive summaries that are irrelevant or sensitive outside their
+original context.
+
+- `/api/memories*` is admin-only for room-scoped bearer tokens.
+- Remote agents should receive only room-local messages, explicitly shared
+  files, and task briefs posted into that room.
+- Archive searches require an explicit admin action (`scope=archive` or
+  `scope=all`) and should return concise summaries only.
+- Do not put secrets, credentials, family/private notes, or unrelated personal
+  preferences into operational memory. If a durable personal note is needed,
+  store it in Obsidian under a clearly personal path and do not expose it to
+  room automation by default.
+- The long-term fix is a real dashboard/admin identity boundary: public room
+  pages and invite tokens should never inherit same-origin access to global
+  memory APIs.
+
 ### 5. Agents — the registry
 
 ```

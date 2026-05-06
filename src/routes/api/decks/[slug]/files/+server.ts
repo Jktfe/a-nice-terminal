@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
-import { listDeckFiles, readDeckMeta } from '$lib/server/decks';
+import { listDeckFiles, readDeckManifest, readDeckMeta } from '$lib/server/decks';
 import { assertDeckAccess, requireDeckCaller } from '$lib/server/deck-auth';
 
 function slugParam(event: RequestEvent): string {
@@ -12,5 +12,5 @@ export function GET(event: RequestEvent) {
   const deck = readDeckMeta(slugParam(event));
   if (!deck) throw error(404, 'deck not found');
   assertDeckAccess(event, deck);
-  return json({ ok: true, deck, files: listDeckFiles(deck) });
+  return json({ ok: true, deck, files: listDeckFiles(deck), manifest: readDeckManifest(deck) });
 }

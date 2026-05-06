@@ -325,17 +325,17 @@
   role="navigation"
   aria-label="Sessions"
 >
-  <!-- Home button — back to dashboard -->
-  <button
+  <!-- Home link — back to dashboard. Anchor (not button) so right-click → "Open in new tab" works. -->
+  <a
     class="rail-item rail-home"
-    onclick={() => goto('/')}
+    href="/"
     title="Dashboard"
   >
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-muted);">
       <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
       <polyline points="9 22 9 12 15 12 15 22" />
     </svg>
-  </button>
+  </a>
 
   <div class="rail-divider"></div>
 
@@ -427,11 +427,22 @@
   {@const isHovered = hoveredId === sess.id}
 
   <div class="rail-item-wrapper" class:pinned={isPinned}>
-    <button
+    <a
       class="rail-item"
       class:current={isCurrent}
       aria-current={isCurrent ? 'page' : undefined}
-      onclick={() => navigateTo(navigationTarget(sess), sess.id)}
+      href="/session/{navigationTarget(sess)}"
+      onclick={(e: MouseEvent) => {
+        // Preserve modifier-click and middle-click defaults so the browser
+        // opens new tabs / windows. Plain left-click runs the bookkeeping
+        // (clearing unread) AND lets SvelteKit do its own SPA nav off the
+        // href, so we don't double-call goto.
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+        const next = new Set(unreadSet);
+        next.delete(navigationTarget(sess));
+        next.delete(sess.id);
+        unreadSet = next;
+      }}
       onmouseenter={(e: MouseEvent) => {
         hoveredId = sess.id;
         const el = e.currentTarget;
@@ -489,7 +500,7 @@
       {:else if hasIdleAttention}
         <div class="rail-badge rail-badge-idle" title="Idle — no recent activity"></div>
       {/if}
-    </button>
+    </a>
 
     {#if isHovered}
       <button
@@ -591,6 +602,9 @@
     background: transparent;
     border: none;
     cursor: pointer;
+    /* element is <a href>; reset default link styling */
+    color: inherit;
+    text-decoration: none;
     transition: background var(--duration-fast) var(--spring-default),
                 transform var(--duration-fast) var(--spring-quick);
   }

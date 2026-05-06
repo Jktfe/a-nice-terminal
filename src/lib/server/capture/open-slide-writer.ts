@@ -7,7 +7,7 @@ import {
   sessionEvidenceMarkdown,
   type SessionEvidence,
 } from './session-evidence.js';
-import { registerDeck } from '../decks.js';
+import { recordDeckAudit, registerDeck, sha256Bytes, writeDeckManifest } from '../decks.js';
 
 const DEFAULT_OPEN_SLIDE_DIR = join(homedir(), 'CascadeProjects', 'ANT-Open-Slide');
 
@@ -18,6 +18,8 @@ export interface OpenSlideExportResult {
   slug?: string;
   deck_dir?: string;
   evidence_path?: string;
+  manifest_path?: string;
+  audit_path?: string;
   readme_path?: string;
   slides_path?: string;
   render_command?: string;
@@ -244,6 +246,21 @@ export function writeOpenSlideDeck(sessionId: string): OpenSlideExportResult {
       allowed_room_ids: [sessionId],
       deck_dir: deckDir,
     });
+    const sourceEvidenceHash = sha256Bytes(JSON.stringify(evidence));
+    const manifest = writeDeckManifest(deck, {
+      source_session_id: sessionId,
+      source_evidence_hash: sourceEvidenceHash,
+      generator: { name: 'ant-open-slide-writer', version: '1' },
+    });
+    recordDeckAudit(deck, {
+      type: 'export',
+      actor: 'ant',
+      details: {
+        source_session_id: sessionId,
+        source_evidence_hash: sourceEvidenceHash,
+        files: manifest.files.length,
+      },
+    });
 
     return {
       ok: true,
@@ -251,6 +268,8 @@ export function writeOpenSlideDeck(sessionId: string): OpenSlideExportResult {
       slug: deck.slug,
       deck_dir: deckDir,
       evidence_path: evidencePath,
+      manifest_path: join(deckDir, '.ant-deck.json'),
+      audit_path: join(deckDir, '.ant-deck', 'audit.jsonl'),
       readme_path: readmePath,
       slides_path: slidesPath,
       dev_command: `cd ${JSON.stringify(deckDir)} && npm install && npm run dev`,

@@ -48,9 +48,12 @@ class PTYClient {
   private pendingSpawns   = new Map<string, (result: any) => void>();
   private pendingCaptures = new Map<string, (result: any) => void>();
   private pendingTitles   = new Map<string, (result: any) => void>();
+  // Reaps aren't session-scoped — keyed by callId alone.
+  private pendingReaps    = new Map<number, (result: any) => void>();
   private spawnCallCounter   = 0;
   private captureCallCounter = 0;
   private titleCallCounter   = 0;
+  private reapCallCounter    = 0;
 
   async ensureDaemon(): Promise<void> {
     // Quick ping to see if daemon is up
@@ -170,6 +173,9 @@ class PTYClient {
             const key = `${msg.sessionId}:${msg.callId}`;
             this.pendingTitles.get(key)?.(msg);
             this.pendingTitles.delete(key);
+          } else if (msg.type === 'reap-orphans-result') {
+            this.pendingReaps.get(msg.callId)?.(msg);
+            this.pendingReaps.delete(msg.callId);
           }
         } catch {}
       }
@@ -279,6 +285,25 @@ class PTYClient {
         if (this.pendingSpawns.has(key)) {
           this.pendingSpawns.delete(key);
           resolve({ alive: false, scrollback: '' });
+        }
+      }, 5000);
+    });
+  }
+
+  /**
+   * Kill any tmux session not in `knownIds`. Called from server boot (DB-backed
+   * active list) and from the Settings → Maintenance button. Daemon stays
+   * DB-free; the caller is the policy holder.
+   */
+  reapOrphans(knownIds: string[]): Promise<string[]> {
+    const callId = ++this.reapCallCounter;
+    return new Promise((resolve) => {
+      this.pendingReaps.set(callId, (result) => resolve(result.killed ?? []));
+      this.send({ type: 'reap-orphans', knownIds, callId });
+      setTimeout(() => {
+        if (this.pendingReaps.has(callId)) {
+          this.pendingReaps.delete(callId);
+          resolve([]);
         }
       }, 5000);
     });
