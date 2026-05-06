@@ -1009,6 +1009,38 @@
     if (cmdPoll !== null) clearInterval(cmdPoll);
   });
 
+  async function publishSummary() {
+    if (!linkedChatId) {
+      toasts.show('No linked chat to publish from');
+      return;
+    }
+    try {
+      const res = await fetch(`/api/sessions/${linkedChatId}/publish-summary`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: `Interview summary: ${session?.name || 'Untitled'}`,
+          findings: [],
+          decisions: [],
+          asks: [],
+          actions: [],
+          sources: linkedChatMessages
+            .filter((m: any) => m.id)
+            .map((m: any) => ({ message_id: m.id, excerpt: String(m.content || '').slice(0, 120) })),
+          authored_by: session?.handle || null,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const result = await res.json();
+      toasts.show(`Summary published to room ${result.origin_room_id}`);
+    } catch (e: any) {
+      toasts.show(`Publish failed: ${e.message}`);
+    }
+  }
+
   async function sendMessage(text: string, replyToId: string | null = null) {
     await msgStore.send(sessionId, text, { reply_to: replyToId });
     await loadUploads(sessionId);
@@ -1670,6 +1702,7 @@
         onRemoveParticipant={removeParticipant}
         onFocusParticipant={setParticipantFocus}
         onOpenLinkedChat={openLinkedChat}
+        onPublishSummary={publishSummary}
         onAddTerminalToRoom={addTerminalToRoom}
         onStopParticipant={stopParticipant}
         onOpenFolderDrawer={() => (folderDrawerOpen = true)}

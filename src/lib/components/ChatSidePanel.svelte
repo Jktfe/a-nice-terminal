@@ -93,6 +93,7 @@
     onRemoveParticipant: (sess: PageSession) => void;
     onFocusParticipant: (sess: PageSession) => void;
     onOpenLinkedChat: (sess: PageSession) => void;
+    onPublishSummary?: () => void;
     onAddTerminalToRoom?: (sess: PageSession) => void;
     onStopParticipant?: (sess: PageSession) => void;
     onOpenFolderDrawer?: () => void;
@@ -141,6 +142,7 @@
     onRemoveParticipant,
     onFocusParticipant,
     onOpenLinkedChat,
+    onPublishSummary,
     onAddTerminalToRoom,
     onStopParticipant,
     onOpenFolderDrawer,
@@ -608,6 +610,21 @@
                   {/if}
                 </div>
               </div>
+
+              <!-- Publish Summary -->
+              {#if onPublishSummary}
+                <button
+                  onclick={onPublishSummary}
+                  class="w-full text-xs rounded-lg px-2.5 py-1.5 mb-1.5 flex items-center justify-center gap-1.5 cursor-pointer"
+                  style="background: #FEF3C7; border: 1px solid #F59E0B; color: #92400E;"
+                  title="Publish summary to origin room"
+                >
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                  </svg>
+                  Publish Summary
+                </button>
+              {/if}
 
               <!-- Quick reply -->
               <QuickLaunchBar
