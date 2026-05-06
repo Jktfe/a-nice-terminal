@@ -45,7 +45,7 @@ This walk-through is the canonical browser-test for the slice; it is **not yet i
 
 - **Total** — 428 pass / 1 skip / 0 fail.
 - **svelte-check** — 807 files / 0 errors / 0 warnings.
-- **Browser-tested** — not yet by Claude (UI work; on James's manual-validation list).
+- **Browser-tested** — confirmed by James 2026-05-06 19:00: "PWA works" (install affordance + service-worker activation + offline shell). The capture still has not been driven by `scripts/visual-qa-capture.mjs`; that remains a follow-on.
 
 ---
 
