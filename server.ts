@@ -752,6 +752,15 @@ getPtyManager().then(async ptm => {
   await rehydrateSessions(ptm);
   startTtlSweep(ptm);
 
+  // Refresh ANT Registry.md on boot so the vault's snapshot reflects the
+  // current sessions table even if nothing changes during this run.
+  try {
+    const { writeRegistrySync } = await import('./src/lib/server/capture/registry-writer.js');
+    writeRegistrySync();
+  } catch (e) {
+    console.warn('[boot] registry write failed:', e);
+  }
+
   const { queries } = await import('./src/lib/server/db.js');
 
   // Boot-time tmux orphan sweep. Anything left in the tmux server that has no

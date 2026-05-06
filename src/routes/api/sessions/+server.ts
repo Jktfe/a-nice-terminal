@@ -87,5 +87,6 @@ export async function POST({ request }: RequestEvent) {
   const session = queries.getSession(id);
   const { broadcast } = await import('$lib/server/ws-broadcast.js');
   broadcast(SESSIONS_CHANNEL, { type: 'sessions_changed' });
+  void import('$lib/server/capture/registry-writer.js').then((m) => m.scheduleRegistryUpdate());
   return json(session, { status: 201 });
 }

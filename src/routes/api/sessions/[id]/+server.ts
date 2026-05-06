@@ -150,6 +150,7 @@ export async function PATCH(event: RequestEvent<{ id: string }>) {
     type: 'sessions_changed',
     ...(removedIds ? { removedIds } : {}),
   });
+  void import('$lib/server/capture/registry-writer.js').then((m) => m.scheduleRegistryUpdate());
 
   return json(session);
 }
@@ -205,5 +206,6 @@ export async function DELETE(event: RequestEvent<{ id: string }>) {
   }
   const { broadcast } = await import('$lib/server/ws-broadcast.js');
   broadcast(SESSIONS_CHANNEL, { type: 'sessions_changed', removedIds });
+  void import('$lib/server/capture/registry-writer.js').then((m) => m.scheduleRegistryUpdate());
   return new Response(null, { status: 204 });
 }

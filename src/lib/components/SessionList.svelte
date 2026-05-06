@@ -14,6 +14,7 @@
     SIDEBAR_PIN_STORAGE_KEY,
     notifySidebarPinsChanged,
     readPinnedIds,
+    reorderPinnedIds,
     togglePinnedId,
     writePinnedIds,
   } from '$lib/utils/sidebar-pins';
@@ -406,11 +407,32 @@
       return;
     }
 
+    const fromId = draggedSession.id;
+    const bothPinned = sidebarPinnedIds.has(fromId) && sidebarPinnedIds.has(id);
+
+    // Reordering within the pin group is its own dimension — sidebarPinCompare
+    // runs AFTER activity/manual sort, so updating sort_index alone wouldn't
+    // move pinned items. Always update the pin Set when both endpoints are
+    // pinned, regardless of mode.
+    if (bothPinned && typeof localStorage !== 'undefined') {
+      sidebarPinnedIds = reorderPinnedIds(sidebarPinnedIds, fromId, id);
+      writePinnedIds(sidebarPinnedIds, localStorage);
+      notifySidebarPinsChanged();
+    }
+
+    // Pin-only drag in activity mode: don't force manual mode or rewrite
+    // sort_index — the user is reordering bookmarks, not the dashboard.
+    if (bothPinned && orderMode !== 'manual') {
+      draggedSession = null;
+      dragOverSession = null;
+      return;
+    }
+
     const nextTerminals = section === 'terminal'
-      ? reorderById(terminals, draggedSession.id, id)
+      ? reorderById(terminals, fromId, id)
       : terminals;
     const nextStandaloneChats = section === 'chat'
-      ? reorderById(standaloneChatsSrc, draggedSession.id, id)
+      ? reorderById(standaloneChatsSrc, fromId, id)
       : standaloneChatsSrc;
 
     draggedSession = null;
@@ -549,15 +571,16 @@
                   ondrop={(event) => handleDrop(event, 'terminal', terminal.id)}
                 >
                   <div class="flex items-stretch gap-2">
-                    {#if orderMode === 'manual'}
+                    {#if orderMode === 'manual' || sidebarPinnedIds.has(terminal.id)}
                       <button
                         type="button"
                         class="drag-handle"
+                        class:drag-handle-pin={orderMode !== 'manual' && sidebarPinnedIds.has(terminal.id)}
                         draggable="true"
                         ondragstart={(event) => handleDragStart(event, 'terminal', terminal.id)}
                         ondragend={handleDragEnd}
                         onclick={(event) => event.stopPropagation()}
-                        title="Drag to reorder"
+                        title={sidebarPinnedIds.has(terminal.id) && orderMode !== 'manual' ? 'Drag to reorder bookmark' : 'Drag to reorder'}
                         aria-label="Drag terminal to reorder"
                       >
                         <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
@@ -648,15 +671,16 @@
                   ondrop={(event) => handleDrop(event, 'chat', chat.id)}
                 >
                   <div class="flex items-stretch gap-2">
-                    {#if orderMode === 'manual'}
+                    {#if orderMode === 'manual' || sidebarPinnedIds.has(chat.id)}
                       <button
                         type="button"
                         class="drag-handle"
+                        class:drag-handle-pin={orderMode !== 'manual' && sidebarPinnedIds.has(chat.id)}
                         draggable="true"
                         ondragstart={(event) => handleDragStart(event, 'chat', chat.id)}
                         ondragend={handleDragEnd}
                         onclick={(event) => event.stopPropagation()}
-                        title="Drag to reorder"
+                        title={sidebarPinnedIds.has(chat.id) && orderMode !== 'manual' ? 'Drag to reorder bookmark' : 'Drag to reorder'}
                         aria-label="Drag chat to reorder"
                       >
                         <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
@@ -796,5 +820,13 @@
   .drag-handle:active {
     cursor: grabbing;
     color: #6366F1;
+  }
+
+  /* When the handle appears for a pinned item in activity mode, hint that
+     it's a bookmark-only reorder by tinting the handle the pin colour
+     (matches TerminalRow's amber-on-active pin icon). */
+  .drag-handle-pin {
+    border-color: rgba(245, 158, 11, 0.35);
+    color: #F59E0B;
   }
 </style>
