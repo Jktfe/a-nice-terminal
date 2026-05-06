@@ -80,7 +80,7 @@ Commands:
 
   question "text" --room <id> [--to @h] [--recommend "..."]
                         One-shot: add a question to a room's sidebar.
-                        Alias for `ant ask <room> "text"`.
+                        Alias for: ant ask <room-id> "text".
 
   deck list             List Open-Slide decks visible to this caller
   deck status <slug>    Show manifest, source, and file snapshot hashes
