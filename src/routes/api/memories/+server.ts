@@ -1,18 +1,25 @@
 import { json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db.js';
+import { toSafeMemoryFtsQuery } from '$lib/server/memory-search.js';
+import { assertNotRoomScoped } from '$lib/server/room-scope.js';
 
-export async function GET({ url }: RequestEvent) {
+export async function GET(event: RequestEvent) {
+  assertNotRoomScoped(event);
+  const { url } = event;
   const q = url.searchParams.get('q')?.trim();
   const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 200);
   const scope = url.searchParams.get('scope') || (url.searchParams.get('include_archives') === '1' ? 'all' : 'operational');
 
   if (q) {
+    const ftsQuery = toSafeMemoryFtsQuery(q);
+    if (!ftsQuery) return json({ memories: [], scope });
+
     const results = scope === 'all'
-      ? queries.searchMemories(q, limit)
+      ? queries.searchMemories(ftsQuery, limit)
       : scope === 'archive'
-        ? queries.searchArchiveMemories(q, limit)
-        : queries.searchOperationalMemories(q, limit);
+        ? queries.searchArchiveMemories(ftsQuery, limit)
+        : queries.searchOperationalMemories(ftsQuery, limit);
     return json({ memories: results, scope });
   }
 
@@ -24,7 +31,9 @@ export async function GET({ url }: RequestEvent) {
   return json({ memories, scope });
 }
 
-export async function POST({ request }: RequestEvent) {
+export async function POST(event: RequestEvent) {
+  assertNotRoomScoped(event);
+  const { request } = event;
   const body = await request.json();
   const { key, value, tags = [], session_id = null, created_by = null } = body;
 
@@ -45,7 +54,9 @@ export async function POST({ request }: RequestEvent) {
   return json({ ok: true, memory }, { status: 201 });
 }
 
-export async function DELETE({ url }: RequestEvent) {
+export async function DELETE(event: RequestEvent) {
+  assertNotRoomScoped(event);
+  const { url } = event;
   const id = url.searchParams.get('id');
   if (!id) return json({ ok: false, error: 'id required' }, { status: 400 });
   queries.deleteMemory(id);

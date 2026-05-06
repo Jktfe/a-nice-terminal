@@ -46,6 +46,18 @@
       note: 'Sender identity is resolved automatically from the tmux session or registered process tree.',
     },
     {
+      title: 'Asks',
+      color: '#EF4444',
+      commands: [
+        { cmd: 'ant ask list', desc: 'List active asks across rooms', flags: '--status all|open,candidate,deferred' },
+        { cmd: 'ant ask <room> "question"', desc: 'Open a durable ask/action item', flags: '--to @handle --owner agent|human|terminal|room' },
+        { cmd: 'ant chat ask <id> "question"', desc: 'Open an ask using chat syntax' },
+        { cmd: 'ant ask show <ask-id>', desc: 'Show full ask context and source room' },
+        { cmd: 'ant ask answer <ask-id> approve', desc: 'Resolve an ask', flags: '--msg "decision/context" --session <room-id> for room tokens' },
+      ],
+      note: 'The browser inbox is available at `/asks`; normal chat messages can also infer asks automatically.',
+    },
+    {
       title: 'Tasks',
       color: '#F59E0B',
       commands: [
@@ -58,6 +70,17 @@
         { cmd: 'ant task <id> delete <task-id>', desc: 'Delete a task' },
       ],
       note: 'Task IDs can be shortened to the first 8 characters shown in `task list`.',
+    },
+    {
+      title: 'Decks',
+      color: '#14B8A6',
+      commands: [
+        { cmd: 'ant deck list', desc: 'List Open-Slide decks visible to this caller' },
+        { cmd: 'ant deck status <slug>', desc: 'Show manifest, source, and file snapshot hashes', flags: '--session <room-id> for room tokens' },
+        { cmd: 'ant deck manifest <slug>', desc: 'Print the raw deck manifest JSON' },
+        { cmd: 'ant deck audit <slug>', desc: 'Show deck export/write/delete/conflict events', flags: '--limit 50' },
+      ],
+      note: 'Deck writes support base-hash guards so agents can avoid silent overwrites.',
     },
     {
       title: 'File References',

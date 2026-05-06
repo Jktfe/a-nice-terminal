@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
-import { listDecks, registerDeck } from '$lib/server/decks';
+import { listDecks, registerDeck, writeDeckManifest } from '$lib/server/decks';
 import { assertCanWrite } from '$lib/server/room-scope';
 import { isDeckAdmin, requireDeckCaller } from '$lib/server/deck-auth';
 
@@ -44,6 +44,7 @@ export async function POST(event: RequestEvent) {
     deck_dir: typeof body.deck_dir === 'string' ? body.deck_dir : null,
     dev_port: Number.isFinite(Number(body.dev_port)) ? Number(body.dev_port) : null,
   });
+  const manifest = writeDeckManifest(deck);
 
-  return json({ ok: true, deck }, { status: 201 });
+  return json({ ok: true, deck, manifest }, { status: 201 });
 }

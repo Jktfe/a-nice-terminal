@@ -138,10 +138,15 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
+<!--
+  Render as <a href> so right-click → "Open in new tab" works. SvelteKit
+  intercepts left-click for SPA navigation; we keep onclick as a no-op safety
+  net for the bookkeeping handleCardClick used to do (currently just goto, so
+  it's redundant — but leaving it in case a future caller hooks extra logic).
+-->
+<a
   class="terminal-row group"
+  href="/session/{terminal.id}"
   onclick={handleCardClick}
 >
   <!-- Pin toggle for sidebar visibility/top ordering. stopPropagation so the
@@ -272,7 +277,7 @@
       </button>
     {/if}
   </div>
-</div>
+</a>
 
 <style>
   .terminal-row {
@@ -287,6 +292,9 @@
     cursor: pointer;
     position: relative;
     transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+    /* Anchor reset — element is now <a href> for right-click new-tab support. */
+    color: var(--text);
+    text-decoration: none;
   }
 
   .terminal-row:hover {

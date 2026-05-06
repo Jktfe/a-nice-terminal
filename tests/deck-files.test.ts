@@ -13,7 +13,7 @@ import {
   PUT as writeFile,
 } from '../src/routes/api/decks/[slug]/files/[...path]/+server.js';
 import { GET as proxyDeck } from '../src/routes/deck/[slug]/[...path]/+server.js';
-import { POST as loginDeck } from '../src/routes/deck/[slug]/login/+server.js';
+import { GET as showDeckLogin, POST as loginDeck } from '../src/routes/deck/[slug]/login/+server.js';
 
 const ROOM_A = 'deck-test-room-a';
 const ROOM_B = 'deck-test-room-b';
@@ -26,11 +26,13 @@ function event(params: Record<string, string>, init: {
   body?: BodyInit;
   roomId?: string;
   kind?: string;
+  query?: Record<string, string>;
 } = {}) {
+  const query = init.query ? `?${new URLSearchParams(init.query).toString()}` : '';
   return {
     params,
-    url: new URL(`https://ant.example.test/api/decks/${params.slug ?? 'deck'}`),
-    request: new Request('https://ant.example.test/api/decks', {
+    url: new URL(`https://ant.example.test/api/decks/${params.slug ?? 'deck'}${query}`),
+    request: new Request(`https://ant.example.test/api/decks${query}`, {
       method: init.method ?? 'GET',
       body: init.body,
     }),
@@ -108,11 +110,48 @@ describe('deck file API helpers', () => {
       { slug: 'team-deck', path: 'slides/new.tsx' },
       { roomId: ROOM_A, method: 'PUT', body: 'const slide = true;\n' },
     ));
-    expect((await writeResponse.json()).path).toBe('slides/new.tsx');
+    const written = await writeResponse.json();
+    expect(written.path).toBe('slides/new.tsx');
+    expect(written.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(written.manifest.files.some((file: any) => file.path === 'slides/new.tsx')).toBe(true);
     expect(readFileSync(join(rootDir, 'team-deck', 'slides', 'new.tsx'), 'utf8')).toContain('slide');
+    expect(readFileSync(join(rootDir, 'team-deck', '.ant-deck.json'), 'utf8')).toContain('slides/new.tsx');
 
     const deleteResponse = await deleteFile(event({ slug: 'team-deck', path: 'slides/new.tsx' }, { roomId: ROOM_A, method: 'DELETE' }));
     expect((await deleteResponse.json()).ok).toBe(true);
+    expect(readFileSync(join(rootDir, 'team-deck', '.ant-deck', 'audit.jsonl'), 'utf8')).toContain('file_delete');
+  });
+
+  it('uses base hashes to reject stale deck file overwrites', async () => {
+    const readResponse = await readFile(event({ slug: 'team-deck', path: 'slides/index.tsx' }, { roomId: ROOM_A }));
+    const baseHash = readResponse.headers.get('x-ant-deck-sha256');
+    expect(baseHash).toMatch(/^[a-f0-9]{64}$/);
+
+    await expectStatus(writeFile(event(
+      { slug: 'team-deck', path: 'slides/index.tsx' },
+      {
+        roomId: ROOM_A,
+        method: 'PUT',
+        body: 'export default ["stale"];\n',
+        query: { base_hash: '0'.repeat(64) },
+      },
+    )), 409);
+
+    const writeResponse = await writeFile(event(
+      { slug: 'team-deck', path: 'slides/index.tsx' },
+      {
+        roomId: ROOM_A,
+        method: 'PUT',
+        body: 'export default ["fresh"];\n',
+        query: { base_hash: baseHash! },
+      },
+    ));
+    const written = await writeResponse.json();
+    expect(written.ok).toBe(true);
+    expect(written.sha256).not.toBe(baseHash);
+    const audit = readFileSync(join(rootDir, 'team-deck', '.ant-deck', 'audit.jsonl'), 'utf8');
+    expect(audit).toContain('"type":"conflict"');
+    expect(audit).toContain('"type":"file_write"');
   });
 
   it('rejects traversal and read-only web-token writes', async () => {
@@ -187,6 +226,15 @@ describe('deck file API helpers', () => {
       cookies: { set: (name: string, value: string) => { issued[name] = value; }, get: () => undefined },
     } as any), 302);
     expect(Object.keys(issued)).toContain('ant-deck-team-deck');
+
+    const issuedFromLink: Record<string, string> = {};
+    await expectStatus(() => showDeckLogin({
+      params: { slug: 'team-deck' },
+      url: new URL(`https://ant.example.test/deck/team-deck/login?token=${token!.token}`),
+      request: new Request('https://ant.example.test/deck/team-deck/login'),
+      cookies: { set: (name: string, value: string) => { issuedFromLink[name] = value; }, get: () => undefined },
+    } as any), 302);
+    expect(Object.keys(issuedFromLink)).toContain('ant-deck-team-deck');
 
     const deck = readDeckMeta('team-deck')!;
     const cookie = createDeckCookie('team-deck', token!.tokenId).value;

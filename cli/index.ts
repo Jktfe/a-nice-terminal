@@ -8,6 +8,8 @@ import { terminal } from './commands/terminal.js';
 import { search } from './commands/search.js';
 import { share } from './commands/share.js';
 import { msg } from './commands/msg.js';
+import { ask } from './commands/ask.js';
+import { deck } from './commands/deck.js';
 import { task } from './commands/task.js';
 import { flag } from './commands/flag.js';
 import { hooks } from './commands/hooks.js';
@@ -62,6 +64,20 @@ Commands:
 
   msg <id> "text"       Broadcast a message to all session participants
   msg <id> @handle "t" Send a targeted message to one handle
+
+  ask list              List active asks across rooms (--status all|open,candidate)
+  ask <room> "question" Open an ask/action item for a room
+                        (--to @handle --owner agent|human|terminal|room --priority high)
+  ask show <ask-id>     Show full ask context
+  ask answer <ask-id>   Resolve an ask (approve|reject|defer|dismiss --msg "...")
+                        Use --session <room-id> when relying on a room token
+  chat ask <id>         Alias for opening an ask in a chatroom
+
+  deck list             List Open-Slide decks visible to this caller
+  deck status <slug>    Show manifest, source, and file snapshot hashes
+                        (--session <room-id> to use a room token)
+  deck manifest <slug>  Print the raw .ant-deck.json manifest
+  deck audit <slug>     Show deck audit events (--limit 50)
 
   task <id> list                    List tasks
   task <id> create "title"          Propose a new task (--desc "...")
@@ -139,6 +155,8 @@ async function main() {
       case 'terminal': await terminal(args, flags, ctx); break;
       case 'chat':     await chat(args, flags, ctx); break;
       case 'msg':      await msg(args, flags, ctx); break;
+      case 'ask':      await ask(args, flags, ctx); break;
+      case 'deck':     await deck(args, flags, ctx); break;
       case 'task':     await task(args, flags, ctx); break;
       case 'flag':     await flag(args, flags, ctx); break;
       case 'search':   await search(args, flags, ctx); break;

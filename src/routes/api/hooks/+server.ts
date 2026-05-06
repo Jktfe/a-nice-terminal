@@ -36,12 +36,28 @@ function normalizeRunEvent(row: any) {
   };
 }
 
+// PostToolUse → run_event kind mapping. The Plan View capture-coverage test
+// expects `command_block` for shell-execution tools and `file_write` for
+// file-mutation tools, so a Bash hook lands beside ant.zsh's command_block
+// rows on the same timeline, and Edit/Write/MultiEdit/NotebookEdit get
+// their own first-class kind for downstream consumers.
+const FILE_WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+
+function toolName(body: any): string | null {
+  return body.tool_name || body.tool?.name || (typeof body.tool === 'string' ? body.tool : null) || body.name || null;
+}
+
 function hookKind(event: string, body: any): string {
   const notifType = body.notification_type || '';
   if (notifType === 'permission_prompt') return 'permission';
   if (event === 'Notification') return 'question';
   if (event === 'BeforeTool' || event === 'PreToolUse') return 'tool_call';
-  if (event === 'AfterTool' || event === 'PostToolUse') return 'tool_result';
+  if (event === 'AfterTool' || event === 'PostToolUse') {
+    const tool = toolName(body);
+    if (tool === 'Bash') return 'command_block';
+    if (tool && FILE_WRITE_TOOLS.has(tool)) return 'file_write';
+    return 'tool_result';
+  }
   if (event === 'TaskCreated' || event === 'TaskCompleted') return 'progress';
   if (event === 'SessionStart' || event === 'SessionEnd' || event === 'Stop' || event === 'AfterAgent') return 'status';
   if (/error|fail/i.test(event)) return 'error';
@@ -49,9 +65,14 @@ function hookKind(event: string, body: any): string {
 }
 
 function hookText(agent: string, event: string, body: any): string {
-  const tool = body.tool_name || body.tool?.name || body.tool || body.name;
+  const tool = toolName(body);
   if (tool && (event === 'BeforeTool' || event === 'PreToolUse')) return `${agent} running ${tool}`;
-  if (tool && (event === 'AfterTool' || event === 'PostToolUse')) return `${agent} finished ${tool}`;
+  if (event === 'AfterTool' || event === 'PostToolUse') {
+    const input = body.tool_input || {};
+    if (tool === 'Bash' && typeof input.command === 'string') return input.command;
+    if (tool && FILE_WRITE_TOOLS.has(tool) && typeof input.file_path === 'string') return `${tool} ${input.file_path}`;
+    if (tool) return `${agent} finished ${tool}`;
+  }
   if (event === 'Notification') return body.message || `${agent} waiting for input`;
   if (event === 'TaskCreated') return `Task created: ${body.task_name || body.description || 'Unnamed task'}`;
   if (event === 'TaskCompleted') return `Task completed: ${body.task_name || body.description || 'Unnamed task'}`;
@@ -59,16 +80,53 @@ function hookText(agent: string, event: string, body: any): string {
   return `${agent} hook: ${event}`;
 }
 
+function buildHookPayload(kind: string, agent: string, event: string, body: any): Record<string, unknown> {
+  const tool = toolName(body);
+  const input = body.tool_input || {};
+  const response = body.tool_response || {};
+
+  if (kind === 'command_block') {
+    return {
+      command: typeof input.command === 'string' ? input.command : '',
+      exit_code: typeof response.exitCode === 'number' ? response.exitCode
+        : typeof response.exit_code === 'number' ? response.exit_code
+        : null,
+      cwd: typeof body.cwd === 'string' ? body.cwd : null,
+      duration_ms: typeof response.duration_ms === 'number' ? response.duration_ms : null,
+      started_at: typeof body.started_at === 'string' ? body.started_at : null,
+      ended_at: new Date().toISOString(),
+      source_event: 'PostToolUse',
+      agent,
+      tool,
+    };
+  }
+
+  if (kind === 'file_write') {
+    return {
+      tool,
+      file_path: typeof input.file_path === 'string' ? input.file_path : null,
+      action: tool === 'Write' ? 'write' : tool === 'Edit' ? 'edit' : tool === 'MultiEdit' ? 'multi_edit' : tool === 'NotebookEdit' ? 'notebook_edit' : 'unknown',
+      success: response.success !== undefined ? Boolean(response.success) : null,
+      replace_all: input.replace_all === true ? true : undefined,
+      source_event: 'PostToolUse',
+      agent,
+    };
+  }
+
+  return { agent, event, body };
+}
+
 function appendHookRunEvent(sessionId: string, agent: string, event: string, body: any) {
   try {
+    const kind = hookKind(event, body);
     const row = queries.appendRunEvent(
       sessionId,
       Date.now(),
       'hook',
       'high',
-      hookKind(event, body),
+      kind,
       hookText(agent, event, body).slice(0, 12_000),
-      JSON.stringify({ agent, event, body }),
+      JSON.stringify(buildHookPayload(kind, agent, event, body)),
       null,
     );
     const runEvent = normalizeRunEvent(row);

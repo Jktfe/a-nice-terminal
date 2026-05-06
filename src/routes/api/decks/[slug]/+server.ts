@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
-import { readDeckMeta, registerDeck } from '$lib/server/decks';
+import { readDeckManifest, readDeckMeta, registerDeck, writeDeckManifest } from '$lib/server/decks';
 import { assertDeckAccess, requireDeckCaller } from '$lib/server/deck-auth';
 import { assertCanWrite } from '$lib/server/room-scope';
 
@@ -23,7 +23,7 @@ export function GET(event: RequestEvent) {
   const deck = readDeckMeta(slugParam(event));
   if (!deck) throw error(404, 'deck not found');
   assertDeckAccess(event, deck);
-  return json({ ok: true, deck });
+  return json({ ok: true, deck, manifest: readDeckManifest(deck) });
 }
 
 export async function PATCH(event: RequestEvent) {
@@ -47,8 +47,9 @@ export async function PATCH(event: RequestEvent) {
     deck_dir: typeof body.deck_dir === 'string' ? body.deck_dir : existing.deck_dir,
     dev_port: body.dev_port === null ? null : Number.isFinite(Number(body.dev_port)) ? Number(body.dev_port) : existing.dev_port,
   });
+  const manifest = writeDeckManifest(deck);
 
-  return json({ ok: true, deck });
+  return json({ ok: true, deck, manifest });
 }
 
 export function DELETE(event: RequestEvent) {

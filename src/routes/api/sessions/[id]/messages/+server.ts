@@ -3,6 +3,10 @@ import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
 import { nanoid } from 'nanoid';
 import { assertNotRoomScoped, assertCanWrite } from '$lib/server/room-scope';
+import { inferAsks } from '$lib/server/asks-inference';
+import { createAskId } from '$lib/server/ask-ids';
+import { inferAskFromMessage, titleFromAskContent } from '$lib/server/ask-inference';
+import { emitAskRunEvent } from '$lib/server/ask-events';
 
 const RESOLVED_AGENT_EVENT_STATUSES = new Set(['discarded', 'dismissed', 'settled', 'responded']);
 
@@ -112,7 +116,7 @@ export async function POST(event: RequestEvent<{ id: string }>) {
   // direct curl. The kind annotation on the bearer is the gate.
   assertCanWrite(event);
   const { params, request } = event;
-  const { role, content, format, sender_id, target, reply_to, msg_type, meta } = await request.json();
+  const { role, content, format, sender_id, target, reply_to, msg_type, meta, asks } = await request.json();
   const id = nanoid();
   const msgType = msg_type || 'message';
   const replyTo = reply_to || null;
@@ -121,6 +125,15 @@ export async function POST(event: RequestEvent<{ id: string }>) {
     : (typeof meta === 'string' ? meta : JSON.stringify(meta ?? {}));
   let parsedMeta: Record<string, any> = {};
   try { parsedMeta = JSON.parse(metaJson || '{}'); } catch {}
+
+  const explicitAsks: string[] = Array.isArray(asks)
+    ? asks.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).map((s) => s.trim())
+    : [];
+  const inferred = typeof content === 'string' ? inferAsks(content, explicitAsks) : [];
+  parsedMeta.asks = explicitAsks;
+  parsedMeta.inferred_asks = inferred;
+  parsedMeta.asks_resolved = [];
+  let finalMetaJson = JSON.stringify(parsedMeta);
   const urgentRequested = parsedMeta.urgent === true || parsedMeta.urgent_bypass === true || parsedMeta.focus_bypass === true;
   const urgentReason = typeof parsedMeta.urgent_reason === 'string' ? parsedMeta.urgent_reason.trim()
     : typeof parsedMeta.bypass_reason === 'string' ? parsedMeta.bypass_reason.trim()
@@ -194,7 +207,7 @@ export async function POST(event: RequestEvent<{ id: string }>) {
   // 1. Persist to DB
   queries.createMessage(
     id, params.id, role, content, format || 'text', 'complete',
-    sender_id || null, target || null, replyTo, msgType, metaJson
+    sender_id || null, target || null, replyTo, msgType, finalMetaJson
   );
   queries.updateSession(null, null, null, null, params.id);
 
@@ -202,8 +215,124 @@ export async function POST(event: RequestEvent<{ id: string }>) {
     id, session_id: params.id, role, content,
     format: format || 'text', status: 'complete',
     sender_id: sender_id || null, target: target || null, reply_to: replyTo, msg_type: msgType,
-    meta: metaJson,
+    meta: finalMetaJson,
   };
+
+  const createdAsks: any[] = [];
+  const seenAskTitles = new Set<string>();
+  const targetAssignee = typeof target === 'string' && target && target !== '@everyone' ? target : null;
+
+  function createAskRow(draft: {
+    title: string;
+    body: string;
+    recommendation: string | null;
+    status: string;
+    assignedTo: string;
+    ownerKind: string;
+    priority: string;
+    inferred: boolean;
+    confidence: number;
+    meta: Record<string, unknown>;
+  }) {
+    const titleKey = draft.title.trim().toLowerCase();
+    if (!titleKey || seenAskTitles.has(titleKey)) return;
+    seenAskTitles.add(titleKey);
+
+    const askId = createAskId();
+    queries.createAsk(
+      askId,
+      params.id,
+      id,
+      draft.title,
+      draft.body,
+      draft.recommendation,
+      draft.status,
+      draft.assignedTo,
+      draft.ownerKind,
+      draft.priority,
+      sender_id || null,
+      draft.inferred ? 1 : 0,
+      draft.confidence,
+      JSON.stringify(draft.meta),
+    );
+    const ask = queries.getAsk(askId);
+    if (ask) createdAsks.push(ask);
+  }
+
+  for (const askText of explicitAsks) {
+    createAskRow({
+      title: titleFromAskContent(askText),
+      body: askText,
+      recommendation: null,
+      status: 'open',
+      assignedTo: targetAssignee || 'room',
+      ownerKind: targetAssignee ? (targetAssignee.toLowerCase().includes('james') ? 'human' : 'agent') : 'room',
+      priority: 'normal',
+      inferred: false,
+      confidence: 1,
+      meta: {
+        source: 'explicit_asks_payload',
+        source_message_id: id,
+        source_sender_id: sender_id || null,
+      },
+    });
+  }
+
+  for (const askText of explicitAsks.length === 0 ? inferred : []) {
+    const draft = inferAskFromMessage({
+      sessionId: params.id,
+      messageId: id,
+      content: askText,
+      senderId: sender_id || null,
+      target: target || null,
+      msgType,
+      meta: parsedMeta,
+    });
+    createAskRow(draft ?? {
+      title: titleFromAskContent(askText),
+      body: askText,
+      recommendation: null,
+      status: 'candidate',
+      assignedTo: targetAssignee || 'room',
+      ownerKind: targetAssignee ? (targetAssignee.toLowerCase().includes('james') ? 'human' : 'agent') : 'room',
+      priority: 'low',
+      inferred: true,
+      confidence: 0.3,
+      meta: {
+        source: 'line_inferred_from_message',
+        source_message_id: id,
+        source_sender_id: sender_id || null,
+      },
+    });
+  }
+
+  if (createdAsks.length === 0) {
+    const draft = inferAskFromMessage({
+      sessionId: params.id,
+      messageId: id,
+      content,
+      senderId: sender_id || null,
+      target: target || null,
+      msgType,
+      meta: parsedMeta,
+    });
+    if (draft) createAskRow(draft);
+  }
+
+  if (createdAsks.length > 0) {
+    if ((parsedMeta.asks?.length ?? 0) === 0 && (parsedMeta.inferred_asks?.length ?? 0) === 0) {
+      parsedMeta.inferred_asks = createdAsks.map((ask) => ask.title);
+      parsedMeta.asks_resolved = [];
+    }
+    parsedMeta.ask_ids = createdAsks.map((ask) => ask.id);
+    parsedMeta.ask_id = createdAsks[0].id;
+    parsedMeta.ask_status = createdAsks[0].status;
+    parsedMeta.ask_assigned_to = createdAsks[0].assigned_to;
+    parsedMeta.ask_owner_kind = createdAsks[0].owner_kind;
+    finalMetaJson = JSON.stringify(parsedMeta);
+    queries.updateMessageMeta(id, finalMetaJson);
+    msg.meta = finalMetaJson;
+  }
 
   // Auto-populate chat_room_members when a sender posts —
   // only if sender_id resolves to an actual session (not a bare @handle with no session)
@@ -266,9 +395,18 @@ export async function POST(event: RequestEvent<{ id: string }>) {
     target: target || null,
     replyTo,
     msgType,
-    meta: metaJson,
+    meta: finalMetaJson,
   });
 
+  if (createdAsks.length > 0) {
+    const { broadcast, broadcastGlobal } = await import('$lib/server/ws-broadcast.js');
+    for (const ask of createdAsks) {
+      emitAskRunEvent('ask_created', ask);
+      broadcast(params.id, { type: 'ask_created', sessionId: params.id, ask });
+      broadcastGlobal({ type: 'ask_created', sessionId: params.id, ask });
+    }
+  }
+
   // 3. Return with delivery info
-  return json({ ...msg, deliveries: result.deliveries }, { status: 201 });
+  return json({ ...msg, ask: createdAsks[0] ?? null, asks: createdAsks, deliveries: result.deliveries }, { status: 201 });
 }

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import MessageBubble from './MessageBubble.svelte';
+  import PinnedAsksPanel from './PinnedAsksPanel.svelte';
 
   let { sessionId }: { sessionId: string } = $props();
 
@@ -22,6 +23,14 @@
   let atBottom = $state(true);
   let scrollEl = $state<HTMLElement | null>(null);
   let streamingId = $state<string | null>(null);
+
+  function handleJumpToMessage(event: Event) {
+    const detail = (event as CustomEvent<{ messageId?: string }>).detail;
+    const id = detail?.messageId;
+    if (!id || !scrollEl) return;
+    const target = scrollEl.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`);
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 
   function scrollToBottom() {
     if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
@@ -135,15 +144,19 @@
 
     connect();
 
+    window.addEventListener('jump-to-message', handleJumpToMessage);
+
     return () => {
       destroyed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       ws?.close();
+      window.removeEventListener('jump-to-message', handleJumpToMessage);
     };
   });
 </script>
 
 <div class="flex flex-col h-full min-h-0 overflow-hidden">
+  <PinnedAsksPanel messages={messages} {sessionId} />
   <!-- Message feed -->
   <div
     bind:this={scrollEl}
@@ -157,7 +170,9 @@
       </div>
     {:else}
       {#each messages as msg (msg.id)}
-        <MessageBubble message={msg} {sessionId} />
+        <div data-message-id={msg.id}>
+          <MessageBubble message={msg} {sessionId} />
+        </div>
       {/each}
     {/if}
   </div>

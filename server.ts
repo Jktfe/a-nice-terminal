@@ -671,6 +671,13 @@ wss.on('connection', async (ws, req) => {
               break;
             }
             ptm.write(msg.sessionId, msg.data);
+            try {
+              const { capturePromptInput } = await import('./src/lib/server/prompt-capture.js');
+              capturePromptInput(msg.sessionId, String(msg.data ?? ''), {
+                captureSource: 'terminal_input',
+                transport: 'websocket',
+              });
+            } catch {}
             // Auto-detect CLI from first terminal input (set once, overrideable)
             if (msg.data && !autoDetectedSessions.has(msg.sessionId)) {
               const input = msg.data.toLowerCase();
@@ -746,6 +753,22 @@ getPtyManager().then(async ptm => {
   startTtlSweep(ptm);
 
   const { queries } = await import('./src/lib/server/db.js');
+
+  // Boot-time tmux orphan sweep. Anything left in the tmux server that has no
+  // matching live ANT session row is a leak from a previous generation —
+  // crash, test run, killed daemon. Settings → Maintenance fires the same
+  // path on demand.
+  try {
+    const liveTerms = (queries.listTerminalSessions() as Array<{ id: string; status: string | null; deleted_at: string | null }>)
+      .filter((t) => !t.deleted_at && !['archived', 'deleted', 'closed'].includes(t.status || ''));
+    const knownIds = liveTerms.map((t) => t.id);
+    const killed = await ptm.reapOrphans(knownIds);
+    if (killed.length) {
+      console.log(`[boot-reap] killed ${killed.length} orphan tmux session(s): ${killed.join(', ')}`);
+    }
+  } catch (err) {
+    console.warn('[boot-reap] failed:', (err as Error)?.message ?? err);
+  }
   const { default: stripAnsi } = await import('strip-ansi');
   const { PiRpcStreamAdapter } = await import('./src/lib/server/pi-rpc/projection.js');
   const { AcpStreamAdapter } = await import('./src/lib/server/acp/projection.js');

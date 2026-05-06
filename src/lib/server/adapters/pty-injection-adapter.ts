@@ -6,6 +6,7 @@
 
 import type { DeliveryAdapter, RouteMessage, RouteTarget, DeliveryResult } from '../message-router.js';
 import { queries } from '../db.js';
+import { capturePromptInput } from '../prompt-capture.js';
 
 function ptmWrite(sessionId: string, data: string): void {
   const write = (globalThis as any).__antPtmWrite;
@@ -88,6 +89,13 @@ export class PtyInjectionAdapter implements DeliveryAdapter {
       const submitDelay = needsDoubleReturn ? 200 : 150;
 
       ptmWrite(target.sessionId, plainText);
+      capturePromptInput(target.sessionId, plainText, {
+        captureSource: 'chat_injection',
+        transport: this.name,
+        messageId: message.id,
+        roomId: message.sessionId,
+        target: message.target,
+      });
       setTimeout(() => {
         ptmWrite(target.sessionId, '\r');
         if (needsDoubleReturn) {

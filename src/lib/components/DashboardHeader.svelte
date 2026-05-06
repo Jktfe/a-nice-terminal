@@ -17,6 +17,7 @@
     onSetTypeFilter,
     onSetSearchText,
     onTogglePersonalSettings,
+    askCount = 0,
   }: {
     orderMode: DashboardOrderMode;
     hasManualOrder: boolean;
@@ -27,6 +28,7 @@
     onSetTypeFilter: (value: DashboardTypeFilter) => void;
     onSetSearchText: (value: string) => void;
     onTogglePersonalSettings: () => void;
+    askCount?: number;
   } = $props();
 
   const grid = useGridStore();
@@ -63,6 +65,20 @@
       aria-label="Help"
     >
       <NocturneIcon name="help" size={18} />
+    </a>
+
+    <!-- Ask queue -->
+    <a
+      href="/asks"
+      class="icon-btn badge-host"
+      class:active={askCount > 0}
+      title="Ask queue"
+      aria-label="Ask queue"
+    >
+      <NocturneIcon name="inbox" size={18} />
+      {#if askCount > 0}
+        <span class="badge">{askCount > 99 ? '99+' : askCount}</span>
+      {/if}
     </a>
 
     <!-- Grid toggle -->
@@ -173,9 +189,38 @@
   }
 
   .icon-btn.active {
+    background: rgba(239, 68, 68, 0.12);
+    border-color: rgba(239, 68, 68, 0.35);
+    color: #EF4444;
+  }
+
+  button.icon-btn.active {
     background: rgba(99, 102, 241, 0.12);
     border-color: rgba(99, 102, 241, 0.35);
     color: #6366F1;
+  }
+
+  .badge-host {
+    position: relative;
+  }
+
+  .badge {
+    position: absolute;
+    top: -5px;
+    right: -6px;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: #EF4444;
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    border: 2px solid var(--bg);
   }
 
   .grid-dims {

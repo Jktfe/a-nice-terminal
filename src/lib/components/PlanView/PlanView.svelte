@@ -97,6 +97,13 @@
     return status ?? 'planned';
   }
 
+  function evidenceHref(ev: { kind: string; ref: string }): string {
+    if (ev.kind === 'file') {
+      return `/api/workspace-file?path=${encodeURIComponent(ev.ref)}`;
+    }
+    return `#${ev.ref}`;
+  }
+
   // ── Side rail (derived projection per §6.5; NOT plan_* events) ────────
   const milestones = $derived(events.filter((e) => e.kind === 'plan_milestone'));
   const liveMilestone = $derived(milestones.find((m) => m.payload.status === 'active'));
@@ -185,7 +192,7 @@
                             {#if t.payload.evidence?.length}
                               <span class="plan-test-evidence">
                                 {#each t.payload.evidence as ev}
-                                  <a href={ev.kind === 'file' ? `/${ev.ref}` : `#${ev.ref}`} class="plan-link">{ev.label ?? ev.ref}</a>
+                                  <a href={evidenceHref(ev)} class="plan-link">{ev.label ?? ev.ref}</a>
                                 {/each}
                               </span>
                             {/if}
@@ -196,7 +203,7 @@
                     {#if m.payload.evidence?.length}
                       <div class="plan-mile-links">
                         {#each m.payload.evidence as ev}
-                          <a href={ev.kind === 'file' ? `/${ev.ref}` : `#${ev.ref}`} class="plan-link">{ev.label ?? ev.ref}</a>
+                          <a href={evidenceHref(ev)} class="plan-link">{ev.label ?? ev.ref}</a>
                         {/each}
                       </div>
                     {/if}

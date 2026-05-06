@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { ptyClient } from '$lib/server/pty-client.js';
 import { queries } from '$lib/server/db.js';
+import { capturePromptInput } from '$lib/server/prompt-capture.js';
 
 export async function POST({ params, request }: RequestEvent<{ id: string }>) {
   const { data } = await request.json();
@@ -16,5 +17,9 @@ export async function POST({ params, request }: RequestEvent<{ id: string }>) {
     return json({ ok: false, error: 'terminal session is inactive' }, { status: 410 });
   }
   ptyClient.write(params.id, data);
-  return json({ ok: true });
+  const event = capturePromptInput(params.id, data, {
+    captureSource: 'api_terminal_input',
+    transport: 'rest',
+  });
+  return json({ ok: true, event });
 }

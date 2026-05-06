@@ -244,6 +244,34 @@ function getDb(): any {
     DELETE FROM messages_fts WHERE rowid = old.rowid;
   END`);
 
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS asks (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    source_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
+    title TEXT NOT NULL,
+    body TEXT DEFAULT '',
+    recommendation TEXT,
+    status TEXT DEFAULT 'open' CHECK(status IN ('candidate','open','answered','deferred','dismissed')),
+    assigned_to TEXT DEFAULT 'room',
+    owner_kind TEXT DEFAULT 'room' CHECK(owner_kind IN ('human','agent','room','terminal','unknown')),
+    priority TEXT DEFAULT 'normal' CHECK(priority IN ('low','normal','high')),
+    created_by TEXT,
+    answered_by TEXT,
+    answer TEXT,
+    answer_action TEXT,
+    inferred INTEGER DEFAULT 0,
+    confidence REAL DEFAULT 0,
+    meta TEXT DEFAULT '{}',
+    resolved_at TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  )`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_asks_session ON asks(session_id, status, created_at)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_asks_status ON asks(status, created_at)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_asks_assigned ON asks(assigned_to, status, created_at)`);
+  G[DB_KEY].exec(`DROP INDEX IF EXISTS idx_asks_source_message`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_asks_source_message ON asks(source_message_id)`);
+
   G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS terminal_transcripts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -821,6 +849,112 @@ export const queries = {
     prepare(`UPDATE messages SET meta = ? WHERE id = ?`).run(meta, id),
   togglePinMessage: (id: string, pinned: boolean) =>
     prepare(`UPDATE messages SET pinned = ? WHERE id = ?`).run(pinned ? 1 : 0, id),
+
+  // Ask queue — durable questions, recommendations, and action blockers.
+  listAsks: (opts: { sessionId?: string | null; statuses?: string[] | null; assignedTo?: string | null; limit?: number } = {}) => {
+    const filters: string[] = [];
+    const params: any[] = [];
+    if (opts.sessionId) {
+      filters.push('a.session_id = ?');
+      params.push(opts.sessionId);
+    }
+    if (opts.statuses && opts.statuses.length > 0) {
+      filters.push(`a.status IN (${opts.statuses.map(() => '?').join(',')})`);
+      params.push(...opts.statuses);
+    }
+    if (opts.assignedTo) {
+      filters.push('a.assigned_to = ?');
+      params.push(opts.assignedTo);
+    }
+    const limit = Math.max(1, Math.min(Number(opts.limit) || 100, 500));
+    params.push(limit);
+    return prepare(`
+      SELECT
+        a.*,
+        s.name AS session_name,
+        s.type AS session_type,
+        m.content AS source_content,
+        m.sender_id AS source_sender_id,
+        m.target AS source_target,
+        m.created_at AS source_created_at
+      FROM asks a
+      LEFT JOIN sessions s ON s.id = a.session_id
+      LEFT JOIN messages m ON m.id = a.source_message_id
+      ${filters.length ? `WHERE ${filters.join(' AND ')}` : ''}
+      ORDER BY
+        CASE a.priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END,
+        CASE a.status WHEN 'open' THEN 0 WHEN 'candidate' THEN 1 WHEN 'deferred' THEN 2 ELSE 3 END,
+        a.created_at DESC
+      LIMIT ?
+    `).all(...params);
+  },
+  getAsk: (id: string) => prepare(`
+    SELECT
+      a.*,
+      s.name AS session_name,
+      s.type AS session_type,
+      m.content AS source_content,
+      m.sender_id AS source_sender_id,
+      m.target AS source_target,
+      m.created_at AS source_created_at
+    FROM asks a
+    LEFT JOIN sessions s ON s.id = a.session_id
+    LEFT JOIN messages m ON m.id = a.source_message_id
+    WHERE a.id = ?
+  `).get(id),
+  getAskBySourceMessage: (sourceMessageId: string) =>
+    prepare(`SELECT * FROM asks WHERE source_message_id = ?`).get(sourceMessageId),
+  countOpenAsks: () =>
+    (prepare(`SELECT COUNT(*) as count FROM asks WHERE status IN ('open','candidate','deferred')`).get() as any)?.count ?? 0,
+  createAsk: (
+    id: string,
+    sessionId: string,
+    sourceMessageId: string | null,
+    title: string,
+    body: string | null,
+    recommendation: string | null,
+    status: string,
+    assignedTo: string | null,
+    ownerKind: string,
+    priority: string,
+    createdBy: string | null,
+    inferred: number,
+    confidence: number,
+    meta: string,
+  ) =>
+    prepare(`INSERT INTO asks
+      (id, session_id, source_message_id, title, body, recommendation, status, assigned_to, owner_kind, priority, created_by, inferred, confidence, meta)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, sessionId, sourceMessageId, title, body ?? '', recommendation, status, assignedTo ?? 'room', ownerKind, priority, createdBy, inferred, confidence, meta),
+  updateAsk: (
+    id: string,
+    status: string | null,
+    assignedTo: string | null,
+    ownerKind: string | null,
+    priority: string | null,
+    answer: string | null,
+    answerAction: string | null,
+    answeredBy: string | null,
+    meta: string | null,
+  ) =>
+    prepare(`UPDATE asks SET
+      status = COALESCE(?, status),
+      assigned_to = COALESCE(?, assigned_to),
+      owner_kind = COALESCE(?, owner_kind),
+      priority = COALESCE(?, priority),
+      answer = COALESCE(?, answer),
+      answer_action = COALESCE(?, answer_action),
+      answered_by = COALESCE(?, answered_by),
+      meta = COALESCE(?, meta),
+      resolved_at = CASE
+        WHEN ? IN ('answered','dismissed') THEN COALESCE(resolved_at, datetime('now'))
+        WHEN ? IN ('open','candidate','deferred') THEN NULL
+        ELSE resolved_at
+      END,
+      updated_at = datetime('now')
+      WHERE id = ?`)
+      .run(status, assignedTo, ownerKind, priority, answer, answerAction, answeredBy, meta, status, status, id),
+  deleteAsk: (id: string) => prepare(`DELETE FROM asks WHERE id = ?`).run(id),
 
   // Tasks
   listTasks: (sessionId: string) => prepare(`SELECT * FROM tasks WHERE session_id = ? ORDER BY created_at ASC`).all(sessionId),

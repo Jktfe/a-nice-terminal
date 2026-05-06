@@ -22,7 +22,22 @@ const SOCK_PATH = join(ANT_DIR, 'pty.sock');
 const LOCK_PATH = join(ANT_DIR, 'pty-daemon.lock');
 const LOG = (...a: any[]) => console.log('[pty-daemon]', ...a);
 const HOME = process.env.HOME || '/tmp';
-const TMUX = '/opt/homebrew/bin/tmux';
+const TMUX_BIN = '/opt/homebrew/bin/tmux';
+// Optional dedicated tmux server socket (env: ANT_TMUX_SOCKET). When set,
+// the daemon writes a one-line wrapper script that always invokes tmux with
+// -L <socket>, and uses that script everywhere a tmux process is spawned.
+// This keeps probe / test runs from leaking sessions into the user's default
+// tmux server. Default empty string ⇒ shared user socket (current behaviour).
+const TMUX = (() => {
+  const sock = process.env.ANT_TMUX_SOCKET || '';
+  if (!sock) return TMUX_BIN;
+  mkdirSync(ANT_DIR, { recursive: true });
+  const wrapperPath = join(ANT_DIR, `tmux-${sock}.sh`);
+  writeFileSync(wrapperPath, `#!/bin/sh\nexec ${TMUX_BIN} -L ${sock} "$@"\n`);
+  chmodSync(wrapperPath, 0o755);
+  console.log('[pty-daemon]', `tmux socket isolation: -L ${sock} via ${wrapperPath}`);
+  return wrapperPath;
+})();
 const SILENCE_HOOK_SCRIPT = join(HOME, '.ant', 'hooks', 'ant-silence-notify');
 const HOOK_DIR = join(HOME, '.ant', 'hooks');
 const CAPTURE_DIR = join(HOME, '.local', 'state', 'ant', 'capture');
@@ -973,6 +988,41 @@ function handle(msg: any, socket: net.Socket) {
         .filter(([id, s]) => s.alive || tmuxSessionExists(id))
         .map(([id]) => id);
       send(socket, { type: 'list', sessions: alive });
+      break;
+    }
+
+    case 'reap-orphans': {
+      // Kill any tmux session whose name is NOT in the caller-supplied list of
+      // known/active ANT session IDs. The caller (server) is the source of
+      // truth for what's "live" (it owns the DB); the daemon just executes.
+      const known = new Set<string>(Array.isArray(msg.knownIds) ? msg.knownIds : []);
+      const killed: string[] = [];
+      let listed: string[] = [];
+      try {
+        const out = execFileSync(TMUX, ['list-sessions', '-F', '#{session_name}'], { stdio: 'pipe' }).toString();
+        listed = out.split('\n').map(s => s.trim()).filter(Boolean);
+      } catch { listed = []; }
+
+      for (const sid of listed) {
+        if (known.has(sid)) continue;
+        const s = sessions.get(sid);
+        if (s) {
+          try { s.ctrl?.kill(); } catch {}
+          try { s.pty.kill(); } catch {}
+          s.alive = false;
+          sessions.delete(sid);
+        }
+        lastSilenceBroadcast.delete(sid);
+        oscParsers.delete(sid);
+        rawByteOffsets.delete(sid);
+        controlByteOffsets.delete(sid);
+        try {
+          execFileSync(TMUX, ['kill-session', '-t', sid], { stdio: 'pipe' });
+          killed.push(sid);
+          LOG(`reaped orphan tmux session: ${sid}`);
+        } catch {}
+      }
+      send(socket, { type: 'reap-orphans-result', callId: msg.callId, killed });
       break;
     }
 
