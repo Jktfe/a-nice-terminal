@@ -31,9 +31,21 @@ export interface StartInterviewOpts {
 export type StartInterviewResult =
   | { ok: true; created: true;  linked_chat_id: string; target_session_id: string; chat_name: string }
   | { ok: true; created: false; linked_chat_id: string; target_session_id: string }
-  | { ok: false; error: 'target_not_found' | 'invalid_target_type' };
+  | { ok: false; error: 'target_not_found' | 'invalid_target_type' | 'recursive_interview' };
 
 const VALID_TARGET_TYPES = new Set(['terminal', 'chat', 'agent']);
+
+function isInterviewChat(target: { type?: string; meta?: unknown }): boolean {
+  if (target.type !== 'chat') return false;
+  const raw = target.meta;
+  if (!raw) return false;
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Boolean((parsed as { interview?: unknown })?.interview);
+  } catch {
+    return false;
+  }
+}
 
 function defaultIdGen(): string {
   return Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
@@ -49,6 +61,7 @@ export function startInterview(
   const target = q.getSession(targetSessionId);
   if (!target) return { ok: false, error: 'target_not_found' };
   if (!VALID_TARGET_TYPES.has(target.type)) return { ok: false, error: 'invalid_target_type' };
+  if (isInterviewChat(target)) return { ok: false, error: 'recursive_interview' };
 
   if (target.linked_chat_id) {
     return {

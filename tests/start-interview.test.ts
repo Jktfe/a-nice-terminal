@@ -15,6 +15,7 @@ interface FakeSession {
   display_name?: string;
   handle?: string;
   linked_chat_id?: string | null;
+  meta?: string | null;
 }
 
 function makeFakeQueries(seed: FakeSession[]): {
@@ -101,6 +102,39 @@ describe('startInterview', () => {
     ]);
     startInterview(q, 't-h', {}, () => 'c-1');
     expect(created[0].name).toBe('Interview: @codex');
+  });
+
+  it('refuses to recursively interview an existing interview chat', () => {
+    const { q, created, links } = makeFakeQueries([
+      {
+        id: 'chat-existing-interview',
+        type: 'chat',
+        name: 'Interview: James',
+        meta: JSON.stringify({ interview: true, origin_room_id: 'room-x' }),
+      },
+    ]);
+    const result = startInterview(q, 'chat-existing-interview');
+    expect(result).toEqual({ ok: false, error: 'recursive_interview' });
+    expect(created).toHaveLength(0);
+    expect(links).toHaveLength(0);
+  });
+
+  it('still allows interview of a regular chat-type room (not flagged)', () => {
+    const { q, created } = makeFakeQueries([
+      { id: 'chat-room', type: 'chat', name: 'ANTchat' },
+    ]);
+    const result = startInterview(q, 'chat-room', {}, () => 'fresh-id', () => 1);
+    expect(result.ok).toBe(true);
+    expect(created).toHaveLength(1);
+  });
+
+  it('tolerates unparseable meta and falls through to normal flow', () => {
+    const { q, created } = makeFakeQueries([
+      { id: 'chat-broken', type: 'chat', name: 'broken', meta: '{not-json' },
+    ]);
+    const result = startInterview(q, 'chat-broken', {}, () => 'fresh-id', () => 1);
+    expect(result.ok).toBe(true);
+    expect(created).toHaveLength(1);
   });
 
   it('captures origin_room_id and caller_handle in the chat meta blob', () => {

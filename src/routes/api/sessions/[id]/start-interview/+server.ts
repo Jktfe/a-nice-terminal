@@ -21,6 +21,7 @@ export async function POST({ params, request }: RequestEvent) {
   if (!result.ok) {
     if (result.error === 'target_not_found')   throw error(404, 'Target session not found');
     if (result.error === 'invalid_target_type') throw error(400, 'Target session is not a terminal/chat/agent');
+    if (result.error === 'recursive_interview') throw error(400, 'Target is already an interview chat');
   }
 
   return json(result);
