@@ -5,7 +5,7 @@
   import { agentDotStateFromStatus } from '$lib/shared/agent-status';
   import { deriveTerminalActivityState } from '$lib/shared/terminal-activity';
 
-  let { session, onclick, onArchive, onDelete } = $props();
+  let { session, onclick, onArchive, onDelete, onStartInterview } = $props();
 
   let hover = $state(false);
 
@@ -49,6 +49,7 @@
   }));
 
   function handleDelete(e: MouseEvent) { e.preventDefault(); e.stopPropagation(); onDelete?.(); }
+  function handleStartInterview(e: MouseEvent) { e.preventDefault(); e.stopPropagation(); onStartInterview?.(); }
   function handleArchive(e: MouseEvent) { e.preventDefault(); e.stopPropagation(); onArchive?.(); }
   function handleCardClick(e: MouseEvent) {
     // Modifier/middle-click: let the <a> navigate natively (new tab, new window).
@@ -184,6 +185,14 @@
 
       <!-- Hover actions -->
       <div class="hidden group-hover:flex items-center gap-1">
+        <button
+          onclick={handleStartInterview}
+          class="p-1.5 rounded cursor-pointer"
+          style="color: {NOCTURNE.blue[400]}; background: transparent; border: none;"
+          title="Start interview"
+        >
+          <NocturneIcon name="mic" size={14} />
+        </button>
         <button
           onclick={handleArchive}
           class="p-1.5 rounded cursor-pointer"
