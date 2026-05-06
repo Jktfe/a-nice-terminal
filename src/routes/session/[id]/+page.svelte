@@ -1046,6 +1046,27 @@
     }
   }
 
+  async function startInterviewFor(targetSessionId: string) {
+    try {
+      const res = await fetch(`/api/sessions/${targetSessionId}/start-interview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ origin_room_id: sessionId, caller_handle: session?.handle || null }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toasts.show(`Interview failed: ${err.error || `HTTP ${res.status}`}`, 'error');
+        return;
+      }
+      const result = await res.json();
+      if (result?.ok && result?.linked_chat_id) {
+        goto(`/session/${result.linked_chat_id}`);
+      }
+    } catch (e) {
+      toasts.show(`Interview failed: ${e instanceof Error ? e.message : 'unknown error'}`, 'error');
+    }
+  }
+
   async function sendMessage(text: string, replyToId: string | null = null) {
     await msgStore.send(sessionId, text, { reply_to: replyToId });
     await loadUploads(sessionId);
@@ -1714,6 +1735,7 @@
         onPublishSummary={publishSummary}
         onAddTerminalToRoom={addTerminalToRoom}
         onStopParticipant={stopParticipant}
+        onStartInterview={startInterviewFor}
         onOpenFolderDrawer={() => (folderDrawerOpen = true)}
         onCreateTask={createTask}
         onClose={() => (showPanel = false)}

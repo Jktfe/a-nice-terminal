@@ -28,6 +28,7 @@
     onOpenLinkedChat?: (sess: PageSession) => void;
     onAddTerminalToRoom?: (sess: PageSession) => void;
     onStopParticipant?: (sess: PageSession) => void;
+    onStartInterview?: (targetSessionId: string) => void;
   }
 
   const {
@@ -41,7 +42,8 @@
     onFocusParticipant,
     onOpenLinkedChat,
     onAddTerminalToRoom,
-    onStopParticipant
+    onStopParticipant,
+    onStartInterview
   }: Props = $props();
 
   let presence = $state<Record<string, { status: 'active' | 'idle' | 'offline' }>>({});
@@ -138,6 +140,21 @@
 </script>
 
 <div class="px-3 pb-3 space-y-1.5">
+  {#if onStartInterview}
+    <button
+      onclick={() => onStartInterview?.(sessionId)}
+      class="w-full flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors"
+      style="border: 1px solid #6366F1; color: #6366F1; background: #EEF2FF;"
+      title="Start a linked interview chat for this room"
+      aria-label="Start interview for this room"
+    >
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
+      </svg>
+      Start interview
+    </button>
+  {/if}
   <!-- Active participants -->
   {#each participantsActive as p}
     {@const col = participantDot(p.sess)}
@@ -245,6 +262,20 @@
             >
               <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v3m0 12v3m9-9h-3M6 12H3m14.1-5.1l-2.1 2.1M9 15l-2.1 2.1m0-10.2L9 9m6 6l2.1 2.1"/>
+              </svg>
+            </button>
+          {/if}
+          {#if p.sess.type === 'terminal' && onStartInterview}
+            <button
+              onclick={() => onStartInterview?.(p.sess.id)}
+              class="touch-target p-1 rounded transition-all"
+              style="color: #6366F1;"
+              title="Start linked interview chat for {label}"
+              aria-label="Start interview for {label}"
+            >
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
               </svg>
             </button>
           {/if}
@@ -378,6 +409,20 @@
                       </svg>
                     </button>
                   {/if}
+                  {#if p.sess.type === 'terminal' && onStartInterview}
+                    <button
+                      onclick={() => onStartInterview?.(p.sess.id)}
+                      class="touch-target p-1 rounded"
+                      style="color: #6366F1;"
+                      title="Start linked interview chat for {label}"
+                      aria-label="Start interview for {label}"
+                    >
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
+                      </svg>
+                    </button>
+                  {/if}
                 </div>
               </div>
             </div>
@@ -391,11 +436,11 @@
 <style>
   .participant-actions {
     display: grid;
-    grid-template-columns: repeat(3, 28px);
+    grid-template-columns: repeat(4, 28px);
     gap: 4px;
     justify-content: end;
     align-content: start;
-    max-width: 92px;
+    max-width: 124px;
   }
 
   .participant-actions :global(.touch-target) {
@@ -409,6 +454,6 @@
   }
 
   .participant-actions--available {
-    grid-template-columns: repeat(3, 28px);
+    grid-template-columns: repeat(4, 28px);
   }
 </style>

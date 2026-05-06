@@ -96,6 +96,7 @@
     onPublishSummary?: () => void;
     onAddTerminalToRoom?: (sess: PageSession) => void;
     onStopParticipant?: (sess: PageSession) => void;
+    onStartInterview?: (targetSessionId: string) => void;
     onOpenFolderDrawer?: () => void;
     onCreateTask: (title: string) => void;
   }
@@ -145,6 +146,7 @@
     onPublishSummary,
     onAddTerminalToRoom,
     onStopParticipant,
+    onStartInterview,
     onOpenFolderDrawer,
     onCreateTask,
   onClose = undefined,
@@ -672,6 +674,7 @@
               onOpenLinkedChat={(sess) => onOpenLinkedChat(sess)}
               onAddTerminalToRoom={onAddTerminalToRoom}
               onStopParticipant={onStopParticipant}
+              onStartInterview={onStartInterview}
             />
           {/if}
         </div>
