@@ -212,3 +212,16 @@ export async function ask(args: string[], flags: any, ctx: any) {
 
   await listAsks(['list', sub], flags, ctx);
 }
+
+// `ant question "Should we ship X?" --room <id> --to @h [--recommend "..."]`
+// Top-level alias for `ant ask create` so the surface matches what James
+// asked for in chat: a single command verb that adds a question to the
+// sidebar of a room.
+export async function question(args: string[], flags: any, ctx: any) {
+  const text = pickText(args, 0, flags);
+  const room = flags.room || flags.session || flags.session_id || flags.r;
+  if (!text || !room) {
+    throw new Error('Usage: ant question "your question" --room <room-id> [--to @handle] [--recommend "..."] [--body "..."]');
+  }
+  await createAsk(String(room), text, flags, ctx);
+}

@@ -8,7 +8,7 @@ import { terminal } from './commands/terminal.js';
 import { search } from './commands/search.js';
 import { share } from './commands/share.js';
 import { msg } from './commands/msg.js';
-import { ask } from './commands/ask.js';
+import { ask, question } from './commands/ask.js';
 import { deck } from './commands/deck.js';
 import { task } from './commands/task.js';
 import { plan } from './commands/plan.js';
@@ -72,7 +72,15 @@ Commands:
   ask show <ask-id>     Show full ask context
   ask answer <ask-id>   Resolve an ask (approve|reject|defer|dismiss --msg "...")
                         Use --session <room-id> when relying on a room token
+  ask nudge <ask-id>    Post a paste-ready answer-snippet into the ask's room
+                        (--dry-run prints the snippet locally instead)
+  ask outstanding       Print all open asks as paste-ready CLI snippets
+                        (--to @handle to filter)
   chat ask <id>         Alias for opening an ask in a chatroom
+
+  question "text" --room <id> [--to @h] [--recommend "..."]
+                        One-shot: add a question to a room's sidebar.
+                        Alias for `ant ask <room> "text"`.
 
   deck list             List Open-Slide decks visible to this caller
   deck status <slug>    Show manifest, source, and file snapshot hashes
@@ -161,6 +169,7 @@ async function main() {
       case 'chat':     await chat(args, flags, ctx); break;
       case 'msg':      await msg(args, flags, ctx); break;
       case 'ask':      await ask(args, flags, ctx); break;
+      case 'question': await question(args, flags, ctx); break;
       case 'deck':     await deck(args, flags, ctx); break;
       case 'task':     await task(args, flags, ctx); break;
       case 'plan':     await plan(args, flags, ctx); break;
