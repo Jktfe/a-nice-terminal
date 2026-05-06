@@ -44,7 +44,9 @@ export async function captureScreenshot(
 
   const buffer = await deps.readFile(filePath);
   const bytes = buffer.length;
-  const sha256 = deps.createHash('sha256').update(buffer).digest('hex');
+  const hasher = deps.createHash('sha256');
+  hasher.update(buffer);
+  const sha256 = hasher.digest('hex');
 
   const payload = JSON.stringify({ path: filePath, sha256, bytes });
   await deps.insertRunEvent({
