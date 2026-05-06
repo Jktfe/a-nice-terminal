@@ -21,6 +21,10 @@ import { parseArgs } from '../cli/lib/args.js';
 import { join as joinRoom } from './commands/join.js';
 import { rooms } from './commands/rooms.js';
 import { msg } from './commands/msg.js';
+import { chat } from './commands/chat.js';
+import { open } from './commands/open.js';
+import { tasks } from './commands/tasks.js';
+import { plan } from './commands/plan.js';
 
 const HELP = `
 antchat — lightweight ANT chat client (v0.1.0)
@@ -42,10 +46,22 @@ Commands:
                             --handle @name          Pick a non-default handle for this room
                             --json                  Machine-readable output
 
-  chat <id>                Interactive chat over the room SSE stream. (Wave 4B)
-  open <id>                Open the room's web URL in your browser.    (Wave 4B)
-  tasks <id> [...]         List/create tasks in the room.              (Wave 4B)
-  plan <id>                Pretty-print the room's plan view.          (Wave 4B)
+  chat <id>                Interactive chat over the room SSE stream.
+                           --handle @name          Pick a non-default handle for this room
+                           --limit N               Backfill N most recent messages (default 20)
+                           --quiet                 Suppress macOS @-mention notifications
+
+  open <id>                Open the room's web URL in your browser.
+                           --print                 Print URL only (no launch)
+
+  tasks <id> [sub] [...]   list | create "title" [--desc "..."]
+                           accept|review|done|delete <task-id>
+                           assign <task-id> @handle
+
+  plan <id>                Pretty-print the room's plan events.
+                           --plan-id ID            Override plan id (default ant-r4)
+                           --limit N               Cap events returned (default 200)
+
   mcp <serve|install|...>  MCP proxy management for Claude Desktop.    (Wave 4C)
   watch <install|...>      launchd watcher for @-mentions.             (Wave 4E)
 
@@ -91,14 +107,16 @@ async function main() {
       return rooms(args, flags, ctx);
     case 'msg':
       return msg(args, flags, ctx);
+    case 'chat':
+      return chat(args, flags, ctx);
+    case 'open':
+      return open(args, flags, ctx);
+    case 'tasks':
+      return tasks(args, flags, ctx);
+    case 'plan':
+      return plan(args, flags, ctx);
 
     // Stubs for waves still in flight — fail fast with a hint.
-    case 'chat':
-    case 'open':
-    case 'tasks':
-    case 'plan':
-      console.error(`antchat ${command}: not yet wired (Wave 4B). Track progress in docs/antchat-swarm-plan.md.`);
-      process.exit(2);
     case 'mcp':
       console.error('antchat mcp: not yet wired (Wave 4C). Track progress in docs/antchat-swarm-plan.md.');
       process.exit(2);
