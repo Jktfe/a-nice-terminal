@@ -1,5 +1,6 @@
 import { api } from '../lib/api.js';
 import { config } from '../lib/config.js';
+import { buildNudgeSnippet } from '../lib/ask-nudge.js';
 import { detectNativeSession } from './chat.js';
 
 const ACTIVE_STATUS = 'open,candidate,deferred';
@@ -110,8 +111,69 @@ async function answerAsk(askId: string, rawAction: string, flags: any, ctx: any,
   console.log(`Ask ${data.ask.id}: ${data.ask.status}${data.ask.answer_action ? ` (${data.ask.answer_action})` : ''}`);
 }
 
+async function nudgeAsk(askId: string, flags: any, ctx: any) {
+  if (!askId) {
+    throw new Error('Usage: ant ask nudge <ask-id> [--dry-run]');
+  }
+  const sessionId = flags.session || flags.room || flags.session_id;
+  const askPath = sessionId ? `/api/sessions/${sessionId}/asks/${askId}` : `/api/asks/${askId}`;
+  const data = await api.get(ctx, askPath, roomOpts(sessionId));
+  const ask = data.ask;
+  if (!ask) throw new Error(`Ask ${askId} not found`);
+  const snippet = buildNudgeSnippet(ask);
+  if (flags.dry || flags['dry-run']) {
+    console.log(snippet);
+    return;
+  }
+  const roomId = ask.session_id;
+  if (!roomId) {
+    throw new Error(`Ask ${askId} has no session_id; cant nudge a roomless ask. Use --dry-run to print the snippet.`);
+  }
+  const post = await api.post(ctx, `/api/sessions/${roomId}/messages`, {
+    role: 'system',
+    content: snippet,
+    format: 'text',
+    msg_type: 'ask_nudge',
+    sender_id: resolveIdentity(!!flags.external),
+    target: ask.assigned_to || null,
+    meta: { ask_id: ask.id, source: 'cli_ask_nudge' },
+  }, roomOpts(roomId));
+  if (ctx.json) { console.log(JSON.stringify({ ask_id: ask.id, room_id: roomId, message_id: post.id })); return; }
+  console.log(`Nudge posted in room ${ask.session_name || roomId} (msg ${post.id}).`);
+}
+
+async function outstandingAsks(flags: any, ctx: any) {
+  const params = new URLSearchParams();
+  params.set('status', String(flags.status || ACTIVE_STATUS));
+  params.set('limit', String(flags.limit || 50));
+  if (flags.to || flags.assigned || flags.assigned_to) {
+    params.set('assigned_to', String(flags.to || flags.assigned || flags.assigned_to));
+  }
+  const data = await api.get(ctx, `/api/asks?${params.toString()}`);
+  const asks = data.asks || [];
+  if (ctx.json) { console.log(JSON.stringify(asks)); return; }
+  if (asks.length === 0) {
+    console.log('No outstanding asks.');
+    return;
+  }
+  for (const ask of asks) {
+    console.log(buildNudgeSnippet(ask, { addressedTo: flags.to || flags.assigned_to || null }));
+    console.log('');
+  }
+}
+
 export async function ask(args: string[], flags: any, ctx: any) {
   const sub = args[0] || 'list';
+
+  if (sub === 'nudge' || sub === 'remind') {
+    await nudgeAsk(args[1], flags, ctx);
+    return;
+  }
+
+  if (sub === 'outstanding' || sub === 'pending' || sub === 'queue') {
+    await outstandingAsks(flags, ctx);
+    return;
+  }
 
   if (sub === 'list' || sub === 'ls') {
     await listAsks(args, flags, ctx);
