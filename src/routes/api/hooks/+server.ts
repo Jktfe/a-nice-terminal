@@ -360,14 +360,27 @@ export async function POST({ request }: RequestEvent) {
     return json({ ok: true, event, taskId, status });
   }
 
-  if (event === 'PostToolUse') {
-    // Log tool usage — lightweight, just for the terminal text view
-    // Don't spam the chat with every tool call
+  if (event === 'PreToolUse' || event === 'PostToolUse') {
+    // Tool calls prove Claude is no longer waiting on the user — discard any
+    // pending agent_event cards (Notification hooks would otherwise pin them)
+    // so the AGENTS-bar badge and chat card both clear.
+    if (sessionId) {
+      try {
+        const { discardAllPendingEvents } = await import('$lib/server/agent-event-bus.js');
+        discardAllPendingEvents(sessionId, 'agent_moved_on');
+      } catch {}
+    }
     return json({ ok: true, event: 'tool_logged' });
   }
 
   if (event === 'Stop') {
     // Claude finished responding — could update status in ANT
+    if (sessionId) {
+      try {
+        const { discardAllPendingEvents } = await import('$lib/server/agent-event-bus.js');
+        discardAllPendingEvents(sessionId, 'turn_ended');
+      } catch {}
+    }
     if (chatId) {
       const reason = body.stop_reason || 'end_turn';
       const msgId = nanoid();
@@ -376,7 +389,7 @@ export async function POST({ request }: RequestEvent) {
         msgId, chatId, 'assistant', text, 'text', 'complete',
         sessionId, null, null, 'message', '{}'
       );
-      
+
       await router.route({
         id: msgId, sessionId: chatId, content: text, role: 'assistant',
         senderId: sessionId || null, senderName: 'Claude', senderType: 'terminal',

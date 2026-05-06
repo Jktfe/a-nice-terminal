@@ -782,6 +782,19 @@ export function discardEvent(sessionId: string, msgId: string): void {
   }
 }
 
+// Public wrapper around discardPendingEvents for callers (Claude hook handlers,
+// other adapters) that observe an out-of-band signal that the agent has moved
+// on. Claude hooks (Stop, PreToolUse, PostToolUse) prove the agent is no longer
+// waiting on user input even though no PTY-driver `isSettled` check ran here.
+export function discardAllPendingEvents(sessionId: string, reason: string): void {
+  const state = sessions.get(sessionId);
+  if (!state) {
+    busDeps.broadcastGlobal?.({ type: 'session_input_resolved', sessionId });
+    return;
+  }
+  discardPendingEvents(sessionId, state, reason);
+}
+
 /** Check if a line is UI chrome for the given session's driver. */
 export function isChrome(sessionId: string, line: string): boolean {
   const state = sessions.get(sessionId);
