@@ -159,7 +159,10 @@
 
   async function refreshAskCount() {
     try {
-      const res = await fetch('/api/asks?status=open,candidate,deferred&limit=500');
+      // Match the /asks "Needs action" tab — only count truly actionable open
+      // asks. Including candidate (auto-inferred) + deferred made the badge
+      // surface 99+ even when the queue had ~25 real items requiring action.
+      const res = await fetch('/api/asks?status=open&view=actionable&limit=500');
       if (!res.ok) return;
       const data = await res.json();
       activeAskCount = Array.isArray(data.asks) ? data.asks.length : 0;

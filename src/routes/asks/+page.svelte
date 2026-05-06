@@ -127,7 +127,7 @@
   <title>ANT · Ask Queue</title>
 </svelte:head>
 
-<div class="min-h-screen overflow-y-auto" style="background: var(--bg); color: var(--text);">
+<div class="overflow-y-auto" style="background: var(--bg); color: var(--text); height: var(--ant-viewport-h, 100dvh);">
   <div class="sticky top-0 z-20 border-b" style="background: var(--bg-surface); border-color: var(--border-subtle);">
     <div class="flex items-center gap-4 px-4 sm:px-6 py-3">
       <a href="/" class="text-sm transition-colors hover:text-white" style="color: var(--text-muted);">
