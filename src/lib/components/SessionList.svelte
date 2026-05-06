@@ -20,6 +20,7 @@
   } from '$lib/utils/sidebar-pins';
   import { onMount } from 'svelte';
   import PersonalSettingsModal from './PersonalSettingsModal.svelte';
+  import RemoteInviteModal from './RemoteInviteModal.svelte';
 
   const grid = useGridStore();
   const store = useSessionStore();
@@ -49,6 +50,7 @@
   let creatingTerminal = $state(false);
   let creatingChat = $state(false);
   let showPersonalSettings = $state(false);
+  let inviteSession = $state<{ id: string; name: string } | null>(null);
   type DashboardOrderMode = 'activity' | 'manual';
   type DashboardOrderSection = 'terminal' | 'chat';
   type DashboardTypeFilter = 'all' | 'terminals' | 'chats';
@@ -722,6 +724,7 @@
                         onArchive={() => store.archiveSession(chat.id)}
                         onDelete={() => store.deleteSession(chat.id)}
                         onStartInterview={() => startInterview(chat.id)}
+                        onInvite={() => { inviteSession = { id: chat.id, name: chat.name || chat.id }; }}
                       />
                     </div>
                   </div>
@@ -742,6 +745,14 @@
     />
     {/if}
 
+  {/if}
+
+  {#if inviteSession}
+    <RemoteInviteModal
+      sessionId={inviteSession.id}
+      sessionName={inviteSession.name}
+      onClose={() => { inviteSession = null; }}
+    />
   {/if}
 
   {#if showPersonalSettings}
