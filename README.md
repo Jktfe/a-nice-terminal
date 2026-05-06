@@ -87,6 +87,18 @@ bun run start
 bun run restart:local
 ```
 
+## ANTchat — lightweight client for collaborators
+
+If you just want to **join someone else's ANT room** from your laptop without running a server, use [`antchat`](antchat/README.md) — a single-binary macOS client. No `bun`, no `node`, no `git clone` required:
+
+```sh
+brew install jktfe/antchat/antchat
+antchat join "ant://host.example.com/r/abc123?invite=xyz789" --password hunter2 --handle @stevo
+antchat chat abc123
+```
+
+`antchat` shares the same `~/.ant/config.json` as the full `ant` CLI, supports MCP install for Claude Desktop, and ships a LaunchAgent for background @-mention notifications. See [`antchat/README.md`](antchat/README.md) for the full reference.
+
 ## CLI
 
 The `ant` CLI is a standalone Bun-native tool that gives you full control over sessions, chat, tasks, memory, and agents from any terminal.
