@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
   import { deriveTerminalActivityState } from '$lib/shared/terminal-activity';
   import { useToasts } from '$lib/stores/toast.svelte';
   import type { Session } from '$lib/stores/sessions.svelte';
@@ -85,21 +84,27 @@
     return `${d} d ago`;
   }
 
-  function handleCardClick() {
-    goto(`/session/${terminal.id}`);
+  function handleCardClick(_e: MouseEvent) {
+    // No-op: navigation is handled by the <a href> + SvelteKit's link
+    // interception. Modifier/middle-click falls through to the browser for
+    // new-tab/window. The handler is kept as a hook for any future
+    // bookkeeping a click might need.
   }
 
   function handleArchive(e: MouseEvent) {
+    e.preventDefault();
     e.stopPropagation();
     onArchive?.();
   }
 
   function handleDelete(e: MouseEvent) {
+    e.preventDefault();
     e.stopPropagation();
     onDelete?.();
   }
 
   async function handleSend(e?: MouseEvent | KeyboardEvent) {
+    if (e && 'preventDefault' in e) e.preventDefault();
     e?.stopPropagation();
     const text = messageText.trim();
     if (!text || sending) return;
@@ -159,7 +164,7 @@
       title={pinnedToSidebar ? 'Pinned to sidebar — click to unpin' : 'Pin to sidebar'}
       aria-label={pinnedToSidebar ? `Unpin ${terminal.name} from sidebar` : `Pin ${terminal.name} to sidebar`}
       aria-pressed={pinnedToSidebar}
-      onclick={(e) => { e.stopPropagation(); onTogglePin(terminal); }}
+      onclick={(e) => { e.preventDefault(); e.stopPropagation(); onTogglePin(terminal); }}
     >
       <svg width="14" height="14" viewBox="0 0 24 24" fill={pinnedToSidebar ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
@@ -210,7 +215,9 @@
   <div class="row-divider"></div>
 
   <!-- Right: inline send box + meta -->
-  <div class="row-right" onclick={(e) => e.stopPropagation()}>
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="row-right" onclick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
     <div class="send-line">
       <svg class="send-line__icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
@@ -245,7 +252,9 @@
   </div>
 
   <!-- Hover action buttons -->
-  <div class="row-actions" onclick={(e) => e.stopPropagation()}>
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="row-actions" onclick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
     {#if onArchive}
       <button
         type="button"

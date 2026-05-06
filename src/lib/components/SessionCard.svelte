@@ -48,8 +48,17 @@
     sessionStatus: statusInfo.label.toLowerCase(),
   }));
 
-  function handleDelete(e: MouseEvent) { e.stopPropagation(); onDelete?.(); }
-  function handleArchive(e: MouseEvent) { e.stopPropagation(); onArchive?.(); }
+  function handleDelete(e: MouseEvent) { e.preventDefault(); e.stopPropagation(); onDelete?.(); }
+  function handleArchive(e: MouseEvent) { e.preventDefault(); e.stopPropagation(); onArchive?.(); }
+  function handleCardClick(e: MouseEvent) {
+    // Modifier/middle-click: let the <a> navigate natively (new tab, new window).
+    // Plain left-click: SvelteKit's link interception handles SPA navigation
+    // via href, so don't double-navigate by also calling the parent's
+    // onclick (which is just goto today). The prop is kept for API
+    // compatibility but only fires for explicit non-nav clicks.
+    if (e.defaultPrevented) return;
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+  }
 </script>
 
 <!--
@@ -77,7 +86,7 @@
     transition: transform var(--duration-base) var(--spring-quick),
                 box-shadow var(--duration-base) var(--spring-default);
   "
-  onclick={onclick}
+  onclick={handleCardClick}
   onmouseenter={() => hover = true}
   onmouseleave={() => hover = false}
 >
