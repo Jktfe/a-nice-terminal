@@ -38,6 +38,13 @@ Commands:
   sessions export <id>  Export session evidence
                         (--target obsidian|open-slide|all)
 
+  evidence screenshot <session-id>
+                        Capture screenshot and emit run_event
+                        (--dir /path to override output directory)
+  evidence visual-baseline <session-id>
+                        Run visual-QA capture script and emit run_event
+                        (--base-url http://localhost:5173 --dir /path)
+
   terminal <id>         Connect to a terminal session (interactive PTY)
   terminal send <id>    Send a command to a terminal (--cmd "ls -la")
   terminal watch <id>   Read-only live stream of a terminal

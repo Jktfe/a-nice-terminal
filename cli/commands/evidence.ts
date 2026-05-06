@@ -28,7 +28,7 @@ function defaultDeps() {
       text: string;
       payload: string;
     }) => {
-      return queries.insertRunEvent(
+      return queries.appendRunEvent(
         args.sessionId,
         args.tsMs,
         args.source,
@@ -36,6 +36,7 @@ function defaultDeps() {
         args.kind,
         args.text,
         args.payload,
+        null,
       );
     },
   };
@@ -47,7 +48,7 @@ export async function evidence(args: string[], flags: any, ctx: any) {
   if (sub === 'screenshot') {
     const sessionId = args[1];
     if (!sessionId) {
-      console.error('Usage: ant evidence screenshot <session-id>');
+      console.error('Usage: ant evidence screenshot \u003csession-id\u003e');
       return;
     }
     const outputDir = flags.dir || join(process.env.HOME || '/tmp', '.ant-v3', 'evidence', 'screenshots');
@@ -68,5 +69,66 @@ export async function evidence(args: string[], flags: any, ctx: any) {
     return;
   }
 
-  console.log(`Usage: ant evidence screenshot <session-id> [--dir /path]`);
+  if (sub === 'visual-baseline') {
+    const sessionId = args[1];
+    if (!sessionId) {
+      console.error('Usage: ant evidence visual-baseline \u003csession-id\u003e [--base-url http://localhost:5173]');
+      return;
+    }
+    const baseUrl = flags.baseUrl || flags['base-url'] || 'http://localhost:5173';
+    const outDir = flags.dir || join(process.env.HOME || '/tmp', '.ant-v3', 'evidence', 'visual-qa');
+    const scriptPath = join(process.cwd(), 'scripts', 'visual-qa-capture.mjs');
+
+    try {
+      // Run the visual QA capture script
+      const { stdout, stderr } = await execFileAsync('node', [
+        scriptPath,
+        '--base-url', baseUrl,
+        '--out-dir', outDir,
+      ]);
+      if (stderr) console.error(stderr);
+      console.log(stdout);
+
+      // Read the baseline JSON
+      const baselinePath = join(outDir, 'baseline.json');
+      const baselineRaw = await readFile(baselinePath, 'utf-8');
+      const baseline = JSON.parse(baselineRaw);
+
+      // Emit run_event
+      const payload = JSON.stringify({
+        out_dir: outDir,
+        states: baseline.states.map((s: any) => ({
+          name: s.name,
+          screenshot: s.screenshot,
+          bytes: s.bytes,
+          timestamp: s.timestamp,
+        })),
+      });
+      const ev = queries.appendRunEvent(
+        sessionId,
+        Date.now(),
+        'hook',
+        'high',
+        'visual_baseline',
+        `Visual baseline captured: ${baseline.states.length} states`,
+        payload,
+        null,
+      );
+
+      if (ctx.json) {
+        console.log(JSON.stringify({ ok: true, baseline, run_event: ev }, null, 2));
+        return;
+      }
+      console.log(`Visual baseline captured for ${sessionId}`);
+      console.log(`States: ${baseline.states.map((s: any) => s.name).join(', ')}`);
+      console.log(`Run event: ${(ev as any)?.id ?? 'saved'}`);
+    } catch (err: any) {
+      console.error(`Visual baseline failed: ${err.message}`);
+      process.exit(1);
+    }
+    return;
+  }
+
+  console.log(`Usage: ant evidence screenshot \u003csession-id\u003e [--dir /path]`);
+  console.log(`       ant evidence visual-baseline \u003csession-id\u003e [--base-url http://localhost:5173] [--dir /path]`);
 }
