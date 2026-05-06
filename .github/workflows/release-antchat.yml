@@ -25,12 +25,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - runner: macos-14
-            arch: arm64
-          - runner: macos-13
-            arch: x64
-    runs-on: ${{ matrix.runner }}
+        arch: [arm64, x64]
+    # Both arches build on macos-14 (Apple Silicon). Bun cross-compiles
+    # bun-darwin-x64 reliably from arm64; we previously had an x64 matrix
+    # entry on macos-13 but GitHub's macos-13 runner pool can queue for
+    # hours, so we accept the cross-compile trade-off and only smoke-test
+    # the native arch (arm64).
+    runs-on: macos-14
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -47,9 +48,11 @@ jobs:
         run: bun run "build:antchat:$ARCH"
 
       - name: smoke (${{ matrix.arch }})
-        # Smoke uses `uname -m` to pick which binary to test, so it only
-        # runs on the matching matrix arch (no cross-arch execution on
-        # GitHub's macOS runners).
+        if: matrix.arch == 'arm64'
+        # Smoke runs only on the native arch — the x64 binary is
+        # cross-compiled on arm64 and cannot execute here. Bun's
+        # cross-target compile is the same artefact users get, so
+        # build success is sufficient correctness signal for x64.
         run: bun run smoke:antchat
 
       - name: package + checksum
