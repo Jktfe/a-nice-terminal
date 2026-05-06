@@ -26,6 +26,7 @@ import { open } from './commands/open.js';
 import { tasks } from './commands/tasks.js';
 import { plan } from './commands/plan.js';
 import { mcp } from './commands/mcp.js';
+import { watch } from './commands/watch.js';
 
 const HELP = `
 antchat — lightweight ANT chat client (v0.1.0)
@@ -70,7 +71,10 @@ Commands:
                            --config /path/to/json  Override config file path
   mcp uninstall <id>       Remove the proxy entry from claude_desktop_config.json.
   mcp print [id]           Emit a JSON snippet (single room or all joined rooms).
-  watch <install|...>      launchd watcher for @-mentions.             (Wave 4E)
+  watch run                Foreground @-mention watcher (launchd target).
+  watch install            Register + start the LaunchAgent (~/Library/LaunchAgents).
+  watch uninstall          Stop + remove the LaunchAgent.
+  watch status             Print plist path and presence.
 
 Global flags:
   --server URL | -s URL    Override server URL (default: from token's server_url)
@@ -124,11 +128,10 @@ async function main() {
       return plan(args, flags, ctx);
     case 'mcp':
       return mcp(args, flags, ctx);
+    case 'watch':
+      return watch(args, flags, ctx);
 
     // Stubs for waves still in flight — fail fast with a hint.
-    case 'watch':
-      console.error('antchat watch: not yet wired (Wave 4E). Track progress in docs/antchat-swarm-plan.md.');
-      process.exit(2);
     case 'doc':
     case 'sheet':
     case 'export':
