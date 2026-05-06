@@ -15,8 +15,15 @@ import {
 
 export const config = { body: { maxSize: uploadBodyMaxSize() } };
 
-const UPLOAD_DIR = join(process.cwd(), 'static', 'uploads');
+// Resolve the upload directory at request time, not module-init time.
+// SvelteKit endpoints are imported once per server boot and cached, so a
+// constant captured at top-level would freeze process.cwd() for the rest of
+// the process — which breaks per-test isolation in tests/upload-hardening,
+// and also misses any chdir done by deployment scripts after boot.
 const UPLOAD_URL_PREFIX = '/uploads';
+function uploadDir(): string {
+  return join(process.cwd(), 'static', 'uploads');
+}
 
 function uploadPolicyFromConfig() {
   return getUploadPolicy({
@@ -80,9 +87,10 @@ export async function POST(event: RequestEvent) {
   const storagePath = join('static', 'uploads', filename);
   const publicUrl = `${UPLOAD_URL_PREFIX}/${filename}`;
 
-  await mkdir(UPLOAD_DIR, { recursive: true });
+  const dir = uploadDir();
+  await mkdir(dir, { recursive: true });
   try {
-    await writeFile(join(UPLOAD_DIR, filename), buffer, { flag: 'wx' });
+    await writeFile(join(dir, filename), buffer, { flag: 'wx' });
   } catch (err) {
     if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') throw err;
   }
