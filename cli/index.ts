@@ -19,6 +19,7 @@ import { agents } from './commands/agents.js';
 import { prompt } from './commands/prompt.js';
 import { register as registerIdentity } from './commands/register.js';
 import { joinRoom } from './commands/joinRoom.js';
+import { evidence } from './commands/evidence.js';
 import { config } from './lib/config.js';
 import { identitySourceLabel, resolveIdentityDetails, resolveIdentityDetailsAsync } from './lib/identity.js';
 
@@ -173,6 +174,7 @@ async function main() {
       case 'register': await registerIdentity(args, flags, ctx); break;
       case 'join-room': await joinRoom(args, flags, ctx); break;
       case 'share':    await share(args, flags, ctx); break;
+      case 'evidence': await evidence(args, flags, ctx); break;
       case 'qr':       await (await import('./commands/qr.js')).qr(args, flags, ctx); break;
       case 'whoami':   await whoamiCmd(flags, ctx); break;
       case 'config':   configCmd(args, flags); break;
