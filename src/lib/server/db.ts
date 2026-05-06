@@ -891,6 +891,8 @@ export const queries = {
     prepare(`SELECT * FROM messages WHERE session_id = ? AND created_at > ? ORDER BY created_at ASC LIMIT ?`).all(sessionId, since, limit),
   getMessagesBefore: (sessionId: string, before: string, limit: number) =>
     prepare(`SELECT * FROM messages WHERE session_id = ? AND created_at < ? ORDER BY created_at DESC LIMIT ?`).all(sessionId, before, limit),
+  getLatestMessages: (sessionId: string, limit: number) =>
+    prepare(`SELECT * FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT ?`).all(sessionId, limit),
   createMessage: (id: string, sessionId: string, role: string, content: string, format: string, status: string, senderId: string | null, target: string | null, replyTo: string | null, msgType: string, meta: string) =>
     prepare(`INSERT INTO messages (id, session_id, role, content, format, status, sender_id, target, reply_to, msg_type, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, sessionId, role, content, format, status, senderId, target, replyTo, msgType, meta),
   deleteMessage: (id: string) => prepare(`DELETE FROM messages WHERE id = ?`).run(id),

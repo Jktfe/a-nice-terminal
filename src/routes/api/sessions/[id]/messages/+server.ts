@@ -86,7 +86,8 @@ export async function DELETE(event: RequestEvent<{ id: string }>) {
 export function GET({ params, url }: RequestEvent<{ id: string }>) {
   const since = url.searchParams.get('since');
   const before = url.searchParams.get('before');
-  const limit = parseInt(url.searchParams.get('limit') || '50');
+  const limitParam = url.searchParams.get('limit');
+  const limit = limitParam ? parseInt(limitParam) : 50;
 
   let messages: unknown[];
   if (before) {
@@ -96,6 +97,12 @@ export function GET({ params, url }: RequestEvent<{ id: string }>) {
     messages = (rows as unknown[]).reverse();
   } else if (since) {
     messages = queries.getMessagesSince(params.id, since, limit) as unknown[];
+  } else if (limitParam) {
+    // Bounded latest-N fetch — DESC then reverse for ASC delivery.
+    // The previous unbounded path silently ignored ?limit=, returning every
+    // message in the room on every page load.
+    const rows = queries.getLatestMessages(params.id, limit) as unknown[];
+    messages = (rows as unknown[]).reverse();
   } else {
     messages = queries.listMessages(params.id) as unknown[];
   }

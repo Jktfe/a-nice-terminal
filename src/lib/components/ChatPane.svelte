@@ -18,6 +18,8 @@
     meta?: string;
   }
 
+  const PAGE_SIZE = 50;
+
   let messages = $state<Message[]>([]);
   let inputText = $state('');
   let atBottom = $state(true);
@@ -28,6 +30,8 @@
   let isDragOver = $state(false);
   let uploading = $state(false);
   let uploadError = $state<string | null>(null);
+  let hasMoreHistory = $state(true);
+  let loadingHistory = $state(false);
 
   function handleJumpToMessage(event: Event) {
     const detail = (event as CustomEvent<{ messageId?: string }>).detail;
@@ -45,6 +49,46 @@
     if (!scrollEl) return;
     const threshold = 60;
     atBottom = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < threshold;
+    // Trigger lazy-load when user scrolls near the top of the visible history.
+    if (scrollEl.scrollTop < 100 && hasMoreHistory && !loadingHistory && messages.length > 0) {
+      void loadOlder();
+    }
+  }
+
+  async function loadOlder() {
+    if (loadingHistory || !hasMoreHistory) return;
+    const oldest = messages[0];
+    if (!oldest) return;
+    loadingHistory = true;
+    try {
+      const before = encodeURIComponent(oldest.created_at);
+      const res = await fetch(
+        `/api/sessions/${sessionId}/messages?before=${before}&limit=${PAGE_SIZE}`,
+      );
+      const data = await res.json();
+      const older: Message[] = Array.isArray(data) ? data : (data.messages ?? []);
+      if (older.length === 0) {
+        hasMoreHistory = false;
+        return;
+      }
+      hasMoreHistory = older.length === PAGE_SIZE;
+      // Restore scroll position so the user stays anchored to the message
+      // they were reading rather than jumping back to the new top.
+      const el = scrollEl;
+      const prevScrollHeight = el ? el.scrollHeight : 0;
+      // Filter out any duplicates already in the array (defensive against
+      // overlapping `before` boundaries).
+      const existingIds = new Set(messages.map((m) => m.id));
+      const fresh = older.filter((m) => !existingIds.has(m.id));
+      messages = [...fresh, ...messages];
+      if (el) {
+        requestAnimationFrame(() => {
+          el.scrollTop = el.scrollHeight - prevScrollHeight;
+        });
+      }
+    } finally {
+      loadingHistory = false;
+    }
   }
 
   $effect(() => {
@@ -160,11 +204,14 @@
     let destroyed = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-    // Load initial messages
-    fetch(`/api/sessions/${sessionId}/messages?limit=50`)
+    // Load the most recent page only — older pages stream in via loadOlder()
+    // when the user scrolls near the top.
+    fetch(`/api/sessions/${sessionId}/messages?limit=${PAGE_SIZE}`)
       .then(r => r.json())
       .then(data => {
-        messages = Array.isArray(data) ? data : (data.messages ?? []);
+        const initial: Message[] = Array.isArray(data) ? data : (data.messages ?? []);
+        messages = initial;
+        hasMoreHistory = initial.length === PAGE_SIZE;
         setTimeout(scrollToBottom, 0);
       })
       .catch(() => {});
@@ -257,6 +304,15 @@
         <p class="text-xs" style="color: var(--text-faint);">No messages yet</p>
       </div>
     {:else}
+      {#if loadingHistory}
+        <div class="flex items-center justify-center py-2 text-[10px]" style="color: var(--text-faint);">
+          Loading earlier messages…
+        </div>
+      {:else if !hasMoreHistory}
+        <div class="flex items-center justify-center py-2 text-[10px]" style="color: var(--text-faint);">
+          Start of conversation
+        </div>
+      {/if}
       {#each messages as msg (msg.id)}
         <div data-message-id={msg.id}>
           <MessageBubble message={msg} {sessionId} />
