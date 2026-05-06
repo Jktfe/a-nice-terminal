@@ -92,7 +92,8 @@ const { command, args, flags } = parseArgs(process.argv.slice(2));
 
 if (flags.help || command === 'help' || (!command && !flags.version)) {
   console.log(HELP);
-  process.exit(command ? 0 : 1);
+  // Explicit help (`--help`, `help`) exits 0; bare invocation (no args) exits 1.
+  process.exit(flags.help || command === 'help' ? 0 : 1);
 }
 
 if (flags.version) {
