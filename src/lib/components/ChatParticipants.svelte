@@ -140,19 +140,21 @@
 </script>
 
 <div class="px-3 pb-3 space-y-1.5">
-  {#if onStartInterview}
+  {#if onStartInterview && participantsActive.filter((p) => p.sess.type === 'terminal').length === 1}
+    {@const soleTerminal = participantsActive.filter((p) => p.sess.type === 'terminal')[0].sess}
+    {@const label = soleTerminal.display_name || soleTerminal.name}
     <button
-      onclick={() => onStartInterview?.(sessionId)}
+      onclick={() => onStartInterview?.(soleTerminal.id)}
       class="w-full flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors"
       style="border: 1px solid #6366F1; color: #6366F1; background: #EEF2FF;"
-      title="Start a linked interview chat for this room"
-      aria-label="Start interview for this room"
+      title="Start a linked interview chat with {label}"
+      aria-label="Start interview with {label}"
     >
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
       </svg>
-      Start interview
+      Start interview with {label}
     </button>
   {/if}
   <!-- Active participants -->
