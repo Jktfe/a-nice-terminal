@@ -11,6 +11,7 @@ import { msg } from './commands/msg.js';
 import { ask } from './commands/ask.js';
 import { deck } from './commands/deck.js';
 import { task } from './commands/task.js';
+import { plan } from './commands/plan.js';
 import { flag } from './commands/flag.js';
 import { hooks } from './commands/hooks.js';
 import { memory } from './commands/memory.js';
@@ -87,6 +88,10 @@ Commands:
   task <id> done <task-id>          Mark complete
   task <id> delete <task-id>        Delete a task
 
+  plan list                         List all known plans (plan_id, session, event count)
+  plan show <plan_id>               Show milestones + tests with latest status
+                                    (--session <id> to disambiguate; --limit N events)
+
   flag <id> <file>      Flag a file reference in the session (--note "why")
   flag <id> list        List flagged files
   flag <id> remove <r>  Remove a file reference
@@ -158,6 +163,7 @@ async function main() {
       case 'ask':      await ask(args, flags, ctx); break;
       case 'deck':     await deck(args, flags, ctx); break;
       case 'task':     await task(args, flags, ctx); break;
+      case 'plan':     await plan(args, flags, ctx); break;
       case 'flag':     await flag(args, flags, ctx); break;
       case 'search':   await search(args, flags, ctx); break;
       case 'memory':   await memory(args, flags, ctx); break;
