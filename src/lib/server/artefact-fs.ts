@@ -32,6 +32,13 @@ export function assertSafeDeckSlug(slug: string): string {
   return slug;
 }
 
+export function assertSafeSheetSlug(slug: string): string {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$/.test(slug)) {
+    throw new Error('Invalid sheet slug');
+  }
+  return slug;
+}
+
 export function assertInside(root: string, target: string): void {
   const rel = relative(root, target);
   if (rel === '' || (!rel.startsWith('..') && !rel.startsWith('/'))) return;

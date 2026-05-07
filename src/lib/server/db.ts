@@ -546,6 +546,22 @@ function getDb(): any {
   )`);
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_decks_owner ON decks(owner_session_id)`);
 
+  // Open-Slide sheets — local spreadsheet workspaces registered against one or
+  // more ANT rooms. Mirrors the decks table shape; concurrency contract is
+  // identical (whole-file base_hash + if_match_mtime guard). Cell-aware diffs
+  // are a future follow-up.
+  const sheetsTableSql = `CREATE TABLE IF NOT EXISTS sheets (
+    slug TEXT PRIMARY KEY,
+    owner_session_id TEXT NOT NULL REFERENCES sessions(id),
+    allowed_room_ids TEXT NOT NULL,
+    sheet_dir TEXT NOT NULL,
+    dev_port INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`;
+  G[DB_KEY].exec(sheetsTableSql);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_sheets_owner ON sheets(owner_session_id)`);
+
   // M3 #2 — Consent grants: scope-of-grant records per session.
   // topic: what the grant allows (file-read, web-fetch, etc.).
   // source_set: JSON array of file paths, URLs, or identifiers the grant covers.
@@ -1478,6 +1494,43 @@ export const queries = {
     prepare(`DELETE FROM decks WHERE slug = ?`).run(slug),
   listDecksOwnedBy: (ownerSessionId: string) =>
     prepare(`SELECT * FROM decks WHERE owner_session_id = ?`).all(ownerSessionId),
+
+  // Sheet registry — mirrors the deck registry (same concurrency contract:
+  // whole-file base_hash + if_match_mtime). Cell-aware diffs are a future
+  // follow-up; structural parity is intentional.
+  upsertSheet: (row: {
+    slug: string;
+    owner_session_id: string;
+    allowed_room_ids: string;
+    sheet_dir: string;
+    dev_port: number | null;
+    now_ms?: number;
+  }) =>
+    prepare(`INSERT INTO sheets (slug, owner_session_id, allowed_room_ids, sheet_dir, dev_port, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(slug) DO UPDATE SET
+               owner_session_id = excluded.owner_session_id,
+               allowed_room_ids = excluded.allowed_room_ids,
+               sheet_dir = excluded.sheet_dir,
+               dev_port = excluded.dev_port,
+               updated_at = excluded.updated_at`).run(
+      row.slug,
+      row.owner_session_id,
+      row.allowed_room_ids,
+      row.sheet_dir,
+      row.dev_port,
+      row.now_ms ?? Date.now(),
+      row.now_ms ?? Date.now(),
+    ),
+  getSheet: (slug: string) =>
+    prepare(`SELECT * FROM sheets WHERE slug = ?`).get(slug),
+  listSheets: () =>
+    prepare(`SELECT * FROM sheets ORDER BY updated_at DESC`).all(),
+  deleteSheet: (slug: string) =>
+    prepare(`DELETE FROM sheets WHERE slug = ?`).run(slug),
+  listSheetsOwnedBy: (ownerSessionId: string) =>
+    prepare(`SELECT * FROM sheets WHERE owner_session_id = ?`).all(ownerSessionId),
+
 
   // ── Consent grants (M3 #2) ─────────────────────────────────────────
   getConsentGrant: (id: string) =>
