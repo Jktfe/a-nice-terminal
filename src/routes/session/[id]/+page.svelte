@@ -8,6 +8,7 @@
   import ChatHeader from '$lib/components/ChatHeader.svelte';
   import ChatMessages from '$lib/components/ChatMessages.svelte';
   import ChatSidePanel from '$lib/components/ChatSidePanel.svelte';
+  import VoiceModeBar from '$lib/components/VoiceModeBar.svelte';
   import DigestPanel from '$lib/components/DigestPanel.svelte';
   import ActivityRail from '$lib/components/ActivityRail.svelte';
   import RunView from '$lib/components/RunView.svelte';
@@ -1070,8 +1071,20 @@
     }
   }
 
+  // Voice mode interrupt phrase — set by VoiceModeBar when the user cuts the
+  // agent off mid-utterance. Travels with the next outgoing user message as
+  // meta.interrupted_at so the agent has context for the interruption.
+  let pendingInterruptPhrase = $state<string | null>(null);
+
   async function sendMessage(text: string, replyToId: string | null = null) {
-    await msgStore.send(sessionId, text, { reply_to: replyToId });
+    const meta: Record<string, unknown> = {};
+    if (pendingInterruptPhrase) {
+      meta.interrupted_at = pendingInterruptPhrase;
+      pendingInterruptPhrase = null;
+    }
+    const sendOpts: Parameters<typeof msgStore.send>[2] = { reply_to: replyToId };
+    if (Object.keys(meta).length > 0) sendOpts.meta = meta;
+    await msgStore.send(sessionId, text, sendOpts);
     await loadUploads(sessionId);
     replyTo = null;
 
@@ -1395,6 +1408,23 @@
     return { active: [...active, ...externalActive], available };
   });
 
+  // True when this chat is an explicit Interview chat (meta.interview === true).
+  // Voice mode lives only in interviews — auto-linked chats are a separate
+  // concept (1:1 pair created at terminal-spawn time) and TTS reading their
+  // replies would feel intrusive. Multi-participant rooms are also excluded
+  // by the meta.interview check (only the interview launcher sets that flag).
+  const isInterviewChat = $derived.by(() => {
+    if (session?.type !== 'chat') return false;
+    const raw = (session as { meta?: unknown })?.meta;
+    if (!raw) return false;
+    try {
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      return Boolean((parsed as { interview?: unknown })?.interview);
+    } catch {
+      return false;
+    }
+  });
+
   // Messages to show in chat area: linked chat for terminals, msgStore for chat sessions
   const displayMessages = $derived(
     (session?.type === 'terminal' ? linkedChatMessages : msgStore.messages) as Record<string, unknown>[]
@@ -1506,6 +1536,15 @@
   <div class="flex flex-1 overflow-hidden min-h-0">
     <!-- Main -->
     <div class="flex-1 flex flex-col overflow-hidden min-w-0">
+      {#if mode === 'chat' && isInterviewChat}
+        <div class="px-3 pt-2">
+          <VoiceModeBar
+            {sessionId}
+            messages={displayMessages as Array<{ id: string; role?: string; sender_id?: string | null; content?: string; created_at?: string }>}
+            onInterruptPhrase={(phrase) => { pendingInterruptPhrase = phrase; }}
+          />
+        </div>
+      {/if}
       {#if mode === 'chat'}
         <ChatMessages
           messages={displayMessages}
