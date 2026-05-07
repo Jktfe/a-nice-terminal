@@ -108,7 +108,15 @@ export const handle: Handle = async ({ event, resolve }) => {
   const apiKey = process.env.ANT_API_KEY;
   if (apiKey && event.url.pathname.startsWith('/api/') && !isPublic) {
     const origin = event.request.headers.get('origin');
-    const isSameOrigin = origin === event.url.origin || !origin;
+    // Accept Origin matching either event.url.origin OR the Host header.
+    // adapter-node + TLS sometimes sets event.url to the cert's CN
+    // (e.g. mac.kingfisher-interval.ts.net) while the browser hits
+    // localhost — both are same-machine and should pass.
+    const host = event.request.headers.get('host');
+    const hostOrigin = host ? `${event.url.protocol}//${host}` : null;
+    const isSameOrigin = !origin
+      || origin === event.url.origin
+      || origin === hostOrigin;
     if (!isSameOrigin) {
       const provided = event.request.headers.get('authorization')?.replace('Bearer ', '') ||
                        event.request.headers.get('x-api-key') ||
