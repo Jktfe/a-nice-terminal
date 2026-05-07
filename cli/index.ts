@@ -15,6 +15,7 @@ import { plan } from './commands/plan.js';
 import { flag } from './commands/flag.js';
 import { hooks } from './commands/hooks.js';
 import { memory } from './commands/memory.js';
+import { doc } from './commands/doc.js';
 import { agents } from './commands/agents.js';
 import { prompt } from './commands/prompt.js';
 import { grant } from './commands/grant.js';
@@ -133,7 +134,20 @@ Commands:
   memory search <query>       FTS5 search operational memory (--all for archives too)
   memory audit                Report duplicate, oversize, and noisy memory rows
   memory delete <key>         Delete one row by key
-                              (see docs/mempalace-schema.md for conventions)
+                              (see docs/mempalace-schema.md for conventions;
+                               for research docs prefer 'ant doc' — it goes
+                               through the doc API + Obsidian mirror.)
+
+  doc create <id>             Create a research doc (--title "..." [--description ...] [--author @x])
+  doc get <id>                Read a research doc rendered as markdown
+  doc list                    List all research docs
+  doc section <id> <secId>    Add or update a section
+                              (--heading "..." --content "..." [--author @x] [--signed-off])
+  doc signoff <id>            Sign off as one of the authors (--author @x)
+  doc publish <id>            Publish (--author @x)
+                              (Stored in memories K/V at docs/<id>; mirrored to
+                               $ANT_OBSIDIAN_VAULT/research/<id>.md. See
+                               docs/ant-agent-feature-protocols.md Section 12.)
 
   agents list                 Pretty-print the agent registry (agents/*)
   agents show <id>            Full row for one agent
@@ -192,6 +206,7 @@ async function main() {
       case 'flag':     await flag(args, flags, ctx); break;
       case 'search':   await search(args, flags, ctx); break;
       case 'memory':   await memory(args, flags, ctx); break;
+      case 'doc':      await doc(args, flags, ctx); break;
       case 'agents':   await agents(args, flags, ctx); break;
       case 'prompt':   await prompt(args, flags, ctx); break;
       case 'hooks':    await hooks(args.slice(1), flags); break;

@@ -9,6 +9,12 @@
 //
 // See docs/mempalace-schema.md for the key conventions agents should
 // follow (goals/, tasks/, agents/, done/, heartbeat/, digest/).
+//
+// For *research docs* (docs/<id>) prefer `ant doc <subcommand>`. It goes
+// through the doc API which handles section lifecycle (sign-off, publish)
+// and the Obsidian mirror at $ANT_OBSIDIAN_VAULT/research/<id>.md. Direct
+// `ant memory put docs/<id> ...` bypasses both. See
+// docs/ant-agent-feature-protocols.md Section 12.
 
 import { api } from '../lib/api.js';
 
@@ -18,6 +24,7 @@ export async function memory(args: string[], flags: any, ctx: any) {
   if (!sub) {
     console.error('Usage: ant memory <get|put|list|search|audit|delete> [args]');
     console.error('See docs/mempalace-schema.md for key conventions.');
+    console.error('For research docs (docs/<id>), prefer `ant doc` over `ant memory put`.');
     return;
   }
 

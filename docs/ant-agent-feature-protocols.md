@@ -536,8 +536,19 @@ offline, stale, or marked as weak for that task type.
 
 ## 12. Research Docs
 
-Shared research docs are stored as `docs/<id>` memories and mirrored to
-Obsidian.
+Shared research docs live in two surfaces by design — both stay in sync
+via the doc API:
+
+- **Server-side**: memories K/V at `docs/<id>` (root) and
+  `docs/<id>/sections/<sectionId>` (per-section).
+- **Vault-side**: `$ANT_OBSIDIAN_VAULT/research/<id>.md`, written by
+  `mirrorToObsidian()` on every API write so James can review docs in
+  Obsidian Sync from anywhere (mobile included).
+
+The CLI command `ant doc` is the canonical entry point — it goes through
+the doc API which handles the lifecycle (section → sign-off → publish)
+and keeps the Obsidian mirror in lockstep. Direct `ant memory put
+docs/<id>` bypasses both; never use it for research docs.
 
 Current vault:
 
@@ -551,41 +562,49 @@ Research docs path:
 $ANT_OBSIDIAN_VAULT/research
 ```
 
-Create a doc:
+### CLI (preferred)
 
 ```bash
+# Create
+ant doc create memory-audit --title "ANT Memory System Audit" \
+  --description "..." --author @agent
+
+# Add or update a section
+ant doc section memory-audit findings \
+  --heading "Findings" --content "..." --author @agent --signed-off
+
+# Sign off
+ant doc signoff memory-audit --author @agent
+
+# Publish
+ant doc publish memory-audit --author @agent
+
+# View (rendered markdown)
+ant doc get memory-audit
+
+# List all
+ant doc list
+```
+
+### Curl fallback (non-CLI clients)
+
+```bash
+# Create
 curl -sk -X POST https://localhost:6458/api/docs \
   -H 'Content-Type: application/json' \
   -d '{"id":"memory-audit","title":"ANT Memory System Audit","description":"...","author":"@agent"}'
-```
 
-Add or update a section:
-
-```bash
+# Add or update a section
 curl -sk -X PUT https://localhost:6458/api/docs/<doc-id> \
   -H 'Content-Type: application/json' \
   -d '{"sectionId":"findings","heading":"Findings","author":"@agent","signedOff":true,"content":"..."}'
-```
 
-Sign off:
-
-```bash
+# Sign off / publish
 curl -sk -X POST https://localhost:6458/api/docs/<doc-id> \
   -H 'Content-Type: application/json' \
-  -d '{"author":"@agent","action":"sign-off"}'
-```
+  -d '{"author":"@agent","action":"sign-off"}'   # or "publish"
 
-Publish:
-
-```bash
-curl -sk -X POST https://localhost:6458/api/docs/<doc-id> \
-  -H 'Content-Type: application/json' \
-  -d '{"author":"@agent","action":"publish"}'
-```
-
-View:
-
-```bash
+# View
 curl -sk https://localhost:6458/api/docs/<doc-id> | jq -r .markdown
 ```
 
