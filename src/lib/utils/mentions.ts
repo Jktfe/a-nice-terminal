@@ -59,16 +59,3 @@ export function bracketRoutingMention(text: string, rawHandle: string): string {
 
   return next + text.slice(cursor);
 }
-
-/**
- * Detect @mentions that are followed by an interview trigger word within a
- * short window. Returns the subset of handles that appear to be interview
- * targets so the caller can POST /api/sessions/:id/start-interview.
- */
-export function interviewMentions(text: string, handles: MentionHandle[]): MentionHandle[] {
-  const lowerText = text.toLowerCase();
-  const triggers = ['interview', 'start interview', 'talk to', 'chat with'];
-  const hasTrigger = triggers.some((t) => lowerText.includes(t));
-  if (!hasTrigger) return [];
-  return handles.filter((item) => findActiveHandle(text, normaliseHandle(item.handle)));
-}

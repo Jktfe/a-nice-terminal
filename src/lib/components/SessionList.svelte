@@ -25,27 +25,6 @@
   const grid = useGridStore();
   const store = useSessionStore();
 
-  async function startInterview(sessionId: string) {
-    try {
-      const res = await fetch(`/api/sessions/${sessionId}/start-interview`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      if (!res.ok) {
-        const payload = await res.json().catch(() => null);
-        throw new Error(payload?.error || `Failed to start interview (${res.status})`);
-      }
-      const result = await res.json();
-      if (result?.ok && result?.linked_chat_id) {
-        goto(`/session/${result.linked_chat_id}`);
-      }
-    } catch (e: any) {
-      // eslint-disable-next-line no-console
-      console.error('Start interview failed:', e.message);
-    }
-  }
-
   let searchText = $state('');
   let creatingTerminal = $state(false);
   let creatingChat = $state(false);
@@ -626,7 +605,6 @@
                         onDelete={() => store.deleteSession(terminal.id)}
                         pinnedToSidebar={sidebarPinnedIds.has(terminal.id)}
                         onTogglePin={(t) => toggleSidebarPin(t.id)}
-                        onStartInterview={() => startInterview(terminal.id)}
                       />
                     </div>
                   </div>
@@ -723,7 +701,6 @@
                         onclick={() => goto(`/session/${chat.id}`)}
                         onArchive={() => store.archiveSession(chat.id)}
                         onDelete={() => store.deleteSession(chat.id)}
-                        onStartInterview={() => startInterview(chat.id)}
                         onInvite={() => { inviteSession = { id: chat.id, name: chat.name || chat.id }; }}
                       />
                     </div>

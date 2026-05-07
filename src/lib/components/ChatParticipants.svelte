@@ -29,7 +29,6 @@
     onOpenLinkedChat?: (sess: PageSession) => void;
     onAddTerminalToRoom?: (sess: PageSession) => void;
     onStopParticipant?: (sess: PageSession) => void;
-    onStartInterview?: (targetSessionId: string) => void;
   }
 
   const {
@@ -44,7 +43,6 @@
     onOpenLinkedChat,
     onAddTerminalToRoom,
     onStopParticipant,
-    onStartInterview
   }: Props = $props();
 
   let presence = $state<Record<string, { status: 'active' | 'idle' | 'offline' }>>({});
@@ -157,23 +155,6 @@
 </script>
 
 <div class="participant-strip">
-  {#if onStartInterview && participantsActive.filter((p) => p.sess.type === 'terminal' && p.sess.linked_chat_id !== sessionId).length === 1}
-    {@const soleTerminal = participantsActive.filter((p) => p.sess.type === 'terminal' && p.sess.linked_chat_id !== sessionId)[0].sess}
-    {@const label = soleTerminal.display_name || soleTerminal.name}
-    <button
-      onclick={() => onStartInterview?.(soleTerminal.id)}
-      class="interview-cta"
-      title="Start a linked interview chat with {label}"
-      aria-label="Start interview with {label}"
-    >
-      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24" aria-hidden="true">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-        <path stroke-linecap="round" stroke-linejoin="round" d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
-      </svg>
-      Start interview with <span class="font-medium">{label}</span>
-    </button>
-  {/if}
-
   {#each participantsActive as p}
     {@const col = participantDot(p.sess)}
     {@const label = p.sess.display_name || p.sess.name}
@@ -181,12 +162,6 @@
     {@const statusCol = getStatusColor(p.sess.handle)}
     {@const statusLabel = getStatusLabel(p.sess.handle)}
     {@const isFocus = p.sess.attention_state === 'focus'}
-    {@const isTerminal = p.sess.type === 'terminal'}
-    {@const linkedToOtherRoom = !!(p.sess.linked_chat_id && p.sess.linked_chat_id !== sessionId)}
-    {@const linkedToThisRoom = p.sess.linked_chat_id === sessionId}
-    {@const canOpenLinked = linkedToOtherRoom && !!onOpenLinkedChat}
-    {@const canStartInterview = isTerminal && !p.sess.linked_chat_id && !!onStartInterview}
-    {@const showMic = isTerminal && !linkedToThisRoom && (canOpenLinked || canStartInterview)}
 
     <div
       class="participant-card"
@@ -223,23 +198,6 @@
         </div>
 
         <div class="actions">
-          {#if showMic}
-            <button
-              class="icon-btn icon-btn--primary"
-              onclick={() => {
-                if (canOpenLinked) onOpenLinkedChat?.(p.sess);
-                else if (canStartInterview) onStartInterview?.(p.sess.id);
-              }}
-              title={canOpenLinked ? `Open interview with ${label}` : `Start interview with ${label}`}
-              aria-label={canOpenLinked ? `Open interview with ${label}` : `Start interview with ${label}`}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
-              </svg>
-            </button>
-          {/if}
-
           <button
             class="icon-btn icon-btn--primary"
             onclick={() => { crossPostTarget = crossPostTarget === p.sess.id ? null : p.sess.id; crossPostText = ''; }}
@@ -422,12 +380,11 @@
                     <button
                       class="icon-btn icon-btn--primary"
                       onclick={() => onOpenLinkedChat?.(p.sess)}
-                      title="Open interview with {label}"
-                      aria-label="Open interview with {label}"
+                      title="Open linked chat for {label}"
+                      aria-label="Open linked chat for {label}"
                     >
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                        <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
+                        <path d="M5 12h14M13 6l6 6-6 6"/>
                       </svg>
                     </button>
                   {/if}
@@ -471,30 +428,6 @@
     flex-direction: column;
     gap: 6px;
     padding: 8px 12px 12px;
-  }
-
-  /* ── Interview CTA — prominent only when there's a single obvious target ── */
-  .interview-cta {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 9px 12px;
-    border-radius: 8px;
-    background: linear-gradient(180deg, color-mix(in srgb, #6366F1 8%, var(--bg-surface, #fff)) 0%, color-mix(in srgb, #6366F1 14%, var(--bg-surface, #fff)) 100%);
-    border: 1px solid color-mix(in srgb, #6366F1 28%, transparent);
-    color: #4F46E5;
-    font-size: 12px;
-    font-weight: 500;
-    margin-bottom: 4px;
-    cursor: pointer;
-    transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
-  }
-
-  .interview-cta:hover {
-    transform: translateY(-0.5px);
-    border-color: color-mix(in srgb, #6366F1 45%, transparent);
-    box-shadow: 0 2px 6px rgba(99, 102, 241, 0.16);
   }
 
   /* ── Participant card ─────────────────────────────────────────── */

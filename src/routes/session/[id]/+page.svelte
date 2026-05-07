@@ -8,7 +8,6 @@
   import ChatHeader from '$lib/components/ChatHeader.svelte';
   import ChatMessages from '$lib/components/ChatMessages.svelte';
   import ChatSidePanel from '$lib/components/ChatSidePanel.svelte';
-  import VoiceModeBar from '$lib/components/VoiceModeBar.svelte';
   import DigestPanel from '$lib/components/DigestPanel.svelte';
   import ActivityRail from '$lib/components/ActivityRail.svelte';
   import RunView from '$lib/components/RunView.svelte';
@@ -17,7 +16,6 @@
   import { useToasts } from '$lib/stores/toast.svelte';
   import { normalizeSessionName } from '$lib/utils/session-naming';
   import { isAutoLinkedChatSession } from '$lib/utils/linked-chat';
-  import { interviewMentions } from '$lib/utils/mentions';
   import { onMount, onDestroy } from 'svelte';
 
   interface PageSession {
@@ -1015,117 +1013,10 @@
     if (cmdPoll !== null) clearInterval(cmdPoll);
   });
 
-  async function publishSummary() {
-    if (!linkedChatId) {
-      toasts.show('No linked chat to publish from');
-      return;
-    }
-    try {
-      const res = await fetch(`/api/sessions/${linkedChatId}/publish-summary`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: `Interview summary: ${session?.name || 'Untitled'}`,
-          findings: [],
-          decisions: [],
-          asks: [],
-          actions: [],
-          sources: linkedChatMessages
-            .filter((m: any) => m.id)
-            .map((m: any) => ({ message_id: m.id, excerpt: String(m.content || '').slice(0, 120) })),
-          authored_by: session?.handle || null,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || `HTTP ${res.status}`);
-      }
-      const result = await res.json();
-      toasts.show(`Summary published to room ${result.origin_room_id}`);
-    } catch (e: any) {
-      toasts.show(`Publish failed: ${e.message}`);
-    }
-  }
-
-  // Direct interview start — primarily kept for the mic-icon legacy path and
-  // the @mention auto-trigger. The new launcher flow (Phase C) opens a modal
-  // that calls a similar handler with seed_message_id / participants.
-  async function startInterviewFor(
-    targetSessionId: string,
-    extra: { seed_message_id?: string; seed_text?: string; participants?: string[] } = {},
-  ) {
-    try {
-      const res = await fetch(`/api/sessions/${targetSessionId}/start-interview`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          origin_room_id: sessionId,
-          caller_handle: session?.handle || null,
-          seed_message_id: extra.seed_message_id ?? null,
-          seed_text: extra.seed_text ?? null,
-          participants: extra.participants ?? [],
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        toasts.show(`Interview failed: ${err.error || `HTTP ${res.status}`}`, 'error');
-        return;
-      }
-      const result = await res.json();
-      if (!result?.ok || !result?.chat_id) return;
-      if (result.chat_id === sessionId) {
-        toasts.show('You are already in the interview chat for this session');
-        return;
-      }
-      if (Array.isArray(result.invite_failures) && result.invite_failures.length > 0) {
-        toasts.show(`${result.invite_failures.length} participant(s) could not be auto-invited`, 'error');
-      }
-      goto(`/session/${result.chat_id}`);
-    } catch (e) {
-      toasts.show(`Interview failed: ${e instanceof Error ? e.message : 'unknown error'}`, 'error');
-    }
-  }
-
-  // Voice mode interrupt phrase — set by VoiceModeBar when the user cuts the
-  // agent off mid-utterance. Travels with the next outgoing user message as
-  // meta.interrupted_at so the agent has context for the interruption.
-  let pendingInterruptPhrase = $state<string | null>(null);
-
   async function sendMessage(text: string, replyToId: string | null = null) {
-    const meta: Record<string, unknown> = {};
-    if (pendingInterruptPhrase) {
-      meta.interrupted_at = pendingInterruptPhrase;
-      pendingInterruptPhrase = null;
-    }
-    const sendOpts: Parameters<typeof msgStore.send>[2] = { reply_to: replyToId };
-    if (Object.keys(meta).length > 0) sendOpts.meta = meta;
-    await msgStore.send(sessionId, text, sendOpts);
+    await msgStore.send(sessionId, text, { reply_to: replyToId });
     await loadUploads(sessionId);
     replyTo = null;
-
-    // M2 #1 — interview trigger via @mention
-    const mentionHandles = allSessions
-      .filter((s) => s.handle)
-      .map((s) => ({ handle: s.handle!, name: s.display_name || s.name || s.handle! }));
-    const interviewTargets = interviewMentions(text, mentionHandles);
-    for (const target of interviewTargets) {
-      const targetSession = allSessions.find((s) => s.handle === target.handle);
-      if (!targetSession) continue;
-      try {
-        const res = await fetch(`/api/sessions/${targetSession.id}/start-interview`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ origin_room_id: sessionId, caller_handle: session?.handle || null }),
-        });
-        if (!res.ok) continue;
-        const result = await res.json();
-        if (result?.ok && result?.chat_id) {
-          toasts.show(`Started interview with ${targetSession.display_name || targetSession.name || targetSession.handle}`);
-        }
-      } catch {
-        // Silently ignore interview trigger failures
-      }
-    }
   }
 
   async function sendCommand(cmd: string) {
@@ -1423,23 +1314,6 @@
     return { active: [...active, ...externalActive], available };
   });
 
-  // True when this chat is an explicit Interview chat (meta.interview === true).
-  // Voice mode lives only in interviews — auto-linked chats are a separate
-  // concept (1:1 pair created at terminal-spawn time) and TTS reading their
-  // replies would feel intrusive. Multi-participant rooms are also excluded
-  // by the meta.interview check (only the interview launcher sets that flag).
-  const isInterviewChat = $derived.by(() => {
-    if (session?.type !== 'chat') return false;
-    const raw = (session as { meta?: unknown })?.meta;
-    if (!raw) return false;
-    try {
-      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      return Boolean((parsed as { interview?: unknown })?.interview);
-    } catch {
-      return false;
-    }
-  });
-
   // Messages to show in chat area: linked chat for terminals, msgStore for chat sessions
   const displayMessages = $derived(
     (session?.type === 'terminal' ? linkedChatMessages : msgStore.messages) as Record<string, unknown>[]
@@ -1551,15 +1425,6 @@
   <div class="flex flex-1 overflow-hidden min-h-0">
     <!-- Main -->
     <div class="flex-1 flex flex-col overflow-hidden min-w-0">
-      {#if mode === 'chat' && isInterviewChat}
-        <div class="px-3 pt-2">
-          <VoiceModeBar
-            {sessionId}
-            messages={displayMessages as Array<{ id: string; role?: string; sender_id?: string | null; content?: string; created_at?: string }>}
-            onInterruptPhrase={(phrase) => { pendingInterruptPhrase = phrase; }}
-          />
-        </div>
-      {/if}
       {#if mode === 'chat'}
         <ChatMessages
           messages={displayMessages}
@@ -1793,10 +1658,8 @@
         onRemoveParticipant={removeParticipant}
         onFocusParticipant={setParticipantFocus}
         onOpenLinkedChat={openLinkedChat}
-        onPublishSummary={publishSummary}
         onAddTerminalToRoom={addTerminalToRoom}
         onStopParticipant={stopParticipant}
-        onStartInterview={startInterviewFor}
         onOpenFolderDrawer={() => (folderDrawerOpen = true)}
         onCreateTask={createTask}
         onClose={() => (showPanel = false)}
