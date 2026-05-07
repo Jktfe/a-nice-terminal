@@ -5,7 +5,7 @@
 // for network and config so antchat's room tokens are interchangeable with
 // `~/.ant/config.json` from the full `ant` CLI on the same host.
 //
-// v0.1.0 surface (this file):
+// v0.2.0 surface:
 //   antchat join <share-string>     # exchange invite for a room token
 //   antchat rooms                   # list joined rooms with handles
 //   antchat msg <id> [@h] "text"    # one-shot message into a room
@@ -15,7 +15,9 @@
 //   antchat plan <id>               # plan view (WS4B)
 //   antchat mcp <subcommand>        # MCP proxy / install (WS4C)
 //   antchat watch install/uninstall # launchd watcher (WS4E)
-//   antchat doc / sheet / export    # WS4D (gated on Wave 3)
+//   antchat doc <room> <subcmd>     # research-doc cowork (v0.2 — G.2)
+//   antchat deck <room> <subcmd>    # presentation cowork w/ file get/put (v0.2 — G.3)
+//   antchat sheet <room> <subcmd>   # spreadsheet cowork w/ file get/put (v0.2 — G.4)
 
 import { parseArgs } from '../cli/lib/args.js';
 import { join as joinRoom } from './commands/join.js';
@@ -27,9 +29,12 @@ import { tasks } from './commands/tasks.js';
 import { plan } from './commands/plan.js';
 import { mcp } from './commands/mcp.js';
 import { watch } from './commands/watch.js';
+import { doc } from './commands/doc.js';
+import { deck } from './commands/deck.js';
+import { sheet } from './commands/sheet.js';
 
 const HELP = `
-antchat — lightweight ANT chat client (v0.1.0)
+antchat — lightweight ANT chat client (v0.2.0)
 
 Usage: antchat <command> [options]
 
@@ -64,6 +69,28 @@ Commands:
                            --plan-id ID            Override plan id (default ant-r4)
                            --limit N               Cap events returned (default 200)
 
+Cowork (v0.2 — bidirectional editing for humans + agents):
+
+  doc <room> <subcmd>      Research-doc lifecycle (memories K/V + Obsidian mirror).
+                           Subcommands: list | get <id> | create <id>
+                                        section <id> <secId> | signoff <id> | publish <id>
+                           Flags: --title --description --content --heading --author --signed-off
+
+  deck <room> <subcmd>     Presentation cowork (Open-Slide).
+                           Subcommands: list | status <slug> | manifest <slug> | audit <slug>
+                                        file get <slug> <path> [--out PATH | --json]
+                                        file put <slug> <path> [--from-file LOCAL | --content "..."]
+                                                                [--base-hash X --if-match-mtime N]
+
+  sheet <room> <subcmd>    Spreadsheet cowork (deck-pattern parity).
+                           Same subcommand shape as deck — list/status/manifest/audit/file get/file put.
+
+  Read-modify-write protocol:
+    1. file get → captures sha256 + mtime_ms (via stderr / --json envelope).
+    2. Modify locally.
+    3. file put with --base-hash + --if-match-mtime from step 1.
+    4. On 409: re-fetch, merge, retry.
+
   mcp serve <id>           Run the stdio MCP proxy (Claude Desktop spawn target).
                            --handle @name          Pick a non-default identity
   mcp install <id>         Register the proxy in claude_desktop_config.json.
@@ -83,9 +110,11 @@ Global flags:
 
 Examples:
   antchat join "ant://example.com/r/abc123?invite=xyz789" --password hunter2 --handle @stevo
-  antchat rooms
   antchat msg abc123 "hello"
-  antchat msg abc123 @james "got a sec?"
+  antchat doc abc123 list
+  antchat deck abc123 file get pitch slides/intro.md   # capture sha+mtime via stderr
+  antchat sheet abc123 file put forecast q1.csv --from-file q1.csv \\
+    --base-hash <prev-sha> --if-match-mtime <prev-mtime>
 `.trim();
 
 const { command, args, flags } = parseArgs(process.argv.slice(2));
@@ -97,7 +126,7 @@ if (flags.help || command === 'help' || (!command && !flags.version)) {
 }
 
 if (flags.version) {
-  console.log('antchat 0.1.0');
+  console.log('antchat 0.2.0');
   process.exit(0);
 }
 
@@ -132,11 +161,17 @@ async function main() {
     case 'watch':
       return watch(args, flags, ctx);
 
-    // Stubs for waves still in flight — fail fast with a hint.
+    // Cowork commands — bidirectional editing for humans + agents (v0.2).
     case 'doc':
+      return doc(args, flags, ctx);
+    case 'deck':
+      return deck(args, flags, ctx);
     case 'sheet':
+      return sheet(args, flags, ctx);
+
+    // `export` was a Wave 4D placeholder; not yet wired.
     case 'export':
-      console.error(`antchat ${command}: not yet wired (Wave 4D — needs Wave 3 MCP tools). Track progress in docs/antchat-swarm-plan.md.`);
+      console.error(`antchat export: not yet wired. Track progress in docs/antchat-swarm-plan.md.`);
       process.exit(2);
 
     default:

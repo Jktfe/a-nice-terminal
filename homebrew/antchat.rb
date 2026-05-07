@@ -19,7 +19,7 @@
 class Antchat < Formula
   desc "Lightweight ANT chat client — single binary, no Bun/Node required on host"
   homepage "https://github.com/Jktfe/a-nice-terminal"
-  version "0.1.0"
+  version "0.2.0"
   license "MIT"
 
   on_macos do

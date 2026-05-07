@@ -1,5 +1,6 @@
 import { api } from '../lib/api.js';
 import { config } from '../lib/config.js';
+import { fileGet, filePut, DECK_KIND } from '../lib/artefact-files.js';
 
 function roomOpts(flags: any): { roomToken?: string } | undefined {
   const roomId = flags.session || flags.room || flags.session_id;
@@ -112,6 +113,24 @@ export async function deck(args: string[], flags: any, ctx: any) {
   if (sub === 'audit' || sub === 'log') {
     await showAudit(args[1], flags, ctx);
     return;
+  }
+
+  // File operations — read-modify-write loop for human + agent collaboration.
+  // Conflict detection via base_hash + if_match_mtime; on 409 the caller
+  // re-fetches and retries (same protocol the web editor uses).
+  if (sub === 'file') {
+    const op = args[1];
+    const slug = args[2];
+    const filePath = args[3];
+    const tok = roomOpts(flags);
+    if (op === 'get') return fileGet(ctx, DECK_KIND, slug, filePath, flags, tok?.roomToken);
+    if (op === 'put') return filePut(ctx, DECK_KIND, slug, filePath, flags, tok?.roomToken);
+    throw new Error(
+      `Usage:\n` +
+      `  ant deck file get <slug> <path> [--out PATH] [--json] [--session <room-id>]\n` +
+      `  ant deck file put <slug> <path> [--from-file LOCAL | --content "..."]\n` +
+      `                     [--base-hash X --if-match-mtime N] [--session <room-id>]`,
+    );
   }
 
   await showDeck(sub, flags, ctx);

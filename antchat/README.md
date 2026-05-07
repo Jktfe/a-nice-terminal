@@ -7,7 +7,7 @@ A single-binary macOS client for joining ANT chat rooms from collaborators' mach
 | What you want | Use |
 | --- | --- |
 | Run an ANT server, manage agents, terminals, plans, fingerprinting | `ant` (this repo) |
-| Just join a friend's room from your laptop and chat / hand tasks back and forth | `antchat` (this directory) |
+| Just join a colleague's room from your laptop and chat / hand tasks back and forth | `antchat` (this directory) |
 | Wire your local Claude Desktop to a colleague's room as an MCP server | `antchat mcp install` |
 
 ## Install

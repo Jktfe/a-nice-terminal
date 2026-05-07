@@ -10,6 +10,7 @@ import { share } from './commands/share.js';
 import { msg } from './commands/msg.js';
 import { ask, question } from './commands/ask.js';
 import { deck } from './commands/deck.js';
+import { sheet } from './commands/sheet.js';
 import { task } from './commands/task.js';
 import { plan } from './commands/plan.js';
 import { flag } from './commands/flag.js';
@@ -103,6 +104,24 @@ Commands:
                         (--session <room-id> to use a room token)
   deck manifest <slug>  Print the raw .ant-deck.json manifest
   deck audit <slug>     Show deck audit events (--limit 50)
+  deck file get <slug> <path>
+                        Read a deck file; prints content + sha + mtime
+                        (--out PATH to save · --json for agent envelope)
+  deck file put <slug> <path>
+                        Write a deck file with concurrency guard
+                        (--from-file LOCAL | --content "..."
+                         --base-hash X --if-match-mtime N
+                         · 409 surfaces sha/mtime for re-fetch + retry)
+
+  sheet list            List Open-Slide spreadsheets visible to this caller
+  sheet status <slug>   Show manifest + file snapshot hashes (deck-parity)
+  sheet manifest <slug> Print the raw .ant-sheet.json manifest
+  sheet audit <slug>    Show sheet audit events (--limit 50)
+  sheet file get <slug> <path>
+                        Read a sheet file (use --out for xlsx binary)
+  sheet file put <slug> <path>
+                        Write a sheet file with the same concurrency guard
+                        as deck file put — see deck section for flags.
 
   task <id> list                    List tasks
   task <id> create "title"          Propose a new task (--desc "...")
@@ -201,6 +220,7 @@ async function main() {
       case 'grant':     await grant(args, flags, ctx); break;
       case 'question': await question(args, flags, ctx); break;
       case 'deck':     await deck(args, flags, ctx); break;
+      case 'sheet':    await sheet(args, flags, ctx); break;
       case 'task':     await task(args, flags, ctx); break;
       case 'plan':     await plan(args, flags, ctx); break;
       case 'flag':     await flag(args, flags, ctx); break;
