@@ -1385,8 +1385,12 @@
         active: true,
       }));
 
+    // "Other terminals" — only terminals, not other chats or externals.
+    // The only useful action on a non-active row is "send join command to
+    // this terminal", which is a terminal-only operation. Chats and external
+    // posters here would just be noise.
     const available = allSessions
-      .filter(s => s.id !== sessionId && !activeIds.has(s.id))
+      .filter(s => s.id !== sessionId && !activeIds.has(s.id) && s.type === 'terminal')
       .map(s => ({ sess: s, count: 0, active: false }));
     return { active: [...active, ...externalActive], available };
   });

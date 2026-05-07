@@ -20,7 +20,8 @@
     sessionId: string;
     participantsActive: { sess: PageSession; count: number; active: boolean }[];
     participantsAvailable: { sess: PageSession; count: number; active: boolean }[];
-    onWakeParticipant: (sess: PageSession) => void;
+    /** @deprecated Wake removed from UI — cross-post composer covers the same use case with arbitrary text. */
+    onWakeParticipant?: (sess: PageSession) => void;
     onSaveNickname: (sess: PageSession, handle: string) => void;
     onCrossPost: (targetId: string, text: string) => void;
     onRemoveParticipant?: (sess: PageSession) => void;
@@ -69,11 +70,16 @@
   });
 
   function getStatusColor(handle: string | undefined): string {
-    if (!handle) return '#9CA3AF'; // grey
+    if (!handle) return '#9CA3AF';
     const status = presence[handle]?.status;
-    if (status === 'active') return '#22C55E'; // green
-    if (status === 'idle') return '#F59E0B';   // yellow
-    return '#9CA3AF';                          // grey
+    if (status === 'active') return '#22C55E';
+    if (status === 'idle') return '#F59E0B';
+    return '#9CA3AF';
+  }
+
+  function getStatusLabel(handle: string | undefined): string {
+    if (!handle) return 'unknown';
+    return presence[handle]?.status || 'offline';
   }
 
   function handleColour(h: string): string {
@@ -90,6 +96,17 @@
     if (name.includes('claude')) return '#4F46E5';
     if (name.includes('gemini')) return '#10B981';
     return handleColour(sess.id);
+  }
+
+  // Edge-band opacity is modulated by presence so the colour stays
+  // consistent (so you can identify the agent at a glance) but its
+  // saturation telegraphs whether they're alive right now.
+  function edgeOpacity(handle: string | undefined): number {
+    if (!handle) return 0.35;
+    const s = presence[handle]?.status;
+    if (s === 'active') return 1;
+    if (s === 'idle') return 0.55;
+    return 0.3;
   }
 
   let editingNickname = $state<string | null>(null);
@@ -139,296 +156,302 @@
   }
 </script>
 
-<div class="px-3 pb-3 space-y-1.5">
+<div class="participant-strip">
   {#if onStartInterview && participantsActive.filter((p) => p.sess.type === 'terminal' && p.sess.linked_chat_id !== sessionId).length === 1}
     {@const soleTerminal = participantsActive.filter((p) => p.sess.type === 'terminal' && p.sess.linked_chat_id !== sessionId)[0].sess}
     {@const label = soleTerminal.display_name || soleTerminal.name}
     <button
       onclick={() => onStartInterview?.(soleTerminal.id)}
-      class="w-full flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors"
-      style="border: 1px solid #6366F1; color: #6366F1; background: #EEF2FF;"
+      class="interview-cta"
       title="Start a linked interview chat with {label}"
       aria-label="Start interview with {label}"
     >
-      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+        <path stroke-linecap="round" stroke-linejoin="round" d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
       </svg>
-      Start interview with {label}
+      Start interview with <span class="font-medium">{label}</span>
     </button>
   {/if}
-  <!-- Active participants -->
+
   {#each participantsActive as p}
     {@const col = participantDot(p.sess)}
     {@const label = p.sess.display_name || p.sess.name}
     {@const flag = getCliFlag(p.sess)}
     {@const statusCol = getStatusColor(p.sess.handle)}
-    {@const showInterview = p.sess.type === 'terminal' && !!onStartInterview && p.sess.linked_chat_id !== sessionId}
-    <div class="rounded-lg overflow-hidden" style="border: 1px solid #E5E7EB;">
-      <div class="flex items-start gap-2.5 px-2.5 py-2">
-        {#if p.sess.linked_chat_id && onOpenLinkedChat}
-          <button
-            class="touch-target relative flex-shrink-0 p-1 -m-1 rounded"
-            onclick={() => onOpenLinkedChat(p.sess)}
-            title="Open linked chat for {label}"
-            aria-label="Open linked chat for {label}"
-            style="background: transparent; border: 0;"
-          >
-            <span class="w-2.5 h-2.5 rounded-full block" style="background: {col};"></span>
-            <span class="absolute bottom-0 right-0 w-2 h-2 rounded-full border border-white" style="background: {statusCol};"></span>
-          </button>
-        {:else}
-          <div class="relative flex-shrink-0">
-            <span class="w-2.5 h-2.5 rounded-full block" style="background: {col};"></span>
-            <span class="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-white" style="background: {statusCol};"></span>
+    {@const statusLabel = getStatusLabel(p.sess.handle)}
+    {@const isFocus = p.sess.attention_state === 'focus'}
+    {@const isTerminal = p.sess.type === 'terminal'}
+    {@const linkedToOtherRoom = !!(p.sess.linked_chat_id && p.sess.linked_chat_id !== sessionId)}
+    {@const linkedToThisRoom = p.sess.linked_chat_id === sessionId}
+    {@const canOpenLinked = linkedToOtherRoom && !!onOpenLinkedChat}
+    {@const canStartInterview = isTerminal && !p.sess.linked_chat_id && !!onStartInterview}
+    {@const showMic = isTerminal && !linkedToThisRoom && (canOpenLinked || canStartInterview)}
+
+    <div
+      class="participant-card"
+      class:is-focus={isFocus}
+      style="--participant-color: {col}; --edge-opacity: {edgeOpacity(p.sess.handle)};"
+    >
+      <span class="edge" aria-hidden="true"></span>
+
+      <div class="card-body">
+        <div class="identity">
+          <div class="name-line">
+            <span class="name">{label}</span>
+            {#if flag}
+              <span class="chip chip--cli">{cliLabel(flag)}</span>
+            {/if}
+            {#if isFocus}
+              <span class="chip chip--focus" title={p.sess.attention_reason || 'Focus mode'}>
+                FOCUS{focusMinutesLeft(p.sess) ? ' ' + focusMinutesLeft(p.sess) : ''}
+              </span>
+            {/if}
           </div>
-        {/if}
-        <div class="min-w-0 flex-1">
-          {#if editingNickname === p.sess.id}
+          <div class="meta-line">
+            <span class="status-dot" style="background: {statusCol};" aria-hidden="true"></span>
+            <span class="status-label">{statusLabel}</span>
+            {#if p.sess.handle}
+              <span class="meta-sep">·</span>
+              <span class="handle">{p.sess.handle}</span>
+            {/if}
+            {#if isFocus && p.sess.focus_queue_count}
+              <span class="meta-sep">·</span>
+              <span class="queued">{p.sess.focus_queue_count} queued</span>
+            {/if}
+          </div>
+        </div>
+
+        <div class="actions">
+          {#if showMic}
+            <button
+              class="icon-btn icon-btn--primary"
+              onclick={() => {
+                if (canOpenLinked) onOpenLinkedChat?.(p.sess);
+                else if (canStartInterview) onStartInterview?.(p.sess.id);
+              }}
+              title={canOpenLinked ? `Open interview with ${label}` : `Start interview with ${label}`}
+              aria-label={canOpenLinked ? `Open interview with ${label}` : `Start interview with ${label}`}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
+              </svg>
+            </button>
+          {/if}
+
+          <button
+            class="icon-btn icon-btn--primary"
+            onclick={() => { crossPostTarget = crossPostTarget === p.sess.id ? null : p.sess.id; crossPostText = ''; }}
+            class:is-active={crossPostTarget === p.sess.id}
+            title="Send a message to {label}"
+            aria-label="Send a message to {label}"
+            aria-expanded={crossPostTarget === p.sess.id}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+            </svg>
+          </button>
+
+          <div class="actions-overflow">
+            <button
+              class="icon-btn"
+              class:is-active={editingNickname === p.sess.id}
+              onclick={() => {
+                if (editingNickname === p.sess.id) {
+                  editingNickname = null;
+                } else {
+                  editingNickname = p.sess.id;
+                  nicknameInput = p.sess.handle || '';
+                }
+              }}
+              title="Set handle for {label}"
+              aria-label="Set handle for {label}"
+              aria-expanded={editingNickname === p.sess.id}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M15.232 5.232l3.536 3.536M9 13l6.586-6.586a2 2 0 012.828 2.828L11.828 15.828a2 2 0 01-1.414.586H7v-3a2 2 0 01.586-1.414z"/>
+              </svg>
+            </button>
+
+            {#if p.sess.type === 'terminal' && onFocusParticipant}
+              <button
+                class="icon-btn"
+                class:is-focus-active={isFocus}
+                onclick={() => onFocusParticipant?.(p.sess)}
+                title={isFocus ? `Exit focus mode for ${label}` : `Enter focus mode for ${label}`}
+                aria-label={isFocus ? `Exit focus mode for ${label}` : `Enter focus mode for ${label}`}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9"/>
+                  <circle cx="12" cy="12" r="5"/>
+                  <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
+                </svg>
+              </button>
+            {/if}
+
+            {#if p.sess.type === 'terminal' && onStopParticipant}
+              <button
+                class="icon-btn icon-btn--stop"
+                onclick={() => onStopParticipant?.(p.sess)}
+                title="Stop current action for {label}"
+                aria-label="Stop current action for {label}"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>
+                </svg>
+              </button>
+            {/if}
+
+            {#if p.sess.type !== 'external'}
+              <button
+                class="icon-btn icon-btn--danger"
+                onclick={() => onRemoveParticipant?.(p.sess)}
+                title="Remove {label} from room"
+                aria-label="Remove {label} from room"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+              </button>
+            {/if}
+          </div>
+        </div>
+
+        {#if editingNickname === p.sess.id}
+          <div class="composer composer--rename">
             <!-- svelte-ignore a11y_autofocus -->
             <input
-              autofocus
-              class="w-full text-xs rounded px-1.5 py-0.5 outline-none"
-              style="border: 1px solid #6366F1; color: var(--text); background: var(--bg);"
+              class="composer-input"
+              placeholder="@handle (e.g. @vera)"
               bind:value={nicknameInput}
               onkeydown={(e) => {
                 if (e.key === 'Enter') handleSaveNickname(p.sess);
                 if (e.key === 'Escape') editingNickname = null;
               }}
-              onblur={() => handleSaveNickname(p.sess)}
-            />
-          {:else}
-            <div class="flex items-center gap-1">
-              <p class="text-xs font-semibold truncate" style="color: var(--text);">{label}</p>
-            {#if flag}
-                <span class="text-[9px] px-1 py-0.5 rounded font-mono flex-shrink-0" style="background: {col}15; color: {col};">{cliLabel(flag)}</span>
-              {/if}
-              {#if p.sess.attention_state === 'focus'}
-                <span
-                  class="text-[9px] px-1 py-0.5 rounded font-mono flex-shrink-0"
-                  style="background: #FEF3C7; color: #92400E;"
-                  title={p.sess.attention_reason || 'Focus mode'}
-                >
-                  FOCUS {focusMinutesLeft(p.sess)}
-                </span>
-              {/if}
-            </div>
-            {#if p.sess.handle}
-              <p class="text-[10px] font-mono" style="color: {col}88;">{p.sess.handle}</p>
-            {/if}
-            {#if p.sess.attention_state === 'focus'}
-              <p class="text-[10px] truncate" style="color: #92400E;">
-                {p.sess.focus_queue_count || 0} queued{p.sess.attention_reason ? ` · ${p.sess.attention_reason}` : ''}
-              </p>
-            {/if}
-          {/if}
-        </div>
-        <div class="participant-actions flex-shrink-0">
-          <button
-            onclick={() => { editingNickname = p.sess.id; nicknameInput = p.sess.handle || ''; }}
-            class="touch-target p-1 rounded transition-all"
-            style="color: var(--text-faint);"
-            title="Set handle for {label}"
-            aria-label="Set handle for {label}"
-          >
-            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536M9 13l6.586-6.586a2 2 0 012.828 2.828L11.828 15.828a2 2 0 01-1.414.586H7v-3a2 2 0 01.586-1.414z"/>
-            </svg>
-          </button>
-          {#if p.sess.type === 'terminal' && p.sess.handle}
-            <button
-              onclick={() => onWakeParticipant(p.sess)}
-              class="touch-target p-1 rounded transition-all"
-              style="color: var(--text-faint);"
-              title="Wake {label}"
-              aria-label="Wake {label}"
-            >
-              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 0 1-3.417.586l-2.147-6.15M18 13a3 3 0 1 0 0-6M5.436 13.683A4.001 4.001 0 0 1 7 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 0 1-1.564-.317z"/>
-              </svg>
-            </button>
-          {/if}
-          {#if p.sess.type === 'terminal' && onStopParticipant}
-            <button
-              onclick={() => onStopParticipant?.(p.sess)}
-              class="touch-target p-1 rounded transition-all"
-              style="color: #DC2626;"
-              title="Stop current terminal action"
-              aria-label="Stop current terminal action for {label}"
-            >
-              <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <rect x="6" y="6" width="12" height="12" rx="1.5" />
-              </svg>
-            </button>
-          {/if}
-          {#if p.sess.type === 'terminal' && onFocusParticipant}
-            <button
-              onclick={() => onFocusParticipant?.(p.sess)}
-              class="touch-target p-1 rounded transition-all"
-              style="color: {p.sess.attention_state === 'focus' ? '#92400E' : 'var(--text-faint)'};"
-              title={p.sess.attention_state === 'focus' ? 'Exit focus mode' : 'Enter focus mode'}
-              aria-label={p.sess.attention_state === 'focus' ? `Exit focus mode for ${label}` : `Enter focus mode for ${label}`}
-            >
-              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v3m0 12v3m9-9h-3M6 12H3m14.1-5.1l-2.1 2.1M9 15l-2.1 2.1m0-10.2L9 9m6 6l2.1 2.1"/>
-              </svg>
-            </button>
-          {/if}
-          {#if p.sess.type !== 'external'}
-            <button
-              onclick={() => onRemoveParticipant?.(p.sess)}
-              class="touch-target p-1 rounded transition-all"
-              style="color: var(--text-faint);"
-              title="Remove from room"
-              aria-label="Remove {label} from room"
-            >
-              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-              </svg>
-            </button>
-          {/if}
-        </div>
-      </div>
-      <!-- Primary actions row: Post + Interview side-by-side -->
-      <div class="flex" style="border-top: 1px solid #F3F4F6;">
-        <button
-          onclick={() => { crossPostTarget = crossPostTarget === p.sess.id ? null : p.sess.id; crossPostText = ''; }}
-          class="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs transition-colors"
-          style="color: #6366F1; background: {crossPostTarget === p.sess.id ? '#EEF2FF' : '#FAFAFA'};"
-          title="Post to {label}"
-          aria-label="Post to {label}"
-        >
-          <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
-          </svg>
-          <span>Post</span>
-        </button>
-        {#if showInterview}
-          <button
-            onclick={() => onStartInterview?.(p.sess.id)}
-            class="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs transition-colors"
-            style="color: #6366F1; background: #FAFAFA; border-left: 1px solid #F3F4F6;"
-            title={p.sess.linked_chat_id ? `Open interview with ${label}` : `Start interview with ${label}`}
-            aria-label={p.sess.linked_chat_id ? `Open interview with ${label}` : `Start interview with ${label}`}
-          >
-            <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
-            </svg>
-            <span>{p.sess.linked_chat_id ? 'Open' : 'Interview'}</span>
-          </button>
-        {/if}
-      </div>
-      {#if crossPostTarget === p.sess.id}
-        <div class="px-2.5 pb-2.5 pt-1.5" style="background: #EEF2FF;">
-          <div class="flex gap-1.5">
-            <input
-              class="flex-1 text-xs rounded-lg px-2.5 py-1.5 outline-none"
-              style="border: 1px solid #6366F1; color: var(--text); background: var(--bg);"
-              placeholder="Message to {label}…"
-              bind:value={crossPostText}
-              onkeydown={(e) => { if (e.key === 'Enter') handleCrossPost(p.sess.id); if (e.key === 'Escape') crossPostTarget = null; }}
+              autofocus
             />
             <button
-              onclick={() => handleCrossPost(p.sess.id)}
-              class="px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center"
-              style="background: #6366F1; color: #fff;"
-              aria-label="Send"
-              title="Send"
+              class="composer-send"
+              onclick={() => handleSaveNickname(p.sess)}
+              aria-label="Save handle"
+              title="Save handle"
+              disabled={!nicknameInput.trim()}
             >
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M5 12l5 5L20 7"/>
               </svg>
             </button>
           </div>
-        </div>
-      {/if}
+        {/if}
+
+        {#if crossPostTarget === p.sess.id}
+          <div class="composer">
+            <!-- svelte-ignore a11y_autofocus -->
+            <input
+              class="composer-input"
+              placeholder="Message to {label}…"
+              bind:value={crossPostText}
+              onkeydown={(e) => { if (e.key === 'Enter') handleCrossPost(p.sess.id); if (e.key === 'Escape') crossPostTarget = null; }}
+              autofocus
+            />
+            <button
+              class="composer-send"
+              onclick={() => handleCrossPost(p.sess.id)}
+              aria-label="Send"
+              title="Send"
+              disabled={!crossPostText.trim()}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+              </svg>
+            </button>
+          </div>
+        {/if}
+      </div>
     </div>
   {/each}
 
-  <!-- Available (not yet posted) sessions -->
   {#if participantsAvailable.length > 0}
-    <div class="rounded-lg overflow-hidden" style="border: 1px solid #E5E7EB; background: #FAFAFA;">
+    <div class="available-section">
       <button
+        class="available-toggle"
         onclick={() => (otherSessionsOpen = !otherSessionsOpen)}
-        class="w-full flex items-center justify-between px-2.5 py-2 text-xs transition-colors"
-        style="color: var(--text-muted);"
+        aria-expanded={otherSessionsOpen}
       >
-        <span class="font-semibold uppercase tracking-wide">Other sessions</span>
-        <span class="flex items-center gap-2">
-          <span class="px-1.5 py-0.5 rounded-full text-[10px] font-bold" style="background: #fff; color: var(--text-faint);">
-            {participantsAvailable.length}
-          </span>
+        <span>Other terminals</span>
+        <span class="available-toggle-right">
+          <span class="count-pill">{participantsAvailable.length}</span>
           <svg
-            class="w-3.5 h-3.5 transition-transform"
-            style="color: var(--text-faint); transform: {otherSessionsOpen ? 'rotate(180deg)' : 'rotate(0deg)'};"
-            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+            width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+            class="chevron"
+            class:chevron--open={otherSessionsOpen}
+            aria-hidden="true"
           >
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+            <path d="M6 9l6 6 6-6"/>
           </svg>
         </span>
       </button>
       {#if otherSessionsOpen}
-        <div class="px-2.5 pb-2.5 space-y-1.5" style="border-top: 1px solid #F3F4F6;">
+        <div class="available-list">
           {#each participantsAvailable as p}
             {@const col = participantDot(p.sess)}
             {@const label = p.sess.display_name || p.sess.name}
-            <div class="rounded-lg overflow-hidden opacity-80" style="border: 1px solid #E5E7EB; background: var(--bg);">
-              <div class="flex items-start gap-2.5 px-2.5 py-2">
-                {#if p.sess.linked_chat_id && onOpenLinkedChat}
-                  <button
-                    class="w-4 h-4 rounded flex-shrink-0 flex items-center justify-center"
-                    onclick={() => onOpenLinkedChat(p.sess)}
-                    title="Open linked chat for {label}"
-                    aria-label="Open linked chat for {label}"
-                    style="background: transparent; border: 0;"
-                  >
-                    <span class="w-2.5 h-2.5 rounded-full block" style="background: {col}88;"></span>
-                  </button>
-                {:else}
-                  <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background: {col}88;"></span>
-                {/if}
-                <div class="min-w-0 flex-1">
-                  <p class="text-xs font-medium truncate" style="color: var(--text-muted);">{label}</p>
-                  <p class="text-[10px] font-mono" style="color: var(--text-faint);">{p.sess.type}</p>
+            {@const aFlag = getCliFlag(p.sess)}
+            <div
+              class="participant-card participant-card--ghost"
+              style="--participant-color: {col}; --edge-opacity: 0.4;"
+            >
+              <span class="edge" aria-hidden="true"></span>
+              <div class="card-body">
+                <div class="identity">
+                  <div class="name-line">
+                    <span class="name name--muted">{label}</span>
+                    {#if aFlag}
+                      <span class="chip chip--cli">{cliLabel(aFlag)}</span>
+                    {/if}
+                  </div>
+                  {#if p.sess.handle}
+                    <div class="meta-line">
+                      <span class="handle">{p.sess.handle}</span>
+                    </div>
+                  {/if}
                 </div>
-                <div class="participant-actions participant-actions--available flex-shrink-0">
-                  {#if p.sess.type === 'terminal' && p.sess.handle}
+                <div class="actions">
+                  {#if p.sess.linked_chat_id && onOpenLinkedChat}
                     <button
-                      onclick={() => onWakeParticipant(p.sess)}
-                      class="touch-target p-1 rounded"
-                      style="color: var(--text-faint);"
-                      title="Wake {label}"
-                      aria-label="Wake {label}"
+                      class="icon-btn icon-btn--primary"
+                      onclick={() => onOpenLinkedChat?.(p.sess)}
+                      title="Open interview with {label}"
+                      aria-label="Open interview with {label}"
                     >
-                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 0 1-3.417.586l-2.147-6.15M18 13a3 3 0 1 0 0-6M5.436 13.683A4.001 4.001 0 0 1 7 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 0 1-1.564-.317z"/>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
                       </svg>
                     </button>
                   {/if}
-                  {#if p.sess.type === 'terminal' && onStopParticipant}
+                  {#if onAddTerminalToRoom}
                     <button
-                      onclick={() => onStopParticipant?.(p.sess)}
-                      class="touch-target p-1 rounded"
-                      style="color: #DC2626;"
-                      title="Stop current terminal action"
-                      aria-label="Stop current terminal action for {label}"
-                    >
-                      <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                        <rect x="6" y="6" width="12" height="12" rx="1.5" />
-                      </svg>
-                    </button>
-                  {/if}
-                  {#if p.sess.type === 'terminal' && onAddTerminalToRoom}
-                    <button
+                      class="icon-btn icon-btn--primary"
                       onclick={() => onAddTerminalToRoom?.(p.sess)}
-                      class="touch-target p-1 rounded"
-                      style="color: #6366F1;"
-                      title="Send join command to terminal"
+                      title="Send join command to {label}"
                       aria-label="Send join command to {label}"
                     >
-                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14m7-7H5"/>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M12 5v14M5 12h14"/>
+                      </svg>
+                    </button>
+                  {/if}
+                  {#if onStopParticipant}
+                    <button
+                      class="icon-btn icon-btn--stop"
+                      onclick={() => onStopParticipant?.(p.sess)}
+                      title="Stop current action for {label}"
+                      aria-label="Stop current action for {label}"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
+                        <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>
                       </svg>
                     </button>
                   {/if}
@@ -443,38 +466,403 @@
 </div>
 
 <style>
-  .participant-actions {
+  .participant-strip {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 12px 12px;
+  }
+
+  /* ── Interview CTA — prominent only when there's a single obvious target ── */
+  .interview-cta {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    background: linear-gradient(180deg, color-mix(in srgb, #6366F1 8%, var(--bg-surface, #fff)) 0%, color-mix(in srgb, #6366F1 14%, var(--bg-surface, #fff)) 100%);
+    border: 1px solid color-mix(in srgb, #6366F1 28%, transparent);
+    color: #4F46E5;
+    font-size: 12px;
+    font-weight: 500;
+    margin-bottom: 4px;
+    cursor: pointer;
+    transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+  }
+
+  .interview-cta:hover {
+    transform: translateY(-0.5px);
+    border-color: color-mix(in srgb, #6366F1 45%, transparent);
+    box-shadow: 0 2px 6px rgba(99, 102, 241, 0.16);
+  }
+
+  /* ── Participant card ─────────────────────────────────────────── */
+  .participant-card {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+    background: var(--bg-surface, #ffffff);
+    border: 1px solid var(--border-subtle, #E5E7EB);
+    border-radius: 8px;
+    overflow: hidden;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  }
+
+  .participant-card:hover {
+    border-color: var(--border-light, #D1D5DB);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  }
+
+  .participant-card.is-focus {
+    border-color: color-mix(in srgb, #F59E0B 35%, var(--border-subtle, #E5E7EB));
+    box-shadow: 0 0 0 1px color-mix(in srgb, #F59E0B 18%, transparent);
+  }
+
+  /* The edge band: 3px coloured spine on the left.
+     Replaces the disconnected disc + presence-dot pattern. Saturation
+     conveys presence (--edge-opacity). Colour conveys identity. */
+  .edge {
+    flex: 0 0 3px;
+    background: var(--participant-color, #6366F1);
+    opacity: var(--edge-opacity, 0.85);
+    transition: opacity 0.2s ease;
+  }
+
+  .participant-card:hover .edge {
+    opacity: 1;
+  }
+
+  /* ── Card body ────────────────────────────────────────────────── */
+  .card-body {
+    flex: 1;
+    min-width: 0;
+    padding: 9px 10px 9px 11px;
     display: grid;
-    grid-template-columns: repeat(3, 32px);
-    gap: 4px;
-    justify-content: end;
-    align-content: start;
-    max-width: 104px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
   }
 
-  .participant-actions :global(.touch-target) {
-    width: 32px;
-    height: 32px;
-    min-width: 32px;
-    min-height: 32px;
-    padding: 0;
-    line-height: 1;
+  /* Composer occupies full width when present */
+  .card-body :global(.composer) {
+    grid-column: 1 / -1;
+  }
+
+  .identity {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .name-line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .name {
     font-size: 13px;
+    font-weight: 600;
+    color: var(--text, #111);
+    line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    letter-spacing: -0.005em;
+  }
+
+  .name--muted {
+    color: var(--text-muted, #6B7280);
+    font-weight: 500;
+  }
+
+  .meta-line {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: var(--text-faint, #9CA3AF);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.4;
+  }
+
+  .meta-sep {
+    opacity: 0.5;
+  }
+
+  .handle {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    color: var(--participant-color, #6366F1);
+    opacity: 0.85;
+  }
+
+  .status-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .status-label {
+    text-transform: lowercase;
+    letter-spacing: 0.02em;
+  }
+
+  .queued {
+    color: #92400E;
+    font-weight: 500;
+  }
+
+  .chip {
+    font-size: 10px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    padding: 1px 6px;
+    border-radius: 3px;
+    line-height: 1.5;
+    flex-shrink: 0;
+  }
+
+  .chip--cli {
+    background: color-mix(in srgb, var(--participant-color, #6366F1) 12%, transparent);
+    color: var(--participant-color, #6366F1);
+  }
+
+  .chip--focus {
+    background: #FEF3C7;
+    color: #92400E;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 9px;
+  }
+
+  /* ── Actions: two-tier reveal ─────────────────────────────────── */
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    flex-shrink: 0;
+  }
+
+  .actions-overflow {
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    margin-left: 4px;
+    padding-left: 4px;
+    border-left: 1px solid var(--border-subtle, #E5E7EB);
+    max-width: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: max-width 0.2s ease, opacity 0.15s ease, padding 0.2s ease, margin 0.2s ease;
+  }
+
+  .participant-card:hover .actions-overflow,
+  .participant-card:focus-within .actions-overflow {
+    max-width: 200px;
+    opacity: 1;
+  }
+
+  .icon-btn {
+    width: 26px;
+    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     border-radius: 6px;
-    transition: background-color 0.12s ease, color 0.12s ease;
+    background: transparent;
+    border: 0;
+    color: var(--text-faint, #9CA3AF);
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease, transform 0.08s ease;
   }
 
-  .participant-actions :global(.touch-target:hover) {
-    background-color: rgba(99, 102, 241, 0.12);
-    color: var(--text);
+  .icon-btn:hover {
+    background: color-mix(in srgb, #6366F1 9%, transparent);
+    color: var(--text, #111);
   }
 
-  .participant-actions :global(.touch-target:focus-visible) {
+  .icon-btn:active {
+    transform: scale(0.94);
+  }
+
+  .icon-btn:focus-visible {
     outline: 2px solid #6366F1;
     outline-offset: 1px;
   }
 
-  .participant-actions--available {
-    grid-template-columns: repeat(3, 32px);
+  .icon-btn--primary {
+    color: var(--participant-color, #6366F1);
+  }
+
+  .icon-btn--primary:hover {
+    background: color-mix(in srgb, var(--participant-color, #6366F1) 12%, transparent);
+    color: var(--participant-color, #6366F1);
+  }
+
+  .icon-btn--primary.is-active {
+    background: color-mix(in srgb, var(--participant-color, #6366F1) 14%, transparent);
+    color: var(--participant-color, #6366F1);
+  }
+
+  /* The Stop button signals "this kills the running operation" — solid red
+     at rest because it's the most consequential action in the strip and
+     should be unmistakable when it appears (it's already gated behind the
+     hover-only secondary reveal, so it doesn't scream at rest). */
+  .icon-btn--stop {
+    color: #DC2626;
+  }
+
+  .icon-btn--stop:hover {
+    background: color-mix(in srgb, #DC2626 14%, transparent);
+    color: #B91C1C;
+  }
+
+  .icon-btn--danger {
+    color: var(--text-faint, #9CA3AF);
+  }
+
+  .icon-btn--danger:hover {
+    background: color-mix(in srgb, #EF4444 12%, transparent);
+    color: #DC2626;
+  }
+
+  .icon-btn.is-focus-active {
+    color: #92400E;
+    background: color-mix(in srgb, #F59E0B 14%, transparent);
+  }
+
+  /* ── Inline composer ──────────────────────────────────────────── */
+  .composer {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 6px;
+    padding-top: 8px;
+    margin-top: 6px;
+    border-top: 1px solid var(--border-subtle, #E5E7EB);
+  }
+
+  .composer-input {
+    flex: 1;
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border-subtle, #E5E7EB);
+    background: var(--bg, #fff);
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.12s ease;
+  }
+
+  .composer-input:focus {
+    border-color: #6366F1;
+    box-shadow: 0 0 0 3px color-mix(in srgb, #6366F1 12%, transparent);
+  }
+
+  .composer-send {
+    padding: 0 10px;
+    border-radius: 6px;
+    background: #6366F1;
+    color: white;
+    border: 0;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.12s ease, transform 0.08s ease;
+  }
+
+  .composer-send:hover:not(:disabled) {
+    background: #4F46E5;
+  }
+
+  .composer-send:active:not(:disabled) {
+    transform: scale(0.96);
+  }
+
+  .composer-send:disabled {
+    background: var(--border-subtle, #E5E7EB);
+    color: var(--text-faint, #9CA3AF);
+    cursor: not-allowed;
+  }
+
+  /* ── Available (other sessions) ──────────────────────────────── */
+  .available-section {
+    margin-top: 6px;
+    border: 1px dashed var(--border-subtle, #E5E7EB);
+    border-radius: 8px;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--bg-card, #F9FAFB) 50%, transparent);
+  }
+
+  .available-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 7px 12px;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    font-size: 11px;
+    color: var(--text-muted, #6B7280);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    transition: color 0.12s ease;
+  }
+
+  .available-toggle:hover {
+    color: var(--text, #111);
+  }
+
+  .available-toggle-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .count-pill {
+    background: var(--bg-surface, #fff);
+    border: 1px solid var(--border-subtle, #E5E7EB);
+    color: var(--text-faint, #9CA3AF);
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: 999px;
+    line-height: 1.4;
+    letter-spacing: 0;
+  }
+
+  .chevron {
+    color: var(--text-faint, #9CA3AF);
+    transition: transform 0.18s ease;
+  }
+
+  .chevron--open {
+    transform: rotate(180deg);
+  }
+
+  .available-list {
+    padding: 4px 8px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    border-top: 1px solid var(--border-subtle, #E5E7EB);
+  }
+
+  .available-list .participant-card {
+    background: transparent;
+    border: 1px solid transparent;
+  }
+
+  .available-list .participant-card:hover {
+    background: var(--bg-surface, #fff);
+    border-color: var(--border-subtle, #E5E7EB);
   }
 </style>
