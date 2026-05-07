@@ -204,6 +204,97 @@ prove each boundary with the smallest direct probe and make the
 failure move. The patch is allowed only after the boundary map explains
 the symptom end to end.
 
+### 1.12 Hook → state file → renderer beats transcript-polling for live status
+
+A custom CLI status indicator (e.g. "Working / Waiting / Response
+needed / Menu / Permission") wants two things that are in tension:
+**deterministic state** (don't guess from text), and a **fast render
+path** (no LLM call per redraw). The pattern that solves both:
+
+```
+host CLI fires lifecycle events
+       │
+       ▼
+hook scripts (one per event)
+       │       writes
+       ▼
+~/.claude/state/<session_id>.json   ←── single source of truth
+       ▲       reads
+       │
+status renderer (jq + plain text — no LLM, no transcript walk)
+```
+
+Lifecycle hooks → state mapping that worked across Claude Code, and
+should translate directly to any CLI that exposes equivalent events:
+
+| State            | Trigger                                                                  |
+|------------------|--------------------------------------------------------------------------|
+| Available        | `SessionStart`                                                           |
+| Working          | `UserPromptSubmit`                                                       |
+| Menu             | `PreToolUse` matches `AskUserQuestion` / `ExitPlanMode`; cleared by `PostToolUse` for the same tool |
+| Permission       | `Notification` of permission type, or `PermissionRequest`                |
+| Response needed  | `Stop` and the assistant text contains a question; or `Notification idle_prompt` |
+| Waiting          | `Stop` and assistant text has no question                                |
+
+The "is there a question in the last 2 paragraphs" decision is the
+only place a model is needed. We use a local Apple Foundation Models
+classifier via the `perspective --fm --system <few-shot>` CLI, called
+**once per turn** from the `Stop` hook (~400 ms). Output is one of two
+tokens, written to the state file. The renderer never invokes the
+classifier.
+
+**Three non-obvious gotchas** that all silently produce
+wrong-but-plausible behaviour:
+
+1. **Hooks may run with a stripped PATH.** Always
+   `export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"`
+   at the top of every hook script, or `jq`, `perspective`, and
+   any other Homebrew binary is silently missing. SessionStart
+   appears to "work" because its merge expression only invokes one
+   binary; the heavier Stop hook fails opaquely.
+2. **Status line refresh is event-driven by default.** When a hook
+   writes state *after* the last assistant token streams, the renderer
+   isn't re-invoked, and the corner stays frozen on the previous state
+   until the user types. In Claude Code the fix is `refreshInterval: 1`
+   on the `statusLine` config. Other CLIs need their own polling cadence
+   or will exhibit the same lag.
+3. **Markdown noise breaks small classifier models.** Bold, backticks,
+   `[links](...)`, bullet markers, and unicode arrows (`→`, `–`, `—`)
+   change a 3 B-parameter model's verdict on identical content. Strip
+   these before classification — `sed -E 's/\*\*([^*]+)\*\*/\1/g'`
+   plus equivalents — then the same text classifies the same way.
+
+**Classifier fingerprint** — what actually worked for binary
+question-vs-no-question on Apple FM:
+
+- `--system` containing both an explicit rule ("any question anywhere
+  → ResponseNeeded; trailing pleasantries don't cancel an earlier
+  question") and 12 few-shot pairs covering: simple question,
+  multi-question with trailing compliment, soft-ask ("Want me to
+  ..."), hint-to-act ("Let me know if ..."), and the negative cases
+  (status report, completion summary, bullet lists with no question).
+- `--prompt "Input: \"$TRIMMED\"\nOutput:"` — explicit `Input:` /
+  `Output:` cues to anchor the few-shot pattern.
+- Cap input at 2000 chars (`tail -c 2000`) — small models lose focus
+  on long inputs, and the question is almost always at the tail.
+- **Pass `--temperature 0.0`.** A binary classifier has two valid
+  output tokens. At default sampling temperature, edge-case text
+  (relative clauses with question words like "what to do next",
+  "which is faster") flips verdict roughly 1 run in 5. `t=0.0`
+  forces argmax → same input, same output every time. Stable wrong
+  is more useful than flickering right/wrong.
+
+Reference implementation lives at `~/.claude/hooks/ant-status/` and
+`~/.claude/statusline-command.sh`; the tuned classifier system prompt
+is in `classify.sh`. To recreate in another CLI, the work is mostly
+mapping the host's lifecycle events onto the state-machine table
+above and confirming the renderer-refresh story.
+
+**Lesson**: state belongs in a file written by event hooks; classifiers
+run once per turn, not per render; renderer must be timer-polled
+unless the host CLI emits an event for every state-relevant hook
+completion.
+
 ---
 
 ## Part 2 — ANT-specific decisions not to re-litigate

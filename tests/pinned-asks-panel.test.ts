@@ -38,9 +38,10 @@ function makeMsg(
 
 describe('parseAskMeta', () => {
   it('returns empty defaults for missing/invalid meta', () => {
-    expect(parseAskMeta(null)).toEqual({ asks: [], inferred_asks: [], asks_resolved: [] });
-    expect(parseAskMeta('{not json')).toEqual({ asks: [], inferred_asks: [], asks_resolved: [] });
-    expect(parseAskMeta('"string-not-object"')).toEqual({ asks: [], inferred_asks: [], asks_resolved: [] });
+    const empty = { asks: [], inferred_asks: [], asks_resolved: [], asks_superseded: [] };
+    expect(parseAskMeta(null)).toEqual(empty);
+    expect(parseAskMeta('{not json')).toEqual(empty);
+    expect(parseAskMeta('"string-not-object"')).toEqual(empty);
   });
 
   it('reads JSON-string meta and trims/filters bad entries', () => {
@@ -56,7 +57,31 @@ describe('parseAskMeta', () => {
 
   it('accepts pre-parsed object meta', () => {
     expect(parseAskMeta({ asks: ['a'], inferred_asks: [], asks_resolved: [] }))
-      .toEqual({ asks: ['a'], inferred_asks: [], asks_resolved: [] });
+      .toEqual({ asks: ['a'], inferred_asks: [], asks_resolved: [], asks_superseded: [] });
+  });
+
+  it('parses asks_superseded indices and filters them like asks_resolved', () => {
+    const parsed = parseAskMeta(JSON.stringify({
+      asks: ['a', 'b', 'c'],
+      inferred_asks: [],
+      asks_resolved: [0],
+      asks_superseded: [2],
+    }));
+    expect(parsed.asks_superseded).toEqual([2]);
+    expect(parsed.asks_resolved).toEqual([0]);
+
+    const out = aggregateOpenAsks([{
+      id: 'm1',
+      sender_id: '@x',
+      meta: JSON.stringify({
+        asks: ['a', 'b', 'c'],
+        inferred_asks: [],
+        asks_resolved: [0],
+        asks_superseded: [2],
+      }),
+    }]);
+    expect(out.length).toBe(1);
+    expect(out[0].text).toBe('b'); // a is resolved, c is superseded
   });
 });
 

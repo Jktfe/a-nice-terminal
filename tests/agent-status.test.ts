@@ -375,3 +375,82 @@ describe('agent status endpoint state', () => {
     )).toBe(true);
   });
 });
+
+describe('Claude Code hook-based status line (ant-status)', () => {
+  it('parses the new status-line format with state label, timestamps, and chips', () => {
+    const driver = new ClaudeCodeDriver();
+    const status = driver.detectStatus([
+      '✢ Tinkering… (19s · still thinking)',
+      '────── debug-session-state-hooks ──',
+      '❯',
+      '──────',
+      '  sent:10:58:40  resp:10:57:23  edit:10:57:14  |  not-a-real-folder  |  Opus 4.7  |  21m:20%  |  Working',
+      '  ⏵⏵ bypass permissions on (shift+tab to cycle)',
+      '                                          Remote Control active',
+    ]);
+
+    expect(status).toMatchObject({
+      state: 'busy', // Working → busy via legacyStateFromLabel
+      stateLabel: 'Working',
+      activity: 'Tinkering (19s)',
+      model: 'Opus 4.7',
+      contextUsedPct: 20,
+      contextRemainingPct: 80,
+      permissionMode: 'bypass permissions on',
+      remoteControlActive: true,
+    });
+    // No state file matches the synthetic folder name → scrape-only
+    // timestamps populated from HH:MM:SS local-TZ fallback.
+    expect(status?.timestamps?.sentAt).toBeTypeOf('number');
+    expect(status?.timestamps?.respAt).toBeTypeOf('number');
+    expect(status?.timestamps?.editAt).toBeTypeOf('number');
+  });
+
+  it('handles "Menu (question)" suffix and strips parenthetical', () => {
+    const driver = new ClaudeCodeDriver();
+    const status = driver.detectStatus([
+      '  sent:10:58:40  resp:10:57:23  edit:10:57:14  |  not-real  |  Opus 4.7  |  21m:20%  |  Menu (question)',
+    ]);
+    expect(status?.stateLabel).toBe('Menu');
+    expect(status?.state).toBe('thinking'); // Menu → thinking via mapping
+  });
+
+  it('handles "Response needed" with whitespace in label', () => {
+    const driver = new ClaudeCodeDriver();
+    const status = driver.detectStatus([
+      '  sent:10:58:40  resp:10:57:23  edit:10:57:14  |  not-real  |  Opus 4.7  |  3h:55%  |  Response needed',
+    ]);
+    expect(status?.stateLabel).toBe('Response needed');
+    expect(status?.state).toBe('thinking');
+  });
+
+  it('strips ANSI green codes from the folder name', () => {
+    const driver = new ClaudeCodeDriver();
+    const status = driver.detectStatus([
+      '  sent:10:58:40  resp:10:57:23  edit:10:57:14  |  \x1b[32mnot-real\x1b[0m  |  Opus 4.7  |  21m:20%  |  Waiting',
+    ]);
+    expect(status?.stateLabel).toBe('Waiting');
+    expect(status?.state).toBe('idle');
+    expect(status?.contextUsedPct).toBe(20);
+  });
+
+  it('handles two-folder form (working | launched-from)', () => {
+    const driver = new ClaudeCodeDriver();
+    const status = driver.detectStatus([
+      '  sent:10:58:40  resp:10:57:23  edit:10:57:14  |  src  |  not-real  |  Opus 4.7  |  21m:20%  |  Working',
+    ]);
+    expect(status?.stateLabel).toBe('Working');
+    expect(status?.contextUsedPct).toBe(20);
+  });
+
+  it('falls back gracefully when no new status line is present', () => {
+    const driver = new ClaudeCodeDriver();
+    const status = driver.detectStatus([
+      'dev@host    proj main    Opus 4.6 1M context    ctx:94%    5h:81%',
+    ]);
+    // Old-format parse still works; no stateLabel since the new line is absent.
+    expect(status?.stateLabel).toBeUndefined();
+    expect(status?.state).toBe('ready');
+    expect(status?.model).toBe('Opus 4.6');
+  });
+});

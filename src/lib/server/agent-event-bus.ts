@@ -12,6 +12,10 @@
 import type { AgentDriver, RawEvent, RawOutput, UserChoice, NormalisedEvent } from '../../fingerprint/types.js';
 import type { SendKeysFn } from '../../drivers/claude-code/driver.js';
 import type { AgentStatus } from '../shared/agent-status.js';
+import { legacyStateFromLabel } from '../shared/agent-status.js';
+import { classifyTurnEndCached } from '../../fingerprint/foundation-models-classifier.js';
+import { extractPendingMenu } from '../../fingerprint/claude-code-menu-extractor.js';
+import { queries as dbQueries } from './db.js';
 
 // ─── Driver registry ─────────────────────────────────────────────────────────
 // Lazy-loaded on first use per agent slug. Add new drivers here.
@@ -72,6 +76,13 @@ interface SessionState {
   lastStatusFingerprint: string | null;
   lastStatusBroadcast: number;
   lastTerminalActivity: number | null;
+  // Classifier-fallback bookkeeping (Part C: hook-less CLIs)
+  lastClassifiedTextHash: string | null;
+  classifierInFlight: boolean;
+  hooksActive: boolean;
+  // Ask-supersede bookkeeping (Part B). Tracks the most recent respAt
+  // we've broadcast so we can detect "agent has posted past" old asks.
+  lastBroadcastRespAt: number | null;
 }
 
 const initialSessions = new Map<string, SessionState>();
@@ -293,6 +304,10 @@ function getState(sessionId: string): SessionState {
       lastStatusFingerprint: null,
       lastStatusBroadcast: 0,
       lastTerminalActivity: null,
+      lastClassifiedTextHash: null,
+      classifierInFlight: false,
+      hooksActive: false,
+      lastBroadcastRespAt: null,
     };
     sessions.set(sessionId, s);
   }
@@ -406,11 +421,14 @@ async function onDebounce(sessionId: string, state: SessionState): Promise<void>
   const session = busDeps.getSession(sessionId);
   if (!session?.linked_chat_id) return;
 
-  // Update hooksActive if driver supports it
+  // Update hooksActive if driver supports it. Mirror to the bus's own
+  // SessionState so the classifier-fallback can decide whether to run.
   if (state.driver && 'setHooksActive' in state.driver) {
     let meta: any = {};
     try { meta = typeof session.meta === 'string' ? JSON.parse(session.meta) : (session.meta ?? {}); } catch {}
-    (state.driver as any).setHooksActive(!!meta.hooks_active);
+    const active = !!meta.hooks_active;
+    (state.driver as any).setHooksActive(active);
+    state.hooksActive = active;
   }
 
   // Run detect() on each recent line (not just the last — events can appear mid-burst)
@@ -560,6 +578,29 @@ function setStatus(
       null,
     );
   }
+  // Auto-supersede stale "Pending decisions" entries. When the agent's
+  // respAt advances and we're no longer in a Response-needed state, any
+  // open ask whose creation respAt predates this one is no longer
+  // actionable — clear it from both SQL and message meta. Wrapped in
+  // try/catch because the DB module can fail in test environments
+  // (better-sqlite3 ABI mismatch); we never want a status broadcast
+  // failure to cascade from a non-critical bookkeeping update.
+  const newRespAt = status.timestamps?.respAt;
+  const prevRespAt = state.lastBroadcastRespAt;
+  if (
+    newRespAt &&
+    (!prevRespAt || newRespAt > prevRespAt) &&
+    status.stateLabel &&
+    status.stateLabel !== 'Response needed'
+  ) {
+    try {
+      dbQueries.supersedeStaleAsks(sessionId, newRespAt);
+    } catch (err) {
+      console.error('[bus] supersedeStaleAsks failed', err);
+    }
+  }
+  if (newRespAt) state.lastBroadcastRespAt = newRespAt;
+
   busDeps.broadcastGlobal({
     type: 'agent_status_updated',
     sessionId,
@@ -579,8 +620,101 @@ function updateStatusFromLines(sessionId: string, state: SessionState, statusLin
     if (waitingContext) status.waitingFor = waitingContext;
   }
 
+  // When the state file says we're in Menu, pull the structured menu data
+  // out of the transcript jsonl so the UI can render AgentMenuPrompt
+  // natively. Best-effort — if the cwd isn't known or the jsonl isn't
+  // there, we just leave menu undefined and the UI falls back to whatever
+  // the terminal is showing.
+  if (status.stateLabel === 'Menu' && status.menuKind && status.cwd) {
+    try {
+      const menu = extractPendingMenu(sessionId, status.cwd);
+      if (menu) status.menu = menu;
+    } catch {
+      // non-fatal — extractor handles missing files; this catches anything else
+    }
+  }
+
   const effectiveStatus = applyTerminalActivityOverride(status, state);
   setStatus(sessionId, state, effectiveStatus, { recordRunEvent: true });
+
+  // ─── Classifier fallback (Part C — for hook-less CLIs) ─────────────────
+  // Run perspective on the assistant tail when:
+  //   - hooks aren't active (the state file path didn't enrich the status)
+  //   - status doesn't already carry a stateLabel (no state-file merge)
+  //   - the agent is idle (turn just ended, ready/idle state)
+  // Fire-and-forget — when perspective returns, we re-broadcast with the
+  // verdict baked in. Cached by text hash so repeated identical tails
+  // don't re-spawn the binary.
+  maybeRunClassifierFallback(sessionId, state, effectiveStatus, statusLines);
+}
+
+function maybeRunClassifierFallback(
+  sessionId: string,
+  state: SessionState,
+  status: AgentStatus,
+  statusLines: string[]
+): void {
+  if (state.hooksActive) return;
+  if (status.stateLabel) return; // state file already authoritative
+  if (status.state !== 'ready' && status.state !== 'idle') return;
+  if (state.classifierInFlight) return;
+
+  // Pull the assistant tail from the status lines, skipping known UI chrome
+  // and ★ Insight boxes (same filter as the on-stop.sh script).
+  const tail = extractAssistantTail(statusLines, state.driver);
+  if (!tail || tail.trim().length === 0) return;
+
+  const hash = fnv1aShort(tail);
+  if (state.lastClassifiedTextHash === hash) return;
+
+  state.classifierInFlight = true;
+  classifyTurnEndCached(tail)
+    .then((verdict) => {
+      state.classifierInFlight = false;
+      state.lastClassifiedTextHash = hash;
+      const next = state.currentStatus;
+      if (!next || next.stateLabel) return; // someone else already set it
+      const stateLabel = verdict === 'ResponseNeeded' ? 'Response needed' : 'Waiting';
+      const updated: AgentStatus = {
+        ...next,
+        stateLabel,
+        state: legacyStateFromLabel(stateLabel),
+        detectedAt: Date.now(),
+      };
+      setStatus(sessionId, state, updated, { recordRunEvent: false });
+    })
+    .catch(() => {
+      state.classifierInFlight = false;
+    });
+}
+
+// Extract the last 2 paragraphs of assistant text from the captured lines,
+// applying the driver's isChrome filter where available, and skipping the
+// ★ Insight boxes / box borders / code fences that confuse the classifier.
+function extractAssistantTail(statusLines: string[], driver: AgentDriver | null): string {
+  const isChrome = driver && 'isChrome' in driver
+    ? (line: string) => (driver as any).isChrome(line) as boolean
+    : () => false;
+  const cleaned = statusLines.filter((l) => !isChrome(l));
+  const text = cleaned.join('\n');
+  // Split on blank lines; drop ★ Insight boxes, code fences, box borders.
+  const paras = text
+    .split(/\n\n+/)
+    .filter((p) => p.trim().length > 0)
+    .filter((p) => !/^[\s]*`?★/.test(p))
+    .filter((p) => !/─────/.test(p))
+    .filter((p) => !/^[\s]*```/.test(p));
+  if (paras.length === 0) return '';
+  return paras.slice(-2).join('\n\n');
+}
+
+function fnv1aShort(str: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = (h * 0x01000193) >>> 0;
+  }
+  return h.toString(16);
 }
 
 /** Called when ANT receives terminal-visible output, not raw PTY bytes. */

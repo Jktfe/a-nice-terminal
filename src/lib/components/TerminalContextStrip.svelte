@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import AgentDot from '$lib/components/AgentDot.svelte';
+  import AgentTelemetryStrip from '$lib/components/AgentTelemetryStrip.svelte';
   import { agentColorFromSession, NOCTURNE } from '$lib/nocturne';
   import { SESSIONS_CHANNEL } from '$lib/ws-channels';
   import { agentDotStateFromStatus, type AgentStatus } from '$lib/shared/agent-status';
@@ -220,6 +221,7 @@
       {#if agentStatus?.rateLimitPct != null}
         <span class="terminal-context__pill">limit {agentStatus.rateLimitPct}%</span>
       {/if}
+      <AgentTelemetryStrip status={agentStatus} />
       {#if detailLabel}
         <span class="terminal-context__detail" title={detailLabel}>{detailLabel}</span>
       {/if}

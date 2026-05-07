@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/Jktfe/a-nice-terminal/blob/main/docs/agent-setup/state-schema.json",
+  "title": "ANT per-session agent state",
+  "description": "Schema for the JSON file written by per-CLI hook plugins to advertise live session state. Read by ANT's agent-state-reader to populate AgentStatus.\n\nWritten by hook scripts on lifecycle events (SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / Stop / Notification / PermissionRequest equivalents in each CLI).\n\nLocation: $HOME/.ant/state/<cli>/<session_id>.json (preferred), or legacy per-CLI dirs (e.g. $HOME/.claude/state/<session_id>.json for back-compat).",
+  "type": "object",
+  "required": ["state"],
+  "properties": {
+    "state": {
+      "type": "string",
+      "enum": [
+        "Available",
+        "Working",
+        "Menu",
+        "Permission",
+        "Response needed",
+        "Waiting"
+      ],
+      "description": "Canonical agent lifecycle state. Available=fresh session; Working=turn in progress; Menu=structured menu blocking (AskUserQuestion/ExitPlanMode); Permission=tool permission blocking; Response needed=turn ended with a question; Waiting=turn ended without a question."
+    },
+    "menu_kind": {
+      "type": ["string", "null"],
+      "enum": ["AskUserQuestion", "ExitPlanMode", null],
+      "description": "When state is Menu, which structured menu is open. Null otherwise."
+    },
+    "session_start": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the session began. Captured at SessionStart hook."
+    },
+    "last_user_ts": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of the last user-typed message. Captured at UserPromptSubmit."
+    },
+    "last_resp_ts": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of the last assistant turn end. Captured at Stop."
+    },
+    "last_edit_ts": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of the last tool invocation. Captured at PreToolUse."
+    },
+    "cwd": {
+      "type": "string",
+      "description": "Current working directory of the session. Used by ANT to disambiguate sessions."
+    },
+    "project_dir": {
+      "type": "string",
+      "description": "The directory the CLI was launched from (may differ from cwd when the user has cd'd)."
+    },
+    "permission_mode": {
+      "type": "string",
+      "description": "Optional human-readable permission mode label, e.g. 'bypass permissions on' / 'auto-approve writes'."
+    },
+    "remote_control_active": {
+      "type": "boolean",
+      "description": "True when a remote-control protocol (Claude Code's Remote Control, etc.) is active for the session."
+    }
+  },
+  "additionalProperties": true,
+  "examples": [
+    {
+      "state": "Working",
+      "menu_kind": null,
+      "session_start": "2026-05-07T09:37:13Z",
+      "last_user_ts": "2026-05-07T11:52:13Z",
+      "last_resp_ts": "2026-05-07T11:50:34Z",
+      "last_edit_ts": "2026-05-07T11:53:30Z",
+      "cwd": "/Users/jamesking/CascadeProjects/a-nice-terminal",
+      "project_dir": "/Users/jamesking/CascadeProjects/a-nice-terminal",
+      "permission_mode": "bypass permissions on",
+      "remote_control_active": true
+    },
+    {
+      "state": "Menu",
+      "menu_kind": "AskUserQuestion",
+      "session_start": "2026-05-07T09:37:13Z",
+      "last_user_ts": "2026-05-07T11:55:00Z",
+      "last_resp_ts": "2026-05-07T11:55:42Z",
+      "last_edit_ts": "2026-05-07T11:55:42Z",
+      "cwd": "/Users/jamesking/CascadeProjects/a-nice-terminal"
+    }
+  ]
+}

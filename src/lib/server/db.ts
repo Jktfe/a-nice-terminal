@@ -282,6 +282,12 @@ function getDb(): any {
   G[DB_KEY].exec(`DROP INDEX IF EXISTS idx_asks_source_message`);
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_asks_source_message ON asks(source_message_id)`);
 
+  // Migration: 'superseded' status + agent_resp_at_creation column
+  // (added 2026-05-07 — see docs/LESSONS.md § 1.12). Auto-supersede an
+  // open ask when the agent posts again with a non-Response-needed state,
+  // so stale Pending decisions don't pile up.
+  migrateAsksSupersededStatus();
+
   G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS terminal_transcripts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -593,6 +599,71 @@ function getDb(): any {
 
   console.log(`[db] Initialized ${isBun ? 'bun:sqlite' : 'better-sqlite3'} at ${_dbPath}`);
   return _db;
+}
+
+// Migration helper for the asks-supersede schema change. Lives outside
+// initSchema for readability — it's called once during init.
+function migrateAsksSupersededStatus(): void {
+  const db = G[DB_KEY];
+  try {
+    const asksSchema = db
+      .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='asks'`)
+      .get() as { sql?: string } | undefined;
+
+    if (asksSchema?.sql && !asksSchema.sql.includes("'superseded'")) {
+      const rebuildSql = `
+        BEGIN;
+        CREATE TABLE asks_new (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+          source_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
+          title TEXT NOT NULL,
+          body TEXT DEFAULT '',
+          recommendation TEXT,
+          status TEXT DEFAULT 'open' CHECK(status IN ('candidate','open','answered','deferred','dismissed','superseded')),
+          assigned_to TEXT DEFAULT 'room',
+          owner_kind TEXT DEFAULT 'room' CHECK(owner_kind IN ('human','agent','room','terminal','unknown')),
+          priority TEXT DEFAULT 'normal' CHECK(priority IN ('low','normal','high')),
+          created_by TEXT,
+          answered_by TEXT,
+          answer TEXT,
+          answer_action TEXT,
+          inferred INTEGER DEFAULT 0,
+          confidence REAL DEFAULT 0,
+          meta TEXT DEFAULT '{}',
+          resolved_at TEXT,
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now'))
+        );
+        INSERT INTO asks_new
+          SELECT id, session_id, source_message_id, title, body, recommendation,
+                 status, assigned_to, owner_kind, priority, created_by, answered_by,
+                 answer, answer_action, inferred, confidence, meta, resolved_at,
+                 created_at, updated_at
+            FROM asks;
+        DROP TABLE asks;
+        ALTER TABLE asks_new RENAME TO asks;
+        COMMIT;
+      `;
+      db.exec(rebuildSql);
+      const recreate = [
+        `CREATE INDEX IF NOT EXISTS idx_asks_session ON asks(session_id, status, created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_asks_status ON asks(status, created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_asks_assigned ON asks(assigned_to, status, created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_asks_source_message ON asks(source_message_id)`,
+      ];
+      for (const sql of recreate) db.exec(sql);
+    }
+
+    // Add the agent_resp_at_creation column if missing — used by the
+    // supersede logic to detect "agent has posted past this ask".
+    const cols = db.prepare(`PRAGMA table_info(asks)`).all().map((c: any) => c.name);
+    if (!cols.includes('agent_resp_at_creation')) {
+      db.exec(`ALTER TABLE asks ADD COLUMN agent_resp_at_creation INTEGER`);
+    }
+  } catch (err) {
+    console.error('[db] asks superseded migration failed', err);
+  }
 }
 
 // Lazy query helpers — prepared statements created on first use
@@ -1022,6 +1093,78 @@ export const queries = {
       WHERE id = ?`)
       .run(status, assignedTo, ownerKind, priority, answer, answerAction, answeredBy, meta, status, status, id),
   deleteAsk: (id: string) => prepare(`DELETE FROM asks WHERE id = ?`).run(id),
+
+  /**
+   * Mark all open/candidate asks for a session as superseded when their
+   * `agent_resp_at_creation` predates the supplied epoch ms. Returns the
+   * number of asks affected.
+   *
+   * Also patches each affected source message's `meta.asks_superseded`
+   * array so the client-side `aggregateOpenAsks` filter hides them
+   * without a full reload.
+   */
+  supersedeStaleAsks: (sessionId: string, newRespAtMs: number): number => {
+    const db = getDb();
+    const stale = db
+      .prepare(
+        `SELECT id, source_message_id, title, inferred
+           FROM asks
+          WHERE session_id = ?
+            AND status IN ('open','candidate')
+            AND (agent_resp_at_creation IS NULL OR agent_resp_at_creation < ?)`,
+      )
+      .all(sessionId, newRespAtMs) as Array<{
+        id: string;
+        source_message_id: string | null;
+        title: string;
+        inferred: number;
+      }>;
+
+    if (stale.length === 0) return 0;
+
+    const placeholders = stale.map(() => '?').join(',');
+    db.prepare(
+      `UPDATE asks
+          SET status = 'superseded', resolved_at = datetime('now'), updated_at = datetime('now')
+        WHERE id IN (${placeholders})`,
+    ).run(...stale.map((s) => s.id));
+
+    // Group by source message and push superseded indices into each
+    // message's meta. Index resolution: split between explicit asks and
+    // inferred_asks based on the `inferred` flag, then match by title
+    // string within each list.
+    const byMessage = new Map<string, Array<{ title: string; inferred: boolean }>>();
+    for (const s of stale) {
+      if (!s.source_message_id) continue;
+      const arr = byMessage.get(s.source_message_id) ?? [];
+      arr.push({ title: s.title, inferred: !!s.inferred });
+      byMessage.set(s.source_message_id, arr);
+    }
+
+    for (const [msgId, asksToHide] of byMessage) {
+      const row = db
+        .prepare(`SELECT meta FROM messages WHERE id = ?`)
+        .get(msgId) as { meta?: string } | undefined;
+      if (!row?.meta) continue;
+      let parsed: any;
+      try { parsed = JSON.parse(row.meta); } catch { continue; }
+      if (!parsed || typeof parsed !== 'object') continue;
+      const explicit = Array.isArray(parsed.asks) ? parsed.asks : [];
+      const inferred = Array.isArray(parsed.inferred_asks) ? parsed.inferred_asks : [];
+      const existing: number[] = Array.isArray(parsed.asks_superseded) ? parsed.asks_superseded : [];
+      const merged = new Set<number>(existing);
+      for (const a of asksToHide) {
+        const list = a.inferred ? inferred : explicit;
+        const offset = a.inferred ? explicit.length : 0;
+        const localIdx = list.indexOf(a.title);
+        if (localIdx >= 0) merged.add(localIdx + offset);
+      }
+      parsed.asks_superseded = Array.from(merged).sort((a, b) => a - b);
+      db.prepare(`UPDATE messages SET meta = ? WHERE id = ?`).run(JSON.stringify(parsed), msgId);
+    }
+
+    return stale.length;
+  },
 
   // Tasks
   listTasks: (sessionId: string) => prepare(`SELECT * FROM tasks WHERE session_id = ? ORDER BY created_at ASC`).all(sessionId),

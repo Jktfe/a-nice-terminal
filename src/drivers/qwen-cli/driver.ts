@@ -89,6 +89,11 @@ export interface QwenEvent extends NormalisedEvent {
 // ─── QwenCliDriver ────────────────────────────────────────────────────────────
 
 export class QwenCliDriver implements AgentDriver {
+  private hooksActive = false;
+
+  setHooksActive(active: boolean): void {
+    this.hooksActive = active;
+  }
 
   detect(raw: RawEvent): NormalisedEvent | null {
     const { text, ts } = raw;

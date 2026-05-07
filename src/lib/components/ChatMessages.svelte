@@ -9,6 +9,8 @@
   import { SPECIAL_KEYS } from '$lib/shared/special-keys.js';
   import QuickLaunchBar from '$lib/components/QuickLaunchBar.svelte';
   import TerminalContextStrip from '$lib/components/TerminalContextStrip.svelte';
+  import AgentMenuPrompt from '$lib/components/AgentMenuPrompt.svelte';
+  import { getAgentStatus as getLiveAgentStatus } from '$lib/stores/agent-status.svelte';
   import AgentDot from '$lib/components/AgentDot.svelte';
   import { agentColor } from '$lib/nocturne';
   import { activeRoutingMentions, bracketRoutingMention } from '$lib/utils/mentions';
@@ -658,6 +660,12 @@
 
   {#if session?.type === 'terminal'}
     <TerminalContextStrip {session} {allSessions} {linkedChatId} />
+    {@const liveStatus = getLiveAgentStatus(session.id)}
+    {#if liveStatus?.menu}
+      <div style="padding: 0 12px;">
+        <AgentMenuPrompt menu={liveStatus.menu} sessionId={session.id} />
+      </div>
+    {/if}
   {/if}
 
   <!-- Messages scroll area -->

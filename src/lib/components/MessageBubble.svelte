@@ -147,6 +147,37 @@
     return new Date(utc).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   });
 
+  // "Agent active since Ns ago" footnote — appears when the agent has done
+  // at least one tool invocation AFTER this message was posted (i.e.
+  // status.timestamps.editAt is more recent than message.created_at).
+  // Signals that the conversation has moved past this message and any
+  // attention-needed flags it carried may now be stale.
+  const messageCreatedMs = $derived.by(() => {
+    if (!message.created_at) return null;
+    const utc = message.created_at.includes('Z') || message.created_at.includes('+')
+      ? message.created_at
+      : message.created_at.replace(' ', 'T') + 'Z';
+    const ms = Date.parse(utc);
+    return Number.isFinite(ms) ? ms : null;
+  });
+  const agentEditedAfterMs = $derived.by(() => {
+    const isAgent = message.role === 'assistant';
+    if (!isAgent) return null;
+    const editAt = effectiveAgentStatus?.timestamps?.editAt;
+    if (!editAt || !messageCreatedMs) return null;
+    if (editAt <= messageCreatedMs) return null;
+    return editAt;
+  });
+  const agentEditedAgo = $derived.by(() => {
+    if (!agentEditedAfterMs) return '';
+    const diffSec = Math.max(0, Math.floor((Date.now() - agentEditedAfterMs) / 1000));
+    if (diffSec < 60) return `${diffSec}s ago`;
+    const m = Math.floor(diffSec / 60);
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    return `${h}h ago`;
+  });
+
   const targetBadge = $derived(
     message.target && message.target !== '@everyone' ? message.target : null
   );
@@ -308,6 +339,15 @@
     {/if}
 
     <div class="flex-1"></div>
+
+    {#if agentEditedAfterMs}
+      <span
+        title="The agent has done tool work since posting this message ({new Date(agentEditedAfterMs).toLocaleTimeString()})"
+        style="font-family: var(--font-mono); font-size: 10.5px; color: var(--text-faint); font-variant-numeric: tabular-nums; letter-spacing: 0; opacity: 0.7;"
+      >
+        ✎ {agentEditedAgo}
+      </span>
+    {/if}
 
     <span style="font-family: var(--font-mono); font-size: 10.5px; color: var(--text-faint); font-variant-numeric: tabular-nums; letter-spacing: 0;">
       {timeStr}

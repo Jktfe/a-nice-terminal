@@ -13,6 +13,15 @@ export interface AskMeta {
   asks: string[];
   inferred_asks: string[];
   asks_resolved: number[];
+  /**
+   * Indices of asks that have been auto-superseded because the agent
+   * posted a follow-up after the ask was created and is no longer in
+   * 'Response needed' state. Treated identically to `asks_resolved` by
+   * `aggregateOpenAsks` — both hide the ask from the Pending decisions
+   * panel — but kept distinct so the UI can show "auto-cleared" vs
+   * "user resolved" if it ever wants to.
+   */
+  asks_superseded?: number[];
 }
 
 export interface OpenAsk {
@@ -28,7 +37,7 @@ export interface OpenAsk {
   sender: string;
 }
 
-const EMPTY_META: AskMeta = { asks: [], inferred_asks: [], asks_resolved: [] };
+const EMPTY_META: AskMeta = { asks: [], inferred_asks: [], asks_resolved: [], asks_superseded: [] };
 
 export function parseAskMeta(meta: AskMessage['meta']): AskMeta {
   if (!meta) return EMPTY_META;
@@ -45,7 +54,8 @@ export function parseAskMeta(meta: AskMessage['meta']): AskMeta {
   const asks = sanitiseStringList(obj.asks);
   const inferred_asks = sanitiseStringList(obj.inferred_asks);
   const asks_resolved = sanitiseNumberList(obj.asks_resolved);
-  return { asks, inferred_asks, asks_resolved };
+  const asks_superseded = sanitiseNumberList(obj.asks_superseded);
+  return { asks, inferred_asks, asks_resolved, asks_superseded };
 }
 
 function sanitiseStringList(value: unknown): string[] {
@@ -86,10 +96,14 @@ export function aggregateOpenAsks(
     const meta = parseAskMeta(msg.meta);
     const combined = [...meta.asks, ...meta.inferred_asks];
     if (combined.length === 0) continue;
-    const resolved = new Set(meta.asks_resolved);
+    // Hide both user-resolved and auto-superseded asks from the panel.
+    const hidden = new Set([
+      ...meta.asks_resolved,
+      ...(meta.asks_superseded ?? []),
+    ]);
     const sender = senderLabel(msg, resolver);
     for (let i = 0; i < combined.length; i++) {
-      if (resolved.has(i)) continue;
+      if (hidden.has(i)) continue;
       out.push({
         messageId: msg.id,
         index: i,

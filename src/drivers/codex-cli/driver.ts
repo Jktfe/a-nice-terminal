@@ -68,6 +68,15 @@ export interface CodexEvent extends NormalisedEvent {
 // ─── CodexCliDriver ───────────────────────────────────────────────────────────
 
 export class CodexCliDriver implements AgentDriver {
+  private hooksActive = false;
+
+  /**
+   * Toggle hook-based event prioritisation. See gemini-cli driver for the
+   * canonical pattern.
+   */
+  setHooksActive(active: boolean): void {
+    this.hooksActive = active;
+  }
 
   /**
    * Detect interactive events from a single raw tmux output line.

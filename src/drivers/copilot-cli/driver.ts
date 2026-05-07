@@ -77,6 +77,11 @@ export interface CopilotEvent extends NormalisedEvent {
 // ─── CopilotCliDriver ─────────────────────────────────────────────────────────
 
 export class CopilotCliDriver implements AgentDriver {
+  private hooksActive = false;
+
+  setHooksActive(active: boolean): void {
+    this.hooksActive = active;
+  }
 
   detect(raw: RawEvent): NormalisedEvent | null {
     const { text, ts } = raw;

@@ -16,7 +16,15 @@ import type {
   RawOutput,
   UserChoice,
 } from '../../fingerprint/types.js';
-import type { AgentStatus } from '../../lib/shared/agent-status.js';
+import {
+  applyStateToStatus,
+  findStateForCwdBasename,
+} from '../../fingerprint/agent-state-reader.js';
+import {
+  legacyStateFromLabel,
+  type AgentStateLabel,
+  type AgentStatus,
+} from '../../lib/shared/agent-status.js';
 
 // ─── Callback type injected by caller ────────────────────────────────────────
 
@@ -60,6 +68,48 @@ const SHELL_PROMPT_RE = /^❯\s*$/m;
 const IDLE_STATUS_RE  = /\? for shortcuts/;
 const TOOL_RESULT_RE  = /⎿\s+(Done|Wrote|Created|Ran|Did)/;
 
+// ─── Hook-driven status line (added 2026-05-07) ───────────────────────────
+// The user's ant-status hook plugin renders this single line at the bottom
+// of the Claude Code corner. See docs/LESSONS.md § 1.12 for the full
+// design contract.
+//
+// Example:
+//   sent:10:58:40  resp:10:57:23  edit:10:57:14  |  a-nice-terminal  |  Opus 4.7  |  21m:20%  |  Working
+//
+// Optional second folder ("launch_folder") only appears when work_folder
+// differs from launch_folder. State labels include "Menu (question)" and
+// "Menu (plan)" suffixes.
+const NEW_STATUS_LINE_RE =
+  /sent:(?<sent>\d\d:\d\d:\d\d)\s+resp:(?<resp>\d\d:\d\d:\d\d)\s+edit:(?<edit>\d\d:\d\d:\d\d)\s+\|\s+(?<folder>[^|]+?)(?:\s+\|\s+(?<launch>[^|]+?))?\s+\|\s+(?<model>[^|]+?)\s+\|\s+(?<dur>\d+[hm]):(?<ctx>\d+)%\s+\|\s+(?<state>Working|Waiting|Menu(?:\s\([^)]+\))?|Permission|Response needed|Available)/;
+
+// Claude Code's own spinner: "✢ Tinkering… (19s · still thinking)"
+const SPINNER_VERB_RE = /(?<verb>[A-Z][a-z]+(?:ing|king))…\s+\((?<elapsed>\d+s)(?:\s·\s(?:still thinking|esc to interrupt))?\)/;
+
+// Permission mode line: "⏵⏵ bypass permissions on (shift+tab to cycle)"
+const PERMISSION_MODE_RE = /⏵⏵\s+(?<mode>[^(]+?)\s+\(shift\+tab to cycle\)/;
+
+// Remote-control indicator (presence-only)
+const REMOTE_CONTROL_RE = /Remote Control active/;
+
+// Strip ANSI colour escapes before regex matching so a green-coloured folder
+// name in the rendered status line still parses cleanly.
+function stripAnsi(s: string): string {
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
+// Combine HH:MM:SS (assumed today, local TZ) with current date → epoch ms.
+// Used as a *fallback* only when the state file isn't available; the file
+// supplies authoritative full ISO timestamps.
+function todayHmsToEpoch(hms: string): number | undefined {
+  const m = hms.match(/^(\d\d):(\d\d):(\d\d)$/);
+  if (!m) return undefined;
+  const [, hh, mm, ss] = m;
+  const d = new Date();
+  d.setHours(parseInt(hh, 10), parseInt(mm, 10), parseInt(ss, 10), 0);
+  return d.getTime();
+}
+
 // ─── NormalisedEvent extension (additive — does not break base type) ──────────
 
 export interface ClaudeEvent extends NormalisedEvent {
@@ -70,6 +120,17 @@ export interface ClaudeEvent extends NormalisedEvent {
 // ─── ClaudeCodeDriver ─────────────────────────────────────────────────────────
 
 export class ClaudeCodeDriver implements AgentDriver {
+  private hooksActive = false;
+
+  /**
+   * Toggle hook-based event prioritisation. When true, the driver may skip
+   * heuristics that the per-CLI hook plugin already covers more reliably.
+   * Currently this is used by `detectStatus()` callers to know whether
+   * to also run the perspective classifier as a fallback.
+   */
+  setHooksActive(active: boolean): void {
+    this.hooksActive = active;
+  }
 
   /**
    * Inspect a single raw event line and return a NormalisedEvent if interactive.
@@ -352,10 +413,55 @@ export class ClaudeCodeDriver implements AgentDriver {
     const rateMatch = text.match(/5h:(\d+)%/);
     if (rateMatch) rateLimitPct = parseInt(rateMatch[1], 10);
 
-    if (state === 'unknown') return null;
+    // ─── Hook-driven status-line parse ────────────────────────────────────
+    // Look for the ant-status custom status line and the Claude Code spinner.
+    // Falls back gracefully when neither is present (older Claude Code, no
+    // hook plugin installed) — existing logic above stays authoritative.
+    const cleanText = recentLines.map(stripAnsi).join('\n');
+    let stateLabel: AgentStateLabel | undefined;
+    let permissionMode: string | undefined;
+    let remoteControlActive: boolean | undefined;
+    let folder: string | undefined;
+    let scrapeTimestamps: AgentStatus['timestamps'];
 
-    return {
+    const newMatch = cleanText.match(NEW_STATUS_LINE_RE);
+    if (newMatch?.groups) {
+      const g = newMatch.groups;
+      folder = g.folder.trim();
+      const rawState = g.state.replace(/\s\([^)]+\)/, '');
+      stateLabel = rawState as AgentStateLabel;
+      // Mirror to legacy state for backward-compat consumers.
+      state = legacyStateFromLabel(stateLabel);
+      // Backfill model and ctx if not already populated by the older
+      // status-line patterns above.
+      if (!model) model = g.model.trim();
+      if (contextUsedPct == null) {
+        contextUsedPct = parseInt(g.ctx, 10);
+      }
+      // Scrape timestamps as last-resort fallback (local-TZ HH:MM:SS only).
+      scrapeTimestamps = {
+        sentAt: todayHmsToEpoch(g.sent),
+        respAt: todayHmsToEpoch(g.resp),
+        editAt: todayHmsToEpoch(g.edit),
+      };
+    }
+
+    const spinnerMatch = cleanText.match(SPINNER_VERB_RE);
+    if (spinnerMatch?.groups) {
+      activity = activity ?? `${spinnerMatch.groups.verb} (${spinnerMatch.groups.elapsed})`;
+      if (state === 'unknown') state = 'thinking';
+    }
+
+    const permMatch = cleanText.match(PERMISSION_MODE_RE);
+    if (permMatch?.groups) permissionMode = permMatch.groups.mode.trim();
+
+    if (REMOTE_CONTROL_RE.test(cleanText)) remoteControlActive = true;
+
+    if (state === 'unknown' && !stateLabel) return null;
+
+    let result: AgentStatus = {
       state,
+      stateLabel,
       activity,
       model,
       contextUsedPct,
@@ -364,8 +470,23 @@ export class ClaudeCodeDriver implements AgentDriver {
       rateLimitWindow: rateLimitPct != null ? '5h' : undefined,
       workspace,
       branch,
+      timestamps: scrapeTimestamps,
+      permissionMode,
+      remoteControlActive,
       detectedAt: now,
     };
+
+    // ─── State-file merge (authoritative) ─────────────────────────────────
+    // When the ant-status hook plugin is installed, the JSON state file
+    // wins on overlap because it has full ISO timestamps and the
+    // canonical state label. Falls back silently when not available
+    // (cross-host, hook plugin not installed, etc.).
+    if (folder) {
+      const snap = findStateForCwdBasename('claude-code', folder);
+      if (snap) result = applyStateToStatus(result, snap);
+    }
+
+    return result;
   }
 }
 

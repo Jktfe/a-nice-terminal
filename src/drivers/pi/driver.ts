@@ -23,6 +23,12 @@ export interface PiEvent extends NormalisedEvent {
 }
 
 export class PiDriver implements AgentDriver {
+  private hooksActive = false;
+
+  setHooksActive(active: boolean): void {
+    this.hooksActive = active;
+  }
+
   detect(raw: RawEvent): NormalisedEvent | null {
     const parsed = parseJson(raw.text);
     if (!parsed) return null;
