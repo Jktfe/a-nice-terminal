@@ -32,9 +32,10 @@ import { watch } from './commands/watch.js';
 import { doc } from './commands/doc.js';
 import { deck } from './commands/deck.js';
 import { sheet } from './commands/sheet.js';
+import { web } from './commands/web.js';
 
 const HELP = `
-antchat — lightweight ANT chat client (v0.2.0)
+antchat — lightweight ANT chat client (v0.3.0-alpha.1)
 
 Usage: antchat <command> [options]
 
@@ -103,6 +104,11 @@ Cowork (v0.2 — bidirectional editing for humans + agents):
   watch uninstall          Stop + remove the LaunchAgent.
   watch status             Print plist path and presence.
 
+  web [run]                Local browser UI on 127.0.0.1:6459 (v0.3 — non-technical UX).
+                           --port N                Port to bind (default 6459)
+                           --no-open               Don't auto-open browser
+                           install/uninstall/status/open/rotate-token are v0.3.1 stubs.
+
 Global flags:
   --server URL | -s URL    Override server URL (default: from token's server_url)
   --json                   Machine-readable output
@@ -126,7 +132,7 @@ if (flags.help || command === 'help' || (!command && !flags.version)) {
 }
 
 if (flags.version) {
-  console.log('antchat 0.2.0');
+  console.log('antchat 0.3.0-alpha.1');
   process.exit(0);
 }
 
@@ -168,6 +174,8 @@ async function main() {
       return deck(args, flags, ctx);
     case 'sheet':
       return sheet(args, flags, ctx);
+    case 'web':
+      return web(args, flags, ctx);
 
     // `export` was a Wave 4D placeholder; not yet wired.
     case 'export':

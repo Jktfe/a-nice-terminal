@@ -19,6 +19,80 @@ export interface ParsedShare {
   inviteId: string;
 }
 
+export type InviteKind = 'cli' | 'mcp' | 'web';
+
+export interface ExchangeInviteOpts {
+  parsed: ParsedShare;
+  password: string;
+  kind: InviteKind;
+  /** Already @-prefixed handle, or null for "no handle". */
+  handle: string | null;
+  label?: string;
+  /** Identifies the calling client in the exchange `meta` payload (audit trail). */
+  metaClient: 'ant-cli' | 'antchat' | 'antchat-web';
+  /** Pass-through context for `api.post` (apiKey, json, etc.). serverUrl is always overwritten with `parsed.serverUrl`. Typed as `any` to match the relaxed `flags: any, ctx: any` shape used by all CLI command entry points. */
+  ctx: any;
+}
+
+export interface ExchangeInviteResult {
+  token: string;
+  token_id: string;
+  invite_id: string;
+  room_id: string;
+  kind: InviteKind;
+  handle: string | null;
+  server_url: string;
+}
+
+/**
+ * Pure helper used by `ant join-room`, `antchat join`, and the local `antchat web`
+ * wizard. POSTs the password+kind+handle to the upstream exchange endpoint, then
+ * persists the returned token to `~/.ant/config.json`. Throws on transport or
+ * validation failure — callers decide how to surface the error.
+ */
+export async function exchangeInvite(opts: ExchangeInviteOpts): Promise<ExchangeInviteResult> {
+  const { parsed, password, kind, handle, label, metaClient, ctx } = opts;
+  if (!['cli', 'mcp', 'web'].includes(kind)) {
+    throw new Error(`Invalid kind ${kind}. Must be cli, mcp, or web.`);
+  }
+
+  const exchangeCtx = { ...ctx, serverUrl: parsed.serverUrl };
+  const result = await api.post(
+    exchangeCtx,
+    `/api/sessions/${parsed.roomId}/invites/${parsed.inviteId}/exchange`,
+    {
+      password,
+      kind,
+      handle,
+      meta: { client: metaClient, host: process.env.HOSTNAME || null },
+    }
+  );
+
+  config.set('serverUrl', parsed.serverUrl);
+  const labelTrimmed = typeof label === 'string' ? label.trim() : '';
+  config.setRoomToken(parsed.roomId, {
+    token: result.token,
+    token_id: result.token_id,
+    invite_id: result.invite_id,
+    room_id: result.room_id,
+    kind: result.kind,
+    handle: result.handle ?? handle,
+    joined_at: new Date().toISOString(),
+    server_url: parsed.serverUrl,
+    ...(labelTrimmed ? { label: labelTrimmed } : {}),
+  });
+
+  return {
+    token: result.token,
+    token_id: result.token_id,
+    invite_id: result.invite_id,
+    room_id: result.room_id,
+    kind: result.kind,
+    handle: result.handle ?? handle,
+    server_url: parsed.serverUrl,
+  };
+}
+
 export function parseShareString(raw: string): ParsedShare {
   const trimmed = raw.trim();
   // Accepted schemes:
@@ -101,7 +175,6 @@ export async function joinRoom(args: string[], flags: any, ctx: any) {
   }
 
   const parsed = parseShareString(shareInput);
-  const exchangeCtx = { ...ctx, serverUrl: parsed.serverUrl };
 
   let password = typeof flags.password === 'string' ? flags.password : process.env.ANT_INVITE_PASSWORD || '';
   if (!password) {
@@ -122,23 +195,22 @@ export async function joinRoom(args: string[], flags: any, ctx: any) {
   }
 
   const kindRaw = typeof flags.kind === 'string' ? flags.kind : 'cli';
-  if (!['cli', 'mcp', 'web'].includes(kindRaw)) {
-    console.error(`Invalid --kind ${kindRaw}. Must be cli, mcp, or web.`);
-    process.exit(1);
-  }
-
   const handleInput = typeof flags.handle === 'string' ? flags.handle : '';
   const handle = handleInput
     ? (handleInput.startsWith('@') ? handleInput : `@${handleInput}`)
     : null;
+  const labelInput = typeof flags.label === 'string' ? flags.label : '';
 
-  let result: any;
+  let result: ExchangeInviteResult;
   try {
-    result = await api.post(exchangeCtx, `/api/sessions/${parsed.roomId}/invites/${parsed.inviteId}/exchange`, {
+    result = await exchangeInvite({
+      parsed,
       password,
-      kind: kindRaw,
+      kind: kindRaw as InviteKind,
       handle,
-      meta: { client: 'ant-cli', host: process.env.HOSTNAME || null },
+      label: labelInput,
+      metaClient: 'ant-cli',
+      ctx,
     });
   } catch (err: any) {
     // Server returns 401 for wrong password, expired/revoked invite, OR
@@ -147,20 +219,6 @@ export async function joinRoom(args: string[], flags: any, ctx: any) {
     console.error(`Exchange failed: ${err.message}`);
     process.exit(1);
   }
-
-  config.set('serverUrl', parsed.serverUrl);
-  const labelInput = typeof flags.label === 'string' ? flags.label.trim() : '';
-  config.setRoomToken(parsed.roomId, {
-    token: result.token,
-    token_id: result.token_id,
-    invite_id: result.invite_id,
-    room_id: result.room_id,
-    kind: result.kind,
-    handle: result.handle ?? handle,
-    joined_at: new Date().toISOString(),
-    server_url: parsed.serverUrl,
-    ...(labelInput ? { label: labelInput } : {}),
-  });
 
   if (ctx.json) {
     console.log(JSON.stringify({

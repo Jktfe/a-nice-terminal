@@ -4,8 +4,13 @@
 // `ant` CLI share semantics, but exposes the same flag surface under a tighter
 // `antchat`-shaped help message.
 
-import { parseShareString, type ParsedShare } from '../../cli/commands/joinRoom.js';
-import { api } from '../../cli/lib/api.js';
+import {
+  parseShareString,
+  exchangeInvite,
+  type ParsedShare,
+  type InviteKind,
+  type ExchangeInviteResult,
+} from '../../cli/commands/joinRoom.js';
 import { config } from '../../cli/lib/config.js';
 import { createInterface } from 'readline';
 
@@ -49,43 +54,27 @@ export async function join(args: string[], flags: any, ctx: any) {
   }
 
   const kindRaw = typeof flags.kind === 'string' ? flags.kind : 'cli';
-  if (!['cli', 'mcp', 'web'].includes(kindRaw)) {
-    console.error(`Invalid --kind ${kindRaw}. Must be cli, mcp, or web.`);
-    process.exit(1);
-  }
-
   const handleInput = typeof flags.handle === 'string' ? flags.handle : '';
   const handle = handleInput
     ? (handleInput.startsWith('@') ? handleInput : `@${handleInput}`)
     : null;
+  const labelInput = typeof flags.label === 'string' ? flags.label : '';
 
-  const exchangeCtx = { ...ctx, serverUrl: parsed.serverUrl };
-  let result: any;
+  let result: ExchangeInviteResult;
   try {
-    result = await api.post(exchangeCtx, `/api/sessions/${parsed.roomId}/invites/${parsed.inviteId}/exchange`, {
+    result = await exchangeInvite({
+      parsed,
       password,
-      kind: kindRaw,
+      kind: kindRaw as InviteKind,
       handle,
-      meta: { client: 'antchat', host: process.env.HOSTNAME || null },
+      label: labelInput,
+      metaClient: 'antchat',
+      ctx,
     });
   } catch (err: any) {
     console.error(`antchat join: exchange failed — ${err.message}`);
     process.exit(1);
   }
-
-  config.set('serverUrl', parsed.serverUrl);
-  const labelInput = typeof flags.label === 'string' ? flags.label.trim() : '';
-  config.setRoomToken(parsed.roomId, {
-    token: result.token,
-    token_id: result.token_id,
-    invite_id: result.invite_id,
-    room_id: result.room_id,
-    kind: result.kind,
-    handle: result.handle ?? handle,
-    joined_at: new Date().toISOString(),
-    server_url: parsed.serverUrl,
-    ...(labelInput ? { label: labelInput } : {}),
-  });
 
   if (ctx.json) {
     console.log(JSON.stringify({
