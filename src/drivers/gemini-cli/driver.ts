@@ -20,6 +20,8 @@ import type {
   RawOutput,
   UserChoice,
 } from '../../fingerprint/types.js';
+import { basename } from 'node:path';
+import { readMergedAgentState } from '../../fingerprint/agent-state-reader.js';
 import type { AgentStatus } from '../../lib/shared/agent-status.js';
 
 export type SendKeysFn = (keys: string[]) => Promise<void>;
@@ -288,7 +290,7 @@ export class GeminiCliDriver implements AgentDriver {
 
     if (state === 'unknown') return null;
 
-    return {
+    let result: AgentStatus = {
       state,
       activity,
       model,
@@ -298,5 +300,10 @@ export class GeminiCliDriver implements AgentDriver {
       branch,
       detectedAt: now,
     };
+    result = readMergedAgentState('gemini-cli', {
+      cwd: workspace,
+      cwdBasename: workspace ? basename(workspace) : undefined,
+    }, result);
+    return result;
   }
 }

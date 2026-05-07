@@ -16,10 +16,7 @@ import type {
   RawOutput,
   UserChoice,
 } from '../../fingerprint/types.js';
-import {
-  applyStateToStatus,
-  findStateForCwdBasename,
-} from '../../fingerprint/agent-state-reader.js';
+import { readMergedAgentState } from '../../fingerprint/agent-state-reader.js';
 import {
   legacyStateFromLabel,
   type AgentStateLabel,
@@ -482,8 +479,7 @@ export class ClaudeCodeDriver implements AgentDriver {
     // canonical state label. Falls back silently when not available
     // (cross-host, hook plugin not installed, etc.).
     if (folder) {
-      const snap = findStateForCwdBasename('claude-code', folder);
-      if (snap) result = applyStateToStatus(result, snap);
+      result = readMergedAgentState('claude-code', { cwdBasename: folder }, result);
     }
 
     return result;

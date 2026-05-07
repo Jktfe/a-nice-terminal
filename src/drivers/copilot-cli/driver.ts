@@ -18,6 +18,8 @@ import type {
   RawOutput,
   UserChoice,
 } from '../../fingerprint/types.js';
+import { basename } from 'node:path';
+import { readMergedAgentState } from '../../fingerprint/agent-state-reader.js';
 import type { AgentStatus } from '../../lib/shared/agent-status.js';
 
 export type SendKeysFn = (keys: string[]) => Promise<void>;
@@ -197,7 +199,7 @@ export class CopilotCliDriver implements AgentDriver {
     if (state === 'unknown' && !model) return null;
     if (state === 'unknown') state = 'ready';
 
-    return {
+    let result: AgentStatus = {
       state,
       activity,
       model,
@@ -205,6 +207,11 @@ export class CopilotCliDriver implements AgentDriver {
       branch,
       detectedAt: now,
     };
+    result = readMergedAgentState('copilot-cli', {
+      cwd: workspace,
+      cwdBasename: workspace ? basename(workspace) : undefined,
+    }, result);
+    return result;
   }
 
   // ─── Internal ────────────────────────────────────────────────────────────────

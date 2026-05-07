@@ -222,6 +222,29 @@ export function applyStateToStatus(
   return merged;
 }
 
+// Driver-facing one-shot: resolve the most relevant snapshot for `cli`
+// using whichever identifier the driver could derive, then merge it onto
+// `base`. Lookup precedence: sessionId → cwd → cwdBasename. Returns
+// `base` unchanged when nothing is found, so call sites collapse to a
+// single line that's safe to run on every detectStatus tick.
+export function readMergedAgentState(
+  cli: AgentCli,
+  identifier: { sessionId?: string; cwd?: string; cwdBasename?: string },
+  base: AgentStatus
+): AgentStatus {
+  let snap: AgentStateSnapshot | null = null;
+  if (identifier.sessionId) {
+    snap = findStateForSessionId(cli, identifier.sessionId);
+  }
+  if (!snap && identifier.cwd) {
+    snap = findStateForCwd(cli, identifier.cwd);
+  }
+  if (!snap && identifier.cwdBasename) {
+    snap = findStateForCwdBasename(cli, identifier.cwdBasename);
+  }
+  return snap ? applyStateToStatus(base, snap) : base;
+}
+
 // Test/diagnostic helper to clear the mtime cache.
 export function _clearStateReaderCache(): void {
   fileCache.clear();

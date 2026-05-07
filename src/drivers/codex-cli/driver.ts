@@ -20,6 +20,8 @@ import type {
   RawOutput,
   UserChoice,
 } from '../../fingerprint/types.js';
+import { basename } from 'node:path';
+import { readMergedAgentState } from '../../fingerprint/agent-state-reader.js';
 import type { AgentStatus } from '../../lib/shared/agent-status.js';
 
 export type SendKeysFn = (keys: string[]) => Promise<void>;
@@ -284,7 +286,7 @@ export class CodexCliDriver implements AgentDriver {
 
     if (state === 'unknown') return null;
 
-    return {
+    let result: AgentStatus = {
       state,
       activity,
       model,
@@ -293,5 +295,10 @@ export class CodexCliDriver implements AgentDriver {
       workspace,
       detectedAt: now,
     };
+    result = readMergedAgentState('codex-cli', {
+      cwd: workspace,
+      cwdBasename: workspace ? basename(workspace) : undefined,
+    }, result);
+    return result;
   }
 }

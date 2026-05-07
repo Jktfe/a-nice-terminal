@@ -19,6 +19,8 @@ import type {
   RawOutput,
   UserChoice,
 } from '../../fingerprint/types.js';
+import { basename } from 'node:path';
+import { readMergedAgentState } from '../../fingerprint/agent-state-reader.js';
 import type { AgentStatus } from '../../lib/shared/agent-status.js';
 
 export type SendKeysFn = (keys: string[]) => Promise<void>;
@@ -220,13 +222,18 @@ export class QwenCliDriver implements AgentDriver {
     if (state === 'unknown' && !model && !workspace) return null;
     if (state === 'unknown') state = 'ready';
 
-    return {
+    let result: AgentStatus = {
       state,
       activity,
       model,
       workspace,
       detectedAt: now,
     };
+    result = readMergedAgentState('qwen-cli', {
+      cwd: workspace,
+      cwdBasename: workspace ? basename(workspace) : undefined,
+    }, result);
+    return result;
   }
 
   // ─── Internal ────────────────────────────────────────────────────────────────

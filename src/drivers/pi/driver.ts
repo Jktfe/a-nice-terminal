@@ -14,6 +14,8 @@ import type {
   RawOutput,
   UserChoice,
 } from '../../fingerprint/types.js';
+import { basename } from 'node:path';
+import { readMergedAgentState } from '../../fingerprint/agent-state-reader.js';
 import type { AgentStatus } from '../../lib/shared/agent-status.js';
 import { projectPiRecord, sha256Hex } from '../../lib/server/pi-rpc/projection.js';
 
@@ -75,12 +77,29 @@ export class PiDriver implements AgentDriver {
       const data = parsed.data as Record<string, any> | undefined;
       if (!data) continue;
       const model = data.model as Record<string, any> | undefined;
-      return {
+      let result: AgentStatus = {
         model: typeof model?.id === 'string' ? model.id : undefined,
         state: data.isCompacting ? 'thinking' : data.isStreaming ? 'busy' : 'ready',
         activity: data.isCompacting ? 'Compacting context' : data.isStreaming ? 'Streaming response' : undefined,
         detectedAt: Date.now(),
       };
+      // Pi's hook emitter writes ~/.ant/state/pi/<session_id>.json keyed
+      // by the session_id captured from the session_init frame (see
+      // docs/agent-setup/hooks/pi/bootstrap-prompt.md). When Pi is
+      // fronting another tool via pi-rpc, get_state advertises the same
+      // identity in data.session_id (and optionally data.cwd) so the
+      // merge routes to the file belonging to the inner agent rather
+      // than any ambient/wrapper session id.
+      const sessionId = typeof data.session_id === 'string' ? data.session_id : undefined;
+      const cwd = typeof data.cwd === 'string' ? data.cwd : undefined;
+      if (sessionId || cwd) {
+        result = readMergedAgentState('pi', {
+          sessionId,
+          cwd,
+          cwdBasename: cwd ? basename(cwd) : undefined,
+        }, result);
+      }
+      return result;
     }
     return null;
   }

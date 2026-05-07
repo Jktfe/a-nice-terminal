@@ -1,9 +1,14 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 import { describe, it, expect } from 'vitest';
 import { ClaudeCodeDriver } from '../src/drivers/claude-code/driver.js';
 import { CodexCliDriver } from '../src/drivers/codex-cli/driver.js';
 import { CopilotCliDriver } from '../src/drivers/copilot-cli/driver.js';
 import { GeminiCliDriver } from '../src/drivers/gemini-cli/driver.js';
 import { QwenCliDriver } from '../src/drivers/qwen-cli/driver.js';
+import { PiDriver } from '../src/drivers/pi/driver.js';
+import { _clearStateReaderCache } from '../src/fingerprint/agent-state-reader.js';
 import { discardAllPendingEvents, dispose, feed, feedStatus, getPendingEvent, init, markTerminalActivity, trackEvent } from '../src/lib/server/agent-event-bus.js';
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -42,6 +47,50 @@ describe('agent status line parsing', () => {
     });
   });
 
+  it('merges Codex hook state by workspace basename', () => {
+    const originalHome = process.env.HOME;
+    const homeDir = mkdtempSync(join(tmpdir(), 'ant-codex-state-test-'));
+    try {
+      process.env.HOME = homeDir;
+      const stateDir = join(homeDir, '.ant', 'state', 'codex-cli');
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(join(stateDir, 'codex-session.json'), JSON.stringify({
+        state: 'Working',
+        last_user_ts: '2026-05-07T16:00:00Z',
+        last_resp_ts: '2026-05-07T16:00:10Z',
+        last_edit_ts: '2026-05-07T16:00:20Z',
+        session_start: '2026-05-07T15:55:00Z',
+        cwd: '/tmp/somewhere/newmodelgvpl',
+        permission_mode: 'bypass permissions on',
+        remote_control_active: true,
+      }));
+      _clearStateReaderCache();
+
+      const driver = new CodexCliDriver();
+      const status = driver.detectStatus([
+        'gpt-5.5 xhigh · /CascadeProjects/newmodelgvpl · Ready · Context 100% left',
+      ]);
+
+      expect(status).toMatchObject({
+        state: 'busy',
+        stateLabel: 'Working',
+        model: 'gpt-5.5 xhigh',
+        workspace: '/CascadeProjects/newmodelgvpl',
+        cwd: '/tmp/somewhere/newmodelgvpl',
+        permissionMode: 'bypass permissions on',
+        remoteControlActive: true,
+      });
+      expect(status?.timestamps?.sentAt).toBe(Date.parse('2026-05-07T16:00:00Z'));
+      expect(status?.timestamps?.respAt).toBe(Date.parse('2026-05-07T16:00:10Z'));
+      expect(status?.timestamps?.editAt).toBe(Date.parse('2026-05-07T16:00:20Z'));
+    } finally {
+      _clearStateReaderCache();
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
   it('parses Gemini footer table values as a ready telemetry snapshot', () => {
     const driver = new GeminiCliDriver();
     const status = driver.detectStatus([
@@ -57,6 +106,52 @@ describe('agent status line parsing', () => {
       workspace: '/CascadeProjects/newmodelgvpl',
       branch: 'main',
     });
+  });
+
+  it('merges Gemini hook state by workspace basename', () => {
+    const originalHome = process.env.HOME;
+    const homeDir = mkdtempSync(join(tmpdir(), 'ant-gemini-state-test-'));
+    try {
+      process.env.HOME = homeDir;
+      const stateDir = join(homeDir, '.ant', 'state', 'gemini-cli');
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(join(stateDir, 'gemini-session.json'), JSON.stringify({
+        state: 'Working',
+        last_user_ts: '2026-05-07T17:00:00Z',
+        last_resp_ts: '2026-05-07T17:00:10Z',
+        last_edit_ts: '2026-05-07T17:00:20Z',
+        session_start: '2026-05-07T16:55:00Z',
+        cwd: '/tmp/somewhere/newmodelgvpl',
+        permission_mode: 'auto-accept edits',
+        remote_control_active: true,
+      }));
+      _clearStateReaderCache();
+
+      const driver = new GeminiCliDriver();
+      const status = driver.detectStatus([
+        ' workspace /directory                                             branch                                    /model                                              context',
+        ' /CascadeProjects/newmodelgvpl                                     main                                      Auto Gemini 3                                     0% used',
+      ]);
+
+      expect(status).toMatchObject({
+        state: 'busy',
+        stateLabel: 'Working',
+        model: 'Auto Gemini 3',
+        workspace: '/CascadeProjects/newmodelgvpl',
+        branch: 'main',
+        cwd: '/tmp/somewhere/newmodelgvpl',
+        permissionMode: 'auto-accept edits',
+        remoteControlActive: true,
+      });
+      expect(status?.timestamps?.sentAt).toBe(Date.parse('2026-05-07T17:00:00Z'));
+      expect(status?.timestamps?.respAt).toBe(Date.parse('2026-05-07T17:00:10Z'));
+      expect(status?.timestamps?.editAt).toBe(Date.parse('2026-05-07T17:00:20Z'));
+    } finally {
+      _clearStateReaderCache();
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+      rmSync(homeDir, { recursive: true, force: true });
+    }
   });
 
   it('parses Copilot model, workspace, branch, and ready state', () => {
@@ -75,6 +170,55 @@ describe('agent status line parsing', () => {
     });
   });
 
+  it('merges Copilot hook state by workspace basename and surfaces menuKind', () => {
+    const originalHome = process.env.HOME;
+    const homeDir = mkdtempSync(join(tmpdir(), 'ant-copilot-state-test-'));
+    try {
+      process.env.HOME = homeDir;
+      const stateDir = join(homeDir, '.ant', 'state', 'copilot-cli');
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(join(stateDir, 'copilot-session.json'), JSON.stringify({
+        state: 'Menu',
+        menu_kind: 'AskUserQuestion',
+        last_user_ts: '2026-05-07T18:00:00Z',
+        last_resp_ts: '2026-05-07T18:00:10Z',
+        last_edit_ts: '2026-05-07T18:00:20Z',
+        session_start: '2026-05-07T17:55:00Z',
+        cwd: '/tmp/somewhere/a-nice-terminal',
+        permission_mode: 'allow-all',
+        remote_control_active: false,
+      }));
+      _clearStateReaderCache();
+
+      const driver = new CopilotCliDriver();
+      const status = driver.detectStatus([
+        '~/CascadeProjects/a-nice-terminal [⎇ main*%]',
+        ' / commands · ? help                                      Claude Sonnet 4.6',
+        '❯ ',
+      ]);
+
+      expect(status).toMatchObject({
+        state: 'thinking',
+        stateLabel: 'Menu',
+        menuKind: 'AskUserQuestion',
+        model: 'Claude Sonnet 4.6',
+        workspace: '~/CascadeProjects/a-nice-terminal',
+        branch: 'main',
+        cwd: '/tmp/somewhere/a-nice-terminal',
+        permissionMode: 'allow-all',
+        remoteControlActive: false,
+      });
+      expect(status?.timestamps?.sentAt).toBe(Date.parse('2026-05-07T18:00:00Z'));
+      expect(status?.timestamps?.respAt).toBe(Date.parse('2026-05-07T18:00:10Z'));
+      expect(status?.timestamps?.editAt).toBe(Date.parse('2026-05-07T18:00:20Z'));
+    } finally {
+      _clearStateReaderCache();
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
   it('parses Qwen model, workspace, and ready state', () => {
     const driver = new QwenCliDriver();
     const status = driver.detectStatus([
@@ -90,6 +234,154 @@ describe('agent status line parsing', () => {
       model: 'qwen3.6:latest',
       workspace: '~/CascadeProjects/a-nice-terminal',
     });
+  });
+
+  it('merges Qwen hook state by workspace basename', () => {
+    const originalHome = process.env.HOME;
+    const homeDir = mkdtempSync(join(tmpdir(), 'ant-qwen-state-test-'));
+    try {
+      process.env.HOME = homeDir;
+      const stateDir = join(homeDir, '.ant', 'state', 'qwen-cli');
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(join(stateDir, 'qwen-session.json'), JSON.stringify({
+        state: 'Working',
+        last_user_ts: '2026-05-07T18:00:00Z',
+        last_resp_ts: '2026-05-07T18:00:10Z',
+        last_edit_ts: '2026-05-07T18:00:20Z',
+        session_start: '2026-05-07T17:55:00Z',
+        cwd: '/tmp/somewhere/a-nice-terminal',
+        permission_mode: 'YOLO mode',
+        remote_control_active: true,
+      }));
+      _clearStateReaderCache();
+
+      const driver = new QwenCliDriver();
+      const status = driver.detectStatus([
+        '>_ Qwen Code (v0.15.3)',
+        'API Key | qwen3.6:latest (/model to change)',
+        '~/CascadeProjects/a-nice-terminal',
+        '*   Type your message or @path/to/file',
+        'YOLO mode (shift + tab to cycle)',
+      ]);
+
+      expect(status).toMatchObject({
+        state: 'busy',
+        stateLabel: 'Working',
+        model: 'qwen3.6:latest',
+        workspace: '~/CascadeProjects/a-nice-terminal',
+        cwd: '/tmp/somewhere/a-nice-terminal',
+        permissionMode: 'YOLO mode',
+        remoteControlActive: true,
+      });
+      expect(status?.timestamps?.sentAt).toBe(Date.parse('2026-05-07T18:00:00Z'));
+      expect(status?.timestamps?.respAt).toBe(Date.parse('2026-05-07T18:00:10Z'));
+      expect(status?.timestamps?.editAt).toBe(Date.parse('2026-05-07T18:00:20Z'));
+    } finally {
+      _clearStateReaderCache();
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('Pi merges hook state by inner-CLI session id from get_state response', () => {
+    const originalHome = process.env.HOME;
+    const homeDir = mkdtempSync(join(tmpdir(), 'ant-pi-state-test-'));
+    try {
+      process.env.HOME = homeDir;
+      const stateDir = join(homeDir, '.ant', 'state', 'pi');
+      mkdirSync(stateDir, { recursive: true });
+      // The id used by Pi's hook emitter is whatever session_init advertised
+      // — the inner agent's identity, not pi's wrapper-shell pid. The state
+      // file lives under pi/<that-id>.json so the lookup must match.
+      writeFileSync(join(stateDir, 'inner-session-123.json'), JSON.stringify({
+        state: 'Working',
+        last_user_ts: '2026-05-07T19:00:00Z',
+        last_resp_ts: '2026-05-07T19:00:10Z',
+        last_edit_ts: '2026-05-07T19:00:20Z',
+        session_start: '2026-05-07T18:55:00Z',
+        cwd: '/tmp/inner/pi-frontends-claude',
+        permission_mode: 'auto-approve writes',
+        remote_control_active: true,
+      }));
+      // Also write a sibling state file with a *different* session id to
+      // prove the merge picks the one that matches data.session_id, not
+      // just the most recent file in the directory.
+      writeFileSync(join(stateDir, 'pi-wrapper-shell.json'), JSON.stringify({
+        state: 'Available',
+        cwd: '/tmp/wrapper',
+        session_start: '2026-05-07T18:00:00Z',
+      }));
+      _clearStateReaderCache();
+
+      const driver = new PiDriver();
+      const getStateLine = JSON.stringify({
+        type: 'response',
+        command: 'get_state',
+        data: {
+          isStreaming: true,
+          model: { id: 'pi-claude-3-5' },
+          session_id: 'inner-session-123',
+        },
+      });
+      const status = driver.detectStatus([getStateLine]);
+
+      expect(status).toMatchObject({
+        state: 'busy',                 // file's stateLabel=Working overrides isStreaming-derived 'busy' (same value here)
+        stateLabel: 'Working',
+        model: 'pi-claude-3-5',
+        cwd: '/tmp/inner/pi-frontends-claude',
+        permissionMode: 'auto-approve writes',
+        remoteControlActive: true,
+      });
+      expect(status?.timestamps?.sentAt).toBe(Date.parse('2026-05-07T19:00:00Z'));
+      expect(status?.timestamps?.respAt).toBe(Date.parse('2026-05-07T19:00:10Z'));
+      expect(status?.timestamps?.editAt).toBe(Date.parse('2026-05-07T19:00:20Z'));
+    } finally {
+      _clearStateReaderCache();
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('Pi without session_id or cwd in get_state leaves status untouched (helper noop)', () => {
+    const originalHome = process.env.HOME;
+    const homeDir = mkdtempSync(join(tmpdir(), 'ant-pi-state-noop-test-'));
+    try {
+      process.env.HOME = homeDir;
+      const stateDir = join(homeDir, '.ant', 'state', 'pi');
+      mkdirSync(stateDir, { recursive: true });
+      // Even though a state file exists, a get_state with no session_id/cwd
+      // must not pick it up — pi treats absence of identity as "skip merge"
+      // rather than guessing.
+      writeFileSync(join(stateDir, 'some-other-session.json'), JSON.stringify({
+        state: 'Working',
+        cwd: '/elsewhere',
+      }));
+      _clearStateReaderCache();
+
+      const driver = new PiDriver();
+      const getStateLine = JSON.stringify({
+        type: 'response',
+        command: 'get_state',
+        data: { isStreaming: false, model: { id: 'pi-test' } },
+      });
+      const status = driver.detectStatus([getStateLine]);
+
+      expect(status).toMatchObject({
+        state: 'ready',
+        model: 'pi-test',
+      });
+      expect(status?.stateLabel).toBeUndefined();
+      expect(status?.cwd).toBeUndefined();
+      expect(status?.permissionMode).toBeUndefined();
+    } finally {
+      _clearStateReaderCache();
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+      rmSync(homeDir, { recursive: true, force: true });
+    }
   });
 });
 
