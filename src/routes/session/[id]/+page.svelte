@@ -223,9 +223,32 @@
     if (!chatScrollEl) return;
     const threshold = 80;
     atBottom = chatScrollEl.scrollHeight - chatScrollEl.scrollTop - chatScrollEl.clientHeight < threshold;
-    if (linkedChatId && chatScrollEl.scrollTop < 100 && linkedChatHasMore && !linkedChatLoadingMore) {
+    // Auto-load older messages when the user scrolls within 100px of the top.
+    // Two streams to consider: terminal sessions render the linked chat
+    // (loadOlderLinkedChatMessages); chat sessions render the main message
+    // stream (msgStore.loadOlder). Anchor scroll-position so the user stays
+    // where they were reading rather than jumping back to the new top.
+    const nearTop = chatScrollEl.scrollTop < 100;
+    if (!nearTop) return;
+    if (linkedChatId && linkedChatHasMore && !linkedChatLoadingMore) {
       linkedChatScrollEl = chatScrollEl;
       loadOlderLinkedChatMessages();
+      return;
+    }
+    if (
+      session?.type !== 'terminal' &&
+      msgStore.hasMoreMessages &&
+      !msgStore.loadingOlder
+    ) {
+      const previousScrollHeight = chatScrollEl.scrollHeight;
+      void msgStore.loadOlder(sessionId).then((added) => {
+        if (added > 0 && chatScrollEl) {
+          // Anchor scroll position: keep the user where they were reading
+          // by accounting for the height delta from prepended messages.
+          const newScrollHeight = chatScrollEl.scrollHeight;
+          chatScrollEl.scrollTop += newScrollHeight - previousScrollHeight;
+        }
+      });
     }
   }
 
@@ -470,6 +493,18 @@
     liveRefreshTimer = setInterval(() => {
       if (!document.hidden) void syncLiveMessages();
     }, 5000);
+  }
+
+  // Dispatch onLoadOlder based on which message stream is currently rendered.
+  // Terminal sessions display their linked chat (loadOlderLinkedChatMessages
+  // remains the right path). Chat sessions display msgStore.messages — that
+  // path was previously unbounded; now it pages through msgStore.loadOlder.
+  async function loadOlderForActiveStream() {
+    if (session?.type === 'terminal') {
+      await loadOlderLinkedChatMessages();
+    } else {
+      await msgStore.loadOlder(sessionId);
+    }
   }
 
   async function loadOlderLinkedChatMessages() {
@@ -1447,7 +1482,7 @@
           activeSearchResultId={activeSearchResultId}
           onSend={sendMessage}
           onPostToLinkedChat={postToLinkedChat}
-          onLoadOlder={loadOlderLinkedChatMessages}
+          onLoadOlder={loadOlderForActiveStream}
           onScrollToBottom={scrollToBottom}
           onSearchQueryChange={(value) => { chatSearchQuery = value; }}
           onSearchNext={selectNextChatSearchResult}

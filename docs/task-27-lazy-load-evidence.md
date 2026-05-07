@@ -1,16 +1,26 @@
-# Task #27 — Lazy-load Recent Messages: Acceptance Evidence (web half)
+# Task #27 — Lazy-load Recent Messages: Acceptance Evidence
 
 > **Acceptance test** — "Opening a chat does not download the entire room
 > history; older messages stream in only when the reader scrolls toward the
 > top, and the reader stays anchored to the message they were on."
 
-Companions: `docs/m2-2-publish-summary-evidence.md` (the linked-chat side
-panel that already shipped this exact pattern at
-`src/routes/session/[id]/+page.svelte:476`).
+Companions: `docs/m2-2-publish-summary-evidence.md`.
 
-The iOS half is parked — the repo does not currently contain a Swift app.
-This document covers the web slice only and notes the iOS work as deferred
-pending an iOS engineer or a re-scope of the task.
+## Coverage scope (updated 2026-05-07)
+
+This evidence doc originally only covered the linked-chat side panel; that
+left a gap because the **main** chat-session message stream (the one rendered
+on `/session/<id>`) was still unbounded — `msgStore.load()` fetched the full
+history on every refresh. F.1 closes that gap. Coverage now:
+
+- **Web — desktop browser**: ✅ shipped at `6429cca` (linked-chat) + F.1
+  (main-stream `msgStore.loadOlder`).
+- **Web — mobile browser** (iPhone Safari, Android Chrome): ✅ same code path.
+  No per-platform branches — the responsive viewport renders the desktop
+  components; the bounded fetch + scroll-up auto-load both apply identically.
+- **iOS native (Swift app)**: ⏸ deferred — no Swift project in the repo. If
+  ANTios is built, it should mirror the bounded-fetch contract documented
+  here. This is the only remaining "iOS half" in the original task title.
 
 ---
 
@@ -101,11 +111,13 @@ This is the manual test JWPK runs to validate the slice end-to-end.
 
 ## What did not land (yet)
 
-- **iOS half** — task #27 is titled "Lazy-load most-recent messages in
-  web + iOS". The repo does not currently contain a Swift app or an
-  Xcode project, so the iOS slice cannot ship from this lane. Either
-  the task should be re-scoped to web-only or held open until an iOS
-  engineer joins the project.
+- **iOS native app** — task #27 was originally titled "Lazy-load most-recent
+  messages in web + iOS". With F.1 (2026-05-07), web covers all browsers
+  including mobile Safari/Chrome — the responsive viewport runs the same
+  code path. What remains is a hypothetical Swift/Xcode native app, which
+  doesn't exist in the repo. If ANTios is ever built, it should mirror the
+  same bounded-fetch + scroll-up contract; until then this slice is
+  deferred without ambiguity around mobile browser coverage.
 - **Plan event** — no `plan_test` flip was recorded; the M-track plan
   IDs cover M1–M6 and task #27 is a numbered queue task rather than
   an M-track milestone.
@@ -124,3 +136,15 @@ This is the manual test JWPK runs to validate the slice end-to-end.
 - `src/routes/api/sessions/[id]/messages/+server.ts:86-108` — GET
   handler with the new `else if (limitParam)` branch.
 - `tests/messages-pagination.test.ts` — four-case coverage.
+
+### F.1 (2026-05-07) — main-stream coverage
+
+- `src/lib/stores/messages.svelte.ts` — `PAGE_SIZE = 50`,
+  `hasMoreMessages` state, `load(sessionId, limit)` now bounded,
+  new `loadOlder(sessionId, limit)` returns prepended count.
+- `src/routes/session/[id]/+page.svelte` — `loadOlderForActiveStream()`
+  dispatches between linked-chat and main-stream paths;
+  `onChatScroll` extended to auto-fire `msgStore.loadOlder` for chat
+  sessions when `scrollTop < 100` and `hasMoreMessages` is true.
+  Anchor scroll-position restored after prepend so the user stays on
+  the message they were reading.

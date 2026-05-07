@@ -13,14 +13,58 @@ interface Message {
   meta?: string | null;
 }
 
+// Page size for the bounded initial fetch + scroll-up loadOlder pagination.
+// Mirrors ChatPane.svelte:22 so the two views stay in lockstep.
+const PAGE_SIZE = 50;
+
 let messages = $state<Message[]>([]);
 let streamingId = $state<string | null>(null);
+let hasMoreMessages = $state(false);
+let loadingOlder = $state(false);
 
 export function useMessageStore() {
-  async function load(sessionId: string) {
-    const res = await fetch(`/api/sessions/${sessionId}/messages`);
+  async function load(sessionId: string, limit: number = PAGE_SIZE) {
+    // Bounded initial fetch — pulls only the most recent `limit` messages.
+    // Older history is fetched on demand via loadOlder() when the user scrolls
+    // up. Critical for mobile-browser refresh performance: a session with
+    // hundreds of messages used to scale linearly; now it's constant-time.
+    const res = await fetch(`/api/sessions/${sessionId}/messages?limit=${limit}`);
     const data = await res.json();
-    messages = data.messages || [];
+    const rows: Message[] = data.messages || [];
+    messages = rows;
+    // If the server returned a full page, more history is likely available.
+    // If less, we've reached the start of the conversation.
+    hasMoreMessages = rows.length >= limit;
+  }
+
+  async function loadOlder(sessionId: string, limit: number = PAGE_SIZE): Promise<number> {
+    // Returns the number of messages prepended so the caller can decide
+    // whether to anchor scroll-position or skip the dom op. Idempotent on
+    // concurrent calls — guarded by `loadingOlder`.
+    if (loadingOlder || !hasMoreMessages) return 0;
+    const oldest = messages[0];
+    if (!oldest) return 0;
+    loadingOlder = true;
+    try {
+      const before = encodeURIComponent(oldest.created_at);
+      const res = await fetch(
+        `/api/sessions/${sessionId}/messages?before=${before}&limit=${limit}`,
+      );
+      const data = await res.json();
+      const older: Message[] = data.messages || [];
+      if (older.length === 0) {
+        hasMoreMessages = false;
+        return 0;
+      }
+      // Dedupe by id in case a streaming chunk landed an early copy.
+      const seen = new Set(messages.map((m) => m.id));
+      const fresh = older.filter((m) => !seen.has(m.id));
+      messages = [...fresh, ...messages];
+      hasMoreMessages = older.length >= limit;
+      return fresh.length;
+    } finally {
+      loadingOlder = false;
+    }
   }
 
   async function send(
@@ -74,7 +118,10 @@ export function useMessageStore() {
     get messages() { return messages; },
     set messages(v: Message[]) { messages = v; },
     get streamingId() { return streamingId; },
+    get hasMoreMessages() { return hasMoreMessages; },
+    get loadingOlder() { return loadingOlder; },
     load,
+    loadOlder,
     send,
     handleStreamChunk,
     handleStreamEnd,
