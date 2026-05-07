@@ -550,6 +550,36 @@ the doc API which handles the lifecycle (section → sign-off → publish)
 and keeps the Obsidian mirror in lockstep. Direct `ant memory put
 docs/<id>` bypasses both; never use it for research docs.
 
+Remote agents (running on a colleague's machine via the antchat binary)
+use `antchat doc <room-id> <subcommand>` — same shape but scoped to a
+per-room bearer token. See `antchat/README.md` for the cowork section.
+
+### Decks and sheets
+
+Presentations and spreadsheets (Open-Slide artefacts) follow the same
+two-surface model but with file-backed manifests instead of memory K/V.
+Read-modify-write uses whole-file `base_hash` + `if_match_mtime` guards
+to detect concurrent writes. CLI shape (mirrored across host + remote):
+
+```bash
+# Host (operator)
+ant deck file get my-pitch slides/intro.md          # captures sha+mtime via stderr
+ant deck file put my-pitch slides/intro.md \
+  --from-file slides/intro.md --base-hash <X> --if-match-mtime <N>
+ant sheet file get forecast q1.csv                  # same protocol
+ant sheet file put forecast q1.csv \
+  --from-file q1.csv --base-hash <X> --if-match-mtime <N>
+
+# Remote agent (via antchat — first arg is the joined room id)
+antchat deck <room> file get my-pitch slides/intro.md
+antchat sheet <room> file put forecast q1.csv \
+  --from-file q1.csv --base-hash <X> --if-match-mtime <N>
+```
+
+On 409 (concurrent-write conflict): re-fetch, merge locally, retry. Cell-
+aware diffs are a future follow-up — today's unit of write is the whole
+file, for both decks and sheets.
+
 Current vault:
 
 ```bash

@@ -24,7 +24,7 @@ antchat --version
 Download the binary for your Mac from the [latest release](https://github.com/Jktfe/a-nice-terminal/releases?q=antchat) and drop it on your `PATH`:
 
 ```sh
-tar -xzf antchat-0.1.0-darwin-arm64.tar.gz   # or -x64 on Intel
+tar -xzf antchat-0.2.0-darwin-arm64.tar.gz   # or -x64 on Intel
 chmod +x antchat
 mv antchat /usr/local/bin/
 antchat --version
@@ -98,10 +98,33 @@ The plist is written to `~/Library/LaunchAgents/com.jktfe.antchat.watch.plist` a
 | `antchat open <id>` | Open the room's web URL in your browser |
 | `antchat tasks <id> ...` | List/create/accept/assign/review/done/delete tasks |
 | `antchat plan <id>` | Pretty-print the room's plan events |
+| `antchat doc <id> ...` | Research-doc cowork (memories K/V + Obsidian mirror) |
+| `antchat deck <id> ...` | Presentation cowork — list/status/manifest/audit/file get/file put |
+| `antchat sheet <id> ...` | Spreadsheet cowork — same shape as deck |
 | `antchat mcp serve\|install\|uninstall\|print` | MCP stdio proxy + Claude Desktop wiring |
 | `antchat watch run\|install\|uninstall\|status` | Background @-mention notifier (LaunchAgent) |
 
 Run `antchat --help` for full flag-by-flag reference.
+
+### Cowork (v0.2): bidirectional editing for humans + agents
+
+`antchat doc/deck/sheet` let remote teammates and their agents author the
+artefacts, not just read them. The read-modify-write protocol uses whole-file
+`base_hash` + `if_match_mtime` guards (same as the web editor):
+
+```sh
+# Marco's agent fills in the lawyer's quote in slide 3:
+antchat deck team-room file get pitch slides/section-3.md  # captures sha+mtime via stderr
+# → modify locally (fill in the lawyer's name + numbers from email)
+antchat deck team-room file put pitch slides/section-3.md \
+  --from-file slides/section-3.md \
+  --base-hash <prev-sha> --if-match-mtime <prev-mtime>
+# → on 409 (someone else edited concurrently): re-fetch, merge, retry.
+```
+
+Same protocol for `antchat sheet ...`. For research docs, use the lifecycle
+subcommands (`create` → `section` → `signoff` → `publish`) which the server
+mirrors to `$ANT_OBSIDIAN_VAULT/research/<id>.md` automatically.
 
 ## Configuration
 
