@@ -60,11 +60,17 @@ function makeEvent(
     headers: options.body !== undefined ? { 'content-type': 'application/json' } : {},
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
   });
+  // start-interview's POST handler dispatches participant pre-invitations via
+  // event.fetch — stub it to a 200-OK no-op so the test doesn't try to make
+  // real HTTP calls.
+  const stubFetch: typeof fetch = async () =>
+    new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
   return {
     params: { id: sessionId, ...(options.params ?? {}) },
     request,
     url: new URL(url),
     locals: {},
+    fetch: stubFetch,
   } as any;
 }
 
@@ -204,7 +210,7 @@ describe('E2E: claim → answer → publish-summary', () => {
       asks: ['Allow file-read on *.ts?', 'Allow web-fetch to npmjs.com?'],
       actions: ['Configure web-fetch rate limits'],
       sources: summarySources,
-      linkedChatId: interview.linked_chat_id,
+      linkedChatId: interview.chat_id,
       originRoomId: 'room-1',
       authoredBy: '@james',
     });
@@ -215,11 +221,11 @@ describe('E2E: claim → answer → publish-summary', () => {
     expect(summary.decisions).toHaveLength(1);
     expect(summary.asks).toHaveLength(2);
     expect(summary.actions).toHaveLength(1);
-    expect(summary.linked_chat_id).toBe(interview.linked_chat_id);
+    expect(summary.linked_chat_id).toBe(interview.chat_id);
     expect(summary.origin_room_id).toBe('room-1');
 
-    // ── 8. Confirm linked chat integrity ─────────────────────────────
-    const linkedChat = ctx.queries.getSession(interview.linked_chat_id);
+    // ── 8. Confirm interview chat integrity ──────────────────────────
+    const linkedChat = ctx.queries.getSession(interview.chat_id);
     expect(linkedChat).toBeTruthy();
     expect(linkedChat.type).toBe('chat');
     const chatMeta = JSON.parse(linkedChat.meta || '{}');

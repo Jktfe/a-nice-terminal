@@ -1047,12 +1047,24 @@
     }
   }
 
-  async function startInterviewFor(targetSessionId: string) {
+  // Direct interview start — primarily kept for the mic-icon legacy path and
+  // the @mention auto-trigger. The new launcher flow (Phase C) opens a modal
+  // that calls a similar handler with seed_message_id / participants.
+  async function startInterviewFor(
+    targetSessionId: string,
+    extra: { seed_message_id?: string; seed_text?: string; participants?: string[] } = {},
+  ) {
     try {
       const res = await fetch(`/api/sessions/${targetSessionId}/start-interview`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ origin_room_id: sessionId, caller_handle: session?.handle || null }),
+        body: JSON.stringify({
+          origin_room_id: sessionId,
+          caller_handle: session?.handle || null,
+          seed_message_id: extra.seed_message_id ?? null,
+          seed_text: extra.seed_text ?? null,
+          participants: extra.participants ?? [],
+        }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -1060,12 +1072,15 @@
         return;
       }
       const result = await res.json();
-      if (!result?.ok || !result?.linked_chat_id) return;
-      if (result.linked_chat_id === sessionId) {
+      if (!result?.ok || !result?.chat_id) return;
+      if (result.chat_id === sessionId) {
         toasts.show('You are already in the interview chat for this session');
         return;
       }
-      goto(`/session/${result.linked_chat_id}`);
+      if (Array.isArray(result.invite_failures) && result.invite_failures.length > 0) {
+        toasts.show(`${result.invite_failures.length} participant(s) could not be auto-invited`, 'error');
+      }
+      goto(`/session/${result.chat_id}`);
     } catch (e) {
       toasts.show(`Interview failed: ${e instanceof Error ? e.message : 'unknown error'}`, 'error');
     }
@@ -1104,7 +1119,7 @@
         });
         if (!res.ok) continue;
         const result = await res.json();
-        if (result?.ok && result?.created) {
+        if (result?.ok && result?.chat_id) {
           toasts.show(`Started interview with ${targetSession.display_name || targetSession.name || targetSession.handle}`);
         }
       } catch {
