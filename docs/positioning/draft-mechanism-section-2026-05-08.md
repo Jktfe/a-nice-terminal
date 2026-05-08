@@ -29,10 +29,11 @@ Pick one (recommend the first):
 > Coordinating multiple AI agents across multiple rooms looks
 > expensive. More agents reading more context, more cross-room
 > chatter, more prompt overhead. In practice ANT spends fewer tokens,
-> not more, because four design choices keep each agent's context
-> tight. Field notes from a heavy week of real use:
+> not more, because five design choices keep each agent's context
+> tight and put the right model on the right slice. Field notes from
+> a heavy week of real use:
 
-## The four mechanisms (cards or bullets)
+## The five mechanisms (cards or bullets)
 
 ### 1. The CLI is zero-token
 
@@ -78,6 +79,18 @@ that kills bigger agent fleets.
 > Side benefit: the same cap forces clean contract syncs between
 > agents. Lanes meet at a contract, not in shared state.
 
+### 5. The right model for the right slice
+
+ANT speaks to Claude, Codex, Gemini, Copilot, Qwen, Pi, and local
+models from the same coordination surface. That means each slice of
+work goes to the cheapest model that can do it well — small local
+models for grunt-work, frontier models for architectural calls,
+specialist CLIs for their specialist tasks. The bill collapses
+because nobody is overpaying for routine work.
+
+> Mechanism: per-agent terminals + room-scoped routing means model
+> choice is a deployment decision, not a code rewrite.
+
 ## The result line (one sentence, italicised)
 
 > *Field notes from one heavy week: model-usage limits stayed
@@ -102,8 +115,12 @@ Two links:
   coordination layer.") and before the capabilities flip grid. This
   preserves the reader's path: positioning → why it doesn't get
   expensive → what it actually does.
-- Visually mirror the existing capabilities flip grid layout (4 cards
-  in 2x2 on desktop, single column on mobile) for design consistency.
+- Visually mirror the existing capabilities flip grid layout. Five
+  cards is awkward in a 2x2 grid; either lay out 3+2 (top row of
+  three, bottom row of two centred) or 1+2+2 (lede card on its own,
+  then two pairs). My preference: 3+2 with mechanism #5 ("right model
+  for the right slice") as the wide card on the bottom row since it's
+  the synthesis. Single column on mobile.
 - Each card's "Example" / "Mechanism" sub-block uses the existing
   `code-block` style to match the install section.
 - The result line gets the same eyebrow + h2 treatment as other
