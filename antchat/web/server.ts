@@ -237,6 +237,8 @@ async function route(req: Request, ctx: AuthCtx, startedAt: number): Promise<Res
       return handleProxy(req, roomId, 'messages');
     }
     if (rest === 'participants' && method === 'GET') return handleProxy(req, roomId, 'participants');
+    if (rest === 'tasks' && method === 'GET') return handleProxy(req, roomId, 'tasks');
+    if (rest === 'file-refs' && method === 'GET') return handleProxy(req, roomId, 'file-refs');
     if (rest === 'stream' && method === 'GET') return handleStream(req, roomId);
 
     const handleRevokeMatch = rest.match(/^handles\/(.+)$/);

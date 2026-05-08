@@ -1,17 +1,17 @@
 // antchat web — local browser UI for ANT chat rooms.
 //
-// Vanilla ES module, no build step. v0.3.0-alpha targets the
-// "smallest end-to-end testable" subset of the production-shape plan:
+// v0.3.0-alpha.2 surface:
 //   - sidebar listing rooms from ~/.ant/config.json (+ "add room" wizard)
-//   - one active room view at a time, backfill 50, live SSE, send
-//   - @-mention regex highlight (autocomplete is v0.3.1)
+//   - chatroom view: backfill 50, live SSE, send, @-mention regex highlight
+//   - right panel with 3 tabs: Participants, Tasks, Files
+//   - sender names rendered as alias > name > handle > id[:8]
+//   - light/dark theme toggle (persisted in localStorage)
 //   - CSRF double-submit on all mutating fetches
 //
 // v0.3.1 will swap this single file for an htm+Preact bundle. The DOM
-// structure here is intentionally close to the JSX shape that migration
-// will produce, so the diff stays mechanical.
+// structure mirrors the JSX shape that migration will produce.
 //
-// Note: this file deliberately avoids `innerHTML` with any data that ever
+// This file deliberately avoids `innerHTML` with any data that ever
 // originated outside this script. All such data flows through createElement
 // + textContent. innerHTML is only used for fixed templates (no interpolation).
 
@@ -45,11 +45,41 @@ const state = {
   rooms: [],
   activeRoomId: null,
   csrf: null,
-  byRoom: {},
+  byRoom: {},        // room_id → { messages, participants, tasks, fileRefs, es, unread, streamState, displayMap }
   ready: false,
+  panelTab: 'participants',
+  panelOpen: true,
+  theme: 'dark',
 };
 
 const app = $('#app');
+
+// ─── Theme ─────────────────────────────────────────────────────────────────
+
+function loadTheme() {
+  let saved = null;
+  try { saved = localStorage.getItem('antchat:theme'); } catch {}
+  if (saved === 'light' || saved === 'dark') {
+    state.theme = saved;
+  } else {
+    const prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+    state.theme = prefersLight ? 'light' : 'dark';
+  }
+  applyTheme();
+}
+
+function applyTheme() {
+  document.documentElement.setAttribute('data-theme', state.theme);
+}
+
+function toggleTheme() {
+  state.theme = state.theme === 'dark' ? 'light' : 'dark';
+  applyTheme();
+  try { localStorage.setItem('antchat:theme', state.theme); } catch {}
+  // Re-render sidebar so the toggle button reflects the new state.
+  const btn = $('#theme-btn');
+  if (btn) btn.textContent = state.theme === 'dark' ? '☀' : '☾';
+}
 
 // ─── Utilities ──────────────────────────────────────────────────────────────
 
@@ -95,10 +125,39 @@ async function refreshCsrf() {
   state.csrf = body.csrfToken;
 }
 
-// ─── Mention rendering (safe text → mixed text+span nodes) ─────────────────
+// ─── Display name resolution ───────────────────────────────────────────────
+
+/** alias > name > handle > id[:8]. Returns the friendly display label for
+ * a sender_id within a given room, using the room's participants list. */
+function displayNameFor(senderId, roomId) {
+  if (!senderId) return '?';
+  const meta = state.byRoom[roomId];
+  if (meta && meta.displayMap && meta.displayMap[senderId]) return meta.displayMap[senderId];
+  // Fall back to handle-shaped strings as themselves.
+  if (senderId.startsWith('@')) return senderId;
+  return senderId.length > 10 ? senderId.slice(0, 8) + '…' : senderId;
+}
+
+function buildDisplayMap(participants) {
+  const map = {};
+  for (const p of participants || []) {
+    const display = p.alias || p.name || p.handle || (p.id && (p.id.length > 10 ? p.id.slice(0, 8) + '…' : p.id));
+    if (p.id) map[p.id] = display;
+    if (p.handle) map[p.handle] = display;
+  }
+  return map;
+}
+
+function senderInitials(display) {
+  // Alias-driven initials: take first 2 alphanumerics from the display name.
+  const stripped = String(display || '?').replace(/^@/, '');
+  const parts = stripped.match(/[A-Za-z0-9]/g) || ['?'];
+  return parts.slice(0, 2).join('').toUpperCase();
+}
+
+// ─── Mention rendering (safe text → mixed text+span nodes) ────────────────
 
 function appendContentNodes(parent, text) {
-  // Word-boundary @handle, same shape as antchat/lib/notifier.ts mentionsHandle.
   const re = /(^|[^A-Za-z0-9_])(@[A-Za-z0-9_-]+)/g;
   let last = 0;
   for (const match of text.matchAll(re)) {
@@ -133,20 +192,24 @@ function buildRoomListItem(room) {
   );
 }
 
-function buildMessageNode(m) {
+function buildMessageNode(m, roomId) {
   const isSystem = m.role === 'system' || m.msg_type === 'system';
-  const sender = m.sender_id || m.role || 'unknown';
-  const initials = String(sender).replace(/^@/, '').slice(0, 2).toUpperCase();
+  const senderId = m.sender_id || m.role || 'unknown';
+  const displayName = displayNameFor(senderId, roomId);
+  const senderIsHandle = String(senderId).startsWith('@');
+  const showSenderId = !senderIsHandle && displayName !== senderId;
+  const targetDisplay = m.target ? displayNameFor(m.target, roomId) : null;
 
   const meta = el('div', { class: 'meta' },
-    el('span', { class: 'sender', text: sender }),
-    m.target ? el('span', { class: 'target', text: '→ ' + m.target }) : null,
+    el('span', { class: 'sender', text: displayName }),
+    showSenderId ? el('span', { class: 'sender-id', title: senderId, text: senderId.slice(0, 8) + '…' }) : null,
+    targetDisplay ? el('span', { class: 'target', text: '→ ' + targetDisplay }) : null,
     el('span', { class: 'ts', title: m.created_at || '', text: formatTs(m.created_at) }),
   );
   const content = el('div', { class: 'content' });
   appendContentNodes(content, String(m.content || ''));
   return el('div', { class: 'msg' + (isSystem ? ' system' : '') },
-    el('div', { class: 'avatar', text: initials }),
+    el('div', { class: 'avatar', text: senderInitials(displayName) }),
     el('div', { class: 'body' }, meta, content),
   );
 }
@@ -161,8 +224,16 @@ function buildEmptyMessages() {
 
 function renderShell() {
   clear(app);
+  app.classList.toggle('no-side-panel', !state.panelOpen);
+  const themeBtn = el('button', {
+    id: 'theme-btn',
+    class: 'icon-btn',
+    title: 'Toggle theme',
+    on: { click: toggleTheme },
+    text: state.theme === 'dark' ? '☀' : '☾',
+  });
   const addBtn = el('button', {
-    class: 'add-room',
+    class: 'icon-btn',
     title: 'Add room',
     on: { click: openWizard },
     text: '+',
@@ -170,14 +241,17 @@ function renderShell() {
   app.appendChild(
     el('aside', { class: 'sidebar' },
       el('div', { class: 'sidebar-header' },
-        el('span', { text: 'antchat' }),
-        addBtn,
+        el('span', { class: 'title', text: 'antchat' }),
+        el('div', { class: 'header-actions' }, themeBtn, addBtn),
       ),
       el('ul', { class: 'room-list', id: 'room-list' }),
       el('div', { class: 'sidebar-footer', id: 'sidebar-footer', text: '…' }),
     )
   );
   app.appendChild(el('main', { class: 'chat', id: 'chat-main' }));
+  if (state.panelOpen) {
+    app.appendChild(el('aside', { class: 'side-panel', id: 'side-panel' }));
+  }
 }
 
 function renderRoomList() {
@@ -186,7 +260,7 @@ function renderRoomList() {
   clear(ul);
   for (const r of state.rooms) ul.appendChild(buildRoomListItem(r));
   $('#sidebar-footer').textContent =
-    `${state.rooms.length} room${state.rooms.length === 1 ? '' : 's'} • antchat web 0.3.0`;
+    `${state.rooms.length} room${state.rooms.length === 1 ? '' : 's'} • antchat web 0.3.0-alpha.2`;
 }
 
 function renderEmpty() {
@@ -199,6 +273,8 @@ function renderEmpty() {
       el('button', { on: { click: openWizard }, text: 'Add room' }),
     )
   );
+  const panel = $('#side-panel');
+  if (panel) clear(panel);
 }
 
 function renderRoom(roomId) {
@@ -206,18 +282,27 @@ function renderRoom(roomId) {
   const main = $('#chat-main');
   if (!room) return renderEmpty();
   const handle = room.handles[0]?.handle || '';
-  const meta = state.byRoom[roomId] || (state.byRoom[roomId] = { messages: [], participants: [], es: null, unread: 0 });
+  const meta = ensureRoomMeta(roomId);
 
   clear(main);
 
+  const togglePanelBtn = el('button', {
+    class: 'icon-btn panel-toggle',
+    title: state.panelOpen ? 'Hide side panel' : 'Show side panel',
+    on: { click: toggleSidePanel },
+    text: state.panelOpen ? '⟩' : '⟨',
+  });
+
   const header = el('div', { class: 'chat-header' },
     el('span', { class: 'h-room', text: room.room_id }),
-    el('span', { class: 'h-handle', text: handle || '(no handle)' }),
+    el('span', { class: 'h-handle', text: handle ? `you = ${handle}` : '(no handle)' }),
+    el('span', { class: 'h-spacer' }),
+    togglePanelBtn,
   );
 
   const list = el('div', { class: 'message-list', id: 'msg-list' });
   if (!meta.messages.length) list.appendChild(buildEmptyMessages());
-  else for (const m of meta.messages) list.appendChild(buildMessageNode(m));
+  else for (const m of meta.messages) list.appendChild(buildMessageNode(m, roomId));
 
   const ta = el('textarea', {
     id: 'composer-input',
@@ -244,11 +329,130 @@ function renderRoom(roomId) {
 
   scrollToBottom();
   ta.focus();
+  renderSidePanel();
 }
 
 function scrollToBottom() {
   const list = $('#msg-list');
   if (list) list.scrollTop = list.scrollHeight;
+}
+
+// ─── Right panel ───────────────────────────────────────────────────────────
+
+function ensureRoomMeta(roomId) {
+  if (!state.byRoom[roomId]) {
+    state.byRoom[roomId] = {
+      messages: [], participants: [], tasks: [], fileRefs: [],
+      es: null, unread: 0, displayMap: {},
+    };
+  }
+  return state.byRoom[roomId];
+}
+
+function toggleSidePanel() {
+  state.panelOpen = !state.panelOpen;
+  app.classList.toggle('no-side-panel', !state.panelOpen);
+  if (state.panelOpen) {
+    if (!$('#side-panel')) app.appendChild(el('aside', { class: 'side-panel', id: 'side-panel' }));
+    renderSidePanel();
+  } else {
+    const p = $('#side-panel');
+    if (p) p.remove();
+  }
+  // Update the toggle arrow on the chat header.
+  if (state.activeRoomId) renderRoom(state.activeRoomId);
+}
+
+function renderSidePanel() {
+  const panel = $('#side-panel');
+  if (!panel || !state.activeRoomId) { if (panel) clear(panel); return; }
+  clear(panel);
+
+  const tabs = el('div', { class: 'tabs' },
+    ['participants', 'Participants'],
+    ['tasks', 'Tasks'],
+    ['files', 'Files'],
+  );
+  // Replace tab content (the text constants above) with proper buttons.
+  clear(tabs);
+  for (const [key, label] of [['participants', 'Participants'], ['tasks', 'Tasks'], ['files', 'Files']]) {
+    tabs.appendChild(el('button', {
+      class: state.panelTab === key ? 'active' : '',
+      on: { click: () => { state.panelTab = key; renderSidePanel(); } },
+      text: label,
+    }));
+  }
+  panel.appendChild(tabs);
+
+  const body = el('div', { class: 'tab-body', id: 'tab-body' });
+  panel.appendChild(body);
+
+  const meta = ensureRoomMeta(state.activeRoomId);
+  if (state.panelTab === 'participants') renderParticipantsTab(body, meta);
+  else if (state.panelTab === 'tasks')   renderTasksTab(body, meta);
+  else if (state.panelTab === 'files')   renderFilesTab(body, meta);
+}
+
+function renderParticipantsTab(body, meta) {
+  if (!meta.participants.length) {
+    body.appendChild(el('div', { class: 'empty-tab', text: 'No participants yet.' }));
+    return;
+  }
+  for (const p of meta.participants) {
+    const display = p.alias || p.name || p.handle || (p.id || '').slice(0, 8);
+    const status = (p.session_status === 'connected' || p.attention_state === 'engaged') ? 'online'
+                 : (p.attention_state === 'away') ? 'away' : '';
+    const item = el('div', { class: 'list-item participant' + (status ? ' ' + status : '') },
+      el('div', { class: 'avatar', text: senderInitials(display) }),
+      el('div', { class: 'info' },
+        el('div', { class: 'name' }, display, p.role === 'external' ? el('span', { class: 'role-badge', text: 'ext' }) : null),
+        p.handle ? el('div', { class: 'handle', text: p.handle }) : null,
+      ),
+      el('span', { class: 'dot' }),
+    );
+    body.appendChild(item);
+  }
+}
+
+function renderTasksTab(body, meta) {
+  if (!meta.tasks.length) {
+    body.appendChild(el('div', { class: 'empty-tab', text: 'No tasks yet.' }));
+    return;
+  }
+  for (const t of meta.tasks) {
+    const status = (t.status || 'proposed').toLowerCase();
+    const item = el('div', { class: 'list-item' },
+      el('div', null,
+        el('span', { class: 'task-status ' + status, text: status.replace(/_/g, ' ') }),
+        el('span', { class: 'li-title', text: t.title || '(untitled)' }),
+      ),
+      t.description ? el('div', { class: 'li-sub', text: t.description }) : null,
+      el('div', { class: 'li-meta' },
+        t.created_by ? `by ${displayNameFor(t.created_by, state.activeRoomId)} • ` : '',
+        formatTs(t.created_at),
+        t.assigned_to ? ` • → ${displayNameFor(t.assigned_to, state.activeRoomId)}` : '',
+      ),
+    );
+    body.appendChild(item);
+  }
+}
+
+function renderFilesTab(body, meta) {
+  if (!meta.fileRefs.length) {
+    body.appendChild(el('div', { class: 'empty-tab', text: 'No file references yet.' }));
+    return;
+  }
+  for (const f of meta.fileRefs) {
+    const item = el('div', { class: 'list-item' },
+      el('div', { class: 'li-title', text: f.file_path || '(no path)' }),
+      f.note ? el('div', { class: 'li-sub', text: f.note }) : null,
+      el('div', { class: 'li-meta' },
+        f.flagged_by ? `flagged by ${displayNameFor(f.flagged_by, state.activeRoomId)}` : 'unattributed',
+        f.created_at ? ` • ${formatTs(f.created_at)}` : '',
+      ),
+    );
+    body.appendChild(item);
+  }
 }
 
 // ─── Wizard ────────────────────────────────────────────────────────────────
@@ -272,7 +476,6 @@ function openWizard() {
   const close = () => overlay.remove();
 
   const form = el('form', {
-    id: 'wizard-form',
     on: {
       submit: async (e) => {
         e.preventDefault();
@@ -335,21 +538,56 @@ async function loadRooms() {
 
 async function selectRoom(roomId) {
   if (!roomId) return;
-  const meta = state.byRoom[roomId] || (state.byRoom[roomId] = { messages: [], participants: [], es: null, unread: 0 });
+  const meta = ensureRoomMeta(roomId);
   state.activeRoomId = roomId;
   meta.unread = 0;
   renderRoomList();
   renderRoom(roomId);
 
-  try {
-    const body = await api(`/api/rooms/${encodeURIComponent(roomId)}/messages?limit=50`);
-    meta.messages = body.messages || [];
-    if (state.activeRoomId === roomId) renderRoom(roomId);
-  } catch (err) {
-    console.error('backfill failed', err);
-  }
+  // Backfill messages + participants in parallel.
+  const messagesP = api(`/api/rooms/${encodeURIComponent(roomId)}/messages?limit=50`)
+    .then(body => { meta.messages = body.messages || []; })
+    .catch(err => console.error('backfill failed', err));
+  const participantsP = api(`/api/rooms/${encodeURIComponent(roomId)}/participants`)
+    .then(body => {
+      const all = body.all || [...(body.participants || []), ...(body.postsFrom || [])];
+      meta.participants = all;
+      meta.displayMap = buildDisplayMap(all);
+    })
+    .catch(err => console.error('participants failed', err));
+
+  await Promise.all([messagesP, participantsP]);
+  // Re-render with the resolved data.
+  if (state.activeRoomId === roomId) renderRoom(roomId);
 
   ensureStream(roomId);
+  // Lazy-load tasks and files for the side-panel tabs (don't block initial paint).
+  loadTasks(roomId);
+  loadFileRefs(roomId);
+}
+
+async function loadTasks(roomId) {
+  const meta = state.byRoom[roomId];
+  if (!meta) return;
+  try {
+    const body = await api(`/api/rooms/${encodeURIComponent(roomId)}/tasks`);
+    meta.tasks = body.tasks || [];
+    if (state.activeRoomId === roomId) renderSidePanel();
+  } catch (err) {
+    console.warn('tasks fetch failed', err);
+  }
+}
+
+async function loadFileRefs(roomId) {
+  const meta = state.byRoom[roomId];
+  if (!meta) return;
+  try {
+    const body = await api(`/api/rooms/${encodeURIComponent(roomId)}/file-refs`);
+    meta.fileRefs = body.refs || [];
+    if (state.activeRoomId === roomId) renderSidePanel();
+  } catch (err) {
+    console.warn('file-refs fetch failed', err);
+  }
 }
 
 function ensureStream(roomId) {
@@ -373,9 +611,34 @@ function ensureStream(roomId) {
 function onUpstreamFrame(roomId, _eventName, dataString) {
   let data;
   try { data = JSON.parse(dataString); } catch { return; }
-  if (data && (data.type === 'message_added' || data.type === 'message_created')) {
+  if (!data) return;
+  if (data.type === 'message_added' || data.type === 'message_created') {
     const msg = data.message || data;
     appendMessage(roomId, msg);
+    return;
+  }
+  if (data.type === 'task_created' || data.type === 'task_updated') {
+    // Refetch the whole list — server is the source of truth for status.
+    loadTasks(roomId);
+    return;
+  }
+  if (data.type === 'file_ref_created' || data.type === 'file_ref_deleted') {
+    loadFileRefs(roomId);
+    return;
+  }
+  if (data.type === 'participants_changed' || data.type === 'participant_joined') {
+    // Refresh participant list so aliases stay accurate.
+    api(`/api/rooms/${encodeURIComponent(roomId)}/participants`)
+      .then(body => {
+        const all = body.all || [...(body.participants || []), ...(body.postsFrom || [])];
+        const meta = state.byRoom[roomId];
+        if (!meta) return;
+        meta.participants = all;
+        meta.displayMap = buildDisplayMap(all);
+        if (state.activeRoomId === roomId) renderSidePanel();
+      })
+      .catch(() => {});
+    return;
   }
 }
 
@@ -388,12 +651,23 @@ function appendMessage(roomId, msg) {
     const list = $('#msg-list');
     if (list) {
       if (list.firstChild && list.firstChild.classList?.contains('empty')) clear(list);
-      list.appendChild(buildMessageNode(msg));
+      list.appendChild(buildMessageNode(msg, roomId));
       scrollToBottom();
     }
   } else {
     meta.unread = (meta.unread || 0) + 1;
     renderRoomList();
+  }
+  // If we don't recognise the sender yet, refresh the participants list so
+  // future renders pick up the alias.
+  if (msg.sender_id && !meta.displayMap[msg.sender_id]) {
+    api(`/api/rooms/${encodeURIComponent(roomId)}/participants`)
+      .then(body => {
+        const all = body.all || [...(body.participants || []), ...(body.postsFrom || [])];
+        meta.participants = all;
+        meta.displayMap = buildDisplayMap(all);
+      })
+      .catch(() => {});
   }
 }
 
@@ -427,8 +701,10 @@ async function onComposerSubmit(e) {
 // ─── Boot ──────────────────────────────────────────────────────────────────
 
 async function boot() {
+  loadTheme();
   if (!readCookie('__antchat')) {
     clear(app);
+    app.classList.add('no-side-panel');
     app.appendChild(
       el('div', { class: 'empty' },
         el('div', { text: 'No launch token.' }),

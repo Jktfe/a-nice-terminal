@@ -3,6 +3,8 @@
 // • GET  /api/rooms/:id/messages?limit&before&since → upstream GET /api/sessions/:id/messages
 // • POST /api/rooms/:id/messages                    → upstream POST /api/sessions/:id/messages
 // • GET  /api/rooms/:id/participants                → upstream GET /api/sessions/:id/participants
+// • GET  /api/rooms/:id/tasks                       → upstream GET /api/sessions/:id/tasks
+// • GET  /api/rooms/:id/file-refs                   → upstream GET /api/sessions/:id/file-refs
 //
 // Auth: per-room bearer from `config.getRoomToken(roomId, handle?)`. We
 // preserve the upstream status code rather than translating; HTTP 401/403
@@ -13,9 +15,8 @@
 // when the room has multiple stored tokens. Omit to use the default handle.
 
 import { config } from '../../cli/lib/config.js';
-import { api } from '../../cli/lib/api.js';
 
-export type ProxyRoute = 'messages' | 'participants';
+export type ProxyRoute = 'messages' | 'participants' | 'tasks' | 'file-refs';
 
 interface ResolvedRoom {
   serverUrl: string;
@@ -62,7 +63,23 @@ async function forward(method: 'GET' | 'POST', resolved: ResolvedRoom, path: str
       options.dispatcher = new Agent({ connect: { rejectUnauthorized: false } });
     } catch { /* fall back to NODE_TLS_REJECT_UNAUTHORIZED=0 if user set it */ }
   }
-  const res = await fetch(`${resolved.serverUrl}${path}`, options);
+  const upstreamUrl = `${resolved.serverUrl}${path}`;
+  let res: Response;
+  try {
+    res = await fetch(upstreamUrl, options);
+  } catch (err: any) {
+    // Connection refused, DNS failure, TLS failure — all become 502 with
+    // a useful detail so the SPA can render "upstream unreachable" rather
+    // than a generic 500.
+    return new Response(JSON.stringify({
+      error: 'upstream_unreachable',
+      detail: err?.message || String(err),
+      server_url: resolved.serverUrl,
+    }), {
+      status: 502,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
   const text = await res.text();
   // Pass through status + body. content-type defaults to JSON because the
   // upstream is a JSON API for these routes.
@@ -114,6 +131,16 @@ export async function handleProxy(req: Request, roomId: string, route: ProxyRout
 
   if (route === 'participants') {
     return forward('GET', resolved, `/api/sessions/${encodeURIComponent(roomId)}/participants`);
+  }
+
+  if (route === 'tasks') {
+    if (req.method !== 'GET') return jsonResponse({ error: 'method_not_allowed' }, 405);
+    return forward('GET', resolved, `/api/sessions/${encodeURIComponent(roomId)}/tasks`);
+  }
+
+  if (route === 'file-refs') {
+    if (req.method !== 'GET') return jsonResponse({ error: 'method_not_allowed' }, 405);
+    return forward('GET', resolved, `/api/sessions/${encodeURIComponent(roomId)}/file-refs`);
   }
 
   return jsonResponse({ error: 'not_implemented' }, 501);
