@@ -429,7 +429,7 @@ describe('agent status endpoint state', () => {
 
     init({
       getSession: id => id === sessionId
-        ? { id, linked_chat_id: 'linked-chat', meta: JSON.stringify({ agent_driver: 'codex-cli' }) }
+        ? { id, linked_chat_id: 'linked-chat', meta: JSON.stringify({ agent_driver: 'codex-cli', hooks_active: true }) }
         : null,
       postToChat: () => {},
       writeToTerminal: () => {},

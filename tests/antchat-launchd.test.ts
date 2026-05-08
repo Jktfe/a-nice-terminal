@@ -5,9 +5,9 @@
 // piece most likely to drift, so we pin it here.
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { mkdtempSync, readFileSync, existsSync, writeFileSync } from 'fs';
+import { mkdtempSync, readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { dirname, join } from 'path';
 import {
   buildPlist,
   writePlist,
@@ -104,6 +104,7 @@ describe('writePlist + removePlist', () => {
     const label = 'com.test.removable';
     const path = plistPath(label);
     // Write something at the canonical path first by side-loading.
+    mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, '<?xml version="1.0"?><plist version="1.0"><dict/></plist>', 'utf8');
     expect(existsSync(path)).toBe(true);
     expect(removePlist(label)).toBe(true);
