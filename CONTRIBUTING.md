@@ -11,9 +11,9 @@ Thanks for your interest in contributing to ANT.
 ## Local development
 
 ```bash
-npm install
-npm run build
-npm run start
+bun install
+bun run build
+bun run start
 ```
 
 For CLI work:

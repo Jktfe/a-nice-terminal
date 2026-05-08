@@ -6,34 +6,89 @@
 [![Bun](https://img.shields.io/badge/bun-1.3.13-000000?logo=bun&logoColor=white)](https://bun.sh/)
 [![SvelteKit](https://img.shields.io/badge/SvelteKit-2-FF3E00?logo=svelte&logoColor=white)](https://kit.svelte.dev/)
 
-**The missing layer between "I have 13 AI CLIs" and "they actually work together."**
+**The coordination layer for agent teams.**
 
-ANT is a self-hosted agent orchestrator that coordinates multiple AI CLI tools (Claude Code, Gemini CLI, Codex, Copilot, Qwen, Pi, Hermes, Ollama, and more) through shared terminal sessions, persistent chat, and a convention-based coordination protocol — without requiring MCP servers, custom plugins, or framework lock-in.
+ANT is a self-hosted room where humans and their AI agents work together:
+Claude Code, Codex, Gemini, Copilot, Qwen, Pi, Hermes, Ollama, local models,
+remote teammates, plans, tasks, evidence, terminals, docs, decks, sheets, and
+prototype links in one shared operating surface.
+
+It is the missing layer between "I have 13 AI CLIs" and "they actually ship
+together" — without requiring every agent to join a framework, run a custom MCP
+server, or carry the whole room history in its prompt.
 
 ## Why ANT?
 
-Most AI coding tools run in isolation. You can't easily have Claude Code review what Gemini wrote, or delegate a task from one agent to another. ANT solves this by treating terminal I/O, chat, memory, and task delegation as one shared substrate.
+Most AI coding tools run in isolation. You can't easily have Claude Code review
+what Codex wrote, ask Gemini to check a visual surface, let a colleague's Claude
+Desktop join the same workroom, or keep a multi-day bridge channel alive without
+clogging every prompt with old context.
+
+ANT solves this by treating terminal I/O, chat, plans, tasks, memory, and
+artefacts as one shared substrate.
 
 **ANT is not a terminal multiplexer.** tmux and Zellij manage terminal panes. ANT manages *agents* — it knows who's connected, what they can do, and how to route messages between them.
 
+### The field note
+
+The surprise from heavy real use is that more agents did **not** mean runaway
+token usage. The coordination stayed cheap because ANT carries work state in the
+room — plans, tasks, bounded context windows, evidence, and artefacts — instead
+of repeatedly re-briefing every model. The quality also improved because work
+could be split to the right agent or teammate instead of forcing one expensive
+model to hold every thread.
+
+The strongest use case is not "one person with more panes." It is a shared
+workroom: your agent, a colleague's agent, and the humans can all see the same
+plan, hand off tasks, attach evidence, and stop chasing context through email or
+side channels.
+
 ### What makes it different
 
-- **Convention over framework** — agents coordinate via shared SQLite key-value conventions (`tasks/`, `agents/`, `goals/`), not MCP tool definitions or API contracts
+- **Multi-human + multi-agent rooms** — invite a collaborator with [`antchat`](antchat/README.md) and let their local Claude Desktop or CLI agent join the same room
+- **Convention over framework** — agents coordinate via shared SQLite key-value conventions (`tasks/`, `agents/`, `goals/`), not per-agent framework runtimes
 - **Agent fingerprinting** — automated probe pipeline detects how each CLI handles interactive prompts and generates normalised drivers (see [Agent Fingerprinting](#agent-fingerprinting) below)
-- **Task delegation protocol** — explicit `todo → doing → review → done` state machine with mandatory separate verifier
+- **Plan-as-shared-truth** — live [Plan View](docs/ANT-PLANNING-SKILL.md) turns chat decisions into milestones, acceptances, tests, progress bars, and evidence links
+- **Task delegation protocol** — explicit `todo → doing → review → done` state machine with creator attribution, plan links, and verifier discipline
 - **Linked-chat bridge** — terminal output surfaces as chat bubbles; chat messages auto-forward as keystrokes to answer interactive prompts
-- **Zero sidecar overhead** — no MCP server per agent, no framework runtime, just SQLite + PTY streams
-- **Radically lower token cost** — no MCP tool schemas injected per request, no polling loops, no system prompt bloat. Messages are plain text via PTY injection. Coordination overhead is a fraction of total spend — the vast majority of tokens go to actual work, not framework tax
+- **Bounded context windows** — `/break` lets long-running rooms keep going for days while agents only see the fresh window unless the room opts into long memory
+- **Zero sidecar overhead** — no MCP server per agent, no framework runtime, just SQLite + PTY streams when that is enough
+- **Radically lower token cost** — no MCP tool schemas injected per request, no polling loops, no system prompt bloat. Messages are plain text via PTY injection. Coordination overhead stays small, so the vast majority of tokens go to actual work, not framework tax
 - **Local + cloud in the same session** — Ollama and LM Studio agents work identically to cloud agents (same PTY injection, same @mentions, same task delegation). Offload mechanical work to free local models, save API spend for agents that need reasoning
 - **Lessons learned** — see [docs/LESSONS.md](docs/LESSONS.md) for the design decisions, transferable insights, and commit-cited regressions that produced the substrate above
+
+## Why it saves tokens instead of burning them
+
+The obvious fear is that more agents and more messages must cost more. ANT is
+designed around the opposite pattern:
+
+- **The CLI is zero-token.** Creating tasks, posting status, reading evidence,
+  and updating plans are shell/API operations. They do not invoke a model by
+  themselves.
+- **Long rooms can reset context.** [`/break`](docs/CHAT-BREAK.md) creates a
+  clean agent-context boundary while keeping the full chat visible to humans.
+- **Plan-as-shared-truth replaces re-derivation.** Plans, tasks, room artefacts,
+  transcripts, run events, and memory rows sit in SQLite and are pulled only
+  when needed.
+- **Routing and lane discipline cap coordination overhead.** `@handle` and
+  `@everyone` decide which terminals are interrupted, while the multi-agent
+  protocol keeps parallel lanes small enough to coordinate cleanly.
+- **The right model gets the right slice.** Local and cheaper agents can handle
+  mechanical work; stronger agents stay focused on reasoning and review.
+
+For the detailed mechanics, read the [multi-agent session guide](docs/multi-agent-session-guide.md)
+and [lessons learned](docs/LESSONS.md).
 
 ## Features
 
 - **Live terminal sessions** — full PTY streaming via WebSocket and xterm.js
 - **Rich ANT Terminal** — readable command blocks projected from append-only `run_events`, with a one-click Raw Terminal escape hatch
-- **Plan View** — live, provenance-backed milestone and acceptance-test view over the same event log
+- **Plan View** — live, provenance-backed milestone and acceptance-test view over the same event log, with archive/unarchive and visual progress
 - **Persistent chat** — message threads with FTS5 full-text search (trigram tokeniser for code-friendly matching)
-- **Multi-agent coordination** — agent registry, @mention routing, task delegation, shared memory
+- **Multi-agent coordination** — agent registry, @mention routing, task delegation, shared memory, and room-specific artefacts
+- **Chat Break** — bounded agent context windows for long-lived rooms
+- **Cowork artefacts** — room-scoped docs, decks, spreadsheets, plans, and Cloudflare-tunnelled prototype sites in the right panel
+- **Interview-lite** — per-message interview modal with text, TTS replay cache, transcript export, and summary post-back
 - **Mobile-friendly controls** — pinned terminals, searchable CLI picker, folder drawer, file/reference panel, and Add Terminal shortcut
 - **Structured agent adapters** — Pi RPC and Hermes ACP project trusted JSON/ACP streams into the same event model as terminal capture
 - **CLI tool** (`ant`) — full session management, chat, tasks, memory, and agent control from anywhere
@@ -70,34 +125,78 @@ The trust hierarchy is explicit: structured hook/JSON events are highest trust, 
 
 ## Quick Start
 
+Run the host:
+
 ```bash
-# Install the app dependencies
+git clone https://github.com/Jktfe/a-nice-terminal.git
+cd a-nice-terminal
+
 bun install
 
-# Configure
 cp .env.example .env
-# Edit .env — at minimum set ANT_API_KEY (generate with: openssl rand -hex 32)
+# Generate a key, then paste it into .env as ANT_API_KEY=...
+openssl rand -hex 32
 
 # Build and start. Build is side-effect free; start runs the server.
 bun run build
 bun run start
 # Server runs at https://localhost:6458 (or http:// without TLS certs)
-
-# Local convenience: rebuild then restart the local server process.
-bun run restart:local
 ```
+
+Link the operator CLI and create your first room:
+
+```bash
+cd cli
+bun install
+bun link
+ant config set --url https://localhost:6458 --key YOUR_API_KEY
+
+ant sessions create --name "Agent Team" --type chat
+ant chat send <room-id> --msg "First room online."
+
+# Track work where everyone can see it.
+ant task <room-id> create "Audit README" --desc "Find first-impression gaps"
+```
+
+Keep long-running rooms cheap when the topic changes:
+
+```text
+In the room composer, type: /break new phase starts here
+```
+
+Invite a teammate or their agent:
+
+```bash
+# Option A: use the web room's Share / Invite controls.
+
+# Option B: create an invite via the admin API.
+curl -sk -X POST "https://localhost:6458/api/sessions/<room-id>/invites" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"label":"teammate","password":"choose-a-password","kinds":["cli","mcp"]}'
+
+# Copy invite.share.cli or invite.share.mcp from the JSON response.
+```
+
+For a practical walkthrough, read [Running a multi-agent session](docs/multi-agent-session-guide.md).
 
 ## ANTchat — lightweight client for collaborators
 
-If you just want to **join someone else's ANT room** from your laptop without running a server, use [`antchat`](antchat/README.md) — a single-binary macOS client. No `bun`, no `node`, no `git clone` required:
+If you just want to **join someone else's ANT room** from your laptop without running a server, use [`antchat`](antchat/README.md) — a single-binary macOS/Windows client. No `bun`, no `node`, no `git clone` required:
 
 ```sh
+# macOS
 brew install jktfe/antchat/antchat
+
+# Windows
+scoop bucket add antchat https://github.com/Jktfe/scoop-antchat
+scoop install antchat
+
 antchat join "ant://host.example.com/r/abc123?invite=xyz789" --password hunter2 --handle @stevo
 antchat chat abc123
 ```
 
-`antchat` shares the same `~/.ant/config.json` as the full `ant` CLI, supports MCP install for Claude Desktop, and ships a LaunchAgent for background @-mention notifications. See [`antchat/README.md`](antchat/README.md) for the full reference.
+`antchat` shares the same `~/.ant/config.json` as the full `ant` CLI, supports MCP install for Claude Desktop, and ships background @-mention notifications on macOS. See [`antchat/README.md`](antchat/README.md) for the full reference.
 
 ## CLI
 
@@ -149,11 +248,21 @@ ant msg <id> @handle "direct message"    # Targeted message to one agent
 
 ```bash
 ant task <id> list                        # List tasks
-ant task <id> create "title" --desc "..."# Propose a task
+ant task <id> create "title" --desc "..." # Propose a task
+ant task <id> create "title" --plan <plan-id> --milestone <milestone-id>
 ant task <id> accept <task-id>           # Accept a proposed task
 ant task <id> assign <task-id> @handle   # Assign to an agent
 ant task <id> review <task-id>           # Mark ready for review
 ant task <id> done <task-id>             # Mark complete
+```
+
+### Plans
+
+```bash
+ant plan list                            # List live plans
+ant plan show <plan-id> --session <id>   # Show milestones, tests, and status
+ant plan archive <plan-id> --session <id>
+ant plan unarchive <plan-id> --session <id>
 ```
 
 ### Memory (Mempalace)

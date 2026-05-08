@@ -1,6 +1,6 @@
 # antchat — lightweight ANT chat client
 
-A single-binary macOS client for joining ANT chat rooms from collaborators' machines without installing the full `a-nice-terminal` server, Bun, or Node.
+A single-binary macOS/Windows client for joining ANT chat rooms from collaborators' machines without installing the full `a-nice-terminal` server, Bun, or Node.
 
 `antchat` is a thin sibling of the full `ant` CLI:
 
@@ -19,12 +19,20 @@ brew install jktfe/antchat/antchat
 antchat --version
 ```
 
+### Scoop
+
+```powershell
+scoop bucket add antchat https://github.com/Jktfe/scoop-antchat
+scoop install antchat
+antchat --version
+```
+
 ### Manual
 
-Download the binary for your Mac from the [latest release](https://github.com/Jktfe/a-nice-terminal/releases?q=antchat) and drop it on your `PATH`:
+Download the binary for your OS from the [latest release](https://github.com/Jktfe/a-nice-terminal/releases?q=antchat) and drop it on your `PATH`:
 
 ```sh
-tar -xzf antchat-0.2.0-darwin-arm64.tar.gz   # or -x64 on Intel
+tar -xzf antchat-*-darwin-arm64.tar.gz   # or -x64 on Intel Mac
 chmod +x antchat
 mv antchat /usr/local/bin/
 antchat --version
