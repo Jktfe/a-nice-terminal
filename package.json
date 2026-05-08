@@ -57,9 +57,10 @@
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "verify": "bun run check && bun run test && bun run build",
-    "build:antchat": "bun run build:antchat:arm64 && bun run build:antchat:x64",
+    "build:antchat": "bun run build:antchat:arm64 && bun run build:antchat:x64 && bun run build:antchat:win-x64",
     "build:antchat:arm64": "bun build antchat/index.ts --compile --target=bun-darwin-arm64 --outfile dist/antchat-darwin-arm64",
     "build:antchat:x64": "bun build antchat/index.ts --compile --target=bun-darwin-x64 --outfile dist/antchat-darwin-x64",
+    "build:antchat:win-x64": "bun build antchat/index.ts --compile --target=bun-windows-x64 --outfile dist/antchat-windows-x64.exe",
     "smoke:antchat": "bash antchat/scripts/smoke.sh"
   },
   "dependencies": {

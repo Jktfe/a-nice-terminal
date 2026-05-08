@@ -1,9 +1,9 @@
 name: Release antchat
 
-# Builds standalone macOS binaries when an `antchat-v*` tag is pushed and
-# attaches them to a GitHub Release. The version in the tag is informational —
-# the binary's own --version comes from antchat/package.json, so bump the
-# package.json version BEFORE tagging.
+# Builds standalone macOS + Windows binaries when an `antchat-v*` tag is
+# pushed and attaches them to a GitHub Release. The version in the tag is
+# informational — the binary's own --version comes from antchat/package.json,
+# so bump the package.json version BEFORE tagging.
 #
 # Tag format: antchat-vMAJOR.MINOR.PATCH (e.g. antchat-v0.1.0).
 #
@@ -25,12 +25,33 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [arm64, x64]
-    # Both arches build on macos-14 (Apple Silicon). Bun cross-compiles
-    # bun-darwin-x64 reliably from arm64; we previously had an x64 matrix
-    # entry on macos-13 but GitHub's macos-13 runner pool can queue for
-    # hours, so we accept the cross-compile trade-off and only smoke-test
-    # the native arch (arm64).
+        include:
+          - script: arm64
+            os: darwin
+            arch: arm64
+            ext: tar.gz
+            bin_src: dist/antchat-darwin-arm64
+            bin_name: antchat
+            smoke: true
+          - script: x64
+            os: darwin
+            arch: x64
+            ext: tar.gz
+            bin_src: dist/antchat-darwin-x64
+            bin_name: antchat
+            smoke: false
+          - script: win-x64
+            os: windows
+            arch: x64
+            ext: zip
+            bin_src: dist/antchat-windows-x64.exe
+            bin_name: antchat.exe
+            smoke: false
+    # All targets cross-compile on macos-14 (Apple Silicon). Bun's
+    # bun-darwin-x64 and bun-windows-x64 outputs are identical to what
+    # users receive, so build success alone is sufficient correctness
+    # signal for the non-native arches. Smoke runs only on arm64 (the
+    # one binary the runner can actually execute).
     runs-on: macos-14
     timeout-minutes: 15
     steps:
@@ -42,36 +63,49 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      - name: compile antchat (${{ matrix.arch }})
+      - name: compile antchat (${{ matrix.os }}-${{ matrix.arch }})
         env:
-          ARCH: ${{ matrix.arch }}
-        run: bun run "build:antchat:$ARCH"
+          SCRIPT: ${{ matrix.script }}
+        run: bun run "build:antchat:$SCRIPT"
 
-      - name: smoke (${{ matrix.arch }})
-        if: matrix.arch == 'arm64'
-        # Smoke runs only on the native arch — the x64 binary is
-        # cross-compiled on arm64 and cannot execute here. Bun's
-        # cross-target compile is the same artefact users get, so
-        # build success is sufficient correctness signal for x64.
+      - name: smoke (${{ matrix.os }}-${{ matrix.arch }})
+        if: matrix.smoke
         run: bun run smoke:antchat
 
       - name: package + checksum
         id: pkg
         env:
+          OS: ${{ matrix.os }}
           ARCH: ${{ matrix.arch }}
+          EXT: ${{ matrix.ext }}
+          BIN_SRC: ${{ matrix.bin_src }}
+          BIN_NAME: ${{ matrix.bin_name }}
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
           VERSION="${TAG#antchat-v}"
-          BIN="dist/antchat-darwin-${ARCH}"
-          ARCHIVE="antchat-${VERSION}-darwin-${ARCH}.tar.gz"
+          ARCHIVE="antchat-${VERSION}-${OS}-${ARCH}.${EXT}"
 
           # Stage the binary in a temp dir so the archive contains a flat
-          # `antchat` entry (not `dist/...`). Using a temp dir avoids
+          # entry (no `dist/...` prefix). Using a temp dir avoids
           # colliding with the `antchat/` source directory at the repo root.
           STAGE="$(mktemp -d)"
-          cp "$BIN" "$STAGE/antchat"
-          tar -czf "$ARCHIVE" -C "$STAGE" antchat
+          cp "$BIN_SRC" "$STAGE/$BIN_NAME"
+
+          case "$EXT" in
+            tar.gz)
+              tar -czf "$ARCHIVE" -C "$STAGE" "$BIN_NAME"
+              ;;
+            zip)
+              # macOS ships `zip`; -j flattens stored paths so the .exe
+              # lands at the zip root (matches Scoop's flat-extract setup).
+              zip -j -q "$ARCHIVE" "$STAGE/$BIN_NAME"
+              ;;
+            *)
+              echo "unknown ext: $EXT" >&2
+              exit 1
+              ;;
+          esac
           rm -rf "$STAGE"
 
           SHA="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
@@ -82,7 +116,7 @@ jobs:
           } >>"$GITHUB_OUTPUT"
 
           {
-            echo "## ${ARCH} build"
+            echo "## ${OS}-${ARCH} build"
             echo ""
             echo "- archive: \`$ARCHIVE\`"
             echo "- sha256:  \`$SHA\`"
@@ -91,7 +125,7 @@ jobs:
       - name: upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: antchat-darwin-${{ matrix.arch }}
+          name: antchat-${{ matrix.os }}-${{ matrix.arch }}
           path: ${{ steps.pkg.outputs.archive }}
           if-no-files-found: error
           retention-days: 7
@@ -110,7 +144,8 @@ jobs:
         run: |
           set -euo pipefail
           cd artifacts
-          shasum -a 256 *.tar.gz | tee SHA256SUMS
+          # Hash both archive shapes — tarballs (macOS) + zips (Windows).
+          shasum -a 256 antchat-*.tar.gz antchat-*.zip | tee SHA256SUMS
           {
             echo "### SHA-256 checksums"
             echo ""
@@ -124,25 +159,40 @@ jobs:
         with:
           generate_release_notes: true
           body: |
-            ## antchat (macOS binaries)
+            ## antchat (macOS + Windows binaries)
 
             Standalone — no `bun` runtime required on the host.
 
-            ### Install (manual)
+            ### Install — macOS
 
+            Homebrew tap:
             ```sh
-            tar -xzf antchat-*.tar.gz
+            brew install jktfe/antchat/antchat
+            ```
+
+            Or manually from the tarball:
+            ```sh
+            tar -xzf antchat-*-darwin-*.tar.gz
             chmod +x antchat
             mv antchat /usr/local/bin/
             antchat --version
             ```
 
-            Homebrew tap: `brew install jktfe/antchat/antchat` (see `homebrew/antchat.rb`).
+            ### Install — Windows
+
+            Scoop bucket:
+            ```powershell
+            scoop bucket add antchat https://github.com/Jktfe/scoop-antchat
+            scoop install antchat
+            ```
+
+            Or manually from the zip — extract `antchat.exe` and place it on `%PATH%`.
 
             ### Checksums
 
             See the `SHA256SUMS` asset attached below.
           files: |
             artifacts/*.tar.gz
+            artifacts/*.zip
             artifacts/SHA256SUMS
           fail_on_unmatched_files: true

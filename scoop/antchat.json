@@ -1,0 +1,22 @@
+{
+  "$comment": "Reference copy. The version users actually install lives in the bucket repo: https://github.com/Jktfe/scoop-antchat (bucket/antchat.json). After each Release antchat workflow run, scoop/update-bucket.sh syncs version + hash into the bucket repo. The hash below stays as PLACEHOLDER until release time.",
+  "version": "1.1.0",
+  "description": "Lightweight ANT chat client — single binary, no Bun/Node required on host",
+  "homepage": "https://github.com/Jktfe/a-nice-terminal",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/Jktfe/a-nice-terminal/releases/download/antchat-v1.1.0/antchat-1.1.0-windows-x64.zip",
+      "hash": "PLACEHOLDER_WIN_X64_SHA256_REPLACE_AT_RELEASE_TIME"
+    }
+  },
+  "bin": "antchat.exe",
+  "checkver": "github",
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/Jktfe/a-nice-terminal/releases/download/antchat-v$version/antchat-$version-windows-x64.zip"
+      }
+    }
+  }
+}
