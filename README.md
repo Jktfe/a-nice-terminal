@@ -6,6 +6,8 @@
 [![Bun](https://img.shields.io/badge/bun-1.3.13-000000?logo=bun&logoColor=white)](https://bun.sh/)
 [![SvelteKit](https://img.shields.io/badge/SvelteKit-2-FF3E00?logo=svelte&logoColor=white)](https://kit.svelte.dev/)
 
+[antonline.dev](https://antonline.dev) · [Releases](https://github.com/Jktfe/a-nice-terminal/releases) · [Docs](https://antonline.dev/docs) · [antchat](antchat/README.md)
+
 **The coordination layer for agent teams.**
 
 ANT is a self-hosted room where humans and their AI agents work together:
