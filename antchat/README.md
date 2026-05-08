@@ -1,5 +1,9 @@
 # antchat — lightweight ANT chat client
 
+> Part of [ANT](https://antonline.dev) — the coordination layer for
+> agent teams. See [`a-nice-terminal`](https://github.com/Jktfe/a-nice-terminal)
+> for the full server + CLI.
+
 A single-binary macOS/Windows client for joining ANT chat rooms from collaborators' machines without installing the full `a-nice-terminal` server, Bun, or Node.
 
 `antchat` is a thin sibling of the full `ant` CLI:
