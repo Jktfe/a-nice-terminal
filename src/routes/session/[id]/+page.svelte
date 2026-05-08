@@ -7,6 +7,26 @@
   import Terminal from '$lib/components/Terminal.svelte';
   import ChatHeader from '$lib/components/ChatHeader.svelte';
   import ChatMessages from '$lib/components/ChatMessages.svelte';
+  import InterviewModal from '$lib/components/InterviewModal.svelte';
+
+  // Mirrors the shape exported from InterviewModal.svelte. Inlined here
+  // (rather than imported) because Svelte 5 + vitest don't reliably
+  // surface .svelte-file `export interface` types to TS consumers yet.
+  // m0 contract will replace these with the canonical server types.
+  interface InterviewMessage {
+    id: string;
+    role: 'user' | 'agent';
+    content: string;
+    agentHandle?: string;
+    audioCacheKey?: string | null;
+    createdAt: number;
+  }
+  interface InterviewParticipant {
+    handle: string;
+    displayName?: string;
+    isTarget: boolean;
+    muted: boolean;
+  }
   import ChatSidePanel from '$lib/components/ChatSidePanel.svelte';
   import DigestPanel from '$lib/components/DigestPanel.svelte';
   import ActivityRail from '$lib/components/ActivityRail.svelte';
@@ -173,6 +193,425 @@
   let uploads = $state<UploadRecord[]>([]);
   let workspaces = $state<WorkspaceOption[]>([]);
   let replyTo = $state<Record<string, unknown> | null>(null);
+
+  // Interview modal state. m1 scope: open/close + participants +
+  // local message append. m2 routing replaces the local state with
+  // server-backed interview rows; m3 voice attaches TTS playback to
+  // each agent message; m4/m5 wire transcript export + summary.
+  let interviewOpen = $state(false);
+  let interviewId = $state<string | null>(null);
+  let interviewParent = $state<{ id: string; content: string; sender_id?: string | null } | null>(null);
+  let interviewParticipants = $state<InterviewParticipant[]>([]);
+  let interviewMessages = $state<InterviewMessage[]>([]);
+  let interviewBusy = $state(false);
+  let interviewError = $state<string | null>(null);
+
+  function resolveAgentDisplayName(handleOrSessionId: string): string {
+    if (handleOrSessionId.startsWith('@')) return handleOrSessionId;
+    // Translate sender_id (a session UUID) into the agent's @handle when
+    // the session is in our active list — keeps the modal title/participant
+    // chip readable instead of showing a raw 21-char id.
+    const session = (messageIdentitySessions ?? []).find(
+      (s) => s.id === handleOrSessionId,
+    ) as { handle?: string | null; display_name?: string | null; alias?: string | null } | undefined;
+    return session?.handle ?? session?.display_name ?? session?.alias ?? handleOrSessionId;
+  }
+
+  /** Map server interview-bundle participants → modal participants. The
+   *  server keys by session_id; the modal keys by handle/display name. */
+  function bundleParticipants(parts: Array<{
+    session_id: string;
+    role: string;
+    muted: number;
+    handle?: string | null;
+    display_name?: string | null;
+    name?: string | null;
+  }>): InterviewParticipant[] {
+    return parts.map((p) => ({
+      handle: p.handle ?? p.display_name ?? p.name ?? p.session_id,
+      displayName: p.display_name ?? p.handle ?? p.name ?? undefined,
+      isTarget: p.role === 'target',
+      muted: !!p.muted,
+    }));
+  }
+
+  function bundleMessages(msgs: Array<{
+    id: string;
+    role: string;
+    content: string;
+    speaker_session_id: string | null;
+    audio_cache_key: string | null;
+    created_at: string;
+  }>): InterviewMessage[] {
+    return msgs.map((m) => ({
+      id: m.id,
+      role: m.role === 'agent' ? 'agent' : 'user',
+      content: m.content,
+      agentHandle: m.speaker_session_id ? resolveAgentDisplayName(m.speaker_session_id) : undefined,
+      audioCacheKey: m.audio_cache_key,
+      createdAt: Date.parse(m.created_at) || Date.now(),
+    }));
+  }
+
+  async function refreshInterviewBundle(id = interviewId) {
+    if (!id) return;
+    const bundle = await fetch(`/api/interviews/${encodeURIComponent(id)}`)
+      .then((r) => r.ok ? r.json() : null)
+      .catch(() => null);
+    if (bundle?.messages) interviewMessages = bundleMessages(bundle.messages);
+    if (bundle?.participants) interviewParticipants = bundleParticipants(bundle.participants);
+  }
+
+  async function openInterview(msg: Record<string, unknown>) {
+    const messageId = String(msg.id ?? '');
+    if (!messageId) return;
+    const senderHandle = typeof msg.sender_id === 'string' && msg.sender_id ? msg.sender_id : '@agent';
+    const displayName = resolveAgentDisplayName(senderHandle);
+
+    interviewParent = {
+      id: messageId,
+      content: typeof msg.content === 'string' ? msg.content : '',
+      sender_id: senderHandle,
+    };
+    // Open with an optimistic local participant so the modal renders
+    // immediately; the server bundle replaces this on POST success.
+    interviewParticipants = [{
+      handle: displayName,
+      displayName,
+      isTarget: true,
+      muted: false,
+    }];
+    interviewMessages = [];
+    interviewError = null;
+    interviewOpen = true;
+    interviewBusy = true;
+
+    try {
+      const res = await fetch('/api/interviews/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          room_id: sessionId,
+          source_message_id: messageId,
+          // sender_id is a session UUID — the m0 endpoint accepts that
+          // directly as target_session_id, falling back to inference if
+          // omitted.
+          target_session_id: senderHandle,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        interviewError = `Could not start interview: ${res.status} ${err.slice(0, 160)}`;
+        return;
+      }
+      const bundle = await res.json();
+      interviewId = bundle?.interview?.id ?? null;
+      if (Array.isArray(bundle?.participants)) {
+        interviewParticipants = bundleParticipants(bundle.participants);
+      }
+      if (Array.isArray(bundle?.messages)) {
+        interviewMessages = bundleMessages(bundle.messages);
+      }
+    } catch (err) {
+      interviewError = `Could not start interview: ${(err as Error).message ?? err}`;
+    } finally {
+      interviewBusy = false;
+    }
+  }
+
+  async function addInterviewParticipant(handle: string) {
+    if (interviewParticipants.some((p) => p.handle === handle)) return;
+    if (!interviewId) {
+      interviewParticipants = [...interviewParticipants, {
+        handle,
+        displayName: handle,
+        isTarget: false,
+        muted: false,
+      }];
+      return;
+    }
+    interviewBusy = true;
+    interviewError = null;
+    try {
+      const res = await fetch(`/api/interviews/${encodeURIComponent(interviewId)}/participants`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ handle }),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        interviewError = `Could not add agent: ${res.status} ${err.slice(0, 160)}`;
+        return;
+      }
+      const bundle = await res.json();
+      if (bundle?.participants) interviewParticipants = bundleParticipants(bundle.participants);
+      if (bundle?.messages) interviewMessages = bundleMessages(bundle.messages);
+      return;
+    } catch (err) {
+      interviewError = `Could not add agent: ${(err as Error).message ?? err}`;
+      return;
+    } finally {
+      interviewBusy = false;
+    }
+  }
+
+  async function removeInterviewParticipant(handle: string) {
+    const participant = interviewParticipants.find((p) => p.handle === handle);
+    if (!participant || participant.isTarget) return;
+    if (!interviewId) {
+      interviewParticipants = interviewParticipants.filter((p) => !(p.handle === handle && !p.isTarget));
+      return;
+    }
+    interviewBusy = true;
+    interviewError = null;
+    try {
+      const res = await fetch(`/api/interviews/${encodeURIComponent(interviewId)}/participants`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ handle }),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        interviewError = `Could not remove agent: ${res.status} ${err.slice(0, 160)}`;
+        return;
+      }
+      const bundle = await res.json();
+      if (bundle?.participants) interviewParticipants = bundleParticipants(bundle.participants);
+      if (bundle?.messages) interviewMessages = bundleMessages(bundle.messages);
+      return;
+    } catch (err) {
+      interviewError = `Could not remove agent: ${(err as Error).message ?? err}`;
+      return;
+    } finally {
+      interviewBusy = false;
+    }
+  }
+
+  async function toggleInterviewMute(handle: string, muted: boolean) {
+    if (!interviewId) {
+      interviewParticipants = interviewParticipants.map((p) =>
+        p.handle === handle ? { ...p, muted } : p,
+      );
+      return;
+    }
+    interviewParticipants = interviewParticipants.map((p) =>
+      p.handle === handle ? { ...p, muted } : p,
+    );
+    interviewError = null;
+    try {
+      const res = await fetch(`/api/interviews/${encodeURIComponent(interviewId)}/participants`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ handle, muted }),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        interviewError = `Could not update mute: ${res.status} ${err.slice(0, 160)}`;
+        await refreshInterviewBundle();
+        return;
+      }
+      const bundle = await res.json();
+      if (bundle?.participants) interviewParticipants = bundleParticipants(bundle.participants);
+      if (bundle?.messages) interviewMessages = bundleMessages(bundle.messages);
+    } catch (err) {
+      interviewError = `Could not update mute: ${(err as Error).message ?? err}`;
+      await refreshInterviewBundle();
+    }
+  }
+
+  async function sendInterviewMessage(content: string) {
+    if (!interviewId) {
+      // Fallback: modal is open but server start hasn't completed —
+      // append locally so the user's typing isn't lost. The server
+      // round-trip would have surfaced an error already.
+      interviewMessages = [
+        ...interviewMessages,
+        { id: `local-${Date.now()}-u`, role: 'user', content, createdAt: Date.now() },
+      ];
+      return;
+    }
+    interviewBusy = true;
+    interviewError = null;
+    // Optimistic append so the user sees their text immediately.
+    const localId = `local-${Date.now()}-u`;
+    interviewMessages = [
+      ...interviewMessages,
+      { id: localId, role: 'user', content, createdAt: Date.now() },
+    ];
+    try {
+      const res = await fetch(`/api/interviews/${encodeURIComponent(interviewId)}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'user', content }),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        interviewError = `Send failed: ${res.status} ${err.slice(0, 160)}`;
+        return;
+      }
+      // Reconcile: refetch the bundle so server-issued message ids
+      // replace our local-* placeholder. m2 routing will replace this
+      // with a streaming reply path.
+      const bundle = await fetch(`/api/interviews/${encodeURIComponent(interviewId)}`).then((r) => r.ok ? r.json() : null).catch(() => null);
+      if (bundle?.messages) interviewMessages = bundleMessages(bundle.messages);
+      if (bundle?.participants) interviewParticipants = bundleParticipants(bundle.participants);
+    } catch (err) {
+      interviewError = `Send failed: ${(err as Error).message ?? err}`;
+    } finally {
+      interviewBusy = false;
+    }
+  }
+
+  async function endInterview() {
+    if (!interviewId) {
+      resetInterviewState();
+      return;
+    }
+    if (!interviewParent) {
+      // Defensive: interviewParent should always be set while a server
+      // interview exists, but if not, just end without transcript.
+      await postInterviewEnd(interviewId, null, null);
+      resetInterviewState();
+      return;
+    }
+    interviewBusy = true;
+    interviewError = null;
+    try {
+      // m4 transcript export: build → POST /api/docs (create) → PATCH
+      // section → end with transcript_ref. Each step degrades gracefully
+      // — a doc-create failure still ends the interview cleanly without
+      // losing the interview row server-side.
+      const { buildInterviewTranscript } = await import('$lib/voice/interview-transcript');
+      const transcript = buildInterviewTranscript({
+        interviewId,
+        roomId: sessionId,
+        parentMessage: interviewParent,
+        participants: interviewParticipants,
+        messages: interviewMessages,
+        startedAt: interviewMessages[0]?.createdAt ?? null,
+        endedAt: Date.now(),
+      });
+
+      let transcriptDocId: string | null = null;
+      try {
+        const createRes = await fetch('/api/docs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: transcript.docId,
+            title: transcript.title,
+            description: transcript.description,
+            session_id: sessionId,
+            author: '@evolveantclaude',
+          }),
+        });
+        // 201 = new doc; 409 = doc already exists (re-end of same interview).
+        // Treat both as "we have a doc to write into".
+        if (createRes.ok || createRes.status === 409) {
+          transcriptDocId = transcript.docId;
+          await fetch(`/api/docs/${encodeURIComponent(transcript.docId)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sectionId: 'transcript',
+              heading: 'Transcript',
+              content: transcript.markdown,
+              author: '@evolveantclaude',
+            }),
+          });
+        }
+      } catch (err) {
+        // Transcript export failed but we still end the interview; the
+        // m5 summary post-back will surface the missing transcript_ref
+        // when it runs.
+        interviewError = `Transcript export failed: ${(err as Error).message ?? err}`;
+      }
+
+      const transcriptPath = transcriptDocId
+        ? `research/${transcript.docId}.md`
+        : null;
+      await postInterviewEnd(interviewId, transcriptDocId, transcriptPath);
+    } catch (err) {
+      interviewError = `End failed: ${(err as Error).message ?? err}`;
+    } finally {
+      interviewBusy = false;
+      resetInterviewState();
+    }
+  }
+
+  async function handleInterviewWsEvent(data: Record<string, unknown>) {
+    if (!interviewId) return;
+    // Match against either an explicit interview_id field or the
+    // bundled interview.id — codex's start broadcast embeds the bundle
+    // shape, while message-append events likely use a flat field.
+    const eventInterviewId =
+      typeof data.interview_id === 'string' ? data.interview_id :
+      typeof (data.interview as { id?: string } | undefined)?.id === 'string'
+        ? (data.interview as { id: string }).id
+        : null;
+    if (eventInterviewId !== interviewId) return;
+    try {
+      const res = await fetch(`/api/interviews/${encodeURIComponent(interviewId)}`);
+      if (!res.ok) return;
+      const bundle = await res.json();
+      if (Array.isArray(bundle?.messages)) interviewMessages = bundleMessages(bundle.messages);
+      if (Array.isArray(bundle?.participants)) interviewParticipants = bundleParticipants(bundle.participants);
+      // Auto-close the modal if the server marks the interview ended
+      // (e.g., another tab clicked End interview).
+      if (bundle?.interview?.status === 'ended') {
+        // Don't fire endInterview() — that would re-export the
+        // transcript. Just reset local state.
+        resetInterviewState();
+      }
+    } catch {
+      // Swallow — next user send / next event will reconcile.
+    }
+  }
+
+  async function postInterviewEnd(
+    id: string,
+    transcriptRef: string | null,
+    transcriptPath: string | null,
+  ) {
+    try {
+      await fetch(`/api/interviews/${encodeURIComponent(id)}/end`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transcript_ref: transcriptRef,
+          transcript_path: transcriptPath,
+        }),
+      });
+    } catch (err) {
+      interviewError = `End failed: ${(err as Error).message ?? err}`;
+    }
+  }
+
+  function resetInterviewState() {
+    interviewOpen = false;
+    interviewId = null;
+    interviewParent = null;
+    interviewParticipants = [];
+    interviewMessages = [];
+    interviewError = null;
+  }
+
+  // Same-room agents not currently in the interview, surfaced by the
+  // modal's "+ add agent" picker. Derived from the active participant
+  // list of the currently-loaded session.
+  const interviewCandidates = $derived.by(() => {
+    if (!interviewOpen) return [];
+    const inUse = new Set(interviewParticipants.map((p) => p.handle));
+    const seen = new Set<string>();
+    const candidates: { handle: string; displayName?: string }[] = [];
+    for (const p of participants.active ?? []) {
+      const h = (p as { handle?: string }).handle;
+      if (!h || inUse.has(h) || seen.has(h)) continue;
+      seen.add(h);
+      candidates.push({ handle: h, displayName: (p as { display_name?: string }).display_name ?? h });
+    }
+    return candidates;
+  });
   let showDigest = $state(false);
 
   // ANT Terminal view — normalized append-only run events
@@ -779,6 +1218,17 @@
         if (data.sessionId && data.sessionId !== sessionId) return;
 
         switch (data.type) {
+          case 'interview_message_created':
+          case 'interview_participants_updated':
+            if (data.interview_id && data.interview_id === interviewId) {
+              void refreshInterviewBundle(data.interview_id);
+            }
+            break;
+          case 'interview_ended':
+            if (data.interview?.id && data.interview.id === interviewId) {
+              void refreshInterviewBundle(data.interview.id);
+            }
+            break;
           case 'message_created':
             if (!msgStore.messages.find(m => m.id === data.id)) {
               msgStore.messages = [...msgStore.messages, data];
@@ -824,6 +1274,23 @@
             if (data.reads && data.messageId) {
               readReceipts = { ...readReceipts, [data.messageId]: data.reads };
             }
+            break;
+          // ── Interview-Lite WS events (interview-lite-2026-05-08) ──
+          // The m0 server emits interview_started + interview_ended.
+          // m2 fan-out is expected to add interview_message_appended
+          // when an agent reply lands. To stay forward-compatible with
+          // whatever envelope shape codex chooses, we refetch the
+          // bundle whenever an event references our active interview
+          // — that's a single GET, not a heavyweight call, and keeps
+          // the UI responsive without coupling to the exact payload.
+          case 'interview_started':
+          case 'interview_ended':
+          case 'interview_message_appended':
+          case 'interview_message_added':
+          case 'interview_participant_added':
+          case 'interview_participant_removed':
+          case 'interview_participant_muted':
+            handleInterviewWsEvent(data);
             break;
         }
       } catch {}
@@ -1495,6 +1962,7 @@
           onMessagePinToggled={(id, pinned) => { msgStore.messages = msgStore.messages.map(x => x.id === id ? { ...x, pinned } : x); }}
           onLinkedMessagePinToggled={(id, pinned) => { linkedChatMessages = linkedChatMessages.map(x => x.id === id ? { ...x, pinned } : x); }}
           onReply={(msg) => { replyTo = msg; }}
+          onInterview={(msg) => { openInterview(msg); }}
           onClearReply={() => (replyTo = null)}
           onAgentRespond={handleAgentRespond}
           onScrollElMounted={(el) => { chatScrollEl = el; }}
@@ -1741,6 +2209,24 @@
   ontouchcancel={endBackSwipe}
   aria-hidden="true"
 ></div>
+
+{#if interviewParent}
+  <InterviewModal
+    open={interviewOpen}
+    parentMessage={interviewParent}
+    parentRoomId={sessionId}
+    participants={interviewParticipants}
+    candidateAgents={interviewCandidates}
+    messages={interviewMessages}
+    busy={interviewBusy}
+    onClose={() => (interviewOpen = false)}
+    onSend={sendInterviewMessage}
+    onAddParticipant={addInterviewParticipant}
+    onRemoveParticipant={removeInterviewParticipant}
+    onToggleMute={toggleInterviewMute}
+    onEndInterview={endInterview}
+  />
+{/if}
 
 <style>
   .ios-back-edge-gutter {

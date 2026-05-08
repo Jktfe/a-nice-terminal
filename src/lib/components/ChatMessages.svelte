@@ -82,6 +82,7 @@
     onMessagePinToggled?: (id: string, pinned: boolean) => void;
     onLinkedMessagePinToggled?: (id: string, pinned: boolean) => void;
     onReply: (msg: Record<string, unknown>) => void;
+    onInterview?: (msg: Record<string, unknown>) => void;
     onClearReply: () => void;
     onAgentRespond: (sessionId: string, payload: unknown) => void;
     onScrollElMounted?: (el: HTMLElement) => void;
@@ -124,6 +125,7 @@
     onMessagePinToggled,
     onLinkedMessagePinToggled,
     onReply,
+    onInterview,
     onClearReply,
     onAgentRespond,
     onScrollElMounted,
@@ -740,6 +742,7 @@
                   agentNeedsInput={agentNeedsInputForMessage(group.items[0])}
                   readReceipts={readReceipts[group.items[0].id] ?? []}
                   onReply={(msg) => { onReply(msg); }}
+                  onInterview={onInterview ? (msg) => { onInterview(msg); } : undefined}
                   onDeleted={(id) => { onLinkedMessageDeleted(id); }}
                   onMetaUpdated={(id, meta) => { onLinkedMessageMetaUpdated(id, meta); }}
                   onPinToggled={(id, pinned) => { onLinkedMessagePinToggled?.(id, pinned); }}
@@ -770,6 +773,7 @@
                 agentNeedsInput={agentNeedsInputForMessage(msg)}
                 readReceipts={readReceipts[String(msg.id)] ?? []}
                 onReply={(msg) => { onReply(msg); }}
+                onInterview={onInterview ? (msg) => { onInterview(msg); } : undefined}
                 onDeleted={(id) => { onMessageDeleted(id); }}
                 onMetaUpdated={(id, meta) => { onMessageMetaUpdated(id, meta); }}
                 onPinToggled={(id, pinned) => { onMessagePinToggled?.(id, pinned); }}
@@ -801,6 +805,7 @@
                   agentNeedsInput={agentNeedsInputForMessage(group.items[0])}
                   readReceipts={readReceipts[group.items[0].id] ?? []}
                   onReply={(msg) => { onReply(msg); }}
+                  onInterview={onInterview ? (msg) => { onInterview(msg); } : undefined}
                   onDeleted={(id) => { onMessageDeleted(id); }}
                   onMetaUpdated={(id, meta) => { onMessageMetaUpdated(id, meta); }}
                   onPinToggled={(id, pinned) => { onMessagePinToggled?.(id, pinned); }}

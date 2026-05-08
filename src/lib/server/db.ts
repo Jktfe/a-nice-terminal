@@ -282,6 +282,54 @@ function getDb(): any {
   G[DB_KEY].exec(`DROP INDEX IF EXISTS idx_asks_source_message`);
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_asks_source_message ON asks(source_message_id)`);
 
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS interviews (
+    id TEXT PRIMARY KEY,
+    room_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    source_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
+    target_session_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','ended','cancelled')),
+    title TEXT,
+    created_by TEXT,
+    transcript_ref TEXT,
+    transcript_path TEXT,
+    summary_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
+    summary_status TEXT,
+    meta TEXT DEFAULT '{}',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    ended_at TEXT
+  )`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_interviews_room ON interviews(room_id, created_at)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_interviews_source_message ON interviews(source_message_id)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_interviews_status ON interviews(status, updated_at)`);
+
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS interview_participants (
+    interview_id TEXT NOT NULL REFERENCES interviews(id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'participant' CHECK(role IN ('target','participant')),
+    muted INTEGER NOT NULL DEFAULT 0,
+    added_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (interview_id, session_id)
+  )`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_interview_participants_session ON interview_participants(session_id)`);
+
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS interview_messages (
+    id TEXT PRIMARY KEY,
+    interview_id TEXT NOT NULL REFERENCES interviews(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK(role IN ('user','agent','system')),
+    speaker_session_id TEXT,
+    content TEXT NOT NULL,
+    format TEXT DEFAULT 'text',
+    status TEXT DEFAULT 'complete',
+    audio_cache_key TEXT,
+    audio_mime_type TEXT,
+    audio_duration_ms INTEGER,
+    meta TEXT DEFAULT '{}',
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_interview_messages_interview ON interview_messages(interview_id, created_at)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_interview_messages_speaker ON interview_messages(speaker_session_id, created_at)`);
+
   // Migration: 'superseded' status + agent_resp_at_creation column
   // (added 2026-05-07 — see docs/LESSONS.md § 1.12). Auto-supersede an
   // open ask when the agent posts again with a non-Response-needed state,
@@ -987,6 +1035,90 @@ export const queries = {
     prepare(`UPDATE messages SET meta = ? WHERE id = ?`).run(meta, id),
   togglePinMessage: (id: string, pinned: boolean) =>
     prepare(`UPDATE messages SET pinned = ? WHERE id = ?`).run(pinned ? 1 : 0, id),
+
+  // Interviews — focused message-scoped agent interviews, intentionally not
+  // full chat rooms. Participants are same-room agents; mute controls TTS only.
+  createInterview: (
+    id: string,
+    roomId: string,
+    sourceMessageId: string | null,
+    targetSessionId: string,
+    title: string | null,
+    createdBy: string | null,
+    meta: string,
+  ) =>
+    prepare(`INSERT INTO interviews
+      (id, room_id, source_message_id, target_session_id, title, created_by, meta)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, roomId, sourceMessageId, targetSessionId, title, createdBy, meta),
+  getInterview: (id: string) =>
+    prepare(`SELECT * FROM interviews WHERE id = ?`).get(id),
+  listInterviewsForRoom: (roomId: string, limit: number) =>
+    prepare(`SELECT * FROM interviews WHERE room_id = ? ORDER BY created_at DESC LIMIT ?`).all(roomId, limit),
+  finishInterview: (
+    id: string,
+    transcriptRef: string | null,
+    transcriptPath: string | null,
+    summaryMessageId: string | null,
+    summaryStatus: string | null,
+    meta: string | null,
+  ) =>
+    prepare(`UPDATE interviews SET
+      status = 'ended',
+      transcript_ref = COALESCE(?, transcript_ref),
+      transcript_path = COALESCE(?, transcript_path),
+      summary_message_id = COALESCE(?, summary_message_id),
+      summary_status = COALESCE(?, summary_status),
+      meta = COALESCE(?, meta),
+      ended_at = COALESCE(ended_at, datetime('now')),
+      updated_at = datetime('now')
+      WHERE id = ?`).run(transcriptRef, transcriptPath, summaryMessageId, summaryStatus, meta, id),
+  cancelInterview: (id: string) =>
+    prepare(`UPDATE interviews SET status = 'cancelled', ended_at = COALESCE(ended_at, datetime('now')), updated_at = datetime('now') WHERE id = ?`).run(id),
+  addInterviewParticipant: (interviewId: string, sessionId: string, role: string, muted: boolean) =>
+    prepare(`INSERT INTO interview_participants (interview_id, session_id, role, muted)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(interview_id, session_id) DO UPDATE SET
+        role = CASE
+          WHEN interview_participants.role = 'target' OR excluded.role = 'target' THEN 'target'
+          ELSE excluded.role
+        END,
+        muted = excluded.muted`).run(interviewId, sessionId, role, muted ? 1 : 0),
+  listInterviewParticipants: (interviewId: string) =>
+    prepare(`
+      SELECT ip.*, s.name, s.handle, s.display_name, s.cli_flag
+      FROM interview_participants ip
+      LEFT JOIN sessions s ON s.id = ip.session_id
+      WHERE ip.interview_id = ?
+      ORDER BY CASE ip.role WHEN 'target' THEN 0 ELSE 1 END, ip.added_at ASC
+    `).all(interviewId),
+  getInterviewParticipant: (interviewId: string, sessionId: string) =>
+    prepare(`SELECT * FROM interview_participants WHERE interview_id = ? AND session_id = ?`).get(interviewId, sessionId),
+  updateInterviewParticipantMute: (interviewId: string, sessionId: string, muted: boolean) =>
+    prepare(`UPDATE interview_participants SET muted = ? WHERE interview_id = ? AND session_id = ?`).run(muted ? 1 : 0, interviewId, sessionId),
+  deleteInterviewParticipant: (interviewId: string, sessionId: string) =>
+    prepare(`DELETE FROM interview_participants WHERE interview_id = ? AND session_id = ? AND role <> 'target'`).run(interviewId, sessionId),
+  createInterviewMessage: (
+    id: string,
+    interviewId: string,
+    role: string,
+    speakerSessionId: string | null,
+    content: string,
+    format: string,
+    status: string,
+    audioCacheKey: string | null,
+    audioMimeType: string | null,
+    audioDurationMs: number | null,
+    meta: string,
+  ) =>
+    prepare(`INSERT INTO interview_messages
+      (id, interview_id, role, speaker_session_id, content, format, status, audio_cache_key, audio_mime_type, audio_duration_ms, meta)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, interviewId, role, speakerSessionId, content, format, status, audioCacheKey, audioMimeType, audioDurationMs, meta),
+  listInterviewMessages: (interviewId: string) =>
+    prepare(`SELECT * FROM interview_messages WHERE interview_id = ? ORDER BY created_at ASC, rowid ASC`).all(interviewId),
+  getInterviewMessage: (id: string) =>
+    prepare(`SELECT * FROM interview_messages WHERE id = ?`).get(id),
 
   // Ask queue — durable questions, recommendations, and action blockers.
   listAsks: (opts: { sessionId?: string | null; statuses?: string[] | null; assignedTo?: string | null; limit?: number } = {}) => {

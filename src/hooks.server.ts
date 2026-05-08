@@ -12,6 +12,8 @@ const EXCHANGE_RE = /^\/api\/sessions\/[^/]+\/invites\/[^/]+\/exchange$/;
 // client-side password gate can run and exchange the invite for a token.
 const ROOM_PAGE_RE = /^\/r\/[^/]+\/?$/;
 const DECK_API_RE = /^\/api\/decks(?:\/|$)/;
+const INTERVIEW_API_RE = /^\/api\/interviews(?:\/|$)/;
+const DOC_API_RE = /^\/api\/docs(?:\/|$)/;
 
 // URL prefixes that map to a room id. Used to verify that a presented room
 // token authorises the URL it's being used against.
@@ -60,7 +62,7 @@ function classifyBearer(event: Parameters<Handle>[0]['event']): BearerState {
   const resolved = resolveToken(bearer);
   if (!resolved) return { kind: 'none' };
   const targetRoom = urlRoomId(event.url.pathname);
-  if (!targetRoom && DECK_API_RE.test(event.url.pathname)) {
+  if (!targetRoom && (DECK_API_RE.test(event.url.pathname) || INTERVIEW_API_RE.test(event.url.pathname) || DOC_API_RE.test(event.url.pathname))) {
     return {
       kind: 'room-scoped',
       roomId: resolved.invite.room_id,

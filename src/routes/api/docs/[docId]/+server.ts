@@ -4,6 +4,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
+import { assertCanWrite, assertSameRoom, roomScope } from '$lib/server/room-scope.js';
 import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -11,6 +12,20 @@ import { homedir } from 'node:os';
 const DOC_PREFIX = 'docs/';
 const OBSIDIAN_ANT = process.env.ANT_OBSIDIAN_VAULT || join(homedir(), 'CascadeProjects', 'ObsidiANT');
 const DOCS_DIR = join(OBSIDIAN_ANT, 'research');
+
+function assertDocRoom(event: RequestEvent, docRow: any) {
+  const docRoomId = typeof docRow?.session_id === 'string' && docRow.session_id.trim()
+    ? docRow.session_id.trim()
+    : null;
+  if (docRoomId) {
+    assertSameRoom(event, docRoomId);
+    return docRoomId;
+  }
+  if (roomScope(event)) {
+    throw error(403, 'Room token does not authorise this doc');
+  }
+  return null;
+}
 
 function mirrorToObsidian(docId: string, meta: any, markdown: string) {
   if (!existsSync(OBSIDIAN_ANT)) return;
@@ -54,11 +69,13 @@ function refreshObsidianMirror(docId: string) {
 }
 
 /** Get a doc with all its sections, rendered as a single markdown document */
-export function GET({ params }: RequestEvent) {
+export function GET(event: RequestEvent) {
+  const { params } = event;
   const docId = params.docId!;
   const docKey = DOC_PREFIX + docId;
   const docRow = queries.getMemoryByKey(docKey) as any;
   if (!docRow) throw error(404, 'Doc not found');
+  assertDocRoom(event, docRow);
 
   let meta: any = {};
   try { meta = JSON.parse(docRow.value || '{}'); } catch {}
@@ -111,10 +128,13 @@ export function GET({ params }: RequestEvent) {
 }
 
 /** Update doc metadata or add/update a section */
-export async function PUT({ params, request }: RequestEvent) {
+export async function PUT(event: RequestEvent) {
+  const { params, request } = event;
+  assertCanWrite(event);
   const docKey = DOC_PREFIX + params.docId!;
   const docRow = queries.getMemoryByKey(docKey) as any;
   if (!docRow) throw error(404, 'Doc not found');
+  const docRoomId = assertDocRoom(event, docRow);
 
   const body = await request.json();
 
@@ -127,14 +147,14 @@ export async function PUT({ params, request }: RequestEvent) {
       author: body.author || 'unknown',
       signedOff: body.signedOff || false,
     });
-    queries.upsertMemoryByKey(sectionKey, value, 'doc-section', null, body.author || null);
+    queries.upsertMemoryByKey(sectionKey, value, 'doc-section', docRoomId, body.author || null);
 
     // Update doc's author list
     let meta: any = {};
     try { meta = JSON.parse(docRow.value || '{}'); } catch {}
     if (body.author && !meta.authors?.includes(body.author)) {
       meta.authors = [...(meta.authors || []), body.author];
-      queries.upsertMemoryByKey(docKey, JSON.stringify(meta), 'doc', null, null);
+      queries.upsertMemoryByKey(docKey, JSON.stringify(meta), 'doc', docRoomId, null);
     }
 
     refreshObsidianMirror(params.docId!);
@@ -147,17 +167,22 @@ export async function PUT({ params, request }: RequestEvent) {
   if (body.status) meta.status = body.status;
   if (body.title) meta.title = body.title;
   if (body.description !== undefined) meta.description = body.description;
-  queries.upsertMemoryByKey(docKey, JSON.stringify(meta), 'doc', null, null);
+  queries.upsertMemoryByKey(docKey, JSON.stringify(meta), 'doc', docRoomId, null);
 
   refreshObsidianMirror(params.docId!);
   return json({ id: params.docId!, status: meta.status });
 }
 
+export const PATCH = PUT;
+
 /** Sign off — mark doc as ready for review */
-export async function POST({ params, request }: RequestEvent) {
+export async function POST(event: RequestEvent) {
+  const { params, request } = event;
+  assertCanWrite(event);
   const docKey = DOC_PREFIX + params.docId!;
   const docRow = queries.getMemoryByKey(docKey) as any;
   if (!docRow) throw error(404, 'Doc not found');
+  const docRoomId = assertDocRoom(event, docRow);
 
   const body = await request.json();
   const { author, action } = body;
@@ -178,7 +203,7 @@ export async function POST({ params, request }: RequestEvent) {
     meta.status = 'published';
   }
 
-  queries.upsertMemoryByKey(docKey, JSON.stringify(meta), 'doc', null, null);
+  queries.upsertMemoryByKey(docKey, JSON.stringify(meta), 'doc', docRoomId, null);
   refreshObsidianMirror(params.docId!);
   return json({ id: params.docId!, status: meta.status, signOffs: meta.signOffs });
 }

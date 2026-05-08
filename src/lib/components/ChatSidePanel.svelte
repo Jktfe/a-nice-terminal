@@ -8,6 +8,13 @@
   import RoomLinksPanel from '$lib/components/RoomLinksPanel.svelte';
   import { isAutoLinkedChatSession } from '$lib/utils/linked-chat';
   import { getCliMode } from '$lib/cli-modes';
+  import {
+    ROOM_ARTEFACT_GROUPS,
+    emptyRoomArtefacts,
+    type RoomArtefactGroups,
+    type RoomArtefactItem,
+    type RoomArtefactSummary,
+  } from '$lib/shared/room-artefacts';
   import DOMPurify from 'isomorphic-dompurify';
 
   // FTS5 snippet() output is user-authored memory content with <b>…</b>
@@ -161,9 +168,35 @@
   let tasksOpen = $state(true);
   let workspacesOpen = $state(true);
   let filesOpen = $state(true);
+  let artefactsOpen = $state(true);
   let chatRoomsOpen = $state(true);
   let memoryOpen = $state(false);
   let remoteAntsOpen = $state(false);
+
+  let artefacts = $state<RoomArtefactSummary>(emptyRoomArtefacts('', ''));
+  let artefactsLoading = $state(false);
+  let artefactsError = $state<string | null>(null);
+  let artefactsRequestedFor = $state<string | null>(null);
+
+  async function loadArtefacts(forSessionId: string) {
+    artefactsLoading = true;
+    artefactsError = null;
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(forSessionId)}/artefacts`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (forSessionId === sessionId) {
+        artefacts = data as RoomArtefactSummary;
+      }
+    } catch (e: any) {
+      if (forSessionId === sessionId) {
+        artefacts = emptyRoomArtefacts(forSessionId, forSessionId);
+        artefactsError = e.message || 'Failed to load artefacts';
+      }
+    } finally {
+      if (forSessionId === sessionId) artefactsLoading = false;
+    }
+  }
 
   // Remote ANTs (per-room invites) — fetched lazily when section opens
   type InviteToken = { id: string; kind: string; handle: string | null; created_at: number; last_seen_at: number | null; revoked_at: number | null };
@@ -273,6 +306,13 @@
     if (remoteAntsOpen && session?.type === 'chat' && sessionId) {
       loadInvites();
     }
+  });
+
+  $effect(() => {
+    if (!sessionId || artefactsRequestedFor === sessionId) return;
+    artefactsRequestedFor = sessionId;
+    artefacts = emptyRoomArtefacts(sessionId, sessionId);
+    void loadArtefacts(sessionId);
   });
 
   $effect(() => {
@@ -401,6 +441,7 @@
   );
   const otherUploads = $derived(uploads.filter(u => !u.mime_type?.startsWith('image/')));
   const filePanelCount = $derived(allFileRefs.length + uploads.length + messageLinks.length);
+  const artefactPanelCount = $derived(artefacts.counts.total);
   const terminalHasCliDriver = $derived(isTerminal && !!session?.cli_flag);
 
   const selectableChats = $derived(
@@ -418,13 +459,48 @@
     if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
+
+  function artefactItems(key: keyof RoomArtefactGroups): RoomArtefactItem[] {
+    return artefacts.artefacts[key] ?? [];
+  }
+
+  function artefactStatusStyle(status: string | null | undefined): string {
+    const normalized = (status || '').toLowerCase();
+    if (['done', 'published', 'ready', 'linked', 'live'].includes(normalized)) {
+      return 'background: #ECFDF5; color: #047857; border: 1px solid #A7F3D0;';
+    }
+    if (['active', 'passing'].includes(normalized)) {
+      return 'background: #EEF2FF; color: #4F46E5; border: 1px solid #C7D2FE;';
+    }
+    if (['blocked', 'failing', 'failed'].includes(normalized)) {
+      return 'background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA;';
+    }
+    if (normalized === 'archived') {
+      return 'background: #F3F4F6; color: #4B5563; border: 1px solid #D1D5DB;';
+    }
+    return 'background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A;';
+  }
+
+  function formatArtefactDate(value: RoomArtefactItem['updated_at']): string {
+    if (value === null || value === undefined) return '';
+    const date = typeof value === 'number' ? new Date(value) : new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+
+  function artefactSubtitle(item: RoomArtefactItem): string {
+    return [item.subtitle, formatArtefactDate(item.updated_at)].filter(Boolean).join(' · ');
+  }
 </script>
 
-<!-- Panel: full-width overlay on mobile, 280px fixed on lg+ -->
+<!-- Panel: full-width overlay on mobile, 322px fixed on lg+ (15% wider
+     than the original 280 — Artefacts list needs more room for plan
+     ids + status badges, and the Tasks/Files/Memory groups read better
+     with the extra horizontal headroom). -->
 <div
   class="flex flex-col border-l overflow-hidden
          fixed inset-y-0 right-0 z-50 w-full
-         lg:static lg:w-[280px] lg:z-auto"
+         lg:static lg:w-[322px] lg:z-auto"
   style="max-width: 100vw; border-color: #E5E7EB; background: var(--bg);"
   role="complementary"
   aria-label="Session details panel"
@@ -667,6 +743,101 @@
         <RoomLinksPanel {sessionId} />
       </div>
     {/if}
+
+    <!-- ─── SECTION: Artefacts ─── -->
+    <div>
+      <button
+        onclick={() => (artefactsOpen = !artefactsOpen)}
+        class="touch-target w-full flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-gray-50"
+        style="background: var(--bg);"
+      >
+        <div class="flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: #6366F1;">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M3 6.75A1.75 1.75 0 014.75 5h4.5A1.75 1.75 0 0111 6.75v4.5A1.75 1.75 0 019.25 13h-4.5A1.75 1.75 0 013 11.25v-4.5zM13 6.75A1.75 1.75 0 0114.75 5h4.5A1.75 1.75 0 0121 6.75v4.5A1.75 1.75 0 0119.25 13h-4.5A1.75 1.75 0 0113 11.25v-4.5zM3 16.75A1.75 1.75 0 014.75 15h4.5A1.75 1.75 0 0111 16.75v.5A1.75 1.75 0 019.25 19h-4.5A1.75 1.75 0 013 17.25v-.5zM13 16.75A1.75 1.75 0 0114.75 15h4.5A1.75 1.75 0 0121 16.75v.5A1.75 1.75 0 0119.25 19h-4.5A1.75 1.75 0 0113 17.25v-.5z"/>
+          </svg>
+          <span class="text-xs font-semibold" style="color: var(--text);">Artefacts</span>
+          {#if artefactPanelCount > 0}
+            <span class="px-1.5 py-0.5 rounded-full text-[10px] font-bold" style="background: #EEF2FF; color: #4F46E5;">{artefactPanelCount}</span>
+          {/if}
+        </div>
+        <svg
+          class="w-3.5 h-3.5 transition-transform"
+          style="color: var(--text-faint); transform: {artefactsOpen ? 'rotate(180deg)' : 'rotate(0deg)'};"
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        >
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+        </svg>
+      </button>
+
+      {#if artefactsOpen}
+        <div class="px-3 pb-3 space-y-3">
+          {#if artefactsError}
+            <div class="text-[11px] px-2 py-1.5 rounded-lg" style="background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA;">
+              {artefactsError}
+            </div>
+          {/if}
+
+          {#if artefactsLoading && artefactPanelCount === 0}
+            <p class="text-center text-xs py-3" style="color: var(--text-faint);">Loading…</p>
+          {:else if artefactPanelCount === 0 && !artefactsError}
+            <div class="text-center py-4 opacity-60">
+              <p class="text-[11px]" style="color: var(--text-muted);">No linked artefacts</p>
+            </div>
+          {:else}
+            {#each ROOM_ARTEFACT_GROUPS as group (group.key)}
+              {@const items = artefactItems(group.key)}
+              {#if items.length > 0}
+                <div class="space-y-1.5">
+                  <div class="flex items-center justify-between px-0.5">
+                    <span class="text-[10px] uppercase font-semibold tracking-wide" style="color: var(--text-faint);">{group.label}</span>
+                    <span class="text-[10px] font-semibold" style="color: var(--text-faint);">{items.length}</span>
+                  </div>
+                  {#each items as item (`${item.kind}:${item.id}`)}
+                    <a
+                      href={item.href}
+                      class="touch-target group/artefact flex items-start gap-2 rounded-lg px-2.5 py-2 transition-colors hover:bg-gray-50"
+                      style="border: 1px solid #E5E7EB; background: #FAFAFA;"
+                    >
+                      <span class="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md" style="background: #EEF2FF; color: #4F46E5;">
+                        {#if item.kind === 'plan'}
+                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>
+                          </svg>
+                        {:else if item.kind === 'deck'}
+                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5h16v10H4zM8 19h8M12 15v4"/>
+                          </svg>
+                        {:else if item.kind === 'sheet'}
+                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5h16v14H4zM4 10h16M9 5v14M14 5v14"/>
+                          </svg>
+                        {:else}
+                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 3h7l5 5v13H7zM14 3v6h5M9 14h6M9 18h6"/>
+                          </svg>
+                        {/if}
+                      </span>
+                      <span class="min-w-0 flex-1">
+                        <span class="flex items-start gap-1.5">
+                          <span class="min-w-0 flex-1 truncate text-xs font-semibold" style="color: var(--text);">{item.title}</span>
+                          {#if item.status}
+                            <span class="flex-shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase" style={artefactStatusStyle(item.status)}>{item.status}</span>
+                          {/if}
+                        </span>
+                        {#if artefactSubtitle(item)}
+                          <span class="mt-0.5 block truncate text-[10px]" style="color: var(--text-faint);">{artefactSubtitle(item)}</span>
+                        {/if}
+                      </span>
+                    </a>
+                  {/each}
+                </div>
+              {/if}
+            {/each}
+          {/if}
+        </div>
+      {/if}
+    </div>
 
     <!-- ─── SECTION: Remote ANTs (per-room invites) ─── -->
     {#if !isTerminal}

@@ -20,6 +20,7 @@ import { doc } from './commands/doc.js';
 import { agents } from './commands/agents.js';
 import { prompt } from './commands/prompt.js';
 import { grant } from './commands/grant.js';
+import { interview } from './commands/interview.js';
 import { register as registerIdentity } from './commands/register.js';
 import { joinRoom } from './commands/joinRoom.js';
 import { evidence } from './commands/evidence.js';
@@ -88,6 +89,12 @@ Commands:
   ask outstanding       Print all open asks as paste-ready CLI snippets
                         (--to @handle to filter)
   chat ask <id>         Alias for opening an ask in a chatroom
+
+  interview send <id>   Reply to an interview as the current ANT session
+                        (--msg "reply" --session <room-id> for room-token auth)
+  interview summary <id>
+                        Post the final interview summary back to the room
+                        (--msg "summary" --session <room-id>)
 
   grant list             List consent grants (--to @handle --room <id> --status active)
   grant create           Create a consent grant (--topic file-read --to @handle
@@ -227,6 +234,7 @@ async function main() {
       case 'msg':      await msg(args, flags, ctx); break;
       case 'ask':      await ask(args, flags, ctx); break;
       case 'grant':     await grant(args, flags, ctx); break;
+      case 'interview': await interview(args, flags, ctx); break;
       case 'question': await question(args, flags, ctx); break;
       case 'deck':     await deck(args, flags, ctx); break;
       case 'sheet':    await sheet(args, flags, ctx); break;

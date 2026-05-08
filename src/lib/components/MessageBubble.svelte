@@ -25,6 +25,7 @@
     agentStatus = null,
     agentNeedsInput = false,
     onReply,
+    onInterview,
     onDeleted,
     onMetaUpdated,
     onPinToggled,
@@ -37,6 +38,12 @@
     agentStatus?: TelemetryAgentStatus | null;
     agentNeedsInput?: boolean;
     onReply?: (msg: any) => void;
+    /** Open an interview dialog rooted at this message. The handler
+     *  receives the source message so the modal can derive the target
+     *  agent (its sender_id) and the parent room/message for transcript
+     *  + summary post-back wiring. Eligibility (only render the chip
+     *  when the message has an agent author) lives in the consumer. */
+    onInterview?: (msg: any) => void;
     onDeleted?: (id: string) => void;
     onMetaUpdated?: (id: string, meta: any) => void;
     onPinToggled?: (id: string, pinned: boolean) => void;
@@ -454,6 +461,13 @@
     "
   >
     {@render actionChip('reply', 'Reply', () => onReply?.(message))}
+    {#if onInterview && (message.sender_id || isAi)}
+      <!-- Interview chip — only renders for messages from an agent (has
+           sender_id, or is AI-role). User-sent messages can't be
+           interviewed because there's no agent target to converse with.
+           "mic" icon doubles as a hint that voice mode lives inside. -->
+      {@render actionChip('mic', 'Interview', () => onInterview?.(message))}
+    {/if}
     {@render actionChip('cornerDown', 'Thread', () => {})}
     <button
       onclick={() => react('up')}

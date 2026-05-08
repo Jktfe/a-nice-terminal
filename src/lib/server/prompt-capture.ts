@@ -2,7 +2,7 @@ import { queries } from './db.js';
 import { broadcast } from './ws-broadcast.js';
 
 type PromptCaptureOptions = {
-  captureSource: 'terminal_input' | 'api_terminal_input' | 'chat_injection' | 'prompt_bridge';
+  captureSource: 'terminal_input' | 'api_terminal_input' | 'chat_injection' | 'prompt_bridge' | 'interview_injection';
   transport?: string;
   trust?: 'high' | 'medium' | 'raw';
   messageId?: string | null;
