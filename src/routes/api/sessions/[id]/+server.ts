@@ -87,6 +87,9 @@ export async function PATCH(event: RequestEvent<{ id: string }>) {
       queries.updateSession(null, null, 1, null, autoLinkedChat.id);
     }
   }
+  if (body.long_memory !== undefined) {
+    queries.setLongMemory(params.id, !!body.long_memory);
+  }
   const session = queries.getSession(params.id);
   if (!session) throw error(404, 'Session not found');
 

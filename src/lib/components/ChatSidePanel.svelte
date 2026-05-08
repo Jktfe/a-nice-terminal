@@ -39,6 +39,7 @@
     focus_queue_count?: number | null;
     cli_flag?: string | null;
     root_dir?: string | null;
+    long_memory?: number | boolean | null;
     meta?: string | Record<string, unknown> | null;
   }
 
@@ -172,6 +173,36 @@
   let chatRoomsOpen = $state(true);
   let memoryOpen = $state(false);
   let remoteAntsOpen = $state(false);
+  let settingsOpen = $state(false);
+
+  // Long-memory toggle — controls whether agent prompts in this room
+  // see the full message history or just the post-`/break` window.
+  // Mirrors sessions.long_memory; UI value tracks the server response.
+  let longMemorySaving = $state(false);
+  let longMemoryError = $state<string | null>(null);
+  const longMemoryEnabled = $derived(!!(session as any)?.long_memory);
+
+  async function toggleLongMemory() {
+    if (!sessionId || !session || longMemorySaving) return;
+    const next = !longMemoryEnabled;
+    longMemorySaving = true;
+    longMemoryError = null;
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ long_memory: next }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // Mirror the new value locally so the toggle reflects immediately;
+      // a sessions_changed broadcast will refresh the parent shortly.
+      (session as any).long_memory = next ? 1 : 0;
+    } catch (e: any) {
+      longMemoryError = e?.message || 'Failed to update';
+    } finally {
+      longMemorySaving = false;
+    }
+  }
 
   let artefacts = $state<RoomArtefactSummary>(emptyRoomArtefacts('', ''));
   let artefactsLoading = $state(false);
@@ -474,6 +505,9 @@
     }
     if (['blocked', 'failing', 'failed'].includes(normalized)) {
       return 'background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA;';
+    }
+    if (normalized === 'locked') {
+      return 'background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE;';
     }
     if (normalized === 'archived') {
       return 'background: #F3F4F6; color: #4B5563; border: 1px solid #D1D5DB;';
@@ -812,6 +846,10 @@
                           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5h16v14H4zM4 10h16M9 5v14M14 5v14"/>
                           </svg>
+                        {:else if item.kind === 'site'}
+                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3a9 9 0 100 18 9 9 0 000-18zM3.6 9h16.8M3.6 15h16.8M12 3c2 2.3 3 5.3 3 9s-1 6.7-3 9M12 3c-2 2.3-3 5.3-3 9s1 6.7 3 9"/>
+                          </svg>
                         {:else}
                           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 3h7l5 5v13H7zM14 3v6h5M9 14h6M9 18h6"/>
@@ -838,6 +876,67 @@
         </div>
       {/if}
     </div>
+
+    <!-- ─── SECTION: Settings (chat-only) ─── -->
+    {#if !isTerminal}
+      <div style="border-top: 1px solid #E5E7EB;">
+        <button
+          onclick={() => (settingsOpen = !settingsOpen)}
+          class="touch-target w-full flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-gray-50"
+          style="background: var(--bg);"
+          aria-expanded={settingsOpen}
+        >
+          <div class="flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: #6366F1;">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M10.325 4.317a1 1 0 011.35 0l.853.768a1 1 0 00.945.234l1.082-.27a1 1 0 011.215.711l.27 1.08a1 1 0 00.553.713l1.04.493a1 1 0 01.553 1.205l-.27 1.082a1 1 0 00.234.945l.768.852a1 1 0 010 1.351l-.768.853a1 1 0 00-.234.945l.27 1.082a1 1 0 01-.553 1.205l-1.04.493a1 1 0 00-.553.713l-.27 1.08a1 1 0 01-1.215.711l-1.082-.27a1 1 0 00-.945.234l-.853.768a1 1 0 01-1.35 0l-.853-.768a1 1 0 00-.945-.234l-1.082.27a1 1 0 01-1.215-.711l-.27-1.08a1 1 0 00-.553-.713l-1.04-.493a1 1 0 01-.553-1.205l.27-1.082a1 1 0 00-.234-.945l-.768-.852a1 1 0 010-1.351l.768-.853a1 1 0 00.234-.945l-.27-1.082a1 1 0 01.553-1.205l1.04-.493a1 1 0 00.553-.713l.27-1.08a1 1 0 011.215-.711l1.082.27a1 1 0 00.945-.234l.853-.768z" />
+              <circle cx="12" cy="12" r="3" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" />
+            </svg>
+            <span class="text-xs font-semibold" style="color: var(--text);">Settings</span>
+          </div>
+          <svg
+            class="w-3.5 h-3.5 transition-transform"
+            style="color: var(--text-faint); transform: {settingsOpen ? 'rotate(180deg)' : 'rotate(0deg)'};"
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        {#if settingsOpen}
+          <div class="px-4 pb-3 space-y-2.5">
+            <label class="flex items-start gap-2.5 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={longMemoryEnabled}
+                disabled={longMemorySaving}
+                onchange={toggleLongMemory}
+                class="mt-0.5 w-4 h-4 rounded"
+                aria-label="Long memory"
+              />
+              <span class="min-w-0 flex-1">
+                <span class="block text-xs font-semibold" style="color: var(--text);">
+                  Long memory
+                </span>
+                <span class="block text-[10px] mt-0.5" style="color: var(--text-faint); line-height: 1.4;">
+                  Send the full message history to agents in this room.
+                  When off, agents only see messages posted after the most
+                  recent <code class="font-mono">/break</code> marker.
+                </span>
+              </span>
+            </label>
+            {#if longMemorySaving}
+              <p class="text-[10px]" style="color: var(--text-faint);">Saving…</p>
+            {/if}
+            {#if longMemoryError}
+              <p class="text-[10px] px-2 py-1 rounded" style="background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA;">
+                {longMemoryError}
+              </p>
+            {/if}
+          </div>
+        {/if}
+      </div>
+    {/if}
 
     <!-- ─── SECTION: Remote ANTs (per-room invites) ─── -->
     {#if !isTerminal}
