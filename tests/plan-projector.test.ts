@@ -72,7 +72,7 @@ describe('plan-projector first-patch gate', () => {
       expect(result.errors).toContain('plan_id must be a non-empty string');
       expect(result.errors).toContain('title must be a non-empty string');
       expect(result.errors).toContain('order must be a finite number');
-      expect(result.errors).toContain('status must be one of planned, active, blocked, passing, failing, done');
+      expect(result.errors).toContain('status must be one of planned, active, blocked, archived, passing, failing, done');
     }
   });
 
@@ -100,6 +100,17 @@ describe('plan-projector first-patch gate', () => {
     if (!result2.ok) {
       expect(result2.errors).toContain('payload is not valid JSON');
     }
+  });
+
+  it('validates archived as a first-class plan status', () => {
+    const result = validatePlanPayload({
+      plan_id: TEST_PLAN,
+      title: 'Archived section',
+      order: 1,
+      status: 'archived',
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.status).toBe('archived');
   });
 
   it('inserts and retrieves plan events via getPlanEvents (db helper)', () => {
@@ -197,6 +208,56 @@ describe('plan-projector first-patch gate', () => {
     expect(data.events).toHaveLength(1);
     expect(data.events[0].kind).toBe('plan_section');
     expect(data.events[0].payload.title).toBe('Live plan section');
+  });
+
+  it('hides archived plan refs by default while preserving direct access', () => {
+    const livePlan = 'plan-live-visible';
+    const archivedPlan = 'plan-archived-hidden';
+    queries.appendRunEvent(
+      TEST_SESSION,
+      Date.now() + 30,
+      'json',
+      'high',
+      'plan_section',
+      'Visible section',
+      seedPayload('plan_section', {
+        plan_id: livePlan,
+        title: 'Visible section',
+        order: 0,
+      }),
+      null,
+    );
+    queries.appendRunEvent(
+      TEST_SESSION,
+      Date.now() + 31,
+      'json',
+      'high',
+      'plan_section',
+      'Archived section',
+      seedPayload('plan_section', {
+        plan_id: archivedPlan,
+        title: 'Archived section',
+        order: 0,
+        status: 'archived',
+      }),
+      null,
+    );
+
+    const visibleRefs = listPlanRefs(50);
+    expect(visibleRefs.some((r) => r.plan_id === livePlan)).toBe(true);
+    expect(visibleRefs.some((r) => r.plan_id === archivedPlan)).toBe(false);
+
+    const allRefs = listPlanRefs(50, { includeArchived: true });
+    expect(allRefs.find((r) => r.plan_id === archivedPlan)?.archived).toBe(true);
+
+    const direct = getPlanViewData({
+      sessionId: TEST_SESSION,
+      planId: archivedPlan,
+      limit: 20,
+    });
+    expect(direct.source).toBe('live');
+    expect(direct.archived).toBe(true);
+    expect(direct.events.some((e) => e.payload.status === 'archived')).toBe(true);
   });
 
   it('resolves provenance exact → fallback → degraded ladder', () => {

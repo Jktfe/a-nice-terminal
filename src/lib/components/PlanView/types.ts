@@ -28,7 +28,8 @@ export type PlanStatus =
   | 'blocked'
   | 'passing'
   | 'failing'
-  | 'done';
+  | 'done'
+  | 'archived';
 
 export interface EvidenceRef {
   kind: 'run_event' | 'raw_ref' | 'task' | 'source_url' | 'file';

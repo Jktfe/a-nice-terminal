@@ -3,6 +3,7 @@ import {
   PLAN_EVENT_KINDS,
   validatePlanPayloadString,
   type PlanEventKind,
+  type PlanStatus,
 } from './types.js';
 import type {
   PlanEvent,
@@ -38,12 +39,16 @@ export type PlanRef = {
   plan_id: string;
   event_count: number;
   updated_ts_ms: number;
+  status?: PlanStatus;
+  archived: boolean;
 };
 
 export type PlanViewData = {
   source: 'live' | 'empty';
   session_id: string | null;
   plan_id: string | null;
+  archived: boolean;
+  include_archived: boolean;
   events: PlanEvent[];
   plans: PlanRef[];
   errors: Array<{ id: string; kind: string; errors: string[] }>;
@@ -63,7 +68,14 @@ function normalizePlanRef(row: PlanRefRow): PlanRef {
     plan_id: row.plan_id,
     event_count: Number(row.event_count) || 0,
     updated_ts_ms: Number(row.updated_ts_ms) || 0,
+    archived: false,
   };
+}
+
+export function parseIncludeArchived(value: string | boolean | null | undefined): boolean {
+  if (typeof value === 'boolean') return value;
+  const normalized = (value ?? '').trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'all';
 }
 
 function isPlanEventKind(kind: string): kind is PlanEventKind {
@@ -112,6 +124,15 @@ function dedupePlanEvents(events: PlanEvent[]): PlanEvent[] {
   return Array.from(latest.values());
 }
 
+export function planArchiveStatus(events: PlanEvent[]): { archived: boolean; status?: PlanStatus } {
+  const sections = dedupePlanEvents(events).filter((ev) => ev.kind === 'plan_section');
+  const archived = sections.some((ev) => ev.payload.status === 'archived');
+  return {
+    archived,
+    status: archived ? 'archived' : sections.find((ev) => ev.payload.status)?.payload.status,
+  };
+}
+
 function normalizePlanEvent(
   row: PlanRow,
 ): { event?: PlanEvent; warning?: string; error?: { id: string; kind: string; errors: string[] } } {
@@ -147,23 +168,59 @@ function normalizePlanEvent(
   };
 }
 
-export function listPlanRefs(limit = 50): PlanRef[] {
-  return (queries.listPlanRefs([...PLAN_EVENT_KINDS], limit) as PlanRefRow[])
-    .map(normalizePlanRef);
+function loadPlanEvents(sessionId: string, planId: string, limit = MAX_LIMIT): PlanEvent[] {
+  const rows = queries.getPlanEvents(
+    sessionId,
+    planId,
+    [...PLAN_EVENT_KINDS],
+    limit,
+  ) as PlanRow[];
+  const events: PlanEvent[] = [];
+  for (const row of rows) {
+    const normalized = normalizePlanEvent(row);
+    if (normalized.event) events.push(normalized.event);
+  }
+  return events;
+}
+
+function enrichPlanRef(row: PlanRefRow): PlanRef {
+  const ref = normalizePlanRef(row);
+  const archiveStatus = planArchiveStatus(loadPlanEvents(ref.session_id, ref.plan_id));
+  return {
+    ...ref,
+    status: archiveStatus.status,
+    archived: archiveStatus.archived,
+  };
+}
+
+export function listPlanRefs(
+  limit = 50,
+  options: { includeArchived?: boolean } = {},
+): PlanRef[] {
+  const discoveryLimit = options.includeArchived ? limit : Math.max(limit * 4, 200);
+  const refs = (queries.listPlanRefs([...PLAN_EVENT_KINDS], discoveryLimit) as PlanRefRow[])
+    .map(enrichPlanRef);
+  const visible = options.includeArchived ? refs : refs.filter((ref) => !ref.archived);
+  return visible.slice(0, limit);
 }
 
 export function getPlanViewData(input?: {
   sessionId?: string | null;
   planId?: string | null;
   limit?: string | number | null;
+  includeArchived?: string | boolean | null;
 }): PlanViewData {
   const limit = clampLimit(input?.limit);
-  const plans = listPlanRefs(50);
+  const includeArchived = parseIncludeArchived(input?.includeArchived);
+  let plans = listPlanRefs(50, { includeArchived });
   let sessionId = input?.sessionId?.trim() || null;
   let planId = input?.planId?.trim() || null;
+  const explicitPlanRequest = Boolean(sessionId || planId);
 
   if (planId && !sessionId) {
-    const matchingPlan = plans.find((p) => p.plan_id === planId);
+    const matchingPlan =
+      plans.find((p) => p.plan_id === planId) ??
+      listPlanRefs(250, { includeArchived: true }).find((p) => p.plan_id === planId);
     sessionId = matchingPlan?.session_id ?? null;
   }
 
@@ -178,6 +235,8 @@ export function getPlanViewData(input?: {
       source: 'empty',
       session_id: sessionId,
       plan_id: planId,
+      archived: false,
+      include_archived: includeArchived,
       events: [],
       plans,
       errors: [],
@@ -203,11 +262,23 @@ export function getPlanViewData(input?: {
   }
 
   const deduped = dedupePlanEvents(events);
+  const archiveStatus = planArchiveStatus(deduped);
+
+  if (explicitPlanRequest && archiveStatus.archived && !includeArchived) {
+    const selected = listPlanRefs(250, { includeArchived: true }).find(
+      (p) => p.session_id === sessionId && p.plan_id === planId,
+    );
+    if (selected && !plans.some((p) => p.session_id === selected.session_id && p.plan_id === selected.plan_id)) {
+      plans = [selected, ...plans].slice(0, 50);
+    }
+  }
 
   return {
     source: deduped.length > 0 ? 'live' : 'empty',
     session_id: sessionId,
     plan_id: planId,
+    archived: archiveStatus.archived,
+    include_archived: includeArchived,
     events: deduped,
     plans,
     errors,

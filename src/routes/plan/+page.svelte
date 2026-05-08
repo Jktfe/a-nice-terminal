@@ -6,6 +6,7 @@
   import type {
     PlanEvent,
     PlanEventPayload,
+    PlanStatus,
   } from '$lib/components/PlanView/types';
   import type { PageData } from './$types';
 
@@ -108,9 +109,66 @@
     // Switching plans replays SSR — drop any live overlay so we don't keep
     // stale entries from the previous plan in the merged view.
     liveEvents = [];
-    goto(
-      `/plan?session_id=${encodeURIComponent(sessionId)}&plan_id=${encodeURIComponent(planId)}`,
-    );
+    // Preserve the include_archived toggle across navigation so the user
+    // doesn't lose visibility of the archived plan they just selected.
+    const params = new URLSearchParams({
+      session_id: sessionId,
+      plan_id: planId,
+    });
+    if (data.include_archived) params.set('include_archived', '1');
+    goto(`/plan?${params.toString()}`);
+  }
+
+  function toggleIncludeArchived(event: Event) {
+    const checked = (event.currentTarget as HTMLInputElement).checked;
+    const params = new URLSearchParams();
+    if (data.session_id) params.set('session_id', data.session_id);
+    if (data.plan_id) params.set('plan_id', data.plan_id);
+    if (checked) params.set('include_archived', '1');
+    liveEvents = [];
+    goto(`/plan?${params.toString()}`);
+  }
+
+  // Split the plans dropdown into live + archived groups so archived
+  // plans don't get lost in a long alphabetical list. Mirrors the
+  // server's planArchiveStatus — plan.archived is the latest-section
+  // determination from the projector.
+  const livePlans = $derived(data.plans.filter((p) => !p.archived));
+  const archivedPlans = $derived(data.plans.filter((p) => p.archived));
+  const selectedPlan = $derived(
+    data.plans.find(
+      (p) => p.session_id === data.session_id && p.plan_id === data.plan_id,
+    ) ?? null,
+  );
+  // True when the currently-selected plan is archived. Drives the top-bar
+  // archive/unarchive control's label so the user always knows what
+  // clicking will do — no need to enter edit mode + scroll to find it.
+  const selectedPlanArchived = $derived(
+    Boolean(selectedPlan?.archived || data.archived),
+  );
+
+  async function toggleArchiveCurrentPlan() {
+    if (!data.session_id || !data.plan_id) return;
+    const planTitle = data.plan_id;
+    const action = selectedPlanArchived ? 'Unarchive' : 'Archive';
+    const confirmMsg = selectedPlanArchived
+      ? `Unarchive "${planTitle}"? It will reappear in the default plan list.`
+      : `Archive "${planTitle}"? It will be hidden from the default plan list.`;
+    if (typeof window !== 'undefined' && !window.confirm(confirmMsg)) return;
+    // Find the section(s) to flip. Archive uses the first section as the plan
+    // marker; unarchive must clear every archived section identity because the
+    // projector treats any archived section as archiving the whole plan.
+    const sections = combinedEvents.filter((e) => e.kind === 'plan_section');
+    const targets = selectedPlanArchived
+      ? sections.filter((e) => e.payload.status === 'archived')
+      : sections.slice(0, 1);
+    if (!targets.length) {
+      saveError = `Cannot ${action.toLowerCase()} — no plan_section event found for ${planTitle}.`;
+      return;
+    }
+    for (const section of targets) {
+      await handleArchiveSection(section, !selectedPlanArchived);
+    }
   }
 
   onMount(() => {
@@ -288,6 +346,28 @@
     });
   }
 
+  function handleArchiveSection(section: PlanEvent, archive: boolean) {
+    // Re-emit plan_section with status flipped. The projector dedupes
+    // by latest ts_ms per identity, so the archive flag is the
+    // latest-wins event without a schema change. Listing endpoints
+    // (Lane A) read the latest status to decide visibility.
+    const planId = section.payload.plan_id ?? data.plan_id;
+    if (!planId) {
+      saveError = 'Cannot archive — plan_id missing.';
+      return;
+    }
+    const nextStatus: PlanStatus = archive ? 'archived' : 'planned';
+    return postPlanEvent({
+      kind: 'plan_section',
+      payload: {
+        ...section.payload,
+        plan_id: planId,
+        status: nextStatus,
+      },
+      text: section.payload.title,
+    });
+  }
+
   function handleAddDecision(section: PlanEvent) {
     const planId = section.payload.plan_id ?? data.plan_id;
     if (!planId) {
@@ -350,21 +430,54 @@
   >
 </div>
 
-<div class="plan-source" data-live={isLive}>
+<div class="plan-source" data-live={isLive} aria-label="Plan controls">
   <span class="plan-source-dot"></span>
-  <span>{isLive ? 'Live' : 'Sample'}</span>
+  <span class="plan-source-state">{isLive ? 'Live' : 'Sample'}</span>
   {#if data.plans.length}
     <select
       aria-label="Select plan"
       value={selectedPlanKey}
       onchange={selectPlan}
     >
-      {#each data.plans as plan}
-        <option value={`${plan.session_id}::${plan.plan_id}`}>
-          {plan.plan_id} · {plan.event_count}
-        </option>
-      {/each}
+      {#if livePlans.length}
+        <optgroup label="Live">
+          {#each livePlans as plan}
+            <option value={`${plan.session_id}::${plan.plan_id}`}>
+              {plan.plan_id} · {plan.event_count}
+            </option>
+          {/each}
+        </optgroup>
+      {/if}
+      {#if archivedPlans.length}
+        <optgroup label="Archived">
+          {#each archivedPlans as plan}
+            <option value={`${plan.session_id}::${plan.plan_id}`}>
+              {plan.plan_id} · {plan.event_count} · archived
+            </option>
+          {/each}
+        </optgroup>
+      {/if}
     </select>
+    <label class="plan-source-toggle" title="Show archived plans in the list">
+      <input
+        type="checkbox"
+        checked={data.include_archived}
+        onchange={toggleIncludeArchived}
+      />
+      <span>Show archived plans</span>
+    </label>
+  {/if}
+  {#if data.session_id && data.plan_id}
+    <button
+      type="button"
+      class="plan-source-archive"
+      class:plan-source-archive--archived={selectedPlanArchived}
+      onclick={toggleArchiveCurrentPlan}
+      disabled={saving}
+      title={selectedPlanArchived
+        ? `Unarchive ${data.plan_id} — restore to the default plan list`
+        : `Archive ${data.plan_id} — hide from the default plan list`}
+    >{selectedPlanArchived ? '↺ unarchive plan' : '⌫ archive plan'}</button>
   {/if}
   {#if data.session_id}
     <button
@@ -392,6 +505,7 @@
   onToggleDone={handleToggleDone}
   onAddMilestone={handleAddMilestone}
   onAddDecision={handleAddDecision}
+  onArchiveSection={handleArchiveSection}
 />
 
 <style>
@@ -426,28 +540,37 @@
   }
 
   .plan-source {
-    position: fixed;
-    top: 18px;
-    left: 18px;
-    z-index: 50;
+    position: sticky;
+    top: 14px;
+    z-index: 45;
     display: flex;
     align-items: center;
-    gap: 8px;
-    max-width: min(460px, calc(100vw - 132px));
-    min-height: 28px;
-    padding: 4px 10px;
+    gap: 10px;
+    /* Capped width: 1080px stretched the bar across the whole canvas
+       on most monitors and looked like a dominating banner. 720px keeps
+       the controls together and leaves visual breathing room around it. */
+    width: min(720px, calc(100vw - 64px));
+    min-height: 34px;
+    margin: 18px auto 0;
+    padding: 6px 12px;
+    box-sizing: border-box;
     border: 0.5px solid currentColor;
     border-radius: 4px;
-    background: rgba(0, 0, 0, 0.04);
+    background: rgba(255, 255, 255, 0.82);
     color: inherit;
     font-family: var(--font-mono, monospace);
     font-size: 11px;
     text-transform: uppercase;
-    opacity: 0.72;
+    opacity: 0.92;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.08);
+    backdrop-filter: blur(12px);
   }
   .plan-source:hover,
   .plan-source:focus-within {
     opacity: 1;
+  }
+  .plan-source-state {
+    flex: 0 0 auto;
   }
   .plan-source-dot {
     width: 6px;
@@ -461,7 +584,8 @@
   }
   .plan-source select {
     min-width: 0;
-    max-width: 320px;
+    flex: 1 1 340px;
+    max-width: 560px;
     height: 20px;
     border: 0;
     background: transparent;
@@ -488,10 +612,65 @@
     opacity: 0.4;
     cursor: not-allowed;
   }
+  /* Plan-level archive control — visible whenever a plan is selected
+     so the user doesn't need to enter edit mode and scroll into the
+     section meta to find it. Distinct treatment from "+ section" so
+     it doesn't read as another additive action. */
+  .plan-source-archive {
+    border: 0.5px solid currentColor;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    padding: 1px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    text-transform: none;
+    opacity: 0.95;
+    font-weight: 500;
+  }
+  .plan-source-archive:hover:not(:disabled) {
+    background: rgba(0, 0, 0, 0.05);
+  }
+  .plan-source-archive:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  /* When the plan is already archived, tint towards an "active state"
+     so it's clearly the toggle that will reverse the current condition. */
+  .plan-source-archive--archived {
+    color: var(--accent-amber, #c2860a);
+    border-color: currentColor;
+  }
   .plan-source-warn {
     color: #ef4444;
     text-transform: none;
     cursor: help;
+  }
+  .plan-source-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: 0 0 auto;
+    padding: 2px 8px;
+    border-radius: 3px;
+    border: 0.5px solid currentColor;
+    text-transform: none;
+    cursor: pointer;
+    user-select: none;
+    /* Stand out clearly: this is the only way to surface archived plans
+       in the dropdown, and the surrounding source-bar runs at 0.72
+       opacity. Underplaying it left users unable to find archived
+       plans at all. */
+    opacity: 0.95;
+  }
+  .plan-source-toggle:hover {
+    background: rgba(0, 0, 0, 0.05);
+  }
+  .plan-source-toggle input:checked ~ span {
+    font-weight: 600;
+  }
+  .plan-source-toggle input {
+    margin: 0;
   }
   @media (max-width: 560px) {
     .mode-toggle {
@@ -500,10 +679,13 @@
     }
     .plan-source {
       top: 54px;
-      max-width: calc(100vw - 36px);
+      width: calc(100vw - 24px);
+      margin-top: 12px;
+      flex-wrap: wrap;
     }
     .plan-source select {
-      max-width: 210px;
+      flex-basis: calc(100vw - 48px);
+      max-width: none;
     }
   }
 

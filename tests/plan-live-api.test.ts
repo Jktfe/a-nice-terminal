@@ -1,14 +1,16 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import getDb, { queries } from '../src/lib/server/db.js';
 import { GET } from '../src/routes/api/plan/+server';
+import { GET as getPlans } from '../src/routes/api/plans/+server';
 
 const TEST_SESSION = 'test-session-plan-live-api';
 const OTHER_SESSION = 'test-session-plan-live-api-other';
 const TEST_PLAN = 'ant-r4';
+const ARCHIVED_PLAN = 'ant-r4-archived';
 
-function planPayload(overrides: Record<string, unknown>) {
+function planPayload(overrides: Record<string, unknown>, planId = TEST_PLAN) {
   return JSON.stringify({
-    plan_id: TEST_PLAN,
+    plan_id: planId,
     title: 'Live plan event',
     order: 1,
     ...overrides,
@@ -21,6 +23,8 @@ async function jsonFrom(response: Response) {
     plan_id: string;
     limit: number;
     count: number;
+    archived?: boolean;
+    include_archived?: boolean;
     events: Array<{
       id: string;
       session_id: string;
@@ -35,6 +39,20 @@ async function jsonFrom(response: Response) {
       created_at: string | null;
     }>;
     errors: Array<{ id: string; kind: string; errors: string[] }>;
+  }>;
+}
+
+async function plansJsonFrom(response: Response) {
+  return response.json() as Promise<{
+    count: number;
+    include_archived: boolean;
+    plans: Array<{
+      session_id: string;
+      plan_id: string;
+      event_count: number;
+      updated_ts_ms: number;
+      archived: boolean;
+    }>;
   }>;
 }
 
@@ -144,5 +162,54 @@ describe('/api/plan live route', () => {
     expect(body.errors.at(-1)?.errors).toContain('title must be a non-empty string');
     expect(body.errors.at(-1)?.errors).toContain('order must be a finite number');
     expect(body.events.every((event) => event.payload.title !== '')).toBe(true);
+  });
+
+  it('filters archived plan refs from /api/plans unless include_archived is set', async () => {
+    queries.appendRunEvent(
+      TEST_SESSION,
+      1_710_000_000_030,
+      'json',
+      'high',
+      'plan_section',
+      'Archived section',
+      planPayload({ title: 'Archived section', order: 0, status: 'archived' }, ARCHIVED_PLAN),
+      null,
+    );
+
+    const hiddenResponse = getPlans({
+      url: new URL('http://localhost/api/plans?limit=50'),
+    } as Parameters<typeof getPlans>[0]);
+    const hidden = await plansJsonFrom(hiddenResponse);
+    expect(hidden.include_archived).toBe(false);
+    expect(hidden.plans.some((plan) => plan.plan_id === ARCHIVED_PLAN)).toBe(false);
+
+    const includedResponse = getPlans({
+      url: new URL('http://localhost/api/plans?limit=50&include_archived=1'),
+    } as Parameters<typeof getPlans>[0]);
+    const included = await plansJsonFrom(includedResponse);
+    const archived = included.plans.find((plan) => plan.plan_id === ARCHIVED_PLAN);
+    expect(included.include_archived).toBe(true);
+    expect(archived?.archived).toBe(true);
+  });
+
+  it('keeps direct archived plan API access available for recovery', async () => {
+    queries.appendRunEvent(
+      TEST_SESSION,
+      1_710_000_000_031,
+      'json',
+      'high',
+      'plan_section',
+      'Archived section',
+      planPayload({ title: 'Archived section', order: 0, status: 'archived' }, ARCHIVED_PLAN),
+      null,
+    );
+
+    const response = GET({
+      url: new URL(`http://localhost/api/plan?session_id=${TEST_SESSION}&plan_id=${ARCHIVED_PLAN}`),
+    } as Parameters<typeof GET>[0]);
+    const body = await jsonFrom(response);
+
+    expect(body.archived).toBe(true);
+    expect(body.events.some((event) => event.payload.status === 'archived')).toBe(true);
   });
 });

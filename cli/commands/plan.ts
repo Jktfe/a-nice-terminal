@@ -11,7 +11,10 @@ interface PlanRef {
   session_id: string;
   plan_id: string;
   event_count: number;
+  updated_ts_ms?: number;
   last_ts_ms?: number;
+  archived?: boolean;
+  status?: string;
 }
 
 interface PlanEvent {
@@ -28,6 +31,7 @@ const STATUS_COLOURS: Record<string, string> = {
   active:  '\x1b[33m',
   planned: '\x1b[37m',
   blocked: '\x1b[31m',
+  archived: '\x1b[90m',
 };
 
 function colourStatus(s: string): string {
@@ -42,19 +46,86 @@ function slug(value: string | undefined | null): string {
     .replace(/^-+|-+$/g, '');
 }
 
+function flagEnabled(flags: any, dashed: string, camel: string): boolean {
+  return Boolean(flags[dashed] || flags[camel]);
+}
+
+function sectionIdentity(ev: PlanEvent): string {
+  const p = ev.payload as any;
+  return `section:${p.acceptance_id || slug(p.title as string | undefined)}`;
+}
+
+function dedupeSections(events: PlanEvent[]): PlanEvent[] {
+  const latest = new Map<string, PlanEvent>();
+  for (const ev of events) {
+    if (ev.kind !== 'plan_section') continue;
+    const key = sectionIdentity(ev);
+    const prev = latest.get(key);
+    if (!prev || ev.ts_ms > prev.ts_ms) latest.set(key, ev);
+  }
+  return [...latest.values()].sort((a, b) => {
+    const ao = Number((a.payload as any).order ?? 0);
+    const bo = Number((b.payload as any).order ?? 0);
+    return ao - bo || b.ts_ms - a.ts_ms;
+  });
+}
+
+function isArchivedPlan(events: PlanEvent[]): boolean {
+  return dedupeSections(events).some((ev) => (ev.payload as any).status === 'archived');
+}
+
+async function loadPlan(ctx: any, planId: string, sessionId: string, limit = 1000) {
+  const params = new URLSearchParams({
+    plan_id: planId,
+    limit: String(limit),
+    include_archived: '1',
+  });
+  if (sessionId) params.set('session_id', sessionId);
+  return api.get(ctx, `/api/plan?${params.toString()}`);
+}
+
+async function setPlanArchived(ctx: any, flags: any, planId: string, archived: boolean) {
+  const sessionId = typeof flags.session === 'string' ? flags.session : '';
+  const data = await loadPlan(ctx, planId, sessionId);
+  const events: PlanEvent[] = data.events || [];
+  const sections = dedupeSections(events);
+  const targets = archived
+    ? sections.slice(0, 1)
+    : sections.filter((section) => (section.payload as any).status === 'archived');
+  if (!targets.length) {
+    throw new Error(`Plan ${planId} has no plan_section event to ${archived ? 'archive' : 'unarchive'}`);
+  }
+
+  const results = [];
+  for (const section of targets) {
+    results.push(await api.patch(ctx, `/api/plan/events/${encodeURIComponent(section.id)}`, {
+      status: archived ? 'archived' : 'planned',
+      text: `${archived ? 'Archive' : 'Unarchive'} ${planId}`,
+    }));
+  }
+
+  if (ctx.json) { console.log(JSON.stringify(results.length === 1 ? results[0] : results)); return; }
+  const resolvedSessionId = data.session_id || targets[0]?.session_id || sessionId;
+  console.log(`${archived ? 'Archived' : 'Unarchived'} plan ${planId}${resolvedSessionId ? ` (session ${resolvedSessionId})` : ''}.`);
+}
+
 export async function plan(args: string[], flags: any, ctx: any) {
   const sub = args[0];
 
   if (!sub || sub === 'list') {
     const limit = flags.limit ? Number(flags.limit) : 50;
-    const data = await api.get(ctx, `/api/plans?limit=${limit}`);
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (flagEnabled(flags, 'include-archived', 'includeArchived')) params.set('include_archived', '1');
+    const data = await api.get(ctx, `/api/plans?${params.toString()}`);
     const plans: PlanRef[] = data.plans || [];
     if (ctx.json) { console.log(JSON.stringify(plans, null, 2)); return; }
     if (!plans.length) { console.log('No plans yet — emit plan_milestone or plan_test_status events to populate.'); return; }
     console.log(`${plans.length} plan${plans.length === 1 ? '' : 's'}:`);
     for (const p of plans) {
-      const when = p.last_ts_ms ? new Date(p.last_ts_ms).toISOString().slice(0, 16).replace('T', ' ') : '          ';
-      console.log(`  ${p.plan_id.padEnd(32)}  ${p.session_id.padEnd(36)}  ${String(p.event_count).padStart(4)} events  last ${when}`);
+      const ts = p.updated_ts_ms ?? p.last_ts_ms;
+      const when = ts ? new Date(ts).toISOString().slice(0, 16).replace('T', ' ') : '          ';
+      const tag = p.archived ? '  [archived]' : '';
+      console.log(`  ${p.plan_id.padEnd(32)}  ${p.session_id.padEnd(36)}  ${String(p.event_count).padStart(4)} events  last ${when}${tag}`);
     }
     return;
   }
@@ -67,7 +138,7 @@ export async function plan(args: string[], flags: any, ctx: any) {
     }
     const sessionId = typeof flags.session === 'string' ? flags.session : '';
     const limit = flags.limit ? Number(flags.limit) : 1000;
-    const params = new URLSearchParams({ plan_id: planId, limit: String(limit) });
+    const params = new URLSearchParams({ plan_id: planId, limit: String(limit), include_archived: '1' });
     if (sessionId) params.set('session_id', sessionId);
     const data = await api.get(ctx, `/api/plan?${params.toString()}`);
     const events: PlanEvent[] = data.events || [];
@@ -106,7 +177,8 @@ export async function plan(args: string[], flags: any, ctx: any) {
       }
     }
 
-    console.log(`Plan ${data.plan_id} (session ${data.session_id}) — ${events.length} events, ${milestoneStatus.size} milestones, ${testStatus.size} tests`);
+    const archived = Boolean(data.archived ?? isArchivedPlan(events));
+    console.log(`Plan ${data.plan_id} (session ${data.session_id})${archived ? ' [archived]' : ''} — ${events.length} events, ${milestoneStatus.size} milestones, ${testStatus.size} tests`);
     console.log('');
 
     const sortedMilestones = [...milestoneStatus.entries()].sort(([a], [b]) => a.localeCompare(b));
@@ -122,8 +194,20 @@ export async function plan(args: string[], flags: any, ctx: any) {
     return;
   }
 
-  console.error('Usage: ant plan <list|show>');
-  console.error('  ant plan list [--limit N]');
+  if (sub === 'archive' || sub === 'unarchive') {
+    const planId = args[1];
+    if (!planId) {
+      console.error(`Usage: ant plan ${sub} <plan_id> [--session <id>]`);
+      process.exit(1);
+    }
+    await setPlanArchived(ctx, flags, planId, sub === 'archive');
+    return;
+  }
+
+  console.error('Usage: ant plan <list|show|archive|unarchive>');
+  console.error('  ant plan list [--limit N] [--include-archived]');
   console.error('  ant plan show <plan_id> [--session <id>] [--limit N]');
+  console.error('  ant plan archive <plan_id> [--session <id>]');
+  console.error('  ant plan unarchive <plan_id> [--session <id>]');
   process.exit(1);
 }

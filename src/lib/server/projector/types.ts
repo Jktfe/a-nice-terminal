@@ -16,6 +16,7 @@ export type PlanStatus =
   | 'planned'
   | 'active'
   | 'blocked'
+  | 'archived'
   | 'passing'
   | 'failing'
   | 'done';
@@ -86,6 +87,7 @@ const PLAN_STATUSES: PlanStatus[] = [
   'planned',
   'active',
   'blocked',
+  'archived',
   'passing',
   'failing',
   'done',

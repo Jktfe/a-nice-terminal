@@ -6,5 +6,6 @@ export const load: PageServerLoad = ({ url }) => {
     sessionId: url.searchParams.get('session_id'),
     planId: url.searchParams.get('plan_id'),
     limit: url.searchParams.get('limit'),
+    includeArchived: url.searchParams.get('include_archived'),
   });
 };

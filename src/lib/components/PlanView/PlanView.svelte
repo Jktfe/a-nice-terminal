@@ -1,5 +1,7 @@
 <script lang="ts">
   import { NOCTURNE, surfaceTokens } from '$lib/nocturne';
+  import ProgressBar from './ProgressBar.svelte';
+  import ProgressRing from './ProgressRing.svelte';
   import {
     type PlanEvent,
     type PlanStatus,
@@ -17,6 +19,7 @@
     onToggleDone,
     onAddMilestone,
     onAddDecision,
+    onArchiveSection,
   }: {
     events: PlanEvent[];
     title?: string;
@@ -27,6 +30,7 @@
     onToggleDone?: (ev: PlanEvent) => void | Promise<void>;
     onAddMilestone?: (section: PlanEvent) => void | Promise<void>;
     onAddDecision?: (section: PlanEvent) => void | Promise<void>;
+    onArchiveSection?: (section: PlanEvent, archive: boolean) => void | Promise<void>;
   } = $props();
 
   // Inline rename state — only one event editable at a time.
@@ -64,7 +68,24 @@
   const sections = $derived(
     events
       .filter((e) => e.kind === 'plan_section')
-      .sort((a, b) => a.payload.order - b.payload.order),
+      .sort((a, b) => (
+        a.payload.order - b.payload.order ||
+        ((b.ts_ms ?? b.ts ?? 0) - (a.ts_ms ?? a.ts ?? 0))
+      )),
+  );
+
+  // Plan-wide archive flag: matches the server's planArchiveStatus —
+  // any section flipped to "archived" archives the whole plan. Treating
+  // this per-section in the UI would let multi-section plans show
+  // mismatched archive/dim state vs. the list-endpoint's hide decision.
+  const planArchived = $derived(
+    sections.some((s) => s.payload.status === 'archived'),
+  );
+  const archivedSections = $derived(
+    sections.filter((s) => s.payload.status === 'archived'),
+  );
+  const archivedSection = $derived(
+    archivedSections[0] ?? sections[0],
   );
 
   function slug(value: string | undefined): string {
@@ -94,8 +115,17 @@
   }
 
   function isMilestonesSection(section: PlanEvent): boolean {
+    // Original gate: only sections explicitly named "milestones" or
+    // "sec-milestones" rendered their milestones in the body. Every plan
+    // I've seen has a different section slug, which left the body empty
+    // while the rail still counted milestones — making archived and
+    // active plans look identical until you opened the rail summary.
+    // Fall through to a presence check so any section with milestones
+    // belonging to it (or orphan milestones via the resilience helper)
+    // renders them.
     const aliases = eventAliases(section);
-    return aliases.includes('sec-milestones') || aliases.includes('milestones');
+    if (aliases.includes('sec-milestones') || aliases.includes('milestones')) return true;
+    return milestonesForSection(section).length > 0;
   }
 
   function decisionsForSection(section: PlanEvent) {
@@ -106,8 +136,25 @@
 
   function milestonesForSection(section: PlanEvent) {
     return events
-      .filter((e) => e.kind === 'plan_milestone' && belongsTo(section, e))
+      .filter((e) => e.kind === 'plan_milestone' && (
+        belongsTo(section, e) || isOrphanForSection(section, e)
+      ))
       .sort((a, b) => a.payload.order - b.payload.order);
+  }
+
+  // Resilience fallback: a milestone with no parent_id attaches to the
+  // first section of the same plan, so partially-emitted plans (or plans
+  // authored before the parent_id contract was finalised) still render
+  // their milestones in the body instead of vanishing into the rail
+  // count. Scoped to the first section per plan_id so multi-section
+  // plans don't double-render orphans.
+  function isOrphanForSection(section: PlanEvent, milestone: PlanEvent): boolean {
+    if (milestone.payload.parent_id) return false;
+    if (milestone.payload.plan_id !== section.payload.plan_id) return false;
+    const firstSectionInPlan = events.find(
+      (e) => e.kind === 'plan_section' && e.payload.plan_id === section.payload.plan_id,
+    );
+    return firstSectionInPlan?.id === section.id;
   }
 
   function acceptanceFor(milestoneId: string) {
@@ -145,7 +192,7 @@
   // ── Side rail (derived projection per §6.5; NOT plan_* events) ────────
   const milestones = $derived(events.filter((e) => e.kind === 'plan_milestone'));
   const liveMilestone = $derived(milestones.find((m) => m.payload.status === 'active'));
-  const doneCount = $derived(milestones.filter((m) => m.payload.status === 'done').length);
+  const doneCount = $derived(milestones.filter(isMilestoneDone).length);
   const queuedCount = $derived(
     milestones.filter((m) => m.payload.status === 'planned' || !m.payload.status).length,
   );
@@ -154,6 +201,31 @@
       new Set(milestones.map((m) => m.payload.owner).filter((o): o is string => Boolean(o))),
     ),
   );
+
+  // ── Progress (visual) ──────────────────────────────────────────────────
+  // "Done" includes both plan_milestone status=done AND tests that have
+  // gone status=passing — both are end-state for their kind. Failing /
+  // blocked don't count as done; planned/active are remaining work.
+  function isMilestoneDone(m: PlanEvent): boolean {
+    return m.payload.status === 'done' || m.payload.status === 'passing';
+  }
+  const totalMilestones = $derived(milestones.length);
+  const overallPercent = $derived(
+    totalMilestones === 0 ? 0 : Math.round((doneCount / totalMilestones) * 100),
+  );
+  const overallVariant = $derived(
+    totalMilestones > 0 && doneCount === totalMilestones ? 'success' : 'default',
+  );
+  function sectionProgress(section: PlanEvent): {
+    done: number;
+    total: number;
+    percent: number;
+  } {
+    const list = milestonesForSection(section);
+    const total = list.length;
+    const done = list.filter(isMilestoneDone).length;
+    return { done, total, percent: total === 0 ? 0 : Math.round((done / total) * 100) };
+  }
 
   // ── Render-time stat ──────────────────────────────────────────────────
   const sectionCount = $derived(sections.length);
@@ -183,11 +255,28 @@
     <header class="plan-head">
       <h1>{title}</h1>
       <p class="plan-subtitle">{headerSubtitle}</p>
+      {#if totalMilestones > 0}
+        <div class="plan-head-progress">
+          <ProgressBar
+            value={overallPercent}
+            variant={overallVariant}
+            size="md"
+            showValue="above"
+            ariaLabel={`Overall plan progress: ${doneCount} of ${totalMilestones} milestones done`}
+            format={() => `${doneCount} of ${totalMilestones} milestones done · ${overallPercent}%`}
+          />
+        </div>
+      {/if}
     </header>
 
     <main class="plan-main">
-      {#each sections as section (section.id)}
-        <section class="plan-section" id={section.id}>
+      {#each sections as section, sectionIdx (section.id)}
+        {@const isFirstSection = sectionIdx === 0}
+        <section
+          class="plan-section"
+          class:plan-section--archived={planArchived}
+          id={section.id}
+        >
           <div class="plan-section-head">
             {#if editable && renameTargetId === section.id}
               <input
@@ -200,6 +289,9 @@
             {:else}
               <h2>
                 {section.payload.title}
+                {#if planArchived && isFirstSection}
+                  <span class="plan-section-badge" title="This plan is archived">Archived</span>
+                {/if}
                 {#if editable}
                   <button
                     type="button"
@@ -225,9 +317,46 @@
                   title="Add decision"
                   onclick={() => onAddDecision?.(section)}>+ decision</button
                 >
+                {#if isFirstSection}
+                  <button
+                    type="button"
+                    class="plan-edit-btn"
+                    title={planArchived ? 'Unarchive this plan' : 'Archive this plan (hides it from default views; can be restored)'}
+                    onclick={() => {
+                      // Plan-wide archive: archive flips the FIRST section; unarchive
+                      // flips the section currently marked archived. Mirrors the
+                      // server's planArchiveStatus precedence and avoids creating
+                      // ghost archived sections in multi-section plans.
+                      const target = planArchived ? archivedSection : section;
+                      const planTitle = (target ?? section).payload.title;
+                      const confirmMsg = planArchived
+                        ? `Unarchive "${planTitle}"? It will reappear in the default plan list.`
+                        : `Archive "${planTitle}"? It will be hidden from the default plan list (use --include-archived or the toggle to view).`;
+                      if (typeof window !== 'undefined' && !window.confirm(confirmMsg)) return;
+                      const targets = planArchived ? archivedSections : [target ?? section];
+                      for (const archiveTarget of targets.length ? targets : [target ?? section]) {
+                        void onArchiveSection?.(archiveTarget, !planArchived);
+                      }
+                    }}
+                  >{planArchived ? 'unarchive' : 'archive'}</button>
+                {/if}
               {/if}
             </span>
           </div>
+
+          {#if sectionProgress(section).total > 0}
+            {@const sp = sectionProgress(section)}
+            <div class="plan-section-progress">
+              <ProgressBar
+                value={sp.percent}
+                variant={sp.done === sp.total ? 'success' : 'default'}
+                size="sm"
+                showValue="above"
+                ariaLabel={`${section.payload.title} progress: ${sp.done} of ${sp.total} milestones done`}
+                format={() => `${sp.done} / ${sp.total} milestones · ${sp.percent}%`}
+              />
+            </div>
+          {/if}
 
           {#if isMilestonesSection(section)}
             <div class="plan-milestones">
@@ -255,7 +384,7 @@
                     <span class="plan-mile-meta">
                       {#if m.payload.body}<span>{m.payload.body}</span>{/if}
                       {#if m.payload.owner}<span class="plan-mile-owner">{m.payload.owner}</span>{/if}
-                      <span class="plan-mile-status">{statusLabel(m.payload.status)}</span>
+                      <span class="plan-mile-status" style="color: {statusColor(m.payload.status)};">{statusLabel(m.payload.status)}</span>
                       {#if editable}
                         <button
                           type="button"
@@ -282,6 +411,20 @@
                     </span>
                   </summary>
                   <div class="plan-mile-body">
+                    {#if tests.length > 0}
+                      {@const passing = tests.filter((t) => t.payload.status === 'passing' || t.payload.status === 'done').length}
+                      {@const testPct = Math.round((passing / tests.length) * 100)}
+                      <div class="plan-mile-tests-progress">
+                        <ProgressBar
+                          value={testPct}
+                          variant={passing === tests.length ? 'success' : tests.some((t) => t.payload.status === 'failing') ? 'danger' : 'default'}
+                          size="sm"
+                          showValue="above"
+                          ariaLabel={`Tests passing: ${passing} of ${tests.length}`}
+                          format={() => `${passing} / ${tests.length} tests passing`}
+                        />
+                      </div>
+                    {/if}
                     {#if acc}
                       <h4>Acceptance</h4>
                       <blockquote class="plan-acceptance">{acc.payload.body ?? acc.payload.title}</blockquote>
@@ -364,6 +507,24 @@
     </main>
 
     <aside class="plan-rail">
+      {#if totalMilestones > 0}
+        <div class="plan-rail-group plan-rail-ring">
+          <ProgressRing
+            value={overallPercent}
+            size={88}
+            stroke={8}
+            progressColor={overallVariant === 'success' ? (isDark ? NOCTURNE.emerald[400] : NOCTURNE.emerald[600]) : (isDark ? NOCTURNE.amber[400] : NOCTURNE.amber[600])}
+            trackColor={isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}
+            ariaLabel={`Overall plan progress: ${doneCount} of ${totalMilestones} milestones done`}
+          >
+            {#snippet label()}
+              <span class="plan-ring-pct">{overallPercent}%</span>
+              <span class="plan-ring-frac">{doneCount}/{totalMilestones}</span>
+            {/snippet}
+          </ProgressRing>
+          <span class="plan-ring-caption">milestones complete</span>
+        </div>
+      {/if}
       <div class="plan-rail-group">
         <h3>Live</h3>
         {#if liveMilestone}
@@ -429,7 +590,9 @@
     gap: 48px;
     max-width: 1080px;
     margin: 0 auto;
-    padding: 56px 32px 120px;
+    /* Top padding clears the fixed .plan-source bar (top:18px + ~32px tall)
+       so the page header isn't crammed against it. */
+    padding: 88px 32px 120px;
   }
 
   /* Header */
@@ -454,6 +617,28 @@
   /* Main column */
   .plan-main { min-width: 0; }
   .plan-section { margin-bottom: 44px; }
+
+  /* Archived plans: dim the body but keep the header sharp so the badge
+     is still legible. Buttons stay clickable for unarchive. */
+  .plan-section--archived .plan-milestones,
+  .plan-section--archived .plan-acceptance,
+  .plan-section--archived .plan-tests {
+    opacity: 0.55;
+  }
+  .plan-section-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 7px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--plan-text-muted);
+    background: var(--plan-surface-soft, rgba(127, 127, 127, 0.12));
+    border: 0.5px solid var(--plan-border, rgba(127, 127, 127, 0.25));
+    vertical-align: middle;
+  }
   .plan-section-head {
     position: sticky;
     top: 0;
@@ -619,11 +804,16 @@
   }
   .plan-mile-status {
     flex: 0 0 auto;
-    color: var(--plan-text-faint);
     font-family: var(--font-mono);
     text-transform: uppercase;
-    font-size: 10.5px;
+    font-size: 11px;
+    font-weight: 600;
     letter-spacing: 0.04em;
+    line-height: 1.35;
+    padding: 1px 6px;
+    border: 0.5px solid currentColor;
+    border-radius: 999px;
+    background: color-mix(in srgb, currentColor 9%, transparent);
   }
 
   .plan-mile-body {
@@ -687,6 +877,18 @@
   }
   .plan-link:hover { color: var(--plan-text); }
 
+  /* Progress visuals — overall, per-section, per-milestone tests */
+  .plan-head-progress { margin-top: 16px; max-width: 480px; }
+  .plan-section-progress {
+    margin: 0 0 18px;
+    padding: 0 0 4px;
+    max-width: 360px;
+  }
+  .plan-mile-tests-progress {
+    margin: 0 0 16px;
+    max-width: 320px;
+  }
+
   /* Side rail */
   .plan-rail {
     position: sticky;
@@ -696,6 +898,34 @@
     border-left: 1px solid var(--plan-border);
     padding-left: 24px;
     font-size: 12.5px;
+  }
+  .plan-rail-ring {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 6px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--plan-border);
+  }
+  .plan-ring-pct {
+    display: block;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--plan-text);
+    line-height: 1;
+  }
+  .plan-ring-frac {
+    display: block;
+    font-size: 10.5px;
+    color: var(--plan-text-muted);
+    margin-top: 2px;
+  }
+  .plan-ring-caption {
+    font-size: 10.5px;
+    color: var(--plan-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
   }
   .plan-rail-group { margin-bottom: 28px; }
   .plan-rail-group:last-child { margin-bottom: 0; }

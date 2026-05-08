@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
-import { listPlanRefs } from '$lib/server/projector/plan-view.js';
+import { listPlanRefs, parseIncludeArchived } from '$lib/server/projector/plan-view.js';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -13,6 +13,7 @@ function parseLimit(raw: string | null): number {
 
 export function GET({ url }: RequestEvent) {
   const limit = parseLimit(url.searchParams.get('limit'));
-  const plans = listPlanRefs(limit);
-  return json({ count: plans.length, plans });
+  const includeArchived = parseIncludeArchived(url.searchParams.get('include_archived'));
+  const plans = listPlanRefs(limit, { includeArchived });
+  return json({ count: plans.length, include_archived: includeArchived, plans });
 }

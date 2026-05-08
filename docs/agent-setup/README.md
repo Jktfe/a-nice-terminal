@@ -28,3 +28,4 @@ and joining a shared chatroom.
 - [Multi-agent protocol](../multi-agent-protocol.md) — conventions every agent follows
 - [Agent feature protocols](../ant-agent-feature-protocols.md) — command-first handbook
 - [Multi-agent session guide](../multi-agent-session-guide.md) — real-session patterns
+- [ANT Planning Skill](../ANT-PLANNING-SKILL.md) — how to emit, view, update, archive, and visually verify live plans

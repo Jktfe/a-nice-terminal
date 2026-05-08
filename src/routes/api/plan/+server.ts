@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db.js';
+import { parseIncludeArchived, planArchiveStatus } from '$lib/server/projector/plan-view.js';
 import {
   PLAN_EVENT_KINDS,
   validatePlanPayload,
@@ -104,6 +105,7 @@ export function GET({ url }: RequestEvent) {
   const planId = url.searchParams.get('plan_id')?.trim() || DEFAULT_PLAN_ID;
   const requestedSessionId = url.searchParams.get('session_id')?.trim() || null;
   const limit = parseLimit(url.searchParams.get('limit'));
+  const includeArchived = parseIncludeArchived(url.searchParams.get('include_archived'));
 
   const sessionId = requestedSessionId ?? findPlanSession(planId);
   if (requestedSessionId && !queries.getSession(requestedSessionId)) {
@@ -116,10 +118,13 @@ export function GET({ url }: RequestEvent) {
   const normalized = rows.map(normalizePlanRow);
   const events = normalized.flatMap((entry) => entry.event ? [entry.event] : []);
   const errors = normalized.flatMap((entry) => entry.error ? [entry.error] : []);
+  const archiveStatus = planArchiveStatus(events as any);
 
   return json({
     session_id: sessionId,
     plan_id: planId,
+    archived: archiveStatus.archived,
+    include_archived: includeArchived,
     limit,
     count: events.length,
     events,
