@@ -14,10 +14,13 @@ import indexHtml from './ui/index.html' with { type: 'text' };
 import appJs    from './ui/app.js'      with { type: 'text' };
 // @ts-expect-error — Bun text loader for style.css.
 import styleCss from './ui/style.css'   with { type: 'text' };
+// @ts-expect-error — Bun text loader for the SVG logo.
+import logoSvg  from './ui/logo.svg'    with { type: 'text' };
 
 const STATIC_FILES: Record<string, { body: string; mime: string }> = {
   'app.js':    { body: appJs,    mime: 'text/javascript; charset=utf-8' },
   'style.css': { body: styleCss, mime: 'text/css; charset=utf-8' },
+  'logo.svg':  { body: logoSvg,  mime: 'image/svg+xml; charset=utf-8' },
 };
 
 const SECURITY_HEADERS: Record<string, string> = {

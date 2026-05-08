@@ -12,7 +12,9 @@ import { queries } from '../db.js';
 import { obsidianVaultPath } from './obsidian-writer.js';
 
 const REGISTRY_FILENAME = 'ANT Registry.md';
-const SSH_HOST = process.env.ANT_REGISTRY_SSH_HOST || 'mac.kingfisher-interval.ts.net';
+// Set ANT_REGISTRY_SSH_HOST to your tailnet host (e.g. mymac.tailnet.ts.net)
+// to render `ssh://...` links in the registry. Empty default = no host link.
+const SSH_HOST = process.env.ANT_REGISTRY_SSH_HOST || '';
 const COALESCE_MS = 500;
 
 let pendingTimer: ReturnType<typeof setTimeout> | null = null;

@@ -30,7 +30,7 @@ import { renderShell, serveStatic } from './assets.js';
 import { handleProxy } from './proxy-routes.js';
 import { handleStream, closeAllBridges } from './sse-fanout.js';
 
-const SERVER_VERSION = '0.3.0';
+const SERVER_VERSION = '1.0.0';
 const SECURITY_HEADERS: Record<string, string> = {
   'cross-origin-opener-policy': 'same-origin',
   'x-content-type-options': 'nosniff',

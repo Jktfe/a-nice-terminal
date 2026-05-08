@@ -53,5 +53,9 @@ docs/visual-overhaul-*.png
 # Scratch docs
 suggested-hooks-for-gemini.md
 
+# Internal audit docs (often contain personal references)
+docs/mempalace-*.md
+docs/*-audit-*.md
+
 # macOS
 .DS_Store

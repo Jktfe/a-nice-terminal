@@ -24,7 +24,7 @@
     "sveltekit",
     "pty"
   ],
-  "author": "James King <j.w.p.king@gmail.com> (https://github.com/Jktfe)",
+  "author": "Jktfe (https://github.com/Jktfe)",
   "license": "MIT",
   "engines": {
     "node": ">=20.19.4 <21",

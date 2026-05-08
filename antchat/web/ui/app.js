@@ -238,10 +238,15 @@ function renderShell() {
     on: { click: openWizard },
     text: '+',
   });
+  // Logo is served as a static asset at /static/logo.svg. <img> with the
+  // current theme colour applied via CSS — currentColor on the SVG strokes
+  // means the icon picks up the surrounding text colour.
+  const logo = el('img', { src: '/static/logo.svg', class: 'logo', alt: '' });
+  const brand = el('div', { class: 'brand' }, logo, el('span', { class: 'title', text: 'antchat' }));
   app.appendChild(
     el('aside', { class: 'sidebar' },
       el('div', { class: 'sidebar-header' },
-        el('span', { class: 'title', text: 'antchat' }),
+        brand,
         el('div', { class: 'header-actions' }, themeBtn, addBtn),
       ),
       el('ul', { class: 'room-list', id: 'room-list' }),
@@ -260,7 +265,7 @@ function renderRoomList() {
   clear(ul);
   for (const r of state.rooms) ul.appendChild(buildRoomListItem(r));
   $('#sidebar-footer').textContent =
-    `${state.rooms.length} room${state.rooms.length === 1 ? '' : 's'} • antchat web 0.3.0-alpha.2`;
+    `${state.rooms.length} room${state.rooms.length === 1 ? '' : 's'} • antchat web 1.0.0`;
 }
 
 function renderEmpty() {

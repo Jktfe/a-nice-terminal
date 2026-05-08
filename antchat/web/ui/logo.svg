@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <!-- antennae -->
+  <path d="M9 5.5 L7 3" />
+  <path d="M11 5.5 L13 3" />
+  <!-- head -->
+  <circle cx="10" cy="7" r="2.2" fill="currentColor" stroke="none" />
+  <!-- thorax -->
+  <ellipse cx="10" cy="12" rx="2.6" ry="2.2" fill="currentColor" stroke="none" />
+  <!-- abdomen -->
+  <ellipse cx="10" cy="18" rx="3.4" ry="2.8" fill="currentColor" stroke="none" />
+  <!-- legs (3 each side, mirrored) -->
+  <path d="M7.2 11 L4 9.5" />
+  <path d="M7 12.5 L3.5 12.5" />
+  <path d="M7.2 14 L4 15.5" />
+  <path d="M12.8 11 L16 9.5" />
+  <path d="M13 12.5 L16.5 12.5" />
+  <path d="M12.8 14 L16 15.5" />
+</svg>

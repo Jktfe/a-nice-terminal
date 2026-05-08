@@ -15,9 +15,11 @@ NOTE="$VAULT/Terminals.md"
 NOW=$(date '+%Y-%m-%d %H:%M:%S %Z')
 NOW_ISO=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 HOST_LOCAL=$(scutil --get LocalHostName 2>/dev/null || hostname)
-HOST_TS="${ANT_HOST_TAILSCALE:-mac.kingfisher-interval.ts.net}"
+# ANT_HOST_TAILSCALE: your machine's Tailscale name (e.g. mymac.tailnet.ts.net).
+# Used to render Tailscale URLs in the directory note. Optional.
+HOST_TS="${ANT_HOST_TAILSCALE:-}"
 SSH_USER="${ANT_SSH_USER:-$USER}"
-SSH_HOST="${ANT_SSH_HOST:-mac}"
+SSH_HOST="${ANT_SSH_HOST:-localhost}"
 
 ANT_TMP=$(mktemp)
 trap 'rm -f "$ANT_TMP"' EXIT
