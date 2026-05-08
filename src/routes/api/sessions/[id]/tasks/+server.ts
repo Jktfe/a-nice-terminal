@@ -8,19 +8,43 @@ export function GET({ params }: RequestEvent<{ id: string }>) {
   return json({ tasks });
 }
 
+function cleanOptionalString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function resolveCreator(value: unknown): string | null {
+  const raw = cleanOptionalString(value);
+  if (!raw) return null;
+  const creatorSess = queries.getSession(raw) || queries.getSessionByHandle(raw);
+  return creatorSess ? (creatorSess.handle || creatorSess.id || raw) : raw;
+}
+
 export async function POST({ params, request }: RequestEvent<{ id: string }>) {
-  const { title, description, created_by } = await request.json();
+  const {
+    title,
+    description,
+    created_by,
+    created_source,
+    plan_id,
+    milestone_id,
+    acceptance_id,
+  } = await request.json();
   if (!title) return json({ error: 'title required' }, { status: 400 });
 
-  // Validate created_by — only accept handles that resolve to a real session
-  let validCreator: string | null = null;
-  if (created_by) {
-    const creatorSess = queries.getSession(created_by) || queries.getSessionByHandle(created_by);
-    validCreator = creatorSess ? (creatorSess.handle || created_by) : 'cli';
-  }
-
   const id = nanoid();
-  queries.createTask(id, params.id, validCreator, title, description || null);
+  queries.createTask(
+    id,
+    params.id,
+    resolveCreator(created_by),
+    title,
+    cleanOptionalString(description),
+    {
+      createdSource: cleanOptionalString(created_source) || 'api',
+      planId: cleanOptionalString(plan_id),
+      milestoneId: cleanOptionalString(milestone_id),
+      acceptanceId: cleanOptionalString(acceptance_id),
+    },
+  );
 
   const task = queries.getTask(id);
 

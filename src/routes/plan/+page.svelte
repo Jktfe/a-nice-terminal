@@ -129,6 +129,14 @@
     goto(`/plan?${params.toString()}`);
   }
 
+  function navigateBack() {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    goto('/');
+  }
+
   // Split the plans dropdown into live + archived groups so archived
   // plans don't get lost in a long alphabetical list. Mirrors the
   // server's planArchiveStatus — plan.archived is the latest-section
@@ -415,6 +423,23 @@
   <title>ANT · Plan</title>
 </svelte:head>
 
+<!-- Back to dashboard. Always rendered so the affordance works in
+     browser AND in standalone PWA (where Chrome's back button isn't
+     visible). Falls back to history.back() when there's an inbound
+     history entry, else routes to / so a deep-linked PWA cold-start
+     still has somewhere to land. -->
+<button
+  type="button"
+  class="plan-back"
+  aria-label="Back to dashboard"
+  onclick={navigateBack}
+>
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M15 18l-6-6 6-6" />
+  </svg>
+  <span>Back</span>
+</button>
+
 <div class="mode-toggle" role="group" aria-label="Plan theme">
   <button
     type="button"
@@ -498,6 +523,7 @@
 
 <PlanView
   {events}
+  tasks={data.tasks}
   themeMode={mode}
   {subtitle}
   editable={Boolean(data.session_id)}
@@ -509,6 +535,33 @@
 />
 
 <style>
+  /* Back to dashboard — visible in browser AND PWA standalone mode (where
+     Chrome's back button isn't shown). Mirrors .mode-toggle styling for
+     visual consistency at the same vertical band. */
+  .plan-back {
+    position: fixed;
+    top: 18px;
+    left: 18px;
+    z-index: 50;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px 5px 8px;
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 8px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(12px);
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    color: #4b5563;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .plan-back:hover {
+    color: #111827;
+  }
+
   .mode-toggle {
     position: fixed;
     top: 18px;

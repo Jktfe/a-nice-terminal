@@ -9,6 +9,7 @@ import type {
   PlanEvent,
   PlanEventSource,
   PlanEventTrust,
+  PlanTaskRef,
 } from '$lib/components/PlanView/types.js';
 
 const DEFAULT_LIMIT = 1000;
@@ -50,6 +51,7 @@ export type PlanViewData = {
   archived: boolean;
   include_archived: boolean;
   events: PlanEvent[];
+  tasks: PlanTaskRef[];
   plans: PlanRef[];
   errors: Array<{ id: string; kind: string; errors: string[] }>;
   warnings: string[];
@@ -238,6 +240,7 @@ export function getPlanViewData(input?: {
       archived: false,
       include_archived: includeArchived,
       events: [],
+      tasks: [],
       plans,
       errors: [],
       warnings: [],
@@ -263,6 +266,7 @@ export function getPlanViewData(input?: {
 
   const deduped = dedupePlanEvents(events);
   const archiveStatus = planArchiveStatus(deduped);
+  const tasks = queries.listTasksByPlan(sessionId, planId) as PlanTaskRef[];
 
   if (explicitPlanRequest && archiveStatus.archived && !includeArchived) {
     const selected = listPlanRefs(250, { includeArchived: true }).find(
@@ -280,6 +284,7 @@ export function getPlanViewData(input?: {
     archived: archiveStatus.archived,
     include_archived: includeArchived,
     events: deduped,
+    tasks,
     plans,
     errors,
     warnings,

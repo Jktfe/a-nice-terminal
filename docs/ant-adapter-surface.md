@@ -294,8 +294,8 @@ Run event object shape:
 | Surface | Mutates? | Request | Response Shape | Consumer Use | Caveats |
 |---|---:|---|---|---|---|
 | `GET /api/sessions/:id/tasks` | No | none | `{ tasks }` | Read room task state. | Tasks are room-scoped operational records. |
-| `POST /api/sessions/:id/tasks` | Yes | `{ title, description?, created_by? }` | `{ task }`, status `201` | Create task. | `created_by` is validated against session/handle when possible, otherwise set to `cli`. |
-| `PATCH /api/sessions/:id/tasks/:taskId` | Yes | `{ status?, assigned_to?, description?, file_refs? }` | `{ task }` | Update task state. | `file_refs` is JSON-stringified into the task row. |
+| `POST /api/sessions/:id/tasks` | Yes | `{ title, description?, created_by?, created_source?, plan_id?, milestone_id?, acceptance_id? }` | `{ task }`, status `201` | Create task. | `created_by` is resolved to a session handle when possible and otherwise preserved; `created_source` records transport such as `cli`, `web`, `api`, or `hook`. |
+| `PATCH /api/sessions/:id/tasks/:taskId` | Yes | `{ status?, assigned_to?, description?, file_refs? }` | `{ task }` | Update task state. | `taskId` may be the full id or an unambiguous visible prefix; `file_refs` is JSON-stringified into the task row. |
 | `DELETE /api/sessions/:id/tasks/:taskId` | Yes | none | `{ ok: true }` | Mark task deleted. | Soft delete only: status becomes `deleted`. |
 | `GET /api/sessions/:id/file-refs` | No | none | `{ refs }` | Read flagged file references. | Room-scoped. |
 | `POST /api/sessions/:id/file-refs` | Yes | `{ file_path, note?, flagged_by? }` | `{ ref }`, status `201` | Add file reference. | Requires `file_path`. |

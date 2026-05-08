@@ -1,5 +1,6 @@
 import { queries } from './db.js';
 import { capturePromptInput } from './prompt-capture.js';
+import { loadMessagesForAgentContext } from './chat-context.js';
 import type {
   InterviewMessageRecord,
   InterviewParticipant,
@@ -49,6 +50,15 @@ function transcriptSnippet(messages: InterviewMessageRecord[], currentMessageId:
   }).join(' | ');
 }
 
+function roomContextSnippet(roomId: string, maxMessages = 6): string {
+  const messages = loadMessagesForAgentContext(roomId, { limit: maxMessages });
+  if (messages.length === 0) return 'none';
+  return messages.map((m) => {
+    const speaker = m.sender_id || (m.role === 'user' ? 'user' : m.role || 'unknown');
+    return `${sanitizeInline(speaker, 80)}: ${sanitizeInline(m.content, 180)}`;
+  }).join(' | ');
+}
+
 function summaryTranscriptSnippet(messages: InterviewMessageRecord[], participants: InterviewParticipant[]): string {
   const labels = new Map<string, string>();
   for (const participant of participants) labels.set(participant.session_id, participantLabel(participant));
@@ -78,10 +88,11 @@ function buildInterviewPrompt(input: {
   const question = sanitizeInline(input.userMessage.content);
   const participantList = input.participants.map(participantLabel).filter(Boolean).join(', ') || target;
   const recent = transcriptSnippet(input.messages, input.userMessage.id);
+  const roomContext = roomContextSnippet(input.interview.room_id);
   const replyCmd = `ant interview send ${interviewId} --session ${roomId} --msg YOURREPLY`;
   const routingHint = 'Routing: this reply is saved to the interview only; do not use ant chat send unless you intend to post in the room.';
 
-  return `[ant interview message for you] room: ${roomName} id ${roomId} interview: ${interviewId} -- selected agents: ${participantList} -- source message: ${source} -- user asks: ${question} -- recent interview: ${recent} -- reply as ${target} with: ${replyCmd} -- ${routingHint}`;
+  return `[ant interview message for you] room: ${roomName} id ${roomId} interview: ${interviewId} -- selected agents: ${participantList} -- source message: ${source} -- bounded room context: ${roomContext} -- user asks: ${question} -- recent interview: ${recent} -- reply as ${target} with: ${replyCmd} -- ${routingHint}`;
 }
 
 export async function routeInterviewUserMessage(

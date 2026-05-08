@@ -5,12 +5,14 @@
   import {
     type PlanEvent,
     type PlanStatus,
+    type PlanTaskRef,
     type ProvenanceRef,
     resolveProvenance,
   } from './types';
 
   let {
     events,
+    tasks = [],
     title = 'ANT — Plan',
     subtitle,
     themeMode = 'dark',
@@ -22,6 +24,7 @@
     onArchiveSection,
   }: {
     events: PlanEvent[];
+    tasks?: PlanTaskRef[];
     title?: string;
     subtitle?: string;
     themeMode?: 'dark' | 'light';
@@ -137,20 +140,29 @@
   function milestonesForSection(section: PlanEvent) {
     return events
       .filter((e) => e.kind === 'plan_milestone' && (
-        belongsTo(section, e) || isOrphanForSection(section, e)
+        belongsTo(section, e) || isFallbackMilestoneForSection(section, e)
       ))
       .sort((a, b) => a.payload.order - b.payload.order);
   }
 
-  // Resilience fallback: a milestone with no parent_id attaches to the
-  // first section of the same plan, so partially-emitted plans (or plans
-  // authored before the parent_id contract was finalised) still render
-  // their milestones in the body instead of vanishing into the rail
-  // count. Scoped to the first section per plan_id so multi-section
-  // plans don't double-render orphans.
-  function isOrphanForSection(section: PlanEvent, milestone: PlanEvent): boolean {
-    if (milestone.payload.parent_id) return false;
+  // Resilience fallback: a milestone with no parent_id, or with a parent_id
+  // that matches no section in the same plan, attaches to that plan's first
+  // section. This keeps partially-emitted plans visible in the body instead
+  // of showing counts in the rail while the main column looks empty. If the
+  // parent_id matches any section alias, the explicit parent wins so
+  // multi-section plans don't double-render milestones.
+  function isFallbackMilestoneForSection(section: PlanEvent, milestone: PlanEvent): boolean {
     if (milestone.payload.plan_id !== section.payload.plan_id) return false;
+    const parentId = milestone.payload.parent_id;
+    if (parentId) {
+      const hasMatchingSection = events.some(
+        (e) =>
+          e.kind === 'plan_section' &&
+          e.payload.plan_id === milestone.payload.plan_id &&
+          eventAliases(e).includes(parentId),
+      );
+      if (hasMatchingSection) return false;
+    }
     const firstSectionInPlan = events.find(
       (e) => e.kind === 'plan_section' && e.payload.plan_id === section.payload.plan_id,
     );
@@ -169,8 +181,12 @@
       .sort((a, b) => a.payload.order - b.payload.order);
   }
 
+  function tasksForMilestone(milestoneId: string): PlanTaskRef[] {
+    return tasks.filter((task) => task.milestone_id === milestoneId);
+  }
+
   // ── Status colour mapping (R4 §3d motion: subtle, meaningful) ─────────
-  function statusColor(status: PlanStatus | undefined): string {
+  function statusColor(status: PlanStatus | string | undefined): string {
     if (status === 'active') return isDark ? NOCTURNE.amber[400] : NOCTURNE.amber[600];
     if (status === 'done' || status === 'passing')
       return isDark ? NOCTURNE.emerald[400] : NOCTURNE.emerald[600];
@@ -363,6 +379,7 @@
               {#each milestonesForSection(section) as m (m.id)}
                 {@const acc = acceptanceFor(m.payload.milestone_id ?? m.id)}
                 {@const tests = testsFor(m.payload.milestone_id ?? m.id)}
+                {@const linkedTasks = tasksForMilestone(m.payload.milestone_id ?? m.id)}
                 <details class="plan-milestone" data-status={m.payload.status ?? 'planned'}>
                   <summary>
                     <span class="plan-status-dot" style="background: {statusColor(m.payload.status)};"></span>
@@ -445,6 +462,20 @@
                                 {/each}
                               </span>
                             {/if}
+                          </li>
+                        {/each}
+                      </ul>
+                    {/if}
+                    {#if linkedTasks.length}
+                      <h4>Linked Tasks</h4>
+                      <ul class="plan-linked-tasks">
+                        {#each linkedTasks as task (task.id)}
+                          <li data-state={task.status}>
+                            <span class="plan-task-id">[{task.id.slice(0, 8)}]</span>
+                            <span class="plan-task-title">{task.title}</span>
+                            <span class="plan-task-status" style="color: {statusColor(task.status)};">{task.status}</span>
+                            {#if task.created_by}<span class="plan-task-meta">by {task.created_by}</span>{/if}
+                            {#if task.assigned_to}<span class="plan-task-meta">→ {task.assigned_to}</span>{/if}
                           </li>
                         {/each}
                       </ul>
@@ -836,7 +867,8 @@
     color: var(--plan-text);
     font-size: 13.5px;
   }
-  .plan-tests {
+  .plan-tests,
+  .plan-linked-tasks {
     list-style: none;
     padding: 0;
     margin: 0 0 14px;
@@ -844,12 +876,16 @@
     flex-direction: column;
     gap: 6px;
   }
-  .plan-tests li {
+  .plan-tests li,
+  .plan-linked-tasks li {
     display: flex;
     gap: 10px;
     align-items: baseline;
     color: var(--plan-text);
     font-size: 13.5px;
+  }
+  .plan-linked-tasks li {
+    flex-wrap: wrap;
   }
   .plan-test-mark {
     font-family: var(--font-mono);
@@ -857,6 +893,21 @@
     flex-shrink: 0;
   }
   .plan-test-label { flex: 1; }
+  .plan-task-id,
+  .plan-task-status,
+  .plan-task-meta {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--plan-text-faint);
+    flex: 0 0 auto;
+  }
+  .plan-task-title {
+    min-width: 12ch;
+    flex: 1 1 18ch;
+  }
+  .plan-task-status {
+    text-transform: uppercase;
+  }
   .plan-test-evidence {
     display: inline-flex;
     gap: 8px;

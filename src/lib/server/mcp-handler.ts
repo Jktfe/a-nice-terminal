@@ -16,6 +16,7 @@
 
 import { queries } from './db';
 import { resolveToken } from './room-invites';
+import { loadMessagesForAgentContext } from './chat-context';
 import { nanoid } from 'nanoid';
 
 interface JsonRpcRequest {
@@ -146,9 +147,7 @@ async function handleToolCall(name: string, args: Record<string, unknown>, ctx: 
     case 'list_messages': {
       const limit = Math.max(1, Math.min(Number(args.limit ?? 50) || 50, 200));
       const since = typeof args.since === 'string' && args.since ? args.since : null;
-      const rows = since
-        ? (queries.getMessagesSince(ctx.roomId, since, limit) as unknown[])
-        : (queries.listMessages(ctx.roomId) as unknown[]).slice(-limit);
+      const rows = loadMessagesForAgentContext(ctx.roomId, { since, limit }) as unknown[];
       return jsonResult(rows);
     }
 

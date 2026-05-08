@@ -83,9 +83,13 @@
   </div>
 
   <!-- Meta row -->
-  {#if task.assigned_to || task.created_by}
-    <div class="flex gap-3 text-[10px] font-mono" style="color: var(--text-faint);">
+  {#if task.assigned_to || task.created_by || task.created_source || task.plan_id}
+    <div class="flex gap-3 text-[10px] font-mono flex-wrap" style="color: var(--text-faint);">
       {#if task.created_by}<span>by {resolveName(task.created_by)}</span>{/if}
+      {#if task.created_source}<span>via {task.created_source}</span>{/if}
+      {#if task.plan_id}
+        <span>plan {task.plan_id}{#if task.milestone_id}#{task.milestone_id}{/if}</span>
+      {/if}
       {#if task.assigned_to}
         <span style="color: #42A5F5;">→ {resolveName(task.assigned_to)}</span>
       {/if}

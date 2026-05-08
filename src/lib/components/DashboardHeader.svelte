@@ -67,6 +67,16 @@
       <NocturneIcon name="help" size={18} />
     </a>
 
+    <!-- Plans -->
+    <a
+      href="/plan"
+      class="icon-btn"
+      title="Plans"
+      aria-label="Plans"
+    >
+      <NocturneIcon name="plan" size={18} />
+    </a>
+
     <!-- Ask queue -->
     <a
       href="/asks"

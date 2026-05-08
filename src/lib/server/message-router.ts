@@ -8,6 +8,7 @@
 // as ws-broadcast.ts).
 
 import { queries } from './db.js';
+import { CHAT_BREAK_MSG_TYPE } from './chat-context.js';
 import type { AgentStatus } from '../shared/agent-status.js';
 import { deriveTerminalActivityState } from '../shared/terminal-activity.js';
 import { nanoid } from 'nanoid';
@@ -264,7 +265,7 @@ async function isTerminalWorking(sessionId: string): Promise<boolean> {
 
 const SYSTEM_MSG_TYPES = new Set([
   'prompt', 'silence', 'title', 'agent_response', 'agent_event', 'terminal_line',
-  'focus_status', 'focus_bypass', 'focus_digest',
+  'focus_status', 'focus_bypass', 'focus_digest', CHAT_BREAK_MSG_TYPE,
 ]);
 
 // ─── MessageRouter ──────────────────────────────────────────────────────────

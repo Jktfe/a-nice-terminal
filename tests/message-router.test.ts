@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { shouldRawForwardLinkedChatMessage } from '../src/lib/server/adapters/linked-chat-adapter.js';
 import {
   handlesForMember,
@@ -141,5 +143,21 @@ describe('room fan-out scope', () => {
       state: 'busy',
       detectedAt: now - 60_000,
     }, now)).toBe(false);
+  });
+});
+
+describe('agent-facing context loaders', () => {
+  it('routes CLI and MCP history reads through bounded agent context', () => {
+    const cliSource = readFileSync(resolve(import.meta.dirname, '../cli/commands/chat.ts'), 'utf8');
+    const mcpSource = readFileSync(resolve(import.meta.dirname, '../src/lib/server/mcp-handler.ts'), 'utf8');
+    const ptySource = readFileSync(resolve(import.meta.dirname, '../src/lib/server/adapters/pty-injection-adapter.ts'), 'utf8');
+    const promptBridgeSource = readFileSync(resolve(import.meta.dirname, '../src/lib/server/prompt-bridge.ts'), 'utf8');
+
+    expect(cliSource).toContain('agent_context=1');
+    expect(cliSource).toContain('flags.full || flags.all');
+    expect(mcpSource).toContain('loadMessagesForAgentContext(ctx.roomId, { since, limit })');
+    expect(ptySource).toContain('loadMessagesForAgentContext(roomId, { limit: maxMessages + 1 })');
+    expect(ptySource).toContain('bounded room context:');
+    expect(promptBridgeSource).not.toMatch(/listMessages|getMessagesSince|getLatestMessages/);
   });
 });

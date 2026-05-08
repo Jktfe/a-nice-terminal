@@ -7,6 +7,7 @@
 import type { DeliveryAdapter, RouteMessage, RouteTarget, DeliveryResult } from '../message-router.js';
 import { queries } from '../db.js';
 import { capturePromptInput } from '../prompt-capture.js';
+import { loadMessagesForAgentContext } from '../chat-context.js';
 
 function ptmWrite(sessionId: string, data: string): void {
   const write = (globalThis as any).__antPtmWrite;
@@ -25,6 +26,21 @@ function sanitizeInline(value: string, max = 2000): string {
     .replace(/['"`()$;\\|&<>{}[\]!#~]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function roomContextSnippet(roomId: string, currentMessageId: string, maxMessages = 6): string {
+  try {
+    const messages = loadMessagesForAgentContext(roomId, { limit: maxMessages + 1 })
+      .filter((m) => m.id !== currentMessageId)
+      .slice(-maxMessages);
+    if (messages.length === 0) return 'none';
+    return messages.map((m) => {
+      const speaker = m.sender_id || (m.role === 'user' ? 'user' : m.role || 'unknown');
+      return `${sanitizeInline(speaker, 80)}: ${sanitizeInline(m.content, 160)}`;
+    }).join(' | ');
+  } catch {
+    return 'unavailable';
+  }
 }
 
 function markTerminalRead(message: RouteMessage, target: RouteTarget): void {
@@ -65,6 +81,7 @@ export class PtyInjectionAdapter implements DeliveryAdapter {
       // Sanitise message content: strip characters that shells interpret as syntax
       // (quotes, parens, backticks, $, semicolons) to prevent Gemini/other CLIs from choking
       const safeContent = sanitizeInline(message.content);
+      const boundedContext = roomContextSnippet(message.sessionId, message.id);
 
       // Parent-context snippet for replies — gives terminal agents thread context
       let replyContext = '';
@@ -80,7 +97,7 @@ export class PtyInjectionAdapter implements DeliveryAdapter {
       }
 
       const routingHint = 'Routing: plain replies post to the room and notify idle agents only; include @handle to interrupt one agent; use @everyone to interrupt all.';
-      const plainText = `[${header}] room: ${sourceLabel} -- ${safeContent}${replyContext} -- reply with: ${replyCmd} -- ${routingHint}`;
+      const plainText = `[${header}] room: ${sourceLabel} -- bounded room context: ${boundedContext} -- ${safeContent}${replyContext} -- reply with: ${replyCmd} -- ${routingHint}`;
 
       // Two-call protocol: text first, then \r after a beat.
       // Claude Code requires a second \r (empty line) to submit the prompt —

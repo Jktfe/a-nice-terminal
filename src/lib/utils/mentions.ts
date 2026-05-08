@@ -37,6 +37,28 @@ export function activeRoutingMentions(text: string, handles: MentionHandle[]): M
   return handles.filter((item) => findActiveHandle(text, normaliseHandle(item.handle)));
 }
 
+export function mentionLiteralMatchesHandle(typedMention: string, selectedHandle: string): boolean {
+  const typed = typedMention.trim();
+  const selected = selectedHandle.trim();
+  if (!typed || !selected) return false;
+  return normaliseHandle(typed).toLowerCase() === normaliseHandle(selected).toLowerCase();
+}
+
+export function shouldCompleteMentionOnEnter(input: {
+  typedMention: string | null;
+  selectedHandle: string | null;
+  navigated: boolean;
+}): boolean {
+  if (input.navigated) return true;
+  if (!input.typedMention || !input.selectedHandle) return true;
+  return !mentionLiteralMatchesHandle(input.typedMention, input.selectedHandle);
+}
+
+export function ensureTrailingMentionBoundary(text: string): string {
+  if (/\s$/.test(text)) return text;
+  return /(?:^|\s)@[\w.-]+$/.test(text) ? `${text} ` : text;
+}
+
 export function bracketRoutingMention(text: string, rawHandle: string): string {
   const handle = normaliseHandle(rawHandle);
   const lowerText = text.toLowerCase();

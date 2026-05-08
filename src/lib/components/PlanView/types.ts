@@ -89,6 +89,18 @@ export interface PlanEvent {
   created_at?: string | null;
 }
 
+export interface PlanTaskRef {
+  id: string;
+  title: string;
+  status: string;
+  created_by?: string | null;
+  assigned_to?: string | null;
+  created_source?: string | null;
+  plan_id?: string | null;
+  milestone_id?: string | null;
+  acceptance_id?: string | null;
+}
+
 // Resolution result for a provenance reference. §6.5: "Do not silently drop
 // provenance" — degraded fallback must render with warning state.
 export interface ProvenanceResolution {

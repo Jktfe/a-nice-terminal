@@ -296,6 +296,7 @@ describe('interview lite contract', () => {
       expect(prompt).toContain('[ant interview message for you]');
       expect(prompt).toContain(`interview: ${started.interview.id}`);
       expect(prompt).toContain('source message: Here is the source answer to interview.');
+      expect(prompt).toContain('bounded room context:');
       expect(prompt).toContain('user asks: What should we ask next?');
       expect(prompt).toContain(`ant interview send ${started.interview.id} --session ${ROOM_ID} --msg YOURREPLY`);
       expect(prompt).toContain('saved to the interview only');

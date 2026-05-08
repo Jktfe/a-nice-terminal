@@ -1,4 +1,4 @@
-export type RoomArtefactKind = 'plan' | 'deck' | 'doc' | 'sheet';
+export type RoomArtefactKind = 'plan' | 'deck' | 'doc' | 'sheet' | 'site';
 
 export interface RoomArtefactItem {
   id: string;
@@ -17,6 +17,7 @@ export interface RoomArtefactGroups {
   decks: RoomArtefactItem[];
   docs: RoomArtefactItem[];
   sheets: RoomArtefactItem[];
+  sites: RoomArtefactItem[];
 }
 
 export interface RoomArtefactSummary {
@@ -30,6 +31,7 @@ export interface RoomArtefactSummary {
     decks: number;
     docs: number;
     sheets: number;
+    sites: number;
   };
 }
 
@@ -42,6 +44,7 @@ export const ROOM_ARTEFACT_GROUPS: Array<{
   { key: 'decks', kind: 'deck', label: 'Decks' },
   { key: 'docs', kind: 'doc', label: 'Docs' },
   { key: 'sheets', kind: 'sheet', label: 'Sheets' },
+  { key: 'sites', kind: 'site', label: 'Sites' },
 ];
 
 export function emptyRoomArtefacts(
@@ -58,6 +61,7 @@ export function emptyRoomArtefacts(
       decks: [],
       docs: [],
       sheets: [],
+      sites: [],
     },
     counts: {
       total: 0,
@@ -65,6 +69,7 @@ export function emptyRoomArtefacts(
       decks: 0,
       docs: 0,
       sheets: 0,
+      sites: 0,
     },
   };
 }
@@ -74,11 +79,13 @@ export function countRoomArtefacts(groups: RoomArtefactGroups): RoomArtefactSumm
   const decks = groups.decks.length;
   const docs = groups.docs.length;
   const sheets = groups.sheets.length;
+  const sites = groups.sites.length;
   return {
     plans,
     decks,
     docs,
     sheets,
-    total: plans + decks + docs + sheets,
+    sites,
+    total: plans + decks + docs + sheets + sites,
   };
 }

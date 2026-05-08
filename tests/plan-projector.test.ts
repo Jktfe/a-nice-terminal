@@ -1,5 +1,8 @@
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
-import getDb, { queries } from '../src/lib/server/db.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import getDb, { _resetForTest, queries } from '../src/lib/server/db.js';
 import {
   validatePlanPayload,
   validatePlanPayloadString,
@@ -18,6 +21,8 @@ import {
 
 const TEST_SESSION = 'test-session-plan-projector';
 const TEST_PLAN = 'plan-m35-smoke';
+let dataDir = '';
+let originalDataDir: string | undefined;
 
 function seedPayload(kind: string, overrides?: Partial<PlanEventPayload>): string {
   const base: PlanEventPayload = {
@@ -31,15 +36,20 @@ function seedPayload(kind: string, overrides?: Partial<PlanEventPayload>): strin
 
 describe('plan-projector first-patch gate', () => {
   beforeAll(() => {
-    // Ensure DB is initialized and seed test session
+    originalDataDir = process.env.ANT_DATA_DIR;
+    dataDir = mkdtempSync(join(tmpdir(), 'ant-plan-projector-'));
+    process.env.ANT_DATA_DIR = dataDir;
+    _resetForTest();
+    // Ensure DB is initialized and seed test session in an isolated test DB.
     const db = getDb();
     db.prepare('INSERT OR IGNORE INTO sessions (id, name, type) VALUES (?, ?, ?)').run(TEST_SESSION, 'test-plan-session', 'chat');
   });
 
   afterAll(() => {
-    // Clean up test rows
-    const db = getDb();
-    db.prepare('DELETE FROM run_events WHERE session_id = ?').run(TEST_SESSION);
+    _resetForTest();
+    if (originalDataDir === undefined) delete process.env.ANT_DATA_DIR;
+    else process.env.ANT_DATA_DIR = originalDataDir;
+    rmSync(dataDir, { recursive: true, force: true });
   });
 
   it('validates a correct §6.5 payload', () => {
@@ -208,6 +218,67 @@ describe('plan-projector first-patch gate', () => {
     expect(data.events).toHaveLength(1);
     expect(data.events[0].kind).toBe('plan_section');
     expect(data.events[0].payload.title).toBe('Live plan section');
+  });
+
+  it('hydrates tasks linked to the selected plan for Plan View rendering', () => {
+    const livePlan = 'plan-task-link-smoke';
+    queries.appendRunEvent(
+      TEST_SESSION,
+      Date.now() + 20,
+      'json',
+      'high',
+      'plan_section',
+      'Task-linked plan section',
+      seedPayload('plan_section', {
+        plan_id: livePlan,
+        title: 'Task-linked plan section',
+        order: 0,
+      }),
+      null,
+    );
+    queries.appendRunEvent(
+      TEST_SESSION,
+      Date.now() + 21,
+      'json',
+      'high',
+      'plan_milestone',
+      'Task-linked milestone',
+      seedPayload('plan_milestone', {
+        plan_id: livePlan,
+        title: 'Task-linked milestone',
+        order: 1,
+        milestone_id: 'm2-task-plan-link',
+      }),
+      null,
+    );
+    queries.createTask(
+      'linked-task-1',
+      TEST_SESSION,
+      '@evolveantcodex',
+      'Wire task plan metadata',
+      null,
+      {
+        createdSource: 'cli',
+        planId: livePlan,
+        milestoneId: 'm2-task-plan-link',
+      },
+    );
+
+    const data = getPlanViewData({
+      sessionId: TEST_SESSION,
+      planId: livePlan,
+      limit: 20,
+    });
+
+    expect(data.tasks).toHaveLength(1);
+    expect(data.tasks[0]).toMatchObject({
+      id: 'linked-task-1',
+      title: 'Wire task plan metadata',
+      created_by: '@evolveantcodex',
+      created_source: 'cli',
+      plan_id: livePlan,
+      milestone_id: 'm2-task-plan-link',
+    });
   });
 
   it('hides archived plan refs by default while preserving direct access', () => {

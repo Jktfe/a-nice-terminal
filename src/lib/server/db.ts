@@ -120,6 +120,7 @@ function getDb(): any {
     deleted_at TEXT,
     last_activity TEXT,
     sort_index INTEGER,
+    long_memory INTEGER NOT NULL DEFAULT 0,
     meta TEXT DEFAULT '{}',
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
@@ -135,6 +136,7 @@ function getDb(): any {
   if (!cols.includes('cli_flag'))      G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN cli_flag TEXT`);
   if (!cols.includes('alias'))         G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN alias TEXT`);
   if (!cols.includes('sort_index'))    G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN sort_index INTEGER`);
+  if (!cols.includes('long_memory'))   G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN long_memory INTEGER NOT NULL DEFAULT 0`);
 
   // Chat room membership — tracks who participates vs who just posts
   G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS chat_room_members (
@@ -381,16 +383,26 @@ function getDb(): any {
     id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     created_by TEXT,
+    created_source TEXT,
     assigned_to TEXT,
     title TEXT NOT NULL,
     description TEXT,
     status TEXT DEFAULT 'proposed',
     file_refs TEXT DEFAULT '[]',
+    plan_id TEXT,
+    milestone_id TEXT,
+    acceptance_id TEXT,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
   )`);
+  const taskCols = G[DB_KEY].prepare(`PRAGMA table_info(tasks)`).all().map((c: any) => c.name);
+  if (!taskCols.includes('created_source')) G[DB_KEY].exec(`ALTER TABLE tasks ADD COLUMN created_source TEXT`);
+  if (!taskCols.includes('plan_id'))        G[DB_KEY].exec(`ALTER TABLE tasks ADD COLUMN plan_id TEXT`);
+  if (!taskCols.includes('milestone_id'))   G[DB_KEY].exec(`ALTER TABLE tasks ADD COLUMN milestone_id TEXT`);
+  if (!taskCols.includes('acceptance_id'))  G[DB_KEY].exec(`ALTER TABLE tasks ADD COLUMN acceptance_id TEXT`);
 
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_tasks_plan ON tasks(plan_id, milestone_id)`);
 
   G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS file_refs (
     id TEXT PRIMARY KEY,
@@ -616,6 +628,23 @@ function getDb(): any {
   G[DB_KEY].exec(sheetsTableSql);
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_sheets_owner ON sheets(owner_session_id)`);
 
+  // Site tunnels — locally-served dev/prototype websites exposed through a
+  // public URL such as a Cloudflare quick tunnel. ANT gates who can discover
+  // the URL in room artefacts; the public URL itself is not access-controlled.
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS site_tunnels (
+    slug TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    public_url TEXT NOT NULL,
+    local_url TEXT,
+    owner_session_id TEXT NOT NULL REFERENCES sessions(id),
+    allowed_room_ids TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'linked',
+    access_required INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_site_tunnels_owner ON site_tunnels(owner_session_id)`);
+
   // M3 #2 — Consent grants: scope-of-grant records per session.
   // topic: what the grant allows (file-read, web-fetch, etc.).
   // source_set: JSON array of file paths, URLs, or identifiers the grant covers.
@@ -819,6 +848,8 @@ export const queries = {
     prepare(`UPDATE sessions SET ttl = ?, updated_at = datetime('now') WHERE id = ?`).run(ttl, id),
   updateRootDir: (rootDir: string | null, id: string) =>
     prepare(`UPDATE sessions SET root_dir = ?, updated_at = datetime('now') WHERE id = ?`).run(rootDir, id),
+  setLongMemory: (id: string, enabled: boolean) =>
+    prepare(`UPDATE sessions SET long_memory = ?, updated_at = datetime('now') WHERE id = ?`).run(enabled ? 1 : 0, id),
   touchActivity: (id: string) =>
     prepare(`UPDATE sessions SET last_activity = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(id),
   softDeleteSession: (id: string) =>
@@ -1300,9 +1331,37 @@ export const queries = {
 
   // Tasks
   listTasks: (sessionId: string) => prepare(`SELECT * FROM tasks WHERE session_id = ? ORDER BY created_at ASC`).all(sessionId),
+  listTasksByPlan: (sessionId: string, planId: string) =>
+    prepare(`SELECT * FROM tasks WHERE session_id = ? AND plan_id = ? ORDER BY created_at ASC`).all(sessionId, planId),
   getTask: (id: string) => prepare(`SELECT * FROM tasks WHERE id = ?`).get(id),
-  createTask: (id: string, sessionId: string, createdBy: string | null, title: string, description: string | null) =>
-    prepare(`INSERT INTO tasks (id, session_id, created_by, title, description) VALUES (?, ?, ?, ?, ?)`).run(id, sessionId, createdBy, title, description),
+  findTasksByIdPrefix: (sessionId: string, idPrefix: string) =>
+    prepare(`SELECT * FROM tasks WHERE session_id = ? AND id LIKE ? ORDER BY created_at ASC, id ASC`).all(sessionId, `${idPrefix}%`),
+  createTask: (
+    id: string,
+    sessionId: string,
+    createdBy: string | null,
+    title: string,
+    description: string | null,
+    options: {
+      createdSource?: string | null;
+      planId?: string | null;
+      milestoneId?: string | null;
+      acceptanceId?: string | null;
+    } = {},
+  ) =>
+    prepare(`INSERT INTO tasks
+      (id, session_id, created_by, created_source, title, description, plan_id, milestone_id, acceptance_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        id,
+        sessionId,
+        createdBy,
+        options.createdSource ?? null,
+        title,
+        description,
+        options.planId ?? null,
+        options.milestoneId ?? null,
+        options.acceptanceId ?? null,
+      ),
   updateTask: (id: string, status: string | null, assignedTo: string | null, description: string | null, fileRefs: string | null) =>
     prepare(`UPDATE tasks SET status = COALESCE(?, status), assigned_to = COALESCE(?, assigned_to), description = COALESCE(?, description), file_refs = COALESCE(?, file_refs), updated_at = datetime('now') WHERE id = ?`).run(status, assignedTo, description, fileRefs, id),
   deleteTask: (id: string) => prepare(`UPDATE tasks SET status = 'deleted', updated_at = datetime('now') WHERE id = ?`).run(id),
@@ -1805,6 +1864,51 @@ export const queries = {
     prepare(`DELETE FROM sheets WHERE slug = ?`).run(slug),
   listSheetsOwnedBy: (ownerSessionId: string) =>
     prepare(`SELECT * FROM sheets WHERE owner_session_id = ?`).all(ownerSessionId),
+
+  // Site tunnel registry — room-scoped public links for local dev/prototype
+  // servers. Cloudflare Access, if used, is configured outside ANT; the
+  // access_required flag only lets the UI signal that expectation.
+  upsertSiteTunnel: (row: {
+    slug: string;
+    title: string;
+    public_url: string;
+    local_url: string | null;
+    owner_session_id: string;
+    allowed_room_ids: string;
+    status: string;
+    access_required: number;
+    now_ms?: number;
+  }) =>
+    prepare(`INSERT INTO site_tunnels (slug, title, public_url, local_url, owner_session_id, allowed_room_ids, status, access_required, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(slug) DO UPDATE SET
+               title = excluded.title,
+               public_url = excluded.public_url,
+               local_url = excluded.local_url,
+               owner_session_id = excluded.owner_session_id,
+               allowed_room_ids = excluded.allowed_room_ids,
+               status = excluded.status,
+               access_required = excluded.access_required,
+               updated_at = excluded.updated_at`).run(
+      row.slug,
+      row.title,
+      row.public_url,
+      row.local_url,
+      row.owner_session_id,
+      row.allowed_room_ids,
+      row.status,
+      row.access_required,
+      row.now_ms ?? Date.now(),
+      row.now_ms ?? Date.now(),
+    ),
+  getSiteTunnel: (slug: string) =>
+    prepare(`SELECT * FROM site_tunnels WHERE slug = ?`).get(slug),
+  listSiteTunnels: () =>
+    prepare(`SELECT * FROM site_tunnels ORDER BY updated_at DESC`).all(),
+  deleteSiteTunnel: (slug: string) =>
+    prepare(`DELETE FROM site_tunnels WHERE slug = ?`).run(slug),
+  listSiteTunnelsOwnedBy: (ownerSessionId: string) =>
+    prepare(`SELECT * FROM site_tunnels WHERE owner_session_id = ?`).all(ownerSessionId),
 
 
   // ── Consent grants (M3 #2) ─────────────────────────────────────────

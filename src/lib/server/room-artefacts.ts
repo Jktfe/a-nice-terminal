@@ -1,6 +1,7 @@
 import { queries } from './db.js';
 import { listDecks } from './decks.js';
 import { listSheets } from './sheets.js';
+import { listSiteTunnels } from './tunnels.js';
 import { listPlanRefs } from './projector/plan-view.js';
 import {
   countRoomArtefacts,
@@ -110,6 +111,28 @@ function sheetItems(roomId: string): RoomArtefactItem[] {
     }));
 }
 
+function siteItems(roomId: string): RoomArtefactItem[] {
+  return listSiteTunnels()
+    .filter((site) => site.allowed_room_ids.includes(roomId))
+    .map((site) => ({
+      id: site.slug,
+      kind: 'site' as const,
+      room_id: roomId,
+      title: site.title,
+      href: site.public_url,
+      status: site.access_required ? 'locked' : site.status,
+      subtitle: site.local_url ? `local ${site.local_url}` : 'public tunnel',
+      updated_at: site.updated_at,
+      meta: {
+        slug: site.slug,
+        owner_session_id: site.owner_session_id,
+        public_url: site.public_url,
+        local_url: site.local_url,
+        access_required: site.access_required,
+      },
+    }));
+}
+
 function docItems(roomId: string): RoomArtefactItem[] {
   const rows = queries.listMemoriesByPrefix(DOC_PREFIX, 200) as Array<{
     key?: string | null;
@@ -161,6 +184,7 @@ export function listRoomArtefacts(sessionId: string): RoomArtefactSummary | null
     decks: deckItems(roomId),
     docs: docItems(roomId),
     sheets: sheetItems(roomId),
+    sites: siteItems(roomId),
   };
 
   return {

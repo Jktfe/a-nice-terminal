@@ -13,6 +13,21 @@ describe('PlanView render resilience', () => {
     expect(source).toContain('{#if isMilestonesSection(section)}');
   });
 
+  it('attaches milestones with stale parent ids to the first section of the same plan', () => {
+    // Regression guard for plans where milestone.parent_id was emitted with
+    // a section slug but the section event omitted acceptance_id. The rail
+    // counted milestones, but the body rendered none.
+    expect(source).toContain('function isFallbackMilestoneForSection(section: PlanEvent, milestone: PlanEvent): boolean');
+    expect(source).toContain('that matches no section in the same plan');
+    expect(source).toContain('if (hasMatchingSection) return false;');
+    expect(source).toContain('firstSectionInPlan?.id === section.id');
+  });
+
+  it('does not double-render explicitly parented milestones in multi-section plans', () => {
+    expect(source).toContain('eventAliases(e).includes(parentId)');
+    expect(source).toContain('belongsTo(section, e) || isFallbackMilestoneForSection(section, e)');
+  });
+
   it('keeps milestone status visibly colour-bound in the row', () => {
     expect(source).toContain('class="plan-mile-status"');
     expect(source).toContain('style="color: {statusColor(m.payload.status)};"');
@@ -53,6 +68,12 @@ describe('PlanView render resilience', () => {
     expect(source).toMatch(/passing \/ tests\.length/);
   });
 
+  it('renders tasks linked to a milestone inside the plan body', () => {
+    expect(source).toContain('tasksForMilestone');
+    expect(source).toContain('class="plan-linked-tasks"');
+    expect(source).toContain('<h4>Linked Tasks</h4>');
+  });
+
   it('renders a sidebar ProgressRing centred on overall percent', () => {
     expect(source).toContain("import ProgressRing from './ProgressRing.svelte';");
     expect(source).toMatch(/<aside class="plan-rail">[\s\S]*?<ProgressRing[\s\S]*?<\/aside>/);
@@ -63,6 +84,14 @@ describe('PlanView render resilience', () => {
 describe('Plan source bar discoverability', () => {
   const source = readFileSync(
     resolve(import.meta.dirname, '../src/routes/plan/+page.svelte'),
+    'utf8',
+  );
+  const dashboardHeaderSource = readFileSync(
+    resolve(import.meta.dirname, '../src/lib/components/DashboardHeader.svelte'),
+    'utf8',
+  );
+  const nocturneIconSource = readFileSync(
+    resolve(import.meta.dirname, '../src/lib/components/NocturneIcon.svelte'),
     'utf8',
   );
 
@@ -103,5 +132,21 @@ describe('Plan source bar discoverability', () => {
     // identities, not just the first one it finds.
     expect(source).toContain("sections.filter((e) => e.payload.status === 'archived')");
     expect(source).toContain('for (const section of targets)');
+  });
+
+  it('exposes an in-app back button for installed PWA plan views', () => {
+    expect(source).toContain('function navigateBack()');
+    expect(source).toContain("window.history.back()");
+    expect(source).toContain("goto('/')");
+    expect(source).toContain('class="plan-back"');
+    expect(source).toContain('onclick={navigateBack}');
+    expect(source).toContain('<span>Back</span>');
+  });
+
+  it('links the dashboard header to the plan surface', () => {
+    expect(dashboardHeaderSource).toContain('href="/plan"');
+    expect(dashboardHeaderSource).toContain('aria-label="Plans"');
+    expect(dashboardHeaderSource).toContain('<NocturneIcon name="plan" size={18} />');
+    expect(nocturneIconSource).toContain("name === 'plan'");
   });
 });

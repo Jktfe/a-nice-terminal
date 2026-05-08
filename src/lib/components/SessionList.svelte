@@ -702,6 +702,8 @@
                         onArchive={() => store.archiveSession(chat.id)}
                         onDelete={() => store.deleteSession(chat.id)}
                         onInvite={() => { inviteSession = { id: chat.id, name: chat.name || chat.id }; }}
+                        pinnedToSidebar={sidebarPinnedIds.has(chat.id)}
+                        onTogglePin={(s: any) => toggleSidebarPin(s.id)}
                       />
                     </div>
                   </div>

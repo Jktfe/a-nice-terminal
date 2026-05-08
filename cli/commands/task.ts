@@ -7,7 +7,7 @@
 // ant task <session-id> delete <task-id>
 
 import { api } from '../lib/api.js';
-import { config } from '../lib/config.js';
+import { identitySourceLabel, resolveIdentityDetailsAsync } from '../lib/identity.js';
 
 const STATUSES: Record<string, string> = {
   accept: 'accepted',
@@ -40,8 +40,6 @@ export async function task(args: string[], flags: any, ctx: any) {
     return;
   }
 
-  const me = flags.from || config.get('sessionId') || config.get('handle') || 'cli';
-
   if (sub === 'list') {
     const data = await api.get(ctx, `/api/sessions/${sessionId}/tasks`);
     const tasks = data.tasks || [];
@@ -50,6 +48,12 @@ export async function task(args: string[], flags: any, ctx: any) {
     for (const t of tasks) {
       const assignee = t.assigned_to ? ` → ${t.assigned_to}` : '';
       console.log(`  [${t.id.slice(0, 8)}] ${colourStatus(t.status)}${assignee}  ${t.title}`);
+      const meta = [
+        t.created_by ? `by ${t.created_by}` : null,
+        t.created_source ? `via ${t.created_source}` : null,
+        t.plan_id ? `plan ${t.plan_id}${t.milestone_id ? `#${t.milestone_id}` : ''}` : null,
+      ].filter(Boolean);
+      if (meta.length) console.log(`           ${meta.join(' · ')}`);
       if (t.description) console.log(`           ${t.description}`);
     }
     return;
@@ -58,13 +62,28 @@ export async function task(args: string[], flags: any, ctx: any) {
   if (sub === 'create') {
     const title = flags.title || args[2];
     if (!title) { console.error('Usage: ant task <session-id> create "title" [--desc "..."]'); return; }
+    const identity = await resolveIdentityDetailsAsync(ctx, !!flags.external, {
+      from: typeof flags.from === 'string' ? flags.from : undefined,
+      sessionId: typeof flags.session === 'string' ? flags.session : undefined,
+      handle: typeof flags.handle === 'string' ? flags.handle : undefined,
+    });
+    const me = identity.handle || identity.senderId;
     const result = await api.post(ctx, `/api/sessions/${sessionId}/tasks`, {
       title,
       description: flags.desc || null,
       created_by: me,
+      created_source: 'cli',
+      creator_identity_source: identity.source,
+      plan_id: flags.plan || null,
+      milestone_id: flags.milestone || null,
+      acceptance_id: flags.acceptance || null,
     });
     if (ctx.json) { console.log(JSON.stringify(result)); return; }
-    console.log(`Task created: [${result.task?.id?.slice(0, 8)}] ${title}`);
+    const planSuffix = result.task?.plan_id
+      ? ` (${result.task.plan_id}${result.task.milestone_id ? `#${result.task.milestone_id}` : ''})`
+      : '';
+    console.log(`Task created: [${result.task?.id?.slice(0, 8)}] ${title}${planSuffix}`);
+    console.log(`Created by: ${me} via CLI (${identitySourceLabel(identity.source)})`);
     return;
   }
 

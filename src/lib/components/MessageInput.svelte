@@ -4,7 +4,7 @@
   import AgentDot from './AgentDot.svelte';
   import NocturneIcon from './NocturneIcon.svelte';
   import QuickLaunchBar from './QuickLaunchBar.svelte';
-  import { activeRoutingMentions, bracketRoutingMention } from '$lib/utils/mentions';
+  import { activeRoutingMentions, bracketRoutingMention, shouldCompleteMentionOnEnter } from '$lib/utils/mentions';
   import type { ShortcutScope } from '$lib/shared/personal-settings';
 
   let {
@@ -40,10 +40,11 @@
   let showMentions = $state(false);
   let mentionStart = $state(-1);
   let mentionSelectedIdx = $state(0);
+  let mentionUserNavigated = $state(false);
 
   const routingHandles = $derived.by(() => {
-    if (handles.some((h) => h.handle === '@everyone')) return handles;
-    return [...handles, { handle: '@everyone', name: 'Everyone' }];
+    const everyone = handles.find((h) => h.handle.toLowerCase() === '@everyone') ?? { handle: '@everyone', name: 'Everyone' };
+    return [everyone, ...handles.filter((h) => h.handle.toLowerCase() !== '@everyone')];
   });
 
   // ── B9 — Fuzzy/scored mention matching (replaces plain substring filter) ──
@@ -169,11 +170,20 @@
       mentionStart = cursorPos - atMatch[0].length;
       mentionQuery = atMatch[1];
       mentionSelectedIdx = 0;
+      mentionUserNavigated = false;
       showMentions = filteredHandles.length > 0;
     } else {
       showMentions = false;
       mentionStart = -1;
+      mentionUserNavigated = false;
     }
+  }
+
+  function currentMentionLiteral(): string | null {
+    if (mentionStart < 0) return null;
+    const cursorPos = inputEl?.selectionStart ?? text.length;
+    const literal = text.slice(mentionStart, cursorPos);
+    return literal.startsWith('@') ? literal : null;
   }
 
   function selectMention(handle: string) {
@@ -183,6 +193,7 @@
     text = before + handle + ' ' + after;
     showMentions = false;
     mentionStart = -1;
+    mentionUserNavigated = false;
     setTimeout(() => {
       inputEl?.focus();
       const pos = (before + handle + ' ').length;
@@ -292,14 +303,23 @@
 
   function handleKeydown(e: KeyboardEvent) {
     if (showMentions && filteredHandles.length > 0) {
-      if (e.key === 'ArrowDown') { e.preventDefault(); mentionSelectedIdx = Math.min(mentionSelectedIdx + 1, filteredHandles.length - 1); return; }
-      if (e.key === 'ArrowUp')   { e.preventDefault(); mentionSelectedIdx = Math.max(mentionSelectedIdx - 1, 0); return; }
-      if (e.key === 'Tab' || e.key === 'Enter') {
+      if (e.key === 'ArrowDown') { e.preventDefault(); mentionUserNavigated = true; mentionSelectedIdx = Math.min(mentionSelectedIdx + 1, filteredHandles.length - 1); return; }
+      if (e.key === 'ArrowUp')   { e.preventDefault(); mentionUserNavigated = true; mentionSelectedIdx = Math.max(mentionSelectedIdx - 1, 0); return; }
+      if (e.key === 'Tab') {
         e.preventDefault();
         selectMention(filteredHandles[mentionSelectedIdx].handle);
         return;
       }
-      if (e.key === 'Escape') { showMentions = false; return; }
+      if (e.key === 'Enter' && shouldCompleteMentionOnEnter({
+        typedMention: currentMentionLiteral(),
+        selectedHandle: filteredHandles[mentionSelectedIdx].handle,
+        navigated: mentionUserNavigated,
+      })) {
+        e.preventDefault();
+        selectMention(filteredHandles[mentionSelectedIdx].handle);
+        return;
+      }
+      if (e.key === 'Escape') { showMentions = false; mentionUserNavigated = false; return; }
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();

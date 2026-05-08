@@ -35,6 +35,55 @@ function attentionPayload(roomId: string, member: any) {
   };
 }
 
+function normaliseHandle(raw: string | null | undefined): string | null {
+  const trimmed = raw?.trim();
+  if (!trimmed) return null;
+  return trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
+}
+
+function activeRoomTokenParticipants(roomId: string, existing: any[]): any[] {
+  const seen = new Set<string>();
+  for (const item of existing) {
+    const handle = normaliseHandle(item?.handle || item?.alias);
+    if (handle) seen.add(handle.toLowerCase());
+  }
+
+  const remote: any[] = [];
+  for (const invite of queries.listRoomInvites(roomId) as any[]) {
+    if (invite.revoked_at) continue;
+    for (const token of queries.listRoomTokens(invite.id) as any[]) {
+      if (token.revoked_at || token.room_id !== roomId) continue;
+      const handle = normaliseHandle(token.handle);
+      if (!handle) continue;
+      if (!/^@[\w.-]+$/.test(handle)) continue;
+      const key = handle.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      remote.push({
+        id: `remote:${handle.slice(1).toLowerCase()}`,
+        name: handle,
+        handle,
+        alias: handle,
+        session_type: 'remote',
+        session_status: token.last_seen_at ? 'connected' : null,
+        cli_flag: token.kind || null,
+        role: 'remote',
+        joined_at: token.created_at,
+        attention_state: 'available',
+        attention_reason: null,
+        attention_set_by: null,
+        attention_expires_at: null,
+        attention_updated_at: token.last_seen_at || null,
+        focus_queue_count: 0,
+        first_seen: token.created_at,
+        last_seen: token.last_seen_at || token.created_at,
+        message_count: 0,
+      });
+    }
+  }
+  return remote;
+}
+
 export function GET({ params }: RequestEvent<{ id: string }>) {
   const session = queries.getSession(params.id);
   if (!session) return json({ error: 'not found' }, { status: 404 });
@@ -88,19 +137,22 @@ export function GET({ params }: RequestEvent<{ id: string }>) {
         };
       });
 
+    const remoteInvitees = activeRoomTokenParticipants(params.id, [...participants, ...postsFrom]);
+
     return json({
       participants,
-      postsFrom,
-      all: [...participants, ...postsFrom],
+      postsFrom: [...postsFrom, ...remoteInvitees],
+      all: [...participants, ...postsFrom, ...remoteInvitees],
     });
   }
 
   // Fallback: no room members yet, use message-derived participants
   const messageDerived = queries.listParticipants(params.id);
+  const remoteInvitees = activeRoomTokenParticipants(params.id, messageDerived);
   return json({
     participants: messageDerived,
-    postsFrom: [],
-    all: messageDerived,
+    postsFrom: remoteInvitees,
+    all: [...messageDerived, ...remoteInvitees],
   });
 }
 

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import getDb, { _resetForTest, queries } from '../src/lib/server/db.js';
 import { registerDeck } from '../src/lib/server/decks.js';
 import { registerSheet } from '../src/lib/server/sheets.js';
+import { registerSiteTunnel } from '../src/lib/server/tunnels.js';
 import { GET as getRoomArtefacts } from '../src/routes/api/sessions/[id]/artefacts/+server.js';
 import { GET as getDoc, PATCH as patchDoc } from '../src/routes/api/docs/[docId]/+server.js';
 
@@ -143,6 +144,25 @@ function seedRooms() {
     sheet_dir: join(openSlideDir, 'other-demo-sheet'),
   });
 
+  registerSiteTunnel({
+    slug: 'artefact-demo-site',
+    title: 'Artefact Demo Site',
+    public_url: 'https://artefact-demo.trycloudflare.com',
+    local_url: 'http://localhost:3000',
+    owner_session_id: ROOM_ID,
+    allowed_room_ids: [ROOM_ID],
+    status: 'live',
+  });
+  registerSiteTunnel({
+    slug: 'other-demo-site',
+    title: 'Other Demo Site',
+    public_url: 'https://other-demo.trycloudflare.com',
+    local_url: 'http://localhost:3001',
+    owner_session_id: OTHER_ROOM_ID,
+    allowed_room_ids: [OTHER_ROOM_ID],
+    status: 'live',
+  });
+
   queries.upsertMemoryByKey(
     'docs/artefact-demo-doc',
     JSON.stringify({
@@ -199,11 +219,17 @@ describe('room artefacts API', () => {
     const body = await response.json();
 
     expect(body.room_id).toBe(ROOM_ID);
-    expect(body.counts).toMatchObject({ total: 4, plans: 1, decks: 1, docs: 1, sheets: 1 });
+    expect(body.counts).toMatchObject({ total: 5, plans: 1, decks: 1, docs: 1, sheets: 1, sites: 1 });
     expect(body.artefacts.plans.map((item: any) => item.id)).toEqual(['room-artefacts-sidebar-2026-05-08']);
     expect(body.artefacts.decks.map((item: any) => item.id)).toEqual(['artefact-demo-deck']);
     expect(body.artefacts.docs.map((item: any) => item.id)).toEqual(['artefact-demo-doc']);
     expect(body.artefacts.sheets.map((item: any) => item.id)).toEqual(['artefact-demo-sheet']);
+    expect(body.artefacts.sites.map((item: any) => item.id)).toEqual(['artefact-demo-site']);
+    expect(body.artefacts.sites[0]).toMatchObject({
+      href: 'https://artefact-demo.trycloudflare.com/',
+      status: 'live',
+      meta: { local_url: 'http://localhost:3000/' },
+    });
     expect(JSON.stringify(body)).not.toContain('other-demo');
     expect(JSON.stringify(body)).not.toContain('global-demo');
     for (const group of Object.values(body.artefacts) as any[][]) {
@@ -218,7 +244,7 @@ describe('room artefacts API', () => {
     expect(body.session_id).toBe(TERMINAL_ID);
     expect(body.source_session_id).toBe(TERMINAL_ID);
     expect(body.room_id).toBe(ROOM_ID);
-    expect(body.counts.total).toBe(4);
+    expect(body.counts.total).toBe(5);
   });
 
   it('does not create task, file, message, or room-link rows while reading', async () => {
@@ -233,7 +259,7 @@ describe('room artefacts API', () => {
     const response = await read(EMPTY_ROOM_ID, EMPTY_ROOM_ID);
     const body = await response.json();
     expect(body.counts.total).toBe(0);
-    expect(body.artefacts).toEqual({ plans: [], decks: [], docs: [], sheets: [] });
+    expect(body.artefacts).toEqual({ plans: [], decks: [], docs: [], sheets: [], sites: [] });
   });
 
   it('honours room-scoped read boundaries', async () => {

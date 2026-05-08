@@ -27,6 +27,7 @@ describe('ChatSidePanel artefacts render contract', () => {
     expect(source).toContain("{#if item.kind === 'plan'}");
     expect(source).toContain("{:else if item.kind === 'deck'}");
     expect(source).toContain("{:else if item.kind === 'sheet'}");
+    expect(source).toContain("{:else if item.kind === 'site'}");
   });
 
   it('keeps the desktop right panel 15 percent wider than the original 280px', () => {
@@ -41,10 +42,11 @@ describe('room artefacts projection contract', () => {
     'utf8',
   );
 
-  it('keeps plans, decks, docs, and sheets on their native source registries', () => {
+  it('keeps plans, decks, docs, sheets, and sites on their native source registries', () => {
     expect(source).toContain('listPlanRefs(200, { includeArchived: false })');
     expect(source).toContain('listDecks()');
     expect(source).toContain('listSheets()');
+    expect(source).toContain('listSiteTunnels()');
     expect(source).toContain("queries.listMemoriesByPrefix(DOC_PREFIX, 200)");
   });
 

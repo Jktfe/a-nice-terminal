@@ -11,6 +11,7 @@ import { msg } from './commands/msg.js';
 import { ask, question } from './commands/ask.js';
 import { deck } from './commands/deck.js';
 import { sheet } from './commands/sheet.js';
+import { tunnel } from './commands/tunnel.js';
 import { task } from './commands/task.js';
 import { plan } from './commands/plan.js';
 import { flag } from './commands/flag.js';
@@ -63,7 +64,7 @@ Commands:
   chat send <id>        Send a message (--msg "hello")
                         Share a file (--file /path --to @handle --msg "note")
                         Auto-detects server and identity in normal ANT shells
-  chat read <id>        Read message history (--limit 50)
+  chat read <id>        Read bounded message history (--limit 50, --full)
   chat reply <id>       Reply to the latest message (--msg "yes do it")
   chat pending <id>     Show pending interactive prompt for a terminal/linked chat
   chat decide <id>      Approve/deny/respond to a prompt with justification
@@ -130,8 +131,16 @@ Commands:
                         Write a sheet file with the same concurrency guard
                         as deck file put — see deck section for flags.
 
+  tunnel list           List room-visible local dev/prototype site tunnels
+  tunnel add <slug>     Register a public tunnel URL as a room artefact
+                        (--public https://x.trycloudflare.com
+                         --local http://localhost:3000 --rooms <room-id>
+                         --access-required when Cloudflare Access protects it)
+  tunnel status <slug>  Show tunnel metadata
+  tunnel remove <slug>  Unregister a tunnel
+
   task <id> list                    List tasks
-  task <id> create "title"          Propose a new task (--desc "...")
+  task <id> create "title"          Propose a new task (--desc "..." --plan <plan_id> --milestone <id>)
   task <id> accept <task-id>        Accept a proposed task
   task <id> assign <task-id> @h     Assign to a handle
   task <id> review <task-id>        Mark as ready for review
@@ -238,6 +247,7 @@ async function main() {
       case 'question': await question(args, flags, ctx); break;
       case 'deck':     await deck(args, flags, ctx); break;
       case 'sheet':    await sheet(args, flags, ctx); break;
+      case 'tunnel':   await tunnel(args, flags, ctx); break;
       case 'task':     await task(args, flags, ctx); break;
       case 'plan':     await plan(args, flags, ctx); break;
       case 'flag':     await flag(args, flags, ctx); break;

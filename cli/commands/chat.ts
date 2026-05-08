@@ -418,7 +418,8 @@ export async function chat(args: string[], flags: any, ctx: any) {
   // Read chat history
   if (sub === 'read') {
     const limit = flags.limit || 50;
-    const data = await api.get(ctx, `/api/sessions/${id}/messages?limit=${limit}`, roomOpts(id));
+    const contextParam = flags.full || flags.all ? '' : '&agent_context=1';
+    const data = await api.get(ctx, `/api/sessions/${id}/messages?limit=${limit}${contextParam}`, roomOpts(id));
     const messages = data.messages || [];
     if (ctx.json) { console.log(JSON.stringify(messages)); return; }
     for (const m of messages) {
@@ -451,7 +452,7 @@ export async function chat(args: string[], flags: any, ctx: any) {
     const roomToken = room?.roomToken;
 
     // Load recent history first
-    const data = await api.get(ctx, `/api/sessions/${id}/messages?limit=10`, room);
+    const data = await api.get(ctx, `/api/sessions/${id}/messages?limit=10&agent_context=1`, room);
     for (const m of (data.messages || [])) {
       const prefix = m.role === 'user' ? '\x1b[36mYou\x1b[0m' : '\x1b[33mANT\x1b[0m';
       console.log(`${prefix}: ${m.content}`);
@@ -513,7 +514,7 @@ export async function chat(args: string[], flags: any, ctx: any) {
   }
 
   // Interactive chat mode
-  const data = await api.get(ctx, `/api/sessions/${id}/messages?limit=20`);
+  const data = await api.get(ctx, `/api/sessions/${id}/messages?limit=20&agent_context=1`);
   const messages = data.messages || [];
   for (const m of messages) {
     const prefix = m.role === 'user' ? '\x1b[36mYou\x1b[0m' : '\x1b[33mANT\x1b[0m';

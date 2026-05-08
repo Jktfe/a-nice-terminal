@@ -62,7 +62,7 @@
       color: '#F59E0B',
       commands: [
         { cmd: 'ant task <id> list', desc: 'List all tasks in a session' },
-        { cmd: 'ant task <id> create "title"', desc: 'Propose a new task', flags: '--desc "description"' },
+        { cmd: 'ant task <id> create "title"', desc: 'Propose a new task', flags: '--desc "description" --plan <plan_id> --milestone <id>' },
         { cmd: 'ant task <id> accept <task-id>', desc: 'Accept a proposed task' },
         { cmd: 'ant task <id> assign <task-id> @handle', desc: 'Assign a task to a participant' },
         { cmd: 'ant task <id> review <task-id>', desc: 'Mark a task as ready for review' },

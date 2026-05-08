@@ -1575,7 +1575,7 @@
     const res = await fetch(`/api/sessions/${sessionId}/tasks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, created_by: sessionId }),
+      body: JSON.stringify({ title, created_by: sessionId, created_source: 'web' }),
     });
     const data = await res.json();
     if (data.task && !tasks.find(t => t.id === data.task.id)) tasks = [...tasks, data.task];

@@ -6,13 +6,18 @@
 // (run_events row landed, projector picks it up) and the validation gates.
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import getDb, { queries } from '../src/lib/server/db.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import getDb, { _resetForTest, queries } from '../src/lib/server/db.js';
 import { POST as createEvent } from '../src/routes/api/plan/events/+server';
 import { PATCH as patchEvent } from '../src/routes/api/plan/events/[id]/+server';
 import { getPlanViewData } from '../src/lib/server/projector/plan-view.js';
 
 const TEST_SESSION = 'test-session-plan-events-api';
 const TEST_PLAN = 'plan-events-api';
+let dataDir = '';
+let originalDataDir: string | undefined;
 
 type PostArgs = Parameters<typeof createEvent>[0];
 type PatchArgs = Parameters<typeof patchEvent>[0];
@@ -46,6 +51,10 @@ function patchById(id: string, body: unknown) {
 
 describe('/api/plan/events POST + PATCH', () => {
   beforeAll(() => {
+    originalDataDir = process.env.ANT_DATA_DIR;
+    dataDir = mkdtempSync(join(tmpdir(), 'ant-plan-events-api-'));
+    process.env.ANT_DATA_DIR = dataDir;
+    _resetForTest();
     const db = getDb();
     db.prepare('INSERT OR IGNORE INTO sessions (id, name, type) VALUES (?, ?, ?)').run(
       TEST_SESSION,
@@ -56,8 +65,10 @@ describe('/api/plan/events POST + PATCH', () => {
   });
 
   afterAll(() => {
-    const db = getDb();
-    db.prepare('DELETE FROM run_events WHERE session_id = ?').run(TEST_SESSION);
+    _resetForTest();
+    if (originalDataDir === undefined) delete process.env.ANT_DATA_DIR;
+    else process.env.ANT_DATA_DIR = originalDataDir;
+    rmSync(dataDir, { recursive: true, force: true });
   });
 
   it('rejects unknown plan kinds with 400', async () => {

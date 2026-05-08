@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import getDb, { queries } from '../src/lib/server/db.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import getDb, { _resetForTest, queries } from '../src/lib/server/db.js';
 import { GET } from '../src/routes/api/plan/+server';
 import { GET as getPlans } from '../src/routes/api/plans/+server';
 
@@ -7,6 +10,8 @@ const TEST_SESSION = 'test-session-plan-live-api';
 const OTHER_SESSION = 'test-session-plan-live-api-other';
 const TEST_PLAN = 'ant-r4';
 const ARCHIVED_PLAN = 'ant-r4-archived';
+let dataDir = '';
+let originalDataDir: string | undefined;
 
 function planPayload(overrides: Record<string, unknown>, planId = TEST_PLAN) {
   return JSON.stringify({
@@ -58,6 +63,10 @@ async function plansJsonFrom(response: Response) {
 
 describe('/api/plan live route', () => {
   beforeAll(() => {
+    originalDataDir = process.env.ANT_DATA_DIR;
+    dataDir = mkdtempSync(join(tmpdir(), 'ant-plan-live-api-'));
+    process.env.ANT_DATA_DIR = dataDir;
+    _resetForTest();
     const db = getDb();
     db.prepare('INSERT OR IGNORE INTO sessions (id, name, type) VALUES (?, ?, ?)').run(TEST_SESSION, 'Plan live API', 'chat');
     db.prepare('INSERT OR IGNORE INTO sessions (id, name, type) VALUES (?, ?, ?)').run(OTHER_SESSION, 'Plan live API other', 'chat');
@@ -65,8 +74,10 @@ describe('/api/plan live route', () => {
   });
 
   afterAll(() => {
-    const db = getDb();
-    db.prepare('DELETE FROM run_events WHERE session_id IN (?, ?)').run(TEST_SESSION, OTHER_SESSION);
+    _resetForTest();
+    if (originalDataDir === undefined) delete process.env.ANT_DATA_DIR;
+    else process.env.ANT_DATA_DIR = originalDataDir;
+    rmSync(dataDir, { recursive: true, force: true });
   });
 
   it('returns validated plan_* events in PlanView-compatible shape', async () => {

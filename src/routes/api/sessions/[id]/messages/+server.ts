@@ -8,6 +8,8 @@ import { createAskId } from '$lib/server/ask-ids';
 import { inferAskFromMessage, titleFromAskContent } from '$lib/server/ask-inference';
 import { emitAskRunEvent } from '$lib/server/ask-events';
 import { consentGateAsk } from '$lib/server/consent/consent-gate-ask';
+import { CHAT_BREAK_MSG_TYPE, loadMessagesForAgentContext } from '$lib/server/chat-context';
+import { ensureTrailingMentionBoundary } from '$lib/utils/mentions';
 
 const RESOLVED_AGENT_EVENT_STATUSES = new Set(['discarded', 'dismissed', 'settled', 'responded']);
 
@@ -88,9 +90,15 @@ export function GET({ params, url }: RequestEvent<{ id: string }>) {
   const before = url.searchParams.get('before');
   const limitParam = url.searchParams.get('limit');
   const limit = limitParam ? parseInt(limitParam) : 50;
+  const agentContext = url.searchParams.get('agent_context') === '1' || url.searchParams.get('context') === 'agent';
 
   let messages: unknown[];
-  if (before) {
+  if (agentContext) {
+    const rows = loadMessagesForAgentContext(params.id, { since, limit: before ? undefined : limit });
+    messages = before
+      ? rows.filter((m) => m.created_at < before).slice(-limit)
+      : rows;
+  } else if (before) {
     // Backward pagination: fetch older messages before a given timestamp/id,
     // returned DESC from DB then reversed so caller gets ASC order.
     const rows = queries.getMessagesBefore(params.id, before, limit) as unknown[];
@@ -127,6 +135,9 @@ export async function POST(event: RequestEvent<{ id: string }>) {
   const { role, content, format, sender_id, target, reply_to, msg_type, meta, asks } = await request.json();
   const id = nanoid();
   const msgType = msg_type || 'message';
+  const normalizedContent = msgType === 'message' && typeof content === 'string'
+    ? ensureTrailingMentionBoundary(content)
+    : content;
   const replyTo = reply_to || null;
   const metaJson = meta === undefined
     ? '{}'
@@ -134,10 +145,11 @@ export async function POST(event: RequestEvent<{ id: string }>) {
   let parsedMeta: Record<string, any> = {};
   try { parsedMeta = JSON.parse(metaJson || '{}'); } catch {}
 
-  const explicitAsks: string[] = Array.isArray(asks)
+  const isChatBreak = msgType === CHAT_BREAK_MSG_TYPE;
+  const explicitAsks: string[] = !isChatBreak && Array.isArray(asks)
     ? asks.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).map((s) => s.trim())
     : [];
-  const inferred = typeof content === 'string' ? inferAsks(content, explicitAsks) : [];
+  const inferred = !isChatBreak && typeof normalizedContent === 'string' ? inferAsks(normalizedContent, explicitAsks) : [];
   parsedMeta.asks = explicitAsks;
   parsedMeta.inferred_asks = inferred;
   parsedMeta.asks_resolved = [];
@@ -153,7 +165,7 @@ export async function POST(event: RequestEvent<{ id: string }>) {
 
   if (msgType === 'agent_response') {
     try {
-      const payload = JSON.parse(content);
+      const payload = JSON.parse(normalizedContent);
       const sourceEvent = payload.event_id ? queries.getMessage(payload.event_id) as any : null;
       const terminalSessionId = payload.terminal_session_id || sourceEvent?.sender_id;
       const eventContent = payload.event_content || sourceEvent?.content;
@@ -214,13 +226,13 @@ export async function POST(event: RequestEvent<{ id: string }>) {
 
   // 1. Persist to DB
   queries.createMessage(
-    id, params.id, role, content, format || 'text', 'complete',
+    id, params.id, role, normalizedContent, format || 'text', 'complete',
     sender_id || null, target || null, replyTo, msgType, finalMetaJson
   );
   queries.updateSession(null, null, null, null, params.id);
 
   const msg = {
-    id, session_id: params.id, role, content,
+    id, session_id: params.id, role, content: normalizedContent,
     format: format || 'text', status: 'complete',
     sender_id: sender_id || null, target: target || null, reply_to: replyTo, msg_type: msgType,
     meta: finalMetaJson,
@@ -314,11 +326,11 @@ export async function POST(event: RequestEvent<{ id: string }>) {
     });
   }
 
-  if (createdAsks.length === 0) {
+  if (!isChatBreak && createdAsks.length === 0) {
     const draft = inferAskFromMessage({
       sessionId: params.id,
       messageId: id,
-      content,
+      content: normalizedContent,
       senderId: sender_id || null,
       target: target || null,
       msgType,
@@ -392,7 +404,11 @@ export async function POST(event: RequestEvent<{ id: string }>) {
   const isLinkedChat = linkedTerminals.length > 0;
   if (!senderIsAgent && !isLinkedChat) {
     const channels = queries.listChannels() as { handle: string; port: number }[];
-    const payload = JSON.stringify({ content: content.slice(0, 500), sender: sender.name || sender_id || 'chat', session_id: params.id });
+    const payload = JSON.stringify({
+      content: typeof normalizedContent === 'string' ? normalizedContent.slice(0, 500) : '',
+      sender: sender.name || sender_id || 'chat',
+      session_id: params.id,
+    });
     for (const ch of channels) {
       try {
         fetch(`http://127.0.0.1:${ch.port}`, {
@@ -417,7 +433,7 @@ export async function POST(event: RequestEvent<{ id: string }>) {
   const result = await router.route({
     id,
     sessionId: params.id,
-    content,
+    content: normalizedContent,
     role,
     senderId: sender_id || null,
     senderName: sender.name,

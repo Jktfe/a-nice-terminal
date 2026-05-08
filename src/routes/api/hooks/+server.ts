@@ -176,7 +176,7 @@ export async function POST({ request }: RequestEvent) {
       const initialPrompt = body.initial_prompt || body.prompt || 'Gemini Task';
       if (sessionId) {
         try {
-          queries.createTask(nanoid(), sessionId, 'gemini-cli', initialPrompt, null);
+          queries.createTask(nanoid(), sessionId, 'gemini-cli', initialPrompt, null, { createdSource: 'hook' });
         } catch {}
       }
 
@@ -336,7 +336,7 @@ export async function POST({ request }: RequestEvent) {
       if (existing) {
         queries.updateTask(taskId, status, null, null, null);
       } else {
-        queries.createTask(taskId, sessionId, null, taskName, null);
+        queries.createTask(taskId, sessionId, null, taskName, null, { createdSource: 'hook' });
       }
     } catch {}
 

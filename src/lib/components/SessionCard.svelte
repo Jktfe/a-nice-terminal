@@ -5,7 +5,15 @@
   import { agentDotStateFromStatus } from '$lib/shared/agent-status';
   import { deriveTerminalActivityState } from '$lib/shared/terminal-activity';
 
-  let { session, onclick, onArchive, onDelete, onInvite } = $props();
+  let {
+    session,
+    onclick,
+    onArchive,
+    onDelete,
+    onInvite,
+    pinnedToSidebar = false,
+    onTogglePin,
+  } = $props();
 
   let hover = $state(false);
 
@@ -51,6 +59,7 @@
   function handleDelete(e: MouseEvent) { e.preventDefault(); e.stopPropagation(); onDelete?.(); }
   function handleArchive(e: MouseEvent) { e.preventDefault(); e.stopPropagation(); onArchive?.(); }
   function handleInvite(e: MouseEvent) { e.preventDefault(); e.stopPropagation(); onInvite?.(); }
+  function handleTogglePin(e: MouseEvent) { e.preventDefault(); e.stopPropagation(); onTogglePin?.(session); }
   function handleCardClick(e: MouseEvent) {
     // Modifier/middle-click: let the <a> navigate natively (new tab, new window).
     // Plain left-click: SvelteKit's link interception handles SPA navigation
@@ -185,6 +194,20 @@
 
       <!-- Hover actions -->
       <div class="hidden group-hover:flex items-center gap-1">
+        {#if onTogglePin}
+          <button
+            onclick={handleTogglePin}
+            class="p-1.5 rounded cursor-pointer"
+            style="color: {pinnedToSidebar ? NOCTURNE.amber[400] : 'var(--text-faint)'}; background: {pinnedToSidebar ? NOCTURNE.amber[300] + '18' : 'transparent'}; border: none;"
+            title={pinnedToSidebar ? 'Pinned to dashboard — click to unpin' : 'Pin chatroom on dashboard'}
+            aria-label={pinnedToSidebar ? `Unpin ${session.name} on dashboard` : `Pin ${session.name} on dashboard`}
+            aria-pressed={pinnedToSidebar}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill={pinnedToSidebar ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+            </svg>
+          </button>
+        {/if}
         {#if !isTerminal && onInvite}
           <button
             onclick={handleInvite}
