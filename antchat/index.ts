@@ -35,7 +35,7 @@ import { sheet } from './commands/sheet.js';
 import { web } from './commands/web.js';
 
 const HELP = `
-antchat — lightweight ANT chat client (v1.0.0)
+antchat — lightweight ANT chat client (v1.1.1)
 
 Usage: antchat <command> [options]
 
@@ -132,7 +132,7 @@ if (flags.help || command === 'help' || (!command && !flags.version)) {
 }
 
 if (flags.version) {
-  console.log('antchat 1.0.0');
+  console.log('antchat 1.1.1');
   process.exit(0);
 }
 

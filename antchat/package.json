@@ -1,6 +1,6 @@
 {
   "name": "antchat",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Lightweight ANT chat client — join a colleague's ANT room and post/read messages without running the full ANT server.",
   "bin": {
     "antchat": "./index.ts"
