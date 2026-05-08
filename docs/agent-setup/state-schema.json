@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/Jktfe/a-nice-terminal/blob/main/docs/agent-setup/state-schema.json",
   "title": "ANT per-session agent state",
-  "description": "Schema for the JSON file written by per-CLI hook plugins to advertise live session state. Read by ANT's agent-state-reader to populate AgentStatus.\n\nWritten by hook scripts on lifecycle events (SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / Stop / Notification / PermissionRequest equivalents in each CLI).\n\nLocation: $HOME/.ant/state/<cli>/<session_id>.json (preferred), or legacy per-CLI dirs (e.g. $HOME/.claude/state/<session_id>.json for back-compat).",
+  "description": "Schema for the JSON file written by per-CLI hook plugins to advertise live session state. Read by ANT's agent-state-reader to populate AgentStatus.\n\nWritten by hook scripts on lifecycle events (SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / Stop / Notification / PermissionRequest equivalents in each CLI).\n\nCanonical location: $HOME/.ant/state/<cli>/<session_id>.json.",
   "type": "object",
   "required": ["state"],
   "properties": {

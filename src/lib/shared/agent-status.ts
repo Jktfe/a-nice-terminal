@@ -2,7 +2,7 @@
 // Parsed at the driver boundary, broadcast via WS, consumed by ActivityRail.
 
 // Rich state label written by the per-CLI hook system at
-// `~/.<cli>/state/<session_id>.json` (or `~/.ant/state/<cli>/<id>.json`).
+// `~/.ant/state/<cli>/<session_id>.json`.
 // Kept distinct from the legacy `state` field so old consumers keep working.
 export type AgentStateLabel =
   | 'Available'
@@ -95,6 +95,11 @@ export interface AgentStatus {
    *  consumed by AgentMenuPrompt.svelte. */
   menu?: AgentMenu | null;
   stateLabel?: AgentStateLabel;
+  /** Epoch ms of the source state-file mtime, when this status was derived
+   *  by merging a hook-written ~/.ant/state/<cli>/<id>.json file. The UI
+   *  surfaces a "live" dot when the file was touched recently and a stale
+   *  marker otherwise; absent here means no merge happened. */
+  stateFileMtimeMs?: number;
   detectedAt: number;
 }
 

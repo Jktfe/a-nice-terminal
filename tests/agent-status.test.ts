@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { describe, it, expect } from 'vitest';
@@ -9,6 +9,10 @@ import { GeminiCliDriver } from '../src/drivers/gemini-cli/driver.js';
 import { QwenCliDriver } from '../src/drivers/qwen-cli/driver.js';
 import { PiDriver } from '../src/drivers/pi/driver.js';
 import { _clearStateReaderCache } from '../src/fingerprint/agent-state-reader.js';
+import {
+  classifyStateFreshness,
+  STATE_FRESHNESS_LIVE_MS,
+} from '../src/lib/shared/state-freshness.js';
 import { discardAllPendingEvents, dispose, feed, feedStatus, getPendingEvent, init, markTerminalActivity, trackEvent } from '../src/lib/server/agent-event-bus.js';
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -744,5 +748,70 @@ describe('Claude Code hook-based status line (ant-status)', () => {
     expect(status?.stateLabel).toBeUndefined();
     expect(status?.state).toBe('ready');
     expect(status?.model).toBe('Opus 4.6');
+  });
+});
+
+describe('classifyStateFreshness (UI freshness dot)', () => {
+  it('returns absent when no mtime is supplied', () => {
+    expect(classifyStateFreshness(undefined, 1_000_000)).toBe('absent');
+    expect(classifyStateFreshness(NaN, 1_000_000)).toBe('absent');
+    expect(classifyStateFreshness(Infinity, 1_000_000)).toBe('absent');
+  });
+
+  it('returns live when the file was touched within the live window', () => {
+    const now = 1_000_000;
+    expect(classifyStateFreshness(now, now)).toBe('live');
+    expect(classifyStateFreshness(now - 1, now)).toBe('live');
+    expect(classifyStateFreshness(now - (STATE_FRESHNESS_LIVE_MS - 1), now)).toBe('live');
+  });
+
+  it('returns stale at and beyond the threshold', () => {
+    const now = 1_000_000;
+    expect(classifyStateFreshness(now - STATE_FRESHNESS_LIVE_MS, now)).toBe('stale');
+    expect(classifyStateFreshness(now - 60_000, now)).toBe('stale');
+    expect(classifyStateFreshness(now - 24 * 3_600_000, now)).toBe('stale');
+  });
+
+  it('uses Date.now() as the default reference time', () => {
+    // Within a single test tick, Date.now() should still place a "just now"
+    // file inside the live window.
+    expect(classifyStateFreshness(Date.now())).toBe('live');
+    expect(classifyStateFreshness(Date.now() - 2 * STATE_FRESHNESS_LIVE_MS)).toBe('stale');
+  });
+});
+
+describe('applyStateToStatus surfaces stateFileMtimeMs', () => {
+  it('claude-code merge populates stateFileMtimeMs from the snapshot', () => {
+    // End-to-end via ClaudeCodeDriver. Uses the new status-line format
+    // (the only one that exposes the `folder` group consumed by the merge
+    // path) so the file lookup actually fires against our temp HOME.
+    const originalHome = process.env.HOME;
+    const homeDir = mkdtempSync(join(tmpdir(), 'ant-mtime-surface-test-'));
+    try {
+      process.env.HOME = homeDir;
+      const stateDir = join(homeDir, '.ant', 'state', 'claude-code');
+      mkdirSync(stateDir, { recursive: true });
+      const filePath = join(stateDir, 'claude-mtime-test.json');
+      writeFileSync(filePath, JSON.stringify({
+        state: 'Working',
+        cwd: '/tmp/somewhere/mtime-folder',
+        session_start: new Date(Date.now() - 5_000).toISOString(),
+      }));
+      _clearStateReaderCache();
+
+      const driver = new ClaudeCodeDriver();
+      const status = driver.detectStatus([
+        '  sent:10:58:40  resp:10:57:23  edit:10:57:14  |  mtime-folder  |  Opus 4.7  |  21m:20%  |  Working',
+      ]);
+
+      const fileMtime = statSync(filePath).mtimeMs;
+      expect(status?.stateFileMtimeMs).toBe(fileMtime);
+      expect(classifyStateFreshness(status?.stateFileMtimeMs)).toBe('live');
+    } finally {
+      _clearStateReaderCache();
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+      rmSync(homeDir, { recursive: true, force: true });
+    }
   });
 });

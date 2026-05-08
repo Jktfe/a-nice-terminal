@@ -132,8 +132,13 @@ Commands:
   task <id> delete <task-id>        Delete a task
 
   plan list                         List all known plans (plan_id, session, event count)
+                                    (--include-archived to show hidden plans)
   plan show <plan_id>               Show milestones + tests with latest status
                                     (--session <id> to disambiguate; --limit N events)
+  plan archive <plan_id>            Hide a plan from default plan lists
+                                    (--session <id> to disambiguate)
+  plan unarchive <plan_id>          Restore an archived plan to default lists
+                                    (--session <id> to disambiguate)
 
   flag <id> <file>      Flag a file reference in the session (--note "why")
   flag <id> list        List flagged files
@@ -177,6 +182,10 @@ Commands:
   prompt respond <id>         Inject a raw prompt response (--text "yes")
 
   hooks install         Install ANT shell capture hooks into ~/.zshrc
+  hooks install <cli>   Stage per-CLI status hook templates in
+                        ~/.<cli>/hooks/ant-status/ for one of:
+                        claude-code, codex-cli, gemini-cli, qwen-cli,
+                        copilot-cli, pi (--dry-run prints planned writes)
 
   whoami                Show the identity ANT will stamp on outbound chat
                         (--external, --from, --session, or --handle)
@@ -229,7 +238,7 @@ async function main() {
       case 'doc':      await doc(args, flags, ctx); break;
       case 'agents':   await agents(args, flags, ctx); break;
       case 'prompt':   await prompt(args, flags, ctx); break;
-      case 'hooks':    await hooks(args.slice(1), flags); break;
+      case 'hooks':    await hooks(args, flags); break;
       case 'register': await registerIdentity(args, flags, ctx); break;
       case 'join-room': await joinRoom(args, flags, ctx); break;
       case 'share':    await share(args, flags, ctx); break;

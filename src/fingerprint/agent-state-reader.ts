@@ -2,9 +2,8 @@
 // hook-based status-line systems documented in `docs/LESSONS.md` § 1.12
 // and `docs/agent-setup/state-schema.json`.
 //
-// Each Tier-1 CLI writes a small JSON file per session to one of:
-//   ~/.ant/state/<cli>/<session_id>.json     (unified, preferred)
-//   ~/.claude/state/<session_id>.json        (legacy Claude Code path)
+// Each Tier-1 CLI writes a small JSON file per session to:
+//   ~/.ant/state/<cli>/<session_id>.json
 //
 // The driver's `detectStatus(recentLines)` is synchronous and doesn't carry
 // pane/session context. We resolve a state file by matching the parsed
@@ -49,24 +48,10 @@ export interface AgentStateSnapshot {
   filePath: string;
 }
 
-// Candidate directories per CLI. Order matters: unified first, legacy second.
+// Canonical state directory per CLI.
 function candidateDirs(cli: AgentCli): string[] {
   const home = homedir();
-  const unified = join(home, '.ant', 'state', cli);
-  switch (cli) {
-    case 'claude-code':
-      return [unified, join(home, '.claude', 'state')];
-    case 'codex-cli':
-      return [unified, join(home, '.codex', 'state')];
-    case 'gemini-cli':
-      return [unified, join(home, '.gemini', 'state')];
-    case 'qwen-cli':
-      return [unified, join(home, '.qwen', 'state')];
-    case 'pi':
-      return [unified, join(home, '.pi', 'state')];
-    case 'copilot-cli':
-      return [unified, join(home, '.copilot', 'state')];
-  }
+  return [join(home, '.ant', 'state', cli)];
 }
 
 // Cache: filePath → { snap, mtimeMs }. Re-reads only when mtime advances.
@@ -219,6 +204,7 @@ export function applyStateToStatus(
     merged.sessionStartedAt = snap.sessionStartedAt;
     merged.sessionDurationMs = Date.now() - snap.sessionStartedAt;
   }
+  merged.stateFileMtimeMs = snap.mtimeMs;
   return merged;
 }
 
@@ -244,6 +230,16 @@ export function readMergedAgentState(
   }
   return snap ? applyStateToStatus(base, snap) : base;
 }
+
+// Re-export the client-safe freshness classifier so server callers can
+// keep importing from agent-state-reader. The UI must import directly
+// from `$lib/shared/state-freshness` to avoid pulling node:fs/os/path
+// into the browser bundle.
+export {
+  STATE_FRESHNESS_LIVE_MS,
+  classifyStateFreshness,
+  type StateFreshness,
+} from '../lib/shared/state-freshness.js';
 
 // Test/diagnostic helper to clear the mtime cache.
 export function _clearStateReaderCache(): void {
