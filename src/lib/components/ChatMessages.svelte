@@ -794,6 +794,19 @@
                 onRespond={async (payload) => { onAgentRespond(sessionId, payload); }}
                 onDiscard={async (message) => { await discardAgentEvent(message, sessionId, false); }}
               />
+            {:else if group.type === 'chat_break'}
+              {@const breakMsg = group.items[0]}
+              {@const breakReason = (breakMsg?.content ?? '').trim()}
+              <div class="chat-break" role="separator" aria-label={breakReason ? `Chat break — ${breakReason}` : 'Chat break'}>
+                <span class="chat-break__rule" aria-hidden="true"></span>
+                <span class="chat-break__label">
+                  break
+                  {#if breakReason && breakReason !== '— break —'}
+                    <span class="chat-break__reason">— {breakReason}</span>
+                  {/if}
+                </span>
+                <span class="chat-break__rule" aria-hidden="true"></span>
+              </div>
             {:else}
               <div style={threadStyle(group.items[0])}>
                 <MessageBubble
@@ -969,6 +982,8 @@
       onClearReply={onClearReply}
       handles={mentionHandles}
       quickLaunchScope={quickLaunchScope}
+      draftKey={sessionId}
+      sessionId={linkedChatId || sessionId}
     />
   {/if}
 </div>
@@ -977,5 +992,33 @@
   .linked-composer-shell {
     padding: 12px max(12px, var(--ant-safe-right, 0px)) calc(12px + max(var(--ant-safe-bottom, 0px), var(--ant-keyboard-h, 0px))) max(12px, var(--ant-safe-left, 0px));
     transition: padding-bottom var(--duration-fast) var(--spring-default);
+  }
+
+  .chat-break {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 16px 8px;
+    user-select: none;
+  }
+  .chat-break__rule {
+    flex: 1;
+    height: 1px;
+    background: var(--border-subtle);
+  }
+  .chat-break__label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .chat-break__reason {
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: normal;
+    color: var(--text);
+    margin-left: 4px;
   }
 </style>

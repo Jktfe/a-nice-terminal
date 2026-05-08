@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { NOCTURNE, agentColor } from '$lib/nocturne';
   import AgentDot from './AgentDot.svelte';
   import NocturneIcon from './NocturneIcon.svelte';
@@ -12,15 +13,23 @@
     onClearReply,
     handles = [],
     quickLaunchScope = null,
+    draftKey = null,
+    sessionId = null,
   }: {
     onSend: (text: string, replyToId?: string | null) => void;
     replyTo?: any;
     onClearReply?: () => void;
     handles?: { handle: string; name: string }[];
     quickLaunchScope?: ShortcutScope | null;
+    draftKey?: string | null;
+    /** Required for `/break` — the chat_break marker is a server-side
+     *  message kind that needs to know which room it belongs to. When
+     *  null the slash-command silently treats `/break` as plain text. */
+    sessionId?: string | null;
   } = $props();
 
   let text = $state('');
+  let hydratedDraftKey = $state<string | null>(null);
   let isFocused = $state(false);
   let inputEl = $state<HTMLTextAreaElement | null>(null);
   let fileInputEl = $state<HTMLInputElement | null>(null);
@@ -81,6 +90,23 @@
   });
   const activeMentionChips = $derived(activeRoutingMentions(text, routingHandles));
 
+  function draftStorageKey(key: string | null): string | null {
+    return key ? `ant.chat.draft.${key}` : null;
+  }
+
+  function readDraft(key: string | null): string {
+    const storageKey = draftStorageKey(key);
+    if (!storageKey || typeof localStorage === 'undefined') return '';
+    return localStorage.getItem(storageKey) ?? '';
+  }
+
+  function writeDraft(key: string | null, value: string): void {
+    const storageKey = draftStorageKey(key);
+    if (!storageKey || typeof localStorage === 'undefined') return;
+    if (value.length > 0) localStorage.setItem(storageKey, value);
+    else localStorage.removeItem(storageKey);
+  }
+
   function resizeInput() {
     if (!inputEl) return;
     const viewportHeight = typeof window === 'undefined'
@@ -103,6 +129,25 @@
   $effect(() => {
     text;
     queueMicrotask(resizeInput);
+  });
+
+  onMount(() => {
+    if (!draftKey) return;
+    text = readDraft(draftKey);
+    hydratedDraftKey = draftKey;
+    queueMicrotask(resizeInput);
+  });
+
+  $effect(() => {
+    if (!draftKey || hydratedDraftKey === draftKey) return;
+    text = readDraft(draftKey);
+    hydratedDraftKey = draftKey;
+    queueMicrotask(resizeInput);
+  });
+
+  $effect(() => {
+    if (!draftKey || hydratedDraftKey !== draftKey) return;
+    writeDraft(draftKey, text);
   });
 
   $effect(() => {
@@ -162,11 +207,63 @@
     }, 0);
   }
 
+  /** Detect `/break [reason...]` so the composer can post a chat_break
+   *  marker instead of a normal user message. The marker bounds future
+   *  agent context windows for this room (per
+   *  `chat-break-context-window-2026-05-08`). Reason text is optional;
+   *  when present it's stored as the marker's content for human
+   *  scanning. The marker is rendered as a horizontal divider in
+   *  ChatMessages — see the chat_break branch there. */
+  const BREAK_COMMAND_RE = /^\/break(?:\s+(.+))?$/i;
+  function detectBreakCommand(value: string): { isBreak: boolean; reason: string } {
+    const match = value.trim().match(BREAK_COMMAND_RE);
+    if (!match) return { isBreak: false, reason: '' };
+    return { isBreak: true, reason: (match[1] ?? '').trim() };
+  }
+
+  async function postBreakMarker(reason: string): Promise<boolean> {
+    if (!sessionId) return false;
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: reason || '— break —',
+          msg_type: 'chat_break',
+          format: 'text',
+        }),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
   function handleSubmit() {
     const trimmed = text.trim();
     if (!trimmed) return;
+
+    const breakIntent = detectBreakCommand(trimmed);
+    if (breakIntent.isBreak) {
+      const preview = breakIntent.reason
+        ? `Post break — agents will only see context after this point. Reason: "${breakIntent.reason}"`
+        : 'Post break — agents will only see context after this point.';
+      if (typeof window !== 'undefined' && !window.confirm(preview)) {
+        // Keep the composer text so the user can edit before retrying.
+        return;
+      }
+      void postBreakMarker(breakIntent.reason);
+      text = '';
+      writeDraft(draftKey, '');
+      showMentions = false;
+      onClearReply?.();
+      setTimeout(resizeInput, 0);
+      return;
+    }
+
     onSend(trimmed, replyTo?.id ?? null);
     text = '';
+    writeDraft(draftKey, '');
     showMentions = false;
     onClearReply?.();
     setTimeout(resizeInput, 0);
