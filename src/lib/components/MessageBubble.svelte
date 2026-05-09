@@ -1,20 +1,10 @@
 <script lang="ts">
-  import { marked } from 'marked';
-  import DOMPurify from 'isomorphic-dompurify';
   import { NOCTURNE, agentColor, agentColorFromSession } from '$lib/nocturne';
   import { agentDotStateFromStatus, type AgentStatus as TelemetryAgentStatus } from '$lib/shared/agent-status';
   import { getAgentStatus as getLiveAgentStatus } from '$lib/stores/agent-status.svelte';
+  import { renderChatMarkdown } from '$lib/markdown/chat-markdown';
   import AgentDot from './AgentDot.svelte';
   import NocturneIcon from './NocturneIcon.svelte';
-
-  function renderMarkdown(text: string): string {
-    if (!text) return '';
-    // marked v17 has no built-in sanitiser and passes inline HTML through verbatim.
-    // Message content is attacker-controlled (any cli/mcp invite-token holder can post),
-    // so sanitise before {@html}.
-    const raw = marked.parse(text, { breaks: true, gfm: true }) as string;
-    return DOMPurify.sanitize(raw);
-  }
 
   let {
     message,
@@ -200,6 +190,7 @@
     replyMessage ? (replyMessage.role === 'assistant' ? 'Assistant' : 'You') : ''
   );
   const replySnippet = $derived((replyMessage?.content || '').replace(/\s+/g, ' ').trim().slice(0, 120));
+  const renderedContent = $derived(renderChatMarkdown(message.content));
 
   // Parse meta
   let parsedMeta = $derived.by(() => {
@@ -380,7 +371,7 @@
     {/if}
 
     <div
-      class="prose prose-sm break-words max-w-none
+      class="message-markdown prose prose-sm break-words max-w-none
         [&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0
         [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5
         [&_strong]:font-semibold
@@ -394,7 +385,7 @@
         --tw-prose-bullets: var(--text-muted);
       "
     >
-      {@html renderMarkdown(message.content)}
+      {@html renderedContent}
     </div>
 
     {#if message.status === 'streaming'}
@@ -536,3 +527,76 @@
     <span>{label}</span>
   </button>
 {/snippet}
+
+<style>
+  .message-markdown :global(.chat-md-table-wrap) {
+    max-width: 100%;
+    overflow-x: auto;
+    margin: 0.65rem 0;
+    border: 0.5px solid var(--hairline-strong);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--bg-card) 82%, transparent);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  .message-markdown :global(.chat-md-table-wrap:focus-visible) {
+    outline: 2px solid color-mix(in srgb, var(--text) 40%, transparent);
+    outline-offset: 2px;
+  }
+
+  .message-markdown :global(.chat-md-table-wrap table) {
+    width: max-content;
+    min-width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.86rem;
+    line-height: 1.35;
+  }
+
+  .message-markdown :global(.chat-md-table-wrap th),
+  .message-markdown :global(.chat-md-table-wrap td) {
+    min-width: 7rem;
+    max-width: 18rem;
+    padding: 0.45rem 0.6rem;
+    border-right: 0.5px solid var(--hairline);
+    border-bottom: 0.5px solid var(--hairline);
+    color: var(--text);
+    vertical-align: top;
+    white-space: normal;
+  }
+
+  .message-markdown :global(.chat-md-table-wrap th) {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: color-mix(in srgb, var(--bg-card) 92%, var(--text) 8%);
+    color: var(--text);
+    font-weight: 700;
+  }
+
+  .message-markdown :global(.chat-md-table-wrap tr:last-child td) {
+    border-bottom: 0;
+  }
+
+  .message-markdown :global(.chat-md-table-wrap th:last-child),
+  .message-markdown :global(.chat-md-table-wrap td:last-child) {
+    border-right: 0;
+  }
+
+  .message-markdown :global(.chat-md-table-wrap tbody tr:nth-child(even) td) {
+    background: color-mix(in srgb, var(--hairline) 55%, transparent);
+  }
+
+  @media (max-width: 640px) {
+    .message-markdown :global(.chat-md-table-wrap) {
+      margin-right: -0.25rem;
+    }
+
+    .message-markdown :global(.chat-md-table-wrap th),
+    .message-markdown :global(.chat-md-table-wrap td) {
+      min-width: 8.5rem;
+      padding: 0.5rem 0.6rem;
+      font-size: 0.82rem;
+    }
+  }
+</style>
