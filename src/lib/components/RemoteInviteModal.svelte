@@ -102,7 +102,7 @@
 <svelte:window onkeydown={onKeydown} />
 
 <div
-  class="fixed inset-0 z-50 flex items-center justify-center p-4"
+  class="invite-backdrop fixed inset-0 z-50 flex items-center justify-center p-4"
   style="background: rgba(0,0,0,0.55);"
   onclick={onBackdropClick}
   onkeydown={(e) => { if (e.key === 'Escape') close(); }}
@@ -112,7 +112,7 @@
   tabindex="-1"
 >
   <div
-    class="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-lg shadow-xl"
+    class="invite-sheet w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-lg shadow-xl"
     style="background: var(--bg-surface); color: var(--text); border: 1px solid var(--border-subtle);"
   >
     <header class="px-5 py-3 border-b flex items-center justify-between" style="border-color: var(--border-subtle);">
@@ -252,3 +252,22 @@
     {/if}
   </div>
 </div>
+
+<style>
+  /* On phones (≤640px) the invite modal becomes a full-width bottom-sheet
+     so the form fields, password reveal, and the long share-URL code
+     blocks are reachable without horizontal scrolling. Safe-area padding
+     keeps the home-indicator from overlapping the Done button. */
+  @media (max-width: 640px) {
+    .invite-backdrop {
+      padding: 0;
+      align-items: flex-end;
+    }
+    .invite-sheet {
+      max-width: 100%;
+      max-height: 100vh;
+      border-radius: 16px 16px 0 0;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+  }
+</style>

@@ -108,6 +108,13 @@
           <h3>Preferences JSON</h3>
           <button type="button" class="secondary-btn" onclick={handlePreferencesSave} disabled={!preferencesDirty}>Save</button>
         </div>
+        <p class="hint">
+          Advanced. A free-form JSON bag persisted with your account.
+          No settings currently consume this — it is here as a forward
+          hatch for feature flags, so leave it empty unless an ANT
+          maintainer asks you to set a specific key. Invalid JSON is
+          rejected on save.
+        </p>
         <textarea
           class="preferences-editor"
           bind:value={preferencesText}

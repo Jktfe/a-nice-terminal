@@ -70,6 +70,28 @@
   let showPersonalSettings = $state(false);
   const selectedCliMode = $derived(getCliMode(session?.cli_flag) ?? null);
 
+  /** Plan-discoverability probe — non-blocking, post-load. The chat header
+   *  only shows the Plan icon-button when the room actually has plan
+   *  events, so users on mobile have a one-tap path from a chat to the
+   *  plan view (closing the discoverability gap that sent James to
+   *  Safari). Endpoint is fast (sub-20ms server-side) and we never
+   *  await; first paint is unaffected. Re-runs when sessionId changes
+   *  so navigating between rooms refreshes the answer. */
+  let roomHasPlan = $state(false);
+  $effect(() => {
+    const probeId = sessionId;
+    roomHasPlan = false;
+    if (!probeId) return;
+    void fetch(`/api/plan?session_id=${encodeURIComponent(probeId)}&limit=1`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (probeId !== sessionId) return;
+        const events = Array.isArray(data?.events) ? data.events : Array.isArray(data?.plans) ? data.plans : [];
+        roomHasPlan = events.length > 0;
+      })
+      .catch(() => {});
+  });
+
   // ── B3 — Searchable CLI dropdown (replaces native <select>) ──
   let showCliDropdown = $state(false);
   let cliSearchText = $state('');
@@ -449,6 +471,24 @@
           d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
       </svg>
     </button>
+
+    <!-- Plan — one-tap from chat to the room's plan view. Visible on
+         mobile (no `hidden sm:flex`) so phone users can open progress
+         without going through the desktop side-panel. -->
+    {#if roomHasPlan && sessionId}
+      <a
+        href="/plan?session_id={encodeURIComponent(sessionId)}"
+        class="touch-target flex items-center gap-1 p-1.5 rounded-lg transition-all"
+        style="color: var(--text-muted);"
+        title="Open this room's plan"
+        aria-label="Open plan view for this room"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>
+        </svg>
+      </a>
+    {/if}
 
     <!-- Share -->
     {#if session}
