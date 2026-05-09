@@ -49,6 +49,24 @@ Server endpoint timings were not the main bottleneck once warm:
 | `/api/sessions/:id/participants` | 8 ms |
 | `/api/sessions/:id/artefacts` | 21 ms |
 
+Follow-up local sweep for the active EvoluteAnt room showed the payload shape more clearly:
+
+| Endpoint | Time | Bytes | Notes |
+| --- | ---: | ---: | --- |
+| `/api/sessions/:id` | 85 ms | 464 B | Session metadata only. |
+| `/api/sessions/:id/messages?limit=10` | 10 ms | 8.7 KB | New phone first-paint target. |
+| `/api/sessions/:id/messages?limit=20` | 12 ms | 16.9 KB | Phone scroll-back chunk. |
+| `/api/sessions/:id/messages?limit=50` | 10 ms | 44.9 KB | Desktop default. |
+| `/api/sessions/:id/tasks` | 37 ms | 37.2 KB | Fat for phone; should stay deferred or get server-side limiting. |
+| `/api/sessions/:id/file-refs` | 10 ms | 11 B | Small. |
+| `/api/sessions/:id/attachments` | 7 ms | 549 B | Small when warm. |
+| `/api/sessions/:id/participants` | 14 s cold, then 5-13 ms warm | 2.0 KB | Cold outlier needs diagnostics; payload is tiny. |
+| `/api/plans?session_id=:id&limit=1` | 99 ms | 210 B | Plan-presence probe is small enough for mobile header. |
+| `/api/sessions` | 9 ms | 74.6 KB | Large; keep out of first interaction on phone. |
+| `/api/workspaces` | 8 ms | 2 B | Small. |
+
+The cold participant outlier reproduced on localhost, so it should not be dismissed as a phone-only network issue. The route warmed immediately afterward, which points to cold route/query/startup behavior or a transient DB/worker stall rather than payload size.
+
 Cold document or tunnel paths were much worse:
 
 | Run | DOM/content time | Total wait | Notes |
@@ -155,3 +173,38 @@ The M1 patch is only a first recovery cut. These still need separate acceptance:
 - Mobile-specific wins, such as share sheet, gestures, deep links, and compact plan/task cards.
 - Visual overlap sweep after the M1 load fixes land.
 - Settings copy and the Default Agent affordance decision.
+
+## Follow-up Patch: Message Windowing and Live Sync
+
+The next phone-specific patch tightens the chat message path rather than the whole room shell:
+
+- Mobile initial message load reduced again from 20 to 10 rows.
+- Mobile scroll-up backfill uses 20-row chunks; desktop keeps 50-row chunks.
+- Live WebSocket and catch-up appends are bounded to 1,000 rows so long-running rooms cannot grow the reactive array forever.
+- Message-store optimistic sends and streaming placeholder creation also use the 1,000-row cap.
+- Safari `pageshow` and `online` events now trigger a catch-up sync, covering the common iOS pattern where the tab resumes from a frozen state without a clean full reload.
+- WebSocket reconnect/open joins already trigger catch-up; the duplicate open-path sync was removed so one reconnect does one catch-up pass.
+
+Expected direct wins:
+
+- First mobile message paint transfers about 8.7 KB of messages instead of about 45 KB.
+- Scroll-back stays lazy and bounded.
+- Returning to Safari or recovering WiFi should fetch missed messages without forcing a manual refresh.
+- Live rooms stop accumulating unbounded message rows in memory.
+
+## Follow-up Patch: Participants Cold Route
+
+The local sweep exposed `/api/sessions/:id/participants` as tiny but sometimes very slow on its first request. The route was taking the modern `chat_room_members` path, then still running the legacy message-derived participant query to enrich first/last seen and message counts.
+
+Patch:
+
+- Modern rooms now return explicit `chat_room_members` identities without scanning `messages`.
+- Message-count enrichment remains available behind `?include_counts=1` for callers that really need whole-room counts.
+- The legacy fallback still works for old rooms with no structured members.
+- Added `idx_messages_session_sender` on `(session_id, sender_id)` so the fallback aggregation is indexed.
+
+Expected direct wins:
+
+- Active-room participants load becomes identity-table sized, not message-table sized.
+- The 14 s cold participant outlier should drop to warm-path timing.
+- Message counts remain available in the UI from the bounded visible message window; mobile no longer pays for whole-room counts during first load.

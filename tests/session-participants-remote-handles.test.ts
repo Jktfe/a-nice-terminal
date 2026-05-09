@@ -17,9 +17,10 @@ function restoreEnv() {
   }
 }
 
-async function participants(roomId: string) {
+async function participants(roomId: string, query = '') {
   const response = await getParticipants({
     params: { id: roomId },
+    url: new URL(`https://ant.test/api/sessions/${roomId}/participants${query}`),
   } as any);
   expect(response.status).toBe(200);
   return response.json();
@@ -136,5 +137,19 @@ describe('/api/sessions/[id]/participants remote invite handles', () => {
 
     const body = await participants('room-a');
     expect(body.all.filter((p: any) => p.handle === '@xeno')).toHaveLength(1);
+  });
+
+  it('keeps message-count enrichment off the hot path unless requested', async () => {
+    queries.createSession('room-a', 'Room A', 'chat', 'forever', null, null, '{}');
+    queries.createSession('local-agent', 'Local Agent', 'terminal', 'forever', null, null, '{}');
+    queries.setHandle('local-agent', '@local', 'Local Agent');
+    queries.addRoomMember('room-a', 'local-agent', 'participant', 'codex', '@local');
+    queries.createMessage('msg-1', 'room-a', 'user', 'hello', 'text', 'complete', 'local-agent', null, null, 'message', '{}');
+
+    const defaultBody = await participants('room-a');
+    expect(defaultBody.participants[0].message_count).toBe(0);
+
+    const countedBody = await participants('room-a', '?include_counts=1');
+    expect(countedBody.participants[0].message_count).toBe(1);
   });
 });

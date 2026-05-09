@@ -29,6 +29,11 @@ const PAGE_SIZE = 50;
 // flagged in docs/perf/audit-chat-room-load-2026-05-09.md M1.
 const MAX_MESSAGES_IN_MEMORY = 1000;
 
+function appendNewestBounded(rows: Message[], incoming: Message): Message[] {
+  const next = [...rows, incoming];
+  return next.length > MAX_MESSAGES_IN_MEMORY ? next.slice(-MAX_MESSAGES_IN_MEMORY) : next;
+}
+
 let messages = $state<Message[]>([]);
 let streamingId = $state<string | null>(null);
 let hasMoreMessages = $state(false);
@@ -109,7 +114,7 @@ export function useMessageStore() {
     const msg = await res.json();
     // Optimistic add — WS event deduplicates
     if (!messages.find(m => m.id === msg.id)) {
-      messages = [...messages, msg];
+      messages = appendNewestBounded(messages, msg);
     }
     return msg;
   }
@@ -119,11 +124,11 @@ export function useMessageStore() {
     if (idx >= 0) {
       messages[idx] = { ...messages[idx], content: messages[idx].content + chunk, status: 'streaming' };
     } else {
-      messages = [...messages, {
+      messages = appendNewestBounded(messages, {
         id: msgId, session_id: '', role: 'assistant', content: chunk,
         format: 'text', status: 'streaming', sender_id: null, target: null, reply_to: null, msg_type: 'message',
         created_at: new Date().toISOString(),
-      }];
+      });
     }
     streamingId = msgId;
   }

@@ -235,6 +235,7 @@ function getDb(): any {
   if (!msgCols.includes('pinned'))    G[DB_KEY].exec(`ALTER TABLE messages ADD COLUMN pinned INTEGER DEFAULT 0`);
 
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id)`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_messages_session_sender ON messages(session_id, sender_id, created_at)`);
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_messages_reply_to ON messages(reply_to)`);
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_sessions_workspace ON sessions(workspace_id)`);
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)`);

@@ -84,7 +84,7 @@ function activeRoomTokenParticipants(roomId: string, existing: any[]): any[] {
   return remote;
 }
 
-export function GET({ params }: RequestEvent<{ id: string }>) {
+export function GET({ params, url }: RequestEvent<{ id: string }>) {
   const session = queries.getSession(params.id);
   if (!session) return json({ error: 'not found' }, { status: 404 });
 
@@ -93,10 +93,15 @@ export function GET({ params }: RequestEvent<{ id: string }>) {
   const roomMembers: any[] = queries.listRoomMembers(params.id);
 
   if (roomMembers.length > 0) {
-    // Enrich with message counts from the legacy query
-    const messageDerived: any[] = queries.listParticipants(params.id);
-    const msgCountMap = new Map(messageDerived.map((p: any) => [p.id, p]));
+    const includeCounts = url?.searchParams.get('include_counts') === '1';
+    const msgCountMap = includeCounts
+      ? new Map((queries.listParticipants(params.id) as any[]).map((p: any) => [p.id, p]))
+      : new Map<string, any>();
 
+    // Modern rooms already have explicit membership. Avoid the legacy
+    // message-derived enrichment query on this hot path; mobile only needs the
+    // participant identities, and message counts are derived client-side from
+    // the bounded message window.
     const participants = roomMembers
       .filter((m: any) => m.role === 'participant')
       .map((m: any) => {
@@ -112,9 +117,9 @@ export function GET({ params }: RequestEvent<{ id: string }>) {
           role: m.role,
           joined_at: m.joined_at,
           ...attentionPayload(params.id, m),
-          first_seen: msgData?.first_seen,
-          last_seen: msgData?.last_seen,
-          message_count: msgData?.message_count || 0,
+          first_seen: msgData?.first_seen ?? null,
+          last_seen: msgData?.last_seen ?? null,
+          message_count: msgData?.message_count ?? 0,
         };
       });
 
@@ -131,9 +136,9 @@ export function GET({ params }: RequestEvent<{ id: string }>) {
           role: m.role,
           joined_at: m.joined_at,
           ...attentionPayload(params.id, m),
-          first_seen: msgData?.first_seen,
-          last_seen: msgData?.last_seen,
-          message_count: msgData?.message_count || 0,
+          first_seen: msgData?.first_seen ?? null,
+          last_seen: msgData?.last_seen ?? null,
+          message_count: msgData?.message_count ?? 0,
         };
       });
 

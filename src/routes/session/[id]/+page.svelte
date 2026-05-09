@@ -680,7 +680,8 @@
       !msgStore.loadingOlder
     ) {
       const previousScrollHeight = chatScrollEl.scrollHeight;
-      void msgStore.loadOlder(sessionId).then((added) => {
+      const olderLimit = isCompactMobileViewport() ? MOBILE_BACKFILL_MESSAGE_PAGE_SIZE : DESKTOP_MESSAGE_PAGE_SIZE;
+      void msgStore.loadOlder(sessionId, olderLimit).then((added) => {
         if (added > 0 && chatScrollEl) {
           // Anchor scroll position: keep the user where they were reading
           // by accounting for the height delta from prepended messages.
@@ -818,7 +819,10 @@
   let messageSyncInFlight = false;
   let liveRefreshTimer: ReturnType<typeof setInterval> | null = null;
   let sessionLoadSeq = 0;
-  const LINKED_CHAT_PAGE_SIZE = 50;
+  const DESKTOP_MESSAGE_PAGE_SIZE = 50;
+  const MOBILE_INITIAL_MESSAGE_PAGE_SIZE = 10;
+  const MOBILE_BACKFILL_MESSAGE_PAGE_SIZE = 20;
+  const MAX_LIVE_MESSAGE_ROWS = 1000;
 
   // Chat message search
   let chatSearchQuery = $state('');
@@ -845,11 +849,12 @@
 
   async function loadLinkedChat(chatId: string) {
     if (!chatId) return;
-    const res = await fetch(`/api/sessions/${chatId}/messages?limit=${LINKED_CHAT_PAGE_SIZE}`);
+    const limit = isCompactMobileViewport() ? MOBILE_INITIAL_MESSAGE_PAGE_SIZE : DESKTOP_MESSAGE_PAGE_SIZE;
+    const res = await fetch(`/api/sessions/${chatId}/messages?limit=${limit}`);
     const data = await res.json();
     const msgs: Record<string, unknown>[] = data.messages || [];
     linkedChatMessages = msgs;
-    linkedChatHasMore = msgs.length === LINKED_CHAT_PAGE_SIZE;
+    linkedChatHasMore = msgs.length === limit;
   }
 
   function newestMessageTimestamp(messages: Record<string, unknown>[]): string | null {
@@ -884,14 +889,21 @@
       added = true;
     }
 
-    return { messages: next, added };
+    return {
+      messages: next.length > MAX_LIVE_MESSAGE_ROWS ? next.slice(-MAX_LIVE_MESSAGE_ROWS) : next,
+      added,
+    };
   }
 
   async function fetchCatchupMessages(chatId: string, current: Record<string, unknown>[]) {
     const since = overlapSinceTimestamp(newestMessageTimestamp(current));
+    const compactMobile = isCompactMobileViewport();
+    const limit = since
+      ? (compactMobile ? MOBILE_BACKFILL_MESSAGE_PAGE_SIZE : DESKTOP_MESSAGE_PAGE_SIZE)
+      : (compactMobile ? MOBILE_INITIAL_MESSAGE_PAGE_SIZE : DESKTOP_MESSAGE_PAGE_SIZE);
     const url = since
-      ? `/api/sessions/${chatId}/messages?since=${encodeURIComponent(since)}&limit=200`
-      : `/api/sessions/${chatId}/messages?limit=200`;
+      ? `/api/sessions/${chatId}/messages?since=${encodeURIComponent(since)}&limit=${limit}`
+      : `/api/sessions/${chatId}/messages?limit=${limit}`;
     const res = await fetch(url);
     if (!res.ok) return { messages: current, added: false };
     const data = await res.json();
@@ -928,6 +940,8 @@
 
   function startLiveRefresh() {
     window.addEventListener('focus', handleLiveRefreshWake);
+    window.addEventListener('pageshow', handleLiveRefreshWake);
+    window.addEventListener('online', handleLiveRefreshWake);
     document.addEventListener('visibilitychange', handleLiveRefreshWake);
     liveRefreshTimer = setInterval(() => {
       if (!document.hidden) void syncLiveMessages();
@@ -942,7 +956,10 @@
     if (session?.type === 'terminal') {
       await loadOlderLinkedChatMessages();
     } else {
-      await msgStore.loadOlder(sessionId);
+      await msgStore.loadOlder(
+        sessionId,
+        isCompactMobileViewport() ? MOBILE_BACKFILL_MESSAGE_PAGE_SIZE : DESKTOP_MESSAGE_PAGE_SIZE,
+      );
     }
   }
 
@@ -953,16 +970,19 @@
     linkedChatLoadingMore = true;
     try {
       const before = (oldest.created_at as string) || '';
+      const limit = isCompactMobileViewport() ? MOBILE_BACKFILL_MESSAGE_PAGE_SIZE : DESKTOP_MESSAGE_PAGE_SIZE;
       const res = await fetch(
-        `/api/sessions/${linkedChatId}/messages?before=${encodeURIComponent(before)}&limit=${LINKED_CHAT_PAGE_SIZE}`
+        `/api/sessions/${linkedChatId}/messages?before=${encodeURIComponent(before)}&limit=${limit}`
       );
       const data = await res.json();
       const older: Record<string, unknown>[] = data.messages || [];
       if (older.length === 0) { linkedChatHasMore = false; return; }
-      linkedChatHasMore = older.length === LINKED_CHAT_PAGE_SIZE;
+      linkedChatHasMore = older.length === limit;
       const el = linkedChatScrollEl;
       const prevScrollHeight = el ? el.scrollHeight : 0;
-      linkedChatMessages = [...older, ...linkedChatMessages];
+      let next = [...older, ...linkedChatMessages];
+      if (next.length > MAX_LIVE_MESSAGE_ROWS) next = next.slice(0, MAX_LIVE_MESSAGE_ROWS);
+      linkedChatMessages = next;
       if (el) {
         requestAnimationFrame(() => { el.scrollTop = el.scrollHeight - prevScrollHeight; });
       }
@@ -1189,13 +1209,18 @@
 
     s.onopen = () => joinCurrentWs(s);
 
+    s.onerror = () => {
+      try { s.close(); } catch {}
+    };
+
     s.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         if (linkedChatId && data.sessionId === linkedChatId) {
           if (data.type === 'message_created') {
             if (!linkedChatMessages.find(m => m.id === data.id)) {
-              linkedChatMessages = [...linkedChatMessages, data];
+              const next = [...linkedChatMessages, data];
+              linkedChatMessages = next.length > MAX_LIVE_MESSAGE_ROWS ? next.slice(-MAX_LIVE_MESSAGE_ROWS) : next;
               if (atBottom) requestAnimationFrame(() => scrollToBottom());
             }
           } else if (data.type === 'message_updated') {
@@ -1231,7 +1256,8 @@
             break;
           case 'message_created':
             if (!msgStore.messages.find(m => m.id === data.id)) {
-              msgStore.messages = [...msgStore.messages, data];
+              const next = [...msgStore.messages, data];
+              msgStore.messages = (next.length > MAX_LIVE_MESSAGE_ROWS ? next.slice(-MAX_LIVE_MESSAGE_ROWS) : next) as typeof msgStore.messages;
               if (data.sender_id && !mentionHandles.find(h => h.handle === data.sender_id)) {
                 loadMentionHandles();
               }
@@ -1409,7 +1435,7 @@
     // server + a few KB JSON, traded for ~250-500ms on every chat-room
     // open. The result is discarded by resetSessionState if the
     // session turns out to be a terminal.
-    const messagesP = msgStore.load(targetSessionId, compactMobile ? 20 : undefined);
+    const messagesP = msgStore.load(targetSessionId, compactMobile ? MOBILE_INITIAL_MESSAGE_PAGE_SIZE : undefined);
 
     // Non-blocking deferrals. listAllSessions is only used by the
     // sidebar dropdown; workspaces only by the workspace switcher.
@@ -1567,6 +1593,8 @@
     wsDestroyed = true;
     ws?.close();
     window.removeEventListener('focus', handleLiveRefreshWake);
+    window.removeEventListener('pageshow', handleLiveRefreshWake);
+    window.removeEventListener('online', handleLiveRefreshWake);
     document.removeEventListener('visibilitychange', handleLiveRefreshWake);
     if (liveRefreshTimer) clearInterval(liveRefreshTimer);
     if (terminalSpawnTimer) clearTimeout(terminalSpawnTimer);
