@@ -1333,6 +1333,29 @@
     }
   }
 
+  /** Background-fetch the things the chat-room view doesn't need to render
+   *  first interaction. The full session list populates the sidebar
+   *  dropdown; the workspaces list populates the workspace-switch UI in
+   *  the right panel. Both are useful within a few seconds of opening
+   *  but blocking on them costs the user a noticeable wait at chat
+   *  open. setTimeout 0 puts them after the next paint. */
+  function schedulePostLoad(loadSeq: number, targetSessionId: string) {
+    setTimeout(() => {
+      if (loadSeq !== sessionLoadSeq || targetSessionId !== sessionId) return;
+      void fetch('/api/sessions')
+        .then(r => r.json())
+        .then(d => { if (loadSeq === sessionLoadSeq && targetSessionId === sessionId) allSessions = d.sessions || []; })
+        .catch(() => {});
+      void fetch('/api/workspaces')
+        .then(r => r.json())
+        .then(d => {
+          if (loadSeq !== sessionLoadSeq || targetSessionId !== sessionId) return;
+          workspaces = Array.isArray(d) ? d : (d.workspaces || []);
+        })
+        .catch(() => {});
+    }, 0);
+  }
+
   function scheduleTerminalSpawn(targetSessionId: string) {
     if (terminalSpawnTimer) clearTimeout(terminalSpawnTimer);
     terminalSpawnTimer = setTimeout(() => {
@@ -1353,53 +1376,74 @@
     const loadSeq = ++sessionLoadSeq;
     resetSessionState();
 
-    const [sessRes, allSessRes] = await Promise.all([
-      fetch(`/api/sessions/${targetSessionId}`),
-      fetch('/api/sessions'),
-    ]);
-    const loadedSession = await sessRes.json();
-    const loadedSessions = (await allSessRes.json()).sessions || [];
-    if (loadSeq !== sessionLoadSeq || targetSessionId !== sessionId) return;
+    // Fire every fetch that only needs the session ID in one parallel
+    // batch. Server endpoints are 6-16ms each so wall-clock is the
+    // max not the sum once they share a connection. The 3-phase
+    // sequential chain that lived here previously was the bulk of
+    // the "couple of seconds" perceived latency. Phase boundaries
+    // were artificial — none of these calls actually depended on
+    // session details landing first.
+    //
+    // Audit: docs/perf/audit-chat-room-load-2026-05-09.md (Q1+Q2+Q4).
+    const sessP = fetch(`/api/sessions/${targetSessionId}`).then(r => r.json());
+    const tasksP = fetch(`/api/sessions/${targetSessionId}/tasks`).then(r => r.json());
+    const refsP = fetch(`/api/sessions/${targetSessionId}/file-refs`).then(r => r.json());
+    const uploadsP = fetch(`/api/sessions/${targetSessionId}/attachments`).then(r => r.json());
+    // For chat sessions msgStore.load is the right path; for terminal
+    // sessions the linked-chat is loaded separately below. The cost of
+    // a presumptive messages fetch on a terminal session is ~14ms
+    // server + a few KB JSON, traded for ~250-500ms on every chat-room
+    // open. The result is discarded by resetSessionState if the
+    // session turns out to be a terminal.
+    const messagesP = msgStore.load(targetSessionId);
 
+    // Non-blocking deferrals. listAllSessions is only used by the
+    // sidebar dropdown; workspaces only by the workspace switcher.
+    // Neither is needed for first interaction.
+    schedulePostLoad(loadSeq, targetSessionId);
+
+    const loadedSession = await sessP;
+    if (loadSeq !== sessionLoadSeq || targetSessionId !== sessionId) return;
     session = loadedSession;
-    allSessions = loadedSessions;
     const wideChatLayout = window.matchMedia('(min-width: 1024px)').matches;
     showPanel = wideChatLayout;
 
-    if (session?.type === 'terminal' && session) {
-      if (session.linked_chat_id) {
-        linkedChatId = session.linked_chat_id;
-        await loadLinkedChat(session.linked_chat_id);
-      }
+    if (session?.type === 'terminal' && session?.linked_chat_id) {
+      linkedChatId = session.linked_chat_id;
+      // Don't await the linked chat load — let it overlap with the
+      // other in-flight fetches we already kicked off above.
+      void loadLinkedChat(session.linked_chat_id);
     }
 
-    if (session?.type !== 'terminal') await msgStore.load(targetSessionId);
-    if (loadSeq !== sessionLoadSeq || targetSessionId !== sessionId) return;
-    requestAnimationFrame(() => scrollToBottom());
-
-    const [tasksRes, refsRes, uploadsRes, workspacesRes] = await Promise.all([
-      fetch(`/api/sessions/${targetSessionId}/tasks`),
-      fetch(`/api/sessions/${targetSessionId}/file-refs`),
-      fetch(`/api/sessions/${targetSessionId}/attachments`),
-      fetch('/api/workspaces'),
+    // Resolve the parallel batch. They're already in flight.
+    const [tasksData, refsData, uploadsData] = await Promise.all([
+      tasksP, refsP, uploadsP,
     ]);
     if (loadSeq !== sessionLoadSeq || targetSessionId !== sessionId) return;
-    tasks = (await tasksRes.json()).tasks || [];
-    fileRefs = (await refsRes.json()).refs || [];
-    uploads = (await uploadsRes.json()).uploads || [];
-    const workspaceData = await workspacesRes.json();
-    workspaces = Array.isArray(workspaceData) ? workspaceData : (workspaceData.workspaces || []);
-    loadMentionHandles(
+    tasks = tasksData.tasks || [];
+    fileRefs = refsData.refs || [];
+    uploads = uploadsData.uploads || [];
+
+    // For chat sessions, the messages fetch was the real one — wait
+    // and render. For terminal sessions the messages we fetched are
+    // the terminal's own message history (rare to surface) and we
+    // can ignore the await.
+    if (session?.type !== 'terminal') {
+      await messagesP;
+      if (loadSeq !== sessionLoadSeq || targetSessionId !== sessionId) return;
+      requestAnimationFrame(() => scrollToBottom());
+    }
+
+    // Mention handles + read receipts + parent context fire in
+    // parallel — none gates first interaction, none depends on each
+    // other.
+    void loadMentionHandles(
       session?.type === 'terminal' && linkedChatId ? linkedChatId : targetSessionId,
       targetSessionId,
     );
-
-    // Load read receipts for the active chat
     const readChatId = session?.type === 'terminal' ? session?.linked_chat_id : targetSessionId;
-    if (readChatId) loadReadReceipts(readChatId, targetSessionId);
-
-    // Load parent context for discussion rooms
-    if (session?.type === 'chat') loadParentContext();
+    if (readChatId) void loadReadReceipts(readChatId, targetSessionId);
+    if (session?.type === 'chat') void loadParentContext();
 
     connectWs();
 

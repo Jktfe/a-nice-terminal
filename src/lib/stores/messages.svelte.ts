@@ -17,6 +17,18 @@ interface Message {
 // Mirrors ChatPane.svelte:22 so the two views stay in lockstep.
 const PAGE_SIZE = 50;
 
+// Hard cap on the in-memory messages array. loadOlder appends without
+// natural bound, which means a power-user scrolling weeks back through a
+// long-running room can accumulate many MB of message rows + reactive
+// overhead. When loadOlder would push past the cap, we drop the newest
+// tail (since the user is scrolling UP — they care about older context;
+// they can re-fetch the bottom by jumping back if they scroll down).
+//
+// 1000 messages × ~1KB avg = ~1MB raw + reactive overhead. Generous for
+// realistic browsing while preventing the unbounded-grow failure mode
+// flagged in docs/perf/audit-chat-room-load-2026-05-09.md M1.
+const MAX_MESSAGES_IN_MEMORY = 1000;
+
 let messages = $state<Message[]>([]);
 let streamingId = $state<string | null>(null);
 let hasMoreMessages = $state(false);
@@ -59,7 +71,15 @@ export function useMessageStore() {
       // Dedupe by id in case a streaming chunk landed an early copy.
       const seen = new Set(messages.map((m) => m.id));
       const fresh = older.filter((m) => !seen.has(m.id));
-      messages = [...fresh, ...messages];
+      let next = [...fresh, ...messages];
+      // Cap memory: if we've grown past the hard limit, drop the
+      // newest tail. We just scrolled up to fetch older context, so
+      // dropping the tail preserves what the user is currently looking
+      // at. hasMoreMessages stays true so older fetches keep working.
+      if (next.length > MAX_MESSAGES_IN_MEMORY) {
+        next = next.slice(0, MAX_MESSAGES_IN_MEMORY);
+      }
+      messages = next;
       hasMoreMessages = older.length >= limit;
       return fresh.length;
     } finally {
