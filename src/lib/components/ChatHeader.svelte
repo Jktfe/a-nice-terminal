@@ -72,22 +72,24 @@
 
   /** Plan-discoverability probe — non-blocking, post-load. The chat header
    *  only shows the Plan icon-button when the room actually has plan
-   *  events, so users on mobile have a one-tap path from a chat to the
+   *  rows, so users on mobile have a one-tap path from a chat to the
    *  plan view (closing the discoverability gap that sent James to
-   *  Safari). Endpoint is fast (sub-20ms server-side) and we never
-   *  await; first paint is unaffected. Re-runs when sessionId changes
-   *  so navigating between rooms refreshes the answer. */
+   *  Safari). Endpoint is the plans-list (not the plan-show), which
+   *  filters by session_id server-side and returns { plans: [...] }.
+   *  Fast (sub-20ms) and never awaited — first paint is unaffected.
+   *  Re-runs when sessionId changes so navigating between rooms
+   *  refreshes the answer. */
   let roomHasPlan = $state(false);
   $effect(() => {
     const probeId = sessionId;
     roomHasPlan = false;
     if (!probeId) return;
-    void fetch(`/api/plan?session_id=${encodeURIComponent(probeId)}&limit=1`)
+    void fetch(`/api/plans?session_id=${encodeURIComponent(probeId)}&limit=1`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (probeId !== sessionId) return;
-        const events = Array.isArray(data?.events) ? data.events : Array.isArray(data?.plans) ? data.plans : [];
-        roomHasPlan = events.length > 0;
+        const plans = Array.isArray(data?.plans) ? data.plans : [];
+        roomHasPlan = plans.length > 0;
       })
       .catch(() => {});
   });
