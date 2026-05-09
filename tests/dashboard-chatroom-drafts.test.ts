@@ -34,6 +34,14 @@ describe('dashboard chatroom pins and composer drafts', () => {
     expect(messageInput).toContain('localStorage.setItem(storageKey, value)');
     expect(messageInput).toContain('localStorage.removeItem(storageKey)');
   });
+
+  it('refreshes dashboard state when mobile Safari restores from bfcache', () => {
+    expect(sessionList).toContain("window.addEventListener('pageshow', refreshDashboardAfterWake)");
+    expect(sessionList).toContain("window.addEventListener('online', refreshDashboardAfterWake)");
+    expect(sessionList).toContain("document.addEventListener('visibilitychange', handleVisibility)");
+    expect(sessionList).toContain('void loadDashboardSessions({ force: true })');
+    expect(sessionList).toMatch(/dashboardWs\.readyState === WebSocket\.CONNECTING[\s\S]*dashboardWs\.readyState === WebSocket\.OPEN/);
+  });
 });
 
 describe('plan tests stay out of the live ANT database', () => {

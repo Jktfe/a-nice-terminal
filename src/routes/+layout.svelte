@@ -11,12 +11,33 @@
   onMount(() => {
     theme.init();
 
-    // M6 #2 — Register service worker
     if ('serviceWorker' in navigator) {
+      let reloadingForServiceWorkerUpdate = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloadingForServiceWorkerUpdate) return;
+        reloadingForServiceWorkerUpdate = true;
+        window.location.reload();
+      });
+
       navigator.serviceWorker
-        .register('/sw.js')
+        .register('/sw.js', { updateViaCache: 'none' })
         .then((reg) => {
           console.log('[PWA] Service Worker registered:', reg.scope);
+          void reg.update();
+
+          if (reg.waiting) {
+            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          }
+
+          reg.addEventListener('updatefound', () => {
+            const worker = reg.installing;
+            if (!worker) return;
+            worker.addEventListener('statechange', () => {
+              if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+                worker.postMessage({ type: 'SKIP_WAITING' });
+              }
+            });
+          });
         })
         .catch((err) => {
           console.error('[PWA] Service Worker registration failed:', err);

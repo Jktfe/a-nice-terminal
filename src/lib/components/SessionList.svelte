@@ -134,6 +134,8 @@
 
   let dashboardWs: WebSocket | null = null;
   let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let dashboardLoadInFlight: Promise<void> | null = null;
+  let lastDashboardLoadAt = 0;
 
   async function refreshNeedsInputStatuses(list = store.sessions) {
     const terminals = list.filter((session) => session.type === 'terminal');
@@ -171,14 +173,30 @@
     } catch {}
   }
 
-  async function loadDashboardSessions() {
-    await store.load();
-    await refreshNeedsInputStatuses(store.sessions);
-    await refreshAskCount();
+  async function loadDashboardSessions(options: { force?: boolean } = {}) {
+    if (dashboardLoadInFlight) return dashboardLoadInFlight;
+    const now = Date.now();
+    if (!options.force && now - lastDashboardLoadAt < 1_500) return;
+
+    dashboardLoadInFlight = (async () => {
+      await store.load();
+      await refreshNeedsInputStatuses(store.sessions);
+      await refreshAskCount();
+      lastDashboardLoadAt = Date.now();
+    })().finally(() => {
+      dashboardLoadInFlight = null;
+    });
+    return dashboardLoadInFlight;
   }
 
   function connectDashboardWs() {
     if (typeof window === 'undefined') return;
+    if (
+      dashboardWs &&
+      (dashboardWs.readyState === WebSocket.CONNECTING || dashboardWs.readyState === WebSocket.OPEN)
+    ) {
+      return;
+    }
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     dashboardWs = new WebSocket(`${protocol}//${location.host}/ws`);
 
@@ -229,6 +247,12 @@
     };
   }
 
+  function refreshDashboardAfterWake() {
+    if (typeof document !== 'undefined' && document.hidden) return;
+    void loadDashboardSessions({ force: true });
+    connectDashboardWs();
+  }
+
   $effect(() => {
     connectDashboardWs();
     return () => {
@@ -256,11 +280,20 @@
     const handlePinChange = () => {
       sidebarPinnedIds = readPinnedIds(localStorage);
     };
+    const handleVisibility = () => {
+      if (!document.hidden) refreshDashboardAfterWake();
+    };
     window.addEventListener('storage', handleStorage);
     window.addEventListener(SIDEBAR_PIN_CHANGE_EVENT, handlePinChange);
+    window.addEventListener('pageshow', refreshDashboardAfterWake);
+    window.addEventListener('online', refreshDashboardAfterWake);
+    document.addEventListener('visibilitychange', handleVisibility);
     return () => {
       window.removeEventListener('storage', handleStorage);
       window.removeEventListener(SIDEBAR_PIN_CHANGE_EVENT, handlePinChange);
+      window.removeEventListener('pageshow', refreshDashboardAfterWake);
+      window.removeEventListener('online', refreshDashboardAfterWake);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   });
 

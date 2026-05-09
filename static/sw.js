@@ -3,7 +3,7 @@
 // app changes often and cache-first navigation can leave installed PWAs on an
 // old shell after deploys.
 
-const CACHE_NAME = 'ant-v3-cache-v2';
+const CACHE_NAME = 'ant-v3-cache-v3';
 const STATIC_ASSETS = [
   '/manifest.webmanifest',
   '/favicon.ico',
@@ -35,6 +35,12 @@ self.addEventListener('activate', (event) => {
     ),
   );
   self.clients.claim();
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 function isNavigationRequest(request) {
