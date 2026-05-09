@@ -1061,6 +1061,17 @@ export const queries = {
     prepare(`SELECT * FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT ?`).all(sessionId, limit),
   createMessage: (id: string, sessionId: string, role: string, content: string, format: string, status: string, senderId: string | null, target: string | null, replyTo: string | null, msgType: string, meta: string) =>
     prepare(`INSERT INTO messages (id, session_id, role, content, format, status, sender_id, target, reply_to, msg_type, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, sessionId, role, content, format, status, senderId, target, replyTo, msgType, meta),
+  /**
+   * Returns 1 row when the sender has any prior message in the session,
+   * undefined otherwise. Used by ant-skills-on-demand-2026-05-09 m2 to
+   * detect a sender's first post in a room and serve a one-line skills
+   * hint without re-spamming on every subsequent message.
+   *
+   * Cheap — leverages the existing (session_id, sender_id) coverage on
+   * messages and only needs LIMIT 1.
+   */
+  hasPriorMessageFromSender: (sessionId: string, senderId: string) =>
+    prepare(`SELECT 1 FROM messages WHERE session_id = ? AND sender_id = ? LIMIT 1`).get(sessionId, senderId),
   deleteMessage: (id: string) => prepare(`DELETE FROM messages WHERE id = ?`).run(id),
   updateMessageMeta: (id: string, meta: string) =>
     prepare(`UPDATE messages SET meta = ? WHERE id = ?`).run(meta, id),

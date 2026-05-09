@@ -224,6 +224,15 @@ export async function POST(event: RequestEvent<{ id: string }>) {
     }
   }
 
+  // First-post detection — must happen BEFORE createMessage so the just-
+  // inserted row doesn't pollute the lookup. Used to deliver a one-line
+  // skills hint on the sender's first post in a room (ant-skills-on-demand
+  // m2). Skips chat_break and other non-conversational kinds: hints only
+  // make sense for normal user/agent messages.
+  const isFirstPostFromSender = !!sender_id
+    && msgType === 'message'
+    && !queries.hasPriorMessageFromSender(params.id, sender_id);
+
   // 1. Persist to DB
   queries.createMessage(
     id, params.id, role, normalizedContent, format || 'text', 'complete',
@@ -453,6 +462,20 @@ export async function POST(event: RequestEvent<{ id: string }>) {
     }
   }
 
-  // 3. Return with delivery info
-  return json({ ...msg, ask: createdAsks[0] ?? null, asks: createdAsks, deliveries: result.deliveries }, { status: 201 });
+  // 3. Return with delivery info + first-post hint when applicable.
+  // The hint is a single line with no skill body — agents fetch the
+  // actual skill via `ant skill <name>` only when they need it.
+  // Lives on the response so the CLI can surface it client-side
+  // without an extra round-trip.
+  const skillHint = isFirstPostFromSender
+    ? 'tip: run `ant skill list` to see ANT helper skills (planning, chat-routing, chat-break, task-lifecycle, artefacts) — saves tokens vs re-explaining.'
+    : null;
+
+  return json({
+    ...msg,
+    ask: createdAsks[0] ?? null,
+    asks: createdAsks,
+    deliveries: result.deliveries,
+    ...(skillHint ? { firstPost: true, hint: skillHint } : {}),
+  }, { status: 201 });
 }

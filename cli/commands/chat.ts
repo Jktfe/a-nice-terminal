@@ -358,6 +358,13 @@ export async function chat(args: string[], flags: any, ctx: any) {
     const result = await api.post(ctx, `/api/sessions/${id}/messages`, body, room);
     if (ctx.json) { console.log(JSON.stringify(result)); return; }
     console.log(`Sent: ${msg}`);
+    // Server attaches a one-line skills hint when this is the sender's
+    // first post in the room (ant-skills-on-demand m2). Surface it
+    // beneath the Sent line so the agent sees it inline once per
+    // (room, sender) pair, then never again.
+    if (typeof result?.hint === 'string' && result.hint.length > 0) {
+      console.log(result.hint);
+    }
     return;
   }
 
