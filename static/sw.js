@@ -1,9 +1,10 @@
 // ANT PWA Service Worker
-// M6 #2 — Minimal offline shell + cache-first strategy
+// Keep immutable assets fast, but never serve stale session HTML. The session
+// app changes often and cache-first navigation can leave installed PWAs on an
+// old shell after deploys.
 
-const CACHE_NAME = 'ant-v3-cache-v1';
+const CACHE_NAME = 'ant-v3-cache-v2';
 const STATIC_ASSETS = [
-  '/',
   '/manifest.webmanifest',
   '/favicon.ico',
   '/favicon.svg',
@@ -36,7 +37,11 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch: stale-while-revalidate for same-origin, network-only for API
+function isNavigationRequest(request) {
+  return request.mode === 'navigate' || request.headers.get('accept')?.includes('text/html');
+}
+
+// Fetch: network for API/navigation, cache-first for immutable app assets.
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
@@ -46,19 +51,31 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Same-origin static assets: cache first, then network
-  if (url.origin === self.location.origin) {
+  if (url.origin !== self.location.origin || request.method !== 'GET') return;
+
+  if (isNavigationRequest(request)) {
+    event.respondWith(
+      fetch(request).catch(async () => (await caches.match('/')) || Response.error()),
+    );
+    return;
+  }
+
+  const cacheableStatic =
+    url.pathname.startsWith('/_app/immutable/') ||
+    url.pathname.startsWith('/icons/') ||
+    STATIC_ASSETS.includes(url.pathname);
+
+  if (cacheableStatic) {
     event.respondWith(
       caches.match(request).then((cached) => {
-        const fetchPromise = fetch(request).then((networkResponse) => {
+        if (cached) return cached;
+        return fetch(request).then((networkResponse) => {
           if (networkResponse.ok) {
             const clone = networkResponse.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
           }
           return networkResponse;
-        }).catch(() => cached);
-
-        return cached || fetchPromise;
+        });
       }),
     );
   }

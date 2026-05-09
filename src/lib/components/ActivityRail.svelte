@@ -53,6 +53,10 @@
   // no schema/API changes, and TTL remains session persistence rather than pin state.
   let pinnedIds = $state<Set<string>>(new Set());
 
+  function isCompactPhoneRail() {
+    return typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches;
+  }
+
   function loadPinned() {
     if (typeof window === 'undefined') return;
     pinnedIds = readPinnedIds(localStorage);
@@ -230,6 +234,9 @@
   }
 
   onMount(() => {
+    // The rail is CSS-hidden on phones. Avoid paying for its desktop-only
+    // session/status fetches in the mobile critical path.
+    if (isCompactPhoneRail()) return;
     loadSessions();
     connectWs();
     loadPinned();

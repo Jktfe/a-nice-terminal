@@ -1372,6 +1372,10 @@
     }, 1000);
   }
 
+  function isCompactMobileViewport() {
+    return typeof window !== 'undefined' && window.matchMedia('(max-width: 760px), (hover: none) and (pointer: coarse)').matches;
+  }
+
   async function loadSessionPage(targetSessionId: string) {
     const loadSeq = ++sessionLoadSeq;
     resetSessionState();
@@ -1385,17 +1389,27 @@
     // session details landing first.
     //
     // Audit: docs/perf/audit-chat-room-load-2026-05-09.md (Q1+Q2+Q4).
+    const compactMobile = isCompactMobileViewport();
     const sessP = fetch(`/api/sessions/${targetSessionId}`).then(r => r.json());
-    const tasksP = fetch(`/api/sessions/${targetSessionId}/tasks`).then(r => r.json());
-    const refsP = fetch(`/api/sessions/${targetSessionId}/file-refs`).then(r => r.json());
-    const uploadsP = fetch(`/api/sessions/${targetSessionId}/attachments`).then(r => r.json());
+    const loadSideData = async () => {
+      const [tasksData, refsData, uploadsData] = await Promise.all([
+        fetch(`/api/sessions/${targetSessionId}/tasks`).then(r => r.json()),
+        fetch(`/api/sessions/${targetSessionId}/file-refs`).then(r => r.json()),
+        fetch(`/api/sessions/${targetSessionId}/attachments`).then(r => r.json()),
+      ]);
+      if (loadSeq !== sessionLoadSeq || targetSessionId !== sessionId) return;
+      tasks = tasksData.tasks || [];
+      fileRefs = refsData.refs || [];
+      uploads = uploadsData.uploads || [];
+    };
+    const sideDataP = compactMobile ? null : loadSideData().catch(() => {});
     // For chat sessions msgStore.load is the right path; for terminal
     // sessions the linked-chat is loaded separately below. The cost of
     // a presumptive messages fetch on a terminal session is ~14ms
     // server + a few KB JSON, traded for ~250-500ms on every chat-room
     // open. The result is discarded by resetSessionState if the
     // session turns out to be a terminal.
-    const messagesP = msgStore.load(targetSessionId);
+    const messagesP = msgStore.load(targetSessionId, compactMobile ? 20 : undefined);
 
     // Non-blocking deferrals. listAllSessions is only used by the
     // sidebar dropdown; workspaces only by the workspace switcher.
@@ -1415,15 +1429,6 @@
       void loadLinkedChat(session.linked_chat_id);
     }
 
-    // Resolve the parallel batch. They're already in flight.
-    const [tasksData, refsData, uploadsData] = await Promise.all([
-      tasksP, refsP, uploadsP,
-    ]);
-    if (loadSeq !== sessionLoadSeq || targetSessionId !== sessionId) return;
-    tasks = tasksData.tasks || [];
-    fileRefs = refsData.refs || [];
-    uploads = uploadsData.uploads || [];
-
     // For chat sessions, the messages fetch was the real one — wait
     // and render. For terminal sessions the messages we fetched are
     // the terminal's own message history (rare to surface) and we
@@ -1432,6 +1437,15 @@
       await messagesP;
       if (loadSeq !== sessionLoadSeq || targetSessionId !== sessionId) return;
       requestAnimationFrame(() => scrollToBottom());
+    }
+
+    if (compactMobile) {
+      setTimeout(() => {
+        if (loadSeq !== sessionLoadSeq || targetSessionId !== sessionId) return;
+        void loadSideData().catch(() => {});
+      }, 0);
+    } else {
+      void sideDataP;
     }
 
     // Mention handles + read receipts + parent context fire in

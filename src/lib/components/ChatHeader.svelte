@@ -198,11 +198,14 @@
     style="color: var(--text-muted);"
     title="Back to sessions"
   >
-    <img
-      src={theme.dark ? '/ANTlogo.png' : '/ANTlogo-black-text.png'}
-      alt="ANT"
-      class="hidden sm:block h-6 w-auto object-contain"
-    />
+    <picture class="hidden sm:block">
+      <source media="(max-width: 760px)" srcset="/icons/ant-icon-192.png" />
+      <img
+        src={theme.dark ? '/ANTlogo.png' : '/ANTlogo-black-text.png'}
+        alt="ANT"
+        class="h-6 w-auto object-contain"
+      />
+    </picture>
     <svg class="w-4 h-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
     </svg>

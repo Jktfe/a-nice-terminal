@@ -136,9 +136,16 @@
 
   let parentContextOpen = $state(false);
 
+  function shouldPollAgentStatuses() {
+    return typeof window === 'undefined' || !window.matchMedia('(max-width: 760px), (hover: none) and (pointer: coarse)').matches;
+  }
+
   let scrollElLocal = $state<HTMLElement | null>(null);
   let agentStatuses = $state<Record<string, StatusPayload>>({});
+  let statusPollingEnabled = $state(shouldPollAgentStatuses());
   let statusPollTimer: ReturnType<typeof setInterval> | null = null;
+  let statusMediaQuery: MediaQueryList | null = null;
+  let removeStatusMediaListener: (() => void) | null = null;
   let typingTimeout: ReturnType<typeof setTimeout> | null = null;
 
   const wsStore = useWsStore();
@@ -154,7 +161,7 @@
   });
 
   const footerStatusParticipants = $derived(
-    session?.type === 'terminal' ? [] : statusParticipants
+    session?.type === 'terminal' || !statusPollingEnabled ? [] : statusParticipants
   );
   const statusSessionIds = $derived(statusParticipants.map((participant) => participant.sess.id));
   const quickLaunchScope = $derived<ShortcutScope | null>(
@@ -162,6 +169,10 @@
   );
 
   async function fetchAgentStatuses() {
+    if (!statusPollingEnabled) {
+      agentStatuses = {};
+      return;
+    }
     const ids = statusSessionIds;
     if (ids.length === 0) {
       agentStatuses = {};
@@ -186,20 +197,44 @@
     agentStatuses = next;
   }
 
+  function setStatusPollingEnabled(enabled: boolean) {
+    statusPollingEnabled = enabled;
+    if (!enabled) {
+      if (statusPollTimer) {
+        clearInterval(statusPollTimer);
+        statusPollTimer = null;
+      }
+      agentStatuses = {};
+      return;
+    }
+    if (!statusPollTimer) {
+      void fetchAgentStatuses();
+      statusPollTimer = setInterval(fetchAgentStatuses, 8000);
+    }
+  }
+
   onMount(() => {
     wsStore.connect();
-    fetchAgentStatuses();
-    statusPollTimer = setInterval(fetchAgentStatuses, 8000);
+    if (typeof window !== 'undefined') {
+      statusMediaQuery = window.matchMedia('(max-width: 760px), (hover: none) and (pointer: coarse)');
+      const updateStatusPolling = () => setStatusPollingEnabled(!statusMediaQuery?.matches);
+      updateStatusPolling();
+      statusMediaQuery.addEventListener?.('change', updateStatusPolling);
+      removeStatusMediaListener = () => statusMediaQuery?.removeEventListener?.('change', updateStatusPolling);
+    } else {
+      setStatusPollingEnabled(true);
+    }
   });
 
   onDestroy(() => {
     if (typingTimeout) clearTimeout(typingTimeout);
     if (statusPollTimer) clearInterval(statusPollTimer);
+    removeStatusMediaListener?.();
   });
 
   $effect(() => {
     const key = statusSessionIds.join('|');
-    if (key) fetchAgentStatuses();
+    if (statusPollingEnabled && key) fetchAgentStatuses();
     else agentStatuses = {};
   });
 
