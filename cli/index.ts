@@ -22,6 +22,7 @@ import { agents } from './commands/agents.js';
 import { prompt } from './commands/prompt.js';
 import { grant } from './commands/grant.js';
 import { interview } from './commands/interview.js';
+import { skill, loadSkill, skillAliasFromFlags } from './commands/skill.js';
 import { register as registerIdentity } from './commands/register.js';
 import { joinRoom } from './commands/joinRoom.js';
 import { evidence } from './commands/evidence.js';
@@ -139,6 +140,11 @@ Commands:
   tunnel status <slug>  Show tunnel metadata
   tunnel remove <slug>  Unregister a tunnel
 
+  skill list            List compact ANT skills available to agents
+  skill <name>          Print one SKILL.md, e.g. ant skill planning
+  skill show <name>     Same as ant skill <name>
+                        Shortcut aliases: ant --plantools / ant --<name>tools
+
   task <id> list                    List tasks
   task <id> create "title"          Propose a new task (--desc "..." --plan <plan_id> --milestone <id>)
   task <id> accept <task-id>        Accept a proposed task
@@ -221,6 +227,12 @@ Options:
 `;
 
 async function main() {
+  const skillAlias = skillAliasFromFlags(flags);
+  if (!command && skillAlias) {
+    console.log(loadSkill(skillAlias).raw.trimEnd());
+    process.exit(0);
+  }
+
   if (flags.help || !command) {
     console.log(HELP);
     process.exit(0);
@@ -256,6 +268,7 @@ async function main() {
       case 'doc':      await doc(args, flags, ctx); break;
       case 'agents':   await agents(args, flags, ctx); break;
       case 'prompt':   await prompt(args, flags, ctx); break;
+      case 'skill':    await skill(args, flags); break;
       case 'hooks':    await hooks(args, flags); break;
       case 'register': await registerIdentity(args, flags, ctx); break;
       case 'join-room': await joinRoom(args, flags, ctx); break;
