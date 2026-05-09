@@ -18,7 +18,19 @@ describe('toast container placement', () => {
 
   it('keeps toast text readable without full-width overlays', () => {
     expect(source).toContain('overflow-wrap: anywhere');
+    expect(source).toContain('class="ant-toast-message"');
+    expect(source).toContain('color: var(--text, #111827)');
+    expect(source).toContain('white-space: pre-wrap');
+    expect(source).toContain('font-size: 0.95rem');
+    expect(source).not.toContain('color: var(--text-primary, #f3f4f6)');
     expect(source).toContain('visibleToasts = $derived(toasts.list.slice(-5))');
     expect(source).toContain('grid-template-columns: 1.25rem minmax(0, 1fr) auto');
+  });
+
+  it('pauses auto-dismiss while the user is reading or focusing a toast', () => {
+    expect(source).toContain('onpointerenter={() => toasts.pause(t.id)}');
+    expect(source).toContain('onpointerleave={() => toasts.resume(t.id)}');
+    expect(source).toContain('onfocusin={() => toasts.pause(t.id)}');
+    expect(source).toContain('onfocusout={() => toasts.resume(t.id)}');
   });
 });

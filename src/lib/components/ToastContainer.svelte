@@ -22,13 +22,17 @@
       class="ant-toast ant-toast--{t.kind}"
       role={t.kind === 'error' ? 'alert' : 'status'}
       aria-live={t.kind === 'error' ? 'assertive' : 'polite'}
+      onpointerenter={() => toasts.pause(t.id)}
+      onpointerleave={() => toasts.resume(t.id)}
+      onfocusin={() => toasts.pause(t.id)}
+      onfocusout={() => toasts.resume(t.id)}
     >
       <span class="ant-toast-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
           <path stroke-linecap="round" stroke-linejoin="round" d={kindIcon[t.kind]} />
         </svg>
       </span>
-      <span>{t.message}</span>
+      <span class="ant-toast-message">{t.message}</span>
       <button
         type="button"
         onclick={() => toasts.dismiss(t.id)}
@@ -65,14 +69,21 @@
     border: 0.5px solid var(--hairline-strong);
     border-left-width: 4px;
     border-radius: var(--radius-card, 8px);
-    background: color-mix(in srgb, var(--bg-card, #111827) 96%, transparent);
-    color: var(--text-primary, #f3f4f6);
+    background: color-mix(in srgb, var(--bg-card, #ffffff) 98%, transparent);
+    color: var(--text, #111827);
     box-shadow: 0 18px 40px -24px rgba(0, 0, 0, 0.55), 0 8px 18px -16px rgba(0, 0, 0, 0.45);
-    font-size: 0.875rem;
+    font-size: 0.95rem;
     font-weight: 500;
     line-height: 1.4;
     overflow-wrap: anywhere;
     animation: ant-toast-in 180ms ease-out;
+  }
+
+  .ant-toast-message {
+    min-width: 0;
+    color: var(--text, #111827);
+    white-space: pre-wrap;
+    word-break: break-word;
   }
 
   .ant-toast--success {
@@ -127,7 +138,7 @@
   .ant-toast-close:hover,
   .ant-toast-close:focus-visible {
     background: var(--hairline, rgba(255, 255, 255, 0.08));
-    color: var(--text-primary, #f3f4f6);
+    color: var(--text, #111827);
   }
 
   @keyframes ant-toast-in {

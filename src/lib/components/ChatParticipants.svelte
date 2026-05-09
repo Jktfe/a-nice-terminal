@@ -629,6 +629,18 @@
     outline-offset: 1px;
   }
 
+  @media (hover: none), (pointer: coarse) {
+    .actions-overflow {
+      max-width: 220px;
+      opacity: 1;
+    }
+
+    .icon-btn {
+      width: 36px;
+      height: 36px;
+    }
+  }
+
   .icon-btn--primary {
     color: var(--participant-color, #6366F1);
   }
