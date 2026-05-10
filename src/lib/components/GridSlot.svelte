@@ -704,6 +704,19 @@
           </button>
         {/if}
 
+        <a
+          href={`/session/${session.id}`}
+          title="Open full session"
+          aria-label={`Open ${session.name} full session`}
+          class="grid-slot-action"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 3h6v6" />
+            <path d="M10 14L21 3" />
+            <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+          </svg>
+        </a>
+
         <!-- svelte-ignore a11y_mouse_events_have_key_events -->
         <!-- Swap / replace icon -->
         <button
@@ -1019,6 +1032,28 @@
     background: #F3F4F6;
     color: #6B7280;
     flex-shrink: 0;
+  }
+
+  .grid-slot-action {
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    padding: 2px;
+    border-radius: 4px;
+    color: #9CA3AF;
+    line-height: 0;
+    text-decoration: none;
+    transition: color 120ms ease, background 120ms ease;
+  }
+
+  .grid-slot-action:hover,
+  .grid-slot-action:focus-visible {
+    color: #4F46E5;
+    background: #EEF2FF;
+    outline: none;
   }
 
   .grid-message {

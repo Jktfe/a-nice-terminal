@@ -33,4 +33,10 @@ describe('grid dashboard refresh behaviour', () => {
     expect(gridSlot).toContain('Room agents:');
     expect(gridSlot).toContain('participantLabel');
   });
+
+  it('links every populated grid card to the full session page', () => {
+    expect(gridSlot).toContain('href={`/session/${session.id}`}');
+    expect(gridSlot).toContain('class="grid-slot-action"');
+    expect(gridSlot).toContain('Open full session');
+  });
 });
