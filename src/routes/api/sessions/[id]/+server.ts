@@ -14,6 +14,17 @@ function findConflictingSession(name: string, excludeIds: string[] = []) {
   });
 }
 
+function normalizeArchivedPatch(value: unknown): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+    if (['0', 'false', 'no', 'off', ''].includes(normalized)) return false;
+  }
+  return Boolean(value);
+}
+
 export function GET({ params }: RequestEvent<{ id: string }>) {
   const session = queries.getSession(params.id);
   if (!session) throw error(404, 'Session not found');
@@ -30,6 +41,8 @@ export async function PATCH(event: RequestEvent<{ id: string }>) {
 
   const body = await request.json();
   const nextName = typeof body.name === 'string' ? normalizeSessionName(body.name) : null;
+  const hasArchivedPatch = body.archived !== undefined;
+  const archivedPatch = hasArchivedPatch ? normalizeArchivedPatch(body.archived) : null;
   if (body.name !== undefined && !nextName) {
     return json({ error: 'Session name is required' }, { status: 400 });
   }
@@ -65,11 +78,11 @@ export async function PATCH(event: RequestEvent<{ id: string }>) {
       : null;
     queries.updateRootDir(rootDir, params.id);
   }
-  if (nextName || body.status || body.archived !== undefined || body.meta !== undefined) {
+  if (nextName || body.status || hasArchivedPatch || body.meta !== undefined) {
     queries.updateSession(
       nextName || null,
       body.status || null,
-      body.archived !== undefined ? (body.archived ? 1 : 0) : null,
+      hasArchivedPatch ? (archivedPatch ? 1 : 0) : null,
       body.meta !== undefined
         ? (typeof body.meta === 'string' ? body.meta : JSON.stringify(body.meta))
         : null,
@@ -100,7 +113,7 @@ export async function PATCH(event: RequestEvent<{ id: string }>) {
   let removedIds: string[] | null = null;
 
   // Auto-export to memory palace when a session is archived
-  if (body.archived === true) {
+  if (archivedPatch === true) {
     const idsToDispose = new Set<string>([params.id]);
     const { maybeWriteSessionSummary } = await import('$lib/server/capture/obsidian-writer.js');
     // Export this session
