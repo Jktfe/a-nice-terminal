@@ -2,6 +2,7 @@
   import { useGridStore } from '$lib/stores/grid.svelte';
   import { onDestroy, tick } from 'svelte';
   import { agentColor, agentColorFromSession } from '$lib/nocturne';
+  import { useMentionAutocomplete } from '$lib/composables/use-mention-autocomplete.svelte';
 
   interface Session {
     id: string;
@@ -138,20 +139,12 @@
   let participantsLoadSeq = 0;
   let participantPollTimer: ReturnType<typeof setInterval> | null = null;
 
-  // ── @ mention autocomplete state ───────────────────────────────
+  // ── @ mention autocomplete (shared composable) ─────────────────
+  // Sourced from /api/sessions/<roomId>/participants `data.all`, fed
+  // into the same fuzzy-scored composable that powers MessageInput so
+  // the grid composer and the full-page composer behave identically.
   let mentionHandles = $state<{ handle: string; name: string }[]>([]);
-  let mentionQuery = $state('');
-  let showMentions = $state(false);
-  let mentionStart = $state(-1);
-  let mentionSelectedIdx = $state(0);
-
-  const filteredHandles = $derived.by(() => {
-    const q = mentionQuery.trim().toLowerCase();
-    if (!q) return mentionHandles.slice(0, 6);
-    return mentionHandles
-      .filter((h) => h.handle.toLowerCase().includes(q) || h.name.toLowerCase().includes(q))
-      .slice(0, 6);
-  });
+  const mention = useMentionAutocomplete(() => mentionHandles);
 
   const roomAgents = $derived(
     roomParticipants.filter((participant) => participant.session_type === 'terminal')
@@ -191,19 +184,11 @@
       const all = Array.isArray(data.all) ? data.all : [];
       if (seq === participantsLoadSeq && roomParticipantsRoomId === roomId) {
         roomParticipants = participants;
-        const everyone = { handle: '@everyone', name: 'Everyone' };
-        const fromAll = all
+        // The composable handles @everyone pinning + dedup; just feed the
+        // raw handle list from data.all here.
+        mentionHandles = all
           .filter((p: any) => p && typeof p.handle === 'string' && p.handle)
           .map((p: any) => ({ handle: p.handle, name: p.name || p.handle }));
-        const seen = new Set<string>([everyone.handle.toLowerCase()]);
-        const merged: { handle: string; name: string }[] = [everyone];
-        for (const h of fromAll) {
-          const key = h.handle.toLowerCase();
-          if (seen.has(key)) continue;
-          seen.add(key);
-          merged.push(h);
-        }
-        mentionHandles = merged;
       }
     } catch {
       // Advisory only — room preview should not fail because participant chips did.
@@ -526,64 +511,39 @@
     }
   }
 
-  function detectMentionTrigger() {
+  function selectMention(handle: string) {
     if (!chatInputEl) return;
     const cursor = chatInputEl.selectionStart ?? chatInput.length;
-    const before = chatInput.slice(0, cursor);
-    const m = before.match(/@([\w.-]*)$/);
-    if (m && mentionHandles.length > 0) {
-      mentionStart = cursor - m[0].length;
-      mentionQuery = m[1];
-      mentionSelectedIdx = 0;
-      showMentions = true;
-    } else {
-      showMentions = false;
-      mentionStart = -1;
-    }
-  }
-
-  function selectMention(handle: string) {
-    if (!chatInputEl || mentionStart < 0) return;
-    const cursor = chatInputEl.selectionStart ?? chatInput.length;
-    const before = chatInput.slice(0, mentionStart);
-    const after = chatInput.slice(cursor);
-    chatInput = `${before}${handle} ${after}`;
-    showMentions = false;
-    mentionStart = -1;
+    const result = mention.apply(chatInput, cursor, handle);
+    if (!result) return;
+    chatInput = result.text;
     queueMicrotask(() => {
       chatInputEl?.focus();
-      const pos = before.length + handle.length + 1;
-      chatInputEl?.setSelectionRange(pos, pos);
+      chatInputEl?.setSelectionRange(result.cursorAfter, result.cursorAfter);
     });
   }
 
   function onChatInput() {
     sendError = '';
     resizeChatInput();
-    detectMentionTrigger();
+    if (!chatInputEl) return;
+    const cursor = chatInputEl.selectionStart ?? chatInput.length;
+    mention.detect(chatInput, cursor);
   }
 
   function handleChatInputKeydown(e: KeyboardEvent) {
-    if (showMentions && filteredHandles.length > 0) {
-      if (e.key === 'ArrowDown') {
+    if (mention.show && mention.filtered.length > 0) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); mention.arrowDown(); return; }
+      if (e.key === 'ArrowUp')   { e.preventDefault(); mention.arrowUp(); return; }
+      const current = mention.current();
+      if ((e.key === 'Tab' || e.key === 'Enter') && current) {
         e.preventDefault();
-        mentionSelectedIdx = Math.min(mentionSelectedIdx + 1, filteredHandles.length - 1);
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        mentionSelectedIdx = Math.max(mentionSelectedIdx - 1, 0);
-        return;
-      }
-      if (e.key === 'Tab' || e.key === 'Enter') {
-        e.preventDefault();
-        selectMention(filteredHandles[mentionSelectedIdx].handle);
+        selectMention(current.handle);
         return;
       }
       if (e.key === 'Escape') {
         e.preventDefault();
-        showMentions = false;
-        mentionStart = -1;
+        mention.reset();
         return;
       }
     }
@@ -941,16 +901,16 @@
             {#if sendError}
               <div class="grid-chat-error">{sendError}</div>
             {/if}
-            {#if showMentions && filteredHandles.length > 0}
+            {#if mention.show && mention.filtered.length > 0}
               <div class="grid-mention-popover" role="listbox" aria-label="Mention suggestions">
-                {#each filteredHandles as h, i (h.handle)}
+                {#each mention.filtered as h, i (h.handle)}
                   <!-- svelte-ignore a11y_mouse_events_have_key_events -->
                   <button
                     type="button"
                     class="grid-mention-item"
-                    class:grid-mention-item--active={i === mentionSelectedIdx}
+                    class:grid-mention-item--active={i === mention.selectedIdx}
                     onmousedown={(e) => { e.preventDefault(); selectMention(h.handle); }}
-                    onmouseover={() => (mentionSelectedIdx = i)}
+                    onmouseover={() => (mention.selectedIdx = i)}
                   >
                     <span class="grid-mention-handle">{h.handle}</span>
                     {#if h.name && h.name !== h.handle}
@@ -966,7 +926,7 @@
                 bind:value={chatInput}
                 oninput={onChatInput}
                 onkeydown={handleChatInputKeydown}
-                onblur={() => queueMicrotask(() => (showMentions = false))}
+                onblur={() => queueMicrotask(() => mention.reset())}
                 disabled={sendingChat}
                 rows="1"
                 placeholder={session.type === 'terminal' ? 'Send to linked terminal chat...' : 'Message this chat...'}

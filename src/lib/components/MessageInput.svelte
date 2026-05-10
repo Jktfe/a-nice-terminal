@@ -4,7 +4,8 @@
   import AgentDot from './AgentDot.svelte';
   import NocturneIcon from './NocturneIcon.svelte';
   import QuickLaunchBar from './QuickLaunchBar.svelte';
-  import { activeRoutingMentions, bracketRoutingMention, shouldCompleteMentionOnEnter } from '$lib/utils/mentions';
+  import { activeRoutingMentions, bracketRoutingMention } from '$lib/utils/mentions';
+  import { useMentionAutocomplete } from '$lib/composables/use-mention-autocomplete.svelte';
   import type { ShortcutScope } from '$lib/shared/personal-settings';
 
   let {
@@ -35,61 +36,11 @@
   let fileInputEl = $state<HTMLInputElement | null>(null);
   let uploading = $state(false);
 
-  // @ mention autocomplete
-  let mentionQuery = $state('');
-  let showMentions = $state(false);
-  let mentionStart = $state(-1);
-  let mentionSelectedIdx = $state(0);
-  let mentionUserNavigated = $state(false);
-
-  const routingHandles = $derived.by(() => {
-    const everyone = handles.find((h) => h.handle.toLowerCase() === '@everyone') ?? { handle: '@everyone', name: 'Everyone' };
-    return [everyone, ...handles.filter((h) => h.handle.toLowerCase() !== '@everyone')];
-  });
-
-  // ── B9 — Fuzzy/scored mention matching (replaces plain substring filter) ──
-  // Scoring tiers, descending:
-  //   1000  exact match
-  //    500  prefix match (lower if target longer than query)
-  //    200  substring match
-  //     50+ subsequence match with prefix-bonus + consecutive-char bonus
-  // We score the @handle and the display name independently and take the max,
-  // so typing "cl" or "claude" or even "cd" (subsequence of "claude") all
-  // surface @claude / Claude as the top hit. Empty query returns first 6 in
-  // insertion order so the dropdown is useful before the user types anything.
-  function fuzzyScore(query: string, target: string): number {
-    const q = query.toLowerCase();
-    const t = target.toLowerCase();
-    if (!q) return 1;
-    if (t === q) return 1000;
-    if (t.startsWith(q)) return 500 - (t.length - q.length);
-    if (t.includes(q)) return 200 - (t.length - q.length);
-    let qi = 0;
-    let lastIdx = -1;
-    let bonus = 0;
-    for (let i = 0; i < t.length && qi < q.length; i++) {
-      if (t[i] === q[qi]) {
-        if (qi === 0 && i === 0) bonus += 30;
-        if (i === lastIdx + 1) bonus += 5;
-        lastIdx = i;
-        qi++;
-      }
-    }
-    if (qi !== q.length) return 0;
-    return 50 + bonus - (t.length - q.length);
-  }
-
-  const filteredHandles = $derived.by(() => {
-    const q = mentionQuery.trim();
-    if (!q) return routingHandles.slice(0, 6);
-    return routingHandles
-      .map(h => ({ h, score: Math.max(fuzzyScore(q, h.handle), fuzzyScore(q, h.name)) }))
-      .filter(x => x.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 6)
-      .map(x => x.h);
-  });
-  const activeMentionChips = $derived(activeRoutingMentions(text, routingHandles));
+  // @ mention autocomplete — shared with the grid composer via the composable.
+  // Fuzzy scoring + @everyone pinning + dropdown navigation all live in
+  // src/lib/composables/use-mention-autocomplete.svelte.ts.
+  const mention = useMentionAutocomplete(() => handles);
+  const activeMentionChips = $derived(activeRoutingMentions(text, mention.routingHandles));
 
   function draftStorageKey(key: string | null): string | null {
     return key ? `ant.chat.draft.${key}` : null;
@@ -171,40 +122,17 @@
 
   function detectMention() {
     const cursorPos = inputEl?.selectionStart ?? text.length;
-    const textBefore = text.slice(0, cursorPos);
-    const atMatch = textBefore.match(/@([\w.-]*)$/);
-    if (atMatch && routingHandles.length > 0) {
-      mentionStart = cursorPos - atMatch[0].length;
-      mentionQuery = atMatch[1];
-      mentionSelectedIdx = 0;
-      mentionUserNavigated = false;
-      showMentions = filteredHandles.length > 0;
-    } else {
-      showMentions = false;
-      mentionStart = -1;
-      mentionUserNavigated = false;
-    }
-  }
-
-  function currentMentionLiteral(): string | null {
-    if (mentionStart < 0) return null;
-    const cursorPos = inputEl?.selectionStart ?? text.length;
-    const literal = text.slice(mentionStart, cursorPos);
-    return literal.startsWith('@') ? literal : null;
+    mention.detect(text, cursorPos);
   }
 
   function selectMention(handle: string) {
     const cursorPos = inputEl?.selectionStart ?? text.length;
-    const before = text.slice(0, mentionStart);
-    const after = text.slice(cursorPos);
-    text = before + handle + ' ' + after;
-    showMentions = false;
-    mentionStart = -1;
-    mentionUserNavigated = false;
+    const result = mention.apply(text, cursorPos, handle);
+    if (!result) return;
+    text = result.text;
     setTimeout(() => {
       inputEl?.focus();
-      const pos = (before + handle + ' ').length;
-      inputEl?.setSelectionRange(pos, pos);
+      inputEl?.setSelectionRange(result.cursorAfter, result.cursorAfter);
     }, 0);
   }
 
@@ -273,7 +201,7 @@
       void postBreakMarker(breakIntent.reason);
       text = '';
       writeDraft(draftKey, '');
-      showMentions = false;
+      mention.reset();
       onClearReply?.();
       setTimeout(resizeInput, 0);
       return;
@@ -282,7 +210,7 @@
     onSend(trimmed, replyTo?.id ?? null);
     text = '';
     writeDraft(draftKey, '');
-    showMentions = false;
+    mention.reset();
     onClearReply?.();
     setTimeout(resizeInput, 0);
   }
@@ -309,24 +237,22 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if (showMentions && filteredHandles.length > 0) {
-      if (e.key === 'ArrowDown') { e.preventDefault(); mentionUserNavigated = true; mentionSelectedIdx = Math.min(mentionSelectedIdx + 1, filteredHandles.length - 1); return; }
-      if (e.key === 'ArrowUp')   { e.preventDefault(); mentionUserNavigated = true; mentionSelectedIdx = Math.max(mentionSelectedIdx - 1, 0); return; }
-      if (e.key === 'Tab') {
+    if (mention.show && mention.filtered.length > 0) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); mention.arrowDown(); return; }
+      if (e.key === 'ArrowUp')   { e.preventDefault(); mention.arrowUp(); return; }
+      const current = mention.current();
+      if (e.key === 'Tab' && current) {
         e.preventDefault();
-        selectMention(filteredHandles[mentionSelectedIdx].handle);
+        selectMention(current.handle);
         return;
       }
-      if (e.key === 'Enter' && shouldCompleteMentionOnEnter({
-        typedMention: currentMentionLiteral(),
-        selectedHandle: filteredHandles[mentionSelectedIdx].handle,
-        navigated: mentionUserNavigated,
-      })) {
+      const cursorPos = inputEl?.selectionStart ?? text.length;
+      if (e.key === 'Enter' && current && mention.shouldCompleteOnEnter(text, cursorPos)) {
         e.preventDefault();
-        selectMention(filteredHandles[mentionSelectedIdx].handle);
+        selectMention(current.handle);
         return;
       }
-      if (e.key === 'Escape') { showMentions = false; mentionUserNavigated = false; return; }
+      if (e.key === 'Escape') { mention.reset(); return; }
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -348,7 +274,7 @@
 
   <div class="message-input-pad">
   <!-- @ mention dropdown -->
-  {#if showMentions && filteredHandles.length > 0}
+  {#if mention.show && mention.filtered.length > 0}
     <div
       class="absolute bottom-full left-4 right-4 mb-1 overflow-hidden z-10 mention-popover"
       style="
@@ -358,14 +284,14 @@
         box-shadow: 0 -8px 24px -12px rgba(0,0,0,0.3);
       "
     >
-      {#each filteredHandles as h, i}
+      {#each mention.filtered as h, i (h.handle)}
         {@const ac = agentColor(h.handle)}
         <button
           onmousedown={(e) => { e.preventDefault(); selectMention(h.handle); }}
           class="w-full touch-target flex items-center justify-start gap-2.5 px-3 py-2 text-left cursor-pointer"
           style="
             font-size: 12px;
-            background: {i === mentionSelectedIdx ? 'var(--hairline)' : 'transparent'};
+            background: {i === mention.selectedIdx ? 'var(--hairline)' : 'transparent'};
             transition: background var(--duration-fast);
           "
         >
