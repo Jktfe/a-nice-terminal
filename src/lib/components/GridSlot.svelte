@@ -37,6 +37,26 @@
     text: string;
   }
 
+  interface RoomParticipant {
+    id: string;
+    name?: string | null;
+    handle?: string | null;
+    alias?: string | null;
+    session_type?: string | null;
+    session_status?: string | null;
+    cli_flag?: string | null;
+    role?: string | null;
+  }
+
+  type LoadContentOptions = {
+    background?: boolean;
+  };
+
+  const GRID_CHAT_PREVIEW_LIMIT = 20;
+  const GRID_POLL_INTERVAL_MS = 10_000;
+  const GRID_PARTICIPANTS_REFRESH_MS = 30_000;
+  const GRID_VISIBLE_AGENT_COUNT = 3;
+
   let { cell, allSessions, onSwap, needsInputMap = new Map(), idleAttentionSet = new Set() }: {
     cell: GridCellDef;
     allSessions: Session[];
@@ -105,12 +125,24 @@
   let loadingContent = $state(false);
   let contentAtBottom = $state(true);
   let contentLoadSeq = 0;
+  let chatMessagesFingerprint = '';
+  let terminalLinesFingerprint = '';
 
   let linkedChatId = $state<string | null>(null);
   let chatInput = $state('');
   let chatInputEl = $state<HTMLTextAreaElement | null>(null);
   let sendingChat = $state(false);
   let sendError = $state('');
+  let roomParticipants = $state<RoomParticipant[]>([]);
+  let roomParticipantsRoomId = $state<string | null>(null);
+  let participantsLoadSeq = 0;
+  let participantPollTimer: ReturnType<typeof setInterval> | null = null;
+
+  const roomAgents = $derived(
+    roomParticipants.filter((participant) => participant.session_type === 'terminal')
+  );
+  const visibleRoomAgents = $derived(roomAgents.slice(0, GRID_VISIBLE_AGENT_COUNT));
+  const hiddenRoomAgentCount = $derived(Math.max(0, roomAgents.length - visibleRoomAgents.length));
 
   function isChatSessionType(type: string) {
     return type === 'chat' || type === 'agent';
@@ -127,35 +159,141 @@
     return !!activeChatSessionId();
   }
 
-  async function loadContent(sid: string, type: string, chatMode = showChat, currentLinkedChatId = linkedChatId) {
+  function roomSessionId(): string | null {
+    if (!session) return null;
+    if (isChatSessionType(session.type)) return session.id;
+    if (session.type === 'terminal') return linkedChatId;
+    return null;
+  }
+
+  async function loadRoomParticipants(roomId: string) {
+    const seq = ++participantsLoadSeq;
+    try {
+      const res = await fetch(`/api/sessions/${roomId}/participants`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const participants = Array.isArray(data.participants) ? data.participants : [];
+      if (seq === participantsLoadSeq && roomParticipantsRoomId === roomId) {
+        roomParticipants = participants;
+      }
+    } catch {
+      // Advisory only — room preview should not fail because participant chips did.
+    }
+  }
+
+  function participantLabel(participant: RoomParticipant): string {
+    return (
+      participant.alias ||
+      participant.handle ||
+      participant.name ||
+      participant.id.slice(0, 8)
+    ).replace(/^@/, '');
+  }
+
+  function participantTitle(participant: RoomParticipant): string {
+    const status = participant.session_status ? ` — ${participant.session_status}` : '';
+    const cli = participant.cli_flag ? ` (${participant.cli_flag})` : '';
+    return `${participantLabel(participant)}${cli}${status}`;
+  }
+
+  function participantAccent(participant: RoomParticipant): string {
+    const matched = allSessions.find((candidate) =>
+      candidate.id === participant.id ||
+      candidate.handle === participant.handle ||
+      candidate.alias === participant.alias ||
+      candidate.name === participant.name
+    );
+    if (matched) return agentColorFromSession(matched).color;
+    return agentColor(participantLabel(participant)).color;
+  }
+
+  function participantInitial(participant: RoomParticipant): string {
+    return participantLabel(participant).slice(0, 1).toUpperCase() || '?';
+  }
+
+  function roomAgentsTitle(): string {
+    return roomAgents.length
+      ? `Room agents: ${roomAgents.map(participantTitle).join(', ')}`
+      : '';
+  }
+
+  function messageFingerprint(messages: Message[]): string {
+    return messages
+      .map((msg) => [
+        msg.id,
+        msg.created_at ?? '',
+        msg.msg_type ?? '',
+        msg.content.length,
+        typeof msg.meta === 'string' ? msg.meta : JSON.stringify(msg.meta ?? null),
+      ].join(':'))
+      .join('|');
+  }
+
+  function terminalFingerprint(rows: TerminalRow[]): string {
+    return rows.map((row) => `${row.id}:${row.ts_ms}:${row.text}`).join('|');
+  }
+
+  function setChatMessagesIfChanged(next: Message[]): boolean {
+    const nextFingerprint = messageFingerprint(next);
+    if (nextFingerprint === chatMessagesFingerprint) return false;
+    chatMessages = next;
+    chatMessagesFingerprint = nextFingerprint;
+    return true;
+  }
+
+  function setTerminalLinesIfChanged(next: TerminalRow[]): boolean {
+    const nextFingerprint = terminalFingerprint(next);
+    if (nextFingerprint === terminalLinesFingerprint) return false;
+    terminalLines = next;
+    terminalLinesFingerprint = nextFingerprint;
+    return true;
+  }
+
+  function resetContent() {
+    chatMessages = [];
+    terminalLines = [];
+    chatMessagesFingerprint = '';
+    terminalLinesFingerprint = '';
+  }
+
+  async function loadContent(
+    sid: string,
+    type: string,
+    chatMode = showChat,
+    currentLinkedChatId = linkedChatId,
+    options: LoadContentOptions = {},
+  ): Promise<boolean> {
     const seq = ++contentLoadSeq;
-    loadingContent = true;
+    const showLoading = !options.background;
+    let changed = false;
+    if (showLoading) loadingContent = true;
     try {
       if (isChatSessionType(type) || (type === 'terminal' && chatMode)) {
         // For terminal+showChat, load the linked chat's messages
         const chatSid = type === 'terminal' ? currentLinkedChatId : sid;
         if (!chatSid) {
-          if (seq === contentLoadSeq) chatMessages = [];
-          return;
+          if (seq === contentLoadSeq) changed = setChatMessagesIfChanged([]);
+          return changed;
         }
-        const res = await fetch(`/api/sessions/${chatSid}/messages?limit=50`);
+        const res = await fetch(`/api/sessions/${chatSid}/messages?limit=${GRID_CHAT_PREVIEW_LIMIT}`);
         if (res.ok) {
           const data = await res.json();
-          if (seq === contentLoadSeq) chatMessages = data.messages ?? [];
+          if (seq === contentLoadSeq) changed = setChatMessagesIfChanged(data.messages ?? []);
         }
       }
       if (type === 'terminal' && !chatMode) {
         const res = await fetch(`/api/sessions/${sid}/terminal/history?since=5m&limit=10`);
         if (res.ok) {
           const data = await res.json();
-          if (seq === contentLoadSeq) terminalLines = data.rows ?? [];
+          if (seq === contentLoadSeq) changed = setTerminalLinesIfChanged(data.rows ?? []);
         }
       }
     } catch {
       // Network error — leave empty
     } finally {
-      if (seq === contentLoadSeq) loadingContent = false;
+      if (seq === contentLoadSeq && (showLoading || loadingContent)) loadingContent = false;
     }
+    return changed;
   }
 
   // Fetch linked_chat_id for terminal sessions
@@ -195,13 +333,30 @@
     }
   });
 
+  $effect(() => {
+    const roomId = roomSessionId();
+    if (participantPollTimer) {
+      clearInterval(participantPollTimer);
+      participantPollTimer = null;
+    }
+
+    roomParticipantsRoomId = roomId;
+    roomParticipants = [];
+    if (!roomId) return;
+
+    void loadRoomParticipants(roomId);
+    participantPollTimer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      void loadRoomParticipants(roomId);
+    }, GRID_PARTICIPANTS_REFRESH_MS);
+  });
+
   // Reload content when session or showChat changes
   $effect(() => {
     if (session) {
       const chatMode = showChat;
       const currentLinkedChatId = linkedChatId;
-      chatMessages = [];
-      terminalLines = [];
+      resetContent();
       contentAtBottom = true;
       sendError = '';
       loadContent(session.id, session.type, chatMode, currentLinkedChatId).then(() => {
@@ -213,15 +368,16 @@
       // Poll every 5s for fresh content
       if (pollTimer) clearInterval(pollTimer);
       pollTimer = setInterval(async () => {
+        if (typeof document !== 'undefined' && document.hidden) return;
         if (!session) return;
         const prevLen = chatMessages.length + terminalLines.length;
         const wasAtBottom = contentAtBottom;
         const pollChatMode = showChat;
         const pollLinkedChatId = linkedChatId;
-        await loadContent(session.id, session.type, pollChatMode, pollLinkedChatId);
+        const changed = await loadContent(session.id, session.type, pollChatMode, pollLinkedChatId, { background: true });
         const newLen = chatMessages.length + terminalLines.length;
-        if (newLen > prevLen && wasAtBottom) void scrollContentToBottom();
-      }, 5000);
+        if (changed && newLen > prevLen && wasAtBottom) void scrollContentToBottom();
+      }, GRID_POLL_INTERVAL_MS);
     } else {
       if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     }
@@ -229,6 +385,7 @@
 
   onDestroy(() => {
     if (pollTimer) clearInterval(pollTimer);
+    if (participantPollTimer) clearInterval(participantPollTimer);
   });
 
   // ── Agent event card helpers ──────────────────────────────────────
@@ -264,7 +421,7 @@
       }),
     });
     // Reload messages to reflect new state
-    await loadContent(session.id, session.type);
+    await loadContent(session.id, session.type, showChat, linkedChatId, { background: true });
   }
 
   function resizeChatInput() {
@@ -327,7 +484,7 @@
       if (msg?.id && !chatMessages.find(m => m.id === msg.id)) {
         chatMessages = [...chatMessages, msg];
       }
-      await loadContent(session.id, session.type, showChat, linkedChatId);
+      await loadContent(session.id, session.type, showChat, linkedChatId, { background: true });
       sendingChat = false;
       await scrollContentToBottom();
       chatInputEl?.focus();
@@ -490,6 +647,27 @@
         class="flex-1 truncate"
         style="font-family: Inter, sans-serif; font-size: 12px; font-weight: 600; color: #111827;"
       >{session.name}</span>
+
+      {#if visibleRoomAgents.length > 0}
+        <div class="grid-room-agents" title={roomAgentsTitle()} aria-label={roomAgentsTitle()}>
+          {#each visibleRoomAgents as participant (participant.id)}
+            {@const accent = participantAccent(participant)}
+            <span
+              class="grid-room-agent"
+              style="--agent-accent: {accent};"
+              title={participantTitle(participant)}
+            >
+              <span class="grid-room-agent__avatar">{participantInitial(participant)}</span>
+              <span class="grid-room-agent__name">{participantLabel(participant)}</span>
+            </span>
+          {/each}
+          {#if hiddenRoomAgentCount > 0}
+            <span class="grid-room-agent grid-room-agent--more" title={roomAgentsTitle()}>
+              +{hiddenRoomAgentCount}
+            </span>
+          {/if}
+        </div>
+      {/if}
 
       <!-- Trailing: badge + action buttons (right-aligned, never shrink) -->
       <div style="margin-left: auto; display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
@@ -782,6 +960,65 @@
     font-family: Inter, sans-serif;
     font-size: 10.5px;
     color: #94A3B8;
+  }
+
+  .grid-room-agents {
+    min-width: 0;
+    max-width: min(46%, 230px);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    overflow: hidden;
+    flex-shrink: 1;
+  }
+
+  .grid-room-agent {
+    min-width: 0;
+    max-width: 74px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px 2px 3px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--agent-accent) 35%, #E5E7EB);
+    background: color-mix(in srgb, var(--agent-accent) 10%, #FFFFFF);
+    color: #111827;
+    font-family: Inter, sans-serif;
+    font-size: 9.5px;
+    font-weight: 700;
+    line-height: 1;
+    flex-shrink: 1;
+  }
+
+  .grid-room-agent__avatar {
+    width: 14px;
+    height: 14px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    background: var(--agent-accent);
+    color: #FFFFFF;
+    font-size: 7.5px;
+    font-weight: 850;
+  }
+
+  .grid-room-agent__name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .grid-room-agent--more {
+    max-width: none;
+    padding: 2px 6px;
+    border-color: #D1D5DB;
+    background: #F3F4F6;
+    color: #6B7280;
+    flex-shrink: 0;
   }
 
   .grid-message {
