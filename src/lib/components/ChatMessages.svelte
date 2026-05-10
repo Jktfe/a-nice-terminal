@@ -1026,10 +1026,45 @@
 <style>
   .linked-composer-shell {
     padding: 12px max(12px, var(--ant-safe-right, 0px)) calc(12px + max(var(--ant-safe-bottom, 0px), var(--ant-keyboard-h, 0px))) max(12px, var(--ant-safe-left, 0px));
-    transition: padding-bottom var(--duration-fast) var(--spring-default);
+    background: var(--bg);
+    transform: translateY(0);
+    transition:
+      padding-bottom var(--duration-fast) var(--spring-default),
+      transform var(--duration-fast) var(--spring-default);
   }
 
   @media (max-width: 640px) {
+    .linked-composer-shell {
+      position: sticky;
+      bottom: 0;
+      z-index: 28;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        "input input"
+        "spacer send";
+      gap: 6px 8px;
+      align-items: end;
+      padding: 8px max(8px, var(--ant-safe-right, 0px)) calc(8px + max(var(--ant-safe-bottom, 0px), 0px)) max(8px, var(--ant-safe-left, 0px));
+      transform: translateY(calc(-1 * var(--ant-keyboard-h, 0px)));
+      will-change: transform;
+    }
+
+    .linked-composer-shell textarea {
+      grid-area: input;
+      min-height: 78px;
+      max-height: min(190px, calc(var(--ant-viewport-h, 100vh) * 0.32));
+      font-size: 16px;
+      line-height: 1.45;
+    }
+
+    .linked-composer-shell button {
+      grid-area: send;
+      justify-self: end;
+      min-width: 76px;
+      min-height: 38px;
+    }
+
     .agent-status-strip {
       padding: 6px 8px;
     }

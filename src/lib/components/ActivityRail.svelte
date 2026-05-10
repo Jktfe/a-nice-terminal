@@ -49,7 +49,9 @@
   let hoveredId = $state<string | null>(null);
   let tooltipPos = $state<{ top: number; left: number } | null>(null);
   let compactPhoneRail = $state(false);
+  let compactRailExpanded = $state(false);
   let stopCompactRailListener: (() => void) | null = null;
+  const MOBILE_RAIL_EXPANDED_KEY = 'ant.activityRail.mobileExpanded';
 
   // B5 — explicit sidebar pinning. Persistence stays client-local for now:
   // no schema/API changes, and TTL remains session persistence rather than pin state.
@@ -64,6 +66,11 @@
     pinnedIds = readPinnedIds(localStorage);
   }
 
+  function loadCompactRailPreference() {
+    if (typeof window === 'undefined') return;
+    compactRailExpanded = localStorage.getItem(MOBILE_RAIL_EXPANDED_KEY) === '1';
+  }
+
   function savePinned() {
     if (typeof window === 'undefined') return;
     writePinnedIds(pinnedIds, localStorage);
@@ -73,6 +80,13 @@
   function togglePin(sessionId: string) {
     pinnedIds = togglePinnedId(pinnedIds, sessionId);
     savePinned();
+  }
+
+  function toggleCompactRail() {
+    compactRailExpanded = !compactRailExpanded;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(MOBILE_RAIL_EXPANDED_KEY, compactRailExpanded ? '1' : '0');
+    }
   }
 
   function onStorageEvent(e: StorageEvent) {
@@ -259,6 +273,7 @@
     loadSessions();
     connectWs();
     loadPinned();
+    loadCompactRailPreference();
     if (typeof window !== 'undefined') {
       window.addEventListener('storage', onStorageEvent);
       window.addEventListener(SIDEBAR_PIN_CHANGE_EVENT, loadPinned);
@@ -340,11 +355,15 @@
   function truncateName(name: string, max: number = 12): string {
     return name.length > max ? name.slice(0, max - 1) + '\u2026' : name;
   }
+
+  function railLabel(s: RailSession): string {
+    return truncateName(s.handle || s.display_name || s.name || s.id, 18);
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="activity-rail"
+  class="activity-rail {compactRailExpanded ? 'compact-expanded' : ''}"
   style="
     --rail-bg: var(--bg-surface);
     --rail-border: var(--border-light);
@@ -362,7 +381,25 @@
       <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
       <polyline points="9 22 9 12 15 12 15 22" />
     </svg>
+    <span class="rail-label">Dashboard</span>
   </a>
+
+  <button
+    type="button"
+    class="rail-expand-toggle"
+    aria-label={compactRailExpanded ? 'Collapse session rail' : 'Expand session rail'}
+    aria-expanded={compactRailExpanded}
+    title={compactRailExpanded ? 'Collapse session rail' : 'Expand session rail'}
+    onclick={toggleCompactRail}
+  >
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      {#if compactRailExpanded}
+        <path d="M15 18l-6-6 6-6" />
+      {:else}
+        <path d="M9 18l6-6-6-6" />
+      {/if}
+    </svg>
+  </button>
 
   <div class="rail-divider"></div>
 
@@ -517,6 +554,7 @@
           >{sess.type === 'terminal' ? '>' : '#'}</div>
         {/if}
       </div>
+      <span class="rail-label">{railLabel(sess)}</span>
 
       {#if hasNeedsInput}
         <div class="rail-badge rail-badge-urgent" title="Needs input — {needsInputMap.get(sess.id)?.summary ?? 'waiting for you'}"></div>
@@ -667,6 +705,32 @@
     pointer-events: none; /* let parent button handle clicks — AgentDot glow extends beyond bounds */
   }
 
+  .rail-label {
+    display: none;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    font-weight: 650;
+    color: var(--text);
+    letter-spacing: 0;
+    pointer-events: none;
+  }
+
+  .rail-expand-toggle {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 28px;
+    border: 0.5px solid var(--border-light);
+    border-radius: 8px;
+    background: var(--bg-card);
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+
   .rail-type-dot {
     border-radius: 50%;
     pointer-events: none;
@@ -784,6 +848,19 @@
       z-index: 35;
     }
 
+    .activity-rail.compact-expanded {
+      width: min(172px, calc(74vw + var(--ant-safe-left, 0px)));
+      min-width: min(172px, calc(74vw + var(--ant-safe-left, 0px)));
+      align-items: stretch;
+      box-shadow: 10px 0 24px rgba(0, 0, 0, 0.12);
+    }
+
+    .rail-expand-toggle {
+      display: flex;
+      flex-shrink: 0;
+      margin: 4px auto 0;
+    }
+
     .rail-sessions {
       gap: 2px;
       padding: 2px 0;
@@ -793,6 +870,31 @@
       width: 34px;
       height: 34px;
       border-radius: 10px;
+    }
+
+    .activity-rail.compact-expanded .rail-sessions {
+      align-items: stretch;
+      padding-right: 6px;
+    }
+
+    .activity-rail.compact-expanded .rail-item-wrapper {
+      width: 100%;
+    }
+
+    .activity-rail.compact-expanded .rail-item {
+      width: 100%;
+      justify-content: flex-start;
+      gap: 8px;
+      padding: 0 9px;
+    }
+
+    .activity-rail.compact-expanded .rail-label {
+      display: block;
+    }
+
+    .activity-rail.compact-expanded .rail-home {
+      width: calc(100% - 6px);
+      margin-right: 6px;
     }
 
     .rail-divider {

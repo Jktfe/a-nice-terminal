@@ -125,6 +125,13 @@
   function handleInput() {
     detectMention();
     resizeInput();
+    if (isFocused) keepComposerVisible();
+  }
+
+  function keepComposerVisible() {
+    if (!inputEl || typeof window === 'undefined') return;
+    window.setTimeout(() => inputEl?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 80);
+    window.setTimeout(() => inputEl?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 260);
   }
 
   $effect(() => {
@@ -339,7 +346,7 @@
     />
   {/if}
 
-  <div class="message-input-pad" style="padding: 12px 16px;">
+  <div class="message-input-pad">
   <!-- @ mention dropdown -->
   {#if showMentions && filteredHandles.length > 0}
     <div
@@ -435,7 +442,7 @@
 
   <!-- Composer body -->
   <div
-    class="flex items-end gap-3"
+    class="composer-shell flex items-end gap-3"
     style="
       background: var(--surface-elev);
       border-radius: var(--radius-panel);
@@ -448,7 +455,7 @@
   >
     <!-- User avatar -->
     <div
-      class="flex-shrink-0 flex items-center justify-center rounded-full"
+      class="composer-avatar flex-shrink-0 flex items-center justify-center rounded-full"
       style="
         width: 20px; height: 20px; margin-bottom: 2px;
         background: linear-gradient(135deg, var(--text-faint), var(--text-muted));
@@ -456,16 +463,16 @@
       "
     >J</div>
 
-    <div class="flex-1 min-w-0">
+    <div class="composer-textarea-wrap flex-1 min-w-0">
       <textarea
         bind:this={inputEl}
         placeholder="Send a message… (@ to mention)"
         bind:value={text}
         oninput={handleInput}
-        onfocus={() => (isFocused = true)}
+        onfocus={() => { isFocused = true; keepComposerVisible(); }}
         onblur={() => (isFocused = false)}
         onkeydown={handleKeydown}
-        class="w-full bg-transparent outline-none resize-none"
+        class="composer-textarea w-full bg-transparent outline-none resize-none"
         style="
           font-family: var(--font-sans);
           font-size: 14px;
@@ -484,7 +491,7 @@
     <button
       onclick={() => fileInputEl?.click()}
       disabled={uploading}
-      class="touch-target flex-shrink-0 cursor-pointer disabled:opacity-40"
+      class="composer-attach touch-target flex-shrink-0 cursor-pointer disabled:opacity-40"
       style="color: var(--text-faint); background: none; border: none; padding: 4px; margin-bottom: 2px;"
       title="Attach image"
     >
@@ -503,7 +510,7 @@
     <button
       onclick={handleSubmit}
       disabled={!text.trim()}
-      class="touch-target flex items-center gap-1.5 flex-shrink-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+      class="composer-send touch-target flex items-center gap-1.5 flex-shrink-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
       style="
         font-family: var(--font-sans);
         font-size: 12.5px;
@@ -526,11 +533,16 @@
 
 <style>
   .message-input-root {
-    padding-bottom: max(var(--ant-safe-bottom, 0px), var(--ant-keyboard-h, 0px));
-    transition: padding-bottom var(--duration-fast) var(--spring-default);
+    background: var(--bg);
+    padding-bottom: max(var(--ant-safe-bottom, 0px), 0px);
+    transform: translateY(0);
+    transition:
+      padding-bottom var(--duration-fast) var(--spring-default),
+      transform var(--duration-fast) var(--spring-default);
   }
 
   .message-input-pad {
+    padding: 12px 16px;
     padding-left: max(12px, var(--ant-safe-left, 0px));
     padding-right: max(12px, var(--ant-safe-right, 0px));
   }
@@ -538,5 +550,64 @@
   .mention-popover {
     max-height: min(280px, calc(var(--ant-viewport-h, 100vh) * 0.38));
     overflow-y: auto;
+  }
+
+  @media (max-width: 640px) {
+    .message-input-root {
+      position: sticky;
+      bottom: 0;
+      z-index: 28;
+      transform: translateY(calc(-1 * var(--ant-keyboard-h, 0px)));
+      will-change: transform;
+    }
+
+    .message-input-pad {
+      padding: 8px max(8px, var(--ant-safe-right, 0px)) 8px max(8px, var(--ant-safe-left, 0px));
+    }
+
+    .composer-shell {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      grid-template-areas:
+        "input input input"
+        "spacer attach send";
+      align-items: end;
+      gap: 6px 8px;
+      padding: 10px;
+      border-radius: 14px;
+    }
+
+    .composer-avatar {
+      display: none;
+    }
+
+    .composer-textarea-wrap {
+      grid-area: input;
+      width: 100%;
+      min-width: 0;
+    }
+
+    .composer-textarea {
+      min-height: 78px !important;
+      max-height: min(190px, calc(var(--ant-viewport-h, 100vh) * 0.32)) !important;
+      font-size: 16px !important;
+      line-height: 1.45 !important;
+    }
+
+    .composer-attach {
+      grid-area: attach;
+      justify-self: end;
+      margin-bottom: 0 !important;
+      min-width: 40px;
+      min-height: 38px;
+    }
+
+    .composer-send {
+      grid-area: send;
+      justify-self: end;
+      min-width: 76px;
+      min-height: 38px;
+      justify-content: center;
+    }
   }
 </style>
