@@ -48,6 +48,8 @@
   let unreadSet = $state(new Set<string>());
   let hoveredId = $state<string | null>(null);
   let tooltipPos = $state<{ top: number; left: number } | null>(null);
+  let compactPhoneRail = $state(false);
+  let stopCompactRailListener: (() => void) | null = null;
 
   // B5 — explicit sidebar pinning. Persistence stays client-local for now:
   // no schema/API changes, and TTL remains session persistence rather than pin state.
@@ -96,7 +98,13 @@
       const data = await res.json();
       const rows = (data.sessions || []).filter((s: RailSession) => s.status !== 'archived');
       sessions = rows;
-      void refreshNeedsInputStatuses(rows);
+      if (compactPhoneRail) {
+        // Keep the at-a-glance phone rail cheap: the full needs-input fanout
+        // hits every terminal status route and belongs to desktop width.
+        needsInputMap = new Map();
+      } else {
+        void refreshNeedsInputStatuses(rows);
+      }
     } catch {}
   }
 
@@ -234,9 +242,20 @@
   }
 
   onMount(() => {
-    // The rail is CSS-hidden on phones. Avoid paying for its desktop-only
-    // session/status fetches in the mobile critical path.
-    if (isCompactPhoneRail()) return;
+    if (typeof window !== 'undefined') {
+      const media = window.matchMedia('(max-width: 640px)');
+      const syncCompactRail = () => {
+        const next = media.matches;
+        if (compactPhoneRail === next) return;
+        compactPhoneRail = next;
+        hoveredId = null;
+        tooltipPos = null;
+        void loadSessions();
+      };
+      compactPhoneRail = isCompactPhoneRail();
+      media.addEventListener('change', syncCompactRail);
+      stopCompactRailListener = () => media.removeEventListener('change', syncCompactRail);
+    }
     loadSessions();
     connectWs();
     loadPinned();
@@ -250,6 +269,7 @@
     wsDestroyed = true;
     if (reconnectTimer) clearTimeout(reconnectTimer);
     ws?.close();
+    stopCompactRailListener?.();
     if (typeof window !== 'undefined') {
       window.removeEventListener('storage', onStorageEvent);
       window.removeEventListener(SIDEBAR_PIN_CHANGE_EVENT, loadPinned);
@@ -753,9 +773,57 @@
     border-top: 1px solid var(--border-light);
   }
 
-  /* Hide on very small screens */
+  /* Compact phone rail: keep the useful at-a-glance agent/session strip
+     without spending desktop-only status fanout or tooltip space. */
   @media (max-width: 640px) {
     .activity-rail {
+      display: flex;
+      width: calc(44px + var(--ant-safe-left, 0px));
+      min-width: calc(44px + var(--ant-safe-left, 0px));
+      padding: 6px 0 6px var(--ant-safe-left, 0px);
+      z-index: 35;
+    }
+
+    .rail-sessions {
+      gap: 2px;
+      padding: 2px 0;
+    }
+
+    .rail-item {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+    }
+
+    .rail-divider {
+      width: 18px;
+      margin: 4px 0;
+    }
+
+    .rail-waiting-counter {
+      width: 26px;
+      height: 22px;
+      font-size: 10px;
+    }
+
+    .rail-active-bar {
+      left: -5px;
+      height: 18px;
+    }
+
+    .rail-pin-btn,
+    .rail-tooltip {
+      display: none;
+    }
+  }
+
+  @media (hover: none), (pointer: coarse) {
+    .rail-item:hover {
+      transform: none;
+    }
+
+    .rail-pin-btn,
+    .rail-tooltip {
       display: none;
     }
   }

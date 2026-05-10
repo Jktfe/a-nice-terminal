@@ -161,7 +161,7 @@
   });
 
   const footerStatusParticipants = $derived(
-    session?.type === 'terminal' || !statusPollingEnabled ? [] : statusParticipants
+    session?.type === 'terminal' ? [] : statusParticipants
   );
   const statusSessionIds = $derived(statusParticipants.map((participant) => participant.sess.id));
   const quickLaunchScope = $derived<ShortcutScope | null>(
@@ -975,13 +975,13 @@
   {:else}
     {#if footerStatusParticipants.length > 0}
       <div
-        class="shrink-0 px-3 py-2 border-t overflow-x-auto scrollbar-none"
+        class="agent-status-strip shrink-0 px-3 py-2 border-t overflow-x-auto scrollbar-none"
         style="border-color:var(--border-light);background:var(--bg-surface);"
         aria-label="Agent status"
       >
-        <div class="flex items-center gap-2 min-w-max">
+        <div class="agent-status-row flex items-center gap-2 min-w-max">
           <span
-            class="text-[10px] uppercase tracking-wide shrink-0"
+            class="agent-status-label text-[10px] uppercase tracking-wide shrink-0"
             style="color:var(--text-faint);font-family:var(--font-mono);letter-spacing:0;"
           >Agents</span>
           {#each footerStatusParticipants as participant (participant.sess.id)}
@@ -993,7 +993,7 @@
             {@const detail = statusDetail(sess)}
             {@const ctx = contextLabel(status)}
             <div
-              class="inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs shrink-0"
+              class="agent-status-chip inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs shrink-0"
               style="background:{stateStyle.bg};border-color:{stateStyle.border};color:{stateStyle.color};"
               title={detail || `${participantLabel(sess)}: ${stateStyle.label}`}
             >
@@ -1027,6 +1027,29 @@
   .linked-composer-shell {
     padding: 12px max(12px, var(--ant-safe-right, 0px)) calc(12px + max(var(--ant-safe-bottom, 0px), var(--ant-keyboard-h, 0px))) max(12px, var(--ant-safe-left, 0px));
     transition: padding-bottom var(--duration-fast) var(--spring-default);
+  }
+
+  @media (max-width: 640px) {
+    .agent-status-strip {
+      padding: 6px 8px;
+    }
+
+    .agent-status-row {
+      gap: 6px;
+    }
+
+    .agent-status-chip {
+      padding: 4px 7px;
+      font-size: 11px;
+    }
+
+    .agent-status-chip span:nth-child(3) {
+      display: none;
+    }
+
+    .agent-status-label {
+      font-size: 9px;
+    }
   }
 
   .chat-break {

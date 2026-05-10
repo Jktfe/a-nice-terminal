@@ -34,11 +34,11 @@
   }
 </script>
 
-<div class="relative">
+<div class="share-wrapper relative">
   <button
     onclick={loadCommands}
     disabled={isLoading}
-    class="touch-target flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+    class="share-trigger touch-target flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-all disabled:opacity-50 disabled:cursor-not-allowed"
     style="background:var(--bg-card);color:var(--text-muted);border-color:var(--border-subtle);"
     title="Share session with agents"
   >
@@ -52,11 +52,11 @@
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C9.539 14.197 11.675 16.333 16.5 20M8.684 13.342l3.879-3.879m0 0c.46-.46 1.209-.46 1.669 0l5.16 5.16m-7.909 2.21l3.879-3.879M3 12a9 9 0 1118 0 9 9 0 01-18 0z" />
       </svg>
     {/if}
-    <span>{copied ? '✓ Copied!' : 'Share'}</span>
+    <span class="share-label">{copied ? '✓ Copied!' : 'Share'}</span>
   </button>
 
   {#if showPanel}
-    <div class="absolute top-12 right-0 z-50 w-96 rounded-xl shadow-2xl border p-5 space-y-4 animate-slide-in" style="background:var(--bg-card);border-color:var(--border-light);">
+    <div class="share-panel absolute top-12 right-0 z-50 w-96 rounded-xl shadow-2xl border p-5 space-y-4 animate-slide-in" style="background:var(--bg-card);border-color:var(--border-light);">
       <div>
         <h3 class="text-sm font-semibold text-white">Share with Agents</h3>
         <p class="text-xs text-gray-400 mt-1">
@@ -97,3 +97,34 @@
     </div>
   {/if}
 </div>
+
+<style>
+  .share-wrapper {
+    flex-shrink: 0;
+  }
+
+  @media (max-width: 640px) {
+    .share-trigger {
+      min-width: 38px;
+      min-height: 38px;
+      padding: 0.375rem;
+      justify-content: center;
+    }
+
+    .share-label {
+      display: none;
+    }
+
+    .share-panel {
+      position: fixed;
+      top: calc(56px + var(--ant-safe-top, 0px));
+      right: max(8px, var(--ant-safe-right, 0px));
+      left: max(8px, var(--ant-safe-left, 0px));
+      width: auto;
+      max-width: none;
+      max-height: calc(100dvh - 72px - var(--ant-safe-top, 0px));
+      overflow: auto;
+      padding: 1rem;
+    }
+  }
+</style>

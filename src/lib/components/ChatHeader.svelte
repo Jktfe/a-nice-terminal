@@ -210,7 +210,7 @@
 <svelte:window onclick={onWindowClick} />
 
 <div
-  class="flex items-center px-2 sm:px-3 border-b flex-shrink-0 gap-1 sm:gap-2 min-w-0"
+  class="session-toolbar flex items-center px-2 sm:px-3 border-b flex-shrink-0 gap-1 sm:gap-2 min-w-0"
   style="border-color: #E5E7EB; background: var(--bg); min-height: 52px; padding-top: var(--ant-safe-top, 0px);"
   role="banner"
   aria-label="Session toolbar"
@@ -239,7 +239,7 @@
   <div class="w-px h-5 flex-shrink-0" style="background:#E5E7EB;"></div>
 
   <!-- Editable session name -->
-  <div class="flex items-center gap-1 sm:gap-1.5 flex-1 min-w-0 overflow-hidden">
+  <div class="session-title-cluster flex items-center gap-1 sm:gap-1.5 flex-1 min-w-0 overflow-hidden">
     {#if editingName}
       <!-- svelte-ignore a11y_autofocus -->
       <input
@@ -266,7 +266,7 @@
       </button>
     {/if}
     {#if session?.handle}
-      <span class="text-[11px] font-mono flex-shrink-0" style="color:#22C55E;">{session.handle}</span>
+      <span class="session-handle text-[11px] font-mono flex-shrink-0" style="color:#22C55E;">{session.handle}</span>
     {/if}
   </div>
 
@@ -331,11 +331,11 @@
   <div class="flex-1"></div>
 
   <!-- Right-side controls -->
-  <div class="flex items-center gap-1 flex-shrink-0">
+  <div class="session-actions flex items-center gap-1 flex-shrink-0">
     {#if onOpenExport}
       <button
         onclick={onOpenExport}
-        class="touch-target p-1.5 rounded-lg transition-all"
+        class="touch-target mobile-secondary-action p-1.5 rounded-lg transition-all"
         style="color: var(--text-muted);"
         title="Export evidence (Obsidian / Open-Slide)"
         aria-label="Export evidence"
@@ -358,7 +358,7 @@
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
             d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>
         </svg>
-        <span class="text-xs font-medium">Folders</span>
+        <span class="hidden sm:inline text-xs font-medium">Folders</span>
       </button>
     {/if}
     <button
@@ -686,6 +686,17 @@
 
 <style>
   /* ── B3 — Searchable CLI dropdown (replaces native <select>) ── */
+  .session-toolbar {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: clip;
+  }
+
+  .session-title-cluster,
+  .session-actions {
+    min-width: 0;
+  }
+
   .cli-dropdown {
     position: relative;
     flex-shrink: 0;
@@ -809,5 +820,47 @@
   @media (max-width: 720px) {
     .cli-trigger { max-width: 140px; padding: 0 8px 0 6px; }
     .cli-popover { width: 240px; }
+  }
+
+  @media (max-width: 640px) {
+    .session-toolbar {
+      padding-left: 4px;
+      padding-right: 4px;
+      gap: 3px;
+    }
+
+    .session-title-cluster {
+      flex: 1 1 auto;
+    }
+
+    .session-actions {
+      gap: 2px;
+    }
+
+    .session-actions :global(.touch-target) {
+      min-width: 38px;
+      min-height: 38px;
+      justify-content: center;
+    }
+
+    .session-handle {
+      display: none;
+    }
+
+    .cli-trigger {
+      max-width: 44px;
+      padding: 0;
+    }
+
+    .cli-trigger-label,
+    .cli-trigger-chevron {
+      display: none;
+    }
+  }
+
+  @media (max-width: 430px) {
+    .mobile-secondary-action {
+      display: none !important;
+    }
   }
 </style>
