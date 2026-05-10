@@ -138,6 +138,21 @@
   let participantsLoadSeq = 0;
   let participantPollTimer: ReturnType<typeof setInterval> | null = null;
 
+  // ── @ mention autocomplete state ───────────────────────────────
+  let mentionHandles = $state<{ handle: string; name: string }[]>([]);
+  let mentionQuery = $state('');
+  let showMentions = $state(false);
+  let mentionStart = $state(-1);
+  let mentionSelectedIdx = $state(0);
+
+  const filteredHandles = $derived.by(() => {
+    const q = mentionQuery.trim().toLowerCase();
+    if (!q) return mentionHandles.slice(0, 6);
+    return mentionHandles
+      .filter((h) => h.handle.toLowerCase().includes(q) || h.name.toLowerCase().includes(q))
+      .slice(0, 6);
+  });
+
   const roomAgents = $derived(
     roomParticipants.filter((participant) => participant.session_type === 'terminal')
   );
@@ -173,8 +188,22 @@
       if (!res.ok) return;
       const data = await res.json();
       const participants = Array.isArray(data.participants) ? data.participants : [];
+      const all = Array.isArray(data.all) ? data.all : [];
       if (seq === participantsLoadSeq && roomParticipantsRoomId === roomId) {
         roomParticipants = participants;
+        const everyone = { handle: '@everyone', name: 'Everyone' };
+        const fromAll = all
+          .filter((p: any) => p && typeof p.handle === 'string' && p.handle)
+          .map((p: any) => ({ handle: p.handle, name: p.name || p.handle }));
+        const seen = new Set<string>([everyone.handle.toLowerCase()]);
+        const merged: { handle: string; name: string }[] = [everyone];
+        for (const h of fromAll) {
+          const key = h.handle.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          merged.push(h);
+        }
+        mentionHandles = merged;
       }
     } catch {
       // Advisory only — room preview should not fail because participant chips did.
@@ -497,7 +526,67 @@
     }
   }
 
+  function detectMentionTrigger() {
+    if (!chatInputEl) return;
+    const cursor = chatInputEl.selectionStart ?? chatInput.length;
+    const before = chatInput.slice(0, cursor);
+    const m = before.match(/@([\w.-]*)$/);
+    if (m && mentionHandles.length > 0) {
+      mentionStart = cursor - m[0].length;
+      mentionQuery = m[1];
+      mentionSelectedIdx = 0;
+      showMentions = true;
+    } else {
+      showMentions = false;
+      mentionStart = -1;
+    }
+  }
+
+  function selectMention(handle: string) {
+    if (!chatInputEl || mentionStart < 0) return;
+    const cursor = chatInputEl.selectionStart ?? chatInput.length;
+    const before = chatInput.slice(0, mentionStart);
+    const after = chatInput.slice(cursor);
+    chatInput = `${before}${handle} ${after}`;
+    showMentions = false;
+    mentionStart = -1;
+    queueMicrotask(() => {
+      chatInputEl?.focus();
+      const pos = before.length + handle.length + 1;
+      chatInputEl?.setSelectionRange(pos, pos);
+    });
+  }
+
+  function onChatInput() {
+    sendError = '';
+    resizeChatInput();
+    detectMentionTrigger();
+  }
+
   function handleChatInputKeydown(e: KeyboardEvent) {
+    if (showMentions && filteredHandles.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        mentionSelectedIdx = Math.min(mentionSelectedIdx + 1, filteredHandles.length - 1);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        mentionSelectedIdx = Math.max(mentionSelectedIdx - 1, 0);
+        return;
+      }
+      if (e.key === 'Tab' || e.key === 'Enter') {
+        e.preventDefault();
+        selectMention(filteredHandles[mentionSelectedIdx].handle);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        showMentions = false;
+        mentionStart = -1;
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendChatMessage();
@@ -852,12 +941,32 @@
             {#if sendError}
               <div class="grid-chat-error">{sendError}</div>
             {/if}
+            {#if showMentions && filteredHandles.length > 0}
+              <div class="grid-mention-popover" role="listbox" aria-label="Mention suggestions">
+                {#each filteredHandles as h, i (h.handle)}
+                  <!-- svelte-ignore a11y_mouse_events_have_key_events -->
+                  <button
+                    type="button"
+                    class="grid-mention-item"
+                    class:grid-mention-item--active={i === mentionSelectedIdx}
+                    onmousedown={(e) => { e.preventDefault(); selectMention(h.handle); }}
+                    onmouseover={() => (mentionSelectedIdx = i)}
+                  >
+                    <span class="grid-mention-handle">{h.handle}</span>
+                    {#if h.name && h.name !== h.handle}
+                      <span class="grid-mention-name">{h.name}</span>
+                    {/if}
+                  </button>
+                {/each}
+              </div>
+            {/if}
             <div class="grid-chat-input-row">
               <textarea
                 bind:this={chatInputEl}
                 bind:value={chatInput}
-                oninput={() => { sendError = ''; resizeChatInput(); }}
+                oninput={onChatInput}
                 onkeydown={handleChatInputKeydown}
+                onblur={() => queueMicrotask(() => (showMentions = false))}
                 disabled={sendingChat}
                 rows="1"
                 placeholder={session.type === 'terminal' ? 'Send to linked terminal chat...' : 'Message this chat...'}
@@ -1183,6 +1292,52 @@
     padding: 8px 10px 10px;
     border-top: 1px solid #E5E7EB;
     background: #FFFFFF;
+    position: relative;
+  }
+
+  .grid-mention-popover {
+    position: absolute;
+    bottom: calc(100% + 4px);
+    left: 10px;
+    right: 10px;
+    max-height: 180px;
+    overflow-y: auto;
+    background: #FFFFFF;
+    border: 1px solid #E5E7EB;
+    border-radius: 8px;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.10);
+    z-index: 30;
+    padding: 4px;
+  }
+
+  .grid-mention-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 8px;
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    text-align: left;
+    cursor: pointer;
+    font-family: Inter, sans-serif;
+    font-size: 12px;
+    color: #111827;
+  }
+
+  .grid-mention-item--active {
+    background: #EEF2FF;
+  }
+
+  .grid-mention-handle {
+    font-weight: 600;
+    color: #4F46E5;
+  }
+
+  .grid-mention-name {
+    color: #6B7280;
+    font-size: 11px;
   }
 
   .grid-chat-error {
