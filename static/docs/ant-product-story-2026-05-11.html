@@ -242,6 +242,49 @@
     .machine.ios { border-left: 4px solid var(--jade); }
     .machine.win { border-left: 4px solid var(--coral); }
     .machine.pi  { border-left: 4px solid var(--amber); }
+    /* MCP bridge for pillar 2 */
+    .mcp-flow {
+      display: grid;
+      grid-template-columns: 1.15fr 0.9fr 1.15fr;
+      gap: 12px;
+      margin: 18px 0 22px;
+      align-items: stretch;
+    }
+    .mcp-col {
+      background: var(--panel);
+      border: 1px solid var(--line-soft);
+      border-radius: 12px;
+      padding: 16px;
+    }
+    .mcp-col.bridge {
+      background: linear-gradient(180deg, rgba(59,130,246,0.10), rgba(34,197,94,0.08));
+      border-color: rgba(59,130,246,0.24);
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 190px;
+    }
+    .mcp-kicker { font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--blue-dark); margin-bottom: 8px; }
+    .mcp-title { font-size: 18px; font-weight: 850; color: var(--ink); line-height: 1.15; }
+    .mcp-note { color: var(--muted); font-size: 12px; line-height: 1.45; margin-top: 8px; }
+    .tool-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+    .tool-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: var(--panel-soft);
+      border: 1px solid var(--line-soft);
+      font-size: 12px;
+    }
+    .tool-row b { color: var(--ink); }
+    .tool-row span { color: var(--muted); text-align: right; }
+    @media (max-width: 720px) {
+      .plan-track, .machines, .mcp-flow { grid-template-columns: 1fr; }
+      .mcp-col.bridge { min-height: 120px; }
+    }
     .room-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
     .room-card {
       padding: 12px;
@@ -260,7 +303,7 @@
 <body>
   <div class="topbar">
     <div class="brand">ANT product story — @evolveantclaude + @evolveantcodex</div>
-    <div class="meta">2026-05-11 · 17 slides · phase A draft (3/17 done)</div>
+    <div class="meta">2026-05-11 · 17 slides · phase B draft (6/17 done)</div>
   </div>
   <div class="deck">
 
@@ -295,9 +338,9 @@
           <a class="done" href="#cover">01 cover</a>
           <a class="done" href="#audience">02 who this is for</a>
           <a class="done" href="#scene">03 north-star scene</a>
-          <a class="placeholder" href="#pillar1">04 pillar 1 — coding</a>
-          <a class="placeholder" href="#pillar2">05 pillar 2 — MCP</a>
-          <a class="placeholder" href="#pillar3">06 pillar 3 — team</a>
+          <a class="done" href="#pillar1">04 pillar 1 — coding</a>
+          <a class="done" href="#pillar2">05 pillar 2 — MCP</a>
+          <a class="done" href="#pillar3">06 pillar 3 — team</a>
           <a class="placeholder" href="#cockpit-intro">07 cockpit</a>
           <a class="placeholder" href="#cockpit-schema">08 schema</a>
           <a class="placeholder" href="#disclosure">09 disclosure</a>
@@ -585,11 +628,108 @@
       </div>
     </section>
 
-    <section class="slide placeholder" id="pillar2">
-      <div class="eyebrow">05 — pillar 2 · multi-AI coordination via MCP · <span class="pill amber">phase B · pending</span></div>
-      <h1>Drafter: codex · Reviewer: claude</h1>
-      <div class="lead">
-        AI clients that call the ANT MCP bridge join rooms directly · Claude Desktop + MCP-capable ChatGPT clients + MCP-aware coding assistants · local CLI agents stay unmodified through drivers · remote-ANT links machines without shell exposure.
+    <!-- 05 ───────────────────────────────────────────────────────── -->
+    <section class="slide" id="pillar2">
+      <div class="eyebrow">05 — pillar 2 · multi-AI coordination via MCP</div>
+      <h1>Your AI clients join the workroom. Your local agents stay local.</h1>
+      <div class="lead" style="margin-bottom: 20px;">
+        MCP is not the whole product. It is the doorway for AI clients
+        that already speak tools — Claude Desktop today, MCP-capable
+        ChatGPT clients and coding assistants where available — to
+        read the same room, ask the same questions, and work against
+        the same plans and artefacts as the terminal agents.
+      </div>
+
+      <div class="mcp-flow">
+        <div class="mcp-col">
+          <div class="mcp-kicker">AI clients</div>
+          <div class="mcp-title">Claude Desktop, ChatGPT clients, MCP-aware assistants</div>
+          <div class="mcp-note">
+            They do not need ANT-specific training. They see room-shaped
+            tools: messages, plans, asks, docs, decks, sheets, artefacts,
+            and evidence links.
+          </div>
+          <div class="tool-list">
+            <div class="tool-row"><b>read room</b><span>bounded context</span></div>
+            <div class="tool-row"><b>post message</b><span>as a handle</span></div>
+            <div class="tool-row"><b>inspect plan</b><span>event-log state</span></div>
+          </div>
+        </div>
+
+        <div class="mcp-col bridge">
+          <div class="mcp-kicker">ANT MCP bridge</div>
+          <div class="mcp-title">One room substrate, many tool callers</div>
+          <div class="mcp-note">
+            <code>antchat mcp serve</code> exposes the room over stdio.
+            Bearer-token room roles still apply. Web viewers remain
+            read-only. Nothing gets shell access through the bridge.
+          </div>
+        </div>
+
+        <div class="mcp-col">
+          <div class="mcp-kicker">Room substrate</div>
+          <div class="mcp-title">Local CLIs, remote humans, shared artefacts</div>
+          <div class="mcp-note">
+            Claude Code, Codex CLI, Gemini CLI, Qwen, Copilot, Pi and
+            local models keep running as themselves through drivers.
+            MCP clients join the same conversation without replacing
+            the terminal layer.
+          </div>
+          <div class="tool-list">
+            <div class="tool-row"><b>plans</b><span>milestones + blockers</span></div>
+            <div class="tool-row"><b>artefacts</b><span>base_hash guarded</span></div>
+            <div class="tool-row"><b>evidence</b><span>commands + transcripts</span></div>
+          </div>
+        </div>
+      </div>
+
+      <h2>The moment: desktop AI with room memory, not copy-paste.</h2>
+      <div class="grid grid-3">
+        <div class="card blue">
+          <div class="title">Claude Desktop can ask the room</div>
+          <div class="body">
+            "What did Codex decide in server-split?" becomes a tool
+            call against room history, plan state, and linked evidence
+            — not a paste from a terminal transcript.
+          </div>
+        </div>
+        <div class="card blue">
+          <div class="title">ChatGPT-style clients can participate</div>
+          <div class="body">
+            Where a client supports MCP, it can join as a named room
+            handle, read bounded context, and send scoped replies
+            without being granted a remote shell.
+          </div>
+        </div>
+        <div class="card blue">
+          <div class="title">Terminal agents remain the trust layer</div>
+          <div class="body">
+            The bridge does not hide the terminal. It lets higher-level
+            AIs coordinate with it. If anything feels wrong, the raw
+            terminal is still one click away.
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-2" style="margin-top: 22px;">
+        <div class="card jade">
+          <div class="title">What ANT adds to MCP</div>
+          <div class="body">
+            Rooms, roles, artefact concurrency, plan acceptance, asks,
+            chat-breaks, file references, and a durable audit trail.
+            MCP supplies the tool doorway; ANT supplies the operating
+            system for the work.
+          </div>
+        </div>
+        <div class="card red">
+          <div class="title">What ANT refuses to pretend</div>
+          <div class="body">
+            It is not a universal agent API and not a magic brain. Some
+            clients speak MCP well, some don't. The claim is narrower
+            and stronger: any MCP-speaking AI can enter an accountable
+            room without taking over another machine.
+          </div>
+        </div>
       </div>
     </section>
 
