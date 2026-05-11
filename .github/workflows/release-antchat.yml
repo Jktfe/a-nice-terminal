@@ -123,7 +123,7 @@ jobs:
           } >>"$GITHUB_STEP_SUMMARY"
 
       - name: upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: antchat-${{ matrix.os }}-${{ matrix.arch }}
           path: ${{ steps.pkg.outputs.archive }}
