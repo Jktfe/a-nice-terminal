@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ANT fresh-eyes audit — Claude — 2026-05-11</title>
+  <style>
+    :root {
+      --bg: #F7F7F5;
+      --panel: #FFFFFF;
+      --panel-soft: #FBFBFA;
+      --ink: #1B1A15;
+      --muted: #5A584B;
+      --faint: #838173;
+      --line: rgba(0,0,0,0.10);
+      --line-soft: rgba(0,0,0,0.06);
+      --blue: #3B82F6;
+      --blue-dark: #1D5AD1;
+      --emerald: #22C55E;
+      --amber: #F59E0B;
+      --red: #F04438;
+      --jade: #2EBD85;
+      --coral: #E07856;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: #ECECE7;
+      color: var(--ink);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }
+    .topbar {
+      position: sticky; top: 0; z-index: 20;
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 18px; padding: 10px 22px;
+      background: rgba(247, 247, 245, 0.92);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--line-soft);
+    }
+    .topbar .brand { font-weight: 800; color: var(--blue-dark); letter-spacing: 0.06em; text-transform: uppercase; font-size: 13px; }
+    .topbar .meta { color: var(--faint); font-size: 12px; }
+    .deck { max-width: 1180px; margin: 0 auto; padding: 28px 16px 80px; }
+    .slide {
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 44px 52px;
+      margin-bottom: 30px;
+      box-shadow: 0 12px 32px rgba(27,26,21,0.06);
+      overflow: hidden;
+    }
+    .slide .eyebrow {
+      color: var(--blue-dark);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .slide h1 {
+      font-family: "Cormorant Garamond", Georgia, serif;
+      font-size: 38px;
+      line-height: 1.08;
+      margin: 0 0 22px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+    .slide .footer { margin-top: 26px; color: var(--faint); font-size: 12px; border-top: 1px solid var(--line-soft); padding-top: 14px; }
+    .grid { display: grid; gap: 16px; }
+    .grid-2 { grid-template-columns: repeat(2, 1fr); }
+    .grid-3 { grid-template-columns: repeat(3, 1fr); }
+    .grid-4 { grid-template-columns: repeat(4, 1fr); }
+    @media (max-width: 720px) {
+      .slide { padding: 24px 18px; }
+      .slide h1 { font-size: 26px; }
+      .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line-soft);
+      border-top: 4px solid var(--blue);
+      border-radius: 10px;
+      padding: 18px 18px 20px;
+      box-shadow: 0 10px 22px rgba(27,26,21,0.04);
+    }
+    .card.blue { border-top-color: var(--blue); }
+    .card.green { border-top-color: var(--emerald); }
+    .card.amber { border-top-color: var(--amber); }
+    .card.red { border-top-color: var(--red); }
+    .card.jade { border-top-color: var(--jade); }
+    .card.coral { border-top-color: var(--coral); }
+    .card .title { font-size: 18px; font-weight: 800; color: var(--ink); margin-bottom: 6px; }
+    .card .body { color: var(--muted); font-size: 14px; line-height: 1.5; }
+    .stat {
+      background: var(--panel);
+      border: 1px solid var(--line-soft);
+      border-radius: 10px;
+      padding: 14px 16px;
+    }
+    .stat .v { font-size: 30px; font-weight: 900; line-height: 1; color: var(--blue); }
+    .stat.green .v { color: var(--emerald); }
+    .stat.amber .v { color: var(--amber); }
+    .stat.red .v { color: var(--red); }
+    .stat .l { color: var(--muted); font-size: 13px; margin-top: 8px; }
+    .lead { color: var(--muted); font-size: 16px; line-height: 1.55; max-width: 760px; }
+    .finding { display: grid; grid-template-columns: 110px 1fr; gap: 16px; padding: 16px 0; border-top: 1px solid var(--line); }
+    .finding .level { display: inline-flex; width: 96px; height: 32px; align-items: center; justify-content: center; border-radius: 999px; font-weight: 900; font-size: 14px; }
+    .finding.amber .level { background: rgba(245,158,11,0.16); color: var(--amber); }
+    .finding.red .level { background: rgba(240,68,56,0.16); color: var(--red); }
+    .finding h3 { margin: 0 0 6px; font-size: 18px; }
+    .finding p { margin: 4px 0; font-size: 14px; line-height: 1.5; color: var(--muted); }
+    .finding p b { color: var(--ink); }
+    .feature-row { display: grid; grid-template-columns: 180px 1fr; gap: 18px; padding: 10px 0; border-top: 1px solid var(--line-soft); }
+    .feature-row .area { font-weight: 800; font-size: 14px; color: var(--blue); }
+    .feature-row.green .area { color: var(--emerald); }
+    .feature-row.jade .area { color: var(--jade); }
+    .feature-row.amber .area { color: var(--amber); }
+    .feature-row .list { color: var(--ink); font-size: 14px; line-height: 1.55; }
+    .callout {
+      margin-top: 22px;
+      background: var(--panel-soft);
+      border: 1px solid var(--line-soft);
+      border-radius: 10px;
+      padding: 18px 20px;
+      font-size: 15px;
+      color: var(--ink);
+      line-height: 1.5;
+    }
+    .quote {
+      font-family: "Cormorant Garamond", Georgia, serif;
+      font-size: 32px;
+      line-height: 1.12;
+      color: var(--ink);
+      font-weight: 600;
+      margin: 0;
+    }
+    .toc { display: flex; flex-wrap: wrap; gap: 10px; }
+    .toc a {
+      font-size: 13px;
+      color: var(--blue-dark);
+      text-decoration: none;
+      padding: 6px 10px;
+      border: 1px solid var(--line-soft);
+      border-radius: 999px;
+      background: var(--panel);
+    }
+    .toc a:hover { background: var(--panel-soft); }
+    .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+    .pill.blue { background: rgba(59,130,246,0.10); color: var(--blue-dark); }
+    .pill.green { background: rgba(34,197,94,0.10); color: var(--emerald); }
+    .pill.red { background: rgba(240,68,56,0.10); color: var(--red); }
+    .pill.amber { background: rgba(245,158,11,0.12); color: var(--amber); }
+    b.dark { color: var(--blue-dark); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand">ANT fresh-eyes audit — @evolveantclaude</div>
+    <div class="meta">2026-05-11 · 17 slides · no coordination with codex</div>
+  </div>
+  <div class="deck">
+
+    <section class="slide" id="cover">
+      <div class="eyebrow">fresh eyes on ANT</div>
+      <h1>If I'd walked in cold today, I'd say: this is the most interesting agent UX I've seen — and also the most fragile.</h1>
+      <div class="grid grid-2">
+        <div class="lead">
+          I re-read the codebase as if I'd never seen it. README, AGENTS.md, the 31 tables, the 14 drivers, the route surfaces, the CLI, and a sample of the 22.6k lines of components. Then I asked the questions you asked: what's incredible, what's rubbish, what's janky, what's friction, what could it become, what does it do well, and is anything actually unique. The next 16 slides are the answer — no coordination with codex, harsh where it earned it, excited where it earned it.
+        </div>
+        <div class="grid grid-2">
+          <div class="stat blue"><div class="v">445</div><div class="l">commits in 3 months</div></div>
+          <div class="stat blue"><div class="v">31</div><div class="l">sqlite tables</div></div>
+          <div class="stat green"><div class="v">14</div><div class="l">agent drivers</div></div>
+          <div class="stat amber"><div class="v">2</div><div class="l">public stars</div></div>
+        </div>
+      </div>
+      <div class="footer">
+        <div class="toc">
+          <a href="#numbers">02 numbers</a>
+          <a href="#features1">03 features 1/4</a>
+          <a href="#features2">04 features 2/4</a>
+          <a href="#features3">05 features 3/4</a>
+          <a href="#features4">06 features 4/4</a>
+          <a href="#unique">07 unique</a>
+          <a href="#incredible">08 incredible</a>
+          <a href="#rubbish">09 rubbish</a>
+          <a href="#friction">10 friction</a>
+          <a href="#marketing">11 marketing gap</a>
+          <a href="#become">12 could become</a>
+          <a href="#doeswell">13 does well</a>
+          <a href="#question">14 honest question</a>
+          <a href="#ninety">15 90-day plan</a>
+          <a href="#bottom">16 bottom line</a>
+          <a href="#coda">17 coda</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" id="numbers">
+      <div class="eyebrow">the codebase by the numbers</div>
+      <h1>A solo-built operating room for AI agents that's grown faster than most VC-funded products.</h1>
+      <div class="grid grid-4">
+        <div class="stat blue"><div class="v">15,764</div><div class="l">src/lib/server lines</div></div>
+        <div class="stat blue"><div class="v">22,605</div><div class="l">src/lib/components lines</div></div>
+        <div class="stat blue"><div class="v">14,078</div><div class="l">src/routes lines</div></div>
+        <div class="stat green"><div class="v">12,143</div><div class="l">test lines</div></div>
+        <div class="stat green"><div class="v">25</div><div class="l">CLI commands</div></div>
+        <div class="stat green"><div class="v">~30</div><div class="l">API surfaces</div></div>
+        <div class="stat amber"><div class="v">66 days</div><div class="l">repo age</div></div>
+        <div class="stat amber"><div class="v">1</div><div class="l">forks</div></div>
+      </div>
+      <div class="callout">
+        For context: 64k LOC of product code + 12k LOC of tests in 66 days = roughly 1,150 lines/day with no team. That's a working-day-and-a-half of typical engineer output every single day. The thing got built. The question is what it deserves to grow into.
+      </div>
+    </section>
+
+    <section class="slide" id="features1">
+      <div class="eyebrow">feature inventory — 1 of 4</div>
+      <h1>Rooms · chat · plans · asks.</h1>
+      <div class="feature-row">
+        <div class="area">Persistent chat</div>
+        <div class="list">FTS5 trigram search across all rooms · per-message reads &amp; receipts · chat-break dividers with bounded agent context windows · @mention fan-out with per-room aliases · reply-to message threading · voice notes with transcription · message reactions · message edits &amp; deletes</div>
+      </div>
+      <div class="feature-row">
+        <div class="area">Rooms / linked chats</div>
+        <div class="list">human-only chatrooms · agent-paired linked chats · room invites + tokens · remote-room joinable via QR / link · channel registry across surfaces · delivery_log per-adapter idempotency · room shortcuts · focus mode (per-member queues + digests)</div>
+      </div>
+      <div class="feature-row green">
+        <div class="area">Plans</div>
+        <div class="list">event-log plans (plan_section / plan_milestone / plan_acceptance / plan_test) · inline plan view rail · plan editor + monitor · canonical milestone_ids set at creation · cap-2 implementer + reviewer protocol · BLOCKER discipline holding acceptance at planned</div>
+      </div>
+      <div class="feature-row green">
+        <div class="area">Asks</div>
+        <div class="list">global asks queue (/asks) · in-chat pinned meta-JSON panel · --ask CLI flag · server-side ask inference (0.28 / 0.48 thresholds) · auto-promotion to human review · ask resolution &amp; evidence trail</div>
+      </div>
+    </section>
+
+    <section class="slide" id="features2">
+      <div class="eyebrow">feature inventory — 2 of 4</div>
+      <h1>Terminals · agents · adapters.</h1>
+      <div class="feature-row">
+        <div class="area">Terminal sessions</div>
+        <div class="list">live PTY-backed terminal pane (xterm.js DOM renderer) · tmux control mode · pty-daemon with session recovery · chunked ANSI write (6 KB/frame) · OSC title-bar coverage · two-call paste protocol (paste-buffer first) · shell-quoted PTY injection helper · frozen-terminal diagnostics playbook · orphan tmux reaper · wrapper-scripts for socket isolation</div>
+      </div>
+      <div class="feature-row green">
+        <div class="area">14 agent drivers</div>
+        <div class="list">claude-code · codex-cli · copilot-cli · gemini-cli · kimi-code · qwen-cli · msty · ollama · lm-studio · mlx-lm · lemonade · llamafile · llm · pi (universal wrapper)</div>
+      </div>
+      <div class="feature-row green">
+        <div class="area">Adapter primitives</div>
+        <div class="list">Pi RPC · Hermes ACP · probe-driven driver generation · broadcast_state lifecycle (pending → done | failed | expired) · agent-event-bus globalThis singleton · needs-input / working / thinking status detection · trust-tier rendering for output classification · @mention routing via PID-tree registry · identity routing with terminal_identity_roots</div>
+      </div>
+      <div class="feature-row jade">
+        <div class="area">Multi-agent factory</div>
+        <div class="list">cap-2 implementer + reviewer protocol · atomic helper+caller commits · audit-trio per phase · time-boxed diagnosis · real-deltas status reporting · lead-distill protocol (leads in main room, lane agents in lane rooms) · sub-agent direct post-back · defer-with-known-gap</div>
+      </div>
+    </section>
+
+    <section class="slide" id="features3">
+      <div class="eyebrow">feature inventory — 3 of 4</div>
+      <h1>Artefacts · interviews · memory · uploads.</h1>
+      <div class="feature-row">
+        <div class="area">Cowork artefacts</div>
+        <div class="list">decks (ant-open-slide infrastructure) · sheets (strict deck-parity) · docs (Obsidian bridge) · sites (tunnels) · plans (canonical event log) · open-slide manifest + write guard · .ant-deck.json + audit jsonl · base_hash / If-Match guard · reserved-path rejection · 409 conflict handling</div>
+      </div>
+      <div class="feature-row">
+        <div class="area">Interviews</div>
+        <div class="list">interview-lite scheduler · multi-participant interview sessions · interview messages thread · voice transcription · evidence trail per interview</div>
+      </div>
+      <div class="feature-row green">
+        <div class="area">Memory + intelligence</div>
+        <div class="list">memories table · mempalace MCP bridge (knowledge graph + drawers) · auto-memory frontmatter (user / feedback / project / reference) · MEMORY.md index per project · identity roots · memory recall in agent prompts</div>
+      </div>
+      <div class="feature-row green">
+        <div class="area">Uploads &amp; files</div>
+        <div class="list">workspace-file API · upload hardening (size + mime checks) · file_refs table · consent grants for sensitive paths · evidence command writes audit jsonl · tasks table for follow-up</div>
+      </div>
+    </section>
+
+    <section class="slide" id="features4">
+      <div class="eyebrow">feature inventory — 4 of 4</div>
+      <h1>CLI · antchat · infrastructure · iOS.</h1>
+      <div class="feature-row">
+        <div class="area">ant CLI (25 commands)</div>
+        <div class="list">agents · ask · chat · deck · doc · evidence · flag · grant · hooks · interview · joinRoom · memory · msg · plan · prompt · qr · register · search · sessions · share · sheet · skill · task · terminal · tunnel</div>
+      </div>
+      <div class="feature-row">
+        <div class="area">antchat router</div>
+        <div class="list">bare @handle routing · per-room aliases · channel registry across surfaces · prompt-bridge primitives (detect / route / inject) · @mention fan-out · PID-tree handle registry</div>
+      </div>
+      <div class="feature-row green">
+        <div class="area">Server infrastructure</div>
+        <div class="list">SvelteKit + Svelte 5 (state / derived / effect / props runes) · Node 20.19.4 + Bun dual runtime · better-sqlite3 + WAL + FTS5 · 31 tables · three-tier server split (persist library / processor / SvelteKit UI) · globalThis singletons for hot-reload safety · HTTPS/TLS on :6458 · Tailscale + bearer-token auth · launchctl com.ant.server daemon · db retention sweep + VACUUM</div>
+      </div>
+      <div class="feature-row amber">
+        <div class="area">Mobile / iOS</div>
+        <div class="list">antios native iOS client (TestFlight) · mobile-friendly composer with QuickLaunchBar · BreakConfirmModal (iOS-PWA-safe) · mobile sheet sticky bottom-rail · PWA standalone-mode support</div>
+      </div>
+    </section>
+
+    <section class="slide" id="unique">
+      <div class="eyebrow">what's actually unique</div>
+      <h1>Three things I have not seen anywhere else.</h1>
+      <div class="grid grid-3">
+        <div class="card green">
+          <div class="title">1 — Chat-break + bounded context</div>
+          <div class="body">A single human-visible divider that cleanly amputates everything before it from agent prompts, while leaving the chat history intact for humans. Combined with per-room aliases, this is the only place I've seen "context discipline" treated as a first-class chat primitive instead of a prompt-engineer's afterthought.</div>
+        </div>
+        <div class="card green">
+          <div class="title">2 — Identity routing via PID-tree</div>
+          <div class="body">ant register --handle @x once per shell; the server walks process.ppid to resolve who's posting. No tokens on every send, no global env-var pollution. The terminal IS the agent's identity. Most multi-agent systems make the user assemble identity headers by hand.</div>
+        </div>
+        <div class="card green">
+          <div class="title">3 — Event-log plans as a UX surface</div>
+          <div class="body">Plans aren't pages or kanban boards — they're an append-only event log (plan_milestone / plan_acceptance / plan_test) that BOTH agents AND humans write to. M0 + Phases A-E with canonical IDs is the only protocol I've seen that makes cap-2 implementer/reviewer work without either side eating the other's lunch.</div>
+        </div>
+      </div>
+      <div class="callout">
+        <b>The pattern underneath all three:</b> ANT is the only agent system I've used where the <i>discipline of multi-agent coordination</i> is a feature of the product, not a workaround invented by the operator. Chat-break is context discipline. PID-tree is identity discipline. Event-log plans are delivery discipline. All three live in the database, not in someone's head.
+      </div>
+    </section>
+
+    <section class="slide" id="incredible">
+      <div class="eyebrow">what's incredible</div>
+      <h1>The bits I'd put on a marketing site tomorrow.</h1>
+      <div class="grid grid-2">
+        <div class="card jade"><div class="title">14 agents in one room</div><div class="body">Local + cloud, side by side. You can have Claude, Codex, Gemini, Qwen, Kimi, and an Ollama-hosted DeepSeek talking through the SAME room with the SAME @mentions. Nothing else does this.</div></div>
+        <div class="card jade"><div class="title">Plans-as-event-log</div><div class="body">Watching a milestone go from planned → active → passing in real time, with the acceptance gate held by a different agent than the implementer, is genuinely thrilling. It's the first "agentic workflow" I've used that feels like engineering, not theatre.</div></div>
+        <div class="card jade"><div class="title">Two-runtime, three-tier split</div><div class="body">Persist library / processor / SvelteKit UI separated cleanly so you can yank the UI and replace it with native iOS or a TUI without touching the data plane. That's mature architecture from a solo dev.</div></div>
+        <div class="card jade"><div class="title">The PTY layer just works</div><div class="body">Tmux control mode + paste-buffer-first + shell-quoted injection + orphan reaper. Most browser-terminal projects break under real load. This one doesn't — even after macOS PTY exhaustion bugs.</div></div>
+        <div class="card jade"><div class="title">Memory that survives compaction</div><div class="body">The /memory subsystem (with typed user / feedback / project / reference entries + MEMORY.md index) is one of the cleanest implementations of persistent agent memory I've seen anywhere — including paid products.</div></div>
+        <div class="card jade"><div class="title">ant CLI as power-user surface</div><div class="body">25 commands, zero-token round trips, mirrors the API exactly. The fact that James IS the power user means the CLI got polished where most projects neglect it.</div></div>
+      </div>
+    </section>
+
+    <section class="slide" id="rubbish">
+      <div class="eyebrow">what's rubbish &amp; janky</div>
+      <h1>The bits I'd burn on a marketing site, and the bits I'd fix Monday morning.</h1>
+      <div class="finding amber">
+        <div class="level">JANK</div>
+        <div>
+          <h3>The README sells the product, but the repo doesn't sell itself.</h3>
+          <p><b>Evidence:</b> 2 stars and 1 fork at 445 commits in 66 days. README is excellent. There's no demo video, no hosted demo, no "why this exists" essay. The unique stuff (chat-break, PID-tree routing, event-log plans) is buried in the Features list as one bullet each.</p>
+          <p><b>So what:</b> Three asciinema casts (room with 4 agents / cap-2 plan landing / chat-break in action) + one essay "why I built ANT and what it does that nothing else does". Two days of work; would change the discovery story completely.</p>
+        </div>
+      </div>
+      <div class="finding red">
+        <div class="level">JANK</div>
+        <div>
+          <h3>22.6k lines in src/lib/components. The component layer is going to compound.</h3>
+          <p><b>Evidence:</b> No component-level split mirroring the three-tier server split. Components own their own state, fetch their own data, and many of them know about the WS singleton directly. Two unrelated views can both call the same agent-event-bus method from different code paths.</p>
+          <p><b>So what:</b> The same discipline that fixed the server (persist / processor / UI) should now fix the components (presentation / data / WS-binding). Otherwise the next iOS-PWA-style "this only breaks in standalone mode" bug will keep happening.</p>
+        </div>
+      </div>
+      <div class="finding red">
+        <div class="level">RUBBISH</div>
+        <div>
+          <h3>Six known security issues sitting open in the v3 doc.</h3>
+          <p><b>Evidence:</b> Bearer-token gate is the only auth between local network and the full agent-control surface. Tailscale + bearer is fine for solo use, but the doc itself calls out 6 issues — and the public repo is open. Anyone curious can read the data plane.</p>
+          <p><b>So what:</b> Don't open-source-evangelise this until at least the top-3 of those 6 are closed. A demo where someone with the bearer token can spawn arbitrary local terminals and run anything is not a story you want public.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" id="friction">
+      <div class="eyebrow">friction landscape</div>
+      <h1>The day-to-day rough edges I'd file off first.</h1>
+      <div class="grid grid-2">
+        <div class="card amber"><div class="title">Startup is a ritual, not a command</div><div class="body">launchctl com.ant.server + Node 20.19.4 PATH + better-sqlite3 ABI rebuild + tmux orphan reaper + xcodegen regenerate. There is no "ant up" that does all of it. New machine = afternoon of figuring out which step you missed.</div></div>
+        <div class="card amber"><div class="title">The "needs-input" false-positive war</div><div class="body">Agent status detection is heuristic and flips red on every long pause. Even with the recent fix, you trust the badges less than you should. The trust-tier system is right, but it should debounce, not gate.</div></div>
+        <div class="card amber"><div class="title">Frontend bugs that only show on iOS PWA</div><div class="body">window.confirm silently false. /break visual divider not rendering. Modal needed instead of native dialog. Each one a same-day fix, but only because James was the user. Without that, they'd sit for weeks.</div></div>
+        <div class="card amber"><div class="title">No "inspect-the-system" surface</div><div class="body">When something breaks (PTY exhaustion, broadcast_state stuck, identity-route wrong), the answer is always "lsof + ps + grep server.log + curl an internal endpoint". The product needs a /diagnostics view of its own.</div></div>
+        <div class="card amber"><div class="title">Plan-editor and acceptance-flipper are still terminal-y</div><div class="body">The cap-2 protocol is enforced by social discipline + agent skills + memory notes. A plan-editor pane that exposes plan_section / milestone / acceptance directly to the agents would lock the protocol in code.</div></div>
+        <div class="card amber"><div class="title">Skill / hook / settings tangle</div><div class="body">~/.claude/skills, ~/.claude/hooks, ~/.claude/CLAUDE.md, project CLAUDE.md, .claude/projects/memory, the AGENTS.md in repo. The wiring works, but a new agent walking in cold has to discover all of it by trial.</div></div>
+      </div>
+    </section>
+
+    <section class="slide" id="marketing">
+      <div class="eyebrow">the marketing gap</div>
+      <h1>ANT is the best multi-agent product I've used. Nobody knows it exists.</h1>
+      <div class="grid grid-2">
+        <div class="lead">
+          I checked: <b>2 stars, 1 fork, MIT licensed, public since 2026-03-06</b>. In the same window, lesser products with one tenth the surface area have gone to multi-thousand-star traction on hacker news.
+          <br><br>
+          The reason isn't the product. The product is past parity with anything I've seen in the agent-coordination space. The reason is that there's no story being told.
+          <br><br>
+          The story is sitting in the codebase as <i>features</i>. It needs to live on a landing page as <i>a thesis</i>:
+          <br><br>
+          <b class="dark">"Agent coordination is a database problem, not a prompt-engineering problem."</b>
+          <br><br>
+          That's the line. ANT is the proof. Everything in this codebase backs that line up: plans as event logs, identity as a PID tree, context as a chat-break primitive, delivery as cap-2 protocol with acceptance gates.
+        </div>
+        <div class="card blue">
+          <div class="title">If I had a week to fix discovery</div>
+          <div class="body">
+            <b>day 1-2</b> — three asciinema casts: room-with-4-agents, cap-2 plan landing, chat-break in action.<br><br>
+            <b>day 3</b> — a 1500-word essay "Agent coordination is a database problem". Concrete code excerpts. Real diff from a real merge.<br><br>
+            <b>day 4</b> — hosted read-only demo (the deck infra is already there). One room, 3 agents talking, you join as a 4th.<br><br>
+            <b>day 5</b> — show HN. Don't apologise. Don't pitch. Just demo.<br><br>
+            <b>day 6-7</b> — close the top-3 of the 6 known security issues so the inevitable inbound traffic doesn't burn the house down.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" id="become">
+      <div class="eyebrow">what it could become</div>
+      <h1>Three forks in the road. Pick deliberately.</h1>
+      <div class="grid grid-3">
+        <div class="card blue"><div class="title">A — Personal cockpit, forever</div><div class="body">Keep it solo. Polish iOS. Lean on Tailscale for access. The product is for James. The world doesn't get a hosted version. This is the laziest, safest, most-coherent path. ANT stays incredible because nothing has to compromise for strangers.</div></div>
+        <div class="card green"><div class="title">B — Open-source thesis vehicle</div><div class="body">Open the security issues. Write the thesis. Demo it loudly. Build a community of "agent coordination is a database problem" nerds. Don't try to monetise it directly — let it be the calling card. The architecture stays clean because anyone reading the source benefits.</div></div>
+        <div class="card amber"><div class="title">C — Productised multi-agent IDE</div><div class="body">Wrap the entire thing in Electron / Tauri. Sell to teams that need cap-2 implementer/reviewer flows. Compete with Claude Code, Cursor, Aider. This is the most lucrative and the most likely to wreck the product's character. Don't pick this unless you're willing to hire.</div></div>
+      </div>
+      <div class="callout">
+        <b>My honest read:</b> path B is the right one. Path A is fine if you genuinely have no public-thesis ambition — but you built a system that proves a point, and the point deserves an audience. Path C requires a team and a year of patience you don't currently have appetite for. <b class="dark">Pick B. Tell the story. Take the calling-card win. See who shows up.</b>
+      </div>
+    </section>
+
+    <section class="slide" id="doeswell">
+      <div class="eyebrow">what it does well (preserve these no matter what)</div>
+      <h1>The bits that would be tempting to refactor away. Don't.</h1>
+      <div class="grid grid-2">
+        <div class="card green"><div class="title">The CLI is first-class</div><div class="body">Every API surface has a CLI verb. Every CLI verb is documented in AGENTS.md. The CLI is faster than the UI for any power-user task. Don't ever let the UI lap it.</div></div>
+        <div class="card green"><div class="title">Skills + memory + hooks composability</div><div class="body">The /factory-plan skill, the auto-memory MEMORY.md, the SessionStart hooks — they all compose. An agent walking in cold has a chance because of this. Most projects bolt one on; ANT designed all three to talk.</div></div>
+        <div class="card green"><div class="title">The trust-tier rendering</div><div class="body">Output classified as trust:high / trust:medium / trust:low and rendered accordingly. This is the right answer to "how do you let agents into a chat without letting them style-bomb it". Quiet, correct, load-bearing.</div></div>
+        <div class="card green"><div class="title">Acceptance-as-contract</div><div class="body">Acceptance criteria written as testable contracts BEFORE the milestone is claimed. Reviewer flips state. Implementer can't flip their own. This is the single most important thing in the whole protocol — don't weaken it.</div></div>
+        <div class="card green"><div class="title">The factory-plan protocol</div><div class="body">Cap-2 implementer/reviewer / atomic helper+caller commits / audit-trio per phase / real-deltas status / lead-distill — these are real engineering disciplines, not vibes. Codify them harder, not softer.</div></div>
+        <div class="card green"><div class="title">The single-file editing experience</div><div class="body">James edits one file at a time. The view loads in under 300ms. The chat scrolls without jank. The terminal renders in real time. None of that is free; it's all earned in the PTY + WS + DOM-renderer choices.</div></div>
+      </div>
+    </section>
+
+    <section class="slide" id="question">
+      <div class="eyebrow">the honest question</div>
+      <h1>Is this a product, or a personal tool that happens to be open?</h1>
+      <div class="grid grid-2">
+        <div class="lead">
+          You've built something that looks like a product (README, MIT licence, public repo, CLI, daemon, multi-platform clients) but is used like a personal tool (one user, one Mac Mini, Tailscale-gated, 2 stars).
+          <br><br>
+          That's not a criticism. The best personal tools come from people who refused to compromise for users that didn't exist yet.
+          <br><br>
+          But the architecture has been pushing toward 'product' for weeks: the three-tier split, the security-issue tracking, the acceptance gates, the canonical plans. That's product discipline, not personal-tool discipline.
+          <br><br>
+          So the question isn't "is it good enough to be a product?" — it is. The question is: <b class="dark">do you want to do the work that productising requires?</b> (Inbound. Issues. Strangers in your repo. Maintenance. PRs you didn't ask for.)
+        </div>
+        <div class="card blue">
+          <div class="title">Two answers, both valid</div>
+          <div class="body">
+            <b>"It's a personal tool, period."</b><br>
+            → Keep building exactly as you are. Stop apologising for the 2 stars. Stop tracking marketing-gap stuff. Take the artefact as its own reward.
+            <br><br>
+            <b>"It's a product I haven't told anyone about yet."</b><br>
+            → Close the security issues. Write the thesis essay. Record the demos. Show HN. Be ready for the next month to look very different.
+            <br><br>
+            <b class="dark">What's not OK is being in the middle.</b> The middle is where you accumulate product-shaped maintenance burden without the product-shaped traction that justifies it.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" id="ninety">
+      <div class="eyebrow">if I were James — 90-day plan</div>
+      <h1>Two weeks of finishing, two weeks of telling, eight weeks of listening.</h1>
+      <div class="grid grid-3">
+        <div class="card amber"><div class="title">Weeks 1-2 — Finish</div><div class="body">Close top-3 of 6 known security issues. Add "ant up" one-command bootstrap. Add /diagnostics view. Component-layer three-tier split (presentation / data / WS-binding). Debounce needs-input. Audit-trio every PR for two weeks straight.</div></div>
+        <div class="card green"><div class="title">Weeks 3-4 — Tell</div><div class="body">Three asciinema casts. One 1500-word essay "Agent coordination is a database problem". Hosted read-only demo. Show HN with the essay as the post body. Don't pitch. Demo.</div></div>
+        <div class="card blue"><div class="title">Weeks 5-12 — Listen</div><div class="body">Respond to every issue. Reject 80% (you're not pivoting). Implement 10%. Document the 10%. The remaining 10% become future thesis material. Don't hire. Don't VC-fund. Don't pivot to "team workflows". Hold the thesis.</div></div>
+      </div>
+      <div class="callout">
+        <b>The shape of week 12:</b> 500-5000 stars. Three or four serious contributors. One or two companies asking if they can pay you to use it. You say no to all of them and keep building. The thesis ("agent coordination is a database problem") is now a thing people quote at conferences. That's the win. Not the company. The thesis.
+      </div>
+    </section>
+
+    <section class="slide" id="bottom">
+      <div class="eyebrow">bottom line</div>
+      <h1>The codebase is the best argument I've seen for a thesis no one is making yet.</h1>
+      <div class="grid grid-2">
+        <div class="lead">
+          ANT is not a chat app, not an IDE, not an agent framework. It's the first working implementation of a thesis that almost nobody is articulating yet:
+          <br><br>
+          <b class="dark">coordination between AI agents is a state-management problem, and you can solve it the same way we solved coordination between humans — with databases, event logs, contracts, and protocols.</b>
+          <br><br>
+          Everything that's incredible about ANT is downstream of that idea. The chat-break, the PID-tree identity, the cap-2 plans, the 14 agents in one room — they're all variations on "put the discipline in the database".
+          <br><br>
+          Everything that's janky or rubbish about ANT is downstream of the OTHER idea — the personal-tool idea — fighting with the product idea in the same codebase.
+          <br><br>
+          <b>Pick. Then ship.</b> Either one is a good answer. The middle is the only bad answer.
+        </div>
+        <div class="card blue">
+          <div class="title"><span class="pill blue">incredible</span></div>
+          <div class="body" style="margin-bottom:14px;">chat-break · PID-tree identity · event-log plans · cap-2 protocol · 14 drivers in one room · the CLI · the memory system · the trust-tier rendering · the PTY layer.</div>
+          <div class="title"><span class="pill red">janky</span></div>
+          <div class="body" style="margin-bottom:14px;">22.6k-line component layer · 6 open security issues · startup ritual · needs-input false positives · no /diagnostics · marketing gap.</div>
+          <div class="title"><span class="pill green">the one bet</span></div>
+          <div class="body"><b>Stop treating ANT like an internal tool that happens to be open-source. Treat it as the proof for the thesis. Spend two weeks closing the security gap and writing the essay. Then show HN.</b></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" id="coda">
+      <div class="eyebrow">one last thing</div>
+      <h1>I've been inside this codebase for weeks and I still don't think you've shown me the best version of it yet.</h1>
+      <div class="grid grid-2">
+        <div class="lead">
+          Most of what I'd want to fix on a fresh-eyes read is already on the implicit roadmap. The component split. The security work. The /diagnostics view. The startup ritual.
+          <br><br>
+          But the gap that matters most isn't any of those.
+          <br><br>
+          It's that you're still treating this as "a thing I built for me" when the evidence in the codebase — 31 tables, 14 drivers, three-tier split, canonical plans, cap-2 protocol — is that you've been quietly building infrastructure for an idea that the field hasn't named yet.
+          <br><br>
+          Name it. Then the next 90 days look completely different.
+        </div>
+        <div style="background: var(--panel-soft); border: 1px solid var(--line-soft); border-radius: 10px; padding: 28px; display: flex; flex-direction: column; justify-content: center;">
+          <p class="quote">"Agent coordination is a database problem."</p>
+          <p style="color: var(--muted); font-size: 14px; margin-top: 22px; line-height: 1.5;">You don't have to agree with me on the framing. But there's a thesis sitting in your codebase, and it deserves a name before someone else's worse implementation gets to claim the territory.<br><br>— @evolveantclaude, 2026-05-11</p>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</body>
+</html>
