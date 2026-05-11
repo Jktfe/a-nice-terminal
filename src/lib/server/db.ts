@@ -240,6 +240,19 @@ function getDb(): any {
   if (!msgCols.includes('reply_to'))  G[DB_KEY].exec(`ALTER TABLE messages ADD COLUMN reply_to TEXT REFERENCES messages(id) ON DELETE SET NULL`);
   if (!msgCols.includes('msg_type'))  G[DB_KEY].exec(`ALTER TABLE messages ADD COLUMN msg_type TEXT DEFAULT 'message'`);
   if (!msgCols.includes('pinned'))    G[DB_KEY].exec(`ALTER TABLE messages ADD COLUMN pinned INTEGER DEFAULT 0`);
+  // Phase A of server-split-2026-05-11 — broadcast_state is the handoff
+  // between Tier 1 (persist library) and Tier 2 (in-process processor).
+  // Tier 1 writes 'pending' on every new row; Tier 2 flips to 'done'
+  // after the side-effect block runs. Default 'done' on the column means
+  // existing rows are NOT replayed — only new inserts ever become pending.
+  if (!msgCols.includes('broadcast_state'))
+    G[DB_KEY].prepare(`ALTER TABLE messages ADD COLUMN broadcast_state TEXT NOT NULL DEFAULT 'done'`).run();
+  if (!msgCols.includes('broadcast_attempts'))
+    G[DB_KEY].prepare(`ALTER TABLE messages ADD COLUMN broadcast_attempts INTEGER NOT NULL DEFAULT 0`).run();
+  // Partial index so listPendingBroadcasts() runs in O(pending), not
+  // O(all-messages) — Phase C's catch-up loop polls this every 5s.
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_messages_broadcast_pending
+    ON messages(broadcast_state) WHERE broadcast_state='pending'`);
 
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id)`);
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_messages_session_sender ON messages(session_id, sender_id, created_at)`);
@@ -1077,8 +1090,22 @@ export const queries = {
     prepare(`SELECT * FROM messages WHERE session_id = ? AND created_at < ? ORDER BY created_at DESC LIMIT ?`).all(sessionId, before, limit),
   getLatestMessages: (sessionId: string, limit: number) =>
     prepare(`SELECT * FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT ?`).all(sessionId, limit),
-  createMessage: (id: string, sessionId: string, role: string, content: string, format: string, status: string, senderId: string | null, target: string | null, replyTo: string | null, msgType: string, meta: string) =>
-    prepare(`INSERT INTO messages (id, session_id, role, content, format, status, sender_id, target, reply_to, msg_type, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, sessionId, role, content, format, status, senderId, target, replyTo, msgType, meta),
+  createMessage: (id: string, sessionId: string, role: string, content: string, format: string, status: string, senderId: string | null, target: string | null, replyTo: string | null, msgType: string, meta: string, broadcastState: string = 'pending') =>
+    prepare(`INSERT INTO messages (id, session_id, role, content, format, status, sender_id, target, reply_to, msg_type, meta, broadcast_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, sessionId, role, content, format, status, senderId, target, replyTo, msgType, meta, broadcastState),
+  // Phase A of server-split-2026-05-11 — broadcast queue helpers used by
+  // Tier 2's runSideEffects (Phase B) and the catch-up loop (Phase C).
+  // Kept thin: the persist library wraps these in a typed surface
+  // (src/lib/persist/broadcast-queue.ts).
+  markBroadcastDone: (id: string) =>
+    prepare(`UPDATE messages SET broadcast_state = 'done' WHERE id = ?`).run(id),
+  markBroadcastFailed: (id: string) =>
+    prepare(`UPDATE messages SET broadcast_state = 'failed' WHERE id = ?`).run(id),
+  markBroadcastExpired: (id: string) =>
+    prepare(`UPDATE messages SET broadcast_state = 'expired' WHERE id = ?`).run(id),
+  bumpBroadcastAttempts: (id: string) =>
+    prepare(`UPDATE messages SET broadcast_attempts = broadcast_attempts + 1 WHERE id = ?`).run(id),
+  listPendingBroadcasts: (limit: number = 100) =>
+    prepare(`SELECT * FROM messages WHERE broadcast_state = 'pending' ORDER BY created_at ASC LIMIT ?`).all(limit),
   /**
    * Returns 1 row when the sender has any prior message in the session,
    * undefined otherwise. Used by ant-skills-on-demand-2026-05-09 m2 to
