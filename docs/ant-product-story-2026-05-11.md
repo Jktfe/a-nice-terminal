@@ -381,19 +381,22 @@ confused fast when "rooms have 8 things in them" turns out to mean
 3 humans + 2 agents + 1 deck + 1 plan + 1 ask-pinned-message. The
 fix is visual category separation, not fewer things.
 
-## 6c. Kill list (the deck takes a position)
+## 6c. Keep / kill / reframe (the deck takes a position)
 
 Marketing decks make claims, not park questions. Per James 2026-05-11:
-"it's kill or keep in the deck you're making." Drafter + codex
-both vote KILL on the following surfaces because they don't earn
-their keep against existing primitives:
+"it's kill or keep in the deck you're making." Per codex's M0
+re-review: Reply and Thread are different primitives and must not
+be conflated.
 
-| Surface | Why kill | What replaces it |
-|---|---|---|
-| **Message threads** (reply_to threading) | Overlaps with agent-pair rooms (for deep dives), context-breaks (for context shifts), and the Cockpit options-pane (for decisions). Visual is weak. | Pair-rooms + context-breaks + Cockpit. The data shape (reply_to) stays for one release for back-compat, then quiet removal unless a clear use case emerges. |
+| Surface | Position | Rationale | What changes |
+|---|---|---|---|
+| **Reply** (anchored quote-and-correct on a specific message) | **KEEP + polish** | This is essential — "answer this specific thing" / "this message was wrong, see corrected version". It's the smallest correction primitive. | Render sender name + first N words as collapsible quote, NOT the message_id. Auto-mention the original sender. Drop internal ids from visible UI. Phase D. |
+| **Message edit + correction protocol** | **KEEP + rename** | Core Cockpit feature: humans correct agent context, force interrupt + re-read. Already spec'd in M0 §4 above. | Surfaces as "edit this" on hover; agents get the supersede event automatically. Implementation: M0 protocol section. |
+| **Thread** (side conversation hidden from main room) | **KILL or radically reframe** | If Thread means "side conversation hidden away", it competes with agent-pair rooms (for deep dives), context-breaks (for context shifts), and the Cockpit options-pane (for decisions). Visual is weak. | If a Thread-shaped need survives ("focused clarification attached to one message, summarised back to the room"), keep the *concept* and rename — but don't call it Thread. Default: deprecate the current Thread UX, keep reply_to data shape for one release for back-compat. |
 
-(The deck slide states this position. If James overrules in review,
-we keep threads and design them properly. Default is kill.)
+(The deck slide states these positions. If James overrules any in
+review, we revisit. Default: Reply stays + polished, edit stays +
+renamed, Thread dies.)
 
 ## 7. Rename pass (what we stop calling things)
 
