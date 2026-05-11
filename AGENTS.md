@@ -46,6 +46,11 @@ proxy for Claude Desktop) accept interchangeably.
 | `docs/` | design notes, lessons, agent-setup walkthroughs |
 | `homebrew/antchat.rb` | reference copy of the published Homebrew formula |
 
+For multi-agent delivery, read `docs/multi-agent-protocol.md` first, then
+`docs/multi-agent-session-guide.md`. The session guide captures the
+server-split factory loop: canonical plan IDs, capped implementation lanes,
+separate alignment review, PASS/BLOCKER discipline, and merge-chain hygiene.
+
 ## Conventions (read these before changing code)
 
 These are load-bearing. Violate them and tests fail or features break in

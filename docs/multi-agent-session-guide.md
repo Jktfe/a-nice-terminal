@@ -165,17 +165,26 @@ to distribute work evenly.
 
 ---
 
-## 7. Rebuild after every source edit
+## 7. Refresh, rebuild, and restart deliberately
 
-When the server runs from build output (`npm run build`), source edits
-make the build stale. Every agent that modifies source files must run:
+First identify how ANT is running. When the server runs directly from
+TypeScript (`node --import tsx ./server.ts`, `bun server.ts`, or Vite dev),
+source edits are hot-loaded by the running process. Browser-visible changes
+may still need a hard refresh, but a rebuild/restart is usually unnecessary.
+
+When the server runs from build output (`bun run start`, `node build/handler.js`,
+or a launchd production snapshot), source edits make the build stale. Every
+agent that modifies source files must run:
 
 ```bash
-npx vite build
+bun run build
 ```
 
-Failure to rebuild causes 500 errors from stale chunks. Make this a
-team rule, not an assumption.
+Then restart the server cleanly and verify a real route.
+
+Do not restart in the middle of a stacked PR chain unless the current branch is
+the intended runtime baseline. Finish the review/merge order first, then do one
+controlled rebuild + restart + smoke.
 
 ---
 
@@ -270,3 +279,130 @@ From the reference session (3 agents, 25 tasks, ~2 hours):
   vitest, then write CLI arg tests, then write auth tests" delivers.
 - **The chat is the record.** Status updates in chat create an auditable
   trail of who did what and why. Don't skip them.
+
+---
+
+## 12. The server-split factory loop
+
+The `server-split-2026-05-11` session turned the older loose delegation model
+into a repeatable delivery loop for high-risk architecture work. Use this when a
+change has cross-cutting contracts, stacked PRs, or data-plane semantics that
+cannot be repaired casually after merge.
+
+### Roles
+
+Assign roles explicitly in the room before code starts:
+
+| Role | Owns | Does not own |
+|---|---|---|
+| **Implementation lead** | Loop check-ins, branch/PR creation, code pushes, focused tests, blocker fixes | Final acceptance |
+| **Alignment reviewer** | Summaries, plan hygiene, merge order, PASS/BLOCKER decisions, acceptance flips | Silent code changes inside the implementation slice |
+| **Human operator** | Direction, merge/deploy decisions, credential-bound steps, final product judgement | Micromanaging every phase |
+
+The split that worked in server-split was: implementation lead pushes the code
+forward; alignment reviewer keeps the room honest and blocks on contract drift.
+
+### Plan Shape
+
+Create one canonical plan with stable milestone IDs before implementation.
+Use short, durable IDs, not generated prose:
+
+```text
+m0-doc-clarifications
+a-extract-persist-lib
+b-extract-tier2-side-effects
+c-catchup-and-notify-endpoint
+d-cli-direct-write
+e-docs-and-cleanup
+```
+
+Each milestone needs:
+
+- a concrete phase boundary
+- an acceptance row with testable wording
+- one owner at a time
+- one reviewer
+- explicit non-goals
+
+If the acceptance wording becomes stale, patch the acceptance text before
+flipping it. Do not mark a known-false acceptance as passing just because the
+implementation is right.
+
+### Branch and PR Discipline
+
+Use one PR per phase and base each PR on the previous phase until earlier PRs
+merge:
+
+```text
+PR 31 docs -> main
+PR 32 phase A -> main or PR 31 branch
+PR 33 phase B -> phase A branch
+PR 34 phase C -> phase B branch
+PR 35 phase D -> phase C branch
+PR 36 phase E -> phase D branch
+```
+
+This keeps review diffs small and preserves order. Merge in chain order. If an
+unrelated commit appears in a stacked PR, rebase it out immediately instead of
+explaining it away.
+
+### PASS/BLOCKER Discipline
+
+Review messages lead with the verdict:
+
+```text
+BLOCKER on Phase C PR 34:
+1. Stale replay guard covers PTY injection but not linked-chat auto-forward.
+2. ...
+Acceptance stays planned.
+```
+
+```text
+Phase C PR 34 PASS after 9bdd599.
+The stale replay blocker is fixed and pinned by tests.
+Acceptance c-catchup-and-notify-endpoint is passing as event 400676.
+```
+
+A blocker must name the contract, the exact file/path or behavior, and the
+acceptance consequence. A pass must name the commit reviewed, the gate evidence,
+and the canonical event flipped.
+
+### Tests Pin the Review Invariant
+
+When the reviewer finds a blocker, add the smallest regression test that would
+have caught that exact issue:
+
+- transaction rollback must leave no message row
+- channel fanout must be awaited before `broadcast_state=done`
+- replay singleton must live on `globalThis`
+- stale replay must not write to PTY or linked-chat auto-forward
+- direct-write auth must reject missing actor and non-member rooms
+
+Do not rely on "focused suite passes" if the suite did not encode the reviewed
+contract.
+
+### Atomic Helper/Caller Rule
+
+Never split a helper from its caller across saves, commits, or PRs. If a commit
+adds `currentPlanShareURL`, the same commit must contain the first call site.
+If a commit adds a queue state, the code that flips it must land with it. This
+avoids false red builds and prevents reviewers from chasing partial states.
+
+### Cap Two
+
+At most two implementation lanes should be open in the same repo at once, and
+they must have disjoint write surfaces. If two phases touch the same route,
+toolbar, or data contract, serialize them. During server-split the safest shape
+was often cap one: implementation lead writes, alignment reviewer reviews.
+
+### Capture the Session
+
+At the end of a successful factory loop:
+
+1. Flip every canonical acceptance from the plan, correcting stale wording
+   first if needed.
+2. Post the final PR chain and merge order in the room.
+3. Add or update the repo guide that future agents will read.
+4. Save a short memory note for the agent runtime that needs to remember the
+   protocol next time.
+5. Only then merge/rebuild/restart.
