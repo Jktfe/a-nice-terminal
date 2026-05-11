@@ -51,7 +51,7 @@ If you're here because you're about to:
 ## `broadcast_state` column
 
 Added to `messages` in Phase A. Lives at
-`src/lib/server/db.ts:240-244`.
+`src/lib/server/db.ts:261-273` (column + migration + partial index).
 
 | State | Meaning | Set by | Read by |
 |---|---|---|---|
@@ -200,6 +200,7 @@ These call sites are intentional and should NOT be migrated to
 
 | File:line | What it writes | Why direct |
 |---|---|---|
+| `server.ts:1188` (`postToLinkedChat`) | `assistant/message` or `agent_event` rows when terminal-line capture produces a chat-shaped event | Root-level server emits on behalf of a captured agent line; broadcasts inline, no router fan-out, no asks. Default `broadcast_state='done'` keeps it out of the catch-up queue. |
 | `src/lib/server/message-router.ts:366` | Focus-mode release digest | System message, not a user chat post |
 | `src/lib/server/interview-summary.ts:52` | Interview summary message | System message, not user-authored |
 | `src/lib/server/mcp-handler.ts:165` | MCP-emitted message | Has its own routing path; migration is a future phase |
@@ -262,5 +263,6 @@ on-server will land the WS broadcasts shortly after the CLI exits.
 | isLocalServer loopback-only predicate | `tests/cli-direct-write.test.ts` |
 | writeMessage source='cli' auth gate (5 paths) | `tests/cli-direct-write.test.ts` |
 
-74 assertions total across 10 files. If a future change breaks any
-of these, the contract is changing — update this doc.
+74 tests / 179 `expect()`s total across 10 files (counted via
+`grep -c 'expect('` on each file at commit time). If a future change
+breaks any of these, the contract is changing — update this doc.
