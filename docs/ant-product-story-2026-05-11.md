@@ -222,14 +222,8 @@ work-before-the-cockpit promise breaks. An agent that races ahead
 on a typo'd brief and surfaces a polished options-pane for the
 wrong question is worse than one that just dumps text.
 
-### Open questions for James (resolve before phase D, not tonight)
+### Open questions for James (resolve before phase D)
 
-- **Threads.** Do they earn their keep alongside agent pairs +
-  context breaks + Cockpit options-panes, or should they be
-  deprecated? Currently they overlap with pair-rooms and the visual
-  is weak. Drafter's vote: kill them, lean on pairs + breaks +
-  Cockpit. But James asked to know what they do before deciding;
-  parking for now.
 - **Reply UX polish.** The current "reply" surface renders the
   message_id as a long string prefix and doesn't auto-mention the
   original sender. Fix is mechanical: render the first N words of
@@ -386,6 +380,20 @@ visual hierarchy.
 confused fast when "rooms have 8 things in them" turns out to mean
 3 humans + 2 agents + 1 deck + 1 plan + 1 ask-pinned-message. The
 fix is visual category separation, not fewer things.
+
+## 6c. Kill list (the deck takes a position)
+
+Marketing decks make claims, not park questions. Per James 2026-05-11:
+"it's kill or keep in the deck you're making." Drafter + codex
+both vote KILL on the following surfaces because they don't earn
+their keep against existing primitives:
+
+| Surface | Why kill | What replaces it |
+|---|---|---|
+| **Message threads** (reply_to threading) | Overlaps with agent-pair rooms (for deep dives), context-breaks (for context shifts), and the Cockpit options-pane (for decisions). Visual is weak. | Pair-rooms + context-breaks + Cockpit. The data shape (reply_to) stays for one release for back-compat, then quiet removal unless a clear use case emerges. |
+
+(The deck slide states this position. If James overrules in review,
+we keep threads and design them properly. Default is kill.)
 
 ## 7. Rename pass (what we stop calling things)
 
