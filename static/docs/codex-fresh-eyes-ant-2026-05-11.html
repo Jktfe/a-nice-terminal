@@ -1,0 +1,900 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ANT Fresh Eyes - Codex Assessment</title>
+  <style>
+    :root {
+      --bg: #f3efe6;
+      --ink: #151719;
+      --muted: #65635e;
+      --paper: #fffdf8;
+      --line: #d8d0c1;
+      --coal: #20242a;
+      --teal: #106b72;
+      --amber: #b7791f;
+      --red: #a33a33;
+      --green: #2f7d4f;
+      --blue: #365f9f;
+      --violet: #6a4c93;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(135deg, rgba(16, 107, 114, 0.08), transparent 30%),
+        linear-gradient(315deg, rgba(183, 121, 31, 0.10), transparent 34%),
+        var(--bg);
+      font-family: var(--sans);
+      line-height: 1.45;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 12px 22px;
+      border-bottom: 1px solid rgba(21, 23, 25, 0.12);
+      background: rgba(243, 239, 230, 0.88);
+      backdrop-filter: blur(18px);
+    }
+    .brand {
+      min-width: 0;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+    .brand span {
+      display: block;
+      color: var(--muted);
+      font-weight: 500;
+      font-size: 11px;
+    }
+    .nav {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .nav a {
+      color: var(--ink);
+      text-decoration: none;
+      font-size: 12px;
+      border: 1px solid rgba(21, 23, 25, 0.14);
+      background: rgba(255, 253, 248, 0.72);
+      padding: 6px 9px;
+      border-radius: 7px;
+    }
+
+    .deck {
+      width: min(1280px, calc(100vw - 28px));
+      margin: 0 auto;
+      padding: 22px 0 80px;
+    }
+    .slide {
+      min-height: 680px;
+      margin: 0 0 22px;
+      padding: clamp(24px, 4vw, 56px);
+      border: 1px solid rgba(21, 23, 25, 0.14);
+      border-radius: 10px;
+      background: rgba(255, 253, 248, 0.93);
+      box-shadow: 0 24px 70px rgba(28, 24, 18, 0.12);
+      overflow: hidden;
+    }
+    .slide.dark {
+      color: #f6f1e7;
+      background:
+        linear-gradient(135deg, rgba(16, 107, 114, 0.30), transparent 38%),
+        linear-gradient(315deg, rgba(183, 121, 31, 0.24), transparent 46%),
+        var(--coal);
+    }
+    .slide.dark .eyebrow,
+    .slide.dark .caption,
+    .slide.dark .small,
+    .slide.dark .muted { color: #c7bfb0; }
+    .slide.dark .stat,
+    .slide.dark .tile,
+    .slide.dark .feature-group,
+    .slide.dark .quote {
+      background: rgba(255, 253, 248, 0.08);
+      border-color: rgba(255, 253, 248, 0.16);
+    }
+    .slide.dark code,
+    .slide.dark .chip { background: rgba(255, 253, 248, 0.10); color: #f6f1e7; }
+
+    .eyebrow {
+      margin: 0 0 14px;
+      color: var(--teal);
+      font-family: var(--mono);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 700;
+    }
+    h1, h2, h3, p { margin: 0; }
+    h1 {
+      max-width: 1040px;
+      font-size: clamp(48px, 7.2vw, 96px);
+      line-height: 0.95;
+      letter-spacing: 0;
+    }
+    h2 {
+      max-width: 1040px;
+      font-size: clamp(34px, 4.8vw, 68px);
+      line-height: 1.0;
+      letter-spacing: 0;
+    }
+    h3 {
+      font-size: 16px;
+      line-height: 1.2;
+      margin-bottom: 7px;
+    }
+    .lede {
+      max-width: 920px;
+      margin-top: 24px;
+      color: #343330;
+      font-size: clamp(19px, 2.1vw, 29px);
+      line-height: 1.25;
+    }
+    .dark .lede { color: #ede7dc; }
+    .caption, .muted, .small {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .caption { margin-top: 22px; }
+    .small { font-size: 12px; }
+    code {
+      font-family: var(--mono);
+      background: #eee6d8;
+      border-radius: 5px;
+      padding: 1px 5px;
+    }
+
+    .grid {
+      display: grid;
+      gap: 14px;
+      margin-top: 28px;
+    }
+    .cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .tile, .stat, .feature-group, .quote {
+      border: 1px solid rgba(21, 23, 25, 0.12);
+      border-radius: 9px;
+      background: rgba(255, 255, 255, 0.64);
+      padding: 16px;
+    }
+    .tile strong,
+    .stat strong {
+      display: block;
+      font-size: 14px;
+      margin-bottom: 5px;
+    }
+    .tile p,
+    .feature-group li,
+    .quote p {
+      color: #343330;
+      font-size: 13.5px;
+    }
+    .dark .tile p,
+    .dark .feature-group li,
+    .dark .quote p { color: #ede7dc; }
+    .stat .num {
+      font-family: var(--mono);
+      font-size: clamp(28px, 4vw, 46px);
+      font-weight: 800;
+      letter-spacing: 0;
+      margin-bottom: 3px;
+    }
+    .accent-teal { border-top: 4px solid var(--teal); }
+    .accent-amber { border-top: 4px solid var(--amber); }
+    .accent-red { border-top: 4px solid var(--red); }
+    .accent-green { border-top: 4px solid var(--green); }
+    .accent-blue { border-top: 4px solid var(--blue); }
+    .accent-violet { border-top: 4px solid var(--violet); }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 18px;
+    }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 5px 9px;
+      border-radius: 7px;
+      background: #ece3d2;
+      color: #26221d;
+      font-size: 12px;
+      font-family: var(--mono);
+      white-space: nowrap;
+    }
+
+    ul.clean {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    ul.clean li {
+      position: relative;
+      padding-left: 17px;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+    ul.clean li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0.63em;
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: var(--teal);
+    }
+    .feature-group h3 {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: baseline;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(21, 23, 25, 0.10);
+      margin-bottom: 10px;
+    }
+    .feature-group h3 span {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .feature-group ul {
+      columns: 2;
+      column-gap: 24px;
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .feature-group li {
+      break-inside: avoid;
+      margin: 0 0 6px;
+      padding-left: 12px;
+      position: relative;
+    }
+    .feature-group li::before {
+      content: "-";
+      position: absolute;
+      left: 0;
+      color: var(--muted);
+    }
+
+    .matrix {
+      width: 100%;
+      margin-top: 28px;
+      border-collapse: collapse;
+      font-size: 13px;
+      overflow: hidden;
+      border-radius: 9px;
+    }
+    .matrix th,
+    .matrix td {
+      text-align: left;
+      vertical-align: top;
+      padding: 11px 12px;
+      border: 1px solid rgba(21, 23, 25, 0.12);
+      background: rgba(255, 255, 255, 0.52);
+    }
+    .matrix th {
+      background: rgba(32, 36, 42, 0.08);
+      font-family: var(--mono);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+    }
+    .dark .matrix th,
+    .dark .matrix td {
+      background: rgba(255, 253, 248, 0.08);
+      border-color: rgba(255, 253, 248, 0.14);
+    }
+
+    .timeline {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 28px;
+    }
+    .step {
+      padding: 15px;
+      border: 1px solid rgba(21, 23, 25, 0.12);
+      border-radius: 9px;
+      background: rgba(255, 255, 255, 0.58);
+    }
+    .step .kicker {
+      font-family: var(--mono);
+      color: var(--teal);
+      font-size: 12px;
+      margin-bottom: 7px;
+      font-weight: 700;
+    }
+    .quote {
+      margin-top: 28px;
+      padding: 22px;
+    }
+    .quote p {
+      font-size: clamp(18px, 2.2vw, 28px);
+      line-height: 1.25;
+    }
+
+    @media (max-width: 900px) {
+      .topbar { align-items: flex-start; flex-direction: column; }
+      .nav { justify-content: flex-start; }
+      .slide { min-height: auto; padding: 24px; }
+      .cols-2, .cols-3, .cols-4, .timeline { grid-template-columns: 1fr; }
+      .feature-group ul { columns: 1; }
+      .matrix { font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">ANT fresh eyes <span>Codex independent assessment, 2026-05-11</span></div>
+    <nav class="nav" aria-label="Deck navigation">
+      <a href="#verdict">Verdict</a>
+      <a href="#inventory">Features</a>
+      <a href="#good">Good</a>
+      <a href="#bad">Janky</a>
+      <a href="#future">Future</a>
+      <a href="#moves">Moves</a>
+    </nav>
+  </header>
+
+  <main class="deck">
+    <section class="slide dark" id="verdict">
+      <p class="eyebrow">01 / cold open</p>
+      <h1>ANT is already an agent operating room. It just still looks like the workshop it was built in.</h1>
+      <p class="lede">Fresh-eye verdict: the weirdness is the point. The product is not "terminal plus chat". It is a local-first coordination substrate for humans, unmodified CLI agents, terminals, plans, asks, and artefacts. That is rare. It is also hard to explain, hard to enter, and still too easy to break through UI/state sprawl.</p>
+      <div class="chips">
+        <span class="chip">admiration: high</span>
+        <span class="chip">product clarity: medium</span>
+        <span class="chip">engineering discipline: high</span>
+        <span class="chip">newcomer friendliness: low</span>
+        <span class="chip">strategic upside: very high</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <p class="eyebrow">02 / what I inspected</p>
+      <h2>This is no longer small enough to "just know". It needs a map.</h2>
+      <div class="grid cols-4">
+        <div class="stat accent-teal"><div class="num">120</div><strong>route files</strong><p>Browser pages, API endpoints, MCP endpoints, deck proxy, remote room shells.</p></div>
+        <div class="stat accent-amber"><div class="num">97</div><strong>API route files</strong><p>The server is a real application API, not a sidecar to a UI.</p></div>
+        <div class="stat accent-blue"><div class="num">64</div><strong>component files</strong><p>Session, dashboard, terminal, chat, plan, asks, artefacts, diagnostics.</p></div>
+        <div class="stat accent-violet"><div class="num">64</div><strong>server modules</strong><p>DB, routing, processor, drivers, artefacts, capture, auth, plans, pressure.</p></div>
+      </div>
+      <div class="grid cols-4">
+        <div class="stat accent-green"><div class="num">25</div><strong>full CLI commands</strong><p><code>ant</code> is a serious operator surface.</p></div>
+        <div class="stat accent-red"><div class="num">13</div><strong>antchat commands</strong><p>The collaborator client is already a second product.</p></div>
+        <div class="stat accent-teal"><div class="num">14</div><strong>agent drivers</strong><p>Claude, Codex, Gemini, Qwen, Copilot, Pi, Kimi, Ollama-adjacent locals.</p></div>
+        <div class="stat accent-amber"><div class="num">91/671</div><strong>tests recently green</strong><p>91 test files and 671 tests passed during the /break fix pass.</p></div>
+      </div>
+      <p class="caption">Sources: repo route/component/server/CLI counts, live DB, recent test pass. Current live DB after retention: 108 sessions, 4,350 messages, 22,649 run_events, 90,916 terminal transcript rows, 147 tasks, 424 asks.</p>
+    </section>
+
+    <section class="slide" id="inventory">
+      <p class="eyebrow">03 / full feature inventory, layer 1</p>
+      <h2>Surfaces: four products pretending to be one app.</h2>
+      <div class="grid cols-2">
+        <div class="feature-group accent-teal">
+          <h3>ANT v3 server + web UI <span>host</span></h3>
+          <ul>
+            <li>Dashboard/session list</li>
+            <li>Multi-view grid dashboard</li>
+            <li>Full session page</li>
+            <li>Terminal viewer and controller</li>
+            <li>Chat room UI</li>
+            <li>Linked chat UI</li>
+            <li>Plan page and plan viewer</li>
+            <li>Asks page and side panels</li>
+            <li>Archive page</li>
+            <li>Diagnostics page</li>
+            <li>Deck and sheet preview/proxy pages</li>
+            <li>Remote room shell</li>
+            <li>Help/agent setup/design pages</li>
+          </ul>
+        </div>
+        <div class="feature-group accent-green">
+          <h3><code>ant</code> CLI <span>operator</span></h3>
+          <ul>
+            <li>Sessions create/archive/delete/export</li>
+            <li>Terminal connect/send/watch/history/events/key</li>
+            <li>Chat send/read/reply/pending/decide/focus/unfocus/leave</li>
+            <li>Targeted <code>ant msg</code></li>
+            <li>Asks and questions</li>
+            <li>Consent grants</li>
+            <li>Interviews</li>
+            <li>Deck/sheet status, audit, file get/put</li>
+            <li>Tunnels</li>
+            <li>Tasks and plans</li>
+            <li>Flags, sharing, QR, search</li>
+            <li>Memory/docs/agents/prompt/hooks/evidence/config/whoami/register</li>
+          </ul>
+        </div>
+        <div class="feature-group accent-blue">
+          <h3><code>antchat</code> <span>guest client</span></h3>
+          <ul>
+            <li>Single binary distribution</li>
+            <li>Invite join</li>
+            <li>Rooms list</li>
+            <li>One-shot message post</li>
+            <li>Interactive SSE chat</li>
+            <li>Open room in browser</li>
+            <li>Tasks and plan views</li>
+            <li>Doc/deck/sheet cowork</li>
+            <li>MCP install/serve/uninstall</li>
+            <li>Background watch notifications</li>
+            <li>Local web UI</li>
+            <li>Shared config with full CLI</li>
+          </ul>
+        </div>
+        <div class="feature-group accent-violet">
+          <h3>Mobile/PWA/native clients <span>edge</span></h3>
+          <ul>
+            <li>PWA manifest and service worker</li>
+            <li>Mobile responsive session and chat surfaces</li>
+            <li>iOS-oriented API parity lanes</li>
+            <li>Share links and invite flows</li>
+            <li>Pull-to-refresh style workflows</li>
+            <li>Chat break modal for mobile</li>
+            <li>Mobile composer fit guards</li>
+            <li>Room artefacts for small screens</li>
+            <li>Plan/asks/long-memory surfaces</li>
+            <li>Participant/invite management hooks</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <p class="eyebrow">04 / full feature inventory, layer 2</p>
+      <h2>Terminals and sessions: this is the spine.</h2>
+      <div class="grid cols-3">
+        <div class="feature-group accent-teal">
+          <h3>Session lifecycle <span>rooms/processes</span></h3>
+          <ul>
+            <li>Terminal sessions</li>
+            <li>Chat sessions</li>
+            <li>Linked chats</li>
+            <li>Session archive and restore</li>
+            <li>Soft delete and hard delete logic</li>
+            <li>Session ordering and pinning</li>
+            <li>TTL and kill timers</li>
+            <li>Workspace assignment</li>
+            <li>Session handles and aliases</li>
+            <li>CLI flags and agent driver selection</li>
+          </ul>
+        </div>
+        <div class="feature-group accent-amber">
+          <h3>Terminal runtime <span>PTY/tmux</span></h3>
+          <ul>
+            <li>node-pty/tmux backed terminals</li>
+            <li>Terminal input endpoint</li>
+            <li>Special key send</li>
+            <li>Terminal stop</li>
+            <li>Terminal launch</li>
+            <li>Terminal watch stream</li>
+            <li>Terminal history endpoint</li>
+            <li>Terminal events endpoint</li>
+            <li>Xterm rendering</li>
+            <li>Signal/raw/run views</li>
+            <li>Terminal summaries</li>
+            <li>Raw transcript persistence</li>
+          </ul>
+        </div>
+        <div class="feature-group accent-red">
+          <h3>Capture and evidence <span>observability</span></h3>
+          <ul>
+            <li>terminal_transcripts table</li>
+            <li>terminal_events table</li>
+            <li>run_events table</li>
+            <li>command_events table</li>
+            <li>OSC133 parsing</li>
+            <li>Command block extraction</li>
+            <li>Screenshot capture</li>
+            <li>Visual baseline capture</li>
+            <li>Prompt capture</li>
+            <li>ACP and Pi RPC projections</li>
+            <li>Trust levels for captured output</li>
+          </ul>
+        </div>
+      </div>
+      <div class="quote">
+        <p>The terminal layer is not just display. It is identity, transcript, audit trail, message source, prompt surface, and sometimes the actuator. That power is why ANT is interesting and why it will always be a little dangerous.</p>
+      </div>
+    </section>
+
+    <section class="slide">
+      <p class="eyebrow">05 / full feature inventory, layer 3</p>
+      <h2>Chat and routing: the room is the product primitive.</h2>
+      <div class="grid cols-3">
+        <div class="feature-group accent-green">
+          <h3>Room messaging <span>human-visible</span></h3>
+          <ul>
+            <li>Persistent messages</li>
+            <li>Targeted @handle routing</li>
+            <li>@everyone routing</li>
+            <li>Terminal-originated non-interrupting replies</li>
+            <li>Reply threads</li>
+            <li>Typing indicators</li>
+            <li>Read receipts</li>
+            <li>Message pinning</li>
+            <li>Markdown rendering</li>
+            <li>Search within room</li>
+            <li>Older-message pagination</li>
+            <li>Chat break markers</li>
+          </ul>
+        </div>
+        <div class="feature-group accent-blue">
+          <h3>Fanout and delivery <span>machine-visible</span></h3>
+          <ul>
+            <li>MessageRouter</li>
+            <li>WS broadcasts</li>
+            <li>Linked-chat fanout</li>
+            <li>PTY injection adapter</li>
+            <li>MCP channel adapter</li>
+            <li>Channel registry</li>
+            <li>Delivery log idempotency</li>
+            <li>Broadcast state queue</li>
+            <li>Catch-up replay</li>
+            <li>Stale PTY injection guard</li>
+            <li>Internal notify endpoint</li>
+            <li>Direct CLI writes for loopback</li>
+          </ul>
+        </div>
+        <div class="feature-group accent-violet">
+          <h3>Room controls <span>coordination</span></h3>
+          <ul>
+            <li>Participants panel</li>
+            <li>Aliases and handles</li>
+            <li>Focus mode</li>
+            <li>Focus digest</li>
+            <li>Participant removal</li>
+            <li>Room invites</li>
+            <li>Invite revoke</li>
+            <li>Share links</li>
+            <li>Room links</li>
+            <li>Remote rooms</li>
+            <li>Room shortcuts</li>
+            <li>Room artefact sidebar</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <p class="eyebrow">06 / full feature inventory, layer 4</p>
+      <h2>Agent intelligence: ANT watches CLIs rather than replacing them.</h2>
+      <div class="grid cols-3">
+        <div class="feature-group accent-teal">
+          <h3>Drivers and fingerprints <span>14 drivers</span></h3>
+          <ul>
+            <li>Claude Code</li>
+            <li>Codex CLI</li>
+            <li>Gemini CLI</li>
+            <li>Qwen CLI</li>
+            <li>Copilot CLI</li>
+            <li>Pi</li>
+            <li>Kimi Code</li>
+            <li>Lemonade</li>
+            <li>llamafile</li>
+            <li>llm</li>
+            <li>LM Studio</li>
+            <li>MLX-LM</li>
+            <li>Msty</li>
+            <li>Ollama-style local runners</li>
+          </ul>
+        </div>
+        <div class="feature-group accent-amber">
+          <h3>Interactive event handling <span>agent bus</span></h3>
+          <ul>
+            <li>Permission request detection</li>
+            <li>Tool auth detection</li>
+            <li>Multi-choice prompts</li>
+            <li>Confirm/cancel prompts</li>
+            <li>Free-text prompts</li>
+            <li>Error-retry prompts</li>
+            <li>Prompt response cards</li>
+            <li>AgentEventCard UI</li>
+            <li>Driver respond() back to PTY</li>
+            <li>Event dedup and cooldowns</li>
+            <li>Needs-input false-positive clearing</li>
+          </ul>
+        </div>
+        <div class="feature-group accent-green">
+          <h3>Status and telemetry <span>presence</span></h3>
+          <ul>
+            <li>Agent status hooks</li>
+            <li>Hook installer</li>
+            <li>Unified <code>~/.ant/state</code> reader</li>
+            <li>Working/thinking/waiting states</li>
+            <li>Fresh/stale telemetry dots</li>
+            <li>Agent status diagnostic endpoint</li>
+            <li>Agent registry</li>
+            <li>Agent setup docs</li>
+            <li>Foundation model turn-end classifier fallback</li>
+            <li>Room agent chips in grid view</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <p class="eyebrow">07 / full feature inventory, layer 5</p>
+      <h2>Coordination objects: ANT is slowly turning chat scrollback into structured work.</h2>
+      <div class="grid cols-3">
+        <div class="feature-group accent-blue">
+          <h3>Plans and tasks <span>control plane</span></h3>
+          <ul>
+            <li>Plan event log</li>
+            <li>Plan sections</li>
+            <li>Milestones</li>
+            <li>Acceptances</li>
+            <li>Plan tests</li>
+            <li>Latest-ts-wins projector</li>
+            <li>Plan page and native PlanView</li>
+            <li>Task create/accept/assign/review/done/delete</li>
+            <li>Task provenance fields</li>
+            <li>Plan-linked tasks</li>
+            <li>Canonical milestone discipline</li>
+          </ul>
+        </div>
+        <div class="feature-group accent-red">
+          <h3>Asks and decisions <span>blocker flow</span></h3>
+          <ul>
+            <li>Ask inference from messages</li>
+            <li>Ask queue</li>
+            <li>Ask approve/reject/defer/dismiss</li>
+            <li>Ask nudge snippets</li>
+            <li>Global asks badge</li>
+            <li>Pinned asks panel</li>
+            <li>Ask supersede tracking</li>
+            <li>Source message links</li>
+            <li>Priority handling</li>
+            <li>First-post skills hint</li>
+          </ul>
+        </div>
+        <div class="feature-group accent-violet">
+          <h3>Human loops <span>social UX</span></h3>
+          <ul>
+            <li>Consent grants</li>
+            <li>Grant list/create/show/revoke</li>
+            <li>Interview mode</li>
+            <li>Interview participants</li>
+            <li>Interview transcript</li>
+            <li>Interview summary</li>
+            <li>ElevenLabs voice endpoint</li>
+            <li>Chat break command</li>
+            <li>Break confirmation modal</li>
+            <li>Context boundary rendering</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <p class="eyebrow">08 / full feature inventory, layer 6</p>
+      <h2>Artefacts, knowledge, and distribution are already first-class.</h2>
+      <div class="grid cols-3">
+        <div class="feature-group accent-teal">
+          <h3>Artefacts <span>outputs</span></h3>
+          <ul>
+            <li>Deck registry</li>
+            <li>Deck status and manifest</li>
+            <li>Deck file get/put</li>
+            <li>Deck audit events</li>
+            <li>Deck trust mode</li>
+            <li>Safe/trusted CSP</li>
+            <li>Safe-mode banner</li>
+            <li>Live reload watcher</li>
+            <li>Sheet registry and parity commands</li>
+            <li>Docs API</li>
+            <li>Site tunnels</li>
+            <li>Room artefact aggregation</li>
+          </ul>
+        </div>
+        <div class="feature-group accent-green">
+          <h3>Knowledge and files <span>memory</span></h3>
+          <ul>
+            <li>Memory key/value store</li>
+            <li>Memory FTS search</li>
+            <li>Memory audit</li>
+            <li>Research docs lifecycle</li>
+            <li>Obsidian mirror</li>
+            <li>Uploads</li>
+            <li>File refs</li>
+            <li>Workspace file API</li>
+            <li>Workspace list</li>
+            <li>Session exports</li>
+            <li>Prompt evidence</li>
+            <li>Screenshot evidence</li>
+          </ul>
+        </div>
+        <div class="feature-group accent-amber">
+          <h3>Security and ops <span>trust</span></h3>
+          <ul>
+            <li>Master API key</li>
+            <li>Per-room bearer tokens</li>
+            <li>Token kinds: cli/mcp/web</li>
+            <li>Invite password exchange</li>
+            <li>Invite/token revocation</li>
+            <li>Read-only web tokens</li>
+            <li>Tailscale-only guard</li>
+            <li>System pressure diagnostics</li>
+            <li>Health resource snapshot</li>
+            <li>DB retention/VACUUM script</li>
+            <li>Build snapshots</li>
+            <li>Launchctl restart path</li>
+          </ul>
+        </div>
+      </div>
+      <p class="caption">I would not cut these features. I would hide, stage, explain, and route them. The feature mass is an asset if the product learns how to reveal it progressively.</p>
+    </section>
+
+    <section class="slide dark" id="good">
+      <p class="eyebrow">09 / what ANT does well</p>
+      <h2>The strongest idea is not "agents". It is accountable rooms.</h2>
+      <div class="grid cols-2">
+        <div class="tile accent-teal"><strong>It coordinates real CLIs, not toy agents.</strong><p>Claude Code, Codex, Gemini, Qwen, Copilot and others run as themselves. ANT adapts to terminal reality instead of forcing every agent into one SDK.</p></div>
+        <div class="tile accent-green"><strong>It has a shared social protocol.</strong><p>Rooms, @ routing, focus mode, asks, plans, blockers, PASS/BLOCKER reviews: this is work coordination, not just chat decoration.</p></div>
+        <div class="tile accent-blue"><strong>It remembers the work as events.</strong><p>Messages, run_events, terminal transcripts, plans, tasks, asks, uploads, artefacts: the system can explain what happened later.</p></div>
+        <div class="tile accent-amber"><strong>It has hard-earned operational taste.</strong><p>Global singletons, build snapshots, broadcast catch-up, idempotent fanout, stale PTY guards, and explicit PR gate protocols came from real incidents.</p></div>
+      </div>
+      <div class="quote"><p>The reason this session felt so good is that ANT made the review process visible: plans as contract, room as loop, PRs as deliverables, blockers as first-class truth.</p></div>
+    </section>
+
+    <section class="slide">
+      <p class="eyebrow">10 / what is unique</p>
+      <h2>The defensible novelty is terminal-native, local-first, evidence-backed collaboration.</h2>
+      <table class="matrix">
+        <thead><tr><th>Primitive</th><th>Why it matters</th><th>Why it is rare</th></tr></thead>
+        <tbody>
+          <tr><td>Unmodified CLI orchestration</td><td>Uses the tools people already trust: Claude Code, Codex, Gemini, local models.</td><td>Most agent frameworks ask you to re-model the agent inside their library.</td></tr>
+          <tr><td>Room-scoped agent society</td><td>Agents and humans share the same coordination space, with targeting and focus rules.</td><td>Most systems have chat OR automation; ANT has both in the same substrate.</td></tr>
+          <tr><td>PTY identity and capture</td><td>Work is tied to real OS processes and terminal output.</td><td>Messy, fragile, and therefore avoided by cleaner abstractions.</td></tr>
+          <tr><td>Plan/task/ask event logs</td><td>Chat becomes a control plane with auditability.</td><td>Most tools lose decisions inside scrollback.</td></tr>
+          <tr><td>Artefact cowork</td><td>Decks, sheets, docs and sites are room objects with concurrency guards.</td><td>It connects "agent work" to actual outputs instead of screenshots of effort.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="slide" id="bad">
+      <p class="eyebrow">11 / what is rubbish or janky</p>
+      <h2>ANT has product brilliance trapped inside implementation archaeology.</h2>
+      <div class="grid cols-3">
+        <div class="tile accent-red"><strong>The first five minutes are brutal.</strong><p>Chatroom vs linked chat, terminal vs room, handle vs session id, CLI vs antchat, invite kind vs API key: all real distinctions, all too visible too soon.</p></div>
+        <div class="tile accent-red"><strong>Feature discovery is mostly archaeology.</strong><p>The CLI help is enormous, docs are rich, but the app does not teach the operator what to do next or why a feature exists.</p></div>
+        <div class="tile accent-red"><strong>There are god surfaces.</strong><p><code>session/[id]/+page.svelte</code> is 2,367 lines, <code>db.ts</code> is 2,061, <code>GridSlot</code> is 1,472, <code>ChatMessages</code> is 1,271.</p></div>
+        <div class="tile accent-amber"><strong>Mobile/PWA trust is still brittle.</strong><p>Hard refreshes, service-worker control, modal-vs-native-confirm issues, density patches: mobile works because it is fought for, not because the architecture makes it effortless.</p></div>
+        <div class="tile accent-amber"><strong>The terminal layer will keep lying.</strong><p>Vendor CLIs change text, menus, TUI states, and status phrasing. Agent detection is a constant maintenance burden.</p></div>
+        <div class="tile accent-amber"><strong>Legacy compatibility leaks into trust.</strong><p>Unknown token kinds are still permissive for writability. That may be practical, but it is not a product-grade story.</p></div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <p class="eyebrow">12 / friction map</p>
+      <h2>The friction is not one bug. It is a stack of small cognitive taxes.</h2>
+      <table class="matrix">
+        <thead><tr><th>User moment</th><th>What hurts</th><th>What would make it feel premium</th></tr></thead>
+        <tbody>
+          <tr><td>Starting work</td><td>Too many launch paths and room/session concepts.</td><td>A single "start a mission" flow that creates room, agents, plan, and dashboard layout.</td></tr>
+          <tr><td>Watching six agents</td><td>Noise, flashing, status ambiguity, attention false positives.</td><td>Stable live timeline, per-agent confidence, "why this is red" explanations.</td></tr>
+          <tr><td>Asking for work</td><td>Unclear whether to use chat, ask, task, plan, prompt, linked chat.</td><td>One composer with intent detection and visible "this will create an ask/task/break" preview.</td></tr>
+          <tr><td>Reviewing work</td><td>Evidence is there but scattered across chat, PR, plan, tests, run_events.</td><td>A review bundle generated per milestone: diff, tests, blockers, decisions, artefacts.</td></tr>
+          <tr><td>Inviting others</td><td>Token kinds and client choices are hard to explain.</td><td>"Invite Stevo as viewer / contributor / agent" with plain-language capability summary.</td></tr>
+          <tr><td>Coming back tomorrow</td><td>Context is persistent but not distilled enough.</td><td>Room home page with current state, open loops, last decisions, next best action.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="slide">
+      <p class="eyebrow">13 / engineering read</p>
+      <h2>The discipline is strong. The boundaries are still catching up.</h2>
+      <div class="grid cols-2">
+        <div class="tile accent-green"><strong>Good: tests are specific.</strong><p>There are tests for mention autocomplete, broadcast state, catch-up, side effects, mobile fit, deck CSP, room invites, plans, tasks, uploads, hooks, system pressure and more.</p></div>
+        <div class="tile accent-green"><strong>Good: lessons became code.</strong><p>GlobalThis singletons, atomic helper/caller discipline, broadcast_state lifecycle, and delivery protocol docs are institutional memory turned into guardrails.</p></div>
+        <div class="tile accent-red"><strong>Bad: schema and query ownership are too centralised.</strong><p><code>db.ts</code> carries schema, migration, queries, retention adjacency, and business meaning. It is the system's spinal cord and junk drawer.</p></div>
+        <div class="tile accent-red"><strong>Bad: front-end state is too concentrated.</strong><p>The session page owns interview, run events, memories, uploads, chat pagination, terminal WS, search, participants, focus, tasks and composer glue in one file.</p></div>
+      </div>
+      <p class="caption">The server-split work was exactly the right kind of refactor. Repeat that shape for session-page split, DB module split, GridSlot split, and artefact surfaces.</p>
+    </section>
+
+    <section class="slide dark">
+      <p class="eyebrow">14 / strategic worry</p>
+      <h2>The biggest risk is not technical failure. It is becoming James-only software forever.</h2>
+      <div class="quote"><p>ANT has invented a powerful cockpit. But a cockpit is only a product if new pilots can learn it without the person who built the plane sitting beside them.</p></div>
+      <div class="grid cols-3">
+        <div class="tile accent-red"><strong>Private language risk</strong><p>Plans, asks, linked chats, terminal sessions, artefacts, focus and breaks are coherent after immersion. They are not self-evident on arrival.</p></div>
+        <div class="tile accent-amber"><strong>Surface overload risk</strong><p>Every feature seems useful; the danger is not bad features, it is exposing all of them at once.</p></div>
+        <div class="tile accent-blue"><strong>Maintenance risk</strong><p>Unmodified CLI orchestration is unique because it is hard. Every CLI TUI change can break detection, status, and prompt response.</p></div>
+      </div>
+    </section>
+
+    <section class="slide" id="future">
+      <p class="eyebrow">15 / what it could become</p>
+      <h2>Three credible futures. Pick one as the product story; keep the others as modes.</h2>
+      <div class="grid cols-3">
+        <div class="tile accent-teal"><strong>1. Agent mission control</strong><p>The best local dashboard for running multiple AI CLIs on real work. Target: founders, staff engineers, solo operators, high-agency teams.</p></div>
+        <div class="tile accent-green"><strong>2. Workroom OS</strong><p>A room creates the plan, agents, asks, artefacts, evidence, and review bundle. The terminal is an implementation detail, not the headline.</p></div>
+        <div class="tile accent-violet"><strong>3. Local-context collaboration layer</strong><p>My agent asks your agent for sourced answers from your private context without either side remote-controlling the other's machine.</p></div>
+      </div>
+      <p class="lede">My recommendation: sell "agent mission control" first because it is already real. Build toward "workroom OS" because it is the bigger product. Treat cross-machine local-context collaboration as the moonshot once trust and onboarding are solved.</p>
+    </section>
+
+    <section class="slide">
+      <p class="eyebrow">16 / what would make it incredible</p>
+      <h2>Make the system explain itself, then make it feel inevitable.</h2>
+      <div class="timeline">
+        <div class="step"><div class="kicker">A</div><h3>Mission templates</h3><p class="small">"Ship an iOS build", "review a PR", "make a deck", "run a bug bash" should create the room, plan, agents, gates, dashboard and artefact slots.</p></div>
+        <div class="step"><div class="kicker">B</div><h3>Unified composer</h3><p class="small">One input that previews whether the action is chat, ask, task, break, plan event, terminal input, or artefact note.</p></div>
+        <div class="step"><div class="kicker">C</div><h3>Review bundle</h3><p class="small">Every milestone auto-produces a readable bundle: claim, diff, tests, blockers, evidence, open risks, links.</p></div>
+        <div class="step"><div class="kicker">D</div><h3>Trust-mode UX</h3><p class="small">Plain-language capabilities for rooms, tokens, agents, artefacts and cross-machine asks. Show "what can happen" before anything happens.</p></div>
+      </div>
+      <div class="timeline">
+        <div class="step"><div class="kicker">E</div><h3>Driver validation lab</h3><p class="small">Nightly probes that fail loudly when a CLI's TUI changes. Driver confidence should be visible in the UI.</p></div>
+        <div class="step"><div class="kicker">F</div><h3>Room home</h3><p class="small">Replace "session list as homepage" with a project-state surface: now, blocked, next, agents, artefacts, recent decisions.</p></div>
+        <div class="step"><div class="kicker">G</div><h3>Voice/interview mode</h3><p class="small">Talking to an agent should create a linked interview, transcript, summary, asks and follow-up plan.</p></div>
+        <div class="step"><div class="kicker">H</div><h3>Plugin-ready core</h3><p class="small">Make drivers, artefact kinds, mission templates and review bundles extension points rather than repo surgery.</p></div>
+      </div>
+    </section>
+
+    <section class="slide" id="moves">
+      <p class="eyebrow">17 / what I would do next</p>
+      <h2>Not more features. Better edges around the features.</h2>
+      <table class="matrix">
+        <thead><tr><th>Timebox</th><th>Move</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td>Week 1</td><td>Build a generated feature map inside the app.</td><td>Turn the feature inventory from hidden knowledge into a visible system map.</td></tr>
+          <tr><td>Week 1</td><td>Refactor <code>session/[id]/+page.svelte</code> into route shell + stores + panels.</td><td>The main page is now too large for reliable agent work.</td></tr>
+          <tr><td>Week 2</td><td>Add mission templates for the workflows already proven in-room.</td><td>The delivery protocol is your first killer workflow. Productize it.</td></tr>
+          <tr><td>Week 2</td><td>Make a room home / command center.</td><td>Reduce "where am I and what now?" friction.</td></tr>
+          <tr><td>Month 1</td><td>Driver confidence dashboard and nightly probes.</td><td>The unique terminal-native bet needs visible reliability instrumentation.</td></tr>
+          <tr><td>Month 1</td><td>Progressive disclosure roles: operator, contributor, reviewer, guest.</td><td>Hide power until people need it. This is how it stops being James-only.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="slide">
+      <p class="eyebrow">18 / brutal keep-cut-hide</p>
+      <h2>I would keep almost everything, but I would stop showing everything.</h2>
+      <div class="grid cols-3">
+        <div class="tile accent-green"><strong>Keep and promote</strong><p>Rooms, unmodified CLI orchestration, plans, asks, chat routing, focus, artefact cowork, review bundles, driver telemetry, diagnostics, antchat invites.</p></div>
+        <div class="tile accent-amber"><strong>Keep but hide</strong><p>Raw terminal modes, low-level event tables, direct deck/sheet file put, token kinds, DB retention scripts, most config knobs, legacy migrations.</p></div>
+        <div class="tile accent-red"><strong>Fix before promoting</strong><p>Mobile trust, onboarding, driver confidence, unknown-kind token permissiveness, god components, duplicate surfaces, feature naming, PWA refresh semantics.</p></div>
+      </div>
+      <div class="quote"><p>The mistake would be to simplify ANT by deleting the weird bits. The right move is to make the weird bits feel like powers that unlock at the exact moment you need them.</p></div>
+    </section>
+
+    <section class="slide dark">
+      <p class="eyebrow">19 / closing opinion</p>
+      <h2>This is a rare system. It deserves product discipline equal to its engineering ambition.</h2>
+      <p class="lede">ANT is most exciting when it stops being "my terminals in a dashboard" and becomes "a room where work can be briefed, executed, reviewed, evidenced, and handed off between humans and agents." That is genuinely differentiated. The worry is that the product currently asks every new user to understand the machine room before they can enjoy the magic.</p>
+      <div class="chips">
+        <span class="chip">do not flatten it into generic chat</span>
+        <span class="chip">do not hide the terminal truth</span>
+        <span class="chip">do make the first mission obvious</span>
+        <span class="chip">do turn review protocol into product</span>
+        <span class="chip">do make trust legible</span>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
