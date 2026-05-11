@@ -33,6 +33,58 @@
   let serviceWorker = $state<{ controlled: boolean; scope?: string } | null>(null);
   let networkInfo = $state<{ effectiveType?: string; downlink?: number; rtt?: number; saveData?: boolean } | null>(null);
 
+  // C3 of main-app-improvements-2026-05-10 — system pressure pane.
+  type Pressure = {
+    generated_at_ms: number;
+    platform: string;
+    uptime_s: number;
+    load_avg: { '1m': number; '5m': number; '15m': number };
+    ram: { total_bytes: number; free_bytes: number; used_bytes: number; used_pct: number };
+    node_rss_bytes: number;
+    processes: { total: number | null; agents: number | null };
+    tmux_sessions: number | null;
+    ant_db: { path: string; size_bytes: number | null };
+  };
+  let pressure = $state<Pressure | null>(null);
+  let pressureLoading = $state(false);
+  let pressureError = $state('');
+
+  async function refreshPressure() {
+    pressureLoading = true;
+    pressureError = '';
+    try {
+      const res = await fetch('/api/diagnostics/system-pressure', { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      pressure = (await res.json()) as Pressure;
+    } catch (err) {
+      pressureError = err instanceof Error ? err.message : String(err);
+    } finally {
+      pressureLoading = false;
+    }
+  }
+
+  function fmtBytes(n: number | null | undefined): string {
+    if (n === null || n === undefined) return '—';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let v = n;
+    let i = 0;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+    return `${v.toFixed(v >= 100 ? 0 : v >= 10 ? 1 : 2)} ${units[i]}`;
+  }
+
+  function fmtPct(n: number, total: number): string {
+    return total > 0 ? `${((n / total) * 100).toFixed(1)}%` : '—';
+  }
+
+  function fmtUptime(seconds: number): string {
+    const d = Math.floor(seconds / 86400);
+    const h = Math.floor((seconds % 86400) / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (d > 0) return `${d}d ${h}h ${m}m`;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+  }
+
   onMount(async () => {
     if (typeof navigator !== 'undefined') {
       userAgent = navigator.userAgent;
@@ -66,6 +118,20 @@
     if (typeof window !== 'undefined') {
       const last = window.localStorage.getItem('ant.diagnostics.lastSessionId') || '';
       if (last) sessionInput = last;
+    }
+
+    // Kick off the system-pressure snapshot, and refresh on
+    // visibilitychange + focus so the numbers stay current when the
+    // operator tabs back in. No interval timer — pressure changes
+    // slowly enough that visibility refresh + manual button is plenty.
+    void refreshPressure();
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) void refreshPressure();
+      });
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', () => void refreshPressure());
     }
   });
 
@@ -201,6 +267,75 @@
         </dd>
       {/if}
     </dl>
+  </section>
+
+  <section class="panel">
+    <div class="result-head">
+      <h2>System pressure</h2>
+      <div class="result-meta">
+        {#if pressure}
+          <span>updated {new Date(pressure.generated_at_ms).toLocaleTimeString()}</span>
+        {/if}
+        <button type="button" class="copy" onclick={() => void refreshPressure()} disabled={pressureLoading}>
+          {pressureLoading ? 'Refreshing…' : 'Refresh'}
+        </button>
+      </div>
+    </div>
+    <p class="hint">
+      Where the load is coming from. Tabs back to refresh; refreshes
+      automatically on focus. Source: <code>/api/diagnostics/system-pressure</code>.
+    </p>
+    {#if pressureError}
+      <p class="hint" style="color: #B91C1C;">Couldn't read pressure: {pressureError}</p>
+    {/if}
+    {#if pressure}
+      <dl>
+        <dt>Platform</dt>
+        <dd>{pressure.platform} · uptime {fmtUptime(pressure.uptime_s)}</dd>
+
+        <dt>Load average</dt>
+        <dd>
+          <code>{pressure.load_avg['1m'].toFixed(2)}</code> 1m ·
+          <code>{pressure.load_avg['5m'].toFixed(2)}</code> 5m ·
+          <code>{pressure.load_avg['15m'].toFixed(2)}</code> 15m
+        </dd>
+
+        <dt>RAM</dt>
+        <dd>
+          <strong>{fmtBytes(pressure.ram.used_bytes)}</strong>
+          / {fmtBytes(pressure.ram.total_bytes)}
+          ({pressure.ram.used_pct.toFixed(1)}% used) ·
+          <span class="hint">free {fmtBytes(pressure.ram.free_bytes)}</span>
+        </dd>
+
+        <dt>Node process (this server)</dt>
+        <dd>
+          {fmtBytes(pressure.node_rss_bytes)} RSS
+          ({fmtPct(pressure.node_rss_bytes, pressure.ram.used_bytes)} of used RAM,
+          {fmtPct(pressure.node_rss_bytes, pressure.ram.total_bytes)} of total)
+        </dd>
+
+        <dt>Processes</dt>
+        <dd>
+          {pressure.processes.total ?? '—'} total ·
+          {pressure.processes.agents ?? '—'} agent (claude/codex/gemini/qwen/copilot/pi)
+          {#if pressure.processes.total !== null && pressure.processes.agents !== null}
+            · <span class="hint">{((pressure.processes.agents / pressure.processes.total) * 100).toFixed(1)}% agents</span>
+          {/if}
+        </dd>
+
+        <dt>tmux sessions</dt>
+        <dd>{pressure.tmux_sessions ?? '—'}</dd>
+
+        <dt>ant.db</dt>
+        <dd>
+          {fmtBytes(pressure.ant_db.size_bytes)} ·
+          <code class="wrap">{pressure.ant_db.path}</code>
+        </dd>
+      </dl>
+    {:else if pressureLoading}
+      <p class="hint">Reading…</p>
+    {/if}
   </section>
 
   <section class="panel">

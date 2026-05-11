@@ -19,6 +19,13 @@ function resolveDbPaths(): void {
   _dataDir = process.env.ANT_DATA_DIR || join(process.env.HOME || '/tmp', '.ant-v3');
   _dbPath = join(_dataDir, 'ant.db');
 }
+
+/** C3 of main-app-improvements-2026-05-10 — expose the resolved ant.db
+ *  path so /api/diagnostics/system-pressure can report the file size. */
+export function getAntDbPath(): string {
+  resolveDbPaths();
+  return _dbPath;
+}
 const OPERATIONAL_MEMORY_WHERE = `
     key NOT LIKE 'session:%'
     AND key NOT LIKE 'archive/%'
