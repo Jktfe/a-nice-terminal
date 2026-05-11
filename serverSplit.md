@@ -57,7 +57,7 @@ Tier 2 lives **inside the SvelteKit server process for now** (Phase A–D). A la
 
 ### New: Tier 2 — processor
 - `src/lib/server/processor/run-side-effects.ts` — Tier-2 entry point. Consumes a `WriteMessageResult` (or reconstructs one from a DB row during replay). Runs: channel HTTP fanout (`+server.ts:414-440`), `messageRouter.route()` (`+server.ts:442-454` → `message-router.ts:481-498`), agent event bus emit (`+server.ts:459`), global ask broadcast (`+server.ts:461`). On success, calls `markDone(msgId)`. On exception, increments `broadcast_attempts`; after 5, marks `'failed'`.
-- `src/lib/server/processor/catchup.ts` — `replayPendingBroadcasts(maxAgeMs?)`. Loads pending rows (use partial index), reconstructs context (sender resolution, linked-chat detection), invokes `runSideEffects` with replay-mode flags (see Risks).
+- `src/lib/server/processor/catchup.ts` — `replayPendingBroadcasts(maxAgeMs?)`. Loads pending rows (use partial index), reconstructs context (sender resolution, linked-chat detection), invokes `runSideEffects` with replay-mode flags (see Risks). Messages whose age exceeds `maxAgeMs` are **explicitly marked `'expired'`** in the same scan rather than skipped — otherwise they'd accumulate in the partial index forever. Default `maxAgeMs = 24h`. Guards against concurrent runs via a process-local `isReplaying` flag; if a previous cycle is still in flight when the interval poller fires, the new tick is a no-op.
 - `src/routes/api/internal/notify-new-message/+server.ts` — `POST { id }` endpoint. `assertCanWrite` gates auth. Loads the message, calls `runSideEffects`. CLI fires this best-effort after a successful direct DB write so live viewers see the message immediately when the server is up.
 
 ### Modify
@@ -108,12 +108,16 @@ Tier 2 lives **inside the SvelteKit server process for now** (Phase A–D). A la
   const isLocal = isLocalServer(ctx.serverUrl);
   if (isLocal && !roomToken) {
     const r = await postMessageDirect({ sessionId: args.roomId, role, content, ... });
-    notifyServer(ctx, r.message.id);  // fire-and-forget; no await on the fetch itself
+    await notifyServer(ctx, r.message.id);  // bounded by AbortSignal.timeout(500) in notifyServer
     return r.message;
   }
   return api.post(ctx, `/api/sessions/${args.roomId}/messages`, payload, roomOpts);
   ```
   Remote rooms (non-localhost, or room-scoped tokens) keep the HTTP path — direct DB writes are local-only.
+
+  **Why `await` (rejecting the earlier "fire-and-forget" framing).** In Node, a CLI returning to top-level can exit before an unawaited `fetch` flushes its socket write — the message would land in the DB but the live broadcast wouldn't fire until the 5s catch-up poller. Awaiting is bounded by `AbortSignal.timeout(500)` inside `notifyServer`, so the worst case (server unreachable) adds 500ms; the typical case (server up, endpoint returns 202 immediately — see below) is ~5–20ms. Either way still faster than today's ~30–80ms HTTP path, and we never silently drop the live broadcast.
+
+  **`/api/internal/notify-new-message` returns 202 Accepted immediately** after enqueuing the work onto the same in-process queue Tier 2 uses for catch-up. That keeps the CLI's awaited round-trip cheap and decouples broadcast latency from CLI exit.
 
 - **`server.ts`** — after agent-event-bus `init()` (~line 1241), add:
   ```ts
@@ -124,7 +128,7 @@ Tier 2 lives **inside the SvelteKit server process for now** (Phase A–D). A la
     setInterval(() => replayPendingBroadcasts().catch(() => {}), 5000).unref();
   }).catch(() => {});
   ```
-  The 5s poller is a backstop in case the CLI's notify call is lost; cheap thanks to the partial index.
+  `replayPendingBroadcasts` carries its own `isReplaying` module-level flag and returns 0 immediately if a previous cycle is still running, so overlapping ticks from this interval (or from the `/api/internal/notify-new-message` path) cannot double-process the same row. The 5s poller is a backstop in case the CLI's notify call is lost; cheap thanks to the partial index.
 
 ## Key function signatures
 
@@ -151,7 +155,7 @@ export interface WriteMessageResult {
   firstPost: boolean;
   isLinkedChat: boolean;
   senderResolved: { name: string; type: string | null };
-  routingHints: { allowChannelFanout: boolean; allowPtyInject: boolean; askIds: string[] };
+  routingHints: { allowPtyInject: boolean; askIds: string[] };  // channel fanout uses delivery_log idempotency, no time gate
 }
 
 // src/lib/persist/write-message.ts
@@ -208,7 +212,7 @@ export async function replayPendingBroadcasts(maxAgeMs?: number): Promise<number
 
 ## Risks & mitigations
 
-- **Channel HTTP fanout is non-idempotent** (`+server.ts:414-440` posts to port 8789). Replays could double-post. **Mitigation:** Tier 1 records `broadcast_state='pending'` and Tier 2 marks `'done'` atomically; replays skip channel fanout for messages older than 60s via `routingHints.allowChannelFanout = (ageMs < 60_000)`.
+- **Channel HTTP fanout is non-idempotent** (`+server.ts:414-440` posts to port 8789). Replays could double-post — particularly if Tier 2 crashes mid-side-effect, before `markBroadcastDone` runs but after the channel POST landed. **Mitigation:** reuse the existing `delivery_log` table (`db.ts:188-197`, columns `message_id, adapter, delivered`). Before each adapter call, `runSideEffects` checks `SELECT 1 FROM delivery_log WHERE message_id=? AND adapter=? AND delivered=1`; if present, the adapter call is skipped. After a successful adapter call it inserts `(message_id, adapter, delivered=1)`. This makes replay safe at any age — no time-based heuristic needed for channel fanout. The earlier 60s `routingHints.allowChannelFanout` cutoff is dropped in favour of this per-adapter idempotency check.
 - **PTY injection of stale messages.** `messageRouter.route` injects content into running agent PTYs (`message-router.ts:481-498`). Replaying a 6-hour-old message would inject stale input. **Mitigation:** `routingHints.allowPtyInject = (ageMs < 30_000)`; replay-mode skips terminal_session deliveries beyond that threshold.
 - **WS broadcast double-fire.** Less harmful — browser clients already dedupe by message id, but explicit: replays still broadcast WS events.
 - **SQLite cross-process writes.** WAL mode + `busy_timeout=5000` already in place (`db.ts:95-97`). Risk is the FTS triggers (`db.ts:248-258`) firing from both processes. `better-sqlite3`/`bun:sqlite` handle this safely under WAL, but verify with `tests/integration/cli-server-offline.test.ts` (see below).
