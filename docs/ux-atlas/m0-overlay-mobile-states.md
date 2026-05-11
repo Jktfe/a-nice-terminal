@@ -90,6 +90,90 @@ inventory, not the redesigned answer.
 | Read-only/remote | Gate or stream. | Password/handle gate, composer keyboard-safe, stream lost. | Remote room is user-facing; linked chat is not. |
 | Diagnostics/setup | Stacked panels/cards. | Copy feedback, run progress, accordion open. | Operator trust surfaces. |
 
+## Sparse Family Supplements For M1 Cards
+
+These are the route/component families that looked too thin in the first M1
+detail strip. They are expanded here so the IA cards can be filled with
+literal states rather than product guesses.
+
+### Participants
+
+Source: `ChatParticipants.svelte`.
+
+States and controls:
+
+- Active participant card: identity edge band, display name, CLI flag, presence
+  dot, handle, focus chip, queued focus count.
+- Presence states: active, idle, offline, unknown.
+- Attention states: normal, focus active, focus minutes remaining, focus queue
+  count visible.
+- Inline actions: cross-post composer, edit handle, focus/unfocus, stop, remove.
+- Inline composer variants: nickname edit, cross-post text, disabled send,
+  Enter submit, Escape cancel.
+- Other terminals: collapsed, expanded, add terminal to room, stop terminal,
+  open linked chat.
+- Product rule: open linked chat must not be default UX. It becomes open
+  conversation/activity or advanced debug only.
+- Category rule: feature/viewer tokens do not appear here.
+
+### Diagnostics
+
+Source: `routes/diagnostics/+page.svelte`.
+
+States and controls:
+
+- Session id input: empty, restored from localStorage, pasted.
+- Run diagnostics: idle, running, per-endpoint success/error, critical-path
+  summary rendered.
+- Copy results: enabled after run, copied, clipboard failure.
+- System pressure: loading, updated timestamp, pressure error, RAM/process/tmux
+  data present, no data.
+- Refresh pressure: manual refresh, focus/visibility refresh.
+
+### Settings
+
+Sources: `PersonalSettingsModal.svelte`, `ChatSidePanel.svelte`.
+
+States and controls:
+
+- Personal settings modal: local path visible, preferences JSON clean/dirty,
+  invalid JSON, save disabled/enabled, saving, loading, local state.
+- Maintenance: tmux reap idle, cleaning, no orphans, killed orphan count, error.
+- Side-panel settings: collapsed/expanded, long-memory enabled/disabled, toggle
+  saving, toggle error.
+- Mobile requirement: settings never rely on a tiny gear-only hover state; each
+  settings surface needs a visible title, close affordance, and stable footer.
+
+### Invites / Remote ANTs
+
+Sources: `RemoteInviteModal.svelte`, `ChatSidePanel.svelte`,
+`routes/r/[id]/+page.svelte`, `routes/remote/[id]/+page.svelte`.
+
+States and controls:
+
+- Create invite modal: label empty/valid, password hidden/revealed, invite kinds
+  cli/mcp/web checked/unchecked, no kind selected, password too short, creating,
+  error, result.
+- Invite side-panel list: loading, empty, active invite, revoked invite, locked
+  after failed attempts, failed-attempt warning, active token list, revoke invite,
+  revoke token, copy per-kind share string.
+- Read-only invite gate: missing room/invite, password entry, busy exchange,
+  wrong password, revoked, expired, unlocked live stream, sign out.
+- Remote room: stream live, empty, send, send error, stream error, legacy URL
+  warning.
+
+### Mobile PWA
+
+States to cover across the atlas:
+
+- Safe-area header and sticky composer with keyboard open.
+- Full-screen side panel overlay with close bar.
+- Bottom/action-sheet replacements for desktop popovers.
+- Modal replacements for destructive actions and native prompts.
+- Browser-owned PWA install prompt is not a normal app modal.
+- Service-worker/stale-build diagnostic: if a deck/page exists on disk but the
+  browser shows stale assets, diagnostics should expose controlled page state.
+
 ## Open M0 Questions For Review
 
 1. Should the focus/working-state replacement for the current `prompt()`
