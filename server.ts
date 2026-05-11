@@ -1239,6 +1239,22 @@ getPtyManager().then(async ptm => {
       appendRunEvent,
     });
   }).catch(() => {});
+  // Phase C of server-split-2026-05-11 — kick off the catch-up loop.
+  // One immediate replay on boot (Phase D CLI direct-writes that
+  // arrived while the server was offline) then a 5s backstop poller.
+  // replayPendingBroadcasts has its own isReplaying guard so this
+  // interval can never overlap with itself or with the notify
+  // endpoint. .unref() lets the process exit cleanly on shutdown.
+  import('./src/lib/server/processor/catchup.js').then(({ replayPendingBroadcasts }) => {
+    replayPendingBroadcasts()
+      .then((n) => {
+        if (n > 0) console.log(`[catchup] replayed ${n} pending message${n === 1 ? '' : 's'} on boot`);
+      })
+      .catch(() => {});
+    setInterval(() => {
+      replayPendingBroadcasts().catch(() => {});
+    }, 5000).unref();
+  }).catch(() => {});
   import('./src/lib/server/prompt-bridge.js').then(({ initPromptBridge }) => {
     initPromptBridge({
       getSession: queries.getSession,

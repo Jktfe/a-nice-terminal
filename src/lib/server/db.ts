@@ -1290,6 +1290,13 @@ export const queries = {
     LEFT JOIN messages m ON m.id = a.source_message_id
     WHERE a.id = ?
   `).get(id),
+  // Phase C of server-split-2026-05-11 — load every ask attached to
+  // a message. Used by the catch-up loop to re-broadcast the
+  // ask_created WS envelopes for messages that were persisted
+  // offline. NEVER used to create new asks on replay — ask creation
+  // is Tier 1 and only fires inside writeMessage's transaction.
+  getAsksByMessage: (messageId: string) =>
+    prepare(`SELECT * FROM asks WHERE source_message_id = ? ORDER BY created_at ASC`).all(messageId),
   getAskBySourceMessage: (sourceMessageId: string) =>
     prepare(`SELECT * FROM asks WHERE source_message_id = ?`).get(sourceMessageId),
   countOpenAsks: () =>

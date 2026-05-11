@@ -32,10 +32,15 @@ const CHANNEL_FALLBACK_PORT = 8789;
 const CHANNEL_FALLBACK_ADAPTER = `channel:${CHANNEL_FALLBACK_PORT}`;
 
 export interface RunSideEffectsOptions {
-  /** Reserved for Phase C — when true, side effects know they are
-   *  being replayed (used for the PTY-injection age guard, etc.).
-   *  Phase B sets this to false for live posts; Phase C sets true. */
+  /** True when this side-effect run is the catch-up loop replaying a
+   *  pending row rather than a live POST. Currently controls only the
+   *  PTY-injection age guard; Phase B leaves this false. */
   replay?: boolean;
+  /** Phase C explicit override: pass false to refuse PTY injection
+   *  for this run regardless of message age. When omitted (the live
+   *  path), defaults to true. Catch-up sets this based on the 30s
+   *  window from the message's created_at. */
+  allowPtyInject?: boolean;
 }
 
 export interface DeliveryReport {
@@ -134,7 +139,7 @@ async function fireChannelFanout(
   await Promise.allSettled(adapters.map(({ adapter, port }) => fireOne(adapter, port)));
 }
 
-async function runMessageRouter(result: WriteMessageResult): Promise<unknown[]> {
+async function runMessageRouter(result: WriteMessageResult, allowPtyInject: boolean): Promise<unknown[]> {
   const msg = result.message;
   const { getRouter } = await import('$lib/server/message-router.js');
   const router = getRouter();
@@ -150,6 +155,7 @@ async function runMessageRouter(result: WriteMessageResult): Promise<unknown[]> 
     replyTo: msg.reply_to,
     msgType: msg.msg_type,
     meta: msg.meta,
+    allowPtyInject,
   });
   return routed?.deliveries ?? [];
 }
@@ -201,9 +207,10 @@ export async function runSideEffects(
     }
 
     // 2. MessageRouter.route (WS broadcast, PTY injection on live path).
-    //    Phase C's replay path will use opts.replay + an age guard to
-    //    skip PTY injection on stale messages; that lives in Phase C.
-    const routedDeliveries = await runMessageRouter(result);
+    //    On replay, caller computes allowPtyInject from message age vs
+    //    the 30s window. Live path defaults to true.
+    const allowPtyInject = opts.allowPtyInject !== false;
+    const routedDeliveries = await runMessageRouter(result, allowPtyInject);
     deliveries.push({ adapter: 'router', delivered: true });
     recordDelivery(msg.id, msg.session_id, 'router', true, null);
 
