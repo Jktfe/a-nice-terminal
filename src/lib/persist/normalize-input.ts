@@ -24,11 +24,26 @@ export interface NormalizedMessageInput {
   metaJson: string;
 }
 
+const BREAK_COMMAND_RE = /^\/break(?:\s+(.+))?$/i;
+
+function parseBreakCommand(value: unknown): { isBreak: boolean; reason: string } {
+  if (typeof value !== 'string') return { isBreak: false, reason: '' };
+  const match = value.trim().match(BREAK_COMMAND_RE);
+  if (!match) return { isBreak: false, reason: '' };
+  return { isBreak: true, reason: (match[1] ?? '').trim() };
+}
+
 export function normalizeMessageInput(input: MessageInput): NormalizedMessageInput {
-  const msgType = input.msgType || 'message';
+  const requestedMsgType = input.msgType || 'message';
+  const breakCommand = requestedMsgType === 'message'
+    ? parseBreakCommand(input.content)
+    : { isBreak: false, reason: '' };
+  const msgType = breakCommand.isBreak ? CHAT_BREAK_MSG_TYPE : requestedMsgType;
   const normalizedContent =
     msgType === 'message' && typeof input.content === 'string'
       ? ensureTrailingMentionBoundary(input.content)
+      : breakCommand.isBreak
+      ? (breakCommand.reason || '-- break --')
       : input.content;
   const replyTo = input.replyTo || null;
 
@@ -80,7 +95,7 @@ export function normalizeMessageInput(input: MessageInput): NormalizedMessageInp
 
   return {
     sessionId: input.sessionId,
-    role: input.role,
+    role: isChatBreak ? 'system' : (input.role || 'user'),
     content: normalizedContent,
     format: input.format || 'text',
     senderId: input.senderId || null,

@@ -7,6 +7,10 @@ describe('mobile composer and expandable rail fit', () => {
     resolve(import.meta.dirname, '../src/lib/components/MessageInput.svelte'),
     'utf8',
   );
+  const breakConfirmModal = readFileSync(
+    resolve(import.meta.dirname, '../src/lib/components/BreakConfirmModal.svelte'),
+    'utf8',
+  );
   const chatMessages = readFileSync(
     resolve(import.meta.dirname, '../src/lib/components/ChatMessages.svelte'),
     'utf8',
@@ -24,6 +28,15 @@ describe('mobile composer and expandable rail fit', () => {
     expect(messageInput).toContain('transform: translateY(calc(-1 * var(--ant-keyboard-h, 0px)))');
     expect(messageInput).toContain('keepComposerVisible()');
     expect(messageInput).toContain("scrollIntoView({ block: 'nearest', behavior: 'smooth' })");
+  });
+
+  it('uses an in-app break confirmation modal instead of native confirm on mobile', () => {
+    expect(messageInput).not.toContain('window.confirm');
+    expect(messageInput).toContain('BreakConfirmModal');
+    expect(messageInput).toContain('breakModalOpen');
+    expect(breakConfirmModal).toContain('role="dialog"');
+    expect(breakConfirmModal).toContain('Post a context break?');
+    expect(breakConfirmModal).toContain('@media (max-width: 640px)');
   });
 
   it('keeps terminal linked-chat composers readable on mobile too', () => {

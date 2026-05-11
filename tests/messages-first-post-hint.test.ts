@@ -95,6 +95,22 @@ describe('first-post skills hint (M2)', () => {
     expect(body.hint).toBeUndefined();
   });
 
+  it('normalises literal /break posts into chat_break markers for non-web clients', async () => {
+    const res = await postMessage(makeEvent({
+      role: 'user',
+      content: '/break mobile smoke',
+      format: 'text',
+      sender_id: SENDER_ID,
+    }));
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.msg_type).toBe('chat_break');
+    expect(body.content).toBe('mobile smoke');
+    expect(body.role).toBe('system');
+    expect(body.firstPost).toBeUndefined();
+    expect(body.hint).toBeUndefined();
+  });
+
   it('skips when sender_id is missing', async () => {
     const res = await postMessage(makeEvent({
       role: 'user',
