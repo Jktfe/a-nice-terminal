@@ -606,6 +606,24 @@ function setStatus(
     sessionId,
     status,
   });
+
+  // False-positive clear for needs-input badges. When the agent's
+  // state label transitions to 'Working', the prompt-bridge detector
+  // that fired earlier was reading a transient screen state — the
+  // agent is now actively processing, not waiting on the operator.
+  // Discard the pending events so the red dashboard badge clears.
+  // 'Available' is intentionally NOT included here: the agent can be
+  // available AND have a real legitimate pending question waiting
+  // for the operator. Only 'Working' proves the agent has moved on
+  // on its own.
+  if (
+    status.stateLabel === 'Working' &&
+    state.pendingEvents.size > 0 &&
+    busDeps.updateMessageMeta &&
+    busDeps.broadcastToChat
+  ) {
+    discardPendingEvents(sessionId, state, 'agent_status_working');
+  }
 }
 
 function updateStatusFromLines(sessionId: string, state: SessionState, statusLines: string[]): void {
