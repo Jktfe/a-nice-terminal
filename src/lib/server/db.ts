@@ -608,9 +608,19 @@ function getDb(): any {
     allowed_room_ids TEXT NOT NULL,
     deck_dir TEXT NOT NULL,
     dev_port INTEGER,
+    trust_mode TEXT NOT NULL DEFAULT 'trusted',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
   )`);
+  // B1 of main-app-improvements-2026-05-10 — trust_mode column for
+  // per-mode CSP on the deck proxy. Existing decks default to 'trusted'
+  // to avoid silently breaking React decks that need script execution.
+  {
+    const deckCols = G[DB_KEY].prepare(`PRAGMA table_info(decks)`).all().map((c: any) => c.name);
+    if (!deckCols.includes('trust_mode')) {
+      G[DB_KEY].prepare(`ALTER TABLE decks ADD COLUMN trust_mode TEXT NOT NULL DEFAULT 'trusted'`).run();
+    }
+  }
   G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_decks_owner ON decks(owner_session_id)`);
 
   // Open-Slide sheets — local spreadsheet workspaces registered against one or
@@ -1814,23 +1824,32 @@ export const queries = {
     allowed_room_ids: string;
     deck_dir: string;
     dev_port: number | null;
+    trust_mode?: 'safe' | 'trusted';
     now_ms?: number;
   }) =>
-    prepare(`INSERT INTO decks (slug, owner_session_id, allowed_room_ids, deck_dir, dev_port, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)
+    prepare(`INSERT INTO decks (slug, owner_session_id, allowed_room_ids, deck_dir, dev_port, trust_mode, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(slug) DO UPDATE SET
                owner_session_id = excluded.owner_session_id,
                allowed_room_ids = excluded.allowed_room_ids,
                deck_dir = excluded.deck_dir,
                dev_port = excluded.dev_port,
+               trust_mode = excluded.trust_mode,
                updated_at = excluded.updated_at`).run(
       row.slug,
       row.owner_session_id,
       row.allowed_room_ids,
       row.deck_dir,
       row.dev_port,
+      row.trust_mode ?? 'trusted',
       row.now_ms ?? Date.now(),
       row.now_ms ?? Date.now(),
+    ),
+  setDeckTrustMode: (slug: string, trust_mode: 'safe' | 'trusted', now_ms?: number) =>
+    prepare(`UPDATE decks SET trust_mode = ?, updated_at = ? WHERE slug = ?`).run(
+      trust_mode,
+      now_ms ?? Date.now(),
+      slug,
     ),
   getDeck: (slug: string) =>
     prepare(`SELECT * FROM decks WHERE slug = ?`).get(slug),

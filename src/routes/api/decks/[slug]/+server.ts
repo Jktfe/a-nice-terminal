@@ -1,7 +1,14 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
-import { readDeckManifest, readDeckMeta, registerDeck, writeDeckManifest } from '$lib/server/decks';
+import {
+  isDeckTrustMode,
+  readDeckManifest,
+  readDeckMeta,
+  registerDeck,
+  setDeckTrustMode,
+  writeDeckManifest,
+} from '$lib/server/decks';
 import { assertDeckAccess, requireDeckCaller } from '$lib/server/deck-auth';
 import { assertCanWrite } from '$lib/server/room-scope';
 
@@ -38,6 +45,20 @@ export async function PATCH(event: RequestEvent) {
     throw error(400, 'Invalid JSON body');
   }
 
+  // B1 of main-app-improvements-2026-05-10 — trust_mode flips are
+  // metadata-only (no manifest rewrite, no audit), so handle them via
+  // setDeckTrustMode and return early when no other field changed.
+  if (body.trust_mode !== undefined) {
+    if (!isDeckTrustMode(body.trust_mode)) {
+      throw error(400, 'trust_mode must be "safe" or "trusted"');
+    }
+    const otherKeys = Object.keys(body).filter((k) => k !== 'trust_mode');
+    if (otherKeys.length === 0) {
+      const deck = setDeckTrustMode(existing.slug, body.trust_mode);
+      return json({ ok: true, deck });
+    }
+  }
+
   const deck = registerDeck({
     slug: slugParam(event),
     owner_session_id: existing.owner_session_id,
@@ -46,6 +67,7 @@ export async function PATCH(event: RequestEvent) {
       : existing.allowed_room_ids,
     deck_dir: typeof body.deck_dir === 'string' ? body.deck_dir : existing.deck_dir,
     dev_port: body.dev_port === null ? null : Number.isFinite(Number(body.dev_port)) ? Number(body.dev_port) : existing.dev_port,
+    trust_mode: isDeckTrustMode(body.trust_mode) ? body.trust_mode : existing.trust_mode,
   });
   const manifest = writeDeckManifest(deck);
 

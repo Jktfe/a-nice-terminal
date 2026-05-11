@@ -35,6 +35,42 @@ const DEFAULT_MAX_FILE_BYTES = 5 * 1024 * 1024;
 // Wave 2 (sheets, docs) should import directly from artefact-fs.ts.
 export { assertSafeDeckSlug };
 
+export type DeckTrustMode = 'safe' | 'trusted';
+
+/** Strict CSP for Safe mode: no JS execution, no remote assets, no network.
+ *  Inline styles + data: images are allowed so static HTML artefacts (specs,
+ *  reports, prose docs) still render. Match goes on response headers in the
+ *  deck proxy. */
+export const SAFE_CSP =
+  "default-src 'none'; " +
+  "style-src 'unsafe-inline'; " +
+  "img-src data:; " +
+  "font-src data:; " +
+  "script-src 'none'; " +
+  "connect-src 'none'; " +
+  "frame-src 'none'; " +
+  "frame-ancestors 'self'; " +
+  "form-action 'none'; " +
+  "base-uri 'none'";
+
+/** Permissive CSP for Trusted mode: still pins frame-ancestors to 'self'
+ *  so the artefact can't be embedded by third parties, but lets the deck's
+ *  JS, CSS, fonts, images, and same-origin XHR/WS run as usual. */
+export const TRUSTED_CSP =
+  "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; " +
+  "img-src 'self' data: blob: https:; " +
+  "font-src 'self' data:; " +
+  "connect-src 'self' ws: wss: https:; " +
+  "frame-ancestors 'self'";
+
+export function cspForTrustMode(mode: DeckTrustMode): string {
+  return mode === 'safe' ? SAFE_CSP : TRUSTED_CSP;
+}
+
+export function isDeckTrustMode(value: unknown): value is DeckTrustMode {
+  return value === 'safe' || value === 'trusted';
+}
+
 export interface DeckMeta {
   slug: string;
   title: string;
@@ -42,6 +78,7 @@ export interface DeckMeta {
   owner_session_id: string;
   allowed_room_ids: string[];
   dev_port: number | null;
+  trust_mode: DeckTrustMode;
   created_at: number | null;
   updated_at: number | null;
 }
@@ -122,6 +159,7 @@ export interface RegisterDeckInput {
   allowed_room_ids?: string[];
   deck_dir?: string | null;
   dev_port?: number | null;
+  trust_mode?: DeckTrustMode;
 }
 
 export function openSlideRoot(): string {
@@ -191,6 +229,7 @@ function roomSet(ownerSessionId: string, roomIds: string[] | undefined): string[
 function rowToDeck(row: any): DeckMeta {
   const slug = String(row.slug);
   const ownerSessionId = typeof row.owner_session_id === 'string' ? row.owner_session_id : '';
+  const trust: DeckTrustMode = isDeckTrustMode(row.trust_mode) ? row.trust_mode : 'trusted';
   return {
     slug,
     title: titleFromSlug(slug),
@@ -198,6 +237,7 @@ function rowToDeck(row: any): DeckMeta {
     owner_session_id: ownerSessionId,
     allowed_room_ids: roomSet(ownerSessionId, parseRoomIds(row.allowed_room_ids)),
     dev_port: typeof row.dev_port === 'number' ? row.dev_port : row.dev_port == null ? null : Number(row.dev_port),
+    trust_mode: trust,
     created_at: typeof row.created_at === 'number' ? row.created_at : Number(row.created_at) || null,
     updated_at: typeof row.updated_at === 'number' ? row.updated_at : Number(row.updated_at) || null,
   };
@@ -225,12 +265,32 @@ export function registerDeck(input: RegisterDeckInput): DeckMeta {
     allowed_room_ids: JSON.stringify(allowedRoomIds),
     deck_dir: deckDir,
     dev_port: input.dev_port ?? previous?.dev_port ?? null,
+    trust_mode: input.trust_mode ?? previous?.trust_mode ?? 'trusted',
     now_ms: Date.now(),
   });
 
   const deck = readDeckMeta(slug);
   if (!deck) throw new Error('Failed to register deck');
   return deck;
+}
+
+/** B1 of main-app-improvements-2026-05-10 — flip the deck's CSP mode.
+ *  Returns the updated deck so callers can broadcast the new state to
+ *  any subscribed iframe (B2 will wire the auto-reload). */
+export function setDeckTrustMode(slug: string, trust_mode: DeckTrustMode): DeckMeta {
+  const existing = readDeckMeta(slug);
+  if (!existing) throw new Error('deck not found');
+  if (existing.trust_mode === trust_mode) return existing;
+  queries.setDeckTrustMode(existing.slug, trust_mode);
+  const updated = readDeckMeta(existing.slug);
+  if (!updated) throw new Error('Failed to flip trust_mode');
+  broadcast(existing.owner_session_id, {
+    type: 'deck_trust_changed',
+    sessionId: existing.owner_session_id,
+    slug: existing.slug,
+    trust_mode,
+  });
+  return updated;
 }
 
 export function listDecks(): DeckMeta[] {

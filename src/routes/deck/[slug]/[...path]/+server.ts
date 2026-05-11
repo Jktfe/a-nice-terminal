@@ -1,5 +1,5 @@
 import { error, type RequestEvent } from '@sveltejs/kit';
-import { readDeckMeta } from '$lib/server/decks';
+import { cspForTrustMode, readDeckMeta, type DeckMeta } from '$lib/server/decks';
 import { hasDeckCookie } from '$lib/server/deck-view-auth';
 import { renderDeckLogin } from '$lib/server/deck-login-page';
 
@@ -39,13 +39,20 @@ function outboundHeaders(event: RequestEvent, port: number): Headers {
   return headers;
 }
 
-function inboundHeaders(response: Response): Headers {
+function inboundHeaders(response: Response, deck: DeckMeta): Headers {
   const headers = new Headers();
   response.headers.forEach((value, key) => {
     if (HOP_BY_HOP.has(key.toLowerCase())) return;
+    // Drop any CSP upstream tried to set — the deck dev server is the
+    // untrusted side; CSP is owned by the proxy and computed from the
+    // deck's trust_mode (B1 of main-app-improvements-2026-05-10).
+    if (key.toLowerCase() === 'content-security-policy') return;
+    if (key.toLowerCase() === 'content-security-policy-report-only') return;
     headers.set(key, value);
   });
   headers.set('Cache-Control', 'no-store');
+  headers.set('Content-Security-Policy', cspForTrustMode(deck.trust_mode));
+  headers.set('X-Deck-Trust-Mode', deck.trust_mode);
   return headers;
 }
 
@@ -82,7 +89,7 @@ async function proxyDeck(event: RequestEvent): Promise<Response> {
     duplex: 'half',
   } as RequestInit & { duplex?: 'half' });
 
-  const headers = inboundHeaders(response);
+  const headers = inboundHeaders(response, deck);
   const contentType = response.headers.get('content-type') || '';
   if (contentType.includes('text/html')) {
     const html = rewriteHtml(slug, await response.text());
