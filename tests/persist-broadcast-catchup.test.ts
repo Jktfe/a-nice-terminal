@@ -138,6 +138,48 @@ describe('replayPendingBroadcasts — Phase C catch-up loop', () => {
 
 });
 
+describe('catchup isReplaying flag is globalThis-backed (AGENTS.md singleton rule)', () => {
+  // SvelteKit hot reload and mixed import paths (server.ts boot
+  // poller vs the /api/internal/notify-new-message route) can create
+  // duplicate module instances. If isReplaying lived as a
+  // module-local let, each duplicate would carry its own flag and
+  // the poller + the notify endpoint could replay the same pending
+  // rows concurrently. The fix is to back the state on globalThis
+  // so every importer reads/writes the same object.
+
+  it('stores state on globalThis under the documented key', async () => {
+    const mod = await import('../src/lib/server/processor/catchup.js');
+    mod._resetForTest();
+
+    const key = '__ant_catchup_state__';
+    const state = (globalThis as any)[key];
+    expect(state).toBeTruthy();
+    expect(typeof state.isReplaying).toBe('boolean');
+
+    // The module's view of the flag IS the global object — same
+    // identity, same reads. A second "module copy" (which a hot
+    // reload or mixed import path would produce in dev) would read
+    // the same object via the same globalThis key.
+    state.isReplaying = true;
+    expect(mod._isReplayingForTest()).toBe(true);
+    state.isReplaying = false;
+    expect(mod._isReplayingForTest()).toBe(false);
+  });
+
+  it('_resetForTest clears the global state, not a fresh module-local copy', async () => {
+    const key = '__ant_catchup_state__';
+    (globalThis as any)[key].isReplaying = true;
+    expect((globalThis as any)[key].isReplaying).toBe(true);
+
+    const mod = await import('../src/lib/server/processor/catchup.js');
+    mod._resetForTest();
+
+    // The reset acted on globalThis, not on a fresh module-local var.
+    expect((globalThis as any)[key].isReplaying).toBe(false);
+    expect(mod._isReplayingForTest()).toBe(false);
+  });
+});
+
 describe('catchup helpers — age-window decisions', () => {
   // These are the pure functions catchup.replayPendingBroadcasts
   // delegates to for the two age-driven decisions: "should I let PTY

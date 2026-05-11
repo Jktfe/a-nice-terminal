@@ -53,7 +53,20 @@ export function isExpired(ageMs: number, maxAgeMs: number = DEFAULT_MAX_AGE_MS):
   return ageMs > maxAgeMs;
 }
 
-let isReplaying = false;
+// AGENTS.md "globalThis is mandatory" — SvelteKit hot reload + mixed
+// import paths (server.ts boot poller vs the notify endpoint route)
+// can create duplicate module instances, each with its own
+// module-local guard. Without globalThis, the 5s poller and an
+// inbound /api/internal/notify-new-message could both kick off a
+// replay cycle for the same pending rows, racing on the
+// hasDelivered-then-fetch sequence. The state object lives once on
+// globalThis so every importer reads/writes the same isReplaying.
+const CATCHUP_STATE_KEY = '__ant_catchup_state__';
+interface CatchupState {
+  isReplaying: boolean;
+}
+const catchupState: CatchupState =
+  ((globalThis as any)[CATCHUP_STATE_KEY] ??= { isReplaying: false });
 
 interface PendingRow extends PersistedMessage {
   created_at?: string;
@@ -97,8 +110,8 @@ function reconstructResult(row: PendingRow): WriteMessageResult {
 export async function replayPendingBroadcasts(
   maxAgeMs: number = DEFAULT_MAX_AGE_MS,
 ): Promise<number> {
-  if (isReplaying) return 0;
-  isReplaying = true;
+  if (catchupState.isReplaying) return 0;
+  catchupState.isReplaying = true;
   let replayed = 0;
   try {
     const now = Date.now();
@@ -128,14 +141,21 @@ export async function replayPendingBroadcasts(
       }
     }
   } finally {
-    isReplaying = false;
+    catchupState.isReplaying = false;
   }
   return replayed;
 }
 
-/** Test-only escape hatch. Resets the isReplaying flag between tests
- *  so unit tests don't have to wait for the previous cycle to finish.
- *  NEVER call from production code. */
+/** Test-only escape hatch. Resets the globalThis-backed isReplaying
+ *  flag between tests so unit tests don't have to wait for the
+ *  previous cycle to finish. NEVER call from production code. */
 export function _resetForTest(): void {
-  isReplaying = false;
+  catchupState.isReplaying = false;
+}
+
+/** Test-only inspector for the globalThis-backed flag. Lets the
+ *  test suite assert that _resetForTest actually clears the SHARED
+ *  state, not just a fresh module-local variable. */
+export function _isReplayingForTest(): boolean {
+  return catchupState.isReplaying;
 }
