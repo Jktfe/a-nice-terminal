@@ -1046,6 +1046,13 @@ export const queries = {
   // Delivery log
   logDelivery: (messageId: string, sessionId: string, adapter: string, delivered: number, error: string | null) =>
     prepare(`INSERT INTO delivery_log (message_id, session_id, adapter, delivered, error) VALUES (?, ?, ?, ?, ?)`).run(messageId, sessionId, adapter, delivered, error),
+  // Phase B of server-split-2026-05-11 — per-adapter idempotency check
+  // for runSideEffects. Returns truthy if a successful delivery row
+  // already exists for (message_id, adapter). Replays consult this
+  // before each non-idempotent adapter call (channel HTTP fanout) so
+  // they cannot double-post.
+  hasDelivered: (messageId: string, adapter: string) =>
+    prepare(`SELECT 1 FROM delivery_log WHERE message_id = ? AND adapter = ? AND delivered = 1 LIMIT 1`).get(messageId, adapter),
   pruneDeliveryLog: (olderThanSecs: number) =>
     prepare(`DELETE FROM delivery_log WHERE created_at < (unixepoch() - ?)`).run(olderThanSecs),
   queueFocusMessage: (roomId: string, sessionId: string, messageId: string, senderId: string | null, senderName: string | null, target: string | null, content: string, kind: string) =>
