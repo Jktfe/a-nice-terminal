@@ -67,12 +67,14 @@ already real in the codebase + James's team's real usage.
 ### Pillar 2 — Multi-AI coordination via MCP
 *(drafted by @evolveantcodex — peer-reviewed by @evolveantclaude)*
 
-Headline: Claude Desktop + Codex + ChatGPT + any MCP-speaking AI +
-local agents in the same room, with @-routing, context sharing, and
-focus-mode digest. No agent has to know about ANT to participate —
-ANT is the transport.
+Headline (per codex's M0 BLOCKER, tightened from earlier overpromise):
+AI clients that can call the ANT MCP bridge — Claude Desktop, MCP-capable
+ChatGPT clients, MCP-aware coding assistants — join rooms directly.
+Local CLI agents (Claude Code, Codex, Gemini, Qwen, Copilot, Pi, etc.)
+stay unmodified and participate through the driver layer. Remote-ANT
+links them across machines without shell exposure on either side.
 
-Drafter: codex. Reviewer: claude. Specifics to be filled by codex.
+(Drafter: codex. Reviewer: claude. Specifics to be filled by codex.)
 
 ### Pillar 3 — Multi-machine / team coordination
 - Cross-machine cowork without exposing shells: agents on Machine A
@@ -88,28 +90,41 @@ Drafter: codex. Reviewer: claude. Specifics to be filled by codex.
   MacBook + iPhone PWA + Windows machine coordinate on a single
   artefact without any of them granting shell access to anyone.
 
-## 4. The cross-cutting spine — Attention Router / Decision Inbox (HOW)
+## 4. The cross-cutting spine — Operator Cockpit / Question-serving layer (HOW)
 
 The three pillars are useless if running them costs more attention
-than you have. The Attention Router (codex's name) / operator
-cockpit (claude's name) is the missing primitive.
+than you have. The **Operator Cockpit** — sometimes called the
+**question-serving layer** because that's what it actually does —
+is the missing primitive.
 
-**Definition:** An always-on, ranked, distilled queue of "what does
-James need to look at next" — one sentence per item, one-tap answer
-surface, source room one click away.
+**Not an inbox. Not a ticket queue.** The cockpit is the surface
+that turns an agent's pending question into a fully briefed
+moment-of-judgement for James: who is asking, what room they're in,
+the exact question, the relevant context they've already gathered,
+the options they've thought through, the trade-offs of each, the
+recommended path, and the fastest way for James to give useful
+judgement without spelunking into the room.
+
+**Definition:** An always-on, ranked, *served* queue of prepared
+briefings — one per question that needs human judgement. Each
+briefing is a small piece of cognitive work the agent did so that
+James doesn't have to.
 
 ### Five lanes
 
-(codex's 5-lane structure, locked in via cap-2 cross-comment)
+(codex's 5-lane structure, locked in via cap-2 cross-comment, with
+significant-update demoted below review-ready per codex's M0 BLOCKER:
+James should never be interrupted by an informational update if a
+review-ready item exists.)
 
-1. **Needs decision** — agent has paused for human approve/reject/edit.
+1. **Needs decision** — agent has paused; question with options is ready.
 2. **Needs context from you** — agent wants a value, a paste, a file
    ref, a clarification.
 3. **Blocked / risky** — something stuck, something noticed, security
    or trust flag.
-4. **Significant update** — milestone flipped, test failed, artefact
-   landed; informational but worth a glance.
-5. **Done / ready to review** — work finished, awaiting your sign-off.
+4. **Done / ready to review** — work finished, awaiting your sign-off.
+5. **Significant update** — milestone flipped, test failed, artefact
+   landed. Rolls up into a digest, not a per-item interruption.
 
 ### Item schema
 
@@ -239,15 +254,42 @@ starts implementing. Item disappears from the queue.
 > James taps **pick:A**. Cockpit posts "A — Friday AM email"
 > into the ops-comms room. Stevo's agent drafts the email.
 
-**Frame 5 (0:30).** Third item:
-> *"server-split lane completed — ready for your review."*
-> Bundle pre-rendered: claim + diff + tests + blockers + evidence.
-> No options needed; this is a review-ready item, lane 5.
->
-> James taps **open-room**. Chat loads with the bundle at the top.
+**Frame 5 (0:30).** Third item — a richer "needs context" frame
+showing what the cockpit can do when an agent has done real
+preparatory work, not just a yes/no:
 
-**Frame 6 (0:40).** James reads, approves, returns to `/home`.
-Queue is empty.
+> *"@evolveantgemini is asking how to handle the GVPL Q3
+> investor letter framing in product-story room."*
+> **Context they've gathered (one paragraph):** "We have 3
+> precedents from prior letters; tone has shifted from
+> performance-led to thesis-led; legal sign-off needed by
+> Thursday."
+> **Three options:**
+> - **A — Performance-led** (matches H1 letter, safer, less
+>   differentiated)
+> - **B — Thesis-led** (matches the database-problem narrative
+>   we're developing; needs legal pre-read)
+> - **C — Hybrid** (one-page performance summary + thesis
+>   appendix; longest to write, lowest risk)
+> **Recommended:** B (aligns with the product-story we're
+> building this week).
+> **Actions:** [pick:A] [pick:B] [pick:C] [discuss] [interview]
+> [route to @christian-legal] [defer 24h]
+>
+> James doesn't want to lock this without a 2-min conversation.
+> He taps **interview**. Interview-lite spins up, voice-or-text,
+> with the prepared briefing pre-loaded. 90 seconds of dialogue
+> later, James says "B, but route the draft past Christian
+> Thursday morning." Cockpit records the decision, posts a
+> structured outcome to product-story room, creates a
+> follow-up ask routed to @christian-legal for Thursday AM.
+
+**Frame 6 (0:40).** Queue is empty. James spent 40 seconds across
+three rooms. None of the rooms required reading agent walls of
+text. One decision was a simple pick:B (frame 2), one was a
+multi-option informational pick (frame 4), one escalated to an
+interview because the trade-offs needed a conversation (frame 5).
+**That's the magic.**
 
 **Total time:** 40 seconds. Three rooms unblocked. Zero agent
 monologues read.
@@ -281,13 +323,13 @@ page work:
 | Current term | New term | Reason |
 |---|---|---|
 | Session list | Rooms | "Session" is engineer-speak |
-| Linked chat | Pair | Plain English |
+| Linked chat | Agent pair | "Pair" alone too vague (codex BLOCKER) |
 | Invite kind (cli/mcp/web) | Role (operator / agent / viewer) | Capability-named |
 | Bearer token | Access key | Less technical |
 | Run event | Activity | Plain language |
 | Chat break | Context break | Less ambiguous |
 | Focus mode | Quiet mode | Less prescriptive |
-| Asks queue | Inbox | Familiar metaphor |
+| Asks queue | Questions for you | "Inbox" reads like Jira (codex BLOCKER); also acceptable: "Judgement needed" |
 
 Engineering codebase keeps the precise names; the user-facing surface
 adopts the new names.
