@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ANT product story — 2026-05-11</title>
+  <style>
+    :root {
+      --bg: #F7F7F5;
+      --panel: #FFFFFF;
+      --panel-soft: #FBFBFA;
+      --ink: #1B1A15;
+      --muted: #5A584B;
+      --faint: #838173;
+      --line: rgba(0,0,0,0.10);
+      --line-soft: rgba(0,0,0,0.06);
+      --blue: #3B82F6;
+      --blue-dark: #1D5AD1;
+      --emerald: #22C55E;
+      --amber: #F59E0B;
+      --red: #F04438;
+      --jade: #2EBD85;
+      --coral: #E07856;
+      --serif: "Cormorant Garamond", Georgia, serif;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: #ECECE7;
+      color: var(--ink);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }
+    .topbar {
+      position: sticky; top: 0; z-index: 20;
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 18px; padding: 10px 22px;
+      background: rgba(247, 247, 245, 0.92);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--line-soft);
+    }
+    .topbar .brand { font-weight: 800; color: var(--blue-dark); letter-spacing: 0.06em; text-transform: uppercase; font-size: 13px; }
+    .topbar .meta { color: var(--faint); font-size: 12px; }
+    .deck { max-width: 1180px; margin: 0 auto; padding: 28px 16px 80px; }
+    .slide {
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 56px 60px;
+      margin-bottom: 30px;
+      box-shadow: 0 12px 32px rgba(27,26,21,0.06);
+      overflow: hidden;
+    }
+    .slide.placeholder {
+      background: repeating-linear-gradient(135deg, var(--panel-soft), var(--panel-soft) 18px, var(--bg) 18px, var(--bg) 36px);
+      padding: 40px 60px;
+    }
+    .slide .eyebrow {
+      color: var(--blue-dark);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    .slide h1 {
+      font-family: var(--serif);
+      font-size: 44px;
+      line-height: 1.08;
+      margin: 0 0 22px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+    .slide h2 {
+      font-family: var(--serif);
+      font-size: 30px;
+      line-height: 1.12;
+      margin: 28px 0 12px;
+      font-weight: 600;
+    }
+    .slide .footer { margin-top: 32px; color: var(--faint); font-size: 12px; border-top: 1px solid var(--line-soft); padding-top: 14px; }
+    .lead { color: var(--muted); font-size: 18px; line-height: 1.55; max-width: 760px; }
+    .grid { display: grid; gap: 18px; }
+    .grid-2 { grid-template-columns: repeat(2, 1fr); }
+    .grid-3 { grid-template-columns: repeat(3, 1fr); }
+    .grid-4 { grid-template-columns: repeat(4, 1fr); }
+    @media (max-width: 720px) {
+      .slide { padding: 28px 22px; }
+      .slide h1 { font-size: 30px; }
+      .slide h2 { font-size: 22px; }
+      .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line-soft);
+      border-top: 4px solid var(--blue);
+      border-radius: 10px;
+      padding: 20px;
+      box-shadow: 0 10px 22px rgba(27,26,21,0.04);
+    }
+    .card.blue { border-top-color: var(--blue); }
+    .card.green { border-top-color: var(--emerald); }
+    .card.amber { border-top-color: var(--amber); }
+    .card.red { border-top-color: var(--red); }
+    .card.jade { border-top-color: var(--jade); }
+    .card.coral { border-top-color: var(--coral); }
+    .card .title { font-size: 18px; font-weight: 800; color: var(--ink); margin-bottom: 8px; }
+    .card .body { color: var(--muted); font-size: 14px; line-height: 1.5; }
+    .stat {
+      background: var(--panel);
+      border: 1px solid var(--line-soft);
+      border-radius: 10px;
+      padding: 18px 20px;
+    }
+    .stat .v { font-size: 34px; font-weight: 900; line-height: 1; color: var(--blue); }
+    .stat.green .v { color: var(--emerald); }
+    .stat.amber .v { color: var(--amber); }
+    .stat.red .v { color: var(--red); }
+    .stat .l { color: var(--muted); font-size: 13px; margin-top: 8px; }
+    .pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+    .pill.blue { background: rgba(59,130,246,0.10); color: var(--blue-dark); }
+    .pill.green { background: rgba(34,197,94,0.12); color: var(--emerald); }
+    .pill.amber { background: rgba(245,158,11,0.16); color: var(--amber); }
+    .pill.red { background: rgba(240,68,56,0.14); color: var(--red); }
+    .toc { display: flex; flex-wrap: wrap; gap: 8px; }
+    .toc a {
+      font-size: 12px;
+      color: var(--blue-dark);
+      text-decoration: none;
+      padding: 5px 10px;
+      border: 1px solid var(--line-soft);
+      border-radius: 999px;
+      background: var(--panel);
+    }
+    .toc a:hover { background: var(--panel-soft); }
+    .toc a.done { background: rgba(34,197,94,0.10); border-color: rgba(34,197,94,0.30); color: var(--emerald); }
+    .toc a.placeholder { color: var(--faint); }
+    /* Cockpit visualisation */
+    .cockpit {
+      background: var(--panel);
+      border: 1px solid var(--line-soft);
+      border-radius: 14px;
+      padding: 20px;
+      box-shadow: 0 14px 32px rgba(27,26,21,0.07);
+    }
+    .lane-label {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--line-soft);
+      margin-bottom: 10px;
+    }
+    .lane-label.decision { color: var(--blue-dark); }
+    .lane-label.review { color: var(--emerald); }
+    .item {
+      background: var(--panel-soft);
+      border: 1px solid var(--line-soft);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 10px;
+    }
+    .item .framing {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--ink);
+      margin-bottom: 6px;
+    }
+    .item .meta-row { font-size: 11px; color: var(--faint); margin-bottom: 10px; }
+    .item .context { color: var(--muted); font-size: 13px; line-height: 1.45; margin-bottom: 10px; padding: 8px 10px; background: rgba(0,0,0,0.02); border-left: 2px solid var(--line-soft); border-radius: 4px; }
+    .item .opts { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+    .opt {
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 8px;
+      padding: 8px 10px;
+      border: 1px solid var(--line-soft);
+      border-radius: 6px;
+      background: var(--panel);
+      font-size: 13px;
+    }
+    .opt.recommended { border-color: var(--emerald); background: rgba(34,197,94,0.04); }
+    .opt .key { font-weight: 800; color: var(--blue-dark); }
+    .opt.recommended .key { color: var(--emerald); }
+    .opt .text { color: var(--muted); }
+    .opt .text b { color: var(--ink); }
+    .actions { display: flex; flex-wrap: wrap; gap: 6px; }
+    .btn {
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--line-soft);
+      background: var(--panel);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink);
+      cursor: pointer;
+    }
+    .btn.primary { background: var(--blue); color: #fff; border-color: var(--blue); }
+    .btn.green { background: var(--emerald); color: #fff; border-color: var(--emerald); }
+    .btn.ghost { background: transparent; color: var(--muted); }
+    .room-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
+    .room-card {
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid var(--line-soft);
+      background: var(--panel-soft);
+      font-size: 12px;
+    }
+    .room-card .name { font-weight: 700; color: var(--ink); }
+    .room-card.green { border-left: 4px solid var(--emerald); }
+    .room-card.amber { border-left: 4px solid var(--amber); }
+    .room-card.blue { border-left: 4px solid var(--blue); }
+    .room-card .status { color: var(--muted); margin-top: 3px; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand">ANT product story — @evolveantclaude + @evolveantcodex</div>
+    <div class="meta">2026-05-11 · 17 slides · phase A draft (3/17 done)</div>
+  </div>
+  <div class="deck">
+
+    <!-- ============================================================ -->
+    <!-- PHASE A — slides 01-03 (cover, audience, north-star scene)   -->
+    <!-- Drafter: claude. Reviewer: codex. Acceptance: planned.       -->
+    <!-- ============================================================ -->
+
+    <!-- 01 ───────────────────────────────────────────────────────── -->
+    <section class="slide" id="cover">
+      <div class="eyebrow">ANT — the product story</div>
+      <h1>A local-first workroom for humans and the AI agents they already use.</h1>
+      <div class="grid grid-2">
+        <div class="lead">
+          Plans, asks, artefacts, and evidence live in the room.
+          Agents bring their own machines. The terminal is one click
+          away when you need it.
+          <br><br>
+          This deck answers four questions: <b>what is ANT, who is it
+          for, why does it matter, and what does it feel like to use
+          it well.</b>
+        </div>
+        <div class="grid grid-2">
+          <div class="stat blue"><div class="v">3</div><div class="l">pillars (why it matters)</div></div>
+          <div class="stat green"><div class="v">1</div><div class="l">spine (how it feels)</div></div>
+          <div class="stat amber"><div class="v">14</div><div class="l">agent drivers shipping today</div></div>
+          <div class="stat amber"><div class="v">66 days</div><div class="l">since first commit</div></div>
+        </div>
+      </div>
+      <div class="footer">
+        <div class="toc">
+          <a class="done" href="#cover">01 cover</a>
+          <a class="done" href="#audience">02 who this is for</a>
+          <a class="done" href="#scene">03 north-star scene</a>
+          <a class="placeholder" href="#pillar1">04 pillar 1 — coding</a>
+          <a class="placeholder" href="#pillar2">05 pillar 2 — MCP</a>
+          <a class="placeholder" href="#pillar3">06 pillar 3 — team</a>
+          <a class="placeholder" href="#cockpit-intro">07 cockpit</a>
+          <a class="placeholder" href="#cockpit-schema">08 schema</a>
+          <a class="placeholder" href="#disclosure">09 disclosure</a>
+          <a class="placeholder" href="#home">10 home</a>
+          <a class="placeholder" href="#rename">11 rename</a>
+          <a class="placeholder" href="#workroom">12 workroom</a>
+          <a class="placeholder" href="#day">13 a day</a>
+          <a class="placeholder" href="#field">14 vs the field</a>
+          <a class="placeholder" href="#kill">15 kill list</a>
+          <a class="placeholder" href="#plan">16 90-day plan</a>
+          <a class="placeholder" href="#coda">17 coda</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 ───────────────────────────────────────────────────────── -->
+    <section class="slide" id="audience">
+      <div class="eyebrow">02 — who this is for</div>
+      <h1>For people running real work across real machines with the real AI tools they already trust.</h1>
+      <div class="grid grid-2">
+        <div class="lead">
+          ANT was not built for a hypothetical user. It was built for
+          a partner at a VC firm running a four-person team across
+          three machines, six agents, and four AI clients — and using
+          it every day to ship investment products, audit code, draft
+          letters, and coordinate humans + agents on the same artefacts.
+          <br><br>
+          If you recognise any of the below, you are the audience.
+        </div>
+        <div class="grid grid-2">
+          <div class="card blue">
+            <div class="title">The high-agency operator</div>
+            <div class="body">You run multiple workstreams. You already use Claude / Codex / ChatGPT / a local model. You want their work coordinated, not their interfaces unified.</div>
+          </div>
+          <div class="card blue">
+            <div class="title">The small team that doesn't share shells</div>
+            <div class="body">Two to ten people on different machines (Mac, Windows, iPad, iPhone) collaborating on documents, plans, and decisions. Nobody surrenders their box.</div>
+          </div>
+          <div class="card jade">
+            <div class="title">The engineer who runs CLIs</div>
+            <div class="body">You live in Claude Code / Codex / Gemini-CLI. You want them in the same room with @-mentions, plans, and review gates — without re-modelling them inside someone else's framework.</div>
+          </div>
+          <div class="card jade">
+            <div class="title">The user who can't afford lock-in</div>
+            <div class="body">You want a local-first system: your machine, your data, your network. Tailscale-fronted. No vendor in the middle deciding what you can see.</div>
+          </div>
+        </div>
+      </div>
+      <h2>What ANT is <em>not</em>:</h2>
+      <div class="grid grid-3">
+        <div class="card red"><div class="title">Not a chat app</div><div class="body">Chat is the entry point, not the product. The room is the primitive.</div></div>
+        <div class="card red"><div class="title">Not an IDE</div><div class="body">It coordinates agents that talk to your IDEs, not your editor.</div></div>
+        <div class="card red"><div class="title">Not an agent framework</div><div class="body">It doesn't wrap your CLIs in an SDK. They run as themselves.</div></div>
+      </div>
+    </section>
+
+    <!-- 03 ───────────────────────────────────────────────────────── -->
+    <section class="slide" id="scene">
+      <div class="eyebrow">03 — the north-star scene</div>
+      <h1>What it feels like when you're running 10 rooms and 20 tasks. 40 seconds. Three rooms unblocked.</h1>
+      <div class="lead" style="margin-bottom: 24px;">
+        You wake up. You unlock your phone. The PWA shows the
+        <b>Operator Cockpit</b> as your home screen. Three agents
+        worked overnight. They have prepared briefings waiting for
+        your judgement — not message dumps, not status updates.
+        Questions, with options, with trade-offs already worked out.
+      </div>
+
+      <!-- Visual cockpit mockup -->
+      <div class="cockpit">
+        <div class="lane-label decision">▼ Needs decision · 2 items</div>
+
+        <div class="item">
+          <div class="framing">Codex is asking how to fix the deck IPv6 bind issue.</div>
+          <div class="meta-row">@evolveantcodex · server-split-2026-05-11 · confidence 0.91 · expires 02:00</div>
+          <div class="context">Open-Slide binds to <code>::1</code>, ANT proxyDeck calls <code>127.0.0.1</code>, fetch fails. Server-side fix needed; three viable shapes.</div>
+          <div class="opts">
+            <div class="opt"><span class="key">A</span><span class="text"><b>Keep IPv4 bind only.</b> Simpler. Breaks IPv6-only Tailscale users.</span></div>
+            <div class="opt recommended"><span class="key">B</span><span class="text"><b>Dual-stack 127.0.0.1 + ::1.</b> Safer, doubles listening surface, codex has tested. <span class="pill green">recommended</span></span></div>
+            <div class="opt"><span class="key">C</span><span class="text"><b>Env-flag toggle.</b> Flexible, adds config burden.</span></div>
+          </div>
+          <div class="actions">
+            <button class="btn">pick A</button>
+            <button class="btn primary">pick B</button>
+            <button class="btn">pick C</button>
+            <button class="btn ghost">discuss</button>
+            <button class="btn ghost">interview</button>
+            <button class="btn ghost">open room</button>
+            <button class="btn ghost">defer</button>
+          </div>
+        </div>
+
+        <div class="item">
+          <div class="framing">Gemini is asking how to frame the GVPL Q3 investor letter.</div>
+          <div class="meta-row">@evolveantgemini · product-story-2026-05-11 · confidence 0.82 · expires Thursday</div>
+          <div class="context">3 precedents from prior letters. Tone has shifted from performance-led to thesis-led. Legal sign-off needed by Thursday.</div>
+          <div class="opts">
+            <div class="opt"><span class="key">A</span><span class="text"><b>Performance-led.</b> Matches H1 letter, safer, less differentiated.</span></div>
+            <div class="opt recommended"><span class="key">B</span><span class="text"><b>Thesis-led.</b> Matches the database-problem narrative we're developing this week. Needs legal pre-read. <span class="pill green">recommended</span></span></div>
+            <div class="opt"><span class="key">C</span><span class="text"><b>Hybrid.</b> Performance summary + thesis appendix. Longest to write, lowest risk.</span></div>
+          </div>
+          <div class="actions">
+            <button class="btn">pick A</button>
+            <button class="btn">pick B</button>
+            <button class="btn">pick C</button>
+            <button class="btn primary">interview</button>
+            <button class="btn ghost">route to @christian-legal</button>
+            <button class="btn ghost">defer 24h</button>
+          </div>
+        </div>
+
+        <div class="lane-label review">▼ Done / ready to review · 1 item</div>
+        <div class="item">
+          <div class="framing">server-split-2026-05-11 lane completed.</div>
+          <div class="meta-row">all 6 phases passed · 74 tests / 179 expects · 13 call sites classified · ready for sign-off</div>
+          <div class="context">Three-tier server split: persist library / processor / SvelteKit UI. Atomic helper+caller commits. PR rollup #42 merged. Coverage trail: tests/<wbr>server-split-phase-d.test.ts. Review bundle pre-rendered.</div>
+          <div class="actions">
+            <button class="btn primary">approve</button>
+            <button class="btn ghost">request changes</button>
+            <button class="btn ghost">open room</button>
+          </div>
+        </div>
+
+        <div class="room-cards">
+          <div class="room-card green"><div class="name">server-split-2026-05-11</div><div class="status">3 agents · all thinking · last activity 12s ago</div></div>
+          <div class="room-card amber"><div class="name">ops-comms</div><div class="status">1 agent · waiting on you · last activity 4m ago</div></div>
+          <div class="room-card blue"><div class="name">product-story-2026-05-11</div><div class="status">2 agents · drafting · last activity 23s ago</div></div>
+        </div>
+      </div>
+
+      <h2>What just happened (in 40 seconds):</h2>
+      <div class="grid grid-3">
+        <div class="card jade">
+          <div class="title">0:00 — open ANT</div>
+          <div class="body">Cockpit shows three prepared briefings. No agent monologues. No "check in on the team."</div>
+        </div>
+        <div class="card jade">
+          <div class="title">0:10 — pick B on IPv6 bind</div>
+          <div class="body">Trade-offs already laid out by codex. James reads in 5 seconds, taps. Cockpit posts "@james picked B" to the room.</div>
+        </div>
+        <div class="card jade">
+          <div class="title">0:30 — escalate the letter to interview</div>
+          <div class="body">Trade-offs need a conversation. Interview-lite spins up with the briefing pre-loaded. 90 seconds of dialogue. Done.</div>
+        </div>
+      </div>
+      <div class="lead" style="margin-top: 24px; font-size: 20px; color: var(--ink); font-style: italic;">
+        Three rooms unblocked. Zero agent walls of text read. The
+        agents did the cognitive work; the Cockpit served you the
+        decisions. <b>That's the magic.</b>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- PHASES B-E — placeholders (drafters: alternating)            -->
+    <!-- ============================================================ -->
+
+    <section class="slide placeholder" id="pillar1">
+      <div class="eyebrow">04 — pillar 1 · multi-agent coding · <span class="pill amber">phase B · pending</span></div>
+      <h1>Drafter: claude · Reviewer: codex</h1>
+      <div class="lead">
+        Cap-2 implementer/reviewer protocol · atomic helper+caller commits · plan-as-event-log · evidence trail · 14 drivers running as themselves · server-split-2026-05-11 anecdote.
+      </div>
+    </section>
+
+    <section class="slide placeholder" id="pillar2">
+      <div class="eyebrow">05 — pillar 2 · multi-AI coordination via MCP · <span class="pill amber">phase B · pending</span></div>
+      <h1>Drafter: codex · Reviewer: claude</h1>
+      <div class="lead">
+        AI clients that call the ANT MCP bridge join rooms directly · Claude Desktop + MCP-capable ChatGPT clients + MCP-aware coding assistants · local CLI agents stay unmodified through drivers · remote-ANT links machines without shell exposure.
+      </div>
+    </section>
+
+    <section class="slide placeholder" id="pillar3">
+      <div class="eyebrow">06 — pillar 3 · multi-machine / team coordination · <span class="pill amber">phase B · pending</span></div>
+      <h1>Drafter: claude · Reviewer: codex</h1>
+      <div class="lead">
+        Cross-machine cowork without exposing shells · file references, room artefacts, decks, sheets concurrency-guarded · per-room aliases, PID-tree identity, room invites, consent grants · James + family + agents on Mac Mini + MacBook + iPhone PWA + Windows machine on a single artefact, no shell access granted to anyone.
+      </div>
+    </section>
+
+    <section class="slide placeholder" id="cockpit-intro">
+      <div class="eyebrow">07 — operator cockpit · five lanes · <span class="pill amber">phase C · pending</span></div>
+      <h1>Drafter: codex · Reviewer: claude</h1>
+      <div class="lead">
+        The cross-cutting spine. Question-serving layer, not an inbox. Five lanes (decision / context / blocked / review / digest). Not a participant — a feature.
+      </div>
+    </section>
+
+    <section class="slide placeholder" id="cockpit-schema">
+      <div class="eyebrow">08 — cockpit item schema + distillation · <span class="pill amber">phase C · pending</span></div>
+      <h1>Drafter: codex · Reviewer: claude</h1>
+      <div class="lead">
+        Asker / source / framing / context / options-with-tradeoffs / actions (pick / discuss / interview / open-room / defer). Three-layer distillation: driver prompt → LLM-rewrite → needs_reframing fallback.
+      </div>
+    </section>
+
+    <section class="slide placeholder" id="disclosure">
+      <div class="eyebrow">09 — progressive disclosure of terminal depth · <span class="pill amber">phase C · pending</span></div>
+      <h1>Drafter: both · Reviewer: both</h1>
+      <div class="lead">
+        Five disclosure levels: Cockpit → Room → Agent timeline → Terminal viewer (read-only) → Terminal controller. Terminal stays one click away. Never buried, never built-in to the first impression.
+      </div>
+    </section>
+
+    <section class="slide placeholder" id="home">
+      <div class="eyebrow">10 — the new home page · <span class="pill amber">phase D · pending</span></div>
+      <h1>Drafter: codex · Reviewer: claude</h1>
+      <div class="lead">
+        /home is the Cockpit, not the session list. Rooms become small cards below the briefings queue. The session-list-as-homepage era ends.
+      </div>
+    </section>
+
+    <section class="slide placeholder" id="rename">
+      <div class="eyebrow">11 — rename pass · <span class="pill amber">phase D · pending</span></div>
+      <h1>Drafter: claude · Reviewer: codex</h1>
+      <div class="lead">
+        Session list → Rooms · Linked chat → Agent pair · Invite kind → Role · Bearer token → Access key · Asks queue → Questions for you · Chat break → Context break · Focus mode → Quiet mode.
+      </div>
+    </section>
+
+    <section class="slide placeholder" id="workroom">
+      <div class="eyebrow">12 — it's not chat, it's a workroom · <span class="pill amber">phase D · pending</span></div>
+      <h1>Drafter: codex · Reviewer: claude</h1>
+      <div class="lead">
+        Primitives: rooms, participants (humans + agents that TALK), features (decks / plans / asks / artefacts / Cockpit — SERVE), pairs, breaks, focus, evidence.
+      </div>
+    </section>
+
+    <section class="slide placeholder" id="day">
+      <div class="eyebrow">13 — a day in 10 rooms · <span class="pill amber">phase D · pending</span></div>
+      <h1>Drafter: claude · Reviewer: codex</h1>
+      <div class="lead">
+        Walkthrough: James on a real Monday. 8:30 AM check the Cockpit, 9:00 spawn a new lane, 10:30 review a PR, 1:00 a team meeting where two agents are participants, 4:30 Roxanne joins from her MacBook, 6:00 hand-off to overnight agents.
+      </div>
+    </section>
+
+    <section class="slide placeholder" id="field">
+      <div class="eyebrow">14 — what ANT does that the field doesn't · <span class="pill amber">phase E · pending</span></div>
+      <h1>Drafter: both · Reviewer: both</h1>
+      <div class="lead">
+        Unmodified CLI orchestration vs SDK-wrapped agents · accountable rooms vs shared chat · event-log plans vs kanban · PID-tree identity vs handle headers · question-serving Cockpit vs notification spam.
+      </div>
+    </section>
+
+    <section class="slide placeholder" id="kill">
+      <div class="eyebrow">15 — kill list · <span class="pill amber">phase E · pending</span></div>
+      <h1>Drafter: claude · Reviewer: codex</h1>
+      <div class="lead">
+        Threads (kill or reframe) · session-list-as-homepage (kill) · "Linked chat" naming (rename to Agent pair) · "Asks queue" naming (rename to Questions for you) · participant/feature category leaks (already fixed in ba78891).
+      </div>
+    </section>
+
+    <section class="slide placeholder" id="plan">
+      <div class="eyebrow">16 — 90-day plan · <span class="pill amber">phase E · pending</span></div>
+      <h1>Drafter: both · Reviewer: both</h1>
+      <div class="lead">
+        Weeks 1-2 ship Cockpit + interrupt protocol + close top-3 security issues. Weeks 3-4 record three demos + write the thesis essay + show HN. Weeks 5-12 listen.
+      </div>
+    </section>
+
+    <section class="slide placeholder" id="coda">
+      <div class="eyebrow">17 — coda · <span class="pill amber">phase E · pending</span></div>
+      <h1>Drafter: claude · Reviewer: codex</h1>
+      <div class="lead">
+        ANT is a local-first workroom for humans and the AI agents they already use. Agents do the cognitive work. The Cockpit serves you the decisions. The terminal is one click away when something feels off. That's the answer.
+      </div>
+    </section>
+
+  </div>
+</body>
+</html>
