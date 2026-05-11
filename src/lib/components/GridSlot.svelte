@@ -3,6 +3,7 @@
   import { onDestroy, tick } from 'svelte';
   import { agentColor, agentColorFromSession } from '$lib/nocturne';
   import { useMentionAutocomplete } from '$lib/composables/use-mention-autocomplete.svelte';
+  import { upsertMessageById } from '$lib/stores/messages.svelte';
 
   interface Session {
     id: string;
@@ -495,8 +496,8 @@
       });
       if (!res.ok) throw new Error('message post failed');
       const msg = await res.json();
-      if (msg?.id && !chatMessages.find(m => m.id === msg.id)) {
-        chatMessages = [...chatMessages, msg];
+      if (msg?.id) {
+        chatMessages = upsertMessageById(chatMessages, msg);
       }
       await loadContent(session.id, session.type, showChat, linkedChatId, { background: true });
       sendingChat = false;

@@ -1,3 +1,11 @@
+import { upsertMessageById } from './messages-upsert.js';
+
+// Re-export the pure helper so view components that already import
+// from this module keep working without an import-path churn. New
+// callers can import from either path; the .ts file is the canonical
+// home and is what tests use.
+export { upsertMessageById };
+
 interface Message {
   id: string;
   session_id: string;
@@ -33,6 +41,7 @@ function appendNewestBounded(rows: Message[], incoming: Message): Message[] {
   const next = [...rows, incoming];
   return next.length > MAX_MESSAGES_IN_MEMORY ? next.slice(-MAX_MESSAGES_IN_MEMORY) : next;
 }
+
 
 let messages = $state<Message[]>([]);
 let streamingId = $state<string | null>(null);
@@ -112,11 +121,25 @@ export function useMessageStore() {
       }),
     });
     const msg = await res.json();
-    // Optimistic add — WS event deduplicates
-    if (!messages.find(m => m.id === msg.id)) {
-      messages = appendNewestBounded(messages, msg);
-    }
+    upsertById(msg);
     return msg;
+  }
+
+  /** A2 of main-app-improvements-2026-05-10 — single dedup point for
+   *  the store's reactive array. WS events, POST responses, and stream
+   *  ends all flow through here so view components no longer have to
+   *  guard `messages.find(m => m.id === ...)` before appending. The
+   *  newest-last + memory-cap policy from appendNewestBounded is
+   *  preserved on the insert path. */
+  function upsertById(incoming: Message): void {
+    const idx = messages.findIndex((m) => m.id === incoming.id);
+    if (idx >= 0) {
+      const next = messages.slice();
+      next[idx] = { ...messages[idx], ...incoming };
+      messages = next;
+      return;
+    }
+    messages = appendNewestBounded(messages, incoming);
   }
 
   function handleStreamChunk(msgId: string, chunk: string) {
@@ -148,6 +171,7 @@ export function useMessageStore() {
     load,
     loadOlder,
     send,
+    upsertById,
     handleStreamChunk,
     handleStreamEnd,
   };

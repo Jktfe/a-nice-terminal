@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import { useMessageStore } from '$lib/stores/messages.svelte';
+  import { useMessageStore, upsertMessageById } from '$lib/stores/messages.svelte';
   import { useSessionStore } from '$lib/stores/sessions.svelte';
   import CLIInput from '$lib/components/CLIInput.svelte';
   import Terminal from '$lib/components/Terminal.svelte';
@@ -1019,8 +1019,8 @@
       }),
     });
     const msg = await res.json();
-    if (msg.id && !linkedChatMessages.find(m => m.id === msg.id)) {
-      linkedChatMessages = [...linkedChatMessages, msg];
+    if (msg.id) {
+      linkedChatMessages = upsertMessageById(linkedChatMessages, msg);
     }
     if (!routeIntoTerminal && session?.type === 'terminal') {
       toasts.show('Saved to linked chat. Pick a CLI driver to send chat text into the terminal.');
@@ -1218,11 +1218,16 @@
         const data = JSON.parse(event.data);
         if (linkedChatId && data.sessionId === linkedChatId) {
           if (data.type === 'message_created') {
-            if (!linkedChatMessages.find(m => m.id === data.id)) {
-              const next = [...linkedChatMessages, data];
-              linkedChatMessages = next.length > MAX_LIVE_MESSAGE_ROWS ? next.slice(-MAX_LIVE_MESSAGE_ROWS) : next;
-              if (atBottom) requestAnimationFrame(() => scrollToBottom());
-            }
+            const before = linkedChatMessages.length;
+            const upserted = upsertMessageById(linkedChatMessages, data);
+            // Preserve the cap that prevents the unbounded live array
+            // from growing past MAX_LIVE_MESSAGE_ROWS. Only enforce on
+            // grow, not on update-in-place, so the cap doesn't trim
+            // messages already on screen.
+            linkedChatMessages = upserted.length > MAX_LIVE_MESSAGE_ROWS
+              ? upserted.slice(-MAX_LIVE_MESSAGE_ROWS)
+              : upserted;
+            if (upserted.length > before && atBottom) requestAnimationFrame(() => scrollToBottom());
           } else if (data.type === 'message_updated') {
             linkedChatMessages = linkedChatMessages.map(m =>
               m.id === data.msgId ? { ...m, meta: JSON.stringify(data.meta) } : m
@@ -1254,15 +1259,20 @@
               void refreshInterviewBundle(data.interview.id);
             }
             break;
-          case 'message_created':
-            if (!msgStore.messages.find(m => m.id === data.id)) {
-              const next = [...msgStore.messages, data];
-              msgStore.messages = (next.length > MAX_LIVE_MESSAGE_ROWS ? next.slice(-MAX_LIVE_MESSAGE_ROWS) : next) as typeof msgStore.messages;
-              if (data.sender_id && !mentionHandles.find(h => h.handle === data.sender_id)) {
-                loadMentionHandles();
-              }
+          case 'message_created': {
+            const before = msgStore.messages.length;
+            msgStore.upsertById(data);
+            // Bound the live array. msgStore's own cap is
+            // MAX_MESSAGES_IN_MEMORY (1000); MAX_LIVE_MESSAGE_ROWS is
+            // the tighter dashboard-route cap. Apply on grow only.
+            if (msgStore.messages.length > MAX_LIVE_MESSAGE_ROWS) {
+              msgStore.messages = msgStore.messages.slice(-MAX_LIVE_MESSAGE_ROWS);
+            }
+            if (msgStore.messages.length > before && data.sender_id && !mentionHandles.find(h => h.handle === data.sender_id)) {
+              loadMentionHandles();
             }
             break;
+          }
           case 'message_updated':
             msgStore.messages = msgStore.messages.map(m =>
               m.id === data.msgId ? { ...m, meta: JSON.stringify(data.meta) } : m
@@ -1783,9 +1793,7 @@
       }),
     });
     const msg = await res.json();
-    if (msg.id && !msgStore.messages.find(m => m.id === msg.id)) {
-      msgStore.messages = [...msgStore.messages, msg];
-    }
+    if (msg.id) msgStore.upsertById(msg);
     const name = targetSess?.display_name || targetSess?.name || 'session';
     toasts.show(`Posted to ${name}`);
   }

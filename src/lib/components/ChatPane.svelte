@@ -3,6 +3,7 @@
   import MessageBubble from './MessageBubble.svelte';
   import PinnedAsksPanel from './PinnedAsksPanel.svelte';
   import { insertAtCursor as computeInsertAtCursor } from './chat-composer-utils.js';
+  import { upsertMessageById } from '$lib/stores/messages.svelte';
 
   let { sessionId }: { sessionId: string } = $props();
 
@@ -242,9 +243,7 @@
 
           switch (data.type) {
             case 'message_created':
-              if (!messages.find(m => m.id === data.id)) {
-                messages = [...messages, data];
-              }
+              messages = upsertMessageById(messages, data);
               break;
             case 'message_updated':
               if (data.status === 'complete' || data.status === 'incomplete') {
