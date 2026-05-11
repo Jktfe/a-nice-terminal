@@ -610,7 +610,17 @@ export class MessageRouter {
     //    Private linked chats are terminal control channels. Humans and
     //    coordinator terminals can both type into them; only skip echoing a
     //    terminal's own linked-chat message back into the same terminal.
-    const linkedChatAdapter = this.adapters.find(a => a.name === 'linked-chat');
+    //
+    //    Phase C of server-split-2026-05-11 — the linked-chat adapter
+    //    raw-forwards content + return into the terminal when
+    //    auto_forward_chat=1, so it has the same stale-input risk as
+    //    the pty-injection adapter. Honour allowPtyInject here too:
+    //    on a replay older than 30s, leave linkedChatAdapter null so
+    //    deliver() never runs and no buffered text reaches stdin.
+    const linkedAllowPty = message.allowPtyInject !== false;
+    const linkedChatAdapter = linkedAllowPty
+      ? this.adapters.find(a => a.name === 'linked-chat')
+      : null;
     if (linkedChatAdapter) {
       const linkedTerminals: any[] = queries.getTerminalsByLinkedChat(message.sessionId);
       for (const terminal of linkedTerminals) {

@@ -136,6 +136,95 @@ describe('replayPendingBroadcasts — Phase C catch-up loop', () => {
     expect(replayed).toBe(0);
   });
 
+  it('replay of a stale linked-chat row does NOT call linked-chat adapter.deliver (linked-chat is a PTY-equivalent path)', async () => {
+    // Codex BLOCKER-3 regression. linked-chat-adapter raw-forwards
+    // chat content + return into the terminal when auto_forward_chat
+    // is on — same stale-input risk as pty-injection. The Phase C
+    // allowPtyInject guard must null BOTH adapters on stale replay.
+
+    const TERMINAL_ID = 'catchup-linked-terminal';
+    queries.createSession(TERMINAL_ID, 'Term', 'terminal', '15m', null, null, '{}');
+    queries.setLinkedChat(TERMINAL_ID, ROOM_ID);
+
+    const routerModule = await import('../src/lib/server/message-router.js');
+    routerModule.resetRouter();
+    const router = routerModule.getRouter();
+
+    let linkedChatDeliverCalled = 0;
+    const linkedChatStub = {
+      name: 'linked-chat',
+      canDeliver: () => true,
+      deliver: async () => {
+        linkedChatDeliverCalled += 1;
+        return { adapter: 'linked-chat', targetId: TERMINAL_ID, delivered: true };
+      },
+    };
+    router.register(linkedChatStub as any);
+
+    const result = writeMessage({
+      sessionId: ROOM_ID,
+      role: 'user',
+      content: 'stale chat-to-terminal injection attempt',
+      senderId: SENDER_ID,
+      source: 'http',
+    });
+
+    // Backdate 5 minutes — outside the 30s PTY window, inside 24h.
+    getDb().prepare(`UPDATE messages SET created_at = datetime('now', '-5 minutes') WHERE id = ?`).run(result.message.id);
+
+    try {
+      const replayed = await replayPendingBroadcasts();
+      expect(replayed).toBe(1);
+      // markDone fired but the linked-chat stub was NEVER invoked.
+      const row: any = queries.getMessage(result.message.id);
+      expect(row.broadcast_state).toBe('done');
+      expect(linkedChatDeliverCalled).toBe(0);
+    } finally {
+      routerModule.resetRouter();
+    }
+  });
+
+  it('replay of a FRESH linked-chat row still calls linked-chat adapter.deliver (live-path behaviour preserved)', async () => {
+    // Mirror image of the previous test: a fresh row replayed inside
+    // the 30s window should still see the linked-chat adapter run.
+    // Pins that the guard is age-gated, not blanket-disabled.
+
+    const TERMINAL_ID = 'catchup-linked-terminal-fresh';
+    queries.createSession(TERMINAL_ID, 'TermFresh', 'terminal', '15m', null, null, '{}');
+    queries.setLinkedChat(TERMINAL_ID, ROOM_ID);
+
+    const routerModule = await import('../src/lib/server/message-router.js');
+    routerModule.resetRouter();
+    const router = routerModule.getRouter();
+
+    let linkedChatDeliverCalled = 0;
+    const linkedChatStub = {
+      name: 'linked-chat',
+      canDeliver: () => true,
+      deliver: async () => {
+        linkedChatDeliverCalled += 1;
+        return { adapter: 'linked-chat', targetId: TERMINAL_ID, delivered: true };
+      },
+    };
+    router.register(linkedChatStub as any);
+
+    writeMessage({
+      sessionId: ROOM_ID,
+      role: 'user',
+      content: 'fresh chat-to-terminal forward',
+      senderId: SENDER_ID,
+      source: 'http',
+    });
+    // No backdating — created_at is "now", inside the 30s window.
+
+    try {
+      await replayPendingBroadcasts();
+      expect(linkedChatDeliverCalled).toBe(1);
+    } finally {
+      routerModule.resetRouter();
+    }
+  });
+
 });
 
 describe('catchup isReplaying flag is globalThis-backed (AGENTS.md singleton rule)', () => {
