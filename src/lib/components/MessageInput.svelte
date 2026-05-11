@@ -4,6 +4,7 @@
   import AgentDot from './AgentDot.svelte';
   import NocturneIcon from './NocturneIcon.svelte';
   import QuickLaunchBar from './QuickLaunchBar.svelte';
+  import BreakConfirmModal from './BreakConfirmModal.svelte';
   import { activeRoutingMentions, bracketRoutingMention } from '$lib/utils/mentions';
   import { useMentionAutocomplete } from '$lib/composables/use-mention-autocomplete.svelte';
   import type { ShortcutScope } from '$lib/shared/personal-settings';
@@ -174,6 +175,7 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          role: 'system',
           content: reason || '— break —',
           msg_type: 'chat_break',
           format: 'text',
@@ -185,25 +187,48 @@
     }
   }
 
+  // BreakConfirmModal state. The previous flow used a native browser
+  // confirm that can silently return false on iOS PWA standalone mode — the
+  // break never reached writeMessage and the divider never rendered.
+  // The Svelte modal works identically on every surface and lets the
+  // operator edit the reason before posting.
+  let breakModalOpen = $state(false);
+  let breakModalReason = $state('');
+
+  function openBreakModal(reason: string) {
+    breakModalReason = reason;
+    breakModalOpen = true;
+  }
+
+  function cancelBreakModal() {
+    breakModalOpen = false;
+    // Keep the composer text so the user can edit before retrying.
+  }
+
+  async function confirmBreak(reason: string) {
+    breakModalOpen = false;
+    if (sessionId) {
+      await postBreakMarker(reason);
+    } else {
+      onSend(reason ? `/break ${reason}` : '/break', replyTo?.id ?? null);
+    }
+    text = '';
+    writeDraft(draftKey, '');
+    mention.reset();
+    onClearReply?.();
+    setTimeout(resizeInput, 0);
+  }
+
   function handleSubmit() {
     const trimmed = text.trim();
     if (!trimmed) return;
 
     const breakIntent = detectBreakCommand(trimmed);
     if (breakIntent.isBreak) {
-      const preview = breakIntent.reason
-        ? `Post break — agents will only see context after this point. Reason: "${breakIntent.reason}"`
-        : 'Post break — agents will only see context after this point.';
-      if (typeof window !== 'undefined' && !window.confirm(preview)) {
-        // Keep the composer text so the user can edit before retrying.
-        return;
-      }
-      void postBreakMarker(breakIntent.reason);
-      text = '';
-      writeDraft(draftKey, '');
-      mention.reset();
-      onClearReply?.();
-      setTimeout(resizeInput, 0);
+      // Modal handles confirmation + composer-text reset. Do NOT
+      // clear `text` here — cancelBreakModal leaves it intact so
+      // the operator can edit the reason and retry.
+      openBreakModal(breakIntent.reason);
       return;
     }
 
@@ -263,6 +288,13 @@
     }
   }
 </script>
+
+<BreakConfirmModal
+  open={breakModalOpen}
+  initialReason={breakModalReason}
+  onConfirm={confirmBreak}
+  onCancel={cancelBreakModal}
+/>
 
 <div class="relative message-input-root" style="padding: 0; border-top: 0.5px solid var(--hairline-strong);">
   {#if quickLaunchScope}
