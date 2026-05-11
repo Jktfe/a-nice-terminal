@@ -257,4 +257,36 @@ describe('deck file API helpers', () => {
     expect(html).toContain('from "/deck/team-deck/@react-refresh"');
     expect(html).toContain('src="/deck/team-deck/@vite/client"');
   });
+
+  it('allows the local operator to open a registered deck viewer on loopback without pasting an invite token', async () => {
+    globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(url)).toBe('http://127.0.0.1:5176/slides');
+      expect((init?.headers as Headers).get('host')).toBe('localhost:5176');
+      return new Response('<main>local deck</main>', {
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      });
+    }) as typeof fetch;
+
+    const response = await proxyDeck({
+      params: { slug: 'team-deck', path: 'slides' },
+      url: new URL('https://127.0.0.1:6458/deck/team-deck/slides'),
+      request: new Request('https://127.0.0.1:6458/deck/team-deck/slides'),
+      cookies: { get: () => undefined },
+    } as any);
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('local deck');
+  });
+
+  it('keeps non-loopback deck viewer requests gated without a deck cookie', async () => {
+    const response = await proxyDeck({
+      params: { slug: 'team-deck', path: 'slides' },
+      url: new URL('https://ant.example.test/deck/team-deck/slides'),
+      request: new Request('https://ant.example.test/deck/team-deck/slides'),
+      cookies: { get: () => undefined },
+    } as any);
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('Access required');
+  });
 });

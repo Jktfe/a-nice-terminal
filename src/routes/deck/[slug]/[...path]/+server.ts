@@ -3,6 +3,8 @@ import { cspForTrustMode, injectSafeBanner, injectTrustedReloader, readDeckMeta,
 import { ensureDeckWatcher } from '$lib/server/deck-watcher';
 import { hasDeckCookie } from '$lib/server/deck-view-auth';
 import { renderDeckLogin } from '$lib/server/deck-login-page';
+import { isDeckAdmin } from '$lib/server/deck-auth';
+import { roomScope } from '$lib/server/room-scope';
 
 const HOP_BY_HOP = new Set([
   'connection',
@@ -69,12 +71,27 @@ function rewriteHtml(slug: string, html: string): string {
     .replaceAll("import('/", `import('${prefix}/`);
 }
 
+function isLoopbackDeckHost(event: RequestEvent): boolean {
+  const hostname = event.url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  return hostname === 'localhost' || hostname === '::1' || hostname === '127.0.0.1' || hostname.startsWith('127.');
+}
+
+function hasDeckViewAccess(event: RequestEvent, slug: string, deck: DeckMeta): boolean {
+  if (hasDeckCookie(event.cookies, slug, deck)) return true;
+  if (isDeckAdmin(event)) return true;
+  const scope = roomScope(event);
+  if (scope && deck.allowed_room_ids.includes(scope.roomId)) return true;
+  // Local operator deck previews are same-machine development artefacts. Keep
+  // remote/Tailscale/public hosts on the invite-cookie path, but do not make
+  // the owner paste an invite when opening https://127.0.0.1:6458/deck/...
+  return isLoopbackDeckHost(event);
+}
 
 async function proxyDeck(event: RequestEvent): Promise<Response> {
   const slug = slugParam(event);
   const deck = readDeckMeta(slug);
   if (!deck) throw error(404, 'deck not found');
-  if (!hasDeckCookie(event.cookies, slug, deck)) return renderDeckLogin(slug);
+  if (!hasDeckViewAccess(event, slug, deck)) return renderDeckLogin(slug);
   // B3 of main-app-improvements-2026-05-10 — lazy-start a chokidar
   // watcher on first proxy request for this deck. Idempotent.
   ensureDeckWatcher(deck);
