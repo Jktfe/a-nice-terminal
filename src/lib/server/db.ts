@@ -979,6 +979,18 @@ export const queries = {
     prepare(`SELECT crm.*, s.name, s.handle, s.display_name, s.type, s.status as session_status
              FROM chat_room_members crm LEFT JOIN sessions s ON s.id = crm.session_id
              WHERE crm.room_id = ? AND crm.session_id = ?`).get(roomId, sessionId),
+  // Phase D of server-split-2026-05-11 — membership check for the
+  // CLI direct-write path. Matches either session_id (canonical) or
+  // handle (legacy alias path) so an actor identified by either form
+  // satisfies the gate. LIMIT 1 — we only care if any row exists.
+  isRoomMember: (roomId: string, sessionOrHandle: string) =>
+    prepare(`SELECT 1 FROM chat_room_members WHERE room_id = ? AND (session_id = ? OR alias = ?) LIMIT 1`).get(roomId, sessionOrHandle, sessionOrHandle),
+  // Phase D — count membership rows for a room. Used to detect the
+  // greenfield case (no members yet) so the first CLI direct-write
+  // is allowed to auto-create membership the same way an HTTP POST
+  // would. After the first write, isRoomMember will return truthy.
+  countRoomMembers: (roomId: string) =>
+    (prepare(`SELECT COUNT(*) as c FROM chat_room_members WHERE room_id = ?`).get(roomId) as any)?.c ?? 0,
   getMemberByAlias: (roomId: string, alias: string) =>
     prepare(`SELECT crm.*, s.name, s.handle, s.display_name, s.type FROM chat_room_members crm LEFT JOIN sessions s ON s.id = crm.session_id WHERE crm.room_id = ? AND crm.alias = ?`).get(roomId, alias),
   listRoomMembers: (roomId: string) =>

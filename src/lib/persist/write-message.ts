@@ -26,17 +26,59 @@ import type { MessageInput, PersistedMessage, WriteMessageResult } from './types
 import { WriteMessageError } from './types.js';
 
 export function writeMessage(input: MessageInput): WriteMessageResult {
-  // Phase A gate: only HTTP-sourced writes are accepted until Phase D
-  // wires the direct-write path with proper auth (M0 clarification 3:
-  // resolve actor from ~/.ant/identity + verify chat_room_members
-  // membership + enforce source-validity). Failing closed is safer
-  // than a loud TODO — a `source: 'cli'` import sneaking in would
-  // currently bypass HTTP's assertCanWrite entirely.
-  if (input.source !== 'http') {
+  // Phase D of server-split-2026-05-11 — direct-write auth gate.
+  // HTTP enforces assertCanWrite via bearer-token kind upstream; CLI
+  // direct-write bypasses HTTP entirely, so the three M0
+  // clarification-3 checks live here:
+  //
+  //   (1) source-validity — only 'http' and 'cli' are accepted.
+  //       'mcp' is reserved for the future MCP direct-write surface
+  //       and rejected with 400 until that lane lands.
+  //   (2) caller identity — for source='cli', actorSessionId must
+  //       be present. Missing actor = anonymous CLI invocation,
+  //       rejected with 403.
+  //   (3) room membership — for source='cli', the resolved actor
+  //       must be a member of the target room via chat_room_members.
+  //       NOTE: serverSplit.md's original M0 wording referenced a
+  //       "sessions.owner_session_id" bypass for owner-room writes.
+  //       That column does NOT exist on the sessions table (only on
+  //       decks/sheets/sites) — the bypass was never implemented and
+  //       the doc has been corrected. Greenfield rooms (zero
+  //       membership rows) accept the first write so
+  //       ensureRoomMembershipForSender can seed the table, matching
+  //       HTTP semantics where the first post auto-creates the
+  //       membership row. Subsequent writes hit the strict member
+  //       check.
+  if (input.source !== 'http' && input.source !== 'cli') {
     throw new WriteMessageError(
-      `writeMessage source='${input.source}' is not yet supported (Phase D wires CLI/MCP); only 'http' is accepted`,
+      `writeMessage source='${input.source}' is not yet supported; only 'http' and 'cli' are accepted`,
       400,
     );
+  }
+  if (input.source === 'cli') {
+    const actor = input.actorSessionId;
+    if (!actor || typeof actor !== 'string' || actor.trim().length === 0) {
+      throw new WriteMessageError(
+        `writeMessage source='cli' requires actorSessionId (resolved from ~/.ant/config.json)`,
+        403,
+      );
+    }
+    // Membership check: the actor must be in chat_room_members for the
+    // target room. Greenfield exception: if the room has NO members
+    // yet, allow the write — this matches HTTP semantics where the
+    // first post auto-creates membership via
+    // ensureRoomMembershipForSender below. After the first write the
+    // actor is in the table and subsequent CLI direct-writes pass the
+    // strict check. Rooms that have established membership but don't
+    // include this actor are rejected.
+    const memberCount = queries.countRoomMembers(input.sessionId) as number;
+    const isMember = !!queries.isRoomMember(input.sessionId, actor);
+    if (memberCount > 0 && !isMember) {
+      throw new WriteMessageError(
+        `actor '${actor}' is not a member of room '${input.sessionId}'`,
+        403,
+      );
+    }
   }
 
   // Validate reply_to BEFORE normalization throws on its own checks so

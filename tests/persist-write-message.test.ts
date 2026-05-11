@@ -162,15 +162,19 @@ describe('writeMessage — Tier 1 persist library', () => {
     expect(result.message.content.endsWith(' ')).toBe(true);
   });
 
-  it('rejects non-http sources until Phase D (fail-closed gate)', () => {
+  it('rejects mcp source until that lane lands (only http and cli accepted)', () => {
+    // Phase D widened the union to include 'cli' (with actor/membership
+    // checks); 'mcp' stays rejected as 400 until its own auth lane.
+    // The CLI 403 paths (missing actor, non-member) are covered in
+    // tests/cli-direct-write.test.ts.
     expect.assertions(2);
     try {
       writeMessage({
         sessionId: ROOM_ID,
         role: 'user',
-        content: 'attempted cli write',
+        content: 'attempted mcp write',
         senderId: SENDER_ID,
-        source: 'cli' as 'http',
+        source: 'mcp' as 'http',
       });
     } catch (e) {
       expect(e).toBeInstanceOf(WriteMessageError);
