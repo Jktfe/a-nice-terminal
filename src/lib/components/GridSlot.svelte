@@ -324,6 +324,13 @@
 
   let contentScrollEl = $state<HTMLElement | null>(null);
   let pollTimer: ReturnType<typeof setInterval> | null = null;
+  // C2 of main-app-improvements-2026-05-10 — WS-push accelerator.
+  // Poll still runs as the safety net; WS reduces the message-to-render
+  // gap from up-to-10s (poll-only) to ~immediate. If WS drops, the poll
+  // path keeps everything correct.
+  let gridWs: WebSocket | null = null;
+  let gridWsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let gridWsJoinedSid: string | null = null;
 
   async function scrollContentToBottom() {
     await tick();
@@ -367,6 +374,69 @@
   });
 
   // Reload content when session or showChat changes
+  function teardownGridWs() {
+    if (gridWsReconnectTimer) {
+      clearTimeout(gridWsReconnectTimer);
+      gridWsReconnectTimer = null;
+    }
+    if (gridWs) {
+      try { gridWs.close(); } catch { /* ignore */ }
+      gridWs = null;
+    }
+    gridWsJoinedSid = null;
+  }
+
+  function connectGridWs(chatSid: string) {
+    if (typeof window === 'undefined') return;
+    if (gridWs && (gridWs.readyState === WebSocket.OPEN || gridWs.readyState === WebSocket.CONNECTING)) {
+      if (gridWsJoinedSid !== chatSid && gridWs.readyState === WebSocket.OPEN) {
+        gridWs.send(JSON.stringify({ type: 'join_session', sessionId: chatSid }));
+        gridWsJoinedSid = chatSid;
+      }
+      return;
+    }
+    teardownGridWs();
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${location.host}/ws`);
+    gridWs = ws;
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: 'join_session', sessionId: chatSid }));
+      gridWsJoinedSid = chatSid;
+    };
+    ws.onerror = () => {
+      try { ws.close(); } catch { /* ignore */ }
+    };
+    ws.onclose = () => {
+      gridWsJoinedSid = null;
+      gridWs = null;
+      // Reconnect after 2s, but only if this slot is still showing
+      // a chat session. The poll path covers correctness during the
+      // gap so a missed reconnect never silently strands the tile.
+      if (gridWsReconnectTimer) clearTimeout(gridWsReconnectTimer);
+      gridWsReconnectTimer = setTimeout(() => {
+        if (!session) return;
+        const next = activeChatSessionId();
+        if (next) connectGridWs(next);
+      }, 2000);
+    };
+    ws.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (!data || data.sessionId !== gridWsJoinedSid) return;
+        if (data.type === 'message_created' || data.type === 'message_updated' || data.type === 'message_deleted') {
+          // Don't try to apply WS deltas to the local fingerprint diff
+          // (the server response is authoritative for shape). Just
+          // trigger an immediate background refresh so the tile catches
+          // up faster than the 10s poll cadence would allow.
+          if (!session) return;
+          void loadContent(session.id, session.type, showChat, linkedChatId, { background: true });
+        }
+      } catch {
+        /* ignore non-JSON frames */
+      }
+    };
+  }
+
   $effect(() => {
     if (session) {
       const chatMode = showChat;
@@ -380,7 +450,14 @@
         }
       });
 
-      // Poll every 5s for fresh content
+      // C2 — WS-push accelerator on top of the existing safety-net
+      // poll. WS reduces typical message-to-render latency to ~ms,
+      // poll covers correctness on disconnect.
+      const chatSid = activeChatSessionId();
+      if (chatSid) connectGridWs(chatSid);
+      else teardownGridWs();
+
+      // Poll as the safety net. Cadence unchanged at GRID_POLL_INTERVAL_MS.
       if (pollTimer) clearInterval(pollTimer);
       pollTimer = setInterval(async () => {
         if (typeof document !== 'undefined' && document.hidden) return;
@@ -395,12 +472,14 @@
       }, GRID_POLL_INTERVAL_MS);
     } else {
       if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      teardownGridWs();
     }
   });
 
   onDestroy(() => {
     if (pollTimer) clearInterval(pollTimer);
     if (participantPollTimer) clearInterval(participantPollTimer);
+    teardownGridWs();
   });
 
   // ── Agent event card helpers ──────────────────────────────────────
