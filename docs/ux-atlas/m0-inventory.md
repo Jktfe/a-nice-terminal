@@ -7,6 +7,8 @@ This file is the literal repo-driven manifest for ANT's UX atlas. It records
 what exists before the redesign, then maps each surface into the product model
 that should appear in Pencil.
 
+Detailed route controls: `docs/ux-atlas/m0-route-control-matrix.md`.
+
 ## Locked Rules
 
 - Linked chat is a private implementation detail. It may remain in schema and
