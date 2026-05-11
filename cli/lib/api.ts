@@ -63,6 +63,87 @@ export const api = {
   del: (ctx: Ctx, path: string, opts?: RequestOpts) => request(ctx, 'DELETE', path, undefined, opts),
 };
 
+// ── Phase D of server-split-2026-05-11 — CLI direct-write path ──────
+//
+// The CLI's `ant chat send` and friends pay a TCP+TLS round-trip to a
+// SvelteKit server that runs ~17 sequential POST-handler steps even on
+// localhost. When the server is offline, the message is dropped
+// entirely. Phase D adds a "write to ant.db directly + notify the
+// server best-effort" branch for the localhost case so the CLI exits
+// fast and keeps working when the server is down.
+//
+// Only triggered when (a) the server URL is genuinely localhost (see
+// isLocalServer below — Tailscale and LAN are explicitly NOT local
+// because the host's ant.db is not addressable from a different
+// machine even though the URL looks reachable) AND (b) there is no
+// room-scoped token (those keep the HTTP path so token revocation
+// still gates the write).
+
+/** Returns true if the URL targets *the same kernel writing the same
+ *  ant.db file* — loopback addresses only. Tailscale .ts.net hostnames,
+ *  .local Bonjour hostnames, LAN IPs, and public domains all keep the
+ *  HTTP path because direct-writing on one host would split-brain a
+ *  remote DB. */
+export function isLocalServer(serverUrl: string): boolean {
+  try {
+    const u = new URL(serverUrl);
+    // WHATWG URL keeps IPv6 hosts wrapped in brackets ("[::1]") —
+    // strip them so the compare matches the canonical "::1" form.
+    const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+  } catch {
+    return false;
+  }
+}
+
+export interface DirectMessageInput {
+  sessionId: string;
+  role: string;
+  content: string;
+  format?: string;
+  senderId?: string | null;
+  target?: string | null;
+  replyTo?: string | null;
+  msgType?: string;
+  meta?: Record<string, unknown> | string;
+  asks?: string[];
+  // The CLI-resolved actor identity from `~/.ant/config.json`. The
+  // persist library enforces chat_room_members membership against
+  // this id. Without it, the write is rejected with 403.
+  actorSessionId: string;
+}
+
+/** Write a message straight to `~/.ant-v3/ant.db` via the Tier 1
+ *  persist library — no HTTP round-trip. Returns the persisted message
+ *  shape (with `broadcast_state='pending'`) so the caller can fire
+ *  notifyServer() to ask the live server to broadcast it. */
+export async function postMessageDirect(input: DirectMessageInput): Promise<any> {
+  // Dynamic import keeps the persist lib out of the CLI's cold-start
+  // path for commands that never hit this branch.
+  const { writeMessage } = await import('../../src/lib/persist/write-message.js');
+  return writeMessage({ ...input, source: 'cli' });
+}
+
+/** Tell the live server to run side effects for a freshly-written
+ *  pending message. Bounded by AbortSignal.timeout(500) so the worst
+ *  case (server unreachable) adds half a second; typical case is the
+ *  202 returns within a few ms. Failures are swallowed — the catch-up
+ *  loop on the next server boot will replay anything we miss. */
+export async function notifyServer(ctx: Ctx, msgId: string): Promise<void> {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (ctx.apiKey) headers['Authorization'] = `Bearer ${ctx.apiKey}`;
+    await doFetch(`${ctx.serverUrl}/api/internal/notify-new-message`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ id: msgId }),
+      signal: AbortSignal.timeout(500),
+    } as any);
+  } catch {
+    // Best-effort. Catch-up loop owns retries.
+  }
+}
+
 // Raw-byte helpers for the deck/sheet file endpoints. Those return file
 // content directly (not JSON) and accept raw byte uploads — JSON serialisation
 // would corrupt binary content and lose the per-write base_hash/mtime guard.

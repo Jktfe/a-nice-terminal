@@ -1,4 +1,4 @@
-import { api } from '../lib/api.js';
+import { api, isLocalServer, postMessageDirect, notifyServer } from '../lib/api.js';
 import { config } from '../lib/config.js';
 import { subscribeRoomStream } from '../lib/sse.js';
 import { createInterface } from 'readline';
@@ -355,7 +355,31 @@ export async function chat(args: string[], flags: any, ctx: any) {
     }
     const body: any = { role: 'user', content: msg, format: 'text', sender_id: sender, target };
     if (explicitAsks.length) body.asks = explicitAsks;
-    const result = await api.post(ctx, `/api/sessions/${id}/messages`, body, room);
+
+    // Phase D of server-split-2026-05-11 — direct-write path. Only
+    // fires for localhost servers AND when no room-scoped token is
+    // present (token-scoped sends keep HTTP so revocation still
+    // applies). The notify is bounded by 500ms inside notifyServer;
+    // worst case (server down) we still return success because the
+    // catch-up loop will broadcast on the next boot.
+    let result: any;
+    if (isLocalServer(ctx.serverUrl) && !room?.roomToken) {
+      const persisted = await postMessageDirect({
+        sessionId: id,
+        role: 'user',
+        content: msg,
+        format: 'text',
+        senderId: sender,
+        target,
+        asks: explicitAsks.length ? explicitAsks : undefined,
+        actorSessionId: sender,
+      });
+      await notifyServer(ctx, persisted.message.id);
+      result = { ...persisted.message, asks: persisted.asks };
+    } else {
+      result = await api.post(ctx, `/api/sessions/${id}/messages`, body, room);
+    }
+
     if (ctx.json) { console.log(JSON.stringify(result)); return; }
     console.log(`Sent: ${msg}`);
     // Server attaches a one-line skills hint when this is the sender's

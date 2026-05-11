@@ -19,7 +19,22 @@ export interface MessageInput {
   // authorization path. 'replay' is intentionally not a valid input
   // value — replays act on existing rows via runSideEffects, not on
   // new writeMessage calls.
+  //
+  // Phase D of server-split-2026-05-11 — 'cli' is the direct-write
+  // path used by `ant chat send` when targeting a localhost server.
+  // 'mcp' is reserved for the future MCP direct-write surface and
+  // is currently rejected at the auth gate.
   source: 'http' | 'cli' | 'mcp';
+  // Phase D — when source='cli', actorSessionId carries the
+  // CLI-resolved actor identity (from `~/.ant/config.json`). The
+  // persist library uses it to verify chat_room_members membership
+  // against the target room. Greenfield rooms (zero membership
+  // rows) allow the first write so ensureRoomMembershipForSender
+  // can seed the table — mirrors HTTP semantics where the first
+  // post auto-creates membership. After the first write the actor
+  // is in the table and subsequent CLI direct-writes pass the
+  // strict member check. Ignored when source='http'.
+  actorSessionId?: string | null;
 }
 
 export interface PersistedMessage {
