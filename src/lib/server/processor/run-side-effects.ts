@@ -67,13 +67,21 @@ function recordDelivery(
   }
 }
 
-function fireChannelFanout(
+/** Channel HTTP fanout, per-adapter idempotent via delivery_log.
+ *  Each adapter's POST is AWAITED — the delivery_log row (delivered=1
+ *  on success, delivered=0 + error on failure) is persisted BEFORE
+ *  this function resolves. The contract Phase C relies on is:
+ *  "every adapter outcome is recorded by the time runSideEffects
+ *  reaches markDone." Promise.allSettled across adapters preserves
+ *  the old best-effort behaviour: one channel being down does not
+ *  abort the others or fail the whole post. */
+async function fireChannelFanout(
   messageId: string,
   sessionId: string,
   content: string,
   senderLabel: string,
   reports: DeliveryReport[],
-): void {
+): Promise<void> {
   const channels = queries.listChannels() as { handle: string; port: number }[];
   const payload = JSON.stringify({
     content: typeof content === 'string' ? content.slice(0, 500) : '',
@@ -81,42 +89,49 @@ function fireChannelFanout(
     session_id: sessionId,
   });
 
-  function fireOne(adapter: string, port: number) {
+  async function fireOne(adapter: string, port: number): Promise<void> {
     if (hasDelivered(messageId, adapter)) {
       reports.push({ adapter, delivered: true });
       return;
     }
     try {
-      fetch(`http://127.0.0.1:${port}`, {
+      const res = await fetch(`http://127.0.0.1:${port}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: payload,
-      })
-        .then((res) => {
-          if (res.ok) {
-            recordDelivery(messageId, sessionId, adapter, true, null);
-          } else {
-            recordDelivery(messageId, sessionId, adapter, false, `HTTP ${res.status}`);
-          }
-        })
-        .catch((err) => {
-          recordDelivery(messageId, sessionId, adapter, false, String(err?.message ?? err));
-        });
-      reports.push({ adapter, delivered: true });
+      });
+      if (res.ok) {
+        recordDelivery(messageId, sessionId, adapter, true, null);
+        reports.push({ adapter, delivered: true });
+      } else {
+        recordDelivery(messageId, sessionId, adapter, false, `HTTP ${res.status}`);
+        reports.push({ adapter, delivered: false, error: `HTTP ${res.status}` });
+      }
     } catch (err) {
-      recordDelivery(messageId, sessionId, adapter, false, String((err as any)?.message ?? err));
-      reports.push({ adapter, delivered: false, error: String((err as any)?.message ?? err) });
+      // Preserves the old best-effort semantics: a channel being
+      // unreachable does NOT throw out of runSideEffects. We log the
+      // failure to delivery_log so Phase C can decide whether to
+      // retry it. The catch boundary stops here.
+      const message = String((err as any)?.message ?? err);
+      recordDelivery(messageId, sessionId, adapter, false, message);
+      reports.push({ adapter, delivered: false, error: message });
     }
   }
 
+  const adapters: Array<{ adapter: string; port: number }> = [];
   for (const ch of channels) {
-    fireOne(`channel:${ch.handle}`, ch.port);
+    adapters.push({ adapter: `channel:${ch.handle}`, port: ch.port });
   }
   // Fallback: always try the legacy 8789 port if the registry is empty.
   // Preserves verbatim the Phase A handler behaviour.
   if (!channels.some((c) => c.port === CHANNEL_FALLBACK_PORT)) {
-    fireOne(CHANNEL_FALLBACK_ADAPTER, CHANNEL_FALLBACK_PORT);
+    adapters.push({ adapter: CHANNEL_FALLBACK_ADAPTER, port: CHANNEL_FALLBACK_PORT });
   }
+
+  // Promise.allSettled: each adapter resolves or rejects on its own;
+  // we never re-throw. By the time this await returns, every
+  // adapter's delivery_log row has been written.
+  await Promise.allSettled(adapters.map(({ adapter, port }) => fireOne(adapter, port)));
 }
 
 async function runMessageRouter(result: WriteMessageResult): Promise<unknown[]> {
@@ -170,7 +185,13 @@ export async function runSideEffects(
     //    delivery_log to make replays safe.
     const senderIsAgent = result.senderResolved.type === 'terminal';
     if (!senderIsAgent && !result.isLinkedChat) {
-      fireChannelFanout(
+      // AWAIT — see fireChannelFanout: the contract is "every adapter
+      // outcome is persisted to delivery_log before this returns".
+      // Without the await, markDone below would run while channel
+      // POSTs were still in flight and Phase C replay could either
+      // skip a never-delivered message (markDone fired) or double-post
+      // a delivered one (.then for delivery_log hadn't fired yet).
+      await fireChannelFanout(
         msg.id,
         msg.session_id,
         typeof msg.content === 'string' ? msg.content : '',

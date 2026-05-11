@@ -104,6 +104,84 @@ describe('runSideEffects — Tier 2 processor', () => {
     }
   });
 
+  it('awaits the channel fetch before flipping broadcast_state to done', async () => {
+    // Codex's BLOCKER-2 regression: prior to this fix, runSideEffects
+    // declared delivered:true and reached markDone while the channel
+    // fetch was still in-flight, breaking the Phase C replay contract.
+    // This test pins the new ordering by deferring fetch resolution.
+    const result = writeMessage({
+      sessionId: ROOM_ID,
+      role: 'user',
+      content: 'pending until fetch resolves',
+      senderId: SENDER_ID,
+      source: 'http',
+    });
+
+    // Register a channel so fanout actually fires (handler-test path
+    // exercises the empty-registry fallback to port 8789).
+    queries.registerChannel('@channel-x', 19999, null);
+
+    let resolveFetch: ((value: Response) => void) | null = null;
+    const deferred = new Promise<Response>((res) => { resolveFetch = res; });
+    const originalFetch = global.fetch;
+    (global as any).fetch = vi.fn(() => deferred);
+
+    try {
+      const pending = runSideEffects(result);
+      // Yield a microtask so any synchronous bookkeeping has a chance
+      // to run, but the awaited fetch has not yet resolved.
+      await new Promise((r) => setImmediate(r));
+
+      const midRow: any = queries.getMessage(result.message.id);
+      expect(midRow.broadcast_state).toBe('pending');
+      expect(queries.hasDelivered(result.message.id, 'channel:@channel-x')).toBeFalsy();
+
+      // Now resolve the deferred fetch — runSideEffects can complete.
+      resolveFetch!(new Response('ok', { status: 200 }));
+      await pending;
+
+      const doneRow: any = queries.getMessage(result.message.id);
+      expect(doneRow.broadcast_state).toBe('done');
+      expect(queries.hasDelivered(result.message.id, 'channel:@channel-x')).toBeTruthy();
+    } finally {
+      (global as any).fetch = originalFetch;
+    }
+  });
+
+  it('does NOT call fetch when delivery_log already shows delivered=1 for that adapter', async () => {
+    const result = writeMessage({
+      sessionId: ROOM_ID,
+      role: 'user',
+      content: 'replay-safety: fetch must be skipped',
+      senderId: SENDER_ID,
+      source: 'http',
+    });
+    queries.registerChannel('@already-done', 19998, null);
+    queries.logDelivery(result.message.id, ROOM_ID, 'channel:@already-done', 1, null);
+
+    const originalFetch = global.fetch;
+    const fetchSpy = vi.fn(() => Promise.resolve(new Response('should not be called', { status: 200 })));
+    (global as any).fetch = fetchSpy;
+
+    try {
+      await runSideEffects(result);
+      // The fetch should NOT have been invoked for the channel that
+      // already shows delivered=1. (Other side-effect calls — like
+      // any router-internal fetches — could exist, but the fallback
+      // channel 8789 is the only OTHER adapter and only fires when
+      // the registry is non-empty AND lacks 8789; here it's empty of
+      // 8789 so 8789 also fires once. We assert specifically that no
+      // call targeted our pre-delivered channel port.)
+      const calls = (fetchSpy.mock.calls as unknown[][]) ?? [];
+      const callsToAlreadyDone = calls.filter((c) =>
+        typeof c[0] === 'string' && (c[0] as string).includes(':19998'),
+      );
+      expect(callsToAlreadyDone.length).toBe(0);
+    } finally {
+      (global as any).fetch = originalFetch;
+    }
+  });
+
   it('bumps broadcast_attempts on exception and leaves broadcast_state at pending for retry', async () => {
     const result = writeMessage({
       sessionId: ROOM_ID,
