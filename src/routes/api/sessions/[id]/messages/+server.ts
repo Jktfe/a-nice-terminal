@@ -5,7 +5,7 @@ import { nanoid } from 'nanoid';
 import { assertNotRoomScoped, assertCanWrite } from '$lib/server/room-scope';
 import { emitAskRunEvent } from '$lib/server/ask-events';
 import { CHAT_BREAK_MSG_TYPE, loadMessagesForAgentContext } from '$lib/server/chat-context';
-import { writeMessage, WriteMessageError, resolveSenderSession as resolvePersistedSender } from '$lib/persist';
+import { writeMessage, WriteMessageError, resolveSenderSession as resolvePersistedSender, broadcastQueue } from '$lib/persist';
 
 const RESOLVED_AGENT_EVENT_STATUSES = new Set(['discarded', 'dismissed', 'settled', 'responded']);
 
@@ -273,6 +273,16 @@ export async function POST(event: RequestEvent<{ id: string }>) {
       broadcastGlobal({ type: 'ask_created', sessionId: params.id, ask });
     }
   }
+
+  // Phase A of server-split-2026-05-11 — side effects ran successfully
+  // (or at least did not throw all the way out of the handler), so the
+  // row is no longer a candidate for the Phase C catch-up loop. Flip
+  // broadcast_state to 'done' BEFORE returning so a future replay
+  // cannot resurrect a message that was already broadcast. If the
+  // handler throws anywhere above this line the row stays 'pending'
+  // and Phase C will replay it once the catch-up loop ships — that is
+  // the intended retry semantic, not a bug.
+  broadcastQueue.markDone(msg.id);
 
   // 3. Return with delivery info + first-post hint when applicable.
   // The hint is a single line with no skill body — agents fetch the
