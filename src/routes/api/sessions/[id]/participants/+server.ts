@@ -53,6 +53,10 @@ function activeRoomTokenParticipants(roomId: string, existing: any[]): any[] {
     if (invite.revoked_at) continue;
     for (const token of queries.listRoomTokens(invite.id) as any[]) {
       if (token.revoked_at || token.room_id !== roomId) continue;
+      // Read-only web/deck-viewer tokens are feature/viewer access, not
+      // talk-capable room participants. Keep them out of Participants and
+      // @mention autocomplete; artefact links surface them where relevant.
+      if (token.kind === 'web') continue;
       const handle = normaliseHandle(token.handle);
       if (!handle) continue;
       if (!/^@[\w.-]+$/.test(handle)) continue;

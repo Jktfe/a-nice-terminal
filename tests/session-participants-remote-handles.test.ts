@@ -82,6 +82,15 @@ describe('/api/sessions/[id]/participants remote invite handles', () => {
       meta: '{}',
     });
     queries.createRoomToken({
+      id: 'token-deck-viewer',
+      invite_id: 'invite-a',
+      room_id: 'room-a',
+      token_hash: 'deck-viewer-secret-token-hash',
+      kind: 'web',
+      handle: '@deck-viewer',
+      meta: '{}',
+    });
+    queries.createRoomToken({
       id: 'token-other',
       invite_id: 'invite-b',
       room_id: 'room-b',
@@ -106,6 +115,7 @@ describe('/api/sessions/[id]/participants remote invite handles', () => {
 
     expect(handles).toContain('@local');
     expect(handles).toContain('@xeno');
+    expect(handles).not.toContain('@deck-viewer');
     expect(handles).not.toContain('@other-room');
     expect(handles).not.toContain('@revoked');
     expect(JSON.stringify(body)).not.toContain('secret-token-hash');
