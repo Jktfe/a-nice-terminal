@@ -246,7 +246,7 @@
           <div class="stat blue"><div class="v">3</div><div class="l">pillars (why it matters)</div></div>
           <div class="stat green"><div class="v">1</div><div class="l">spine (how it feels)</div></div>
           <div class="stat amber"><div class="v">14</div><div class="l">agent drivers shipping today</div></div>
-          <div class="stat amber"><div class="v">66 days</div><div class="l">since first commit</div></div>
+          <div class="stat amber"><div class="v">35 days</div><div class="l">since first commit</div></div>
         </div>
       </div>
       <div class="footer">
@@ -278,11 +278,12 @@
       <h1>For people running real work across real machines with the real AI tools they already trust.</h1>
       <div class="grid grid-2">
         <div class="lead">
-          ANT was not built for a hypothetical user. It was built for
-          a partner at a VC firm running a four-person team across
-          three machines, six agents, and four AI clients — and using
-          it every day to ship investment products, audit code, draft
-          letters, and coordinate humans + agents on the same artefacts.
+          ANT was not built for a hypothetical user. It was built
+          to run a real investment-team workflow: a small group
+          across multiple machines, multiple AI clients, and a
+          handful of long-running local agents — coordinating on
+          documents, deals, audits, drafts, and code reviews every
+          working day.
           <br><br>
           If you recognise any of the below, you are the audience.
         </div>
@@ -360,10 +361,11 @@
           </div>
           <div class="actions">
             <button class="btn">pick A</button>
-            <button class="btn">pick B</button>
+            <button class="btn primary">pick B</button>
             <button class="btn">pick C</button>
-            <button class="btn primary">interview</button>
-            <button class="btn ghost">route to @christian-legal</button>
+            <button class="btn green">route to @christian-legal</button>
+            <button class="btn ghost">discuss</button>
+            <button class="btn ghost">interview</button>
             <button class="btn ghost">defer 24h</button>
           </div>
         </div>
@@ -388,7 +390,7 @@
       </div>
 
       <h2>What just happened (in 40 seconds):</h2>
-      <div class="grid grid-3">
+      <div class="grid grid-4">
         <div class="card jade">
           <div class="title">0:00 — open ANT</div>
           <div class="body">Cockpit shows three prepared briefings. No agent monologues. No "check in on the team."</div>
@@ -398,14 +400,24 @@
           <div class="body">Trade-offs already laid out by codex. James reads in 5 seconds, taps. Cockpit posts "@james picked B" to the room.</div>
         </div>
         <div class="card jade">
-          <div class="title">0:30 — escalate the letter to interview</div>
-          <div class="body">Trade-offs need a conversation. Interview-lite spins up with the briefing pre-loaded. 90 seconds of dialogue. Done.</div>
+          <div class="title">0:25 — pick B + route on letter</div>
+          <div class="body">Thesis-led framing, recommended. James taps <b>pick:B</b> then <b>route to @christian-legal for Thursday AM</b>. Gemini drafts, Christian gets the pre-read.</div>
+        </div>
+        <div class="card jade">
+          <div class="title">0:40 — approve the server-split bundle</div>
+          <div class="body">Review-ready item already pre-rendered: claim + diff + tests + blockers + evidence. James taps <b>approve</b>. Lane closes.</div>
         </div>
       </div>
       <div class="lead" style="margin-top: 24px; font-size: 20px; color: var(--ink); font-style: italic;">
         Three rooms unblocked. Zero agent walls of text read. The
         agents did the cognitive work; the Cockpit served you the
         decisions. <b>That's the magic.</b>
+      </div>
+      <div class="lead" style="margin-top: 16px; font-size: 15px; color: var(--faint);">
+        (When a question genuinely needs a conversation rather than a
+        pick, the <b>interview</b> action — visible on every item —
+        spins up interview-lite with the briefing pre-loaded. We
+        show that flow in slide 13 "a day in 10 rooms".)
       </div>
     </section>
 
