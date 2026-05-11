@@ -15,6 +15,7 @@
   import { agentColor } from '$lib/nocturne';
   import { activeRoutingMentions, bracketRoutingMention } from '$lib/utils/mentions';
   import { firstAskText } from '$lib/utils/asks';
+  import { timeAgo } from '$lib/utils/time';
   import { useToasts } from '$lib/stores/toast.svelte';
   import type { AgentStatus } from '$lib/shared/agent-status';
   import type { ShortcutScope } from '$lib/shared/personal-settings';
@@ -421,7 +422,51 @@
     return `margin-left:${indent}px;padding-left:10px;border-left:1px solid var(--border-subtle);`;
   }
 
+  function normaliseTimestamp(value: unknown): string | null {
+    if (typeof value !== 'string' || value.trim() === '') return null;
+    return value.includes('Z') || value.includes('+')
+      ? value
+      : value.replace(' ', 'T') + 'Z';
+  }
+
+  function breakTimeLabel(message: any): string {
+    const timestamp = normaliseTimestamp(message?.created_at);
+    if (!timestamp) return '';
+    const ms = Date.parse(timestamp);
+    return Number.isFinite(ms) ? timeAgo(new Date(ms)) : '';
+  }
+
+  function breakTimeTitle(message: any): string {
+    const timestamp = normaliseTimestamp(message?.created_at);
+    if (!timestamp) return '';
+    const ms = Date.parse(timestamp);
+    return Number.isFinite(ms) ? new Date(ms).toLocaleString() : '';
+  }
+
+  function breakAuthorLabel(message: any): string {
+    const senderId = typeof message?.sender_id === 'string' ? message.sender_id : null;
+    if (senderId) {
+      const sess = allSessions.find((s: any) => s.id === senderId || s.handle === senderId || s.alias === senderId);
+      return sess?.display_name || sess?.name || sess?.handle || `Session ${senderId.slice(0, 8)}`;
+    }
+    if (message?.role === 'assistant') return 'Assistant';
+    if (message?.role === 'user' || message?.role === 'human') return 'James';
+    return 'System';
+  }
+
+  function visibleBreakReason(value: unknown): string {
+    const reason = typeof value === 'string' ? value.trim() : '';
+    return reason && reason !== '— break —' ? reason : '';
+  }
+
   const groupedMessages = $derived(groupMessages(messages as any[]));
+  const latestChatBreakId = $derived.by(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const msg = messages[i] as any;
+      if (msg?.msg_type === 'chat_break' && msg?.id) return String(msg.id);
+    }
+    return null;
+  });
   const matchedMessageIds = $derived.by(() => new Set(searchResults.map((result) => result.id)));
   const messageAnchorMap = $derived.by(() => {
     const map = new Map<string, string>();
@@ -831,15 +876,36 @@
               />
             {:else if group.type === 'chat_break'}
               {@const breakMsg = group.items[0]}
-              {@const breakReason = (breakMsg?.content ?? '').trim()}
-              <div class="chat-break" role="separator" aria-label={breakReason ? `Chat break — ${breakReason}` : 'Chat break'}>
+              {@const breakReason = visibleBreakReason(breakMsg?.content)}
+              {@const breakTime = breakTimeLabel(breakMsg)}
+              {@const breakTitle = breakTimeTitle(breakMsg)}
+              {@const breakAuthor = breakAuthorLabel(breakMsg)}
+              {@const isLatestBreak = latestChatBreakId === String(breakMsg?.id ?? '')}
+              <div
+                class="chat-break"
+                class:chat-break--latest={isLatestBreak}
+                role="separator"
+                aria-label={breakReason ? `Context break — ${breakReason}` : 'Context break'}
+              >
                 <span class="chat-break__rule" aria-hidden="true"></span>
-                <span class="chat-break__label">
-                  break
-                  {#if breakReason && breakReason !== '— break —'}
-                    <span class="chat-break__reason">— {breakReason}</span>
+                <div class="chat-break__card">
+                  <div class="chat-break__topline">
+                    <span class="chat-break__marker" aria-hidden="true"></span>
+                    <span class="chat-break__label">
+                      {isLatestBreak ? 'Active context boundary' : 'Context boundary'}
+                    </span>
+                  </div>
+                  {#if breakReason}
+                    <div class="chat-break__reason">{breakReason}</div>
                   {/if}
-                </span>
+                  <div class="chat-break__meta">
+                    <span>{breakAuthor}</span>
+                    {#if breakTime}
+                      <span aria-hidden="true">·</span>
+                      <time datetime={normaliseTimestamp(breakMsg?.created_at) ?? undefined} title={breakTitle}>{breakTime}</time>
+                    {/if}
+                  </div>
+                </div>
                 <span class="chat-break__rule" aria-hidden="true"></span>
               </div>
             {:else}
@@ -1088,30 +1154,118 @@
   }
 
   .chat-break {
+    display: grid;
+    grid-template-columns: minmax(32px, 1fr) minmax(180px, auto) minmax(32px, 1fr);
+    align-items: center;
+    gap: 10px;
+    margin: 18px 4px;
+    user-select: text;
+  }
+
+  .chat-break__rule {
+    height: 1px;
+    min-width: 32px;
+    background:
+      linear-gradient(90deg,
+        transparent,
+        color-mix(in srgb, var(--border-subtle) 72%, var(--accent-blue, #2563eb)),
+        transparent);
+  }
+
+  .chat-break__card {
+    position: relative;
+    max-width: min(560px, calc(100vw - 112px));
+    padding: 8px 12px;
+    border: 1px solid color-mix(in srgb, var(--border-subtle) 72%, var(--accent-amber, #c2860a));
+    border-radius: 8px;
+    background:
+      linear-gradient(135deg,
+        color-mix(in srgb, var(--accent-amber, #c2860a) 9%, transparent),
+        color-mix(in srgb, var(--bg-card) 92%, transparent));
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+  }
+
+  .chat-break--latest .chat-break__card {
+    border-color: color-mix(in srgb, var(--accent-blue, #2563eb) 46%, var(--border-subtle));
+    background:
+      linear-gradient(135deg,
+        color-mix(in srgb, var(--accent-blue, #2563eb) 10%, transparent),
+        color-mix(in srgb, var(--bg-card) 94%, transparent));
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.11);
+  }
+
+  .chat-break__topline {
     display: flex;
     align-items: center;
-    gap: 12px;
-    margin: 16px 8px;
-    user-select: none;
+    gap: 7px;
+    min-width: 0;
   }
-  .chat-break__rule {
-    flex: 1;
-    height: 1px;
-    background: var(--border-subtle);
+
+  .chat-break__marker {
+    width: 16px;
+    height: 2px;
+    flex: 0 0 auto;
+    border-radius: 999px;
+    background: var(--accent-amber, #c2860a);
   }
-  .chat-break__label {
+
+  .chat-break--latest .chat-break__marker {
+    background: var(--accent-blue, #2563eb);
+  }
+
+  .chat-break__label,
+  .chat-break__meta {
     font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
+    line-height: 1.25;
+  }
+
+  .chat-break__label {
+    min-width: 0;
+    font-weight: 700;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
+    color: var(--text);
+    white-space: nowrap;
+  }
+
+  .chat-break__meta {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 4px;
+    font-variant-numeric: tabular-nums;
     color: var(--text-muted);
     white-space: nowrap;
   }
+
   .chat-break__reason {
-    font-weight: 400;
-    text-transform: none;
-    letter-spacing: normal;
+    margin-top: 5px;
+    max-width: 48ch;
+    font-size: 12px;
+    line-height: 1.35;
+    font-weight: 500;
     color: var(--text);
-    margin-left: 4px;
+    overflow-wrap: anywhere;
+  }
+
+  @media (max-width: 640px) {
+    .chat-break {
+      grid-template-columns: 1fr;
+      margin: 14px 0;
+    }
+
+    .chat-break__rule {
+      display: none;
+    }
+
+    .chat-break__card {
+      max-width: none;
+      width: 100%;
+    }
+
+    .chat-break__label,
+    .chat-break__meta {
+      white-space: normal;
+    }
   }
 </style>
