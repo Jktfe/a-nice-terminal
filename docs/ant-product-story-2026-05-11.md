@@ -315,6 +315,34 @@ one tap away. The terminal is the trust substrate. Hiding it would
 kill the magic. The point is to make it INVITED, not BUILT-IN to the
 first impression.
 
+## 6b. Category discipline (per James, 2026-05-11)
+
+**Rule:** Participants TALK. Features SERVE. They never share a
+visual hierarchy.
+
+| Category | Examples | Where they appear |
+|---|---|---|
+| Participants | humans, agents — anyone you can `@` who talks back | participants rail, mentions, focus list |
+| Features | decks, sheets, docs, sites, plans, asks, the Operator Cockpit itself | features / artefacts rail, never in participants |
+
+**Derived consequences:**
+
+- The deck viewer that appears in the EvoluteAnt room's side rail
+  must NOT also appear in the participants list. James caught this
+  one in the wild.
+- The Operator Cockpit is a feature, not a participant. It doesn't
+  appear in either rail; it IS the home surface.
+- The five Cockpit lanes are surfaces inside the Cockpit feature.
+  They never appear in any participant list of any room.
+- "Agent pair" is the relationship between two participating agents.
+  The pair-room appears as a feature; both agents appear in its
+  participants list.
+
+**Why this matters for marketing/onboarding:** new pilots get
+confused fast when "rooms have 8 things in them" turns out to mean
+3 humans + 2 agents + 1 deck + 1 plan + 1 ask-pinned-message. The
+fix is visual category separation, not fewer things.
+
 ## 7. Rename pass (what we stop calling things)
 
 Marketing-blocking jargon to kill or relabel before any landing
