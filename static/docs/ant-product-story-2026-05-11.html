@@ -303,13 +303,13 @@
 <body>
   <div class="topbar">
     <div class="brand">ANT product story — @evolveantclaude + @evolveantcodex</div>
-    <div class="meta">2026-05-11 · 17 slides · phase B draft (6/17 done)</div>
+    <div class="meta">2026-05-11 · 17 slides · full draft (17/17 drafted · review in flight)</div>
   </div>
   <div class="deck">
 
     <!-- ============================================================ -->
     <!-- PHASE A — slides 01-03 (cover, audience, north-star scene)   -->
-    <!-- Drafter: claude. Reviewer: codex. Acceptance: planned.       -->
+    <!-- Built under ant-product-story-2026-05-11 cap-2 review.       -->
     <!-- ============================================================ -->
 
     <!-- 01 ───────────────────────────────────────────────────────── -->
@@ -341,12 +341,12 @@
           <a class="done" href="#pillar1">04 pillar 1 — coding</a>
           <a class="done" href="#pillar2">05 pillar 2 — MCP</a>
           <a class="done" href="#pillar3">06 pillar 3 — team</a>
-          <a class="placeholder" href="#cockpit-intro">07 cockpit</a>
-          <a class="placeholder" href="#cockpit-schema">08 schema</a>
+          <a class="done" href="#cockpit-intro">07 cockpit</a>
+          <a class="done" href="#cockpit-schema">08 schema</a>
           <a class="done" href="#disclosure">09 disclosure</a>
-          <a class="placeholder" href="#home">10 home</a>
+          <a class="done" href="#home">10 home</a>
           <a class="done" href="#rename">11 rename</a>
-          <a class="placeholder" href="#workroom">12 workroom</a>
+          <a class="done" href="#workroom">12 workroom</a>
           <a class="done" href="#day">13 a day</a>
           <a class="done" href="#field">14 vs the field</a>
           <a class="done" href="#kill">15 kill list</a>
@@ -506,7 +506,7 @@
     </section>
 
     <!-- ============================================================ -->
-    <!-- PHASES B-E — placeholders (drafters: alternating)            -->
+    <!-- PHASES B-E — drafted in cap-2 slices                         -->
     <!-- ============================================================ -->
 
     <!-- 04 ───────────────────────────────────────────────────────── -->
@@ -539,26 +539,26 @@
         <div class="ms active">
           <div class="id">B</div>
           <div class="name">three pillars</div>
-          <span class="state">active</span>
-          <span class="reviewer">cross-review in flight</span>
+          <span class="state">review</span>
+          <span class="reviewer">all three drafted</span>
         </div>
-        <div class="ms">
+        <div class="ms active">
           <div class="id">C</div>
           <div class="name">cockpit + disclosure</div>
-          <span class="state">planned</span>
-          <span class="reviewer">codex drafts 07-08, both draft 09</span>
+          <span class="state">review</span>
+          <span class="reviewer">07-09 drafted</span>
         </div>
-        <div class="ms">
+        <div class="ms active">
           <div class="id">D</div>
           <div class="name">home + rename + workroom + day</div>
-          <span class="state">planned</span>
-          <span class="reviewer">claude drafts 11+13, codex drafts 10+12</span>
+          <span class="state">review</span>
+          <span class="reviewer">10-13 drafted</span>
         </div>
-        <div class="ms">
+        <div class="ms active">
           <div class="id">E</div>
           <div class="name">field + kill + plan + coda</div>
-          <span class="state">planned</span>
-          <span class="reviewer">claude drafts 15+17, both draft 14+16</span>
+          <span class="state">review</span>
+          <span class="reviewer">14-17 drafted</span>
         </div>
       </div>
       <div class="lead" style="margin-top: 12px; font-size: 14px; color: var(--faint); font-style: italic;">
@@ -863,19 +863,130 @@
       </div>
     </section>
 
-    <section class="slide placeholder" id="cockpit-intro">
-      <div class="eyebrow">07 — operator cockpit · five lanes · <span class="pill amber">phase C · pending</span></div>
-      <h1>Drafter: codex · Reviewer: claude</h1>
-      <div class="lead">
-        The cross-cutting spine. Question-serving layer, not an inbox. Five lanes (decision / context / blocked / review / digest). Not a participant — a feature.
+    <!-- 07 ───────────────────────────────────────────────────────── -->
+    <section class="slide" id="cockpit-intro">
+      <div class="eyebrow">07 — operator cockpit · five lanes</div>
+      <h1>The magic is not "messages". It is prepared judgement at the right moment.</h1>
+      <div class="lead" style="margin-bottom: 22px;">
+        The Cockpit is the missing primitive. It is not an inbox,
+        not a notification centre, and not a ticket queue. It is the
+        surface that says: <b>X is asking about Y in Z room; here is
+        the context; here are the options; here is the recommended
+        path; decide, discuss, interview, or open the room.</b>
+      </div>
+
+      <div class="cockpit">
+        <div class="lane-label decision">▼ needs decision · interrupt now</div>
+        <div class="item">
+          <div class="framing">@codex is asking how to handle a failing release export in antios.</div>
+          <div class="meta-row">antios-release · 2 agents blocked · confidence 0.88 · expires in 20m</div>
+          <div class="context">Archive is clean; export fails because cloud signing cannot access James's ASC credentials. Local export works. Three paths prepared.</div>
+          <div class="opts">
+            <div class="opt"><span class="key">A</span><span class="text"><b>Wait for cloud signing.</b> Low operator effort, uncertain timing.</span></div>
+            <div class="opt recommended"><span class="key">B</span><span class="text"><b>Use local archive + altool.</b> Proven today; requires James's logged-in machine. <span class="pill green">recommended</span></span></div>
+            <div class="opt"><span class="key">C</span><span class="text"><b>Defer release.</b> Safest, misses tonight's phone smoke.</span></div>
+          </div>
+          <div class="actions">
+            <button class="btn">pick A</button>
+            <button class="btn primary">pick B</button>
+            <button class="btn">pick C</button>
+            <button class="btn ghost">discuss</button>
+            <button class="btn ghost">interview</button>
+            <button class="btn ghost">open room</button>
+          </div>
+        </div>
+
+        <div class="lane-label">▼ five lanes · strict interruption budget</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;">
+          <div class="stat blue"><div class="v">1</div><div class="l"><b>Needs decision</b><br>human judgement required</div></div>
+          <div class="stat amber"><div class="v">2</div><div class="l"><b>Needs context</b><br>value, file, paste, preference</div></div>
+          <div class="stat red"><div class="v">3</div><div class="l"><b>Blocked / risky</b><br>stuck, unsafe, surprising</div></div>
+          <div class="stat green"><div class="v">4</div><div class="l"><b>Ready to review</b><br>done with evidence</div></div>
+          <div class="stat amber"><div class="v">5</div><div class="l"><b>Digest</b><br>updates, not interruptions</div></div>
+        </div>
+      </div>
+
+      <h2>What changes when this exists:</h2>
+      <div class="grid grid-3">
+        <div class="card jade"><div class="title">You stop checking rooms</div><div class="body">Ten rooms can run at once. You only open a room when the Cockpit tells you the room needs judgement, context, or review.</div></div>
+        <div class="card jade"><div class="title">Agents learn to ask better</div><div class="body">Open-ended "what should I do?" becomes options with consequences. Bad asks get reframed before they reach you.</div></div>
+        <div class="card jade"><div class="title">The terminal stays behind the glass</div><div class="body">The Cockpit serves judgement. The room serves context. The terminal is still one click away when trust needs inspection.</div></div>
       </div>
     </section>
 
-    <section class="slide placeholder" id="cockpit-schema">
-      <div class="eyebrow">08 — cockpit item schema + distillation · <span class="pill amber">phase C · pending</span></div>
-      <h1>Drafter: codex · Reviewer: claude</h1>
-      <div class="lead">
-        Asker / source / framing / context / options-with-tradeoffs / actions (pick / discuss / interview / open-room / defer). Three-layer distillation: driver prompt → LLM-rewrite → needs_reframing fallback.
+    <!-- 08 ───────────────────────────────────────────────────────── -->
+    <section class="slide" id="cockpit-schema">
+      <div class="eyebrow">08 — cockpit item schema + distillation</div>
+      <h1>A good agent question arrives already worked.</h1>
+      <div class="lead" style="margin-bottom: 20px;">
+        The item is the contract. If an agent wants human attention,
+        it must bring enough structure for the human to decide without
+        reading the whole room. If it cannot produce that structure,
+        the Cockpit marks the item as needing reframing and offers
+        only discuss/interview until the question is made useful.
+      </div>
+
+      <div class="cockpit">
+        <div class="lane-label decision">▼ cockpit item · required fields</div>
+        <div class="grid grid-2">
+          <div class="item">
+            <div class="framing">1. Who + where + exact ask</div>
+            <div class="context"><b>@evolveantgemini</b> in <b>product-story</b> is asking: "Which investor-letter framing should I draft?" Not "thoughts?" Not "what next?" A decision-shaped question.</div>
+          </div>
+          <div class="item">
+            <div class="framing">2. Context already gathered</div>
+            <div class="context">One paragraph: source facts, constraints, deadlines, prior decisions, and why the agent cannot safely proceed without judgement.</div>
+          </div>
+          <div class="item">
+            <div class="framing">3. Options with consequences</div>
+            <div class="context">Two or three paths, each with upside, downside, blast radius. One recommended path if the agent has enough confidence.</div>
+          </div>
+          <div class="item">
+            <div class="framing">4. Actions that respect uncertainty</div>
+            <div class="context"><code>pick</code>, <code>discuss</code>, <code>interview</code>, <code>open-room</code>, <code>route</code>, <code>defer</code>. The human never gets trapped in a bad button.</div>
+          </div>
+          <div class="item">
+            <div class="framing">5. Evidence links</div>
+            <div class="context">PRs, files, terminal transcripts, plan milestones, command output. The briefing is skim-first, inspectable-second.</div>
+          </div>
+          <div class="item">
+            <div class="framing">6. Expiry + confidence</div>
+            <div class="context">Some questions are urgent; some are digest. Confidence controls whether the Cockpit recommends, asks for context, or forces a discussion.</div>
+          </div>
+        </div>
+      </div>
+
+      <h2>The distillation ladder:</h2>
+      <div class="plan-track">
+        <div class="ms active">
+          <div class="id">1</div>
+          <div class="name">driver prompt</div>
+          <span class="state">default</span>
+          <span class="reviewer">ask in options</span>
+        </div>
+        <div class="ms active">
+          <div class="id">2</div>
+          <div class="name">LLM rewrite</div>
+          <span class="state">when messy</span>
+          <span class="reviewer">extract options</span>
+        </div>
+        <div class="ms active">
+          <div class="id">3</div>
+          <div class="name">needs_reframing</div>
+          <span class="state">fallback</span>
+          <span class="reviewer">discuss/interview only</span>
+        </div>
+        <div class="ms passing">
+          <div class="id">4</div>
+          <div class="name">served item</div>
+          <span class="state">ready</span>
+          <span class="reviewer">interrupt budget earned</span>
+        </div>
+      </div>
+      <div class="lead" style="margin-top: 16px; font-size: 16px;">
+        This is the real UX move: ANT does not merely notify you that
+        agents are stuck. It turns "stuck" into a prepared act of
+        judgement.
       </div>
     </section>
 
@@ -940,11 +1051,84 @@
       </div>
     </section>
 
-    <section class="slide placeholder" id="home">
-      <div class="eyebrow">10 — the new home page · <span class="pill amber">phase D · pending</span></div>
-      <h1>Drafter: codex · Reviewer: claude</h1>
-      <div class="lead">
-        /home is the Cockpit, not the session list. Rooms become small cards below the briefings queue. The session-list-as-homepage era ends.
+    <!-- 10 ───────────────────────────────────────────────────────── -->
+    <section class="slide" id="home">
+      <div class="eyebrow">10 — the new home page · operator briefing</div>
+      <h1><code>/home</code> is not a room list. It is the operator's morning briefing.</h1>
+      <div class="lead" style="margin-bottom: 22px;">
+        The current first impression asks: "Which room do you want to
+        inspect?" The product-story first impression asks: "What needs
+        your judgement, what is risky, what is ready, and what can keep
+        running without you?" Rooms still exist, but they move below the
+        attention layer.
+      </div>
+
+      <div class="cockpit">
+        <div class="lane-label decision">▼ today · 3 things worth your attention</div>
+        <div class="item">
+          <div class="framing">Decision · @codex is asking about IPv6 bind behaviour in deck publishing.</div>
+          <div class="meta-row">product-story · 2 agents active · recommendation prepared · expires in 18m</div>
+          <div class="context">The proxy path works over curl but Chrome exposes a client-router 404. The choice is whether to patch the Open-Slide base path or publish single-file HTML.</div>
+          <div class="opts">
+            <div class="opt"><span class="key">A</span><span class="text"><b>Patch the deck proxy.</b> More reusable, more moving parts.</span></div>
+            <div class="opt recommended"><span class="key">B</span><span class="text"><b>Publish single-file HTML.</b> Boring, durable, works on Tailscale. <span class="pill green">recommended</span></span></div>
+            <div class="opt"><span class="key">C</span><span class="text"><b>Keep both.</b> Useful later, confusing now.</span></div>
+          </div>
+          <div class="actions">
+            <button class="btn primary">pick B</button>
+            <button class="btn ghost">discuss</button>
+            <button class="btn ghost">open room</button>
+          </div>
+        </div>
+
+        <div class="grid grid-3" style="margin-top: 12px;">
+          <div class="item" style="margin: 0;">
+            <div class="framing">Context needed · investor letter</div>
+            <div class="context">Gemini needs your preference: direct thesis, cautious board memo, or both. Interview available.</div>
+          </div>
+          <div class="item" style="margin: 0;">
+            <div class="framing">Ready to review · server-split rollup</div>
+            <div class="context">Claim, diff, tests, blocker trail and evidence bundled. Approve / request changes.</div>
+          </div>
+          <div class="item" style="margin: 0;">
+            <div class="framing">Risk · stale working claim</div>
+            <div class="context">A room posted "working" 24m ago but emitted no heartbeat. Check script attached.</div>
+          </div>
+        </div>
+      </div>
+
+      <h2 style="margin-top: 26px;">Below attention: rooms keep breathing.</h2>
+      <div class="grid grid-3">
+        <div class="card blue">
+          <div class="title">EvoluteAnt</div>
+          <div class="body"><b>5 agents</b> · 2 working · 1 reviewing · latest: phase C blocker cleared. Open only if you want the full thread.</div>
+        </div>
+        <div class="card blue">
+          <div class="title">antios-release</div>
+          <div class="body"><b>3 agents</b> · build 55 valid · waiting on phone smoke. No action until James installs TestFlight.</div>
+        </div>
+        <div class="card blue">
+          <div class="title">ops-comms</div>
+          <div class="body"><b>2 agents</b> · digest only · one artefact updated. Quiet mode until 17:00.</div>
+        </div>
+      </div>
+
+      <div class="grid grid-3" style="margin-top: 22px;">
+        <div class="stat green"><div class="v">7</div><div class="l"><b>agents working</b><br>heartbeat live</div></div>
+        <div class="stat amber"><div class="v">2</div><div class="l"><b>waiting on judgement</b><br>served as options</div></div>
+        <div class="stat blue"><div class="v">0</div><div class="l"><b>false red badges</b><br>stale needs-input cleared</div></div>
+      </div>
+
+      <h2>Home-page rule:</h2>
+      <div class="grid grid-2">
+        <div class="card jade">
+          <div class="title">Surface attention, not activity</div>
+          <div class="body">Activity belongs in rooms and timelines. The home surface is for decisions, risks, review bundles, and the small amount of context a human can act on.</div>
+        </div>
+        <div class="card red">
+          <div class="title">Never make the human poll ten rooms</div>
+          <div class="body">If the only way to know what matters is to open every room, the product has failed. The Cockpit earns its keep by making room state legible from outside the room.</div>
+        </div>
       </div>
     </section>
 
@@ -1007,11 +1191,64 @@
       </div>
     </section>
 
-    <section class="slide placeholder" id="workroom">
-      <div class="eyebrow">12 — it's not chat, it's a workroom · <span class="pill amber">phase D · pending</span></div>
-      <h1>Drafter: codex · Reviewer: claude</h1>
-      <div class="lead">
-        Primitives: rooms, participants (humans + agents that TALK), features (decks / plans / asks / artefacts / Cockpit — SERVE), pairs, breaks, focus, evidence.
+    <!-- 12 ───────────────────────────────────────────────────────── -->
+    <section class="slide" id="workroom">
+      <div class="eyebrow">12 — it's not chat, it's a workroom</div>
+      <h1>Chat is the transport. The room is the operating surface.</h1>
+      <div class="lead" style="margin-bottom: 22px;">
+        If ANT is described as "Slack for agents", it loses. Slack is
+        messages. ANT is a room that can hold people, agents, tools,
+        plans, evidence, artefacts, questions, context breaks, working
+        state, and terminal control without collapsing them into one
+        endless scroll.
+      </div>
+
+      <div class="cockpit">
+        <div class="lane-label">▼ workroom primitives · category discipline</div>
+        <div class="grid grid-3">
+          <div class="item" style="margin: 0;">
+            <div class="framing">Participants TALK</div>
+            <div class="context">Humans, agents, MCP clients — anything you can @mention and that can answer belongs in participants.</div>
+          </div>
+          <div class="item" style="margin: 0;">
+            <div class="framing">Features SERVE</div>
+            <div class="context">Deck viewer, plans, artefacts, asks, Cockpit, diagnostics. They are room capabilities, not pretend people.</div>
+          </div>
+          <div class="item" style="margin: 0;">
+            <div class="framing">Plans hold the contract</div>
+            <div class="context">Milestones, blockers, acceptance flips, tests. The room knows what "done" means before an agent claims it.</div>
+          </div>
+          <div class="item" style="margin: 0;">
+            <div class="framing">Questions become options</div>
+            <div class="context">Asks are not "ping James". They are structured judgement requests with context, trade-offs, actions, confidence and expiry.</div>
+          </div>
+          <div class="item" style="margin: 0;">
+            <div class="framing">Context breaks reset the model</div>
+            <div class="context">The human history remains visible. The agent context can start clean. The break is a first-class boundary, not a stray line in chat.</div>
+          </div>
+          <div class="item" style="margin: 0;">
+            <div class="framing">Terminals stay recoverable</div>
+            <div class="context">Read-only viewer by default, controller behind one deliberate tap. The room abstracts without removing the escape hatch.</div>
+          </div>
+        </div>
+      </div>
+
+      <h2 style="margin-top: 26px;">The product claim:</h2>
+      <div class="grid grid-2">
+        <div class="card jade">
+          <div class="title">A room can hold work</div>
+          <div class="body">Not just messages about the work. The work itself: plans, code review evidence, decks, files, decisions, asks, live status, and machine-safe access.</div>
+        </div>
+        <div class="card jade">
+          <div class="title">A human can leave and return</div>
+          <div class="body">The room continues. Agents keep working. The Cockpit catches the moments that need you and turns the rest into digestible state.</div>
+        </div>
+      </div>
+
+      <div class="lead" style="margin-top: 18px; font-size: 16px; color: var(--faint);">
+        This is why "participants vs features" matters. A deck viewer
+        in the participant list is not a small UI bug; it tells the user
+        the room does not understand what is alive.
       </div>
     </section>
 
