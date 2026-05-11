@@ -71,9 +71,22 @@ function rewriteHtml(slug: string, html: string): string {
     .replaceAll("import('/", `import('${prefix}/`);
 }
 
-function isLoopbackDeckHost(event: RequestEvent): boolean {
-  const hostname = event.url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+function hostHeaderHostname(host: string | null): string {
+  if (!host) return '';
+  if (host.startsWith('[')) {
+    const close = host.indexOf(']');
+    return close > 0 ? host.slice(1, close) : host;
+  }
+  return host.split(':')[0] ?? '';
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  hostname = hostname.replace(/^\[|\]$/g, '').toLowerCase();
   return hostname === 'localhost' || hostname === '::1' || hostname === '127.0.0.1' || hostname.startsWith('127.');
+}
+
+function isLoopbackDeckHost(event: RequestEvent): boolean {
+  return isLoopbackHostname(event.url.hostname) || isLoopbackHostname(hostHeaderHostname(event.request.headers.get('host')));
 }
 
 function hasDeckViewAccess(event: RequestEvent, slug: string, deck: DeckMeta): boolean {

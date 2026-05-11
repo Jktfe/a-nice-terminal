@@ -278,6 +278,28 @@ describe('deck file API helpers', () => {
     expect(await response.text()).toContain('local deck');
   });
 
+  it('uses the loopback Host header when adapter-node reports a different URL hostname', async () => {
+    globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(url)).toBe('http://127.0.0.1:5176/slides');
+      expect((init?.headers as Headers).get('host')).toBe('localhost:5176');
+      return new Response('<main>host header deck</main>', {
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      });
+    }) as typeof fetch;
+
+    const response = await proxyDeck({
+      params: { slug: 'team-deck', path: 'slides' },
+      url: new URL('https://ant.example.test/deck/team-deck/slides'),
+      request: new Request('https://ant.example.test/deck/team-deck/slides', {
+        headers: { host: '127.0.0.1:6458' },
+      }),
+      cookies: { get: () => undefined },
+    } as any);
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('host header deck');
+  });
+
   it('keeps non-loopback deck viewer requests gated without a deck cookie', async () => {
     const response = await proxyDeck({
       params: { slug: 'team-deck', path: 'slides' },
