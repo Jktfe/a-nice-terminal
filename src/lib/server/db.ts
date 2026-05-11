@@ -1858,6 +1858,8 @@ export const queries = {
       now_ms ?? Date.now(),
       slug,
     ),
+  setDeckTouchedAt: (slug: string, now_ms?: number) =>
+    prepare(`UPDATE decks SET updated_at = ? WHERE slug = ?`).run(now_ms ?? Date.now(), slug),
   getDeck: (slug: string) =>
     prepare(`SELECT * FROM decks WHERE slug = ?`).get(slug),
   listDecks: () =>

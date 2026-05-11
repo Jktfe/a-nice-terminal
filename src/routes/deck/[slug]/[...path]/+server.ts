@@ -1,5 +1,6 @@
 import { error, type RequestEvent } from '@sveltejs/kit';
-import { cspForTrustMode, injectSafeBanner, readDeckMeta, type DeckMeta } from '$lib/server/decks';
+import { cspForTrustMode, injectSafeBanner, injectTrustedReloader, readDeckMeta, type DeckMeta } from '$lib/server/decks';
+import { ensureDeckWatcher } from '$lib/server/deck-watcher';
 import { hasDeckCookie } from '$lib/server/deck-view-auth';
 import { renderDeckLogin } from '$lib/server/deck-login-page';
 
@@ -74,6 +75,9 @@ async function proxyDeck(event: RequestEvent): Promise<Response> {
   const deck = readDeckMeta(slug);
   if (!deck) throw error(404, 'deck not found');
   if (!hasDeckCookie(event.cookies, slug, deck)) return renderDeckLogin(slug);
+  // B3 of main-app-improvements-2026-05-10 — lazy-start a chokidar
+  // watcher on first proxy request for this deck. Idempotent.
+  ensureDeckWatcher(deck);
   if (!deck.dev_port) {
     return new Response(`Deck dev server is not registered. Start it in ${deck.deck_dir} and PATCH dev_port.`, {
       status: 503,
@@ -94,7 +98,11 @@ async function proxyDeck(event: RequestEvent): Promise<Response> {
   const contentType = response.headers.get('content-type') || '';
   if (contentType.includes('text/html')) {
     let html = rewriteHtml(slug, await response.text());
-    if (deck.trust_mode === 'safe') html = injectSafeBanner(slug, html);
+    if (deck.trust_mode === 'safe') {
+      html = injectSafeBanner(slug, html);
+    } else {
+      html = injectTrustedReloader(slug, html);
+    }
     headers.delete('content-length');
     return new Response(html, { status: response.status, statusText: response.statusText, headers });
   }

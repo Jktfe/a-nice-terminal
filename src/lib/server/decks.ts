@@ -67,6 +67,45 @@ export function cspForTrustMode(mode: DeckTrustMode): string {
   return mode === 'safe' ? SAFE_CSP : TRUSTED_CSP;
 }
 
+/** B3 of main-app-improvements-2026-05-10 — auto-reload script
+ *  injected into Trusted-mode deck HTML responses. Polls the deck's
+ *  `updated_at` via /api/decks/<slug> every 1500ms; reloads the page
+ *  when the value increases. The watcher (deck-watcher.ts) writes
+ *  fresh updated_at via setDeckTouchedAt within ~300ms of any file
+ *  change, so the reload lands well under 2s end-to-end.
+ *
+ *  Skipped for Safe-mode decks: their CSP blocks script-src 'none'
+ *  so this script wouldn't run, and operators in Safe mode want to
+ *  inspect content without surprise reloads anyway. */
+export function injectTrustedReloader(slug: string, html: string): string {
+  const url = `/api/decks/${encodeURIComponent(slug)}`;
+  const script =
+    `<script data-ant-deck-reloader>` +
+    `(function(){` +
+    `var url=${JSON.stringify(url)};` +
+    `var lastTs=0;` +
+    `var inFlight=false;` +
+    `function tick(){` +
+    `if(inFlight||document.hidden)return;` +
+    `inFlight=true;` +
+    `fetch(url,{cache:'no-store'}).then(function(r){return r.ok?r.json():null;}).then(function(d){` +
+    `inFlight=false;` +
+    `if(!d||!d.deck)return;` +
+    `var ts=Number(d.deck.updated_at)||0;` +
+    `if(lastTs===0){lastTs=ts;return;}` +
+    `if(ts>lastTs){lastTs=ts;location.reload();}` +
+    `}).catch(function(){inFlight=false;});` +
+    `}` +
+    `setInterval(tick,1500);` +
+    `tick();` +
+    `})();` +
+    `</script>`;
+  if (html.includes('</body>')) {
+    return html.replace('</body>', `${script}</body>`);
+  }
+  return html + script;
+}
+
 /** B2 of main-app-improvements-2026-05-10 — when the deck is rendered
  *  in Safe mode the proxy injects this static HTML banner so the
  *  operator can see what happened and one-click trust the artefact.
