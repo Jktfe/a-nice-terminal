@@ -33,6 +33,12 @@ export interface RouteMessage {
   replyTo: string | null;
   msgType: string;
   meta?: string | null;
+  // Phase C of server-split-2026-05-11 — set false by the catch-up
+  // loop when the message age exceeds the 30s PTY-injection window.
+  // When false, route() will not pick the pty-injection adapter, so
+  // stale replays cannot inject buffered text into running agents.
+  // Defaults to true (live path).
+  allowPtyInject?: boolean;
 }
 
 export interface RouteTarget {
@@ -531,7 +537,15 @@ export class MessageRouter {
 
     // ── 4. Targeted @handle → inject into that terminal's PTY ──────────
     if (message.target && message.target !== '@everyone') {
-      const ptyAdapter = this.adapters.find(a => a.name === 'pty-injection');
+      // Phase C of server-split-2026-05-11 — when the catch-up loop
+      // replays a message older than 30s, allowPtyInject is false and
+      // we deliberately leave ptyAdapter null so the existing
+      // canDeliver+deliver path naturally skips PTY injection. Stale
+      // typed input must not land in a running agent's stdin.
+      const allowPty = message.allowPtyInject !== false;
+      const ptyAdapter = allowPty
+        ? this.adapters.find(a => a.name === 'pty-injection')
+        : null;
       const mcpAdapter = this.adapters.find(a => a.name === 'mcp-channel');
 
       // Room-scoped alias lookup first, then fall back to global handle
@@ -634,7 +648,13 @@ export class MessageRouter {
     //    linked chat (but never back to the originating chatroom).
     const isLinkedChat = (queries.getTerminalsByLinkedChat(message.sessionId) as any[]).length > 0;
     if (!isLinkedChat) {
-      const ptyAdapter = this.adapters.find(a => a.name === 'pty-injection');
+      // Phase C of server-split-2026-05-11 — replay-mode messages
+      // older than 30s set allowPtyInject=false to skip the fan-out
+      // path. The null adapter falls through the if-block below.
+      const allowPty = message.allowPtyInject !== false;
+      const ptyAdapter = allowPty
+        ? this.adapters.find(a => a.name === 'pty-injection')
+        : null;
       if (ptyAdapter) {
         // Room-scoped participants only — no global fallback
         const terminals: any[] = (queries.getRoutableMembers(message.sessionId) as any[])
