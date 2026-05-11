@@ -113,30 +113,91 @@ surface, source room one click away.
 
 ### Item schema
 
-Each Router item is a structured object — NOT a raw agent message:
+Each Router item is a structured **options pane** with pre-rendered
+trade-offs — NOT a yes/no button strip and NOT a raw agent monologue.
+The agent (or the distillation layer) has done the option-generation
++ trade-off articulation BEFORE the item reaches the cockpit.
 
 ```json
 {
   "id": "ask-...",
   "lane": "decision | context | blocked | update | review",
-  "one_line_question": "Codex wants to merge phase D — blocker fixed, tests green. OK?",
-  "recommended_answer": "approve",
-  "why_it_matters": "phase D is the final structural cure for the IPv6 deck bug",
-  "source_room_id": "...",
+  "asker": "@evolveantcodex",
+  "source_room_id": "server-split-2026-05-11",
+  "one_line_framing": "Codex is asking how to fix the deck IPv6 bind issue.",
+  "context_paragraph": "Open-Slide binds to ::1, ANT proxyDeck calls 127.0.0.1, fetch fails. Server-side fix needed; three viable shapes.",
+  "options": [
+    {
+      "label": "A — keep IPv4 bind only",
+      "consequence": "simpler, breaks IPv6-only Tailscale users",
+      "recommended": false
+    },
+    {
+      "label": "B — dual-stack 127.0.0.1 + ::1",
+      "consequence": "safer, doubles listening surface, codex has tested",
+      "recommended": true
+    },
+    {
+      "label": "C — env-flag toggle",
+      "consequence": "flexible, adds config burden",
+      "recommended": false
+    }
+  ],
+  "actions": [
+    "pick:A", "pick:B", "pick:C",
+    "discuss",        // open paired chat with @evolveantcodex
+    "interview",      // start interview-lite voice/text session on this question
+    "open-room",      // jump into the source room directly
+    "defer"           // snooze the item, comes back in N minutes
+  ],
   "evidence_links": ["pr#41", "plan:server-split-2026-05-11:phase-d"],
   "confidence": 0.91,
-  "expiry_at": "2026-05-11T22:00:00Z",
-  "actions": ["approve", "defer", "reject", "route-to-discussion", "open-room"]
+  "expiry_at": "2026-05-11T22:00:00Z"
 }
 ```
 
+**Why this shape:**
+
+The cockpit pre-renders the trade-offs. James skims, decides, taps.
+If he doesn't have enough context, `discuss` drops him into a paired
+chat with the asker. If the question is fuzzy and needs voice,
+`interview` starts interview-lite mode. The fact that `discuss` and
+`interview` are ALWAYS available is what makes the pre-rendered
+options safe — James can never be forced into a wrong choice because
+he can always escalate.
+
+**Agent-side protocol requirement:** drivers and prompts must
+encourage agents to surface decision points as options-with-trade-offs,
+not open questions. If an agent says "what should I do?" the
+distillation layer either (a) auto-generates 2-3 options via LLM-rewrite,
+or (b) marks the item with `needs_reframing: true` and surfaces only
+`discuss` + `interview` actions until the agent reframes.
+
+This is more than a UX schema — it's a **work discipline**. Cockpit
+items teach agents to think in options, the way cap-2 plans teach
+them to think in milestones.
+
 ### Two open design questions (need James's call)
 
-**(a) Distillation step.** Rule-based templates per ask kind ship
-faster, easier to debug. LLM-rewrite from the source message scales
-better, handles weird agent monologues, costs tokens. Recommendation:
-ship rule-based first, layer LLM-rewrite later as enhancement on
-items where the template falls back to "see full message."
+**(a) Distillation step.** Updated post-James-feedback: rule-based
+templates are not enough on their own, because the cockpit item is
+an options-pane not a yes/no. We need agents to generate options
++ trade-offs at source. Options:
+- **(i) Driver-level enforcement** — every driver appends a system
+  prompt instructing agents "when asking the human a question, frame
+  it as 2-3 options with consequences, not an open-ended ask."
+  Cheap, ships fastest, may not stick for every driver/model.
+- **(ii) Distillation-layer LLM-rewrite** — when an agent asks an
+  open question, a separate LLM call rewrites it into the
+  options-shape before it hits the cockpit. Robust, costs tokens,
+  needs an opt-in model preference.
+- **(iii) `needs_reframing` fallback** — surface raw question with
+  only `discuss` and `interview` actions, force James to escalate.
+  Safest, ugliest UX, useful as a final fallback under (i) + (ii).
+
+Recommendation: ship all three layered — (i) by default, (ii) when
+the source message is over N tokens or contains no enumerated
+options, (iii) as the never-fail fallback.
 
 **(b) Cockpit surface.** Options: (i) bottom bar on every chat UI,
 (ii) dedicated `/home` page with the Router as primary content,
@@ -156,26 +217,37 @@ desktop). Lands on `/home` — the Router. They see:
   agents thinking), ops-comms (amber, 1 agent waiting), product-story
   (blue, 2 agents drafting).
 
-**Frame 2 (0:10).** They tap the top decision: "Codex wants to merge
-phase D — blocker fixed, tests green. OK?" They see the one-line
-question, the recommended "approve", three buttons. They tap
-approve.
+**Frame 2 (0:10).** They tap the top decision item.
+> *"Codex is asking how to fix the deck IPv6 bind issue."*
+> Context: one paragraph.
+> **Three options:** A keep IPv4 only (breaks IPv6 users), B
+> dual-stack (recommended, codex tested it), C env-flag (more
+> config). Plus `discuss` and `interview` as escape hatches.
+>
+> James reads the trade-offs in 5 seconds, taps **pick:B**.
 
-**Frame 3 (0:11).** The Router posts "approved by @james" to the
-source room, removes the item, recomputes the queue. Now 2 items
-remain.
+**Frame 3 (0:15).** Cockpit posts "@james picked option B — dual-
+stack" into the source room. Codex's agent picks up the answer and
+starts implementing. Item disappears from the queue.
 
-**Frame 4 (0:15).** Second item: "Stevo asked who should sign off
-the audit memo by Friday." Recommended answer: "you (no other
-authorised signer)." Tap "approve / I'll do it Friday."
+**Frame 4 (0:20).** Second item:
+> *"Stevo is asking whether you'd prefer to send the audit memo as
+> A) Friday morning email, B) Friday afternoon Loom, or C) book
+> 15min Monday."*
+> Recommended: A (lowest friction). Plus `discuss` / `interview`.
+>
+> James taps **pick:A**. Cockpit posts "A — Friday AM email"
+> into the ops-comms room. Stevo's agent drafts the email.
 
-**Frame 5 (0:20).** Third item: "server-split lane completed, ready
-for your review." Tap "open the room." Router fades; chat history
-loads with the cap-2 review bundle pre-rendered at the top.
+**Frame 5 (0:30).** Third item:
+> *"server-split lane completed — ready for your review."*
+> Bundle pre-rendered: claim + diff + tests + blockers + evidence.
+> No options needed; this is a review-ready item, lane 5.
+>
+> James taps **open-room**. Chat loads with the bundle at the top.
 
-**Frame 6 (0:40).** James reads the review bundle (claim + diff +
-tests + blockers + evidence). Approves. Returns to `/home`. Queue is
-empty.
+**Frame 6 (0:40).** James reads, approves, returns to `/home`.
+Queue is empty.
 
 **Total time:** 40 seconds. Three rooms unblocked. Zero agent
 monologues read.
