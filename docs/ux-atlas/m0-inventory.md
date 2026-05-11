@@ -8,6 +8,7 @@ what exists before the redesign, then maps each surface into the product model
 that should appear in Pencil.
 
 Detailed route controls: `docs/ux-atlas/m0-route-control-matrix.md`.
+Overlay and mobile states: `docs/ux-atlas/m0-overlay-mobile-states.md`.
 
 ## Locked Rules
 

@@ -7,6 +7,9 @@ This is the route-by-route control inventory. It complements
 `m0-inventory.md` by naming the controls, their result surfaces, mobile
 behavior, and known category leaks.
 
+Overlay-specific states are expanded in
+`docs/ux-atlas/m0-overlay-mobile-states.md`.
+
 ## Notation
 
 | Label | Meaning |
