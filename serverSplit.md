@@ -1,8 +1,16 @@
 # Three-tier refactor: persist / process / visualize
 
+> **Citations note.** Line numbers below are anchored to `origin/main` at
+> the time of writing (post `fc95208`) and will drift as code lands. The
+> *structural* references — file paths, function names, table names,
+> column names — are the durable source of truth. If you find a cite
+> off by a few lines, trust the structure and the grep; the implementer
+> for each phase is expected to re-pin line numbers in their commit
+> message rather than chase them in this doc.
+
 ## Context
 
-The CLI (`ant chat send …`) currently cannot send messages when the SvelteKit server is offline. Today it POSTs to `/api/sessions/<id>/messages` (`cli/commands/chat.ts:171-172` → `cli/lib/api.ts:47`); if the fetch fails the CLI exits with an error and the message is dropped — no local queue, no DB write. The database (`~/.ant-v3/ant.db`, WAL mode at `src/lib/server/db.ts:95`, `busy_timeout=5000` at line 97) lives on the server side only.
+The CLI (`ant chat send …`) currently cannot send messages when the SvelteKit server is offline. Today it POSTs to `/api/sessions/<id>/messages` — the main send at `cli/commands/chat.ts:358`, the file-share variant at `cli/commands/chat.ts:172`, and the linked-chat variant at `cli/commands/chat.ts:393` (all flow through `cli/lib/api.ts:47`); if the fetch fails the CLI exits with an error and the message is dropped — no local queue, no DB write. The database (`~/.ant-v3/ant.db`, WAL mode at `src/lib/server/db.ts:102`, `busy_timeout=5000` at line 104) lives on the server side only.
 
 The user wants a cleaner architecture, not just an offline patch — a **data server** and a **visual server** as separable concerns. Also explicitly: the current CLI is slow because every send is a full HTTP round-trip to a SvelteKit server that runs all 17 POST-handler steps synchronously; and the CLI should integrate better with other terminals on the host.
 
@@ -14,7 +22,7 @@ The user wants a cleaner architecture, not just an offline patch — a **data se
 
 **Terminal integration angle.** Once any process can write through Tier 1, terminal-side integrations (`ant-capture`, `ant-probe`, `ant-channel`, future shell hooks) can post events directly without an HTTP server detour. The data server picks them up via the same `broadcast_state='pending'` handoff and fans out.
 
-Today the POST handler at `src/routes/api/sessions/[id]/messages/+server.ts:130-463` mashes all three concerns into one path. ~11 of the steps are pure DB mutations (replicable in any process); ~6 are in-memory side-effects that only the live server can execute (WS broadcast at `+server.ts:442-454`, channel HTTP fanout at `+server.ts:414-440`, agent event bus emission at `+server.ts:459`, global ask broadcast at `+server.ts:461`, focus queue at `message-router.ts:544-550`, PTY injection at `message-router.ts`).
+Today the POST handler at `src/routes/api/sessions/[id]/messages/+server.ts:130-481` mashes all three concerns into one path. ~11 of the steps are pure DB mutations (replicable in any process); ~6 are in-memory side-effects that only the live server can execute (WS broadcast at `+server.ts:442-454`, channel HTTP fanout at `+server.ts:414-440`, agent event bus emission at `+server.ts:459`, global ask broadcast at `+server.ts:461`, focus queue at `message-router.ts:544-550`, PTY injection at `message-router.ts`).
 
 This refactor splits them, with a `broadcast_state` column on `messages` serving as the handoff: Tier 1 inserts with `'pending'`; Tier 2 flips to `'done'` after running side-effects, and replays anything still `'pending'` on startup. Immediate outcome: CLI can write directly to the local DB even when the server is offline, and the server catches up the live fan-out when it returns.
 
@@ -103,7 +111,31 @@ Tier 2 lives **inside the SvelteKit server process for now** (Phase A–D). A la
   }
   ```
 
-- **`cli/commands/chat.ts:171-172`** — replace the `api.post(…/messages…)` with a helper:
+- **`isLocalServer(serverUrl)` — new helper in `cli/lib/api.ts`.** The CLI's direct-write branch fires only when the target server is on the same host AS THE PROCESS WRITING TO ant.db. The predicate is intentionally narrow:
+
+  ```ts
+  export function isLocalServer(serverUrl: string): boolean {
+    try {
+      const u = new URL(serverUrl);
+      const host = u.hostname.toLowerCase();
+      // Loopback addresses
+      if (host === '127.0.0.1' || host === 'localhost' || host === '::1') return true;
+      // mDNS .local hostnames resolve via the local Bonjour responder; they
+      // CAN be a different physical host on the LAN. Excluded by default so
+      // a CLI on one Mac does not direct-write to a sibling's ant.db.
+      // Tailscale (.ts.net) is explicitly NOT local — the host's filesystem
+      // is not addressable from a different node on the tailnet even though
+      // the URL looks reachable. Tailscale callers go through HTTP.
+      return false;
+    } catch {
+      return false;
+    }
+  }
+  ```
+
+  The rule: direct-write requires *the same kernel writing to the same ant.db file*. Anything that traverses a network — including `.ts.net`, `.local`, LAN IPs, public domains — keeps the HTTP path. Misclassifying a tailnet peer as "local" would silently split-brain the database.
+
+- **`cli/commands/chat.ts:358`** — replace the main `api.post(…/messages…)` with a helper (and mirror the same branch in `sendFileMessage` at `:172` and the linked-chat post at `:393`):
   ```ts
   const isLocal = isLocalServer(ctx.serverUrl);
   if (isLocal && !roomToken) {
@@ -145,7 +177,12 @@ export interface MessageInput {
   msgType?: string;
   meta?: Record<string, any> | string;
   asks?: string[];
-  source: 'http' | 'cli' | 'mcp' | 'replay';
+  // `source` identifies the caller of writeMessage(). The value is stored
+  // on the message row's meta for provenance and gates the direct-write
+  // authorization path (see Risks → Authorization). `'replay'` is NOT a
+  // valid input to writeMessage — replays act on existing rows via
+  // runSideEffects({replay:true}); the union below intentionally omits it.
+  source: 'http' | 'cli' | 'mcp';
 }
 
 export interface WriteMessageResult {
@@ -172,6 +209,8 @@ export async function replayPendingBroadcasts(maxAgeMs?: number): Promise<number
 ```
 
 ## Phased rollout — each phase ships independently
+
+**Phases land in order.** A unlocks B (B imports `WriteMessageResult` from A); B unlocks C (C imports `runSideEffects` from B); C unlocks D (D needs the notify endpoint and the catch-up loop in place before the CLI can rely on them). What "independently shippable" means here is that each phase produces a working, reviewable, revertable PR — *not* that A and B can be developed in parallel by two contributors. Concurrent work on A and B risks drift on the `WriteMessageResult` contract; the cap-2 protocol should keep one contributor on each phase at a time.
 
 **Phase A — Extract persist lib (no behavior change).**
 1. Add `broadcast_state` + `broadcast_attempts` columns + partial index in `src/lib/server/db.ts:230-235`.
@@ -216,9 +255,18 @@ export async function replayPendingBroadcasts(maxAgeMs?: number): Promise<number
 - **PTY injection of stale messages.** `messageRouter.route` injects content into running agent PTYs (`message-router.ts:481-498`). Replaying a 6-hour-old message would inject stale input. **Mitigation:** `routingHints.allowPtyInject = (ageMs < 30_000)`; replay-mode skips terminal_session deliveries beyond that threshold.
 - **WS broadcast double-fire.** Less harmful — browser clients already dedupe by message id, but explicit: replays still broadcast WS events.
 - **SQLite cross-process writes.** WAL mode + `busy_timeout=5000` already in place (`db.ts:95-97`). Risk is the FTS triggers (`db.ts:248-258`) firing from both processes. `better-sqlite3`/`bun:sqlite` handle this safely under WAL, but verify with `tests/integration/cli-server-offline.test.ts` (see below).
-- **Authorization for direct-write.** HTTP enforces `assertCanWrite` via bearer token kind (`room-scope.ts:27`). CLI direct-write bypasses HTTP. **Mitigation:** the persist lib enforces equivalent checks for `source: 'cli'` — only local invocation is allowed, gated on filesystem permissions of `~/.ant-v3/`. Remote rooms continue using HTTP.
+- **Authorization for direct-write.** HTTP enforces `assertCanWrite` via bearer token kind (`room-scope.ts:27`). CLI direct-write bypasses HTTP entirely, so the persist lib must enforce an equivalent gate for `source: 'cli'`. Filesystem permissions on `~/.ant-v3/` are necessary but not sufficient — the same logged-in user owns multiple rooms with different membership rules, so a per-write check is required.
+
+  **Mitigation:** `writeMessage` with `source: 'cli'` runs three checks before insert:
+
+  1. **Caller identity.** Resolve the CLI actor from `~/.ant/identity` (handle file written by `ant register --handle @x`); if absent, default to the unauthenticated `cli` actor and treat the call as anonymous.
+  2. **Room membership.** Look up `chat_room_members.WHERE room_id=? AND session_id=? OR handle=?`; if the resolved actor is not a member of the target room, the write is rejected with the same error shape `assertCanWrite` produces for HTTP bearer failures. Owner-room writes (`sessions.owner_session_id = caller_session_id`) skip the membership check, matching HTTP semantics.
+  3. **Source-validity.** `source` must be one of the values the persist lib accepts (see the next clarification). `source: 'cli'` from a non-local hostname (e.g. an SSH'd-in shell pointing at a remote server URL) is rejected because the predicate above already filters those out in `cli/commands/chat.ts`; this is a belt-and-braces second check inside `writeMessage`.
+
+  Remote rooms (room-scoped tokens, non-localhost server URLs) keep the HTTP path and inherit the existing `assertCanWrite` flow unchanged.
 - **Module resolution from CLI into `src/lib/persist`.** CLI has its own `tsconfig`. **Mitigation:** keep persist as `.ts`; `tsx`/`bun` resolves cross-package paths. Verify with the CLI build pipeline (`cli/index.ts`) before merging Phase D.
 - **`agent_response` path is special** (`+server.ts:166-218`). Keep it in the HTTP handler — it depends on `handleResponse()` which holds in-memory event-bus state. Tier 1 will not handle it.
+- **Ask creation is Tier 1, ask broadcast is Tier 2.** `inferAskFromMessage` and the consent-gate path live in `src/lib/persist/ask-writes.ts` — ask rows are written in the same DB transaction as the message they belong to, so a partial state (message in DB, ask missing) is impossible. `runSideEffects` only re-*broadcasts* the WS `ask_created` envelope on the message's already-created ask rows; it must NEVER call `inferAskFromMessage` again. The replay path explicitly skips ask inference: a 6h-old pending row that's been replayed wakes the live view via WS but does not create a second ask row. This is load-bearing — a Tier-2 contributor adding "let's just re-run inference for safety" would introduce a silent duplicate-ask bug.
 
 ## Verification
 
