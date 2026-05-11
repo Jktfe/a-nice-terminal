@@ -17,7 +17,7 @@
 // that this change is purely a refactor with no behaviour delta.
 
 import { nanoid } from 'nanoid';
-import { queries } from '$lib/server/db';
+import { queries, runInTransaction } from '$lib/server/db';
 import { resolveSenderSession } from './sender.js';
 import { normalizeMessageInput } from './normalize-input.js';
 import { writeAsksForMessage } from './ask-writes.js';
@@ -26,6 +26,19 @@ import type { MessageInput, PersistedMessage, WriteMessageResult } from './types
 import { WriteMessageError } from './types.js';
 
 export function writeMessage(input: MessageInput): WriteMessageResult {
+  // Phase A gate: only HTTP-sourced writes are accepted until Phase D
+  // wires the direct-write path with proper auth (M0 clarification 3:
+  // resolve actor from ~/.ant/identity + verify chat_room_members
+  // membership + enforce source-validity). Failing closed is safer
+  // than a loud TODO — a `source: 'cli'` import sneaking in would
+  // currently bypass HTTP's assertCanWrite entirely.
+  if (input.source !== 'http') {
+    throw new WriteMessageError(
+      `writeMessage source='${input.source}' is not yet supported (Phase D wires CLI/MCP); only 'http' is accepted`,
+      400,
+    );
+  }
+
   // Validate reply_to BEFORE normalization throws on its own checks so
   // the existing POST-handler's reply_to 400 mirrors current behaviour.
   if (input.replyTo) {
@@ -47,15 +60,11 @@ export function writeMessage(input: MessageInput): WriteMessageResult {
     !queries.hasPriorMessageFromSender(norm.sessionId, norm.senderId);
 
   // Wrap the persist + ask write + meta rewrite + membership upsert in
-  // a single transaction so a crash mid-write leaves no half-state.
-  // The previous inline path ran each query autocommitted; this is a
-  // small correctness improvement, not a semantic change.
-  const tx = (queries as any).__txWriteMessage as
-    | ((cb: () => WriteMessageResult) => WriteMessageResult)
-    | undefined;
-  const runInTx = tx ?? ((cb: () => WriteMessageResult) => cb());
-
-  return runInTx(() => {
+  // a single SQLite transaction. better-sqlite3's db.transaction(fn)
+  // wraps fn so a thrown exception inside rolls back every statement
+  // run within. The previous inline path ran each query autocommitted;
+  // this is a real atomicity guarantee, not just a comment.
+  return runInTransaction((): WriteMessageResult => {
     queries.createMessage(
       id,
       norm.sessionId,

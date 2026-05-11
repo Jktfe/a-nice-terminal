@@ -7,8 +7,13 @@ import { queries } from '$lib/server/db';
 import type { SenderResolved } from './types.js';
 
 export function resolveSenderSession(senderId: string | null): SenderResolved {
+  // Default label MUST stay 'web' (not 'web user' or any variant) — the
+  // previous POST-handler implementation returned exactly 'web' for a
+  // null sender, and the router + downstream consumers fan that string
+  // through to deliveries. Phase A is no-behaviour-change; do not edit
+  // this without an explicit, separate decision.
   if (!senderId) {
-    return { name: 'web user', type: null };
+    return { name: 'web', type: null };
   }
   const session: any =
     queries.getSession(senderId) || queries.getSessionByHandle(senderId);

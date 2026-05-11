@@ -161,4 +161,52 @@ describe('writeMessage — Tier 1 persist library', () => {
     });
     expect(result.message.content.endsWith(' ')).toBe(true);
   });
+
+  it('rejects non-http sources until Phase D (fail-closed gate)', () => {
+    expect.assertions(2);
+    try {
+      writeMessage({
+        sessionId: ROOM_ID,
+        role: 'user',
+        content: 'attempted cli write',
+        senderId: SENDER_ID,
+        source: 'cli' as 'http',
+      });
+    } catch (e) {
+      expect(e).toBeInstanceOf(WriteMessageError);
+      expect((e as WriteMessageError).status).toBe(400);
+    }
+  });
+
+  it('rolls back the message insert when a mid-transaction step throws', async () => {
+    // The transaction wraps createMessage + ask writes + meta update +
+    // membership upsert. We force a throw inside the wrapped body by
+    // shadowing queries.updateSession (which writeMessage calls right
+    // after createMessage) with a function that throws. Better-sqlite3's
+    // db.transaction(fn) wrapper guarantees the message INSERT rolls
+    // back when fn re-throws.
+    const dbModule: any = await import('../src/lib/server/db.js');
+    const original = dbModule.queries.updateSession;
+    dbModule.queries.updateSession = () => {
+      throw new Error('forced rollback for test');
+    };
+    try {
+      expect(() =>
+        writeMessage({
+          sessionId: ROOM_ID,
+          role: 'user',
+          content: 'this should not survive',
+          senderId: SENDER_ID,
+          source: 'http',
+        }),
+      ).toThrow('forced rollback for test');
+
+      // Assert no message row was left behind from this attempt
+      const stranded: any[] = dbModule.queries.getMessagesBefore(ROOM_ID, '9999-12-31', 100) as any[];
+      const matchingContent = stranded.filter((m) => m.content === 'this should not survive');
+      expect(matchingContent.length).toBe(0);
+    } finally {
+      dbModule.queries.updateSession = original;
+    }
+  });
 });

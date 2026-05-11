@@ -26,6 +26,24 @@ export function getAntDbPath(): string {
   resolveDbPaths();
   return _dbPath;
 }
+
+/** Phase A of server-split-2026-05-11 — wrap a synchronous callback in
+ *  a real better-sqlite3 (or bun:sqlite) transaction. Used by the persist
+ *  library's writeMessage to guarantee message + ask + meta + membership
+ *  all land atomically or roll back together. better-sqlite3's
+ *  `db.transaction(fn)` returns a wrapped function; calling that function
+ *  runs the body inside a transaction and re-throws on exception with the
+ *  rollback already applied. bun:sqlite exposes the same API. */
+export function runInTransaction<T>(cb: () => T): T {
+  const db = getDb();
+  if (typeof db?.transaction === 'function') {
+    return db.transaction(cb)();
+  }
+  // Defensive fallback — should never hit in practice; both sqlite
+  // implementations we use expose .transaction(). If it ever does, the
+  // call still works correctly without atomicity rather than crashing.
+  return cb();
+}
 const OPERATIONAL_MEMORY_WHERE = `
     key NOT LIKE 'session:%'
     AND key NOT LIKE 'archive/%'
@@ -1090,7 +1108,13 @@ export const queries = {
     prepare(`SELECT * FROM messages WHERE session_id = ? AND created_at < ? ORDER BY created_at DESC LIMIT ?`).all(sessionId, before, limit),
   getLatestMessages: (sessionId: string, limit: number) =>
     prepare(`SELECT * FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT ?`).all(sessionId, limit),
-  createMessage: (id: string, sessionId: string, role: string, content: string, format: string, status: string, senderId: string | null, target: string | null, replyTo: string | null, msgType: string, meta: string, broadcastState: string = 'pending') =>
+  // Default broadcastState='done' so existing call sites outside the
+  // persist library (mcp-handler, hooks route, interview-summary,
+  // message-router, tests) continue to insert rows the catch-up loop
+  // (Phase C) will NEVER replay. The persist library's writeMessage
+  // is the single caller that explicitly passes 'pending' — anything
+  // not Tier-1 chat is intentionally not in the broadcast queue.
+  createMessage: (id: string, sessionId: string, role: string, content: string, format: string, status: string, senderId: string | null, target: string | null, replyTo: string | null, msgType: string, meta: string, broadcastState: string = 'done') =>
     prepare(`INSERT INTO messages (id, session_id, role, content, format, status, sender_id, target, reply_to, msg_type, meta, broadcast_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, sessionId, role, content, format, status, senderId, target, replyTo, msgType, meta, broadcastState),
   // Phase A of server-split-2026-05-11 — broadcast queue helpers used by
   // Tier 2's runSideEffects (Phase B) and the catch-up loop (Phase C).
