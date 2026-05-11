@@ -2,7 +2,7 @@
 
 **Plan slug:** `ant-product-story-2026-05-11`
 **Authors:** @evolveantclaude (draft) + @evolveantcodex (peer review)
-**Status:** M0 draft — pending peer review by @evolveantcodex
+**Status:** M0 reviewed — ready for Phase A deck drafting
 
 This is the canonical spec for the marketing/product-story deck James
 asked us to collaborate on after reading our two independent fresh-eyes
@@ -128,7 +128,7 @@ review-ready item exists.)
 
 ### Item schema
 
-Each Router item is a structured **options pane** with pre-rendered
+Each Cockpit item is a structured **options pane** with pre-rendered
 trade-offs — NOT a yes/no button strip and NOT a raw agent monologue.
 The agent (or the distillation layer) has done the option-generation
 + trade-off articulation BEFORE the item reaches the cockpit.
@@ -253,7 +253,7 @@ the source message is over N tokens or contains no enumerated
 options, (iii) as the never-fail fallback.
 
 **(b) Cockpit surface.** Options: (i) bottom bar on every chat UI,
-(ii) dedicated `/home` page with the Router as primary content,
+(ii) dedicated `/home` page with the Cockpit as primary content,
 (iii) PWA shortcut + push notifications, (iv) all of the above.
 Recommendation: ship (ii) first as the new home page, layer (iii)
 push for mobile, leave (i) chat-bar to later.
@@ -263,7 +263,7 @@ push for mobile, leave (i) chat-bar to later.
 This is what we're working backwards from. Specific. Visual. Real.
 
 **Frame 1 (0:00).** User opens ANT (PWA on phone or browser on
-desktop). Lands on `/home` — the Router. They see:
+desktop). Lands on `/home` — the Operator Cockpit. They see:
 - 2 items in "Needs decision"
 - 1 item in "Done / ready to review"
 - Three rooms shown as small cards below: server-split (green, 3
@@ -342,7 +342,7 @@ the first thing a new pilot sees. Progressive disclosure:
 
 | Disclosure level | Surface | When it appears |
 |---|---|---|
-| 1 | Router | Always (home page) |
+| 1 | Operator Cockpit | Always (home page) |
 | 2 | Room view (chat + plan rail) | When you tap into a room |
 | 3 | Agent timeline (per-agent run events, status, asks) | When you tap an agent chip |
 | 4 | Terminal viewer (read-only, scrubbable) | When you tap "show terminal" on an agent |
@@ -429,8 +429,8 @@ adopts the new names.
 | 04 | Pillar 1 — multi-agent coding | claude |
 | 05 | Pillar 2 — multi-AI coordination via MCP | codex |
 | 06 | Pillar 3 — multi-machine team network | claude |
-| 07 | The Attention Router (intro + 5 lanes) | codex |
-| 08 | Attention Router item schema + distillation | codex |
+| 07 | The Operator Cockpit (intro + 5 lanes) | codex |
+| 08 | Cockpit item schema + distillation | codex |
 | 09 | Progressive disclosure of terminal depth | both |
 | 10 | What changes about the home page | codex |
 | 11 | Rename pass | claude |
@@ -460,7 +460,7 @@ This spec is acceptable when:
 |---|---|---|---|
 | A | Slides 01-03 (cover, audience, north-star scene) | both | both |
 | B | Slides 04-06 (pillars) | claude/codex split | the other |
-| C | Slides 07-09 (Router + disclosure) | codex | claude |
+| C | Slides 07-09 (Cockpit + disclosure) | codex | claude |
 | D | Slides 10-13 (home + rename + workroom + day-in-life) | claude/codex split | the other |
 | E | Slides 14-17 (comparison + kill list + 90-day + coda) | both | both |
 
@@ -470,7 +470,7 @@ work").
 
 ## 11. Out of scope for THIS plan
 
-- Actually building the Attention Router (that's the next plan,
+- Actually building the Operator Cockpit (that's the next plan,
   downstream of this one).
 - Closing the 6 known security issues (separate plan).
 - Component-layer three-tier split (separate plan).
@@ -482,6 +482,6 @@ James's explicit instruction.
 
 ---
 
-*Pending @evolveantcodex review. BLOCKERs welcome. M0 acceptance
-flipped by codex only when codex genuinely thinks this spec
-reflects both viewpoints.*
+*@evolveantcodex reviewed M0 after the options-pane, category,
+message-edit, and thread kill/keep amendments. No remaining M0
+BLOCKERs.*
