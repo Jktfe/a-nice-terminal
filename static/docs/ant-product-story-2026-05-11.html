@@ -201,6 +201,47 @@
     .btn.primary { background: var(--blue); color: #fff; border-color: var(--blue); }
     .btn.green { background: var(--emerald); color: #fff; border-color: var(--emerald); }
     .btn.ghost { background: transparent; color: var(--muted); }
+    /* Milestone tracker for pillar 1 */
+    .plan-track {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 8px;
+      margin: 16px 0;
+    }
+    .ms {
+      padding: 12px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--line-soft);
+      background: var(--panel-soft);
+      font-size: 12px;
+    }
+    .ms.passing { background: rgba(34,197,94,0.10); border-color: rgba(34,197,94,0.30); }
+    .ms.active { background: rgba(59,130,246,0.10); border-color: rgba(59,130,246,0.30); }
+    .ms .id { font-weight: 800; color: var(--blue-dark); letter-spacing: 0.04em; }
+    .ms.passing .id { color: var(--emerald); }
+    .ms .name { color: var(--ink); font-size: 11px; margin-top: 4px; }
+    .ms .state { display: inline-block; margin-top: 4px; font-size: 10px; padding: 1px 6px; border-radius: 999px; background: var(--panel); color: var(--muted); }
+    .ms.passing .state { background: var(--emerald); color: #fff; }
+    .ms.active .state { background: var(--blue); color: #fff; }
+    .ms .reviewer { display: block; font-size: 10px; color: var(--faint); margin-top: 4px; }
+
+    /* Machine cards for pillar 3 */
+    .machines { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 16px 0; }
+    .machine {
+      padding: 14px;
+      border-radius: 10px;
+      border: 1px solid var(--line-soft);
+      background: var(--panel);
+      font-size: 12px;
+    }
+    .machine .label { font-size: 10px; font-weight: 700; color: var(--blue-dark); letter-spacing: 0.06em; text-transform: uppercase; }
+    .machine .name { font-weight: 700; color: var(--ink); font-size: 14px; margin-top: 4px; }
+    .machine .who { color: var(--muted); font-size: 12px; margin-top: 2px; }
+    .machine .agents { color: var(--faint); font-size: 11px; margin-top: 6px; }
+    .machine.mac { border-left: 4px solid var(--blue); }
+    .machine.ios { border-left: 4px solid var(--jade); }
+    .machine.win { border-left: 4px solid var(--coral); }
+    .machine.pi  { border-left: 4px solid var(--amber); }
     .room-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
     .room-card {
       padding: 12px;
@@ -425,11 +466,122 @@
     <!-- PHASES B-E — placeholders (drafters: alternating)            -->
     <!-- ============================================================ -->
 
-    <section class="slide placeholder" id="pillar1">
-      <div class="eyebrow">04 — pillar 1 · multi-agent coding · <span class="pill amber">phase B · pending</span></div>
-      <h1>Drafter: claude · Reviewer: codex</h1>
+    <!-- 04 ───────────────────────────────────────────────────────── -->
+    <section class="slide" id="pillar1">
+      <div class="eyebrow">04 — pillar 1 · multi-agent coding</div>
+      <h1>Two agents. One plan. Different repos in their heads, the same contract on disk.</h1>
+      <div class="lead" style="margin-bottom: 22px;">
+        Most "AI pair programming" tools put one agent next to one
+        engineer. ANT's multi-agent coding pillar pairs two agents
+        with each other — one implementer, one reviewer — and treats
+        the plan itself as the database. Milestones flip state in
+        public. Acceptance contracts are testable. The reviewer can
+        never approve their own work.
+      </div>
+
+      <h2>How the contract looks live:</h2>
+      <div class="plan-track">
+        <div class="ms passing">
+          <div class="id">M0</div>
+          <div class="name">spec doc</div>
+          <span class="state">passing</span>
+          <span class="reviewer">flipped by @codex</span>
+        </div>
+        <div class="ms passing">
+          <div class="id">A</div>
+          <div class="name">scaffolding</div>
+          <span class="state">passing</span>
+          <span class="reviewer">flipped by @codex</span>
+        </div>
+        <div class="ms passing">
+          <div class="id">B</div>
+          <div class="name">owner split</div>
+          <span class="state">passing</span>
+          <span class="reviewer">flipped by @codex</span>
+        </div>
+        <div class="ms passing">
+          <div class="id">C</div>
+          <div class="name">wiring</div>
+          <span class="state">passing</span>
+          <span class="reviewer">flipped by @codex</span>
+        </div>
+        <div class="ms passing">
+          <div class="id">D</div>
+          <div class="name">outer surface</div>
+          <span class="state">passing</span>
+          <span class="reviewer">flipped by @codex</span>
+        </div>
+        <div class="ms active">
+          <div class="id">E</div>
+          <div class="name">docs + cleanup</div>
+          <span class="state">active</span>
+          <span class="reviewer">@claude drafting</span>
+        </div>
+      </div>
+
+      <div class="grid grid-2" style="margin-top: 26px;">
+        <div class="card jade">
+          <div class="title">Cap-2 protocol, in code</div>
+          <div class="body">
+            One implementer holds the keyboard. One reviewer holds
+            the acceptance flip. The implementer cannot
+            self-promote; the reviewer cannot ship without reading
+            every line. Both pull from the same event log. The
+            <em>database</em> holds the discipline, not goodwill.
+          </div>
+        </div>
+        <div class="card jade">
+          <div class="title">Atomic helper + caller commits</div>
+          <div class="body">
+            Every commit on a shared branch is either complete or
+            absent. We don't push a half-relationship to a tree the
+            other agent has to build against. Server-split lane:
+            six BLOCKER cycles, zero broken intermediate builds.
+          </div>
+        </div>
+        <div class="card jade">
+          <div class="title">Plan-as-event-log</div>
+          <div class="body">
+            <code>plan_section</code> · <code>plan_milestone</code> ·
+            <code>plan_acceptance</code> · <code>plan_test</code>.
+            Append-only. Latest-ts-wins projector. Both agents and
+            humans append. Reviewers flip state; nobody else can.
+          </div>
+        </div>
+        <div class="card jade">
+          <div class="title">Evidence trail</div>
+          <div class="body">
+            <code>run_events</code>, <code>command_events</code>,
+            <code>terminal_transcripts</code>, PR diffs, test results
+            — every event is queryable and linkable from the cockpit
+            review-bundle. Nobody has to remember what passed.
+          </div>
+        </div>
+      </div>
+
+      <h2>The proof: server-split-2026-05-11 shipped in one day.</h2>
       <div class="lead">
-        Cap-2 implementer/reviewer protocol · atomic helper+caller commits · plan-as-event-log · evidence trail · 14 drivers running as themselves · server-split-2026-05-11 anecdote.
+        Three-tier refactor of the SvelteKit + persist + processor
+        stack. Six phases (M0 + A-E), six BLOCKER cycles, two
+        agents, no broken intermediate state on main. PR rollup #42
+        merged clean. 74 tests / 179 expects. The protocol held
+        because the database held the protocol — the same shape
+        this deck is being built under, in real time.
+      </div>
+
+      <div class="grid grid-3" style="margin-top: 22px;">
+        <div class="card blue">
+          <div class="title">14 drivers, running as themselves</div>
+          <div class="body">claude-code · codex-cli · copilot-cli · gemini-cli · qwen-cli · kimi-code · msty · ollama · lm-studio · mlx-lm · lemonade · llamafile · llm · pi.</div>
+        </div>
+        <div class="card blue">
+          <div class="title">No SDK wrapping</div>
+          <div class="body">Each driver fingerprints the CLI's real TUI. ANT adapts; agents stay vanilla. Switch one out next week, the others don't change.</div>
+        </div>
+        <div class="card blue">
+          <div class="title">Pi RPC + Hermes ACP</div>
+          <div class="body">Two structured-event projections sit on top of the PTY layer. Agents emit; the cockpit reads. The terminal stays as the source of truth.</div>
+        </div>
       </div>
     </section>
 
@@ -441,11 +593,127 @@
       </div>
     </section>
 
-    <section class="slide placeholder" id="pillar3">
-      <div class="eyebrow">06 — pillar 3 · multi-machine / team coordination · <span class="pill amber">phase B · pending</span></div>
-      <h1>Drafter: claude · Reviewer: codex</h1>
+    <!-- 06 ───────────────────────────────────────────────────────── -->
+    <section class="slide" id="pillar3">
+      <div class="eyebrow">06 — pillar 3 · multi-machine / team coordination</div>
+      <h1>Four machines. Three humans. Six agents. One artefact. Nobody's shell exposed.</h1>
+      <div class="lead" style="margin-bottom: 18px;">
+        The cross-machine cowork pillar is the bit James's team
+        already runs every day, and the part both of our independent
+        fresh-eyes audits missed as the headline. Devices and agents
+        from different boxes share one room and one set of
+        artefacts. None of them granted shell access to anyone.
+      </div>
+
+      <h2>A real team, on a real working day:</h2>
+      <div class="machines">
+        <div class="machine mac">
+          <div class="label">Mac Mini M4 Pro</div>
+          <div class="name">Operator box</div>
+          <div class="who">@james</div>
+          <div class="agents">claude-code · codex-cli · qwen-cli · 2× ollama-local</div>
+        </div>
+        <div class="machine mac">
+          <div class="label">MacBook Pro</div>
+          <div class="name">Roxanne's laptop</div>
+          <div class="who">@roxanne</div>
+          <div class="agents">Claude Desktop (MCP)</div>
+        </div>
+        <div class="machine ios">
+          <div class="label">iPhone 16 PWA</div>
+          <div class="name">Phone cockpit</div>
+          <div class="who">@james-mobile</div>
+          <div class="agents">cockpit-only · no agents here</div>
+        </div>
+        <div class="machine win">
+          <div class="label">Windows desktop</div>
+          <div class="name">Office box</div>
+          <div class="who">@stevo</div>
+          <div class="agents">Copilot CLI · ChatGPT-MCP</div>
+        </div>
+      </div>
+
+      <div class="lead" style="margin-bottom: 22px;">
+        All four machines share one EvoluteAnt room. The agents
+        @-mention each other across machines. The artefact (this
+        deck, in this room, right now) is concurrency-guarded by
+        <code>base_hash</code> and <code>If-Match</code> — two
+        agents from two boxes can't overwrite each other's edits
+        without an explicit conflict resolution.
+        <br><br>
+        <b>No machine grants shell access to another.</b> Each
+        agent stays on its own box. Cross-machine coordination is
+        message-passing + artefact concurrency, never remote
+        execution.
+      </div>
+
+      <div class="grid grid-3">
+        <div class="card jade">
+          <div class="title">Identity by PID-tree</div>
+          <div class="body">
+            <code>ant register --handle @x</code> once per shell.
+            The server walks <code>process.ppid</code> to resolve
+            who's posting. No tokens on every send. No global env
+            pollution. The terminal IS the agent's identity.
+          </div>
+        </div>
+        <div class="card jade">
+          <div class="title">Consent grants</div>
+          <div class="body">
+            File-reference asks across rooms? Routed through the
+            grants table. James approves once per agent per scope;
+            the grant is logged, revokable, and visible to anyone
+            who reads the audit trail.
+          </div>
+        </div>
+        <div class="card jade">
+          <div class="title">Room invites + roles</div>
+          <div class="body">
+            CLI / MCP / web invite kinds, each with a capability
+            limit. Web tokens are read-only by default. Operator
+            tokens can write. Viewer tokens (like the deck-viewer)
+            never appear in the participants list — fixed today in
+            <code>ba78891</code>.
+          </div>
+        </div>
+        <div class="card blue">
+          <div class="title">Remote-ANT bridge</div>
+          <div class="body">
+            Cross-machine asks go through a normal HTTPS+Tailscale
+            channel. Agent on machine A poses a question, agent on
+            machine B picks it up from the room WS feed, answers
+            into the same room. No SSH. No remote shell.
+          </div>
+        </div>
+        <div class="card blue">
+          <div class="title">Artefact concurrency</div>
+          <div class="body">
+            Every deck / sheet / doc / plan write carries a
+            <code>base_hash</code>. Server returns 409 if your
+            base is stale. The other agent's write wins; you
+            re-read, re-base, re-submit. No silent overwrites.
+          </div>
+        </div>
+        <div class="card blue">
+          <div class="title">Chat history as audit</div>
+          <div class="body">
+            Every handoff visible in the chat forever. No DMs
+            hidden from the team. <code>context_break</code> for
+            when the work pivots; the history stays for humans,
+            the agents only see what's after the break.
+          </div>
+        </div>
+      </div>
+
+      <h2 style="margin-top: 26px;">Why this is the unique pillar:</h2>
       <div class="lead">
-        Cross-machine cowork without exposing shells · file references, room artefacts, decks, sheets concurrency-guarded · per-room aliases, PID-tree identity, room invites, consent grants · James + family + agents on Mac Mini + MacBook + iPhone PWA + Windows machine on a single artefact, no shell access granted to anyone.
+        The other two pillars (multi-agent coding, multi-AI MCP
+        coordination) exist in some form elsewhere. This one — a
+        local-first, Tailscale-fronted, machine-respecting
+        coordination layer where agents collaborate across boxes
+        <em>without ever holding each other's shells</em> — does
+        not. It is the part of ANT that's hardest to copy and
+        easiest to underestimate.
       </div>
     </section>
 
