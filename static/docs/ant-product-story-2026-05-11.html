@@ -1095,6 +1095,12 @@
             <div class="context">A room posted "working" 24m ago but emitted no heartbeat. Check script attached.</div>
           </div>
         </div>
+
+        <div class="item" style="margin-top: 12px;">
+          <div class="framing">Cadence · plan updates every 30m, milestone-only overnight</div>
+          <div class="meta-row">room setting · not agent cron · digest unless something needs judgement</div>
+          <div class="context">ANT asks active agents for a structured pulse. If still working, they ACK and carry on. If state changed, the Cockpit collates one update for the human instead of five separate "checking in" messages.</div>
+        </div>
       </div>
 
       <h2 style="margin-top: 26px;">Below attention: rooms keep breathing.</h2>
@@ -1265,7 +1271,7 @@
       </div>
 
       <div class="cockpit">
-        <div class="lane-label">▼ a Monday · 9 timestamps</div>
+        <div class="lane-label">▼ a Monday · 10 timestamps</div>
 
         <div class="item">
           <div class="framing">08:30 — first check-in</div>
@@ -1283,6 +1289,12 @@
           <div class="framing">10:30 — PR review</div>
           <div class="meta-row">Cockpit lane 4 (review-ready) · server-split phase E bundle</div>
           <div class="context">Pre-rendered: claim + diff + tests + blockers + evidence links. Approve / request changes / open room. James approves, returns to the day.</div>
+        </div>
+
+        <div class="item">
+          <div class="framing">11:15 — cadence pulse, no room polling</div>
+          <div class="meta-row">EvoluteAnt · room cadence: every 30m while active, milestone-only overnight</div>
+          <div class="context">ANT asks each active plan for a structured pulse. Four agents ACK still working and carry on. One reports a blocker; the Cockpit turns that into a single decision item with context, options and evidence. No agent runs its own cron job. No human opens ten rooms to find out what changed.</div>
         </div>
 
         <div class="item">
