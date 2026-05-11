@@ -1,5 +1,5 @@
 import { error, type RequestEvent } from '@sveltejs/kit';
-import { cspForTrustMode, readDeckMeta, type DeckMeta } from '$lib/server/decks';
+import { cspForTrustMode, injectSafeBanner, readDeckMeta, type DeckMeta } from '$lib/server/decks';
 import { hasDeckCookie } from '$lib/server/deck-view-auth';
 import { renderDeckLogin } from '$lib/server/deck-login-page';
 
@@ -68,6 +68,7 @@ function rewriteHtml(slug: string, html: string): string {
     .replaceAll("import('/", `import('${prefix}/`);
 }
 
+
 async function proxyDeck(event: RequestEvent): Promise<Response> {
   const slug = slugParam(event);
   const deck = readDeckMeta(slug);
@@ -92,7 +93,8 @@ async function proxyDeck(event: RequestEvent): Promise<Response> {
   const headers = inboundHeaders(response, deck);
   const contentType = response.headers.get('content-type') || '';
   if (contentType.includes('text/html')) {
-    const html = rewriteHtml(slug, await response.text());
+    let html = rewriteHtml(slug, await response.text());
+    if (deck.trust_mode === 'safe') html = injectSafeBanner(slug, html);
     headers.delete('content-length');
     return new Response(html, { status: response.status, statusText: response.statusText, headers });
   }

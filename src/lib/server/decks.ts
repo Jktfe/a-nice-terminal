@@ -67,6 +67,29 @@ export function cspForTrustMode(mode: DeckTrustMode): string {
   return mode === 'safe' ? SAFE_CSP : TRUSTED_CSP;
 }
 
+/** B2 of main-app-improvements-2026-05-10 — when the deck is rendered
+ *  in Safe mode the proxy injects this static HTML banner so the
+ *  operator can see what happened and one-click trust the artefact.
+ *  Inline styles only (Safe CSP allows 'unsafe-inline' on styles) and
+ *  a plain form POST so it works under the strict Safe CSP without any
+ *  JavaScript. The form action points at /api/decks/<slug>/trust which
+ *  lives outside the deck catch-all proxy so the rewrite pass never
+ *  touches it. */
+export function injectSafeBanner(slug: string, html: string): string {
+  const action = `/api/decks/${encodeURIComponent(slug)}/trust`;
+  const banner =
+    `<div data-ant-safe-banner role="alert" style="position:fixed;top:0;left:0;right:0;z-index:2147483647;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 14px;background:#FEF3C7;border-bottom:1px solid #F59E0B;color:#78350F;font:600 13px/1.4 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;box-shadow:0 1px 3px rgba(0,0,0,0.06);">` +
+    `<span>Safe mode is blocking JavaScript and network requests in this artefact.</span>` +
+    `<form method="POST" action="${action}" style="margin:0;">` +
+    `<input type="hidden" name="mode" value="trusted">` +
+    `<button type="submit" style="padding:6px 12px;border-radius:6px;border:1px solid #92400E;background:#92400E;color:#FFFFFF;font:600 12px/1 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;cursor:pointer;">Trust this artefact</button>` +
+    `</form></div>`;
+  if (html.includes('<body')) {
+    return html.replace(/<body([^>]*)>/i, `<body$1>${banner}`);
+  }
+  return banner + html;
+}
+
 export function isDeckTrustMode(value: unknown): value is DeckTrustMode {
   return value === 'safe' || value === 'trusted';
 }
