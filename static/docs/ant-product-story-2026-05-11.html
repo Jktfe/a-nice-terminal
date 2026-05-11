@@ -343,15 +343,15 @@
           <a class="done" href="#pillar3">06 pillar 3 — team</a>
           <a class="placeholder" href="#cockpit-intro">07 cockpit</a>
           <a class="placeholder" href="#cockpit-schema">08 schema</a>
-          <a class="placeholder" href="#disclosure">09 disclosure</a>
+          <a class="done" href="#disclosure">09 disclosure</a>
           <a class="placeholder" href="#home">10 home</a>
-          <a class="placeholder" href="#rename">11 rename</a>
+          <a class="done" href="#rename">11 rename</a>
           <a class="placeholder" href="#workroom">12 workroom</a>
-          <a class="placeholder" href="#day">13 a day</a>
-          <a class="placeholder" href="#field">14 vs the field</a>
-          <a class="placeholder" href="#kill">15 kill list</a>
-          <a class="placeholder" href="#plan">16 90-day plan</a>
-          <a class="placeholder" href="#coda">17 coda</a>
+          <a class="done" href="#day">13 a day</a>
+          <a class="done" href="#field">14 vs the field</a>
+          <a class="done" href="#kill">15 kill list</a>
+          <a class="done" href="#plan">16 90-day plan</a>
+          <a class="done" href="#coda">17 coda</a>
         </div>
       </div>
     </section>
@@ -522,7 +522,7 @@
         never approve their own work.
       </div>
 
-      <h2>How the contract looks live:</h2>
+      <h2>How the contract looks live — <code>ant-product-story-2026-05-11</code>, the plan THIS deck was built under:</h2>
       <div class="plan-track">
         <div class="ms passing">
           <div class="id">M0</div>
@@ -532,34 +532,40 @@
         </div>
         <div class="ms passing">
           <div class="id">A</div>
-          <div class="name">scaffolding</div>
-          <span class="state">passing</span>
-          <span class="reviewer">flipped by @codex</span>
-        </div>
-        <div class="ms passing">
-          <div class="id">B</div>
-          <div class="name">owner split</div>
-          <span class="state">passing</span>
-          <span class="reviewer">flipped by @codex</span>
-        </div>
-        <div class="ms passing">
-          <div class="id">C</div>
-          <div class="name">wiring</div>
-          <span class="state">passing</span>
-          <span class="reviewer">flipped by @codex</span>
-        </div>
-        <div class="ms passing">
-          <div class="id">D</div>
-          <div class="name">outer surface</div>
+          <div class="name">cover + scene</div>
           <span class="state">passing</span>
           <span class="reviewer">flipped by @codex</span>
         </div>
         <div class="ms active">
-          <div class="id">E</div>
-          <div class="name">docs + cleanup</div>
+          <div class="id">B</div>
+          <div class="name">three pillars</div>
           <span class="state">active</span>
-          <span class="reviewer">@claude drafting</span>
+          <span class="reviewer">cross-review in flight</span>
         </div>
+        <div class="ms">
+          <div class="id">C</div>
+          <div class="name">cockpit + disclosure</div>
+          <span class="state">planned</span>
+          <span class="reviewer">codex drafts 07-08, both draft 09</span>
+        </div>
+        <div class="ms">
+          <div class="id">D</div>
+          <div class="name">home + rename + workroom + day</div>
+          <span class="state">planned</span>
+          <span class="reviewer">claude drafts 11+13, codex drafts 10+12</span>
+        </div>
+        <div class="ms">
+          <div class="id">E</div>
+          <div class="name">field + kill + plan + coda</div>
+          <span class="state">planned</span>
+          <span class="reviewer">claude drafts 15+17, both draft 14+16</span>
+        </div>
+      </div>
+      <div class="lead" style="margin-top: 12px; font-size: 14px; color: var(--faint); font-style: italic;">
+        This deck is being built under the same protocol it describes.
+        The milestone tracker above is the live state of THIS plan at
+        the time of writing. Server-split-2026-05-11 (the protocol's
+        first proof) shipped clean earlier today.
       </div>
 
       <div class="grid grid-2" style="margin-top: 26px;">
@@ -873,11 +879,64 @@
       </div>
     </section>
 
-    <section class="slide placeholder" id="disclosure">
-      <div class="eyebrow">09 — progressive disclosure of terminal depth · <span class="pill amber">phase C · pending</span></div>
-      <h1>Drafter: both · Reviewer: both</h1>
-      <div class="lead">
-        Five disclosure levels: Cockpit → Room → Agent timeline → Terminal viewer (read-only) → Terminal controller. Terminal stays one click away. Never buried, never built-in to the first impression.
+    <!-- 09 ───────────────────────────────────────────────────────── -->
+    <section class="slide" id="disclosure">
+      <div class="eyebrow">09 — progressive disclosure of terminal depth</div>
+      <h1>The terminal is the trust substrate. We invite it, we don't bury it.</h1>
+      <div class="lead" style="margin-bottom: 22px;">
+        Codex's audit pushed hard on this: any product that hides
+        the terminal so newcomers feel "modern" loses the only
+        thing that makes agent work trustable. Claude's audit
+        pushed back: surfacing it badly is just as bad. We agreed
+        on a five-level disclosure ladder. You see what you need
+        for the moment you're in; the next level is always one tap
+        away.
+      </div>
+
+      <div class="cockpit">
+        <div class="lane-label">▼ disclosure ladder · 5 levels</div>
+
+        <div class="item">
+          <div class="framing">Level 1 — Operator Cockpit</div>
+          <div class="meta-row">always on · the home surface</div>
+          <div class="context">Briefings. Questions. Trade-offs. Pick / discuss / interview / open-room. No agent monologues. No raw terminal output.</div>
+        </div>
+
+        <div class="item">
+          <div class="framing">Level 2 — Room view (chat + plan rail)</div>
+          <div class="meta-row">one tap from the Cockpit · most-common second screen</div>
+          <div class="context">Human + agent messages, plan event log, asks pinned at top, artefacts rail on the side. You're in the work; the terminal is still hidden.</div>
+        </div>
+
+        <div class="item">
+          <div class="framing">Level 3 — Agent timeline</div>
+          <div class="meta-row">tap an agent chip in the participants list</div>
+          <div class="context">Per-agent run events. Status (working / thinking / waiting / stalled). Recent prompts. Recent answers. The Cockpit items they generated. Still no raw terminal.</div>
+        </div>
+
+        <div class="item">
+          <div class="framing">Level 4 — Terminal viewer (read-only, scrubbable)</div>
+          <div class="meta-row">tap "show terminal" on an agent</div>
+          <div class="context">Live PTY render via xterm.js DOM renderer. Scroll back through transcript. Search. Trust-tier classification on each block. You can SEE the truth but you can't change it.</div>
+        </div>
+
+        <div class="item">
+          <div class="framing">Level 5 — Terminal controller (send keys, raw mode)</div>
+          <div class="meta-row">tap "control" — single confirmation, sticks until you leave</div>
+          <div class="context">You hold the keyboard. Send keys, escape, scroll, raw shell. This is the emergency-brake / surgeon-mode surface. Visible badge stays in the chrome the whole time so you never forget you have control.</div>
+        </div>
+      </div>
+
+      <h2 style="margin-top: 26px;">Two rules everyone agreed on:</h2>
+      <div class="grid grid-2">
+        <div class="card jade">
+          <div class="title">Never more than one tap away</div>
+          <div class="body">Levels 4 and 5 are not hidden in menus. From any agent chip, "show terminal" is right there. We do not punish the operator for needing the truth.</div>
+        </div>
+        <div class="card red">
+          <div class="title">Never the first impression</div>
+          <div class="body">New pilots do NOT land on a wall of terminal output. They land on the Cockpit. The terminal is what they reach for when something feels off, not what they have to parse before they can start.</div>
+        </div>
       </div>
     </section>
 
@@ -889,11 +948,62 @@
       </div>
     </section>
 
-    <section class="slide placeholder" id="rename">
-      <div class="eyebrow">11 — rename pass · <span class="pill amber">phase D · pending</span></div>
-      <h1>Drafter: claude · Reviewer: codex</h1>
-      <div class="lead">
-        Session list → Rooms · Linked chat → Agent pair · Invite kind → Role · Bearer token → Access key · Asks queue → Questions for you · Chat break → Context break · Focus mode → Quiet mode.
+    <!-- 11 ───────────────────────────────────────────────────────── -->
+    <section class="slide" id="rename">
+      <div class="eyebrow">11 — rename pass</div>
+      <h1>Eight engineer-shaped words have to go before any landing page work.</h1>
+      <div class="lead" style="margin-bottom: 22px;">
+        Half the cognitive tax of being a new ANT pilot is decoding
+        an internal vocabulary that grew from the code outward.
+        "Linked chat", "invite kind", "session list", "bearer
+        token" — every one of them is precise. None of them lands
+        on a stranger. We rename the user-facing surface; the
+        engineering codebase keeps the old precise names internally.
+      </div>
+
+      <div class="cockpit">
+        <div class="lane-label">▼ jargon → plain ·  8 surfaces</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; font-size: 13px;">
+          <div class="item" style="margin: 0;">
+            <div class="framing">Session list → <b>Rooms</b></div>
+            <div class="context">"Session" reads as engineer-speak. Rooms is what people already use the product for.</div>
+          </div>
+          <div class="item" style="margin: 0;">
+            <div class="framing">Linked chat → <b>Agent pair</b></div>
+            <div class="context">"Pair" alone too vague (codex). "Agent pair" names the relationship between two participating agents.</div>
+          </div>
+          <div class="item" style="margin: 0;">
+            <div class="framing">Invite kind → <b>Role</b></div>
+            <div class="context">cli / mcp / web rebrand as operator / agent / viewer. Capability-named, not transport-named.</div>
+          </div>
+          <div class="item" style="margin: 0;">
+            <div class="framing">Bearer token → <b>Access key</b></div>
+            <div class="context">"Bearer" is HTTP plumbing leaking into UX. Access key is what it actually is.</div>
+          </div>
+          <div class="item" style="margin: 0;">
+            <div class="framing">Asks queue → <b>Questions for you</b></div>
+            <div class="context">"Inbox" reads like Jira (codex). "Questions for you" matches what the Cockpit actually serves. Acceptable alt: "Judgement needed".</div>
+          </div>
+          <div class="item" style="margin: 0;">
+            <div class="framing">Chat break → <b>Context break</b></div>
+            <div class="context">Less ambiguous. The break is to the agents' context, not to the chat itself.</div>
+          </div>
+          <div class="item" style="margin: 0;">
+            <div class="framing">Focus mode → <b>Quiet mode</b></div>
+            <div class="context">"Focus" prescribes what you should feel. "Quiet" describes what the room does. Less bossy.</div>
+          </div>
+          <div class="item" style="margin: 0;">
+            <div class="framing">Run event → <b>Activity</b></div>
+            <div class="context">"Run event" is database-speak. Activity is what a human sees when an agent does something.</div>
+          </div>
+        </div>
+      </div>
+
+      <h2 style="margin-top: 26px;">What stays as-is:</h2>
+      <div class="grid grid-3">
+        <div class="card jade"><div class="title">Operator Cockpit</div><div class="body">Codex named it. It's accurate. It survives review.</div></div>
+        <div class="card jade"><div class="title">Plan / milestone / acceptance</div><div class="body">Engineering vocabulary that maps cleanly to project-management vocabulary. Don't rename.</div></div>
+        <div class="card jade"><div class="title">Artefact</div><div class="body">British spelling on purpose. James is in London. The product is too.</div></div>
       </div>
     </section>
 
@@ -905,43 +1015,311 @@
       </div>
     </section>
 
-    <section class="slide placeholder" id="day">
-      <div class="eyebrow">13 — a day in 10 rooms · <span class="pill amber">phase D · pending</span></div>
-      <h1>Drafter: claude · Reviewer: codex</h1>
-      <div class="lead">
-        Walkthrough: James on a real Monday. 8:30 AM check the Cockpit, 9:00 spawn a new lane, 10:30 review a PR, 1:00 a team meeting where two agents are participants, 4:30 Roxanne joins from her MacBook, 6:00 hand-off to overnight agents.
+    <!-- 13 ───────────────────────────────────────────────────────── -->
+    <section class="slide" id="day">
+      <div class="eyebrow">13 — a day in 10 rooms</div>
+      <h1>What it actually looks like when you live in the Cockpit for nine hours.</h1>
+      <div class="lead" style="margin-bottom: 18px;">
+        Slide 03 was the 40-second hero. This is the nine-hour
+        reality. Same operator, same machines, the Cockpit anchoring
+        a working day with rooms running in the background. The
+        interview-lite escalation we promised earlier shows up here
+        where it has room to breathe.
+      </div>
+
+      <div class="cockpit">
+        <div class="lane-label">▼ a Monday · 9 timestamps</div>
+
+        <div class="item">
+          <div class="framing">08:30 — first check-in</div>
+          <div class="meta-row">phone PWA · queue: 4 items waiting</div>
+          <div class="context">Overnight: two pick decisions (deck framing, audit-memo timing) cleared in 90s. One ask routed to legal for Thursday. One review-bundle approved.</div>
+        </div>
+
+        <div class="item">
+          <div class="framing">09:00 — spawn a new lane</div>
+          <div class="meta-row">desktop · creates ant-portfolio-2026-05-12 room</div>
+          <div class="context">Two agents (claude-code + codex-cli) claim M0. James writes the brief into the room as a single message; the cap-2 protocol does the rest.</div>
+        </div>
+
+        <div class="item">
+          <div class="framing">10:30 — PR review</div>
+          <div class="meta-row">Cockpit lane 4 (review-ready) · server-split phase E bundle</div>
+          <div class="context">Pre-rendered: claim + diff + tests + blockers + evidence links. Approve / request changes / open room. James approves, returns to the day.</div>
+        </div>
+
+        <div class="item">
+          <div class="framing">12:00 — interview-lite for the investor letter</div>
+          <div class="meta-row">Cockpit lane 1 (decision) · escalates from pick to interview</div>
+          <div class="context">Gemini's options for Q3 letter framing don't fit a tap. James hits <b>interview</b>. 90 seconds of voice + text with the briefing pre-loaded. Decision recorded as a structured outcome posted into the product-story room; follow-up ask routed to @christian-legal for Thursday AM.</div>
+        </div>
+
+        <div class="item">
+          <div class="framing">13:30 — team meeting · two agents are participants</div>
+          <div class="meta-row">EvoluteAnt room · @james + @roxanne + @evolveantclaude + @evolveantcodex</div>
+          <div class="context">Real conversation, real outcomes. The agents have memory of every prior decision. No-one re-explains anything. The context-break primitive at 14:15 amputates pre-meeting noise from the post-meeting agent context.</div>
+        </div>
+
+        <div class="item">
+          <div class="framing">15:00 — Roxanne picks up the deck</div>
+          <div class="meta-row">her MacBook · joined via invite token, role: operator</div>
+          <div class="context">Roxanne edits slide 12 directly from her Mac. base_hash guard means our parallel edits don't overwrite each other. James sees the change land in real time. Nobody's shell touches anyone's machine.</div>
+        </div>
+
+        <div class="item">
+          <div class="framing">16:30 — Stevo's Windows box joins for the ops review</div>
+          <div class="meta-row">Windows desktop · Copilot CLI + ChatGPT-MCP both participating</div>
+          <div class="context">Stevo's two agents talk to ours through the MCP bridge. The shared artefact is the audit-memo draft. Stevo's machine never gets shell access to the Mac; the Mac never gets shell access to his.</div>
+        </div>
+
+        <div class="item">
+          <div class="framing">18:00 — context break + overnight hand-off</div>
+          <div class="meta-row">ant-portfolio room · /break "moving to data ingest phase"</div>
+          <div class="context">Context-break primitive: humans see history, overnight agents only see post-break. James kicks off three long-running tasks, locks his desk, leaves.</div>
+        </div>
+
+        <div class="item">
+          <div class="framing">22:30 — back on the phone</div>
+          <div class="meta-row">PWA · briefly</div>
+          <div class="context">Cockpit shows two new prepared briefings from overnight progress. Both are <b>defer to morning</b>. Phone locked. Day ends.</div>
+        </div>
       </div>
     </section>
 
-    <section class="slide placeholder" id="field">
-      <div class="eyebrow">14 — what ANT does that the field doesn't · <span class="pill amber">phase E · pending</span></div>
-      <h1>Drafter: both · Reviewer: both</h1>
+    <!-- 14 ───────────────────────────────────────────────────────── -->
+    <section class="slide" id="field">
+      <div class="eyebrow">14 — what ANT does that the field doesn't</div>
+      <h1>Five things you cannot replicate by stacking existing AI tools.</h1>
+      <div class="lead" style="margin-bottom: 22px;">
+        We are not trying to beat Claude Desktop at being Claude
+        Desktop, or Cursor at being an IDE, or Aider at being a
+        coding assistant. ANT lives upstream of all of them: it's
+        the layer that gets them to work together with humans
+        without anyone surrendering control. Here is what no
+        combination of those tools gives you today.
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; font-size: 13px;">
+        <div class="card jade">
+          <div class="title">1 · Unmodified CLI orchestration</div>
+          <div class="body">Claude Code, Codex, Gemini, Qwen, Copilot run as themselves through 14 drivers. SDK-wrapped agent frameworks force you to re-model every tool inside their library.</div>
+        </div>
+        <div class="card jade">
+          <div class="title">2 · Accountable rooms</div>
+          <div class="body">Humans + agents in the same coordination space with @-routing, focus mode, asks, plans, and acceptance gates. Slack has chat. ANT has work.</div>
+        </div>
+        <div class="card jade">
+          <div class="title">3 · Plans as event logs</div>
+          <div class="body">plan_section / plan_milestone / plan_acceptance / plan_test, append-only. Kanban tools lose decisions in cards. ANT keeps them in the timeline forever.</div>
+        </div>
+        <div class="card jade">
+          <div class="title">4 · PID-tree identity</div>
+          <div class="body">Terminal IS the agent's identity. No tokens per send, no env pollution. Other systems make you ferry handle headers by hand.</div>
+        </div>
+        <div class="card jade">
+          <div class="title">5 · Question-serving Cockpit</div>
+          <div class="body">Options-pane briefings, not notification spam. Other tools push you to "go check the chat." ANT pushes you the decision, distilled.</div>
+        </div>
+        <div class="card blue">
+          <div class="title">Bonus · Local-first, machine-respecting</div>
+          <div class="body">Tailscale, bearer-tokens, no shared shells. Your machine stays yours. The only competitor for THIS is "build it yourself".</div>
+        </div>
+      </div>
+
+      <h2 style="margin-top: 26px;">Compared head-to-head:</h2>
       <div class="lead">
-        Unmodified CLI orchestration vs SDK-wrapped agents · accountable rooms vs shared chat · event-log plans vs kanban · PID-tree identity vs handle headers · question-serving Cockpit vs notification spam.
+        Claude Desktop is excellent at being one human + one Claude.
+        Cursor is excellent at being one human + one IDE-bound agent.
+        Aider is excellent at being one terminal + one editing agent.
+        <b class="dark">ANT is the only layer where many humans and many
+        agents on many machines coordinate on the same work without
+        any of them being primary.</b> That's the moat.
       </div>
     </section>
 
-    <section class="slide placeholder" id="kill">
-      <div class="eyebrow">15 — kill list · <span class="pill amber">phase E · pending</span></div>
-      <h1>Drafter: claude · Reviewer: codex</h1>
-      <div class="lead">
-        Threads (kill or reframe) · session-list-as-homepage (kill) · "Linked chat" naming (rename to Agent pair) · "Asks queue" naming (rename to Questions for you) · participant/feature category leaks (already fixed in ba78891).
+    <!-- 15 ───────────────────────────────────────────────────────── -->
+    <section class="slide" id="kill">
+      <div class="eyebrow">15 — kill list</div>
+      <h1>What we stop doing before the marketing site goes live.</h1>
+      <div class="lead" style="margin-bottom: 22px;">
+        The hardest part of making a product visible is being
+        willing to delete the surfaces that earned their keep
+        internally but won't survive a stranger's first five
+        minutes. The deck takes positions; James can overrule any
+        of them in slide review. Default is kill.
+      </div>
+
+      <div class="cockpit">
+        <div class="lane-label" style="color: var(--red);">▼ kill list · 6 items</div>
+
+        <div class="item">
+          <div class="framing">Threads (side-conversations hidden from the main room)</div>
+          <div class="meta-row">kill · overlaps with agent-pair rooms + context-breaks + Cockpit</div>
+          <div class="context">Reply (anchored quote-and-correct) STAYS and gets polished. Message-edit + correction protocol STAYS as a Cockpit-core feature. Thread-as-side-convo does not earn its keep. Data shape (reply_to) stays one release for back-compat.</div>
+        </div>
+
+        <div class="item">
+          <div class="framing">Session-list-as-homepage</div>
+          <div class="meta-row">kill · Cockpit becomes /home</div>
+          <div class="context">New pilots do not need to see a list of rooms before they see what needs their judgement. Homepage is the question-serving layer. Rooms are second-tier surface, one click below the briefings.</div>
+        </div>
+
+        <div class="item">
+          <div class="framing">Engineer-shaped jargon in user UX</div>
+          <div class="meta-row">rename · "session" / "linked" / "bearer" / "run event"</div>
+          <div class="context">All 8 renames from slide 11 land in the user-facing surface. Engineering codebase keeps the precise internal names. Two languages, deliberately: API names stay technical, UI names go plain.</div>
+        </div>
+
+        <div class="item">
+          <div class="framing">Participant/feature category leaks</div>
+          <div class="meta-row">kill · already fixed in <code>ba78891</code></div>
+          <div class="context">Deck viewers, plan rails, asks panels, the Cockpit itself — none of these are participants. Read-only viewer tokens were leaking into the participants list. Fixed today. The category rule (TALK vs SERVE) is now load-bearing.</div>
+        </div>
+
+        <div class="item">
+          <div class="framing">Notification spam disguised as updates</div>
+          <div class="meta-row">demote · "significant update" goes to digest, not interruption</div>
+          <div class="context">Per codex's M0 BLOCKER: the fifth Cockpit lane (significant-update) rolls into a digest. James never gets interrupted by an info-only event when a review-ready item or a needs-decision item exists.</div>
+        </div>
+
+        <div class="item">
+          <div class="framing">Terminal-first first-impression</div>
+          <div class="meta-row">flip · terminal stays one tap away, not on the cover</div>
+          <div class="context">The current home page can land you in a terminal grid. Stops doing that. Cockpit-first, room-second, agent-timeline-third, terminal-fourth-or-fifth on the disclosure ladder (slide 09).</div>
+        </div>
+      </div>
+
+      <div class="lead" style="margin-top: 22px; font-style: italic;">
+        Nothing in this kill list deletes code. Every "kill" is
+        either a rename, a category fix, or a demotion of how
+        prominently a surface appears. The engineering value stays;
+        the cognitive tax of being a new user drops.
       </div>
     </section>
 
-    <section class="slide placeholder" id="plan">
-      <div class="eyebrow">16 — 90-day plan · <span class="pill amber">phase E · pending</span></div>
-      <h1>Drafter: both · Reviewer: both</h1>
+    <!-- 16 ───────────────────────────────────────────────────────── -->
+    <section class="slide" id="plan">
+      <div class="eyebrow">16 — 90-day plan</div>
+      <h1>Two weeks of finishing. Two weeks of telling. Eight weeks of listening.</h1>
+      <div class="lead" style="margin-bottom: 22px;">
+        The Apple-work backwards plan: this deck declares the
+        answer; the next 90 days work backwards from the answer.
+        Concrete, dated, owned. Same protocol that shipped the
+        server-split lane — cap-2 implementer/reviewer, plans as
+        event logs, evidence trails.
+      </div>
+
+      <div class="plan-track">
+        <div class="ms passing">
+          <div class="id">W1-2</div>
+          <div class="name">finish</div>
+          <span class="state">defined</span>
+        </div>
+        <div class="ms passing">
+          <div class="id">W3-4</div>
+          <div class="name">tell</div>
+          <span class="state">defined</span>
+        </div>
+        <div class="ms active">
+          <div class="id">W5-12</div>
+          <div class="name">listen</div>
+          <span class="state">defined</span>
+        </div>
+      </div>
+
+      <div class="grid grid-3" style="margin-top: 22px;">
+        <div class="card amber">
+          <div class="title">Weeks 1-2 — Finish</div>
+          <div class="body">
+            • Ship Operator Cockpit (lanes + item schema + interview escalation).<br>
+            • Implement message-edit + agent-interrupt protocol.<br>
+            • Close top-3 of 6 open security issues.<br>
+            • <code>ant up</code> one-command bootstrap.<br>
+            • <code>/diagnostics</code> view.<br>
+            • Component-layer three-tier split (presentation/data/WS).<br>
+            • Rename pass: all 8 surfaces from slide 11.
+          </div>
+        </div>
+        <div class="card green">
+          <div class="title">Weeks 3-4 — Tell</div>
+          <div class="body">
+            • Three asciinema casts (4-agent room / cap-2 plan landing / Cockpit options-pane in action).<br>
+            • One 1,500-word essay: "Agent coordination is a database problem."<br>
+            • Hosted read-only demo (one room, three agents, you join as a fourth).<br>
+            • Show HN with the essay as the post body. No pitch, just demo.<br>
+            • Pin the demo + the Cockpit screencast to the README.
+          </div>
+        </div>
+        <div class="card blue">
+          <div class="title">Weeks 5-12 — Listen</div>
+          <div class="body">
+            • Respond to every issue.<br>
+            • Reject 80% (we're not pivoting).<br>
+            • Implement 10%, document the 10%.<br>
+            • The other 10% become future thesis material.<br>
+            • Don't hire. Don't VC-fund. Don't pivot to "team workflows."<br>
+            • Hold the thesis. Keep the calling card.
+          </div>
+        </div>
+      </div>
+
+      <h2 style="margin-top: 26px;">Shape of week 12:</h2>
       <div class="lead">
-        Weeks 1-2 ship Cockpit + interrupt protocol + close top-3 security issues. Weeks 3-4 record three demos + write the thesis essay + show HN. Weeks 5-12 listen.
+        500-5,000 stars. Three or four serious contributors. One or
+        two companies asking if they can pay to use it. You say no
+        to all of them and keep building. The thesis ("agent
+        coordination is a database problem") is now a thing people
+        quote at conferences. <b class="dark">That's the win. Not
+        the company. The thesis.</b>
       </div>
     </section>
 
-    <section class="slide placeholder" id="coda">
-      <div class="eyebrow">17 — coda · <span class="pill amber">phase E · pending</span></div>
-      <h1>Drafter: claude · Reviewer: codex</h1>
-      <div class="lead">
-        ANT is a local-first workroom for humans and the AI agents they already use. Agents do the cognitive work. The Cockpit serves you the decisions. The terminal is one click away when something feels off. That's the answer.
+    <!-- 17 ───────────────────────────────────────────────────────── -->
+    <section class="slide" id="coda">
+      <div class="eyebrow">17 — coda</div>
+      <h1>The answer.</h1>
+      <div class="grid grid-2">
+        <div class="lead" style="font-size: 22px;">
+          ANT is a local-first workroom for humans and the AI
+          agents they already use.
+          <br><br>
+          Agents do the cognitive work. The Cockpit serves you
+          the decisions. The terminal is one click away when
+          something feels off.
+          <br><br>
+          Plans live in the database. Identity lives in the
+          PID tree. Context discipline lives in the chat-break.
+          Acceptance lives in the contracts, not in goodwill.
+          <br><br>
+          Four machines, three humans, six agents, one artefact,
+          nobody's shell exposed. That is the day. The deck is
+          the answer; the next 90 days work backwards from it.
+        </div>
+        <div style="background: var(--panel-soft); border: 1px solid var(--line-soft); border-radius: 14px; padding: 32px; display: flex; flex-direction: column; justify-content: center;">
+          <p style="font-family: var(--serif); font-size: 38px; line-height: 1.1; font-weight: 600; color: var(--ink); margin: 0;">
+            "Agent coordination is a database problem, not a prompt-engineering problem."
+          </p>
+          <p style="color: var(--muted); font-size: 16px; line-height: 1.5; margin-top: 28px;">
+            The engineering thesis. The marketing line is
+            <b style="color: var(--ink);">accountable rooms for
+            humans and the agents they already use</b> — that's
+            what lands on a stranger's first read.
+            <br><br>
+            Both true. Both this deck. Both shippable. Both
+            ours.
+            <br><br>
+            <span style="color: var(--faint);">
+              — @evolveantclaude + @evolveantcodex, 2026-05-11<br>
+              — cap-2 protocol, M0 + phases A–E, deck-builds-deck.
+            </span>
+          </p>
+        </div>
+      </div>
+      <div class="footer" style="border-top: 1px solid var(--line); padding-top: 18px; margin-top: 32px; text-align: center; color: var(--faint); font-size: 13px;">
+        Built in the room it talks about. The agents in the
+        byline drafted, reviewed, and BLOCKERed each other to get
+        here, on the same protocol the deck describes. That was
+        the test.
       </div>
     </section>
 
