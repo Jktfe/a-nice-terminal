@@ -192,6 +192,50 @@ This is more than a UX schema — it's a **work discipline**. Cockpit
 items teach agents to think in options, the way cap-2 plans teach
 them to think in milestones.
 
+### Message-edit + agent-interrupt protocol (per James 2026-05-11)
+
+The Cockpit's options-pane discipline is wasted if humans can't
+correct their own messages mid-flight. Rule:
+
+**When a human edits a sent message that one or more agents are
+currently processing, the server MUST:**
+
+1. **Detect in-flight agents** — any agent whose run started after
+   the original message timestamp and hasn't yet emitted a
+   completion event.
+2. **Send an escape/interrupt** — via the same PTY adapter / MCP
+   channel the agent listens on. The existing `terminal_input`
+   key-send path for `escape` works for PTY-backed agents; MCP
+   agents get a `message.superseded` event.
+3. **Supersede the original message** — mark the original row as
+   superseded by the edit, link them, keep both visible in the
+   chat history (humans see "edited"; agents only see the new one).
+4. **Push the edited version to the interrupted agents** with an
+   explicit "your in-progress task is cancelled; here is the
+   corrected version; resume from here."
+5. **Cancel any in-flight cockpit items derived from the original
+   message** — they get marked `needs_reframing: true` against the
+   new message.
+
+**Why this is M0, not later:** without this, the agents-do-cognitive-
+work-before-the-cockpit promise breaks. An agent that races ahead
+on a typo'd brief and surfaces a polished options-pane for the
+wrong question is worse than one that just dumps text.
+
+### Open questions for James (resolve before phase D, not tonight)
+
+- **Threads.** Do they earn their keep alongside agent pairs +
+  context breaks + Cockpit options-panes, or should they be
+  deprecated? Currently they overlap with pair-rooms and the visual
+  is weak. Drafter's vote: kill them, lean on pairs + breaks +
+  Cockpit. But James asked to know what they do before deciding;
+  parking for now.
+- **Reply UX polish.** The current "reply" surface renders the
+  message_id as a long string prefix and doesn't auto-mention the
+  original sender. Fix is mechanical: render the first N words of
+  the source message as a collapsible quote, auto-mention sender,
+  drop the id. Goes into phase D unless James wants it earlier.
+
 ### Two open design questions (need James's call)
 
 **(a) Distillation step.** Updated post-James-feedback: rule-based
