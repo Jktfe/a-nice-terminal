@@ -83,6 +83,29 @@ hard-to-debug ways.
    `git add -A` (the working tree often holds machine-specific files
    like `.env`, `.mcp.json`, `CLAUDE.md`, `.claude/settings.local.json`
    that are intentionally gitignored).
+10. **Three tiers for chat-message writes.** Lifecycle documented in
+    `docs/persist-tier-lifecycle.md`. The short version:
+    - **Tier 1 — Persist library** (`src/lib/persist/`). Every chat-
+      message write goes through `writeMessage(input)`. Inserts the row
+      with `broadcast_state='pending'` inside a transaction; writes
+      ask rows and meta + auto-membership upsert in the same
+      transaction. Pure DB work, no in-memory state, callable from any
+      process (HTTP handler, CLI, future MCP). `actorSessionId`-gated
+      for `source: 'cli'`.
+    - **Tier 2 — Processor** (`src/lib/server/processor/`).
+      `runSideEffects(result)` owns every live-server side effect:
+      channel HTTP fanout (idempotent per-adapter via `delivery_log`),
+      `MessageRouter.route`, asks WS broadcast, agent event bus. Flips
+      `broadcast_state` to `'done'` on success. `replayPendingBroadcasts()`
+      runs the same module on rows that landed offline.
+    - **Tier 3 — UI** (SvelteKit). Reads from DB, subscribes to WS
+      events. Restartable without affecting the data plane.
+    Anything that touches in-memory state (WS clients, PTY adapters,
+    routing decisions) belongs in Tier 2. Anything that produces a
+    durable chat message should route through `writeMessage`; direct
+    `queries.createMessage` is acceptable for non-chat system events
+    (focus digests, interview summaries, hooks-emitted assistant
+    events) that intentionally bypass the broadcast queue.
 
 ## Run / build / test
 
