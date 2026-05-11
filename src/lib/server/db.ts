@@ -979,6 +979,18 @@ export const queries = {
     prepare(`SELECT crm.*, s.name, s.handle, s.display_name, s.type, s.status as session_status
              FROM chat_room_members crm LEFT JOIN sessions s ON s.id = crm.session_id
              WHERE crm.room_id = ? AND crm.session_id = ?`).get(roomId, sessionId),
+  // Phase D of server-split-2026-05-11 — membership check for the
+  // CLI direct-write path. Matches either session_id (canonical) or
+  // handle (legacy alias path) so an actor identified by either form
+  // satisfies the gate. LIMIT 1 — we only care if any row exists.
+  isRoomMember: (roomId: string, sessionOrHandle: string) =>
+    prepare(`SELECT 1 FROM chat_room_members WHERE room_id = ? AND (session_id = ? OR alias = ?) LIMIT 1`).get(roomId, sessionOrHandle, sessionOrHandle),
+  // Phase D — count membership rows for a room. Used to detect the
+  // greenfield case (no members yet) so the first CLI direct-write
+  // is allowed to auto-create membership the same way an HTTP POST
+  // would. After the first write, isRoomMember will return truthy.
+  countRoomMembers: (roomId: string) =>
+    (prepare(`SELECT COUNT(*) as c FROM chat_room_members WHERE room_id = ?`).get(roomId) as any)?.c ?? 0,
   getMemberByAlias: (roomId: string, alias: string) =>
     prepare(`SELECT crm.*, s.name, s.handle, s.display_name, s.type FROM chat_room_members crm LEFT JOIN sessions s ON s.id = crm.session_id WHERE crm.room_id = ? AND crm.alias = ?`).get(roomId, alias),
   listRoomMembers: (roomId: string) =>
@@ -1046,6 +1058,13 @@ export const queries = {
   // Delivery log
   logDelivery: (messageId: string, sessionId: string, adapter: string, delivered: number, error: string | null) =>
     prepare(`INSERT INTO delivery_log (message_id, session_id, adapter, delivered, error) VALUES (?, ?, ?, ?, ?)`).run(messageId, sessionId, adapter, delivered, error),
+  // Phase B of server-split-2026-05-11 — per-adapter idempotency check
+  // for runSideEffects. Returns truthy if a successful delivery row
+  // already exists for (message_id, adapter). Replays consult this
+  // before each non-idempotent adapter call (channel HTTP fanout) so
+  // they cannot double-post.
+  hasDelivered: (messageId: string, adapter: string) =>
+    prepare(`SELECT 1 FROM delivery_log WHERE message_id = ? AND adapter = ? AND delivered = 1 LIMIT 1`).get(messageId, adapter),
   pruneDeliveryLog: (olderThanSecs: number) =>
     prepare(`DELETE FROM delivery_log WHERE created_at < (unixepoch() - ?)`).run(olderThanSecs),
   queueFocusMessage: (roomId: string, sessionId: string, messageId: string, senderId: string | null, senderName: string | null, target: string | null, content: string, kind: string) =>
@@ -1283,6 +1302,13 @@ export const queries = {
     LEFT JOIN messages m ON m.id = a.source_message_id
     WHERE a.id = ?
   `).get(id),
+  // Phase C of server-split-2026-05-11 — load every ask attached to
+  // a message. Used by the catch-up loop to re-broadcast the
+  // ask_created WS envelopes for messages that were persisted
+  // offline. NEVER used to create new asks on replay — ask creation
+  // is Tier 1 and only fires inside writeMessage's transaction.
+  getAsksByMessage: (messageId: string) =>
+    prepare(`SELECT * FROM asks WHERE source_message_id = ? ORDER BY created_at ASC`).all(messageId),
   getAskBySourceMessage: (sourceMessageId: string) =>
     prepare(`SELECT * FROM asks WHERE source_message_id = ?`).get(sourceMessageId),
   countOpenAsks: () =>

@@ -3,9 +3,9 @@ import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
 import { nanoid } from 'nanoid';
 import { assertNotRoomScoped, assertCanWrite } from '$lib/server/room-scope';
-import { emitAskRunEvent } from '$lib/server/ask-events';
-import { CHAT_BREAK_MSG_TYPE, loadMessagesForAgentContext } from '$lib/server/chat-context';
-import { writeMessage, WriteMessageError, resolveSenderSession as resolvePersistedSender, broadcastQueue } from '$lib/persist';
+import { loadMessagesForAgentContext } from '$lib/server/chat-context';
+import { writeMessage, WriteMessageError, resolveSenderSession as resolvePersistedSender } from '$lib/persist';
+import { runSideEffects } from '$lib/server/processor/run-side-effects';
 
 const RESOLVED_AGENT_EVENT_STATUSES = new Set(['discarded', 'dismissed', 'settled', 'responded']);
 
@@ -212,77 +212,16 @@ export async function POST(event: RequestEvent<{ id: string }>) {
     throw e;
   }
 
-  const { message: msg, asks: createdAsks, firstPost, isLinkedChat, senderResolved } = result;
+  const { message: msg, asks: createdAsks, firstPost } = result;
 
-  // 2. Route via MessageRouter — stays inline for Phase A; Phase B moves
-  // this block plus the channel fanout + WS broadcast into runSideEffects.
-  const { getRouter } = await import('$lib/server/message-router.js');
-  const router = getRouter();
-
-  // Forward human messages to Claude channels — but ONLY for non-linked chat sessions
-  // (group chats, standalone chats). Linked chat messages are terminal I/O and should
-  // NOT spam the channel.
-  const senderIsAgent = senderResolved.type === 'terminal';
-  if (!senderIsAgent && !isLinkedChat) {
-    const channels = queries.listChannels() as { handle: string; port: number }[];
-    const payload = JSON.stringify({
-      content: typeof msg.content === 'string' ? msg.content.slice(0, 500) : '',
-      sender: senderResolved.name || sender_id || 'chat',
-      session_id: params.id,
-    });
-    for (const ch of channels) {
-      try {
-        fetch(`http://127.0.0.1:${ch.port}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: payload,
-        }).catch(() => {});
-      } catch {}
-    }
-    // Fallback: always try port 8789 even if registry is empty
-    if (!channels.some(c => c.port === 8789)) {
-      try {
-        fetch('http://127.0.0.1:8789', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: payload,
-        }).catch(() => {});
-      } catch {}
-    }
-  }
-
-  const routed = await router.route({
-    id: msg.id,
-    sessionId: params.id,
-    content: msg.content,
-    role: msg.role,
-    senderId: msg.sender_id,
-    senderName: senderResolved.name,
-    senderType: senderResolved.type,
-    target: msg.target,
-    replyTo: msg.reply_to,
-    msgType: msg.msg_type,
-    meta: msg.meta,
-  });
-
-  if (createdAsks.length > 0) {
-    const { broadcast, broadcastGlobal } = await import('$lib/server/ws-broadcast.js');
-    for (const ask of createdAsks) {
-      emitAskRunEvent('ask_created', ask);
-      broadcast(params.id, { type: 'ask_created', sessionId: params.id, ask });
-      broadcastGlobal({ type: 'ask_created', sessionId: params.id, ask });
-    }
-  }
-
-  // Phase A of server-split-2026-05-11 — side effects ran successfully
-  // (or at least did not throw all the way out of the handler), so the
-  // row is no longer a candidate for the Phase C catch-up loop. Flip
-  // broadcast_state to 'done' BEFORE returning so a future replay
-  // cannot resurrect a message that was already broadcast. If the
-  // handler throws anywhere above this line the row stays 'pending'
-  // and Phase C will replay it once the catch-up loop ships — that is
-  // the intended retry semantic, not a bug.
-  broadcastQueue.markDone(msg.id);
+  // Phase B of server-split-2026-05-11 — Tier 2 processor. runSideEffects
+  // owns every live-server side effect: channel HTTP fanout (now
+  // idempotent per-adapter via delivery_log), MessageRouter.route, agent
+  // event bus emit, asks WS broadcast, and the broadcast_state flip
+  // from 'pending' to 'done' on success. If runSideEffects throws, the
+  // row stays 'pending' and Phase C's catch-up loop owns the retry —
+  // that is the intended semantic, not a bug.
+  const sideEffects = await runSideEffects(result);
 
   // 3. Return with delivery info + first-post hint when applicable.
   // The hint is a single line with no skill body — agents fetch the
@@ -297,7 +236,7 @@ export async function POST(event: RequestEvent<{ id: string }>) {
     ...msg,
     ask: createdAsks[0] ?? null,
     asks: createdAsks,
-    deliveries: routed.deliveries,
+    deliveries: sideEffects.routedDeliveries,
     ...(skillHint ? { firstPost: true, hint: skillHint } : {}),
   }, { status: 201 });
 }
