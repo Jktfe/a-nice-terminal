@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>12-path-forward · xenoMCP BK pack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A2540; --surface:#fff; --line:#E5E7EB; --ink:#0A2540; --muted:#475569; --faint:#94A3B8;
+  --blue:#4A90D9; --navy:#0A2540; --green:#1AC270; --amber:#FFB100; --red:#F04438;
+  --code-bg:#F8FAFC; --code-border:#E2E8F0;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--ink);line-height:1.6}
+.topbar{background:var(--navy);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:16px;border-bottom:1px solid rgba(255,255,255,0.08)}
+.topbar a{color:rgba(255,255,255,0.7);text-decoration:none;font-size:12px;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.topbar a:hover{color:#fff}
+.topbar .crumb{color:rgba(255,255,255,0.4);font-family:JetBrains Mono,monospace;font-size:11px}
+.topbar .title{flex:1;font-size:13px;font-weight:600;color:#fff;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.shell{max-width:920px;margin:0 auto;padding:48px 32px 96px;background:#fff;min-height:calc(100vh - 60px)}
+h1{font-size:32px;font-weight:700;letter-spacing:-0.5px;margin:0 0 12px;color:var(--ink);border-bottom:2px solid var(--blue);padding-bottom:14px}
+h2{font-size:22px;font-weight:700;margin:36px 0 12px;color:var(--ink);border-left:4px solid var(--blue);padding-left:12px}
+h3{font-size:17px;font-weight:700;margin:28px 0 8px;color:var(--navy)}
+h4{font-size:14px;font-weight:700;margin:20px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-family:JetBrains Mono,monospace}
+p{margin:10px 0;color:var(--ink)}
+a{color:var(--blue);text-decoration:none;border-bottom:1px solid transparent;transition:border 0.15s}
+a:hover{border-bottom-color:var(--blue)}
+ul,ol{margin:10px 0 14px;padding-left:24px}
+li{margin:4px 0}
+code{font-family:JetBrains Mono,monospace;font-size:0.92em;background:var(--code-bg);border:1px solid var(--code-border);padding:1px 6px;border-radius:4px;color:var(--navy)}
+pre{background:var(--code-bg);border:1px solid var(--code-border);border-radius:8px;padding:14px 18px;overflow-x:auto;margin:14px 0}
+pre code{background:transparent;border:none;padding:0;font-size:13px;color:var(--ink)}
+blockquote{margin:14px 0;padding:10px 18px;background:#F8FAFC;border-left:4px solid var(--amber);color:var(--muted)}
+blockquote p{margin:6px 0}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th{background:#F8FAFC;text-align:left;padding:8px 12px;font-weight:700;border-bottom:2px solid var(--line);font-family:JetBrains Mono,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:hover td{background:#F8FAFC}
+hr{border:none;border-top:1px solid var(--line);margin:32px 0}
+strong{font-weight:700;color:var(--navy)}
+em{font-style:italic;color:var(--muted)}
+.footer{text-align:center;color:var(--faint);font-size:11px;font-family:JetBrains Mono,monospace;margin-top:48px;padding-top:24px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="../index.html">← BK pack index</a>
+  <span class="crumb">/</span>
+  <span class="title">deck/12-path-forward</span>
+  <a href="../presentation.html">demo →</a>
+</div>
+<div class="shell">
+<h1>The path forward</h1>
+<p>What&#39;s deliverable today. What&#39;s deliverable in 30 days. What&#39;s deliverable in 90 days. All built atop the platform, none requiring changes to it.</p>
+<h2>Delivered today (2026-05-11)</h2>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>xenoMCP v1.0.0</strong> tagged + released</td>
+<td><a href="https://github.com/Jktfe/xenoMCP/releases/tag/v1.0.0">https://github.com/Jktfe/xenoMCP/releases/tag/v1.0.0</a></td>
+</tr>
+<tr>
+<td>16 tools end-to-end verified against TimeScape v5.0</td>
+<td><code>BP.L = 508.0</code> round-trip confirmed</td>
+</tr>
+<tr>
+<td><strong>xenoMCP <code>v1.1.0-preview.2</code> tagged</strong> — ALL FIVE v1.5 tools live</td>
+<td>2 return real data (<code>vendor_entitlement_audit</code>, <code>dco_optimisation_decisions</code>); 3 return structure-only with <code>unmet_dependencies: [&quot;baselineMethod&quot;]</code> until Brian answers the cost-reference question. <strong>21 tools total</strong></td>
+</tr>
+<tr>
+<td>Safety contract — §0 Tenancy isolation pinned + Appendix B pre-publish checklist</td>
+<td><code>docs/CONTRACT.md</code></td>
+</tr>
+<tr>
+<td>Cross-platform test suite — <strong>44 passing</strong></td>
+<td>Mac + Windows + Linux dev mirrors</td>
+</tr>
+<tr>
+<td><strong>DCO Visibility v1.5 recon complete</strong></td>
+<td><code>docs/research/DCO_RECON.md</code> — full schema introspection on <code>TimeScapeProcessManagement</code></td>
+</tr>
+<tr>
+<td><strong>v1.5 tool surface contract</strong></td>
+<td><code>docs/research/V1_5_TOOL_SURFACE.md</code> — signatures + return shapes</td>
+</tr>
+<tr>
+<td>This deck</td>
+<td><code>docs/deck/</code> — open-slide, contributable</td>
+</tr>
+<tr>
+<td>Windows operational notes</td>
+<td><code>docs/WINDOWS_NOTES.md</code></td>
+</tr>
+<tr>
+<td>BK prep — full Q&amp;A tracker + one-pager + anticipated-questions FAQ</td>
+<td><code>docs/BK_QUESTIONS_FULL.md</code>, <code>docs/OPEN_QUESTIONS_FOR_BK.md</code>, <code>docs/BK_FAQ.md</code></td>
+</tr>
+<tr>
+<td>7-minute live demo plan</td>
+<td><code>docs/DEMO_SCRIPT.md</code></td>
+</tr>
+</tbody></table>
+<p>You can install + run xenoMCP today. The MCP transport is stdio; any Claude Desktop / Claude Code / Cursor / future AI client can consume it.</p>
+<h2>30 days — DCO Visibility v1.5</h2>
+<p><strong>All five v1.5 tools shipped in this session.</strong> What the 30-day window is now waiting on isn&#39;t tool development — it&#39;s the cost-baseline conversation:</p>
+<ul>
+<li><del><code>dco_savings_summary</code></del> — <strong>shipped 2026-05-11</strong>, structure-only (counts/ratios/vendor-mix today; £ amount flips from <code>null</code> to real when baseline lands)</li>
+<li><del><code>dco_savings_by_desk</code></del> — <strong>shipped 2026-05-11</strong>, structure-only (desk grouping today; values flip when desk semantics confirmed)</li>
+<li><del><code>dco_optimisation_decisions</code></del> — <strong>shipped 2026-05-11</strong>, returns real data today</li>
+<li><del><code>vendor_entitlement_audit</code></del> — <strong>shipped 2026-05-11</strong>, returns real data today</li>
+<li><del><code>vendor_cost_summary</code></del> — <strong>shipped 2026-05-11</strong>, structure-only (vendor-mix today; cost figures flip when baseline lands)</li>
+</ul>
+<p>All read-only, all tenant-isolated, all backed by the <code>TimeScapeProcessManagement</code> views identified in the recon. The 30-day milestone shifts from &quot;build v1.5&quot; to &quot;settle the cost-baseline question and watch three of the five tools start returning real numbers&quot; — the toolchain is already in place. A CFO conversation with Claude is <em>&quot;how much did DCO save us last quarter, by desk?&quot;</em> — the question Claude can already answer with structure today, and with numbers the day after the meeting.</p>
+<p>Parallel deliverable: a <strong>DCO savings dashboard</strong> mockup using XenomorphDesignSystem tokens. The kind of visual artefact a CFO can take to their board to defend the platform spend.</p>
+<h2>60 days — Production readiness</h2>
+<ul>
+<li><strong>Four-eyes (Maker-Checker) refusal layer</strong> on destructive tools — the v1.1 item already scoped in <code>docs/CONTRACT.md</code> §5. Brings the MCP into BCBS 239-grade audit alignment.</li>
+<li><strong>Audit log JSONL persistence</strong> — server-side, customer-host-local (never centralised at Xenomorph per §0).</li>
+<li><strong>Sample MCP-client deployments</strong> with two pilot clients (selection collaborative — would suggest one G-SIB sell-side + one buy-side quant).</li>
+</ul>
+<h2>90 days — The AI lane proper</h2>
+<ul>
+<li><strong>Natural-language QL+ generation</strong> — Claude composes QL+ from English questions, calls <code>query</code> or <code>itemQuery</code> with structured args. Demonstrable to prospects as the AI-fluent surface.</li>
+<li><strong>Validation rule editing via natural language</strong> — &quot;Add a tolerance check for BP equity close prices &gt; 1000 between 2024 and 2026&quot; → MCP generates the rule definition, Maker-Checker approves, deploys.</li>
+<li><strong>Lineage queries</strong> — &quot;What sources fed the closing price reported to risk yesterday?&quot; → MCP traces the lineage chain and returns it.</li>
+<li><strong>Customer-facing deck variant</strong> — same narrative, no internal positioning, suitable for prospect meetings.</li>
+</ul>
+<h2>Open questions to settle in the meeting</h2>
+<ol>
+<li><strong>Cost reference data for DCO savings figures</strong> — slide 10, Q1.</li>
+<li><strong>&quot;Desk&quot; / org-dimension semantics</strong> in <code>EntityProcesses</code> — slide 10, Q2.</li>
+<li><strong>Substitution success rate</strong> confirmation — slide 10, Q3.</li>
+<li><strong>Demo data approach</strong> — synthetic, anonymised production extract, or live screenshots — slide 10, Q4.</li>
+<li><strong>Pilot client selection</strong> for 60-day milestone.</li>
+<li><strong>MCP positioning under the Xenomorph brand</strong> — separate product line vs. extension of TimeScape EDM+ — and how that aligns with Mark&#39;s design files at the URL James shared.</li>
+</ol>
+<h2>What we&#39;re asking for</h2>
+<p>Nothing today. The work has already happened. What we&#39;d find useful from this conversation: alignment on the 30/60/90 milestones, the <strong>cost-baseline question answered</strong> (15-30 minutes of your time on Q1 from slide 10) so three already-shipped tools can light up with real numbers, <strong>desk-dimension semantics confirmed</strong> (Q2) so attribution lands cleanly, and an indication of whether Xenomorph wants to position v1.1.0 publicly when those values flip or hold it for client conversations first.</p>
+<p>Thirty years of engineering. A modern AI-fluent surface. Built atop, never inside. <strong>The platform is yours. The wrap is delivered.</strong> What&#39;s left isn&#39;t engineering — it&#39;s the conversation that turns null fields into your customers&#39; savings stories.</p>
+<!--
+Notes:
+This is the close. Three jobs: (a) recap the surface area of delivered work; (b) show concrete 30/60/90 milestones so it doesn't feel like vapour; (c) name what we're asking for cleanly so the meeting has a productive next-step.
+
+The "what we're asking for" line — "nothing today, the work happens regardless" — is important. It removes pressure and signals confidence. The actual asks (alignment + 30 min on the four questions + positioning preference) are small.
+
+The closing line — "The platform is yours. The wrap is ours to deliver." — bookends the deck. Slide 1 opened with "Your platform. Brought to the AI surface." Slide 12 closes with the same frame, now grounded in twelve slides of substantive work.
+
+Pacing: ~120 seconds. End at a natural pause; let the room move into Q&A.
+-->
+
+<div class="footer">xenoMCP · BK pack · 2026-05-12 · rendered from source markdown</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PUBLISH_PREP · xenoMCP BK pack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A2540; --surface:#fff; --line:#E5E7EB; --ink:#0A2540; --muted:#475569; --faint:#94A3B8;
+  --blue:#4A90D9; --navy:#0A2540; --green:#1AC270; --amber:#FFB100; --red:#F04438;
+  --code-bg:#F8FAFC; --code-border:#E2E8F0;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--ink);line-height:1.6}
+.topbar{background:var(--navy);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:16px;border-bottom:1px solid rgba(255,255,255,0.08)}
+.topbar a{color:rgba(255,255,255,0.7);text-decoration:none;font-size:12px;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.topbar a:hover{color:#fff}
+.topbar .crumb{color:rgba(255,255,255,0.4);font-family:JetBrains Mono,monospace;font-size:11px}
+.topbar .title{flex:1;font-size:13px;font-weight:600;color:#fff;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.shell{max-width:920px;margin:0 auto;padding:48px 32px 96px;background:#fff;min-height:calc(100vh - 60px)}
+h1{font-size:32px;font-weight:700;letter-spacing:-0.5px;margin:0 0 12px;color:var(--ink);border-bottom:2px solid var(--blue);padding-bottom:14px}
+h2{font-size:22px;font-weight:700;margin:36px 0 12px;color:var(--ink);border-left:4px solid var(--blue);padding-left:12px}
+h3{font-size:17px;font-weight:700;margin:28px 0 8px;color:var(--navy)}
+h4{font-size:14px;font-weight:700;margin:20px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-family:JetBrains Mono,monospace}
+p{margin:10px 0;color:var(--ink)}
+a{color:var(--blue);text-decoration:none;border-bottom:1px solid transparent;transition:border 0.15s}
+a:hover{border-bottom-color:var(--blue)}
+ul,ol{margin:10px 0 14px;padding-left:24px}
+li{margin:4px 0}
+code{font-family:JetBrains Mono,monospace;font-size:0.92em;background:var(--code-bg);border:1px solid var(--code-border);padding:1px 6px;border-radius:4px;color:var(--navy)}
+pre{background:var(--code-bg);border:1px solid var(--code-border);border-radius:8px;padding:14px 18px;overflow-x:auto;margin:14px 0}
+pre code{background:transparent;border:none;padding:0;font-size:13px;color:var(--ink)}
+blockquote{margin:14px 0;padding:10px 18px;background:#F8FAFC;border-left:4px solid var(--amber);color:var(--muted)}
+blockquote p{margin:6px 0}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th{background:#F8FAFC;text-align:left;padding:8px 12px;font-weight:700;border-bottom:2px solid var(--line);font-family:JetBrains Mono,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:hover td{background:#F8FAFC}
+hr{border:none;border-top:1px solid var(--line);margin:32px 0}
+strong{font-weight:700;color:var(--navy)}
+em{font-style:italic;color:var(--muted)}
+.footer{text-align:center;color:var(--faint);font-size:11px;font-family:JetBrains Mono,monospace;margin-top:48px;padding-top:24px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="../index.html">← BK pack index</a>
+  <span class="crumb">/</span>
+  <span class="title">deck/PUBLISH_PREP</span>
+  <a href="../presentation.html">demo →</a>
+</div>
+<div class="shell">
+<h1>Publish prep — <code>xeno-bk-pitch</code> first publish</h1>
+<blockquote>
+<p>Prep + propose only. <strong>Do not execute</strong> until @James greenlights. xenoCC&#39;s call on whether timing matters (e.g. align with the <code>v1.1.0-preview</code> tag on <code>vendor_entitlement_audit</code>).</p>
+<p>Per xenoCC&#39;s earlier ANT primitive guidance:</p>
+<ul>
+<li><strong>First</strong> <code>file put</code> under a fresh slug <strong>implicitly creates the deck</strong> — no <code>--base-hash</code> / <code>--if-match-mtime</code> needed on round 1.</li>
+<li><strong>Subsequent edits</strong> require <code>file get</code> first to capture the current sha + mtime, then <code>file put</code> with <code>--base-hash &lt;sha&gt; --if-match-mtime &lt;mtime&gt;</code> to prevent stomping concurrent edits.</li>
+<li><strong>Audit trail</strong> retrievable via <code>antchat deck &lt;room&gt; audit &lt;slug&gt;</code>.</li>
+</ul>
+</blockquote>
+<h2>Pre-flight check (zero-cost)</h2>
+<pre><code class="language-bash"># Verify the slug doesn&#39;t already exist (we should see an empty / 404 / &quot;not found&quot; response)
+antchat deck w5hMngV_jp8k5NmRcPVya audit xeno-bk-pitch
+</code></pre>
+<p>Expected: empty audit trail. Room <code>w5hMngV_jp8k5NmRcPVya</code> has had zero decks per xenoCC&#39;s recon. If the slug <em>does</em> return entries, <strong>stop</strong> and reconcile — we&#39;d be overwriting or merging into someone else&#39;s deck.</p>
+<h2>Publish ordering (proposed)</h2>
+<p>Twelve slides first (in numerical order), <code>index.md</code> last. Rationale: <code>index.md</code> lists each slide&#39;s status (currently all &quot;draft&quot;); we want it to be the <em>final</em> file landed so anyone viewing the deck via antchat hits a manifest that accurately reflects what&#39;s already there. If <code>index.md</code> lands first and a slide upload fails mid-sequence, the manifest claims content that doesn&#39;t exist yet — confusing for any viewer.</p>
+<p>Drop into your antchat-capable terminal. <strong>One-shot block</strong> so the sequence runs atomically:</p>
+<pre><code class="language-bash">SLUG=&quot;xeno-bk-pitch&quot;
+ROOM=&quot;w5hMngV_jp8k5NmRcPVya&quot;
+cd /Users/jamesking/CascadeProjects/xenoMCP/docs/deck   # or the Windows-side path
+
+for f in 01-cover.md 02-proposition.md 03-what-youve-built.md \
+         04-architecture.md 05-customers.md 06-compliance.md \
+         07-vendor-cost.md 08-market.md 09-what-we-built.md \
+         10-dco-visibility.md 11-ai-thesis.md 12-path-forward.md \
+         index.md; do
+  echo &quot;Publishing $f...&quot;
+  antchat deck &quot;$ROOM&quot; file put &quot;$SLUG&quot; &quot;$f&quot; --from-file &quot;$f&quot;
+done
+</code></pre>
+<p>If a single-file failure mid-loop is a concern, swap the loop for explicit lines so a hang or 4xx halts the rest and the operator can resume:</p>
+<pre><code class="language-bash">antchat deck w5hMngV_jp8k5NmRcPVya file put xeno-bk-pitch 01-cover.md          --from-file docs/deck/01-cover.md
+antchat deck w5hMngV_jp8k5NmRcPVya file put xeno-bk-pitch 02-proposition.md    --from-file docs/deck/02-proposition.md
+antchat deck w5hMngV_jp8k5NmRcPVya file put xeno-bk-pitch 03-what-youve-built.md --from-file docs/deck/03-what-youve-built.md
+antchat deck w5hMngV_jp8k5NmRcPVya file put xeno-bk-pitch 04-architecture.md    --from-file docs/deck/04-architecture.md
+antchat deck w5hMngV_jp8k5NmRcPVya file put xeno-bk-pitch 05-customers.md       --from-file docs/deck/05-customers.md
+antchat deck w5hMngV_jp8k5NmRcPVya file put xeno-bk-pitch 06-compliance.md      --from-file docs/deck/06-compliance.md
+antchat deck w5hMngV_jp8k5NmRcPVya file put xeno-bk-pitch 07-vendor-cost.md     --from-file docs/deck/07-vendor-cost.md
+antchat deck w5hMngV_jp8k5NmRcPVya file put xeno-bk-pitch 08-market.md          --from-file docs/deck/08-market.md
+antchat deck w5hMngV_jp8k5NmRcPVya file put xeno-bk-pitch 09-what-we-built.md   --from-file docs/deck/09-what-we-built.md
+antchat deck w5hMngV_jp8k5NmRcPVya file put xeno-bk-pitch 10-dco-visibility.md  --from-file docs/deck/10-dco-visibility.md
+antchat deck w5hMngV_jp8k5NmRcPVya file put xeno-bk-pitch 11-ai-thesis.md       --from-file docs/deck/11-ai-thesis.md
+antchat deck w5hMngV_jp8k5NmRcPVya file put xeno-bk-pitch 12-path-forward.md    --from-file docs/deck/12-path-forward.md
+antchat deck w5hMngV_jp8k5NmRcPVya file put xeno-bk-pitch index.md              --from-file docs/deck/index.md
+</code></pre>
+<h2>Local state snapshot (at prep time, 2026-05-11)</h2>
+<p>For the RMW protocol on round-2 edits, capture these now. Any subsequent <code>file put</code> for one of these paths must include <code>--base-hash</code> matching its current server-side hash (which after round-1 will equal the local sha256 below) and <code>--if-match-mtime</code> matching the server&#39;s recorded mtime.</p>
+<table>
+<thead>
+<tr>
+<th>Slide path</th>
+<th>Lines</th>
+<th>sha256 (12-char prefix)</th>
+<th>local mtime</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>01-cover.md</code></td>
+<td>16</td>
+<td><code>3f7a77a9136c…</code></td>
+<td>2026-05-11 19:35:18</td>
+</tr>
+<tr>
+<td><code>02-proposition.md</code></td>
+<td>22</td>
+<td><code>539336b303ac…</code></td>
+<td>2026-05-11 19:35:28</td>
+</tr>
+<tr>
+<td><code>03-what-youve-built.md</code></td>
+<td>44</td>
+<td><code>297bb4c799bb…</code></td>
+<td>2026-05-11 19:35:40</td>
+</tr>
+<tr>
+<td><code>04-architecture.md</code></td>
+<td>53</td>
+<td><code>5db7fe6c62d2…</code></td>
+<td>2026-05-11 19:35:53</td>
+</tr>
+<tr>
+<td><code>05-customers.md</code></td>
+<td>43</td>
+<td><code>2f3e4412ebf6…</code></td>
+<td>2026-05-11 19:38:05</td>
+</tr>
+<tr>
+<td><code>06-compliance.md</code></td>
+<td>33</td>
+<td><code>c558d632cb53…</code></td>
+<td>2026-05-11 19:38:05</td>
+</tr>
+<tr>
+<td><code>07-vendor-cost.md</code></td>
+<td>61</td>
+<td><code>71a1a077f139…</code></td>
+<td>2026-05-11 19:47:11</td>
+</tr>
+<tr>
+<td><code>08-market.md</code></td>
+<td>49</td>
+<td><code>41dd408024ea…</code></td>
+<td>2026-05-11 19:38:05</td>
+</tr>
+<tr>
+<td><code>09-what-we-built.md</code></td>
+<td>56</td>
+<td><code>688a1fbdf212…</code></td>
+<td>2026-05-11 19:38:56</td>
+</tr>
+<tr>
+<td><code>10-dco-visibility.md</code></td>
+<td>56</td>
+<td><code>06f114357172…</code></td>
+<td>2026-05-11 19:47:11</td>
+</tr>
+<tr>
+<td><code>11-ai-thesis.md</code></td>
+<td>84</td>
+<td><code>6fbaf78ef199…</code></td>
+<td>2026-05-11 19:47:11</td>
+</tr>
+<tr>
+<td><code>12-path-forward.md</code></td>
+<td>70</td>
+<td><code>dc377a6def99…</code></td>
+<td>2026-05-11 19:40:00</td>
+</tr>
+<tr>
+<td><code>index.md</code></td>
+<td>41</td>
+<td><code>ee6779191050…</code></td>
+<td>2026-05-11 19:35:13</td>
+</tr>
+<tr>
+<td><strong>Total</strong></td>
+<td><strong>628</strong></td>
+<td>—</td>
+<td>—</td>
+</tr>
+</tbody></table>
+<p>(Regenerate with <code>shasum -a 256 *.md</code> + <code>stat -f &#39;%Sm&#39; *.md</code> if any slide has been edited since prep.)</p>
+<h2>Post-publish verification</h2>
+<pre><code class="language-bash"># Should show 13 file entries with timestamps
+antchat deck w5hMngV_jp8k5NmRcPVya audit xeno-bk-pitch
+</code></pre>
+<p>Expected: 13 entries (12 slides + index.md), each with a hash and the publisher&#39;s identity. If any entry is missing or marked failed, re-run that file with <code>file put</code> (round-1 protocol still applies because the file path didn&#39;t land).</p>
+<h2>Read-modify-write protocol (for edits after first publish)</h2>
+<p>When any single slide needs an update after the first publish:</p>
+<pre><code class="language-bash"># 1. Fetch current server-side hash + mtime
+antchat deck w5hMngV_jp8k5NmRcPVya file get xeno-bk-pitch 07-vendor-cost.md &gt; /tmp/current-07.md
+SERVER_HASH=$(...)  # antchat CLI should expose this; fall back to: shasum -a 256 /tmp/current-07.md
+SERVER_MTIME=$(...) # ditto for mtime
+
+# 2. Make local edits
+$EDITOR docs/deck/07-vendor-cost.md
+
+# 3. Push with concurrency guard
+antchat deck w5hMngV_jp8k5NmRcPVya file put xeno-bk-pitch 07-vendor-cost.md \
+  --from-file docs/deck/07-vendor-cost.md \
+  --base-hash &quot;$SERVER_HASH&quot; \
+  --if-match-mtime &quot;$SERVER_MTIME&quot;
+</code></pre>
+<p>The <code>--base-hash</code> + <code>--if-match-mtime</code> guards prevent silently stomping a concurrent edit by another agent (or James editing via the antchat UI). If they don&#39;t match, the server returns a conflict; resolve locally with <code>file get</code> again, merge, and re-push.</p>
+<h2>Rollback strategy</h2>
+<p>If round-1 publish goes wrong (wrong slug, wrong room, wrong content), there&#39;s no <code>antchat deck delete-slug</code> per the recon. Options:</p>
+<ol>
+<li><strong>Re-publish with corrected content</strong> — same RMW protocol works; the audit trail records both versions, which is acceptable for an internal/James-only audience.</li>
+<li><strong>Ask the ANT team to drop the slug server-side</strong> if the wrong content is sensitive or confusing.</li>
+</ol>
+<p>This is one of the reasons &quot;Don&#39;t actually publish until James greenlights&quot; is the contract for round 1.</p>
+<h2>Decisions waiting on @James</h2>
+<ol>
+<li><strong>Publish timing</strong> — now, or wait for the <code>v1.1.0-preview</code> tag on xenoCC&#39;s <code>vendor_entitlement_audit</code> so the deck reflects 17-tools-shipped before BK sees it?</li>
+<li><strong>Publish operator</strong> — who runs the loop? James, xenoCC (terminal already on the Tailnet host), or me (Mac mini, antchat CLI confirmed working for chat-send, untested for <code>deck file put</code>)?</li>
+<li><strong>Whether to publish at all before BK</strong> — alternative is GitHub repo as the canonical view, antchat deck as a follow-up after the meeting if BK wants ongoing access.</li>
+</ol>
+
+<div class="footer">xenoMCP · BK pack · 2026-05-12 · rendered from source markdown</div>
+</div>
+</body>
+</html>

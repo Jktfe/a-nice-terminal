@@ -1,0 +1,175 @@
+[init] server=xenomorph-timescape protocol=2025-11-25
+[tools/list] count=21
+
+=== M1 — tools/call version ===
+{
+  "ok": true,
+  "version": "5.0"
+}
+[M1] PASS
+
+=== M2 — tools/call itemQuery ===
+{
+  "ok": true,
+  "data": [
+    [
+      "BP.L",
+      "BP",
+      508.0
+    ]
+  ]
+}
+[M2] PASS
+
+=== M3 — tools/call query ===
+{
+  "ok": true,
+  "data": 508.0
+}
+[M3] PASS
+
+=== M4 — tools/call saveItem ===
+{
+  "needs_confirmation": true,
+  "operation": "saveItem",
+  "preview": {
+    "database": "XENO",
+    "codeTypes": [
+      "Reuters"
+    ],
+    "codes": [
+      "TEST.DRYRUN_SHOULD_NEVER_RUN"
+    ],
+    "category": "ADR",
+    "description": "dry-run only — confirm omitted; this must be refused"
+  },
+  "message": "saveItem is a write/destructive operation. Review the preview above and re-call with confirm=true to execute."
+}
+[M4] PASS — needs_confirmation fired as designed
+
+=== V1 — tools/call vendor_entitlement_audit ===
+{
+  "ok": true,
+  "tenant_scope": "customer_only",
+  "vendors": [
+    {
+      "vendor": "Bloomberg",
+      "available_programs": [
+        "GetActions",
+        "GetAllQuotes",
+        "GetData",
+        "GetHistory"
+      ],
+      "active_accounts": []
+    },
+    {
+      "vendor": "Reuters",
+      "available_programs": [
+        "Terms and Conditions",
+        "Tick History Raw",
+        "Tick History Time And Sales"
+      ],
+      "active_accounts": []
+    }
+  ]
+}
+[V1] PASS
+
+=== V2 — tools/call dco_optimisation_decisions ===
+{
+  "ok": true,
+  "window": {
+    "start": "2026-04-11T20:10:34.821937",
+    "end": "2026-05-11T20:10:34.821937"
+  },
+  "tenant_scope": "customer_only",
+  "filter": {
+    "disposition": null,
+    "limit": 100
+  },
+  "rows": []
+}
+[V2] PASS
+
+=== V3 — tools/call dco_savings_summary ===
+{
+  "ok": true,
+  "window": {
+    "start": "2026-04-11T20:10:34.826986",
+    "end": "2026-05-11T20:10:34.826986"
+  },
+  "tenant_scope": "customer_only",
+  "totals": {
+    "bloomberg_requests": 0,
+    "dco_served": 0,
+    "substituted": 0,
+    "direct_passthrough": 0,
+    "failed": 0
+  },
+  "estimated_savings": {
+    "amount": null,
+    "currency": "USD",
+    "method": null,
+    "baseline_window": null
+  },
+  "unmet_dependencies": [
+    "baselineMethod"
+  ]
+}
+[V3] PASS
+
+=== V4 — tools/call dco_savings_by_desk ===
+{
+  "ok": true,
+  "window": {
+    "start": "2026-04-11T20:10:34.831229",
+    "end": "2026-05-11T20:10:34.831229"
+  },
+  "tenant_scope": "customer_only",
+  "desk_dimension": "EntityProcessID (unconfirmed - see A2 in BK_QUESTIONS_FULL)",
+  "rows": [
+    {
+      "desk_id": null,
+      "desk_label": "(all desks - dimension unconfirmed)",
+      "bloomberg_requests": 0,
+      "dco_served": 0,
+      "substituted": 0,
+      "failed": 0,
+      "estimated_savings": {
+        "amount": null,
+        "curre
+[V4] PASS
+
+=== V5 — tools/call vendor_cost_summary ===
+{
+  "ok": true,
+  "window": {
+    "start": "2026-04-11T20:10:34.835864",
+    "end": "2026-05-11T20:10:34.835864"
+  },
+  "tenant_scope": "customer_only",
+  "group_by": "vendor",
+  "rows": [
+    {
+      "vendor": "Bloomberg",
+      "request_count": 0,
+      "cost_with_dco": null,
+      "cost_without_dco": null,
+      "currency": "USD"
+    },
+    {
+      "vendor": "Reuters",
+      "request_count": 0,
+      "cost_with_dco": null,
+      "cost_without_dco": null,
+      "currency": "USD"
+    }
+  ],
+  "
+[V5] PASS
+
+============================================================
+PASS — all 9 dry-runnable moments executed cleanly
+Live demo additions not dry-run-tested (would mutate Xeno data):
+  M5 saveItem with confirm=true   — for live demo only
+  M6 deleteItem with confirm=true — for live demo only

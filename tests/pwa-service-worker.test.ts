@@ -7,7 +7,7 @@ describe('PWA service worker freshness', () => {
   const layout = readFileSync(resolve(import.meta.dirname, '../src/routes/+layout.svelte'), 'utf8');
 
   it('never serves navigation or API calls from cache', () => {
-    expect(sw).toContain("const CACHE_NAME = 'ant-v3-cache-v3'");
+    expect(sw).toContain("const CACHE_NAME = 'ant-v3-cache-v4'");
     expect(sw).toContain("url.pathname.startsWith('/api/')");
     expect(sw).toContain('if (isNavigationRequest(request))');
     expect(sw).toContain('fetch(request).catch');

@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KEITH_NEEDS_TODAY · xenoMCP BK pack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A2540; --surface:#fff; --line:#E5E7EB; --ink:#0A2540; --muted:#475569; --faint:#94A3B8;
+  --blue:#4A90D9; --navy:#0A2540; --green:#1AC270; --amber:#FFB100; --red:#F04438;
+  --code-bg:#F8FAFC; --code-border:#E2E8F0;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--ink);line-height:1.6}
+.topbar{background:var(--navy);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:16px;border-bottom:1px solid rgba(255,255,255,0.08)}
+.topbar a{color:rgba(255,255,255,0.7);text-decoration:none;font-size:12px;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.topbar a:hover{color:#fff}
+.topbar .crumb{color:rgba(255,255,255,0.4);font-family:JetBrains Mono,monospace;font-size:11px}
+.topbar .title{flex:1;font-size:13px;font-weight:600;color:#fff;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.shell{max-width:920px;margin:0 auto;padding:48px 32px 96px;background:#fff;min-height:calc(100vh - 60px)}
+h1{font-size:32px;font-weight:700;letter-spacing:-0.5px;margin:0 0 12px;color:var(--ink);border-bottom:2px solid var(--blue);padding-bottom:14px}
+h2{font-size:22px;font-weight:700;margin:36px 0 12px;color:var(--ink);border-left:4px solid var(--blue);padding-left:12px}
+h3{font-size:17px;font-weight:700;margin:28px 0 8px;color:var(--navy)}
+h4{font-size:14px;font-weight:700;margin:20px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-family:JetBrains Mono,monospace}
+p{margin:10px 0;color:var(--ink)}
+a{color:var(--blue);text-decoration:none;border-bottom:1px solid transparent;transition:border 0.15s}
+a:hover{border-bottom-color:var(--blue)}
+ul,ol{margin:10px 0 14px;padding-left:24px}
+li{margin:4px 0}
+code{font-family:JetBrains Mono,monospace;font-size:0.92em;background:var(--code-bg);border:1px solid var(--code-border);padding:1px 6px;border-radius:4px;color:var(--navy)}
+pre{background:var(--code-bg);border:1px solid var(--code-border);border-radius:8px;padding:14px 18px;overflow-x:auto;margin:14px 0}
+pre code{background:transparent;border:none;padding:0;font-size:13px;color:var(--ink)}
+blockquote{margin:14px 0;padding:10px 18px;background:#F8FAFC;border-left:4px solid var(--amber);color:var(--muted)}
+blockquote p{margin:6px 0}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th{background:#F8FAFC;text-align:left;padding:8px 12px;font-weight:700;border-bottom:2px solid var(--line);font-family:JetBrains Mono,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:hover td{background:#F8FAFC}
+hr{border:none;border-top:1px solid var(--line);margin:32px 0}
+strong{font-weight:700;color:var(--navy)}
+em{font-style:italic;color:var(--muted)}
+.footer{text-align:center;color:var(--faint);font-size:11px;font-family:JetBrains Mono,monospace;margin-top:48px;padding-top:24px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="../index.html">← BK pack index</a>
+  <span class="crumb">/</span>
+  <span class="title">research/KEITH_NEEDS_TODAY</span>
+  <a href="../presentation.html">demo →</a>
+</div>
+<div class="shell">
+<h1>How we meet Keith&#39;s needs today</h1>
+<p>Owner: <code>@xenoCodex</code>
+Role: security and compliance seniority across the Xenomorph deck, MCP interface doc, and Keith-needs research lane.
+Status: first cut for cross-review.
+Date: 2026-05-11</p>
+<h2>Executive view</h2>
+<p>Keith&#39;s immediate need is not another proof that Xenomorph&#39;s core technology works. The TimeScape platform already does that. The need is to make the existing strength legible to modern buyers, AI-native workflows, and internal stakeholders without weakening the security, tenant-isolation, or trust posture that makes the platform valuable in the first place.</p>
+<p>The current work meets that need in three linked artifacts:</p>
+<table>
+<thead>
+<tr>
+<th>Artifact</th>
+<th>Owner</th>
+<th>What it proves</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>BK deck</td>
+<td><code>@xenobridgeclaude</code></td>
+<td>Xenomorph has deep, proven financial-data infrastructure and can be presented with a modern, AI-fluent surface.</td>
+</tr>
+<tr>
+<td>MCP / agent-interface research</td>
+<td><code>@xenoCC</code></td>
+<td>The live TimeScape CPython binding can be exposed to AI clients through a safe, auditable MCP layer without changing Xenomorph code.</td>
+</tr>
+<tr>
+<td>Keith-needs research</td>
+<td><code>@xenoCodex</code></td>
+<td>The commercial story can be sharpened around DCO savings and AI readiness while staying inside customer-only data, tenant isolation, and compliance boundaries.</td>
+</tr>
+</tbody></table>
+<p>The key commercial gap is DCO value visibility. Xenomorph&#39;s DCO and alternative-vendor routing can reduce clients&#39; data-vendor spend, but the value is not surfaced in a way a customer can carry to a CFO, procurement committee, or board. The MCP lane is the right vehicle to expose that value, as long as every figure is scoped to the calling customer and every baseline is defensible.</p>
+<h2>What Keith likely needs today</h2>
+<ol>
+<li><p>A credible near-term story for Brian / BK: this is not a speculative AI wrapper. It is a working MCP over the live TimeScape binding, tagged <code>v1.1.0-preview.2</code> (16 baseline tools + 5 v1.5 DCO Visibility tools, 21 total), with a read/write safety contract and a verified <code>BP.L</code> round trip.</p>
+</li>
+<li><p>A clearer customer-value story: DCO should move from quietly saving money to showing the savings summary, attribution, decision trail, and evidence the customer can use internally.</p>
+</li>
+<li><p>A trust-preserving AI story: Xenomorph can enter the AI workflow without becoming an uncontrolled data broker. The model should query through customer-hosted, AD-scoped, audit-friendly interfaces, not through a central cross-client Xenomorph service.</p>
+</li>
+<li><p>A set of deliverables that can be shown now: deck, research docs, v1 MCP release notes, DCO recon findings, and a safe v1.5 tool surface — with all five tools live (2 real-data, 3 structure-only pending the baseline answer).</p>
+</li>
+<li><p>A short list of unresolved business questions for Keith / Brian: baseline pricing, desk attribution, substitution-success semantics, demo-data availability, and how public the DCO savings story should become.</p>
+</li>
+</ol>
+<h2>Security and compliance non-negotiables</h2>
+<p>These rules should govern the deck, the MCP docs, and any DCO Visibility implementation.</p>
+<table>
+<thead>
+<tr>
+<th>Rule</th>
+<th>Practical implication</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Customer data only</td>
+<td>The MCP must serve the calling customer&#39;s own TimeScape data. No internal Xenomorph data, no NMVC data, no other-client data, no cross-tenant aggregates.</td>
+</tr>
+<tr>
+<td>Tenant-scoped deployment</td>
+<td>The MCP runs on the customer&#39;s TimeScape host under the customer&#39;s Windows/AD identity. Integrated Security is the isolation boundary.</td>
+</tr>
+<tr>
+<td>No central data exhaust</td>
+<td>Audit logs stay on the customer host. Do not centralise tool-call payloads or customer query values at Xenomorph.</td>
+</tr>
+<tr>
+<td>No internal-intel tools</td>
+<td>Tools such as customer lists, market share, internal pipeline, or competitive-intel summaries are out of scope by design.</td>
+</tr>
+<tr>
+<td>Safe DCO visibility</td>
+<td>DCO tools may show a customer&#39;s own savings and decisions. They must not compare one customer against another unless explicit, customer-approved benchmarking exists.</td>
+</tr>
+<tr>
+<td>Baseline discipline</td>
+<td>A savings number is only useful if its baseline is named and defensible. No vague millions-saved tool output without source, time window, and pricing assumptions.</td>
+</tr>
+<tr>
+<td>Read/write separation</td>
+<td>Read tools can be open. Write, destructive, config, and batch actions must stay confirm-gated; destructive actions need the four-eyes roadmap before sensitive deployment.</td>
+</tr>
+</tbody></table>
+<h2>What we can safely show now</h2>
+<p>The current artifacts can safely demonstrate the following:</p>
+<ul>
+<li>Xenomorph&#39;s existing technology can be accessed by AI clients through the public CPython binding, without modifying Xenomorph&#39;s code.</li>
+<li>The MCP is customer-hosted and stdio-based, so it does not add a new inbound network service.</li>
+<li>The <code>CONTRACT.md</code> tenancy rule explicitly blocks cross-tenant, Xenomorph-internal, and other-client data exposure.</li>
+<li>The DCO recon found where the operational state lives: <code>TimeScapeProcessManagement</code>, especially <code>BloombergRequests</code> and <code>RequestSubstitutes</code>.</li>
+<li>The v1.5 DCO Visibility surface is live as of <code>v1.1.0-preview.2</code> — a read-only layer over existing SQL views. Two tools return real data today; three return structure-only with <code>unmet_dependencies: [&quot;baselineMethod&quot;]</code> until the pricing and semantics conversations land. The shape doesn&#39;t change when answers arrive — only the figures fill in.</li>
+<li>The dev machine currently lacks live DCO activity rows, so a polished demo needs synthetic data, an anonymised extract, or approved screenshots.</li>
+</ul>
+<h2>What we should not show or imply</h2>
+<ul>
+<li>Do not show any real client DCO savings without explicit permission and a documented basis.</li>
+<li>Do not imply Xenomorph has cross-client benchmarking unless the data governance model exists.</li>
+<li>Do not put NMVC internal commercial views, debt/refinancing context, investment thesis, or private diligence material into the deck or ANT docs.</li>
+<li>Do not position the MCP as a replacement for TimeScape security. It inherits TimeScape and Windows controls; it does not supersede them.</li>
+<li>Do not promise automatic dollar savings until the baseline pricing model is confirmed.</li>
+<li>Do not use the dev box&#39;s empty DCO tables as proof of absence or low usage. They are sufficient for schema recon, not for value measurement.</li>
+</ul>
+<h2>DCO Visibility: safe near-term shape</h2>
+<p>Keith&#39;s needs are served by the v1.5 DCO Visibility layer shipped in <code>v1.1.0-preview.2</code> — read-only and explanatory:</p>
+<table>
+<thead>
+<tr>
+<th>Proposed capability</th>
+<th>Purpose</th>
+<th>Compliance stance</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>dco_savings_summary</code></td>
+<td>Customer&#39;s own savings over a period, with named baseline.</td>
+<td>Tenant-scoped, no peer comparison. Requires cost reference.</td>
+</tr>
+<tr>
+<td><code>dco_savings_by_desk</code></td>
+<td>Attribution by desk/business unit if the entity dimension is confirmed.</td>
+<td>Only customer-owned org dimensions. No cross-customer rollups.</td>
+</tr>
+<tr>
+<td><code>dco_optimisation_decisions</code></td>
+<td>Per-request decision trail: DCO-served, substituted, direct-to-Bloomberg, failed.</td>
+<td>Strong audit story; avoid sensitive payload values unless necessary.</td>
+</tr>
+<tr>
+<td><code>vendor_entitlement_audit</code></td>
+<td>Show active vendor/program/account configuration and potential redundancy.</td>
+<td>Configuration metadata only; still customer-owned.</td>
+</tr>
+<tr>
+<td><code>vendor_cost_summary</code></td>
+<td>Spend by vendor over a period.</td>
+<td>Requires pricing source and careful treatment of contract terms.</td>
+</tr>
+</tbody></table>
+<p>This should be positioned as value made legible, not as new optimisation logic. The optimisation already exists. The missing layer is evidence, attribution, and a safe user-facing surface.</p>
+<h2>Compliance review checklist for the team</h2>
+<p>Use this checklist before publishing deck slides, docs, or MCP changes:</p>
+<ol>
+<li>Does every data claim identify whether it is public, synthetic, customer-owned, or internal?</li>
+<li>Does any example imply access to other clients&#39; data?</li>
+<li>Does any DCO savings figure name the baseline, period, and cost source?</li>
+<li>Are internal Xenomorph/NMVC commercial details excluded?</li>
+<li>Does the artifact preserve the rule: build atop Xenomorph, never modify Xenomorph code?</li>
+<li>Are write/destructive MCP paths described as confirm-gated, with four-eyes planned for destructive operations?</li>
+<li>Does the artifact avoid saying AI can do anything in TimeScape and instead describe the actual MCP tool surface?</li>
+<li>If demo data is used, is it clearly synthetic, anonymised with permission, or customer-owned in the calling tenant?</li>
+</ol>
+<h2>Open questions for Keith / Brian</h2>
+<ol>
+<li>What baseline should DCO savings compare against: raw Bloomberg Data License per-security pricing, historical pre-DCO spend, a contracted client price table, or another reference?</li>
+<li>Where does the authoritative cost reference live today?</li>
+<li>What business dimension should be used for attribution: desk, entity, business unit, cost centre, or something else?</li>
+<li>Are there approved examples or anonymised outputs that can be used in the BK deck and DCO mockup?</li>
+<li>How much of the DCO savings story should be customer-facing versus internal sales enablement?</li>
+<li>Should the first DCO Visibility release be read-only dashboards only, or should it include exportable procurement/audit evidence packs?</li>
+<li>Which compliance regimes matter most for the immediate audience: BCBS 239, FRTB, IPV/MCC, BaFin, DORA, T+1, or client-specific audit controls?</li>
+</ol>
+<h2>Recommended next deliverable</h2>
+<p>For the BK meeting, the highest-value safe deliverable is a DCO Visibility mockup backed by clearly labelled synthetic data:</p>
+<ul>
+<li>one executive savings summary;</li>
+<li>one attribution view by desk/business unit;</li>
+<li>one optimisation-decision trail showing why a request avoided a more expensive vendor path;</li>
+<li>one security callout: customer-hosted, AD-scoped, no cross-tenant data;</li>
+<li>one open-question panel naming the pricing baseline still needed from Keith / Brian.</li>
+</ul>
+<p>That gives Keith a concrete story without creating a data-governance breach: Xenomorph&#39;s engine already creates the value; the AI/MCP layer makes it inspectable, explainable, and board-ready.</p>
+<h2>Current status</h2>
+<ul>
+<li>MCP <code>v1.1.0-preview.2</code> is shipped and live-verified; all five v1.5 DCO Visibility tools live (2 real-data, 3 structure-only); 44 of 44 cross-platform tests passing.</li>
+<li>DCO schema recon is complete enough for tool design.</li>
+<li>Cost reference, desk semantics, substitution-success semantics, and demo data remain open.</li>
+<li>This doc should feed slide 7 (Vendor Cost + DCO), slide 10 (DCO Visibility), slide 11 (AI-fluent surface), and the MCP interface doc&#39;s safety sections.</li>
+</ul>
+
+<div class="footer">xenoMCP · BK pack · 2026-05-12 · rendered from source markdown</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RUNBOOK · xenoMCP BK pack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A2540; --surface:#fff; --line:#E5E7EB; --ink:#0A2540; --muted:#475569; --faint:#94A3B8;
+  --blue:#4A90D9; --navy:#0A2540; --green:#1AC270; --amber:#FFB100; --red:#F04438;
+  --code-bg:#F8FAFC; --code-border:#E2E8F0;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--ink);line-height:1.6}
+.topbar{background:var(--navy);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:16px;border-bottom:1px solid rgba(255,255,255,0.08)}
+.topbar a{color:rgba(255,255,255,0.7);text-decoration:none;font-size:12px;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.topbar a:hover{color:#fff}
+.topbar .crumb{color:rgba(255,255,255,0.4);font-family:JetBrains Mono,monospace;font-size:11px}
+.topbar .title{flex:1;font-size:13px;font-weight:600;color:#fff;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.shell{max-width:920px;margin:0 auto;padding:48px 32px 96px;background:#fff;min-height:calc(100vh - 60px)}
+h1{font-size:32px;font-weight:700;letter-spacing:-0.5px;margin:0 0 12px;color:var(--ink);border-bottom:2px solid var(--blue);padding-bottom:14px}
+h2{font-size:22px;font-weight:700;margin:36px 0 12px;color:var(--ink);border-left:4px solid var(--blue);padding-left:12px}
+h3{font-size:17px;font-weight:700;margin:28px 0 8px;color:var(--navy)}
+h4{font-size:14px;font-weight:700;margin:20px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-family:JetBrains Mono,monospace}
+p{margin:10px 0;color:var(--ink)}
+a{color:var(--blue);text-decoration:none;border-bottom:1px solid transparent;transition:border 0.15s}
+a:hover{border-bottom-color:var(--blue)}
+ul,ol{margin:10px 0 14px;padding-left:24px}
+li{margin:4px 0}
+code{font-family:JetBrains Mono,monospace;font-size:0.92em;background:var(--code-bg);border:1px solid var(--code-border);padding:1px 6px;border-radius:4px;color:var(--navy)}
+pre{background:var(--code-bg);border:1px solid var(--code-border);border-radius:8px;padding:14px 18px;overflow-x:auto;margin:14px 0}
+pre code{background:transparent;border:none;padding:0;font-size:13px;color:var(--ink)}
+blockquote{margin:14px 0;padding:10px 18px;background:#F8FAFC;border-left:4px solid var(--amber);color:var(--muted)}
+blockquote p{margin:6px 0}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th{background:#F8FAFC;text-align:left;padding:8px 12px;font-weight:700;border-bottom:2px solid var(--line);font-family:JetBrains Mono,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:hover td{background:#F8FAFC}
+hr{border:none;border-top:1px solid var(--line);margin:32px 0}
+strong{font-weight:700;color:var(--navy)}
+em{font-style:italic;color:var(--muted)}
+.footer{text-align:center;color:var(--faint);font-size:11px;font-family:JetBrains Mono,monospace;margin-top:48px;padding-top:24px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="./index.html">← BK pack index</a>
+  <span class="crumb">/</span>
+  <span class="title">RUNBOOK</span>
+  <a href="./presentation.html">demo →</a>
+</div>
+<div class="shell">
+<h1>Xeno BK meeting runbook — 2026-05-12</h1>
+<blockquote>
+<p><strong>Repo mirror of the ANT doc <code>xeno-bk-meeting-runbook-2026-05-12</code></strong> (per evolveantcodex&#39;s &quot;if both, repo Markdown is source&quot; rule). This file and the ANT doc carry the same content. The ANT doc is the room-facing surface; this file is the source-controlled, anyone-can-clone version. Update both when changing.</p>
+<p><strong>The single thing to open first if you&#39;re walking through this tomorrow.</strong> Every other artefact is reachable from the <code>Links</code> section at the bottom.</p>
+</blockquote>
+<hr>
+<h2>Start here</h2>
+<p>The xenoMCP BK meeting pack for 2026-05-12. Open this runbook first.</p>
+<p>Twelve days ago this work did not exist; today the repo ships at <a href="https://github.com/Jktfe/xenoMCP">github.com/Jktfe/xenoMCP</a> with three releases:</p>
+<ul>
+<li><a href="https://github.com/Jktfe/xenoMCP/releases/tag/v1.0.0">`v1.0.0`</a> — 16 baseline tools wrapping TimeScape&#39;s full CPython surface.</li>
+<li><a href="https://github.com/Jktfe/xenoMCP/releases/tag/v1.1.0-preview">`v1.1.0-preview`</a> — first v1.5 DCO Visibility tool live.</li>
+<li><strong><a href="https://github.com/Jktfe/xenoMCP/releases/tag/v1.1.0-preview.2">`v1.1.0-preview.2`</a> — all five v1.5 tools live, 21 tools total, 44 cross-platform tests.</strong></li>
+</ul>
+<p><strong>The big narrative pivot for the meeting</strong>: we did not just describe v1.5, we built it. Two of the five v1.5 tools return real data today (<code>vendor_entitlement_audit</code>, <code>dco_optimisation_decisions</code>); three return structure-only with <code>unmet_dependencies: [&quot;baselineMethod&quot;]</code> and flip from <code>null</code> to real numbers the day after Brian answers the cost-baseline question.</p>
+<p><strong>Navigation</strong>:</p>
+<ul>
+<li><a href="#deck">Deck</a> — 12-slide narrative</li>
+<li><a href="#demo">Demo</a> — 7-minute live demo plan</li>
+<li><a href="#qa">QA</a> — anticipated questions and the hand-to-Brian one-pager</li>
+<li><a href="#risk">Risk</a> — binding security and compliance non-negotiables</li>
+<li><a href="#links">Links</a> — repo paths and release URLs</li>
+</ul>
+<p>Plan scoreboard (live state of work for the meeting): <code>ant task w5hMngV_jp8k5NmRcPVya list</code> — five tasks across milestones M0-M4.</p>
+<hr>
+<h2>Deck</h2>
+<p><strong>Primary demo surface for James</strong>: <a href="mockups/bk-meeting-presentation.html">`docs/mockups/bk-meeting-presentation.html`</a> — self-contained single HTML file rendering all 12 slides + embedded DCO mockup + 14-card links grid, branded with XenomorphDesignSystem tokens. Open in any browser; sticky nav lets you jump between slides; speaker notes fold into expandable <code>&lt;details&gt;</code> elements. Cmd+P → Save as PDF gives a take-away document for Brian if needed.</p>
+<p>The 12-slide deck <strong>source</strong> lives at <a href="deck/">`docs/deck/`</a> — Markdown per slide, with speaker notes in HTML comments at the bottom of each slide. Files <code>01-cover.md</code> through <code>12-path-forward.md</code>, plus <code>index.md</code> manifest.</p>
+<p><strong>Narrative thread</strong> (from <code>@xenoCC</code>): <em>&quot;BK sees the engineering daily — what he has never seen is what their tech feels like with modern presentation on top.&quot;</em> Lean into the contrast.</p>
+<p>All five v1.5 DCO Visibility tools shipped via <code>v1.1.0-preview.2</code>: two return real data today, three return structure-only until the cost-baseline conversation lands.</p>
+<p><strong>Slide-by-slide</strong>:</p>
+<ol>
+<li>Cover — Your platform. Brought to the AI surface.</li>
+<li>The proposition — platform is excellent; presentation hasn&#39;t kept up.</li>
+<li>What you&#39;ve built — 30 years; five pillars; QL+ + four validation classes.</li>
+<li>The architecture — Raw → Silver → Gold tiers; SQL Server; CPython binding as the door.</li>
+<li>The customers — five verified deployments (Mizuho Americas, Mediobanca, Rabobank, AllianzGI risklab, HSBC); anonymised outcome metrics.</li>
+<li>The compliance lane — BCBS 239 / FRTB / IPV-MCC / BaFin / DORA / T+1. The platform isn&#39;t catching up to compliance — compliance is catching up to the platform.</li>
+<li>Vendor Cost Management + DCO — Keith&#39;s strategic gap (DCO saves millions but Xeno doesn&#39;t surface the savings).</li>
+<li>The market right now — three forces (AI/MCP wave incl. KX KDB-X · cloud-native disruption incl. FINBOURNE LUSID/EDM+ naming clash · regulatory tailwinds).</li>
+<li>What we built atop this week — 21 tools live, <code>BP.L = 508.0</code> round-trip code block; v1.0.0 → v1.1.0-preview → v1.1.0-preview.2.</li>
+<li><strong>DCO Visibility v1.5</strong> — all five tools live (2 real-data, 3 structure-only); four questions for Brian; &quot;the shape doesn&#39;t change when answers land, only the figures fill in&quot;.</li>
+<li>AI-fluent surface thesis — Matt Pick&#39;s &quot;AI is only as good as the underlying data&quot; + the Claude-Desktop natural-language example + v2/v3 capability-graph + cross-source federation.</li>
+<li>Path forward — delivered today / 30 / 60 / 90 day milestones; six open questions; closing bookend.</li>
+</ol>
+<hr>
+<h2>Demo</h2>
+<p><strong>7-minute live demo plan</strong>: <a href="DEMO_SCRIPT.html">`docs/DEMO_SCRIPT.md`</a>. Six moments + v1.5 preview + closer + risk pre-empts. <strong>Owned by <code>@xenoCC</code></strong> under milestone <code>m2-demo-script</code> in the plan. Evidence already pushed: <a href="demo_dry_run.py">`docs/demo_dry_run.py`</a> runs every dry-runnable moment automatically — <strong>9 of 9 PASS</strong> against live TimeScape v5.0 + <code>xenomorph-mcp.exe v1.1.0-preview.2</code>.</p>
+<p><strong>Six moments</strong>:</p>
+<ol>
+<li><strong>Connection check</strong> — &quot;What version of TimeScape are we connected to?&quot; → <code>version</code> tool → <code>5.0</code>.</li>
+<li><strong>Instrument read</strong> — &quot;Show me the close price for BP.L in the XENO database.&quot; → <code>itemQuery</code> → <code>(&quot;BP.L&quot;, &quot;BP&quot;, 508.0)</code>.</li>
+<li><strong>Free-form QL+ from natural language</strong> — Claude composes <code>Item(%database%, %code%).Close.LastValue</code> and calls <code>query</code> → <code>508.0</code>.</li>
+<li><strong>Write attempt that refuses without confirm</strong> — <code>saveItem</code> returns <code>needs_confirmation: true</code> with full preview; no write executed.</li>
+<li><strong>Approve-and-execute</strong> — <code>saveItem</code> with <code>confirm=true</code> runs; audit log shows the two-step trace.</li>
+<li><strong>Clean-up delete</strong> — <code>deleteItem</code> with <code>confirm=true</code>; same gating pattern as writes.</li>
+</ol>
+<p>Plus a <strong>BK-drives-himself five-prompt sticky-note flow</strong> for the moment when Brian wants to type at the laptop himself.</p>
+<p>Four <strong>analyst-workflow examples</strong> in <a href="examples/">`docs/examples/`</a> pair with the script for self-driven exploration after the meeting:</p>
+<ul>
+<li><code>01-lookup-instrument.md</code></li>
+<li><code>02-cross-source-prices.md</code></li>
+<li><code>03-back-fill-series.md</code></li>
+<li><code>04-validation-task.md</code></li>
+</ul>
+<hr>
+<h2>QA</h2>
+<p>Three Q&amp;A artefacts, each for a different moment:</p>
+<ol>
+<li><strong><a href="OPEN_QUESTIONS_FOR_BK.html">`docs/OPEN_QUESTIONS_FOR_BK.md`</a></strong> (52 lines) — one-pager with P0/P1 priorities. <strong>The artefact James hands Brian to take away.</strong></li>
+<li><strong><a href="BK_QUESTIONS_FULL.html">`docs/BK_QUESTIONS_FULL.md`</a></strong> (205 lines) — full tracker for James&#39;s reference with status badges (<code>[v1.5-blocker]</code> / <code>[v1.5-degrades]</code> / <code>[zero-cost]</code>). James&#39;s reference, not Brian&#39;s.</li>
+<li><strong><a href="BK_FAQ.html">`docs/BK_FAQ.md`</a></strong> — 40 anticipated questions across 9 categories: Safety/governance · Architecture · Operational · Roadmap · Commercial · Competitive · Implementation depth · Failure modes · The disarming questions.</li>
+</ol>
+<p><strong>Owned by <code>@xenoCodex</code></strong> under milestone <code>m3-qa-risk-pack</code> in the plan.</p>
+<hr>
+<h2>Risk</h2>
+<p><strong>Security and compliance non-negotiables</strong> — binding for everything that ships:</p>
+<ul>
+<li><a href="research/KEITH_NEEDS_TODAY.html">`docs/research/KEITH_NEEDS_TODAY.md`</a> — <code>@xenoCodex</code> authored. Safe-vs-not-show split. Compliance checklist.</li>
+<li><a href="CONTRACT.html">`docs/CONTRACT.md`</a> — §0 Tenancy isolation foundational rule + Appendix B pre-publish compliance checklist.</li>
+</ul>
+<p><strong>Hard rails</strong>:</p>
+<ul>
+<li><strong>Customer-data-only.</strong> No Xenomorph internal data, no cross-tenant aggregates, no other clients&#39; data.</li>
+<li><strong>Tenant-scoped via Integrated Auth</strong> (Kerberos / AD).</li>
+<li><strong>No central data exhaust</strong> — audit logs stay on the customer host, never centralised at Xenomorph.</li>
+<li><strong>Baseline discipline</strong> — every savings figure names its baseline and window. Vague savings figures are a contract violation by design.</li>
+<li><strong>Read/write separation</strong> — 4 read tools open by default; 11 write/destructive/config/batch tools gated by <code>confirm=true</code> + audit + four-eyes (planned v1.1 layer for destructive).</li>
+<li><strong>Never modify Xenomorph code, only build atop.</strong> Hard rail repeated three times: cover, proposition, slide 9. The platform stays exactly as it is.</li>
+</ul>
+<p><strong>Three v1.5 tools that return <code>null</code> amounts do so explicitly</strong> because no defensible baseline exists yet — this is a feature not a bug. The cost-reference question for Brian is what flips them on.</p>
+<hr>
+<h2>Links</h2>
+<p><strong>Repo + releases</strong>:</p>
+<ul>
+<li><a href="https://github.com/Jktfe/xenoMCP">github.com/Jktfe/xenoMCP</a> (private)</li>
+<li><a href="https://github.com/Jktfe/xenoMCP/releases/tag/v1.0.0">Release v1.0.0</a> — baseline 16 tools</li>
+<li><a href="https://github.com/Jktfe/xenoMCP/releases/tag/v1.1.0-preview">Release v1.1.0-preview</a> — first v1.5 tool live</li>
+<li><strong><a href="https://github.com/Jktfe/xenoMCP/releases/tag/v1.1.0-preview.2">Release v1.1.0-preview.2</a> — all five v1.5 tools live</strong></li>
+</ul>
+<p><strong>Local paths</strong>:</p>
+<ul>
+<li>Mac mini: <code>~/CascadeProjects/xenoMCP/</code></li>
+<li>Windows host (<code>@xenoCC</code>): <code>C:\Users\jking\Documents\nmdev\xenomorph-mcp\</code> (kebab-case dir; repo name is camelCase <code>xenoMCP</code>)</li>
+</ul>
+<p><strong>Plan scoreboard</strong>:</p>
+<ul>
+<li><code>ant task w5hMngV_jp8k5NmRcPVya list</code> — live state of all 5 milestone tasks</li>
+<li><code>ant doc get xeno-bk-meeting-runbook-2026-05-12</code> — ANT-side copy of this runbook (this file is the repo mirror)</li>
+</ul>
+<p><strong>Research depth</strong> (open if any specific technical conversation arises):</p>
+<ul>
+<li><a href="research/MCP_INTERFACE.html">`docs/research/MCP_INTERFACE.md`</a> — engineering-side companion to the deck (for Brian)</li>
+<li><a href="research/DCO_RECON.html">`docs/research/DCO_RECON.md`</a> — full schema introspection on <code>TimeScapeProcessManagement</code></li>
+<li><a href="research/V1_5_TOOL_SURFACE.html">`docs/research/V1_5_TOOL_SURFACE.md`</a> — concrete tool signatures + return shapes</li>
+<li><a href="research/KEITH_NEEDS_TODAY.html">`docs/research/KEITH_NEEDS_TODAY.md`</a> — security/compliance non-negotiables</li>
+</ul>
+<p><strong>Demo surfaces</strong>:</p>
+<ul>
+<li><strong><a href="mockups/bk-meeting-presentation.html">`docs/mockups/bk-meeting-presentation.html`</a></strong> — single HTML file with all 12 slides + embedded DCO mockup + links grid (THE demo surface)</li>
+<li><a href="mockups/dco-savings-dashboard.html">`docs/mockups/dco-savings-dashboard.html`</a> — DCO savings dashboard mockup standalone</li>
+<li><strong><a href="demo_evidence/">`docs/demo_evidence/`</a></strong> — frozen dry-run captures (9/9 PASS). <strong>Morning-of insurance</strong>: re-run <code>docs/demo_dry_run.py</code> to refresh, and if live ODBC glitches during the meeting open the most recent capture in a side window and screen-share that — same narrative, screen-shareable. See <code>demo_evidence/README.md</code> for the one-line re-capture command.</li>
+</ul>
+<p><strong>Operational</strong>:</p>
+<ul>
+<li><a href="WINDOWS_NOTES.html">`docs/WINDOWS_NOTES.md`</a> — Windows-side gotchas (DLL search 3.8+, Python version pin, auth model)</li>
+<li><a href="deck/PUBLISH_PREP.html">`docs/deck/PUBLISH_PREP.md`</a> — antchat deck publish recipe (three James decisions still parked)</li>
+</ul>
+<hr>
+<h2>Status (live)</h2>
+<ul>
+<li>2026-05-11: substrate shipped. v1.1.0-preview.2 tagged. All five v1.5 tools live. 44 tests pass. Deck + mockup + research docs + runbook + demo script + Q&amp;A docs + presentation HTML all in main. Plan scoreboard via <code>ant task list</code>.</li>
+</ul>
+
+<div class="footer">xenoMCP · BK pack · 2026-05-12 · rendered from source markdown</div>
+</div>
+</body>
+</html>

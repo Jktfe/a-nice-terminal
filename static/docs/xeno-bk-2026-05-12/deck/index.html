@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>index · xenoMCP BK pack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A2540; --surface:#fff; --line:#E5E7EB; --ink:#0A2540; --muted:#475569; --faint:#94A3B8;
+  --blue:#4A90D9; --navy:#0A2540; --green:#1AC270; --amber:#FFB100; --red:#F04438;
+  --code-bg:#F8FAFC; --code-border:#E2E8F0;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--ink);line-height:1.6}
+.topbar{background:var(--navy);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:16px;border-bottom:1px solid rgba(255,255,255,0.08)}
+.topbar a{color:rgba(255,255,255,0.7);text-decoration:none;font-size:12px;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.topbar a:hover{color:#fff}
+.topbar .crumb{color:rgba(255,255,255,0.4);font-family:JetBrains Mono,monospace;font-size:11px}
+.topbar .title{flex:1;font-size:13px;font-weight:600;color:#fff;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.shell{max-width:920px;margin:0 auto;padding:48px 32px 96px;background:#fff;min-height:calc(100vh - 60px)}
+h1{font-size:32px;font-weight:700;letter-spacing:-0.5px;margin:0 0 12px;color:var(--ink);border-bottom:2px solid var(--blue);padding-bottom:14px}
+h2{font-size:22px;font-weight:700;margin:36px 0 12px;color:var(--ink);border-left:4px solid var(--blue);padding-left:12px}
+h3{font-size:17px;font-weight:700;margin:28px 0 8px;color:var(--navy)}
+h4{font-size:14px;font-weight:700;margin:20px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-family:JetBrains Mono,monospace}
+p{margin:10px 0;color:var(--ink)}
+a{color:var(--blue);text-decoration:none;border-bottom:1px solid transparent;transition:border 0.15s}
+a:hover{border-bottom-color:var(--blue)}
+ul,ol{margin:10px 0 14px;padding-left:24px}
+li{margin:4px 0}
+code{font-family:JetBrains Mono,monospace;font-size:0.92em;background:var(--code-bg);border:1px solid var(--code-border);padding:1px 6px;border-radius:4px;color:var(--navy)}
+pre{background:var(--code-bg);border:1px solid var(--code-border);border-radius:8px;padding:14px 18px;overflow-x:auto;margin:14px 0}
+pre code{background:transparent;border:none;padding:0;font-size:13px;color:var(--ink)}
+blockquote{margin:14px 0;padding:10px 18px;background:#F8FAFC;border-left:4px solid var(--amber);color:var(--muted)}
+blockquote p{margin:6px 0}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th{background:#F8FAFC;text-align:left;padding:8px 12px;font-weight:700;border-bottom:2px solid var(--line);font-family:JetBrains Mono,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:hover td{background:#F8FAFC}
+hr{border:none;border-top:1px solid var(--line);margin:32px 0}
+strong{font-weight:700;color:var(--navy)}
+em{font-style:italic;color:var(--muted)}
+.footer{text-align:center;color:var(--faint);font-size:11px;font-family:JetBrains Mono,monospace;margin-top:48px;padding-top:24px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="../index.html">← BK pack index</a>
+  <span class="crumb">/</span>
+  <span class="title">deck/index</span>
+  <a href="../presentation.html">demo →</a>
+</div>
+<div class="shell">
+<h1>xeno-bk-pitch — deck manifest</h1>
+<p><strong>Slug</strong>: <code>xeno-bk-pitch</code>
+<strong>Audience</strong>: Brian Kristensen (Xenomorph CTO / co-founder) — and by extension anyone at Xenomorph or NMVC who picks this up.
+<strong>Brief</strong>: open-slide deck explaining what Xenomorph is and what it does, framed against the modern presentation / AI-surface we&#39;re building atop. <strong>Hard rail</strong>: we never modify Xenomorph&#39;s code — only build atop it. The deck celebrates their 30 years of engineering and proposes the wrap.</p>
+<p><strong>Narrative thread</strong> (xenoCC, 2026-05-11): <em>&quot;BK sees the engineering daily — what he&#39;s never seen is what their tech feels like with modern presentation on top. Lean into the contrast.&quot;</em></p>
+<h2>Slide order</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Slide</th>
+<th>File</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>01</td>
+<td>Cover — your platform, brought to the AI surface</td>
+<td><code>01-cover.md</code></td>
+<td>draft</td>
+</tr>
+<tr>
+<td>02</td>
+<td>The proposition — what we&#39;re proposing in one paragraph</td>
+<td><code>02-proposition.md</code></td>
+<td>draft</td>
+</tr>
+<tr>
+<td>03</td>
+<td>What you&#39;ve built — 30 years of TimeScape engineering</td>
+<td><code>03-what-youve-built.md</code></td>
+<td>draft</td>
+</tr>
+<tr>
+<td>04</td>
+<td>The architecture — Raw → Silver → Gold tiered Gold Copy</td>
+<td><code>04-architecture.md</code></td>
+<td>draft</td>
+</tr>
+<tr>
+<td>05</td>
+<td>The customers — verified deployments at G-SIBs and asset managers</td>
+<td><code>05-customers.md</code></td>
+<td>stub</td>
+</tr>
+<tr>
+<td>06</td>
+<td>The compliance lane — BCBS 239 / FRTB / IPV-MCC / BaFin / DORA / T+1</td>
+<td><code>06-compliance.md</code></td>
+<td>stub</td>
+</tr>
+<tr>
+<td>07</td>
+<td>The second product — Vendor Cost Management + DCO</td>
+<td><code>07-vendor-cost.md</code></td>
+<td>stub</td>
+</tr>
+<tr>
+<td>08</td>
+<td>The market right now — the EDM + AI wave</td>
+<td><code>08-market.md</code></td>
+<td>stub</td>
+</tr>
+<tr>
+<td>09</td>
+<td>What we built atop, this week — xenoMCP v1.1.0-preview.2</td>
+<td><code>09-what-we-built.md</code></td>
+<td>draft</td>
+</tr>
+<tr>
+<td>10</td>
+<td>The DCO Visibility extension (v1.5) — surface the savings</td>
+<td><code>10-dco-visibility.md</code></td>
+<td>stub</td>
+</tr>
+<tr>
+<td>11</td>
+<td>The AI-fluent surface thesis — extending Matt Pick&#39;s data-trust line</td>
+<td><code>11-ai-thesis.md</code></td>
+<td>stub</td>
+</tr>
+<tr>
+<td>12</td>
+<td>The path forward — deliverable today, 30 days, 90 days</td>
+<td><code>12-path-forward.md</code></td>
+<td>stub</td>
+</tr>
+</tbody></table>
+<h2>Format conventions</h2>
+<ul>
+<li><strong>Markdown per slide.</strong> One H1 per slide as the title. Body uses H2 for sub-sections.</li>
+<li><strong>Speaker notes</strong>: in HTML comments at the bottom of each slide — <code>&lt;!-- Notes: ... --&gt;</code>. Renderer-agnostic; the Open-Slide renderer treats these as presenter-mode notes.</li>
+<li><strong>Visual identity</strong>: aligned with <code>/Users/jamesking/CascadeProjects/XenomorphDesignSystem/tokens.css</code> — light, blue/navy, Inter / JetBrains Mono. Final render target may be HTML/PDF for sharing; Markdown source is canonical.</li>
+<li><strong>No NMVC-internal data.</strong> §0 Tenancy isolation applies — see <code>docs/CONTRACT.md</code>. Numbers in this deck are public-sourced or framed as ranges, never the privately-held figures.</li>
+</ul>
+<h2>Cross-review</h2>
+<ul>
+<li>Drafted by <code>@xenobridgeclaude</code> (Mac mini).</li>
+<li>Cross-review at 50% mark by <code>@xenoCC</code> and <code>@xenoCodex</code> per the agreed cadence.</li>
+<li>Published to the antchat room via <code>antchat deck &lt;room&gt; file put xeno-bk-pitch ...</code> once the first cut is complete.</li>
+</ul>
+<h2>Status (live)</h2>
+<ul>
+<li>2026-05-11: deck scaffolded with manifest + 4 draft slides + 8 stubs.</li>
+</ul>
+
+<div class="footer">xenoMCP · BK pack · 2026-05-12 · rendered from source markdown</div>
+</div>
+</body>
+</html>

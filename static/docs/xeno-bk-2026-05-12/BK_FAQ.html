@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BK_FAQ · xenoMCP BK pack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A2540; --surface:#fff; --line:#E5E7EB; --ink:#0A2540; --muted:#475569; --faint:#94A3B8;
+  --blue:#4A90D9; --navy:#0A2540; --green:#1AC270; --amber:#FFB100; --red:#F04438;
+  --code-bg:#F8FAFC; --code-border:#E2E8F0;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--ink);line-height:1.6}
+.topbar{background:var(--navy);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:16px;border-bottom:1px solid rgba(255,255,255,0.08)}
+.topbar a{color:rgba(255,255,255,0.7);text-decoration:none;font-size:12px;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.topbar a:hover{color:#fff}
+.topbar .crumb{color:rgba(255,255,255,0.4);font-family:JetBrains Mono,monospace;font-size:11px}
+.topbar .title{flex:1;font-size:13px;font-weight:600;color:#fff;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.shell{max-width:920px;margin:0 auto;padding:48px 32px 96px;background:#fff;min-height:calc(100vh - 60px)}
+h1{font-size:32px;font-weight:700;letter-spacing:-0.5px;margin:0 0 12px;color:var(--ink);border-bottom:2px solid var(--blue);padding-bottom:14px}
+h2{font-size:22px;font-weight:700;margin:36px 0 12px;color:var(--ink);border-left:4px solid var(--blue);padding-left:12px}
+h3{font-size:17px;font-weight:700;margin:28px 0 8px;color:var(--navy)}
+h4{font-size:14px;font-weight:700;margin:20px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-family:JetBrains Mono,monospace}
+p{margin:10px 0;color:var(--ink)}
+a{color:var(--blue);text-decoration:none;border-bottom:1px solid transparent;transition:border 0.15s}
+a:hover{border-bottom-color:var(--blue)}
+ul,ol{margin:10px 0 14px;padding-left:24px}
+li{margin:4px 0}
+code{font-family:JetBrains Mono,monospace;font-size:0.92em;background:var(--code-bg);border:1px solid var(--code-border);padding:1px 6px;border-radius:4px;color:var(--navy)}
+pre{background:var(--code-bg);border:1px solid var(--code-border);border-radius:8px;padding:14px 18px;overflow-x:auto;margin:14px 0}
+pre code{background:transparent;border:none;padding:0;font-size:13px;color:var(--ink)}
+blockquote{margin:14px 0;padding:10px 18px;background:#F8FAFC;border-left:4px solid var(--amber);color:var(--muted)}
+blockquote p{margin:6px 0}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th{background:#F8FAFC;text-align:left;padding:8px 12px;font-weight:700;border-bottom:2px solid var(--line);font-family:JetBrains Mono,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:hover td{background:#F8FAFC}
+hr{border:none;border-top:1px solid var(--line);margin:32px 0}
+strong{font-weight:700;color:var(--navy)}
+em{font-style:italic;color:var(--muted)}
+.footer{text-align:center;color:var(--faint);font-size:11px;font-family:JetBrains Mono,monospace;margin-top:48px;padding-top:24px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="./index.html">← BK pack index</a>
+  <span class="crumb">/</span>
+  <span class="title">BK_FAQ</span>
+  <a href="./presentation.html">demo →</a>
+</div>
+<div class="shell">
+<h1>BK FAQ — anticipated questions with answers</h1>
+<blockquote>
+<p>Inverse artefact to <a href="BK_QUESTIONS.html">`BK_QUESTIONS.md`</a>. That doc is what we need from Brian; this doc is what Brian (and Keith, and any other reviewer in the room) is likely to ask us — with prepared answers. Organised by category so the room can riff in any direction without us scrambling.</p>
+</blockquote>
+<hr>
+<h2>A. Safety / governance</h2>
+<h3>&quot;Could one customer&#39;s MCP see another customer&#39;s data?&quot;</h3>
+<p>No. The MCP runs on the customer&#39;s own TimeScape host, under the customer&#39;s own Windows / AD identity. Integrated Security against SQL Server scopes every query to that identity&#39;s permissions. Cross-tenant isolation is the <strong>same boundary that TimeScape itself relies on today</strong> — the MCP doesn&#39;t add a new lane, it inherits the existing one. CONTRACT §0 makes this a foundational rule in the codebase: no Xenomorph-internal data, no cross-tenant aggregates, no other clients&#39; data. (<a href="CONTRACT.html">`docs/CONTRACT.md`</a>)</p>
+<h3>&quot;What stops the AI from running away with our golden master?&quot;</h3>
+<p>Twelve of the sixteen tools refuse on the first call. They return a structured <code>{needs_confirmation: true, operation, preview, message}</code> response, <strong>do not execute</strong>, and require the caller to re-invoke with <code>confirm=true</code> to commit. The pattern is uniform — there&#39;s no exception, no per-tool shortcut. A downstream rule engine (a workflow approval system, a four-eyes signature requirement) can intercept between the two calls without touching the MCP code. (<a href="examples/03-back-fill-series.html">`docs/examples/03-back-fill-series.md`</a> walks a single write through this end-to-end.)</p>
+<h3>&quot;How is the user&#39;s identity carried?&quot;</h3>
+<p>It isn&#39;t carried — it&#39;s inherited. The MCP server runs as a child process of the Claude Desktop / Claude Code session, which is running as the logged-in Windows user. SQL Server sees that user via Integrated Auth (Kerberos). The MCP wire never carries credentials, tokens, or impersonation headers. Every tool call resolves through TimeScape&#39;s existing identity context.</p>
+<h3>&quot;What about audit?&quot;</h3>
+<p>Every tool dispatch produces a JSONL line: timestamp, tool name, parameters (redacted for token-shaped strings), confirm status, outcome. Lives in the customer&#39;s filespace (default <code>~/.xenomcp/audit.jsonl</code>), so it can be SIEM-shipped, grep&#39;d, or rotated by their existing log infrastructure. Open question A6 in <a href="BK_QUESTIONS.html">`BK_QUESTIONS.md`</a> is whether to also forward into an existing TimeScape audit trail — that&#39;s a join, not a replacement.</p>
+<h3>&quot;If the MCP misbehaves, what&#39;s the blast radius?&quot;</h3>
+<p>Bounded to what the calling Windows user can already do via TimeScape today. The MCP doesn&#39;t elevate privileges, doesn&#39;t open new write paths the .pyd doesn&#39;t expose, doesn&#39;t bypass EDM+ validation rules. Worst case is &quot;a misconfigured AI deletes one item it was confirmed to delete&quot; — same blast radius as a sleepy operator clicking the wrong row in Workbench.</p>
+<h3>&quot;Does this need internet?&quot;</h3>
+<p>No. Stdio transport, in-process Python call to <code>timescape.pyd</code>, local SQL Server. The MCP runs on air-gapped hosts. No outbound calls from the server.</p>
+<hr>
+<h2>B. Architecture</h2>
+<h3>&quot;Why MCP and not a REST gateway?&quot;</h3>
+<p>MCP is the emerging open standard for AI-to-tool wiring (Anthropic, OpenAI, several others lining up). Claude Desktop, Claude Code, Cursor and similar clients speak it natively — zero adapter code. Stdio transport on Windows is the lowest-friction option: no port to allocate, no firewall rule, no TLS cert, no auth proxy. A REST gateway adds all of that without adding a feature an AI client could use that MCP can&#39;t.</p>
+<h3>&quot;Why Python, not .NET?&quot;</h3>
+<p>The CPython <code>timescape.pyd</code> is the documented binding shipped in your SDK at <code>APIs/CPython/v3.13/64-Bit/</code>. Going through it means we use TimeScape&#39;s own published external integration surface — the same one your .NET API mirrors — rather than reaching deeper into the engine. .NET would be fine too; the deciding factor is that Anthropic&#39;s MCP SDK is more mature in Python today and that single-file Python ships with less ceremony than the equivalent .NET single-file deployable.</p>
+<h3>&quot;Why one server per session, not a daemon?&quot;</h3>
+<p>Two reasons. (a) Identity: the per-session model means the server runs as whichever user is sitting at the AI client, which is the right SQL identity for that user&#39;s queries. A daemon would have to impersonate. (b) Lifecycle: a server lasts as long as the AI session, exits cleanly on EOF, leaves no orphaned process. Daemon mode is on the v2 table if customers ask for shared-tenancy deployment.</p>
+<h3>&quot;What&#39;s the install footprint?&quot;</h3>
+<p>The MCP wheel is under 1 MB (<code>server.py</code> ≈ 14 KB, plus the MCP SDK ≈ 100 KB plus pydantic ≈ 5 MB). The Python 3.13 runtime via <code>uv</code> is ~30 MB. The <code>timescape.pyd</code> is your file — already on disk. Net new disk: ~40 MB. Net new processes: none until an AI client starts a session.</p>
+<h3>&quot;Does it depend on anything we ship breaking compatibility?&quot;</h3>
+<p>The CPython binding (<code>timescape.pyd</code>) version-locks to a Python minor (3.13 today). If a TimeScape release ships a new <code>.pyd</code> for the same Python minor, we recompile against it. If TimeScape goes to a Python major (3.14 →) we ship a parallel install. Open question A5 in <a href="BK_QUESTIONS.html">`BK_QUESTIONS.md`</a> is what your binding-compat policy is.</p>
+<hr>
+<h2>C. Operational</h2>
+<h3>&quot;How do we install it?&quot;</h3>
+<pre><code class="language-cmd">cd &lt;repo&gt;
+uv sync         # one-time, fetches Python 3.13 + deps
+</code></pre>
+<p>Then add an entry to <code>%APPDATA%\Claude\claude_desktop_config.json</code>:</p>
+<pre><code class="language-jsonc">{
+  &quot;mcpServers&quot;: {
+    &quot;xenomorph-timescape&quot;: {
+      &quot;command&quot;: &quot;&lt;repo&gt;\\.venv\\Scripts\\xenomorph-mcp.exe&quot;
+    }
+  }
+}
+</code></pre>
+<p>Restart Claude Desktop. Tool count shows in the UI. (<a href="../README.html">`README.md`</a> has the full quickstart.)</p>
+<h3>&quot;How do we uninstall it?&quot;</h3>
+<pre><code class="language-cmd">uv pip uninstall xenomorph-mcp
+</code></pre>
+<p>Plus delete the <code>mcpServers</code> entry. TimeScape is untouched. There is no service to stop, no scheduled task to delete, no registry entry to remove.</p>
+<h3>&quot;What happens if Claude Desktop crashes?&quot;</h3>
+<p>The server is a child of the Claude Desktop process. Crash → child terminates → server exits → SQL connections close cleanly. Next launch starts a fresh server. No state to recover.</p>
+<h3>&quot;What if the .pyd version mismatches the Python venv?&quot;</h3>
+<p><code>ImportError: DLL load failed</code>. The bootstrap registers <code>os.add_dll_directory()</code> for both <code>Program\</code> install dirs before <code>import timescape</code>, which is the common cause of that error; if the user has somehow installed a <code>.pyd</code> for a different Python minor in our venv&#39;s path, they get a clearer error. The startup sequence logs the resolved paths to stderr so the failure is diagnosable in 30 seconds.</p>
+<h3>&quot;Can we deploy this without root / admin?&quot;</h3>
+<p>Yes. <code>uv</code> is per-user. The venv is in the project directory. No system-wide writes. Claude Desktop&#39;s config file is in the user&#39;s AppData. The whole thing installs without privilege elevation.</p>
+<hr>
+<h2>D. Roadmap</h2>
+<h3>&quot;When&#39;s v1.5?&quot;</h3>
+<p>2–3 days of bench-time from the day Brian + Keith answer the four pricing/dimension/semantics questions. See the implementation order in <a href="research/V1_5_TOOL_SURFACE.html">`docs/research/V1_5_TOOL_SURFACE.md`</a>. Two of the five tools (<code>vendor_entitlement_audit</code>, <code>dco_optimisation_decisions</code>) have zero open-Q dependencies and ship day-1.</p>
+<h3>&quot;What&#39;s in v2?&quot;</h3>
+<p>Three things: (a) deployment mode for multi-tenant hosts (today the assumption is one MCP per customer host); (b) transport options beyond stdio (WebSocket / SSE with bearer tokens for AI clients that aren&#39;t co-resident); (c) a read-only flag that turns off the entire write/destructive class for customer deployments where AI is for exploration only.</p>
+<h3>&quot;And v3?&quot;</h3>
+<p>Speculative but worth flagging. Two ideas: capability-graph (smaller set of &quot;intents&quot; — <code>look up an instrument</code>, <code>back-fill a series</code>, <code>validate a curve</code> — that compose into multi-step plans the AI plans then commits; plays cleanly with Maker-Checker because the plan gets approved once, not each leaf), and federation (the same MCP shape over TimeScape + customer flat files + licensed external sources). v3 is &quot;what if we extend Xeno&#39;s single-point-of-access thesis to AI&quot;, and it&#39;s gated on whether you want us to.</p>
+<h3>&quot;What about open source?&quot;</h3>
+<p>Repo is <code>Jktfe/xenoMCP</code> private today. Open question D3 in <a href="BK_QUESTIONS.html">`BK_QUESTIONS.md`</a>. Three obvious end-states: stays private (Xeno contractor work), transfers to a Xenomorph org (Xeno-owned product), open-sourced as a community reference (with Xenomorph attribution). We&#39;d want your call before forming a roadmap commitment either way.</p>
+<hr>
+<h2>E. Commercial</h2>
+<h3>&quot;How does this help us sell?&quot;</h3>
+<p>Two threads. (a) It makes existing capabilities legible. The DCO savings story already exists in your engine; we make it grep-able from natural-language. A buyer who&#39;d previously have to interpret a <code>RequestSubstitutes</code>-shaped dataset can now ask &quot;what did we save on Bloomberg last month&quot; and get a sentence. (b) It positions Xenomorph in the AI-fluent column when buyers are comparing platforms. Right now &quot;does it have an AI surface&quot; is a yes/no question at the RFP stage; this turns yours to yes without changing your engine.</p>
+<h3>&quot;What&#39;s the customer message?&quot;</h3>
+<p><em>&quot;Your existing TimeScape investments now have a Claude-fluent doorway. No new engine, no new licence, no new infrastructure. Your analysts ask questions in English; your engine answers them in QL+ — the same QL+ you&#39;ve been using since 1997, generated by an AI from natural language.&quot;</em></p>
+<p>That&#39;s the elevator. Then we walk through DCO Visibility (slide 10) as the proof point: the savings story your customers have wanted you to surface, surfaced.</p>
+<h3>&quot;What&#39;s the price point?&quot;</h3>
+<p>Not a question this engineering work can answer. (<a href="research/KEITH_NEEDS_TODAY.html">`docs/research/KEITH_NEEDS_TODAY.md`</a> raises the &quot;customer-facing vs internal sales enablement&quot; framing — question B1 in <a href="BK_QUESTIONS.html">`BK_QUESTIONS.md`</a> — which is upstream of pricing.)</p>
+<h3>&quot;How big is the market?&quot;</h3>
+<p>Every TimeScape customer is a candidate by default — they already have the engine. The question is which seats inside each customer. v1.5&#39;s primary persona is open (question D1 in BK_QUESTIONS) but the obvious candidates are quant-analyst seats (who pay for productivity tools) and ops/data-engineer seats (who pay for time-back-from-toil tools).</p>
+<hr>
+<h2>F. Competitive</h2>
+<h3>&quot;What if Bloomberg ships their own MCP for DL?&quot;</h3>
+<p>They might, and that&#39;s fine. Our wedge isn&#39;t &quot;AI for Bloomberg data&quot;; it&#39;s &quot;AI for <em>your data already inside TimeScape, including the DCO-optimised view of Bloomberg data</em>&quot;. The composition is the moat. A Bloomberg-direct MCP shows raw vendor data; ours shows TimeScape&#39;s filtered, joined, governed, EDM+-shaped data. Same security, same lineage.</p>
+<h3>&quot;Doesn&#39;t this commoditise our query engine?&quot;</h3>
+<p>The opposite. A more legible engine is a more sticky engine. AI tools surface capability that humans can use; that increases dependence on the underlying engine, not less. The risk to be careful about isn&#39;t commoditisation — it&#39;s losing visibility into how the AI is using the engine, which is exactly what the audit log + Maker-Checker pattern is built to prevent.</p>
+<h3>&quot;How is this different from an ETL out to a data lake?&quot;</h3>
+<p>Three differences. (a) <strong>In-place.</strong> ETL moves data; MCP queries in-place against the live engine. No staleness, no data duplication, no governance regression. (b) <strong>Bidirectional.</strong> ETL is one-way; MCP exposes writes too (gated). A data lake can show a customer their DCO savings but can&#39;t let them ask the engine to back-fill a missing series. (c) <strong>Auth posture.</strong> ETL typically uses a service account with broad access; MCP runs as the calling user with their own scope.</p>
+<h3>&quot;Could KX / Bloomberg / FINBOURNE do this?&quot;</h3>
+<p>KX already has — their MCP for KDB-X shipped earlier this year. Bloomberg might. FINBOURNE LUSID is the more direct lookalike and worth watching (their EDM+ naming clash with yours is a separate issue). Our timing advantage is that &quot;MCP for legacy-engine&quot; is now table stakes and Xeno was strong enough to get there fast. The lead is in months not years.</p>
+<hr>
+<h2>G. Implementation depth</h2>
+<h3>&quot;Who maintains this?&quot;</h3>
+<p>Currently <code>@xenoCC</code> (Claude on Xenoʼs Windows box, in the engagement laptop) is the implementation lead; <code>@xenobridgeclaude</code> (Claude on the engagement Mac mini) is the docs/deck lead; <code>@xenoCodex</code> is the security/compliance reviewer. Net human effort to date: hours, not weeks. Sustaining engineering past v1.5 is a question your team and ours work out together — see also the Open question D3 on repo ownership.</p>
+<h3>&quot;What&#39;s the testing story?&quot;</h3>
+<p>22 unit tests in <code>tests/</code> covering the helpers + the confirm-gating contract. They mock <code>timescape.pyd</code> via a stub in <code>tests/conftest.py</code>, so they pass on Mac / Linux / Windows uniformly. Cross-platform CI is straightforward to add. We deliberately don&#39;t ship integration tests that hit a real TimeScape because the test infrastructure isn&#39;t where the value is for v1.0 — it&#39;s the surface contract.</p>
+<h3>&quot;What about performance?&quot;</h3>
+<p>A <code>version()</code> round-trip through Claude Desktop&#39;s MCP wire + our stdio + tool dispatch + the <code>.pyd</code> + your SQL is on the order of 50–100ms on the engagement laptop. <code>itemQuery</code> for a single instrument is similar. The bottleneck is your SQL Server, not the MCP plumbing. Long-running queries are bounded by the underlying engine, not us.</p>
+<h3>&quot;Is the code reviewable?&quot;</h3>
+<p>Yes. ~340 lines of Python in <code>server.py</code>, single file, no inheritance graph, every tool is a thin wrapper. 22-test pytest suite. Two research docs (<code>MCP_INTERFACE.md</code>, <code>DCO_RECON.md</code>) plus a safety contract (<code>CONTRACT.md</code>). Brian&#39;s engineers can read everything in an afternoon.</p>
+<hr>
+<h2>H. Failure modes</h2>
+<h3>&quot;What if SQL Server is down?&quot;</h3>
+<p>Tools that hit SQL return <code>{ok: false, error: &quot;&lt;sqlcmd-style error&gt;&quot;, kind: &quot;OperationalError&quot;}</code> — same shape as any other failed read. AI client surfaces the error to the user; nothing catastrophic happens. Doesn&#39;t bring down the MCP server.</p>
+<h3>&quot;What if the .pyd version mismatches?&quot;</h3>
+<p>Server exits on startup with <code>ImportError: DLL load failed</code> (clear log line). User updates the venv or rolls back. Better than a runtime mystery.</p>
+<h3>&quot;What if Bloomberg DL changes its protocol?&quot;</h3>
+<p>The MCP doesn&#39;t talk to Bloomberg DL directly — TimeScape does. A Bloomberg protocol change ripples to TimeScape and is your problem to absorb; we read the same <code>BloombergRequests</code> view either way.</p>
+<h3>&quot;What if a customer&#39;s TimeScape upgrade breaks the .pyd ABI?&quot;</h3>
+<p>We ship a new MCP release pinned to the new <code>.pyd</code>. Open question A5 covers the policy.</p>
+<h3>&quot;What if a customer mis-installs Claude Desktop config?&quot;</h3>
+<p>Tool count shows <code>0</code> in the Claude Desktop UI. Symptom is obvious; fix is editing one JSON file. We could add a <code>xenomorph-mcp doctor</code> subcommand in v1.5 if customer-support load justifies.</p>
+<hr>
+<h2>I. The disarming questions</h2>
+<h3>&quot;Could you have built this faster without the MCP overhead?&quot;</h3>
+<p>Yes — a <code>.cmd</code> wrapper around <code>XdbExport.exe</code> + a Python parser + a Flask endpoint would have taken half the time. It would also have been brittle, single-tenant, hard to audit, and unidiomatic for AI clients. The MCP design is the cheap option for <em>every interaction after the first</em>.</p>
+<h3>&quot;Why should we trust &#39;AI built this&#39;?&quot;</h3>
+<p>Two specifics: (a) Every commit is human-attributable via the <code>Co-Authored-By</code> lines in the git log; the AI agents (<code>@xenoCC</code>, <code>@xenobridgeclaude</code>, <code>@xenoCodex</code>) are co-authors, not sole authors. (b) The safety contract (<code>CONTRACT.md</code> §0 Tenancy) was reviewed and folded in by xenoCodex specifically for compliance posture. The output is auditable.</p>
+<h3>&quot;What&#39;s the catch?&quot;</h3>
+<p>The open questions in <a href="BK_QUESTIONS.html">`BK_QUESTIONS.md`</a> are the catches. None of them are deal-breakers; all of them are decisions that need to be made before v1.5 ships with confidence. The deck is honest about which numerics depend on Brian/Keith input.</p>
+<h3>&quot;Why now?&quot;</h3>
+<p>Because waiting is the more expensive option. Every quarter you go without an AI surface, the next customer evaluation has &quot;doesn&#39;t have an AI lane&quot; as a checkbox-fail. The work to retrofit one becomes harder the longer the engine evolves without it. Building it now, against a v5.0 release, is the cheap moment.</p>
+
+<div class="footer">xenoMCP · BK pack · 2026-05-12 · rendered from source markdown</div>
+</div>
+</body>
+</html>

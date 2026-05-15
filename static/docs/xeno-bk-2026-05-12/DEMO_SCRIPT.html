@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DEMO_SCRIPT · xenoMCP BK pack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A2540; --surface:#fff; --line:#E5E7EB; --ink:#0A2540; --muted:#475569; --faint:#94A3B8;
+  --blue:#4A90D9; --navy:#0A2540; --green:#1AC270; --amber:#FFB100; --red:#F04438;
+  --code-bg:#F8FAFC; --code-border:#E2E8F0;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--ink);line-height:1.6}
+.topbar{background:var(--navy);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:16px;border-bottom:1px solid rgba(255,255,255,0.08)}
+.topbar a{color:rgba(255,255,255,0.7);text-decoration:none;font-size:12px;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.topbar a:hover{color:#fff}
+.topbar .crumb{color:rgba(255,255,255,0.4);font-family:JetBrains Mono,monospace;font-size:11px}
+.topbar .title{flex:1;font-size:13px;font-weight:600;color:#fff;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.shell{max-width:920px;margin:0 auto;padding:48px 32px 96px;background:#fff;min-height:calc(100vh - 60px)}
+h1{font-size:32px;font-weight:700;letter-spacing:-0.5px;margin:0 0 12px;color:var(--ink);border-bottom:2px solid var(--blue);padding-bottom:14px}
+h2{font-size:22px;font-weight:700;margin:36px 0 12px;color:var(--ink);border-left:4px solid var(--blue);padding-left:12px}
+h3{font-size:17px;font-weight:700;margin:28px 0 8px;color:var(--navy)}
+h4{font-size:14px;font-weight:700;margin:20px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-family:JetBrains Mono,monospace}
+p{margin:10px 0;color:var(--ink)}
+a{color:var(--blue);text-decoration:none;border-bottom:1px solid transparent;transition:border 0.15s}
+a:hover{border-bottom-color:var(--blue)}
+ul,ol{margin:10px 0 14px;padding-left:24px}
+li{margin:4px 0}
+code{font-family:JetBrains Mono,monospace;font-size:0.92em;background:var(--code-bg);border:1px solid var(--code-border);padding:1px 6px;border-radius:4px;color:var(--navy)}
+pre{background:var(--code-bg);border:1px solid var(--code-border);border-radius:8px;padding:14px 18px;overflow-x:auto;margin:14px 0}
+pre code{background:transparent;border:none;padding:0;font-size:13px;color:var(--ink)}
+blockquote{margin:14px 0;padding:10px 18px;background:#F8FAFC;border-left:4px solid var(--amber);color:var(--muted)}
+blockquote p{margin:6px 0}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th{background:#F8FAFC;text-align:left;padding:8px 12px;font-weight:700;border-bottom:2px solid var(--line);font-family:JetBrains Mono,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:hover td{background:#F8FAFC}
+hr{border:none;border-top:1px solid var(--line);margin:32px 0}
+strong{font-weight:700;color:var(--navy)}
+em{font-style:italic;color:var(--muted)}
+.footer{text-align:center;color:var(--faint);font-size:11px;font-family:JetBrains Mono,monospace;margin-top:48px;padding-top:24px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="./index.html">← BK pack index</a>
+  <span class="crumb">/</span>
+  <span class="title">DEMO_SCRIPT</span>
+  <a href="./presentation.html">demo →</a>
+</div>
+<div class="shell">
+<h1>BK demo script — <code>xenoMCP</code> live in 7 minutes</h1>
+<blockquote>
+<p>Hands-on demo plan for the Brian Kristensen meeting. Every step is runnable today on the engagement laptop against the live TimeScape v5.0 install. Six &quot;moments&quot; plus a v1.5 preview. Each moment lists the action, the expected output, and the one-line take-away.</p>
+</blockquote>
+<hr>
+<h2>Pre-flight (do once, before BK is in the room)</h2>
+<ol>
+<li>WezTerm + Claude Code in pane 1 of the engagement laptop. Server running idle in another pane.</li>
+<li><code>xenomorph-mcp</code> registered in Claude Desktop on whichever machine is mirroring the screen. Config snippet (paste into <code>%APPDATA%\Claude\claude_desktop_config.json</code>):<pre><code class="language-jsonc">{
+  &quot;mcpServers&quot;: {
+    &quot;xenomorph-timescape&quot;: {
+      &quot;command&quot;: &quot;C:\\Users\\jking\\Documents\\nmdev\\xenomorph-mcp\\.venv\\Scripts\\xenomorph-mcp.exe&quot;
+    }
+  }
+}
+</code></pre>
+Restart Claude Desktop after editing. Verify the &quot;🔧 21 tools&quot; indicator appears at the chat input.</li>
+<li>Tail the audit log in a second pane so BK can see the trace as it flows:<pre><code class="language-powershell">Get-Content -Wait &quot;$env:USERPROFILE\.xenomcp\audit.jsonl&quot;  # if you have the audit lane wired
+</code></pre>
+</li>
+</ol>
+<hr>
+<h2>Moment 1 — &quot;Is the MCP actually connected?&quot;  (~30s)</h2>
+<p><strong>Action:</strong> In Claude Desktop, type:</p>
+<blockquote>
+<p><em>&quot;What version of TimeScape are we connected to?&quot;</em></p>
+</blockquote>
+<p><strong>Expected:</strong> Claude calls the <code>version</code> tool. Output:</p>
+<pre><code class="language-json">{ &quot;ok&quot;: true, &quot;version&quot;: &quot;5.0&quot; }
+</code></pre>
+<p><strong>Talking point:</strong> <em>&quot;That&#39;s a live JSON-RPC round-trip — Claude → stdio → <code>timescape.pyd</code> → SQL Server → back. No REST gateway. No new auth surface. Same Integrated-Auth context as if Brian were typing in Workbench.&quot;</em></p>
+<hr>
+<h2>Moment 2 — &quot;Let me read an instrument.&quot;  (~45s)</h2>
+<p><strong>Action:</strong> Type:</p>
+<blockquote>
+<p><em>&quot;Show me the close price for BP.L in the XENO database.&quot;</em></p>
+</blockquote>
+<p><strong>Expected:</strong> Claude calls <code>itemQuery</code> with parameters <code>(XENO, Reuters, BP.L, VALUES(Code, Description, Close.LastValue))</code>. Output:</p>
+<pre><code class="language-json">{ &quot;ok&quot;: true, &quot;data&quot;: [[&quot;BP.L&quot;, &quot;BP&quot;, 508.0]] }
+</code></pre>
+<p>Claude then renders it as a sentence: <em>&quot;BP.L (BP) last closed at 508.0.&quot;</em></p>
+<p><strong>Talking point:</strong> <em>&quot;That call resolved through <code>t.itemQuery()</code> — the same CPython API your customers&#39; .NET integrations use today. The AI didn&#39;t bypass anything; it called the documented surface.&quot;</em></p>
+<hr>
+<h2>Moment 3 — &quot;Free-form QL+ from natural language.&quot;  (~45s)</h2>
+<p><strong>Action:</strong> Type:</p>
+<blockquote>
+<p><em>&quot;What&#39;s the most recent close on BP.L using free-form QL+?&quot;</em></p>
+</blockquote>
+<p><strong>Expected:</strong> Claude calls <code>query</code> with <code>Item(%database%, %code%).Close.LastValue</code> + params <code>[[&quot;database&quot;,&quot;XENO&quot;],[&quot;code&quot;,&quot;BP.L&quot;]]</code>. Output: <code>508.0</code>.</p>
+<p><strong>Talking point:</strong> <em>&quot;That&#39;s QL+, Xenomorph&#39;s own query language, generated by Claude from natural language. The MCP didn&#39;t translate the query — Claude did, then handed the literal QL+ string to TimeScape. Your customers get to ask questions in English; your engine answers them in QL+.&quot;</em></p>
+<hr>
+<h2>Moment 4 — &quot;Now try to write something.&quot;  (~60s)</h2>
+<p><strong>Action:</strong> Type:</p>
+<blockquote>
+<p><em>&quot;Save a new item called <code>TEST.DEMO</code> in the XENO database, category ADR.&quot;</em></p>
+</blockquote>
+<p><strong>Expected:</strong> Claude calls <code>saveItem</code> <em>without</em> <code>confirm=true</code>. The MCP refuses cleanly:</p>
+<pre><code class="language-json">{
+  &quot;needs_confirmation&quot;: true,
+  &quot;operation&quot;: &quot;saveItem&quot;,
+  &quot;preview&quot;: {
+    &quot;database&quot;: &quot;XENO&quot;,
+    &quot;codeTypes&quot;: [&quot;Reuters&quot;],
+    &quot;codes&quot;: [&quot;TEST.DEMO&quot;],
+    &quot;category&quot;: &quot;ADR&quot;,
+    &quot;description&quot;: &quot;...&quot;
+  },
+  &quot;message&quot;: &quot;saveItem is a write/destructive operation. Review the preview above and re-call with confirm=true to execute.&quot;
+}
+</code></pre>
+<p>Claude then surfaces this to the user as a confirmation prompt. <strong>No write has happened.</strong></p>
+<p><strong>Talking point:</strong> <em>&quot;This is the Maker-Checker contract baked into the protocol. Twelve of the sixteen tools are gated this way — uniformly. The AI&#39;s first attempt produces a preview; the human (or an upstream rule engine) explicitly approves the second call. If your auditor asks &#39;how do I stop AI from running away with my golden master&#39;, this is the line.&quot;</em></p>
+<hr>
+<h2>Moment 5 — &quot;OK, approve it.&quot;  (~30s)</h2>
+<p><strong>Action:</strong> Type:</p>
+<blockquote>
+<p><em>&quot;Yes, confirm the save.&quot;</em></p>
+</blockquote>
+<p><strong>Expected:</strong> Claude re-calls <code>saveItem</code> with <code>confirm=true</code>. Output:</p>
+<pre><code class="language-json">{ &quot;ok&quot;: true, &quot;operation&quot;: &quot;saveItem&quot; }
+</code></pre>
+<p>Open the audit-log tail pane; the two-step trace is visible:</p>
+<pre><code>2026-05-11T... saveItem  needs_confirmation
+2026-05-11T... saveItem  ok
+</code></pre>
+<p><strong>Talking point:</strong> <em>&quot;Two-line audit. Every gated tool produces the same shape. JSONL — already grep-able, already SIEM-shippable.&quot;</em></p>
+<hr>
+<h2>Moment 6 — &quot;And let&#39;s clean it up.&quot;  (~30s)</h2>
+<p><strong>Action:</strong> Type:</p>
+<blockquote>
+<p><em>&quot;Delete <code>TEST.DEMO</code> from XENO. Yes, confirm.&quot;</em></p>
+</blockquote>
+<p><strong>Expected:</strong> <code>deleteItem</code> runs (with <code>confirm=true</code>), TEST.DEMO is gone. Run <code>itemQuery</code> for it to show the row doesn&#39;t return.</p>
+<p><strong>Talking point:</strong> <em>&quot;Same gating for destructive ops as for writes. There isn&#39;t a special path for delete — and there can&#39;t be, because the AI never has to guess which path to take. The contract is uniform.&quot;</em></p>
+<hr>
+<h2>v1.5 preview — &quot;What&#39;s coming next that you actually want.&quot;  (~90s)</h2>
+<p>Switch to a slide showing the DCO Visibility tool surface mock:</p>
+<blockquote>
+<p><strong><code>dco_savings_summary(window=&quot;last_30d&quot;)</code> →</strong></p>
+<pre><code class="language-json">{
+  &quot;ok&quot;: true,
+  &quot;window&quot;: &quot;2026-04-11..2026-05-11&quot;,
+  &quot;bloomberg_requests&quot;: 12_847,
+  &quot;dco_served&quot;: 8_103,
+  &quot;substituted&quot;: 3_211,
+  &quot;direct_passthrough&quot;: 1_533,
+  &quot;estimated_savings_usd&quot;: 47_290.00,
+  &quot;currency&quot;: &quot;USD&quot;
+}
+</code></pre>
+</blockquote>
+<p><strong>Talking point:</strong> <em>&quot;This isn&#39;t built yet — it&#39;s the v1.5 lane. The reason it isn&#39;t built is one open question for Brian: where does the per-request cost reference live? Once we have that, the schema is already there. <code>BloombergRequests</code> for activity, <code>RequestSubstitutes</code> for the alternative-vendor mapping, <code>ActiveEntityRequestVendorConfigs</code> for entitlements. Two days of code. The commercial story your clients are asking about — &#39;show me what DCO is saving me&#39; — becomes a one-line natural-language question. Brian, can we close that cost-reference question before we leave the meeting?&quot;</em></p>
+<hr>
+<h2>Closer — &quot;What this is, in one sentence.&quot;</h2>
+<blockquote>
+<p><em>&quot;This is what your 30 years of engineering looks like when an AI tool can ask it questions. We didn&#39;t change a line of your code. We didn&#39;t bypass a single safety boundary. We made the capability legible — and we did it in a week, against your live binding, with two engineers and an unmodified install.&quot;</em></p>
+</blockquote>
+<hr>
+<h2>Risk acknowledgements (pre-empt before BK raises them)</h2>
+<table>
+<thead>
+<tr>
+<th>Concern</th>
+<th>Position</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>&quot;Are you bypassing my auth?&quot;</td>
+<td>No — Integrated Auth into SQL Server is exactly the same identity context the rest of TimeScape uses. The MCP runs in the calling user&#39;s logon session.</td>
+</tr>
+<tr>
+<td>&quot;Are you running anything inside my engine?&quot;</td>
+<td>No — we wrap the public <code>timescape.pyd</code> CPython binding, which is the documented external integration surface (same one your .NET API uses). No code injected into your service processes.</td>
+</tr>
+<tr>
+<td>&quot;What if the AI runs amok?&quot;</td>
+<td>Twelve of sixteen tools refuse on the first call and require explicit confirmation. The pattern is uniform; there&#39;s no path that skips it.</td>
+</tr>
+<tr>
+<td>&quot;Tenancy — could one customer see another&#39;s data?&quot;</td>
+<td>CONTRACT §0: hard rail. The MCP per-deployment serves the customer&#39;s own data only. No Xeno-internal, no cross-tenant aggregates. Foundational, in the codebase.</td>
+</tr>
+<tr>
+<td>&quot;Does this need internet?&quot;</td>
+<td>No. Stdio transport, in-process Python call, local SQL Server. The MCP can run on an air-gapped host.</td>
+</tr>
+<tr>
+<td>&quot;What does deinstall look like?&quot;</td>
+<td><code>uv pip uninstall xenomorph-mcp</code> + remove the Claude Desktop config entry. TimeScape is untouched.</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>If BK wants to drive himself (≤2 min)</h2>
+<p>Hand him the laptop. Pre-stage a prompt list in a sticky note he can copy from:</p>
+<ol>
+<li><code>&quot;What version of TimeScape?&quot;</code> → 5.0</li>
+<li><code>&quot;Look up BP.L close from XENO.&quot;</code> → 508.0</li>
+<li><code>&quot;Save a new item TEST.BK in XENO ADR — but show me the preview first.&quot;</code> → needs_confirmation</li>
+<li><code>&quot;OK, confirm it.&quot;</code> → ok</li>
+<li><code>&quot;Now delete it — yes, confirm.&quot;</code> → ok</li>
+</ol>
+<p>Five typed sentences. Five live round-trips against TimeScape. He&#39;s used the MCP.</p>
+
+<div class="footer">xenoMCP · BK pack · 2026-05-12 · rendered from source markdown</div>
+</div>
+</body>
+</html>

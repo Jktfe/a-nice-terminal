@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>xenoMCP — BK meeting presentation — 2026-05-12</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Xenomorph Design System tokens */
+  --xm-blue: #4A90D9;
+  --xm-blue-600: #3A7AC0;
+  --xm-blue-700: #2A60A0;
+  --xm-blue-tint-1: #E8F2FB;
+  --xm-blue-tint-2: #F4F8FD;
+  --xm-navy: #0A2540;
+  --xm-navy-800: #133355;
+  --xm-navy-600: #1F4470;
+  --xm-ink: #1A1A1A;
+  --xm-grey-50: #F4F5F7;
+  --xm-grey-100: #E2E5EA;
+  --xm-grey-200: #D1D5DB;
+  --xm-grey-400: #9CA3AF;
+  --xm-grey-500: #6B7280;
+  --xm-grey-600: #4B5563;
+  --xm-green: #3DAA5C;
+  --xm-coral: #E8523A;
+  --xm-white: #FFFFFF;
+  --max-w: 1180px;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+}
+*,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; scroll-behavior: smooth; }
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-weight: 400;
+  color: var(--xm-ink);
+  background: var(--xm-grey-50);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: var(--max-w); margin: 0 auto; padding: 0 32px; }
+
+/* TOP NAV ---------------------------------------------------------- */
+nav.topnav {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--xm-white);
+  border-bottom: 1px solid var(--xm-grey-100);
+  box-shadow: 0 1px 8px rgba(10, 37, 64, 0.05);
+}
+.nav-inner {
+  max-width: var(--max-w); margin: 0 auto; padding: 12px 32px;
+  display: flex; align-items: center; justify-content: space-between; gap: 24px;
+}
+.nav-brand {
+  display: flex; align-items: center; gap: 12px;
+  font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--xm-navy); font-size: 15px;
+}
+.nav-brand .sep { color: var(--xm-grey-200); font-weight: 300; }
+.nav-brand .subtitle { font-size: 12px; color: var(--xm-grey-500); font-weight: 500; letter-spacing: 0; text-transform: none; }
+.nav-version {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 500;
+  background: var(--xm-blue-tint-1); color: var(--xm-blue-700);
+  padding: 4px 10px; border-radius: 999px;
+}
+.nav-version::before { content: '●'; color: var(--xm-green); font-size: 10px; }
+.nav-slides {
+  display: flex; gap: 4px; flex-wrap: wrap; overflow-x: auto; max-width: 60%;
+}
+.nav-slides a {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  color: var(--xm-grey-500); text-decoration: none;
+  padding: 4px 9px; border-radius: 4px;
+  transition: all 150ms var(--ease);
+}
+.nav-slides a:hover { background: var(--xm-blue-tint-2); color: var(--xm-blue-700); }
+.nav-slides a.is-cover { color: var(--xm-navy); font-weight: 600; }
+
+/* HERO COVER ------------------------------------------------------- */
+.hero {
+  background: var(--xm-navy);
+  color: var(--xm-white);
+  padding: 88px 0 64px;
+}
+.hero-inner {
+  display: grid; grid-template-columns: 1.4fr 1fr; gap: 56px; align-items: center;
+  max-width: var(--max-w); margin: 0 auto; padding: 0 32px;
+}
+.hero-eyebrow {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--xm-blue); margin-bottom: 16px;
+}
+.hero h1 {
+  font-size: 52px; font-weight: 300; line-height: 1.08; margin-bottom: 18px;
+  letter-spacing: -0.01em;
+}
+.hero h1 strong { color: var(--xm-blue); font-weight: 500; }
+.hero-tagline {
+  font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 400;
+  color: var(--xm-blue); font-style: italic; margin-bottom: 32px;
+}
+.hero-sub {
+  font-size: 16px; font-weight: 300; line-height: 1.65;
+  color: rgba(255, 255, 255, 0.72); margin-bottom: 32px;
+  max-width: 540px;
+}
+.hero-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 12px 22px; border-radius: 4px;
+  font-size: 13px; font-weight: 600; text-decoration: none;
+  transition: all 150ms var(--ease);
+}
+.btn-primary { background: var(--xm-blue); color: var(--xm-white); }
+.btn-primary:hover { background: var(--xm-blue-600); }
+.btn-ghost { color: rgba(255, 255, 255, 0.85); border: 1px solid rgba(255, 255, 255, 0.2); }
+.btn-ghost:hover { color: var(--xm-white); border-color: rgba(255, 255, 255, 0.4); }
+.btn::after { content: ' →'; opacity: 0.6; }
+
+.hero-stat-box {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px; padding: 28px;
+}
+.hero-stat-box h3 {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45); margin-bottom: 18px;
+}
+.hero-stat { padding: 12px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+.hero-stat:last-child { border-bottom: none; }
+.hero-stat-fig {
+  font-size: 28px; font-weight: 300; color: var(--xm-blue); line-height: 1;
+  font-family: 'JetBrains Mono', monospace; font-feature-settings: 'tnum';
+}
+.hero-stat-lab { font-size: 12px; color: rgba(255, 255, 255, 0.55); margin-top: 4px; }
+
+/* SLIDE SECTIONS --------------------------------------------------- */
+section.slide {
+  background: var(--xm-white);
+  border-bottom: 1px solid var(--xm-grey-100);
+  padding: 64px 0;
+  scroll-margin-top: 80px;
+}
+section.slide:nth-child(even) { background: var(--xm-grey-50); }
+.slide-num {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600;
+  letter-spacing: 0.1em; color: var(--xm-blue); margin-bottom: 12px;
+}
+.slide h2 {
+  font-size: 36px; font-weight: 300; color: var(--xm-navy); line-height: 1.15;
+  margin-bottom: 24px; letter-spacing: -0.01em; max-width: 900px;
+}
+.slide h3 {
+  font-size: 18px; font-weight: 600; color: var(--xm-navy);
+  margin-top: 28px; margin-bottom: 14px;
+}
+.slide p {
+  font-size: 16px; line-height: 1.7; color: var(--xm-ink);
+  margin-bottom: 14px; max-width: 800px;
+}
+.slide p strong { color: var(--xm-navy); font-weight: 600; }
+.slide p em { color: var(--xm-blue-700); font-style: italic; }
+.slide a {
+  color: var(--xm-blue-700); text-decoration: none;
+  border-bottom: 1px solid rgba(74, 144, 217, 0.3);
+}
+.slide a:hover { border-bottom-color: var(--xm-blue); }
+.slide code {
+  font-family: 'JetBrains Mono', monospace; font-size: 0.85em;
+  background: var(--xm-grey-50); padding: 2px 6px; border-radius: 3px;
+  color: var(--xm-navy);
+}
+.slide pre {
+  background: var(--xm-navy); color: rgba(255, 255, 255, 0.92);
+  padding: 20px 24px; border-radius: 6px;
+  font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.55;
+  margin: 16px 0; overflow-x: auto;
+}
+.slide pre code { background: none; padding: 0; color: inherit; font-size: inherit; }
+.slide blockquote {
+  border-left: 3px solid var(--xm-blue); background: var(--xm-blue-tint-2);
+  padding: 18px 24px; margin: 18px 0;
+  font-family: 'Inter', serif; font-style: italic;
+  color: var(--xm-navy); font-size: 16px; line-height: 1.65;
+}
+.slide blockquote cite, .slide blockquote .cite {
+  display: block; margin-top: 8px; font-style: normal; font-size: 13px;
+  color: var(--xm-grey-500); font-weight: 500;
+}
+.slide ul, .slide ol { margin: 14px 0; padding-left: 24px; max-width: 800px; }
+.slide li { font-size: 16px; line-height: 1.7; color: var(--xm-ink); margin-bottom: 6px; }
+.slide li strong { color: var(--xm-navy); font-weight: 600; }
+.slide table {
+  width: 100%; max-width: 1080px;
+  border-collapse: separate; border-spacing: 0;
+  margin: 18px 0;
+  background: var(--xm-white); border: 1px solid var(--xm-grey-100); border-radius: 6px;
+  overflow: hidden;
+}
+.slide thead { background: var(--xm-grey-50); }
+.slide th {
+  text-align: left; padding: 12px 16px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--xm-grey-500); border-bottom: 1px solid var(--xm-grey-100);
+}
+.slide td {
+  padding: 14px 16px; font-size: 14px; line-height: 1.55;
+  border-bottom: 1px solid var(--xm-grey-50); vertical-align: top;
+}
+.slide tbody tr:last-child td { border-bottom: none; }
+.slide tbody tr:hover { background: var(--xm-blue-tint-2); }
+.slide td strong { color: var(--xm-navy); font-weight: 600; }
+.slide td code { font-size: 0.92em; }
+
+/* SPEAKER NOTES ---------------------------------------------------- */
+details.notes {
+  margin-top: 28px;
+  background: var(--xm-blue-tint-2);
+  border: 1px solid var(--xm-blue-tint-1);
+  border-radius: 6px;
+  padding: 14px 18px;
+  max-width: 900px;
+}
+details.notes summary {
+  cursor: pointer;
+  font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--xm-blue-700);
+  list-style: none;
+  display: flex; align-items: center; gap: 6px;
+}
+details.notes summary::before {
+  content: '▸'; font-size: 10px; transition: transform 150ms var(--ease);
+}
+details.notes[open] summary::before { transform: rotate(90deg); }
+details.notes summary::-webkit-details-marker { display: none; }
+details.notes .notes-body {
+  margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--xm-blue-tint-1);
+  font-size: 14px; line-height: 1.65; color: var(--xm-navy-800);
+}
+
+/* CALLOUT BOXES ---------------------------------------------------- */
+.callout {
+  background: var(--xm-blue-tint-2); border-left: 3px solid var(--xm-blue);
+  padding: 16px 22px; border-radius: 0 6px 6px 0;
+  margin: 18px 0; max-width: 900px;
+  font-size: 15px; line-height: 1.65; color: var(--xm-navy);
+}
+.callout.is-warn { background: rgba(232, 82, 58, 0.04); border-left-color: var(--xm-coral); }
+.callout strong { color: var(--xm-navy); font-weight: 600; }
+
+/* EMBEDDED DCO MOCKUP --------------------------------------------- */
+.embed-mockup {
+  background: var(--xm-navy); padding: 56px 0;
+}
+.embed-mockup .wrap { padding: 0 32px; }
+.embed-mockup h2 {
+  font-size: 28px; font-weight: 300; color: var(--xm-white); margin-bottom: 16px;
+}
+.embed-mockup p {
+  font-size: 14px; color: rgba(255, 255, 255, 0.7); max-width: 700px;
+  margin-bottom: 20px;
+}
+.embed-mockup iframe {
+  width: 100%; height: 1400px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px; background: var(--xm-white);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+.embed-mockup .open-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-top: 14px;
+  color: var(--xm-blue); font-size: 13px; font-weight: 500; text-decoration: none;
+}
+.embed-mockup .open-link:hover { color: var(--xm-white); }
+.embed-mockup .open-link::after { content: ' ↗'; }
+
+/* LINKS GRID ------------------------------------------------------- */
+.links-section {
+  background: var(--xm-white); padding: 56px 0;
+}
+.links-section h2 {
+  font-size: 28px; font-weight: 300; color: var(--xm-navy); margin-bottom: 32px;
+}
+.links-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;
+}
+.link-card {
+  background: var(--xm-white); border: 1px solid var(--xm-grey-100); border-radius: 6px;
+  padding: 22px; transition: all 150ms var(--ease);
+  text-decoration: none; color: inherit;
+  display: block;
+}
+.link-card:hover {
+  border-color: var(--xm-blue); transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(74, 144, 217, 0.12);
+}
+.link-card h4 {
+  font-size: 14px; font-weight: 600; color: var(--xm-navy); margin-bottom: 6px;
+  display: flex; align-items: center; gap: 8px;
+}
+.link-card h4::after { content: '↗'; color: var(--xm-blue); font-size: 13px; margin-left: auto; }
+.link-card p { font-size: 13px; line-height: 1.55; color: var(--xm-grey-500); margin: 0; }
+.link-card .path {
+  font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--xm-blue-700);
+  margin-top: 8px; display: block; word-break: break-all;
+}
+
+/* FOOTER ----------------------------------------------------------- */
+footer.foot {
+  background: var(--xm-grey-50); border-top: 1px solid var(--xm-grey-100);
+  padding: 32px 0; font-size: 12px; color: var(--xm-grey-500);
+}
+.foot-inner {
+  max-width: var(--max-w); margin: 0 auto; padding: 0 32px;
+  display: flex; justify-content: space-between; align-items: center; gap: 24px; flex-wrap: wrap;
+}
+.foot-inner strong { color: var(--xm-navy); font-weight: 600; }
+.foot-inner code {
+  font-family: 'JetBrains Mono', monospace;
+  background: var(--xm-white); border: 1px solid var(--xm-grey-100);
+  padding: 2px 8px; border-radius: 3px; color: var(--xm-navy);
+}
+.foot-meta { display: flex; gap: 16px; }
+
+/* STATUS BADGES ---------------------------------------------------- */
+.badge {
+  display: inline-block; font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 3px;
+  letter-spacing: 0.04em; margin-left: 6px;
+}
+.badge-live { background: rgba(61, 170, 92, 0.12); color: var(--xm-green); }
+.badge-struct { background: var(--xm-blue-tint-1); color: var(--xm-blue-700); }
+.badge-gated { background: rgba(232, 82, 58, 0.08); color: var(--xm-coral); }
+
+/* PRINT ------------------------------------------------------------ */
+@media print {
+  nav.topnav { display: none; }
+  section.slide { page-break-after: always; }
+  details.notes[open] { page-break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+
+<!-- TOP NAV -->
+<nav class="topnav">
+  <div class="nav-inner">
+    <div class="nav-brand">
+      Xenomorph<span class="sep">/</span><span class="subtitle">xenoMCP · BK meeting · 2026-05-12</span>
+    </div>
+    <div class="nav-slides">
+      <a href="#cover" class="is-cover">cover</a>
+      <a href="#slide-2">02</a>
+      <a href="#slide-3">03</a>
+      <a href="#slide-4">04</a>
+      <a href="#slide-5">05</a>
+      <a href="#slide-6">06</a>
+      <a href="#slide-7">07</a>
+      <a href="#slide-8">08</a>
+      <a href="#slide-9">09</a>
+      <a href="#slide-10">10</a>
+      <a href="#slide-11">11</a>
+      <a href="#slide-12">12</a>
+      <a href="#mockup">DCO mockup</a>
+      <a href="#links">links</a>
+    </div>
+    <span class="nav-version">v1.1.0-preview.2 · 21 tools · 44 tests</span>
+  </div>
+</nav>
+
+<!-- HERO COVER -->
+<header class="hero" id="cover">
+  <div class="hero-inner">
+    <div>
+      <p class="hero-eyebrow">xenoMCP · BK meeting briefing</p>
+      <h1>Xenomorph.<br>Your platform. <strong>Brought to the AI surface.</strong></h1>
+      <p class="hero-tagline">Transforming Data Into Knowledge</p>
+      <p class="hero-sub">A briefing on what TimeScape EDM+ does, how it's built, and what becomes possible when modern AI-fluent presentation is laid on top — without touching a line of the engine that's run flawlessly for thirty years.</p>
+      <div class="hero-actions">
+        <a href="#slide-2" class="btn btn-primary">Start the briefing</a>
+        <a href="#mockup" class="btn btn-ghost">See the DCO dashboard</a>
+      </div>
+    </div>
+    <div class="hero-stat-box">
+      <h3>Shipped tonight</h3>
+      <div class="hero-stat">
+        <div class="hero-stat-fig">21</div>
+        <div class="hero-stat-lab">MCP tools live (16 baseline + 5 v1.5 DCO Visibility)</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-fig">5 / 5</div>
+        <div class="hero-stat-lab">v1.5 DCO Visibility tools shipped (2 real-data, 3 structure-only pending baseline)</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-fig">44 / 44</div>
+        <div class="hero-stat-lab">Cross-platform tests passing</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-fig">3</div>
+        <div class="hero-stat-lab">GitHub releases — v1.0.0, v1.1.0-preview, v1.1.0-preview.2</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-fig">0</div>
+        <div class="hero-stat-lab">Lines of Xenomorph code modified</div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- SLIDE 02 -->
+<section class="slide" id="slide-2">
+  <div class="wrap">
+    <p class="slide-num">02 — The proposition</p>
+    <h2>The platform is excellent. The presentation hasn't kept up.</h2>
+    <p>You've spent thirty years building a platform that financial institutions trust with their most important data. <strong>TimeScape EDM+ runs the Gold Copy</strong> that downstream risk, valuation, and reporting depend on at HSBC, Mizuho Americas, Rabobank, Mediobanca, AllianzGI risklab — and dozens more.</p>
+    <p>Today the EDM space is being reshaped by AI-fluent tooling: <strong>KX shipped a built-in MCP server with KDB-X</strong>; GoldenSource v8.8 ships an LLM chatbot; FINBOURNE LUSID/EDM+ positions on cloud-native API-first lines. Xenomorph's own posture has the right thesis — Matt Pick's <em>"AI is only as good as the underlying data"</em> — but the surface that lets AI agents consume the platform doesn't yet exist publicly.</p>
+    <h3>Our proposal</h3>
+    <p>Build that surface. Wrap TimeScape's CPython binding in a Model Context Protocol server. Surface the value DCO already creates but doesn't expose. Bring the engineering of the last thirty years to the buyers of the next ten.</p>
+    <div class="callout"><strong>Hard rail</strong>: never modify Xenomorph's code. The platform stays exactly as it is. Everything we build is <em>atop</em> — a polished overlay that surfaces the strength of what's already there.</div>
+    <details class="notes">
+      <summary>Speaker notes</summary>
+      <div class="notes-body">Frame as collaborative, not corrective. The "presentation hasn't kept up" line is the only mildly critical note in the deck — handle gently in delivery. Cite KX MCP / GoldenSource / FINBOURNE as table-stakes signals — this isn't us inventing a need, the market has already moved. The "never modify Xenomorph's code" line is the load-bearing trust commitment. Repeat it. Pacing: ~60 seconds.</div>
+    </details>
+  </div>
+</section>
+
+<!-- SLIDE 03 -->
+<section class="slide" id="slide-3">
+  <div class="wrap">
+    <p class="slide-num">03 — What you've built</p>
+    <h2>Thirty years. Built by people who'd lived without it.</h2>
+    <p>Started 1995 at an equity derivatives desk at Bankers Trust. Built by people who knew firsthand what financial data management had to be because they'd lived without it.</p>
+    <h3>Five foundational pillars</h3>
+    <table>
+      <tbody>
+        <tr><td><strong>Asset-agnostic flexible data model</strong></td><td>Equities, fixed income, OTC derivatives, structured products, commodities — and any emerging asset class — without database re-engineering.</td></tr>
+        <tr><td><strong>Native time-series</strong></td><td>Millisecond tick → slow-changing reference, all in one repository. Point-in-time queries. Back-testing. Multi-source consolidation.</td></tr>
+        <tr><td><strong>Business-friendly Workbench</strong></td><td>Traders, quants, PMs, risk analysts operate the platform directly. No SQL. No IT tickets. Self-service.</td></tr>
+        <tr><td><strong>Performance</strong></td><td>Billions of data points across millions of instruments processed nightly. Low disk footprint. Horizontal scalability.</td></tr>
+        <tr><td><strong>Backward compatibility</strong></td><td><em>"Zero client configurations broken by an upgrade — ever."</em> That promise is unique in this market.</td></tr>
+      </tbody>
+    </table>
+    <h3>The data lifecycle</h3>
+    <pre>Acquire → Normalize → Enrich → Validate → Deliver
+   ↓
+Raw  →  Silver  →  <strong style="color:var(--xm-blue);">Gold</strong></pre>
+    <p>Raw vendor feeds → Silver normalised + rules-validated → <strong>Gold Copy</strong> delivered to Front, Middle, and Back Office systems. Full lineage retained at every stage. Maker-Checker (four-eyes) controls baked into the validation workflow.</p>
+    <h3>Validation rules — four explicit classes</h3>
+    <table>
+      <thead><tr><th>Class</th><th>Used for</th></tr></thead>
+      <tbody>
+        <tr><td><code>instrument</code></td><td>Single-instrument data quality (price, descriptors, statics)</td></tr>
+        <tr><td><code>curve</code></td><td>Yield curves, spread curves, curve evolution</td></tr>
+        <tr><td><code>surface</code></td><td>Volatility surfaces — option pricing inputs</td></tr>
+        <tr><td><code>cube</code></td><td>Swaption cubes — derivatives risk inputs</td></tr>
+      </tbody>
+    </table>
+    <p>QL+ is the query layer business users compose in, parallelised in v5.0. Excel, Python, MATLAB, R, .NET, REST — all are connection points. Numerix, FINCAD, QuantLib are first-class integrations. Bloomberg, Refinitiv, ICE Data, S&P Global, FactSet, Markit, MSCI plus 50+ vendor connectors.</p>
+    <p><strong>This is the platform.</strong></p>
+    <details class="notes"><summary>Speaker notes</summary><div class="notes-body">A celebration, not a teach. BK knows all this. The "zero client configurations broken by an upgrade — ever" line is a moat almost no enterprise software vendor can claim. The four validation rule classes signal we've actually understood the platform, not just skimmed the website. ~75-90 seconds.</div></details>
+  </div>
+</section>
+
+<!-- SLIDE 04 -->
+<section class="slide" id="slide-4">
+  <div class="wrap">
+    <p class="slide-num">04 — The architecture</p>
+    <h2>Raw → Silver → Gold. SQL Server underneath. The CPython binding is the door.</h2>
+    <pre>┌─────────────────────────────────────────────────────────────┐
+│  Data sources                                                │
+│  Bloomberg · Refinitiv · ICE · S&P · 50+ vendors · internal  │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Raw          — ingestion, data acquired as-received         │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Silver       — normalisation, validation rules applied      │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Gold         — validated, authoritative — the Gold Copy     │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Downstream                                                  │
+│  Front Office · Risk systems · Excel · Python · BI tools     │
+└─────────────────────────────────────────────────────────────┘</pre>
+    <h3>How it works underneath</h3>
+    <ul>
+      <li><strong>Backing store</strong>: SQL Server (Microsoft partner since 2008). Pluggable time-series engines — XDB, FAME, others.</li>
+      <li><strong>Auth</strong>: Integrated Security via Active Directory / Kerberos. End-user credentials never travel over external wires.</li>
+      <li><strong>APIs</strong>: Excel Function APIs ("SpreadSheet Inside"), Python CPython bindings (one <code>.pyd</code> per Python version, 3.9 through 3.14), MATLAB, .NET, REST, OData services for Power BI.</li>
+      <li><strong>Deployment</strong>: on-premise, Azure cloud, hybrid. Microsoft Azure validated at scale by Mizuho Americas' deployment.</li>
+      <li><strong>Validation Dashboard</strong>: browser-based, schedules cleansing, rollback support, four-eyes (Maker-Checker) approval, full audit trail. Stitches SharePoint + SSIS + SSRS alongside Xenomorph's own engine.</li>
+    </ul>
+    <h3>The piece that's been waiting for a wrapper</h3>
+    <p>The CPython binding <code>timescape.pyd</code> exposes the full functional surface of TimeScape — query (QL+), item lookup, time-series I/O, item code management, workspace configuration — through a clean Python API.</p>
+    <p><em>It's been there for years.</em> Programmers go through it; analysts compose QL+ from Excel.</p>
+    <p><strong>What it's never had until now: an MCP layer that lets AI agents consume it directly.</strong></p>
+    <details class="notes"><summary>Speaker notes</summary><div class="notes-body">The tier model is what BK already knows. Emphasis is on the closing line. "It's been there for years" celebrates the binding as already-built — we're not asking BK to commission new engineering. ~75 seconds.</div></details>
+  </div>
+</section>
+
+<!-- SLIDE 05 -->
+<section class="slide" id="slide-5">
+  <div class="wrap">
+    <p class="slide-num">05 — The customers</p>
+    <h2>Trusted by G-SIBs, global investment banks, and leading asset managers since 1995.</h2>
+    <h3>Verified deployments</h3>
+    <table>
+      <thead><tr><th>Client</th><th>Segment</th><th>What's deployed</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Mizuho Securities USA / Mizuho Americas</strong></td><td>Sell-side, G-SIB Japan</td><td>Enterprise market data consolidation. Azure cloud-deployed (validated 2019).</td></tr>
+        <tr><td><strong>Mediobanca</strong></td><td>Sell-side, Italian investment bank</td><td>Risk data validation infrastructure (deployed Dec 2012).</td></tr>
+        <tr><td><strong>Rabobank</strong></td><td>Sell-side, Dutch global banking</td><td>Global market risk platform.</td></tr>
+        <tr><td><strong>AllianzGI risklab</strong></td><td>Buy-side, quantitative asset management</td><td>Proprietary multi-factor model infrastructure.</td></tr>
+        <tr><td><strong>HSBC</strong></td><td>Sell-side, global universal bank</td><td>Long-standing relationship.</td></tr>
+      </tbody>
+    </table>
+    <h3>The outcomes that follow</h3>
+    <table>
+      <thead><tr><th>Outcome</th><th>Where it landed</th></tr></thead>
+      <tbody>
+        <tr><td>Time-to-market for complex fixed income products: <strong>three months → three days</strong></td><td>Global investment bank deployment</td></tr>
+        <tr><td>Business users developing + testing strategies independently</td><td><strong>Within 8 weeks</strong> of platform deployment</td></tr>
+        <tr><td>Vendor data consolidation: <strong>20+ vendors, 12 asset classes</strong> unified</td><td>Global Japanese bank, Azure cloud</td></tr>
+        <tr><td>Independent Price Verification + Market Conformity Check fully automated</td><td>German commercial bank, <strong>&lt;6 months</strong> to production</td></tr>
+        <tr><td>BCBS 239 compliance: full data lineage + audit trail</td><td>Multiple G-SIB deployments</td></tr>
+      </tbody>
+    </table>
+    <blockquote>"Xenomorph's self-service nature, backward compatibility, and continued investment in the product were key distinguishing factors."<span class="cite">— Head of Data Management, G-SIB client</span></blockquote>
+    <p>Several current clients have been with Xenomorph for more than fifteen years. That retention isn't a consequence of switching costs. It's a consequence of a platform that keeps getting better.</p>
+    <details class="notes"><summary>Speaker notes</summary><div class="notes-body">BK knows the customer list better than we do — this slide is about anchoring the deck in verified, primary-press-sourced facts. We stuck to the verified five only. Linger on the retention quote. ~75-90 seconds.</div></details>
+  </div>
+</section>
+
+<!-- SLIDE 06 -->
+<section class="slide" id="slide-6">
+  <div class="wrap">
+    <p class="slide-num">06 — The compliance lane</p>
+    <h2>The platform isn't catching up to compliance — compliance is catching up to the platform.</h2>
+    <p>Regulatory data infrastructure is what Xenomorph is <em>for</em>. Not a feature, not a module — the whole platform was architected around the requirements that BCBS 239 codified and that FRTB / IPV-MCC / BaFin / DORA / T+1 continue to extend.</p>
+    <h3>The frameworks TimeScape EDM+ supports</h3>
+    <table>
+      <thead><tr><th>Framework</th><th>What it demands</th><th>What TimeScape provides</th></tr></thead>
+      <tbody>
+        <tr><td><strong>BCBS 239</strong></td><td>Risk data aggregation: accuracy, completeness, timeliness, adaptability. Full lineage.</td><td>Full source-to-Gold lineage automatically. Configurable validation. Maker-Checker (four-eyes). Exception workflows with time-stamped audit.</td></tr>
+        <tr><td><strong>FRTB</strong></td><td>10-year daily history for risk-factor eligibility under IMA. Point-in-time reconstruction.</td><td>Native time-series across all frequencies + asset classes. Point-in-time queries reconstruct any historical date.</td></tr>
+        <tr><td><strong>IPV / MCC</strong></td><td>Independent Price Verification: at least monthly, daily for material positions. Independent of Front Office.</td><td>IPV workflow engine, consensus pricing, tolerance automation. Auditor-ready output.</td></tr>
+        <tr><td><strong>BaFin / MaRisk</strong></td><td>German regulatory data governance + audit.</td><td>Deployed at Helaba and others. MaRisk-aligned workflows.</td></tr>
+      </tbody>
+    </table>
+    <h3>The regulatory tailwinds — 2025-2026</h3>
+    <table>
+      <thead><tr><th>Driver</th><th>Status</th><th>Implication for buyers</th></tr></thead>
+      <tbody>
+        <tr><td><strong>ECB</strong> <em>Guide on Effective Risk Data Aggregation and Risk Reporting</em> (RDARR)</td><td>Published May 2024. <strong>SSM 2025-27 supervisory priority.</strong></td><td>Attribute-level lineage demanded. EDM is no longer optional infrastructure.</td></tr>
+        <tr><td><strong>DORA</strong> (Digital Operational Resilience Act)</td><td><strong>Live Jan 2025.</strong></td><td>Vendor risk + data resilience under EU supervisory framework.</td></tr>
+        <tr><td><strong>T+1 settlement</strong></td><td>US: live May 2024. EU: proposal Feb 2025. UK: Oct 2027.</td><td>Real-time security-master + SSI updates become structural.</td></tr>
+      </tbody>
+    </table>
+    <p>Every one of these tightens the requirement for what TimeScape EDM+ already does. <strong>The platform isn't catching up to compliance — compliance is catching up to the platform.</strong></p>
+    <details class="notes"><summary>Speaker notes</summary><div class="notes-body">BK should be nodding through this. The ECB RDARR being a 2025-27 supervisory priority isn't widely understood yet, and tilts the buying conversation Xeno is in. Closing line positions Xeno as ahead of where the regulators have just landed. ~75 seconds.</div></details>
+  </div>
+</section>
+
+<!-- SLIDE 07 -->
+<section class="slide" id="slide-7">
+  <div class="wrap">
+    <p class="slide-num">07 — Vendor Cost Management + DCO</p>
+    <h2>DCO saves clients millions. But you don't surface the savings.</h2>
+    <p>Most conversations about Xenomorph centre on TimeScape EDM+. There's a second product that's been quietly generating measurable commercial value for clients, and it deserves a wider hearing.</p>
+    <h3>Two complementary modules</h3>
+    <table>
+      <tbody>
+        <tr><td><strong>Vendor Cost Reporting</strong></td><td>Comprehensive analysis of Bloomberg Data License usage — by business line, by desk, by data type, by license category. Identifies unused entitlements, redundant coverage, attribution by cost-per-instrument and cost-per-user.</td></tr>
+        <tr><td><strong>DCO — Data Cost Optimization</strong></td><td><em>Automates</em> the cost reduction. Sits between the data retrieval layer and Bloomberg, and selects the cheapest viable license tier for each data request in real time (Per-Security ↔ EAP ↔ B-PIPE). Continuous, audited, zero downstream impact. <strong>The user gets the same data; the bill is materially smaller.</strong></td></tr>
+      </tbody>
+    </table>
+    <h3>What DCO is actually doing</h3>
+    <pre>Trader requests data
+        │
+        ▼
+   ┌────────────────────────────────────────────┐
+   │  DCO routing layer                          │
+   │  • Per-Security license available?          │
+   │  • Cheaper EAP route covers this instrument │
+   │  • Real-time vs. delayed — what's needed?   │
+   │  • Historical depth on this request?        │
+   └────────────────────────────────────────────┘
+        │
+        ▼
+   Selects cheapest viable Bloomberg route
+        │
+        ▼
+   Trader receives identical data
+   <strong style="color:var(--xm-blue);">Bloomberg invoice arrives materially smaller</strong></pre>
+    <p>Optimisations run <strong>continuously</strong>. Not a one-time cleanup that degrades — an always-on routing layer that adapts.</p>
+    <h3>The gap (and the opportunity)</h3>
+    <p>DCO + alternative-vendor routing save Xenomorph clients <strong>many millions of dollars</strong> annually in Bloomberg spend they would otherwise have paid. The data is there. <strong>But Xenomorph doesn't surface the savings.</strong></p>
+    <p>Clients see the lower Bloomberg bill. They don't see a dashboard saying <em>"DCO saved you £X this quarter, here's the attribution by desk."</em> The optimisation runs; the <em>story</em> doesn't.</p>
+    <p>That's a missed commercial moment. A buyer who renewed without seeing the savings number is a buyer who can't justify the platform to their CFO in five years' time when budgets tighten.</p>
+    <div class="callout"><strong>Important boundary</strong>: any DCO Visibility surface will show the calling customer's own savings only. No cross-customer benchmarking, no Xenomorph-internal P&L on the savings, no central data exhaust. Every figure will name its baseline and time window. Binding (<code>docs/CONTRACT.md</code> §0) — the value-legibility lane never trades against tenant isolation.</div>
+    <details class="notes"><summary>Speaker notes</summary><div class="notes-body">This is Keith's point, surfaced via James. Don't say "Keith says…" — BK is on the same management team; he'll hear it as a peer-to-peer point. Closing ties forward to slide 10 (DCO Visibility v1.5). Pacing: ~75 seconds. Slow on the closing 4 lines.</div></details>
+  </div>
+</section>
+
+<!-- SLIDE 08 -->
+<section class="slide" id="slide-8">
+  <div class="wrap">
+    <p class="slide-num">08 — The market right now</p>
+    <h2>Three forces reshape the EDM conversation. Xenomorph is positioned for all three.</h2>
+    <h3>Force 1 — The AI / MCP wave is no longer hypothetical</h3>
+    <table>
+      <thead><tr><th>Vendor</th><th>Move</th><th>When</th></tr></thead>
+      <tbody>
+        <tr><td><strong>KX (kdb+)</strong></td><td>Shipped <strong>KDB-X</strong> with a built-in MCP server for AI-assisted querying. Merged with OneMarketData / OneTick.</td><td>Spring 2026</td></tr>
+        <tr><td><strong>GoldenSource</strong></td><td>v8.8 ships an LLM chatbot for navigation + AI-driven data scrubbing. Moving to "EDM-as-a-Service".</td><td>2025</td></tr>
+        <tr><td><strong>Bloomberg</strong></td><td>Bloomberg GPT — 50B-parameter finance-tuned model that generates BQL.</td><td>2023, extended 2025</td></tr>
+        <tr><td><strong>Snowflake</strong></td><td>Cortex / Copilot — NL→SQL generally available via API.</td><td>2024, GA 2025</td></tr>
+      </tbody>
+    </table>
+    <p><strong>MCP is becoming table stakes in this stack.</strong> Buyers in 2026 will start asking "does your platform have an MCP surface?" the way they asked "does it have a REST API?" in 2018.</p>
+    <h3>Force 2 — Cloud-native disruption</h3>
+    <table>
+      <thead><tr><th>Disruptor</th><th>Position</th></tr></thead>
+      <tbody>
+        <tr><td><strong>FINBOURNE LUSID / EDM+</strong></td><td>Cloud-native, API-first, won Buy-Side Tech 2025. <strong>Uses the same "EDM+" naming as Xenomorph</strong> — naming clash worth addressing.</td></tr>
+        <tr><td><strong>Snowflake + Crux Informatics</strong></td><td>Vendor data lands directly in client Snowflake. Attacks the ingest/normalise layer.</td></tr>
+        <tr><td><strong>ArcticDB (Man Group, open-source)</strong></td><td>S3-native time-series, no MongoDB dependency.</td></tr>
+      </tbody>
+    </table>
+    <h3>Force 3 — Regulatory tailwinds</h3>
+    <p>ECB RDARR (SSM 2025-27 priority), DORA live Jan 2025, T+1 settlement. All push the EDM TAM upward. All play directly to Xenomorph's 30-year compliance heritage.</p>
+    <h3>Where this lands</h3>
+    <table>
+      <thead><tr><th>Force</th><th>Xenomorph's natural position</th></tr></thead>
+      <tbody>
+        <tr><td>AI / MCP</td><td>Has the right thesis (Matt Pick's "AI is only as good as the underlying data"). <strong>Missing the surface that makes the thesis demonstrable to buyers.</strong> ← This is what xenoMCP fills.</td></tr>
+        <tr><td>Cloud-native disruption</td><td>Has Azure deployment proven at Mizuho Americas. Heritage + cloud-readiness is a credible counter to <em>pure</em>-cloud-native vendors who lack the regulatory pedigree.</td></tr>
+        <tr><td>Regulatory tailwinds</td><td>Already there. Slide 6's tables show the alignment.</td></tr>
+      </tbody>
+    </table>
+    <p><strong>Net</strong>: the AI/MCP gap is the one most urgent (table stakes by year-end 2026) and most addressable atop existing engineering.</p>
+    <details class="notes"><summary>Speaker notes</summary><div class="notes-body">KX shipping MCP is the single most important market move for our argument — direct peer, shipped before Xenomorph could. Frame the gap as urgency-without-panic. Bridge to slide 9. ~75-90 seconds.</div></details>
+  </div>
+</section>
+
+<!-- SLIDE 09 -->
+<section class="slide" id="slide-9">
+  <div class="wrap">
+    <p class="slide-num">09 — What we built atop, this week</p>
+    <h2>Twelve days ago this didn't exist. All five v1.5 tools we proposed are already live.</h2>
+    <h3>xenoMCP v1.0.0 → v1.1.0-preview → v1.1.0-preview.2</h3>
+    <p>Repo: <a href="https://github.com/Jktfe/xenoMCP">github.com/Jktfe/xenoMCP</a> (private). Three tags in one session:</p>
+    <table>
+      <thead><tr><th>Tag</th><th>What landed</th></tr></thead>
+      <tbody>
+        <tr><td><code>v1.0.0</code></td><td>Baseline 16 tools across TimeScape's full CPython surface. <code>BP.L = 508.0</code> round-trip live.</td></tr>
+        <tr><td><code>v1.1.0-preview</code></td><td>First v1.5 tool live: <code>vendor_entitlement_audit</code>.</td></tr>
+        <tr><td><code>v1.1.0-preview.2</code></td><td><strong>All five v1.5 tools live.</strong> Two return real data; three return structure-only with <code>unmet_dependencies: ["baselineMethod"]</code> until Brian answers the cost-reference question.</td></tr>
+      </tbody>
+    </table>
+    <p>Single-file Python server, <strong>21 MCP tools live</strong>, console-script install.</p>
+    <h3>The 21 tools</h3>
+    <table>
+      <thead><tr><th>Class</th><th>Tools</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Read — TimeScape</strong> (4, open)</td><td><code>version</code>, <code>query</code> (QL+), <code>itemQuery</code>, <code>workspaceGet</code></td><td>All wrap <code>timescape.pyd</code> directly</td></tr>
+        <tr><td><strong>Read — v1.5 DCO (live data)</strong> (2, open)</td><td><code>vendor_entitlement_audit</code>, <code>dco_optimisation_decisions</code></td><td><span class="badge badge-live">LIVE</span> SQL-backed via pyodbc + Integrated Auth. Tenant-scoped.</td></tr>
+        <tr><td><strong>Read — v1.5 DCO (structure-only)</strong> (3, open)</td><td><code>dco_savings_summary</code>, <code>dco_savings_by_desk</code>, <code>vendor_cost_summary</code></td><td><span class="badge badge-struct">STRUCT</span> Counts/ratios/vendor-mix today; <code>amount: null</code> until Q1 settles. <strong>Shape is final; the values fill in.</strong></td></tr>
+        <tr><td><strong>Write</strong> (7, gated)</td><td><code>saveItem</code>, <code>saveItemDescription</code>, <code>saveProp</code>, <code>saveSeries</code>, <code>savePropSeries</code>, <code>itemCodeAdd</code>, <code>itemCodeDelete</code></td><td><span class="badge badge-gated">GATED</span> <code>confirm=true</code> required + audit</td></tr>
+        <tr><td><strong>Destructive</strong> (3, gated)</td><td><code>deleteItem</code>, <code>deleteProp</code>, <code>deleteSeries</code></td><td><span class="badge badge-gated">GATED</span> Confirm-gated; four-eyes planned</td></tr>
+        <tr><td><strong>Config</strong> (1, gated)</td><td><code>workspaceSet</code></td><td><span class="badge badge-gated">GATED</span> Confirm-gated</td></tr>
+        <tr><td><strong>Batch</strong> (1, gated)</td><td><code>runValidationTask</code></td><td><span class="badge badge-gated">GATED</span> Wraps <code>XTTaskProcessor.exe</code></td></tr>
+      </tbody>
+    </table>
+    <p><strong>No new business logic, no schema changes, no modifications to anything in <code>Program Files\Xenomorph TimeScape\</code>. We didn't write a single line of code in your codebase.</strong></p>
+    <h3>End-to-end verified</h3>
+    <pre>>>> # via the MCP stdio protocol, dispatched to:
+>>> t.itemQuery("XENO", "Reuters", "BP.L",
+...             "VALUES(Code, Description, Close.LastValue)", None, {})
+<strong style="color:var(--xm-blue);">("BP.L", "BP", 508.0)</strong></pre>
+    <p>That round-trip — Claude Desktop → MCP JSON-RPC over stdio → <code>xenomorph-mcp.exe</code> → <code>timescape.pyd</code> → SQL Server (Integrated Auth) → response back through every layer — <strong>works today</strong>.</p>
+    <h3>What it cost you</h3>
+    <p><strong>Nothing.</strong> No engineering hours from Xenomorph staff. No code review burden on your team. No deployment risk to existing client environments.</p>
+    <details class="notes"><summary>Speaker notes</summary><div class="notes-body">"Show, don't tell" slide. The actual code block of a real BP.L query returning 508.0 is load-bearing. "We didn't write a single line of code in your codebase" is the trust commitment. The closing "what it cost you: nothing" is the negotiating posture. Slow on the code block — the hidden 30-second beat after "508.0" is where the room sees the credibility. ~90 seconds.</div></details>
+  </div>
+</section>
+
+<!-- SLIDE 10 -->
+<section class="slide" id="slide-10">
+  <div class="wrap">
+    <p class="slide-num">10 — DCO Visibility (v1.5)</p>
+    <h2>The schema is rich. The tools are shipped. The shape doesn't change when Brian answers — only the figures fill in.</h2>
+    <h3>What the recon found</h3>
+    <p>DCO state isn't on the public programmer surface — it lives in <code>TimeScapeProcessManagement</code>. <strong>The schema is rich enough to support a v1.5 tool surface without any platform changes.</strong></p>
+    <table>
+      <thead><tr><th>Source</th><th>What's in it</th></tr></thead>
+      <tbody>
+        <tr><td><code>BloombergRequests</code> (view, 18 cols)</td><td>Every outbound Bloomberg API call as one row. <strong>The savings-event log.</strong></td></tr>
+        <tr><td><code>RequestSubstitutes</code> (view, 12 cols)</td><td>Alternative-vendor substitution rules. <strong>The savings-rule map.</strong></td></tr>
+        <tr><td><code>EntityProcesses</code> join chain</td><td>Workflow/entity model — joinable for desk-level attribution.</td></tr>
+        <tr><td><code>ActiveRequestVendors</code> + <code>ActiveEntityRequestVendorConfigs</code></td><td>Vendor entitlement model — which vendors a client is paying for.</td></tr>
+      </tbody>
+    </table>
+    <h3>Proposed v1.5 tool surface — all five shipped</h3>
+    <table>
+      <thead><tr><th>Tool</th><th>Returns</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td><strong><code>vendor_entitlement_audit()</code></strong></td><td>Unused / redundant Bloomberg entitlements.</td><td><span class="badge badge-live">LIVE — real data</span> (<code>v1.1.0-preview</code>)</td></tr>
+        <tr><td><strong><code>dco_optimisation_decisions(period)</code></strong></td><td>Per-decision: requested-tier → served-tier → £ delta.</td><td><span class="badge badge-live">LIVE — real data</span> (<code>v1.1.0-preview.2</code>)</td></tr>
+        <tr><td><strong><code>dco_savings_summary(period)</code></strong></td><td>Total £ saved over a window.</td><td><span class="badge badge-struct">LIVE — structure-only</span> Counts/ratios today; <code>amount: null</code> until Q1</td></tr>
+        <tr><td><strong><code>dco_savings_by_desk(period)</code></strong></td><td>Attribution split by business line / desk.</td><td><span class="badge badge-struct">LIVE — structure-only</span> Grouping today; values flip when Q2 settles</td></tr>
+        <tr><td><strong><code>vendor_cost_summary(vendor, period)</code></strong></td><td>Spend by vendor across all consumers.</td><td><span class="badge badge-struct">LIVE — structure-only</span> Vendor-mix today; cost flips when Q1 settles</td></tr>
+      </tbody>
+    </table>
+    <p>All five are <strong>read-only</strong>. All five are <strong>tenant-isolated by construction</strong> (CONTRACT §0) — the AD service account inheriting the customer's identity can only see the customer's <code>TimeScapeProcessManagement</code> instance.</p>
+    <div class="callout"><strong>Baseline discipline</strong>: a saved-£ number is only useful if the baseline it compares against is named and defensible. Every tool output identifies (a) time window, (b) cost reference used, (c) optimisation comparison — <em>"DCO routed via EAP instead of Per-Security"</em> not <em>"saved £X"</em>. Vague savings figures are a contract violation by design.</div>
+    <h3>What's gated — four questions for Brian</h3>
+    <table>
+      <thead><tr><th>#</th><th>Question</th><th>Why it matters</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td><strong>Cost reference</strong>: where does per-request Bloomberg cost data live? Static config, separate DB, or computed externally by clients?</td><td>Without this, the "$ saved" headline is unanchored. With it, every <code>BloombergRequests</code> row becomes a numbered savings event.</td></tr>
+        <tr><td>2</td><td><strong>"Desk" semantics</strong>: is <code>EntityProcesses.EntityProcessID</code> the right grouping for "desk", or is there a higher-level concept?</td><td>Determines the granularity of <code>dco_savings_by_desk</code>.</td></tr>
+        <tr><td>3</td><td><strong>Substitution success rate</strong>: is <code>DataLoaded=1 AND matching RequestSubstitute</code> a reliable "savings event"?</td><td>Determines whether savings claim at request or session granularity.</td></tr>
+        <tr><td>4</td><td><strong>Demo data gap</strong>: dev laptop has zero rows. Synthetic, anonymised production extract, or screenshots?</td><td>Determines whether the v1.5 reveal is static mockup or working dashboard.</td></tr>
+      </tbody>
+    </table>
+    <p>These aren't blockers. They're a 30-minute conversation. Once settled, <strong>the structure-only tools start returning real numbers — no new code, no new exploration, no new shipping</strong>. The shape is already in production; we're just filling in the values your customers can see.</p>
+    <details class="notes"><summary>Speaker notes</summary><div class="notes-body">The most important slide of the deck for the commercial argument. Slide 7 set up the gap (Keith's point); slide 10 closes it with concrete tools + concrete schema + concrete questions. The "four questions for Brian" makes it clear we've done real work and gives BK something to engage with as a peer. Bring up the DCO_RECON.md doc on screen if there's a laptop in the room. Pacing: ~120 seconds. Linger on the Status column — that's where the work shows.</div></details>
+  </div>
+</section>
+
+<!-- SLIDE 11 -->
+<section class="slide" id="slide-11">
+  <div class="wrap">
+    <p class="slide-num">11 — AI-fluent surface thesis</p>
+    <h2>The thesis was right. The surface is now real.</h2>
+    <p>In September 2025, Matt Pick framed Xenomorph's public AI position cleanly:</p>
+    <blockquote><em>"AI is only as good as the underlying data."</em></blockquote>
+    <p>It's the right thesis. Data trust is the unlock. The AI buyer in 2026 doesn't need another model — they need a platform that can be trusted to feed those models with regulatory-grade, validated, time-coherent reference and market data.</p>
+    <p><strong>That's Xenomorph.</strong></p>
+    <h3>What was missing from the thesis until now</h3>
+    <p>A <em>surface</em>. An interface that AI agents can actually use to consume the platform.</p>
+    <p>The thesis describes the value (clean data → reliable AI). The market until 2026 lacked the protocol layer. MCP solves that. KX shipped it. GoldenSource is iterating on it. Bloomberg has BQL-via-GPT in production.</p>
+    <p><strong>xenoMCP v1.1.0-preview.2 is the surface that makes Matt Pick's thesis demonstrable to a buyer in the room.</strong></p>
+    <h3>What an AI conversation looks like with xenoMCP in place</h3>
+    <pre>Analyst, in Claude Desktop:
+  "Compare BP.L close prices for the last 30 days against Brent crude
+   levels in the same window — flag any sessions where BP traded
+   against the curve."
+
+Claude:
+  [calls itemQuery on XENO database, Reuters codeType BP.L, fields
+   Close.LastValue + window]
+  → returns the BP.L series
+  [calls query on Brent reference with matching date range]
+  → returns Brent levels
+  [reasons over both]
+  → "Of 22 trading sessions, BP closed against Brent direction on
+   five days: Apr 8, Apr 17, Apr 23, May 2, May 6. The April 23
+   session is the largest outlier — corresponds to BP's earnings
+   release that morning."</pre>
+    <p>No SQL. No QL+ to learn. No vendor-specific syntax. The analyst asked in English. xenoMCP routed the right calls. TimeScape served the data. <strong>The answer came back grounded in the firm's authoritative Gold Copy, not a hallucinated estimate.</strong></p>
+    <h3>Where this goes — capability-graph and federation</h3>
+    <table>
+      <thead><tr><th>Extension</th><th>What it means</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Tool composition / capability-graph</strong></td><td>Smaller set of <em>intents</em> — <code>look up an instrument</code>, <code>back-fill a series</code>, <code>validate a curve</code> — compose into multi-step plans. The <em>plan</em> gets four-eyes approval once, not each leaf.</td></tr>
+        <tr><td><strong>Cross-source federation</strong></td><td>Same MCP shape over TimeScape + customer Excel/CSV stores + (where licensed) Bloomberg DL, Refinitiv RDP, ICE. AI client sees one surface; the MCP routes underneath.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout"><strong>Safety boundary</strong>: every extension — capability-graph, federation, v1.5 DCO Visibility, future natural-language QL+ generation — inherits §0 Tenancy. AI agents operate inside the calling customer's tenant only. No Xenomorph-side cross-customer aggregation. No central AI-routing service. The AI surface extends <em>the customer's existing trust boundary</em> outward, not a new boundary across customers.</div>
+    <h3>Where this leads — three audiences</h3>
+    <table>
+      <thead><tr><th>Audience</th><th>What they buy</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Existing G-SIB clients</strong></td><td>"Your traders / analysts / risk teams can now query their validated data in natural language."</td></tr>
+        <tr><td><strong>AI-fluent new buyers</strong></td><td>"Looking for an EDM with an MCP surface? Most don't have one yet. KX does. We do too."</td></tr>
+        <tr><td><strong>Internal teams at Xenomorph</strong></td><td>New product lanes. v1.5 DCO Visibility is the first; v2 surfaces rules to natural-language editing; v3 exposes lineage for AI-assisted audit.</td></tr>
+      </tbody>
+    </table>
+    <p>The thesis was right. The surface is now real. The combination — data trust <em>with</em> AI access — is what <strong>nobody else in this space has assembled into one product</strong>.</p>
+    <details class="notes"><summary>Speaker notes</summary><div class="notes-body">The strategic slide. The Matt Pick quote shows we've read Xenomorph's own public material. The Claude Desktop dialogue example is the demo-narrative. "Joining the table-stakes club early" is urgency without alarmism. Three audiences = where the commercial value lands. Pacing: ~90-105 seconds. Read the Claude Desktop example slowly enough that the room hears the contrast (English in, structured answer out).</div></details>
+  </div>
+</section>
+
+<!-- SLIDE 12 -->
+<section class="slide" id="slide-12">
+  <div class="wrap">
+    <p class="slide-num">12 — Path forward</p>
+    <h2>The platform is yours. The wrap is delivered.</h2>
+    <h3>Delivered today (2026-05-11)</h3>
+    <table>
+      <tbody>
+        <tr><td><strong>xenoMCP v1.0.0</strong> tagged + released</td><td><a href="https://github.com/Jktfe/xenoMCP/releases/tag/v1.0.0">v1.0.0</a></td></tr>
+        <tr><td>16 tools end-to-end verified against TimeScape v5.0</td><td><code>BP.L = 508.0</code> round-trip confirmed</td></tr>
+        <tr><td><strong>xenoMCP <code>v1.1.0-preview.2</code> tagged</strong> — ALL FIVE v1.5 tools live</td><td>2 real data, 3 structure-only. <strong>21 tools total.</strong></td></tr>
+        <tr><td>Safety contract — §0 Tenancy + Appendix B pre-publish checklist</td><td><code>docs/CONTRACT.md</code></td></tr>
+        <tr><td>Cross-platform test suite</td><td><strong>44 passing</strong></td></tr>
+        <tr><td>DCO Visibility v1.5 recon complete</td><td><code>docs/research/DCO_RECON.md</code></td></tr>
+        <tr><td>v1.5 tool surface contract</td><td><code>docs/research/V1_5_TOOL_SURFACE.md</code></td></tr>
+        <tr><td>This deck</td><td><code>docs/deck/</code> + rendered HTML you're reading</td></tr>
+        <tr><td>BK prep — Q&A tracker + one-pager + FAQ</td><td><code>BK_QUESTIONS_FULL.md</code>, <code>OPEN_QUESTIONS_FOR_BK.md</code>, <code>BK_FAQ.md</code></td></tr>
+        <tr><td>7-minute live demo plan</td><td><code>docs/DEMO_SCRIPT.md</code></td></tr>
+        <tr><td>DCO savings dashboard mockup</td><td><a href="#mockup">see below</a></td></tr>
+      </tbody>
+    </table>
+    <h3>30 days — DCO Visibility v1.5</h3>
+    <p><strong>All five v1.5 tools shipped in this session.</strong> What the 30-day window is waiting on isn't tool development — it's the cost-baseline conversation. Once settled, three structure-only tools flip <code>null</code> → real numbers. <strong>The toolchain is already in place.</strong></p>
+    <h3>60 days — Production readiness</h3>
+    <ul>
+      <li><strong>Four-eyes (Maker-Checker) refusal layer</strong> on destructive tools. Brings the MCP into BCBS 239-grade audit alignment.</li>
+      <li><strong>Audit log JSONL persistence</strong> — server-side, customer-host-local (never centralised at Xenomorph per §0).</li>
+      <li><strong>Sample MCP-client deployments</strong> with two pilot clients (one G-SIB sell-side + one buy-side quant suggested).</li>
+    </ul>
+    <h3>90 days — The AI lane proper</h3>
+    <ul>
+      <li><strong>Natural-language QL+ generation</strong> — Claude composes QL+ from English questions.</li>
+      <li><strong>Validation rule editing via natural language</strong> — "Add a tolerance check for BP equity close prices > 1000 between 2024 and 2026" → MCP generates rule, Maker-Checker approves, deploys.</li>
+      <li><strong>Lineage queries</strong> — "What sources fed the closing price reported to risk yesterday?" → MCP traces the chain.</li>
+      <li><strong>Customer-facing deck variant</strong> — same narrative, no internal positioning, suitable for prospect meetings.</li>
+    </ul>
+    <h3>Open questions to settle in the meeting</h3>
+    <ol>
+      <li><strong>Cost reference data</strong> for DCO savings figures — slide 10, Q1.</li>
+      <li><strong>"Desk" / org-dimension semantics</strong> in <code>EntityProcesses</code> — slide 10, Q2.</li>
+      <li><strong>Substitution success rate</strong> confirmation — slide 10, Q3.</li>
+      <li><strong>Demo data approach</strong> — synthetic, anonymised, or screenshots — slide 10, Q4.</li>
+      <li><strong>Pilot client selection</strong> for 60-day milestone.</li>
+      <li><strong>MCP positioning</strong> — separate product line vs extension of TimeScape EDM+ — and alignment with Mark's design files.</li>
+    </ol>
+    <h3>What we're asking for</h3>
+    <p>Nothing today. <strong>The work has already happened.</strong> What we'd find useful from this conversation: alignment on the 30/60/90 milestones, the <strong>cost-baseline question answered</strong> (15-30 minutes on Q1) so three already-shipped tools light up with real numbers, <strong>desk-dimension semantics confirmed</strong> (Q2), and an indication of whether Xenomorph wants to position v1.1.0 publicly when those values flip.</p>
+    <p>Thirty years of engineering. A modern AI-fluent surface. Built atop, never inside. <strong>The platform is yours. The wrap is delivered.</strong> What's left isn't engineering — it's the conversation that turns null fields into your customers' savings stories.</p>
+    <details class="notes"><summary>Speaker notes</summary><div class="notes-body">The close. Three jobs: recap the surface area, show concrete 30/60/90 so it doesn't feel like vapour, name what we're asking for cleanly. "Nothing today, the work happens regardless" removes pressure. Closing line bookends slide 1's frame. Pacing: ~120 seconds. End at a natural pause; let the room move into Q&A.</div></details>
+  </div>
+</section>
+
+<!-- EMBEDDED DCO MOCKUP -->
+<section class="embed-mockup" id="mockup">
+  <div class="wrap">
+    <h2>DCO savings dashboard — visual companion to slide 10</h2>
+    <p>Sample data. Renders against the schema (<code style="color:var(--xm-blue);">BloombergRequests</code> + <code style="color:var(--xm-blue);">RequestSubstitutes</code> in <code style="color:var(--xm-blue);">TimeScapeProcessManagement</code>) that the v1.5 tools query. All five v1.5 tools are live as of <code style="color:var(--xm-blue);">v1.1.0-preview.2</code>; three of them populate the £ values once Brian answers the cost-baseline question.</p>
+    <iframe src="./dco-savings-dashboard.html" title="DCO savings dashboard mockup"></iframe>
+    <a href="./dco-savings-dashboard.html" class="open-link" target="_blank">Open in its own tab</a>
+  </div>
+</section>
+
+<!-- LINKS GRID -->
+<section class="links-section" id="links">
+  <div class="wrap">
+    <h2>Where everything lives</h2>
+    <div class="links-grid">
+      <a class="link-card" href="https://github.com/Jktfe/xenoMCP">
+        <h4>GitHub repo (private)</h4>
+        <p>Source of truth. Tags, releases, all docs.</p>
+        <span class="path">github.com/Jktfe/xenoMCP</span>
+      </a>
+      <a class="link-card" href="https://github.com/Jktfe/xenoMCP/releases/tag/v1.1.0-preview.2">
+        <h4>Latest release — v1.1.0-preview.2</h4>
+        <p>21 tools live, all five v1.5 DCO Visibility tools shipped.</p>
+        <span class="path">github.com/Jktfe/xenoMCP/releases/tag/v1.1.0-preview.2</span>
+      </a>
+      <a class="link-card" href="https://github.com/Jktfe/xenoMCP/blob/main/docs/deck">
+        <h4>Deck source (12 slides)</h4>
+        <p>Markdown per slide. This HTML renders them inline above.</p>
+        <span class="path">docs/deck/01-cover.md → 12-path-forward.md</span>
+      </a>
+      <a class="link-card" href="https://github.com/Jktfe/xenoMCP/blob/main/docs/DEMO_SCRIPT.md">
+        <h4>7-minute live demo plan</h4>
+        <p>6 moments + v1.5 preview + closer + risk pre-empts. BK-drives-himself sticky-note flow included.</p>
+        <span class="path">docs/DEMO_SCRIPT.md</span>
+      </a>
+      <a class="link-card" href="https://github.com/Jktfe/xenoMCP/blob/main/docs/OPEN_QUESTIONS_FOR_BK.md">
+        <h4>One-pager for Brian (hand it to him)</h4>
+        <p>52 lines, P0/P1 priorities. The artefact Brian leaves with.</p>
+        <span class="path">docs/OPEN_QUESTIONS_FOR_BK.md</span>
+      </a>
+      <a class="link-card" href="https://github.com/Jktfe/xenoMCP/blob/main/docs/BK_QUESTIONS_FULL.md">
+        <h4>Full Q&A tracker (your reference)</h4>
+        <p>205 lines, status badges [v1.5-blocker] / [v1.5-degrades] / [zero-cost]. James's reference, not Brian's.</p>
+        <span class="path">docs/BK_QUESTIONS_FULL.md</span>
+      </a>
+      <a class="link-card" href="https://github.com/Jktfe/xenoMCP/blob/main/docs/BK_FAQ.md">
+        <h4>Anticipated questions FAQ</h4>
+        <p>40 questions across 9 categories incl. "the disarming questions". For when Brian gets tough.</p>
+        <span class="path">docs/BK_FAQ.md</span>
+      </a>
+      <a class="link-card" href="https://github.com/Jktfe/xenoMCP/blob/main/docs/research/MCP_INTERFACE.md">
+        <h4>MCP interface (engineering depth for Brian)</h4>
+        <p>Architecture, tool surface, safety contract refs, v2/v3 roadmap.</p>
+        <span class="path">docs/research/MCP_INTERFACE.md</span>
+      </a>
+      <a class="link-card" href="https://github.com/Jktfe/xenoMCP/blob/main/docs/research/DCO_RECON.md">
+        <h4>DCO recon (full schema introspection)</h4>
+        <p>TimeScapeProcessManagement schema. 15 tables, 27 views. The proof that v1.5 was buildable.</p>
+        <span class="path">docs/research/DCO_RECON.md</span>
+      </a>
+      <a class="link-card" href="https://github.com/Jktfe/xenoMCP/blob/main/docs/research/V1_5_TOOL_SURFACE.md">
+        <h4>v1.5 tool surface contract</h4>
+        <p>Concrete signatures + return shapes for the 5 DCO Visibility tools.</p>
+        <span class="path">docs/research/V1_5_TOOL_SURFACE.md</span>
+      </a>
+      <a class="link-card" href="https://github.com/Jktfe/xenoMCP/blob/main/docs/research/KEITH_NEEDS_TODAY.md">
+        <h4>Keith-needs research doc</h4>
+        <p>Security/compliance non-negotiables. Safe-vs-not-show split. Compliance checklist.</p>
+        <span class="path">docs/research/KEITH_NEEDS_TODAY.md</span>
+      </a>
+      <a class="link-card" href="https://github.com/Jktfe/xenoMCP/blob/main/docs/CONTRACT.md">
+        <h4>Safety contract</h4>
+        <p>§0 Tenancy and Data Isolation foundational rule + Appendix B pre-publish compliance checklist.</p>
+        <span class="path">docs/CONTRACT.md</span>
+      </a>
+      <a class="link-card" href="https://github.com/Jktfe/xenoMCP/blob/main/docs/WINDOWS_NOTES.md">
+        <h4>Windows operational notes</h4>
+        <p>DLL search 3.8+, Python version pin, auth model, admin-exe probing gotchas.</p>
+        <span class="path">docs/WINDOWS_NOTES.md</span>
+      </a>
+      <a class="link-card" href="./dco-savings-dashboard.html">
+        <h4>DCO savings dashboard mockup</h4>
+        <p>Self-contained HTML, XenomorphDesignSystem-branded. Same file embedded above.</p>
+        <span class="path">docs/mockups/dco-savings-dashboard.html</span>
+      </a>
+      <a class="link-card" href="https://github.com/Jktfe/xenoMCP/tree/main/docs/demo_evidence">
+        <h4>Demo evidence — morning-of insurance</h4>
+        <p>Frozen 9/9 PASS captures from <code>docs/demo_dry_run.py</code>. If live ODBC glitches during the meeting, open the most recent capture in a side window and screen-share that — same narrative, no live dependency.</p>
+        <span class="path">docs/demo_evidence/</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer class="foot">
+  <div class="foot-inner">
+    <span><strong>xenoMCP</strong> · BK meeting presentation · 2026-05-12 · <code>v1.1.0-preview.2</code></span>
+    <div class="foot-meta">
+      <span>21 tools live</span><span>·</span><span>44 / 44 tests</span><span>·</span><span>0 lines of Xeno code modified</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

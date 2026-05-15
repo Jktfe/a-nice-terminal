@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>11-ai-thesis · xenoMCP BK pack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A2540; --surface:#fff; --line:#E5E7EB; --ink:#0A2540; --muted:#475569; --faint:#94A3B8;
+  --blue:#4A90D9; --navy:#0A2540; --green:#1AC270; --amber:#FFB100; --red:#F04438;
+  --code-bg:#F8FAFC; --code-border:#E2E8F0;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--ink);line-height:1.6}
+.topbar{background:var(--navy);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:16px;border-bottom:1px solid rgba(255,255,255,0.08)}
+.topbar a{color:rgba(255,255,255,0.7);text-decoration:none;font-size:12px;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.topbar a:hover{color:#fff}
+.topbar .crumb{color:rgba(255,255,255,0.4);font-family:JetBrains Mono,monospace;font-size:11px}
+.topbar .title{flex:1;font-size:13px;font-weight:600;color:#fff;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.shell{max-width:920px;margin:0 auto;padding:48px 32px 96px;background:#fff;min-height:calc(100vh - 60px)}
+h1{font-size:32px;font-weight:700;letter-spacing:-0.5px;margin:0 0 12px;color:var(--ink);border-bottom:2px solid var(--blue);padding-bottom:14px}
+h2{font-size:22px;font-weight:700;margin:36px 0 12px;color:var(--ink);border-left:4px solid var(--blue);padding-left:12px}
+h3{font-size:17px;font-weight:700;margin:28px 0 8px;color:var(--navy)}
+h4{font-size:14px;font-weight:700;margin:20px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-family:JetBrains Mono,monospace}
+p{margin:10px 0;color:var(--ink)}
+a{color:var(--blue);text-decoration:none;border-bottom:1px solid transparent;transition:border 0.15s}
+a:hover{border-bottom-color:var(--blue)}
+ul,ol{margin:10px 0 14px;padding-left:24px}
+li{margin:4px 0}
+code{font-family:JetBrains Mono,monospace;font-size:0.92em;background:var(--code-bg);border:1px solid var(--code-border);padding:1px 6px;border-radius:4px;color:var(--navy)}
+pre{background:var(--code-bg);border:1px solid var(--code-border);border-radius:8px;padding:14px 18px;overflow-x:auto;margin:14px 0}
+pre code{background:transparent;border:none;padding:0;font-size:13px;color:var(--ink)}
+blockquote{margin:14px 0;padding:10px 18px;background:#F8FAFC;border-left:4px solid var(--amber);color:var(--muted)}
+blockquote p{margin:6px 0}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th{background:#F8FAFC;text-align:left;padding:8px 12px;font-weight:700;border-bottom:2px solid var(--line);font-family:JetBrains Mono,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:hover td{background:#F8FAFC}
+hr{border:none;border-top:1px solid var(--line);margin:32px 0}
+strong{font-weight:700;color:var(--navy)}
+em{font-style:italic;color:var(--muted)}
+.footer{text-align:center;color:var(--faint);font-size:11px;font-family:JetBrains Mono,monospace;margin-top:48px;padding-top:24px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="../index.html">← BK pack index</a>
+  <span class="crumb">/</span>
+  <span class="title">deck/11-ai-thesis</span>
+  <a href="../presentation.html">demo →</a>
+</div>
+<div class="shell">
+<h1>The AI-fluent surface thesis</h1>
+<p>In September 2025, Matt Pick framed Xenomorph&#39;s public AI position cleanly:</p>
+<blockquote>
+<p><em>&quot;AI is only as good as the underlying data.&quot;</em></p>
+</blockquote>
+<p>It&#39;s the right thesis. Data trust is the unlock. The AI buyer in 2026 doesn&#39;t need another model — they need a platform that can be trusted to feed those models with regulatory-grade, validated, time-coherent reference and market data.</p>
+<p>That&#39;s Xenomorph.</p>
+<h2>What was missing from the thesis until now</h2>
+<p>A <em>surface</em>. An interface that AI agents can actually use to consume the platform.</p>
+<p>The thesis describes the value (clean data → reliable AI). The market until 2026 lacked the protocol layer (clean data → <em>AI agent</em> via <em>what</em>?). MCP solves that — it&#39;s now the de facto standard for how AI agents reach external tools and data. KX shipped it. GoldenSource is iterating on it. Bloomberg has BQL-via-GPT in production.</p>
+<p><strong>xenoMCP v1.1.0-preview.2 is the surface that makes Matt Pick&#39;s thesis demonstrable to a buyer in the room.</strong></p>
+<h2>What an AI conversation looks like with xenoMCP in place</h2>
+<pre><code>Analyst, in Claude Desktop:
+  &quot;Compare BP.L close prices for the last 30 days against Brent crude
+   levels in the same window — flag any sessions where BP traded
+   against the curve.&quot;
+
+Claude:
+  [calls itemQuery on XENO database, Reuters codeType BP.L, fields
+   Close.LastValue + window]
+  → returns the BP.L series
+  [calls query on Brent reference with matching date range]
+  → returns Brent levels
+  [reasons over both]
+  → &quot;Of 22 trading sessions, BP closed against Brent direction on
+   five days: Apr 8, Apr 17, Apr 23, May 2, May 6. The deltas range
+   from −1.8% to +2.4%. The April 23 session is the largest outlier
+   — corresponds to BP&#39;s earnings release that morning.&quot;
+</code></pre>
+<p>No SQL. No QL+ to learn. No vendor-specific syntax. The analyst asked a question in English. xenoMCP routed the right calls. TimeScape served the data. Claude reasoned over it. The answer came back grounded in <em>the firm&#39;s authoritative Gold Copy</em>, not a hallucinated estimate.</p>
+<p>That&#39;s what &quot;AI is only as good as the underlying data&quot; looks like when the surface is in place.</p>
+<h2>Where this goes — capability-graph and federation</h2>
+<p>(See <code>docs/research/MCP_INTERFACE.md</code> §5 for the engineering depth.)</p>
+<p>Today&#39;s 21 tools are leaf-level — one tool per <code>timescape.*</code> function call or per v1.5 SQL view wrap. The strategic horizon is two extensions that play cleanly with the Maker-Checker pattern already in v1:</p>
+<table>
+<thead>
+<tr>
+<th>Extension</th>
+<th>What it means</th>
+<th>Why it matters</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Tool composition / capability-graph</strong></td>
+<td>Instead of 21 individual leaf tools, expose a smaller set of <em>intents</em> — <code>look up an instrument</code>, <code>back-fill a series</code>, <code>validate a curve</code> — that compose into multi-step plans an AI agent plans then commits. The <em>plan</em> gets four-eyes approval once, not each individual leaf.</td>
+<td>Brings AI-fluent ergonomics. Closer to how analysts think, further from how databases queries get spelled.</td>
+</tr>
+<tr>
+<td><strong>Cross-source federation</strong></td>
+<td>The same MCP shape over TimeScape + customer Excel/CSV stores + (where licensed) external sources — Bloomberg DL, Refinitiv RDP, ICE. AI client sees one surface; the MCP routes underneath.</td>
+<td>Maps cleanly to Xenomorph&#39;s existing &quot;single point of access to all your data&quot; thesis. Extends the Workbench story to the AI lane.</td>
+</tr>
+</tbody></table>
+<p>Both sit on the foundation v1 already lays. Neither requires changes to TimeScape itself.</p>
+<p><strong>A note on the AI lane&#39;s safety boundary</strong>: every extension — capability-graph, federation, v1.5 DCO Visibility, future natural-language QL+ generation — inherits the §0 Tenancy and Data Isolation rule. AI agents querying through xenoMCP operate inside the calling customer&#39;s tenant only, under the customer&#39;s AD identity. There is no Xenomorph-side cross-customer aggregation layer, no central AI-routing service that sees customer queries, no telemetry that leaves the customer host. The AI surface extends <em>the customer&#39;s existing trust boundary</em> outward to their AI tooling — it does not introduce a new boundary that crosses customers. (See <code>docs/research/KEITH_NEEDS_TODAY.md</code> for the full security/compliance non-negotiables.)</p>
+<h2>Where this leads — three audiences</h2>
+<p>Three audiences buy what becomes possible:</p>
+<table>
+<thead>
+<tr>
+<th>Audience</th>
+<th>What they buy</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Existing G-SIB clients</strong></td>
+<td>&quot;Your traders / analysts / risk teams can now query their validated data in natural language.&quot; The platform doesn&#39;t change. The conversation around it transforms.</td>
+</tr>
+<tr>
+<td><strong>AI-fluent new buyers</strong></td>
+<td>&quot;Looking for an EDM with an MCP surface? Most don&#39;t have one yet. KX does. We do too.&quot; Joining the table-stakes club early.</td>
+</tr>
+<tr>
+<td><strong>Internal teams at Xenomorph</strong></td>
+<td>Builds new product lanes. v1.5 DCO Visibility is the first; v2 could surface validation rules to natural-language editing; v3 could expose lineage for AI-assisted audit. The roadmap opens once the surface is there.</td>
+</tr>
+</tbody></table>
+<p>The thesis was right. The surface is now real. The combination — data trust <em>with</em> AI access — is what nobody else in this space has assembled into one product.</p>
+<!--
+Notes:
+This is the strategic slide. The earlier slides showed *what is*; this one shows *what it means*.
+
+The Matt Pick quote is the anchor — citing it explicitly shows we've read Xenomorph's own public material and are extending their existing position, not imposing an external one.
+
+The Claude Desktop dialogue example is the demo-narrative. If there's a live demo at the meeting, this is the script for it. If not, the slide carries the story.
+
+"Joining the table-stakes club early" is the urgency frame without being alarmist.
+
+The three audiences in the table is the "where the commercial value lands" slice — short, direct, ready for follow-up Q&A.
+
+Pacing: ~90-105 seconds. The Claude Desktop example is the centrepiece — read it slowly enough that the room hears the contrast (English in, structured answer out).
+-->
+
+<div class="footer">xenoMCP · BK pack · 2026-05-12 · rendered from source markdown</div>
+</div>
+</body>
+</html>

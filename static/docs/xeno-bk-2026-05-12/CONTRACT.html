@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CONTRACT · xenoMCP BK pack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A2540; --surface:#fff; --line:#E5E7EB; --ink:#0A2540; --muted:#475569; --faint:#94A3B8;
+  --blue:#4A90D9; --navy:#0A2540; --green:#1AC270; --amber:#FFB100; --red:#F04438;
+  --code-bg:#F8FAFC; --code-border:#E2E8F0;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--ink);line-height:1.6}
+.topbar{background:var(--navy);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:16px;border-bottom:1px solid rgba(255,255,255,0.08)}
+.topbar a{color:rgba(255,255,255,0.7);text-decoration:none;font-size:12px;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.topbar a:hover{color:#fff}
+.topbar .crumb{color:rgba(255,255,255,0.4);font-family:JetBrains Mono,monospace;font-size:11px}
+.topbar .title{flex:1;font-size:13px;font-weight:600;color:#fff;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.shell{max-width:920px;margin:0 auto;padding:48px 32px 96px;background:#fff;min-height:calc(100vh - 60px)}
+h1{font-size:32px;font-weight:700;letter-spacing:-0.5px;margin:0 0 12px;color:var(--ink);border-bottom:2px solid var(--blue);padding-bottom:14px}
+h2{font-size:22px;font-weight:700;margin:36px 0 12px;color:var(--ink);border-left:4px solid var(--blue);padding-left:12px}
+h3{font-size:17px;font-weight:700;margin:28px 0 8px;color:var(--navy)}
+h4{font-size:14px;font-weight:700;margin:20px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-family:JetBrains Mono,monospace}
+p{margin:10px 0;color:var(--ink)}
+a{color:var(--blue);text-decoration:none;border-bottom:1px solid transparent;transition:border 0.15s}
+a:hover{border-bottom-color:var(--blue)}
+ul,ol{margin:10px 0 14px;padding-left:24px}
+li{margin:4px 0}
+code{font-family:JetBrains Mono,monospace;font-size:0.92em;background:var(--code-bg);border:1px solid var(--code-border);padding:1px 6px;border-radius:4px;color:var(--navy)}
+pre{background:var(--code-bg);border:1px solid var(--code-border);border-radius:8px;padding:14px 18px;overflow-x:auto;margin:14px 0}
+pre code{background:transparent;border:none;padding:0;font-size:13px;color:var(--ink)}
+blockquote{margin:14px 0;padding:10px 18px;background:#F8FAFC;border-left:4px solid var(--amber);color:var(--muted)}
+blockquote p{margin:6px 0}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th{background:#F8FAFC;text-align:left;padding:8px 12px;font-weight:700;border-bottom:2px solid var(--line);font-family:JetBrains Mono,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:hover td{background:#F8FAFC}
+hr{border:none;border-top:1px solid var(--line);margin:32px 0}
+strong{font-weight:700;color:var(--navy)}
+em{font-style:italic;color:var(--muted)}
+.footer{text-align:center;color:var(--faint);font-size:11px;font-family:JetBrains Mono,monospace;margin-top:48px;padding-top:24px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="./index.html">← BK pack index</a>
+  <span class="crumb">/</span>
+  <span class="title">CONTRACT</span>
+  <a href="./presentation.html">demo →</a>
+</div>
+<div class="shell">
+<h1>Safety Contract — xenoMCP</h1>
+<p>This document is binding on every tool added to <code>server.py</code>. Read it before adding, removing, or modifying any tool. The rules exist because the TimeScape platform underpins regulatory data lineage at G-SIB clients, and an MCP layer over it must be auditable, reversible, and <strong>tenant-isolated</strong> by construction.</p>
+<h2>0. Tenancy and data isolation — foundational rule</h2>
+<p><strong>The MCP serves the end customer&#39;s own data only.</strong> It is deployed <em>into</em> a customer&#39;s TimeScape host and operates within that customer&#39;s tenant.</p>
+<p>What this means in practice:</p>
+<ul>
+<li>The server runs in-process on the customer&#39;s TimeScape host under a Windows service account that the customer controls. SQL Server authentication flows through that account&#39;s Active Directory / Kerberos context via Integrated Security (see §6). The <code>timescape.pyd</code> binding can only read what that AD account is authorized to read.</li>
+<li><strong>No tool may expose data outside the calling tenant.</strong> That includes (non-exhaustively): Xenomorph internal corporate or operational data, Xenomorph competitive intelligence, Xenomorph sales / pipeline / customer-list information, other Xenomorph clients&#39; data, or any aggregated cross-customer figures.</li>
+<li><strong>No tool may exist whose purpose is cross-tenant or Xenomorph-internal reporting.</strong> A tool like <code>list_xenomorph_customers</code>, <code>competitive_market_share</code>, or <code>internal_pipeline_summary</code> is a contract violation by name; do not add one.</li>
+<li><strong>Read tools that wrap binding calls (<code>query</code>, <code>itemQuery</code>) are tenant-isolated by construction</strong> — the AD service account cannot see other tenants&#39; databases.</li>
+<li><strong>DCO Visibility tools (v1.5 plan)</strong> must scope every figure to the calling tenant. <code>dco_savings_summary</code> shows the caller&#39;s own savings. Never aggregated-across-clients. Never another tenant&#39;s figures. Never the Xenomorph-internal P&amp;L on the savings.</li>
+<li><strong><code>run_task</code> / batch tools</strong> that shell out to <code>XTTaskProcessor.exe</code> must only execute <code>.tdf</code> files owned by the calling tenant. They must not run vendor-supplied or Xenomorph-supplied tasks that span tenants.</li>
+<li><strong>Audit logs</strong> record tool calls and outcomes. They do not record tenant data values beyond what&#39;s needed for the preview (which is the caller&#39;s own data anyway), and they live on the customer host — never centralised at Xenomorph.</li>
+</ul>
+<p>If a tool design feels like it crosses any of these lines, stop and check with James / Keith / <code>@xenoCC</code> before writing it. Multi-tenancy violations are the kind of mistake that&#39;s invisible in code review and only surfaces in a breach.</p>
+<h2>1. Tool classes</h2>
+<p>Every <code>@mcp.tool()</code> function falls into exactly one class:</p>
+<table>
+<thead>
+<tr>
+<th>Class</th>
+<th><code>confirm</code> arg?</th>
+<th>Without <code>confirm=true</code></th>
+<th>With <code>confirm=true</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Read</strong></td>
+<td>no</td>
+<td>executes</td>
+<td>(n/a)</td>
+</tr>
+<tr>
+<td><strong>Write</strong></td>
+<td>yes, default <code>False</code></td>
+<td>returns <code>needs_confirmation</code> preview, no side effect</td>
+<td>executes</td>
+</tr>
+<tr>
+<td><strong>Destructive</strong></td>
+<td>yes, default <code>False</code></td>
+<td>returns <code>needs_confirmation</code> preview, no side effect</td>
+<td>executes</td>
+</tr>
+<tr>
+<td><strong>Config</strong></td>
+<td>yes, default <code>False</code></td>
+<td>returns <code>needs_confirmation</code> preview, no side effect</td>
+<td>executes</td>
+</tr>
+<tr>
+<td><strong>Batch</strong></td>
+<td>yes, default <code>False</code></td>
+<td>returns <code>needs_confirmation</code> preview, no shell-out</td>
+<td>executes the <code>.tdf</code> via <code>XTTaskProcessor.exe</code></td>
+</tr>
+</tbody></table>
+<p>Read tools are <em>always</em> unguarded. Adding a <code>confirm</code> argument to a read tool is a contract violation — the caller is given the choice of when to read by virtue of choosing whether to call the tool at all.</p>
+<p>Write, destructive, config, and batch tools are <em>always</em> gated. Removing the <code>confirm</code> check from a tool in those classes is a contract violation. There is no admin override.</p>
+<h2>2. The <code>needs_confirmation</code> shape</h2>
+<p>When a gated tool is invoked without <code>confirm=true</code>, it returns:</p>
+<pre><code class="language-python">{
+  &quot;needs_confirmation&quot;: True,
+  &quot;operation&quot;: &quot;&lt;tool_name&gt;&quot;,
+  &quot;preview&quot;: { ...all arguments the caller supplied... },
+  &quot;message&quot;: &quot;&lt;tool&gt; is a write/destructive operation. Review the preview above and re-call with confirm=true to execute.&quot;,
+}
+</code></pre>
+<p>The preview is the caller&#39;s chance to see exactly what would happen. It must include every parameter that affects the side effect — including ones with defaults. The <code>_needs_confirm()</code> helper in <code>server.py</code> enforces this; do not bypass it.</p>
+<h2>3. The <code>ok</code> envelope</h2>
+<p>Every tool response is one of three shapes:</p>
+<ul>
+<li>Success: <code>{&quot;ok&quot;: True, ...result fields...}</code></li>
+<li>Failure: <code>{&quot;ok&quot;: False, &quot;error&quot;: &quot;&lt;message&gt;&quot;, &quot;kind&quot;: &quot;&lt;exception class name&gt;&quot;}</code></li>
+<li>Needs confirmation: <code>{&quot;needs_confirmation&quot;: True, ...}</code> (see §2)</li>
+</ul>
+<p>The <code>_err()</code> helper produces the failure shape from a caught exception. Tools must catch <code>t.error</code> (TimeScape&#39;s single exception type) at minimum. Other exception types — <code>subprocess.TimeoutExpired</code>, <code>OSError</code>, <code>FileNotFoundError</code> — should be caught where they can occur. <strong>Never let an exception propagate out of a tool.</strong></p>
+<h2>4. Read tools — current</h2>
+<ul>
+<li><code>version()</code> → <code>{ok, version}</code></li>
+<li><code>query(query, dataRule=&quot;&quot;, queryArgs=None, server=&quot;&quot;)</code> → <code>{ok, data}</code></li>
+<li><code>itemQuery(database, codeType, code, query, dataRule=&quot;&quot;, queryArgs=None)</code> → <code>{ok, data}</code></li>
+<li><code>workspaceGet(setting)</code> → <code>{ok, value}</code></li>
+</ul>
+<p>Adding a read tool requires it be free of side effects and free of <code>confirm</code> arguments.</p>
+<h2>5. Destructive tools — additional protection planned for v1</h2>
+<p>The four destructive tools (<code>deleteItem</code>, <code>deleteProp</code>, <code>deleteSeries</code>, <code>itemCodeDelete</code> — currently classed as write but operationally destructive) are gated by <code>confirm=true</code> today. <strong>For v1 they will additionally require a four-eyes (Maker-Checker) approval</strong>:</p>
+<ul>
+<li>The first caller &quot;stages&quot; the deletion, receives a <code>change_id</code>, and the deletion does <strong>not</strong> execute.</li>
+<li>A second caller — necessarily <em>not the same identity</em> as the staging caller — must approve by referencing the <code>change_id</code>.</li>
+<li>The MCP records both the maker and the approver and refuses self-approval, regardless of the caller&#39;s authority.</li>
+</ul>
+<p>This mirrors TimeScape&#39;s Validation Dashboard semantics and is required for any BCBS 239 / FRTB-relevant deployment. The state lives in a persisted JSON file (path overridable via env). Until the four-eyes layer ships, deployments to environments holding sensitive data should disable the destructive tools at the MCP-config level.</p>
+<h2>6. Auth</h2>
+<p>The MCP server inherits the Windows process identity it runs under. SQL Server authentication flows through that identity&#39;s AD/Kerberos context (Integrated Security). <strong>End-user credentials are never transmitted over the MCP wire.</strong> A client that wants to act as a specific user must run a server instance under that user — there is no in-protocol impersonation.</p>
+<h2>7. Stdout discipline</h2>
+<p><code>stdout</code> is the MCP transport. <strong>Never <code>print()</code> to stdout</strong>, never <code>sys.stdout.write()</code>, never any library that defaults to stdout. Diagnostics go to <code>stderr</code> via <code>sys.stderr.write()</code> or <code>logging</code> configured to stderr.</p>
+<p>Violations corrupt the JSON-RPC stream and silently break the MCP session.</p>
+<h2>8. Sensitive args + audit log (v1)</h2>
+<p>When the audit log lands (planned v1), the registry will redact common sensitive keys (<code>password</code>, <code>token</code>, <code>secret</code>, <code>apikey</code>, <code>api_key</code>, <code>authorization</code>) before writing to the JSONL log. Tools that take secrets in non-standard parameter names must explicitly mark them so the redaction layer can see them.</p>
+<p>Until the audit log lands, do not log tool calls anywhere.</p>
+<h2>9. Boundaries that never relax</h2>
+<ul>
+<li>GUI binaries (<code>XTWorkbench64.exe</code>, <code>XTDriverWizard64.exe</code>, <code>XTOfficeAdmin.exe</code>) are <strong>never wrapped</strong>. MCP has no display.</li>
+<li>TimeScape Windows services (<code>xtedm.exe</code>, <code>*.Service.exe</code>, <code>XTDCOMonitorService.exe</code>) are <strong>never invoked directly</strong>. Service Control Manager owns them.</li>
+<li>The X*-prefix admin binaries (<code>XdbExport</code>, <code>XdbImport</code>, <code>XdbRuleExport</code>, <code>LoadIt64</code>, <code>XListDataLoader</code>, <code>TSBackup</code>, <code>TSRestore</code>, etc.) are <strong>not wrapped as MCP tools</strong> — they&#39;re for human DBA workflow. The Python binding is the integration surface; the admin exes are operational tooling.</li>
+<li><strong>No tool calls <code>confirm=true</code> on its own</strong>. The <code>confirm</code> is the caller&#39;s decision, full stop.</li>
+</ul>
+<h2>10. Adding a tool — checklist</h2>
+<ol>
+<li>Pick the class (Read / Write / Destructive / Config / Batch). If unsure, ask — the class shapes the gating contract.</li>
+<li>Write the function with the canonical signature pattern (see existing tools).</li>
+<li>Wrap the underlying call in <code>try / except t.error as e: return _err(e)</code>.</li>
+<li>If gated: <code>if not confirm: return _needs_confirm(...)</code> with every meaningful argument.</li>
+<li>Return the success envelope <code>{ok: True, operation: &quot;...&quot;, ...}</code> or use <code>_err()</code>.</li>
+<li>Add a corresponding test in <code>tests/</code> mocking <code>timescape</code> — at minimum, verify the no-confirm path returns the preview and does not call the binding.</li>
+<li>Update the README&#39;s tool table and (if you&#39;ve added a new tool class) this document.</li>
+</ol>
+<h2>Appendix B. Pre-publish compliance checklist</h2>
+<p>Use this checklist before publishing deck slides, demo scripts, research docs, mockups, customer-facing collateral, or MCP changes. Section 0 is the binding rule; this appendix is the working review pass that catches violations before they leave the repo.</p>
+<ol>
+<li>Does every data claim identify whether it is public, synthetic, customer-owned, or internal?</li>
+<li>Does any example imply access to another client&#39;s data, another tenant&#39;s data, or a Xenomorph-internal system?</li>
+<li>Does any DCO savings figure name the baseline, time window, cost source, and assumptions?</li>
+<li>Are NMVC internal commercial views, diligence material, investment thesis, debt/refinancing context, and private portfolio commentary excluded?</li>
+<li>Does the artifact preserve the rule: build atop Xenomorph, never modify Xenomorph code?</li>
+<li>Are write/destructive MCP paths described as confirm-gated, with four-eyes approval planned for destructive operations?</li>
+<li>Does the artifact describe the actual MCP tool surface rather than imply that AI can do anything in TimeScape?</li>
+<li>If demo data is used, is it clearly synthetic, anonymised with permission, or customer-owned in the calling tenant?</li>
+<li>Does any dashboard, mockup, or export make the tenant boundary visible enough for a buyer, compliance lead, or auditor to understand?</li>
+<li>If an unresolved Brian / Keith question affects an output, is the dependency called out instead of hidden?</li>
+</ol>
+
+<div class="footer">xenoMCP · BK pack · 2026-05-12 · rendered from source markdown</div>
+</div>
+</body>
+</html>

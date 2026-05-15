@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WINDOWS_NOTES · xenoMCP BK pack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A2540; --surface:#fff; --line:#E5E7EB; --ink:#0A2540; --muted:#475569; --faint:#94A3B8;
+  --blue:#4A90D9; --navy:#0A2540; --green:#1AC270; --amber:#FFB100; --red:#F04438;
+  --code-bg:#F8FAFC; --code-border:#E2E8F0;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--ink);line-height:1.6}
+.topbar{background:var(--navy);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:16px;border-bottom:1px solid rgba(255,255,255,0.08)}
+.topbar a{color:rgba(255,255,255,0.7);text-decoration:none;font-size:12px;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.topbar a:hover{color:#fff}
+.topbar .crumb{color:rgba(255,255,255,0.4);font-family:JetBrains Mono,monospace;font-size:11px}
+.topbar .title{flex:1;font-size:13px;font-weight:600;color:#fff;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.shell{max-width:920px;margin:0 auto;padding:48px 32px 96px;background:#fff;min-height:calc(100vh - 60px)}
+h1{font-size:32px;font-weight:700;letter-spacing:-0.5px;margin:0 0 12px;color:var(--ink);border-bottom:2px solid var(--blue);padding-bottom:14px}
+h2{font-size:22px;font-weight:700;margin:36px 0 12px;color:var(--ink);border-left:4px solid var(--blue);padding-left:12px}
+h3{font-size:17px;font-weight:700;margin:28px 0 8px;color:var(--navy)}
+h4{font-size:14px;font-weight:700;margin:20px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-family:JetBrains Mono,monospace}
+p{margin:10px 0;color:var(--ink)}
+a{color:var(--blue);text-decoration:none;border-bottom:1px solid transparent;transition:border 0.15s}
+a:hover{border-bottom-color:var(--blue)}
+ul,ol{margin:10px 0 14px;padding-left:24px}
+li{margin:4px 0}
+code{font-family:JetBrains Mono,monospace;font-size:0.92em;background:var(--code-bg);border:1px solid var(--code-border);padding:1px 6px;border-radius:4px;color:var(--navy)}
+pre{background:var(--code-bg);border:1px solid var(--code-border);border-radius:8px;padding:14px 18px;overflow-x:auto;margin:14px 0}
+pre code{background:transparent;border:none;padding:0;font-size:13px;color:var(--ink)}
+blockquote{margin:14px 0;padding:10px 18px;background:#F8FAFC;border-left:4px solid var(--amber);color:var(--muted)}
+blockquote p{margin:6px 0}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th{background:#F8FAFC;text-align:left;padding:8px 12px;font-weight:700;border-bottom:2px solid var(--line);font-family:JetBrains Mono,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:hover td{background:#F8FAFC}
+hr{border:none;border-top:1px solid var(--line);margin:32px 0}
+strong{font-weight:700;color:var(--navy)}
+em{font-style:italic;color:var(--muted)}
+.footer{text-align:center;color:var(--faint);font-size:11px;font-family:JetBrains Mono,monospace;margin-top:48px;padding-top:24px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="./index.html">← BK pack index</a>
+  <span class="crumb">/</span>
+  <span class="title">WINDOWS_NOTES</span>
+  <a href="./presentation.html">demo →</a>
+</div>
+<div class="shell">
+<h1>Windows Notes — xenoMCP</h1>
+<p>Things that will bite you if you start coding the <code>.pyd</code>-touching layer (or operating the server on Windows) without knowing them. Original brief by <code>@xenoCC</code> (Claude on the Xenomorph-issued Windows box, 2026-05-11), captured here so it survives room scrollback and onboards future contributors without a verbatim re-read.</p>
+<p>Audience: anyone working on <code>xenoMCP</code> from a Windows host that has TimeScape installed (the production target), and anyone debugging Windows-side issues from a non-Windows dev mirror.</p>
+<hr>
+<h2>Group A — <code>timescape.pyd</code> binding</h2>
+<h3>1. DLL search on Python 3.8+</h3>
+<p>Python no longer consults <code>PATH</code> for extension-module DLL dependencies. <code>timescape.pyd</code> depends on native DLLs in Xenomorph TimeScape&#39;s <code>Program</code> install directory. Without registering those directories explicitly via <code>os.add_dll_directory(...)</code>, <code>import timescape</code> fails with a cryptic <code>DLL load failed</code> error.</p>
+<p><code>server.py</code> registers <strong>both</strong> Program directories on startup (32-bit AND 64-bit Program Files paths). Both must be live for the binding to import.</p>
+<p>Overrides via env vars:</p>
+<table>
+<thead>
+<tr>
+<th>Env</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>XENOMORPH_TIMESCAPE_PATH</code></td>
+<td><code>…\APIs, SDKs, Examples\APIs\CPython\v3.13\64-Bit</code></td>
+<td>Directory containing <code>timescape.pyd</code> itself.</td>
+</tr>
+<tr>
+<td><code>XENOMORPH_PROGRAM_PATH</code></td>
+<td><code>os.pathsep</code>-separated list of both <code>Program Files\Xenomorph TimeScape\Program</code> directories (Program Files + Program Files (x86))</td>
+<td>Dirs to register with <code>os.add_dll_directory()</code> for dependent-DLL search.</td>
+</tr>
+</tbody></table>
+<p>If you only register the 64-bit Program dir and the <code>.pyd</code> happens to pull from the 32-bit one, you get the same cryptic failure. Register both.</p>
+<h3>2. Python version pinned to 3.13</h3>
+<p><code>timescape.pyd</code> ships <strong>one .pyd per supported Python version</strong> (3.9 through 3.14, each in their own folder). Default <code>XENOMORPH_TIMESCAPE_PATH</code> points at <code>v3.13/64-Bit</code>. Mixing — e.g. running Python 3.12 against a 3.13 .pyd — breaks the import with binary-ABI errors.</p>
+<p>Match the Python interpreter to the <code>.pyd</code> version you point at. If you want a different version, point <code>XENOMORPH_TIMESCAPE_PATH</code> at the matching folder <em>and</em> run a matching Python interpreter.</p>
+<h3>3. Live install reports v5.0</h3>
+<p><code>t.version()</code> against the live TimeScape on the development host returns <code>5.0</code>. The example files inside <code>…\APIs, SDKs, Examples\</code> claim <code>4.0</code> — they&#39;re stale documentation.</p>
+<p><strong>Trust the live binding, not the example files.</strong> If you find yourself reading &quot;v4.0&quot; in SDK docs and confused that the running platform reports something different, this is why. Always cross-check with a live <code>version()</code> call.</p>
+<h3>4. Auth = Integrated Windows Auth via Kerberos / AD</h3>
+<p>The <code>.pyd</code> connects to the backing SQL Server using the <strong>calling process&#39;s</strong> Windows user identity. The MCP inherits the identity of whoever launched it.</p>
+<p><strong>Operational consequence</strong>: if a tool ever runs under a different user context — <code>LOCAL SYSTEM</code>, a different service account, an impersonated identity — the SQL Server connection may scope to a different tenant&#39;s data, or fail outright. The §0 Tenancy and Data Isolation rule in <code>docs/CONTRACT.md</code> depends on this identity mapping being clean and predictable. <strong>Don&#39;t introduce code paths that swap identity mid-process.</strong></p>
+<p>End-user credentials are never transmitted over the MCP wire (already in <code>docs/CONTRACT.md</code> §6). Auth flows entirely through the AD/Kerberos context bound to the server process.</p>
+<hr>
+<h2>Group B — Server packaging</h2>
+<h3>5. <code>tool.uv.package = true</code> is mandatory</h3>
+<p>For single-file Python projects (we have one — <code>server.py</code> lives at repo root, not in a package directory), <code>uv</code> silently <strong>skips installing entry-point scripts</strong> for unpackaged workspaces by default. Without <code>tool.uv.package = true</code> in <code>pyproject.toml</code>, the <code>xenomorph-mcp</code> console script never lands in the venv on <code>uv sync</code> — even though it&#39;s declared in <code>[project.scripts]</code>.</p>
+<pre><code class="language-toml">[tool.uv]
+package = true
+</code></pre>
+<p>This is the kind of failure that&#39;s hard to spot because nothing errors — the console script just isn&#39;t there, and you get a &quot;command not found&quot; the first time you try to invoke it.</p>
+<h3>6. Hatchling build-system + <code>only-include = server.py</code></h3>
+<p>Hatchling (our build backend) can&#39;t infer a single-file target from the project name. We have to be explicit:</p>
+<pre><code class="language-toml">[build-system]
+requires = [&quot;hatchling&quot;]
+build-backend = &quot;hatchling.build&quot;
+
+[tool.hatch.build.targets.wheel]
+only-include = [&quot;server.py&quot;]
+sources = [&quot;.&quot;]
+</code></pre>
+<p>Without <code>only-include</code>, hatchling looks for a package directory matching the project name (<code>xenomorph_mcp/</code>) and fails the build.</p>
+<h3>7. Tests pass cross-platform via the <code>timescape</code> stub</h3>
+<p><code>tests/conftest.py</code> installs a stub <code>timescape</code> module into <code>sys.modules</code> before any test imports <code>server</code>. This lets the pure-Python surface (helpers + confirm-gating + signature checks) run on Mac/Linux where the real <code>.pyd</code> doesn&#39;t exist.</p>
+<p><strong>Don&#39;t remove the stub.</strong> If you ever need to test against the real binding, do it on the Windows host with TimeScape installed and add <code>@pytest.mark.requires_timescape</code> to those tests so they skip on dev mirrors.</p>
+<hr>
+<h2>Group C — Admin .exe probing</h2>
+<h3>8. Half the .exes in <code>Program\</code> are GUI — they hang on <code>/?</code></h3>
+<p>The X*-prefix binaries in <code>C:\Program Files\Xenomorph TimeScape\Program\</code> are a mix of CLI tools and GUI applications. The GUI ones pop a dialog when invoked with <code>/?</code> and <strong>hang waiting for user input</strong> — they&#39;re not safe to probe from a script without a timeout.</p>
+<p><strong>Confirmed CLI-shaped (safe to probe with <code>/?</code>)</strong>:</p>
+<ul>
+<li><code>TSPing64.exe</code></li>
+<li><code>XdbExport.exe</code>, <code>XdbImport.exe</code></li>
+<li><code>XListDataLoader.exe</code></li>
+<li><code>XUserConfig.exe</code></li>
+<li><code>XTTaskProcessor.exe</code> with a <code>.tdf</code> path argument</li>
+</ul>
+<p><strong>Known GUI — do NOT probe with <code>/?</code></strong>:</p>
+<ul>
+<li><code>XTWorkbench64.exe</code></li>
+<li><code>XTDriverWizard64.exe</code></li>
+<li><code>XTOfficeAdmin.exe</code></li>
+<li><code>XTTaskLauncher.exe</code></li>
+<li><code>XTTaskProcessor.exe</code> with no args (it pops the Workbench UI)</li>
+</ul>
+<p>If you need to enumerate binaries, use <code>Start-Process</code> with a timeout (PowerShell pattern below), or check the binary&#39;s PE subsystem flag first (<code>Subsystem</code> = <code>WINDOWS_GUI</code> vs <code>WINDOWS_CUI</code>).</p>
+<pre><code class="language-powershell">Start-Process -FilePath &quot;.\Program\XSomething.exe&quot; -ArgumentList &quot;/?&quot; `
+              -NoNewWindow -PassThru -Wait -Timeout 5
+</code></pre>
+<h3>9. <code>TSCheck64.exe</code> needs UAC elevation</h3>
+<p><code>TSCheck64.exe</code> requires UAC elevation. Without elevation it <strong>silently fails</strong> — no error message, no exit code that distinguishes it from &quot;ran fine and found nothing wrong&quot;. If you&#39;re scripting against it, either run the whole script elevated or special-case it.</p>
+<hr>
+<h2>Group D — Chat / wezwatch (operational, not codebase)</h2>
+<p>These notes are for the multi-agent coordination layer, not the xenoMCP product. Included because anyone developing the server on Windows will need to coordinate with the team via <code>antchat</code>.</p>
+<h3>10. Only <code>@</code>-mentions auto-inject</h3>
+<p>Plain (untagged) messages reach the server&#39;s SSE stream but <strong>don&#39;t surface to wrapped Claude agents</strong> via wezwatch&#39;s PTY-injection mechanism. Always <code>@</code>-tag the agent you want to react.</p>
+<p>There&#39;s a known v1.1 gap parked on this — the &quot;remote-mentions-composer&quot; patch by EvoluteAnt Codex agents addressed the picker side; the underlying &quot;plain messages don&#39;t reach wrapped Claudes&quot; remains by design until that&#39;s revisited.</p>
+<h3>11. Pane registry at <code>~/.ant/wezwatch.json</code></h3>
+<p>The wezwatch registry maps <code>@handle → WezTerm pane id</code>. From inside your target pane:</p>
+<pre><code class="language-bash">wezwatch bind @yourHandle
+</code></pre>
+<p>This reads the <code>WEZTERM_PANE</code> env var (set by WezTerm in each pane) and adds the binding. The watcher re-reads the registry on every event — no restart needed after <code>bind</code>.</p>
+<p>Wezwatch source: <code>Jktfe/a-nice-terminal</code> repo, branch <code>feat/win-shim-pty-injection</code>, file <code>antchat/wezwatch.ts</code>. Run via:</p>
+<pre><code class="language-bash">node --experimental-strip-types --no-warnings antchat/wezwatch.ts
+</code></pre>
+<p><strong>Node 24, not Bun</strong>. Bun on Windows fails with <code>ERR_SOCKET_CLOSED</code> in the underlying socket layer when running this script. Confirmed and parked.</p>
+<hr>
+<h2>Bonus: <code>--handle</code> flag gotchas at <code>antchat join</code> time</h2>
+<p>Two observed silent failures when joining the room with <code>--handle</code>:</p>
+<ul>
+<li><p><strong>Handle not persisted at mint time</strong>: if the invite was minted without the handle baked in, <code>--handle xyz</code> at join may be silently ignored — the token registers as <code>__nohandle__</code> server-side. Local CLI config can be patched to make outbound messages tag correctly, but the participants endpoint still sees the no-handle token. <strong>Fix</strong>: mint the invite <em>with the handle bound at mint time</em>, then <code>antchat join &lt;invite&gt; --password &lt;pwd&gt;</code> without needing <code>--handle</code>.</p>
+</li>
+<li><p><strong>PowerShell argv splatting on unquoted <code>@</code>-prefix</strong>: <code>--handle @xenoCodex</code> (unquoted, on PowerShell) was silently mangled by PS&#39;s splatting syntax — the server received an empty handle and fell through to <code>__nohandle__</code>. <code>--handle &quot;@xenoCC&quot;</code> (explicitly double-quoted) and <code>--handle xenoCC</code> (bare, no <code>@</code>) both worked. <strong>Safe rule on PowerShell</strong>: pass the <strong>bare handle</strong> (no <code>@</code>) on <code>--handle</code>, or explicit-double-quote if you need the <code>@</code>. The <code>@</code>-prefix is for <em>referencing</em> handles in chat messages and room IDs, not for CLI args.</p>
+</li>
+</ul>
+<p>Both behaviours fail silently with no 4xx response — the caller has to probe <code>/api/sessions/&lt;room&gt;/participants</code> to verify the handle registered correctly. The verification call is cheap; do it after any non-trivial join.</p>
+<hr>
+<h2>Where to ask if you hit something not covered here</h2>
+<ul>
+<li><code>docs/CONTRACT.md</code> for the safety contract (§0 Tenancy isolation is foundational).</li>
+<li><code>README.md</code> for install + run flow.</li>
+<li><code>@xenoCC</code> in the XenoBridge antchat room for anything Windows-host-specific that&#39;s not in this doc.</li>
+<li><code>@xenobridgeclaude</code> on the Mac mini for chassis/docs/cross-platform-test issues.</li>
+</ul>
+
+<div class="footer">xenoMCP · BK pack · 2026-05-12 · rendered from source markdown</div>
+</div>
+</body>
+</html>

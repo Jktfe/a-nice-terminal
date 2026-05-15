@@ -28,6 +28,38 @@ export async function sessions(args: string[], flags: any, ctx: any) {
     return;
   }
 
+  if (sub === 'digest') {
+    const id = args[1];
+    if (!id) { console.error('Usage: ant sessions digest <id> [--json]'); return; }
+    const summary = await api.get(ctx, `/api/sessions/${id}/digest`);
+    if (ctx.json) { console.log(JSON.stringify(summary)); return; }
+
+    if (summary.messageCount === 0) {
+      console.log(`Session ${id}: no messages yet`);
+      return;
+    }
+    console.log(`Session ${id} digest`);
+    console.log(`  Messages:        ${summary.messageCount}`);
+    console.log(`  Participants:    ${summary.participantCount}`);
+    console.log(`  Duration (min):  ${summary.durationMinutes}`);
+    console.log(`  Messages/hour:   ${summary.messagesPerHour}`);
+    if (summary.firstMessage) console.log(`  First message:   ${summary.firstMessage}`);
+    if (summary.lastMessage)  console.log(`  Last message:    ${summary.lastMessage}`);
+    if (Array.isArray(summary.participants) && summary.participants.length > 0) {
+      console.log(`  Top participants:`);
+      for (const p of summary.participants.slice(0, 5)) {
+        console.log(`    ${p.id} (${p.count})`);
+      }
+    }
+    if (Array.isArray(summary.keyTerms) && summary.keyTerms.length > 0) {
+      console.log(`  Key terms:`);
+      for (const t of summary.keyTerms.slice(0, 10)) {
+        console.log(`    ${t.term} (${t.count})`);
+      }
+    }
+    return;
+  }
+
   if (sub === 'export') {
     const id = args[1];
     if (!id) { console.error('Usage: ant sessions export <id> [--target obsidian|open-slide|all]'); return; }

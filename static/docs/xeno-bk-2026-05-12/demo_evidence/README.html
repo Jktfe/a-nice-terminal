@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>README · xenoMCP BK pack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A2540; --surface:#fff; --line:#E5E7EB; --ink:#0A2540; --muted:#475569; --faint:#94A3B8;
+  --blue:#4A90D9; --navy:#0A2540; --green:#1AC270; --amber:#FFB100; --red:#F04438;
+  --code-bg:#F8FAFC; --code-border:#E2E8F0;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--ink);line-height:1.6}
+.topbar{background:var(--navy);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:16px;border-bottom:1px solid rgba(255,255,255,0.08)}
+.topbar a{color:rgba(255,255,255,0.7);text-decoration:none;font-size:12px;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.topbar a:hover{color:#fff}
+.topbar .crumb{color:rgba(255,255,255,0.4);font-family:JetBrains Mono,monospace;font-size:11px}
+.topbar .title{flex:1;font-size:13px;font-weight:600;color:#fff;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.shell{max-width:920px;margin:0 auto;padding:48px 32px 96px;background:#fff;min-height:calc(100vh - 60px)}
+h1{font-size:32px;font-weight:700;letter-spacing:-0.5px;margin:0 0 12px;color:var(--ink);border-bottom:2px solid var(--blue);padding-bottom:14px}
+h2{font-size:22px;font-weight:700;margin:36px 0 12px;color:var(--ink);border-left:4px solid var(--blue);padding-left:12px}
+h3{font-size:17px;font-weight:700;margin:28px 0 8px;color:var(--navy)}
+h4{font-size:14px;font-weight:700;margin:20px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-family:JetBrains Mono,monospace}
+p{margin:10px 0;color:var(--ink)}
+a{color:var(--blue);text-decoration:none;border-bottom:1px solid transparent;transition:border 0.15s}
+a:hover{border-bottom-color:var(--blue)}
+ul,ol{margin:10px 0 14px;padding-left:24px}
+li{margin:4px 0}
+code{font-family:JetBrains Mono,monospace;font-size:0.92em;background:var(--code-bg);border:1px solid var(--code-border);padding:1px 6px;border-radius:4px;color:var(--navy)}
+pre{background:var(--code-bg);border:1px solid var(--code-border);border-radius:8px;padding:14px 18px;overflow-x:auto;margin:14px 0}
+pre code{background:transparent;border:none;padding:0;font-size:13px;color:var(--ink)}
+blockquote{margin:14px 0;padding:10px 18px;background:#F8FAFC;border-left:4px solid var(--amber);color:var(--muted)}
+blockquote p{margin:6px 0}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th{background:#F8FAFC;text-align:left;padding:8px 12px;font-weight:700;border-bottom:2px solid var(--line);font-family:JetBrains Mono,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:hover td{background:#F8FAFC}
+hr{border:none;border-top:1px solid var(--line);margin:32px 0}
+strong{font-weight:700;color:var(--navy)}
+em{font-style:italic;color:var(--muted)}
+.footer{text-align:center;color:var(--faint);font-size:11px;font-family:JetBrains Mono,monospace;margin-top:48px;padding-top:24px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="../index.html">← BK pack index</a>
+  <span class="crumb">/</span>
+  <span class="title">demo_evidence/README</span>
+  <a href="../presentation.html">demo →</a>
+</div>
+<div class="shell">
+<h1>Demo evidence</h1>
+<p>Frozen captures of <code>docs/demo_dry_run.py</code> against the live TimeScape v5.0 install + <code>xenomorph-mcp.exe</code> console script, retained as insurance for the live BK demo.</p>
+<h2>When to use</h2>
+<ul>
+<li><strong>Morning of the meeting</strong> — re-run the dry-run script and confirm output matches the latest capture here. If anything changes (count of tools, BP.L price, v1.5 return shape), investigate before the meeting.</li>
+<li><strong>During the meeting if live ODBC glitches</strong> — open the most recent capture in a side window and screen-share that. Same content as a live demo would produce, captured this morning. The narrative is unchanged.</li>
+</ul>
+<h2>What&#39;s in each capture</h2>
+<p>Every file is the plain stdout of one full run of the dry-run script. Each contains:</p>
+<ul>
+<li><code>[init]</code> line — confirms the MCP handshake worked (protocol <code>2025-11-25</code>)</li>
+<li><code>[tools/list] count=21</code> — confirms the full tool surface is exposed</li>
+<li>Nine <code>=== M{n} — tools/call {tool} ===</code> blocks with the full JSON response</li>
+<li>Closing <code>PASS — all 9 dry-runnable moments executed cleanly</code></li>
+</ul>
+<p>The nine moments cover:</p>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Tool</th>
+<th>What it proves</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>M1</td>
+<td><code>version</code></td>
+<td>TimeScape reachable, MCP transport clean</td>
+</tr>
+<tr>
+<td>M2</td>
+<td><code>itemQuery</code></td>
+<td>Real read of <code>BP.L</code> from <code>XENO</code> returns <code>[&quot;BP.L&quot;, &quot;BP&quot;, 508.0]</code></td>
+</tr>
+<tr>
+<td>M3</td>
+<td><code>query</code></td>
+<td>Free-form QL+ returns <code>508.0</code></td>
+</tr>
+<tr>
+<td>M4</td>
+<td><code>saveItem</code> (no confirm)</td>
+<td>Write-gate fires (<code>needs_confirmation: true</code>) — safety contract is live</td>
+</tr>
+<tr>
+<td>V1</td>
+<td><code>vendor_entitlement_audit</code></td>
+<td>v1.5 live-data tool returns Bloomberg + Reuters with programs</td>
+</tr>
+<tr>
+<td>V2</td>
+<td><code>dco_optimisation_decisions</code></td>
+<td>v1.5 live-data tool returns <code>ok</code> with structure intact</td>
+</tr>
+<tr>
+<td>V3</td>
+<td><code>dco_savings_summary</code></td>
+<td>v1.5 structure-only — <code>amount: null</code> + <code>unmet_dependencies: [&quot;baselineMethod&quot;]</code></td>
+</tr>
+<tr>
+<td>V4</td>
+<td><code>dco_savings_by_desk</code></td>
+<td>v1.5 structure-only — desk dimension unconfirmed flag set</td>
+</tr>
+<tr>
+<td>V5</td>
+<td><code>vendor_cost_summary</code></td>
+<td>v1.5 structure-only — vendor mix returned, cost null</td>
+</tr>
+</tbody></table>
+<h2>What&#39;s NOT captured here</h2>
+<ul>
+<li><code>M5</code> (<code>saveItem</code> with <code>confirm=true</code>) — would mutate XENO. Live-demo only.</li>
+<li><code>M6</code> (<code>deleteItem</code> with <code>confirm=true</code>) — same reason.</li>
+</ul>
+<p>These are intentionally executed only in front of BK with explicit consent.</p>
+<h2>How to re-capture</h2>
+<pre><code class="language-cmd">:: from repo root, on the engagement laptop
+set PYTHONIOENCODING=utf-8
+.venv\Scripts\python.exe docs\demo_dry_run.py &gt; docs\demo_evidence\dry_run_%date:~-4%-%date:~3,2%-%date:~0,2%.txt 2&gt;NUL
+</code></pre>
+<p>Or run via <code>uv</code> if PATH-installed:</p>
+<pre><code class="language-cmd">set PYTHONIOENCODING=utf-8
+uv run python docs\demo_dry_run.py &gt; docs\demo_evidence\dry_run_morning_of.txt 2&gt;NUL
+</code></pre>
+<p>If the run prints <code>FAIL</code>, do <strong>not</strong> start the demo — open the most recent <code>dry_run_*.txt</code> already in this folder for what the output <em>should</em> look like, then debug.</p>
+
+<div class="footer">xenoMCP · BK pack · 2026-05-12 · rendered from source markdown</div>
+</div>
+</body>
+</html>

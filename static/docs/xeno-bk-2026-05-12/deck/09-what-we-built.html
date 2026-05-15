@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>09-what-we-built · xenoMCP BK pack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A2540; --surface:#fff; --line:#E5E7EB; --ink:#0A2540; --muted:#475569; --faint:#94A3B8;
+  --blue:#4A90D9; --navy:#0A2540; --green:#1AC270; --amber:#FFB100; --red:#F04438;
+  --code-bg:#F8FAFC; --code-border:#E2E8F0;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--ink);line-height:1.6}
+.topbar{background:var(--navy);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:16px;border-bottom:1px solid rgba(255,255,255,0.08)}
+.topbar a{color:rgba(255,255,255,0.7);text-decoration:none;font-size:12px;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.topbar a:hover{color:#fff}
+.topbar .crumb{color:rgba(255,255,255,0.4);font-family:JetBrains Mono,monospace;font-size:11px}
+.topbar .title{flex:1;font-size:13px;font-weight:600;color:#fff;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.shell{max-width:920px;margin:0 auto;padding:48px 32px 96px;background:#fff;min-height:calc(100vh - 60px)}
+h1{font-size:32px;font-weight:700;letter-spacing:-0.5px;margin:0 0 12px;color:var(--ink);border-bottom:2px solid var(--blue);padding-bottom:14px}
+h2{font-size:22px;font-weight:700;margin:36px 0 12px;color:var(--ink);border-left:4px solid var(--blue);padding-left:12px}
+h3{font-size:17px;font-weight:700;margin:28px 0 8px;color:var(--navy)}
+h4{font-size:14px;font-weight:700;margin:20px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-family:JetBrains Mono,monospace}
+p{margin:10px 0;color:var(--ink)}
+a{color:var(--blue);text-decoration:none;border-bottom:1px solid transparent;transition:border 0.15s}
+a:hover{border-bottom-color:var(--blue)}
+ul,ol{margin:10px 0 14px;padding-left:24px}
+li{margin:4px 0}
+code{font-family:JetBrains Mono,monospace;font-size:0.92em;background:var(--code-bg);border:1px solid var(--code-border);padding:1px 6px;border-radius:4px;color:var(--navy)}
+pre{background:var(--code-bg);border:1px solid var(--code-border);border-radius:8px;padding:14px 18px;overflow-x:auto;margin:14px 0}
+pre code{background:transparent;border:none;padding:0;font-size:13px;color:var(--ink)}
+blockquote{margin:14px 0;padding:10px 18px;background:#F8FAFC;border-left:4px solid var(--amber);color:var(--muted)}
+blockquote p{margin:6px 0}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th{background:#F8FAFC;text-align:left;padding:8px 12px;font-weight:700;border-bottom:2px solid var(--line);font-family:JetBrains Mono,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:hover td{background:#F8FAFC}
+hr{border:none;border-top:1px solid var(--line);margin:32px 0}
+strong{font-weight:700;color:var(--navy)}
+em{font-style:italic;color:var(--muted)}
+.footer{text-align:center;color:var(--faint);font-size:11px;font-family:JetBrains Mono,monospace;margin-top:48px;padding-top:24px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="../index.html">← BK pack index</a>
+  <span class="crumb">/</span>
+  <span class="title">deck/09-what-we-built</span>
+  <a href="../presentation.html">demo →</a>
+</div>
+<div class="shell">
+<h1>What we built atop, this week</h1>
+<p>Twelve days ago this didn&#39;t exist. Today it&#39;s tagged, released, verified end-to-end against your TimeScape v5.0 install — and <strong>all five of the v1.5 tools we proposed are already live</strong>.</p>
+<h2>xenoMCP v1.0.0 → v1.1.0-preview → v1.1.0-preview.2 — shipped 2026-05-11</h2>
+<p>Repo: <a href="https://github.com/Jktfe/xenoMCP">`github.com/Jktfe/xenoMCP`</a> (private). Three tags in one session:</p>
+<table>
+<thead>
+<tr>
+<th>Tag</th>
+<th>What landed</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>v1.0.0</code></td>
+<td>Baseline 16 tools across TimeScape&#39;s full CPython surface. End-to-end stdio handshake verified; <code>BP.L = 508.0</code> round-trip live.</td>
+</tr>
+<tr>
+<td><code>v1.1.0-preview</code></td>
+<td>First v1.5 tool live: <code>vendor_entitlement_audit</code>.</td>
+</tr>
+<tr>
+<td><code>v1.1.0-preview.2</code></td>
+<td>All five v1.5 tools live. Two return real data (entitlements, decisions); three return structure-only with <code>unmet_dependencies: [&quot;baselineMethod&quot;]</code> until Brian answers the cost-reference question.</td>
+</tr>
+</tbody></table>
+<p>Single-file Python server, <strong>21 MCP tools live</strong>, console-script install.</p>
+<h2>The 21 tools</h2>
+<table>
+<thead>
+<tr>
+<th>Class</th>
+<th>Tools</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Read — TimeScape</strong> (4, open)</td>
+<td><code>version</code>, <code>query</code> (QL+), <code>itemQuery</code>, <code>workspaceGet</code></td>
+<td>All wrap <code>timescape.pyd</code> directly</td>
+</tr>
+<tr>
+<td><strong>Read — v1.5 DCO (live data)</strong> (2, open)</td>
+<td><code>vendor_entitlement_audit</code>, <code>dco_optimisation_decisions</code></td>
+<td>SQL-backed via <code>pyodbc</code> + Integrated Auth. Tenant-scoped. <strong>Zero open-Q dependencies</strong> — return real data today.</td>
+</tr>
+<tr>
+<td><strong>Read — v1.5 DCO (structure-only)</strong> (3, open)</td>
+<td><code>dco_savings_summary</code>, <code>dco_savings_by_desk</code>, <code>vendor_cost_summary</code></td>
+<td>Same SQL backbone. Return counts / ratios / vendor-mix + <code>estimated_savings.amount: null</code> + <code>unmet_dependencies: [&quot;baselineMethod&quot;]</code> until Brian answers the cost-reference question. <strong>Shape is final; the values fill in.</strong></td>
+</tr>
+<tr>
+<td><strong>Write</strong> (7, gated)</td>
+<td><code>saveItem</code>, <code>saveItemDescription</code>, <code>saveProp</code>, <code>saveSeries</code>, <code>savePropSeries</code>, <code>itemCodeAdd</code>, <code>itemCodeDelete</code></td>
+<td><code>confirm=true</code> required + audit</td>
+</tr>
+<tr>
+<td><strong>Destructive</strong> (3, gated)</td>
+<td><code>deleteItem</code>, <code>deleteProp</code>, <code>deleteSeries</code></td>
+<td>Confirm-gated; four-eyes layer planned for v1.1</td>
+</tr>
+<tr>
+<td><strong>Config</strong> (1, gated)</td>
+<td><code>workspaceSet</code></td>
+<td>Confirm-gated</td>
+</tr>
+<tr>
+<td><strong>Batch</strong> (1, gated)</td>
+<td><code>runValidationTask</code></td>
+<td>Wraps <code>XTTaskProcessor.exe</code> with a <code>.tdf</code> path</td>
+</tr>
+</tbody></table>
+<p>Each TimeScape-binding tool is a thin wrapper around the public <code>timescape</code> CPython API. The five v1.5 DCO tools are thin wrappers around read-only SQL views in <code>TimeScapeProcessManagement</code>. <strong>No new business logic, no schema changes, no modifications to anything in <code>Program Files\Xenomorph TimeScape\</code>. We didn&#39;t write a single line of code in your codebase.</strong></p>
+<h2>End-to-end verified</h2>
+<p>The wire that matters — a real read from a real instrument through every layer:</p>
+<pre><code class="language-python">&gt;&gt;&gt; # via the MCP stdio protocol, dispatched to:
+&gt;&gt;&gt; t.itemQuery(&quot;XENO&quot;, &quot;Reuters&quot;, &quot;BP.L&quot;,
+...             &quot;VALUES(Code, Description, Close.LastValue)&quot;, None, {})
+(&quot;BP.L&quot;, &quot;BP&quot;, 508.0)
+</code></pre>
+<p>That round-trip — Claude Desktop → MCP JSON-RPC over stdio → <code>xenomorph-mcp.exe</code> → <code>timescape.pyd</code> → SQL Server (Integrated Auth) → response back through every layer — works today. The same path will work for any AI client that speaks MCP: Claude Code, Cursor, future Anthropic agents, Codex, anyone implementing the spec.</p>
+<h2>What else landed</h2>
+<ul>
+<li><strong>Safety contract</strong> (<code>docs/CONTRACT.md</code>) with §0 Tenancy and Data Isolation as the foundational rule + Appendix B pre-publish compliance checklist: MCP serves customer&#39;s own data only — no cross-tenant, no Xenomorph-internal.</li>
+<li><strong>44 cross-platform tests</strong> (was 22 at v1.0.0; +22 across the 5 new v1.5 tools) that pass on Windows + Mac + Linux without needing the live <code>.pyd</code> or live ODBC driver (both stubbed in <code>tests/conftest.py</code>).</li>
+<li><strong>Windows notes</strong> (<code>docs/WINDOWS_NOTES.md</code>) — operational gotchas captured: DLL search 3.8+, Python version pin, auth model, admin-exe probing rules.</li>
+<li><strong>DCO Visibility v1.5 — all five tools live</strong> (per <code>docs/research/DCO_RECON.md</code> + <code>V1_5_TOOL_SURFACE.md</code>). Two return real data immediately; three return structure-only until the cost-reference and desk-semantics conversations land. <strong>The shape doesn&#39;t change when those answers arrive — only the figures fill in</strong> (next slide).</li>
+</ul>
+<h2>What it cost you</h2>
+<p>Nothing. No engineering hours from Xenomorph staff. No code review burden on your team. No deployment risk to existing client environments. The whole repo runs alongside your platform — never inside it.</p>
+<!--
+Notes:
+This is the "show, don't tell" slide. The actual code block of a real BP.L query returning 508.0 is the load-bearing piece — it proves the wrap works against the real binding, not just in theory.
+
+The "we didn't write a single line of code in your codebase" line is the trust commitment, repeated from slide 2. Land it deliberately.
+
+The closing "what it cost you: nothing" is the negotiating posture for the rest of the meeting. Frame the engagement as zero-friction.
+
+The DCO_RECON.md reference is the natural bridge into slide 10.
+
+Pacing: ~90 seconds. Slow on the code block. The hidden 30-second beat after "508.0" is where the room sees the credibility.
+-->
+
+<div class="footer">xenoMCP · BK pack · 2026-05-12 · rendered from source markdown</div>
+</div>
+</body>
+</html>

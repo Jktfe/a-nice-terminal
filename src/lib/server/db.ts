@@ -1527,6 +1527,67 @@ export const queries = {
     LIMIT ?
   `).all(sessionId, query, limit),
 
+  // M2.2 scoped search helpers — plain LIKE since the table sizes for plans/tasks/docs
+  // are small enough that FTS5 triggers would be premature. Each helper returns rows
+  // with snippet-like content so the CLI can render consistently across scopes.
+  searchPlanEvents: (query: string, limit: number) => prepare(`
+    SELECT id, session_id, ts_ms, kind, text, payload, created_at
+    FROM run_events
+    WHERE kind LIKE 'plan\\_%' ESCAPE '\\'
+      AND (text LIKE '%' || ? || '%' OR payload LIKE '%' || ? || '%')
+    ORDER BY ts_ms DESC
+    LIMIT ?
+  `).all(query, query, limit),
+  searchTasks: (query: string, limit: number) => prepare(`
+    SELECT id, session_id, title, description, status, assigned_to, plan_id, milestone_id, created_at
+    FROM tasks
+    WHERE title LIKE '%' || ? || '%' OR description LIKE '%' || ? || '%'
+    ORDER BY created_at DESC
+    LIMIT ?
+  `).all(query, query, limit),
+  searchDocs: (query: string, limit: number) => prepare(`
+    SELECT key, value, created_at, updated_at
+    FROM memories
+    WHERE key LIKE 'docs/%'
+      AND (key LIKE '%' || ? || '%' OR value LIKE '%' || ? || '%')
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `).all(query, query, limit),
+
+  // M2.2b artefact-scope search helpers — title/slug LIKE on each artefact
+  // store's table. Access boundaries deferred to the existing list-route
+  // layer (decks/sheets/tunnels already gate on caller via allowed_room_ids
+  // when accessed through routes; this raw search MIRRORS the existing
+  // searchMessages baseline — no NEW leak surface).
+  searchDecksByTitle: (query: string, limit: number) => prepare(`
+    SELECT slug, title, owner_session_id, allowed_room_ids, created_at, updated_at
+    FROM decks
+    WHERE slug LIKE '%' || ? || '%' OR title LIKE '%' || ? || '%'
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `).all(query, query, limit),
+  searchSheetsByTitle: (query: string, limit: number) => prepare(`
+    SELECT slug, title, owner_session_id, allowed_room_ids, created_at, updated_at
+    FROM sheets
+    WHERE slug LIKE '%' || ? || '%' OR title LIKE '%' || ? || '%'
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `).all(query, query, limit),
+  searchTunnelsByTitle: (query: string, limit: number) => prepare(`
+    SELECT slug, title, public_url, status, owner_session_id, allowed_room_ids, created_at, updated_at
+    FROM site_tunnels
+    WHERE slug LIKE '%' || ? || '%' OR title LIKE '%' || ? || '%' OR public_url LIKE '%' || ? || '%'
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `).all(query, query, query, limit),
+  searchGrantsByTopic: (query: string, limit: number) => prepare(`
+    SELECT id, session_id, granted_to, topic, status, granted_at_ms, expires_at_ms
+    FROM consent_grants
+    WHERE topic LIKE '%' || ? || '%' OR granted_to LIKE '%' || ? || '%'
+    ORDER BY granted_at_ms DESC
+    LIMIT ?
+  `).all(query, query, limit),
+
   // Terminal transcripts — legacy writer kept for callers that don't yet supply
   // stripped text or ts_ms. New code should use appendTranscriptWithText.
   appendTranscript: (sessionId: string, chunkIndex: number, rawData: string) =>
@@ -1812,6 +1873,27 @@ export const queries = {
       'LIMIT ?',
     ].join(' ');
     return prepare(sql).all(sessionId, ...kinds, planId, limit);
+  },
+
+  // m-plan-ui-session-fragmentation-fix (2026-05-14): cross-session
+  // aggregation. When /plan?plan_id=X is loaded without a session_id, the
+  // user expects the complete plan timeline. Prior behaviour picked ONE
+  // session via findPlanSession (first match), hiding events posted from
+  // any other session that emitted the same plan_id. This helper unions
+  // events across every session and returns them ts-ordered; the caller
+  // dedupes by plan-event identity via dedupePlanEvents.
+  getPlanEventsAcrossSessions: (planId: string, kinds: string[], limit: number = 1000) => {
+    const placeholders = kinds.map(() => '?').join(',');
+    const sql = [
+      'SELECT id, session_id, ts_ms, source, trust, kind, text, payload, raw_ref, created_at',
+      'FROM run_events',
+      'WHERE kind IN (' + placeholders + ')',
+      'AND JSON_VALID(payload)',
+      "AND JSON_EXTRACT(payload, '$.plan_id') = ?",
+      'ORDER BY ts_ms ASC, id ASC',
+      'LIMIT ?',
+    ].join(' ');
+    return prepare(sql).all(...kinds, planId, limit);
   },
 
   listPlanRefs: (kinds: string[], limit: number = 50) => {

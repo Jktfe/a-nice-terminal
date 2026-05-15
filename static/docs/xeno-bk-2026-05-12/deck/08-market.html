@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>08-market · xenoMCP BK pack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A2540; --surface:#fff; --line:#E5E7EB; --ink:#0A2540; --muted:#475569; --faint:#94A3B8;
+  --blue:#4A90D9; --navy:#0A2540; --green:#1AC270; --amber:#FFB100; --red:#F04438;
+  --code-bg:#F8FAFC; --code-border:#E2E8F0;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--ink);line-height:1.6}
+.topbar{background:var(--navy);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:16px;border-bottom:1px solid rgba(255,255,255,0.08)}
+.topbar a{color:rgba(255,255,255,0.7);text-decoration:none;font-size:12px;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.topbar a:hover{color:#fff}
+.topbar .crumb{color:rgba(255,255,255,0.4);font-family:JetBrains Mono,monospace;font-size:11px}
+.topbar .title{flex:1;font-size:13px;font-weight:600;color:#fff;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.shell{max-width:920px;margin:0 auto;padding:48px 32px 96px;background:#fff;min-height:calc(100vh - 60px)}
+h1{font-size:32px;font-weight:700;letter-spacing:-0.5px;margin:0 0 12px;color:var(--ink);border-bottom:2px solid var(--blue);padding-bottom:14px}
+h2{font-size:22px;font-weight:700;margin:36px 0 12px;color:var(--ink);border-left:4px solid var(--blue);padding-left:12px}
+h3{font-size:17px;font-weight:700;margin:28px 0 8px;color:var(--navy)}
+h4{font-size:14px;font-weight:700;margin:20px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-family:JetBrains Mono,monospace}
+p{margin:10px 0;color:var(--ink)}
+a{color:var(--blue);text-decoration:none;border-bottom:1px solid transparent;transition:border 0.15s}
+a:hover{border-bottom-color:var(--blue)}
+ul,ol{margin:10px 0 14px;padding-left:24px}
+li{margin:4px 0}
+code{font-family:JetBrains Mono,monospace;font-size:0.92em;background:var(--code-bg);border:1px solid var(--code-border);padding:1px 6px;border-radius:4px;color:var(--navy)}
+pre{background:var(--code-bg);border:1px solid var(--code-border);border-radius:8px;padding:14px 18px;overflow-x:auto;margin:14px 0}
+pre code{background:transparent;border:none;padding:0;font-size:13px;color:var(--ink)}
+blockquote{margin:14px 0;padding:10px 18px;background:#F8FAFC;border-left:4px solid var(--amber);color:var(--muted)}
+blockquote p{margin:6px 0}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th{background:#F8FAFC;text-align:left;padding:8px 12px;font-weight:700;border-bottom:2px solid var(--line);font-family:JetBrains Mono,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:hover td{background:#F8FAFC}
+hr{border:none;border-top:1px solid var(--line);margin:32px 0}
+strong{font-weight:700;color:var(--navy)}
+em{font-style:italic;color:var(--muted)}
+.footer{text-align:center;color:var(--faint);font-size:11px;font-family:JetBrains Mono,monospace;margin-top:48px;padding-top:24px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="../index.html">← BK pack index</a>
+  <span class="crumb">/</span>
+  <span class="title">deck/08-market</span>
+  <a href="../presentation.html">demo →</a>
+</div>
+<div class="shell">
+<h1>The market right now</h1>
+<p>The EDM space hasn&#39;t been still in 2025-2026. Three forces are reshaping the conversation simultaneously, and Xenomorph is well-positioned for all three — but the positioning isn&#39;t yet visible to the market.</p>
+<h2>Force 1 — The AI / MCP wave is no longer hypothetical</h2>
+<table>
+<thead>
+<tr>
+<th>Vendor</th>
+<th>Move</th>
+<th>When</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>KX (kdb+)</strong></td>
+<td>Shipped <strong>KDB-X</strong> with a built-in MCP server for AI-assisted querying. Merged with OneMarketData / OneTick.</td>
+<td>Spring 2026</td>
+</tr>
+<tr>
+<td><strong>GoldenSource</strong></td>
+<td>v8.8 ships an LLM chatbot for navigation + AI-driven data scrubbing. Moving to &quot;EDM-as-a-Service&quot;.</td>
+<td>2025</td>
+</tr>
+<tr>
+<td><strong>Bloomberg</strong></td>
+<td>Bloomberg GPT — 50B-parameter finance-tuned model that generates BQL.</td>
+<td>2023, extended 2025</td>
+</tr>
+<tr>
+<td><strong>Snowflake</strong></td>
+<td>Cortex / Copilot — NL→SQL generally available via API.</td>
+<td>2024, GA 2025</td>
+</tr>
+</tbody></table>
+<p><strong>MCP is becoming table stakes in this stack.</strong> Buyers in 2026 will start asking &quot;does your platform have an MCP surface?&quot; the way they asked &quot;does it have a REST API?&quot; in 2018.</p>
+<h2>Force 2 — Cloud-native disruption</h2>
+<table>
+<thead>
+<tr>
+<th>Disruptor</th>
+<th>Position</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>FINBOURNE LUSID / EDM+</strong></td>
+<td>Cloud-native, API-first, won Buy-Side Tech 2025. Recent wins: Fidelity International, Baillie Gifford, Pension Insurance Corp. <strong>Uses the same &quot;EDM+&quot; naming as Xenomorph</strong> — a naming clash that needs addressing.</td>
+</tr>
+<tr>
+<td><strong>Snowflake + Crux Informatics</strong></td>
+<td>Vendor data lands directly in client Snowflake. Attacks the ingest/normalise layer underneath EDM.</td>
+</tr>
+<tr>
+<td><strong>ArcticDB (Man Group, open-source)</strong></td>
+<td>S3-native time-series, no MongoDB dependency. Lower-stack but reshapes what&#39;s expected.</td>
+</tr>
+</tbody></table>
+<h2>Force 3 — Regulatory tailwinds (slide 6 recap)</h2>
+<p>ECB RDARR (SSM 2025-27 priority), DORA live Jan 2025, T+1 settlement (US live, EU + UK on schedule). All push the EDM TAM upward. All play directly to Xenomorph&#39;s 30-year compliance heritage.</p>
+<h2>Where this lands</h2>
+<table>
+<thead>
+<tr>
+<th>Force</th>
+<th>Xenomorph&#39;s natural position</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>AI / MCP</td>
+<td>Has the right thesis (Matt Pick&#39;s &quot;AI is only as good as the underlying data&quot;). <strong>Missing the surface that makes the thesis demonstrable to buyers.</strong> ← This is what xenoMCP fills.</td>
+</tr>
+<tr>
+<td>Cloud-native disruption</td>
+<td>Has Azure deployment proven at Mizuho Americas. Heritage + cloud-readiness is a credible counter to <em>pure</em>-cloud-native vendors who lack the regulatory pedigree.</td>
+</tr>
+<tr>
+<td>Regulatory tailwinds</td>
+<td>Already there. Slide 6&#39;s tables show the alignment.</td>
+</tr>
+</tbody></table>
+<p><strong>Net</strong>: the AI/MCP gap is the one that&#39;s both most urgent (table stakes by year-end 2026) and most addressable atop existing engineering. That&#39;s where the next slides go.</p>
+<!--
+Notes:
+Three forces, three moves. The market is moving on multiple axes — naming a competitor explicitly (FINBOURNE LUSID/EDM+ with the same EDM+ name) is a small risk worth taking; BK should be aware of the naming overlap.
+
+The "MCP is becoming table stakes" line is the load-bearing claim. KX shipping MCP is the single most important market move for our argument — it's a direct peer in the stack, and they shipped it before Xenomorph could.
+
+Don't dwell on competitive paranoia. Frame the gap as urgency-without-panic.
+
+Closing table is the bridge to slide 9 (what we built atop this week — xenoMCP v1.1.0-preview.2).
+
+Pacing: ~75-90 seconds. Tables again do the heavy lifting.
+-->
+
+<div class="footer">xenoMCP · BK pack · 2026-05-12 · rendered from source markdown</div>
+</div>
+</body>
+</html>

@@ -3,7 +3,8 @@
 // app changes often and cache-first navigation can leave installed PWAs on an
 // old shell after deploys.
 
-const CACHE_NAME = 'ant-v3-cache-v3';
+const CACHE_NAME = 'ant-v3-cache-v4';
+const OFFLINE_URL = '/offline';
 const STATIC_ASSETS = [
   '/manifest.webmanifest',
   '/favicon.ico',
@@ -11,6 +12,9 @@ const STATIC_ASSETS = [
   '/apple-touch-icon.png',
   '/icons/ant-icon-192.png',
   '/icons/ant-icon-512.png',
+  // m7.1 PWA: offline fallback route, cached at install so a
+  // navigation that fails offline always has a real page to render.
+  OFFLINE_URL,
 ];
 
 // Install: cache static shell
@@ -61,7 +65,13 @@ self.addEventListener('fetch', (event) => {
 
   if (isNavigationRequest(request)) {
     event.respondWith(
-      fetch(request).catch(async () => (await caches.match('/')) || Response.error()),
+      fetch(request).catch(async () => {
+        // Offline: serve the cached fallback. caches.match(OFFLINE_URL) is
+        // guaranteed-present because it ships in STATIC_ASSETS, so the user
+        // sees the /offline page instead of a blank Response.error().
+        const fallback = await caches.match(OFFLINE_URL);
+        return fallback || Response.error();
+      }),
     );
     return;
   }

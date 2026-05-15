@@ -218,6 +218,11 @@ export function getPlanViewData(input?: {
   let sessionId = input?.sessionId?.trim() || null;
   let planId = input?.planId?.trim() || null;
   const explicitPlanRequest = Boolean(sessionId || planId);
+  // m-plan-ui-session-fragmentation-fix (2026-05-14): aggregate events
+  // across all sessions when the caller requested a plan by id only.
+  // session_id stays as the first-matching session so the UI's session
+  // dropdown remains coherent; events come from getPlanEventsAcrossSessions.
+  const aggregateAcrossSessions = Boolean(planId && !input?.sessionId);
 
   if (planId && !sessionId) {
     const matchingPlan =
@@ -248,12 +253,9 @@ export function getPlanViewData(input?: {
     };
   }
 
-  const rows = queries.getPlanEvents(
-    sessionId,
-    planId,
-    [...PLAN_EVENT_KINDS],
-    limit,
-  ) as PlanRow[];
+  const rows = (aggregateAcrossSessions
+    ? queries.getPlanEventsAcrossSessions(planId, [...PLAN_EVENT_KINDS], limit)
+    : queries.getPlanEvents(sessionId, planId, [...PLAN_EVENT_KINDS], limit)) as PlanRow[];
   const warnings: string[] = [];
   const errors: Array<{ id: string; kind: string; errors: string[] }> = [];
   const events: PlanEvent[] = [];

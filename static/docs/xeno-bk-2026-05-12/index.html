@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>xenoMCP · BK pack · 2026-05-12</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A2540; --surface:#fff; --line:#E5E7EB; --ink:#0A2540; --muted:#475569; --faint:#94A3B8;
+  --blue:#4A90D9; --green:#1AC270; --amber:#FFB100; --red:#F04438;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--ink);line-height:1.5}
+.shell{max-width:1100px;margin:0 auto;padding:40px 24px 80px}
+.hero{background:linear-gradient(135deg,#0A2540 0%,#163e6c 100%);color:#fff;padding:48px 32px;border-radius:16px;margin-bottom:32px}
+.hero h1{margin:0 0 8px 0;font-size:32px;font-weight:700;letter-spacing:-0.5px}
+.hero .sub{font-family:JetBrains Mono,monospace;font-size:13px;opacity:0.7;letter-spacing:1px;text-transform:uppercase}
+.hero .lede{margin:16px 0 0 0;font-size:16px;opacity:0.9;max-width:700px;line-height:1.6}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-top:24px}
+.metric{background:rgba(255,255,255,0.08);padding:14px 16px;border-radius:10px;border:1px solid rgba(255,255,255,0.12)}
+.metric .v{font-size:24px;font-weight:700;color:#fff;font-family:JetBrains Mono,monospace}
+.metric .l{font-size:11px;opacity:0.7;text-transform:uppercase;letter-spacing:1px;margin-top:2px}
+.section{background:#fff;border-radius:14px;padding:28px;margin-bottom:20px}
+.section h2{margin:0 0 6px 0;font-size:20px;font-weight:700;color:var(--ink)}
+.section .h2sub{font-family:JetBrains Mono,monospace;font-size:11px;color:var(--faint);letter-spacing:1px;text-transform:uppercase;margin-bottom:18px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.card{display:flex;flex-direction:column;gap:6px;padding:16px 18px;background:#F8FAFC;border:1px solid var(--line);border-radius:10px;text-decoration:none;color:inherit;transition:all 0.15s}
+.card:hover{border-color:var(--blue);background:#fff;transform:translateY(-1px);box-shadow:0 4px 12px rgba(74,144,217,0.12)}
+.card .label{font-family:JetBrains Mono,monospace;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--blue);font-weight:700}
+.card .title{font-size:15px;font-weight:600;color:var(--ink)}
+.card .desc{font-size:12px;color:var(--muted);line-height:1.4}
+.card.primary{background:linear-gradient(135deg,#4A90D9 0%,#3B7CC9 100%);border-color:transparent;color:#fff}
+.card.primary:hover{background:linear-gradient(135deg,#5BA0E9 0%,#4A8CD9 100%)}
+.card.primary .label{color:rgba(255,255,255,0.7)}
+.card.primary .title,.card.primary .desc{color:#fff}
+.card.primary .desc{opacity:0.85}
+.scoreboard{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:14px}
+.task{padding:12px 14px;border-radius:8px;border-left:4px solid;background:#F8FAFC}
+.task.done{border-color:var(--green)}
+.task.review{border-color:var(--amber)}
+.task.proposed{border-color:var(--faint)}
+.task .state{font-family:JetBrains Mono,monospace;font-size:9px;letter-spacing:1px;text-transform:uppercase;font-weight:700}
+.task.done .state{color:var(--green)}
+.task.review .state{color:var(--amber)}
+.task.proposed .state{color:var(--faint)}
+.task .id{font-family:JetBrains Mono,monospace;font-size:13px;font-weight:600;color:var(--ink);margin:2px 0}
+.task .desc{font-size:11px;color:var(--muted)}
+.footer{text-align:center;color:rgba(255,255,255,0.5);font-size:11px;font-family:JetBrains Mono,monospace;margin-top:32px}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="hero">
+    <div class="sub">xenoMCP · BK meeting 2026-05-12</div>
+    <h1>Tomorrow's pack — one screen, every artefact</h1>
+    <div class="lede">Brian Kennedy briefing pack, materially complete and bulletproofed. Open the presentation HTML to demo; everything else linked below for context and fallback.</div>
+    <div class="metrics">
+      <div class="metric"><div class="v">21</div><div class="l">MCP tools live</div></div>
+      <div class="metric"><div class="v">5 / 5</div><div class="l">v1.5 DCO tools</div></div>
+      <div class="metric"><div class="v">44 / 44</div><div class="l">cross-platform tests</div></div>
+      <div class="metric"><div class="v">3</div><div class="l">releases tagged</div></div>
+      <div class="metric"><div class="v">0</div><div class="l">lines of Xeno code modified</div></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Open this first</h2>
+    <div class="h2sub">demo surface · runbook · one-pager for Brian</div>
+    <div class="cards">
+      <a class="card primary" href="./presentation.html">
+        <div class="label">primary demo surface</div>
+        <div class="title">Presentation HTML →</div>
+        <div class="desc">12 slides · embedded DCO mockup · 15-card links grid. Screen-share this in the meeting.</div>
+      </a>
+      <a class="card" href="./RUNBOOK.html">
+        <div class="label">context · 6 sections</div>
+        <div class="title">RUNBOOK</div>
+        <div class="desc">start-here · deck · demo · qa · risk · links. The one thing to open if you only open one.</div>
+      </a>
+      <a class="card" href="./OPEN_QUESTIONS_FOR_BK.html">
+        <div class="label">hand to brian</div>
+        <div class="title">Open questions for BK</div>
+        <div class="desc">Concise one-pager of the seven open questions Keith + Brian need to answer.</div>
+      </a>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Plan scoreboard</h2>
+    <div class="h2sub">xeno-bk-meeting-pack-2026-05-12 · live state</div>
+    <div class="scoreboard">
+      <div class="task done"><div class="state">✓ done</div><div class="id">M0 c8BvULE7</div><div class="desc">backfill artefact map</div></div>
+      <div class="task done"><div class="state">✓ done</div><div class="id">M1 BI_AuyR4</div><div class="desc">deck walkthrough PASS</div></div>
+      <div class="task done"><div class="state">✓ done</div><div class="id">M2 KeaYTkpG</div><div class="desc">demo dry-run 9/9 PASS</div></div>
+      <div class="task done"><div class="state">✓ done</div><div class="id">M3 yLiC3z6H</div><div class="desc">QA + risk pack</div></div>
+      <div class="task done"><div class="state">✓ done</div><div class="id">M4 okG0qNGN</div><div class="desc">runbook + final answer</div></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Demo + evidence</h2>
+    <div class="h2sub">script · dry-run · frozen captures · embedded mockup</div>
+    <div class="cards">
+      <a class="card" href="./DEMO_SCRIPT.html">
+        <div class="label">six moments</div>
+        <div class="title">DEMO_SCRIPT</div>
+        <div class="desc">Step-by-step moments M1–M6 with expected outputs and contract assertions.</div>
+      </a>
+      <a class="card" href="./demo_evidence/dry_run_2026-05-11_211032.txt">
+        <div class="label">frozen capture · 9/9 PASS</div>
+        <div class="title">Dry-run evidence</div>
+        <div class="desc">Live TimeScape v5.0 + xenomorph-mcp.exe v1.1.0-preview.2. Morning-of insurance if ODBC glitches.</div>
+      </a>
+      <a class="card" href="./demo_evidence/README.html">
+        <div class="label">how + when</div>
+        <div class="title">Evidence README</div>
+        <div class="desc">When to use the frozen capture · re-capture command for morning of demo.</div>
+      </a>
+      <a class="card" href="./dco-savings-dashboard.html">
+        <div class="label">embedded mockup</div>
+        <div class="title">DCO savings dashboard</div>
+        <div class="desc">XenomorphDesignSystem-tokened standalone. Same surface as embedded in slide 11.</div>
+      </a>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Research depth</h2>
+    <div class="h2sub">engineering · compliance · tool surface · recon</div>
+    <div class="cards">
+      <a class="card" href="./research/MCP_INTERFACE.html">
+        <div class="label">for brian</div>
+        <div class="title">MCP_INTERFACE</div>
+        <div class="desc">Engineering depth · architecture · trace block · file counts.</div>
+      </a>
+      <a class="card" href="./research/KEITH_NEEDS_TODAY.html">
+        <div class="label">for keith</div>
+        <div class="title">KEITH_NEEDS_TODAY</div>
+        <div class="desc">Non-negotiables · safe-vs-not-show split · compliance checklist · open questions.</div>
+      </a>
+      <a class="card" href="./research/V1_5_TOOL_SURFACE.html">
+        <div class="label">tool spec</div>
+        <div class="title">V1_5_TOOL_SURFACE</div>
+        <div class="desc">Concrete signatures + return shapes for all 5 v1.5 DCO Visibility tools.</div>
+      </a>
+      <a class="card" href="./research/DCO_RECON.html">
+        <div class="label">schema</div>
+        <div class="title">DCO_RECON</div>
+        <div class="desc">Full DCO schema introspection · baseline-method dependency surface.</div>
+      </a>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>BK prep + contract</h2>
+    <div class="h2sub">tracker · FAQ · contract · windows notes</div>
+    <div class="cards">
+      <a class="card" href="./BK_QUESTIONS_FULL.html">
+        <div class="label">your tracker</div>
+        <div class="title">BK_QUESTIONS_FULL</div>
+        <div class="desc">Your full BK question tracker · status snapshot · all releases + counts.</div>
+      </a>
+      <a class="card" href="./BK_FAQ.html">
+        <div class="label">40 questions</div>
+        <div class="title">BK_FAQ</div>
+        <div class="desc">Anticipated questions from Brian with prepared answers.</div>
+      </a>
+      <a class="card" href="./CONTRACT.html">
+        <div class="label">§0 tenancy</div>
+        <div class="title">CONTRACT</div>
+        <div class="desc">Tenancy contract · Appendix B · what we will + will not do.</div>
+      </a>
+      <a class="card" href="./WINDOWS_NOTES.html">
+        <div class="label">demo laptop</div>
+        <div class="title">WINDOWS_NOTES</div>
+        <div class="desc">Operational notes for the Windows demo machine.</div>
+      </a>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Deck source</h2>
+    <div class="h2sub">12 slides · markdown source for the presentation HTML</div>
+    <div class="cards">
+      <a class="card" href="./deck/index.html"><div class="label">all slides</div><div class="title">Deck index</div><div class="desc">Slides 01-cover through 12-path-forward.</div></a>
+      <a class="card" href="./deck/09-what-we-built.html"><div class="label">slide 09</div><div class="title">What we built</div><div class="desc">21 tools · 44 tests · 5/5 v1.5 · BP.L = 508.0 round-trip.</div></a>
+      <a class="card" href="./deck/10-dco-visibility.html"><div class="label">slide 10</div><div class="title">DCO Visibility</div><div class="desc">Tool table with status badges per tool.</div></a>
+      <a class="card" href="./deck/12-path-forward.html"><div class="label">slide 12</div><div class="title">Path forward</div><div class="desc">Where v1.1.0-preview.2 lands and what's next.</div></a>
+    </div>
+  </div>
+
+  <div class="footer">
+    mirrored to Tailscale · 2026-05-11 · source: github.com/Jktfe/xenoMCP · refresh from origin/main any time
+  </div>
+
+</div>
+</body>
+</html>

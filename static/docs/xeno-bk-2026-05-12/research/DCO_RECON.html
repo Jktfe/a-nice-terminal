@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DCO_RECON · xenoMCP BK pack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A2540; --surface:#fff; --line:#E5E7EB; --ink:#0A2540; --muted:#475569; --faint:#94A3B8;
+  --blue:#4A90D9; --navy:#0A2540; --green:#1AC270; --amber:#FFB100; --red:#F04438;
+  --code-bg:#F8FAFC; --code-border:#E2E8F0;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--ink);line-height:1.6}
+.topbar{background:var(--navy);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:16px;border-bottom:1px solid rgba(255,255,255,0.08)}
+.topbar a{color:rgba(255,255,255,0.7);text-decoration:none;font-size:12px;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.topbar a:hover{color:#fff}
+.topbar .crumb{color:rgba(255,255,255,0.4);font-family:JetBrains Mono,monospace;font-size:11px}
+.topbar .title{flex:1;font-size:13px;font-weight:600;color:#fff;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.shell{max-width:920px;margin:0 auto;padding:48px 32px 96px;background:#fff;min-height:calc(100vh - 60px)}
+h1{font-size:32px;font-weight:700;letter-spacing:-0.5px;margin:0 0 12px;color:var(--ink);border-bottom:2px solid var(--blue);padding-bottom:14px}
+h2{font-size:22px;font-weight:700;margin:36px 0 12px;color:var(--ink);border-left:4px solid var(--blue);padding-left:12px}
+h3{font-size:17px;font-weight:700;margin:28px 0 8px;color:var(--navy)}
+h4{font-size:14px;font-weight:700;margin:20px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-family:JetBrains Mono,monospace}
+p{margin:10px 0;color:var(--ink)}
+a{color:var(--blue);text-decoration:none;border-bottom:1px solid transparent;transition:border 0.15s}
+a:hover{border-bottom-color:var(--blue)}
+ul,ol{margin:10px 0 14px;padding-left:24px}
+li{margin:4px 0}
+code{font-family:JetBrains Mono,monospace;font-size:0.92em;background:var(--code-bg);border:1px solid var(--code-border);padding:1px 6px;border-radius:4px;color:var(--navy)}
+pre{background:var(--code-bg);border:1px solid var(--code-border);border-radius:8px;padding:14px 18px;overflow-x:auto;margin:14px 0}
+pre code{background:transparent;border:none;padding:0;font-size:13px;color:var(--ink)}
+blockquote{margin:14px 0;padding:10px 18px;background:#F8FAFC;border-left:4px solid var(--amber);color:var(--muted)}
+blockquote p{margin:6px 0}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th{background:#F8FAFC;text-align:left;padding:8px 12px;font-weight:700;border-bottom:2px solid var(--line);font-family:JetBrains Mono,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:hover td{background:#F8FAFC}
+hr{border:none;border-top:1px solid var(--line);margin:32px 0}
+strong{font-weight:700;color:var(--navy)}
+em{font-style:italic;color:var(--muted)}
+.footer{text-align:center;color:var(--faint);font-size:11px;font-family:JetBrains Mono,monospace;margin-top:48px;padding-top:24px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="../index.html">← BK pack index</a>
+  <span class="crumb">/</span>
+  <span class="title">research/DCO_RECON</span>
+  <a href="../presentation.html">demo →</a>
+</div>
+<div class="shell">
+<h1>DCO recon findings (v1.5 prep)</h1>
+<blockquote>
+<p>Outcome of the four-question DCO Visibility recon plan, captured 2026-05-11 from the Xeno-issued laptop (<code>XSL18LTOP15D</code>). Sources are noted inline. <strong>This is recon, not a tool spec</strong> — v1.5 tool surface follows from but does not appear in this doc.</p>
+</blockquote>
+<h2>Q1 — Does <code>timescape.pyd</code> (or any SDK/Examples surface) expose DCO?</h2>
+<p><strong>No.</strong> The CPython API surface documented in <code>APIs/CPython/v3.13/Examples/</code> covers data CRUD only (<code>query</code> / <code>itemQuery</code> / <code>saveItem</code> / <code>saveProp</code> / <code>saveSeries</code> / <code>delete*</code> / <code>workspaceGet|Set</code>). The C API (<code>APIs/C API/Inc/xenoc.h</code>) and <code>.NET API</code> assemblies likewise expose data access, not DCO state. Grepping the entire <code>APIs, SDKs, Examples</code> tree for <code>DCO</code>, <code>Licen*</code>, <code>Vendor*</code>, <code>CostOptim</code>, <code>Entitle*</code>, <code>Saving*</code>, <code>Optimi*</code>, <code>Bloomberg</code>, <code>Reuters</code> returns:</p>
+<ul>
+<li>False positives from <code>XcDatabaseAddCodeType</code> and <code>DownloadFlags.LoadCodes</code> (string match <code>DCO</code> inside <code>AddCodeType</code> / <code>LoadCodes</code>).</li>
+<li><code>QL+, Analytics and Data Examples/Other Data Sources/Reuters/</code> — analyst-facing sample workbook, not a programmer surface.</li>
+<li><code>Task Examples/Download Tasks/Bloomberg/</code> and <code>Task Examples/Download Tasks/Reuters/</code> — <code>.tdf</code> task templates for batch downloads.</li>
+</ul>
+<p><strong>Implication:</strong> DCO is not part of the public programmer surface. Any v1.5 tool that surfaces DCO state must read directly from the underlying SQL Server backend (<code>TimeScapeProcessManagement</code>) or wrap one of the DCO/EDM+ admin services described below.</p>
+<h2>Q2 — XTDCO* siblings + EDM+ binaries: which expose a query CLI / REST / OData?</h2>
+<p>Inventory under <code>C:\Program Files\Xenomorph TimeScape\</code> (and the x86 sibling, identical naming):</p>
+<table>
+<thead>
+<tr>
+<th>Binary</th>
+<th>Role</th>
+<th>Surface</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>TimeScape DCO Monitor Service\XTDCOMonitorService.exe</code> (174 KB)</td>
+<td>Primary/Secondary monitor pair: intercepts client data-request files, hands DCO-compliant requests to EDM+ File Processing for optimisation, falls back to direct-to-vendor for non-compliant ones</td>
+<td><strong>Windows service</strong> (or <code>cmdline</code> for debug). No external query API. State persists to <code>TimeScapeProcessManagement</code> SQL DB + filesystem under `{DCOMonitorRoot}{DataVendorAccountId}{Done</td>
+</tr>
+<tr>
+<td><code>TimeScape EDM+ File Processing Service\Xenomorph.TimeScape.EdmFileProcessingService.exe</code></td>
+<td>Runs DCO logic on requests handed off from DCO Monitor</td>
+<td>Windows service. IPC on <code>net.tcp://localhost:59798/FileProcessingServiceStatus</code> (health check only — see <code>XTDCOMonitorService.config</code> template). No query API</td>
+</tr>
+<tr>
+<td><code>TimeScape EDM+ Service\Xenomorph.TimeScape.EdmService.exe</code> + <code>xtedm.exe</code></td>
+<td>Rules / workflow engine (the &quot;EDM+&quot; core)</td>
+<td>Windows service; rule import/export via <code>XdbRuleExport.exe</code> / <code>XdbRuleImport.exe</code> (file-based)</td>
+</tr>
+<tr>
+<td><code>TimeScape EDM+ Messaging Service\EDMMessageConsumer.exe</code> + <code>Xenomorph.TimeScape.Messaging.Service.exe</code></td>
+<td>Async messaging between EDM+ components</td>
+<td>Windows service. No external surface</td>
+</tr>
+<tr>
+<td><code>TimeScape DCO Monitor Service\</code> includes <code>XTDCOMonitorService_ReadMe.txt</code></td>
+<td><strong>Full operational doc for DCO</strong> — install steps, config keys, folder structure, primary/secondary handoff logic, encryption (Bloomberg DES), regex filters for compliance</td>
+<td>Plain text; key source-of-truth for v1.5 design (see &quot;Operational model&quot; below)</td>
+</tr>
+<tr>
+<td><code>Program\XTTABBDataLicense.dll</code> (274 KB)</td>
+<td>Integration with Bloomberg Data License (TABB-standard)</td>
+<td>Native DLL, not directly callable from external code</td>
+</tr>
+</tbody></table>
+<p><strong>Bottom line for Q2:</strong> the DCO/EDM+ binaries are all internal services with no public query/REST/OData surface. The wrap target is therefore not these binaries but the <strong>SQL Server state they all persist into</strong> plus the <strong>filesystem folders</strong> they all operate on.</p>
+<h2>Q3 — SQL Server schema introspection on <code>TimeScapeProcessManagement</code></h2>
+<p><strong>Connection:</strong> <code>Server=localhost; Database=TimeScapeProcessManagement; Integrated Security=True;</code> (Kerberos / AD). On this box: SQL Server 2022 Developer Edition (MSSQL16, instance <code>MSSQLSERVER</code>). </p>
+<p>Other databases on the same instance, all owned by TimeScape: <code>GOLD</code>, <code>SILVER</code>, <code>RAW</code>, <code>PUBGOLD</code>, <code>PUBSILVER</code> (data-tier convention — quality grades plus public-tier variants) plus the standard <code>master/tempdb/model/msdb/SSISDB</code>.</p>
+<p><strong><code>TimeScapeProcessManagement</code> — DCO-relevant tables (15):</strong></p>
+<table>
+<thead>
+<tr>
+<th>Table</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>ActiveRequestVendors</code></td>
+<td>Master list of active vendors (Bloomberg, Reuters). 2 rows on this dev box</td>
+</tr>
+<tr>
+<td><code>ActiveRequestVendorPrograms</code></td>
+<td>Bloomberg programs supported (maps to <code>DCOSupportedBloombergPrograms</code> in DCO Monitor config)</td>
+</tr>
+<tr>
+<td><code>ActiveRequestVendorConfigs</code> / <code>ActiveRequestVendorParameters</code> / <code>ActiveEntityRequestVendorConfigs</code> / <code>ActiveEntityRequestVendorParameters</code></td>
+<td>Per-vendor and per-entity (organisational dimension — probably what corresponds to &quot;desk&quot;) config + params</td>
+</tr>
+<tr>
+<td><code>ActiveRequestVendorErrors</code></td>
+<td>Error log keyed by request</td>
+</tr>
+<tr>
+<td><code>ActiveBloombergAllQuotes</code></td>
+<td>Live Bloomberg quote state</td>
+</tr>
+<tr>
+<td><code>BloombergRequests_fg1</code> (view: <code>BloombergRequests</code>)</td>
+<td><strong>Request-level log of every Bloomberg API call</strong> — see schema below. Empty on this dev box</td>
+</tr>
+<tr>
+<td><code>BloombergRequestIdentifiers_fg1</code> (view: <code>BloombergRequestIdentifiers</code>)</td>
+<td>Securities-level breakdown of each request</td>
+</tr>
+<tr>
+<td><code>BloombergRequestIdentifierGroups_fg1</code> / <code>BloombergRequestIdentifierGroupMembers_fg1</code></td>
+<td>Logical groupings of identifiers</td>
+</tr>
+<tr>
+<td><code>ReutersRequests_fg1</code> / <code>ReutersTempDataTables_fg1</code> / <code>ActiveReutersTempData</code></td>
+<td>Reuters analogues</td>
+</tr>
+</tbody></table>
+<p>(The <code>_fg1</code> suffix is SQL Server filegroup partitioning; views with the same name minus the suffix are the read API.)</p>
+<p><strong><code>TimeScapeProcessManagement</code> — DCO-relevant views (27 total — highlights):</strong></p>
+<ul>
+<li><strong><code>BloombergRequests</code></strong> (18 cols): <code>ExecID</code>, <code>BloombergRequestID</code>, <code>PackageRunID</code>, <code>RuleItemRefID</code>, <code>RequestType</code>, <code>AssetClass</code>, <code>TimeStamp</code>, <code>RequestFileName</code>, <code>ReplyFileName</code>, <code>RequestUploaded</code>, <code>RequestUploadFailed</code>, <code>RequestError</code>, <code>ReplyDownloaded</code>, <code>ReplyDecrypted</code>, <code>DataLoaded</code>, <code>ReplyFileIsZipped</code>, <code>SplitFileCount</code>, <code>SplitFileProcessed</code>. <strong>This is the savings goldmine</strong> — every row is one outbound Bloomberg API call. Combination of the bit flags tells us whether DCO completed (<code>DataLoaded=1</code>) or fell through (<code>RequestError=1</code>).</li>
+<li><strong><code>RequestSubstitutes</code></strong> (12 cols): <code>ExecID</code>, <code>PackageRunID</code>, <code>ItemRefID</code>, <code>InstrumentsQuery</code>, <code>FieldsQuery</code>, <code>ParametersQuery</code>, <code>DestinationCategory</code>, <code>DestinationCodeType</code>, <code>DestinationDataSource</code>, <code>BloombergSaveDate</code>, <code>BloombergSaveDateColumn</code>, <code>BloombergSaveDateFormat</code>. <strong>This is the &quot;alternative-vendor&quot; substitution rule</strong> — when a request can be served from a different DataSource instead of hitting Bloomberg, this rule fires. The savings claim from Keith&#39;s framing materialises here.</li>
+<li><strong><code>BloombergRequestIdentifiers</code></strong> (10 cols): <code>Identifier</code>, <code>IdentifierType</code>, <code>PricingSource</code>, plus date range + execution linkage. Joinable to <code>BloombergRequests</code> via <code>ExecID</code> / <code>PackageRunID</code>.</li>
+<li><strong><code>RequestQueue</code></strong> / <strong><code>RequestQueueItems</code></strong> / <strong><code>RequestRules</code></strong> / <strong><code>RequestUniverse</code></strong> / <strong><code>RequestCalcs</code></strong> / <strong><code>RequestLinks</code></strong> — workflow primitives.</li>
+<li><strong><code>EntityProcesses</code></strong> / <strong><code>EntityProcessRuns</code></strong> / <strong><code>EntityRequestMessages</code></strong> / <strong><code>EntityRequestMessageParameters</code></strong> / <strong><code>EntityRequestMessageItemRefs</code></strong> / <strong><code>EntityWorkflowRunEntityProcessRuns</code></strong> — the entity/process/workflow model (where &quot;Entity&quot; is a TimeScape org-dimension — probably maps to &quot;desk&quot; or &quot;client unit&quot;; needs Brian to confirm).</li>
+<li><strong><code>ProcessActions</code></strong> + Types + Links — workflow action graph.</li>
+<li><strong><code>PackageRulesProcessLog</code></strong> / <strong><code>ProcessManagementErrorLog</code></strong> / <strong><code>ProcessManagementPackagesErrorLog</code></strong> — audit trails.</li>
+</ul>
+<h2>Operational model (synthesised from <code>XTDCOMonitorService_ReadMe.txt</code>)</h2>
+<p>Per the README at <code>C:\Program Files\Xenomorph TimeScape\TimeScape DCO Monitor Service\XTDCOMonitorService_ReadMe.txt</code>:</p>
+<ol>
+<li><strong>Client drops a request file</strong> at <code>{ClientRequestResponseRoot}</code> (FILE) or an SFTP site (SFTP). One client account at a time on this dev box (<code>{DataVendorAccountId}</code>).</li>
+<li><strong>DCO Monitor (Primary)</strong> picks it up, moves to <code>{DCOMonitorRoot}\{DataVendorAccountId}\Processing\PRIMARY\</code>.</li>
+<li>Monitor checks <strong>DCO compliance</strong> against two regex files:<ul>
+<li><code>{SupportedSecurityRegExFile}</code> — identifier formats DCO can optimise.</li>
+<li><code>{UnsupportedHeaderOptionsRegExFile}</code> — header options DCO can&#39;t handle.</li>
+</ul>
+</li>
+<li><strong>DCO-compliant</strong> → hand off to EDM+ File Processing Service via <code>net.tcp://localhost:59798/...</code> → DCO runs the request, applies <code>RequestSubstitutes</code> rules where possible, returns substituted data <strong>OR</strong> the lower-cost DCO call to Bloomberg.</li>
+<li><strong>Non-DCO-compliant</strong> → request goes direct to Bloomberg Data License (no savings, but email notification fires from <code>{EmailRequestNotDCOCompliantSubject}</code> config).</li>
+<li><strong>Secondary monitor</strong> is failover: if Primary, EDM+ FPS, or DCO itself is down, Secondary sends direct to Bloomberg.</li>
+<li>Replies land in <code>{DCOMonitorRoot}\{DataVendorAccountId}\Response\</code>, get decrypted (Bloomberg DES for old SFTP-pre accounts), data loaded into TimeScape, file moved to <code>Done</code> (or <code>Failed</code> / <code>TimedOut</code>).</li>
+<li><strong>Encryption keys</strong> per Data Vendor live in <code>TimeScapeProcessManagement</code>.</li>
+</ol>
+<h2>What the v1.5 surface can claim, given the schema</h2>
+<p>(For xenobridgeclaude&#39;s tool design — not committing to names here.)</p>
+<table>
+<thead>
+<tr>
+<th>Proposed v1.5 tool</th>
+<th>Data needed</th>
+<th>Source</th>
+<th>Confidence</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>dco_savings_summary</code></td>
+<td>request count + outcome bit-flag aggregate over a window, with per-request cost reference</td>
+<td><code>BloombergRequests</code> (count) + cost reference (TBD — see open Qs)</td>
+<td>High on activity, low on cost dimension</td>
+</tr>
+<tr>
+<td><code>dco_savings_by_desk</code></td>
+<td>activity grouped by entity/desk dimension</td>
+<td><code>EntityProcesses</code> join through <code>EntityRequestMessages</code> to <code>BloombergRequests</code></td>
+<td>Medium — entity dimension needs Brian to confirm &quot;desk&quot; semantics</td>
+</tr>
+<tr>
+<td><code>dco_optimisation_decisions</code></td>
+<td>per-request disposition: DCO-served / substituted / direct-to-Bloomberg</td>
+<td><code>BloombergRequests</code> LEFT JOIN <code>RequestSubstitutes</code> on shared <code>PackageRunID</code>/<code>ItemRefID</code></td>
+<td>High</td>
+</tr>
+<tr>
+<td><code>vendor_entitlement_audit</code></td>
+<td>which vendors / programs / accounts a client is entitled to</td>
+<td><code>ActiveRequestVendors</code> + <code>ActiveEntityRequestVendorConfigs</code> + <code>ActiveEntityRequestVendorParameters</code></td>
+<td>High</td>
+</tr>
+<tr>
+<td><code>vendor_cost_summary</code></td>
+<td>spend per vendor over a window</td>
+<td>request counts × cost reference; structural data fine, cost reference open</td>
+<td>Medium — same blocker as <code>dco_savings_summary</code></td>
+</tr>
+</tbody></table>
+<h2>Open questions for Brian (to enable v1.5 confidently)</h2>
+<ol>
+<li><p><strong>Cost reference:</strong> where is the per-request / per-record cost number stored? Bloomberg DL has tier pricing; the schema here doesn&#39;t obviously hold price per <code>RequestType</code>/<code>AssetClass</code>. Is it (a) in a static config file we should consume, (b) in a different DB we haven&#39;t found, (c) computed externally by the client and held in their CRM?</p>
+</li>
+<li><p><strong>&quot;Desk&quot; / org dimension semantics:</strong> is <code>EntityProcesses.EntityProcessID</code> the right grouping for what business calls &quot;desk&quot;, or is there a higher-level concept (<code>Client</code>, <code>BusinessUnit</code>) elsewhere in the schema?</p>
+</li>
+<li><p><strong>Substitution success rate:</strong> when <code>RequestSubstitutes</code> rules engage, do they always succeed, or is there a fallback path that&#39;s not visible in the views I&#39;ve seen? (I.e. is <code>DataLoaded=1 AND a matching RequestSubstitute row</code> a reliable &quot;savings event&quot;?)</p>
+</li>
+<li><p><strong>Live-data ergonomics:</strong> Is the Xeno-issued laptop&#39;s <code>TimeScapeProcessManagement</code> ever populated with synthetic activity for a demo, or do we need to stand up a test workload to show DCO Visibility in action?</p>
+</li>
+</ol>
+<h2>Dev/test caveat</h2>
+<p>All <code>Bloomberg*</code> / <code>Reuters*</code> / <code>Request*</code> / <code>Entity*</code> tables on this dev box are <strong>empty</strong> (0 rows) except <code>ActiveRequestVendors</code> (2 rows). Sufficient for v1.5 schema design and stubbing; insufficient for live demo. Need either (a) synthetic dataset, (b) anonymised production extract from a client deployment, or (c) screenshots/figures from a real Xeno reference customer with permission.</p>
+<h2>What this enables, succinctly</h2>
+<p>The v1.5 tool surface is implementable today against this schema. The shape of &quot;savings legibility&quot; — <em>how</em> we present <code>RequestSubstitutes</code> engagement as a $-figure — is gated on cost reference data we don&#39;t yet have. <strong>That&#39;s the right question to put in front of Keith</strong> (Keith owns the commercial framing; he knows whether cost-per-record reference data is something Xeno already has, can compute, or should be sourced from clients&#39; own tier agreements).</p>
+
+<div class="footer">xenoMCP · BK pack · 2026-05-12 · rendered from source markdown</div>
+</div>
+</body>
+</html>

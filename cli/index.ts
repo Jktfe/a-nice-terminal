@@ -157,6 +157,9 @@ Commands:
                                     (--include-archived to show hidden plans)
   plan show <plan_id>               Show milestones + tests with latest status
                                     (--session <id> to disambiguate; --limit N events)
+  plan update <plan_id>             Update a milestone status
+                                    (--session <id> --milestone <id> --status done
+                                     --evidence file:path:label --note "why")
   plan archive <plan_id>            Hide a plan from default plan lists
                                     (--session <id> to disambiguate)
   plan unarchive <plan_id>          Restore an archived plan to default lists

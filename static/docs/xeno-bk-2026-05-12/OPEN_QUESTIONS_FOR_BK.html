@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OPEN_QUESTIONS_FOR_BK · xenoMCP BK pack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A2540; --surface:#fff; --line:#E5E7EB; --ink:#0A2540; --muted:#475569; --faint:#94A3B8;
+  --blue:#4A90D9; --navy:#0A2540; --green:#1AC270; --amber:#FFB100; --red:#F04438;
+  --code-bg:#F8FAFC; --code-border:#E2E8F0;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--ink);line-height:1.6}
+.topbar{background:var(--navy);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:16px;border-bottom:1px solid rgba(255,255,255,0.08)}
+.topbar a{color:rgba(255,255,255,0.7);text-decoration:none;font-size:12px;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.topbar a:hover{color:#fff}
+.topbar .crumb{color:rgba(255,255,255,0.4);font-family:JetBrains Mono,monospace;font-size:11px}
+.topbar .title{flex:1;font-size:13px;font-weight:600;color:#fff;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.shell{max-width:920px;margin:0 auto;padding:48px 32px 96px;background:#fff;min-height:calc(100vh - 60px)}
+h1{font-size:32px;font-weight:700;letter-spacing:-0.5px;margin:0 0 12px;color:var(--ink);border-bottom:2px solid var(--blue);padding-bottom:14px}
+h2{font-size:22px;font-weight:700;margin:36px 0 12px;color:var(--ink);border-left:4px solid var(--blue);padding-left:12px}
+h3{font-size:17px;font-weight:700;margin:28px 0 8px;color:var(--navy)}
+h4{font-size:14px;font-weight:700;margin:20px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-family:JetBrains Mono,monospace}
+p{margin:10px 0;color:var(--ink)}
+a{color:var(--blue);text-decoration:none;border-bottom:1px solid transparent;transition:border 0.15s}
+a:hover{border-bottom-color:var(--blue)}
+ul,ol{margin:10px 0 14px;padding-left:24px}
+li{margin:4px 0}
+code{font-family:JetBrains Mono,monospace;font-size:0.92em;background:var(--code-bg);border:1px solid var(--code-border);padding:1px 6px;border-radius:4px;color:var(--navy)}
+pre{background:var(--code-bg);border:1px solid var(--code-border);border-radius:8px;padding:14px 18px;overflow-x:auto;margin:14px 0}
+pre code{background:transparent;border:none;padding:0;font-size:13px;color:var(--ink)}
+blockquote{margin:14px 0;padding:10px 18px;background:#F8FAFC;border-left:4px solid var(--amber);color:var(--muted)}
+blockquote p{margin:6px 0}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th{background:#F8FAFC;text-align:left;padding:8px 12px;font-weight:700;border-bottom:2px solid var(--line);font-family:JetBrains Mono,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:hover td{background:#F8FAFC}
+hr{border:none;border-top:1px solid var(--line);margin:32px 0}
+strong{font-weight:700;color:var(--navy)}
+em{font-style:italic;color:var(--muted)}
+.footer{text-align:center;color:var(--faint);font-size:11px;font-family:JetBrains Mono,monospace;margin-top:48px;padding-top:24px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="./index.html">← BK pack index</a>
+  <span class="crumb">/</span>
+  <span class="title">OPEN_QUESTIONS_FOR_BK</span>
+  <a href="./presentation.html">demo →</a>
+</div>
+<div class="shell">
+<h1>Open questions for BK / Brian</h1>
+<p>Owner: cross-team
+Security/compliance review: <code>@xenoCodex</code>
+Purpose: one-page consolidated question list for the BK meeting, deduped from the deck, <code>DCO_RECON.md</code>, <code>MCP_INTERFACE.md</code>, <code>V1_5_TOOL_SURFACE.md</code>, and <code>KEITH_NEEDS_TODAY.md</code>.</p>
+<h2>Highest priority: DCO Visibility</h2>
+<p>These answers determine whether the v1.5 tools can show real savings numbers or only counts, ratios, and placeholders.</p>
+<table>
+<thead>
+<tr>
+<th>Priority</th>
+<th>Question</th>
+<th>Why it matters</th>
+<th>Source docs</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>P0</td>
+<td>What baseline should DCO savings compare against: Bloomberg tier pricing, historical pre-DCO spend, a customer-provided contracted rate table, or another source?</td>
+<td>Prevents invented or indefensible savings figures.</td>
+<td><code>DCO_RECON.md</code>, <code>V1_5_TOOL_SURFACE.md</code>, <code>KEITH_NEEDS_TODAY.md</code>, slide 12</td>
+</tr>
+<tr>
+<td>P0</td>
+<td>Where does the authoritative cost reference live today?</td>
+<td>Determines whether v1.5 reads a DB table, config file, customer input, or remains structure-only.</td>
+<td><code>DCO_RECON.md</code>, <code>V1_5_TOOL_SURFACE.md</code></td>
+</tr>
+<tr>
+<td>P0</td>
+<td>What business dimension should savings be attributed to: desk, entity, business unit, cost centre, or another hierarchy?</td>
+<td>Drives <code>dco_savings_by_desk</code> and the dashboard attribution view.</td>
+<td><code>DCO_RECON.md</code>, <code>V1_5_TOOL_SURFACE.md</code>, <code>KEITH_NEEDS_TODAY.md</code></td>
+</tr>
+<tr>
+<td>P1</td>
+<td>When a <code>RequestSubstitutes</code> row fires, is it always a clean savings event, or can it fall back through a path not visible in the current views?</td>
+<td>Determines whether <code>dco_optimisation_decisions</code> can label a row as a successful substitution without caveats.</td>
+<td><code>DCO_RECON.md</code>, <code>V1_5_TOOL_SURFACE.md</code></td>
+</tr>
+<tr>
+<td>P1</td>
+<td>What demo data can we use: synthetic data, anonymised production extract, approved screenshots, or a live safe dataset?</td>
+<td>The dev box schema is useful, but the DCO activity tables are empty.</td>
+<td><code>DCO_RECON.md</code>, deck slide 12</td>
+</tr>
+</tbody></table>
+<h2>Product and positioning</h2>
+<table>
+<thead>
+<tr>
+<th>Priority</th>
+<th>Question</th>
+<th>Why it matters</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>P1</td>
+<td>Should DCO Visibility be positioned publicly, held for specific customer conversations, or used first as internal sales enablement?</td>
+<td>Determines deck tone, release notes, and whether mockups can be prospect-facing.</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>Is xenoMCP a named product surface, a TimeScape EDM+ extension, or an internal enablement layer for demos and pilots?</td>
+<td>Determines branding, packaging, and how far the deck can go.</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>Which initial pilot profiles are most useful: sell-side G-SIB, buy-side quant, vendor-cost-heavy client, or internal Xenomorph demo tenant?</td>
+<td>Shapes the 60-day milestone and test data path.</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>Should the first DCO Visibility release be dashboard-only, MCP tools only, or both?</td>
+<td>Aligns the visual artifact with engineering delivery.</td>
+</tr>
+</tbody></table>
+<h2>Security, compliance, and governance</h2>
+<table>
+<thead>
+<tr>
+<th>Priority</th>
+<th>Question</th>
+<th>Why it matters</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>P0</td>
+<td>Confirm the hard rule: all MCP and DCO Visibility outputs are customer-tenant scoped; no cross-client data, no Xenomorph internal data, no NMVC internal material.</td>
+<td>Keeps every artifact aligned with <code>CONTRACT.md</code> Section 0.</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>Which compliance regimes matter most for the immediate audience: BCBS 239, FRTB, IPV/MCC, BaFin, DORA, T+1, or client-specific audit controls?</td>
+<td>Lets us tune the deck and demo script to the controls BK / Brian care about.</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>Should the MCP audit log remain separate JSONL on the customer host, or should it integrate with an existing TimeScape audit trail?</td>
+<td>Impacts production readiness and customer audit posture.</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>For customer demos, what level of identifier detail is acceptable in optimisation-decision examples?</td>
+<td>Determines whether demo rows show real instrument identifiers, masked identifiers, or synthetic examples.</td>
+</tr>
+</tbody></table>
+<h2>Engineering and roadmap</h2>
+<table>
+<thead>
+<tr>
+<th>Priority</th>
+<th>Question</th>
+<th>Why it matters</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>P1</td>
+<td>What is the compatibility story for <code>timescape.pyd</code> across TimeScape minor versions and Python versions?</td>
+<td>Determines packaging, support matrix, and upgrade guidance.</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>Is the CPython binding thread-safe, and what connection lifecycle does Xenomorph recommend for a long-running MCP process?</td>
+<td>Impacts production hardening beyond the current stdio proof.</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>Are any of the current 16 v1 tools inappropriate to expose to an AI client even with confirm-gating?</td>
+<td>Gives Brian a chance to veto surfaces that bypass downstream validation expectations.</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>Does Brian agree that v2/v3 should move toward capability-graph intents and cross-source federation, or should the AI lane stay strictly TimeScape-native?</td>
+<td>Shapes the 90-day roadmap and deck close.</td>
+</tr>
+</tbody></table>
+<h2>Suggested meeting flow</h2>
+<ol>
+<li>Start with the P0 DCO questions: baseline, cost reference, attribution dimension, and tenant boundary.</li>
+<li>Move to demo data and positioning: what can be shown safely for BK / Keith / prospects.</li>
+<li>Close with engineering: binding compatibility, audit integration, and any v1 tool-surface vetoes.</li>
+</ol>
+<p>The goal is not to answer every roadmap question in one sitting. The goal is to unblock v1.5 DCO Visibility without weakening the trust model.</p>
+
+<div class="footer">xenoMCP · BK pack · 2026-05-12 · rendered from source markdown</div>
+</div>
+</body>
+</html>

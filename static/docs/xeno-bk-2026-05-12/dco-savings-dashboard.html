@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DCO Savings Dashboard — Mockup — Xenomorph</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Xenomorph Design System tokens */
+  --xm-blue: #4A90D9;
+  --xm-blue-600: #3A7AC0;
+  --xm-blue-700: #2A60A0;
+  --xm-blue-tint-1: #E8F2FB;
+  --xm-blue-tint-2: #F4F8FD;
+  --xm-navy: #0A2540;
+  --xm-navy-800: #133355;
+  --xm-navy-600: #1F4470;
+  --xm-ink: #1A1A1A;
+  --xm-grey-50: #F4F5F7;
+  --xm-grey-100: #E2E5EA;
+  --xm-grey-200: #D1D5DB;
+  --xm-grey-400: #9CA3AF;
+  --xm-grey-500: #6B7280;
+  --xm-grey-600: #4B5563;
+  --xm-green: #3DAA5C;
+  --xm-coral: #E8523A;
+  --xm-white: #FFFFFF;
+
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-24: 24px;
+  --space-32: 32px;
+  --space-48: 48px;
+  --space-64: 64px;
+  --space-80: 80px;
+
+  --radius-2: 2px;
+  --radius-4: 4px;
+  --radius-6: 6px;
+
+  --max-w: 1280px;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; }
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-weight: 400;
+  color: var(--xm-ink);
+  background: var(--xm-grey-50);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: var(--max-w); margin: 0 auto; padding: 0 var(--space-80); }
+
+/* HEADER */
+header {
+  background: var(--xm-white);
+  border-bottom: 1px solid var(--xm-grey-100);
+  padding: var(--space-24) 0;
+  margin-bottom: var(--space-32);
+}
+.header-inner { display: flex; justify-content: space-between; align-items: center; }
+.brand { display: flex; align-items: center; gap: var(--space-16); }
+.brand-mark {
+  font-size: 17px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--xm-navy);
+}
+.brand-sep { color: var(--xm-grey-200); font-weight: 300; }
+.brand-product { font-size: 14px; color: var(--xm-grey-500); font-weight: 500; }
+.brand-product strong { color: var(--xm-navy); font-weight: 600; }
+
+.header-actions { display: flex; gap: var(--space-16); align-items: center; }
+.period-pill {
+  background: var(--xm-grey-50); border: 1px solid var(--xm-grey-100);
+  padding: 8px 16px; border-radius: 999px;
+  font-size: 13px; color: var(--xm-navy); font-weight: 500;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.period-pill::before { content: '◷'; color: var(--xm-blue); font-size: 14px; }
+.sample-badge {
+  background: var(--xm-coral); color: var(--xm-white);
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 4px 10px; border-radius: var(--radius-2);
+}
+
+/* PAGE TITLE */
+.page-title {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  margin-bottom: var(--space-32); padding-bottom: var(--space-24);
+  border-bottom: 1px solid var(--xm-grey-100);
+}
+.page-title h1 { font-size: 34px; font-weight: 300; color: var(--xm-navy); line-height: 1.15; margin-bottom: 6px; }
+.page-title p { font-size: 14px; color: var(--xm-grey-500); max-width: 540px; }
+.page-title .meta { font-size: 13px; color: var(--xm-grey-500); }
+.page-title .meta strong { color: var(--xm-navy); font-weight: 600; }
+
+/* HERO METRICS */
+.metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-24); margin-bottom: var(--space-48); }
+.metric-card {
+  background: var(--xm-white); border: 1px solid var(--xm-grey-100); border-radius: var(--radius-6);
+  padding: var(--space-32); position: relative; overflow: hidden;
+}
+.metric-card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: var(--xm-blue);
+}
+.metric-card.is-headline { background: var(--xm-navy); color: var(--xm-white); }
+.metric-card.is-headline::before { background: linear-gradient(90deg, var(--xm-blue), var(--xm-blue-700)); height: 4px; }
+.metric-label {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--xm-grey-500); margin-bottom: var(--space-12);
+}
+.metric-card.is-headline .metric-label { color: rgba(255,255,255,0.55); }
+.metric-figure {
+  font-size: 48px; font-weight: 300; line-height: 1; color: var(--xm-navy);
+  font-feature-settings: 'tnum';
+  display: flex; align-items: baseline; gap: 6px;
+}
+.metric-card.is-headline .metric-figure { color: var(--xm-white); font-size: 56px; }
+.metric-figure .currency { font-size: 0.6em; color: var(--xm-blue); font-weight: 400; }
+.metric-card.is-headline .metric-figure .currency { color: rgba(255,255,255,0.55); }
+.metric-context {
+  margin-top: var(--space-16); font-size: 13px; color: var(--xm-grey-500); line-height: 1.55;
+}
+.metric-card.is-headline .metric-context { color: rgba(255,255,255,0.6); }
+.metric-delta { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; margin-top: var(--space-8); }
+.metric-delta.is-positive { color: var(--xm-green); }
+.metric-delta.is-positive::before { content: '▲'; font-size: 10px; }
+.metric-card.is-headline .metric-delta.is-positive { color: #6FE08A; }
+
+/* PANELS */
+.panel-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: var(--space-24); margin-bottom: var(--space-48); }
+.panel {
+  background: var(--xm-white); border: 1px solid var(--xm-grey-100); border-radius: var(--radius-6);
+  padding: var(--space-32);
+}
+.panel-header {
+  display: flex; justify-content: space-between; align-items: baseline; margin-bottom: var(--space-24);
+  border-bottom: 1px solid var(--xm-grey-100); padding-bottom: var(--space-16);
+}
+.panel-header h2 { font-size: 18px; font-weight: 600; color: var(--xm-navy); }
+.panel-header .panel-sub { font-size: 12px; color: var(--xm-grey-500); }
+
+/* BY DESK */
+.desk-row {
+  display: grid; grid-template-columns: 200px 1fr 110px; gap: var(--space-16); align-items: center;
+  padding: var(--space-12) 0; border-bottom: 1px solid var(--xm-grey-50);
+}
+.desk-row:last-child { border-bottom: none; }
+.desk-name { font-size: 14px; font-weight: 500; color: var(--xm-navy); }
+.desk-name .desk-sub { font-size: 11px; color: var(--xm-grey-500); font-weight: 400; display: block; margin-top: 2px; }
+.desk-bar { background: var(--xm-grey-50); border-radius: var(--radius-2); height: 12px; position: relative; overflow: hidden; }
+.desk-bar-fill { background: var(--xm-blue); height: 100%; border-radius: var(--radius-2); transition: width 300ms var(--ease); }
+.desk-amount {
+  font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 500;
+  color: var(--xm-navy); text-align: right;
+  font-feature-settings: 'tnum';
+}
+
+/* ENTITLEMENT AUDIT */
+.entitlement-grid { display: grid; gap: var(--space-12); }
+.entitlement-row {
+  background: var(--xm-grey-50); border-left: 3px solid var(--xm-blue); padding: var(--space-16);
+  border-radius: 0 var(--radius-4) var(--radius-4) 0;
+}
+.entitlement-row.is-warn { border-left-color: var(--xm-coral); background: rgba(232, 82, 58, 0.04); }
+.entitlement-row.is-good { border-left-color: var(--xm-green); }
+.entitlement-title { font-size: 14px; font-weight: 600; color: var(--xm-navy); margin-bottom: 4px; }
+.entitlement-detail { font-size: 13px; color: var(--xm-grey-600); line-height: 1.5; }
+.entitlement-tag {
+  display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  background: var(--xm-white); border: 1px solid var(--xm-grey-100); padding: 3px 8px; border-radius: var(--radius-2);
+  margin-top: var(--space-8); color: var(--xm-grey-500);
+}
+
+/* DECISIONS TABLE */
+.decisions-section { margin-bottom: var(--space-64); }
+table.decisions {
+  width: 100%; background: var(--xm-white); border: 1px solid var(--xm-grey-100); border-radius: var(--radius-6);
+  border-collapse: separate; border-spacing: 0; overflow: hidden;
+}
+table.decisions thead { background: var(--xm-grey-50); }
+table.decisions th {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--xm-grey-500); text-align: left; padding: var(--space-16) var(--space-24);
+  border-bottom: 1px solid var(--xm-grey-100);
+}
+table.decisions th:last-child, table.decisions td:last-child { text-align: right; }
+table.decisions td {
+  padding: var(--space-16) var(--space-24); font-size: 13px; color: var(--xm-ink);
+  border-bottom: 1px solid var(--xm-grey-50);
+}
+table.decisions tbody tr:last-child td { border-bottom: none; }
+table.decisions tbody tr:hover { background: var(--xm-blue-tint-2); }
+.instrument-cell { font-family: 'JetBrains Mono', monospace; font-weight: 500; color: var(--xm-navy); }
+.tier-pill {
+  display: inline-block; font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  padding: 3px 8px; border-radius: var(--radius-2); font-weight: 500;
+}
+.tier-per-security { background: rgba(232, 82, 58, 0.1); color: var(--xm-coral); }
+.tier-eap { background: rgba(61, 170, 92, 0.1); color: var(--xm-green); }
+.tier-bpipe { background: var(--xm-blue-tint-1); color: var(--xm-blue-700); }
+.tier-pill::before { content: ''; display: inline-block; }
+.delta-cell {
+  font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--xm-green);
+  font-feature-settings: 'tnum';
+}
+.delta-cell::before { content: '−'; opacity: 0.6; }
+
+/* FOOTER NOTE */
+.footer-note {
+  background: var(--xm-blue-tint-2); border: 1px solid var(--xm-blue-tint-1); border-radius: var(--radius-6);
+  padding: var(--space-24) var(--space-32); display: flex; gap: var(--space-24); align-items: flex-start;
+  margin-bottom: var(--space-64);
+}
+.footer-note-icon { color: var(--xm-blue); font-size: 18px; line-height: 1.3; }
+.footer-note-body { font-size: 13px; color: var(--xm-navy); line-height: 1.65; }
+.footer-note-body strong { font-weight: 600; }
+
+footer.page-footer {
+  border-top: 1px solid var(--xm-grey-100); padding: var(--space-32) 0; margin-top: var(--space-48);
+  display: flex; justify-content: space-between; font-size: 12px; color: var(--xm-grey-500);
+}
+footer.page-footer code {
+  font-family: 'JetBrains Mono', monospace; background: var(--xm-grey-50); padding: 2px 6px; border-radius: var(--radius-2);
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap header-inner">
+    <div class="brand">
+      <span class="brand-mark">Xenomorph</span>
+      <span class="brand-sep">/</span>
+      <span class="brand-product"><strong>DCO Visibility</strong> — Data Cost Optimization dashboard</span>
+    </div>
+    <div class="header-actions">
+      <span class="period-pill">Q1 2026 · Apr 1 – Apr 30</span>
+      <span class="sample-badge">Sample data — mockup</span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- SECURITY CALLOUT BANNER (per KEITH_NEEDS_TODAY.md recommendation + CONTRACT §0) -->
+  <div style="background: var(--xm-navy); color: var(--xm-white); padding: var(--space-16) var(--space-24); border-radius: var(--radius-6); margin-bottom: var(--space-32); display: flex; gap: var(--space-24); align-items: center; flex-wrap: wrap;">
+    <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--xm-blue); background: rgba(74,144,217,0.15); padding: 4px 10px; border-radius: var(--radius-2); white-space: nowrap;">Security &amp; isolation</span>
+    <span style="font-size: 13px; line-height: 1.6; flex: 1; color: rgba(255,255,255,0.85);">
+      Customer-hosted · AD-scoped Integrated Security · No cross-tenant data · No central exhaust to Xenomorph · Audit logs stay on the customer host.
+      Every figure on this dashboard is your firm's own, never aggregated against other clients.
+    </span>
+  </div>
+
+  <div class="page-title">
+    <div>
+      <h1>Bloomberg savings — by desk and decision</h1>
+      <p>Every Bloomberg Data License request optimised in real time. DCO routes through the cheapest viable tier (Per-Security ↔ EAP ↔ B-PIPE) without changing the data the downstream consumer sees.</p>
+    </div>
+    <div class="meta">
+      Tenant: <strong>your-firm</strong> · Source: <strong>TimeScapeProcessManagement</strong>
+    </div>
+  </div>
+
+  <!-- HERO METRICS -->
+  <section class="metrics">
+    <div class="metric-card is-headline">
+      <div class="metric-label">Saved this quarter</div>
+      <div class="metric-figure"><span class="currency">£</span>2.4m</div>
+      <div class="metric-delta is-positive">17% vs Q4 2025</div>
+      <div class="metric-context">Aggregate of all DCO-routed requests vs the Per-Security baseline they would otherwise have hit.</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Year-to-date</div>
+      <div class="metric-figure"><span class="currency">£</span>9.1m</div>
+      <div class="metric-context">Trailing 12 months. Comparable to your annual Bloomberg DL contract.</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Optimised request share</div>
+      <div class="metric-figure">94<span style="font-size:0.55em;color:var(--xm-blue);">%</span></div>
+      <div class="metric-context">Of all Bloomberg-eligible requests this quarter, DCO-routed. The remaining 6% are non-DCO-compliant (header options, identifier formats).</div>
+    </div>
+  </section>
+
+  <!-- PANELS: BY DESK + ENTITLEMENT -->
+  <section class="panel-grid">
+
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Savings by desk</h2>
+        <span class="panel-sub">Apr 2026, by business line</span>
+      </div>
+      <div class="desk-list">
+        <div class="desk-row">
+          <span class="desk-name">Equity Derivatives<span class="desk-sub">EQD · 142 traders, 18 strategies</span></span>
+          <div class="desk-bar"><div class="desk-bar-fill" style="width: 94%;"></div></div>
+          <span class="desk-amount">£684,200</span>
+        </div>
+        <div class="desk-row">
+          <span class="desk-name">Fixed Income<span class="desk-sub">FI · 88 traders</span></span>
+          <div class="desk-bar"><div class="desk-bar-fill" style="width: 78%;"></div></div>
+          <span class="desk-amount">£562,800</span>
+        </div>
+        <div class="desk-row">
+          <span class="desk-name">FX Trading<span class="desk-sub">FX · 41 traders</span></span>
+          <div class="desk-bar"><div class="desk-bar-fill" style="width: 56%;"></div></div>
+          <span class="desk-amount">£404,100</span>
+        </div>
+        <div class="desk-row">
+          <span class="desk-name">Commodities<span class="desk-sub">COMM · 32 traders</span></span>
+          <div class="desk-bar"><div class="desk-bar-fill" style="width: 42%;"></div></div>
+          <span class="desk-amount">£302,500</span>
+        </div>
+        <div class="desk-row">
+          <span class="desk-name">Quantitative Research<span class="desk-sub">QR · 22 quants, back-testing workload</span></span>
+          <div class="desk-bar"><div class="desk-bar-fill" style="width: 38%;"></div></div>
+          <span class="desk-amount">£271,600</span>
+        </div>
+        <div class="desk-row">
+          <span class="desk-name">Risk &amp; PnL<span class="desk-sub">RPN · cross-asset</span></span>
+          <div class="desk-bar"><div class="desk-bar-fill" style="width: 24%;"></div></div>
+          <span class="desk-amount">£172,400</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Entitlement audit</h2>
+        <span class="panel-sub">findings this quarter</span>
+      </div>
+      <div class="entitlement-grid">
+        <div class="entitlement-row is-warn">
+          <div class="entitlement-title">3 Per-Security entitlements unused &gt; 90 days</div>
+          <div class="entitlement-detail">Govt bond reference data, EM credit, single-stock vol. Estimated reclaim if dropped: £180k / year.</div>
+          <span class="entitlement-tag">action: review</span>
+        </div>
+        <div class="entitlement-row is-warn">
+          <div class="entitlement-title">2 real-time licences serving delayed-data use cases</div>
+          <div class="entitlement-detail">Risk back-testing, P&amp;L reconciliation. DCO can route these to delayed feeds without affecting outcome.</div>
+          <span class="entitlement-tag">action: reroute</span>
+        </div>
+        <div class="entitlement-row is-good">
+          <div class="entitlement-title">B-PIPE coverage fully utilised</div>
+          <div class="entitlement-detail">Front-Office trading desks consuming at expected rate.</div>
+          <span class="entitlement-tag">healthy</span>
+        </div>
+        <div class="entitlement-row">
+          <div class="entitlement-title">EAP routes account for 71% of optimisations</div>
+          <div class="entitlement-detail">Largest single contributor to this quarter's savings figure. Coverage gap at non-EAP-supported security types remains the limiting factor.</div>
+          <span class="entitlement-tag">opportunity</span>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- DECISIONS TABLE -->
+  <section class="decisions-section">
+    <div class="panel-header">
+      <h2 style="font-size:18px;font-weight:600;color:var(--xm-navy);">Recent optimisation decisions</h2>
+      <span class="panel-sub">last 8 requests · sample · click to expand provenance</span>
+    </div>
+    <table class="decisions">
+      <thead>
+        <tr>
+          <th>Instrument</th>
+          <th>Field</th>
+          <th>Requested tier</th>
+          <th>Served via</th>
+          <th>Desk</th>
+          <th>Time</th>
+          <th>Saved</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="instrument-cell">BP.L</td>
+          <td>Close.LastValue</td>
+          <td><span class="tier-pill tier-per-security">Per-Security</span></td>
+          <td><span class="tier-pill tier-eap">EAP</span></td>
+          <td>Equity Derivatives</td>
+          <td>14:08:22</td>
+          <td class="delta-cell">£2.40</td>
+        </tr>
+        <tr>
+          <td class="instrument-cell">VOD.L</td>
+          <td>Close.LastValue</td>
+          <td><span class="tier-pill tier-per-security">Per-Security</span></td>
+          <td><span class="tier-pill tier-eap">EAP</span></td>
+          <td>Equity Derivatives</td>
+          <td>14:08:18</td>
+          <td class="delta-cell">£2.40</td>
+        </tr>
+        <tr>
+          <td class="instrument-cell">DE10Y</td>
+          <td>YieldToMaturity</td>
+          <td><span class="tier-pill tier-per-security">Per-Security</span></td>
+          <td><span class="tier-pill tier-bpipe">B-PIPE</span></td>
+          <td>Fixed Income</td>
+          <td>14:07:55</td>
+          <td class="delta-cell">£1.85</td>
+        </tr>
+        <tr>
+          <td class="instrument-cell">EURUSD Curncy</td>
+          <td>Last</td>
+          <td><span class="tier-pill tier-per-security">Per-Security</span></td>
+          <td><span class="tier-pill tier-bpipe">B-PIPE</span></td>
+          <td>FX Trading</td>
+          <td>14:07:32</td>
+          <td class="delta-cell">£1.85</td>
+        </tr>
+        <tr>
+          <td class="instrument-cell">CL1 Comdty</td>
+          <td>SettlePrice</td>
+          <td><span class="tier-pill tier-per-security">Per-Security</span></td>
+          <td><span class="tier-pill tier-eap">EAP</span></td>
+          <td>Commodities</td>
+          <td>14:07:14</td>
+          <td class="delta-cell">£2.40</td>
+        </tr>
+        <tr>
+          <td class="instrument-cell">SPX Index</td>
+          <td>HistoryVolatility</td>
+          <td><span class="tier-pill tier-per-security">Per-Security</span></td>
+          <td><span class="tier-pill tier-eap">EAP</span></td>
+          <td>Quantitative Research</td>
+          <td>14:06:52</td>
+          <td class="delta-cell">£2.40</td>
+        </tr>
+        <tr>
+          <td class="instrument-cell">XS2374478474</td>
+          <td>YieldToWorst</td>
+          <td><span class="tier-pill tier-per-security">Per-Security</span></td>
+          <td><span class="tier-pill tier-bpipe">B-PIPE</span></td>
+          <td>Fixed Income</td>
+          <td>14:06:30</td>
+          <td class="delta-cell">£1.85</td>
+        </tr>
+        <tr>
+          <td class="instrument-cell">ENI.IM</td>
+          <td>Close.LastValue</td>
+          <td><span class="tier-pill tier-per-security">Per-Security</span></td>
+          <td><span class="tier-pill tier-eap">EAP</span></td>
+          <td>Equity Derivatives</td>
+          <td>14:06:08</td>
+          <td class="delta-cell">£2.40</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- FOOTNOTE -->
+  <div class="footer-note">
+    <span class="footer-note-icon">★</span>
+    <div class="footer-note-body">
+      <strong>This is an illustrative mockup.</strong> Values shown are sample data. The underlying schema — <code style="font-family: 'JetBrains Mono', monospace; background: var(--xm-white); padding: 2px 6px; border-radius: 2px;">BloombergRequests</code> and <code style="font-family: 'JetBrains Mono', monospace; background: var(--xm-white); padding: 2px 6px; border-radius: 2px;">RequestSubstitutes</code> in <code style="font-family: 'JetBrains Mono', monospace; background: var(--xm-white); padding: 2px 6px; border-radius: 2px;">TimeScapeProcessManagement</code> — already exists, and <strong>all five v1.5 DCO tools are wired and shipping as of <code style="font-family: 'JetBrains Mono', monospace; background: var(--xm-white); padding: 2px 6px; border-radius: 2px;">v1.1.0-preview.2</code></strong>. Two return real data today (entitlements, decisions); three return structure-only with <code style="font-family: 'JetBrains Mono', monospace; background: var(--xm-white); padding: 2px 6px; border-radius: 2px;">unmet_dependencies: ["baselineMethod"]</code> until the cost-reference question with Brian is settled — at which point the £ values flip from <code style="font-family: 'JetBrains Mono', monospace; background: var(--xm-white); padding: 2px 6px; border-radius: 2px;">null</code> to live. Tenant isolation enforced per <code style="font-family: 'JetBrains Mono', monospace; background: var(--xm-white); padding: 2px 6px; border-radius: 2px;">docs/CONTRACT.md</code> §0 — no cross-tenant data, ever.
+    </div>
+  </div>
+
+  <footer class="page-footer">
+    <span>Mockup · part of <code>xenoMCP v1.5</code> proposal · render against <code>XenomorphDesignSystem</code> tokens</span>
+    <span>2026-05-11</span>
+  </footer>
+
+</main>
+
+</body>
+</html>

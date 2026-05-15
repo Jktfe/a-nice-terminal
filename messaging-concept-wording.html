@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ANT - Bring Work Together</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #FF5A5F; /* Hot Coral */
+            --secondary: #1EB0A9; /* Vibrant Teal */
+            --tertiary: #6366F1; /* Indigo */
+            --bg-color: #F8F9FA;
+            --surface: #FFFFFF;
+            --text-dark: #1A1F36;
+            --text-muted: #637381;
+            --terminal-bg: #0D1117;
+            --terminal-text: #00FF41;
+            --radius-lg: 24px;
+            --radius-md: 16px;
+            --shadow-sm: 0 4px 12px rgba(0,0,0,0.05);
+            --shadow-lg: 0 20px 40px rgba(0,0,0,0.08);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-dark);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* Nav */
+        header {
+            padding: 32px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .logo {
+            font-size: 24px;
+            font-weight: 800;
+            color: var(--primary);
+            letter-spacing: -1px;
+        }
+
+        /* Hero */
+        .hero {
+            padding: 100px 0 80px;
+            text-align: center;
+            max-width: 950px;
+            margin: 0 auto;
+        }
+        .hero h1 {
+            font-size: 4.5rem;
+            font-weight: 800;
+            line-height: 1.1;
+            letter-spacing: -2px;
+            margin-bottom: 32px;
+        }
+        .hero p {
+            font-size: 1.5rem;
+            color: var(--text-muted);
+            font-weight: 400;
+            max-width: 800px;
+            margin: 0 auto;
+            line-height: 1.5;
+        }
+
+        /* Scenarios Section */
+        .scenarios {
+            padding: 80px 0;
+            display: flex;
+            flex-direction: column;
+            gap: 140px;
+        }
+
+        .scenario-row {
+            display: flex;
+            align-items: center;
+            gap: 64px;
+        }
+
+        .scenario-row:nth-child(even) {
+            flex-direction: row-reverse;
+        }
+
+        .scenario-content {
+            flex: 1;
+        }
+        .scenario-content h2 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            letter-spacing: -1px;
+            margin-bottom: 24px;
+            line-height: 1.2;
+        }
+        .scenario-content p {
+            font-size: 1.25rem;
+            color: var(--text-muted);
+        }
+
+        .scenario-visual {
+            flex: 1;
+            position: relative;
+        }
+
+        /* Visual Mocks */
+        .ui-card {
+            background: var(--surface);
+            border-radius: var(--radius-lg);
+            padding: 32px;
+            box-shadow: var(--shadow-lg);
+            position: relative;
+            z-index: 2;
+        }
+
+        /* Scenario 1: Magic */
+        .chat-bubble {
+            background: #F4F6F8;
+            padding: 16px 20px;
+            border-radius: var(--radius-md);
+            margin-bottom: 16px;
+            max-width: 85%;
+            font-size: 0.95rem;
+        }
+        .chat-bubble.agent {
+            background: rgba(30, 176, 169, 0.1);
+            color: #0E756E;
+            border: 1px solid rgba(30, 176, 169, 0.2);
+        }
+        .chat-bubble.human {
+            background: var(--primary);
+            color: white;
+            align-self: flex-end;
+            margin-left: auto;
+        }
+        .chat-meta {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Scenario 2: No Walled Gardens */
+        .pipeline {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .model-node {
+            background: #F8F9FA;
+            border: 1px solid #E1E3E5;
+            border-radius: var(--radius-md);
+            padding: 20px 16px;
+            text-align: center;
+            flex: 1;
+        }
+        .model-node h4 {
+            font-size: 1rem;
+            margin-bottom: 8px;
+            color: var(--text-dark);
+        }
+        .model-node p {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            line-height: 1.3;
+        }
+        .arrow {
+            color: var(--text-muted);
+            font-weight: bold;
+            font-size: 1.2rem;
+        }
+
+        /* Scenario 3: Pair Programming */
+        .split-mock {
+            display: flex;
+            gap: 16px;
+        }
+        .agent-column {
+            flex: 1;
+            background: #F8F9FA;
+            border-radius: var(--radius-md);
+            padding: 24px;
+            border: 1px solid #E1E3E5;
+        }
+        .agent-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 16px;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--secondary);
+        }
+        .dot.claude { background: #D97706; }
+        .dot.copilot { background: #4F46E5; }
+        .code-line {
+            height: 8px;
+            background: #DFE3E8;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            width: 100%;
+        }
+        .code-line.short { width: 60%; }
+        .code-line.synced { background: var(--secondary); opacity: 0.5; }
+
+        /* Scenario 4: Accountable AI */
+        .feed-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 16px;
+            padding: 16px 0;
+            border-bottom: 1px solid #E1E3E5;
+        }
+        .feed-item:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+        .feed-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: white;
+            flex-shrink: 0;
+        }
+        .feed-icon.grant { background: var(--secondary); }
+        .feed-icon.expire { background: var(--text-muted); }
+        .feed-icon.action { background: var(--tertiary); }
+        .feed-details {
+            flex: 1;
+        }
+        .feed-details h4 {
+            font-size: 0.95rem;
+            color: var(--text-dark);
+            margin-bottom: 4px;
+        }
+        .feed-details p {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+        .feed-time {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+
+        /* Scenario 5: Terminal Hatch */
+        .glass-ui {
+            position: absolute;
+            top: -20px;
+            left: -20px;
+            right: 20px;
+            bottom: 20px;
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            border-radius: var(--radius-lg);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            box-shadow: var(--shadow-lg);
+            padding: 40px;
+            z-index: 3;
+            transition: transform 0.4s ease, opacity 0.4s ease;
+        }
+        .terminal-bg {
+            background: var(--terminal-bg);
+            border-radius: var(--radius-lg);
+            padding: 40px;
+            height: 350px;
+            font-family: monospace;
+            color: var(--terminal-text);
+            font-size: 0.9rem;
+            position: relative;
+            z-index: 1;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
+            overflow: hidden;
+        }
+        .glass-ui:hover {
+            transform: translateX(40px) translateY(40px);
+            opacity: 0.2;
+        }
+
+        /* Footer */
+        footer {
+            padding: 60px 0;
+            text-align: center;
+            color: var(--text-muted);
+            border-top: 1px solid #E1E3E5;
+        }
+
+        @media (max-width: 900px) {
+            .hero h1 { font-size: 3.5rem; }
+            .hero p { font-size: 1.25rem; }
+            .scenario-row, .scenario-row:nth-child(even) {
+                flex-direction: column;
+                gap: 40px;
+            }
+            .pipeline { flex-direction: column; }
+            .arrow { transform: rotate(90deg); }
+            .glass-ui:hover {
+                transform: translateX(20px) translateY(20px);
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <header class="container">
+        <div class="logo">ANT</div>
+    </header>
+
+    <section class="hero container">
+        <h1>"The magic of AI isn't it doing what you can't do. It's doing what you don't have time to."</h1>
+        <p>Use the tools you already use, but faster. On your own or with a team. You can talk to AI agents, agents can talk to agents, your agents can talk to your team's agents. ANT brings work together.</p>
+    </section>
+
+    <section class="scenarios container">
+        
+        <!-- Scenario 1: Non-Techy Magic -->
+        <div class="scenario-row">
+            <div class="scenario-content">
+                <h2>Magic. But... not really. That's what AI should be doing from the get-go.</h2>
+                <p>You and Dave are working on a project. Your agent knows you need the lawyers' details, but they aren't on your machine, and you don't have time to chase Dave (who is heads-down and ignoring emails anyway). Your agent pings Dave's agent, who has permission to read project details for the joint chatroom. They find the details, share them, and it seamlessly appears in the deck you are working on.</p>
+            </div>
+            <div class="scenario-visual">
+                <div class="ui-card">
+                    <div style="display: flex; flex-direction: column;">
+                        <div class="chat-meta">Your Agent</div>
+                        <div class="chat-bubble agent">
+                            I noticed we need the legal contact details for the Q3 deck. Dave has these. Pinging his agent...
+                        </div>
+                        <div class="chat-meta" style="text-align: right;">Dave's Agent</div>
+                        <div class="chat-bubble human" style="background: var(--text-muted);">
+                            Dave is in Focus Mode. Retrieving authorized project details from his local vault...
+                        </div>
+                        <div class="chat-meta">Your Agent</div>
+                        <div class="chat-bubble agent" style="background: rgba(255, 90, 95, 0.1); color: var(--primary); border-color: rgba(255, 90, 95, 0.2);">
+                            Got it. I've added Christian from Legal directly into Slide 4 of your deck.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scenario 2: No Walled Gardens -->
+        <div class="scenario-row">
+            <div class="scenario-content">
+                <h2>Don't pick a side. Put them all in the same room.</h2>
+                <p>Every AI company wants you living entirely inside their ecosystem. ANT doesn't care. Have a local, private Llama model crunch your sensitive financial data, hand the summary to Claude 3.5 to write the backend code, and let ChatGPT polish the user documentation. All in one room. No vendor lock-in.</p>
+            </div>
+            <div class="scenario-visual">
+                <div class="ui-card">
+                    <div class="pipeline">
+                        <div class="model-node">
+                            <h4 style="color: #6366F1;">Llama (Local)</h4>
+                            <p>Parses sensitive PII data</p>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="model-node">
+                            <h4 style="color: #D97706;">Claude 3.5</h4>
+                            <p>Writes the DB migration</p>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="model-node">
+                            <h4 style="color: #10A37F;">ChatGPT</h4>
+                            <p>Drafts the release notes</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scenario 3: Techy Pair Programming -->
+        <div class="scenario-row">
+            <div class="scenario-content">
+                <h2>Awesome delivery. Your tools, perfectly in sync.</h2>
+                <p>You and Roxanne are shipping a feature. You're on a Mac using Claude, she's on Windows using Copilot. ANT handles the project state so you aren't copying and pasting context or stepping on each other's toes. Your agents coordinate the repo state, and the team just delivers.</p>
+            </div>
+            <div class="scenario-visual">
+                <div class="ui-card">
+                    <div class="split-mock">
+                        <div class="agent-column">
+                            <div class="agent-header">
+                                <div class="dot claude"></div> @claude-mac
+                            </div>
+                            <div class="code-line synced"></div>
+                            <div class="code-line short synced"></div>
+                            <div class="code-line"></div>
+                        </div>
+                        <div class="agent-column">
+                            <div class="agent-header">
+                                <div class="dot copilot"></div> @copilot-win
+                            </div>
+                            <div class="code-line synced"></div>
+                            <div class="code-line short synced"></div>
+                            <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 16px;">
+                                ↳ Validating changes against Mac state... OK.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scenario 4: Accountable AI -->
+        <div class="scenario-row">
+            <div class="scenario-content">
+                <h2>Finally, agents you can actually trust.</h2>
+                <p>Non-techy folks (and CISOs) are terrified of local agents because it feels like giving a ghost the keys to your laptop. ANT gives you a clean, Monzo-style transaction feed for your agents. You see exactly what they did, when, and who approved it.</p>
+            </div>
+            <div class="scenario-visual">
+                <div class="ui-card" style="padding: 16px 32px;">
+                    <div class="feed-item">
+                        <div class="feed-icon grant">✓</div>
+                        <div class="feed-details">
+                            <h4>Access Granted</h4>
+                            <p>You approved Dave's Agent to read <code>legal-q3.pdf</code></p>
+                        </div>
+                        <div class="feed-time">10:41 AM</div>
+                    </div>
+                    <div class="feed-item">
+                        <div class="feed-icon action">⚡</div>
+                        <div class="feed-details">
+                            <h4>File Read</h4>
+                            <p>Dave's Agent extracted 2 contacts.</p>
+                        </div>
+                        <div class="feed-time">10:42 AM</div>
+                    </div>
+                    <div class="feed-item">
+                        <div class="feed-icon expire">×</div>
+                        <div class="feed-details">
+                            <h4>Access Expired</h4>
+                            <p>1-hour temporary grant elapsed.</p>
+                        </div>
+                        <div class="feed-time">11:41 AM</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scenario 5: The Terminal Escape Hatch -->
+        <div class="scenario-row">
+            <div class="scenario-content">
+                <h2>The truth is exactly one click away.</h2>
+                <p>ANT wraps complex workflows in a friendly, card-based interface. But it's just glass over a real terminal. When you actually <em>do</em> need to dig into the logs, verify a command, or take manual control, the raw, auditable truth is right there.</p>
+            </div>
+            <div class="scenario-visual" style="height: 350px;">
+                <div class="terminal-bg">
+                    > ant status<br>
+                    [✓] agents connected<br>
+                    [✓] auth verified<br>
+                    [✓] workspace sync complete<br><br>
+                    > tail -f /var/log/agent.log<br>
+                    2026-05-11 09:41:22 INFO  Connecting to Dave's node...<br>
+                    2026-05-11 09:41:23 WARN  Access restricted for /private<br>
+                    2026-05-11 09:41:24 INFO  Details retrieved successfully.<br>
+                    <span style="animation: blink 1s step-end infinite;">_</span>
+                </div>
+                <div class="glass-ui">
+                    <h3 style="margin-bottom: 16px;">Workroom Status</h3>
+                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 24px;">
+                        <div style="width: 12px; height: 12px; border-radius: 50%; background: var(--secondary);"></div>
+                        <span style="font-weight: 600;">All Systems Go</span>
+                    </div>
+                    <p style="color: var(--text-muted); font-size: 0.9rem;">Hover over me to peel back the glass.</p>
+                </div>
+            </div>
+        </div>
+
+    </section>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2026 ANT Project. Agent coordination is a database problem.</p>
+        </div>
+    </footer>
+
+    <style>
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+    </style>
+</body>
+</html>

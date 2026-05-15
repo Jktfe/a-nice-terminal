@@ -107,21 +107,30 @@ export function GET({ url }: RequestEvent) {
   const limit = parseLimit(url.searchParams.get('limit'));
   const includeArchived = parseIncludeArchived(url.searchParams.get('include_archived'));
 
-  const sessionId = requestedSessionId ?? findPlanSession(planId);
   if (requestedSessionId && !queries.getSession(requestedSessionId)) {
     throw error(404, 'Session not found');
   }
 
-  const rows = sessionId
-    ? queries.getPlanEvents(sessionId, planId, [...PLAN_EVENT_KINDS], limit) as RunEventRow[]
-    : [];
+  // m-plan-ui-session-fragmentation-fix (2026-05-14): when caller omits
+  // session_id, aggregate events across every session emitting this plan_id.
+  // session_id in the response stays as the first-match (preserves the UI
+  // dropdown's session selector behaviour); events come from all sessions.
+  let rows: RunEventRow[] = [];
+  let aggregatedSessionId: string | null = requestedSessionId;
+  if (requestedSessionId) {
+    rows = queries.getPlanEvents(requestedSessionId, planId, [...PLAN_EVENT_KINDS], limit) as RunEventRow[];
+  } else {
+    rows = queries.getPlanEventsAcrossSessions(planId, [...PLAN_EVENT_KINDS], limit) as RunEventRow[];
+    if (rows.length > 0) aggregatedSessionId = rows[0].session_id;
+    else aggregatedSessionId = findPlanSession(planId);
+  }
   const normalized = rows.map(normalizePlanRow);
   const events = normalized.flatMap((entry) => entry.event ? [entry.event] : []);
   const errors = normalized.flatMap((entry) => entry.error ? [entry.error] : []);
   const archiveStatus = planArchiveStatus(events as any);
 
   return json({
-    session_id: sessionId,
+    session_id: aggregatedSessionId,
     plan_id: planId,
     archived: archiveStatus.archived,
     include_archived: includeArchived,

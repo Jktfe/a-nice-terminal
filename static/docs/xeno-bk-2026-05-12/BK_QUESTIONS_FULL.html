@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BK_QUESTIONS_FULL · xenoMCP BK pack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A2540; --surface:#fff; --line:#E5E7EB; --ink:#0A2540; --muted:#475569; --faint:#94A3B8;
+  --blue:#4A90D9; --navy:#0A2540; --green:#1AC270; --amber:#FFB100; --red:#F04438;
+  --code-bg:#F8FAFC; --code-border:#E2E8F0;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--ink);line-height:1.6}
+.topbar{background:var(--navy);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:16px;border-bottom:1px solid rgba(255,255,255,0.08)}
+.topbar a{color:rgba(255,255,255,0.7);text-decoration:none;font-size:12px;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.topbar a:hover{color:#fff}
+.topbar .crumb{color:rgba(255,255,255,0.4);font-family:JetBrains Mono,monospace;font-size:11px}
+.topbar .title{flex:1;font-size:13px;font-weight:600;color:#fff;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.shell{max-width:920px;margin:0 auto;padding:48px 32px 96px;background:#fff;min-height:calc(100vh - 60px)}
+h1{font-size:32px;font-weight:700;letter-spacing:-0.5px;margin:0 0 12px;color:var(--ink);border-bottom:2px solid var(--blue);padding-bottom:14px}
+h2{font-size:22px;font-weight:700;margin:36px 0 12px;color:var(--ink);border-left:4px solid var(--blue);padding-left:12px}
+h3{font-size:17px;font-weight:700;margin:28px 0 8px;color:var(--navy)}
+h4{font-size:14px;font-weight:700;margin:20px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-family:JetBrains Mono,monospace}
+p{margin:10px 0;color:var(--ink)}
+a{color:var(--blue);text-decoration:none;border-bottom:1px solid transparent;transition:border 0.15s}
+a:hover{border-bottom-color:var(--blue)}
+ul,ol{margin:10px 0 14px;padding-left:24px}
+li{margin:4px 0}
+code{font-family:JetBrains Mono,monospace;font-size:0.92em;background:var(--code-bg);border:1px solid var(--code-border);padding:1px 6px;border-radius:4px;color:var(--navy)}
+pre{background:var(--code-bg);border:1px solid var(--code-border);border-radius:8px;padding:14px 18px;overflow-x:auto;margin:14px 0}
+pre code{background:transparent;border:none;padding:0;font-size:13px;color:var(--ink)}
+blockquote{margin:14px 0;padding:10px 18px;background:#F8FAFC;border-left:4px solid var(--amber);color:var(--muted)}
+blockquote p{margin:6px 0}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th{background:#F8FAFC;text-align:left;padding:8px 12px;font-weight:700;border-bottom:2px solid var(--line);font-family:JetBrains Mono,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:hover td{background:#F8FAFC}
+hr{border:none;border-top:1px solid var(--line);margin:32px 0}
+strong{font-weight:700;color:var(--navy)}
+em{font-style:italic;color:var(--muted)}
+.footer{text-align:center;color:var(--faint);font-size:11px;font-family:JetBrains Mono,monospace;margin-top:48px;padding-top:24px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="./index.html">← BK pack index</a>
+  <span class="crumb">/</span>
+  <span class="title">BK_QUESTIONS_FULL</span>
+  <a href="./presentation.html">demo →</a>
+</div>
+<div class="shell">
+<h1>Questions for Brian Kristensen + Keith Morris — full reference</h1>
+<blockquote>
+<p><strong>Audience:</strong> internal tracker. For the <strong>one-page hand-to-Brian summary</strong>, see <a href="OPEN_QUESTIONS_FOR_BK.html">`OPEN_QUESTIONS_FOR_BK.md`</a> (xenoCodex&#39;s P0/P1 priority cut — same source material, distilled).</p>
+<p>Every open question we have, consolidated from the four research docs and prioritised by what each one unblocks. Order is &quot;answer these and we ship&quot;, not &quot;answer these and we&#39;ll think about it&quot;.</p>
+<p>Sources: <a href="research/DCO_RECON.html">`docs/research/DCO_RECON.md`</a> (4 schema-level Qs), <a href="research/MCP_INTERFACE.html">`docs/research/MCP_INTERFACE.md`</a> (5 engineering Qs), <a href="research/KEITH_NEEDS_TODAY.html">`docs/research/KEITH_NEEDS_TODAY.md`</a> (7 commercial/compliance Qs), <a href="research/V1_5_TOOL_SURFACE.html">`docs/research/V1_5_TOOL_SURFACE.md`</a> (per-tool gating).</p>
+</blockquote>
+<hr>
+<h2>How to read this</h2>
+<ul>
+<li><strong>Status badges</strong> show what answering each question unblocks: <code>[v1.5-blocker]</code> = the v1.5 release waits on this; <code>[v1.5-degrades]</code> = v1.5 ships without it but some tools return null fields; <code>[v2-input]</code> = we&#39;d like the answer to inform v2; <code>[zero-cost]</code> = a sentence-long answer is sufficient.</li>
+<li>Sections are by <strong>audience</strong> (Brian / Keith / Joint). Skip sections that aren&#39;t yours.</li>
+<li>Every question is <strong>stand-alone</strong> — no need to read in order.</li>
+</ul>
+<hr>
+<h2>A. Questions for Brian (engineering, product depth)</h2>
+<h3>A1. Per-request / per-record cost reference for Bloomberg Data License <code>[v1.5-blocker]</code></h3>
+<p><strong>Context:</strong> Our recon of <code>TimeScapeProcessManagement</code> found the activity log (<code>BloombergRequests</code>) and the substitution rules (<code>RequestSubstitutes</code>), but no pricing ref. Bloomberg DL has tier rates (per-security, per-field, per-call); without a numerator the savings story stays &quot;we processed 12,847 requests&quot; rather than &quot;we saved $47,290&quot;.</p>
+<p><strong>Ask:</strong> Where does the per-request / per-record cost reference live? Three candidates:</p>
+<ol>
+<li>A static config file in TimeScape we haven&#39;t found.</li>
+<li>A separate database / table we missed (we covered tables matching <code>%DCO%</code>, <code>%Vendor%</code>, <code>%Cost%</code>, <code>%Licen%</code> in <code>TimeScapeProcessManagement</code> only).</li>
+<li>Computed by clients externally from their own contract terms — i.e. NOT in TimeScape.</li>
+</ol>
+<p><strong>What unblocks if answered:</strong> <code>dco_savings_summary</code>, <code>dco_savings_by_desk</code>, <code>vendor_cost_summary</code> ship with non-null <code>estimated_savings.amount</code> rather than <code>null + unmet_dependencies</code>. The deck slide 10 demo can show real numbers, not placeholders.</p>
+<h3>A2. &quot;Desk&quot; / org dimension semantics <code>[v1.5-degrades]</code></h3>
+<p><strong>Context:</strong> <code>EntityProcesses.EntityProcessID</code> looks like the right grouping for &quot;desk&quot;, but TimeScape&#39;s data model is rich and there may be a higher-level concept (<code>Client</code>, <code>BusinessUnit</code>, <code>TradingBook</code>) better suited.</p>
+<p><strong>Ask:</strong> What&#39;s the canonical business dimension for attribution? Specifically: which view + column do we GROUP BY for &quot;show savings by desk&quot;?</p>
+<p><strong>What unblocks:</strong> <code>dco_savings_by_desk</code> ships with the right grouping label rather than <code>desk_dimension: &quot;EntityProcessID&quot;</code> + a <code>unmet_dependencies</code> flag.</p>
+<h3>A3. Substitution success rate / &quot;is this a reliable savings event?&quot; <code>[v1.5-degrades]</code></h3>
+<p><strong>Context:</strong> When a <code>RequestSubstitutes</code> row fires, we currently treat <code>DataLoaded=1 AND matching RequestSubstitute row</code> as a confirmed savings event. We don&#39;t know if there&#39;s a fallback path that&#39;s not visible in the views (e.g. a sub fires but partially fails and Bloomberg gets called anyway, but we&#39;d see only the success bit).</p>
+<p><strong>Ask:</strong> Is <code>(DataLoaded=1) AND (RequestSubstitute row exists for the same PackageRunID)</code> a reliable proxy for &quot;this request was satisfied without hitting Bloomberg&quot;? Or is there a more nuanced state machine?</p>
+<p><strong>What unblocks:</strong> <code>dco_optimisation_decisions</code> ships with definitive disposition labels rather than <code>disposition: &quot;substituted_provisional&quot;</code> flags. Cleaner narrative thread for the demo.</p>
+<h3>A4. Demo / dev-data ergonomics <code>[v1.5-degrades]</code></h3>
+<p><strong>Context:</strong> The Xeno-issued laptop&#39;s <code>TimeScapeProcessManagement</code> DCO tables are empty (0 rows except <code>ActiveRequestVendors=2</code>). Sufficient for schema design and stub responses; insufficient for a live demo where BK sees actual numbers.</p>
+<p><strong>Ask:</strong> Three options, in increasing order of impact:</p>
+<ol>
+<li>Synthetic dataset we generate ourselves. Fastest. We label clearly as synthetic in the UI (no risk of being mistaken for real client data).</li>
+<li>Anonymised extract from a real reference customer (with their permission). Best signal, requires customer relationship + an anonymisation pipeline.</li>
+<li>Approved screenshots / figures from a reference deployment.</li>
+</ol>
+<p>Which can Xeno enable, on what timeline?</p>
+<p><strong>What unblocks:</strong> the demo&#39;s &quot;live numbers vs static slide&quot; axis. Without this, the BK demo runs against synthetic-but-honest data; with this, against real-but-anonymised.</p>
+<h3>A5. TimeScape version cadence + CPython binding ABI <code>[v2-input]</code></h3>
+<p><strong>Context:</strong> The .pyd we ship against is <code>v3.13/64-Bit</code> from the v5.0 install. Per-Python-version <code>.pyd</code> files are documented in the install. What&#39;s the binding&#39;s compatibility story across TimeScape minor versions (e.g. v5.0 → v5.1)?</p>
+<p><strong>Ask:</strong> Does the .pyd shape change across TimeScape minor releases? If so, do we need to ship multiple <code>.pyd</code> shadows, or is forward compat the contract?</p>
+<p><strong>What unblocks:</strong> the customer-install story for the MCP. If forward compat is the norm, one MCP install per Python-major suffices.</p>
+<h3>A6. Audit-log integration <code>[v2-input]</code></h3>
+<p><strong>Context:</strong> The MCP writes its own JSONL audit (per-tool dispatch + outcome + confirm status). Customer hosts may already have a TimeScape audit trail (DB-level CDC, EDM+ logging, etc.).</p>
+<p><strong>Ask:</strong> Does TimeScape have an existing audit trail we should join into / forward to, rather than running a parallel one?</p>
+<p><strong>What unblocks:</strong> v2 audit consolidation. Currently a customer with strict audit needs has to look in two places.</p>
+<h3>A7. Connection / threading model for long-running MCP <code>[v2-input]</code></h3>
+<p><strong>Context:</strong> A long-running MCP server fields many tool calls over its session. The <code>.pyd</code> uses some implicit connection management to SQL Server.</p>
+<p><strong>Ask:</strong> What&#39;s the right pooling / connection-lifecycle posture? Is <code>timescape.pyd</code> thread-safe, or do we need to serialise tool calls?</p>
+<p><strong>What unblocks:</strong> v2 performance characteristics. Today (single user driving Claude Desktop) the question is academic; in v2 it isn&#39;t.</p>
+<h3>A8. Tools we shouldn&#39;t expose even with confirm-gating <code>[v2-input]</code></h3>
+<p><strong>Context:</strong> We currently gate writes / destructive ops uniformly. There may be specific calls (e.g. a <code>saveProp</code> that bypasses an EDM+ validation pipeline) that have downstream consequences best handled outside the MCP.</p>
+<p><strong>Ask:</strong> Is there anything in our 16 we should explicitly exclude from the AI-callable surface?</p>
+<p><strong>What unblocks:</strong> v1.5 / v2 tool-list curation. Better to remove a tool than to discover later it has a side-effect we didn&#39;t model.</p>
+<h3>A9. v3 federation thesis <code>[v2-input]</code></h3>
+<p><strong>Context:</strong> Xeno&#39;s positioning has long emphasised the &quot;single point of access to all your data&quot; thesis. The MCP could extend that from human-facing Workbench to AI-facing.</p>
+<p><strong>Ask:</strong> Does it sit well to extend that thesis to the AI lane? Or is there a reason the AI surface should stay strictly TimeScape-native?</p>
+<p><strong>What unblocks:</strong> v3 design intent. Affects whether v3 wraps non-TimeScape sources too (BBG DL direct, RDP, ICE, customer flat files) or stays narrow.</p>
+<hr>
+<h2>B. Questions for Keith (commercial, positioning, compliance)</h2>
+<h3>B1. DCO savings — customer-facing or internal sales enablement? <code>[v1.5-input]</code></h3>
+<p><strong>Context:</strong> The DCO Visibility surface can be positioned two ways: (a) as a customer-facing dashboard (&quot;here&#39;s what you&#39;ve saved this month&quot;), or (b) as Xeno-internal sales enablement (&quot;here&#39;s a number our salespeople use to win net-new customers&quot;).</p>
+<p><strong>Ask:</strong> Which framing — or both, with different scoping?</p>
+<p><strong>What unblocks:</strong> how aggressively we surface savings in the demo. (a) means tools speak in customer voice; (b) means we package the same data as case-study material.</p>
+<h3>B2. v1.5 release scope — read-only dashboards or exportable evidence packs? <code>[v1.5-input]</code></h3>
+<p><strong>Context:</strong> <code>dco_optimisation_decisions</code> returns per-request decision detail. Customers might want to export that for their procurement / audit teams as durable evidence (&quot;we saved $X, here&#39;s the journal entry-style log&quot;).</p>
+<p><strong>Ask:</strong> Should v1.5 ship with an export tool (<code>dco_export_evidence_pack(window) → .csv / .pdf</code>)? Or is read-only sufficient until customers ask?</p>
+<p><strong>What unblocks:</strong> scope for v1.5. Currently sized at 5 read-only tools; +1 export tool is a half-day of additional work.</p>
+<h3>B3. Compliance regimes that matter most for the immediate audience <code>[v1.5-input]</code></h3>
+<p><strong>Context:</strong> Different regulators frame data-quality / data-cost / audit requirements differently. The demo lands harder if it explicitly maps to the regimes BK&#39;s audience cares about.</p>
+<p><strong>Ask:</strong> Which of these matter most for the BK meeting and the immediate customer pipeline?</p>
+<ul>
+<li><strong>BCBS 239</strong> (risk data aggregation principles)</li>
+<li><strong>FRTB</strong> (Fundamental Review of the Trading Book)</li>
+<li><strong>IPV / MCC</strong> (Independent Price Verification / Marker-Curves-Curves)</li>
+<li><strong>BaFin</strong> (German prudential)</li>
+<li><strong>DORA</strong> (Digital Operational Resilience Act, EU)</li>
+<li><strong>T+1</strong> (US settlement cycle change)</li>
+<li><strong>Client-specific audit controls</strong> (whatever a particular target customer specifically requires)</li>
+</ul>
+<p><strong>What unblocks:</strong> which compliance hooks we lean into in the demo + slide 6 (Compliance lane).</p>
+<h3>B4. Approved examples / anonymised outputs for BK deck + DCO mockup <code>[v1.5-input]</code></h3>
+<p><strong>Context:</strong> Mirrors A4 from the Brian column, but framed for Keith: who decides whether a customer&#39;s data can appear in the deck (anonymised)?</p>
+<p><strong>Ask:</strong> Is there a customer relationship at the right level of trust to source anonymised real numbers from? Or do we firmly stay synthetic-only for now?</p>
+<p><strong>What unblocks:</strong> real-numbers vs synthetic-numbers in the deck. Currently planning synthetic; real changes the credibility curve.</p>
+<hr>
+<h2>C. Joint questions (need both perspectives)</h2>
+<h3>C1. The pricing-baseline conversation <code>[v1.5-blocker]</code></h3>
+<p><strong>Context:</strong> A1 (where the cost reference lives — engineering) and the commercial framing of the savings story (Keith&#39;s lane) are the same question seen from two sides. If the cost reference is in a static config that customers maintain, that&#39;s a customer-onboarding step; if it&#39;s computed externally, that&#39;s a salesperson-led conversation; if it&#39;s in TimeScape but we missed it, that&#39;s a 30-min Brian conversation.</p>
+<p><strong>Ask:</strong> Whichever side resolves it, treat the answer as a joint deliverable that covers (a) where the data lives, (b) which party owns it, (c) what the demo can use today.</p>
+<p><strong>What unblocks:</strong> four of the five v1.5 tools, the deck slide 10 numerics, the BK-meeting close.</p>
+<h3>C2. The &quot;what counts as a saving&quot; semantic <code>[v1.5-input]</code></h3>
+<p><strong>Context:</strong> A3 (substitution success rate, engineering) shades into a definitional question: is a &quot;saving&quot; measured at the request level, the session level, the per-record level, or per-day-end? Different definitions produce different numbers from the same activity log.</p>
+<p><strong>Ask:</strong> What definition does Xeno want to standardise on for the customer-facing v1.5 release?</p>
+<p><strong>What unblocks:</strong> the headline number. Avoids the situation where our number disagrees with another Xeno team&#39;s number computed differently.</p>
+<hr>
+<h2>D. Quick wins (≤1-sentence answers welcome)</h2>
+<h3>D1. Default user-population for v1.5</h3>
+<p><strong>Ask:</strong> Quant analyst seat? Operations / data engineer? Compliance / IPV team? CFO-office? Just say which one is the primary persona for v1.5 and we&#39;ll skin the demo to them.</p>
+<h3>D2. Naming convention for tool functions</h3>
+<p><strong>Ask:</strong> Snake_case (<code>dco_savings_summary</code>) per current docs, or camelCase (<code>dcoSavingsSummary</code>) per the v1 conventions in <code>server.py</code>? Mixed today; quick standardise.</p>
+<h3>D3. Repo visibility post-meeting</h3>
+<p><strong>Ask:</strong> xenoMCP is currently private under <code>Jktfe</code>. Post-BK, does it stay private (Xeno-internal contractor work), get transferred to a Xeno org, or open-source? Affects how forward-looking docs (v2/v3 roadmap) are phrased.</p>
+<hr>
+<h2>Recommended order of conversation</h2>
+<p>For a 30-minute Brian + Keith call, in priority order:</p>
+<ol>
+<li><strong>C1</strong> (5 min) — pricing baseline. Unblocks the most tools.</li>
+<li><strong>A2</strong> (3 min) — desk dimension. Unblocks <code>dco_savings_by_desk</code>.</li>
+<li><strong>A3</strong> (5 min) — substitution semantics. Unblocks <code>dco_optimisation_decisions</code>.</li>
+<li><strong>A4 + B4</strong> (5 min) — demo data path. Determines whether the BK meeting itself can show real numbers.</li>
+<li><strong>B1</strong> (5 min) — customer-facing vs internal positioning. Unblocks the deck framing.</li>
+<li><strong>D1</strong> (1 min) — primary persona. Last-pass tightening.</li>
+</ol>
+<p>Remaining questions (A5–A9, B2, B3, C2, D2, D3) can answer async by email — they shape v2 / v3 / packaging, not v1.5.</p>
+<hr>
+<h2>Status snapshot (so Brian knows what&#39;s already in flight)</h2>
+<ul>
+<li>v1.0.0 tagged + released: <a href="https://github.com/Jktfe/xenoMCP/releases/tag/v1.0.0">https://github.com/Jktfe/xenoMCP/releases/tag/v1.0.0</a> — baseline 16 tools</li>
+<li>v1.1.0-preview tagged: <a href="https://github.com/Jktfe/xenoMCP/releases/tag/v1.1.0-preview">https://github.com/Jktfe/xenoMCP/releases/tag/v1.1.0-preview</a> — first v1.5 tool live</li>
+<li><strong>v1.1.0-preview.2 tagged: <a href="https://github.com/Jktfe/xenoMCP/releases/tag/v1.1.0-preview.2">https://github.com/Jktfe/xenoMCP/releases/tag/v1.1.0-preview.2</a> — all five v1.5 tools live</strong></li>
+<li>21 tools live (16 baseline + 5 v1.5 DCO Visibility), end-to-end stdio handshake verified, BP.L round-trip in &lt;100ms</li>
+<li>Maker-Checker (four-eyes) enforced uniformly across the 12 gated tools</li>
+<li>v1.5 surface contracted in <code>docs/research/V1_5_TOOL_SURFACE.md</code>; <strong>all five tools shipped</strong> — 2 return real data immediately (<code>vendor_entitlement_audit</code>, <code>dco_optimisation_decisions</code>), 3 return structure-only (<code>dco_savings_summary</code>, <code>dco_savings_by_desk</code>, <code>vendor_cost_summary</code>) with <code>unmet_dependencies: [&quot;baselineMethod&quot;]</code> until cost-baseline question lands</li>
+<li>44 cross-platform tests passing</li>
+<li>Full deck (12 slides) in <code>docs/deck/</code>, demo script in <code>docs/DEMO_SCRIPT.md</code>, 4 analyst-workflow examples in <code>docs/examples/</code></li>
+</ul>
+<p>This isn&#39;t the conversation about whether to build the MCP. It&#39;s the conversation about <strong>what numbers go on slide 10</strong> when we ship next week.</p>
+
+<div class="footer">xenoMCP · BK pack · 2026-05-12 · rendered from source markdown</div>
+</div>
+</body>
+</html>

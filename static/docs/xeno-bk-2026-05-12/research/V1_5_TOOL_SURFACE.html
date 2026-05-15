@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>V1_5_TOOL_SURFACE · xenoMCP BK pack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A2540; --surface:#fff; --line:#E5E7EB; --ink:#0A2540; --muted:#475569; --faint:#94A3B8;
+  --blue:#4A90D9; --navy:#0A2540; --green:#1AC270; --amber:#FFB100; --red:#F04438;
+  --code-bg:#F8FAFC; --code-border:#E2E8F0;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--ink);line-height:1.6}
+.topbar{background:var(--navy);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:16px;border-bottom:1px solid rgba(255,255,255,0.08)}
+.topbar a{color:rgba(255,255,255,0.7);text-decoration:none;font-size:12px;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.topbar a:hover{color:#fff}
+.topbar .crumb{color:rgba(255,255,255,0.4);font-family:JetBrains Mono,monospace;font-size:11px}
+.topbar .title{flex:1;font-size:13px;font-weight:600;color:#fff;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.shell{max-width:920px;margin:0 auto;padding:48px 32px 96px;background:#fff;min-height:calc(100vh - 60px)}
+h1{font-size:32px;font-weight:700;letter-spacing:-0.5px;margin:0 0 12px;color:var(--ink);border-bottom:2px solid var(--blue);padding-bottom:14px}
+h2{font-size:22px;font-weight:700;margin:36px 0 12px;color:var(--ink);border-left:4px solid var(--blue);padding-left:12px}
+h3{font-size:17px;font-weight:700;margin:28px 0 8px;color:var(--navy)}
+h4{font-size:14px;font-weight:700;margin:20px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-family:JetBrains Mono,monospace}
+p{margin:10px 0;color:var(--ink)}
+a{color:var(--blue);text-decoration:none;border-bottom:1px solid transparent;transition:border 0.15s}
+a:hover{border-bottom-color:var(--blue)}
+ul,ol{margin:10px 0 14px;padding-left:24px}
+li{margin:4px 0}
+code{font-family:JetBrains Mono,monospace;font-size:0.92em;background:var(--code-bg);border:1px solid var(--code-border);padding:1px 6px;border-radius:4px;color:var(--navy)}
+pre{background:var(--code-bg);border:1px solid var(--code-border);border-radius:8px;padding:14px 18px;overflow-x:auto;margin:14px 0}
+pre code{background:transparent;border:none;padding:0;font-size:13px;color:var(--ink)}
+blockquote{margin:14px 0;padding:10px 18px;background:#F8FAFC;border-left:4px solid var(--amber);color:var(--muted)}
+blockquote p{margin:6px 0}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th{background:#F8FAFC;text-align:left;padding:8px 12px;font-weight:700;border-bottom:2px solid var(--line);font-family:JetBrains Mono,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:hover td{background:#F8FAFC}
+hr{border:none;border-top:1px solid var(--line);margin:32px 0}
+strong{font-weight:700;color:var(--navy)}
+em{font-style:italic;color:var(--muted)}
+.footer{text-align:center;color:var(--faint);font-size:11px;font-family:JetBrains Mono,monospace;margin-top:48px;padding-top:24px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="../index.html">← BK pack index</a>
+  <span class="crumb">/</span>
+  <span class="title">research/V1_5_TOOL_SURFACE</span>
+  <a href="../presentation.html">demo →</a>
+</div>
+<div class="shell">
+<h1>v1.5 DCO Visibility — tool surface contract</h1>
+<blockquote>
+<p>Concrete signatures, return shapes, and SQL view dependencies for the five proposed DCO Visibility tools. Written so that when Brian answers the four open questions (cost reference, desk dimension, substitution-success semantics, demo data), we can implement same-day.</p>
+<p>Reads from: <a href="DCO_RECON.html">`DCO_RECON.md`</a> (schema), <a href="KEITH_NEEDS_TODAY.html">`KEITH_NEEDS_TODAY.md`</a> (compliance non-negotiables), <a href="../CONTRACT.html">`../CONTRACT.md`</a> (safety contract &amp; §0 Tenancy).</p>
+</blockquote>
+<hr>
+<h2>Class assignment</h2>
+<p>All five v1.5 tools are <strong>read-class</strong> under the existing safety contract: execute unconditionally, no <code>confirm</code> gating. None mutate TimeScape state. None touch other tenants&#39; data (CONTRACT §0). None expose cost or savings data without an explicit, named baseline.</p>
+<h2>Shared parameters</h2>
+<p>Several tools take a window or baseline. Defined once here.</p>
+<h3><code>Window</code></h3>
+<pre><code class="language-ts">type Window = {
+  // ISO 8601 dates. End is exclusive.
+  start: string;   // &quot;2026-04-11&quot;
+  end:   string;   // &quot;2026-05-11&quot;
+} | {
+  // Or a relative shorthand the server resolves on the host&#39;s local clock.
+  last: &quot;7d&quot; | &quot;30d&quot; | &quot;90d&quot; | &quot;ytd&quot; | &quot;mtd&quot;;
+}
+</code></pre>
+<h3><code>BaselineMethod</code></h3>
+<p>Open until Brian answers Q1 from the recon. Three candidate methods preserve as named string literals so the answer becomes a tool param, not a schema break:</p>
+<pre><code class="language-ts">type BaselineMethod =
+  | &quot;bloomberg_tier_pricing&quot;   // raw BBG DL contract rates, looked up against ActiveRequestVendorPrograms × volume
+  | &quot;pre_dco_historical&quot;       // customer&#39;s own pre-DCO spend baseline, requires a configured &quot;from-date&quot;
+  | &quot;contracted_rate_table&quot;    // a static per-record price ref the customer provides
+</code></pre>
+<p>Tools that depend on this take an optional <code>baselineMethod</code> arg; when omitted, the server returns the savings <em>structure</em> (counts, ratios, vendor mix) but with <code>estimated_savings_usd: null</code> and an <code>unmet_dependency: &quot;baselineMethod&quot;</code> field in the response. This lets the deck mockup show shape without committing to numbers.</p>
+<hr>
+<h2>Tool 1 — <code>dco_savings_summary</code></h2>
+<h3>Signature</h3>
+<pre><code class="language-python">@mcp.tool()
+def dco_savings_summary(
+    window: dict,                       # Window
+    baselineMethod: str | None = None,  # BaselineMethod
+) -&gt; dict: ...
+</code></pre>
+<h3>Return shape</h3>
+<pre><code class="language-jsonc">{
+  &quot;ok&quot;: true,
+  &quot;window&quot;: { &quot;start&quot;: &quot;2026-04-11&quot;, &quot;end&quot;: &quot;2026-05-11&quot; },
+  &quot;tenant_scope&quot;: &quot;customer_only&quot;,     // CONTRACT §0 hard rail
+  &quot;totals&quot;: {
+    &quot;bloomberg_requests&quot;: 12847,        // count from BloombergRequests
+    &quot;dco_served&quot;: 8103,                 // DataLoaded=1 and RequestError=0
+    &quot;substituted&quot;: 3211,                // joined with RequestSubstitutes
+    &quot;direct_passthrough&quot;: 1533,         // requests that bypassed DCO
+    &quot;failed&quot;: 0                         // RequestError=1
+  },
+  &quot;estimated_savings&quot;: {
+    &quot;amount&quot;: 47290.00,                 // null if baselineMethod omitted
+    &quot;currency&quot;: &quot;USD&quot;,
+    &quot;method&quot;: &quot;bloomberg_tier_pricing&quot;, // echo of input
+    &quot;baseline_window&quot;: &quot;2026-04-11..2026-05-11&quot;
+  },
+  &quot;unmet_dependencies&quot;: []              // [&quot;baselineMethod&quot;] if amount is null
+}
+</code></pre>
+<h3>SQL views</h3>
+<ul>
+<li><code>BloombergRequests</code> — primary activity log.</li>
+<li><code>RequestSubstitutes</code> — joined on <code>PackageRunID</code> / <code>ItemRefID</code> to count substituted requests.</li>
+<li><code>ActiveRequestVendorPrograms</code> — for tier pricing lookup when <code>baselineMethod=&quot;bloomberg_tier_pricing&quot;</code>.</li>
+</ul>
+<h3>Compliance posture</h3>
+<ul>
+<li>Tenant-scoped by SQL connection (Integrated Auth = customer identity).</li>
+<li>No peer comparison.</li>
+<li><code>estimated_savings.method</code> always echoed in the response so the figure is never decontextualised.</li>
+<li><code>null</code>-amount fallback when baseline is unspecified — refuses to invent savings.</li>
+</ul>
+<hr>
+<h2>Tool 2 — <code>dco_savings_by_desk</code></h2>
+<h3>Signature</h3>
+<pre><code class="language-python">@mcp.tool()
+def dco_savings_by_desk(
+    window: dict,                       # Window
+    baselineMethod: str | None = None,  # BaselineMethod
+) -&gt; dict: ...
+</code></pre>
+<h3>Return shape</h3>
+<pre><code class="language-jsonc">{
+  &quot;ok&quot;: true,
+  &quot;window&quot;: { ... },
+  &quot;tenant_scope&quot;: &quot;customer_only&quot;,
+  &quot;desk_dimension&quot;: &quot;EntityProcessID&quot;,  // see open Q below
+  &quot;rows&quot;: [
+    { &quot;desk_id&quot;: &quot;EQ-RATES&quot;,  &quot;desk_label&quot;: &quot;Equity Rates&quot;,
+      &quot;bloomberg_requests&quot;: 4_281, &quot;dco_served&quot;: 2_847, &quot;substituted&quot;: 1_201,
+      &quot;estimated_savings&quot;: { &quot;amount&quot;: 18_410.00, &quot;currency&quot;: &quot;USD&quot; } },
+    { &quot;desk_id&quot;: &quot;FX&quot;,        &quot;desk_label&quot;: &quot;FX&quot;,
+      &quot;bloomberg_requests&quot;: 3_182, &quot;dco_served&quot;: 1_904, &quot;substituted&quot;:   823,
+      &quot;estimated_savings&quot;: { &quot;amount&quot;: 10_205.00, &quot;currency&quot;: &quot;USD&quot; } },
+    // ...
+  ],
+  &quot;unmet_dependencies&quot;: []              // [&quot;baselineMethod&quot;] | [&quot;desk_dimension_unconfirmed&quot;]
+}
+</code></pre>
+<h3>SQL views</h3>
+<ul>
+<li><code>BloombergRequests</code> JOIN <code>EntityRequestMessages</code> (on <code>EntityRequestMessageID</code>-equivalent) JOIN <code>EntityProcesses</code> on <code>EntityProcessID</code>.</li>
+<li>Group by <code>EntityProcessID</code> for <code>desk_id</code>; <code>EntityProcesses.Name</code> (assumed) for <code>desk_label</code>.</li>
+</ul>
+<h3>Compliance posture</h3>
+<ul>
+<li>Org dimension is the customer&#39;s own configured entity hierarchy (no Xeno-internal hierarchy bleeds in).</li>
+<li>If <code>EntityProcessID</code> turns out NOT to map to &quot;desk&quot; (Brian&#39;s call), the response carries <code>desk_dimension: &quot;&lt;actual-field&gt;&quot;</code> and <code>unmet_dependencies: [&quot;desk_dimension_unconfirmed&quot;]</code> until renamed.</li>
+</ul>
+<hr>
+<h2>Tool 3 — <code>dco_optimisation_decisions</code></h2>
+<h3>Signature</h3>
+<pre><code class="language-python">@mcp.tool()
+def dco_optimisation_decisions(
+    window: dict,                                 # Window
+    filterDisposition: str | None = None,         # &quot;dco_served&quot; | &quot;substituted&quot; | &quot;direct_passthrough&quot; | &quot;failed&quot;
+    limit: int = 100,                             # cap at 1000
+) -&gt; dict: ...
+</code></pre>
+<h3>Return shape</h3>
+<pre><code class="language-jsonc">{
+  &quot;ok&quot;: true,
+  &quot;window&quot;: { ... },
+  &quot;tenant_scope&quot;: &quot;customer_only&quot;,
+  &quot;filter&quot;: { &quot;disposition&quot;: null, &quot;limit&quot;: 100 },
+  &quot;rows&quot;: [
+    {
+      &quot;bloomberg_request_id&quot;: 91842,
+      &quot;timestamp&quot;: &quot;2026-05-10T09:42:11+00:00&quot;,
+      &quot;request_type&quot;: &quot;BVAL&quot;,
+      &quot;asset_class&quot;: &quot;Equity&quot;,
+      &quot;disposition&quot;: &quot;substituted&quot;,
+      &quot;substitution_rule&quot;: {
+        &quot;destination_category&quot;: &quot;Internal&quot;,
+        &quot;destination_code_type&quot;: &quot;Reuters&quot;,
+        &quot;destination_data_source&quot;: &quot;Internal_NightlyCache&quot;,
+        &quot;fields_query&quot;: &quot;Close, High, Low&quot;
+      },
+      &quot;identifiers&quot;: [
+        { &quot;identifier&quot;: &quot;BP.L&quot;, &quot;identifier_type&quot;: &quot;Reuters&quot; }
+      ],
+      &quot;outcome&quot;: { &quot;data_loaded&quot;: true, &quot;had_error&quot;: false }
+    },
+    // ...
+  ]
+}
+</code></pre>
+<h3>SQL views</h3>
+<ul>
+<li><code>BloombergRequests</code> (one row per request, w/ bit flags for disposition).</li>
+<li><code>RequestSubstitutes</code> (LEFT JOIN to populate <code>substitution_rule</code> if a sub fired).</li>
+<li><code>BloombergRequestIdentifiers</code> (one-to-many for the <code>identifiers</code> array).</li>
+</ul>
+<h3>Compliance posture</h3>
+<ul>
+<li><code>identifiers</code> shows the actual securities the customer asked for — already their data, no leak.</li>
+<li><code>disposition</code> is derived from public bit flags; no internal Xeno scoring leaked.</li>
+</ul>
+<h3>Notes</h3>
+<ul>
+<li>Most useful tool for &quot;show me an example of a recent saving&quot; in a demo — feeds the BK script&#39;s Moment 5/6 substitute.</li>
+<li><code>filterDisposition=&quot;substituted&quot;</code> gives the cleanest narrative thread.</li>
+</ul>
+<hr>
+<h2>Tool 4 — <code>vendor_entitlement_audit</code></h2>
+<h3>Signature</h3>
+<pre><code class="language-python">@mcp.tool()
+def vendor_entitlement_audit(
+    vendor: str | None = None,    # &quot;Bloomberg&quot; | &quot;Reuters&quot; | None = all
+) -&gt; dict: ...
+</code></pre>
+<h3>Return shape</h3>
+<pre><code class="language-jsonc">{
+  &quot;ok&quot;: true,
+  &quot;tenant_scope&quot;: &quot;customer_only&quot;,
+  &quot;vendors&quot;: [
+    {
+      &quot;vendor&quot;: &quot;Bloomberg&quot;,
+      &quot;active_accounts&quot;: [
+        {
+          &quot;account_id&quot;: &quot;BBG-XYZ123&quot;,
+          &quot;programs&quot;: [&quot;BVAL&quot;, &quot;BVAL_FixedIncome&quot;, &quot;BPipe&quot;],
+          &quot;encryption&quot;: &quot;des&quot;,
+          &quot;delivery&quot;: &quot;SFTP&quot;,
+          &quot;redundancy_note&quot;: &quot;Two programs cover same instrument universe — see ProgramConfigs&quot;
+        }
+      ]
+    },
+    { &quot;vendor&quot;: &quot;Reuters&quot;, &quot;active_accounts&quot;: [/* ... */] }
+  ]
+}
+</code></pre>
+<h3>SQL views</h3>
+<ul>
+<li><code>ActiveRequestVendors</code></li>
+<li><code>ActiveRequestVendorPrograms</code></li>
+<li><code>ActiveEntityRequestVendorConfigs</code> / <code>ActiveEntityRequestVendorParameters</code> for the per-account config.</li>
+</ul>
+<h3>Compliance posture</h3>
+<ul>
+<li>Configuration <em>metadata only</em>. No request bodies, no usage data. The customer already knows their own vendor accounts; this view just makes it inspectable through the MCP.</li>
+<li>No cross-vendor cost comparison (that&#39;s Tool 5).</li>
+</ul>
+<hr>
+<h2>Tool 5 — <code>vendor_cost_summary</code></h2>
+<h3>Signature</h3>
+<pre><code class="language-python">@mcp.tool()
+def vendor_cost_summary(
+    window: dict,                       # Window
+    baselineMethod: str | None = None,  # BaselineMethod
+    groupBy: str = &quot;vendor&quot;,            # &quot;vendor&quot; | &quot;asset_class&quot; | &quot;vendor_x_asset_class&quot;
+) -&gt; dict: ...
+</code></pre>
+<h3>Return shape</h3>
+<pre><code class="language-jsonc">{
+  &quot;ok&quot;: true,
+  &quot;window&quot;: { ... },
+  &quot;tenant_scope&quot;: &quot;customer_only&quot;,
+  &quot;group_by&quot;: &quot;vendor&quot;,
+  &quot;rows&quot;: [
+    { &quot;vendor&quot;: &quot;Bloomberg&quot;, &quot;request_count&quot;: 12_847, &quot;cost_with_dco&quot;: 9_310.00, &quot;cost_without_dco&quot;: 56_600.00, &quot;currency&quot;: &quot;USD&quot; },
+    { &quot;vendor&quot;: &quot;Reuters&quot;,   &quot;request_count&quot;:  4_122, &quot;cost_with_dco&quot;: 4_122.00, &quot;cost_without_dco&quot;:  4_122.00, &quot;currency&quot;: &quot;USD&quot; }
+  ],
+  &quot;estimated_savings&quot;: {
+    &quot;amount&quot;: 47290.00,
+    &quot;currency&quot;: &quot;USD&quot;,
+    &quot;method&quot;: &quot;bloomberg_tier_pricing&quot;
+  },
+  &quot;unmet_dependencies&quot;: []
+}
+</code></pre>
+<h3>SQL views</h3>
+<ul>
+<li><code>BloombergRequests</code> + <code>ReutersRequests_fg1</code> (combined) for activity.</li>
+<li>Pricing source as per <code>baselineMethod</code>.</li>
+</ul>
+<h3>Compliance posture</h3>
+<ul>
+<li>Same baseline discipline as Tool 1: <code>null</code>-amount and <code>unmet_dependencies</code> when method unspecified.</li>
+<li><code>cost_with_dco</code> and <code>cost_without_dco</code> shown side-by-side — explicit so a CFO can read the comparison without inference.</li>
+</ul>
+<hr>
+<h2>Implementation order (post-Brian-answers)</h2>
+<table>
+<thead>
+<tr>
+<th>Day</th>
+<th>Work</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Day 1 AM</strong></td>
+<td>Wire <code>vendor_entitlement_audit</code> first — read-only metadata, no baseline dependency, low risk, high signal-value.</td>
+</tr>
+<tr>
+<td><strong>Day 1 PM</strong></td>
+<td>Wire <code>dco_optimisation_decisions</code> — drives Moment 5/6 of the demo without needing a cost reference.</td>
+</tr>
+<tr>
+<td><strong>Day 2 AM</strong></td>
+<td>Wire <code>dco_savings_summary</code> and <code>vendor_cost_summary</code> together (they share most plumbing). Configurable <code>baselineMethod</code> lets Brian answer Q1 by setting a config rather than changing code.</td>
+</tr>
+<tr>
+<td><strong>Day 2 PM</strong></td>
+<td>Wire <code>dco_savings_by_desk</code> once Brian confirms the desk dimension.</td>
+</tr>
+<tr>
+<td><strong>Day 3</strong></td>
+<td>Cross-platform tests (with <code>timescape</code> stub returning shaped fake data), README updates, tag <code>v1.5.0</code>.</td>
+</tr>
+</tbody></table>
+<p>Three days bench-time from greenlight to release. Two days if the desk-dimension question stays open and we ship four of five.</p>
+<hr>
+<h2>Open questions — gating which tools</h2>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Question</th>
+<th>Without answer</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>dco_savings_summary</code></td>
+<td>Q1: cost reference data</td>
+<td>Returns counts + ratios; <code>estimated_savings.amount = null</code>, <code>unmet_dependencies = [&quot;baselineMethod&quot;]</code></td>
+</tr>
+<tr>
+<td><code>dco_savings_by_desk</code></td>
+<td>Q1 + Q2 (desk dimension)</td>
+<td>Returns activity by <code>EntityProcessID</code> with a flag; null savings</td>
+</tr>
+<tr>
+<td><code>dco_optimisation_decisions</code></td>
+<td>Q3 (substitution-success semantics) — minor</td>
+<td>Ships with current best-effort interpretation; flag added to row when disposition is ambiguous</td>
+</tr>
+<tr>
+<td><code>vendor_entitlement_audit</code></td>
+<td>None</td>
+<td>Ships day 1</td>
+</tr>
+<tr>
+<td><code>vendor_cost_summary</code></td>
+<td>Q1</td>
+<td>Same as <code>dco_savings_summary</code>: structure-only without numbers</td>
+</tr>
+</tbody></table>
+<p>So <strong><code>vendor_entitlement_audit</code> and <code>dco_optimisation_decisions</code> ship day-1 with zero blockers</strong>. The other three ship with placeholder numerics until Brian / Keith hand us a baseline method.</p>
+<hr>
+<h2>What this enables, in one sentence</h2>
+<p>The deck mockup of the v1.5 surface (slide 10) can render against this contract today using synthetic data — and when the open questions resolve, the live versions slot into the same response shape with no client-side change.</p>
+
+<div class="footer">xenoMCP · BK pack · 2026-05-12 · rendered from source markdown</div>
+</div>
+</body>
+</html>

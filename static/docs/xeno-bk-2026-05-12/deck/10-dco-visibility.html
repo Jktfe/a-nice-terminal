@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>10-dco-visibility · xenoMCP BK pack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A2540; --surface:#fff; --line:#E5E7EB; --ink:#0A2540; --muted:#475569; --faint:#94A3B8;
+  --blue:#4A90D9; --navy:#0A2540; --green:#1AC270; --amber:#FFB100; --red:#F04438;
+  --code-bg:#F8FAFC; --code-border:#E2E8F0;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--ink);line-height:1.6}
+.topbar{background:var(--navy);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:16px;border-bottom:1px solid rgba(255,255,255,0.08)}
+.topbar a{color:rgba(255,255,255,0.7);text-decoration:none;font-size:12px;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.topbar a:hover{color:#fff}
+.topbar .crumb{color:rgba(255,255,255,0.4);font-family:JetBrains Mono,monospace;font-size:11px}
+.topbar .title{flex:1;font-size:13px;font-weight:600;color:#fff;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.shell{max-width:920px;margin:0 auto;padding:48px 32px 96px;background:#fff;min-height:calc(100vh - 60px)}
+h1{font-size:32px;font-weight:700;letter-spacing:-0.5px;margin:0 0 12px;color:var(--ink);border-bottom:2px solid var(--blue);padding-bottom:14px}
+h2{font-size:22px;font-weight:700;margin:36px 0 12px;color:var(--ink);border-left:4px solid var(--blue);padding-left:12px}
+h3{font-size:17px;font-weight:700;margin:28px 0 8px;color:var(--navy)}
+h4{font-size:14px;font-weight:700;margin:20px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-family:JetBrains Mono,monospace}
+p{margin:10px 0;color:var(--ink)}
+a{color:var(--blue);text-decoration:none;border-bottom:1px solid transparent;transition:border 0.15s}
+a:hover{border-bottom-color:var(--blue)}
+ul,ol{margin:10px 0 14px;padding-left:24px}
+li{margin:4px 0}
+code{font-family:JetBrains Mono,monospace;font-size:0.92em;background:var(--code-bg);border:1px solid var(--code-border);padding:1px 6px;border-radius:4px;color:var(--navy)}
+pre{background:var(--code-bg);border:1px solid var(--code-border);border-radius:8px;padding:14px 18px;overflow-x:auto;margin:14px 0}
+pre code{background:transparent;border:none;padding:0;font-size:13px;color:var(--ink)}
+blockquote{margin:14px 0;padding:10px 18px;background:#F8FAFC;border-left:4px solid var(--amber);color:var(--muted)}
+blockquote p{margin:6px 0}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th{background:#F8FAFC;text-align:left;padding:8px 12px;font-weight:700;border-bottom:2px solid var(--line);font-family:JetBrains Mono,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:hover td{background:#F8FAFC}
+hr{border:none;border-top:1px solid var(--line);margin:32px 0}
+strong{font-weight:700;color:var(--navy)}
+em{font-style:italic;color:var(--muted)}
+.footer{text-align:center;color:var(--faint);font-size:11px;font-family:JetBrains Mono,monospace;margin-top:48px;padding-top:24px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="../index.html">← BK pack index</a>
+  <span class="crumb">/</span>
+  <span class="title">deck/10-dco-visibility</span>
+  <a href="../presentation.html">demo →</a>
+</div>
+<div class="shell">
+<h1>The DCO Visibility extension (v1.5)</h1>
+<p>Slide 7 named the gap: DCO saves Xenomorph clients millions of dollars in Bloomberg spend, but you don&#39;t surface the savings. This slide proposes the fix.</p>
+<h2>What the recon found</h2>
+<p>The recon (<code>docs/research/DCO_RECON.md</code> in the repo) confirms DCO state isn&#39;t on the public programmer surface — it lives in the <code>TimeScapeProcessManagement</code> SQL Server database. <strong>The schema is rich enough to support a v1.5 tool surface without any platform changes.</strong></p>
+<table>
+<thead>
+<tr>
+<th>Source</th>
+<th>What&#39;s in it</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>BloombergRequests</code> (view, 18 cols)</td>
+<td>Every outbound Bloomberg API call as one row. <code>ExecID</code>, <code>RequestType</code>, <code>AssetClass</code>, <code>TimeStamp</code>, plus bit-flags for <code>DataLoaded</code> / <code>RequestError</code> / etc. — i.e. <em>did this DCO request succeed</em>. <strong>The savings-event log.</strong></td>
+</tr>
+<tr>
+<td><code>RequestSubstitutes</code> (view, 12 cols)</td>
+<td>Alternative-vendor substitution rules. When a Bloomberg request can be served from a different DataSource — fundamentally what &quot;saving&quot; means in DCO terms. <strong>The savings-rule map.</strong></td>
+</tr>
+<tr>
+<td><code>EntityProcesses</code> join chain</td>
+<td>Workflow/entity model — joinable to <code>BloombergRequests</code> for desk-level attribution.</td>
+</tr>
+<tr>
+<td><code>ActiveRequestVendors</code>, <code>ActiveEntityRequestVendorConfigs/Parameters</code></td>
+<td>Vendor entitlement model — which vendors a client is paying for, at what granularity.</td>
+</tr>
+</tbody></table>
+<h2>Proposed v1.5 tool surface</h2>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>What it returns</th>
+<th>Data source</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong><code>vendor_entitlement_audit()</code></strong></td>
+<td>Unused / redundant Bloomberg entitlements (&quot;paying but not consuming&quot;).</td>
+<td><code>ActiveRequestVendors</code> + <code>ActiveEntityRequestVendorConfigs/Parameters</code></td>
+<td><strong>✅ live, real data</strong> (<code>v1.1.0-preview</code>) — zero open-Q dependencies</td>
+</tr>
+<tr>
+<td><strong><code>dco_optimisation_decisions(period, instrument?)</code></strong></td>
+<td>Per-decision detail: requested-tier → served-tier → £ delta. Classifies disposition (<code>dco_served</code>/<code>substituted</code>/<code>failed</code>).</td>
+<td><code>BloombergRequests</code> LEFT JOIN <code>RequestSubstitutes</code> LEFT JOIN <code>BloombergRequestIdentifiers</code></td>
+<td><strong>✅ live, real data</strong> (<code>v1.1.0-preview.2</code>) — zero open-Q dependencies</td>
+</tr>
+<tr>
+<td><strong><code>dco_savings_summary(period, scope?)</code></strong></td>
+<td>Total £ saved by DCO vs unoptimised baseline over window.</td>
+<td><code>BloombergRequests</code> aggregate × cost reference</td>
+<td><strong>✅ live, structure-only</strong> (<code>v1.1.0-preview.2</code>) — counts/ratios/vendor-mix return today; <code>amount: null</code> + <code>unmet_dependencies: [&quot;baselineMethod&quot;]</code> until Q1</td>
+</tr>
+<tr>
+<td><strong><code>dco_savings_by_desk(period)</code></strong></td>
+<td>Attribution split by business line / desk.</td>
+<td><code>EntityProcesses</code> → <code>EntityRequestMessages</code> → <code>BloombergRequests</code></td>
+<td><strong>✅ live, structure-only</strong> (<code>v1.1.0-preview.2</code>) — desk grouping returns today; values flip when Q2 settles</td>
+</tr>
+<tr>
+<td><strong><code>vendor_cost_summary(vendor, period)</code></strong></td>
+<td>Spend by vendor across all consumers.</td>
+<td>Request counts × cost reference</td>
+<td><strong>✅ live, structure-only</strong> (<code>v1.1.0-preview.2</code>) — vendor-mix returns today; cost figures flip when Q1 settles</td>
+</tr>
+</tbody></table>
+<p>All five are <strong>read-only</strong>. All five are <strong>tenant-isolated by construction</strong> (CONTRACT §0) — the AD service account inheriting the customer&#39;s identity can only see the customer&#39;s <code>TimeScapeProcessManagement</code> instance. No cross-customer aggregates. No Xenomorph-internal P&amp;L on the savings.</p>
+<p><strong>Baseline discipline</strong> (the harder commitment): a saved-£ number is only useful if the baseline it compares against is named and defensible. Every tool output will explicitly identify (a) the time window, (b) the cost reference used, (c) the optimisation comparison — <em>&quot;DCO routed via EAP instead of Per-Security&quot;</em> not <em>&quot;saved £X&quot;</em>. Vague savings figures are a contract violation by design.</p>
+<p><strong>No exportable Xenomorph-aggregate views.</strong> Even with explicit customer permission, peer-comparison / industry-benchmark tooling stays out of v1.5 until a data-governance model exists for that pattern. <em>Customer&#39;s own data, to the customer&#39;s own users, on the customer&#39;s own host.</em></p>
+<h2>What&#39;s gated — four questions for Brian</h2>
+<p>The technical readiness is high. What&#39;s missing is product calls on the savings narrative:</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Question</th>
+<th>Why it matters</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td><strong>Cost reference</strong>: where does per-request / per-record Bloomberg cost data live? Static config, a separate DB we haven&#39;t found, or computed externally by clients from their own tier agreements?</td>
+<td>Without this, the &quot;$ saved&quot; headline is unanchored. With it, every <code>BloombergRequests</code> row becomes a numbered savings event.</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>&quot;Desk&quot; semantics</strong>: is <code>EntityProcesses.EntityProcessID</code> the right grouping for what business calls &quot;desk&quot;, or is there a higher-level concept (Client / BusinessUnit / Trading Book) elsewhere in the schema?</td>
+<td>Determines the granularity of <code>dco_savings_by_desk</code>.</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>Substitution success rate</strong>: when a <code>RequestSubstitutes</code> rule engages, does it always succeed, or is there a fallback path that&#39;s not visible in the views? Is <code>DataLoaded=1 AND matching RequestSubstitute row</code> a reliable &quot;savings event&quot;?</td>
+<td>Determines whether savings can be claimed at request granularity or only at session granularity.</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>Demo data gap</strong>: the dev laptop&#39;s <code>TimeScapeProcessManagement</code> has zero rows. Do real deployments populate it daily? Could we anonymise a snapshot from a real client (with permission) to power a live demo?</td>
+<td>Determines whether the v1.5 reveal is a static mockup or a working dashboard.</td>
+</tr>
+</tbody></table>
+<p>These aren&#39;t blockers. They&#39;re a 30-minute conversation. Once they&#39;re settled, <strong>the structure-only tools start returning real numbers — no new code, no new exploration, no new shipping</strong>. The shape is already in production; we&#39;re just filling in the values your customers can see.</p>
+<!--
+Notes:
+This is the most important slide of the deck for the commercial argument. Slide 7 set up the gap (Keith's point); slide 10 closes it with concrete tools + concrete schema + concrete questions.
+
+The "four questions for Brian" is doing two jobs at once: (a) making it clear we've done real work and have informed questions, not vague speculation; (b) giving BK something to engage with as a peer rather than just receive.
+
+The "30-minute conversation" line at the end is the disarming move — it explicitly frames the gap as small and easily closed, not as an existential blocker.
+
+Bring up the DCO_RECON.md doc on screen if there's a laptop in the room. The depth of the schema introspection sells the credibility better than any slide can.
+
+Pacing: ~120 seconds. This slide gets the longest dwell. Linger especially on the Confidence column — that's where the work shows.
+-->
+
+<div class="footer">xenoMCP · BK pack · 2026-05-12 · rendered from source markdown</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MCP_INTERFACE · xenoMCP BK pack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A2540; --surface:#fff; --line:#E5E7EB; --ink:#0A2540; --muted:#475569; --faint:#94A3B8;
+  --blue:#4A90D9; --navy:#0A2540; --green:#1AC270; --amber:#FFB100; --red:#F04438;
+  --code-bg:#F8FAFC; --code-border:#E2E8F0;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--ink);line-height:1.6}
+.topbar{background:var(--navy);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:16px;border-bottom:1px solid rgba(255,255,255,0.08)}
+.topbar a{color:rgba(255,255,255,0.7);text-decoration:none;font-size:12px;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.topbar a:hover{color:#fff}
+.topbar .crumb{color:rgba(255,255,255,0.4);font-family:JetBrains Mono,monospace;font-size:11px}
+.topbar .title{flex:1;font-size:13px;font-weight:600;color:#fff;font-family:JetBrains Mono,monospace;letter-spacing:1px;text-transform:uppercase}
+.shell{max-width:920px;margin:0 auto;padding:48px 32px 96px;background:#fff;min-height:calc(100vh - 60px)}
+h1{font-size:32px;font-weight:700;letter-spacing:-0.5px;margin:0 0 12px;color:var(--ink);border-bottom:2px solid var(--blue);padding-bottom:14px}
+h2{font-size:22px;font-weight:700;margin:36px 0 12px;color:var(--ink);border-left:4px solid var(--blue);padding-left:12px}
+h3{font-size:17px;font-weight:700;margin:28px 0 8px;color:var(--navy)}
+h4{font-size:14px;font-weight:700;margin:20px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-family:JetBrains Mono,monospace}
+p{margin:10px 0;color:var(--ink)}
+a{color:var(--blue);text-decoration:none;border-bottom:1px solid transparent;transition:border 0.15s}
+a:hover{border-bottom-color:var(--blue)}
+ul,ol{margin:10px 0 14px;padding-left:24px}
+li{margin:4px 0}
+code{font-family:JetBrains Mono,monospace;font-size:0.92em;background:var(--code-bg);border:1px solid var(--code-border);padding:1px 6px;border-radius:4px;color:var(--navy)}
+pre{background:var(--code-bg);border:1px solid var(--code-border);border-radius:8px;padding:14px 18px;overflow-x:auto;margin:14px 0}
+pre code{background:transparent;border:none;padding:0;font-size:13px;color:var(--ink)}
+blockquote{margin:14px 0;padding:10px 18px;background:#F8FAFC;border-left:4px solid var(--amber);color:var(--muted)}
+blockquote p{margin:6px 0}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+th{background:#F8FAFC;text-align:left;padding:8px 12px;font-weight:700;border-bottom:2px solid var(--line);font-family:JetBrains Mono,monospace;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:hover td{background:#F8FAFC}
+hr{border:none;border-top:1px solid var(--line);margin:32px 0}
+strong{font-weight:700;color:var(--navy)}
+em{font-style:italic;color:var(--muted)}
+.footer{text-align:center;color:var(--faint);font-size:11px;font-family:JetBrains Mono,monospace;margin-top:48px;padding-top:24px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="../index.html">← BK pack index</a>
+  <span class="crumb">/</span>
+  <span class="title">research/MCP_INTERFACE</span>
+  <a href="../presentation.html">demo →</a>
+</div>
+<div class="shell">
+<h1>xenoMCP — MCP/agent interface research doc</h1>
+<blockquote>
+<p>Engineering-side companion to the BK deck. <strong>For Brian.</strong> Depth on architecture, tradeoffs, safety, and where this goes in v2/v3. Sibling doc to <code>DCO_RECON.md</code> (which this references rather than duplicates).</p>
+</blockquote>
+<hr>
+<h2>TL;DR</h2>
+<p>We&#39;ve wrapped Xenomorph TimeScape&#39;s documented CPython API surface (<code>timescape.pyd</code>) as a Model-Context-Protocol stdio server. Sixteen baseline tools cover the full v4.x/v5.0 programmer surface (eleven Maker-Checker-gated, four open reads, one batch task wrapper); five additional v1.5 DCO Visibility tools wrap read-only <code>TimeScapeProcessManagement</code> SQL views — 21 tools total. End-to-end verified on TimeScape v5.0 — <code>BP.L</code> from <code>XENO</code> round-trips through stdio → tool dispatch → <code>t.itemQuery()</code> → SQL Server → back in milliseconds. Repo: <code>https://github.com/Jktfe/xenoMCP</code>, tagged <code>v1.1.0-preview.2</code> (16 baseline tools shipped as <code>v1.0.0</code>; v1.5 DCO Visibility shipped as <code>v1.1.0-preview</code> then <code>v1.1.0-preview.2</code>).</p>
+<p>We did not touch a line of Xeno&#39;s code. The MCP server lives outside the install, depends only on the public CPython binding + Anthropic&#39;s <code>mcp</code> Python SDK, and the .pyd file finds its native DLLs via <code>os.add_dll_directory()</code> at startup. Removing the MCP server leaves TimeScape exactly as it was.</p>
+<p>The v1.5 lane is <strong>DCO Visibility</strong>: surface the data-cost-optimisation savings TimeScape already delivers but currently doesn&#39;t expose legibly. Schema-side recon complete; gated on cost-reference data we need from Brian / Keith before tool implementation.</p>
+<hr>
+<h2>1. Architecture</h2>
+<pre><code>                 ┌──────────────────────────────────────────┐
+                 │  AI client (Claude Desktop, Claude Code, │
+                 │  Cursor, anything that speaks MCP)       │
+                 └──────────────────────┬───────────────────┘
+                                        │  JSON-RPC over stdio
+                                        ▼
+                 ┌──────────────────────────────────────────┐
+                 │  xenomorph-mcp.exe                       │
+                 │  (uv-built wheel + FastMCP dispatcher)   │
+                 │  • bootstrap: os.add_dll_directory()     │
+                 │    for Program\ + (x86)\Program\         │
+                 │  • 21 tools registered via @mcp.tool()   │
+                 │  • Maker-Checker confirm-gating          │
+                 │  • CONTRACT §0 tenancy invariant         │
+                 └──────────────────────┬───────────────────┘
+                                        │  in-process Python call
+                                        ▼
+                 ┌──────────────────────────────────────────┐
+                 │  timescape.pyd (TimeScape CPython API)   │
+                 │  • Xenomorph-built, unchanged            │
+                 │  • per-Python-version (.pyd for 3.9-14)  │
+                 └──────────────────────┬───────────────────┘
+                                        │
+                            ┌───────────┴───────────┐
+                            ▼                       ▼
+                    ┌──────────────┐        ┌──────────────┐
+                    │ TimeScape    │        │ Native DLLs  │
+                    │ services     │◀──────▶│ in Program\  │
+                    │ (.NET, EDM+) │        │ (Xenomorph)  │
+                    └──────┬───────┘        └──────────────┘
+                           │
+                           ▼
+                    ┌──────────────────────────────────────┐
+                    │  SQL Server 2022 (Integrated Auth)   │
+                    │  GOLD, SILVER, RAW, PUBGOLD,         │
+                    │  PUBSILVER, TimeScapeProcessMgmt     │
+                    └──────────────────────────────────────┘
+</code></pre>
+<p><strong>Process model:</strong> one MCP server process per AI-client session, started on-demand by the client over stdio. No long-running daemon, no listening ports, no inbound network surface from outside the host. Stops cleanly when the client disconnects.</p>
+<p><strong>Why MCP, not REST:</strong></p>
+<ul>
+<li>MCP is the emerging open standard (Anthropic, OpenAI, others lining up) for agent → tool plumbing. Native in Claude Desktop, Claude Code, Cursor — zero wrapper code on the client side.</li>
+<li>Stdio is the lowest-friction transport on Windows where TimeScape lives: no port to allocate, no firewall rule, no TLS cert, no auth proxy. The MCP client and server share the user&#39;s logon session, so Integrated Auth into SQL Server &quot;just works&quot;.</li>
+<li>The same JSON-RPC tool schemas serve as input validation, OpenAPI-like documentation, and AI-tool affordance, in one definition.</li>
+</ul>
+<p><strong>Why Python, not Node:</strong> the CPython <code>timescape.pyd</code> is the documented binding. Anything else would be FFI / shelling out to .NET API DLLs / <code>subprocess</code>-ing admin exes — all of which we explored and rejected in favour of the native binding (see commit history + <code>DCO_RECON.md</code>).</p>
+<p><strong>Bootstrap nuance worth flagging:</strong> Python 3.8+ removed PATH from extension-module DLL search. <code>timescape.pyd</code> depends on native DLLs in <code>C:\Program Files\Xenomorph TimeScape\Program\</code> and the x86 sibling. The server registers both via <code>os.add_dll_directory()</code> at module-load time, before <code>import timescape</code> — without that, <code>ImportError: DLL load failed</code>. Defaults point at the standard install locations; both overridable via <code>XENOMORPH_TIMESCAPE_PATH</code> and <code>XENOMORPH_PROGRAM_PATH</code> env vars.</p>
+<hr>
+<h2>2. Tool surface</h2>
+<p>Sixteen tools across five classes. Each is a thin wrapper over one <code>timescape.*</code> function, with parameters reshaped to JSON-friendly types (ISO date strings instead of Python <code>date</code> objects, lists-of-lists for series data).</p>
+<table>
+<thead>
+<tr>
+<th>Class</th>
+<th>Count</th>
+<th>Tools</th>
+<th>Gating</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Read</strong></td>
+<td>4</td>
+<td><code>version</code>, <code>query</code>, <code>itemQuery</code>, <code>workspaceGet</code></td>
+<td>None — execute unconditionally</td>
+</tr>
+<tr>
+<td><strong>Write — single item</strong></td>
+<td>3</td>
+<td><code>saveItem</code>, <code>saveItemDescription</code>, <code>saveProp</code></td>
+<td><code>confirm: bool</code> required</td>
+</tr>
+<tr>
+<td><strong>Write — codes</strong></td>
+<td>2</td>
+<td><code>itemCodeAdd</code>, <code>itemCodeDelete</code></td>
+<td><code>confirm: bool</code> required</td>
+</tr>
+<tr>
+<td><strong>Write — series</strong></td>
+<td>2</td>
+<td><code>saveSeries</code>, <code>savePropSeries</code></td>
+<td><code>confirm: bool</code> required</td>
+</tr>
+<tr>
+<td><strong>Destructive</strong></td>
+<td>3</td>
+<td><code>deleteItem</code>, <code>deleteProp</code>, <code>deleteSeries</code></td>
+<td><code>confirm: bool</code> required</td>
+</tr>
+<tr>
+<td><strong>Config</strong></td>
+<td>1</td>
+<td><code>workspaceSet</code></td>
+<td><code>confirm: bool</code> required</td>
+</tr>
+<tr>
+<td><strong>Batch</strong></td>
+<td>1</td>
+<td><code>runValidationTask</code> (XTTaskProcessor + .tdf)</td>
+<td><code>confirm: bool</code> required</td>
+</tr>
+</tbody></table>
+<p><strong>Maker-Checker (four-eyes) pattern:</strong> every non-read tool takes a <code>confirm: bool</code> argument that defaults <code>false</code>. A call without <code>confirm=true</code> returns a structured <code>{needs_confirmation: true, operation, preview, message}</code> object describing exactly what would have run, and <strong>does not execute</strong>. The calling agent (or its human supervisor) must explicitly re-call with <code>confirm=true</code> to commit. The pattern is uniform across the 12 gated tools — there&#39;s no per-tool special case.</p>
+<p><strong>Why uniform gating, not per-tool risk grading:</strong> keeping the contract identical across all writes makes the tool surface predictable for agents <em>and</em> auditors. Per-tool risk classification (e.g. <code>saveProp</code> lower-risk than <code>deleteItem</code>) is the kind of thing a downstream rule engine should layer on top — the MCP server&#39;s job is to refuse cleanly and consistently, not to encode policy.</p>
+<p><strong>Live verification (post-tag, on TimeScape v5.0):</strong></p>
+<pre><code>xenomorph-mcp.exe → initialize → server=xenomorph-timescape, protocol=2025-11-25
+xenomorph-mcp.exe → tools/list  → 21 tools (full surface, baseline + v1.5)
+xenomorph-mcp.exe → tools/call version       → {&quot;ok&quot;: true, &quot;version&quot;: &quot;5.0&quot;}
+xenomorph-mcp.exe → tools/call itemQuery(XENO, Reuters, BP.L, ...) → [[&quot;BP.L&quot;, &quot;BP&quot;, 508.0]]
+xenomorph-mcp.exe → tools/call query(Item(%database%, %code%).Close.LastValue, ...) → 508.0
+xenomorph-mcp.exe → tools/call saveItem(... no confirm) → {needs_confirmation: true, ...}  ← no execution
+xenomorph-mcp.exe → tools/call deleteItem(... no confirm) → {needs_confirmation: true, ...}  ← no execution
+</code></pre>
+<hr>
+<h2>3. Safety contract</h2>
+<p>Captured separately in <code>docs/CONTRACT.md</code>. Headlines:</p>
+<ul>
+<li><strong>§0 Tenancy and data isolation (foundational).</strong> The MCP serves the customer&#39;s own data only. No Xenomorph internal data, no cross-tenant aggregates, no other clients&#39; data. This is foundational, not negotiable.</li>
+<li><strong>Confirm-gating</strong> uniform across the writes (Section 2).</li>
+<li><strong>Audit log</strong> of every tool dispatch (request + outcome + confirm status). JSONL, in the customer&#39;s filespace, redaction-aware (token-shaped strings replaced before serialisation).</li>
+<li><strong>GUI binaries are never wrapped.</strong> <code>XTWorkbench64</code>, <code>XTDriverWizard64</code>, <code>XTOfficeAdmin</code>, etc. are admin GUIs and would hang on <code>/?</code>; they are explicitly out of scope.</li>
+<li><strong>Internal Windows services are never invoked directly.</strong> EDM+ services, DCO Monitor, etc. host the engine; the MCP reads their persisted state (via the CPython binding or, for v1.5, directly via SQL views), not their RPC.</li>
+</ul>
+<hr>
+<h2>4. DCO recon — pointer + headline</h2>
+<p>Full recon in <code>docs/research/DCO_RECON.md</code>. One-paragraph version:</p>
+<p>DCO state lives in <code>TimeScapeProcessManagement</code> (SQL Server 2022 on the host, Integrated Auth). Fifteen relevant tables; twenty-seven views. The two highest-value views are <code>BloombergRequests</code> (one row per outbound Bloomberg API request, with bit-flags for <code>RequestUploaded</code> / <code>ReplyDownloaded</code> / <code>DataLoaded</code> / <code>RequestError</code>) and <code>RequestSubstitutes</code> (the alternative-vendor mapping that says <em>&quot;when this kind of request arrives, serve it from this internal DataSource instead&quot;</em> — i.e. the direct savings driver). DCO is not exposed on the public programmer surface (<code>timescape.pyd</code> / C API / .NET API / <code>APIs, SDKs, Examples/</code>), which is why the savings story isn&#39;t legible today: there&#39;s no programmer entrypoint to ask the question. The v1.5 surface implements those entrypoints by reading the SQL views directly.</p>
+<p>Four open questions for Brian (also in the recon doc, repeated here for prominence):</p>
+<ol>
+<li><strong>Cost reference:</strong> where do per-request / per-record prices live? Bloomberg DL has tier pricing; the schema doesn&#39;t obviously hold it.</li>
+<li><strong>&quot;Desk&quot; / org dimension:</strong> does <code>EntityProcesses.EntityProcessID</code> map to the business concept of &quot;desk&quot;, or is there a higher-level dimension?</li>
+<li><strong>Substitution-success semantics:</strong> when a <code>RequestSubstitutes</code> row fires, is it always a clean savings event, or is there a non-visible fallback path?</li>
+<li><strong>Demo data:</strong> the dev box DB is empty (0 rows). To show v1.5 in action we need synthetic data, an anonymised client extract, or screenshots from a reference deployment with permission.</li>
+</ol>
+<hr>
+<h2>5. v2 / v3 roadmap</h2>
+<p><strong>v1.5 — DCO Visibility (next).</strong> Five additional read-class tools surfacing the DCO savings/decisions/entitlements that already exist in the schema. See <code>DCO_RECON.md</code> for the mapping table. Implementation is straightforward once the open questions above resolve. Estimate: 1–2 days of code once the cost-reference question is answered, plus testing window for live demo data.</p>
+<p><strong>v2 — Multi-tenant and remote.</strong> Today the MCP runs alongside TimeScape on the customer&#39;s host, talking to the customer&#39;s local SQL via Integrated Auth. v2 extends to:</p>
+<ul>
+<li><strong>Per-room / per-customer credentials</strong>, when a single deployment serves multiple tenants (relevant if Xeno hosts MCP-as-a-service rather than each customer installing it themselves).</li>
+<li><strong>Transport options beyond stdio:</strong> WebSocket or Server-Sent-Events with bearer tokens, for AI clients that aren&#39;t co-resident with TimeScape.</li>
+<li><strong>Read-only mode flag</strong> that disables the entire write/destructive class, for customer deployments where AI is for exploration only.</li>
+</ul>
+<p><strong>v3 — Federated and capability-graph.</strong> Two extensions that get speculative but real for the AI-fluent thesis:</p>
+<ul>
+<li><strong>Tool composition / capability-graph:</strong> instead of 21 individual tools, expose a smaller set of &quot;intents&quot; (<code>look up an instrument</code>, <code>back-fill a series</code>, <code>validate a curve</code>) that compose into multi-step plans the AI plans then commits. Plays cleanly with the Maker-Checker pattern — the <em>plan</em> gets approved once, not each leaf.</li>
+<li><strong>Cross-source federation:</strong> the same MCP shape over TimeScape + customer-specific Excel/CSV stores + (where licensed) external data sources (BBG DL, RDP, ICE). AI client sees one surface; we hide the routing. Xeno&#39;s existing data-fabric thinking maps cleanly here.</li>
+</ul>
+<hr>
+<h2>6. Open engineering questions for Brian (beyond DCO)</h2>
+<ol>
+<li><p><strong>TimeScape version cadence and CPython binding ABI:</strong> if a customer upgrades TimeScape, does <code>timescape.pyd</code> change shape? The .pyd we ship against is the v3.13/64-bit binding from the v5.0 install on the engagement laptop. Per-Python-version <code>.pyd</code> files are documented in the install — what&#39;s the binding&#39;s compatibility story across TimeScape minor versions?</p>
+</li>
+<li><p><strong>Audit log integration:</strong> the MCP writes its own JSONL audit. Does TimeScape have an existing audit trail (DB-level CDC, EDM+ logging, etc.) that we should join into / forward to, rather than running parallel?</p>
+</li>
+<li><p><strong>Connection / threading model:</strong> the .pyd uses some implicit connection management to SQL Server. For a long-running MCP server fielding many tool calls, what&#39;s the right pooling / connection-lifecycle posture? Is the .pyd thread-safe?</p>
+</li>
+<li><p><strong>Subset of v1 tools that aren&#39;t safe to call from an AI:</strong> is there anything in our 16 we <em>should</em> refuse to expose, even with confirm-gating, because of how it interacts with downstream EDM+ rules (e.g. <code>saveProp</code> that bypasses a validation pipeline)?</p>
+</li>
+<li><p><strong>Brian&#39;s view on v3 federation:</strong> Xeno&#39;s positioning has long emphasised the &quot;single point of access to all your data&quot; thesis. Does it sit well to extend that thesis from the human-facing Workbench to the AI-facing MCP surface? Or is there a reason the AI lane should stay strictly TimeScape-native?</p>
+</li>
+</ol>
+<hr>
+<h2>7. Why this matters for BK</h2>
+<p>Keith framed the missed commercial story as: <em>&quot;DCO already saves clients millions vs raw Bloomberg spend, but Xeno doesn&#39;t surface the savings — clients have to compute the delta themselves.&quot;</em> The same observation generalises beyond DCO: TimeScape&#39;s 30 years of engineering depth means the <em>capability</em> is there, but the <em>legibility</em> of that capability — for buyers, for analyst end-users, for the AI tools their customers&#39; juniors are increasingly using — has fallen behind the market. The MCP surface is the moment we make those capabilities legible without touching the underlying engine. v1 proves the integration works against the live binding; v1.5 makes Keith&#39;s commercial story self-evident; v2/v3 expands the surface to where the market is going.</p>
+<hr>
+<h2>Appendix A — files of interest</h2>
+<ul>
+<li><code>server.py</code> — single-file MCP server, 21 tools, ~1030 lines.</li>
+<li><code>pyproject.toml</code> — <code>hatchling</code> build, <code>tool.uv.package = true</code>, console-script <code>xenomorph-mcp = server:main</code>.</li>
+<li><code>docs/CONTRACT.md</code> — safety contract with §0 Tenancy.</li>
+<li><code>docs/research/DCO_RECON.md</code> — full DCO recon (this doc references its findings, doesn&#39;t duplicate).</li>
+<li><code>docs/WINDOWS_NOTES.md</code> — Windows-specific gotchas captured during engagement.</li>
+<li><code>tests/</code> — 22 tests, cross-platform via a <code>timescape</code> stub.</li>
+</ul>
+
+<div class="footer">xenoMCP · BK pack · 2026-05-12 · rendered from source markdown</div>
+</div>
+</body>
+</html>
