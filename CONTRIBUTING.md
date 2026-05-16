@@ -1,46 +1,81 @@
 # Contributing to ANT
 
-Thanks for your interest in contributing to ANT.
+ANT is an open-source project licensed under AGPL-3.0. Contributions are
+welcome — this document explains how.
 
-## Before you start
+## Developer Certificate of Origin (DCO)
 
-1. Open an issue for bugs, regressions, or larger feature ideas before starting major work.
-2. Keep pull requests focused. Separate refactors, feature work, and documentation updates when possible.
-3. Do not commit secrets, personal config, or machine-specific paths.
+ANT uses the Developer Certificate of Origin. Every commit must include a
+`Signed-off-by:` line:
 
-## Local development
-
-```bash
-bun install
-bun run build
-bun run start
+```
+Signed-off-by: Name <email>
 ```
 
-For CLI work:
+Add it with `git commit -s` or by appending it manually to the commit
+message. By signing off, you certify:
 
-```bash
-cd cli
-bun install
-bun link
+> Developer Certificate of Origin
+> Version 1.1
+>
+> Copyright (C) 2004, 2005, 2006 The Linux Foundation and its contributors.
+>
+> Everyone is permitted to copy and distribute verbatim copies of this
+> license document, but changing it is not allowed.
+>
+> By making a contribution to this project, I certify that:
+>
+> (a) The contribution was created in whole or in part by me and I
+>     have the right to submit it under the open source license
+>     indicated in the file; or
+>
+> (b) The contribution is based upon previous work that, to the best
+>     of my knowledge, is covered under an appropriate open source
+>     license and I have the right under that license to submit that
+>     work with modifications, whether created in whole or in part
+>     by me, under the same open source license (unless I am
+>     permitted to submit under a different license), as indicated
+>     in the file; or
+>
+> (c) The contribution was provided directly to me by some other
+>     person who certified (a), (b) or (c) and I have not modified
+>     it.
+>
+> (d) I understand and agree that this project and the contribution
+>     are public and that a record of the contribution (including all
+>     personal information I submit with it, including my sign-off) is
+>     maintained indefinitely and may be redistributed consistent with
+>     this project or the open source license(s) involved.
+
+## How to Contribute
+
+1. **Open an issue** — bugs, features, questions. Search existing issues first.
+2. **Fork the repo** and create a branch from `main`.
+3. **Follow the code conventions** — see `STYLE.md` for the Fletcher-readable bar.
+4. **Write tests** — new features need tests. Bug fixes need regression tests.
+5. **Run the suite** — `bun run check && bun test` must pass.
+6. **Sign off** — every commit needs `Signed-off-by`.
+7. **Open a PR** — describe what changed and why. Link the issue.
+
+## Commit Conventions
+
+Use conventional commit prefixes:
+
+```
+feat(scope): short description
+fix(scope): short description
+refactor(scope): short description
+docs: short description
+chore: short description
 ```
 
-## Pull requests
+Look at recent `git log --oneline -20` for the in-house flavour.
 
-1. Make the smallest change that fully solves the problem.
-2. Update documentation when behavior, setup, or user-facing workflows change.
-3. Include clear reproduction and verification steps in the pull request description.
-4. Keep commits and file layout readable for reviewers.
+## Code of Conduct
 
-## Reporting issues
+Be respectful. Communicate with empathy. Stay on topic.
+We follow the [GitHub Community Guidelines](https://docs.github.com/en/site-policy/github-community-guidelines).
 
-When filing a bug, include:
+## Questions
 
-- what you expected to happen
-- what actually happened
-- steps to reproduce
-- relevant logs, screenshots, or terminal output
-- your OS, runtime, and how ANT was started
-
-## Security
-
-Please do not file public issues for suspected security problems. Follow the process in `SECURITY.md`.
+Open a GitHub issue or join the community discussion room (link TBD).
