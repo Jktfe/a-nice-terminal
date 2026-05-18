@@ -45,6 +45,9 @@ export async function PATCH(event: RequestEvent) {
   } catch {
     throw error(400, 'Invalid JSON body');
   }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw error(400, 'JSON body must be an object');
+  }
 
   try {
     const tunnel = registerSiteTunnel({

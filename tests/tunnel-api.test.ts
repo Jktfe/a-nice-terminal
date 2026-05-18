@@ -37,7 +37,7 @@ function createEvent(roomId: string, body: Record<string, unknown>) {
   } as any;
 }
 
-function slugEvent(slug: string, roomId: string, method = 'GET', body: Record<string, unknown> | null = null) {
+function slugEvent(slug: string, roomId: string, method = 'GET', body: unknown = null) {
   return {
     params: { slug },
     url: new URL(`https://ant.test/api/tunnels/${slug}`),
@@ -124,5 +124,20 @@ describe('site tunnel API', () => {
     await expectForbidden(() => deleteTunnel(slugEvent('owned-site', OTHER_ROOM_ID, 'DELETE')));
     const deleted = await deleteTunnel(slugEvent('owned-site', ROOM_ID, 'DELETE'));
     expect(await deleted.json()).toMatchObject({ ok: true, slug: 'owned-site' });
+  });
+
+  it('rejects non-object tunnel metadata patch bodies', async () => {
+    await createTunnel(createEvent(ROOM_ID, {
+      slug: 'body-shape-site',
+      public_url: 'https://body-shape.trycloudflare.com',
+    }));
+
+    try {
+      await patchTunnel(slugEvent('body-shape-site', ROOM_ID, 'PATCH', []));
+    } catch (err) {
+      expect(err).toMatchObject({ status: 400 });
+      return;
+    }
+    throw new Error('Expected tunnel patch to reject non-object body');
   });
 });
