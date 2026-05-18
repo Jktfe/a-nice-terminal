@@ -40,9 +40,12 @@ function publicInvite(invite: InviteRow, serverUrl: string) {
   };
 }
 
-export function GET({ params, url }: RequestEvent<{ id: string }>) {
+export function GET(event: RequestEvent<{ id: string }>) {
+  assertNotRoomScoped(event);
+  const { params, url } = event;
   const room = queries.getSession(params.id);
   if (!room) throw error(404, 'Room not found');
+  if (room.archived || room.deleted_at) throw error(410, 'Room is inactive');
   const serverUrl = publicOrigin({ url });
   const invites = listInvitesForRoom(params.id).map((i) => publicInvite(i, serverUrl));
   return json({ invites });
