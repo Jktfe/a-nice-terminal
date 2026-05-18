@@ -25,26 +25,43 @@ function resolveTask(params: { id: string; taskId: string }) {
 }
 
 // PATCH /api/sessions/:id/tasks/:taskId
-// Body: { status?, assigned_to?, description?, file_refs? }
 export async function PATCH({ params, request }: RequestEvent<{ id: string; taskId: string }>) {
   const resolved = resolveTask(params);
   if (resolved.response) return resolved.response;
   const taskId = resolved.task.id;
-  const { status, assigned_to, description, file_refs } = await request.json();
+
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return json({ error: "Request body must be a JSON object" }, { status: 400 });
+  }
+
+  const status = typeof body.status === "string" && body.status.trim() ? body.status.trim() : null;
+  const assigned_to = typeof body.assigned_to === "string" && body.assigned_to.trim() ? body.assigned_to.trim() : null;
+  const description = typeof body.description === "string" ? body.description.trim() : null;
+  const file_refs = body.file_refs;
+
+  if (!status && !assigned_to && !description && file_refs == null) {
+    return json({ error: "at least one of status, assigned_to, description, or file_refs is required" }, { status: 400 });
+  }
 
   queries.updateTask(
     taskId,
-    status || null,
-    assigned_to || null,
-    description || null,
+    status,
+    assigned_to,
+    description,
     file_refs ? JSON.stringify(file_refs) : null
   );
 
   const task = queries.getTask(taskId);
-  if (!task) return json({ error: 'not found' }, { status: 404 });
+  if (!task) return json({ error: "not found" }, { status: 404 });
 
   const { broadcast } = await import('$lib/server/ws-broadcast.js');
-  broadcast(params.id, { type: 'task_updated', sessionId: params.id, task });
+  broadcast(params.id, { type: "task_updated", sessionId: params.id, task });
 
   return json({ task });
 }
