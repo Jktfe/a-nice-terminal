@@ -64,11 +64,11 @@ export async function POST(event: RequestEvent) {
   assertSameRoom(event, roomId);
   assertCanWrite(event);
 
+  // Verify source room exists and is active before parsing or linking.
+  const sourceRoom = getActiveChatRoom(roomId, 'Source room');
   const body = await readBody(request);
   if (body === null) return json({ error: 'Invalid JSON' }, { status: 400 });
 
-  // Verify source room exists
-  const sourceRoom = getActiveChatRoom(roomId, 'Source room');
   const relationship = relationshipValue(body.relationship);
   const settings = objectValue(body.settings);
 

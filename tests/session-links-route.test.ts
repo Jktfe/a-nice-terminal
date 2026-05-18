@@ -181,6 +181,7 @@ describe('/api/sessions/:id/links', () => {
     await expectHttpError(() => route.POST(requestEvent('missing', {})), 404);
     await expectHttpError(() => route.POST(requestEvent('terminal-a', {})), 400);
     await expectHttpError(() => route.POST(requestEvent('deleted-room', {})), 410);
+    await expectHttpError(() => route.POST(requestEvent('archived-room', '{')), 410);
     await expectHttpError(() => route.POST(requestEvent('room-a', { targetRoomId: 'terminal-a' })), 400);
     await expectHttpError(() => route.POST(requestEvent('room-a', { targetRoomId: 'archived-room' })), 410);
     await expectHttpError(() => route.POST(requestEvent('room-a', { targetRoomId: 'room-a' })), 400);
