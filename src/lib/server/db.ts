@@ -1489,6 +1489,8 @@ export const queries = {
   createFileRef: (id: string, sessionId: string, flaggedBy: string | null, filePath: string, note: string | null) =>
     prepare(`INSERT INTO file_refs (id, session_id, flagged_by, file_path, note) VALUES (?, ?, ?, ?, ?)`).run(id, sessionId, flaggedBy, filePath, note),
   deleteFileRef: (id: string) => prepare(`DELETE FROM file_refs WHERE id = ?`).run(id),
+  deleteFileRefForSession: (id: string, sessionId: string) =>
+    prepare(`DELETE FROM file_refs WHERE id = ? AND session_id = ?`).run(id, sessionId),
 
   // Upload audit trail
   recordUpload: (
