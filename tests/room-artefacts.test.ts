@@ -325,4 +325,19 @@ describe('room artefacts API', () => {
       value: before.value,
     });
   });
+
+  it('rejects non-object linked doc write bodies without writing memory', async () => {
+    const before = queries.getMemoryByKey('docs/artefact-demo-doc') as any;
+    const arrayPatch = await patchDoc(docPatchEvent('artefact-demo-doc', ROOM_ID, []));
+    expect(arrayPatch.status).toBe(400);
+    expect(await arrayPatch.json()).toEqual({ error: 'Request body must be a JSON object' });
+
+    const nullPost = await postDoc(docPostEvent('artefact-demo-doc', ROOM_ID, null));
+    expect(nullPost.status).toBe(400);
+    expect(await nullPost.json()).toEqual({ error: 'Request body must be a JSON object' });
+
+    expect(queries.getMemoryByKey('docs/artefact-demo-doc')).toMatchObject({
+      value: before.value,
+    });
+  });
 });
