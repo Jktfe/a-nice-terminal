@@ -13,6 +13,8 @@ const ROOM_ID = 'room-artefacts-test';
 const OTHER_ROOM_ID = 'room-artefacts-other';
 const EMPTY_ROOM_ID = 'room-artefacts-empty';
 const TERMINAL_ID = 'room-artefacts-terminal';
+const ARCHIVED_ROOM_ID = 'room-artefacts-archived';
+const ARCHIVED_TERMINAL_ID = 'room-artefacts-archived-terminal';
 
 let dataDir = '';
 let openSlideDir = '';
@@ -84,7 +86,11 @@ function seedRooms() {
   queries.createSession(OTHER_ROOM_ID, 'Other Artefact Room', 'chat', '15m', null, openSlideDir, '{}');
   queries.createSession(EMPTY_ROOM_ID, 'Empty Artefact Room', 'chat', '15m', null, openSlideDir, '{}');
   queries.createSession(TERMINAL_ID, 'Linked Terminal', 'terminal', '15m', null, openSlideDir, '{}');
+  queries.createSession(ARCHIVED_ROOM_ID, 'Archived Artefact Room', 'chat', '15m', null, openSlideDir, '{}');
+  queries.createSession(ARCHIVED_TERMINAL_ID, 'Archived Linked Terminal', 'terminal', '15m', null, openSlideDir, '{}');
   queries.setLinkedChat(TERMINAL_ID, ROOM_ID);
+  queries.setLinkedChat(ARCHIVED_TERMINAL_ID, ARCHIVED_ROOM_ID);
+  queries.archiveSession(ARCHIVED_ROOM_ID);
 
   queries.appendRunEvent(
     ROOM_ID,
@@ -264,6 +270,11 @@ describe('room artefacts API', () => {
 
   it('honours room-scoped read boundaries', async () => {
     await expect(read(ROOM_ID, OTHER_ROOM_ID)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('rejects inactive rooms before exposing artefact summaries', async () => {
+    await expect(read(ARCHIVED_ROOM_ID, ARCHIVED_ROOM_ID)).rejects.toMatchObject({ status: 410 });
+    await expect(read(ARCHIVED_TERMINAL_ID, ARCHIVED_ROOM_ID)).rejects.toMatchObject({ status: 410 });
   });
 
   it('keeps linked docs readable only by their owning room token', async () => {
