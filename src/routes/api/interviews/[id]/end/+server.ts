@@ -12,7 +12,7 @@ export async function POST(event: RequestEvent<{ id: string }>) {
   if (!interview) return json({ error: 'interview not found' }, { status: 404 });
   assertSameRoom(event, interview.room_id);
 
-  const body = await event.request.json().catch(() => ({})) as Record<string, unknown>;
+  let body: Record<string, unknown>; try { body = await event.request.json() as Record<string, unknown>; } catch { return json({ error: "Invalid JSON" }, { status: 400 }); }
   const transcriptRef = typeof body.transcript_ref === 'string' && body.transcript_ref.trim() ? body.transcript_ref.trim() : null;
   const transcriptPath = typeof body.transcript_path === 'string' && body.transcript_path.trim() ? body.transcript_path.trim() : null;
   const summaryMessageId = typeof body.summary_message_id === 'string' && body.summary_message_id.trim() ? body.summary_message_id.trim() : null;

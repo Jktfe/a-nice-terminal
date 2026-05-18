@@ -179,7 +179,12 @@ export async function POST(event: RequestEvent<{ id: string }>) {
   if (!room) return json({ error: 'not found' }, { status: 404 });
   if (room.type !== 'chat') return json({ error: 'room must be a chat session' }, { status: 400 });
 
-  const body = await request.json().catch(() => ({}));
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'Invalid JSON' }, { status: 400 });
+  }
   const rawSessionId = typeof body.session_id === 'string' ? body.session_id.trim() : '';
   const rawHandle = typeof body.handle === 'string' ? body.handle.trim() : '';
   const role = body.role === 'external' ? 'external' : 'participant';
@@ -224,7 +229,12 @@ export async function PATCH(event: RequestEvent<{ id: string }>) {
   if (!room) return json({ error: 'not found' }, { status: 404 });
   if (room.type !== 'chat') return json({ error: 'room must be a chat session' }, { status: 400 });
 
-  const body = await request.json().catch(() => ({}));
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'Invalid JSON' }, { status: 400 });
+  }
   const rawSessionId = typeof body.session_id === 'string' ? body.session_id.trim() : '';
   const rawHandle = typeof body.handle === 'string' ? body.handle.trim() : '';
   const requestedState = body.attention_state === 'focus' ? 'focus' : 'available';
@@ -280,7 +290,12 @@ export async function DELETE(event: RequestEvent<{ id: string }>) {
   if (!room) return json({ error: 'not found' }, { status: 404 });
   if (room.type !== 'chat') return json({ error: 'room must be a chat session' }, { status: 400 });
 
-  const body = await request.json().catch(() => ({}));
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'Invalid JSON' }, { status: 400 });
+  }
   const bodySessionId = typeof body.session_id === 'string' ? body.session_id : '';
   const bodyHandle = typeof body.handle === 'string' ? body.handle : '';
   const rawSessionId = (url.searchParams.get('session_id') || bodySessionId).trim();

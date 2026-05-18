@@ -36,8 +36,14 @@ describe('/api/identity/resolve', () => {
     rmSync(dataDir, { recursive: true, force: true });
   });
 
+  it('rejects invalid JSON', async () => {
+    const response = await POST(postEvent('{'));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'Invalid JSON' });
+  });
+
   it('rejects empty or invalid pid chains', async () => {
-    for (const body of [{}, { pids: [] }, { pids: [1, 0, -4, { pid: 'x' }] }, '{']) {
+    for (const body of [{}, { pids: [] }, { pids: [1, 0, -4, { pid: 'x' }] }]) {
       const response = await POST(postEvent(body));
       expect(response.status).toBe(400);
       expect(await response.json()).toEqual({ error: 'pids must be a non-empty array' });

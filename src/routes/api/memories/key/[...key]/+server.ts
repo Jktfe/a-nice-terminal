@@ -24,7 +24,7 @@ export function GET(event: RequestEvent<{ key: string }>) {
 export async function PUT(event: RequestEvent<{ key: string }>) {
   assertNotRoomScoped(event);
   const { params, request } = event;
-  const body = await request.json().catch(() => ({}));
+  let body: any; try { body = await request.json(); } catch { throw error(400, "Invalid JSON"); }
   const value = typeof body.value === 'string' ? body.value : JSON.stringify(body.value ?? body);
   if (!value) throw error(400, 'value is required');
 

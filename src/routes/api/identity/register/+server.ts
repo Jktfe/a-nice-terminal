@@ -53,7 +53,7 @@ function cleanPidEntries(body: any): { pid: number; pid_start: string | null }[]
 }
 
 export async function POST({ request }: RequestEvent) {
-  const body = await request.json().catch(() => ({}));
+  let body: any; try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, { status: 400 }); }
   const pids = cleanPidEntries(body);
   if (pids.length === 0) {
     return json({ error: 'root_pid or pids must include an integer greater than 1' }, { status: 400 });

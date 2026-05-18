@@ -76,10 +76,13 @@ describe('/api/sessions/order', () => {
     expect(sortIndexes()).toEqual({ a: null, b: null, c: null });
   });
 
-  it('rejects invalid JSON, empty ids, unknown ids, and archived sessions', async () => {
-    const invalidJson = await PATCH(patchEvent('{'));
-    expect(invalidJson.status).toBe(400);
-    expect(await invalidJson.json()).toEqual({ error: 'ids must be a non-empty array of session ids' });
+  it('rejects invalid JSON', async () => {
+    const response = await PATCH(patchEvent('{'));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'Invalid JSON' });
+  });
+
+  it('rejects empty ids, unknown ids, and archived sessions', async () => {
 
     const empty = await PATCH(patchEvent({ ids: ['   ', 123] }));
     expect(empty.status).toBe(400);
