@@ -9,10 +9,11 @@ const { GET } = await import('../src/routes/api/sessions/[id]/terminal/history/+
 let dataDir = '';
 let originalDataDir: string | undefined;
 
-function historyEvent(id: string, query = '') {
+function historyEvent(id: string, query = '', locals: Record<string, unknown> = {}) {
   return {
     params: { id },
     url: new URL(`https://ant.test/api/sessions/${id}/terminal/history${query}`),
+    locals,
   } as any;
 }
 
@@ -34,6 +35,11 @@ describe('/api/sessions/:id/terminal/history', () => {
     _resetForTest();
     getDb();
     queries.createSession('terminal', 'Terminal', 'terminal', 'forever', null, null, '{}');
+    queries.createSession('room-b', 'Room B', 'chat', 'forever', null, null, '{}');
+    queries.createSession('archived', 'Archived', 'terminal', 'forever', null, null, '{}');
+    queries.createSession('deleted', 'Deleted', 'terminal', 'forever', null, null, '{}');
+    queries.archiveSession('archived');
+    queries.softDeleteSession('deleted');
     queries.appendTranscriptWithText('terminal', 1, '\x1b[31mhello raw\x1b[0m', 'hello raw', 1_000, 0);
     queries.appendTranscriptWithText('terminal', 2, 'newest raw', 'newest raw', 2_000, 16);
   });
@@ -102,5 +108,13 @@ describe('/api/sessions/:id/terminal/history', () => {
 
   it('rejects missing sessions', async () => {
     await expectHttpError(() => GET(historyEvent('missing', '?since=0')), 404);
+  });
+
+  it('rejects cross-room scoped tokens and inactive sessions before returning transcript history', async () => {
+    await expectHttpError(() => GET(historyEvent('terminal', '?since=0', {
+      roomScope: { roomId: 'room-b', kind: 'cli' },
+    })), 403);
+    await expectHttpError(() => GET(historyEvent('archived', '?since=0')), 410);
+    await expectHttpError(() => GET(historyEvent('deleted', '?since=0')), 410);
   });
 });
