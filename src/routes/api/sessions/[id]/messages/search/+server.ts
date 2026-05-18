@@ -1,14 +1,24 @@
 import { json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
+import { assertSameRoom } from '$lib/server/room-scope';
 
-export function GET({ params, url }: RequestEvent<{ id: string }>) {
+function normalizeLimit(raw: string | null) {
+  const parsed = Number.parseInt(raw || '50', 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return 50;
+  return Math.min(parsed, 100);
+}
+
+export function GET(event: RequestEvent<{ id: string }>) {
+  const { params, url } = event;
+  assertSameRoom(event, params.id);
+  const session = queries.getSession(params.id);
+  if (!session) return json({ results: [], error: 'Session not found' }, { status: 404 });
+
   const q = url.searchParams.get('q')?.trim();
   if (!q) return json({ results: [] });
 
-  const limit = parseInt(url.searchParams.get('limit') || '50', 10);
-  const session = queries.getSession(params.id);
-  if (!session) return json({ results: [], error: 'Session not found' }, { status: 404 });
+  const limit = normalizeLimit(url.searchParams.get('limit'));
 
   try {
     const results = queries.searchSessionMessages(params.id, q, limit);
