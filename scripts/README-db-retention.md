@@ -18,11 +18,15 @@ bun scripts/db-retention-sweep.ts --days 14
 
 # Prune without VACUUM (faster, no lock window)
 bun scripts/db-retention-sweep.ts --no-vacuum
+
+# Auto-prune mode: only sweep when DB is larger than 1024 MB
+bun scripts/db-retention-sweep.ts --if-size-over-mb 1024
 ```
 
 The script opens its own `better-sqlite3` connection to `$ANT_DATA_DIR/ant.db`
 (default `~/.ant-v3/ant.db`); it does not share the live server's
-connection.
+connection. Set `ANT_DB_PATH=/path/to/fresh-ant.db` when pruning a
+non-default database.
 
 ## What is preserved
 
@@ -33,6 +37,17 @@ connection.
 
 Every other kind older than the retention window is deleted in
 chunks of 5000 to keep the WAL small and the lock window short.
+
+The sweep is table-aware:
+
+| Table | Retention behavior |
+|---|---|
+| `run_events` | Prunes old non-preserved rows; keeps the plan/error kinds above. |
+| `terminal_run_events` | Prunes old terminal telemetry rows when the table exists. |
+| `cli_hook_events` | Prunes old CLI hook telemetry rows when the table exists. |
+
+Missing optional tables are skipped, so the same script can run against
+older v3 databases and newer v4/fresh databases.
 
 ## Scheduling
 
@@ -49,6 +64,8 @@ For a nightly cleanup, add an entry to launchd:
   </array>
   <key>StartCalendarInterval</key>
   <dict><key>Hour</key><integer>4</integer><key>Minute</key><integer>17</integer></dict>
+  <key>EnvironmentVariables</key>
+  <dict><key>ANT_RETENTION_MAX_DB_MB</key><string>1024</string></dict>
   <key>StandardOutPath</key><string>/tmp/ant-db-retention.log</string>
   <key>StandardErrorPath</key><string>/tmp/ant-db-retention.err</string>
 </dict></plist>
@@ -66,6 +83,9 @@ boundary.
   writing heavily, VACUUM may fail with `SQLITE_BUSY`. Re-running the
   script is safe — already-pruned rows are skipped and VACUUM is
   idempotent. Use `--no-vacuum` if you can't get a clear window.
+- Use `--if-size-over-mb N` or `ANT_RETENTION_MAX_DB_MB=N` for
+  threshold-triggered maintenance. When the file is at or below the
+  threshold, the script exits without opening a prune/VACUUM lock window.
 - The default 7-day retention is the same default `idle-tick` uses
   for evidence relevance and the same window `/diagnostics` reports.
   Change `--days` only if you have a reason.
