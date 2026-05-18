@@ -87,7 +87,12 @@ export async function PATCH(event: RequestEvent<{ id: string; askId: string }>) 
   const existing = getScopedAsk(event.params);
   if (!existing) return json({ error: 'not found' }, { status: 404 });
 
-  const body = await event.request.json();
+  let body: any;
+  try {
+    body = await event.request.json();
+  } catch {
+    return json({ error: 'Invalid JSON' }, { status: 400 });
+  }
   const action = normalizeAskAction(body.action ?? body.answer_action ?? body.answerAction);
   const status = body.status
     ? normalizeAskStatus(body.status, existing.status)

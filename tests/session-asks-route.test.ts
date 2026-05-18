@@ -36,7 +36,7 @@ function patchEvent(roomId: string, askId: string, body: unknown) {
     request: new Request(`https://ant.test/api/sessions/${roomId}/asks/${askId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: typeof body === 'string' ? body : JSON.stringify(body),
     }),
     locals: {},
   } as any;
@@ -69,8 +69,10 @@ describe('/api/sessions/:id/asks', () => {
     dataDir = mkdtempSync(join(tmpdir(), 'ant-session-asks-'));
     process.env.ANT_DATA_DIR = dataDir;
     _resetForTest();
+    queries.createSession('room-1', 'Room 1', 'chat', 'forever', null, null, '{}');
     queries.createSession('archived-room', 'Archived Room', 'chat', 'forever', null, null, '{}');
     queries.createSession('deleted-room', 'Deleted Room', 'chat', 'forever', null, null, '{}');
+    createAsk('ask-1', 'room-1');
     createAsk('ask-archived', 'archived-room');
     createAsk('ask-deleted', 'deleted-room');
     queries.archiveSession('archived-room');
@@ -97,5 +99,12 @@ describe('/api/sessions/:id/asks', () => {
       expect(queries.listAsks({ sessionId: roomId, statuses: null })).toHaveLength(1);
       expect(queries.getAsk(askId)).toMatchObject({ status: 'open', answer: null });
     }
+  });
+
+  it('returns structured 400 for malformed ask detail updates without mutating state', async () => {
+    const malformed = await detail.PATCH(patchEvent('room-1', 'ask-1', '{'));
+    expect(malformed.status).toBe(400);
+    expect(await malformed.json()).toEqual({ error: 'Invalid JSON' });
+    expect(queries.getAsk('ask-1')).toMatchObject({ status: 'open', answer: null });
   });
 });
