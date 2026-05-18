@@ -1,6 +1,7 @@
-import { json } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
+import { assertCanWrite, assertSameRoom } from '$lib/server/room-scope';
 
 function resolveTask(params: { id: string; taskId: string }) {
   const exact = queries.getTask(params.taskId) as any;
@@ -24,8 +25,20 @@ function resolveTask(params: { id: string; taskId: string }) {
   return { task: matches[0] };
 }
 
+function assertActiveSession(id: string) {
+  const session = queries.getSession(id);
+  if (!session) throw error(404, 'Session not found');
+  if (session.archived || session.deleted_at) throw error(410, 'Session is inactive');
+  return session;
+}
+
 // PATCH /api/sessions/:id/tasks/:taskId
-export async function PATCH({ params, request }: RequestEvent<{ id: string; taskId: string }>) {
+export async function PATCH(event: RequestEvent<{ id: string; taskId: string }>) {
+  const { params, request } = event;
+  assertSameRoom(event, params.id);
+  assertCanWrite(event);
+  assertActiveSession(params.id);
+
   const resolved = resolveTask(params);
   if (resolved.response) return resolved.response;
   const taskId = resolved.task.id;
@@ -66,7 +79,12 @@ export async function PATCH({ params, request }: RequestEvent<{ id: string; task
   return json({ task });
 }
 
-export async function DELETE({ params }: RequestEvent<{ id: string; taskId: string }>) {
+export async function DELETE(event: RequestEvent<{ id: string; taskId: string }>) {
+  const { params } = event;
+  assertSameRoom(event, params.id);
+  assertCanWrite(event);
+  assertActiveSession(params.id);
+
   const resolved = resolveTask(params);
   if (resolved.response) return resolved.response;
   const taskId = resolved.task.id;
