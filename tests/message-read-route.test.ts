@@ -15,7 +15,7 @@ const route = await import('../src/routes/api/sessions/[id]/messages/[msgId]/rea
 let dataDir = '';
 let originalDataDir: string | undefined;
 
-function postEvent(roomId: string, msgId: string, body: unknown) {
+function postEvent(roomId: string, msgId: string, body: unknown, locals = {}) {
   return {
     params: { id: roomId, msgId },
     request: new Request(`https://ant.test/api/sessions/${roomId}/messages/${msgId}/read`, {
@@ -23,11 +23,12 @@ function postEvent(roomId: string, msgId: string, body: unknown) {
       headers: { 'Content-Type': 'application/json' },
       body: typeof body === 'string' ? body : JSON.stringify(body),
     }),
+    locals,
   } as any;
 }
 
-function getEvent(roomId: string, msgId: string) {
-  return { params: { id: roomId, msgId } } as any;
+function getEvent(roomId: string, msgId: string, locals = {}) {
+  return { params: { id: roomId, msgId }, locals } as any;
 }
 
 async function expectHttpError(action: () => unknown | Promise<unknown>, status: number) {
@@ -123,6 +124,30 @@ describe('/api/sessions/:id/messages/:msgId/read', () => {
     await expectHttpError(() => route.POST(postEvent('room-b', 'msg-a1', { reader_id: 'reader-a' })), 404);
     await expectHttpError(() => route.POST(postEvent('room-a', 'missing-msg', { reader_id: 'reader-a' })), 404);
     await expectHttpError(() => route.POST(postEvent('room-a', 'msg-a1', { reader_id: 'missing-reader' })), 404);
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+
+  it('enforces scoped-token access before reading or writing read receipts', async () => {
+    await route.POST(postEvent('room-a', 'msg-a1', { reader_id: 'reader-a' }));
+    broadcast.mockReset();
+
+    const sameRoomRead = await route.GET(getEvent('room-a', 'msg-a1', {
+      roomScope: { roomId: 'room-a', kind: 'web' },
+    }));
+
+    expect(sameRoomRead.status).toBe(200);
+    await expectHttpError(
+      () => route.GET(getEvent('room-a', 'msg-a1', { roomScope: { roomId: 'room-b', kind: 'web' } })),
+      403,
+    );
+    await expectHttpError(
+      () => route.POST(postEvent('room-a', 'msg-a1', { reader_id: 'reader-b' }, { roomScope: { roomId: 'room-a', kind: 'web' } })),
+      403,
+    );
+    await expectHttpError(
+      () => route.POST(postEvent('room-a', 'msg-a1', { reader_id: 'reader-b' }, { roomScope: { roomId: 'room-b', kind: 'cli' } })),
+      403,
+    );
     expect(broadcast).not.toHaveBeenCalled();
   });
 });

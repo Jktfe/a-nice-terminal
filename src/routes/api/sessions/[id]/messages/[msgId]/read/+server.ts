@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
+import { assertCanWrite, assertSameRoom } from '$lib/server/room-scope';
 
 function requireActiveChatSession(sessionId: string) {
   const session = queries.getSession(sessionId) as any;
@@ -18,7 +19,11 @@ function requireMessageInSession(messageId: string, sessionId: string) {
 
 // POST /api/sessions/:id/messages/:msgId/read — mark message as read
 // Body: { reader_id: string } — the session ID of the reader
-export async function POST({ params, request }: RequestEvent<{ id: string; msgId: string }>) {
+export async function POST(event: RequestEvent<{ id: string; msgId: string }>) {
+  assertSameRoom(event, event.params.id);
+  assertCanWrite(event);
+  const { params, request } = event;
+
   requireActiveChatSession(params.id);
   requireMessageInSession(params.msgId, params.id);
   let body: any;
@@ -49,7 +54,10 @@ export async function POST({ params, request }: RequestEvent<{ id: string; msgId
 }
 
 // GET /api/sessions/:id/messages/:msgId/read — get read receipts for a message
-export function GET({ params }: RequestEvent<{ id: string; msgId: string }>) {
+export function GET(event: RequestEvent<{ id: string; msgId: string }>) {
+  assertSameRoom(event, event.params.id);
+  const { params } = event;
+
   requireActiveChatSession(params.id);
   requireMessageInSession(params.msgId, params.id);
   const reads = queries.getReadsForMessage(params.msgId);
