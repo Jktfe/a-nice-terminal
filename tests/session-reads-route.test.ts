@@ -9,8 +9,8 @@ const { GET } = await import('../src/routes/api/sessions/[id]/reads/+server.js')
 let dataDir = '';
 let originalDataDir: string | undefined;
 
-function readsEvent(id: string) {
-  return { params: { id } } as any;
+function readsEvent(id: string, locals: Record<string, unknown> = {}) {
+  return { params: { id }, locals } as any;
 }
 
 async function expectHttpError(action: () => unknown | Promise<unknown>, status: number) {
@@ -86,5 +86,11 @@ describe('/api/sessions/:id/reads', () => {
     await expectHttpError(() => GET(readsEvent('terminal-a')), 400);
     await expectHttpError(() => GET(readsEvent('archived-a')), 410);
     await expectHttpError(() => GET(readsEvent('deleted-a')), 410);
+  });
+
+  it('rejects cross-room scoped tokens before returning read receipts', async () => {
+    await expectHttpError(() => GET(readsEvent('room-a', {
+      roomScope: { roomId: 'room-b', kind: 'cli' },
+    })), 403);
   });
 });

@@ -1,10 +1,14 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
+import { assertSameRoom } from '$lib/server/room-scope';
 
 // GET /api/sessions/:id/reads — get all read receipts for a chat session
 // Returns a map of message_id → [{ session_id, reader_name, reader_handle, read_at }]
-export function GET({ params }: RequestEvent<{ id: string }>) {
+export function GET(event: RequestEvent<{ id: string }>) {
+  const { params } = event;
+  assertSameRoom(event, params.id);
+
   const session = queries.getSession(params.id) as any;
   if (!session) throw error(404, 'Session not found');
   if (session.archived || session.deleted_at) throw error(410, 'Session is inactive');
