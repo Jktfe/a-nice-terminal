@@ -12,7 +12,10 @@ import { assertNotRoomScoped } from '$lib/server/room-scope';
 export function GET(event: RequestEvent) {
   assertNotRoomScoped(event);
   const url = event.url;
-  const grantedTo = url.searchParams.get('granted_to');
+  const grantedToParam = url.searchParams.get('granted_to')?.trim();
+  const grantedTo = grantedToParam
+    ? grantedToParam.startsWith('@') ? grantedToParam : `@${grantedToParam}`
+    : null;
   const status = url.searchParams.get('status');
   const topic = url.searchParams.get('topic');
 
