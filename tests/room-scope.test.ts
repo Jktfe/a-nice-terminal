@@ -1,111 +1,98 @@
 import { describe, it, expect } from 'vitest';
-import {
-  roomScope,
-  assertSameRoom,
-  assertNotRoomScoped,
-  assertCanWrite,
-} from '../src/lib/server/room-scope';
-import type { RequestEvent } from '@sveltejs/kit';
+import { roomScope, assertSameRoom, assertNotRoomScoped, assertCanWrite } from '../src/lib/server/room-scope.js';
 
-// Build a minimal RequestEvent stub. The room-scope helpers only read
-// event.locals.roomScope, so the rest of the surface can be empty objects.
-function makeEvent(locals: Record<string, unknown> = {}): RequestEvent {
-  return { locals } as unknown as RequestEvent;
+function makeEvent(locals?: Record<string, unknown>) {
+  return { locals } as any;
 }
 
-function expectThrowsWithStatus(fn: () => void, status: number): void {
+function expectThrows403(fn: () => void) {
   try {
     fn();
-    throw new Error('expected throw, none occurred');
+    throw new Error('Expected function to throw, but it did not');
   } catch (err: any) {
-    // SvelteKit `error()` produces an object with a numeric status.
-    expect(err?.status ?? err?.body?.status).toBe(status);
+    expect(err.status).toBe(403);
   }
 }
 
 describe('roomScope', () => {
-  it('returns null when locals has no roomScope', () => {
+  it('returns null when locals is absent', () => {
     expect(roomScope(makeEvent())).toBeNull();
   });
 
-  it('returns null when locals.roomScope is not an object', () => {
-    expect(roomScope(makeEvent({ roomScope: 'admin' }))).toBeNull();
+  it('returns null when roomScope is missing', () => {
+    expect(roomScope(makeEvent({}))).toBeNull();
   });
 
-  it('returns null when roomId is missing', () => {
-    expect(roomScope(makeEvent({ roomScope: { kind: 'cli' } }))).toBeNull();
+  it('returns null when roomScope is not an object', () => {
+    expect(roomScope(makeEvent({ roomScope: 'bad' }))).toBeNull();
   });
 
-  it('parses a fully-formed roomScope', () => {
-    const scope = roomScope(makeEvent({ roomScope: { roomId: 'r-1', kind: 'cli' } }));
-    expect(scope).toEqual({ roomId: 'r-1', kind: 'cli' });
+  it('extracts roomId and kind', () => {
+    expect(roomScope(makeEvent({ roomScope: { roomId: 'r1', kind: 'cli' } })))
+      .toEqual({ roomId: 'r1', kind: 'cli' });
   });
 
-  it('coerces non-string kind to null without throwing', () => {
-    const scope = roomScope(makeEvent({ roomScope: { roomId: 'r-1', kind: 42 } }));
-    expect(scope).toEqual({ roomId: 'r-1', kind: null });
+  it('treats missing kind as null', () => {
+    expect(roomScope(makeEvent({ roomScope: { roomId: 'r1' } })))
+      .toEqual({ roomId: 'r1', kind: null });
+  });
+
+  it('treats non-string kind as null', () => {
+    expect(roomScope(makeEvent({ roomScope: { roomId: 'r1', kind: 123 } })))
+      .toEqual({ roomId: 'r1', kind: null });
+  });
+
+  it('returns null when roomId is not a string', () => {
+    expect(roomScope(makeEvent({ roomScope: { roomId: 123 } }))).toBeNull();
   });
 });
 
 describe('assertSameRoom', () => {
-  it('is a no-op for admin (no scope)', () => {
-    expect(() => assertSameRoom(makeEvent(), 'r-1')).not.toThrow();
+  it('passes when no scope (master key)', () => {
+    expect(() => assertSameRoom(makeEvent(), 'r1')).not.toThrow();
   });
 
-  it('passes when scope matches the URL room', () => {
-    const ev = makeEvent({ roomScope: { roomId: 'r-1', kind: 'cli' } });
-    expect(() => assertSameRoom(ev, 'r-1')).not.toThrow();
+  it('passes when scope matches expected room', () => {
+    expect(() => assertSameRoom(makeEvent({ roomScope: { roomId: 'r1' } }), 'r1')).not.toThrow();
   });
 
-  it('throws 403 when scope is for a different room', () => {
-    const ev = makeEvent({ roomScope: { roomId: 'r-1', kind: 'cli' } });
-    expectThrowsWithStatus(() => assertSameRoom(ev, 'r-2'), 403);
+  it('throws 403 when scope mismatches', () => {
+    expectThrows403(() => assertSameRoom(makeEvent({ roomScope: { roomId: 'r1' } }), 'r2'));
   });
 });
 
 describe('assertNotRoomScoped', () => {
-  it('passes for admin (no scope) — admin endpoints are open to master key', () => {
+  it('passes when no scope (master key)', () => {
     expect(() => assertNotRoomScoped(makeEvent())).not.toThrow();
   });
 
-  it('throws 403 for any per-room bearer, even one for the right room', () => {
-    const ev = makeEvent({ roomScope: { roomId: 'r-1', kind: 'cli' } });
-    expectThrowsWithStatus(() => assertNotRoomScoped(ev), 403);
-  });
-
-  it('throws 403 for a web-kind bearer too — no escalation via kind', () => {
-    const ev = makeEvent({ roomScope: { roomId: 'r-1', kind: 'web' } });
-    expectThrowsWithStatus(() => assertNotRoomScoped(ev), 403);
+  it('throws 403 when scope exists', () => {
+    expectThrows403(() => assertNotRoomScoped(makeEvent({ roomScope: { roomId: 'r1' } })));
   });
 });
 
 describe('assertCanWrite', () => {
-  it('passes for admin (no scope)', () => {
+  it('passes when no scope (master key)', () => {
     expect(() => assertCanWrite(makeEvent())).not.toThrow();
   });
 
-  it('passes for cli-kind bearer', () => {
-    const ev = makeEvent({ roomScope: { roomId: 'r-1', kind: 'cli' } });
-    expect(() => assertCanWrite(ev)).not.toThrow();
+  it('passes when kind is cli', () => {
+    expect(() => assertCanWrite(makeEvent({ roomScope: { roomId: 'r1', kind: 'cli' } }))).not.toThrow();
   });
 
-  it('passes for mcp-kind bearer', () => {
-    const ev = makeEvent({ roomScope: { roomId: 'r-1', kind: 'mcp' } });
-    expect(() => assertCanWrite(ev)).not.toThrow();
+  it('passes when kind is mcp', () => {
+    expect(() => assertCanWrite(makeEvent({ roomScope: { roomId: 'r1', kind: 'mcp' } }))).not.toThrow();
   });
 
-  it('rejects web-kind bearer with 403 — read-only viewer cannot post', () => {
-    const ev = makeEvent({ roomScope: { roomId: 'r-1', kind: 'web' } });
-    expectThrowsWithStatus(() => assertCanWrite(ev), 403);
+  it('passes when kind is null (legacy)', () => {
+    expect(() => assertCanWrite(makeEvent({ roomScope: { roomId: 'r1', kind: null } }))).not.toThrow();
   });
 
-  it('rejects unknown future kinds — allowlist, not denylist', () => {
-    const ev = makeEvent({ roomScope: { roomId: 'r-1', kind: 'rss' } });
-    expectThrowsWithStatus(() => assertCanWrite(ev), 403);
+  it('throws 403 when kind is web', () => {
+    expectThrows403(() => assertCanWrite(makeEvent({ roomScope: { roomId: 'r1', kind: 'web' } })));
   });
 
-  it('passes for legacy null-kind bearer (compatibility shim)', () => {
-    const ev = makeEvent({ roomScope: { roomId: 'r-1', kind: null } });
-    expect(() => assertCanWrite(ev)).not.toThrow();
+  it('throws 403 when kind is unknown', () => {
+    expectThrows403(() => assertCanWrite(makeEvent({ roomScope: { roomId: 'r1', kind: 'other' } })));
   });
 });
