@@ -20,16 +20,28 @@ function resolveCreator(value: unknown): string | null {
 }
 
 export async function POST({ params, request }: RequestEvent<{ id: string }>) {
-  const {
-    title,
-    description,
-    created_by,
-    created_source,
-    plan_id,
-    milestone_id,
-    acceptance_id,
-  } = await request.json();
-  if (!title) return json({ error: 'title required' }, { status: 400 });
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return json({ error: "Request body must be a JSON object" }, { status: 400 });
+  }
+
+  const session = queries.getSession(params.id);
+  if (!session) return json({ error: "Session not found" }, { status: 404 });
+
+  const title = typeof body.title === "string" ? body.title.trim() : "";
+  if (!title) return json({ error: "title required" }, { status: 400 });
+
+  const description = cleanOptionalString(body.description);
+  const created_by = body.created_by;
+  const created_source = body.created_source;
+  const plan_id = body.plan_id;
+  const milestone_id = body.milestone_id;
+  const acceptance_id = body.acceptance_id;
 
   const id = nanoid();
   queries.createTask(
@@ -37,9 +49,9 @@ export async function POST({ params, request }: RequestEvent<{ id: string }>) {
     params.id,
     resolveCreator(created_by),
     title,
-    cleanOptionalString(description),
+    description,
     {
-      createdSource: cleanOptionalString(created_source) || 'api',
+      createdSource: cleanOptionalString(created_source) || "api",
       planId: cleanOptionalString(plan_id),
       milestoneId: cleanOptionalString(milestone_id),
       acceptanceId: cleanOptionalString(acceptance_id),
@@ -50,7 +62,7 @@ export async function POST({ params, request }: RequestEvent<{ id: string }>) {
 
   // Broadcast task creation to all session participants
   const { broadcast } = await import('$lib/server/ws-broadcast.js');
-  broadcast(params.id, { type: 'task_created', sessionId: params.id, task });
+  broadcast(params.id, { type: "task_created", sessionId: params.id, task });
 
   return json({ task }, { status: 201 });
 }
