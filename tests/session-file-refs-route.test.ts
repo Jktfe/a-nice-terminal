@@ -20,9 +20,14 @@ const route = await import('../src/routes/api/sessions/[id]/file-refs/+server.js
 let dataDir = '';
 let originalDataDir: string | undefined;
 
-function requestEvent(id: string, body: unknown) {
+function getEvent(id: string, locals = {}) {
+  return { params: { id }, locals } as any;
+}
+
+function requestEvent(id: string, body: unknown, locals = {}) {
   return {
     params: { id },
+    locals,
     request: new Request(`https://ant.test/api/sessions/${id}/file-refs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -31,10 +36,20 @@ function requestEvent(id: string, body: unknown) {
   } as any;
 }
 
-function deleteEvent(id: string, refId: string | null) {
+function deleteEvent(id: string, refId: string | null, locals = {}) {
   const url = new URL(`https://ant.test/api/sessions/${id}/file-refs`);
   if (refId !== null) url.searchParams.set('refId', refId);
-  return { params: { id }, url } as any;
+  return { params: { id }, url, locals } as any;
+}
+
+async function expectHttpError(action: () => unknown | Promise<unknown>, status: number) {
+  try {
+    await action();
+  } catch (err) {
+    expect(err).toMatchObject({ status });
+    return;
+  }
+  throw new Error(`Expected HTTP ${status}`);
 }
 
 describe('/api/sessions/:id/file-refs', () => {
@@ -48,6 +63,10 @@ describe('/api/sessions/:id/file-refs', () => {
     nanoid.mockReturnValue('ref-new');
     queries.createSession('session-a', 'Session A', 'terminal', 'forever', null, null, '{}');
     queries.createSession('session-b', 'Session B', 'terminal', 'forever', null, null, '{}');
+    queries.createSession('archived-a', 'Archived A', 'terminal', 'forever', null, null, '{}');
+    queries.createSession('deleted-a', 'Deleted A', 'terminal', 'forever', null, null, '{}');
+    queries.archiveSession('archived-a');
+    queries.softDeleteSession('deleted-a');
     queries.createFileRef('ref-existing', 'session-a', '@you', '/tmp/a.ts', 'existing');
     queries.createFileRef('ref-other', 'session-b', '@other', '/tmp/b.ts', null);
   });
@@ -60,7 +79,7 @@ describe('/api/sessions/:id/file-refs', () => {
   });
 
   it('lists refs scoped to the requested session', async () => {
-    const response = await route.GET({ params: { id: 'session-a' } } as any);
+    const response = await route.GET(getEvent('session-a'));
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
@@ -74,6 +93,21 @@ describe('/api/sessions/:id/file-refs', () => {
         },
       ],
     });
+  });
+
+  it('rejects missing, inactive, and cross-room scoped reads', async () => {
+    await expectHttpError(() => route.GET(getEvent('missing')), 404);
+    await expectHttpError(() => route.GET(getEvent('archived-a')), 410);
+    await expectHttpError(() => route.GET(getEvent('deleted-a')), 410);
+    await expectHttpError(
+      () =>
+        route.GET(
+          getEvent('session-a', {
+            roomScope: { roomId: 'session-b', kind: 'cli' },
+          }),
+        ),
+      403,
+    );
   });
 
   it('creates trimmed refs and broadcasts the normalized payload', async () => {
@@ -129,6 +163,37 @@ describe('/api/sessions/:id/file-refs', () => {
     expect(await wrongType.json()).toEqual({ error: 'file_path required' });
   });
 
+  it('rejects invalid sessions, cross-room tokens, and read-only tokens before creating refs', async () => {
+    const payload = { file_path: '/tmp/new.ts' };
+
+    await expectHttpError(() => route.POST(requestEvent('missing', payload)), 404);
+    await expectHttpError(() => route.POST(requestEvent('archived-a', payload)), 410);
+    await expectHttpError(() => route.POST(requestEvent('deleted-a', payload)), 410);
+    await expectHttpError(
+      () =>
+        route.POST(
+          requestEvent('session-a', payload, {
+            roomScope: { roomId: 'session-b', kind: 'cli' },
+          }),
+        ),
+      403,
+    );
+    await expectHttpError(
+      () =>
+        route.POST(
+          requestEvent('session-a', payload, {
+            roomScope: { roomId: 'session-a', kind: 'web' },
+          }),
+        ),
+      403,
+    );
+
+    expect(queries.listFileRefs('session-a')).toEqual([
+      expect.objectContaining({ id: 'ref-existing' }),
+    ]);
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+
   it('deletes only refs owned by the requested session', async () => {
     const missingParam = await route.DELETE(deleteEvent('session-a', null));
     expect(missingParam.status).toBe(400);
@@ -151,5 +216,34 @@ describe('/api/sessions/:id/file-refs', () => {
       sessionId: 'session-a',
       refId: 'ref-existing',
     });
+  });
+
+  it('rejects invalid sessions, cross-room tokens, and read-only tokens before deleting refs', async () => {
+    await expectHttpError(() => route.DELETE(deleteEvent('missing', 'ref-existing')), 404);
+    await expectHttpError(() => route.DELETE(deleteEvent('archived-a', 'ref-existing')), 410);
+    await expectHttpError(() => route.DELETE(deleteEvent('deleted-a', 'ref-existing')), 410);
+    await expectHttpError(
+      () =>
+        route.DELETE(
+          deleteEvent('session-a', 'ref-existing', {
+            roomScope: { roomId: 'session-b', kind: 'cli' },
+          }),
+        ),
+      403,
+    );
+    await expectHttpError(
+      () =>
+        route.DELETE(
+          deleteEvent('session-a', 'ref-existing', {
+            roomScope: { roomId: 'session-a', kind: 'web' },
+          }),
+        ),
+      403,
+    );
+
+    expect(queries.listFileRefs('session-a')).toEqual([
+      expect.objectContaining({ id: 'ref-existing' }),
+    ]);
+    expect(broadcast).not.toHaveBeenCalled();
   });
 });

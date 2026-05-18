@@ -1,14 +1,31 @@
-import { json } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
+import { assertCanWrite, assertSameRoom } from '$lib/server/room-scope';
 import { nanoid } from 'nanoid';
 
-export function GET({ params }: RequestEvent<{ id: string }>) {
+function assertActiveSession(id: string) {
+  const session = queries.getSession(id);
+  if (!session) throw error(404, 'Session not found');
+  if (session.archived || session.deleted_at) throw error(410, 'Session is inactive');
+  return session;
+}
+
+export function GET(event: RequestEvent<{ id: string }>) {
+  const { params } = event;
+  assertSameRoom(event, params.id);
+  assertActiveSession(params.id);
+
   const refs = queries.listFileRefs(params.id);
   return json({ refs });
 }
 
-export async function POST({ params, request }: RequestEvent<{ id: string }>) {
+export async function POST(event: RequestEvent<{ id: string }>) {
+  const { params, request } = event;
+  assertSameRoom(event, params.id);
+  assertCanWrite(event);
+  assertActiveSession(params.id);
+
   let body: any;
   try {
     body = await request.json();
@@ -34,7 +51,12 @@ export async function POST({ params, request }: RequestEvent<{ id: string }>) {
   return json({ ref }, { status: 201 });
 }
 
-export async function DELETE({ params, url }: RequestEvent<{ id: string }>) {
+export async function DELETE(event: RequestEvent<{ id: string }>) {
+  const { params, url } = event;
+  assertSameRoom(event, params.id);
+  assertCanWrite(event);
+  assertActiveSession(params.id);
+
   const refId = url.searchParams.get('refId');
   if (!refId) return json({ error: 'refId required' }, { status: 400 });
 
