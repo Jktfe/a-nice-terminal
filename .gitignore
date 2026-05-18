@@ -7,6 +7,9 @@ certs/
 *.db
 *.db-wal
 *.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
 .ant-v3/
 /tmp/
 
@@ -15,6 +18,7 @@ certs/
 ANT-v3-plan.md
 CLAUDE.md
 .mcp.json
+.claude/
 .claude/settings.local.json
 docs/superpowers/
 
@@ -29,6 +33,7 @@ logs/
 
 # Uploaded files
 static/uploads/
+static/artefacts/
 
 # Tool/IDE state
 .claude/scheduled_tasks.lock
