@@ -9,10 +9,11 @@ const { GET } = await import('../src/routes/api/sessions/[id]/run-events/+server
 let dataDir = '';
 let originalDataDir: string | undefined;
 
-function runEventsEvent(id: string, query = '') {
+function runEventsEvent(id: string, query = '', locals: Record<string, unknown> = {}) {
   return {
     params: { id },
     url: new URL(`https://ant.test/api/sessions/${id}/run-events${query}`),
+    locals,
   } as any;
 }
 
@@ -37,6 +38,11 @@ describe('/api/sessions/:id/run-events', () => {
     queries.createSession('chat', 'Linked Chat', 'chat', 'forever', null, null, JSON.stringify({
       auto_linked_terminal_id: 'terminal',
     }));
+    queries.createSession('room-b', 'Room B', 'chat', 'forever', null, null, '{}');
+    queries.createSession('archived', 'Archived', 'terminal', 'forever', null, null, '{}');
+    queries.createSession('deleted', 'Deleted', 'terminal', 'forever', null, null, '{}');
+    queries.archiveSession('archived');
+    queries.softDeleteSession('deleted');
     queries.appendRunEvent('terminal', 1_000, 'terminal', 'medium', 'prompt', 'first prompt', JSON.stringify({ prompt: 'first' }), JSON.stringify({ chunk: 1 }));
     queries.appendRunEvent('terminal', 2_000, 'status', 'high', 'terminal_stop', 'stop requested', '{bad-json', 'raw-string');
     queries.appendRunEvent('terminal', 3_000, 'terminal', 'medium', 'prompt', 'second prompt', JSON.stringify({ prompt: 'second' }), null);
@@ -109,5 +115,13 @@ describe('/api/sessions/:id/run-events', () => {
 
   it('rejects missing sessions', async () => {
     await expectHttpError(() => GET(runEventsEvent('missing', '?since=0')), 404);
+  });
+
+  it('rejects cross-room scoped tokens and inactive sessions before returning run events', async () => {
+    await expectHttpError(() => GET(runEventsEvent('terminal', '?since=0', {
+      roomScope: { roomId: 'room-b', kind: 'cli' },
+    })), 403);
+    await expectHttpError(() => GET(runEventsEvent('archived', '?since=0')), 410);
+    await expectHttpError(() => GET(runEventsEvent('deleted', '?since=0')), 410);
   });
 });

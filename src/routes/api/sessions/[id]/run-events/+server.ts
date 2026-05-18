@@ -13,6 +13,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db.js';
+import { assertSameRoom } from '$lib/server/room-scope.js';
 
 const DEFAULT_LIMIT = 200;
 const MAX_LIMIT = 1000;
@@ -74,9 +75,13 @@ function parseRawRef(rawRef: unknown): unknown {
   catch { return rawRef; }
 }
 
-export function GET({ params, url }: RequestEvent<{ id: string }>) {
+export function GET(event: RequestEvent<{ id: string }>) {
+  const { params, url } = event;
+  assertSameRoom(event, params.id);
+
   const session = queries.getSession(params.id) as SessionRow | null;
   if (!session) throw error(404, 'Session not found');
+  if (session.archived || session.deleted_at) throw error(410, 'Session is inactive');
 
   const terminalId = resolveTerminalId(session);
   const sinceMs = parseSince(url.searchParams.get('since'));
