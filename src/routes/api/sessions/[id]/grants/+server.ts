@@ -44,10 +44,19 @@ export function GET(event: RequestEvent<{ id: string }>) {
 export async function POST(event: RequestEvent<{ id: string }>) {
   assertSameRoom(event, event.params.id);
   assertCanWrite(event);
-  const body = await event.request.json();
 
-  const topic = String(body.topic || '').trim();
-  const grantedTo = String(body.granted_to || '').trim();
+  let body: any;
+  try {
+    body = await event.request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return json({ error: "Request body must be a JSON object" }, { status: 400 });
+  }
+
+  const topic = typeof body.topic === "string" ? body.topic.trim() : "";
+  const grantedTo = typeof body.granted_to === "string" ? body.granted_to.trim() : "";
   if (!topic) return json({ error: 'topic is required' }, { status: 400 });
   if (!grantedTo) return json({ error: 'granted_to is required' }, { status: 400 });
 
