@@ -4,7 +4,7 @@ import { queries } from '$lib/server/db';
 import { autoLinkedTerminalId, isAutoLinkedChatForTerminal } from '$lib/server/linked-chat';
 import { SESSIONS_CHANNEL } from '$lib/ws-channels';
 import { buildLinkedChatName, normalizeSessionName } from '$lib/utils/session-naming';
-import { assertNotRoomScoped } from '$lib/server/room-scope';
+import { assertNotRoomScoped, assertSameRoom } from '$lib/server/room-scope';
 
 function findConflictingSession(name: string, excludeIds: string[] = []) {
   const comparable = normalizeSessionName(name).toLowerCase();
@@ -25,9 +25,12 @@ function normalizeArchivedPatch(value: unknown): boolean {
   return Boolean(value);
 }
 
-export function GET({ params }: RequestEvent<{ id: string }>) {
+export function GET(event: RequestEvent<{ id: string }>) {
+  assertSameRoom(event, event.params.id);
+  const { params } = event;
   const session = queries.getSession(params.id);
   if (!session) throw error(404, 'Session not found');
+  if (session.archived || session.deleted_at) throw error(410, 'Session is inactive');
   return json(session);
 }
 

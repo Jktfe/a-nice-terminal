@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import getDb, { _resetForTest, queries } from '../src/lib/server/db.js';
 
-const { PATCH } = await import('../src/routes/api/sessions/[id]/+server.js');
+const { GET, PATCH } = await import('../src/routes/api/sessions/[id]/+server.js');
 
 let dataDir = '';
 let originalDataDir: string | undefined;
@@ -20,8 +20,25 @@ function patchEvent(sessionId: string, body: unknown) {
   } as any;
 }
 
+function getEvent(sessionId: string, locals = {}) {
+  return {
+    params: { id: sessionId },
+    locals,
+  } as any;
+}
+
 function createSession(id: string, name = id) {
   queries.createSession(id, name, 'chat', 'forever', null, null, '{}');
+}
+
+async function expectHttpError(action: () => unknown | Promise<unknown>, status: number) {
+  try {
+    await action();
+  } catch (err) {
+    expect(err).toMatchObject({ status });
+    return;
+  }
+  throw new Error(`Expected HTTP ${status}`);
 }
 
 describe('/api/sessions/:id', () => {
@@ -47,6 +64,23 @@ describe('/api/sessions/:id', () => {
     expect(response.status).toBe(200);
     const json = await response.json();
     expect(json.name).toBe('Renamed Room');
+  });
+
+  it('enforces same-room scoped access for session detail reads', async () => {
+    createSession('room-2', 'Room 2');
+    createSession('archived-room', 'Archived Room');
+    createSession('deleted-room', 'Deleted Room');
+    queries.archiveSession('archived-room');
+    queries.softDeleteSession('deleted-room');
+
+    const sameRoom = await GET(getEvent('room-1', { roomScope: { roomId: 'room-1', kind: 'web' } }));
+    expect(sameRoom.status).toBe(200);
+    expect(await sameRoom.json()).toMatchObject({ id: 'room-1', name: 'Room 1' });
+
+    await expectHttpError(() => GET(getEvent('room-1', { roomScope: { roomId: 'room-2', kind: 'web' } })), 403);
+    await expectHttpError(() => GET(getEvent('missing-room')), 404);
+    await expectHttpError(() => GET(getEvent('archived-room')), 410);
+    await expectHttpError(() => GET(getEvent('deleted-room')), 410);
   });
 
   it('rejects invalid JSON, non-object bodies, and missing sessions', async () => {
