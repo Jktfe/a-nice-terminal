@@ -13,6 +13,7 @@ const KIND_VALUES: ReadonlySet<string> = new Set(['cli', 'mcp', 'web']);
 export async function POST({ params, request }: RequestEvent<{ id: string; inviteId: string }>) {
   const room = queries.getSession(params.id);
   if (!room) throw error(404, 'Room not found');
+  if (room.archived || room.deleted_at) throw error(410, 'room is inactive');
 
   let body: any;
   try {
