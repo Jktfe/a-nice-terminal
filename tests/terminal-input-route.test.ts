@@ -115,6 +115,10 @@ describe('/api/sessions/:id/terminal/input', () => {
     expect(archived.status).toBe(410);
     expect(await archived.json()).toEqual({ ok: false, error: 'terminal session is inactive' });
 
+    const archivedMalformed = await POST(inputEvent('archived', '{'));
+    expect(archivedMalformed.status).toBe(410);
+    expect(await archivedMalformed.json()).toEqual({ ok: false, error: 'terminal session is inactive' });
+
     expect(writes).toEqual([]);
     expect(capturePromptInput).not.toHaveBeenCalled();
   });
