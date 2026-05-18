@@ -39,7 +39,16 @@ export async function PATCH(event: RequestEvent<{ id: string }>) {
   const currentSession = queries.getSession(params.id);
   if (!currentSession) throw error(404, 'Session not found');
 
-  const body = await request.json();
+
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return json({ error: "Request body must be a JSON object" }, { status: 400 });
+  }
   const nextName = typeof body.name === 'string' ? normalizeSessionName(body.name) : null;
   const hasArchivedPatch = body.archived !== undefined;
   const archivedPatch = hasArchivedPatch ? normalizeArchivedPatch(body.archived) : null;
