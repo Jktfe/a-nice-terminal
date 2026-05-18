@@ -16,8 +16,8 @@ const { GET } = await import('../src/routes/api/sessions/[id]/prompt-bridge/pend
 let dataDir = '';
 let originalDataDir: string | undefined;
 
-function pendingEvent(id: string) {
-  return { params: { id } } as any;
+function pendingEvent(id: string, locals = {}) {
+  return { params: { id }, locals } as any;
 }
 
 async function expectHttpError(action: () => unknown | Promise<unknown>, status: number) {
@@ -104,5 +104,14 @@ describe('/api/sessions/:id/prompt-bridge/pending', () => {
     await expectHttpError(() => GET(pendingEvent('room-a')), 400);
     await expectHttpError(() => GET(pendingEvent('archived-a')), 410);
     await expectHttpError(() => GET(pendingEvent('deleted-a')), 410);
+  });
+
+  it('rejects cross-room scoped tokens before reading pending prompts', async () => {
+    await feedPromptBridge('terminal-a', 'Do you want to continue?');
+
+    await expectHttpError(
+      () => GET(pendingEvent('terminal-a', { roomScope: { roomId: 'terminal-empty', kind: 'web' } })),
+      403,
+    );
   });
 });

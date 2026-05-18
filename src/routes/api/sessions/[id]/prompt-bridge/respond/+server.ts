@@ -2,8 +2,13 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db.js';
 import { respondToPrompt } from '$lib/server/prompt-bridge.js';
+import { assertCanWrite, assertSameRoom } from '$lib/server/room-scope';
 
-export async function POST({ params, request }: RequestEvent<{ id: string }>) {
+export async function POST(event: RequestEvent<{ id: string }>) {
+  const { params, request } = event;
+  assertSameRoom(event, params.id);
+  assertCanWrite(event);
+
   const session = queries.getSession(params.id) as any;
   if (!session) throw error(404, 'Session not found');
   if (session.archived || session.deleted_at) throw error(410, 'Session is inactive');

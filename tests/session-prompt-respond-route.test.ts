@@ -17,9 +17,10 @@ let dataDir = '';
 let originalDataDir: string | undefined;
 const writes: Array<{ sessionId: string; data: string }> = [];
 
-function respondEvent(id: string, body: unknown) {
+function respondEvent(id: string, body: unknown, locals = {}) {
   return {
     params: { id },
+    locals,
     request: new Request(`https://ant.test/api/sessions/${id}/prompt-bridge/respond`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -120,6 +121,21 @@ describe('/api/sessions/:id/prompt-bridge/respond', () => {
     await expectHttpError(() => POST(respondEvent('room-a', { text: 'yes' })), 400);
     await expectHttpError(() => POST(respondEvent('archived-a', { text: 'yes' })), 410);
     await expectHttpError(() => POST(respondEvent('deleted-a', { text: 'yes' })), 410);
+    expect(writes).toEqual([]);
+  });
+
+  it('rejects cross-room and read-only scoped tokens before writing prompt responses', async () => {
+    await feedPromptBridge('terminal-a', 'Do you want to continue?');
+
+    await expectHttpError(
+      () => POST(respondEvent('terminal-a', { text: 'yes' }, { roomScope: { roomId: 'room-a', kind: 'cli' } })),
+      403,
+    );
+    await expectHttpError(
+      () => POST(respondEvent('terminal-a', { text: 'yes' }, { roomScope: { roomId: 'terminal-a', kind: 'web' } })),
+      403,
+    );
+
     expect(writes).toEqual([]);
   });
 });
