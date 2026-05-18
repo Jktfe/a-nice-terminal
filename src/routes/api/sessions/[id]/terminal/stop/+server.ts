@@ -39,7 +39,9 @@ export async function POST(event: RequestEvent<{ id: string }>) {
   let body: Record<string, unknown> = {};
   try { body = await request.json(); } catch {}
   const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, 500) : '';
-  const requestedBy = typeof body.requested_by === 'string' ? body.requested_by.trim().slice(0, 100) : 'web';
+  const requestedBy = typeof body.requested_by === 'string' && body.requested_by.trim()
+    ? body.requested_by.trim().slice(0, 100)
+    : 'web';
 
   ptyClient.write(params.id, '\x03');
 
