@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import getDb, { _resetForTest, queries } from '../src/lib/server/db.js';
 
-const { PATCH } = await import('../src/routes/api/asks/[id]/+server.js');
+const { DELETE, GET, PATCH } = await import('../src/routes/api/asks/[id]/+server.js');
 
 let dataDir = '';
 let originalDataDir: string | undefined;
@@ -18,6 +18,30 @@ function patchEvent(askId: string, body: unknown) {
       body: typeof body === 'string' ? body : JSON.stringify(body),
     }),
   } as any;
+}
+
+function getEvent(askId: string) {
+  return {
+    params: { id: askId },
+    url: new URL(`https://ant.test/api/asks/${askId}`),
+  } as any;
+}
+
+function deleteEvent(askId: string) {
+  return {
+    params: { id: askId },
+    request: new Request(`https://ant.test/api/asks/${askId}`, { method: 'DELETE' }),
+  } as any;
+}
+
+async function expectHttpError(action: () => unknown | Promise<unknown>, status: number) {
+  try {
+    await action();
+  } catch (err) {
+    expect(err).toMatchObject({ status });
+    return;
+  }
+  throw new Error(`Expected HTTP ${status}`);
 }
 
 function createSession(id: string, name = id) {
@@ -36,7 +60,13 @@ describe('/api/asks/:id', () => {
     _resetForTest();
     getDb();
     createSession('room-1', 'Room 1');
+    createSession('archived-room', 'Archived Room');
+    createSession('deleted-room', 'Deleted Room');
     createAsk('ask-1', 'room-1', 'Review middleware');
+    createAsk('ask-archived', 'archived-room', 'Archived ask');
+    createAsk('ask-deleted', 'deleted-room', 'Deleted ask');
+    queries.archiveSession('archived-room');
+    queries.softDeleteSession('deleted-room');
   });
 
   afterEach(() => {
@@ -70,5 +100,15 @@ describe('/api/asks/:id', () => {
     const unknown = await PATCH(patchEvent('no-such-ask', { status: 'done' }));
     expect(unknown.status).toBe(404);
     expect(await unknown.json()).toEqual({ error: 'not found' });
+  });
+
+  it('rejects inactive owning rooms before reading, updating, or dismissing asks', async () => {
+    for (const askId of ['ask-archived', 'ask-deleted']) {
+      await expectHttpError(() => GET(getEvent(askId)), 410);
+      await expectHttpError(() => PATCH(patchEvent(askId, { status: 'answered', answer: 'yes' })), 410);
+      await expectHttpError(() => DELETE(deleteEvent(askId)), 410);
+
+      expect(queries.getAsk(askId)).toMatchObject({ status: 'open', answer: null });
+    }
   });
 });

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import getDb, { _resetForTest, queries } from '../src/lib/server/db.js';
 
-const { POST } = await import('../src/routes/api/asks/+server.js');
+const { GET, POST } = await import('../src/routes/api/asks/+server.js');
 
 let dataDir = '';
 let originalDataDir: string | undefined;
@@ -19,6 +19,22 @@ function postEvent(body: unknown) {
   } as any;
 }
 
+function getEvent(query = '') {
+  return {
+    url: new URL(`https://ant.test/api/asks${query}`),
+  } as any;
+}
+
+async function expectHttpError(action: () => unknown | Promise<unknown>, status: number) {
+  try {
+    await action();
+  } catch (err) {
+    expect(err).toMatchObject({ status });
+    return;
+  }
+  throw new Error(`Expected HTTP ${status}`);
+}
+
 function createSession(id: string, name = id) {
   queries.createSession(id, name, 'chat', 'forever', null, null, '{}');
 }
@@ -31,6 +47,10 @@ describe('/api/asks', () => {
     _resetForTest();
     getDb();
     createSession('room-1', 'Room 1');
+    createSession('archived-room', 'Archived Room');
+    createSession('deleted-room', 'Deleted Room');
+    queries.archiveSession('archived-room');
+    queries.softDeleteSession('deleted-room');
   });
 
   afterEach(() => {
@@ -68,5 +88,16 @@ describe('/api/asks', () => {
     const noContent = await POST(postEvent({ session_id: 'room-1' }));
     expect(noContent.status).toBe(400);
     expect(await noContent.json()).toEqual({ error: 'title or question required' });
+  });
+
+  it('rejects explicit inactive session filters and ask creation targets', async () => {
+    await expectHttpError(() => GET(getEvent('?session_id=archived-room')), 410);
+    await expectHttpError(() => GET(getEvent('?session_id=deleted-room')), 410);
+
+    await expectHttpError(() => POST(postEvent({ session_id: 'archived-room', title: 'Blocked ask' })), 410);
+    await expectHttpError(() => POST(postEvent({ session_id: 'deleted-room', title: 'Blocked ask' })), 410);
+
+    expect(queries.listAsks({ sessionId: 'archived-room', statuses: null })).toHaveLength(0);
+    expect(queries.listAsks({ sessionId: 'deleted-room', statuses: null })).toHaveLength(0);
   });
 });

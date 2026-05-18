@@ -1,4 +1,4 @@
-import { json } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
 import {
@@ -37,11 +37,19 @@ function assertAskVisibleToScope(event: RequestEvent, ask: any): Response | null
   return json({ error: 'Room token does not authorise this room' }, { status: 403 });
 }
 
+function requireActiveSession(sessionId: string) {
+  const session = queries.getSession(sessionId);
+  if (!session) throw error(404, 'Session not found');
+  if (session.archived || session.deleted_at) throw error(410, 'Session is inactive');
+  return session;
+}
+
 export function GET(event: RequestEvent<{ id: string }>) {
   const ask = queries.getAsk(event.params.id);
   if (!ask) return json({ error: 'not found' }, { status: 404 });
   const scoped = assertAskVisibleToScope(event, ask);
   if (scoped) return scoped;
+  requireActiveSession(ask.session_id);
   return json({ ask: publicAsk(ask) });
 }
 
@@ -51,6 +59,7 @@ export async function PATCH(event: RequestEvent<{ id: string }>) {
   if (!existing) return json({ error: "not found" }, { status: 404 });
   const scoped = assertAskVisibleToScope(event, existing);
   if (scoped) return scoped;
+  requireActiveSession(existing.session_id);
 
   let body: any;
   try {
@@ -181,6 +190,7 @@ export async function DELETE(event: RequestEvent<{ id: string }>) {
   if (!existing) return json({ error: 'not found' }, { status: 404 });
   const scoped = assertAskVisibleToScope(event, existing);
   if (scoped) return scoped;
+  requireActiveSession(existing.session_id);
 
   queries.updateAsk(event.params.id, 'dismissed', null, null, null, null, 'dismiss', null, null);
   const ask = publicAsk(queries.getAsk(event.params.id));
