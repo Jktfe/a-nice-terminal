@@ -8,20 +8,30 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { queries } from '$lib/server/db';
 
-export const POST: RequestHandler = async ({ request }) => {
-  try {
-    const body = await request.json();
-    const { handle, port, session_id } = body as {
-      handle?: string;
-      port?: number;
-      session_id?: string;
-    };
+function cleanString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
 
-    if (!handle || typeof handle !== 'string') {
+export const POST: RequestHandler = async ({ request }) => {
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+
+  try {
+    const handle = cleanString(body?.handle);
+    const port = body?.port;
+    const session_id = cleanString(body?.session_id);
+
+    if (!handle) {
       return json({ error: 'handle is required (string)' }, { status: 400 });
     }
-    if (!port || typeof port !== 'number') {
-      return json({ error: 'port is required (number)' }, { status: 400 });
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return json({ error: 'port must be an integer from 1 to 65535' }, { status: 400 });
     }
 
     queries.registerChannel(handle, port, session_id || null);
