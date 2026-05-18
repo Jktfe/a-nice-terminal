@@ -136,7 +136,12 @@ export async function PUT(event: RequestEvent) {
   if (!docRow) throw error(404, 'Doc not found');
   const docRoomId = assertDocRoom(event, docRow);
 
-  const body = await request.json();
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'Invalid JSON' }, { status: 400 });
+  }
 
   // If section data provided, upsert the section
   if (body.sectionId) {
@@ -184,7 +189,12 @@ export async function POST(event: RequestEvent) {
   if (!docRow) throw error(404, 'Doc not found');
   const docRoomId = assertDocRoom(event, docRow);
 
-  const body = await request.json();
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'Invalid JSON' }, { status: 400 });
+  }
   const { author, action } = body;
 
   let meta: any = {};

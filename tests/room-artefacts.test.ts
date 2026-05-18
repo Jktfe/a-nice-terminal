@@ -7,7 +7,7 @@ import { registerDeck } from '../src/lib/server/decks.js';
 import { registerSheet } from '../src/lib/server/sheets.js';
 import { registerSiteTunnel } from '../src/lib/server/tunnels.js';
 import { GET as getRoomArtefacts } from '../src/routes/api/sessions/[id]/artefacts/+server.js';
-import { GET as getDoc, PATCH as patchDoc } from '../src/routes/api/docs/[docId]/+server.js';
+import { GET as getDoc, PATCH as patchDoc, POST as postDoc } from '../src/routes/api/docs/[docId]/+server.js';
 
 const ROOM_ID = 'room-artefacts-test';
 const OTHER_ROOM_ID = 'room-artefacts-other';
@@ -37,19 +37,35 @@ function docEvent(docId: string, roomScopeId: string | null = ROOM_ID) {
   } as any;
 }
 
-function docPatchEvent(docId: string, roomScopeId: string | null = ROOM_ID) {
+function docPatchEvent(docId: string, roomScopeId: string | null = ROOM_ID, body: unknown = {
+  sectionId: 'transcript',
+  heading: 'Transcript',
+  content: 'Room-scoped transcript',
+  author: '@test',
+}) {
   return {
     params: { docId },
     url: new URL(`https://ant.test/api/docs/${docId}`),
     request: new Request(`https://ant.test/api/docs/${docId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sectionId: 'transcript',
-        heading: 'Transcript',
-        content: 'Room-scoped transcript',
-        author: '@test',
-      }),
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+    }),
+    locals: roomScopeId ? { roomScope: { roomId: roomScopeId, kind: 'cli' } } : {},
+  } as any;
+}
+
+function docPostEvent(docId: string, roomScopeId: string | null = ROOM_ID, body: unknown = {
+  action: 'sign-off',
+  author: '@test',
+}) {
+  return {
+    params: { docId },
+    url: new URL(`https://ant.test/api/docs/${docId}`),
+    request: new Request(`https://ant.test/api/docs/${docId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: typeof body === 'string' ? body : JSON.stringify(body),
     }),
     locals: roomScopeId ? { roomScope: { roomId: roomScopeId, kind: 'cli' } } : {},
   } as any;
@@ -293,5 +309,20 @@ describe('room artefacts API', () => {
 
     await expect(patchDoc(docPatchEvent('artefact-demo-doc', OTHER_ROOM_ID))).rejects.toMatchObject({ status: 403 });
     await expect(patchDoc(docPatchEvent('global-demo-doc', ROOM_ID))).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('returns structured 400 for malformed linked doc updates without writing memory', async () => {
+    const before = queries.getMemoryByKey('docs/artefact-demo-doc') as any;
+    const malformedPatch = await patchDoc(docPatchEvent('artefact-demo-doc', ROOM_ID, '{'));
+    expect(malformedPatch.status).toBe(400);
+    expect(await malformedPatch.json()).toEqual({ error: 'Invalid JSON' });
+
+    const malformedPost = await postDoc(docPostEvent('artefact-demo-doc', ROOM_ID, '{'));
+    expect(malformedPost.status).toBe(400);
+    expect(await malformedPost.json()).toEqual({ error: 'Invalid JSON' });
+
+    expect(queries.getMemoryByKey('docs/artefact-demo-doc')).toMatchObject({
+      value: before.value,
+    });
   });
 });
