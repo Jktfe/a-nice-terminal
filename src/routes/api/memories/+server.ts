@@ -34,8 +34,22 @@ export async function GET(event: RequestEvent) {
 export async function POST(event: RequestEvent) {
   assertNotRoomScoped(event);
   const { request } = event;
-  const body = await request.json();
-  const { key, value, tags = [], session_id = null, created_by = null } = body;
+
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ ok: false, error: "Invalid JSON" }, { status: 400 });
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return json({ ok: false, error: "Request body must be a JSON object" }, { status: 400 });
+  }
+
+  const key = body.key;
+  const value = body.value;
+  const tags = body.tags ?? [];
+  const session_id = body.session_id ?? null;
+  const created_by = body.created_by ?? null;
 
   const cleanKey = typeof key === 'string' ? key.trim() : '';
   const cleanValue = typeof value === 'string'
