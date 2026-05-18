@@ -9,10 +9,11 @@ const { GET } = await import('../src/routes/api/sessions/[id]/commands/+server.j
 let dataDir = '';
 let originalDataDir: string | undefined;
 
-function commandsEvent(id: string, query = '') {
+function commandsEvent(id: string, query = '', locals = {}) {
   return {
     params: { id },
     url: new URL(`https://ant.test/api/sessions/${id}/commands${query}`),
+    locals,
   } as any;
 }
 
@@ -78,5 +79,17 @@ describe('/api/sessions/:id/commands', () => {
     await expectHttpError(() => GET(commandsEvent('missing')), 404);
     await expectHttpError(() => GET(commandsEvent('archived-a')), 410);
     await expectHttpError(() => GET(commandsEvent('deleted-a')), 410);
+  });
+
+  it('rejects cross-room scoped tokens before listing command history', async () => {
+    await expectHttpError(
+      () =>
+        GET(
+          commandsEvent('terminal-a', '', {
+            roomScope: { roomId: 'archived-a', kind: 'cli' },
+          }),
+        ),
+      403,
+    );
   });
 });

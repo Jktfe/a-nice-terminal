@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db.js';
+import { assertSameRoom } from '$lib/server/room-scope';
 
 function parseLimit(raw: string | null) {
   const parsed = Number.parseInt(raw || '', 10);
@@ -8,7 +9,10 @@ function parseLimit(raw: string | null) {
   return Math.min(parsed, 500);
 }
 
-export function GET({ params, url }: RequestEvent<{ id: string }>) {
+export function GET(event: RequestEvent<{ id: string }>) {
+  const { params, url } = event;
+  assertSameRoom(event, params.id);
+
   const session = queries.getSession(params.id) as any;
   if (!session) throw error(404, 'Session not found');
   if (session.archived || session.deleted_at) throw error(410, 'Session is inactive');
