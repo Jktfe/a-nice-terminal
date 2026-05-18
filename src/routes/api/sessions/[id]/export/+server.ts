@@ -1,11 +1,13 @@
-import { json } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
+import { queries } from '$lib/server/db';
 import { obsidianVaultPath, maybeWriteSessionSummary } from '$lib/server/capture/obsidian-writer.js';
 import { writeOpenSlideDeck } from '$lib/server/capture/open-slide-writer.js';
 import { publicOrigin } from '$lib/server/room-invites.js';
+import { assertCanWrite, assertSameRoom } from '$lib/server/room-scope';
 
 const TARGETS = new Set(['obsidian', 'open-slide']);
 
@@ -23,7 +25,17 @@ function parseTargets(body: any): string[] {
   return targets.length ? targets : ['obsidian'];
 }
 
-export function GET() {
+function requireActiveSession(sessionId: string) {
+  const session = queries.getSession(sessionId) as any;
+  if (!session) throw error(404, 'Session not found');
+  if (session.archived || session.deleted_at) throw error(410, 'Session is inactive');
+  return session;
+}
+
+export function GET(event: RequestEvent<{ id: string }>) {
+  assertSameRoom(event, event.params.id);
+  requireActiveSession(event.params.id);
+
   // Probe-on-GET: `configured` reflects whether the receiving target actually
   // exists on disk where the writer would land. Catches the silent-no-op case
   // where a target was assumed installed but the directory is missing.
@@ -54,6 +66,10 @@ export function GET() {
 
 export async function POST(event: RequestEvent<{ id: string }>) {
   const { params, request } = event;
+  assertSameRoom(event, params.id);
+  assertCanWrite(event);
+  requireActiveSession(params.id);
+
   let body: any = {};
   try {
     body = await request.json();

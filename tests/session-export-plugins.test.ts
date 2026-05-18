@@ -4,11 +4,41 @@ import { join } from 'path';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import getDb, { queries } from '../src/lib/server/db.js';
 import { writeOpenSlideDeck } from '../src/lib/server/capture/open-slide-writer.js';
-import { POST } from '../src/routes/api/sessions/[id]/export/+server.js';
+import { GET, POST } from '../src/routes/api/sessions/[id]/export/+server.js';
 
 const TEST_SESSION = 'test-session-export-plugins';
 let tempDir: string | null = null;
 let missingVaultDir: string | null = null;
+
+function exportEvent(body: unknown = {}, locals = {}) {
+  return {
+    params: { id: TEST_SESSION },
+    url: new URL(`https://ant.example.test/api/sessions/${TEST_SESSION}/export`),
+    request: new Request('https://ant.example.test/export', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+    locals,
+  } as unknown as Parameters<typeof POST>[0];
+}
+
+function exportProbeEvent(sessionId = TEST_SESSION, locals = {}) {
+  return {
+    params: { id: sessionId },
+    url: new URL(`https://ant.example.test/api/sessions/${sessionId}/export`),
+    locals,
+  } as unknown as Parameters<typeof GET>[0];
+}
+
+async function expectHttpError(action: () => unknown | Promise<unknown>, status: number) {
+  try {
+    await action();
+  } catch (err) {
+    expect(err).toMatchObject({ status });
+    return;
+  }
+  throw new Error(`Expected HTTP ${status}`);
+}
 
 function resetSession() {
   const db = getDb();
@@ -80,14 +110,7 @@ describe('session evidence plugin exports', () => {
   });
 
   it('rejects unknown export targets instead of silently doing nothing', async () => {
-    const response = await POST({
-      params: { id: TEST_SESSION },
-      url: new URL(`https://ant.example.test/api/sessions/${TEST_SESSION}/export`),
-      request: new Request('https://ant.example.test/export', {
-        method: 'POST',
-        body: JSON.stringify({ targets: ['unknown'] }),
-      }),
-    } as Parameters<typeof POST>[0]);
+    const response = await POST(exportEvent({ targets: ['unknown'] }));
     const body = await response.json();
 
     expect(response.status).toBe(400);
@@ -100,15 +123,7 @@ describe('session evidence plugin exports', () => {
     rmSync(missingVaultDir, { recursive: true, force: true });
     process.env.ANT_OBSIDIAN_VAULT = missingVaultDir;
 
-    const response = await POST({
-      params: { id: TEST_SESSION },
-      url: new URL(`https://ant.example.test/api/sessions/${TEST_SESSION}/export`),
-      request: new Request('https://ant.example.test/export', {
-        method: 'POST',
-        body: JSON.stringify({ targets: ['obsidian', 'open-slide'] }),
-      }),
-      locals: {},
-    } as unknown as Parameters<typeof POST>[0]);
+    const response = await POST(exportEvent({ targets: ['obsidian', 'open-slide'] }));
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -116,5 +131,32 @@ describe('session evidence plugin exports', () => {
     expect(body.targets.obsidian).toMatchObject({ ok: false, skipped: true, path: null });
     expect(body.targets.open_slide.ok).toBe(true);
     expect(body.targets.open_slide.deck_dir).toContain(tempDir);
+  });
+
+  it('enforces scoped-token access for export probes and write-capable tokens for export writes', async () => {
+    const sameRoomProbe = await GET(exportProbeEvent(TEST_SESSION, {
+      roomScope: { roomId: TEST_SESSION, kind: 'web' },
+    }));
+    expect(sameRoomProbe.status).toBe(200);
+
+    await expectHttpError(
+      () => GET(exportProbeEvent(TEST_SESSION, { roomScope: { roomId: 'other-room', kind: 'web' } })),
+      403,
+    );
+    await expectHttpError(
+      () => POST(exportEvent({ targets: ['open-slide'] }, { roomScope: { roomId: TEST_SESSION, kind: 'web' } })),
+      403,
+    );
+    await expectHttpError(
+      () => POST(exportEvent({ targets: ['open-slide'] }, { roomScope: { roomId: 'other-room', kind: 'cli' } })),
+      403,
+    );
+
+    const allowed = await POST(exportEvent({ targets: ['open-slide'] }, {
+      roomScope: { roomId: TEST_SESSION, kind: 'cli' },
+    }));
+    const allowedBody = await allowed.json();
+    expect(allowed.status).toBe(200);
+    expect(allowedBody.targets.open_slide.ok).toBe(true);
   });
 });
