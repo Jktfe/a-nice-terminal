@@ -5,6 +5,7 @@ import { promisify } from 'util';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { queries } from '$lib/server/db';
+import { assertCanWrite, assertSameRoom } from '$lib/server/room-scope';
 
 const execFileAsync = promisify(execFile);
 
@@ -36,6 +37,14 @@ function appLabel(app: string): string {
     hyper: 'Hyper',
   };
   return labels[app.toLowerCase()] ?? app;
+}
+
+function getActiveTerminalSession(id: string) {
+  const session = queries.getSession(id);
+  if (!session) throw error(404, 'Session not found');
+  if ((session as any).type !== 'terminal') throw error(400, 'Session is not a terminal');
+  if ((session as any).archived || (session as any).deleted_at) throw error(410, 'Session is inactive');
+  return session;
 }
 
 async function launchTerminal(app: string, sessionId: string): Promise<void> {
@@ -79,23 +88,24 @@ async function launchTerminal(app: string, sessionId: string): Promise<void> {
   throw new Error(`Unsupported terminal app: ${app}. Set ANT_TERMINAL_APP to ghostty, iterm2, terminal, kitty, or alacritty.`);
 }
 
-export function GET({ params }: RequestEvent<{ id: string }>) {
-  const session = queries.getSession(params.id);
-  if (!session) throw error(404, 'Session not found');
-  if ((session as any).type !== 'terminal') throw error(400, 'Session is not a terminal');
+export function GET(event: RequestEvent<{ id: string }>) {
+  const { params } = event;
+  assertSameRoom(event, params.id);
+  getActiveTerminalSession(params.id);
 
   const app = resolveTerminalApp();
   return json({ app, label: appLabel(app) });
 }
 
-export async function POST({ params }: RequestEvent<{ id: string }>) {
+export async function POST(event: RequestEvent<{ id: string }>) {
+  const { params } = event;
   const { id } = params;
 
   if (!SESSION_ID_RE.test(id)) throw error(400, 'Invalid session id');
 
-  const session = queries.getSession(id);
-  if (!session) throw error(404, 'Session not found');
-  if ((session as any).type !== 'terminal') throw error(400, 'Session is not a terminal');
+  assertSameRoom(event, id);
+  assertCanWrite(event);
+  getActiveTerminalSession(id);
 
   const app = resolveTerminalApp();
 
