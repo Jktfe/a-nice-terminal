@@ -62,5 +62,11 @@ suggested-hooks-for-gemini.md
 docs/mempalace-*.md
 docs/*-audit-*.md
 
+# TLS certs + private keys — NEVER commit (tailnet/dev TLS material)
+*.crt
+*.key
+*.pem
+*.p12
+
 # macOS
 .DS_Store
