@@ -44,7 +44,16 @@ export function GET() {
 }
 
 export async function POST({ request }: RequestEvent) {
-  const { name, type, ttl = '15m', workspace_id, root_dir, meta } = await request.json();
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return json({ error: 'Request body must be a JSON object' }, { status: 400 });
+  }
+  const { name, type, ttl = '15m', workspace_id, root_dir, meta } = body;
   const normalizedName = normalizeSessionName(name ?? '');
   if (!normalizedName) {
     return json({ error: 'Session name is required' }, { status: 400 });
