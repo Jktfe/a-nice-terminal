@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
 import { nanoid } from 'nanoid';
-import { assertNotRoomScoped, assertCanWrite } from '$lib/server/room-scope';
+import { assertNotRoomScoped, assertCanWrite, assertSameRoom } from '$lib/server/room-scope';
 import { loadMessagesForAgentContext } from '$lib/server/chat-context';
 import { writeMessage, WriteMessageError, resolveSenderSession as resolvePersistedSender } from '$lib/persist';
 import { runSideEffects } from '$lib/server/processor/run-side-effects';
@@ -81,7 +81,9 @@ export async function DELETE(event: RequestEvent<{ id: string }>) {
   return json({ ok: true });
 }
 
-export function GET({ params, url }: RequestEvent<{ id: string }>) {
+export function GET(event: RequestEvent<{ id: string }>) {
+  assertSameRoom(event, event.params.id);
+  const { params, url } = event;
   const since = url.searchParams.get('since');
   const before = url.searchParams.get('before');
   const limitParam = url.searchParams.get('limit');
@@ -116,6 +118,7 @@ export function GET({ params, url }: RequestEvent<{ id: string }>) {
 export async function POST(event: RequestEvent<{ id: string }>) {
   // Read-only kinds (web viewer) must NOT be able to escalate to posting via
   // direct curl. The kind annotation on the bearer is the gate.
+  assertSameRoom(event, event.params.id);
   assertCanWrite(event);
   const { params, request } = event;
   const body = await request.json();

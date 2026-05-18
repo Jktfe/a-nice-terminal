@@ -27,7 +27,7 @@ const SENDER_ID = 'broadcast-state-test-sender';
 let dataDir = '';
 let originalDataDir: string | undefined;
 
-function makeEvent(body: Record<string, unknown>) {
+function makeEvent(body: Record<string, unknown>, locals = {}) {
   return {
     params: { id: ROOM_ID },
     request: new Request(`https://ant.test/api/sessions/${ROOM_ID}/messages`, {
@@ -35,8 +35,18 @@ function makeEvent(body: Record<string, unknown>) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
-    locals: {},
+    locals,
   } as any;
+}
+
+async function expectHttpError(action: () => unknown | Promise<unknown>, status: number) {
+  try {
+    await action();
+  } catch (err) {
+    expect(err).toMatchObject({ status });
+    return;
+  }
+  throw new Error(`Expected HTTP ${status}`);
 }
 
 describe('broadcast_state lifecycle across handler vs persist library', () => {
@@ -107,5 +117,25 @@ describe('broadcast_state lifecycle across handler vs persist library', () => {
     const pending: any[] = queries.listPendingBroadcasts(100) as any[];
     expect(pending.length).toBe(0);
     expect([200, 201, 500]).toContain(res.status);
+  });
+
+  it('rejects cross-room and read-only scoped tokens before writing messages', async () => {
+    queries.createSession('other-room', 'Other Room', 'chat', '15m', null, null, '{}');
+    const body = {
+      role: 'user',
+      content: 'must not persist',
+      format: 'text',
+      sender_id: SENDER_ID,
+    };
+
+    await expectHttpError(
+      () => postMessage(makeEvent(body, { roomScope: { roomId: 'other-room', kind: 'cli' } })),
+      403,
+    );
+    await expectHttpError(
+      () => postMessage(makeEvent(body, { roomScope: { roomId: ROOM_ID, kind: 'web' } })),
+      403,
+    );
+    expect(queries.listMessages(ROOM_ID)).toHaveLength(0);
   });
 });

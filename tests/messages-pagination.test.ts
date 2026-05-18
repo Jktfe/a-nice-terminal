@@ -18,11 +18,21 @@ function cleanup() {
   db.prepare('DELETE FROM sessions WHERE id = ?').run(SESSION_ID);
 }
 
-async function callGet(query: string): Promise<{ messages: any[] }> {
+async function callGet(query: string, locals = {}): Promise<{ messages: any[] }> {
   const url = new URL(`https://ant.example.test/api/sessions/${SESSION_ID}/messages${query}`);
-  const event: any = { params: { id: SESSION_ID }, url };
+  const event: any = { params: { id: SESSION_ID }, url, locals };
   const res = getMessages(event);
   return await (res as Response).json();
+}
+
+async function expectHttpError(action: () => unknown | Promise<unknown>, status: number) {
+  try {
+    await action();
+  } catch (err) {
+    expect(err).toMatchObject({ status });
+    return;
+  }
+  throw new Error(`Expected HTTP ${status}`);
 }
 
 function seed(count: number) {
@@ -88,5 +98,14 @@ describe('GET /api/sessions/:id/messages — bounded latest-N', () => {
       `?before=${encodeURIComponent(first.messages[0].created_at)}&limit=50`,
     );
     expect(second.messages).toHaveLength(0);
+  });
+
+  it('rejects cross-room scoped tokens before returning messages', async () => {
+    seed(1);
+
+    await expectHttpError(
+      () => callGet('?limit=50', { roomScope: { roomId: 'other-room', kind: 'web' } }),
+      403,
+    );
   });
 });
