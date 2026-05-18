@@ -31,6 +31,8 @@ function extractKeyTerms(messages: any[]): { term: string; count: number }[] {
 export function GET({ params }: RequestEvent<{ id: string }>) {
   const session = queries.getSession(params.id);
   if (!session) throw error(404, 'Session not found');
+  if (session.archived || session.deleted_at) throw error(410, 'Session is inactive');
+  if (session.type !== 'chat') throw error(400, 'Digest is only available for chat sessions');
 
   const messages = queries.listMessages(params.id) as any[];
   if (messages.length === 0) {
