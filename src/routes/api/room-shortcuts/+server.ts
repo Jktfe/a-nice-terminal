@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { homedir } from 'os';
-import { join } from 'path';
+import { dirname, join } from 'path';
 import type { RequestEvent } from '@sveltejs/kit';
 
 export interface RoomShortcut {
@@ -12,7 +12,9 @@ export interface RoomShortcut {
   color: string;
 }
 
-const SHORTCUTS_FILE = join(homedir(), '.ant', 'room-shortcuts.json');
+function shortcutsFile(): string {
+  return process.env.ANT_ROOM_SHORTCUTS_FILE || join(homedir(), '.ant', 'room-shortcuts.json');
+}
 
 function cleanShortcut(s: any, i: number): RoomShortcut | null {
   if (typeof s.label !== 'string' || typeof s.sessionId !== 'string') return null;
@@ -32,7 +34,7 @@ function cleanShortcut(s: any, i: number): RoomShortcut | null {
 
 export async function GET() {
   try {
-    const raw = await readFile(SHORTCUTS_FILE, 'utf8');
+    const raw = await readFile(shortcutsFile(), 'utf8');
     const parsed = JSON.parse(raw);
     const source = Array.isArray(parsed) ? parsed : parsed?.shortcuts;
     const shortcuts = Array.isArray(source)
@@ -55,8 +57,9 @@ export async function POST({ request }: RequestEvent) {
   const shortcuts = source.map(cleanShortcut).filter((s): s is RoomShortcut => s != null);
 
   try {
-    await mkdir(join(homedir(), '.ant'), { recursive: true });
-    await writeFile(SHORTCUTS_FILE, JSON.stringify({ shortcuts }, null, 2), 'utf8');
+    const file = shortcutsFile();
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(file, JSON.stringify({ shortcuts }, null, 2), 'utf8');
     return json({ ok: true, shortcuts });
   } catch (err: any) {
     return json({ error: `Failed to save: ${err?.message}` }, { status: 500 });
