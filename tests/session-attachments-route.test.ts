@@ -9,8 +9,8 @@ const { GET } = await import('../src/routes/api/sessions/[id]/attachments/+serve
 let dataDir = '';
 let originalDataDir: string | undefined;
 
-function attachmentsEvent(id: string) {
-  return { params: { id } } as any;
+function attachmentsEvent(id: string, locals = {}) {
+  return { params: { id }, locals } as any;
 }
 
 async function expectHttpError(action: () => unknown | Promise<unknown>, status: number) {
@@ -77,5 +77,17 @@ describe('/api/sessions/:id/attachments', () => {
     await expectHttpError(() => GET(attachmentsEvent('missing')), 404);
     await expectHttpError(() => GET(attachmentsEvent('archived-a')), 410);
     await expectHttpError(() => GET(attachmentsEvent('deleted-a')), 410);
+  });
+
+  it('rejects cross-room scoped tokens before listing uploads', async () => {
+    await expectHttpError(
+      () =>
+        GET(
+          attachmentsEvent('room-a', {
+            roomScope: { roomId: 'room-b', kind: 'cli' },
+          }),
+        ),
+      403,
+    );
   });
 });
