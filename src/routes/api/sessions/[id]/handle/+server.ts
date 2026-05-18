@@ -9,11 +9,24 @@ export async function PATCH(event: RequestEvent<{ id: string }>) {
   // Changing the room's handle is admin-only — guests can't rename the room.
   assertNotRoomScoped(event);
   const { params, request } = event;
-  const { handle, display_name } = await request.json();
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+
+  const session = queries.getSession(params.id);
+  if (!session) return json({ error: 'Session not found' }, { status: 404 });
+
+  const rawHandle = typeof body?.handle === 'string' ? body.handle.trim() : body?.handle;
+  const displayName = typeof body?.display_name === 'string' && body.display_name.trim()
+    ? body.display_name.trim()
+    : null;
 
   // Normalise: ensure handle starts with @ if provided
-  const normalised = handle
-    ? (handle.startsWith('@') ? handle : `@${handle}`)
+  const normalised = rawHandle
+    ? (rawHandle.startsWith('@') ? rawHandle : `@${rawHandle}`)
     : null;
 
   // Check uniqueness if setting a handle
@@ -24,15 +37,15 @@ export async function PATCH(event: RequestEvent<{ id: string }>) {
     }
   }
 
-  queries.setHandle(params.id, normalised, display_name || null);
+  queries.setHandle(params.id, normalised, displayName);
 
   const { broadcast } = await import('$lib/server/ws-broadcast.js');
   broadcast(params.id, {
     type: 'handle_updated',
     sessionId: params.id,
     handle: normalised,
-    display_name: display_name || null,
+    display_name: displayName,
   });
 
-  return json({ handle: normalised, display_name: display_name || null });
+  return json({ handle: normalised, display_name: displayName });
 }

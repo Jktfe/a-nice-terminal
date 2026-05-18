@@ -16,6 +16,7 @@ import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, un
 import { join } from 'path';
 import { execFileSync } from 'child_process';
 import { Osc133BlockParser, type Osc133CommandBlock } from './osc133.js';
+import { ensureUsableTerm, PTY_HOST_TERM, PTY_TMUX_TERM, resolveOriginalZdotdir } from './pty-env.js';
 
 const ANT_DIR  = join(process.env.HOME || '/tmp', '.ant');
 const SOCK_PATH = join(ANT_DIR, 'pty.sock');
@@ -23,6 +24,7 @@ const LOCK_PATH = join(ANT_DIR, 'pty-daemon.lock');
 const LOG = (...a: any[]) => console.log('[pty-daemon]', ...a);
 const HOME = process.env.HOME || '/tmp';
 const TMUX_BIN = '/opt/homebrew/bin/tmux';
+ensureUsableTerm(process.env, PTY_HOST_TERM);
 // Optional dedicated tmux server socket (env: ANT_TMUX_SOCKET). When set,
 // the daemon writes a one-line wrapper script that always invokes tmux with
 // -L <socket>, and uses that script everywhere a tmux process is spawned.
@@ -452,10 +454,10 @@ const PERSIST_KINDS = new Set<string>([
 function spawnControlMode(sessionId: string, session: PTYSession): pty.IPty | null {
   try {
     const ctrl = pty.spawn(TMUX, ['-C', 'attach-session', '-t', sessionId], {
-      name: 'dumb',
+      name: PTY_HOST_TERM,
       cols: 220, rows: 50,
       cwd: HOME,
-      env: { ...process.env } as Record<string, string>,
+      env: ensureUsableTerm({ ...process.env }, PTY_HOST_TERM) as Record<string, string>,
     });
 
     // Enable silence monitoring after the control mode handshake settles.
@@ -707,22 +709,25 @@ function prepareShellIntegration(sessionId: string, env: Record<string, string>)
   mkdirSync(zdotdir, { recursive: true });
   mkdirSync(CAPTURE_DIR, { recursive: true });
 
-  const originalZdotdir = env.ZDOTDIR || HOME;
+  const originalZdotdir = resolveOriginalZdotdir(env, zdotdir, HOME);
   writeFileSync(join(zdotdir, '.zshrc'), [
     `ANT_ORIGINAL_ZDOTDIR="${escapeDoubleQuoted(originalZdotdir)}"`,
     'if [ -f "$ANT_ORIGINAL_ZDOTDIR/.zshrc" ]; then source "$ANT_ORIGINAL_ZDOTDIR/.zshrc"; fi',
+    `if [ -z "$TERM" ] || [ "$TERM" = "dumb" ]; then export TERM="${PTY_TMUX_TERM}"; fi`,
     '[ -f "$ANT_SHELL_INTEGRATION_DIR/ant.zsh" ] && source "$ANT_SHELL_INTEGRATION_DIR/ant.zsh"',
     '',
   ].join('\n'));
 
   writeFileSync(bashrc, [
     '[ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc"',
+    `if [ -z "$TERM" ] || [ "$TERM" = "dumb" ]; then export TERM="${PTY_TMUX_TERM}"; fi`,
     '[ -f "$ANT_SHELL_INTEGRATION_DIR/ant.bash" ] && source "$ANT_SHELL_INTEGRATION_DIR/ant.bash"',
     '',
   ].join('\n'));
 
   writeFileSync(launcher, [
     '#!/bin/sh',
+    `if [ -z "$TERM" ] || [ "$TERM" = "dumb" ]; then export TERM="${PTY_TMUX_TERM}"; fi`,
     'shell="${SHELL:-/bin/zsh}"',
     'name="${shell##*/}"',
     'case "$name" in',
@@ -855,8 +860,9 @@ function handle(msg: any, socket: net.Socket) {
         ...process.env,
         ANT_SESSION_ID: msg.sessionId,
         ANT_CAPTURE_DEPTH: '0',
-        TERM: 'xterm-256color',
+        TERM: PTY_HOST_TERM,
       } as Record<string, string>;
+      ensureUsableTerm(childEnv, PTY_HOST_TERM);
       const shellLauncher = prepareShellIntegration(msg.sessionId, childEnv);
       delete childEnv.TMUX;
       delete childEnv.TMUX_PANE;
@@ -866,6 +872,7 @@ function handle(msg: any, socket: net.Socket) {
         'new-session', '-A',
         '-s', msg.sessionId,
         '-e', `ANT_SESSION_ID=${msg.sessionId}`,
+        '-e', `TERM=${PTY_TMUX_TERM}`,
         '-e', `ANT_CAPTURE_DIR=${childEnv.ANT_CAPTURE_DIR ?? CAPTURE_DIR}`,
         '-e', `ANT_CAPTURE_DEPTH=0`,
         ...(childEnv.ANT_SHELL_INTEGRATION_DIR ? ['-e', `ANT_SHELL_INTEGRATION_DIR=${childEnv.ANT_SHELL_INTEGRATION_DIR}`] : []),
@@ -880,7 +887,7 @@ function handle(msg: any, socket: net.Socket) {
       if (shellLauncher) tmuxArgs.push(shellLauncher);
 
       const term = pty.spawn(TMUX, tmuxArgs, {
-        name: 'xterm-256color',
+        name: PTY_HOST_TERM,
         cols: msg.cols || 220,
         rows: msg.rows || 50,
         cwd: msg.cwd || HOME,
@@ -895,6 +902,7 @@ function handle(msg: any, socket: net.Socket) {
       // Per-session env takes precedence over global env for new windows/panes.
       try {
         execFileSync(TMUX, ['set-environment', '-t', msg.sessionId, 'ANT_SESSION_ID', msg.sessionId], { stdio: 'pipe' });
+        execFileSync(TMUX, ['set-environment', '-t', msg.sessionId, 'TERM', PTY_TMUX_TERM], { stdio: 'pipe' });
         execFileSync(TMUX, ['set-environment', '-t', msg.sessionId, 'ANT_CAPTURE_DIR', childEnv.ANT_CAPTURE_DIR ?? CAPTURE_DIR], { stdio: 'pipe' });
         execFileSync(TMUX, ['set-environment', '-t', msg.sessionId, 'ANT_CAPTURE_DEPTH', '0'], { stdio: 'pipe' });
         if (childEnv.ANT_SHELL_INTEGRATION_DIR) execFileSync(TMUX, ['set-environment', '-t', msg.sessionId, 'ANT_SHELL_INTEGRATION_DIR', childEnv.ANT_SHELL_INTEGRATION_DIR], { stdio: 'pipe' });

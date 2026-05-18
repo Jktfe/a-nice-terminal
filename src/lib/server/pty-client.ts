@@ -6,6 +6,7 @@ import * as net from 'net';
 import { join } from 'path';
 import { spawn } from 'child_process';
 import { existsSync } from 'fs';
+import { ensureUsableTerm } from './pty-env.js';
 
 const SOCK_PATH = join(process.env.HOME || '/tmp', '.ant', 'pty.sock');
 const DAEMON_BIN = join(process.cwd(), 'src/lib/server/pty-daemon.ts');
@@ -67,6 +68,7 @@ class PTYClient {
     // tmux session, the daemon and every tmux it spawns will inherit $TMUX
     // and refuse to nest, killing newly-created sessions silently.
     const daemonEnv: Record<string, string> = { ...process.env } as Record<string, string>;
+    ensureUsableTerm(daemonEnv);
     delete daemonEnv.TMUX;
     delete daemonEnv.TMUX_PANE;
     const proc = spawn('node', ['--import', tsxLoader, DAEMON_BIN], {
