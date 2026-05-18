@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import getDb, { _resetForTest, queries } from '../src/lib/server/db.js';
 
-const { POST } = await import('../src/routes/api/sessions/[id]/grants/+server.js');
+const { GET, POST } = await import('../src/routes/api/sessions/[id]/grants/+server.js');
 
 let dataDir = '';
 let originalDataDir: string | undefined;
@@ -12,12 +12,30 @@ let originalDataDir: string | undefined;
 function postEvent(sessionId: string, body: unknown) {
   return {
     params: { id: sessionId },
+    url: new URL(`https://ant.test/api/sessions/${sessionId}/grants`),
     request: new Request(`https://ant.test/api/sessions/${sessionId}/grants`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: typeof body === 'string' ? body : JSON.stringify(body),
     }),
   } as any;
+}
+
+function getEvent(sessionId: string) {
+  return {
+    params: { id: sessionId },
+    url: new URL(`https://ant.test/api/sessions/${sessionId}/grants`),
+  } as any;
+}
+
+async function expectHttpError(action: () => unknown | Promise<unknown>, status: number) {
+  try {
+    await action();
+  } catch (err) {
+    expect(err).toMatchObject({ status });
+    return;
+  }
+  throw new Error(`Expected HTTP ${status}`);
 }
 
 function createSession(id: string, name = id) {
@@ -32,6 +50,11 @@ describe('/api/sessions/:id/grants', () => {
     _resetForTest();
     getDb();
     createSession('room-1', 'Room 1');
+    createSession('archived-room', 'Archived Room');
+    createSession('deleted-room', 'Deleted Room');
+    queries.createSession('terminal-a', 'Terminal A', 'terminal', 'forever', null, null, '{}');
+    queries.archiveSession('archived-room');
+    queries.softDeleteSession('deleted-room');
   });
 
   afterEach(() => {
@@ -72,5 +95,20 @@ describe('/api/sessions/:id/grants', () => {
     const noGrantee = await POST(postEvent('room-1', { topic: 'file-read' }));
     expect(noGrantee.status).toBe(400);
     expect(await noGrantee.json()).toEqual({ error: 'granted_to is required' });
+  });
+
+  it('rejects missing, inactive, and non-chat sessions before list or create', async () => {
+    for (const [sessionId, status] of [
+      ['missing-room', 404],
+      ['archived-room', 410],
+      ['deleted-room', 410],
+      ['terminal-a', 400],
+    ] as const) {
+      await expectHttpError(() => GET(getEvent(sessionId)), status);
+      await expectHttpError(
+        () => POST(postEvent(sessionId, { topic: 'file-read', granted_to: '@codex' })),
+        status,
+      );
+    }
   });
 });

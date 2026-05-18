@@ -3,15 +3,30 @@
 // GET  /api/sessions/:id/grants?granted_to=@handle&status=active&topic=file-read
 // POST /api/sessions/:id/grants  { topic, granted_to, source_set?, duration?, max_answers? }
 
-import { json } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
 import { nanoid } from 'nanoid';
 import { assertSameRoom, assertCanWrite } from '$lib/server/room-scope';
 import { buildConsentGrant } from '$lib/server/consent/grant-scope.js';
 
+function requireActiveChatSession(sessionId: string) {
+  const session = queries.getSession(sessionId) as any;
+  if (!session) {
+    throw error(404, 'Session not found');
+  }
+  if (session.archived || session.deleted_at) {
+    throw error(410, 'Session is inactive');
+  }
+  if (session.type !== 'chat') {
+    throw error(400, 'Consent grants are only available for chat sessions');
+  }
+  return session;
+}
+
 export function GET(event: RequestEvent<{ id: string }>) {
   assertSameRoom(event, event.params.id);
+  requireActiveChatSession(event.params.id);
   const url = event.url;
   const grantedTo = url.searchParams.get('granted_to');
   const status = url.searchParams.get('status');
@@ -44,6 +59,7 @@ export function GET(event: RequestEvent<{ id: string }>) {
 export async function POST(event: RequestEvent<{ id: string }>) {
   assertSameRoom(event, event.params.id);
   assertCanWrite(event);
+  requireActiveChatSession(event.params.id);
 
   let body: any;
   try {
