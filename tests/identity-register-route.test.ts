@@ -37,13 +37,18 @@ describe('/api/identity/register', () => {
   });
 
   it('rejects requests without a valid root pid or pid list', async () => {
-    for (const body of [{}, { pid: 1, handle: '@codex' }, { pids: [{ pid: 1 }], handle: '@codex' }, '{']) {
+    // Well-formed JSON bodies failing the pid check return the pid error.
+    for (const body of [{}, { pid: 1, handle: '@codex' }, { pids: [{ pid: 1 }], handle: '@codex' }]) {
       const response = await POST(postEvent(body));
       expect(response.status).toBe(400);
       expect(await response.json()).toEqual({
         error: 'root_pid or pids must include an integer greater than 1',
       });
     }
+    // Malformed JSON is rejected earlier by the body-parse guard.
+    const malformed = await POST(postEvent('{'));
+    expect(malformed.status).toBe(400);
+    expect(await malformed.json()).toEqual({ error: 'Invalid JSON' });
   });
 
   it('requires either handle or session_id and rejects unknown sessions', async () => {

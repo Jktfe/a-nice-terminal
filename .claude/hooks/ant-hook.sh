@@ -5,12 +5,12 @@
 # Adds ant_session_id and POSTs to the ANT hooks API.
 #
 # Environment:
-#   ANT_SERVER     — ANT server URL (default: https://localhost:6458)
+#   ANT_SERVER     — ANT server URL (default: http://mac.kingfisher-interval.ts.net:6174)
 #   ANT_SESSION_ID — ANT terminal session ID (preferred, set by session startup)
 #   ANT_SESSION    — Legacy fallback alias for ANT_SESSION_ID
 
 INPUT=$(cat)
-ANT_SERVER="${ANT_SERVER:-https://localhost:6458}"
+ANT_SERVER="${ANT_SERVER:-http://mac.kingfisher-interval.ts.net:6174}"
 SESSION_ID="${ANT_SESSION_ID:-${ANT_SESSION:-unknown}}"
 
 # Inject the ANT session ID so the server knows which session this came from
