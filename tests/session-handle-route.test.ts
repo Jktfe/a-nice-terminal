@@ -51,6 +51,10 @@ describe('/api/sessions/:id/handle', () => {
     broadcast.mockReset();
     createSession('target', 'Target');
     createSession('other', 'Other');
+    createSession('archived', 'Archived');
+    createSession('deleted', 'Deleted');
+    queries.archiveSession('archived');
+    queries.softDeleteSession('deleted');
     queries.setHandle('other', '@taken', 'Taken');
   });
 
@@ -105,6 +109,14 @@ describe('/api/sessions/:id/handle', () => {
     const missing = await PATCH(patchEvent('missing', { handle: '@new' }));
     expect(missing.status).toBe(404);
     expect(await missing.json()).toEqual({ error: 'Session not found' });
+
+    const archived = await PATCH(patchEvent('archived', { handle: '@archived' }));
+    expect(archived.status).toBe(410);
+    expect(await archived.json()).toEqual({ error: 'Session is inactive' });
+
+    const deleted = await PATCH(patchEvent('deleted', { handle: '@deleted' }));
+    expect(deleted.status).toBe(410);
+    expect(await deleted.json()).toEqual({ error: 'Session is inactive' });
 
     const duplicate = await PATCH(patchEvent('target', { handle: ' taken ' }));
     expect(duplicate.status).toBe(409);

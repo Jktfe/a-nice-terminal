@@ -18,6 +18,9 @@ export async function PATCH(event: RequestEvent<{ id: string }>) {
 
   const session = queries.getSession(params.id);
   if (!session) return json({ error: 'Session not found' }, { status: 404 });
+  if (session.archived || session.deleted_at) {
+    return json({ error: 'Session is inactive' }, { status: 410 });
+  }
 
   const rawHandle = typeof body?.handle === 'string' ? body.handle.trim() : body?.handle;
   const displayName = typeof body?.display_name === 'string' && body.display_name.trim()
