@@ -27,6 +27,13 @@ function terminalIdsForAgentEvent(chatId: string, message: any): string[] {
   return [...ids];
 }
 
+function assertActiveSession(sessionId: string) {
+  const session = queries.getSession(sessionId) as any;
+  if (!session) throw error(404, 'Session not found');
+  if (session.archived || session.deleted_at) throw error(410, 'Session is inactive');
+  return session;
+}
+
 // PATCH /api/sessions/:id/messages?msgId= — update meta (reactions, bookmarks)
 export async function PATCH(event: RequestEvent<{ id: string }>) {
   // Mutating arbitrary message meta (status flags, etc.) is admin-only —
@@ -37,6 +44,7 @@ export async function PATCH(event: RequestEvent<{ id: string }>) {
   const { params, url, request } = event;
   const msgId = url.searchParams.get('msgId');
   if (!msgId) return json({ error: 'msgId required' }, { status: 400 });
+  assertActiveSession(params.id);
 
   const { meta } = await request.json();
   if (!meta) return json({ error: 'meta required' }, { status: 400 });
@@ -72,6 +80,7 @@ export async function DELETE(event: RequestEvent<{ id: string }>) {
   const { params, url } = event;
   const msgId = url.searchParams.get('msgId');
   if (!msgId) return json({ error: 'msgId required' }, { status: 400 });
+  assertActiveSession(params.id);
 
   queries.deleteMessage(msgId);
 
@@ -84,9 +93,7 @@ export async function DELETE(event: RequestEvent<{ id: string }>) {
 export function GET(event: RequestEvent<{ id: string }>) {
   assertSameRoom(event, event.params.id);
   const { params, url } = event;
-  const session = queries.getSession(params.id) as any;
-  if (!session) throw error(404, 'Session not found');
-  if (session.archived || session.deleted_at) throw error(410, 'Session is inactive');
+  assertActiveSession(params.id);
 
   const since = url.searchParams.get('since');
   const before = url.searchParams.get('before');
