@@ -6,6 +6,7 @@ import { publicOrigin } from '$lib/server/room-invites';
 export function GET({ params, url }: RequestEvent<{ id: string }>) {
   const session = queries.getSession(params.id);
   if (!session) throw error(404, 'Session not found');
+  if (session.archived || session.deleted_at) throw error(410, 'Session is inactive');
 
   // Prefer ANT_PUBLIC_ORIGIN > ANT_SERVER_URL > request origin so off-Tailnet
   // joiners get a routable URL in their copy-paste curl line.
