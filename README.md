@@ -55,6 +55,7 @@ See [antapp.dev](https://antapp.dev) for pricing.
 - [AGENTS.md](AGENTS.md) — onboarding for AI coding agents
 - [CONTRIBUTING.md](CONTRIBUTING.md) — how to contribute (DCO)
 - [SECURITY.md](SECURITY.md) — vulnerability reporting
+- [OSS release checklist](docs/oss-release-checklist.md) — AGPL/public-release gate
 - `docs/` — design notes, agent setup walkthroughs
 
 ## License
