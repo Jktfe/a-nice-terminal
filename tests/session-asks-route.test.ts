@@ -24,7 +24,7 @@ function postEvent(roomId: string, body: unknown) {
     request: new Request(`https://ant.test/api/sessions/${roomId}/asks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: typeof body === 'string' ? body : JSON.stringify(body),
     }),
     locals: {},
   } as any;
@@ -106,5 +106,12 @@ describe('/api/sessions/:id/asks', () => {
     expect(malformed.status).toBe(400);
     expect(await malformed.json()).toEqual({ error: 'Invalid JSON' });
     expect(queries.getAsk('ask-1')).toMatchObject({ status: 'open', answer: null });
+  });
+
+  it('returns structured 400 for malformed ask creation without creating asks', async () => {
+    const malformed = await collection.POST(postEvent('room-1', '{'));
+    expect(malformed.status).toBe(400);
+    expect(await malformed.json()).toEqual({ error: 'Invalid JSON' });
+    expect(queries.listAsks({ sessionId: 'room-1', statuses: null })).toHaveLength(1);
   });
 });
