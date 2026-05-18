@@ -76,8 +76,17 @@ export function GET(event: RequestEvent) {
 export async function POST(event: RequestEvent) {
   assertCanWrite(event);
   const scope = roomScope(event);
-  const body = await event.request.json();
-  const sessionId = String(body.session_id || body.sessionId || '').trim();
+
+  let body: any;
+  try {
+    body = await event.request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return json({ error: "Request body must be a JSON object" }, { status: 400 });
+  }
+  const sessionId = typeof body.session_id === "string" ? body.session_id.trim() : typeof body.sessionId === "string" ? body.sessionId.trim() : "";
   if (!sessionId) return json({ error: 'session_id required' }, { status: 400 });
   if (scope && scope.roomId !== sessionId) {
     return json({ error: 'Room token does not authorise this room' }, { status: 403 });
