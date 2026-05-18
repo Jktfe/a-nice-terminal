@@ -17,13 +17,24 @@ function restoreEnv() {
   }
 }
 
-async function participants(roomId: string, query = '') {
+async function participants(roomId: string, query = '', locals = {}) {
   const response = await getParticipants({
     params: { id: roomId },
     url: new URL(`https://ant.test/api/sessions/${roomId}/participants${query}`),
+    locals,
   } as any);
   expect(response.status).toBe(200);
   return response.json();
+}
+
+async function expectHttpError(action: () => unknown | Promise<unknown>, status: number) {
+  try {
+    await action();
+  } catch (err) {
+    expect(err).toMatchObject({ status });
+    return;
+  }
+  throw new Error(`Expected HTTP ${status}`);
 }
 
 describe('/api/sessions/[id]/participants remote invite handles', () => {
@@ -161,5 +172,31 @@ describe('/api/sessions/[id]/participants remote invite handles', () => {
 
     const countedBody = await participants('room-a', '?include_counts=1');
     expect(countedBody.participants[0].message_count).toBe(1);
+  });
+
+  it('rejects missing, inactive, and cross-room scoped participant reads', async () => {
+    queries.createSession('room-a', 'Room A', 'chat', 'forever', null, null, '{}');
+    queries.createSession('room-b', 'Room B', 'chat', 'forever', null, null, '{}');
+    queries.createSession('archived-room', 'Archived Room', 'chat', 'forever', null, null, '{}');
+    queries.createSession('deleted-room', 'Deleted Room', 'chat', 'forever', null, null, '{}');
+    queries.archiveSession('archived-room');
+    queries.softDeleteSession('deleted-room');
+
+    await expectHttpError(
+      () => getParticipants({ params: { id: 'missing-room' }, url: new URL('https://ant.test/api/sessions/missing-room/participants'), locals: {} } as any),
+      404,
+    );
+    await expectHttpError(
+      () => getParticipants({ params: { id: 'archived-room' }, url: new URL('https://ant.test/api/sessions/archived-room/participants'), locals: {} } as any),
+      410,
+    );
+    await expectHttpError(
+      () => getParticipants({ params: { id: 'deleted-room' }, url: new URL('https://ant.test/api/sessions/deleted-room/participants'), locals: {} } as any),
+      410,
+    );
+    await expectHttpError(
+      () => participants('room-a', '', { roomScope: { roomId: 'room-b', kind: 'web' } }),
+      403,
+    );
   });
 });

@@ -1,7 +1,7 @@
-import { json } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
-import { assertNotRoomScoped } from '$lib/server/room-scope';
+import { assertNotRoomScoped, assertSameRoom } from '$lib/server/room-scope';
 
 function resolveCliFlag(session: any): string | null {
   if (session.cli_flag) return session.cli_flag;
@@ -88,9 +88,13 @@ function activeRoomTokenParticipants(roomId: string, existing: any[]): any[] {
   return remote;
 }
 
-export function GET({ params, url }: RequestEvent<{ id: string }>) {
+export function GET(event: RequestEvent<{ id: string }>) {
+  const { params, url } = event;
+  assertSameRoom(event, params.id);
+
   const session = queries.getSession(params.id);
-  if (!session) return json({ error: 'not found' }, { status: 404 });
+  if (!session) throw error(404, 'not found');
+  if (session.archived || session.deleted_at) throw error(410, 'room is inactive');
 
   // Phase 6: Return structured participants from chat_room_members if available,
   // falling back to message-derived participants for backwards compatibility.
