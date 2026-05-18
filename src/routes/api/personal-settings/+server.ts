@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { homedir } from 'os';
-import { join } from 'path';
+import { dirname, join } from 'path';
 import type { RequestEvent } from '@sveltejs/kit';
 import {
   SHORTCUT_SCOPES,
@@ -11,8 +11,10 @@ import {
   type ShortcutScope,
 } from '$lib/shared/personal-settings';
 
-const SETTINGS_FILE = process.env.ANT_PERSONAL_SETTINGS_FILE
-  || join(homedir(), '.ant', 'personal-settings.json');
+function settingsFile(): string {
+  return process.env.ANT_PERSONAL_SETTINGS_FILE
+    || join(homedir(), '.ant', 'personal-settings.json');
+}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -65,7 +67,7 @@ function normaliseSettings(value: unknown, fallbackSeeds = false): PersonalSetti
 
 async function readSettings(): Promise<PersonalSettings> {
   try {
-    const raw = await readFile(SETTINGS_FILE, 'utf8');
+    const raw = await readFile(settingsFile(), 'utf8');
     return normaliseSettings(JSON.parse(raw));
   } catch (err: any) {
     if (err?.code !== 'ENOENT') throw err;
@@ -88,7 +90,7 @@ function writeableSettings(settings: PersonalSettings): PersonalSettings {
 export async function GET() {
   try {
     const settings = await readSettings();
-    return json({ settings, path: SETTINGS_FILE });
+    return json({ settings, path: settingsFile() });
   } catch (err: any) {
     return json({ settings: createDefaultPersonalSettings(), error: `Invalid personal settings: ${err?.message}` }, { status: 400 });
   }
@@ -102,9 +104,10 @@ export async function POST({ request }: RequestEvent) {
   const settings = writeableSettings(normaliseSettings(source));
 
   try {
-    await mkdir(join(homedir(), '.ant'), { recursive: true });
-    await writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf8');
-    return json({ ok: true, settings, path: SETTINGS_FILE });
+    const file = settingsFile();
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(file, JSON.stringify(settings, null, 2), 'utf8');
+    return json({ ok: true, settings, path: file });
   } catch (err: any) {
     return json({ error: `Failed to save: ${err?.message}` }, { status: 500 });
   }
