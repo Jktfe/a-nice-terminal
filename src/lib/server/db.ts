@@ -183,6 +183,18 @@ function getDb(): any {
   if (!crmCols.includes('attention_expires_at')) G[DB_KEY].exec(`ALTER TABLE chat_room_members ADD COLUMN attention_expires_at INTEGER`);
   if (!crmCols.includes('attention_updated_at')) G[DB_KEY].exec(`ALTER TABLE chat_room_members ADD COLUMN attention_updated_at INTEGER`);
 
+  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS chat_room_docs (
+    id TEXT PRIMARY KEY,
+    room_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL DEFAULT '',
+    created_by TEXT,
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER,
+    deleted_at_ms INTEGER
+  )`);
+  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_chat_room_docs_room ON chat_room_docs(room_id, deleted_at_ms, updated_at_ms)`);
+
   // Room links — typed relationships between chat sessions (discussions, elevations, etc.)
   G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS room_links (
     id TEXT PRIMARY KEY,
