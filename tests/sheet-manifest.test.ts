@@ -19,6 +19,7 @@ import {
   GET as readFile,
   PUT as writeFile,
 } from '../src/routes/api/sheets/[slug]/files/[...path]/+server.js';
+import { PATCH as patchSheet } from '../src/routes/api/sheets/[slug]/+server.js';
 
 const ROOM = 'sheet-manifest-room';
 const SLUG = 'manifest-sheet';
@@ -234,6 +235,17 @@ describe('sheet manifest + write guard', () => {
       expect(file.sha256).toMatch(/^[0-9a-f]{64}$/);
       expect(file.size).toBeGreaterThan(0);
     }
+  });
+
+  it('rejects non-object sheet metadata patch bodies', async () => {
+    await expectStatus(patchSheet(event(
+      { slug: SLUG },
+      {
+        method: 'PATCH',
+        roomId: ROOM,
+        body: JSON.stringify([]),
+      },
+    )), 400);
   });
 
   it('route GET sets ETag header with sha256', async () => {
