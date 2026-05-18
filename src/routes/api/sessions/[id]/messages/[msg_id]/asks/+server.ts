@@ -1,14 +1,37 @@
-import { json } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
-import { assertCanWrite } from '$lib/server/room-scope';
+import { assertCanWrite, assertSameRoom } from '$lib/server/room-scope';
+
+function requireActiveChatSession(sessionId: string) {
+  const session = queries.getSession(sessionId) as any;
+  if (!session) {
+    throw error(404, 'Session not found');
+  }
+  if (session.archived || session.deleted_at) {
+    throw error(410, 'Session is inactive');
+  }
+  if (session.type !== 'chat') {
+    throw error(400, 'Message ask resolution is only available for chat sessions');
+  }
+  return session;
+}
 
 /** PATCH /api/sessions/:id/messages/:msg_id/asks — persist resolved indices into combined asks list. */
 export async function PATCH(event: RequestEvent<{ id: string; msg_id: string }>) {
+  assertSameRoom(event, event.params.id);
   assertCanWrite(event);
   const { params, request } = event;
 
-  const body = await request.json().catch(() => null);
+  requireActiveChatSession(params.id);
+
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+
   const resolved = body?.resolved;
   if (!Array.isArray(resolved) || !resolved.every((n) => Number.isInteger(n) && n >= 0)) {
     return json({ error: 'resolved must be an array of non-negative integers' }, { status: 400 });
