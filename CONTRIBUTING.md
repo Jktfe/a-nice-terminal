@@ -1,7 +1,7 @@
 # Contributing to ANT
 
-ANT is an open-source project licensed under AGPL-3.0. Contributions are
-welcome — this document explains how.
+ANT is an open-source project licensed under AGPL-3.0-or-later. Contributions
+are welcome — this document explains how.
 
 ## Developer Certificate of Origin (DCO)
 
@@ -46,6 +46,12 @@ message. By signing off, you certify:
 >     personal information I submit with it, including my sign-off) is
 >     maintained indefinitely and may be redistributed consistent with
 >     this project or the open source license(s) involved.
+
+## License Posture
+
+Unless an explicit maintainer-approved exception is documented in the file or
+pull request, contributions are accepted under the same license as this project:
+AGPL-3.0-or-later.
 
 ## How to Contribute
 
