@@ -24,7 +24,15 @@ function cleanPidChain(value: unknown): PidEntry[] {
 }
 
 export async function POST({ request }: RequestEvent) {
-  let body: any; try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, { status: 400 }); }
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return json({ error: "Request body must be a JSON object" }, { status: 400 });
+  }
   const pids = cleanPidChain(body.pids);
   if (pids.length === 0) {
     return json({ error: 'pids must be a non-empty array' }, { status: 400 });

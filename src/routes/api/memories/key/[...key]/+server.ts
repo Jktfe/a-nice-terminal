@@ -24,7 +24,15 @@ export function GET(event: RequestEvent<{ key: string }>) {
 export async function PUT(event: RequestEvent<{ key: string }>) {
   assertNotRoomScoped(event);
   const { params, request } = event;
-  let body: any; try { body = await request.json(); } catch { throw error(400, "Invalid JSON"); }
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    throw error(400, "Invalid JSON");
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw error(400, "Request body must be a JSON object");
+  }
   const value = typeof body.value === 'string' ? body.value : JSON.stringify(body.value ?? body);
   if (!value) throw error(400, 'value is required');
 

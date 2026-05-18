@@ -18,7 +18,15 @@ function uniqueStrings(value: unknown): string[] {
 }
 
 export async function PATCH({ request }: RequestEvent) {
-  let body: any; try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, { status: 400 }); }
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return json({ error: "Request body must be a JSON object" }, { status: 400 });
+  }
   const { broadcast } = await import('$lib/server/ws-broadcast.js');
 
   if (body?.reset === true) {
