@@ -1,4 +1,4 @@
-import { json } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
 import {
@@ -35,6 +35,13 @@ function getScopedAsk(params: { id: string; askId: string }) {
   return ask;
 }
 
+function requireActiveSession(sessionId: string) {
+  const session = queries.getSession(sessionId);
+  if (!session) throw error(404, 'Session not found');
+  if (session.archived || session.deleted_at) throw error(410, 'Session is inactive');
+  return session;
+}
+
 function syncSourceMessage(ask: any) {
   if (!ask.source_message_id) return null;
   try {
@@ -67,6 +74,7 @@ function syncSourceMessage(ask: any) {
 
 export function GET(event: RequestEvent<{ id: string; askId: string }>) {
   assertSameRoom(event, event.params.id);
+  requireActiveSession(event.params.id);
   const ask = getScopedAsk(event.params);
   if (!ask) return json({ error: 'not found' }, { status: 404 });
   return json({ ask: publicAsk(ask) });
@@ -75,6 +83,7 @@ export function GET(event: RequestEvent<{ id: string; askId: string }>) {
 export async function PATCH(event: RequestEvent<{ id: string; askId: string }>) {
   assertSameRoom(event, event.params.id);
   assertCanWrite(event);
+  requireActiveSession(event.params.id);
   const existing = getScopedAsk(event.params);
   if (!existing) return json({ error: 'not found' }, { status: 404 });
 
@@ -133,6 +142,7 @@ export async function PATCH(event: RequestEvent<{ id: string; askId: string }>) 
 export async function DELETE(event: RequestEvent<{ id: string; askId: string }>) {
   assertSameRoom(event, event.params.id);
   assertCanWrite(event);
+  requireActiveSession(event.params.id);
   const existing = getScopedAsk(event.params);
   if (!existing) return json({ error: 'not found' }, { status: 404 });
 

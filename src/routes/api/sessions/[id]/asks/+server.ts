@@ -1,4 +1,4 @@
-import { json } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
 import { createAskId } from '$lib/server/ask-ids';
@@ -12,6 +12,13 @@ import { assertCanWrite, assertSameRoom } from '$lib/server/room-scope';
 import { emitAskRunEvent } from '$lib/server/ask-events';
 
 const ACTIVE_STATUSES = ['open', 'candidate', 'deferred'];
+
+function requireActiveSession(sessionId: string) {
+  const session = queries.getSession(sessionId);
+  if (!session) throw error(404, 'Session not found');
+  if (session.archived || session.deleted_at) throw error(410, 'Session is inactive');
+  return session;
+}
 
 function parseStatuses(raw: string | null): string[] | null {
   if (!raw || raw === 'active' || raw === 'pending') return ACTIVE_STATUSES;
@@ -49,6 +56,7 @@ function publicAsk(row: any) {
 
 export function GET(event: RequestEvent<{ id: string }>) {
   assertSameRoom(event, event.params.id);
+  requireActiveSession(event.params.id);
   const asks = queries.listAsks({
     sessionId: event.params.id,
     statuses: parseStatuses(event.url.searchParams.get('status')),
@@ -62,6 +70,7 @@ export function GET(event: RequestEvent<{ id: string }>) {
 export async function POST(event: RequestEvent<{ id: string }>) {
   assertSameRoom(event, event.params.id);
   assertCanWrite(event);
+  requireActiveSession(event.params.id);
   const body = await event.request.json();
   const rawTitle = String(body.title || body.question || '').trim();
   const rawBody = String(body.body || body.context || body.description || '').trim();
