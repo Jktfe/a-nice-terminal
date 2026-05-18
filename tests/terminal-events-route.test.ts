@@ -9,10 +9,11 @@ const { GET } = await import('../src/routes/api/sessions/[id]/terminal/events/+s
 let dataDir = '';
 let originalDataDir: string | undefined;
 
-function eventsEvent(id: string, query = '') {
+function eventsEvent(id: string, query = '', locals: Record<string, unknown> = {}) {
   return {
     params: { id },
     url: new URL(`https://ant.test/api/sessions/${id}/terminal/events${query}`),
+    locals,
   } as any;
 }
 
@@ -34,6 +35,11 @@ describe('/api/sessions/:id/terminal/events', () => {
     _resetForTest();
     getDb();
     queries.createSession('terminal', 'Terminal', 'terminal', 'forever', null, null, '{}');
+    queries.createSession('room-b', 'Room B', 'chat', 'forever', null, null, '{}');
+    queries.createSession('archived', 'Archived', 'terminal', 'forever', null, null, '{}');
+    queries.createSession('deleted', 'Deleted', 'terminal', 'forever', null, null, '{}');
+    queries.archiveSession('archived');
+    queries.softDeleteSession('deleted');
     queries.appendTerminalEvent('terminal', 1_000, 'window-add', JSON.stringify({ window: 1 }));
     queries.appendTerminalEvent('terminal', 2_000, 'layout-change', '{not-json');
     queries.appendTerminalEvent('terminal', 3_000, 'window-add', JSON.stringify({ window: 2 }));
@@ -91,5 +97,13 @@ describe('/api/sessions/:id/terminal/events', () => {
 
   it('rejects missing sessions', async () => {
     await expectHttpError(() => GET(eventsEvent('missing', '?since=0')), 404);
+  });
+
+  it('rejects cross-room scoped tokens and inactive sessions before returning events', async () => {
+    await expectHttpError(() => GET(eventsEvent('terminal', '?since=0', {
+      roomScope: { roomId: 'room-b', kind: 'cli' },
+    })), 403);
+    await expectHttpError(() => GET(eventsEvent('archived', '?since=0')), 410);
+    await expectHttpError(() => GET(eventsEvent('deleted', '?since=0')), 410);
   });
 });
