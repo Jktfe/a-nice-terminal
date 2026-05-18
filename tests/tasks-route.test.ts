@@ -143,6 +143,10 @@ describe('/api/sessions/:id/tasks', () => {
     expect(archived.status).toBe(410);
     expect(await archived.json()).toEqual({ error: 'Session is inactive' });
 
+    const archivedInvalidJson = await POST(postEvent('archived-room', '{'));
+    expect(archivedInvalidJson.status).toBe(410);
+    expect(await archivedInvalidJson.json()).toEqual({ error: 'Session is inactive' });
+
     const deleted = await POST(postEvent('deleted-room', payload));
     expect(deleted.status).toBe(410);
     expect(await deleted.json()).toEqual({ error: 'Session is inactive' });

@@ -32,6 +32,10 @@ export async function POST(event: RequestEvent<{ id: string }>) {
   assertSameRoom(event, params.id);
   assertCanWrite(event);
 
+  const session = queries.getSession(params.id);
+  if (!session) return json({ error: "Session not found" }, { status: 404 });
+  if (session.archived || session.deleted_at) return json({ error: "Session is inactive" }, { status: 410 });
+
   let body: any;
   try {
     body = await request.json();
@@ -41,10 +45,6 @@ export async function POST(event: RequestEvent<{ id: string }>) {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return json({ error: "Request body must be a JSON object" }, { status: 400 });
   }
-
-  const session = queries.getSession(params.id);
-  if (!session) return json({ error: "Session not found" }, { status: 404 });
-  if (session.archived || session.deleted_at) return json({ error: "Session is inactive" }, { status: 410 });
 
   const title = typeof body.title === "string" ? body.title.trim() : "";
   if (!title) return json({ error: "title required" }, { status: 400 });
