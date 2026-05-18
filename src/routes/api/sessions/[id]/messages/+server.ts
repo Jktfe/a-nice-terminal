@@ -46,7 +46,13 @@ export async function PATCH(event: RequestEvent<{ id: string }>) {
   if (!msgId) return json({ error: 'msgId required' }, { status: 400 });
   assertActiveSession(params.id);
 
-  const { meta } = await request.json();
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+  const { meta } = body;
   if (!meta) return json({ error: 'meta required' }, { status: 400 });
 
   // Fetch existing meta and merge

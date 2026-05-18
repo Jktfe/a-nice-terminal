@@ -96,4 +96,12 @@ describe('/api/sessions/:id/messages admin mutations', () => {
     expect(JSON.parse((queries.getMessage('msg-archived') as any).meta)).toEqual({});
     expect(broadcast).not.toHaveBeenCalled();
   });
+
+  it('returns structured 400 for malformed message meta updates without mutating state', async () => {
+    const malformed = await route.PATCH(patchEvent('room-a', 'msg-a1', '{'));
+    expect(malformed.status).toBe(400);
+    expect(await malformed.json()).toEqual({ error: 'Invalid JSON' });
+    expect(JSON.parse((queries.getMessage('msg-a1') as any).meta)).toEqual({ keep: true });
+    expect(broadcast).not.toHaveBeenCalled();
+  });
 });
