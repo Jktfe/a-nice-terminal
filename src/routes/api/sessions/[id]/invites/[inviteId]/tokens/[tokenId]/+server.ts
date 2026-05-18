@@ -8,6 +8,10 @@ export function DELETE(event: RequestEvent<{ id: string; inviteId: string; token
   // Revoking another bearer's token is admin-only.
   assertNotRoomScoped(event);
   const { params } = event;
+  const room = queries.getSession(params.id);
+  if (!room) throw error(404, 'Room not found');
+  if (room.archived || room.deleted_at) throw error(410, 'Room is inactive');
+
   const invite = queries.getRoomInvite(params.inviteId) as any;
   if (!invite || invite.room_id !== params.id) throw error(404, 'Invite not found');
 

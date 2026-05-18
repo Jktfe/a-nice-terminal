@@ -58,6 +58,7 @@ export async function POST(event: RequestEvent<{ id: string }>) {
   const { params, request, url } = event;
   const room = queries.getSession(params.id);
   if (!room) throw error(404, 'Room not found');
+  if (room.archived || room.deleted_at) throw error(410, 'Room is inactive');
 
   let body: any;
   try {
