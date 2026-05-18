@@ -22,7 +22,7 @@ const { PATCH } = await import('../src/routes/api/sessions/[id]/cli-flag/+server
 let dataDir = '';
 let originalDataDir: string | undefined;
 
-function patchEvent(id: string, body: unknown) {
+function patchEvent(id: string, body: unknown, locals: Record<string, unknown> = {}) {
   return {
     params: { id },
     request: new Request(`https://ant.test/api/sessions/${id}/cli-flag`, {
@@ -30,6 +30,7 @@ function patchEvent(id: string, body: unknown) {
       headers: { 'Content-Type': 'application/json' },
       body: typeof body === 'string' ? body : JSON.stringify(body),
     }),
+    locals,
   } as any;
 }
 
@@ -48,6 +49,10 @@ describe('/api/sessions/:id/cli-flag', () => {
     setCliFlag.mockReset();
     createSession('terminal');
     createSession('chat', 'chat');
+    createSession('archived');
+    createSession('deleted');
+    queries.archiveSession('archived');
+    queries.softDeleteSession('deleted');
   });
 
   afterEach(() => {
@@ -115,5 +120,28 @@ describe('/api/sessions/:id/cli-flag', () => {
     expect(JSON.parse((queries.getSession('terminal') as any).meta)).toEqual({
       agent_driver: 'claude-code',
     });
+  });
+
+  it('rejects cross-room, read-only, and inactive updates without side effects', async () => {
+    await expect(PATCH(patchEvent('terminal', { cli_flag: 'codex-cli' }, {
+      roomScope: { roomId: 'chat', kind: 'cli' },
+    }))).rejects.toMatchObject({ status: 403 });
+    await expect(PATCH(patchEvent('terminal', { cli_flag: 'codex-cli' }, {
+      roomScope: { roomId: 'terminal', kind: 'web' },
+    }))).rejects.toMatchObject({ status: 403 });
+
+    const archived = await PATCH(patchEvent('archived', { cli_flag: 'codex-cli' }));
+    expect(archived.status).toBe(410);
+    expect(await archived.json()).toEqual({ error: 'Session is inactive' });
+
+    const deleted = await PATCH(patchEvent('deleted', { cli_flag: 'codex-cli' }));
+    expect(deleted.status).toBe(410);
+    expect(await deleted.json()).toEqual({ error: 'Session is inactive' });
+
+    expect(queries.getSession('terminal')).toMatchObject({ cli_flag: null });
+    expect(queries.getSession('archived')).toMatchObject({ cli_flag: null });
+    expect(queries.getSession('deleted')).toMatchObject({ cli_flag: null });
+    expect(setCliFlag).not.toHaveBeenCalled();
+    expect(broadcast).not.toHaveBeenCalled();
   });
 });

@@ -4,8 +4,13 @@ import { queries } from '$lib/server/db';
 import { getCliMode } from '$lib/cli-modes';
 import { broadcast } from '$lib/server/ws-broadcast';
 import { ptyClient } from '$lib/server/pty-client';
+import { assertCanWrite, assertSameRoom } from '$lib/server/room-scope';
 
-export async function PATCH({ params, request }: RequestEvent<{ id: string }>) {
+export async function PATCH(event: RequestEvent<{ id: string }>) {
+  const { params, request } = event;
+  assertSameRoom(event, params.id);
+  assertCanWrite(event);
+
   let body: any;
   try {
     body = await request.json();
@@ -15,6 +20,9 @@ export async function PATCH({ params, request }: RequestEvent<{ id: string }>) {
 
   const session = queries.getSession(params.id) as Record<string, unknown> | undefined;
   if (!session) return json({ error: 'Session not found' }, { status: 404 });
+  if (session.archived || session.deleted_at) {
+    return json({ error: 'Session is inactive' }, { status: 410 });
+  }
 
   const rawCliFlag = body?.cli_flag ?? null;
   if (rawCliFlag !== null && typeof rawCliFlag !== 'string') {
