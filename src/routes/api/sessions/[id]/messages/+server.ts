@@ -132,6 +132,7 @@ export async function POST(event: RequestEvent<{ id: string }>) {
   assertSameRoom(event, event.params.id);
   assertCanWrite(event);
   const { params, request } = event;
+  assertActiveSession(params.id);
   const body = await request.json();
   const { role, content, format, sender_id, target, reply_to, msg_type, meta, asks } = body;
   const msgType = msg_type || 'message';
