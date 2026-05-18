@@ -42,13 +42,25 @@ export function GET(event: RequestEvent) {
   return json({ docs });
 }
 
-/** Create a new shared doc */
 export async function POST(event: RequestEvent) {
   assertCanWrite(event);
   const { request } = event;
-  const body = await request.json();
-  const { id, title, description, author } = body;
-  if (!id || !title) return json({ error: 'id and title required' }, { status: 400 });
+
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return json({ error: "Request body must be a JSON object" }, { status: 400 });
+  }
+
+  const id = typeof body.id === "string" ? body.id.trim() : "";
+  const title = typeof body.title === "string" ? body.title.trim() : "";
+  const description = body.description;
+  const author = body.author;
+  if (!id || !title) return json({ error: "id and title required" }, { status: 400 });
   const scope = roomScope(event);
   const requestedSessionId = typeof body.session_id === 'string' && body.session_id.trim() ? body.session_id.trim() : null;
   if (requestedSessionId) assertSameRoom(event, requestedSessionId);
