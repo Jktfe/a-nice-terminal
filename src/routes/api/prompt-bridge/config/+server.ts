@@ -11,7 +11,12 @@ export function GET() {
 }
 
 export async function PUT({ request }: RequestEvent) {
-  const body = await request.json();
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'Invalid JSON' }, { status: 400 });
+  }
   const current = getPromptBridgeConfig();
   const next = normalisePromptBridgeConfig({ ...current, ...(body?.config ?? body ?? {}) });
   return json({ config: setPromptBridgeConfig(next) });
