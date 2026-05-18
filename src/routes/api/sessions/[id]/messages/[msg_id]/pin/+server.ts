@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
+import { assertCanWrite, assertSameRoom } from '$lib/server/room-scope';
 
 function requireActiveChatSession(sessionId: string) {
   const session = queries.getSession(sessionId) as any;
@@ -25,7 +26,11 @@ function requireMessageInSession(messageId: string, sessionId: string) {
 }
 
 // PATCH /api/sessions/:id/messages/:msg_id/pin — toggle pin status
-export async function PATCH({ params, request }: RequestEvent<{ id: string; msg_id: string }>) {
+export async function PATCH(event: RequestEvent<{ id: string; msg_id: string }>) {
+  assertSameRoom(event, event.params.id);
+  assertCanWrite(event);
+  const { params, request } = event;
+
   requireActiveChatSession(params.id);
 
   let body: any;

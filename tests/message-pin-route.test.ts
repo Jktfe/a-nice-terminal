@@ -15,7 +15,7 @@ const { PATCH } = await import('../src/routes/api/sessions/[id]/messages/[msg_id
 let dataDir = '';
 let originalDataDir: string | undefined;
 
-function patchEvent(roomId: string, msgId: string, body: unknown) {
+function patchEvent(roomId: string, msgId: string, body: unknown, locals = {}) {
   return {
     params: { id: roomId, msg_id: msgId },
     request: new Request(`https://ant.test/api/sessions/${roomId}/messages/${msgId}/pin`, {
@@ -23,6 +23,7 @@ function patchEvent(roomId: string, msgId: string, body: unknown) {
       headers: { 'Content-Type': 'application/json' },
       body: typeof body === 'string' ? body : JSON.stringify(body),
     }),
+    locals,
   } as any;
 }
 
@@ -105,6 +106,27 @@ describe('/api/sessions/:id/messages/:msg_id/pin', () => {
     await expectHttpError(() => PATCH(patchEvent('room-b', 'msg-a1', { pinned: true })), 404);
     await expectHttpError(() => PATCH(patchEvent('room-a', 'missing-msg', { pinned: true })), 404);
     expect(queries.getMessage('msg-a1')).toMatchObject({ pinned: 0 });
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+
+  it('requires a same-room write-capable scoped token before pinning', async () => {
+    const allowed = await PATCH(patchEvent('room-a', 'msg-a1', { pinned: true }, {
+      roomScope: { roomId: 'room-a', kind: 'cli' },
+    }));
+    expect(allowed.status).toBe(200);
+    expect(queries.getMessage('msg-a1')).toMatchObject({ pinned: 1 });
+
+    broadcast.mockReset();
+    await expectHttpError(
+      () => PATCH(patchEvent('room-a', 'msg-a1', { pinned: false }, { roomScope: { roomId: 'room-a', kind: 'web' } })),
+      403,
+    );
+    await expectHttpError(
+      () => PATCH(patchEvent('room-a', 'msg-a1', { pinned: false }, { roomScope: { roomId: 'room-b', kind: 'cli' } })),
+      403,
+    );
+
+    expect(queries.getMessage('msg-a1')).toMatchObject({ pinned: 1 });
     expect(broadcast).not.toHaveBeenCalled();
   });
 });
