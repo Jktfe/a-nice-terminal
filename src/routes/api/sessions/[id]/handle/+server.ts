@@ -9,17 +9,17 @@ export async function PATCH(event: RequestEvent<{ id: string }>) {
   // Changing the room's handle is admin-only — guests can't rename the room.
   assertNotRoomScoped(event);
   const { params, request } = event;
+  const session = queries.getSession(params.id);
+  if (!session) return json({ error: 'Session not found' }, { status: 404 });
+  if (session.archived || session.deleted_at) {
+    return json({ error: 'Session is inactive' }, { status: 410 });
+  }
+
   let body: any;
   try {
     body = await request.json();
   } catch {
     return json({ error: 'Invalid JSON' }, { status: 400 });
-  }
-
-  const session = queries.getSession(params.id);
-  if (!session) return json({ error: 'Session not found' }, { status: 404 });
-  if (session.archived || session.deleted_at) {
-    return json({ error: 'Session is inactive' }, { status: 410 });
   }
 
   const rawHandle = typeof body?.handle === 'string' ? body.handle.trim() : body?.handle;

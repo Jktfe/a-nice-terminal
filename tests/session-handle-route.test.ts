@@ -114,6 +114,10 @@ describe('/api/sessions/:id/handle', () => {
     expect(archived.status).toBe(410);
     expect(await archived.json()).toEqual({ error: 'Session is inactive' });
 
+    const archivedMalformed = await PATCH(patchEvent('archived', '{'));
+    expect(archivedMalformed.status).toBe(410);
+    expect(await archivedMalformed.json()).toEqual({ error: 'Session is inactive' });
+
     const deleted = await PATCH(patchEvent('deleted', { handle: '@deleted' }));
     expect(deleted.status).toBe(410);
     expect(await deleted.json()).toEqual({ error: 'Session is inactive' });
