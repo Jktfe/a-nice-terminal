@@ -134,6 +134,10 @@ describe('/api/sessions/:id/cli-flag', () => {
     expect(archived.status).toBe(410);
     expect(await archived.json()).toEqual({ error: 'Session is inactive' });
 
+    const archivedMalformed = await PATCH(patchEvent('archived', '{'));
+    expect(archivedMalformed.status).toBe(410);
+    expect(await archivedMalformed.json()).toEqual({ error: 'Session is inactive' });
+
     const deleted = await PATCH(patchEvent('deleted', { cli_flag: 'codex-cli' }));
     expect(deleted.status).toBe(410);
     expect(await deleted.json()).toEqual({ error: 'Session is inactive' });

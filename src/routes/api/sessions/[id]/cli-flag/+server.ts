@@ -11,17 +11,17 @@ export async function PATCH(event: RequestEvent<{ id: string }>) {
   assertSameRoom(event, params.id);
   assertCanWrite(event);
 
+  const session = queries.getSession(params.id) as Record<string, unknown> | undefined;
+  if (!session) return json({ error: 'Session not found' }, { status: 404 });
+  if (session.archived || session.deleted_at) {
+    return json({ error: 'Session is inactive' }, { status: 410 });
+  }
+
   let body: any;
   try {
     body = await request.json();
   } catch {
     return json({ error: 'Invalid JSON' }, { status: 400 });
-  }
-
-  const session = queries.getSession(params.id) as Record<string, unknown> | undefined;
-  if (!session) return json({ error: 'Session not found' }, { status: 404 });
-  if (session.archived || session.deleted_at) {
-    return json({ error: 'Session is inactive' }, { status: 410 });
   }
 
   const rawCliFlag = body?.cli_flag ?? null;
