@@ -16,9 +16,14 @@ const route = await import('../src/routes/api/sessions/[id]/links/+server.js');
 let dataDir = '';
 let originalDataDir: string | undefined;
 
-function requestEvent(id: string, body: unknown) {
+function getEvent(id: string, locals = {}) {
+  return { params: { id }, locals } as any;
+}
+
+function requestEvent(id: string, body: unknown, locals = {}) {
   return {
     params: { id },
+    locals,
     request: new Request(`https://ant.test/api/sessions/${id}/links`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -27,10 +32,10 @@ function requestEvent(id: string, body: unknown) {
   } as any;
 }
 
-function deleteEvent(id: string, linkId: string | null) {
+function deleteEvent(id: string, linkId: string | null, locals = {}) {
   const url = new URL(`https://ant.test/api/sessions/${id}/links`);
   if (linkId !== null) url.searchParams.set('linkId', linkId);
-  return { params: { id }, url } as any;
+  return { params: { id }, url, locals } as any;
 }
 
 async function expectHttpError(action: () => unknown | Promise<unknown>, status: number) {
@@ -73,7 +78,7 @@ describe('/api/sessions/:id/links', () => {
   });
 
   it('lists outgoing and incoming links for active chat rooms only', async () => {
-    const response = await route.GET({ params: { id: 'room-b' } } as any);
+    const response = await route.GET(getEvent('room-b'));
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
@@ -88,6 +93,18 @@ describe('/api/sessions/:id/links', () => {
     await expectHttpError(() => route.GET({ params: { id: 'missing' } } as any), 404);
     await expectHttpError(() => route.GET({ params: { id: 'terminal-a' } } as any), 400);
     await expectHttpError(() => route.GET({ params: { id: 'archived-room' } } as any), 410);
+  });
+
+  it('rejects cross-room scoped reads before listing links', async () => {
+    await expectHttpError(
+      () =>
+        route.GET(
+          getEvent('room-a', {
+            roomScope: { roomId: 'room-b', kind: 'cli' },
+          }),
+        ),
+      403,
+    );
   });
 
   it('creates a source-scoped link to an active chat room and broadcasts it', async () => {
@@ -170,6 +187,34 @@ describe('/api/sessions/:id/links', () => {
     await expectHttpError(() => route.POST(requestEvent('room-a', { targetRoomId: 'room-c', relationship: 'invalid' })), 400);
   });
 
+  it('rejects cross-room and read-only scoped tokens before creating links', async () => {
+    const payload = { targetRoomId: 'room-c' };
+
+    await expectHttpError(
+      () =>
+        route.POST(
+          requestEvent('room-a', payload, {
+            roomScope: { roomId: 'room-b', kind: 'cli' },
+          }),
+        ),
+      403,
+    );
+    await expectHttpError(
+      () =>
+        route.POST(
+          requestEvent('room-a', payload, {
+            roomScope: { roomId: 'room-a', kind: 'web' },
+          }),
+        ),
+      403,
+    );
+
+    expect(queries.getRoomLinks('room-a')).toEqual([
+      expect.objectContaining({ id: 'link-existing' }),
+    ]);
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+
   it('deletes only links owned by the requested source room and broadcasts successful deletes', async () => {
     await expectHttpError(() => route.DELETE(deleteEvent('room-a', null)), 400);
     await expectHttpError(() => route.DELETE(deleteEvent('room-c', 'link-existing')), 404);
@@ -189,5 +234,31 @@ describe('/api/sessions/:id/links', () => {
       roomId: 'room-a',
       linkId: 'link-existing',
     });
+  });
+
+  it('rejects cross-room and read-only scoped tokens before deleting links', async () => {
+    await expectHttpError(
+      () =>
+        route.DELETE(
+          deleteEvent('room-a', 'link-existing', {
+            roomScope: { roomId: 'room-b', kind: 'cli' },
+          }),
+        ),
+      403,
+    );
+    await expectHttpError(
+      () =>
+        route.DELETE(
+          deleteEvent('room-a', 'link-existing', {
+            roomScope: { roomId: 'room-a', kind: 'web' },
+          }),
+        ),
+      403,
+    );
+
+    expect(queries.getRoomLinks('room-a')).toEqual([
+      expect.objectContaining({ id: 'link-existing' }),
+    ]);
+    expect(broadcast).not.toHaveBeenCalled();
   });
 });

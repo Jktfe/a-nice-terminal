@@ -2,6 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db.js';
 import { broadcast } from '$lib/server/ws-broadcast.js';
+import { assertCanWrite, assertSameRoom } from '$lib/server/room-scope';
 import { SESSIONS_CHANNEL } from '$lib/ws-channels';
 
 function genId() {
@@ -46,8 +47,10 @@ function relationshipValue(value: unknown) {
 }
 
 /** GET /api/sessions/:id/links — list all links from this room (outgoing + incoming) */
-export function GET({ params }: RequestEvent) {
+export function GET(event: RequestEvent) {
+  const { params } = event;
   const roomId = params.id!;
+  assertSameRoom(event, roomId);
   getActiveChatRoom(roomId);
   const outgoing = queries.getRoomLinks(roomId) as any[];
   const incoming = queries.getRoomBacklinks(roomId) as any[];
@@ -55,8 +58,12 @@ export function GET({ params }: RequestEvent) {
 }
 
 /** POST /api/sessions/:id/links — create a link or create a discussion room + link */
-export async function POST({ params, request }: RequestEvent) {
+export async function POST(event: RequestEvent) {
+  const { params, request } = event;
   const roomId = params.id!;
+  assertSameRoom(event, roomId);
+  assertCanWrite(event);
+
   const body = await readBody(request);
   if (body === null) return json({ error: 'Invalid JSON' }, { status: 400 });
 
@@ -128,7 +135,11 @@ export async function POST({ params, request }: RequestEvent) {
 }
 
 /** DELETE /api/sessions/:id/links?linkId=xxx — remove a link */
-export function DELETE({ params, url }: RequestEvent) {
+export function DELETE(event: RequestEvent) {
+  const { params, url } = event;
+  assertSameRoom(event, params.id!);
+  assertCanWrite(event);
+
   getActiveChatRoom(params.id!);
   const linkId = url.searchParams.get('linkId');
   if (!linkId) throw error(400, 'linkId query parameter required');
