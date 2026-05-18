@@ -1,8 +1,9 @@
-import { json } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db.js';
 import { deriveTerminalActivityState } from '$lib/shared/terminal-activity.js';
 import type { AgentStatus } from '$lib/shared/agent-status.js';
+import { assertSameRoom } from '$lib/server/room-scope.js';
 
 // GET /api/sessions/:id/status
 // Returns terminal cockpit status for a session while preserving the
@@ -103,10 +104,16 @@ function applyFocusStatus(agentStatus: AgentStatus | undefined, focus: SessionRo
   };
 }
 
-export async function GET({ params }: RequestEvent<{ id: string }>) {
+export async function GET(event: RequestEvent<{ id: string }>) {
+  const { params } = event;
+  assertSameRoom(event, params.id);
+
+  const session = queries.getSession(params.id) as SessionRow | null;
+  if (!session) throw error(404, 'Session not found');
+  if (session.archived || session.deleted_at) throw error(410, 'Session is inactive');
+
   const { getPendingEvent, refreshStatusFromCapture } = await import('$lib/server/agent-event-bus.js');
   const { getPendingPrompt, promptNeedsInput } = await import('$lib/server/prompt-bridge.js');
-  const session = queries.getSession(params.id) as SessionRow | null;
   const { terminal, linkedChat } = resolveTerminalContext(session);
   const terminalId = terminal?.id ?? params.id;
   let status = getPendingEvent(terminalId);
