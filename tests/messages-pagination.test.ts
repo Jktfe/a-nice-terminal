@@ -11,16 +11,23 @@ import getDb, { queries } from '../src/lib/server/db.js';
 import { GET as getMessages } from '../src/routes/api/sessions/[id]/messages/+server.js';
 
 const SESSION_ID = 'test-messages-pagination-room';
+const ARCHIVED_ID = `${SESSION_ID}-archived`;
+const DELETED_ID = `${SESSION_ID}-deleted`;
 
 function cleanup() {
   const db = getDb();
   db.prepare('DELETE FROM messages WHERE session_id = ?').run(SESSION_ID);
   db.prepare('DELETE FROM sessions WHERE id = ?').run(SESSION_ID);
+  db.prepare('DELETE FROM sessions WHERE id IN (?, ?)').run(ARCHIVED_ID, DELETED_ID);
+}
+
+function getEvent(sessionId: string, query: string, locals = {}) {
+  const url = new URL(`https://ant.example.test/api/sessions/${sessionId}/messages${query}`);
+  return { params: { id: sessionId }, url, locals } as any;
 }
 
 async function callGet(query: string, locals = {}): Promise<{ messages: any[] }> {
-  const url = new URL(`https://ant.example.test/api/sessions/${SESSION_ID}/messages${query}`);
-  const event: any = { params: { id: SESSION_ID }, url, locals };
+  const event = getEvent(SESSION_ID, query, locals);
   const res = getMessages(event);
   return await (res as Response).json();
 }
@@ -107,5 +114,16 @@ describe('GET /api/sessions/:id/messages — bounded latest-N', () => {
       () => callGet('?limit=50', { roomScope: { roomId: 'other-room', kind: 'web' } }),
       403,
     );
+  });
+
+  it('rejects missing and inactive sessions before loading messages', async () => {
+    queries.createSession(ARCHIVED_ID, 'Archived Room', 'chat', '15m', null, null, '{}');
+    queries.createSession(DELETED_ID, 'Deleted Room', 'chat', '15m', null, null, '{}');
+    queries.archiveSession(ARCHIVED_ID);
+    queries.softDeleteSession(DELETED_ID);
+
+    await expectHttpError(() => getMessages(getEvent('missing-room', '?limit=50')), 404);
+    await expectHttpError(() => getMessages(getEvent(ARCHIVED_ID, '?limit=50')), 410);
+    await expectHttpError(() => getMessages(getEvent(DELETED_ID, '?limit=50')), 410);
   });
 });

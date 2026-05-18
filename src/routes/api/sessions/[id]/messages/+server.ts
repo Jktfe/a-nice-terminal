@@ -1,4 +1,4 @@
-import { json } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
 import { nanoid } from 'nanoid';
@@ -84,6 +84,10 @@ export async function DELETE(event: RequestEvent<{ id: string }>) {
 export function GET(event: RequestEvent<{ id: string }>) {
   assertSameRoom(event, event.params.id);
   const { params, url } = event;
+  const session = queries.getSession(params.id) as any;
+  if (!session) throw error(404, 'Session not found');
+  if (session.archived || session.deleted_at) throw error(410, 'Session is inactive');
+
   const since = url.searchParams.get('since');
   const before = url.searchParams.get('before');
   const limitParam = url.searchParams.get('limit');
