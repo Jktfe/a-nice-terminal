@@ -37,6 +37,10 @@ describe('/api/sessions/:id/messages/search', () => {
 
     queries.createSession('room-a', 'Room A', 'chat', 'forever', null, null, '{}');
     queries.createSession('room-b', 'Room B', 'chat', 'forever', null, null, '{}');
+    queries.createSession('archived-room', 'Archived Room', 'chat', 'forever', null, null, '{}');
+    queries.createSession('deleted-room', 'Deleted Room', 'chat', 'forever', null, null, '{}');
+    queries.archiveSession('archived-room');
+    queries.softDeleteSession('deleted-room');
     queries.createMessage('msg-a1', 'room-a', 'user', 'alpha shared needle first', 'text', 'complete', '@you', null, null, 'message', '{}');
     queries.createMessage('msg-a2', 'room-a', 'assistant', 'alpha shared needle second', 'text', 'complete', '@codex', null, null, 'message', '{}');
     queries.createMessage('msg-b1', 'room-b', 'assistant', 'alpha shared needle other room', 'text', 'complete', '@codex', null, null, 'message', '{}');
@@ -71,6 +75,14 @@ describe('/api/sessions/:id/messages/search', () => {
     const missing = await GET(getEvent('missing-room'));
     expect(missing.status).toBe(404);
     expect(await missing.json()).toEqual({ results: [], error: 'Session not found' });
+
+    const archived = await GET(getEvent('archived-room', '?q=alpha'));
+    expect(archived.status).toBe(410);
+    expect(await archived.json()).toEqual({ results: [], error: 'Session is inactive' });
+
+    const deleted = await GET(getEvent('deleted-room', '?q=alpha'));
+    expect(deleted.status).toBe(410);
+    expect(await deleted.json()).toEqual({ results: [], error: 'Session is inactive' });
   });
 
   it('enforces room-scoped readers and reports invalid FTS queries', async () => {

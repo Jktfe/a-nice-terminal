@@ -14,6 +14,9 @@ export function GET(event: RequestEvent<{ id: string }>) {
   assertSameRoom(event, params.id);
   const session = queries.getSession(params.id);
   if (!session) return json({ results: [], error: 'Session not found' }, { status: 404 });
+  if (session.archived || session.deleted_at) {
+    return json({ results: [], error: 'Session is inactive' }, { status: 410 });
+  }
 
   const q = url.searchParams.get('q')?.trim();
   if (!q) return json({ results: [] });
