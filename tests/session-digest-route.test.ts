@@ -9,8 +9,8 @@ const { GET } = await import('../src/routes/api/sessions/[id]/digest/+server.js'
 let dataDir = '';
 let originalDataDir: string | undefined;
 
-function digestEvent(id: string) {
-  return { params: { id } } as any;
+function digestEvent(id: string, locals = {}) {
+  return { params: { id }, locals } as any;
 }
 
 async function expectHttpError(action: () => unknown | Promise<unknown>, status: number) {
@@ -97,5 +97,17 @@ describe('/api/sessions/:id/digest', () => {
     await expectHttpError(() => GET(digestEvent('terminal-a')), 400);
     await expectHttpError(() => GET(digestEvent('archived-a')), 410);
     await expectHttpError(() => GET(digestEvent('deleted-a')), 410);
+  });
+
+  it('rejects cross-room scoped tokens before reading digest metrics', async () => {
+    await expectHttpError(
+      () =>
+        GET(
+          digestEvent('room-a', {
+            roomScope: { roomId: 'empty-room', kind: 'web' },
+          }),
+        ),
+      403,
+    );
   });
 });

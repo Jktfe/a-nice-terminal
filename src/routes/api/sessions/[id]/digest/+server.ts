@@ -1,6 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
+import { assertSameRoom } from '$lib/server/room-scope';
 
 const STOP_WORDS = new Set([
   'a','an','the','and','or','but','in','on','at','to','for','of','with','by',
@@ -28,7 +29,10 @@ function extractKeyTerms(messages: any[]): { term: string; count: number }[] {
     .map(([term, count]) => ({ term, count }));
 }
 
-export function GET({ params }: RequestEvent<{ id: string }>) {
+export function GET(event: RequestEvent<{ id: string }>) {
+  const { params } = event;
+  assertSameRoom(event, params.id);
+
   const session = queries.getSession(params.id);
   if (!session) throw error(404, 'Session not found');
   if (session.archived || session.deleted_at) throw error(410, 'Session is inactive');
