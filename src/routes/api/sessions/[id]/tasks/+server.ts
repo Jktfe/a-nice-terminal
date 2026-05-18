@@ -1,9 +1,17 @@
-import { json } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
+import { assertCanWrite, assertSameRoom } from '$lib/server/room-scope';
 import { nanoid } from 'nanoid';
 
-export function GET({ params }: RequestEvent<{ id: string }>) {
+export function GET(event: RequestEvent<{ id: string }>) {
+  const { params } = event;
+  assertSameRoom(event, params.id);
+
+  const session = queries.getSession(params.id);
+  if (!session) throw error(404, 'Session not found');
+  if (session.archived || session.deleted_at) throw error(410, 'Session is inactive');
+
   const tasks = queries.listTasks(params.id);
   return json({ tasks });
 }
@@ -19,7 +27,11 @@ function resolveCreator(value: unknown): string | null {
   return creatorSess ? (creatorSess.handle || creatorSess.id || raw) : raw;
 }
 
-export async function POST({ params, request }: RequestEvent<{ id: string }>) {
+export async function POST(event: RequestEvent<{ id: string }>) {
+  const { params, request } = event;
+  assertSameRoom(event, params.id);
+  assertCanWrite(event);
+
   let body: any;
   try {
     body = await request.json();
@@ -32,6 +44,7 @@ export async function POST({ params, request }: RequestEvent<{ id: string }>) {
 
   const session = queries.getSession(params.id);
   if (!session) return json({ error: "Session not found" }, { status: 404 });
+  if (session.archived || session.deleted_at) return json({ error: "Session is inactive" }, { status: 410 });
 
   const title = typeof body.title === "string" ? body.title.trim() : "";
   if (!title) return json({ error: "title required" }, { status: 400 });

@@ -10,14 +10,19 @@ vi.mock('../src/lib/server/ws-broadcast.js', () => ({
   broadcast,
 }));
 
-const { POST } = await import('../src/routes/api/sessions/[id]/tasks/+server.js');
+const { GET, POST } = await import('../src/routes/api/sessions/[id]/tasks/+server.js');
 
 let dataDir = '';
 let originalDataDir: string | undefined;
 
-function postEvent(id: string, body: unknown) {
+function getEvent(id: string, locals = {}) {
+  return { params: { id }, locals } as any;
+}
+
+function postEvent(id: string, body: unknown, locals = {}) {
   return {
     params: { id },
+    locals,
     request: new Request(`https://ant.test/api/sessions/${id}/tasks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -30,6 +35,16 @@ function createSession(id: string, name = id) {
   queries.createSession(id, name, 'chat', 'forever', null, null, '{}');
 }
 
+async function expectHttpError(action: () => unknown | Promise<unknown>, status: number) {
+  try {
+    await action();
+  } catch (err) {
+    expect(err).toMatchObject({ status });
+    return;
+  }
+  throw new Error(`Expected HTTP ${status}`);
+}
+
 describe('/api/sessions/:id/tasks', () => {
   beforeEach(() => {
     originalDataDir = process.env.ANT_DATA_DIR;
@@ -39,6 +54,13 @@ describe('/api/sessions/:id/tasks', () => {
     getDb();
     broadcast.mockReset();
     createSession('room-1', 'Room 1');
+    createSession('room-2', 'Room 2');
+    createSession('archived-room', 'Archived Room');
+    createSession('deleted-room', 'Deleted Room');
+    queries.archiveSession('archived-room');
+    queries.softDeleteSession('deleted-room');
+    queries.createTask('task-existing', 'room-1', '@you', 'Existing task', null, {});
+    queries.createTask('task-other', 'room-2', '@you', 'Other task', null, {});
   });
 
   afterEach(() => {
@@ -46,6 +68,31 @@ describe('/api/sessions/:id/tasks', () => {
     if (originalDataDir === undefined) delete process.env.ANT_DATA_DIR;
     else process.env.ANT_DATA_DIR = originalDataDir;
     rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it('lists tasks scoped to the requested active session', async () => {
+    const response = await GET(getEvent('room-1'));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      tasks: [
+        expect.objectContaining({
+          id: 'task-existing',
+          session_id: 'room-1',
+          title: 'Existing task',
+        }),
+      ],
+    });
+  });
+
+  it('rejects missing, inactive, and cross-room scoped task reads', async () => {
+    await expectHttpError(() => GET(getEvent('missing-room')), 404);
+    await expectHttpError(() => GET(getEvent('archived-room')), 410);
+    await expectHttpError(() => GET(getEvent('deleted-room')), 410);
+    await expectHttpError(
+      () => GET(getEvent('room-1', { roomScope: { roomId: 'room-2', kind: 'web' } })),
+      403,
+    );
   });
 
   it('creates a task, persists it, and broadcasts', async () => {
@@ -87,5 +134,31 @@ describe('/api/sessions/:id/tasks', () => {
     const emptyTitle = await POST(postEvent('room-1', { title: '   ' }));
     expect(emptyTitle.status).toBe(400);
     expect(await emptyTitle.json()).toEqual({ error: 'title required' });
+  });
+
+  it('rejects inactive, cross-room, and read-only callers before task creation', async () => {
+    const payload = { title: 'Blocked task' };
+
+    const archived = await POST(postEvent('archived-room', payload));
+    expect(archived.status).toBe(410);
+    expect(await archived.json()).toEqual({ error: 'Session is inactive' });
+
+    const deleted = await POST(postEvent('deleted-room', payload));
+    expect(deleted.status).toBe(410);
+    expect(await deleted.json()).toEqual({ error: 'Session is inactive' });
+
+    await expectHttpError(
+      () => POST(postEvent('room-1', payload, { roomScope: { roomId: 'room-2', kind: 'cli' } })),
+      403,
+    );
+    await expectHttpError(
+      () => POST(postEvent('room-1', payload, { roomScope: { roomId: 'room-1', kind: 'web' } })),
+      403,
+    );
+
+    expect(queries.listTasks('room-1')).toEqual([
+      expect.objectContaining({ id: 'task-existing' }),
+    ]);
+    expect(broadcast).not.toHaveBeenCalled();
   });
 });
