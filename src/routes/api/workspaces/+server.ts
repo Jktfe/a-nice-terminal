@@ -9,8 +9,20 @@ export function GET() {
 }
 
 export async function POST({ request }: RequestEvent) {
-  const { name, root_dir } = await request.json();
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+
+  const name = typeof body?.name === 'string' ? body.name.trim() : '';
+  if (!name) return json({ error: 'name is required' }, { status: 400 });
+
+  const root_dir = typeof body?.root_dir === 'string' && body.root_dir.trim()
+    ? body.root_dir.trim()
+    : null;
   const id = nanoid();
-  queries.createWorkspace(id, name, root_dir || null);
+  queries.createWorkspace(id, name, root_dir);
   return json({ id, name, root_dir }, { status: 201 });
 }
