@@ -2,8 +2,11 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries } from '$lib/server/db';
 import { publicOrigin } from '$lib/server/room-invites';
+import { assertSameRoom } from '$lib/server/room-scope';
 
-export function GET({ params, url }: RequestEvent<{ id: string }>) {
+export function GET(event: RequestEvent<{ id: string }>) {
+  const { params, url } = event;
+  assertSameRoom(event, params.id);
   const session = queries.getSession(params.id);
   if (!session) throw error(404, 'Session not found');
   if (session.archived || session.deleted_at) throw error(410, 'Session is inactive');

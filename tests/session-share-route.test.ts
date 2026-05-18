@@ -11,10 +11,15 @@ let originalDataDir: string | undefined;
 let originalPublicOrigin: string | undefined;
 let originalServerUrl: string | undefined;
 
-function shareEvent(id: string, url = `https://request-origin.test/api/sessions/${id}/share`) {
+function shareEvent(
+  id: string,
+  url = `https://request-origin.test/api/sessions/${id}/share`,
+  locals: Record<string, unknown> = {},
+) {
   return {
     params: { id },
     url: new URL(url),
+    locals,
   } as any;
 }
 
@@ -118,5 +123,18 @@ describe('/api/sessions/:id/share', () => {
     await expectHttpError(() => GET(shareEvent('missing')), 404);
     await expectHttpError(() => GET(shareEvent('archived-1')), 410);
     await expectHttpError(() => GET(shareEvent('deleted-1')), 410);
+  });
+
+  it('allows same-room scoped readers and rejects cross-room scoped readers', async () => {
+    const sameRoom = await GET(shareEvent('chat-1', undefined, {
+      roomScope: { roomId: 'chat-1', kind: 'web' },
+    }));
+    expect(sameRoom.status).toBe(200);
+    expect(await sameRoom.json()).toMatchObject({ session_id: 'chat-1' });
+
+    await expectHttpError(
+      () => GET(shareEvent('chat-1', undefined, { roomScope: { roomId: 'terminal-1', kind: 'web' } })),
+      403,
+    );
   });
 });
