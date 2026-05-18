@@ -44,6 +44,9 @@ export async function PATCH(event: RequestEvent) {
   } catch {
     throw error(400, 'Invalid JSON body');
   }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw error(400, 'JSON body must be an object');
+  }
 
   // B1 of main-app-improvements-2026-05-10 — trust_mode flips are
   // metadata-only (no manifest rewrite, no audit), so handle them via

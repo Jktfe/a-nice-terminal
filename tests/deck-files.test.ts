@@ -7,6 +7,7 @@ import { readDeckMeta, registerDeck } from '../src/lib/server/decks.js';
 import { createDeckCookie } from '../src/lib/server/deck-view-auth.js';
 import { createInvite, exchangePassword } from '../src/lib/server/room-invites.js';
 import { GET as listFiles } from '../src/routes/api/decks/[slug]/files/+server.js';
+import { PATCH as patchDeck } from '../src/routes/api/decks/[slug]/+server.js';
 import {
   DELETE as deleteFile,
   GET as readFile,
@@ -185,6 +186,17 @@ describe('deck file API helpers', () => {
     const deck = readDeckMeta('auto-deck');
     expect(deck?.owner_session_id).toBe(ROOM_A);
     expect(deck?.allowed_room_ids).toEqual([ROOM_A]);
+  });
+
+  it('rejects non-object deck metadata patch bodies', async () => {
+    await expectStatus(patchDeck(event(
+      { slug: 'team-deck' },
+      {
+        roomId: ROOM_A,
+        method: 'PATCH',
+        body: JSON.stringify([]),
+      },
+    )), 400);
   });
 
   it('gates the deck viewer with invite-token login and proxies through the deck path', async () => {
