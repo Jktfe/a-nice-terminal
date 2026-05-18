@@ -2,8 +2,12 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { queries, ttlMs } from '$lib/server/db';
 import { SESSIONS_CHANNEL } from '$lib/ws-channels';
+import { assertCanWrite, assertSameRoom } from '$lib/server/room-scope';
 
-export async function POST({ params }: RequestEvent<{ id: string }>) {
+export async function POST(event: RequestEvent<{ id: string }>) {
+  const { params } = event;
+  assertSameRoom(event, params.id);
+  assertCanWrite(event);
   const session = queries.getSession(params.id);
   if (!session) throw error(404, 'Session not found');
   // Allow restore for both soft-deleted (deleted_at set) and archived-only (archived=1) sessions
