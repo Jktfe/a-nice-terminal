@@ -48,31 +48,39 @@ export function GET(event: RequestEvent<{ id: string }>) {
 export async function PATCH(event: RequestEvent<{ id: string }>) {
   assertCanWrite(event);
   const existing = queries.getAsk(event.params.id);
-  if (!existing) return json({ error: 'not found' }, { status: 404 });
+  if (!existing) return json({ error: "not found" }, { status: 404 });
   const scoped = assertAskVisibleToScope(event, existing);
   if (scoped) return scoped;
 
-  const body = await event.request.json();
+  let body: any;
+  try {
+    body = await event.request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return json({ error: "Request body must be a JSON object" }, { status: 400 });
+  }
+
+  const existingMeta = parseJsonObject(existing.meta);
   const action = normalizeAskAction(body.action ?? body.answer_action ?? body.answerAction);
   const status = body.status
     ? normalizeAskStatus(body.status, existing.status)
-    : action === 'defer'
-      ? 'deferred'
-      : action === 'dismiss' || action === 'reject'
-        ? 'dismissed'
+    : action === "defer"
+      ? "deferred"
+      : action === "dismiss" || action === "reject"
+        ? "dismissed"
         : action
-          ? 'answered'
+          ? "answered"
           : null;
-  const answer = typeof body.answer === 'string' ? body.answer
-    : typeof body.message === 'string' ? body.message
-      : typeof body.msg === 'string' ? body.msg
+  const answer = typeof body.answer === "string" ? body.answer
+    : typeof body.message === "string" ? body.message
+      : typeof body.msg === "string" ? body.msg
         : null;
-  const answeredBy = typeof body.answered_by === 'string' ? body.answered_by
-    : typeof body.answeredBy === 'string' ? body.answeredBy
-      : typeof body.by === 'string' ? body.by
+  const answeredBy = typeof body.answered_by === "string" ? body.answered_by
+    : typeof body.answeredBy === "string" ? body.answeredBy
+      : typeof body.by === "string" ? body.by
         : null;
-
-  const existingMeta = parseJsonObject(existing.meta);
   const patchMeta = parseJsonObject(body.meta);
   const meta = Object.keys(patchMeta).length > 0
     ? JSON.stringify({ ...existingMeta, ...patchMeta })
