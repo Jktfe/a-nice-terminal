@@ -88,6 +88,16 @@ function activeRoomTokenParticipants(roomId: string, existing: any[]): any[] {
   return remote;
 }
 
+function requireMutableChatRoom(roomId: string) {
+  const room = queries.getSession(roomId);
+  if (!room) return { error: json({ error: 'not found' }, { status: 404 }) };
+  if (room.archived || room.deleted_at) {
+    return { error: json({ error: 'room is inactive' }, { status: 410 }) };
+  }
+  if (room.type !== 'chat') return { error: json({ error: 'room must be a chat session' }, { status: 400 }) };
+  return { room };
+}
+
 export function GET(event: RequestEvent<{ id: string }>) {
   const { params, url } = event;
   assertSameRoom(event, params.id);
@@ -175,9 +185,8 @@ export async function POST(event: RequestEvent<{ id: string }>) {
   // direct access to this endpoint.
   assertNotRoomScoped(event);
   const { params, request } = event;
-  const room = queries.getSession(params.id);
-  if (!room) return json({ error: 'not found' }, { status: 404 });
-  if (room.type !== 'chat') return json({ error: 'room must be a chat session' }, { status: 400 });
+  const roomCheck = requireMutableChatRoom(params.id);
+  if (roomCheck.error) return roomCheck.error;
 
   let body: any;
   try {
@@ -225,9 +234,8 @@ export async function PATCH(event: RequestEvent<{ id: string }>) {
   // → session_id) before we can verify "actor is acting on themselves".
   assertNotRoomScoped(event);
   const { params, request } = event;
-  const room = queries.getSession(params.id);
-  if (!room) return json({ error: 'not found' }, { status: 404 });
-  if (room.type !== 'chat') return json({ error: 'room must be a chat session' }, { status: 400 });
+  const roomCheck = requireMutableChatRoom(params.id);
+  if (roomCheck.error) return roomCheck.error;
 
   let body: any;
   try {
@@ -286,9 +294,8 @@ export async function DELETE(event: RequestEvent<{ id: string }>) {
   // follow-up — for now, revoke the bearer's invite to evict them.
   assertNotRoomScoped(event);
   const { params, url, request } = event;
-  const room = queries.getSession(params.id);
-  if (!room) return json({ error: 'not found' }, { status: 404 });
-  if (room.type !== 'chat') return json({ error: 'room must be a chat session' }, { status: 400 });
+  const roomCheck = requireMutableChatRoom(params.id);
+  if (roomCheck.error) return roomCheck.error;
 
   let body: any;
   try {
