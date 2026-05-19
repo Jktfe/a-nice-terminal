@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { theme } from '$lib/stores/theme.svelte';
   import { useGridStore } from '$lib/stores/grid.svelte';
   import NocturneIcon from './NocturneIcon.svelte';
@@ -18,6 +19,7 @@
     onSetSearchText,
     onTogglePersonalSettings,
     askCount = 0,
+    activeAgentCount = 0,
   }: {
     orderMode: DashboardOrderMode;
     hasManualOrder: boolean;
@@ -29,13 +31,24 @@
     onSetSearchText: (value: string) => void;
     onTogglePersonalSettings: () => void;
     askCount?: number;
+    activeAgentCount?: number;
   } = $props();
 
   const grid = useGridStore();
+  let activeCount = $state(activeAgentCount);
+
+  onMount(async () => {
+    try {
+      const res = await fetch('/api/agents');
+      if (res.ok) {
+        const data = await res.json();
+        activeCount = data.summary?.activeCount || 0;
+      }
+    } catch {}
+  });
 </script>
 
 <header class="dashboard-header">
-  <!-- Logo -->
   <div class="logo">
     {#if theme.dark}
       <img src="/ANTlogo.png" alt="ANT" />
@@ -44,9 +57,7 @@
     {/if}
   </div>
 
-  <!-- Right-side icon strip -->
   <div class="actions">
-    <!-- Theme toggle -->
     <button
       type="button"
       class="icon-btn"
@@ -57,7 +68,6 @@
       <NocturneIcon name={theme.dark ? 'sun' : 'moon'} size={18} />
     </button>
 
-    <!-- Help / docs -->
     <a
       href="/help"
       class="icon-btn"
@@ -67,7 +77,6 @@
       <NocturneIcon name="help" size={18} />
     </a>
 
-    <!-- Plans -->
     <a
       href="/plan"
       class="icon-btn"
@@ -77,7 +86,19 @@
       <NocturneIcon name="plan" size={18} />
     </a>
 
-    <!-- Ask queue -->
+    <a
+      href="/agents"
+      class="icon-btn badge-host"
+      class:active={activeCount > 0}
+      title="Agents"
+      aria-label="Agents"
+    >
+      <img src="/ant-agents-icon.svg" alt="Agents" class="agents-icon" />
+      {#if activeCount > 0}
+        <span class="badge">{activeCount > 99 ? '99+' : activeCount}</span>
+      {/if}
+    </a>
+
     <a
       href="/asks"
       class="icon-btn badge-host"
@@ -91,7 +112,6 @@
       {/if}
     </a>
 
-    <!-- Grid toggle -->
     <button
       type="button"
       class="icon-btn"
@@ -103,7 +123,6 @@
       <NocturneIcon name="grid" size={18} />
     </button>
 
-    <!-- Grid dimension controls (only visible in grid mode) -->
     {#if grid.enabled}
       <div class="grid-dims" aria-label="Grid dimensions">
         <span class="grid-dims__label">C</span>
@@ -117,7 +136,6 @@
       </div>
     {/if}
 
-    <!-- Filter & order -->
     {#if !grid.enabled}
       <FilterMenu
         {typeFilter}
@@ -131,7 +149,6 @@
       />
     {/if}
 
-    <!-- Personal settings -->
     <button
       type="button"
       class="icon-btn"
@@ -231,6 +248,16 @@
     font-weight: 700;
     line-height: 1;
     border: 2px solid var(--bg);
+  }
+
+  .agents-icon {
+    width: 20px;
+    height: 20px;
+    filter: invert(var(--agent-icon-invert, 0));
+  }
+
+  :global(.dark) .agents-icon {
+    filter: invert(1);
   }
 
   .grid-dims {
