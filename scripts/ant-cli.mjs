@@ -8,15 +8,48 @@
 
 import { processIdentityChain } from './ant-cli-identity-chain.mjs';
 import { resolveCliVersion } from './ant-cli-version-helper.mjs';
+import { handleAgentsVerb } from './ant-cli-agents.mjs';
+import { handleAuditVerb } from './ant-cli-audit.mjs';
+import { handleChairVerb } from './ant-cli-chair.mjs';
+import { handleChatVerb } from './ant-cli-chat.mjs';
+import { handleDecksVerb } from './ant-cli-decks.mjs';
+import { handleDeliveryVerb } from './ant-cli-delivery.mjs';
+import { handleDiscussionVerb } from './ant-cli-discussion.mjs';
+import { handleDocsVerb } from './ant-cli-docs.mjs';
+import { handleFingerprintVerb } from './ant-cli-fingerprint.mjs';
+import { handleFlagVerb } from './ant-cli-flag.mjs';
+import { handleHooksVerb } from './ant-cli-hooks.mjs';
+import { handleIdentityVerb } from './ant-cli-identity.mjs';
+import { handleInterviewVerb } from './ant-cli-interview.mjs';
+import { handleInviteVerb } from './ant-cli-invites.mjs';
+import { handleLinkedchatVerb } from './ant-cli-linkedchat.mjs';
+import { handleListVerb } from './ant-cli-list.mjs';
+import { handleMcpVerb } from './ant-cli-mcp.mjs';
+import { handleMemoryVerb } from './ant-cli-memory.mjs';
+import { handleNewVerb } from './ant-cli-new.mjs';
+import { handlePairingVerb } from './ant-cli-pairing.mjs';
+import { handlePlanVerb } from './ant-cli-plan.mjs';
+import { handleReactionVerb } from './ant-cli-reaction.mjs';
+import { handleRegisterVerb, handleAddVerb, handleResolveVerb } from './ant-cli-register.mjs';
+import { handleRemoteVerb, handleRemoteRoomVerb } from './ant-cli-remote.mjs';
+import { handleRoomVerb } from './ant-cli-room.mjs';
+import { handleScreenshotVerb } from './ant-cli-screenshot.mjs';
+import { handleSessionsVerb } from './ant-cli-sessions.mjs';
+import { handleSettingsVerb } from './ant-cli-settings.mjs';
+import { handleShareVerb } from './ant-cli-share.mjs';
+import { handleStatusVerb } from './ant-cli-status.mjs';
+import { handleTaskVerb } from './ant-cli-task.mjs';
+import { handleTerminalVerb } from './ant-cli-terminal.mjs';
+import { handleTunnelVerb } from './ant-cli-tunnel.mjs';
+import { handleVoiceVerb } from './ant-cli-voice.mjs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const DEFAULT_SERVER_URL = process.env.ANT_SERVER_URL ?? 'http://127.0.0.1:6174';
 
-const REGISTER_MODULE = './ant-cli-register.mjs';
 const DISPATCH = {
-  plan: './ant-cli-plan.mjs', invite: './ant-cli-invites.mjs', chat: './ant-cli-chat.mjs', room: './ant-cli-room.mjs',
-  reaction: './ant-cli-reaction.mjs', status: './ant-cli-status.mjs', delivery: './ant-cli-delivery.mjs', audit: './ant-cli-audit.mjs', docs: './ant-cli-docs.mjs',
-  decks: './ant-cli-decks.mjs', remote: './ant-cli-remote.mjs', 'remote-room': './ant-cli-remote.mjs', discussion: './ant-cli-discussion.mjs', linkedchat: './ant-cli-linkedchat.mjs', fingerprint: './ant-cli-fingerprint.mjs', mcp: './ant-cli-mcp.mjs', chair: './ant-cli-chair.mjs', interview: './ant-cli-interview.mjs', screenshot: './ant-cli-screenshot.mjs', hooks: './ant-cli-hooks.mjs', new: './ant-cli-new.mjs', list: './ant-cli-list.mjs', terminal: './ant-cli-terminal.mjs', settings: './ant-cli-settings.mjs', flag: './ant-cli-flag.mjs', task: './ant-cli-task.mjs', memory: './ant-cli-memory.mjs', sessions: './ant-cli-sessions.mjs', voice: './ant-cli-voice.mjs', tunnel: './ant-cli-tunnel.mjs', pairing: './ant-cli-pairing.mjs', agents: './ant-cli-agents.mjs', share: './ant-cli-share.mjs', identity: './ant-cli-identity.mjs', register: REGISTER_MODULE, add: REGISTER_MODULE, resolve: REGISTER_MODULE
+  plan: handlePlanVerb, invite: handleInviteVerb, chat: handleChatVerb, room: handleRoomVerb,
+  reaction: handleReactionVerb, status: handleStatusVerb, delivery: handleDeliveryVerb, audit: handleAuditVerb, docs: handleDocsVerb,
+  decks: handleDecksVerb, remote: handleRemoteVerb, 'remote-room': handleRemoteRoomVerb, discussion: handleDiscussionVerb, linkedchat: handleLinkedchatVerb, fingerprint: handleFingerprintVerb, mcp: handleMcpVerb, chair: handleChairVerb, interview: handleInterviewVerb, screenshot: handleScreenshotVerb, hooks: handleHooksVerb, new: handleNewVerb, list: handleListVerb, terminal: handleTerminalVerb, settings: handleSettingsVerb, flag: handleFlagVerb, task: handleTaskVerb, memory: handleMemoryVerb, sessions: handleSessionsVerb, voice: handleVoiceVerb, tunnel: handleTunnelVerb, pairing: handlePairingVerb, agents: handleAgentsVerb, share: handleShareVerb, identity: handleIdentityVerb, register: handleRegisterVerb, add: handleAddVerb, resolve: handleResolveVerb
 };
 
 export function makeCliRunner({ fetchImpl, writeOut, writeErr, serverUrl } = {}) {
@@ -40,9 +73,7 @@ export function makeCliRunner({ fetchImpl, writeOut, writeErr, serverUrl } = {})
     if (primaryVerb !== 'rooms' && !DISPATCH[primaryVerb]) { printUsage(runtime); return 1; }
     try {
       if (DISPATCH[primaryVerb]) {
-        const m = await import(DISPATCH[primaryVerb]);
-        const handlerKey = `handle${primaryVerb.split('-').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join('')}Verb`;
-        const fn = m[handlerKey];
+        const fn = DISPATCH[primaryVerb];
         return await fn(secondaryVerb, rest, runtime, { CliInputError });
       }
       return await handleRoomsVerb(secondaryVerb, rest, runtime);
@@ -240,6 +271,7 @@ async function readErrorBodyMessage(response) {
 function formatCallFailure(causeOfFailure) {
   if (causeOfFailure instanceof CliNetworkError) return causeOfFailure.message;
   if (causeOfFailure instanceof Error) return causeOfFailure.message;
+  if (causeOfFailure !== undefined && causeOfFailure !== null) return String(causeOfFailure);
   return 'Unknown error.';
 }
 

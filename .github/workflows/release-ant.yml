@@ -87,6 +87,7 @@ jobs:
           chmod +x "$BIN_SRC"
           "$BIN_SRC" --version | grep -E '^ant [0-9]'
           "$BIN_SRC" --help | grep -E 'fresh-ant CLI'
+          "$BIN_SRC" chat --help | grep -E '^ant chat'
 
       - name: package + checksum
         id: pkg
