@@ -57,7 +57,7 @@ AGPL-3.0-or-later.
 
 1. **Open an issue** — bugs, features, questions. Search existing issues first.
 2. **Fork the repo** and create a branch from `main`.
-3. **Follow the code conventions** — see `STYLE.md` for the Fletcher-readable bar.
+3. **Follow the code conventions** — see `STYLE.md` for the 9-year-old-readable bar.
 4. **Write tests** — new features need tests. Bug fixes need regression tests.
 5. **Run the suite** — `bun run check && bun test` must pass.
 6. **Sign off** — every commit needs `Signed-off-by`.

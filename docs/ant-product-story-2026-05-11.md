@@ -86,7 +86,7 @@ links them across machines without shell exposure on either side.
   consent grants.
 - Team handoffs visible in the chat history forever; chat-break for
   context discipline when the work pivots.
-- **Headline anecdote:** James + Roxanne + agents on Mac Mini +
+- **Headline anecdote:** A technical operator + an accessible-English operator + agents on Mac Mini +
   MacBook + iPhone PWA + Windows machine coordinate on a single
   artefact without any of them granting shell access to anyone.
 
