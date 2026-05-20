@@ -43,6 +43,7 @@ import {
   touchBrowserSessionLastSeen
 } from './browserSessionStore';
 import { getCookieValuesFromRequest } from './authGate';
+import { resolveHumanOwnership } from './consentGate';
 
 /** Sentinel handle attributed to admin-bearer callers. Mirrors the
  *  CLI/automation convention used by other admin-gated routes. */
@@ -83,6 +84,22 @@ function tryAdminBearer(request: Request): boolean {
 }
 
 /**
+ * Pull the body-declared authorHandle (if any) so the admin-bearer branch
+ * can reject human-impersonation attempts. Returns the trimmed handle or
+ * null if no usable authorHandle field is present. Mirrors the messages-
+ * route extraction shape; intentionally lenient (any object with a string
+ * authorHandle) so we catch declared handles across all chat-room sub-route
+ * body shapes.
+ */
+function extractAuthorHandleFromBody(rawBody: unknown): string | null {
+  if (!rawBody || typeof rawBody !== 'object') return null;
+  const raw = (rawBody as { authorHandle?: unknown }).authorHandle;
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/**
  * Try the antchat Mac-app Bearer-token header. Returns the resolved handle
  * or null if no valid antchat token is present.
  */
@@ -119,6 +136,20 @@ export function requireChatRoomMutationAuth(
 ): ChatRoomMutationAuthResult {
   // Step 1: admin-bearer (CLI/automation path).
   if (tryAdminBearer(request)) {
+    // T7 of plan_consent_gate_2026_05_20 (JWPK-locked): the admin-bearer
+    // fast path used to accept ANY authorHandle the caller declared in the
+    // body — that was the spoof that triggered JWPK's "FFS - you posted as
+    // me" (lh5ci6rrwr). Reject admin-bearer writes that attribute to a
+    // registered human handle (e.g. @james / @you). Admin-bearer still
+    // works for any non-human handle (agent / unregistered), and continues
+    // to attribute to @admin when no authorHandle is declared at all.
+    const declaredHandle = extractAuthorHandleFromBody(rawBody);
+    if (declaredHandle && declaredHandle !== ADMIN_BEARER_HANDLE) {
+      const ownership = resolveHumanOwnership(declaredHandle);
+      if (ownership.kind === 'human') {
+        throw error(403, 'admin_cannot_impersonate_human');
+      }
+    }
     return { handle: ADMIN_BEARER_HANDLE, isAdminBearer: true };
   }
   // Step 2: antchat Mac-app bearer.

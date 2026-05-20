@@ -15,6 +15,7 @@ import { createBrowserSession } from './browserSessionStore';
 import { createChatRoom, resetChatRoomStoreForTests } from './chatRoomStore';
 import { addMembership } from './roomMembershipsStore';
 import { upsertTerminal } from './terminalsStore';
+import { createOwner } from './ownersStore';
 
 function makeRequest(opts: {
   headers?: Record<string, string>;
@@ -107,6 +108,37 @@ describe('requireChatRoomMutationAuth', () => {
     });
     const result = requireChatRoomMutationAuth('room_a', request, rawBody);
     expect(result.isAdminBearer).toBe(true);
+  });
+
+  // T7 of plan_consent_gate_2026_05_20 (JWPK-locked 2026-05-20):
+  // admin-bearer must never be allowed to attribute writes to a registered
+  // human handle. Sentinel @admin attribution still works; any other
+  // declared authorHandle is checked against owner_handles, and a human-
+  // kind handle 403s with `admin_cannot_impersonate_human`.
+  it('admin bearer + authorHandle "@admin" still resolves to @admin (happy path)', () => {
+    const { request, rawBody } = makeRequest({
+      headers: { authorization: 'Bearer test-admin-secret' },
+      body: { authorHandle: '@admin', body: 'hello from admin' }
+    });
+    const result = requireChatRoomMutationAuth('room_a', request, rawBody);
+    expect(result.handle).toBe(ADMIN_BEARER_HANDLE);
+    expect(result.isAdminBearer).toBe(true);
+  });
+
+  it('admin bearer rejects authorHandle that maps to a registered human owner (403)', () => {
+    createOwner({ handle: '@james', password: 'hunter2pw' });
+    const { request, rawBody } = makeRequest({
+      headers: { authorization: 'Bearer test-admin-secret' },
+      body: { authorHandle: '@james', body: 'spoof attempt' }
+    });
+    try {
+      requireChatRoomMutationAuth('room_a', request, rawBody);
+      throw new Error('should have thrown');
+    } catch (failure) {
+      const httpFailure = failure as { status?: number; body?: { message?: string } };
+      expect(httpFailure.status).toBe(403);
+      expect(httpFailure.body?.message).toBe('admin_cannot_impersonate_human');
+    }
   });
 
   it('admin token unset falls through (returns 401 with no other auth)', () => {
