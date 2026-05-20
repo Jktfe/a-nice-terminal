@@ -1,0 +1,651 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ANT Integration Proposal - Review Board</title>
+  <style>
+    :root {
+      --paper: #f7f4ec;
+      --ink: #17201a;
+      --muted: #657066;
+      --rule: #d7cdbb;
+      --panel: #fffdf7;
+      --panel-2: #ebe5d8;
+      --green: #24735a;
+      --green-soft: #dceade;
+      --blue: #285c84;
+      --blue-soft: #dce8f0;
+      --amber: #9c641c;
+      --amber-soft: #f2e1c6;
+      --red: #9b352f;
+      --red-soft: #ead3cf;
+      --shadow: 0 18px 50px rgba(39, 34, 26, 0.14);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background:
+        linear-gradient(90deg, rgba(23, 32, 26, 0.035) 1px, transparent 1px),
+        linear-gradient(rgba(23, 32, 26, 0.035) 1px, transparent 1px),
+        var(--paper);
+      background-size: 48px 48px;
+      color: var(--ink);
+      font-family: Charter, "Iowan Old Style", Georgia, serif;
+      line-height: 1.5;
+    }
+
+    .page {
+      width: min(1240px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 42px 0 64px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 28px;
+      align-items: end;
+      border-bottom: 2px solid var(--ink);
+      padding-bottom: 30px;
+    }
+
+    .eyebrow,
+    .label {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    h1 {
+      margin: 10px 0 0;
+      font-size: clamp(42px, 7vw, 92px);
+      line-height: 0.9;
+      letter-spacing: 0;
+      max-width: 760px;
+    }
+
+    .lead {
+      margin: 0;
+      font-size: 20px;
+      color: #2e392f;
+      max-width: 560px;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin: 28px 0;
+    }
+
+    .metric,
+    .card,
+    .track,
+    .guardrail {
+      background: rgba(255, 253, 247, 0.92);
+      border: 1px solid var(--rule);
+      box-shadow: var(--shadow);
+    }
+
+    .metric {
+      padding: 18px;
+      min-height: 118px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 36px;
+      line-height: 1;
+      margin: 12px 0 8px;
+    }
+
+    section {
+      margin-top: 36px;
+    }
+
+    .section-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 20px;
+      border-bottom: 1px solid var(--ink);
+      padding-bottom: 10px;
+      margin-bottom: 18px;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 28px;
+    }
+
+    h3 {
+      margin: 0 0 8px;
+      font-size: 22px;
+    }
+
+    .tracks {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+    }
+
+    .track {
+      padding: 22px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .track::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 8px;
+      background: var(--green);
+    }
+
+    .track[data-tone="blue"]::before {
+      background: var(--blue);
+    }
+
+    .track[data-tone="amber"]::before {
+      background: var(--amber);
+    }
+
+    .track ul,
+    .card ul,
+    .guardrail ul {
+      margin: 12px 0 0;
+      padding-left: 20px;
+    }
+
+    .track li,
+    .card li,
+    .guardrail li {
+      margin: 7px 0;
+    }
+
+    .decision-board {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 18px;
+    }
+
+    .card {
+      display: grid;
+      grid-template-columns: 220px 1fr 260px;
+      gap: 22px;
+      padding: 22px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border: 1px solid currentColor;
+    }
+
+    .spike {
+      color: var(--green);
+      background: var(--green-soft);
+    }
+
+    .learn {
+      color: var(--blue);
+      background: var(--blue-soft);
+    }
+
+    .park {
+      color: var(--amber);
+      background: var(--amber-soft);
+    }
+
+    .reject {
+      color: var(--red);
+      background: var(--red-soft);
+    }
+
+    .meta {
+      display: grid;
+      gap: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      color: #39443b;
+    }
+
+    .meta div {
+      padding: 9px 10px;
+      background: var(--panel-2);
+      border: 1px solid var(--rule);
+    }
+
+    .guardrails {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 18px;
+    }
+
+    .guardrail {
+      padding: 22px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: rgba(255, 253, 247, 0.95);
+      border: 1px solid var(--rule);
+      box-shadow: var(--shadow);
+    }
+
+    th,
+    td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--rule);
+      vertical-align: top;
+      text-align: left;
+    }
+
+    th {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-size: 12px;
+      color: var(--muted);
+      background: var(--panel-2);
+    }
+
+    a {
+      color: var(--blue);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+    }
+
+    .note {
+      background: #17201a;
+      color: #fffdf7;
+      padding: 24px;
+      box-shadow: var(--shadow);
+    }
+
+    .note h2 {
+      color: #fffdf7;
+    }
+
+    .note p {
+      color: #e6e0d4;
+    }
+
+    @media (max-width: 980px) {
+      header,
+      .summary-grid,
+      .tracks,
+      .card,
+      .guardrails {
+        grid-template-columns: 1fr;
+      }
+
+      .page {
+        width: min(100% - 24px, 760px);
+        padding-top: 24px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <div>
+        <div class="eyebrow">ANT v4 proposal board / review artifact / 2026-05-19</div>
+        <h1>Integrations Without Breaking The Product</h1>
+      </div>
+      <p class="lead">
+        A selective proposal from the integrations research: what to spike, what to learn from,
+        and what to park until v4 is stable. The bias is to protect existing ANT work while
+        banking the strongest ideas for native apps, plans, and agent search.
+      </p>
+    </header>
+
+    <section class="summary-grid" aria-label="Executive summary">
+      <div class="metric">
+        <div class="label">Immediate tasks</div>
+        <strong>3</strong>
+        <span>Threat model, Gantt spike, Semble spike.</span>
+      </div>
+      <div class="metric">
+        <div class="label">Native app wedge</div>
+        <strong>1</strong>
+        <span>Shellin-style WebRTC transport as a post-baseline premium concept.</span>
+      </div>
+      <div class="metric">
+        <div class="label">Core rule</div>
+        <strong>0</strong>
+        <span>No dependency lands without a proof artifact and rollback path.</span>
+      </div>
+      <div class="metric">
+        <div class="label">Decision mode</div>
+        <strong>Pick</strong>
+        <span>Approve, reject, or park each row below.</span>
+      </div>
+    </section>
+
+    <section class="note">
+      <h2>Recommendation</h2>
+      <p>
+        Do not adopt a bundle of integrations. Approve three small, reversible spikes:
+        write an ANT threat-model doc using Shellin's structure as inspiration, test SVAR Gantt
+        as a read-only plan cockpit layer, and test Semble as an optional MCP/code-search assistant.
+        Everything else stays as design reference until v4 launch pressure drops.
+      </p>
+    </section>
+
+    <section>
+      <div class="section-title">
+        <h2>Three Tracks</h2>
+        <span class="label">Safe sequencing</span>
+      </div>
+      <div class="tracks">
+        <article class="track">
+          <h3>Track A: v4 Launch Safe</h3>
+          <p>Low-risk work that improves the public repo or existing product surface.</p>
+          <ul>
+            <li>Threat-model doc before AGPL/public push.</li>
+            <li>Read-only Gantt cockpit spike.</li>
+            <li>No schema replacement, no route rewrites.</li>
+          </ul>
+        </article>
+        <article class="track" data-tone="blue">
+          <h3>Track B: Agent Tooling</h3>
+          <p>Internal productivity improvements that can be removed if they disappoint.</p>
+          <ul>
+            <li>Semble as optional MCP, not a required runtime dependency.</li>
+            <li>Measure whether it reduces file-reading churn.</li>
+            <li>Keep `rg` and direct file reads as baseline tools.</li>
+          </ul>
+        </article>
+        <article class="track" data-tone="amber">
+          <h3>Track C: Native Premium</h3>
+          <p>Strong concepts for antchat/native apps after baseline stability.</p>
+          <ul>
+            <li>Shellin-style P2P terminal transport as privacy wedge.</li>
+            <li>Split terminal bytes from control events.</li>
+            <li>Park until native app and invite flow are stable.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-title">
+        <h2>Decision Board</h2>
+        <span class="label">Proposed picks</span>
+      </div>
+
+      <div class="decision-board">
+        <article class="card">
+          <div>
+            <span class="pill spike">Spike now</span>
+            <h3>ANT threat model</h3>
+          </div>
+          <div>
+            <p>
+              Use Shellin's threat-model shape as a reference: trust boundaries, what the server
+              can see, sensitive code paths, token replay controls, and scope limits.
+            </p>
+            <ul>
+              <li>Why: public AGPL release needs trust clarity.</li>
+              <li>Proof: `docs/threat-model.md` reviewed before repo reset/push.</li>
+              <li>Kill criteria: none; this is documentation and should happen.</li>
+            </ul>
+          </div>
+          <div class="meta">
+            <div>Tier: OSS core</div>
+            <div>Risk: low</div>
+            <div>Owner: codex/claude</div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div>
+            <span class="pill spike">Spike now</span>
+            <h3>SVAR Gantt for plans</h3>
+          </div>
+          <div>
+            <p>
+              Test `@svar-ui/svelte-gantt` as a read-only render layer inside `/plans/[id]`.
+              This is the "Gantt chat/cockpit" idea, but constrained to a proof before adoption.
+            </p>
+            <ul>
+              <li>Why: closes a real plan-cockpit gap without inventing a chart engine.</li>
+              <li>Proof: one real plan rendered with tasks, dates, hierarchy, and screenshot.</li>
+              <li>Kill criteria: bundle weight, styling conflict, or data adapter takes more than one focused slice.</li>
+            </ul>
+          </div>
+          <div class="meta">
+            <div>Tier: OSS core</div>
+            <div>Risk: low-medium</div>
+            <div>Owner: svelte</div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div>
+            <span class="pill spike">Spike now</span>
+            <h3>Semble MCP code search</h3>
+          </div>
+          <div>
+            <p>
+              Run Semble as optional local MCP for agent code search. It should help agents find
+              exact code snippets without reading half the repo.
+            </p>
+            <ul>
+              <li>Why: lower context load and less noisy file-read exploration.</li>
+              <li>Proof: compare one real debugging task using `rg` only vs Semble-assisted search.</li>
+              <li>Kill criteria: slow indexing, poor relevance, awkward setup, or no measurable reduction in chatter.</li>
+            </ul>
+          </div>
+          <div class="meta">
+            <div>Tier: internal tooling</div>
+            <div>Risk: low if optional</div>
+            <div>Owner: codex/ux</div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div>
+            <span class="pill park">Park for native</span>
+            <h3>Shellin-style WebRTC terminal transport</h3>
+          </div>
+          <div>
+            <p>
+              Bank the architecture: server handles auth/signaling, terminal bytes move P2P,
+              and terminal/control channels are separate. This is compelling for native app privacy.
+            </p>
+            <ul>
+              <li>Why: credible premium privacy story for antchat/native.</li>
+              <li>Proof later: one desktop agent and one native client exchanging terminal data P2P.</li>
+              <li>Kill criteria: TURN complexity, mobile background limits, or debugging overhead outweigh privacy benefit.</li>
+            </ul>
+          </div>
+          <div class="meta">
+            <div>Tier: premium/native</div>
+            <div>Risk: high</div>
+            <div>Owner: native lane later</div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div>
+            <span class="pill learn">Learn from</span>
+            <h3>Superpowers process pattern</h3>
+          </div>
+          <div>
+            <p>
+              ANT already has plans, asks, claims, and verification discipline. Lift the useful
+              operating patterns, not the framework as a dependency.
+            </p>
+            <ul>
+              <li>Why: reinforces ANT's own plan/ask discipline.</li>
+              <li>Proof: update ANT manual and agent onboarding with the process lessons that fit.</li>
+              <li>Kill criteria: any step that turns ANT into a wrapper around another agent framework.</li>
+            </ul>
+          </div>
+          <div class="meta">
+            <div>Tier: process</div>
+            <div>Risk: low</div>
+            <div>Owner: coordinator</div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div>
+            <span class="pill learn">Learn from</span>
+            <h3>Collab / Paperclip / n8n</h3>
+          </div>
+          <div>
+            <p>
+              Useful as reference material for canvas layouts, governance, budgeting, and workflow
+              execution, but too broad or misaligned to adopt during v4 launch.
+            </p>
+            <ul>
+              <li>Why: they validate market demand and provide design vocabulary.</li>
+              <li>Proof: extract 3 UI/process patterns into ANT backlog, not code.</li>
+              <li>Kill criteria: any proposal that imports their architecture wholesale.</li>
+            </ul>
+          </div>
+          <div class="meta">
+            <div>Tier: reference</div>
+            <div>Risk: medium-high if adopted</div>
+            <div>Owner: none now</div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-title">
+        <h2>Guardrails</h2>
+        <span class="label">Do not break v4</span>
+      </div>
+      <div class="guardrails">
+        <article class="guardrail">
+          <h3>Adoption Rules</h3>
+          <ul>
+            <li>No dependency becomes production-critical from a spike.</li>
+            <li>No schema replacement to satisfy an integration.</li>
+            <li>No route rewrites while launch-critical ANT work is still active.</li>
+            <li>No premium/native work blocks OSS v4 launch.</li>
+          </ul>
+        </article>
+        <article class="guardrail">
+          <h3>Proof Required</h3>
+          <ul>
+            <li>Every spike has a screenshot or command transcript.</li>
+            <li>Every spike has a rollback path.</li>
+            <li>Every spike has a named kill criterion.</li>
+            <li>Every accepted idea becomes an ANT plan task before implementation.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-title">
+        <h2>Proposed Tasks</h2>
+        <span class="label">For JWPK review</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Task</th>
+            <th>Plan</th>
+            <th>Acceptance</th>
+            <th>Default</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Write ANT threat-model doc</td>
+            <td>v4-fresh-ant</td>
+            <td>Doc covers trust boundaries, server visibility, sensitive paths, token replay, and scope limits.</td>
+            <td>Approve</td>
+          </tr>
+          <tr>
+            <td>SVAR Gantt read-only spike</td>
+            <td>svelte-v4-launch</td>
+            <td>One real plan renders correctly with no mutation support and no route disruption.</td>
+            <td>Approve</td>
+          </tr>
+          <tr>
+            <td>Semble MCP optional tooling spike</td>
+            <td>v4-fresh-ant</td>
+            <td>One real code-search task shows fewer file reads or better first-hit relevance.</td>
+            <td>Approve</td>
+          </tr>
+          <tr>
+            <td>Shellin-style WebRTC architecture note</td>
+            <td>native antchat</td>
+            <td>Short architecture note only. No runtime work until native baseline is stable.</td>
+            <td>Park</td>
+          </tr>
+          <tr>
+            <td>Process/design pattern extraction</td>
+            <td>v4-fresh-ant</td>
+            <td>3 backlog items max from Superpowers, Collab, Paperclip, and n8n.</td>
+            <td>Learn only</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <div class="section-title">
+        <h2>Reference Links</h2>
+        <span class="label">Spot-check sources</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Source</th>
+            <th>Use in proposal</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><a href="https://svar.dev/svelte/gantt/">SVAR Svelte Gantt</a></td>
+            <td>Svelte 5 Gantt component candidate; open-source core, PRO advanced scheduling.</td>
+          </tr>
+          <tr>
+            <td><a href="https://github.com/MinishLab/semble">MinishLab/semble</a></td>
+            <td>Optional MCP/code-search spike for agents.</td>
+          </tr>
+          <tr>
+            <td><a href="https://github.com/obra/superpowers">obra/superpowers</a></td>
+            <td>Process pattern reference for plan/ask/verification discipline.</td>
+          </tr>
+          <tr>
+            <td><a href="https://github.com/collaborator-ai/collab-public">collaborator-ai/collab-public</a></td>
+            <td>Canvas/workspace layout reference only.</td>
+          </tr>
+          <tr>
+            <td><a href="https://github.com/paperclipai/paperclip">paperclipai/paperclip</a></td>
+            <td>Governance/budgeting pattern reference only.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>

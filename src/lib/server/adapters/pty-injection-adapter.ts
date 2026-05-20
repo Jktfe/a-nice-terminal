@@ -97,7 +97,11 @@ export class PtyInjectionAdapter implements DeliveryAdapter {
       }
 
       const routingHint = 'Routing: plain replies post to the room and notify idle agents only; include @handle to interrupt one agent; use @everyone to interrupt all.';
-      const plainText = `[${header}] room: ${sourceLabel} -- bounded room context: ${boundedContext} -- ${safeContent}${replyContext} -- reply with: ${replyCmd} -- ${routingHint}`;
+      let plainText = `[${header}] room: ${sourceLabel} -- bounded room context: ${boundedContext} -- ${safeContent}${replyContext} -- reply with: ${replyCmd} -- ${routingHint}`;
+
+      if (target.cliFlag === 'gemini-cli') {
+        plainText = `# ${header} | room: ${sourceLabel} | ${safeContent}${replyContext} | reply: ${replyCmd}`;
+      }
 
       // Two-call protocol: text first, then \r after a beat.
       // Claude Code requires a second \r (empty line) to submit the prompt —

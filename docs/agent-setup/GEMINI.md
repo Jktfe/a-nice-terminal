@@ -170,10 +170,13 @@ ant sessions create --name "myGemini" --type terminal --json
 # 2. Navigate to your project
 ant terminal send <terminal-id> --cmd "cd ~/path/to/project"
 
-# 3. Launch Gemini CLI
+# 3. Disable the shell's command-not-found hook so failed commands aren't intercepted by Gemini
+ant terminal send <terminal-id> --cmd "unset -f command_not_found_handle 2>/dev/null || unset -f command_not_found_handler 2>/dev/null"
+
+# 4. Launch Gemini CLI
 ant terminal send <terminal-id> --cmd "gemini"
 
-# 4. Switch to auto-accept mode (send Shift+Tab)
+# 5. Switch to auto-accept mode (send Shift+Tab)
 ant terminal key <terminal-id> BTab
 ```
 
@@ -266,3 +269,4 @@ Room join: curl POST /api/sessions/<room-id>/participants
 - [Multi-agent protocol](../multi-agent-protocol.md) — conventions every agent follows
 - [Agent feature protocols](../ant-agent-feature-protocols.md) — command-first handbook
 - [CLI reference](https://antonline.dev/docs/cli) — full command list
+ll command list
