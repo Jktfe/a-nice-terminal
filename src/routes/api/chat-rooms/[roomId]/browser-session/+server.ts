@@ -2,10 +2,15 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { addMembership, getTerminalIdByHandle } from '$lib/server/roomMembershipsStore';
-import { upsertTerminal } from '$lib/server/terminalsStore';
+import { lookupTerminalByPidChain, upsertTerminal } from '$lib/server/terminalsStore';
 import { createBrowserSession } from '$lib/server/browserSessionStore';
 import { getRoomMode } from '$lib/server/roomModesStore';
 import { bindRoomHandleToLiveTerminal } from '$lib/server/terminalHandleBinding';
+import { parsePidChainFromBody } from '$lib/server/identityGate';
+import {
+  resolveHumanOwnership,
+  requireHumanImpersonationConsent
+} from '$lib/server/consentGate';
 
 function normalizeHandle(rawHandle: string): string {
   const trimmed = rawHandle.trim();
@@ -101,6 +106,32 @@ export const POST: RequestHandler = async ({ params, request, url }) => {
     throw error(400, 'authorHandle must be a non-empty string.');
   }
   const authorHandle = normalizeHandle(rawHandle);
+
+  // plan_consent_gate_2026_05_20 T5 (JWPK-locked 2026-05-20): consent
+  // gate fail-closed BEFORE we mint a session cookie for a human handle.
+  // If authorHandle resolves to a human owner, the caller's terminal
+  // (pidChain-resolved) must either BE the owner's own terminal (self-
+  // post carve-out inside requireHumanImpersonationConsent) OR hold an
+  // active human_consent_grants row. No grant + no self-post = 403 with
+  // structured `human_impersonation_<reason>` body. Same-origin + room-
+  // membership checks ran above; this gate enforces "no agent can post
+  // as a human without that human's consent" on the mint surface. The
+  // post-side and admin-bearer surfaces are gated by sibling T6/T7.
+  const ownership = resolveHumanOwnership(authorHandle);
+  if (ownership.kind === 'human') {
+    const pidChainForGate = parsePidChainFromBody(body);
+    const callerTerminal = lookupTerminalByPidChain(pidChainForGate);
+    if (!callerTerminal) {
+      // No terminal identity → consent cannot be evaluated; deny rather
+      // than fall through. Consent requires a real, registered terminal.
+      throw error(403, 'human_impersonation_no_grant');
+    }
+    requireHumanImpersonationConsent({
+      ownerId: ownership.ownerId,
+      callerTerminalId: callerTerminal.id
+    });
+  }
+
   if (!room.members.some((member) => member.handle === authorHandle)) {
     // JWPK msg_0dmc9bbiln + msg_23zhfticim (2026-05-19) — open-room
     // auto-join via browser-session mint. The pidChain path in

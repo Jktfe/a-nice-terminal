@@ -6,6 +6,8 @@ import { getIdentityDb, resetIdentityDbForTests } from '$lib/server/db';
 import { addMembership } from '$lib/server/roomMembershipsStore';
 import { adoptExternalProcessForTerminal, upsertTerminal } from '$lib/server/terminalsStore';
 import { createTerminalRecord } from '$lib/server/terminalRecordsStore';
+import { createOwner } from '$lib/server/ownersStore';
+import { createHumanConsentGrant } from '$lib/server/humanConsentGrantsStore';
 
 type PostOptions = {
   roomId: string;
@@ -178,6 +180,77 @@ describe('POST /api/chat-rooms/:roomId/browser-session', () => {
       host: 'wrong.local'
     })).status).toBe(403);
     expect(browserSessionCount()).toBe(0);
+  });
+
+  // plan_consent_gate_2026_05_20 T5: mint-gate fail-closed on
+   // human-handle impersonation. The gate is keyed off owner_id, not the
+   // handle string — a handle that resolves via owner_handles to a real
+   // human owner triggers the gate; agent handles fall through unchanged.
+  describe('consent gate (T5 mint-gate)', () => {
+    it('rejects a human-handle mint when caller has no active grant', async () => {
+      const owner = createOwner({ handle: '@james', password: 'pw-test' });
+      const room = createChatRoom({ name: 'consent-no-grant', whoCreatedIt: '@james' });
+      // caller terminal exists and is supplied in pidChain, but has no
+      // consent grant for owner_id — gate must throw 403 with structured
+      // human_impersonation_no_grant body before any session is minted.
+      const callerTerminal = upsertTerminal({ pid: 9991, pid_start: 'pst-caller', name: 'caller' });
+      const response = await callPost({
+        roomId: room.id,
+        body: JSON.stringify({
+          authorHandle: '@james',
+          pidChain: [{ pid: callerTerminal.pid, pid_start: callerTerminal.pid_start }]
+        })
+      });
+      expect(response.status).toBe(403);
+      const payload = await response.json().catch(() => ({}));
+      expect(JSON.stringify(payload)).toMatch(/human_impersonation_no_grant/);
+      expect(browserSessionCount()).toBe(0);
+      // owner row should still exist; just confirming setup wasn't shorted
+      expect(owner.id).toBeTruthy();
+    });
+
+    it('allows a human-handle mint when caller terminal has an active grant', async () => {
+      const owner = createOwner({ handle: '@james', password: 'pw-test' });
+      const room = createChatRoom({ name: 'consent-with-grant', whoCreatedIt: '@james' });
+      // owner's own terminal needs to exist as a terminals row so the
+      // human_consent_grants FK (created_by_terminal_id) holds.
+      const ownerSelfTerminal = upsertTerminal({ pid: 1, pid_start: 'pst-owner', name: 'owner-self' });
+      const callerTerminal = upsertTerminal({ pid: 9992, pid_start: 'pst-grant', name: 'grant-caller' });
+      createHumanConsentGrant({
+        ownerId: owner.id,
+        grantedToTerminalId: callerTerminal.id,
+        grantedToHandle: '@james',
+        createdByTerminalId: ownerSelfTerminal.id,
+        durationMs: 30 * 60_000,
+        maxUses: 5
+      });
+      const response = await callPost({
+        roomId: room.id,
+        body: JSON.stringify({
+          authorHandle: '@james',
+          pidChain: [{ pid: callerTerminal.pid, pid_start: callerTerminal.pid_start }]
+        })
+      });
+      expect(response.status).toBe(201);
+      expect(browserSessionCount()).toBe(1);
+      const payload = await response.json();
+      expect(payload.browserSession.handle).toBe('@james');
+    });
+
+    it('lets an agent handle mint pass — gate does not fire on non-human owners', async () => {
+      const room = createChatRoom({ name: 'consent-agent-pass', whoCreatedIt: '@you' });
+      // @codex is NOT in owner_handles → resolveHumanOwnership returns
+      // { kind: 'agent' } and the gate never runs. Behaviour identical
+      // to the GAP-55 auto-join path proven in test above.
+      const response = await callPost({
+        roomId: room.id,
+        body: JSON.stringify({ authorHandle: '@codex' })
+      });
+      expect(response.status).toBe(201);
+      expect(browserSessionCount()).toBe(1);
+      const payload = await response.json();
+      expect(payload.browserSession.handle).toBe('@codex');
+    });
   });
 
   it('omits Secure on http but keeps strict cookie attributes', async () => {
