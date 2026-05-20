@@ -1,83 +1,48 @@
 import { json, error } from '@sveltejs/kit';
-import type { RequestEvent } from '@sveltejs/kit';
-import { queries } from '$lib/server/db';
-import { assertCanWrite } from '$lib/server/room-scope';
-import { readSiteTunnelMeta, registerSiteTunnel } from '$lib/server/tunnels';
-import { assertTunnelAccess, requireTunnelCaller } from '$lib/server/tunnel-auth';
+import type { RequestHandler } from './$types';
+import { getTunnelBySlug, updateTunnel, deleteTunnel } from '$lib/server/tunnelStore';
 
-function slugParam(event: RequestEvent): string {
-  return String((event.params as Record<string, string>).slug ?? '');
+function serialize(t: NonNullable<ReturnType<typeof getTunnelBySlug>>) {
+  return {
+    slug: t.slug,
+    title: t.title,
+    public_url: t.public_url,
+    local_url: t.local_url,
+    owner_room_id: t.owner_room_id,
+    allowed_room_ids: t.allowed_room_ids,
+    access_required: t.access_required,
+    status: t.status,
+    created_at_ms: t.created_at_ms,
+    updated_at_ms: t.updated_at_ms,
+  };
 }
 
-function stringArray(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
-  }
-  if (typeof value !== 'string' || !value.trim()) return [];
-  return value.split(',').map((item) => item.trim()).filter(Boolean);
-}
+export const GET: RequestHandler = async ({ params, locals }) => {
+  const tunnel = getTunnelBySlug(params.slug);
+  if (!tunnel) throw error(404, 'Tunnel not found');
+  return json({ tunnel: serialize(tunnel) });
+};
 
-function assertOwner(event: RequestEvent, ownerSessionId: string): void {
-  const caller = requireTunnelCaller(event);
-  if (caller.admin) return;
-  assertCanWrite(event);
-  if (caller.scope.roomId !== ownerSessionId) {
-    throw error(403, 'Only the tunnel owner room can update this tunnel');
-  }
-}
+export const PATCH: RequestHandler = async ({ params, request, locals }) => {
+  const tunnel = getTunnelBySlug(params.slug);
+  if (!tunnel) throw error(404, 'Tunnel not found');
 
-export function GET(event: RequestEvent) {
-  requireTunnelCaller(event);
-  const tunnel = readSiteTunnelMeta(slugParam(event));
-  if (!tunnel) throw error(404, 'tunnel not found');
-  assertTunnelAccess(event, tunnel);
-  return json({ ok: true, tunnel });
-}
+  const body = await request.json().catch(() => ({}));
+  const updated = updateTunnel(params.slug, {
+    title: body.title,
+    public_url: body.public_url,
+    local_url: body.local_url,
+    allowed_room_ids: body.allowed_room_ids,
+    access_required: body.access_required,
+    status: body.status,
+  });
+  if (!updated) throw error(404, 'Tunnel not found');
+  return json({ tunnel: serialize(updated) });
+};
 
-export async function PATCH(event: RequestEvent) {
-  const existing = readSiteTunnelMeta(slugParam(event));
-  if (!existing) throw error(404, 'tunnel not found');
-  assertOwner(event, existing.owner_session_id);
-
-  let body: any = {};
-  try {
-    body = await event.request.json();
-  } catch {
-    throw error(400, 'Invalid JSON body');
-  }
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    throw error(400, 'JSON body must be an object');
-  }
-
-  try {
-    const tunnel = registerSiteTunnel({
-      slug: existing.slug,
-      title: typeof body.title === 'string' ? body.title : existing.title,
-      public_url: typeof body.public_url === 'string' ? body.public_url : typeof body.public === 'string' ? body.public : existing.public_url,
-      local_url: body.local_url === null || body.local === null
-        ? null
-        : typeof body.local_url === 'string'
-          ? body.local_url
-          : typeof body.local === 'string'
-            ? body.local
-            : existing.local_url,
-      owner_session_id: existing.owner_session_id,
-      allowed_room_ids: body.allowed_room_ids !== undefined || body.rooms !== undefined
-        ? stringArray(body.allowed_room_ids ?? body.rooms)
-        : existing.allowed_room_ids,
-      status: typeof body.status === 'string' ? body.status : existing.status,
-      access_required: body.access_required === undefined ? existing.access_required : body.access_required === true || body.access_required === 1 || body.access_required === 'true',
-    });
-    return json({ ok: true, tunnel });
-  } catch (err) {
-    throw error(400, (err as Error).message || 'Invalid tunnel');
-  }
-}
-
-export function DELETE(event: RequestEvent) {
-  const existing = readSiteTunnelMeta(slugParam(event));
-  if (!existing) throw error(404, 'tunnel not found');
-  assertOwner(event, existing.owner_session_id);
-  queries.deleteSiteTunnel(existing.slug);
-  return json({ ok: true, slug: existing.slug });
-}
+export const DELETE: RequestHandler = async ({ params, locals }) => {
+  const tunnel = getTunnelBySlug(params.slug);
+  if (!tunnel) throw error(404, 'Tunnel not found');
+  deleteTunnel(params.slug);
+  return json({ slug: params.slug });
+};

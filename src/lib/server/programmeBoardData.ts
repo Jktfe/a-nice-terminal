@@ -1,13 +1,13 @@
 /**
- * Programme board snapshot — the live data behind /ant in v3.
+ * Programme board snapshot — the live data behind /plan.
  *
- * Copied-from: /Users/jamesking/CascadeProjects/ant/src/lib/server/programmeBoardData.ts
- * Verdict: vendored to a-nice-terminal so the v3 SvelteKit server (com.ant.server)
- *   can render the same programme board at /ant. PROGRAMME.md remains canonical.
- * Simplification: identical content + types; no edits beyond this header.
+ * Hand-curated mirror of docs/PROGRAMME.md and docs/PROGRAMME-BOARD.md
+ * intended to render at /plan so James can watch the team from another
+ * screen. PROGRAMME.md remains canonical; this module is the visual
+ * companion's data shape.
  *
- * Parity rule: when the fresh-ant snapshot updates, this file gets a small
- * follow-up edit slice to stay in sync.
+ * Update by editing this file in a small slice when a baseline lands.
+ * Bump LAST_UPDATED_ISO whenever the snapshot moves.
  */
 
 export const STRICT_STATUS_LABELS = [

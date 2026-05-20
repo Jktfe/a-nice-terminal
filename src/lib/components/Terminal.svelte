@@ -1,664 +1,253 @@
+<!--
+  Terminal.svelte — fresh-ANT xterm-js pane (T1 frontend per terminal-frontend-research-2026-05-14).
+  Consumes the locked TERMINALS BACKEND surface:
+    POST /api/terminals/[id]/input  { data }   → 202
+    POST /api/terminals/[id]/resize { cols, rows } → 202
+    GET  /api/terminals/[id]/stream            → SSE, frame `data: JSON({data: string})`
+  Mount lifecycle: lazy-import @xterm/xterm + addon-fit under browser
+  guard, attach to host <div>, open EventSource, write incoming frames
+  to xterm via a chunked write-queue. Input via term.onData → POST.
+  Resize via FitAddon + ResizeObserver → POST /resize.
+-->
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { slide } from 'svelte/transition';
+  import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
-  import { SPECIAL_KEYS } from '$lib/shared/special-keys.js';
   import {
-    TERMINAL_RENDERER_STORAGE_KEY,
-    resolveTerminalRendererFlag,
-    waitForTerminalFonts,
-    type TerminalRendererMode,
-  } from '$lib/components/Terminal/renderer.js';
+    postInput as ptyPostInput,
+    handleSpecialKey as ptyHandleSpecialKey
+  } from '$lib/terminal/ptyInput';
+  import TerminalSpecialKeys from './TerminalSpecialKeys.svelte';
 
-  let { sessionId, onData }: { sessionId: string; onData?: (data: string) => void } = $props();
-
-  let termRef = $state<HTMLDivElement | undefined>();
-  let terminal: any = $state(null);
-  let ws: WebSocket | null = $state(null);
-  let slowEdit = $state(false);
-  let slowEditText = $state('');
-  let slowEditRef = $state<HTMLTextAreaElement | null>(null);
-  let paneTitle = $state('');
-  let rendererMode = $state<TerminalRendererMode>('dom');
-  let rendererFallbackReason = $state<string | null>(null);
-
-  // Scroll track state
-  let scrollRatio = $state(1);
-  let scrollThumbTop = $derived.by(() => {
-    const trackHeight = 400; // approximate, updated by resize observer
-    const thumbHeight = Math.max(40, Math.min(120, trackHeight * 0.15));
-    const maxOffset = trackHeight - thumbHeight - 80;
-    return 40 + (1 - scrollRatio) * maxOffset;
-  });
-  let scrollThumbHeight = $derived(Math.max(40, 120));
-
-  // Special keys for mobile/touch input — sourced from shared definition
-  const specialKeys = SPECIAL_KEYS;
-
-  function sendKey(seq: string) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    if (seq === '__paste__') {
-      navigator.clipboard.readText().then(text => {
-        ws!.send(JSON.stringify({ type: 'terminal_input', sessionId, data: text }));
-      });
-      return;
-    }
-    ws.send(JSON.stringify({ type: 'terminal_input', sessionId, data: seq }));
+  // Passive OSC 7 / OSC 1337 cwd detection per FOLDER-IMPL design.
+  // OSC 7: \x1b]7;file://host/path\x1b\\
+  // OSC 1337 CurrentDir: \x1b]1337;CurrentDir=/path\x07 (or \x1b\\)
+  const OSC7_RE = /\x1b\]7;file:\/\/[^/]*(\/[^\x07\x1b]+)(?:\x07|\x1b\\)/;
+  const OSC1337_CWD_RE = /\x1b\]1337;CurrentDir=([^\x07\x1b]+)(?:\x07|\x1b\\)/;
+  function detectCwd(chunk: string): string | null {
+    const m1 = chunk.match(OSC7_RE);
+    if (m1) try { return decodeURIComponent(m1[1]); } catch { return m1[1]; }
+    const m2 = chunk.match(OSC1337_CWD_RE);
+    if (m2) return m2[1];
+    return null;
   }
 
-  $effect(() => {
-    if (slowEdit && slowEditRef) slowEditRef.focus();
-  });
+  type Props = {
+    terminalId: string;
+    onTitleChange?: (title: string) => void;
+    initialCwd?: string | null;
+    /** Bubble OSC-detected cwd up to TerminalCard so the folder picker
+     *  + navigator (shared across Chat/ANT/Raw views) stay live. */
+    onCwdDetected?: (path: string) => void;
+  };
+  let { terminalId, onTitleChange, initialCwd = null, onCwdDetected }: Props = $props();
 
-  // Scroll track drag handling
-  function startScrollDrag(e: PointerEvent) {
-    const track = (e.target as HTMLElement).parentElement!;
-    const rect = track.getBoundingClientRect();
-
-    function onMove(ev: PointerEvent) {
-      const y = ev.clientY - rect.top;
-      const ratio = Math.max(0, Math.min(1, y / rect.height));
-      if (terminal?.buffer?.active) {
-        terminal.scrollToLine(Math.round(ratio * terminal.buffer.active.baseY));
-      }
-    }
-
-    function onUp() {
-      document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', onUp);
-    }
-
-    document.addEventListener('pointermove', onMove);
-    document.addEventListener('pointerup', onUp);
-    onMove(e);
-  }
-
-  // Block terminal-emulator query responses from looping back into the PTY
-  // (v2 lesson). Besides DA1/DA2/DSR cursor reports, xterm can answer OSC
-  // colour queries such as OSC 10/11; those bytes are terminal responses, not
-  // user input, and must never be pasted into the shell prompt.
-  const CSI_RESPONSE_RE = /^\x1b\[\??[>]?[\d;]*c$|^\x1b\[\d+;\d+[Rn]$|^\x1b\[\d*n$/;
-  const OSC_RESPONSE_RE = /\x1b\](?:4;\d+|10|11|12);[^\x07\x1b]*(?:\x07|\x1b\\)/g;
-
-  function isTerminalResponse(data: string): boolean {
-    if (CSI_RESPONSE_RE.test(data)) return true;
-    return data.replace(OSC_RESPONSE_RE, '') === '';
-  }
-
-  // Adaptive output buffering (v2 lesson):
-  // <256B → microtask (near-zero keystroke echo latency)
-  // ≥256B → 2ms coalesce (batch bulk output to avoid thrashing xterm)
-  const MICROTASK_THRESHOLD = 256;
-  let outputBuffer: string[] = [];
-  let outputSize = 0;
-  let flushTimer: ReturnType<typeof setTimeout> | null = null;
-  let microtaskScheduled = false;
-
-  // Write queue — ensures sequential writes to xterm.
-  // writeChunked uses setTimeout chains; if scrollback (262KB, ~43 chunks, ~430ms)
-  // and a concurrent SIGWINCH response both run, their chunks interleave and corrupt
-  // xterm's ANSI state machine (cursor positions, erase sequences clash → blank screen).
+  let hostEl: HTMLDivElement | undefined = $state();
+  let term: import('@xterm/xterm').Terminal | null = null;
+  let fitAddon: import('@xterm/addon-fit').FitAddon | null = null;
+  let eventSource: EventSource | null = null;
+  let resizeObserver: ResizeObserver | null = null;
   let writeQueue: string[] = [];
-  let writeActive = false;
+  let writeFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
-  function drainWriteQueue(term: any) {
-    if (writeQueue.length === 0) { writeActive = false; return; }
-    writeActive = true;
-    const data = writeQueue.shift()!;
-    writeChunked(term, data, () => drainWriteQueue(term));
-  }
+  // Push the seed cwd up to the parent on first attach so the breadcrumb
+  // is correct before the first OSC-7 prompt marker arrives.
+  $effect(() => {
+    if (initialCwd) onCwdDetected?.(initialCwd);
+  });
 
-  function scheduleWrite(term: any, data: string) {
-    writeQueue.push(data);
-    if (!writeActive) drainWriteQueue(term);
-  }
-
-  function flushOutput(term: any) {
-    if (outputBuffer.length === 0) return;
-    const data = outputBuffer.join('');
-    outputBuffer = [];
-    outputSize = 0;
-    flushTimer = null;
-    microtaskScheduled = false;
-    scheduleWrite(term, data);
-  }
-
-  function enqueueOutput(term: any, data: string) {
-    outputBuffer.push(data);
-    outputSize += data.length;
-    if (outputSize < MICROTASK_THRESHOLD) {
-      if (!microtaskScheduled) {
-        microtaskScheduled = true;
-        queueMicrotask(() => flushOutput(term));
-      }
-    } else {
-      if (!flushTimer) {
-        flushTimer = setTimeout(() => flushOutput(term), 2);
-      }
-    }
-  }
-
-  // Chunked write — prevents Safari/iPad main thread block on large ANSI state blobs (v2 lesson)
-  const CHUNK_SIZE = 6144; // 6 KB per frame
-  function writeChunked(term: any, data: string, onDone?: () => void) {
-    if (data.length <= CHUNK_SIZE) {
-      term.write(data);
-      onDone?.();
-      return;
-    }
-    let offset = 0;
-    function next() {
-      const chunk = data.slice(offset, offset + CHUNK_SIZE);
-      if (!chunk) { onDone?.(); return; }
-      term.write(chunk);
-      offset += CHUNK_SIZE;
-      if (offset < data.length) setTimeout(next, 0);
-      else {
-        // Force repaint after chunked write — xterm holds the data but won't
-        // paint it without this when the terminal was hidden during the writes.
-        // Use setTimeout here too: rAF is suppressed during SvelteKit navigation
-        // which would leave scrollback written to the buffer but never painted.
-        setTimeout(() => { term.refresh(0, term.rows - 1); onDone?.(); }, 0);
-      }
-    }
-    setTimeout(next, 0);
-  }
-
-  async function sendSlowEdit(term: any, socket: WebSocket) {
-    if (!slowEditText.trim() || socket.readyState !== WebSocket.OPEN) return;
-    const text = slowEditText.endsWith('\n') ? slowEditText.slice(0, -1) : slowEditText;
-    // Two-call protocol: text then Enter with a gap (v2 lesson — prevents bracketed paste issues)
-    socket.send(JSON.stringify({ type: 'terminal_input', sessionId, data: text }));
-    await new Promise(r => setTimeout(r, 5));
-    socket.send(JSON.stringify({ type: 'terminal_input', sessionId, data: '\r' }));
-    slowEditText = '';
-    slowEdit = false;
-    requestAnimationFrame(() => term.focus());
-  }
-
-  function storageRendererFlag(): string | null {
+  // RAW history replay: Terminal.svelte only live-tails the PTY /stream,
+  // so on attach to a quiet/idle terminal the xterm is blank even though
+  // the persisted raw scrollback exists in terminal_run_events. Seed the
+  // xterm with persisted kind=raw src=pty rows (oldest→newest) BEFORE
+  // opening the live stream — v3-style replay-then-live. Accepts a tiny
+  // race window for bytes emitted between fetch and SSE-connect (a small
+  // gap, never duplication — matches v3 behaviour).
+  async function seedRawHistory(): Promise<void> {
     try {
-      return localStorage.getItem(TERMINAL_RENDERER_STORAGE_KEY);
+      const res = await fetch(
+        `/api/terminals/${encodeURIComponent(terminalId)}/run-events?kinds=raw&limit=1000`
+      );
+      if (!res.ok) return;
+      const body = (await res.json()) as { events?: { ts_ms: number; text: string; source?: string }[] };
+      const rows = (body.events ?? [])
+        .filter((e) => typeof e.text === 'string' && (e.source ?? 'pty') === 'pty')
+        .sort((a, b) => a.ts_ms - b.ts_ms);
+      for (const row of rows) enqueueWrite(row.text);
     } catch {
-      return null;
+      /* non-blocking — live stream still wires */
     }
   }
 
-  function rendererEnvValues(): Array<string | null | undefined> {
-    const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
-    return [
-      env?.VITE_RENDERER,
-      env?.VITE_TERMINAL_RENDERER,
-      env?.PUBLIC_RENDERER,
-      env?.PUBLIC_TERMINAL_RENDERER,
-      env?.RENDERER,
-    ];
+  // Thin wrappers binding this pane's terminalId to the shared PTY-input
+  // path (src/lib/terminal/ptyInput). Behaviour is identical to the
+  // former inline handlers — the ANT view now uses the same module so
+  // the two views cannot drift (FINDING-1 ANT-input-parity).
+  const postInput = (data: string) => ptyPostInput(terminalId, data);
+  const handleSpecialKey = (seq: string) => ptyHandleSpecialKey(terminalId, seq);
+
+  async function postResize(cols: number, rows: number): Promise<void> {
+    if (cols <= 0 || rows <= 0) return;
+    await fetch(`/api/terminals/${encodeURIComponent(terminalId)}/resize`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ cols, rows })
+    }).catch(() => { /* fire-and-forget per backend Q1 contract */ });
   }
 
-  function publishRendererStatus(mode: TerminalRendererMode, fallbackReason: string | null) {
-    window.dispatchEvent(new CustomEvent('ant:terminal-renderer-status', {
-      detail: { sessionId, mode, fallbackReason },
-    }));
+  function flushWriteQueue(): void {
+    if (!term || writeQueue.length === 0) return;
+    const chunk = writeQueue.join('');
+    writeQueue = [];
+    writeFlushTimer = null;
+    term.write(chunk);
+  }
+
+  function enqueueWrite(data: string): void {
+    writeQueue.push(data);
+    // ≥256B → 2ms coalesce per v3 write-queue lesson (avoid xterm
+    // ANSI-state thrashing on bulk output).
+    const totalSize = writeQueue.reduce((sum, s) => sum + s.length, 0);
+    if (totalSize >= 256) {
+      if (writeFlushTimer !== null) {
+        clearTimeout(writeFlushTimer);
+        writeFlushTimer = null;
+      }
+      writeFlushTimer = setTimeout(flushWriteQueue, 2);
+    } else {
+      // Small payloads: flush next microtask
+      if (writeFlushTimer === null) {
+        writeFlushTimer = setTimeout(flushWriteQueue, 0);
+      }
+    }
+  }
+
+  function handleResize(): void {
+    if (!fitAddon || !term) return;
+    fitAddon.fit();
+    void postResize(term.cols, term.rows);
   }
 
   onMount(() => {
-    if (!browser || !termRef) return;
-
-    // Dynamic imports require async, but onMount cleanup must be returned synchronously.
-    // Capture the teardown in a closure so Svelte can call it on destroy.
-    let destroyed = false;
-    let destroyFn: (() => void) | undefined;
+    if (!browser || !hostEl) return;
     (async () => {
+      const { Terminal } = await import('@xterm/xterm');
+      const { FitAddon } = await import('@xterm/addon-fit');
+      await import('@xterm/xterm/css/xterm.css');
+      term = new Terminal({
+        cursorBlink: true,
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+        fontSize: 14,
+        theme: { background: '#181512', foreground: '#f7ffe8' },
+        scrollback: 5000
+      });
+      fitAddon = new FitAddon();
+      term.loadAddon(fitAddon);
+      term.open(hostEl!);
+      fitAddon.fit();
+      void postResize(term.cols, term.rows);
 
-    const { Terminal } = await import('@xterm/xterm');
-    const { FitAddon } = await import('@xterm/addon-fit');
-    const { SerializeAddon } = await import('@xterm/addon-serialize');
-    await import('@xterm/xterm/css/xterm.css');
-    if (destroyed) return;
+      term.onData((data) => { void postInput(data); });
+      term.onTitleChange?.((title) => { onTitleChange?.(title); });
 
-    // iOS/mobile Safari: use system monospace — JetBrains Mono isn't available and causes metric issues
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    const fontFamily = isMobile
-      ? 'ui-monospace, "SF Mono", Menlo, monospace'
-      : '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace';
+      // Resize on container changes (window resize / room layout shifts).
+      resizeObserver = new ResizeObserver(() => handleResize());
+      resizeObserver.observe(hostEl!);
 
-    const term = new Terminal({
-      fontFamily,
-      fontSize: isMobile ? 12 : 13,
-      lineHeight: 1.3,
-      cursorBlink: true,
-      cursorStyle: 'block',
-      allowTransparency: true,
-      macOptionIsMeta: true,     // Option → Meta/Alt for word-jump (Option+B/F) in bash/vim
-      allowProposedApi: true,    // Required for SerializeAddon
-      scrollback: 100_000,
-      rightClickSelectsWord: true,
-      theme: {
-        background: '#0D0D12',
-        foreground: '#E0E0E0',
-        cursor: '#22C55E',
-        selectionBackground: '#6366F150',
-        black: '#1E1E24',
-        red: '#EF4444',
-        green: '#22C55E',
-        yellow: '#F59E0B',
-        blue: '#6366F1',
-        magenta: '#AB47BC',
-        cyan: '#26A69A',
-        white: '#E0E0E0',
-        brightBlack: '#78909C',
-        brightRed: '#EF5350',
-        brightGreen: '#66BB6A',
-        brightYellow: '#FFC107',
-        brightBlue: '#42A5F5',
-        brightMagenta: '#CE93D8',
-        brightCyan: '#4DB6AC',
-        brightWhite: '#FFFFFF',
-      },
-    });
+      // Replay persisted raw scrollback so a quiet line-mode shell isn't
+      // a blank xterm. NOTE: alt-screen TUIs (claude-code/codex full-screen
+      // UIs) can't be reconstructed from chunk replay — see the SIGWINCH
+      // repaint nudge below (ANTstorm Track-2 alt-screen limitation).
+      await seedRawHistory();
 
-    const fitAddon = new FitAddon();
-    const serializeAddon = new SerializeAddon();
-    term.loadAddon(fitAddon);
-    term.loadAddon(serializeAddon);
-
-    term.open(termRef);
-    term.focus(); // Must call after open() — arrows/Tab stop working without this (v2 lesson)
-    terminal = term;
-
-    const rendererFlag = resolveTerminalRendererFlag({
-      search: window.location.search,
-      storageValue: storageRendererFlag(),
-      envValues: rendererEnvValues(),
-    });
-    rendererMode = 'dom';
-    rendererFallbackReason = null;
-    publishRendererStatus(rendererMode, rendererFallbackReason);
-
-    type WebglAddonHandle = { dispose: () => void; onContextLoss: (handler: () => void) => { dispose: () => void } };
-    let webglAddon: WebglAddonHandle | null = null;
-
-    function disposeWebglAddon() {
-      if (!webglAddon) return;
-      webglAddon.dispose();
-      webglAddon = null;
-    }
-
-    async function loadWebglRenderer() {
-      if (rendererFlag.mode !== 'webgl') return;
-
-      const fontsReady = await waitForTerminalFonts(document);
-      if (destroyed) return;
-      if (!fontsReady) {
-        rendererMode = 'dom';
-        rendererFallbackReason = 'fonts-unavailable';
-        publishRendererStatus(rendererMode, rendererFallbackReason);
-        console.warn('[ant] WebGL renderer disabled: document.fonts.ready was unavailable or rejected');
-        return;
-      }
-
-      try {
-        const { WebglAddon } = await import('@xterm/addon-webgl');
-        if (destroyed) return;
-        const addon = new WebglAddon();
-        const contextLossDisposable = addon.onContextLoss(() => {
-          rendererMode = 'dom';
-          rendererFallbackReason = 'contextlost';
-          publishRendererStatus(rendererMode, rendererFallbackReason);
-          console.warn('[ant] WebGL context lost — falling back to DOM renderer');
-          contextLossDisposable.dispose();
-          disposeWebglAddon();
-          requestAnimationFrame(() => {
-            fitAddon.fit();
-            term.refresh(0, term.rows - 1);
-          });
-        });
-        term.loadAddon(addon);
-        webglAddon = addon;
-        rendererMode = 'webgl';
-        rendererFallbackReason = null;
-        publishRendererStatus(rendererMode, rendererFallbackReason);
-      } catch (error) {
-        rendererMode = 'dom';
-        rendererFallbackReason = 'load-failed';
-        publishRendererStatus(rendererMode, rendererFallbackReason);
-        console.warn('[ant] WebGL renderer failed to load — falling back to DOM renderer', error);
-      }
-    }
-
-    await loadWebglRenderer();
-    if (destroyed) {
-      disposeWebglAddon();
-      term.dispose();
-      return;
-    }
-
-    // Wire scroll position to the custom scroll track
-    term.onScroll(() => {
-      const buf = term.buffer.active;
-      scrollRatio = buf.baseY > 0 ? buf.viewportY / buf.baseY : 1;
-    });
-
-    // Click anywhere in the terminal container to restore keyboard focus + trigger SIGWINCH
-    // repaint. This handles "click off and click back within the same page" where
-    // visibilitychange doesn't fire but the xterm buffer may need refreshing.
-    termRef.addEventListener('click', () => {
-      term.focus();
-      if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'terminal_resize', sessionId, cols: term.cols, rows: term.rows }));
-      }
-    });
-
-    // WebSocket connection — extracted to a function so reconnects reuse all handlers
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-
-    // ── Infinite scrollback: fetch full DB history before live output ──
-    // When a WS connects, the server sends session_health then terminal_output
-    // (tmux capture-pane scrollback). We buffer ALL terminal_output until the
-    // DB history is fetched and written, so history sits above live content.
-    let historyLoaded = false;
-    let lastSeq = -1;
-    let pendingOutput: { seq: number; data: string }[] = [];
-
-    async function loadHistory(t: any, sid: string) {
-      try {
-        const res = await fetch(`/api/sessions/${sid}/terminal/history?limit=1000&since=0&raw=1`);
-        if (!res.ok) { historyLoaded = true; return; }
-        const data = await res.json();
-        if (!data.rows?.length) { historyLoaded = true; return; }
-        // API returns newest-first; reverse to chronological order
-        const historyRows = data.rows.reverse();
-        const history = historyRows.map((r: any) => r.raw || '').join('');
-        if (history) {
-          scheduleWrite(t, history);
-          // Set lastSeq to the highest chunk_index we just loaded
-          lastSeq = Math.max(...historyRows.map((r: any) => r.chunk_index || 0));
-        }
-      } catch {
-        // Silently fall through — live scrollback still works
-      }
-      // Now flush any terminal_output that arrived while we were fetching
-      historyLoaded = true;
-      if (pendingOutput.length) {
-        const buffered = pendingOutput
-          .filter(m => m.seq > lastSeq)
-          .map(m => m.data)
-          .join('');
-        pendingOutput = [];
-        if (buffered) enqueueOutput(t, buffered);
-      }
-    }
-
-    function connect() {
-      if (destroyed) return;
-      const socket = new WebSocket(`${protocol}//${location.host}/ws`);
-      ws = socket;
-      // Reset history state for each new connection
-      historyLoaded = false;
-      lastSeq = -1;
-      pendingOutput = [];
-
-      // If session_health isn't received within 3s the server likely dropped our
-      // join_session (race during async connection handler setup). Close to trigger
-      // the 2s reconnect cycle, which sends a fresh join_session.
-      let healthReceived = false;
-      const healthTimeout = setTimeout(() => {
-        if (!healthReceived && !destroyed) {
-          console.warn('[ant] session_health not received — reconnecting');
-          socket.close();
-        }
-      }, 8000);
-
-      socket.onopen = () => {
-        // Clear any stale write queue from the previous connection so old scrollback
-        // chunks don't interleave with the fresh scrollback about to arrive.
-        writeQueue = [];
-        writeActive = false;
-        // spawnPty: true tells the server to start/attach the PTY daemon session.
-        // Passing actual cols/rows ensures the PTY is spawned at the right size —
-        // fitAddon.fit() has already run by this point (connect() is called after term.open()).
-        socket.send(JSON.stringify({ type: 'join_session', sessionId, spawnPty: true, cols: term.cols, rows: term.rows }));
-        // Force-repaint 600ms after connect: covers SvelteKit client-side navigation where
-        // the browser suppresses requestAnimationFrame during the route transition. xterm uses
-        // rAF internally so term.write() content can land in the DOM without ever being painted.
-        // Accessing offsetHeight forces a synchronous layout, then refresh() repaints all rows.
-        setTimeout(() => {
-          if (term.element) {
-            term.element.offsetHeight; // synchronous layout invalidation
-            term.refresh(0, term.rows - 1);
-          }
-        }, 600);
-      };
-
-      socket.onerror = () => {
-        clearTimeout(healthTimeout);
-        term.writeln('\r\n\x1b[31m✗ WebSocket connection failed.\x1b[0m');
-        term.writeln('\x1b[90mRetrying in 2s…\x1b[0m\r\n');
-      };
-
-      socket.onmessage = (event) => {
+      // Open SSE stream + write incoming frames via the chunked queue.
+      eventSource = new EventSource(
+        `/api/terminals/${encodeURIComponent(terminalId)}/stream`
+      );
+      eventSource.onmessage = (ev) => {
         try {
-          const msg = JSON.parse(event.data);
-          if (msg.type === 'terminal_output' && msg.sessionId === sessionId) {
-            const seq = msg.seq ?? -1;
-            if (!historyLoaded) {
-              // Buffer output until DB history has been written
-              pendingOutput.push({ seq, data: msg.data });
-            } else {
-              // Ignore if we already have this chunk from history
-              if (seq !== -1 && seq <= lastSeq) return;
-              if (seq !== -1) lastSeq = seq;
-              enqueueOutput(term, msg.data);
-            }
-            onData?.(msg.data);
-          } else if (msg.type === 'session_health' && msg.sessionId === sessionId) {
-            healthReceived = true;
-            clearTimeout(healthTimeout);
-            if (msg.alive) {
-              // Fetch full DB history before any terminal_output arrives
-              loadHistory(term, sessionId);
-            }
-            if (!msg.alive) {
-              term.writeln('\r\n\x1b[31m✗ PTY session failed to start.\x1b[0m');
-              term.writeln('\x1b[90mThe daemon may be unreachable. Click the refresh button (↻) to retry.\x1b[0m\r\n');
-            }
-          } else if (msg.type === 'build_id') {
-            const stored = sessionStorage.getItem('ant-build-id');
-            if (!stored) {
-              sessionStorage.setItem('ant-build-id', msg.buildId);
-            } else if (stored !== msg.buildId) {
-              console.warn('[ant] Server build changed — reloading');
-              sessionStorage.setItem('ant-build-id', msg.buildId);
-              setTimeout(() => window.location.reload(), 200);
-            }
+          const parsed = JSON.parse(ev.data) as { data?: string; cwd?: string | null };
+          if (typeof parsed.cwd === 'string' && parsed.cwd.length > 0) onCwdDetected?.(parsed.cwd);
+          if (typeof parsed.data === 'string') {
+            const detected = detectCwd(parsed.data);
+            if (detected !== null) onCwdDetected?.(detected);
+            enqueueWrite(parsed.data);
           }
-        } catch {}
-      };
-
-      // Reconnect on close — unless the component was torn down
-      socket.onclose = () => {
-        clearTimeout(healthTimeout);
-        if (!destroyed) setTimeout(connect, 2000);
-      };
-    }
-
-    // Forward user input — always reads ws at call-time so reconnects work (v2 lesson fix)
-    term.onData((data: string) => {
-      if (slowEdit) return; // Slow edit captures input separately
-      if (isTerminalResponse(data)) return; // Block terminal query responses
-      if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'terminal_input', sessionId, data }));
-      }
-    });
-
-    // Connect only after the container has a real height — on SvelteKit client-side
-    // navigation the flex layout hasn't resolved when onMount runs, so fitAddon.fit()
-    // would compute 0 cols/rows. The scrollback would then land in a mis-sized terminal
-    // and never repaint. Waiting for the first ResizeObserver entry with clientHeight > 0
-    // guarantees layout has settled before we spawn the PTY or replay scrollback.
-    let initialConnectDone = false;
-    const resizeObserver = new ResizeObserver(() => {
-      if (!initialConnectDone && termRef!.clientHeight > 0) {
-        initialConnectDone = true;
-        fitAddon.fit();
-        connect();
-      } else if (initialConnectDone) {
-        fitAddon.fit();
-      }
-      if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: 'terminal_resize',
-          sessionId,
-          cols: term.cols,
-          rows: term.rows,
-        }));
-      }
-    });
-    resizeObserver.observe(termRef);
-
-    // Tab restore: repaint xterm and force SIGWINCH so the shell redraws its current state.
-    // term.refresh() only repaints the existing xterm buffer — if the buffer is blank/stale
-    // the screen stays blank. Sending terminal_resize triggers SIGWINCH which causes the
-    // shell (or any foreground TUI) to emit a fresh repaint.
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        requestAnimationFrame(() => {
-          fitAddon.fit();
-          term.refresh(0, term.rows - 1);
-          // Force shell repaint regardless of WS state
-          if (ws?.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'terminal_resize', sessionId, cols: term.cols, rows: term.rows }));
-          }
-        });
-        if (ws && ws.readyState !== WebSocket.OPEN) {
-          ws.close(); // triggers onclose → reconnect
+        } catch {
+          /* heartbeat or malformed frame — ignore */
         }
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-
-      destroyFn = () => {
-        destroyed = true;
-        resizeObserver.disconnect();
-        document.removeEventListener('visibilitychange', handleVisibility);
-        ws?.close();
-        disposeWebglAddon();
-        term.dispose();
       };
-    })();
+      eventSource.onerror = () => {
+        // EventSource auto-reconnects; surface only persistent failures.
+      };
 
-    return () => {
-      destroyed = true;
-      destroyFn?.();
-    };
+      // After the SSE is listening, nudge the PTY with a resize so a
+      // foreground full-screen TUI (claude-code etc) repaints its CURRENT
+      // screen into the live stream. Without this, an alt-screen TUI that
+      // isn't actively emitting leaves the xterm blank on attach (the
+      // persisted scrollback can't reconstruct alt-screen state). v3 did
+      // the same SIGWINCH-on-attach trick. Slight delay so SSE is bound.
+      setTimeout(() => {
+        if (term && fitAddon) {
+          fitAddon.fit();
+          // Toggle one row then restore → guarantees a dimension *change*
+          // so the daemon emits SIGWINCH even if cols/rows are unchanged.
+          void postResize(term.cols, Math.max(1, term.rows - 1));
+          setTimeout(() => { if (term) void postResize(term.cols, term.rows); }, 60);
+        }
+      }, 250);
+    })().catch((cause) => {
+      console.error('[Terminal] init failed', cause);
+    });
+  });
+
+  onDestroy(() => {
+    if (writeFlushTimer !== null) clearTimeout(writeFlushTimer);
+    if (eventSource) {
+      eventSource.onmessage = null;
+      eventSource.onerror = null;
+      eventSource.close();
+    }
+    resizeObserver?.disconnect();
+    term?.dispose();
+    eventSource = null;
+    term = null;
+    fitAddon = null;
   });
 </script>
 
-<div class="w-full flex-1 min-h-0 flex flex-col">
-  <!-- 1. tmux status bar -->
-  <div class="flex items-center justify-between px-2 h-[22px] text-[10px] font-mono shrink-0" style="background: var(--bg-surface); color: var(--text-muted); border-bottom: 1px solid var(--border-subtle);">
-    <span>[{sessionId.slice(0,10)}*]</span>
-    <span>{paneTitle || sessionId} {new Date().toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'})}</span>
-  </div>
-
-  <!-- 2. Terminal + scroll track -->
-  <div class="flex flex-1 min-h-0">
-    <!-- xterm.js container -->
-    <div
-      id="xterm-container"
-      bind:this={termRef}
-      class="flex-1 min-h-0"
-      class:opacity-30={slowEdit}
-      data-renderer={rendererMode}
-      data-renderer-fallback={rendererFallbackReason ?? undefined}
-    ></div>
-
-    <!-- Scroll track -->
-    <div class="w-8 relative shrink-0 border-l" style="background: var(--bg-surface); border-color: var(--border-subtle);" class:opacity-30={slowEdit}>
-      <div
-        role="scrollbar"
-        aria-controls="xterm-container"
-        aria-valuenow={Math.round(scrollRatio * 100)}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-orientation="vertical"
-        tabindex="-1"
-        class="terminal-scroll-thumb absolute left-1 w-6 rounded-xl cursor-grab transition-colors"
-        style="top: {scrollThumbTop}px; height: {scrollThumbHeight}px; touch-action: none;"
-        onpointerdown={startScrollDrag}
-      ></div>
-    </div>
-  </div>
-
-  <!-- 3. Special keys row -->
-  <div class="flex items-center gap-1.5 px-2 py-1 min-h-[52px] overflow-x-auto shrink-0 scrollbar-none border-t" style="background: var(--bg-surface); border-color: var(--border-subtle);">
-    {#each specialKeys as key}
-      <button
-        onclick={() => sendKey(key.seq)}
-        class="touch-target shrink-0 px-3 py-1.5 rounded-md text-xs transition-colors hover:opacity-80"
-        style="background: var(--bg-input); color: var(--text-muted);"
-      >{key.label}</button>
-    {/each}
-  </div>
-
-  <!-- 4. Slow Edit panel -->
-  {#if slowEdit}
-    <div class="rounded-t-xl px-3 py-3 flex flex-col gap-2 shrink-0 border-t" style="background: var(--bg-elevated); border-color: var(--border-light);" transition:slide={{ duration: 200 }}>
-      <div class="flex items-center justify-between">
-        <span class="text-xs font-semibold" style="color: var(--text);">Slow Edit</span>
-        <button onclick={() => { slowEdit = false; requestAnimationFrame(() => terminal?.focus()); }} class="touch-target text-sm" style="color: var(--text-muted);">✕</button>
-      </div>
-      <textarea
-        class="font-mono text-sm p-3 rounded-lg border resize-none focus:outline-none min-h-[80px] max-h-[120px]"
-        style="background: var(--bg-input); color: var(--text); border-color: var(--color-info);"
-        placeholder="Type your command..."
-        bind:value={slowEditText}
-        bind:this={slowEditRef}
-        onkeydown={(e) => {
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-            e.preventDefault();
-            if (ws) sendSlowEdit(terminal, ws);
-          }
-          if (e.key === 'Escape') { slowEdit = false; requestAnimationFrame(() => terminal?.focus()); }
-        }}
-      ></textarea>
-      <span class="text-[11px]" style="color: var(--text-muted);">Paste, type, or use voice — then tap Send</span>
-    </div>
-  {/if}
-
-  <!-- 5. Input row -->
-  <div class="flex items-center gap-1.5 px-2 py-1.5 shrink-0 border-t min-h-[56px]" style="background: var(--bg-surface); border-color: var(--border-subtle);">
-    <!-- Back -->
-    <button onclick={() => history.back()} class="touch-target rounded-lg hover:opacity-80 transition-opacity" style="background: var(--bg-input); color: var(--text-muted);">←</button>
-
-    <!-- Refresh -->
-    <button onclick={() => { if (ws && ws.readyState === WebSocket.OPEN) { ws.send(JSON.stringify({ type: 'join_session', sessionId, spawnPty: true, cols: terminal?.cols ?? 120, rows: terminal?.rows ?? 30 })); } }} class="touch-target rounded-lg hover:opacity-80 transition-opacity" style="background: var(--bg-input); color: var(--text-muted);" title="Refresh terminal">↻</button>
-
-    <!-- Input pill (tap target for slow edit) -->
-    <button
-      onclick={() => { slowEdit = true; }}
-      class="flex-1 min-h-[44px] rounded-full px-3 text-left text-sm truncate transition-all"
-      style="background: var(--bg-input); color: {slowEditText ? 'var(--text)' : 'var(--text-muted)'}; {slowEdit ? 'box-shadow: 0 0 0 1px var(--color-info);' : ''}"
-    >{slowEditText || 'Type a command...'}</button>
-
-    <!-- Attach -->
-    <button class="touch-target rounded-lg hover:opacity-80 transition-opacity" style="background: var(--bg-input); color: var(--text-muted);">📎</button>
-
-    <!-- Send -->
-    <button
-      onclick={() => { if (ws && slowEditText) sendSlowEdit(terminal, ws); }}
-      class="touch-target rounded-full font-bold transition-colors"
-      style="background: {slowEditText ? 'var(--color-success)' : 'var(--color-info)'}; color: #fff;"
-    >↑</button>
-  </div>
+<div class="terminal-stack">
+  <TerminalSpecialKeys onKey={handleSpecialKey} />
+  <!-- Wheel-passthrough: xterm.js attaches its own wheel handler on the
+       .xterm-viewport child that intercepts scroll for its scrollback.
+       JWPK wants page-level scroll to win instead. We intercept wheel in
+       the CAPTURE phase on the host, stop the event before it reaches
+       xterm's listener, then manually translate to window.scrollBy.
+       Shift-wheel preserves the original xterm scrollback gesture for
+       power users (modifier short-circuits the override). -->
+  <div
+    class="ant-terminal-host"
+    bind:this={hostEl}
+    onwheelcapture={(e) => {
+      if (e.shiftKey) return;
+      e.stopPropagation();
+      window.scrollBy({ top: e.deltaY, left: e.deltaX, behavior: 'auto' });
+    }}
+  ></div>
 </div>
 
 <style>
-  .terminal-scroll-thumb {
-    background: var(--scrollbar-thumb);
+  .terminal-stack {
+    display: flex; flex-direction: column;
+    max-height: 32rem; height: 32rem; overflow: hidden;
+    border-radius: 0 0 0.6rem 0.6rem;
   }
-
-  .terminal-scroll-thumb:hover {
-    background: var(--scrollbar-thumb-hover);
+  .ant-terminal-host {
+    flex: 1 1 auto;
+    width: 100%;
+    background: #181512;
+    padding: 0.5rem;
+    overflow: hidden;
   }
+  /* xterm-js handles its own internal layout; the host just provides the
+     bounding box + the dark background that bleeds through any padding. */
 </style>

@@ -1,19 +1,56 @@
-import { json } from '@sveltejs/kit';
-import type { RequestEvent } from '@sveltejs/kit';
-import { listPlanRefs, parseIncludeArchived } from '$lib/server/projector/plan-view.js';
+/**
+ * /api/plans — first-class plans collection (Lane-D plans-lifecycle).
+ *
+ * GET (public) → ?state=active|archived|deleted|all (default 'active')
+ *                returns { plans: PlanRecord[] }.
+ *                Sibling of /api/plans/completions (task-derived donut feed)
+ *                — this surface is the persisted plans-entity list.
+ * POST (admin) → body { id, title?, description?, createdBy? }
+ *                201 { plan }. 400 missing id. 409 id already exists.
+ *
+ * Auth: same admin-bearer model used by plan↔room link routes.
+ */
 
-const DEFAULT_LIMIT = 50;
-const MAX_LIMIT = 200;
+import { error, json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+import { requireAdminAuth } from '$lib/server/chatInviteAuth';
+import {
+  createPlan,
+  listPlans,
+  PlanExistsError,
+  type PlanLifecycleState
+} from '$lib/server/planStore';
 
-function parseLimit(raw: string | null): number {
-  const parsed = Number.parseInt(raw || String(DEFAULT_LIMIT), 10);
-  if (!Number.isFinite(parsed)) return DEFAULT_LIMIT;
-  return Math.max(1, Math.min(MAX_LIMIT, parsed));
+function parseState(raw: string | null): PlanLifecycleState | 'all' {
+  if (raw === 'archived' || raw === 'deleted' || raw === 'all') return raw;
+  // 'active' is the default; any unrecognised value falls back to active
+  // rather than 400 so transient client typos don't break a public read.
+  return 'active';
 }
 
-export function GET({ url }: RequestEvent) {
-  const limit = parseLimit(url.searchParams.get('limit'));
-  const includeArchived = parseIncludeArchived(url.searchParams.get('include_archived'));
-  const plans = listPlanRefs(limit, { includeArchived });
-  return json({ count: plans.length, include_archived: includeArchived, plans });
-}
+export const GET: RequestHandler = async ({ url }) => {
+  const state = parseState(url.searchParams.get('state'));
+  return json({ plans: listPlans({ state }) });
+};
+
+export const POST: RequestHandler = async ({ request }) => {
+  requireAdminAuth(request);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw error(400, 'Send a JSON object body.');
+  }
+  const b = body as Record<string, unknown>;
+  if (typeof b.id !== 'string' || b.id.trim().length === 0) {
+    throw error(400, 'id is required.');
+  }
+  const title = typeof b.title === 'string' ? b.title : null;
+  const description = typeof b.description === 'string' ? b.description : null;
+  const createdBy = typeof b.createdBy === 'string' ? b.createdBy : null;
+  try {
+    const plan = createPlan({ id: b.id, title, description, createdBy });
+    return json({ plan }, { status: 201 });
+  } catch (cause) {
+    if (cause instanceof PlanExistsError) throw error(409, cause.message);
+    throw cause;
+  }
+};

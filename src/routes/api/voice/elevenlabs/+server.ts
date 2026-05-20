@@ -16,11 +16,31 @@
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
-import { assertCanWrite } from '$lib/server/room-scope';
+import { resolveBrowserSessionSecretIgnoringRoom } from '$lib/server/browserSessionStore';
 
 const DEFAULT_VOICE_ID = process.env.ELEVENLABS_DEFAULT_VOICE_ID || '21m00Tcm4TlvDq8ikWAM';
 const DEFAULT_MODEL_ID = process.env.ELEVENLABS_DEFAULT_MODEL_ID || 'eleven_turbo_v2_5';
 const ELEVENLABS_BASE = 'https://api.elevenlabs.io/v1';
+
+function readCookie(request: Request, name: string): string | null {
+  const header = request.headers.get('cookie');
+  if (!header) return null;
+  for (const part of header.split(';')) {
+    const [k, ...rest] = part.trim().split('=');
+    if (k === name) return rest.join('=');
+  }
+  return null;
+}
+
+function requireBrowserSession(event: RequestEvent): void {
+  // Gate the proxy behind any valid browser session — stops anonymous
+  // abuse of the ELEVENLABS_API_KEY. Room-agnostic: TTS is global so
+  // we don't need a room scope, just "is this a logged-in client".
+  const cookie = readCookie(event.request, 'ant_browser_session');
+  if (!cookie) throw error(403, 'Browser session required.');
+  const resolved = resolveBrowserSessionSecretIgnoringRoom(cookie);
+  if (!resolved) throw error(403, 'Invalid browser session.');
+}
 
 export function GET() {
   return json({
@@ -31,7 +51,7 @@ export function GET() {
 }
 
 export async function POST(event: RequestEvent) {
-  assertCanWrite(event);
+  requireBrowserSession(event);
 
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) {

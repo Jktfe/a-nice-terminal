@@ -1,2157 +1,1177 @@
-// ANT v3 — Database layer
-// Uses bun:sqlite when running under Bun, better-sqlite3 under Node
-// Lazy initialization: DB is created on first access, not at import time
-// This prevents build-time errors (SvelteKit build runs under Node)
+/**
+ * fresh-ANT runtime DB — better-sqlite3 against ~/.ant/fresh-ant.db.
+ *
+ * Why better-sqlite3 not bun:sqlite: the launchd com.ant.fresh service runs
+ * `bun run start` which executes `node build/index.js`. The SvelteKit server
+ * handler runs under Node v20.19.4 (verified via lsof on live process). Node
+ * v20.19.4 has no `node:sqlite` (that ships in Node 22.5+) and cannot import
+ * `bun:sqlite` (Bun-only built-in). better-sqlite3 is the only Node-runtime
+ * compatible synchronous SQLite for this stack.
+ *
+ * ABI hazard (binding, per feedback_better_sqlite3_abi_mismatch):
+ * If the launchd Node version changes (nvm upgrade, system Node bump, etc.),
+ * better-sqlite3's native binding may break with a silent crash after the
+ * server logs "running at PORT". Recovery:
+ *   /Users/jamesking/.nvm/versions/node/v20.19.4/bin/npm rebuild better-sqlite3
+ *   launchctl kickstart -k gui/501/com.ant.fresh
+ * Or use the bundled script:  bun run rebuild:sqlite  (added to package.json).
+ *
+ * Persistence scope (per PTY-INJECT-0 v2 design contract, B4b; extended per
+ * room-mode design contract 2026-05-13 and responders design contract
+ * 2026-05-13):
+ * This DB holds the identity-layer tables (terminals, room_memberships), the
+ * room-mode tables (chat_room_modes, chat_room_mode_history), and the
+ * responders table (chat_room_responders). Chat rooms, messages, invites, and
+ * asks remain in their in-memory stores until the broader persistence-doc
+ * decision lands. Room-mode + responders live here so set-once-survives-
+ * kickstart works before the full rooms-persistence slice.
+ *
+ * Singleton via globalThis (per feedback_globalthis_pattern) so dev-hot-reload
+ * + tests + production all share the one Database instance.
+ */
 
-import { join } from 'path';
-import { mkdirSync } from 'fs';
-import { createRequire } from 'module';
-const _require = createRequire(import.meta.url);
+import Database from 'better-sqlite3';
+import { mkdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { sweepAutoCreatedRoomPlansInDb } from './autoRoomPlanCleanup';
 
-// Paths resolve lazily inside getDb(), not at module-init time, so tests can
-// swap ANT_DATA_DIR between cases and call _resetForTest() to re-init against
-// the new path. bun's vitest shim doesn't ship vi.resetModules(), so module-
-// cache busting is not portable; the explicit reset hook replaces it.
-let _dataDir = process.env.ANT_DATA_DIR || join(process.env.HOME || '/tmp', '.ant-v3');
-let _dbPath = join(_dataDir, 'ant.db');
+type DatabaseInstance = ReturnType<typeof Database>;
 
-function resolveDbPaths(): void {
-  _dataDir = process.env.ANT_DATA_DIR || join(process.env.HOME || '/tmp', '.ant-v3');
-  _dbPath = join(_dataDir, 'ant.db');
-}
+const DB_GLOBAL_KEY = '__antFreshIdentityDb';
 
-/** C3 of main-app-improvements-2026-05-10 — expose the resolved ant.db
- *  path so /api/diagnostics/system-pressure can report the file size. */
-export function getAntDbPath(): string {
-  resolveDbPaths();
-  return _dbPath;
-}
-
-/** Phase A of server-split-2026-05-11 — wrap a synchronous callback in
- *  a real better-sqlite3 (or bun:sqlite) transaction. Used by the persist
- *  library's writeMessage to guarantee message + ask + meta + membership
- *  all land atomically or roll back together. better-sqlite3's
- *  `db.transaction(fn)` returns a wrapped function; calling that function
- *  runs the body inside a transaction and re-throws on exception with the
- *  rollback already applied. bun:sqlite exposes the same API. */
-export function runInTransaction<T>(cb: () => T): T {
-  const db = getDb();
-  if (typeof db?.transaction === 'function') {
-    return db.transaction(cb)();
-  }
-  // Defensive fallback — should never hit in practice; both sqlite
-  // implementations we use expose .transaction(). If it ever does, the
-  // call still works correctly without atomicity rather than crashing.
-  return cb();
-}
-const OPERATIONAL_MEMORY_WHERE = `
-    key NOT LIKE 'session:%'
-    AND key NOT LIKE 'archive/%'
-    AND COALESCE(tags, '') NOT LIKE '%"archive"%'
-    AND COALESCE(tags, '') NOT LIKE '%archive-only%'
-  `;
-const RUN_EVENT_SOURCE_VALUES = "'acp','hook','json','rpc','terminal','status','tmux'";
-
-// Detect runtime
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- globalThis.Bun is not in TS lib; runtime check only
-const isBun = typeof (globalThis as any).Bun !== 'undefined';
-
-// Use globalThis to ensure tsx (server.ts) and SvelteKit build share the SAME
-// DB instance. Without this, each module context creates its own connection and
-// the build's copy may not have run migrations.
-const G = globalThis as any;
-const DB_KEY = '__ant_db__';
-let _db: any = G[DB_KEY] ?? null;
-
-function runEventsTableSql(tableName = 'run_events', ifNotExists = true): string {
-  return `CREATE TABLE ${ifNotExists ? 'IF NOT EXISTS ' : ''}${tableName} (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    ts_ms INTEGER NOT NULL,
-    source TEXT NOT NULL CHECK(source IN (${RUN_EVENT_SOURCE_VALUES})),
-    trust TEXT NOT NULL CHECK(trust IN ('high','medium','raw')),
-    kind TEXT NOT NULL,
-    text TEXT DEFAULT '',
-    payload TEXT DEFAULT '{}',
-    raw_ref TEXT,
-    created_at TEXT DEFAULT (datetime('now'))
-  )`;
-}
-
-function migrateRunEventsSourceCheck(db: any): void {
-  const row = db.prepare(`
-    SELECT sql FROM sqlite_master
-    WHERE type = 'table' AND name = 'run_events'
-  `).get() as { sql?: string } | undefined;
-  if (!row?.sql || row.sql.includes("'acp'")) return;
-
-  db.exec('PRAGMA foreign_keys = OFF');
-  try {
-    db.exec(runEventsTableSql('run_events_source_migration', false));
-    db.exec(`
-      INSERT INTO run_events_source_migration
-        (id, session_id, ts_ms, source, trust, kind, text, payload, raw_ref, created_at)
-      SELECT id, session_id, ts_ms, source, trust, kind, text, payload, raw_ref, created_at
-      FROM run_events
-    `);
-    db.exec('DROP TABLE run_events');
-    db.exec('ALTER TABLE run_events_source_migration RENAME TO run_events');
-  } finally {
-    db.exec('PRAGMA foreign_keys = ON');
-  }
-}
-
-function getDb(): any {
-  if (_db) return _db;
-
-  resolveDbPaths();
-  mkdirSync(_dataDir, { recursive: true });
-
-  if (isBun) {
-    const { Database } = _require('bun:sqlite');
-    _db = new Database(_dbPath);
-  } else {
-    const Database = _require('better-sqlite3');
-    _db = new Database(_dbPath);
-  }
-  G[DB_KEY] = _db;
-
-  // Performance PRAGMAs for M4 Pro with 64GB RAM
-  _db.exec("PRAGMA journal_mode = WAL");
-  _db.exec("PRAGMA synchronous = NORMAL");
-  _db.exec("PRAGMA busy_timeout = 5000");
-  _db.exec("PRAGMA foreign_keys = ON");
-  _db.exec("PRAGMA cache_size = -64000");
-  _db.exec("PRAGMA mmap_size = 268435456");
-  _db.exec("PRAGMA temp_store = MEMORY");
-
-  // Schema
-    // Settings table for runtime configuration (TS-007)
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS settings (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL,
-    updated_at TEXT DEFAULT (datetime('now'))
-  )`);
-
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    type TEXT NOT NULL CHECK(type IN ('terminal','chat','agent')),
-    workspace_id TEXT,
-    root_dir TEXT,
-    status TEXT DEFAULT 'idle',
-    archived INTEGER DEFAULT 0,
-    ttl TEXT DEFAULT '15m',
-    deleted_at TEXT,
-    last_activity TEXT,
-    sort_index INTEGER,
-    long_memory INTEGER NOT NULL DEFAULT 0,
-    meta TEXT DEFAULT '{}',
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
-  )`);
-
-  // Migrations for existing DBs
-  const cols = G[DB_KEY].prepare(`PRAGMA table_info(sessions)`).all().map((c: any) => c.name);
-  if (!cols.includes('ttl'))           G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN ttl TEXT DEFAULT '15m'`);
-  if (!cols.includes('deleted_at'))    G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN deleted_at TEXT`);
-  if (!cols.includes('last_activity')) G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN last_activity TEXT`);
-  if (!cols.includes('handle'))        G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN handle TEXT`);
-  if (!cols.includes('display_name'))  G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN display_name TEXT`);
-  if (!cols.includes('cli_flag'))      G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN cli_flag TEXT`);
-  if (!cols.includes('alias'))         G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN alias TEXT`);
-  if (!cols.includes('sort_index'))    G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN sort_index INTEGER`);
-  if (!cols.includes('long_memory'))   G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN long_memory INTEGER NOT NULL DEFAULT 0`);
-
-  // Chat room membership — tracks who participates vs who just posts
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS chat_room_members (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    room_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    session_id TEXT NOT NULL,
-    role TEXT DEFAULT 'participant',
-    cli_flag TEXT,
-    joined_at TEXT DEFAULT (datetime('now')),
-    UNIQUE(room_id, session_id)
-  )`);
-
-  // Migration: add alias column to chat_room_members for per-room identity
-  const crmCols = G[DB_KEY].prepare(`PRAGMA table_info(chat_room_members)`).all().map((c: any) => c.name);
-  if (!crmCols.includes('alias')) G[DB_KEY].exec(`ALTER TABLE chat_room_members ADD COLUMN alias TEXT`);
-  if (!crmCols.includes('attention_state')) G[DB_KEY].exec(`ALTER TABLE chat_room_members ADD COLUMN attention_state TEXT DEFAULT 'available'`);
-  if (!crmCols.includes('attention_reason')) G[DB_KEY].exec(`ALTER TABLE chat_room_members ADD COLUMN attention_reason TEXT`);
-  if (!crmCols.includes('attention_set_by')) G[DB_KEY].exec(`ALTER TABLE chat_room_members ADD COLUMN attention_set_by TEXT`);
-  if (!crmCols.includes('attention_expires_at')) G[DB_KEY].exec(`ALTER TABLE chat_room_members ADD COLUMN attention_expires_at INTEGER`);
-  if (!crmCols.includes('attention_updated_at')) G[DB_KEY].exec(`ALTER TABLE chat_room_members ADD COLUMN attention_updated_at INTEGER`);
-
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS chat_room_docs (
-    id TEXT PRIMARY KEY,
-    room_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    title TEXT NOT NULL,
-    content TEXT NOT NULL DEFAULT '',
-    created_by TEXT,
+const SCHEMA_DDL_STATEMENTS = [
+  `CREATE TABLE IF NOT EXISTS terminals (
+    id              TEXT PRIMARY KEY,
+    pid             INTEGER NOT NULL,
+    pid_start       TEXT,
+    name            TEXT NOT NULL UNIQUE,
+    tmux_target_pane TEXT,
+    agent_kind      TEXT,
+    pane_status     TEXT NOT NULL DEFAULT 'unknown',
+    pane_stale_since INTEGER,
+    source          TEXT NOT NULL DEFAULT 'manual',
+    expires_at      INTEGER,
+    meta            TEXT NOT NULL DEFAULT '{}',
+    created_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_terminals_pid_pidstart ON terminals (pid, pid_start)`,
+  `CREATE INDEX IF NOT EXISTS idx_terminals_expiry ON terminals (expires_at)`,
+  `CREATE TABLE IF NOT EXISTS room_memberships (
+    id          TEXT PRIMARY KEY,
+    room_id     TEXT NOT NULL,
+    handle      TEXT NOT NULL,
+    terminal_id TEXT NOT NULL REFERENCES terminals(id) ON DELETE CASCADE,
+    created_at  INTEGER NOT NULL,
+    UNIQUE(room_id, handle)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_memberships_room ON room_memberships (room_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_memberships_terminal ON room_memberships (terminal_id)`,
+  `CREATE TABLE IF NOT EXISTS chat_room_modes (
+    room_id TEXT PRIMARY KEY,
+    mode    TEXT NOT NULL CHECK (mode IN ('brainstorm', 'heads-down', 'closed')),
+    set_by  TEXT,
+    set_at  INTEGER
+  )`,
+  `CREATE TABLE IF NOT EXISTS chat_room_mode_history (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    room_id       TEXT NOT NULL,
+    mode          TEXT NOT NULL CHECK (mode IN ('brainstorm', 'heads-down', 'closed')),
+    previous_mode TEXT,
+    set_by        TEXT,
+    set_at        INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_mode_history_room_set_at ON chat_room_mode_history (room_id, set_at DESC)`,
+  `CREATE TABLE IF NOT EXISTS chat_room_responders (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    room_id      TEXT NOT NULL,
+    terminal_id  TEXT NOT NULL REFERENCES terminals(id) ON DELETE CASCADE,
+    order_index  INTEGER NOT NULL,
+    set_by       TEXT,
+    set_at       INTEGER NOT NULL,
+    UNIQUE(room_id, terminal_id),
+    UNIQUE(room_id, order_index)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_responders_room_order ON chat_room_responders (room_id, order_index ASC)`,
+  `CREATE TABLE IF NOT EXISTS chat_remote_admissions (
+    id                 TEXT PRIMARY KEY,
+    room_id            TEXT NOT NULL,
+    code_hash          TEXT NOT NULL,
+    lifetime_preset    TEXT NOT NULL CHECK (lifetime_preset IN ('today','48h','7d','indefinite')),
+    expires_at_ms      INTEGER,
+    created_by_handle  TEXT,
+    created_at_ms      INTEGER NOT NULL,
+    accepted_at_ms     INTEGER,
+    expires_acceptance_at_ms INTEGER NOT NULL,
+    mapping_id_after_accept  TEXT,
+    revoked_at_ms      INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_admissions_room_created ON chat_remote_admissions (room_id, created_at_ms DESC)`,
+  `CREATE TABLE IF NOT EXISTS chat_remote_mappings (
+    id                     TEXT PRIMARY KEY,
+    room_id                TEXT NOT NULL,
+    remote_instance_label  TEXT NOT NULL,
+    bridge_token_hash      TEXT NOT NULL,
+    lifetime_preset        TEXT NOT NULL,
+    expires_at_ms          INTEGER,
+    revoked_at_ms          INTEGER,
+    created_at_ms          INTEGER NOT NULL,
+    last_seen_at_ms        INTEGER,
+    admission_id           TEXT NOT NULL REFERENCES chat_remote_admissions(id),
+    direction              TEXT NOT NULL DEFAULT 'both' CHECK (direction IN ('in','out','both'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_mappings_room_revoked ON chat_remote_mappings (room_id, revoked_at_ms)`,
+  `CREATE TABLE IF NOT EXISTS chat_remote_events (
+    id                 TEXT PRIMARY KEY,
+    mapping_id         TEXT NOT NULL REFERENCES chat_remote_mappings(id),
+    direction          TEXT NOT NULL CHECK (direction IN ('in','out')),
+    kind               TEXT NOT NULL,
+    payload_json       TEXT NOT NULL,
+    status             TEXT NOT NULL CHECK (status IN ('accepted','quarantined')),
+    status_reason      TEXT,
+    created_at_ms      INTEGER NOT NULL,
+    ack_at_ms          INTEGER,
+    delivery_state     TEXT NOT NULL DEFAULT 'pending' CHECK (delivery_state IN ('pending','delivered','failed')),
+    replay_signature   TEXT NOT NULL,
+    UNIQUE (mapping_id, replay_signature)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_events_mapping_created ON chat_remote_events (mapping_id, created_at_ms DESC)`,
+  // Idempotent migration for B2: room_memberships gains revoked_at_ms so
+  // remote-mapping revokes mark the synthetic membership inactive rather
+  // than DELETE (preserves audit + matches contract). Wrapped in a
+  // duplicate-column-tolerant runner below; ALTER TABLE is the only way
+  // to add a column to an existing table in SQLite.
+  `ALTER TABLE room_memberships ADD COLUMN revoked_at_ms INTEGER`,
+  // M3.4a-v2 Rich Agent Status (design contract 2026-05-14): 7 new terminals
+  // columns + 1 events table. agent_status carries the current 4-state value;
+  // agent_status_source records which input decided it; last_fingerprint_*
+  // + last_message_sent_at_ms + last_pty_byte_at_ms are the input signals
+  // for the priority cascade fingerprint→hooks→ANT-activity→PID.
+  `ALTER TABLE terminals ADD COLUMN agent_status TEXT NOT NULL DEFAULT 'idle' CHECK (agent_status IN ('idle','thinking','working','response-required'))`,
+  `ALTER TABLE terminals ADD COLUMN agent_status_source TEXT NOT NULL DEFAULT 'default' CHECK (agent_status_source IN ('fingerprint','hook','ant-activity','pid-cpu','default'))`,
+  `ALTER TABLE terminals ADD COLUMN agent_status_at_ms INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE terminals ADD COLUMN last_fingerprint_hash TEXT`,
+  `ALTER TABLE terminals ADD COLUMN last_fingerprint_at_ms INTEGER`,
+  `ALTER TABLE terminals ADD COLUMN last_message_sent_at_ms INTEGER`,
+  `ALTER TABLE terminals ADD COLUMN last_pty_byte_at_ms INTEGER`,
+  // Context-fill from per-CLI fingerprint probe (JWPK msg_vz19pvkajk 2026-05-19).
+  // 0..1 float. NULL when never probed. Source tracks who wrote it
+  // ('claude-statusline' / 'gemini-cli' / 'pi-mode-rpc' / 'codex-jsonrpc' /
+  // 'manual' / etc.) so we can prefer authoritative inputs as more CLI
+  // surfaces wire up. _at_ms is the wall-clock when last written; stale
+  // values (>5min) should be treated as "unknown" by readers, but the
+  // column itself never lies — the reader applies freshness policy.
+  `ALTER TABLE terminals ADD COLUMN agent_context_fill REAL`,
+  `ALTER TABLE terminals ADD COLUMN agent_context_fill_source TEXT`,
+  `ALTER TABLE terminals ADD COLUMN agent_context_fill_at_ms INTEGER`,
+  `CREATE TABLE IF NOT EXISTS chat_agent_status_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    terminal_id     TEXT NOT NULL REFERENCES terminals(id) ON DELETE CASCADE,
+    prev_status     TEXT,
+    new_status      TEXT NOT NULL,
+    source          TEXT NOT NULL,
+    changed_at_ms   INTEGER NOT NULL,
+    evidence_json   TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_status_events_terminal ON chat_agent_status_events (terminal_id, changed_at_ms DESC)`,
+  `CREATE TABLE IF NOT EXISTS chat_discussions (
+    id                TEXT PRIMARY KEY,
+    room_id           TEXT NOT NULL,
+    parent_message_id TEXT NOT NULL,
+    title             TEXT,
+    status            TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
+    opened_by         TEXT NOT NULL,
+    opened_at         INTEGER NOT NULL,
+    closed_by         TEXT,
+    closed_at         INTEGER,
+    summary           TEXT,
+    UNIQUE(room_id, parent_message_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_discussions_room_status ON chat_discussions (room_id, status)`,
+  `CREATE TABLE IF NOT EXISTS browser_sessions (
+    id              TEXT PRIMARY KEY,
+    secret_hash     TEXT NOT NULL UNIQUE,
+    room_id         TEXT NOT NULL,
+    terminal_id     TEXT NOT NULL REFERENCES terminals(id) ON DELETE CASCADE,
+    handle          TEXT NOT NULL,
+    synthetic_handle TEXT NOT NULL,
+    created_at_ms   INTEGER NOT NULL,
+    expires_at_ms   INTEGER NOT NULL,
+    revoked_at_ms   INTEGER,
+    last_seen_at_ms INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_browser_sessions_room_handle ON browser_sessions (room_id, handle, revoked_at_ms)`,
+  `CREATE INDEX IF NOT EXISTS idx_browser_sessions_terminal ON browser_sessions (terminal_id)`,
+  `CREATE TABLE IF NOT EXISTS linked_chat_permissions (
+    id              TEXT PRIMARY KEY,
+    terminal_id     TEXT NOT NULL REFERENCES terminals(id) ON DELETE CASCADE,
+    subject_handle  TEXT NOT NULL,
+    state           TEXT NOT NULL CHECK (state IN ('allow','deny')),
+    set_by          TEXT NOT NULL,
+    set_at_ms       INTEGER NOT NULL,
+    reason          TEXT,
+    UNIQUE(terminal_id, subject_handle)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_linked_chat_permissions_terminal ON linked_chat_permissions (terminal_id)`,
+  `CREATE TABLE IF NOT EXISTS chat_rooms (
+    id                  TEXT PRIMARY KEY,
+    name                TEXT NOT NULL,
+    summary             TEXT NOT NULL DEFAULT '',
+    attention_state     TEXT NOT NULL DEFAULT 'ready',
+    last_update         TEXT NOT NULL,
+    when_it_was_created TEXT NOT NULL,
+    who_created_it      TEXT NOT NULL,
+    creation_order      INTEGER NOT NULL UNIQUE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_rooms_creation_order ON chat_rooms (creation_order DESC)`,
+  `CREATE TABLE IF NOT EXISTS chat_room_members (
+    id            TEXT PRIMARY KEY,
+    room_id       TEXT NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
+    handle        TEXT NOT NULL,
+    display_name  TEXT NOT NULL,
+    joined_at     TEXT NOT NULL,
+    kind          TEXT NOT NULL CHECK (kind IN ('human','agent')),
+    UNIQUE(room_id, handle)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_room_members_room ON chat_room_members (room_id)`,
+  // parent_message_id is intentionally NOT a foreign key per Phase 5.0 Q5
+  // permissive-store-layer lock: existing M30 slice 1 test surface expects
+  // the store to accept unknown parent IDs without rejection. Validation +
+  // 404 enforcement live at the /messages route (validateAndResolveParent-
+  // MessageId in +server.ts), NOT the store. ON DELETE behaviour for parent
+  // tombstoning is moot today (messages aren't individually deleted; only
+  // CASCADE-deleted via room removal). If individual delete ever ships,
+  // revisit this column with an explicit ON DELETE SET NULL FK.
+  `CREATE TABLE IF NOT EXISTS chat_messages (
+    id                  TEXT PRIMARY KEY,
+    room_id             TEXT NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
+    author_handle       TEXT NOT NULL,
+    author_display_name TEXT NOT NULL,
+    kind                TEXT NOT NULL CHECK (kind IN ('human','agent','system','system-break')),
+    body                TEXT NOT NULL,
+    posted_at           TEXT NOT NULL,
+    post_order          INTEGER NOT NULL UNIQUE,
+    parent_message_id   TEXT,
+    discussion_id       TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_messages_room_post_order ON chat_messages (room_id, post_order ASC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_messages_parent ON chat_messages (parent_message_id)`,
+  `CREATE TABLE IF NOT EXISTS message_read_receipts (
+    message_id     TEXT NOT NULL,
+    reader_handle  TEXT NOT NULL,
+    read_at        TEXT NOT NULL,
+    read_at_ms     INTEGER NOT NULL,
+    PRIMARY KEY (message_id, reader_handle)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_message_read_receipts_message_time
+     ON message_read_receipts (message_id, read_at_ms ASC, reader_handle ASC)`,
+  `CREATE TABLE IF NOT EXISTS chat_room_attachments (
+    id                 TEXT PRIMARY KEY,
+    room_id            TEXT NOT NULL,
+    filename           TEXT NOT NULL,
+    mime_type          TEXT NOT NULL,
+    byte_size          INTEGER NOT NULL,
+    contents_base64    TEXT NOT NULL,
+    uploaded_by_handle TEXT NOT NULL,
+    uploaded_at        TEXT NOT NULL,
+    uploaded_at_ms     INTEGER NOT NULL,
+    upload_order       INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_room_attachments_room_order
+     ON chat_room_attachments (room_id, upload_order DESC)`,
+  // Room-scoped participant presentation. Canonical handle remains the
+  // routing key; these fields are per-room visual overrides only.
+  `ALTER TABLE chat_room_members ADD COLUMN display_color TEXT`,
+  `ALTER TABLE chat_room_members ADD COLUMN display_icon TEXT`,
+  `ALTER TABLE chat_room_members ADD COLUMN display_background_style TEXT`,
+  // M4.4 chair handoff (canonical PASS 2026-05-14 delta-5):
+  // chat_rooms.current_chair_handle as an additive ALTER column (idempotent
+  // on re-runs per applySchemaMigrations duplicate-column-name tolerance).
+  `ALTER TABLE chat_rooms ADD COLUMN current_chair_handle TEXT`,
+  `CREATE TABLE IF NOT EXISTS chat_room_chair_history (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    room_id      TEXT NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
+    from_handle  TEXT,
+    to_handle    TEXT NOT NULL,
+    set_by       TEXT NOT NULL,
+    set_at_ms    INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chair_history_room_set_at ON chat_room_chair_history (room_id, set_at_ms DESC)`,
+  // M4.5 interview start/end (canonical PASS 2026-05-14 delta-2):
+  // current_interview_id is APP-LEVEL pointer (no FK per SQLite ALTER
+  // TABLE constraint; cleanup edge is chat_room_interviews.room_id CASCADE).
+  `ALTER TABLE chat_rooms ADD COLUMN current_interview_id TEXT`,
+  `CREATE TABLE IF NOT EXISTS chat_room_interviews (
+    id              TEXT PRIMARY KEY,
+    room_id         TEXT NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
+    interviewer     TEXT NOT NULL,
+    subject_handle  TEXT NOT NULL,
+    started_at_ms   INTEGER NOT NULL,
+    ended_at_ms     INTEGER,
+    end_reason      TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_room_interviews_room_started ON chat_room_interviews (room_id, started_at_ms DESC)`,
+  // M-SHARED-SCREENSHOTS T1 (canonical RQO delta-1 reframe PASS-pending):
+  // opt-in flag + per-room SQLite index per JWPK 3-constraints lock.
+  `ALTER TABLE chat_rooms ADD COLUMN shared_folder_enabled INTEGER DEFAULT 0`,
+  `CREATE TABLE IF NOT EXISTS screenshots (
+    sha            TEXT NOT NULL,
+    room_id        TEXT NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
+    taken_by       TEXT NOT NULL,
+    taken_at_ms    INTEGER NOT NULL,
+    bytes          INTEGER NOT NULL DEFAULT 0,
+    topic          TEXT,
+    dimensions     TEXT,
+    parent_sha     TEXT,
+    ttl_until_ms   INTEGER,
+    deck_slug      TEXT,
+    PRIMARY KEY (sha, room_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_screenshots_room_taken ON screenshots (room_id, taken_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_screenshots_ttl ON screenshots (ttl_until_ms) WHERE ttl_until_ms IS NOT NULL`,
+  // M-SHARED-SCREENSHOTS T3a delta-2: soft-delete column for manual prune flow.
+  // ttl_until_ms above is legacy (JWPK Q-B SURFACE-SIZE-ONLY drops TTL enforcement).
+  `ALTER TABLE screenshots ADD COLUMN deleted_at_ms INTEGER`,
+  // M-SHARED-SCREENSHOTS T3b: room-level soft-delete column. No production
+  // DELETE-room API today; future API will set this so screenshots FK CASCADE
+  // never fires and files + index rows survive (JWPK Q-E preservation).
+  `ALTER TABLE chat_rooms ADD COLUMN deleted_at_ms INTEGER`,
+  // DASH-ARCHIVE (2026-05-15): hide-from-default-list flag. Mirrors
+  // deleted_at_ms semantics but is non-destructive — archived rooms are
+  // recoverable via POST /api/chat-rooms/:id/archive (DELETE verb).
+  // listChatRooms / loadRoomById / doesChatRoomExist exclude archived rows
+  // so the default UI surfaces never see them.
+  `ALTER TABLE chat_rooms ADD COLUMN archived_at_ms INTEGER`,
+  // TERMINALS-T2a (2026-05-14, JWPK terminals-redesign): "ANT-view retained
+  // forever" scrollback per linkedchat-backend-v3-audit. Lift of v3 run_events
+  // shape (db.ts L66-79). FK omitted — terminal_id can be a v3-daemon
+  // sessionId (`t_xxx`) or a future fresh-ANT terminals.id.
+  `CREATE TABLE IF NOT EXISTS terminal_run_events (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    terminal_id   TEXT NOT NULL,
+    ts_ms         INTEGER NOT NULL,
+    source        TEXT NOT NULL DEFAULT 'pty',
+    trust         TEXT NOT NULL DEFAULT 'raw' CHECK (trust IN ('high','medium','raw')),
+    kind          TEXT NOT NULL,
+    text          TEXT DEFAULT '',
+    payload       TEXT DEFAULT '{}',
+    raw_ref       TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_term_run_events_terminal_ts ON terminal_run_events (terminal_id, ts_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_term_run_events_ts ON terminal_run_events (ts_ms)`,
+  `CREATE INDEX IF NOT EXISTS idx_term_run_events_kind ON terminal_run_events (kind)`,
+  // V4-BLOCKER-B (2026-05-15): transcript-tail watchers re-read JSONL from
+  // byte 0 on restart (in-memory offset map). Native per-line stable id
+  // (claude uuid / codex id / qwen uuid / gemini id / copilot id / pi id)
+  // gives idempotency independent of byte-offset/restart/file-rotation.
+  // Partial UNIQUE index ignores legacy/pty rows that have NULL id.
+  `ALTER TABLE terminal_run_events ADD COLUMN transcript_event_id TEXT`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_term_run_events_transcript_id
+     ON terminal_run_events (terminal_id, transcript_event_id)
+     WHERE transcript_event_id IS NOT NULL`,
+  // V4-BLOCKER-C (2026-05-15): SURFACE-SIZE-ONLY soft-delete column. The
+  // one-shot historical dedup sweep marks pre-idempotency duplicate
+  // transcript rows deleted instead of hard-removing them (per JWPK
+  // soft-delete + manual-prune pattern — no auto-purge cron). List
+  // queries filter deleted_at_ms IS NULL.
+  `ALTER TABLE terminal_run_events ADD COLUMN deleted_at_ms INTEGER`,
+  // TERMINALS-T2d (2026-05-14, JWPK terminals-redesign): JWPK-visible terminal
+  // entity record (separate from existing M3.x pid-bound `terminals` table).
+  // Per JWPK Q1 lock: auto_forward_room_id is single-target nullable. Per v3
+  // linked-chat-adapter: auto_forward_chat 1=raw-keystroke, 0=ANSI block.
+  `CREATE TABLE IF NOT EXISTS terminal_records (
+    session_id            TEXT PRIMARY KEY,
+    name                  TEXT NOT NULL UNIQUE,
+    auto_forward_room_id  TEXT,
+    auto_forward_chat     INTEGER NOT NULL DEFAULT 1,
+    created_at_ms         INTEGER NOT NULL,
+    updated_at_ms         INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_terminal_records_room ON terminal_records (auto_forward_room_id)`,
+  // TERMINALS-T2b agent_kind-autodetect wiring (2026-05-14): JWPK-visible
+  // terminal entity now stores agent_kind so daemon-spawned sessions can
+  // also drive Layer A interactive-event detection. Frontend supplies via
+  // POST/PATCH, future slice may auto-populate via fingerprintDetector.
+  `ALTER TABLE terminal_records ADD COLUMN agent_kind TEXT`,
+  // T2-LINKED-CHAT-T1a (2026-05-14, PATH A flowspec lift): terminal_records
+  // becomes the canonical terminalsStore for fresh-ANT — handle/pane/agent_
+  // kind colocated. tmux_target_pane is `<sessionId>:0.0` for daemon-spawned
+  // sessions (`tmux new-session -A -s <sessionId>` default window/pane).
+  `ALTER TABLE terminal_records ADD COLUMN tmux_target_pane TEXT`,
+  // T2-LINKED-CHAT-T1b (2026-05-14): each terminal_record gets a 1:1 linked
+  // chat room. Per JWPK semantic correction "Chat IS the linked chat room"
+  // (not a kind=message filter). POST /api/terminals auto-creates this room
+  // and writes its id back here. Nullable for back-compat with pre-T1b rows.
+  `ALTER TABLE terminal_records ADD COLUMN linked_chat_room_id TEXT`,
+  // T2-IDENTITY-REGISTER-S1 (2026-05-14): JWPK ant newterminal + ant attach
+  // shapes. created_by binds the claim to a handle (server-validated). allowlist
+  // is a JSON array of additional handles allowed to invite/mention/launch
+  // against this terminal — null = creator + operator only.
+  `ALTER TABLE terminal_records ADD COLUMN created_by TEXT`,
+  `ALTER TABLE terminal_records ADD COLUMN allowlist TEXT`,
+  // T2-IDENTITY-REGISTER-S7 (2026-05-14): JWPK allowed-posters picker
+  // requires handle as a first-class column. Nullable v1 for back-compat;
+  // no UNIQUE constraint v1 (collisions surface as picker UX). Eventually
+  // identity-register flow auto-populates from `ant register --handle @x`.
+  `ALTER TABLE terminal_records ADD COLUMN handle TEXT`,
+  // Lane-D PLANS S1 (2026-05-15, canonical RQO32-gated decision-doc
+  // docs/lane-d-plans-design-2026-05-15.md). First-class PERSISTED task
+  // entity. JWPK Q1: tasks are INDEPENDENT of plans — plan_id is an
+  // OPTIONAL link, NULL = standalone task; a task is NEVER a child of a
+  // plan. blocks/blocked_by are JSON id-arrays deliberately matching the
+  // claude `~/.claude/tasks/<sid>/*.json` shape so FINGERPRINT-MANIFEST
+  // harvest + B2-7 share ONE dependency graph. evidence reuses the
+  // planModeStore EvidenceRef shape (JSON array). Existing in-memory
+  // plan-event projection (planModeStore) is intentionally UNTOUCHED.
+  `CREATE TABLE IF NOT EXISTS tasks (
+    id              TEXT PRIMARY KEY,
+    subject         TEXT NOT NULL,
+    description     TEXT,
+    status          TEXT NOT NULL DEFAULT 'pending'
+                      CHECK (status IN ('pending','in_progress','blocked','completed','deleted')),
+    priority        INTEGER,
+    plan_id         TEXT,
+    assigned_agent  TEXT,
+    blocks          TEXT NOT NULL DEFAULT '[]',
+    blocked_by      TEXT NOT NULL DEFAULT '[]',
+    evidence        TEXT NOT NULL DEFAULT '[]',
+    notes           TEXT,
+    started_at_ms   INTEGER,
+    ended_at_ms     INTEGER,
+    created_at_ms   INTEGER NOT NULL,
+    updated_at_ms   INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_tasks_plan ON tasks (plan_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks (status)`,
+  // plan_rooms — many-to-many link between plans (implicit, identified
+  // by plan_id text) and chat_rooms (real entity). No FK on plan_id
+  // because plans aren't first-class entities yet (JWPK Q1, Lane-D).
+  // Composite PK gives free uniqueness + plan-direction index; the
+  // explicit room-direction index makes "plans-for-room" cheap too.
+  // ON DELETE CASCADE on room: deleting a room evaporates its attachments.
+  `CREATE TABLE IF NOT EXISTS plan_rooms (
+    plan_id        TEXT NOT NULL,
+    room_id        TEXT NOT NULL,
+    attached_at_ms INTEGER NOT NULL,
+    attached_by    TEXT,
+    PRIMARY KEY (plan_id, room_id),
+    FOREIGN KEY (room_id) REFERENCES chat_rooms(id) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_plan_rooms_room ON plan_rooms (room_id)`,
+  // plans entity (JWPK Q1 evolution: optional explicit entity over the
+  // implicit-plan-id model). A task's plan_id can reference a row here
+  // but no FK is enforced — implicit plans remain valid.
+  `CREATE TABLE IF NOT EXISTS plans (
+    id              TEXT PRIMARY KEY,
+    title           TEXT,
+    description     TEXT,
+    created_by      TEXT,
+    created_at_ms   INTEGER NOT NULL,
+    updated_at_ms   INTEGER NOT NULL,
+    archived_at_ms  INTEGER,
+    deleted_at_ms   INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_plans_archived ON plans (archived_at_ms)`,
+  `CREATE INDEX IF NOT EXISTS idx_plans_deleted ON plans (deleted_at_ms)`,
+  // QUICK-SHORTCUTS (2026-05-15): global, user-editable list of terminal
+  // shortcut chips. JWPK-locked: global scope (one shared list across all
+  // terminals), server-persisted in fresh-ant.db so a tab-reload or fresh
+  // session sees the same shortcuts. Hard-delete only (these are user prefs
+  // — easy to recreate; no soft-delete plumbing needed). order_index is the
+  // sort key (smaller first); reorder bulk-updates via a transaction.
+  `CREATE TABLE IF NOT EXISTS quick_shortcuts (
+    id            TEXT PRIMARY KEY,
+    label         TEXT NOT NULL,
+    text          TEXT NOT NULL,
+    auto_enter    INTEGER NOT NULL DEFAULT 1,
+    order_index   INTEGER NOT NULL DEFAULT 0,
     created_at_ms INTEGER NOT NULL,
-    updated_at_ms INTEGER,
-    deleted_at_ms INTEGER
-  )`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_chat_room_docs_room ON chat_room_docs(room_id, deleted_at_ms, updated_at_ms)`);
+    updated_at_ms INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_quick_shortcuts_order ON quick_shortcuts (order_index ASC)`,
+  // ANTSCRIPT v1 — plan_triggers: event → action mappings.
+  // plan_id = NULL is a wildcard ("apply to every plan"). event is one of
+  // plan.completed / plan.archived / plan.deleted / plan.restored. action is
+  // one of room.message / console.log. action_config is JSON: room.message
+  // = {messageTemplate, authorHandle?}; console.log = {message}. fire_count
+  // + last_fired_at_ms are best-effort observability for dispatch tracing.
+  `CREATE TABLE IF NOT EXISTS plan_triggers (
+    id               TEXT PRIMARY KEY,
+    plan_id          TEXT,
+    event            TEXT NOT NULL,
+    action           TEXT NOT NULL,
+    action_config    TEXT NOT NULL DEFAULT '{}',
+    enabled_at_ms    INTEGER NOT NULL,
+    last_fired_at_ms INTEGER,
+    fire_count       INTEGER NOT NULL DEFAULT 0,
+    created_by       TEXT,
+    created_at_ms    INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_plan_triggers_plan ON plan_triggers (plan_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_plan_triggers_event ON plan_triggers (event)`,
+  // Scheduled jobs v1 — named cron-like jobs that can be started,
+  // paused, stopped, or deleted. The scheduler runner is intentionally
+  // separate from plan_triggers: plan_triggers are event-driven, while
+  // scheduled_jobs are time-driven.
+  `CREATE TABLE IF NOT EXISTS scheduled_jobs (
+    id                TEXT PRIMARY KEY,
+    name              TEXT NOT NULL,
+    status            TEXT NOT NULL,
+    every_minutes     INTEGER NOT NULL,
+    action            TEXT NOT NULL,
+    action_config     TEXT NOT NULL DEFAULT '{}',
+    next_run_at_ms    INTEGER,
+    last_run_at_ms    INTEGER,
+    run_count         INTEGER NOT NULL DEFAULT 0,
+    created_by        TEXT,
+    created_at_ms     INTEGER NOT NULL,
+    updated_at_ms     INTEGER NOT NULL,
+    deleted_at_ms     INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_status_next
+     ON scheduled_jobs (status, next_run_at_ms)`,
+  // CLI-HOOK-BRIDGE Phase 1A (2026-05-15, JWPK Slice B follow-up): ANT
+  // receives structured agent-lifecycle events from CLI hooks (Claude Code
+  // today; codex/pi/gemini in later phases). source_cli partitions by
+  // origin so the table can host all four protocols; payload TEXT is the
+  // full JSON blob for fields not promoted to columns. Promoted columns
+  // are the ones we actually query for badges/timelines (session_id, hook
+  // event name, tool_name, received_at_ms). transcript_path, cwd,
+  // permission_mode, effort_level are denormalised because they're
+  // present on EVERY claude hook payload and useful for filtering.
+  `CREATE TABLE IF NOT EXISTS cli_hook_events (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_cli        TEXT NOT NULL DEFAULT 'claude-code',
+    session_id        TEXT NOT NULL,
+    hook_event_name   TEXT NOT NULL,
+    received_at_ms    INTEGER NOT NULL,
+    transcript_path   TEXT,
+    cwd               TEXT,
+    permission_mode   TEXT,
+    effort_level      TEXT,
+    tool_name         TEXT,
+    tool_use_id       TEXT,
+    payload           TEXT NOT NULL DEFAULT '{}'
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_cli_hook_events_session_ts
+     ON cli_hook_events (session_id, received_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_cli_hook_events_event_ts
+     ON cli_hook_events (hook_event_name, received_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_cli_hook_events_source_ts
+     ON cli_hook_events (source_cli, received_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_cli_hook_events_received_at ON cli_hook_events (received_at_ms)`,
+  // SHORTCUTS (2026-05-16, JWPK settings addterminalshortcut /
+  // addchatroomshortcut). Scope-aware; scope_target is the terminalId or
+  // roomId, NULL for global. order_index drives QuickShortcutsBar order.
+  `CREATE TABLE IF NOT EXISTS shortcuts (
+    id            TEXT PRIMARY KEY,
+    scope         TEXT NOT NULL CHECK (scope IN ('terminal','chatroom','global')),
+    scope_target  TEXT,
+    label         TEXT NOT NULL,
+    command       TEXT NOT NULL,
+    order_index   INTEGER NOT NULL DEFAULT 0,
+    created_at_ms INTEGER NOT NULL,
+    created_by    TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_shortcuts_scope_target
+     ON shortcuts (scope, scope_target, order_index ASC)`,
+  // JWPK TASKS-SUBSYSTEM (2026-05-16): extend existing tasks table with
+  // JWPK-spec columns for terminal/room binding + ordering. Existing
+  // Lane-D columns preserved; new columns nullable.
+  `ALTER TABLE tasks ADD COLUMN title TEXT`,
+  `ALTER TABLE tasks ADD COLUMN assigned_to TEXT`,
+  `ALTER TABLE tasks ADD COLUMN assigned_terminal_id TEXT`,
+  `ALTER TABLE tasks ADD COLUMN room_id TEXT`,
+  `ALTER TABLE tasks ADD COLUMN parent_task_id TEXT`,
+  `ALTER TABLE tasks ADD COLUMN completed_at_ms INTEGER`,
+  `ALTER TABLE tasks ADD COLUMN created_by TEXT`,
+  `ALTER TABLE tasks ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0`,
+  `CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks (assigned_to, status)`,
+  `CREATE INDEX IF NOT EXISTS idx_tasks_assigned_terminal ON tasks (assigned_terminal_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_tasks_room ON tasks (room_id)`,
+  // MEMORY-CRUD (2026-05-16, JWPK): key/value memories with audit trail.
+  // Sits under read-only /api/memory-recall; this layer is the
+  // get/put/list/delete surface v3 had at /api/memories.
+  `CREATE TABLE IF NOT EXISTS memories (
+    id             TEXT PRIMARY KEY,
+    key            TEXT NOT NULL UNIQUE,
+    value          TEXT NOT NULL,
+    scope          TEXT,
+    scope_target   TEXT,
+    created_at_ms  INTEGER NOT NULL,
+    updated_at_ms  INTEGER NOT NULL,
+    created_by     TEXT,
+    last_updated_by TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_memories_key_prefix ON memories (key)`,
+  `CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories (scope, scope_target)`,
+  `CREATE TABLE IF NOT EXISTS memory_audit (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    memory_key     TEXT NOT NULL,
+    action         TEXT NOT NULL CHECK (action IN ('put','delete','update')),
+    prev_value     TEXT,
+    new_value      TEXT,
+    by_handle      TEXT,
+    at_ms          INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_memory_audit_key ON memory_audit (memory_key, at_ms DESC)`,
+  // FILE-REFS / FLAG (2026-05-16, JWPK): tag files as relevant to a
+  // terminal/chatroom/global. scope_target = terminalId or roomId; NULL
+  // for global. No FK — file-refs can outlive entity deletes.
+  `CREATE TABLE IF NOT EXISTS file_refs (
+    id             TEXT PRIMARY KEY,
+    file_path      TEXT NOT NULL,
+    scope          TEXT NOT NULL CHECK (scope IN ('terminal','chatroom','global')),
+    scope_target   TEXT,
+    label          TEXT,
+    description    TEXT,
+    flagged_by     TEXT,
+    flagged_at_ms  INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_file_refs_scope_target ON file_refs (scope, scope_target)`,
+  `CREATE INDEX IF NOT EXISTS idx_file_refs_path ON file_refs (file_path)`,
+  // LANE-A CONSENT-GRANTS (2026-05-16): v4 general safety gate, distinct
+  // from MCP adapter grants. Room-scoped by default: topic says what is
+  // allowed, source_set constrains files/URLs/identifiers, max_answers caps
+  // repeated use, and audit rows make create/consume/revoke visible.
+  `CREATE TABLE IF NOT EXISTS consent_grants (
+    id             TEXT PRIMARY KEY,
+    room_id        TEXT NOT NULL,
+    granted_to     TEXT NOT NULL,
+    topic          TEXT NOT NULL,
+    source_set     TEXT NOT NULL DEFAULT '[]',
+    duration       TEXT NOT NULL DEFAULT '1h',
+    answer_count   INTEGER NOT NULL DEFAULT 0,
+    max_answers    INTEGER,
+    status         TEXT NOT NULL DEFAULT 'active'
+                   CHECK (status IN ('active','revoked','expired','exhausted')),
+    granted_at_ms  INTEGER NOT NULL,
+    expires_at_ms  INTEGER,
+    created_by     TEXT,
+    revoked_at_ms  INTEGER,
+    revoked_by     TEXT,
+    updated_at_ms  INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_consent_grants_room_status ON consent_grants (room_id, status)`,
+  `CREATE INDEX IF NOT EXISTS idx_consent_grants_grantee ON consent_grants (granted_to, status)`,
+  `CREATE INDEX IF NOT EXISTS idx_consent_grants_topic ON consent_grants (topic, status)`,
+  `CREATE TABLE IF NOT EXISTS consent_grant_audit (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    grant_id      TEXT NOT NULL REFERENCES consent_grants(id) ON DELETE RESTRICT,
+    action        TEXT NOT NULL CHECK (action IN ('created','consumed','revoked','expired','exhausted')),
+    actor_handle  TEXT,
+    at_ms         INTEGER NOT NULL,
+    note          TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_consent_grant_audit_grant ON consent_grant_audit (grant_id, at_ms ASC)`,
+  // Task #49 v3-parity: room-to-room links. Lets a room surface its
+  // sibling discussion / spawned-from / follow-up rooms so JWPK can
+  // navigate between linked rooms without pasting URLs. UNIQUE on
+  // (source, target, relationship) prevents duplicate edges.
+  `CREATE TABLE IF NOT EXISTS chat_room_links (
+    id               TEXT PRIMARY KEY,
+    source_room_id   TEXT NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
+    target_room_id   TEXT NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
+    relationship     TEXT NOT NULL CHECK (relationship IN ('discussion_of','promoted_summary_for','spawned_from','follows_up')),
+    title            TEXT,
+    created_by       TEXT,
+    created_at_ms    INTEGER NOT NULL,
+    UNIQUE(source_room_id, target_room_id, relationship)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_room_links_source ON chat_room_links (source_room_id, created_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_room_links_target ON chat_room_links (target_room_id, created_at_ms DESC)`,
+  // Task #91/#98 v3-parity: per-room artefacts panel (HTML / decks /
+  // spreadsheets / docs / mockups / other). Kind is enforced at the
+  // schema level; the UI groups by kind. ref_url is the location the
+  // UI links/embeds — file/http/etc. — but we don't proxy or store the
+  // bytes here (attachments table owns binary storage).
+  `CREATE TABLE IF NOT EXISTS chat_room_artefacts (
+    id              TEXT PRIMARY KEY,
+    room_id         TEXT NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
+    kind            TEXT NOT NULL CHECK (kind IN ('html','deck','spreadsheet','doc','mockup','other')),
+    title           TEXT NOT NULL,
+    ref_url         TEXT,
+    summary         TEXT,
+    created_by      TEXT,
+    created_at_ms   INTEGER NOT NULL,
+    deleted_at_ms   INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_room_artefacts_room_kind ON chat_room_artefacts (room_id, kind, created_at_ms DESC)`,
+  // #155/#427: starred rooms are an operator preference, not a
+  // browser-local accident. One row per owner/room, ordered by the
+  // drag order used on the dashboard.
+  `CREATE TABLE IF NOT EXISTS room_bookmarks (
+    owner_handle  TEXT NOT NULL,
+    room_id       TEXT NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
+    order_index   INTEGER NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (owner_handle, room_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_room_bookmarks_owner_order ON room_bookmarks (owner_handle, order_index ASC)`,
+  // TUNNELS (2026-05-17, JWPK): local-dev site sharing via ANT.
+  // Each tunnel exposes a public URL (e.g. Cloudflare Tunnel) scoped
+  // to one or more rooms. owner_room_id is the creating room.
+  `CREATE TABLE IF NOT EXISTS tunnels (
+    slug              TEXT PRIMARY KEY,
+    title             TEXT,
+    public_url        TEXT NOT NULL,
+    local_url         TEXT,
+    owner_room_id     TEXT NOT NULL,
+    allowed_room_ids  TEXT NOT NULL DEFAULT '[]',
+    access_required   INTEGER NOT NULL DEFAULT 0,
+    status            TEXT NOT NULL DEFAULT 'linked'
+                        CHECK (status IN ('linked','offline','error')),
+    created_at_ms     INTEGER NOT NULL,
+    updated_at_ms     INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_tunnels_owner ON tunnels (owner_room_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_tunnels_status ON tunnels (status)`,
+  // PAIRING TOKENS (2026-05-17, JWPK): QR-based device onboarding.
+  // Short-lived, single-use tokens that encode server URL + room + key.
+  // consumed_at_ms marks use; expires_at_ms enables TTL cleanup.
+  `CREATE TABLE IF NOT EXISTS pairing_tokens (
+    token             TEXT PRIMARY KEY,
+    room_id           TEXT NOT NULL,
+    server_url        TEXT NOT NULL,
+    api_key           TEXT NOT NULL,
+    device_name       TEXT,
+    created_by        TEXT,
+    created_at_ms     INTEGER NOT NULL,
+    expires_at_ms     INTEGER,
+    consumed_at_ms    INTEGER,
+    consumed_by_device TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_pairing_tokens_room ON pairing_tokens (room_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_pairing_tokens_expires ON pairing_tokens (expires_at_ms)`,
+  // SHARE LINKS (2026-05-17, JWPK): read-only public URLs for sharing
+  // room/session state externally. Short token, optional expiry, revocable.
+  `CREATE TABLE IF NOT EXISTS share_links (
+    token             TEXT PRIMARY KEY,
+    room_id           TEXT NOT NULL,
+    title             TEXT,
+    scope             TEXT NOT NULL DEFAULT 'room'
+                        CHECK (scope IN ('room','messages','tasks','plan')),
+    created_by        TEXT,
+    created_at_ms     INTEGER NOT NULL,
+    expires_at_ms     INTEGER,
+    revoked_at_ms     INTEGER,
+    access_count      INTEGER NOT NULL DEFAULT 0,
+    last_accessed_ms  INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_share_links_room ON share_links (room_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_share_links_expires ON share_links (expires_at_ms)`,
+  // Task #111 v3-parity: file-refs registry — flag a file path inside
+  // a room with an optional note. Narrower than artefacts: just path
+  // + note, no kind enum, no ref URL. Soft-delete column matches the
+  // rest of v4's store conventions.
+  `CREATE TABLE IF NOT EXISTS chat_room_file_refs (
+    id              TEXT PRIMARY KEY,
+    room_id         TEXT NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
+    file_path       TEXT NOT NULL,
+    note            TEXT,
+    flagged_by      TEXT,
+    created_at_ms   INTEGER NOT NULL,
+    deleted_at_ms   INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_room_file_refs_room ON chat_room_file_refs (room_id, created_at_ms DESC)`,
+  // Task #114 v3-parity: prompt-bridge minimum viable. Records the
+  // moment a terminal/agent surfaced a prompt that needs a human (or
+  // peer-agent) response. Status moves from 'pending' to 'responded'
+  // once the room thread answers it. Narrow shape; the v3 broker layer
+  // (multiple delivery targets + pattern config) lands in a follow-up.
+  `CREATE TABLE IF NOT EXISTS terminal_prompt_events (
+    id              TEXT PRIMARY KEY,
+    terminal_id     TEXT REFERENCES terminals(id) ON DELETE CASCADE,
+    room_id         TEXT REFERENCES chat_rooms(id) ON DELETE CASCADE,
+    raw_text        TEXT NOT NULL,
+    detector        TEXT,
+    detected_at_ms  INTEGER NOT NULL,
+    status          TEXT NOT NULL CHECK (status IN ('pending','responded','dismissed')) DEFAULT 'pending',
+    responded_at_ms INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_terminal_prompt_events_room_status ON terminal_prompt_events (room_id, status, detected_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_terminal_prompt_events_terminal ON terminal_prompt_events (terminal_id, detected_at_ms DESC)`,
+  // Task #124 v3-parity: room-scoped markdown docs. Content is stored
+  // inline (not ref_url) so the docs are searchable and editable.
+  `CREATE TABLE IF NOT EXISTS chat_room_docs (
+    id             TEXT PRIMARY KEY,
+    room_id        TEXT NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
+    title          TEXT NOT NULL,
+    content        TEXT NOT NULL DEFAULT '',
+    created_by     TEXT,
+    created_at_ms  INTEGER NOT NULL,
+    updated_at_ms  INTEGER,
+    access_password TEXT,
+    deleted_at_ms  INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_room_docs_room ON chat_room_docs (room_id, updated_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_room_docs_search ON chat_room_docs (room_id, title)`,
+  // Task #126 v3-parity: room-scoped decks (slide presentations).
+  // Content stored as JSON slide array so decks are editable and renderable.
+  `CREATE TABLE IF NOT EXISTS chat_room_decks (
+    id             TEXT PRIMARY KEY,
+    room_id        TEXT NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
+    title          TEXT NOT NULL,
+    slides_json    TEXT NOT NULL DEFAULT '[]',
+    theme          TEXT,
+    created_by     TEXT,
+    created_at_ms  INTEGER NOT NULL,
+    updated_at_ms  INTEGER,
+    access_password TEXT,
+    deleted_at_ms  INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_room_decks_room ON chat_room_decks (room_id, updated_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_room_decks_search ON chat_room_decks (room_id, title)`,
+  // Task #159: deck access control — add password column to existing tables.
+  `ALTER TABLE chat_room_decks ADD COLUMN access_password TEXT`,
+  // Task #130 v3-parity: persist asks to SQLite (was in-memory Maps).
+  `CREATE TABLE IF NOT EXISTS asks (
+    id              TEXT PRIMARY KEY,
+    room_id         TEXT NOT NULL,
+    opened_by_handle TEXT NOT NULL,
+    opened_by_display_name TEXT,
+    title           TEXT NOT NULL,
+    body            TEXT NOT NULL,
+    status          TEXT NOT NULL CHECK (status IN ('open','answered','dismissed')) DEFAULT 'open',
+    opened_at_ms    INTEGER NOT NULL,
+    answer          TEXT,
+    answered_by_handle TEXT,
+    answered_by_display_name TEXT,
+    answered_at_ms  INTEGER,
+    dismissed_by_handle TEXT,
+    dismissed_by_display_name TEXT,
+    dismissed_at_ms INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_asks_room_status ON asks (room_id, status, opened_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_asks_id ON asks (id)`,
+  // Task #162: candidate asks inferred from chat signals before premium
+  // Chair filtering. These are distinct from explicit asks until promoted.
+  `CREATE TABLE IF NOT EXISTS ask_candidates (
+    id                    TEXT PRIMARY KEY,
+    room_id               TEXT NOT NULL,
+    source_message_id      TEXT NOT NULL,
+    source_type            TEXT NOT NULL CHECK (source_type IN ('mention','emoji-message','reaction')),
+    source_actor_handle    TEXT NOT NULL,
+    source_emoji           TEXT NOT NULL DEFAULT '',
+    title                 TEXT NOT NULL,
+    body                  TEXT NOT NULL,
+    status                TEXT NOT NULL CHECK (status IN ('candidate','promoted','dismissed')) DEFAULT 'candidate',
+    created_at_ms          INTEGER NOT NULL,
+    promoted_ask_id        TEXT,
+    promoted_by_handle     TEXT,
+    promoted_at_ms         INTEGER,
+    dismissed_by_handle    TEXT,
+    dismissed_at_ms        INTEGER,
+    UNIQUE(source_message_id, source_type, source_actor_handle, source_emoji)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ask_candidates_status ON ask_candidates (status, created_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_ask_candidates_room_status ON ask_candidates (room_id, status, created_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_ask_candidates_source ON ask_candidates (source_message_id)`,
+  // Phase A.5 v4 marquee: verification policies catalogue + append-only
+  // audit trail. Policies are global (any handle can list public ones);
+  // owner_handle is provenance, edit/delete is owner-gated at the API
+  // layer. audit table never has UPDATE/DELETE — append-only.
+  `CREATE TABLE IF NOT EXISTS verification_policies (
+    id              TEXT PRIMARY KEY,
+    slug            TEXT NOT NULL UNIQUE,
+    name            TEXT NOT NULL,
+    description     TEXT,
+    owner_handle    TEXT NOT NULL,
+    policy_json     TEXT NOT NULL,
+    visibility      TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public','unlisted','private')),
+    created_at_ms   INTEGER NOT NULL,
+    updated_at_ms   INTEGER,
+    deleted_at_ms   INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_verification_policies_owner ON verification_policies (owner_handle, updated_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_verification_policies_visibility ON verification_policies (visibility, updated_at_ms DESC)`,
+  `CREATE TABLE IF NOT EXISTS verification_policy_audit (
+    id              TEXT PRIMARY KEY,
+    policy_id       TEXT NOT NULL REFERENCES verification_policies(id) ON DELETE CASCADE,
+    actor_handle    TEXT NOT NULL,
+    actor_kind      TEXT NOT NULL CHECK (actor_kind IN ('human','agent')),
+    action          TEXT NOT NULL CHECK (action IN ('create','update','soft_delete','restore','clone_source','clone_target','visibility_change')),
+    before_json     TEXT,
+    after_json      TEXT,
+    reason          TEXT,
+    created_at_ms   INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_verification_policy_audit_policy ON verification_policy_audit (policy_id, created_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_verification_policy_audit_actor ON verification_policy_audit (actor_handle, created_at_ms DESC)`,
+  // #74 delete-own-message + #76 edit-own-last-message: tombstones +
+  // edit indicator on chat_messages. Both are nullable additive columns
+  // — backfill not required. deleted_by_handle is captured so the UI
+  // can render "Deleted by @x at <time>" tombstones authoritatively.
+  `ALTER TABLE chat_messages ADD COLUMN deleted_at_ms INTEGER`,
+  `ALTER TABLE chat_messages ADD COLUMN deleted_by_handle TEXT`,
+  `ALTER TABLE chat_messages ADD COLUMN edited_at_ms INTEGER`,
+  // plan_events SQLite projection (JWPK msg_71divtsj8r ratified ask_r0v3b4t...:
+  // plan events should persist across launchd kickstart). Schema mirrors the
+  // existing planModeStore.PlanEvent shape exactly — JSON columns for the
+  // evidence + provenance refs since they have variable arity. `order_index`
+  // because `order` is a SQL reserved word; column is renamed at the store
+  // boundary so the in-process shape stays { order: number }.
+  `CREATE TABLE IF NOT EXISTS plan_events (
+    id              TEXT PRIMARY KEY,
+    plan_id         TEXT NOT NULL,
+    parent_id       TEXT,
+    kind            TEXT NOT NULL CHECK (kind IN ('plan_section','plan_decision','plan_milestone','plan_acceptance','plan_test')),
+    title           TEXT NOT NULL,
+    body            TEXT,
+    status          TEXT CHECK (status IN ('planned','active','blocked','passing','failing','done','archived')),
+    owner           TEXT,
+    milestone_id    TEXT,
+    acceptance_id   TEXT,
+    order_index     INTEGER NOT NULL,
+    author_handle   TEXT NOT NULL,
+    author_kind     TEXT NOT NULL CHECK (author_kind IN ('agent','human','system')),
+    ts_millis       INTEGER NOT NULL,
+    evidence_json   TEXT NOT NULL DEFAULT '[]',
+    provenance_json TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_plan_events_plan ON plan_events (plan_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_plan_events_plan_ts ON plan_events (plan_id, ts_millis DESC)`,
+  // message_reactions SQLite projection (JWPK msg_71divtsj8r ratified
+  // ask_r0v3b4t — reactions persist across kickstart; codex's lane was
+  // blocked by sandbox so svelte picked it up).
+  // Same canonical-5 emoji allowlist enforced at the store boundary;
+  // (message_id, reactor_handle, emoji) triple is UNIQUE, first-react
+  // wins (no overwrite of reacted_at on duplicate add).
+  `CREATE TABLE IF NOT EXISTS message_reactions (
+    message_id     TEXT NOT NULL,
+    reactor_handle TEXT NOT NULL,
+    emoji          TEXT NOT NULL,
+    reacted_at     TEXT NOT NULL,
+    PRIMARY KEY (message_id, reactor_handle, emoji)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_message_reactions_message ON message_reactions (message_id)`,
+  // chat_invites + chat_invite_tokens SQLite projection (JWPK msg_71divtsj8r
+  // ratified ask_r0v3b4t — invites must persist; was the launch-blocking
+  // one because operator-minted invites disappeared on every kickstart).
+  // Schema mirrors the chatInviteStore.StoredChatInvite + StoredChatToken
+  // shapes; kinds + allowed_handles persisted as JSON text columns since
+  // SQLite has no array type and the read pattern is full-record (no
+  // value-level indexing needed).
+  `CREATE TABLE IF NOT EXISTS chat_invites (
+    id              TEXT PRIMARY KEY,
+    room_id         TEXT NOT NULL,
+    label           TEXT NOT NULL,
+    password_hash   TEXT NOT NULL,
+    kinds_json      TEXT NOT NULL,
+    created_by      TEXT,
+    created_at      TEXT NOT NULL,
+    revoked_at      TEXT,
+    failed_attempts INTEGER NOT NULL DEFAULT 0,
+    last_failed_at  TEXT,
+    hidden          INTEGER NOT NULL DEFAULT 0 CHECK (hidden IN (0, 1)),
+    allowed_handles_json TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_invites_room_active ON chat_invites (room_id, revoked_at)`,
+  `CREATE TABLE IF NOT EXISTS chat_invite_tokens (
+    id            TEXT PRIMARY KEY,
+    invite_id     TEXT NOT NULL,
+    room_id       TEXT NOT NULL,
+    token_hash    TEXT NOT NULL UNIQUE,
+    kind          TEXT NOT NULL CHECK (kind IN ('cli','mcp','web')),
+    handle        TEXT,
+    created_at    TEXT NOT NULL,
+    last_seen_at  TEXT,
+    revoked_at    TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_invite_tokens_invite ON chat_invite_tokens (invite_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_invite_tokens_hash ON chat_invite_tokens (token_hash)`,
+  // antchat_auth_tokens — O1 SQLite projection for the Mac antchat
+  // app's bearer-token sessions. Previously in-memory only
+  // (globalThis.__antchatTokenMap), so every launchd kickstart 401'd
+  // every signed-in client and forced re-login (JWPK msg_n1oi9ps2hj
+  // 'relogin pain'). Mirrors the plan_events / message_reactions /
+  // chat_invite_tokens projection pattern: PK on the random token,
+  // ms-epoch timestamps, expired rows lazy-pruned at resolve time.
+  `CREATE TABLE IF NOT EXISTS antchat_auth_tokens (
+    token          TEXT PRIMARY KEY,
+    email          TEXT NOT NULL,
+    issued_at_ms   INTEGER NOT NULL,
+    expires_at_ms  INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_antchat_auth_tokens_expires ON antchat_auth_tokens (expires_at_ms)`,
+  // entity_claims — 5-way convergent spec from ask_hj2ubjbum8dmpce8dc1.
+  // First-write-wins ledger backing the 🖐️ looking / 🤝 working / 👐 pass
+  // primitive. UNIQUE constraint enforces one active claim per
+  // (entity_kind, entity_id, claim_kind, claimed_by_handle) — so a single
+  // agent has at most one active row per (target, action), but two
+  // different agents can both be looking + many can pass independently.
+  `CREATE TABLE IF NOT EXISTS entity_claims (
+    id                TEXT PRIMARY KEY,
+    entity_kind       TEXT NOT NULL CHECK (entity_kind IN ('message','task')),
+    entity_id         TEXT NOT NULL,
+    claim_kind        TEXT NOT NULL CHECK (claim_kind IN ('looking','working','pass')),
+    claimed_by_handle TEXT NOT NULL,
+    status            TEXT NOT NULL CHECK (status IN ('active','done','released','expired')),
+    ttl_ms            INTEGER,
+    expires_at_ms     INTEGER,
+    claimed_at_ms     INTEGER NOT NULL,
+    released_at_ms    INTEGER,
+    override_reason   TEXT
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_entity_claims_active_unique
+    ON entity_claims (entity_kind, entity_id, claim_kind, claimed_by_handle)
+    WHERE status = 'active'`,
+  `CREATE INDEX IF NOT EXISTS idx_entity_claims_entity
+    ON entity_claims (entity_kind, entity_id, status)`,
+  `CREATE INDEX IF NOT EXISTS idx_entity_claims_expiry
+    ON entity_claims (status, expires_at_ms)`,
+  // caller_grants — JWPK msg_hf8ziydn4r + msg_zmqhwh5tpx (2026-05-19):
+  // explicit grant model for the @you / @evolveant* handle spoofing class.
+  // pidChain that doesn't natively resolve still posts as claimed handle
+  // IFF there's an active grant row for (pid, pid_start). Two kinds:
+  //   - 'human' — JWPK runs `ant granthuman --pid X --for 15m`, time-bounded
+  //   - 'agent' — JWPK runs `ant grantagent --pid X --handle @evolveantfoo`,
+  //     no expiry; auto-revoked when PID exits (kill -0 sweeper)
+  // pid_start prevents PID-rollover false-grants.
+  `CREATE TABLE IF NOT EXISTS caller_grants (
+    id                       TEXT PRIMARY KEY,
+    kind                     TEXT NOT NULL CHECK (kind IN ('human','agent')),
+    pid                      INTEGER NOT NULL,
+    pid_start                TEXT NOT NULL,
+    handle                   TEXT NOT NULL,
+    granted_at_ms            INTEGER NOT NULL,
+    expires_at_ms            INTEGER,
+    granted_by_handle        TEXT NOT NULL,
+    password_verified_at_ms  INTEGER,
+    tmux_session_id          TEXT,
+    status                   TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','expired','revoked'))
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_caller_grants_active_unique
+    ON caller_grants (pid, pid_start, handle)
+    WHERE status = 'active'`,
+  `CREATE INDEX IF NOT EXISTS idx_caller_grants_pid
+    ON caller_grants (pid, pid_start, status)`,
+  `CREATE INDEX IF NOT EXISTS idx_caller_grants_expiry
+    ON caller_grants (status, expires_at_ms)`,
+  // Cron-jobs primitive (JWPK msg_hjv6ac64zo 2026-05-19): operator-defined
+  // recurring jobs with named lifecycle (start/stop/pause/delete) that
+  // emit `cron.fired` events into the plan-trigger dispatcher so the
+  // existing actions (room.message / console.log / webhook.post /
+  // task.create) can react to a time source. v1 schedule is interval-only
+  // (`interval_ms`); cron expressions are a v2 widen lane via
+  // schedule_kind='cron'. Status gates the ticker — only 'running' rows
+  // fire; 'paused' / 'stopped' preserve configuration; 'deleted' is
+  // soft-delete (manual prune later per SURFACE-SIZE-ONLY pattern).
+  `CREATE TABLE IF NOT EXISTS cron_jobs (
+    id                        TEXT PRIMARY KEY,
+    name                      TEXT NOT NULL,
+    status                    TEXT NOT NULL DEFAULT 'paused'
+                                CHECK (status IN ('running', 'paused', 'stopped', 'deleted')),
+    schedule_kind             TEXT NOT NULL DEFAULT 'interval'
+                                CHECK (schedule_kind IN ('interval', 'cron')),
+    interval_ms               INTEGER,
+    cron_expr                 TEXT,
+    target_room_id            TEXT,
+    target_message_template   TEXT,
+    action                    TEXT NOT NULL DEFAULT 'room.message'
+                                CHECK (action IN ('room.message', 'console.log', 'webhook.post', 'task.create')),
+    action_config             TEXT NOT NULL DEFAULT '{}',
+    created_by_handle         TEXT,
+    created_at_ms             INTEGER NOT NULL,
+    updated_at_ms             INTEGER NOT NULL,
+    last_fired_at_ms          INTEGER,
+    next_fire_at_ms           INTEGER,
+    fire_count                INTEGER NOT NULL DEFAULT 0
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_cron_jobs_status_next
+    ON cron_jobs (status, next_fire_at_ms)`,
+  `CREATE INDEX IF NOT EXISTS idx_cron_jobs_created_by
+    ON cron_jobs (created_by_handle, status)`
+];
 
-  // Room links — typed relationships between chat sessions (discussions, elevations, etc.)
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS room_links (
-    id TEXT PRIMARY KEY,
-    source_room_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    target_room_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    relationship TEXT NOT NULL,
-    title TEXT,
-    created_by TEXT,
-    created_at TEXT DEFAULT (datetime('now'))
-  )`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_room_links_source ON room_links(source_room_id)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_room_links_target ON room_links(target_room_id)`);
-  G[DB_KEY].exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_room_links_unique ON room_links(source_room_id, target_room_id, relationship)`);
+function resolveDbFilePath(): string {
+  const explicit = process.env.ANT_FRESH_DB_PATH;
+  if (explicit && explicit.length > 0) return explicit;
+  // Phase 5.1: when vitest runs without explicit ANT_FRESH_DB_PATH, scope
+  // each worker to its own DB file so persisted-store tests (now including
+  // chatRoomStore) don't collide across worker processes via SQLITE_BUSY.
+  // Pre-Phase 5.1 these tests used in-memory Maps so cross-worker contention
+  // didn't exist; preserving zero-test-churn requires the auto-isolation.
+  if (process.env.VITEST) {
+    const workerId = process.env.VITEST_WORKER_ID ?? '0';
+    return join('/tmp', `ant-vitest-fresh-${workerId}-${process.pid}.db`);
+  }
+  const home = process.env.HOME ?? '/tmp';
+  return join(home, '.ant', 'fresh-ant.db');
+}
 
-  // Migration: add settings column to room_links for propagation/visibility config
-  const rlCols = G[DB_KEY].prepare(`PRAGMA table_info(room_links)`).all().map((c: any) => c.name);
-  if (!rlCols.includes('settings')) G[DB_KEY].exec(`ALTER TABLE room_links ADD COLUMN settings TEXT DEFAULT '{}'`);
+function ensureParentDirectoryExists(dbFile: string): void {
+  mkdirSync(dirname(dbFile), { recursive: true });
+}
 
-  // Channel registry — maps @handles to MCP channel server ports
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS channel_registry (
-    handle TEXT PRIMARY KEY,
-    port INTEGER NOT NULL,
-    session_id TEXT,
-    registered_at TEXT DEFAULT (datetime('now'))
-  )`);
-
-  // Delivery log — tracks message delivery for replay on reconnect
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS delivery_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    message_id TEXT NOT NULL,
-    session_id TEXT NOT NULL,
-    adapter TEXT NOT NULL,
-    delivered INTEGER DEFAULT 0,
-    error TEXT,
-    created_at INTEGER DEFAULT (unixepoch())
-  )`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_delivery_log_session ON delivery_log(session_id, created_at)`);
-
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS chat_focus_queue (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    room_id TEXT NOT NULL,
-    session_id TEXT NOT NULL,
-    message_id TEXT NOT NULL,
-    sender_id TEXT,
-    sender_name TEXT,
-    target TEXT,
-    content TEXT NOT NULL,
-    kind TEXT DEFAULT 'message',
-    created_at INTEGER DEFAULT (unixepoch()),
-    UNIQUE(room_id, session_id, message_id)
-  )`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_chat_focus_queue_member ON chat_focus_queue(room_id, session_id, created_at)`);
-
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS messages (
-    id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    role TEXT NOT NULL,
-    content TEXT NOT NULL,
-    format TEXT DEFAULT 'text',
-    status TEXT DEFAULT 'complete',
-    sender_id TEXT,
-    target TEXT,
-    reply_to TEXT REFERENCES messages(id) ON DELETE SET NULL,
-    msg_type TEXT DEFAULT 'message',
-    meta TEXT DEFAULT '{}',
-    created_at TEXT DEFAULT (datetime('now'))
-  )`);
-
-  // Migrations for messages table
-  const msgCols = G[DB_KEY].prepare(`PRAGMA table_info(messages)`).all().map((c: any) => c.name);
-  if (!msgCols.includes('sender_id')) G[DB_KEY].exec(`ALTER TABLE messages ADD COLUMN sender_id TEXT`);
-  if (!msgCols.includes('target'))    G[DB_KEY].exec(`ALTER TABLE messages ADD COLUMN target TEXT`);
-  if (!msgCols.includes('reply_to'))  G[DB_KEY].exec(`ALTER TABLE messages ADD COLUMN reply_to TEXT REFERENCES messages(id) ON DELETE SET NULL`);
-  if (!msgCols.includes('msg_type'))  G[DB_KEY].exec(`ALTER TABLE messages ADD COLUMN msg_type TEXT DEFAULT 'message'`);
-  if (!msgCols.includes('pinned'))    G[DB_KEY].exec(`ALTER TABLE messages ADD COLUMN pinned INTEGER DEFAULT 0`);
-  // Phase A of server-split-2026-05-11 — broadcast_state is the handoff
-  // between Tier 1 (persist library) and Tier 2 (in-process processor).
-  // Tier 1 writes 'pending' on every new row; Tier 2 flips to 'done'
-  // after the side-effect block runs. Default 'done' on the column means
-  // existing rows are NOT replayed — only new inserts ever become pending.
-  if (!msgCols.includes('broadcast_state'))
-    G[DB_KEY].prepare(`ALTER TABLE messages ADD COLUMN broadcast_state TEXT NOT NULL DEFAULT 'done'`).run();
-  if (!msgCols.includes('broadcast_attempts'))
-    G[DB_KEY].prepare(`ALTER TABLE messages ADD COLUMN broadcast_attempts INTEGER NOT NULL DEFAULT 0`).run();
-  // Partial index so listPendingBroadcasts() runs in O(pending), not
-  // O(all-messages) — Phase C's catch-up loop polls this every 5s.
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_messages_broadcast_pending
-    ON messages(broadcast_state) WHERE broadcast_state='pending'`);
-
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_messages_session_sender ON messages(session_id, sender_id, created_at)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_messages_reply_to ON messages(reply_to)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_sessions_workspace ON sessions(workspace_id)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_sessions_sort_index ON sessions(sort_index)`);
-
-  G[DB_KEY].exec(`CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
-    content, tokenize='trigram'
-  )`);
-
-  G[DB_KEY].exec(`CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
-    INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
-  END`);
-
-  G[DB_KEY].exec(`CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE OF content ON messages BEGIN
-    UPDATE messages_fts SET content = new.content WHERE rowid = new.rowid;
-  END`);
-
-  G[DB_KEY].exec(`CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
-    DELETE FROM messages_fts WHERE rowid = old.rowid;
-  END`);
-
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS asks (
-    id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    source_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
-    title TEXT NOT NULL,
-    body TEXT DEFAULT '',
-    recommendation TEXT,
-    status TEXT DEFAULT 'open' CHECK(status IN ('candidate','open','answered','deferred','dismissed')),
-    assigned_to TEXT DEFAULT 'room',
-    owner_kind TEXT DEFAULT 'room' CHECK(owner_kind IN ('human','agent','room','terminal','unknown')),
-    priority TEXT DEFAULT 'normal' CHECK(priority IN ('low','normal','high')),
-    created_by TEXT,
-    answered_by TEXT,
-    answer TEXT,
-    answer_action TEXT,
-    inferred INTEGER DEFAULT 0,
-    confidence REAL DEFAULT 0,
-    meta TEXT DEFAULT '{}',
-    resolved_at TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
-  )`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_asks_session ON asks(session_id, status, created_at)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_asks_status ON asks(status, created_at)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_asks_assigned ON asks(assigned_to, status, created_at)`);
-  G[DB_KEY].exec(`DROP INDEX IF EXISTS idx_asks_source_message`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_asks_source_message ON asks(source_message_id)`);
-
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS interviews (
-    id TEXT PRIMARY KEY,
-    room_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    source_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
-    target_session_id TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','ended','cancelled')),
-    title TEXT,
-    created_by TEXT,
-    transcript_ref TEXT,
-    transcript_path TEXT,
-    summary_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
-    summary_status TEXT,
-    meta TEXT DEFAULT '{}',
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
-    ended_at TEXT
-  )`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_interviews_room ON interviews(room_id, created_at)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_interviews_source_message ON interviews(source_message_id)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_interviews_status ON interviews(status, updated_at)`);
-
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS interview_participants (
-    interview_id TEXT NOT NULL REFERENCES interviews(id) ON DELETE CASCADE,
-    session_id TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'participant' CHECK(role IN ('target','participant')),
-    muted INTEGER NOT NULL DEFAULT 0,
-    added_at TEXT DEFAULT (datetime('now')),
-    PRIMARY KEY (interview_id, session_id)
-  )`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_interview_participants_session ON interview_participants(session_id)`);
-
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS interview_messages (
-    id TEXT PRIMARY KEY,
-    interview_id TEXT NOT NULL REFERENCES interviews(id) ON DELETE CASCADE,
-    role TEXT NOT NULL CHECK(role IN ('user','agent','system')),
-    speaker_session_id TEXT,
-    content TEXT NOT NULL,
-    format TEXT DEFAULT 'text',
-    status TEXT DEFAULT 'complete',
-    audio_cache_key TEXT,
-    audio_mime_type TEXT,
-    audio_duration_ms INTEGER,
-    meta TEXT DEFAULT '{}',
-    created_at TEXT DEFAULT (datetime('now'))
-  )`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_interview_messages_interview ON interview_messages(interview_id, created_at)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_interview_messages_speaker ON interview_messages(speaker_session_id, created_at)`);
-
-  // Migration: 'superseded' status + agent_resp_at_creation column
-  // (added 2026-05-07 — see docs/LESSONS.md § 1.12). Auto-supersede an
-  // open ask when the agent posts again with a non-Response-needed state,
-  // so stale Pending decisions don't pile up.
-  migrateAsksSupersededStatus();
-
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS terminal_transcripts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    chunk_index INTEGER NOT NULL,
-    raw_data BLOB NOT NULL,
-    timestamp TEXT DEFAULT (datetime('now'))
-  )`);
-
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_transcripts_session ON terminal_transcripts(session_id)`);
-
-  // Migrations for terminal_transcripts — per-row millisecond precision + cumulative
-  // byte offset per session, both needed by the history read paths and the idle-tick
-  // script. Added in the same commit that introduces the history API.
-  const trCols = G[DB_KEY].prepare(`PRAGMA table_info(terminal_transcripts)`).all().map((c: any) => c.name);
-  if (!trCols.includes('ts_ms'))       G[DB_KEY].exec(`ALTER TABLE terminal_transcripts ADD COLUMN ts_ms INTEGER`);
-  if (!trCols.includes('byte_offset')) G[DB_KEY].exec(`ALTER TABLE terminal_transcripts ADD COLUMN byte_offset INTEGER`);
-
-  // Dedupe any (session_id, chunk_index) collisions that accumulated before the
-  // restart bug was fixed — keep the row with the highest id for each pair, then
-  // add a UNIQUE index so we can never collide again.
-  try {
-    G[DB_KEY].exec(`
-      DELETE FROM terminal_transcripts
-      WHERE id NOT IN (
-        SELECT MAX(id) FROM terminal_transcripts GROUP BY session_id, chunk_index
-      )
-    `);
-  } catch { /* non-fatal */ }
-  G[DB_KEY].exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_transcripts_session_chunk
-            ON terminal_transcripts(session_id, chunk_index)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_transcripts_session_ts
-            ON terminal_transcripts(session_id, ts_ms)`);
-
-  // FTS5 mirror of transcript text with ANSI stripped. rowid matches
-  // terminal_transcripts.id so joins are cheap. Populated from TS (see
-  // appendTranscriptWithText below) rather than a SQL trigger, because SQLite
-  // can't strip ANSI without a user-defined function.
-  G[DB_KEY].exec(`CREATE VIRTUAL TABLE IF NOT EXISTS terminal_text_fts USING fts5(
-    text, tokenize='trigram'
-  )`);
-
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS tasks (
-    id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    created_by TEXT,
-    created_source TEXT,
-    assigned_to TEXT,
-    title TEXT NOT NULL,
-    description TEXT,
-    status TEXT DEFAULT 'proposed',
-    file_refs TEXT DEFAULT '[]',
-    plan_id TEXT,
-    milestone_id TEXT,
-    acceptance_id TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
-  )`);
-  const taskCols = G[DB_KEY].prepare(`PRAGMA table_info(tasks)`).all().map((c: any) => c.name);
-  if (!taskCols.includes('created_source')) G[DB_KEY].exec(`ALTER TABLE tasks ADD COLUMN created_source TEXT`);
-  if (!taskCols.includes('plan_id'))        G[DB_KEY].exec(`ALTER TABLE tasks ADD COLUMN plan_id TEXT`);
-  if (!taskCols.includes('milestone_id'))   G[DB_KEY].exec(`ALTER TABLE tasks ADD COLUMN milestone_id TEXT`);
-  if (!taskCols.includes('acceptance_id'))  G[DB_KEY].exec(`ALTER TABLE tasks ADD COLUMN acceptance_id TEXT`);
-
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_tasks_plan ON tasks(plan_id, milestone_id)`);
-
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS file_refs (
-    id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    flagged_by TEXT,
-    file_path TEXT NOT NULL,
-    note TEXT,
-    created_at TEXT DEFAULT (datetime('now'))
-  )`);
-
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_file_refs_session ON file_refs(session_id)`);
-
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS uploads (
-    id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    uploader_handle TEXT NOT NULL,
-    original_name TEXT,
-    mime_type TEXT NOT NULL,
-    content_hash TEXT NOT NULL,
-    size_bytes INTEGER NOT NULL,
-    storage_path TEXT NOT NULL,
-    public_url TEXT NOT NULL,
-    created_at TEXT DEFAULT (datetime('now'))
-  )`);
-
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_uploads_session ON uploads(session_id)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_uploads_handle_created ON uploads(uploader_handle, created_at)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_uploads_hash ON uploads(content_hash)`);
-
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS workspaces (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    root_dir TEXT,
-    created_at TEXT DEFAULT (datetime('now'))
-  )`);
-
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS server_state (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-  )`);
-
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS memories (
-    id TEXT PRIMARY KEY,
-    key TEXT NOT NULL,
-    value TEXT NOT NULL,
-    tags TEXT DEFAULT '[]',
-    session_id TEXT,
-    created_by TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
-  )`);
-
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_memories_key ON memories(key)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_memories_session ON memories(session_id)`);
-
-  G[DB_KEY].exec(`CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-    key, value, tokenize='trigram'
-  )`);
-
-  G[DB_KEY].exec(`CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
-    INSERT INTO memories_fts(rowid, key, value) VALUES (new.rowid, new.key, new.value);
-  END`);
-
-  G[DB_KEY].exec(`CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE OF key, value ON memories BEGIN
-    UPDATE memories_fts SET key = new.key, value = new.value WHERE rowid = new.rowid;
-  END`);
-
-  G[DB_KEY].exec(`CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
-    DELETE FROM memories_fts WHERE rowid = old.rowid;
-  END`);
-
-  // Structured tmux control mode events — persistent timeline of what
-  // happened inside a terminal session beyond the byte stream. Populated by
-  // pty-daemon parsing `%window-*`, `%session-*`, `%layout-change`, `%exit`
-  // and related control mode notifications. See docs/mempalace-schema.md
-  // for how agents use these (idle-tick read, librarian digest input).
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS terminal_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    ts_ms INTEGER NOT NULL,
-    kind TEXT NOT NULL,
-    data TEXT DEFAULT '{}'
-  )`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_term_events_session_ts ON terminal_events(session_id, ts_ms)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_term_events_kind ON terminal_events(kind)`);
-
-  // Unified append-only timeline for the ANT Terminal view. This is the
-  // interpreted, trust-labelled stream that sits between linked chat and raw
-  // terminal: hooks/JSON where available, parsed terminal diffs otherwise,
-  // with optional pointers back to raw transcript chunks for audit.
-  G[DB_KEY].exec(runEventsTableSql());
-  migrateRunEventsSourceCheck(G[DB_KEY]);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_run_events_session_ts ON run_events(session_id, ts_ms)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_run_events_source ON run_events(source)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_run_events_kind ON run_events(kind)`);
-
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS command_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    command TEXT NOT NULL,
-    cwd TEXT,
-    exit_code INTEGER,
-    started_at TEXT,
-    ended_at TEXT,
-    duration_ms INTEGER,
-    output_snippet TEXT,
-    meta TEXT DEFAULT '{}'
-  )`);
-
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_cmd_session ON command_events(session_id)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_cmd_started ON command_events(started_at)`);
-
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS terminal_identity_roots (
-    id TEXT PRIMARY KEY,
-    root_pid INTEGER NOT NULL,
-    pid_start TEXT,
-    handle TEXT,
-    session_id TEXT,
-    source TEXT DEFAULT 'manual',
-    registered_at INTEGER DEFAULT (unixepoch()),
-    expires_at INTEGER,
-    meta TEXT DEFAULT '{}'
-  )`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_terminal_identity_root_pid ON terminal_identity_roots(root_pid, registered_at DESC)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_terminal_identity_expiry ON terminal_identity_roots(expires_at)`);
-
-  G[DB_KEY].exec(`CREATE VIRTUAL TABLE IF NOT EXISTS command_events_fts USING fts5(
-    command, output_snippet, cwd, tokenize='trigram'
-  )`);
-
-  G[DB_KEY].exec(`CREATE TRIGGER IF NOT EXISTS cmd_ai AFTER INSERT ON command_events BEGIN
-    INSERT INTO command_events_fts(rowid, command, output_snippet, cwd)
-    VALUES (new.rowid, new.command, new.output_snippet, new.cwd);
-  END`);
-
-  // Migrations for sessions table — tmux + AON columns
-  if (!cols.includes('tmux_id'))        G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN tmux_id TEXT`);
-  if (!cols.includes('kill_timer'))     G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN kill_timer TEXT`);
-  if (!cols.includes('is_aon'))         G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN is_aon INTEGER DEFAULT 0`);
-  if (!cols.includes('linked_chat_id')) G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN linked_chat_id TEXT`);
-  // If on, user-role messages posted to a chat are written to each linked
-  // terminal's PTY as raw keystrokes (so you can answer (y)/n prompts from
-  // the chat input). If off, they arrive as the existing notification block.
-  // Default on. Flip off per-session for multi-agent broadcast rooms.
-  if (!cols.includes('auto_forward_chat')) G[DB_KEY].exec(`ALTER TABLE sessions ADD COLUMN auto_forward_chat INTEGER NOT NULL DEFAULT 1`);
-
-  // Read receipts — tracks who has seen each message
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS message_reads (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-    session_id TEXT NOT NULL,
-    read_at TEXT DEFAULT (datetime('now')),
-    UNIQUE(message_id, session_id)
-  )`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_message_reads_msg ON message_reads(message_id)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_message_reads_session ON message_reads(session_id)`);
-
-  // Room invites — per-room shareable invitations gated by user-set password.
-  // One invite can be used by multiple devices/transports (cli/mcp/web). Revoke
-  // on the invite kills all derived tokens; revoke on a single token kicks one device.
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS room_invites (
-    id TEXT PRIMARY KEY,
-    room_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    label TEXT NOT NULL,
-    password_hash TEXT NOT NULL,
-    kinds TEXT NOT NULL DEFAULT 'cli,mcp,web',
-    created_by TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    revoked_at TEXT
-  )`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_room_invites_room ON room_invites(room_id)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_room_invites_active ON room_invites(room_id, revoked_at)`);
-
-  // Migration: failure tracking for auto-revoke after N bad passwords
-  const inviteCols = G[DB_KEY].prepare(`PRAGMA table_info(room_invites)`).all().map((c: any) => c.name);
-  if (!inviteCols.includes('failed_attempts')) G[DB_KEY].exec(`ALTER TABLE room_invites ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0`);
-  if (!inviteCols.includes('last_failed_at')) G[DB_KEY].exec(`ALTER TABLE room_invites ADD COLUMN last_failed_at TEXT`);
-
-  // Room tokens — bearer tokens issued via password exchange. token_hash is
-  // sha-256 of the plaintext bearer; the bearer itself is never stored.
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS room_tokens (
-    id TEXT PRIMARY KEY,
-    invite_id TEXT NOT NULL REFERENCES room_invites(id) ON DELETE CASCADE,
-    room_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    token_hash TEXT NOT NULL UNIQUE,
-    kind TEXT NOT NULL,
-    handle TEXT,
-    meta TEXT DEFAULT '{}',
-    created_at TEXT DEFAULT (datetime('now')),
-    last_seen_at TEXT,
-    revoked_at TEXT
-  )`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_room_tokens_invite ON room_tokens(invite_id)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_room_tokens_room ON room_tokens(room_id)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_room_tokens_active ON room_tokens(invite_id, revoked_at)`);
-
-  // Open-Slide decks — local deck workspaces registered against one or more
-  // ANT rooms. Room invite tokens gate read/write access in /api/decks/*.
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS decks (
-    slug TEXT PRIMARY KEY,
-    owner_session_id TEXT NOT NULL REFERENCES sessions(id),
-    allowed_room_ids TEXT NOT NULL,
-    deck_dir TEXT NOT NULL,
-    dev_port INTEGER,
-    trust_mode TEXT NOT NULL DEFAULT 'trusted',
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-  )`);
-  // B1 of main-app-improvements-2026-05-10 — trust_mode column for
-  // per-mode CSP on the deck proxy. Existing decks default to 'trusted'
-  // to avoid silently breaking React decks that need script execution.
-  {
-    const deckCols = G[DB_KEY].prepare(`PRAGMA table_info(decks)`).all().map((c: any) => c.name);
-    if (!deckCols.includes('trust_mode')) {
-      G[DB_KEY].prepare(`ALTER TABLE decks ADD COLUMN trust_mode TEXT NOT NULL DEFAULT 'trusted'`).run();
+function applySchemaMigrations(db: DatabaseInstance): void {
+  for (const ddlStatement of SCHEMA_DDL_STATEMENTS) {
+    try {
+      db.prepare(ddlStatement).run();
+    } catch (cause) {
+      // Tolerate "duplicate column name" on idempotent ALTER TABLE re-runs.
+      const message = cause instanceof Error ? cause.message : String(cause);
+      if (!message.includes('duplicate column name')) throw cause;
     }
   }
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_decks_owner ON decks(owner_session_id)`);
-
-  // Open-Slide sheets — local spreadsheet workspaces registered against one or
-  // more ANT rooms. Mirrors the decks table shape; concurrency contract is
-  // identical (whole-file base_hash + if_match_mtime guard). Cell-aware diffs
-  // are a future follow-up.
-  const sheetsTableSql = `CREATE TABLE IF NOT EXISTS sheets (
-    slug TEXT PRIMARY KEY,
-    owner_session_id TEXT NOT NULL REFERENCES sessions(id),
-    allowed_room_ids TEXT NOT NULL,
-    sheet_dir TEXT NOT NULL,
-    dev_port INTEGER,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-  )`;
-  G[DB_KEY].exec(sheetsTableSql);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_sheets_owner ON sheets(owner_session_id)`);
-
-  // Site tunnels — locally-served dev/prototype websites exposed through a
-  // public URL such as a Cloudflare quick tunnel. ANT gates who can discover
-  // the URL in room artefacts; the public URL itself is not access-controlled.
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS site_tunnels (
-    slug TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    public_url TEXT NOT NULL,
-    local_url TEXT,
-    owner_session_id TEXT NOT NULL REFERENCES sessions(id),
-    allowed_room_ids TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'linked',
-    access_required INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-  )`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_site_tunnels_owner ON site_tunnels(owner_session_id)`);
-
-  // M3 #2 — Consent grants: scope-of-grant records per session.
-  // topic: what the grant allows (file-read, web-fetch, etc.).
-  // source_set: JSON array of file paths, URLs, or identifiers the grant covers.
-  // duration: human-readable TTL (5m, 2h, forever). Resolved to expires_at_ms.
-  // answer_count / max_answers: tracks usage; null max = unlimited.
-  G[DB_KEY].exec(`CREATE TABLE IF NOT EXISTS consent_grants (
-    id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    granted_to TEXT NOT NULL,
-    topic TEXT NOT NULL,
-    source_set TEXT DEFAULT '[]',
-    duration TEXT DEFAULT '1h',
-    answer_count INTEGER DEFAULT 0,
-    max_answers INTEGER,
-    status TEXT DEFAULT 'active' CHECK(status IN ('active','revoked','expired')),
-    granted_at_ms INTEGER NOT NULL,
-    expires_at_ms INTEGER,
-    meta TEXT DEFAULT '{}',
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
-  )`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_consent_grants_session ON consent_grants(session_id)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_consent_grants_granted_to ON consent_grants(granted_to, status)`);
-  G[DB_KEY].exec(`CREATE INDEX IF NOT EXISTS idx_consent_grants_status ON consent_grants(status, expires_at_ms)`);
-
-  // Record startup
-  G[DB_KEY].prepare(`INSERT OR REPLACE INTO server_state (key, value) VALUES (?, ?)`).run('last_heartbeat', new Date().toISOString());
-  G[DB_KEY].exec(`INSERT OR REPLACE INTO server_state(key, value) VALUES ('last_started', datetime('now'))`);
-
-  console.log(`[db] Initialized ${isBun ? 'bun:sqlite' : 'better-sqlite3'} at ${_dbPath}`);
-  return _db;
 }
 
-// Migration helper for the asks-supersede schema change. Lives outside
-// initSchema for readability — it's called once during init.
-function migrateAsksSupersededStatus(): void {
-  const db = G[DB_KEY];
-  try {
-    const asksSchema = db
-      .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='asks'`)
-      .get() as { sql?: string } | undefined;
+// B2-8 diagnostics: expose the resolved DB file path so the ops endpoint
+// can report its on-disk size (the 6.9GB-WAL incident made DB growth a
+// thing operators must be able to see).
+export function getDbFilePath(): string {
+  return resolveDbFilePath();
+}
 
-    if (asksSchema?.sql && !asksSchema.sql.includes("'superseded'")) {
-      const rebuildSql = `
-        BEGIN;
-        CREATE TABLE asks_new (
-          id TEXT PRIMARY KEY,
-          session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-          source_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
-          title TEXT NOT NULL,
-          body TEXT DEFAULT '',
-          recommendation TEXT,
-          status TEXT DEFAULT 'open' CHECK(status IN ('candidate','open','answered','deferred','dismissed','superseded')),
-          assigned_to TEXT DEFAULT 'room',
-          owner_kind TEXT DEFAULT 'room' CHECK(owner_kind IN ('human','agent','room','terminal','unknown')),
-          priority TEXT DEFAULT 'normal' CHECK(priority IN ('low','normal','high')),
-          created_by TEXT,
-          answered_by TEXT,
-          answer TEXT,
-          answer_action TEXT,
-          inferred INTEGER DEFAULT 0,
-          confidence REAL DEFAULT 0,
-          meta TEXT DEFAULT '{}',
-          resolved_at TEXT,
-          created_at TEXT DEFAULT (datetime('now')),
-          updated_at TEXT DEFAULT (datetime('now'))
-        );
-        INSERT INTO asks_new
-          SELECT id, session_id, source_message_id, title, body, recommendation,
-                 status, assigned_to, owner_kind, priority, created_by, answered_by,
-                 answer, answer_action, inferred, confidence, meta, resolved_at,
-                 created_at, updated_at
-            FROM asks;
-        DROP TABLE asks;
-        ALTER TABLE asks_new RENAME TO asks;
-        COMMIT;
-      `;
-      db.exec(rebuildSql);
-      const recreate = [
-        `CREATE INDEX IF NOT EXISTS idx_asks_session ON asks(session_id, status, created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_asks_status ON asks(status, created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_asks_assigned ON asks(assigned_to, status, created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_asks_source_message ON asks(source_message_id)`,
-      ];
-      for (const sql of recreate) db.exec(sql);
-    }
-
-    // Add the agent_resp_at_creation column if missing — used by the
-    // supersede logic to detect "agent has posted past this ask".
-    const cols = db.prepare(`PRAGMA table_info(asks)`).all().map((c: any) => c.name);
-    if (!cols.includes('agent_resp_at_creation')) {
-      db.exec(`ALTER TABLE asks ADD COLUMN agent_resp_at_creation INTEGER`);
-    }
-  } catch (err) {
-    console.error('[db] asks superseded migration failed', err);
+function ensureYouMembership(db: DatabaseInstance): void {
+  // Task #138 retro-fix: ensure @you is a member of every room
+  const roomsWithoutYou = db.prepare(`
+    SELECT r.id FROM chat_rooms r
+    WHERE r.deleted_at_ms IS NULL
+      AND r.id NOT IN (
+        SELECT room_id FROM chat_room_members WHERE handle = '@you'
+      )
+  `).all() as { id: string }[];
+  const nowIso = new Date().toISOString();
+  for (const row of roomsWithoutYou) {
+    db.prepare(`INSERT INTO chat_room_members
+      (id, room_id, handle, display_name, display_color, display_icon, display_background_style, joined_at, kind)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'human')`).run(
+      `m-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+      row.id,
+      '@you',
+      '@you',
+      '#DC2626',
+      'J',
+      'card',
+      nowIso
+    );
   }
 }
 
-// Lazy query helpers — prepared statements created on first use
-const stmtCache = new Map<string, any>();
+export function getIdentityDb(): DatabaseInstance {
+  const globalSlot = globalThis as Record<string, unknown>;
+  const existing = globalSlot[DB_GLOBAL_KEY] as DatabaseInstance | undefined;
+  if (existing) return existing;
 
-function prepare(sql: string): any {
-  if (!stmtCache.has(sql)) {
-    stmtCache.set(sql, getDb().prepare(sql));
+  const dbFile = resolveDbFilePath();
+  ensureParentDirectoryExists(dbFile);
+  const db = new Database(dbFile);
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  applySchemaMigrations(db);
+  ensureYouMembership(db);
+  sweepAutoCreatedRoomPlansInDb(db);
+  globalSlot[DB_GLOBAL_KEY] = db;
+  return db;
+}
+
+export function resetIdentityDbForTests(): void {
+  const globalSlot = globalThis as Record<string, unknown>;
+  const existing = globalSlot[DB_GLOBAL_KEY] as DatabaseInstance | undefined;
+  if (existing) {
+    try { existing.close(); } catch { /* db may already be closed */ }
   }
-  return stmtCache.get(sql);
+  delete globalSlot[DB_GLOBAL_KEY];
 }
-
-// Test-only: close the cached connection, clear the prepared-statement cache,
-// and drop the globalThis handle so the next getDb() re-resolves ANT_DATA_DIR
-// and rebuilds schema. Tests pair this with mkdtempSync + ANT_DATA_DIR swap to
-// achieve per-case isolation without vi.resetModules() (which bun's vitest shim
-// doesn't ship). Safe to call from production code (returns immediately if no
-// db is open), but intended only for tests.
-export function _resetForTest(): void {
-  try { _db?.close?.(); } catch {}
-  _db = null;
-  G[DB_KEY] = null;
-  stmtCache.clear();
-  resolveDbPaths();
-}
-
-const TTL_MS: Record<string, number> = {
-  '15m':    15 * 60 * 1000,
-  '45m':    45 * 60 * 1000,
-  '3h':   3 * 60 * 60 * 1000,
-  'forever': Infinity,
-};
-
-export function ttlMs(ttl: string): number {
-  return TTL_MS[ttl] ?? TTL_MS['15m'];
-}
-
-export const queries = {
-  getSetting: (key: string) => {
-    const row = getDb().prepare("SELECT value FROM settings WHERE key = ?").get(key);
-    return row ? row.value : null;
-  },
-
-  setSetting: (key: string, value: string) => {
-    return getDb().prepare("INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at").run(key, value);
-  },
-
-  getAllSettings: () => {
-    return getDb().prepare("SELECT * FROM settings").all();
-  },
-  // Sessions — active (not soft-deleted, not archived)
-  listSessions: () => prepare(`
-    WITH active_focus AS (
-      SELECT
-        crm.*,
-        r.name AS focus_room_name,
-        ROW_NUMBER() OVER (
-          PARTITION BY crm.session_id
-          ORDER BY COALESCE(crm.attention_expires_at, 2147483647) DESC, crm.attention_updated_at DESC
-        ) AS rn
-      FROM chat_room_members crm
-      JOIN sessions r ON r.id = crm.room_id
-      WHERE crm.role = 'participant'
-        AND crm.attention_state = 'focus'
-        AND (crm.attention_expires_at IS NULL OR crm.attention_expires_at > unixepoch())
-    )
-    SELECT
-      s.*,
-      af.attention_state AS attention_state,
-      af.attention_reason AS attention_reason,
-      af.attention_set_by AS attention_set_by,
-      af.attention_expires_at AS attention_expires_at,
-      af.room_id AS focus_room_id,
-      af.focus_room_name AS focus_room_name,
-      CASE
-        WHEN af.session_id IS NULL THEN NULL
-        ELSE (
-          SELECT COUNT(*) FROM chat_focus_queue cfq
-          WHERE cfq.room_id = af.room_id AND cfq.session_id = s.id
-        )
-      END AS focus_queue_count
-    FROM sessions s
-    LEFT JOIN active_focus af ON af.session_id = s.id AND af.rn = 1
-    WHERE s.archived = 0 AND s.deleted_at IS NULL
-    ORDER BY
-      CASE WHEN s.sort_index IS NULL THEN 1 ELSE 0 END,
-      s.sort_index ASC,
-      s.updated_at DESC
-  `).all(),
-  // Sessions hidden from the main dashboard: archived-only rows and soft-deleted
-  // rows that are still inside their restore window.
-  listRecoverable: () => prepare(`
-    SELECT * FROM sessions
-    WHERE deleted_at IS NOT NULL OR archived = 1
-    ORDER BY COALESCE(deleted_at, updated_at) DESC
-  `).all(),
-  // All terminal sessions for rehydration on startup
-  listTerminalSessions: () => prepare(`SELECT * FROM sessions WHERE type = 'terminal' AND archived = 0`).all(),
-  getSession: (id: string) => prepare(`SELECT * FROM sessions WHERE id = ?`).get(id),
-  createSession: (id: string, name: string, type: string, ttl: string, workspaceId: string | null, rootDir: string | null, meta: string) =>
-    prepare(`INSERT INTO sessions (id, name, type, ttl, workspace_id, root_dir, meta) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(id, name, type, ttl, workspaceId, rootDir, meta),
-  updateSession: (name: string | null, status: string | null, archived: number | null, meta: string | null, id: string) =>
-    prepare(`UPDATE sessions SET name = COALESCE(?, name), status = COALESCE(?, status), archived = COALESCE(?, archived), meta = COALESCE(?, meta), updated_at = datetime('now') WHERE id = ?`).run(name, status, archived, meta, id),
-  updateTtl: (ttl: string, id: string) =>
-    prepare(`UPDATE sessions SET ttl = ?, updated_at = datetime('now') WHERE id = ?`).run(ttl, id),
-  updateRootDir: (rootDir: string | null, id: string) =>
-    prepare(`UPDATE sessions SET root_dir = ?, updated_at = datetime('now') WHERE id = ?`).run(rootDir, id),
-  setLongMemory: (id: string, enabled: boolean) =>
-    prepare(`UPDATE sessions SET long_memory = ?, updated_at = datetime('now') WHERE id = ?`).run(enabled ? 1 : 0, id),
-  touchActivity: (id: string) =>
-    prepare(`UPDATE sessions SET last_activity = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(id),
-  softDeleteSession: (id: string) =>
-    prepare(`UPDATE sessions SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(id),
-  restoreSession: (id: string) =>
-    prepare(`UPDATE sessions SET deleted_at = NULL, archived = 0, updated_at = datetime('now') WHERE id = ?`).run(id),
-  hardDeleteSession: (id: string) => prepare(`DELETE FROM sessions WHERE id = ?`).run(id),
-  archiveSession: (id: string) => prepare(`UPDATE sessions SET archived = 1, updated_at = datetime('now') WHERE id = ?`).run(id),
-  reorderSessions: (ids: string[]) => {
-    const db = getDb();
-    const tx = db.transaction((orderedIds: string[]) => {
-      db.prepare(`UPDATE sessions SET sort_index = NULL WHERE archived = 0 AND deleted_at IS NULL`).run();
-      const stmt = db.prepare(`UPDATE sessions SET sort_index = ? WHERE id = ? AND archived = 0 AND deleted_at IS NULL`);
-      orderedIds.forEach((id, index) => stmt.run(index, id));
-    });
-    return tx(ids);
-  },
-  resetSessionOrder: () =>
-    prepare(`UPDATE sessions SET sort_index = NULL WHERE archived = 0 AND deleted_at IS NULL`).run(),
-
-  // Sessions — linked chat
-  setLinkedChat: (sessionId: string, chatId: string) =>
-    prepare(`UPDATE sessions SET linked_chat_id = ?, updated_at = datetime('now') WHERE id = ?`).run(chatId, sessionId),
-
-  // Sessions — handle/identity
-  setHandle: (id: string, handle: string | null, displayName: string | null) =>
-    prepare(`UPDATE sessions SET handle = ?, display_name = ?, updated_at = datetime('now') WHERE id = ?`).run(handle, displayName, id),
-  getSessionByHandle: (handle: string) => prepare(`SELECT * FROM sessions WHERE handle = ? AND archived = 0 AND deleted_at IS NULL`).get(handle),
-
-  // Terminal identity registry — maps a long-lived shell/process-tree root to
-  // a handle/session without mutating shared CLI config.
-  registerTerminalIdentity: (id: string, rootPid: number, pidStart: string | null, handle: string | null, sessionId: string | null, source: string, expiresAt: number | null, meta: string) =>
-    prepare(`INSERT INTO terminal_identity_roots (id, root_pid, pid_start, handle, session_id, source, expires_at, meta)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(id, rootPid, pidStart, handle, sessionId, source, expiresAt, meta),
-  resolveTerminalIdentity: (pids: { pid: number; pid_start?: string | null }[], now: number) => {
-    const clean = pids
-      .filter((entry) => Number.isInteger(entry.pid) && entry.pid > 1)
-      .slice(0, 64);
-    if (clean.length === 0) return null;
-    const placeholders = clean.map(() => '?').join(',');
-    const rows = prepare(`
-      SELECT tir.*, s.handle AS session_handle, s.display_name, s.name, s.type
-      FROM terminal_identity_roots tir
-      LEFT JOIN sessions s ON s.id = tir.session_id
-      WHERE tir.root_pid IN (${placeholders})
-        AND (tir.expires_at IS NULL OR tir.expires_at > ?)
-      ORDER BY tir.registered_at DESC, tir.rowid DESC
-    `).all(...clean.map((entry) => entry.pid), now);
-    const starts = new Map(clean.map((entry) => [entry.pid, entry.pid_start || null]));
-    return rows.find((row: any) => {
-      const currentStart = starts.get(row.root_pid) || null;
-      return !row.pid_start || !currentStart || row.pid_start === currentStart;
-    }) ?? null;
-  },
-  pruneTerminalIdentities: (now: number) =>
-    prepare(`DELETE FROM terminal_identity_roots WHERE expires_at IS NOT NULL AND expires_at <= ?`).run(now),
-
-  // CLI flag + alias
-  setCliFlag: (id: string, cliFlag: string | null) =>
-    prepare(`UPDATE sessions SET cli_flag = ?, updated_at = datetime('now') WHERE id = ?`).run(cliFlag, id),
-  setAlias: (id: string, alias: string) =>
-    prepare(`UPDATE sessions SET alias = ?, handle = ?, display_name = ?, updated_at = datetime('now') WHERE id = ?`).run(alias, `@${alias}`, alias, id),
-
-  // Chat room members
-  addRoomMember: (roomId: string, sessionId: string, role: string, cliFlag: string | null, alias?: string | null) =>
-    prepare(`INSERT INTO chat_room_members (room_id, session_id, role, cli_flag, alias, joined_at)
-             VALUES (?, ?, ?, ?, ?, datetime('now'))
-             ON CONFLICT(room_id, session_id) DO UPDATE SET
-               role = excluded.role,
-               cli_flag = excluded.cli_flag,
-               alias = excluded.alias,
-               joined_at = datetime('now')`).run(roomId, sessionId, role, cliFlag, alias ?? null),
-  removeRoomMember: (roomId: string, sessionId: string) =>
-    prepare(`UPDATE chat_room_members SET role = 'left' WHERE room_id = ? AND session_id = ? AND role != 'left'`).run(roomId, sessionId),
-  updateMemberAlias: (roomId: string, sessionId: string, alias: string | null) =>
-    prepare(`UPDATE chat_room_members SET alias = ? WHERE room_id = ? AND session_id = ?`).run(alias, roomId, sessionId),
-  getRoomMember: (roomId: string, sessionId: string) =>
-    prepare(`SELECT crm.*, s.name, s.handle, s.display_name, s.type, s.status as session_status
-             FROM chat_room_members crm LEFT JOIN sessions s ON s.id = crm.session_id
-             WHERE crm.room_id = ? AND crm.session_id = ?`).get(roomId, sessionId),
-  // Phase D of server-split-2026-05-11 — membership check for the
-  // CLI direct-write path. Matches either session_id (canonical) or
-  // handle (legacy alias path) so an actor identified by either form
-  // satisfies the gate. LIMIT 1 — we only care if any row exists.
-  isRoomMember: (roomId: string, sessionOrHandle: string) =>
-    prepare(`SELECT 1 FROM chat_room_members WHERE room_id = ? AND (session_id = ? OR alias = ?) LIMIT 1`).get(roomId, sessionOrHandle, sessionOrHandle),
-  // Phase D — count membership rows for a room. Used to detect the
-  // greenfield case (no members yet) so the first CLI direct-write
-  // is allowed to auto-create membership the same way an HTTP POST
-  // would. After the first write, isRoomMember will return truthy.
-  countRoomMembers: (roomId: string) =>
-    (prepare(`SELECT COUNT(*) as c FROM chat_room_members WHERE room_id = ?`).get(roomId) as any)?.c ?? 0,
-  getMemberByAlias: (roomId: string, alias: string) =>
-    prepare(`SELECT crm.*, s.name, s.handle, s.display_name, s.type FROM chat_room_members crm LEFT JOIN sessions s ON s.id = crm.session_id WHERE crm.room_id = ? AND crm.alias = ?`).get(roomId, alias),
-  listRoomMembers: (roomId: string) =>
-    prepare(`SELECT crm.*, s.name, s.handle, s.display_name, s.type, s.status as session_status FROM chat_room_members crm LEFT JOIN sessions s ON s.id = crm.session_id WHERE crm.room_id = ?`).all(roomId),
-  getRoutableMembers: (roomId: string) =>
-    prepare(`SELECT crm.*, s.name, s.handle, s.display_name, s.type FROM chat_room_members crm LEFT JOIN sessions s ON s.id = crm.session_id WHERE crm.room_id = ? AND crm.role = 'participant'`).all(roomId),
-  getActiveFocusForSession: (sessionId: string) =>
-    prepare(`SELECT
-               crm.*,
-               r.name AS room_name,
-               (SELECT COUNT(*) FROM chat_focus_queue cfq WHERE cfq.room_id = crm.room_id AND cfq.session_id = crm.session_id) AS focus_queue_count
-             FROM chat_room_members crm
-             JOIN sessions r ON r.id = crm.room_id
-             WHERE crm.session_id = ?
-               AND crm.role = 'participant'
-               AND crm.attention_state = 'focus'
-               AND (crm.attention_expires_at IS NULL OR crm.attention_expires_at > unixepoch())
-             ORDER BY COALESCE(crm.attention_expires_at, 2147483647) DESC, crm.attention_updated_at DESC
-             LIMIT 1`).get(sessionId),
-  setMemberAttention: (roomId: string, sessionId: string, state: string, reason: string | null, setBy: string | null, expiresAt: number | null) =>
-    prepare(`UPDATE chat_room_members
-             SET attention_state = ?, attention_reason = ?, attention_set_by = ?, attention_expires_at = ?, attention_updated_at = unixepoch()
-             WHERE room_id = ? AND session_id = ?`).run(state, reason, setBy, expiresAt, roomId, sessionId),
-  listExpiredFocusedMembers: (roomId: string | null, now: number) => {
-    if (roomId) {
-      return prepare(`SELECT crm.*, s.name, s.handle, s.display_name, s.type
-                      FROM chat_room_members crm LEFT JOIN sessions s ON s.id = crm.session_id
-                      WHERE crm.room_id = ? AND crm.role = 'participant'
-                        AND crm.attention_state = 'focus'
-                        AND crm.attention_expires_at IS NOT NULL
-                        AND crm.attention_expires_at <= ?`).all(roomId, now);
-    }
-    return prepare(`SELECT crm.*, s.name, s.handle, s.display_name, s.type
-                    FROM chat_room_members crm LEFT JOIN sessions s ON s.id = crm.session_id
-                    WHERE crm.role = 'participant'
-                      AND crm.attention_state = 'focus'
-                      AND crm.attention_expires_at IS NOT NULL
-                      AND crm.attention_expires_at <= ?`).all(now);
-  },
-
-  // Channel registry
-  registerChannel: (handle: string, port: number, sessionId: string | null) =>
-    prepare(`INSERT OR REPLACE INTO channel_registry (handle, port, session_id) VALUES (?, ?, ?)`).run(handle, port, sessionId),
-  deregisterChannel: (handle: string) =>
-    prepare(`DELETE FROM channel_registry WHERE handle = ?`).run(handle),
-  getChannelPort: (handle: string) =>
-    prepare(`SELECT port FROM channel_registry WHERE handle = ?`).get(handle) as { port: number } | undefined,
-  listChannels: () =>
-    prepare(`SELECT * FROM channel_registry`).all(),
-
-  // Room links
-  createRoomLink: (id: string, sourceRoomId: string, targetRoomId: string, relationship: string, title: string | null, createdBy: string | null, settings: string = '{}') =>
-    prepare(`INSERT INTO room_links (id, source_room_id, target_room_id, relationship, title, created_by, settings) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(id, sourceRoomId, targetRoomId, relationship, title, createdBy, settings),
-  updateRoomLinkSettings: (id: string, settings: string) =>
-    prepare(`UPDATE room_links SET settings = ? WHERE id = ?`).run(settings, id),
-  getRoomLinks: (roomId: string) =>
-    prepare(`SELECT rl.*, s.name as target_name, s.type as target_type FROM room_links rl JOIN sessions s ON s.id = rl.target_room_id WHERE rl.source_room_id = ? ORDER BY rl.created_at`).all(roomId),
-  getRoomBacklinks: (roomId: string) =>
-    prepare(`SELECT rl.*, s.name as source_name, s.type as source_type FROM room_links rl JOIN sessions s ON s.id = rl.source_room_id WHERE rl.target_room_id = ? ORDER BY rl.created_at`).all(roomId),
-  deleteRoomLinkForRoom: (id: string, roomId: string) =>
-    prepare(`DELETE FROM room_links WHERE id = ? AND source_room_id = ?`).run(id, roomId),
-  deleteRoomLink: (id: string) =>
-    prepare(`DELETE FROM room_links WHERE id = ?`).run(id),
-
-  // Delivery log
-  logDelivery: (messageId: string, sessionId: string, adapter: string, delivered: number, error: string | null) =>
-    prepare(`INSERT INTO delivery_log (message_id, session_id, adapter, delivered, error) VALUES (?, ?, ?, ?, ?)`).run(messageId, sessionId, adapter, delivered, error),
-  // Phase B of server-split-2026-05-11 — per-adapter idempotency check
-  // for runSideEffects. Returns truthy if a successful delivery row
-  // already exists for (message_id, adapter). Replays consult this
-  // before each non-idempotent adapter call (channel HTTP fanout) so
-  // they cannot double-post.
-  hasDelivered: (messageId: string, adapter: string) =>
-    prepare(`SELECT 1 FROM delivery_log WHERE message_id = ? AND adapter = ? AND delivered = 1 LIMIT 1`).get(messageId, adapter),
-  pruneDeliveryLog: (olderThanSecs: number) =>
-    prepare(`DELETE FROM delivery_log WHERE created_at < (unixepoch() - ?)`).run(olderThanSecs),
-  queueFocusMessage: (roomId: string, sessionId: string, messageId: string, senderId: string | null, senderName: string | null, target: string | null, content: string, kind: string) =>
-    prepare(`INSERT OR IGNORE INTO chat_focus_queue (room_id, session_id, message_id, sender_id, sender_name, target, content, kind)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(roomId, sessionId, messageId, senderId, senderName, target, content, kind),
-  listFocusQueue: (roomId: string, sessionId: string, limit: number) =>
-    prepare(`SELECT * FROM chat_focus_queue WHERE room_id = ? AND session_id = ? ORDER BY created_at ASC LIMIT ?`).all(roomId, sessionId, limit),
-  countFocusQueue: (roomId: string, sessionId: string) =>
-    (prepare(`SELECT COUNT(*) as count FROM chat_focus_queue WHERE room_id = ? AND session_id = ?`).get(roomId, sessionId) as any)?.count ?? 0,
-  clearFocusQueue: (roomId: string, sessionId: string) =>
-    prepare(`DELETE FROM chat_focus_queue WHERE room_id = ? AND session_id = ?`).run(roomId, sessionId),
-  countRecentFocusBypasses: (roomId: string, senderId: string | null, sinceIso: string) => {
-    if (senderId) {
-      return (prepare(`SELECT COUNT(*) as count FROM messages WHERE session_id = ? AND sender_id = ? AND msg_type = 'focus_bypass' AND created_at >= ?`).get(roomId, senderId, sinceIso) as any)?.count ?? 0;
-    }
-    return (prepare(`SELECT COUNT(*) as count FROM messages WHERE session_id = ? AND sender_id IS NULL AND msg_type = 'focus_bypass' AND created_at >= ?`).get(roomId, sinceIso) as any)?.count ?? 0;
-  },
-  getTerminalsByLinkedChat: (chatId: string) =>
-    prepare(`SELECT * FROM sessions WHERE linked_chat_id = ? AND type = 'terminal' AND archived = 0 AND deleted_at IS NULL`).all(chatId),
-  // All live terminal sessions that have a linked chat — kept for reference.
-  getLinkedTerminalSessions: () =>
-    prepare(`SELECT id, linked_chat_id FROM sessions WHERE type = 'terminal' AND archived = 0 AND deleted_at IS NULL AND linked_chat_id IS NOT NULL`).all(),
-
-  // All live terminal sessions WITHOUT a linked chat — used by the pane_title
-  // polling loop. Sessions with a linked chat get terminal output via the
-  // terminal_line path, so title polling is redundant noise for them.
-  getUnlinkedTerminalSessions: () =>
-    prepare(`SELECT id, linked_chat_id FROM sessions WHERE type = 'terminal' AND archived = 0 AND deleted_at IS NULL AND linked_chat_id IS NULL`).all(),
-
-  // Most recent title/prompt message in a chat — used to seed the title poller
-  // cooldown map on server restart so we don't spam duplicate titles.
-  getMostRecentTitleMessage: (chatId: string) =>
-    prepare(`SELECT created_at FROM messages WHERE session_id = ? AND msg_type IN ('title','prompt') ORDER BY created_at DESC LIMIT 1`).get(chatId),
-
-  // Messages
-  listMessages: (sessionId: string) => prepare(`SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC`).all(sessionId),
-  getMessage: (id: string) => prepare(`SELECT * FROM messages WHERE id = ?`).get(id),
-
-  // Participants — unique senders in a session, enriched with session name/handle
-  listParticipants: (sessionId: string) =>
-    prepare(`
-      SELECT DISTINCT
-        m.sender_id as id,
-        COALESCE(s.display_name, s.name, m.sender_id) as name,
-        s.handle,
-        s.type as session_type,
-        MIN(m.created_at) as first_seen,
-        MAX(m.created_at) as last_seen,
-        COUNT(*) as message_count
-      FROM messages m
-      LEFT JOIN sessions s ON s.id = m.sender_id
-      WHERE m.session_id = ? AND m.sender_id IS NOT NULL
-      GROUP BY m.sender_id
-      ORDER BY first_seen ASC
-    `).all(sessionId),
-
-  getMessagesSince: (sessionId: string, since: string, limit: number) =>
-    prepare(`SELECT * FROM messages WHERE session_id = ? AND created_at > ? ORDER BY created_at ASC LIMIT ?`).all(sessionId, since, limit),
-  getMessagesBefore: (sessionId: string, before: string, limit: number) =>
-    prepare(`SELECT * FROM messages WHERE session_id = ? AND created_at < ? ORDER BY created_at DESC LIMIT ?`).all(sessionId, before, limit),
-  getLatestMessages: (sessionId: string, limit: number) =>
-    prepare(`SELECT * FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT ?`).all(sessionId, limit),
-  // Default broadcastState='done' so existing call sites outside the
-  // persist library (mcp-handler, hooks route, interview-summary,
-  // message-router, tests) continue to insert rows the catch-up loop
-  // (Phase C) will NEVER replay. The persist library's writeMessage
-  // is the single caller that explicitly passes 'pending' — anything
-  // not Tier-1 chat is intentionally not in the broadcast queue.
-  createMessage: (id: string, sessionId: string, role: string, content: string, format: string, status: string, senderId: string | null, target: string | null, replyTo: string | null, msgType: string, meta: string, broadcastState: string = 'done') =>
-    prepare(`INSERT INTO messages (id, session_id, role, content, format, status, sender_id, target, reply_to, msg_type, meta, broadcast_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, sessionId, role, content, format, status, senderId, target, replyTo, msgType, meta, broadcastState),
-  // Phase A of server-split-2026-05-11 — broadcast queue helpers used by
-  // Tier 2's runSideEffects (Phase B) and the catch-up loop (Phase C).
-  // Kept thin: the persist library wraps these in a typed surface
-  // (src/lib/persist/broadcast-queue.ts).
-  markBroadcastDone: (id: string) =>
-    prepare(`UPDATE messages SET broadcast_state = 'done' WHERE id = ?`).run(id),
-  markBroadcastFailed: (id: string) =>
-    prepare(`UPDATE messages SET broadcast_state = 'failed' WHERE id = ?`).run(id),
-  markBroadcastExpired: (id: string) =>
-    prepare(`UPDATE messages SET broadcast_state = 'expired' WHERE id = ?`).run(id),
-  bumpBroadcastAttempts: (id: string) =>
-    prepare(`UPDATE messages SET broadcast_attempts = broadcast_attempts + 1 WHERE id = ?`).run(id),
-  listPendingBroadcasts: (limit: number = 100) =>
-    prepare(`SELECT * FROM messages WHERE broadcast_state = 'pending' ORDER BY created_at ASC LIMIT ?`).all(limit),
-  /**
-   * Returns 1 row when the sender has any prior message in the session,
-   * undefined otherwise. Used by ant-skills-on-demand-2026-05-09 m2 to
-   * detect a sender's first post in a room and serve a one-line skills
-   * hint without re-spamming on every subsequent message.
-   *
-   * Cheap — leverages the existing (session_id, sender_id) coverage on
-   * messages and only needs LIMIT 1.
-   */
-  hasPriorMessageFromSender: (sessionId: string, senderId: string) =>
-    prepare(`SELECT 1 FROM messages WHERE session_id = ? AND sender_id = ? LIMIT 1`).get(sessionId, senderId),
-  deleteMessage: (id: string) => prepare(`DELETE FROM messages WHERE id = ?`).run(id),
-  updateMessageMeta: (id: string, meta: string) =>
-    prepare(`UPDATE messages SET meta = ? WHERE id = ?`).run(meta, id),
-  togglePinMessage: (id: string, pinned: boolean) =>
-    prepare(`UPDATE messages SET pinned = ? WHERE id = ?`).run(pinned ? 1 : 0, id),
-
-  // Interviews — focused message-scoped agent interviews, intentionally not
-  // full chat rooms. Participants are same-room agents; mute controls TTS only.
-  createInterview: (
-    id: string,
-    roomId: string,
-    sourceMessageId: string | null,
-    targetSessionId: string,
-    title: string | null,
-    createdBy: string | null,
-    meta: string,
-  ) =>
-    prepare(`INSERT INTO interviews
-      (id, room_id, source_message_id, target_session_id, title, created_by, meta)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, roomId, sourceMessageId, targetSessionId, title, createdBy, meta),
-  getInterview: (id: string) =>
-    prepare(`SELECT * FROM interviews WHERE id = ?`).get(id),
-  listInterviewsForRoom: (roomId: string, limit: number) =>
-    prepare(`SELECT * FROM interviews WHERE room_id = ? ORDER BY created_at DESC LIMIT ?`).all(roomId, limit),
-  finishInterview: (
-    id: string,
-    transcriptRef: string | null,
-    transcriptPath: string | null,
-    summaryMessageId: string | null,
-    summaryStatus: string | null,
-    meta: string | null,
-  ) =>
-    prepare(`UPDATE interviews SET
-      status = 'ended',
-      transcript_ref = COALESCE(?, transcript_ref),
-      transcript_path = COALESCE(?, transcript_path),
-      summary_message_id = COALESCE(?, summary_message_id),
-      summary_status = COALESCE(?, summary_status),
-      meta = COALESCE(?, meta),
-      ended_at = COALESCE(ended_at, datetime('now')),
-      updated_at = datetime('now')
-      WHERE id = ?`).run(transcriptRef, transcriptPath, summaryMessageId, summaryStatus, meta, id),
-  cancelInterview: (id: string) =>
-    prepare(`UPDATE interviews SET status = 'cancelled', ended_at = COALESCE(ended_at, datetime('now')), updated_at = datetime('now') WHERE id = ?`).run(id),
-  addInterviewParticipant: (interviewId: string, sessionId: string, role: string, muted: boolean) =>
-    prepare(`INSERT INTO interview_participants (interview_id, session_id, role, muted)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(interview_id, session_id) DO UPDATE SET
-        role = CASE
-          WHEN interview_participants.role = 'target' OR excluded.role = 'target' THEN 'target'
-          ELSE excluded.role
-        END,
-        muted = excluded.muted`).run(interviewId, sessionId, role, muted ? 1 : 0),
-  listInterviewParticipants: (interviewId: string) =>
-    prepare(`
-      SELECT ip.*, s.name, s.handle, s.display_name, s.cli_flag
-      FROM interview_participants ip
-      LEFT JOIN sessions s ON s.id = ip.session_id
-      WHERE ip.interview_id = ?
-      ORDER BY CASE ip.role WHEN 'target' THEN 0 ELSE 1 END, ip.added_at ASC
-    `).all(interviewId),
-  getInterviewParticipant: (interviewId: string, sessionId: string) =>
-    prepare(`SELECT * FROM interview_participants WHERE interview_id = ? AND session_id = ?`).get(interviewId, sessionId),
-  updateInterviewParticipantMute: (interviewId: string, sessionId: string, muted: boolean) =>
-    prepare(`UPDATE interview_participants SET muted = ? WHERE interview_id = ? AND session_id = ?`).run(muted ? 1 : 0, interviewId, sessionId),
-  deleteInterviewParticipant: (interviewId: string, sessionId: string) =>
-    prepare(`DELETE FROM interview_participants WHERE interview_id = ? AND session_id = ? AND role <> 'target'`).run(interviewId, sessionId),
-  createInterviewMessage: (
-    id: string,
-    interviewId: string,
-    role: string,
-    speakerSessionId: string | null,
-    content: string,
-    format: string,
-    status: string,
-    audioCacheKey: string | null,
-    audioMimeType: string | null,
-    audioDurationMs: number | null,
-    meta: string,
-  ) =>
-    prepare(`INSERT INTO interview_messages
-      (id, interview_id, role, speaker_session_id, content, format, status, audio_cache_key, audio_mime_type, audio_duration_ms, meta)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, interviewId, role, speakerSessionId, content, format, status, audioCacheKey, audioMimeType, audioDurationMs, meta),
-  listInterviewMessages: (interviewId: string) =>
-    prepare(`SELECT * FROM interview_messages WHERE interview_id = ? ORDER BY created_at ASC, rowid ASC`).all(interviewId),
-  getInterviewMessage: (id: string) =>
-    prepare(`SELECT * FROM interview_messages WHERE id = ?`).get(id),
-
-  // Ask queue — durable questions, recommendations, and action blockers.
-  listAsks: (opts: { sessionId?: string | null; statuses?: string[] | null; assignedTo?: string | null; limit?: number } = {}) => {
-    const filters: string[] = [];
-    const params: any[] = [];
-    if (opts.sessionId) {
-      filters.push('a.session_id = ?');
-      params.push(opts.sessionId);
-    }
-    if (opts.statuses && opts.statuses.length > 0) {
-      filters.push(`a.status IN (${opts.statuses.map(() => '?').join(',')})`);
-      params.push(...opts.statuses);
-    }
-    if (opts.assignedTo) {
-      filters.push('a.assigned_to = ?');
-      params.push(opts.assignedTo);
-    }
-    const limit = Math.max(1, Math.min(Number(opts.limit) || 100, 500));
-    params.push(limit);
-    return prepare(`
-      SELECT
-        a.*,
-        s.name AS session_name,
-        s.type AS session_type,
-        m.content AS source_content,
-        m.sender_id AS source_sender_id,
-        m.target AS source_target,
-        m.created_at AS source_created_at
-      FROM asks a
-      LEFT JOIN sessions s ON s.id = a.session_id
-      LEFT JOIN messages m ON m.id = a.source_message_id
-      ${filters.length ? `WHERE ${filters.join(' AND ')}` : ''}
-      ORDER BY
-        CASE a.priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END,
-        CASE a.status WHEN 'open' THEN 0 WHEN 'candidate' THEN 1 WHEN 'deferred' THEN 2 ELSE 3 END,
-        a.created_at DESC
-      LIMIT ?
-    `).all(...params);
-  },
-  getAsk: (id: string) => prepare(`
-    SELECT
-      a.*,
-      s.name AS session_name,
-      s.type AS session_type,
-      m.content AS source_content,
-      m.sender_id AS source_sender_id,
-      m.target AS source_target,
-      m.created_at AS source_created_at
-    FROM asks a
-    LEFT JOIN sessions s ON s.id = a.session_id
-    LEFT JOIN messages m ON m.id = a.source_message_id
-    WHERE a.id = ?
-  `).get(id),
-  // Phase C of server-split-2026-05-11 — load every ask attached to
-  // a message. Used by the catch-up loop to re-broadcast the
-  // ask_created WS envelopes for messages that were persisted
-  // offline. NEVER used to create new asks on replay — ask creation
-  // is Tier 1 and only fires inside writeMessage's transaction.
-  getAsksByMessage: (messageId: string) =>
-    prepare(`SELECT * FROM asks WHERE source_message_id = ? ORDER BY created_at ASC`).all(messageId),
-  getAskBySourceMessage: (sourceMessageId: string) =>
-    prepare(`SELECT * FROM asks WHERE source_message_id = ?`).get(sourceMessageId),
-  countOpenAsks: () =>
-    (prepare(`SELECT COUNT(*) as count FROM asks WHERE status IN ('open','candidate','deferred')`).get() as any)?.count ?? 0,
-  createAsk: (
-    id: string,
-    sessionId: string,
-    sourceMessageId: string | null,
-    title: string,
-    body: string | null,
-    recommendation: string | null,
-    status: string,
-    assignedTo: string | null,
-    ownerKind: string,
-    priority: string,
-    createdBy: string | null,
-    inferred: number,
-    confidence: number,
-    meta: string,
-  ) =>
-    prepare(`INSERT INTO asks
-      (id, session_id, source_message_id, title, body, recommendation, status, assigned_to, owner_kind, priority, created_by, inferred, confidence, meta)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, sessionId, sourceMessageId, title, body ?? '', recommendation, status, assignedTo ?? 'room', ownerKind, priority, createdBy, inferred, confidence, meta),
-  updateAsk: (
-    id: string,
-    status: string | null,
-    assignedTo: string | null,
-    ownerKind: string | null,
-    priority: string | null,
-    answer: string | null,
-    answerAction: string | null,
-    answeredBy: string | null,
-    meta: string | null,
-  ) =>
-    prepare(`UPDATE asks SET
-      status = COALESCE(?, status),
-      assigned_to = COALESCE(?, assigned_to),
-      owner_kind = COALESCE(?, owner_kind),
-      priority = COALESCE(?, priority),
-      answer = COALESCE(?, answer),
-      answer_action = COALESCE(?, answer_action),
-      answered_by = COALESCE(?, answered_by),
-      meta = COALESCE(?, meta),
-      resolved_at = CASE
-        WHEN ? IN ('answered','dismissed') THEN COALESCE(resolved_at, datetime('now'))
-        WHEN ? IN ('open','candidate','deferred') THEN NULL
-        ELSE resolved_at
-      END,
-      updated_at = datetime('now')
-      WHERE id = ?`)
-      .run(status, assignedTo, ownerKind, priority, answer, answerAction, answeredBy, meta, status, status, id),
-  deleteAsk: (id: string) => prepare(`DELETE FROM asks WHERE id = ?`).run(id),
-
-  /**
-   * Mark all open/candidate asks for a session as superseded when their
-   * `agent_resp_at_creation` predates the supplied epoch ms. Returns the
-   * number of asks affected.
-   *
-   * Also patches each affected source message's `meta.asks_superseded`
-   * array so the client-side `aggregateOpenAsks` filter hides them
-   * without a full reload.
-   */
-  supersedeStaleAsks: (sessionId: string, newRespAtMs: number): number => {
-    const db = getDb();
-    const stale = db
-      .prepare(
-        `SELECT id, source_message_id, title, inferred
-           FROM asks
-          WHERE session_id = ?
-            AND status IN ('open','candidate')
-            AND (agent_resp_at_creation IS NULL OR agent_resp_at_creation < ?)`,
-      )
-      .all(sessionId, newRespAtMs) as Array<{
-        id: string;
-        source_message_id: string | null;
-        title: string;
-        inferred: number;
-      }>;
-
-    if (stale.length === 0) return 0;
-
-    const placeholders = stale.map(() => '?').join(',');
-    db.prepare(
-      `UPDATE asks
-          SET status = 'superseded', resolved_at = datetime('now'), updated_at = datetime('now')
-        WHERE id IN (${placeholders})`,
-    ).run(...stale.map((s) => s.id));
-
-    // Group by source message and push superseded indices into each
-    // message's meta. Index resolution: split between explicit asks and
-    // inferred_asks based on the `inferred` flag, then match by title
-    // string within each list.
-    const byMessage = new Map<string, Array<{ title: string; inferred: boolean }>>();
-    for (const s of stale) {
-      if (!s.source_message_id) continue;
-      const arr = byMessage.get(s.source_message_id) ?? [];
-      arr.push({ title: s.title, inferred: !!s.inferred });
-      byMessage.set(s.source_message_id, arr);
-    }
-
-    for (const [msgId, asksToHide] of byMessage) {
-      const row = db
-        .prepare(`SELECT meta FROM messages WHERE id = ?`)
-        .get(msgId) as { meta?: string } | undefined;
-      if (!row?.meta) continue;
-      let parsed: any;
-      try { parsed = JSON.parse(row.meta); } catch { continue; }
-      if (!parsed || typeof parsed !== 'object') continue;
-      const explicit = Array.isArray(parsed.asks) ? parsed.asks : [];
-      const inferred = Array.isArray(parsed.inferred_asks) ? parsed.inferred_asks : [];
-      const existing: number[] = Array.isArray(parsed.asks_superseded) ? parsed.asks_superseded : [];
-      const merged = new Set<number>(existing);
-      for (const a of asksToHide) {
-        const list = a.inferred ? inferred : explicit;
-        const offset = a.inferred ? explicit.length : 0;
-        const localIdx = list.indexOf(a.title);
-        if (localIdx >= 0) merged.add(localIdx + offset);
-      }
-      parsed.asks_superseded = Array.from(merged).sort((a, b) => a - b);
-      db.prepare(`UPDATE messages SET meta = ? WHERE id = ?`).run(JSON.stringify(parsed), msgId);
-    }
-
-    return stale.length;
-  },
-
-  // Tasks
-  listTasks: (sessionId: string) => prepare(`SELECT * FROM tasks WHERE session_id = ? ORDER BY created_at ASC`).all(sessionId),
-  listTasksByPlan: (sessionId: string, planId: string) =>
-    prepare(`SELECT * FROM tasks WHERE session_id = ? AND plan_id = ? ORDER BY created_at ASC`).all(sessionId, planId),
-  getTask: (id: string) => prepare(`SELECT * FROM tasks WHERE id = ?`).get(id),
-  findTasksByIdPrefix: (sessionId: string, idPrefix: string) =>
-    prepare(`SELECT * FROM tasks WHERE session_id = ? AND id LIKE ? ORDER BY created_at ASC, id ASC`).all(sessionId, `${idPrefix}%`),
-  createTask: (
-    id: string,
-    sessionId: string,
-    createdBy: string | null,
-    title: string,
-    description: string | null,
-    options: {
-      createdSource?: string | null;
-      planId?: string | null;
-      milestoneId?: string | null;
-      acceptanceId?: string | null;
-    } = {},
-  ) =>
-    prepare(`INSERT INTO tasks
-      (id, session_id, created_by, created_source, title, description, plan_id, milestone_id, acceptance_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-        id,
-        sessionId,
-        createdBy,
-        options.createdSource ?? null,
-        title,
-        description,
-        options.planId ?? null,
-        options.milestoneId ?? null,
-        options.acceptanceId ?? null,
-      ),
-  updateTask: (id: string, status: string | null, assignedTo: string | null, description: string | null, fileRefs: string | null) =>
-    prepare(`UPDATE tasks SET status = COALESCE(?, status), assigned_to = COALESCE(?, assigned_to), description = COALESCE(?, description), file_refs = COALESCE(?, file_refs), updated_at = datetime('now') WHERE id = ?`).run(status, assignedTo, description, fileRefs, id),
-  deleteTask: (id: string) => prepare(`UPDATE tasks SET status = 'deleted', updated_at = datetime('now') WHERE id = ?`).run(id),
-
-  // File refs
-  listFileRefs: (sessionId: string) => prepare(`SELECT * FROM file_refs WHERE session_id = ? ORDER BY created_at ASC`).all(sessionId),
-  createFileRef: (id: string, sessionId: string, flaggedBy: string | null, filePath: string, note: string | null) =>
-    prepare(`INSERT INTO file_refs (id, session_id, flagged_by, file_path, note) VALUES (?, ?, ?, ?, ?)`).run(id, sessionId, flaggedBy, filePath, note),
-  deleteFileRef: (id: string) => prepare(`DELETE FROM file_refs WHERE id = ?`).run(id),
-  deleteFileRefForSession: (id: string, sessionId: string) =>
-    prepare(`DELETE FROM file_refs WHERE id = ? AND session_id = ?`).run(id, sessionId),
-
-  // Upload audit trail
-  recordUpload: (
-    id: string,
-    sessionId: string,
-    uploaderHandle: string,
-    originalName: string | null,
-    mimeType: string,
-    contentHash: string,
-    sizeBytes: number,
-    storagePath: string,
-    publicUrl: string,
-  ) =>
-    prepare(`INSERT INTO uploads
-      (id, session_id, uploader_handle, original_name, mime_type, content_hash, size_bytes, storage_path, public_url)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, sessionId, uploaderHandle, originalName, mimeType, contentHash, sizeBytes, storagePath, publicUrl),
-  countUploadsForHandleSince: (handle: string, windowSeconds: number) =>
-    (prepare(`SELECT COUNT(*) as count FROM uploads
-      WHERE uploader_handle = ? AND unixepoch(created_at) >= unixepoch('now') - ?`)
-      .get(handle, windowSeconds) as any)?.count ?? 0,
-  sumUploadBytesForHandleSince: (handle: string, windowSeconds: number) =>
-    (prepare(`SELECT COALESCE(SUM(size_bytes), 0) as bytes FROM uploads
-      WHERE uploader_handle = ? AND unixepoch(created_at) >= unixepoch('now') - ?`)
-      .get(handle, windowSeconds) as any)?.bytes ?? 0,
-  listUploadsForSession: (sessionId: string) =>
-    prepare(`SELECT * FROM uploads WHERE session_id = ? ORDER BY created_at DESC`).all(sessionId),
-  getUploadByHash: (contentHash: string) =>
-    prepare(`SELECT * FROM uploads WHERE content_hash = ? ORDER BY created_at DESC LIMIT 1`).get(contentHash),
-
-  // Search
-  searchMessages: (query: string, limit: number) => prepare(`
-    SELECT m.id, m.session_id, m.role, m.content, m.created_at,
-           snippet(messages_fts, 0, '<mark>', '</mark>', '...', 32) as snippet
-    FROM messages_fts
-    JOIN messages m ON messages_fts.rowid = m.rowid
-    WHERE messages_fts MATCH ?
-    ORDER BY rank
-    LIMIT ?
-  `).all(query, limit),
-  searchSessionMessages: (sessionId: string, query: string, limit: number) => prepare(`
-    SELECT m.id, m.session_id, m.role, m.content, m.created_at, m.sender_id, m.target, m.msg_type,
-           snippet(messages_fts, 0, '<mark>', '</mark>', '...', 32) as snippet
-    FROM messages_fts
-    JOIN messages m ON messages_fts.rowid = m.rowid
-    WHERE m.session_id = ? AND messages_fts MATCH ?
-    ORDER BY rank, m.created_at DESC
-    LIMIT ?
-  `).all(sessionId, query, limit),
-
-  // M2.2 scoped search helpers — plain LIKE since the table sizes for plans/tasks/docs
-  // are small enough that FTS5 triggers would be premature. Each helper returns rows
-  // with snippet-like content so the CLI can render consistently across scopes.
-  searchPlanEvents: (query: string, limit: number) => prepare(`
-    SELECT id, session_id, ts_ms, kind, text, payload, created_at
-    FROM run_events
-    WHERE kind LIKE 'plan\\_%' ESCAPE '\\'
-      AND (text LIKE '%' || ? || '%' OR payload LIKE '%' || ? || '%')
-    ORDER BY ts_ms DESC
-    LIMIT ?
-  `).all(query, query, limit),
-  searchTasks: (query: string, limit: number) => prepare(`
-    SELECT id, session_id, title, description, status, assigned_to, plan_id, milestone_id, created_at
-    FROM tasks
-    WHERE title LIKE '%' || ? || '%' OR description LIKE '%' || ? || '%'
-    ORDER BY created_at DESC
-    LIMIT ?
-  `).all(query, query, limit),
-  searchDocs: (query: string, limit: number) => prepare(`
-    SELECT key, value, created_at, updated_at
-    FROM memories
-    WHERE key LIKE 'docs/%'
-      AND (key LIKE '%' || ? || '%' OR value LIKE '%' || ? || '%')
-    ORDER BY updated_at DESC
-    LIMIT ?
-  `).all(query, query, limit),
-
-  // M2.2b artefact-scope search helpers — title/slug LIKE on each artefact
-  // store's table. Access boundaries deferred to the existing list-route
-  // layer (decks/sheets/tunnels already gate on caller via allowed_room_ids
-  // when accessed through routes; this raw search MIRRORS the existing
-  // searchMessages baseline — no NEW leak surface).
-  searchDecksByTitle: (query: string, limit: number) => prepare(`
-    SELECT slug, title, owner_session_id, allowed_room_ids, created_at, updated_at
-    FROM decks
-    WHERE slug LIKE '%' || ? || '%' OR title LIKE '%' || ? || '%'
-    ORDER BY updated_at DESC
-    LIMIT ?
-  `).all(query, query, limit),
-  searchSheetsByTitle: (query: string, limit: number) => prepare(`
-    SELECT slug, title, owner_session_id, allowed_room_ids, created_at, updated_at
-    FROM sheets
-    WHERE slug LIKE '%' || ? || '%' OR title LIKE '%' || ? || '%'
-    ORDER BY updated_at DESC
-    LIMIT ?
-  `).all(query, query, limit),
-  searchTunnelsByTitle: (query: string, limit: number) => prepare(`
-    SELECT slug, title, public_url, status, owner_session_id, allowed_room_ids, created_at, updated_at
-    FROM site_tunnels
-    WHERE slug LIKE '%' || ? || '%' OR title LIKE '%' || ? || '%' OR public_url LIKE '%' || ? || '%'
-    ORDER BY updated_at DESC
-    LIMIT ?
-  `).all(query, query, query, limit),
-  searchGrantsByTopic: (query: string, limit: number) => prepare(`
-    SELECT id, session_id, granted_to, topic, status, granted_at_ms, expires_at_ms
-    FROM consent_grants
-    WHERE topic LIKE '%' || ? || '%' OR granted_to LIKE '%' || ? || '%'
-    ORDER BY granted_at_ms DESC
-    LIMIT ?
-  `).all(query, query, limit),
-
-  // Terminal transcripts — legacy writer kept for callers that don't yet supply
-  // stripped text or ts_ms. New code should use appendTranscriptWithText.
-  appendTranscript: (sessionId: string, chunkIndex: number, rawData: string) =>
-    prepare(`INSERT INTO terminal_transcripts (session_id, chunk_index, raw_data, ts_ms) VALUES (?, ?, ?, ?)`).run(sessionId, chunkIndex, rawData, Date.now()),
-  listTranscriptChunks: (sessionId: string) =>
-    prepare(`SELECT chunk_index, raw_data, timestamp, ts_ms, byte_offset FROM terminal_transcripts WHERE session_id = ? ORDER BY chunk_index ASC`).all(sessionId),
-  getTranscripts: (sessionId: string) =>
-    prepare(`SELECT * FROM terminal_transcripts WHERE session_id = ? ORDER BY chunk_index ASC`).all(sessionId),
-
-  // Per-session stats used to seed the in-memory chunk/byte counters on first
-  // flush after a server restart. Returns 0/0 for sessions with no rows yet.
-  getTranscriptStats: (sessionId: string) => prepare(`
-    SELECT
-      COALESCE(MAX(chunk_index), 0) AS max_chunk,
-      COALESCE(SUM(LENGTH(raw_data)), 0) AS total_bytes
-    FROM terminal_transcripts
-    WHERE session_id = ?
-  `).get(sessionId) as { max_chunk: number; total_bytes: number } | undefined,
-
-  // Append a transcript row and its ANSI-stripped mirror in one transaction.
-  // rowid of terminal_text_fts is tied to terminal_transcripts.id so the history
-  // route can JOIN on rowid when running FTS searches.
-  appendTranscriptWithText: (
-    sessionId: string, chunkIndex: number, rawData: string,
-    textStripped: string, tsMs: number, byteOffset: number
-  ) => {
-    const db = getDb();
-    const insertMain = prepare(`INSERT INTO terminal_transcripts
-      (session_id, chunk_index, raw_data, ts_ms, byte_offset) VALUES (?, ?, ?, ?, ?)`);
-    const insertFts = prepare(`INSERT INTO terminal_text_fts(rowid, text) VALUES (?, ?)`);
-    const tx = db.transaction(() => {
-      const result = insertMain.run(sessionId, chunkIndex, rawData, tsMs, byteOffset);
-      insertFts.run(result.lastInsertRowid, textStripped);
-    });
-    tx();
-  },
-
-  // Time-window query for the history route and the command_events backfill.
-  // Returns newest-first so the `limit` parameter bounds recent history cheaply.
-  getTranscriptsSince: (sessionId: string, sinceMs: number, limit: number) => prepare(`
-    SELECT id, chunk_index, ts_ms, byte_offset, LENGTH(raw_data) AS size, raw_data
-    FROM terminal_transcripts
-    WHERE session_id = ? AND ts_ms >= ?
-    ORDER BY ts_ms DESC
-    LIMIT ?
-  `).all(sessionId, sinceMs, limit),
-
-  // Non-FTS time-window query, used when we need stripped text for a command
-  // output snippet but don't have a search term.
-  getTranscriptRangeStripped: (sessionId: string, startMs: number, endMs: number) => prepare(`
-    SELECT t.id, f.text
-    FROM terminal_transcripts t
-    JOIN terminal_text_fts f ON f.rowid = t.id
-    WHERE t.session_id = ? AND t.ts_ms BETWEEN ? AND ?
-    ORDER BY t.ts_ms ASC
-  `).all(sessionId, startMs, endMs),
-
-  // FTS search across transcripts for one session. Joins via rowid to recover
-  // ordering metadata. Uses ranked results and returns an FTS snippet for
-  // highlighting.
-  searchTranscripts: (sessionId: string, query: string, limit: number) => prepare(`
-    SELECT t.id, t.chunk_index, t.ts_ms, t.byte_offset, LENGTH(t.raw_data) AS size,
-           snippet(terminal_text_fts, 0, '<mark>', '</mark>', '…', 32) AS snippet
-    FROM terminal_text_fts
-    JOIN terminal_transcripts t ON t.id = terminal_text_fts.rowid
-    WHERE terminal_text_fts MATCH ? AND t.session_id = ?
-    ORDER BY rank
-    LIMIT ?
-  `).all(query, sessionId, limit),
-
-  // Backfill output snippets onto command_events rows whose time window has
-  // fully closed (end time older than the transcript flush horizon). Runs
-  // opportunistically from capture-ingest's poll loop — see capture-ingest.ts.
-  listCommandsNeedingSnippet: (olderThanIso: string, limit: number) => prepare(`
-    SELECT id, session_id, started_at, ended_at
-    FROM command_events
-    WHERE output_snippet IS NULL
-      AND ended_at IS NOT NULL
-      AND ended_at < ?
-    ORDER BY ended_at ASC
-    LIMIT ?
-  `).all(olderThanIso, limit),
-
-  setCommandSnippet: (id: number, snippet: string) =>
-    prepare(`UPDATE command_events SET output_snippet = ? WHERE id = ?`).run(snippet, id),
-
-  // Workspaces
-  listWorkspaces: () => prepare(`SELECT * FROM workspaces ORDER BY name ASC`).all(),
-  createWorkspace: (id: string, name: string, rootDir: string | null) =>
-    prepare(`INSERT INTO workspaces (id, name, root_dir) VALUES (?, ?, ?)`).run(id, name, rootDir),
-
-  // Server state
-  getState: (key: string) => prepare(`SELECT value FROM server_state WHERE key = ?`).get(key),
-  getServerState: (key: string) => (prepare(`SELECT value FROM server_state WHERE key = ?`).get(key) as any)?.value as string | undefined,
-  setState: (key: string, value: string) =>
-    prepare(`INSERT OR REPLACE INTO server_state (key, value) VALUES (?, ?)`).run(key, value),
-
-  // Memories
-  listMemories: (limit: number) => prepare(`SELECT * FROM memories ORDER BY updated_at DESC LIMIT ?`).all(limit),
-  listOperationalMemories: (limit: number) => prepare(`
-    SELECT * FROM memories
-    WHERE ${OPERATIONAL_MEMORY_WHERE}
-    ORDER BY updated_at DESC
-    LIMIT ?
-  `).all(limit),
-  listArchiveMemories: (limit: number) => prepare(`
-    SELECT * FROM memories
-    WHERE key LIKE 'session:%'
-       OR key LIKE 'archive/%'
-       OR COALESCE(tags, '') LIKE '%"archive"%'
-       OR COALESCE(tags, '') LIKE '%archive-only%'
-    ORDER BY updated_at DESC
-    LIMIT ?
-  `).all(limit),
-  listMemoryAuditRows: () => prepare(`
-    SELECT id, key, tags, session_id, created_by, created_at, updated_at,
-           LENGTH(value) AS value_size,
-           SUBSTR(value, 1, 5000) AS preview,
-           CASE WHEN INSTR(value, '## Full transcript') > 0 THEN 1 ELSE 0 END AS has_full_transcript
-    FROM memories
-    ORDER BY updated_at DESC
-  `).all(),
-  getMemory: (id: string) => prepare(`SELECT * FROM memories WHERE id = ?`).get(id),
-  upsertMemory: (id: string, key: string, value: string, tags: string, sessionId: string | null, createdBy: string | null) =>
-    prepare(`INSERT INTO memories (id, key, value, tags, session_id, created_by) VALUES (?, ?, ?, ?, ?, ?)
-             ON CONFLICT(id) DO UPDATE SET key = excluded.key, value = excluded.value, tags = excluded.tags, updated_at = datetime('now')`).run(id, key, value, tags, sessionId, createdBy),
-
-  // Key-addressed memory access — the mempalace schema relies on stable keys
-  // so agents can read/write `tasks/t-42` deterministically. Identity is
-  // derived from the key itself (`mem:${key}`) so two writes to the same key
-  // upsert rather than duplicate.
-  getMemoryByKey: (key: string) =>
-    prepare(`SELECT * FROM memories WHERE key = ? ORDER BY updated_at DESC LIMIT 1`).get(key),
-
-  upsertMemoryByKey: (key: string, value: string, tags: string, sessionId: string | null, createdBy: string | null) => {
-    const id = 'mem:' + key;
-    return prepare(`INSERT INTO memories (id, key, value, tags, session_id, created_by) VALUES (?, ?, ?, ?, ?, ?)
-             ON CONFLICT(id) DO UPDATE SET key = excluded.key, value = excluded.value, tags = excluded.tags, session_id = excluded.session_id, created_by = excluded.created_by, updated_at = datetime('now')`).run(id, key, value, tags, sessionId, createdBy);
-  },
-
-  deleteMemoryByKey: (key: string) => prepare(`DELETE FROM memories WHERE key = ?`).run(key),
-
-  // Prefix scan — used for `tasks/`, `agents/`, `goals/` listings. Sorted by
-  // updated_at so the newest version of each key appears first.
-  listMemoriesByPrefix: (prefix: string, limit: number) => prepare(`
-    SELECT * FROM memories
-    WHERE key LIKE ? ESCAPE '\\'
-    ORDER BY updated_at DESC
-    LIMIT ?
-  `).all(prefix.replace(/[%_\\]/g, c => '\\' + c) + '%', limit),
-  deleteMemory: (id: string) => prepare(`DELETE FROM memories WHERE id = ?`).run(id),
-  searchMemories: (query: string, limit: number) => prepare(`
-    SELECT m.id, m.key, m.value, m.tags, m.session_id, m.created_by, m.created_at,
-           snippet(memories_fts, 1, '<mark>', '</mark>', '...', 24) as snippet
-    FROM memories_fts
-    JOIN memories m ON memories_fts.rowid = m.rowid
-    WHERE memories_fts MATCH ?
-    ORDER BY rank
-    LIMIT ?
-  `).all(query, limit),
-  searchOperationalMemories: (query: string, limit: number) => prepare(`
-    SELECT m.id, m.key, m.value, m.tags, m.session_id, m.created_by, m.created_at,
-           snippet(memories_fts, 1, '<mark>', '</mark>', '...', 24) as snippet
-    FROM memories_fts
-    JOIN memories m ON memories_fts.rowid = m.rowid
-    WHERE memories_fts MATCH ?
-      AND m.key NOT LIKE 'session:%'
-      AND m.key NOT LIKE 'archive/%'
-      AND COALESCE(m.tags, '') NOT LIKE '%"archive"%'
-      AND COALESCE(m.tags, '') NOT LIKE '%archive-only%'
-    ORDER BY rank
-    LIMIT ?
-  `).all(query, limit),
-  searchArchiveMemories: (query: string, limit: number) => prepare(`
-    SELECT m.id, m.key, m.value, m.tags, m.session_id, m.created_by, m.created_at,
-           snippet(memories_fts, 1, '<mark>', '</mark>', '...', 24) as snippet
-    FROM memories_fts
-    JOIN memories m ON memories_fts.rowid = m.rowid
-    WHERE memories_fts MATCH ?
-      AND (
-        m.key LIKE 'session:%'
-        OR m.key LIKE 'archive/%'
-        OR COALESCE(m.tags, '') LIKE '%"archive"%'
-        OR COALESCE(m.tags, '') LIKE '%archive-only%'
-      )
-    ORDER BY rank
-    LIMIT ?
-  `).all(query, limit),
-
-  // Terminal events (tmux control mode structured events)
-  appendTerminalEvent: (sessionId: string, tsMs: number, kind: string, data: string) =>
-    prepare(`INSERT INTO terminal_events (session_id, ts_ms, kind, data) VALUES (?, ?, ?, ?)`).run(sessionId, tsMs, kind, data),
-
-  getTerminalEvents: (sessionId: string, sinceMs: number, kind: string | null, limit: number) => {
-    if (kind) {
-      return prepare(`
-        SELECT id, ts_ms, kind, data FROM terminal_events
-        WHERE session_id = ? AND ts_ms >= ? AND kind = ?
-        ORDER BY ts_ms DESC LIMIT ?
-      `).all(sessionId, sinceMs, kind, limit);
-    }
-    return prepare(`
-      SELECT id, ts_ms, kind, data FROM terminal_events
-      WHERE session_id = ? AND ts_ms >= ?
-      ORDER BY ts_ms DESC LIMIT ?
-    `).all(sessionId, sinceMs, limit);
-  },
-
-  appendRunEvent: (
-    sessionId: string,
-    tsMs: number,
-    source: string,
-    trust: string,
-    kind: string,
-    text: string,
-    payload: string,
-    rawRef: string | null = null,
-  ) => {
-    const result = prepare(`
-      INSERT INTO run_events (session_id, ts_ms, source, trust, kind, text, payload, raw_ref)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(sessionId, tsMs, source, trust, kind, text, payload, rawRef);
-    return prepare(`
-      SELECT id, session_id, ts_ms, source, trust, kind, text, payload, raw_ref, created_at
-      FROM run_events WHERE id = ?
-    `).get(result.lastInsertRowid);
-  },
-
-  getRunEvent: (id: string | number) =>
-    prepare(`
-      SELECT id, session_id, ts_ms, source, trust, kind, text, payload, raw_ref, created_at
-      FROM run_events WHERE id = ?
-    `).get(id),
-
-  getRunEvents: (
-    sessionId: string,
-    sinceMs: number,
-    source: string | null,
-    kind: string | null,
-    q: string | null,
-    limit: number,
-  ) => {
-    const clauses = ['session_id = ?', 'ts_ms >= ?'];
-    const args: unknown[] = [sessionId, sinceMs];
-    if (source) {
-      clauses.push('source = ?');
-      args.push(source);
-    }
-    if (kind) {
-      clauses.push('kind = ?');
-      args.push(kind);
-    }
-    if (q) {
-      clauses.push('text LIKE ?');
-      args.push(`%${q}%`);
-    }
-    args.push(limit);
-    return prepare(`
-      SELECT id, session_id, ts_ms, source, trust, kind, text, payload, raw_ref, created_at
-      FROM run_events
-      WHERE ${clauses.join(' AND ')}
-      ORDER BY ts_ms DESC, id DESC
-      LIMIT ?
-    `).all(...args);
-  },
-
-
-
-  // Plan events — M3.5 projector read helper (no schema change, JSON_EXTRACT on payload)
-  getPlanEvents: (sessionId: string, planId: string, kinds: string[], limit: number = 1000) => {
-    // Observation A: callers must pass PLAN_EVENT_KINDS or a trusted constant
-    // subset. Values are parameterized, but this helper is not a general
-    // user-supplied kind search surface.
-    const placeholders = kinds.map(() => '?').join(',');
-    const sql = [
-      'SELECT id, session_id, ts_ms, source, trust, kind, text, payload, raw_ref, created_at',
-      'FROM run_events',
-      'WHERE session_id = ?',
-      'AND kind IN (' + placeholders + ')',
-      'AND JSON_VALID(payload)',
-      "AND JSON_EXTRACT(payload, '$.plan_id') = ?",
-      'ORDER BY ts_ms ASC, id ASC',
-      'LIMIT ?',
-    ].join(' ');
-    return prepare(sql).all(sessionId, ...kinds, planId, limit);
-  },
-
-  // m-plan-ui-session-fragmentation-fix (2026-05-14): cross-session
-  // aggregation. When /plan?plan_id=X is loaded without a session_id, the
-  // user expects the complete plan timeline. Prior behaviour picked ONE
-  // session via findPlanSession (first match), hiding events posted from
-  // any other session that emitted the same plan_id. This helper unions
-  // events across every session and returns them ts-ordered; the caller
-  // dedupes by plan-event identity via dedupePlanEvents.
-  getPlanEventsAcrossSessions: (planId: string, kinds: string[], limit: number = 1000) => {
-    const placeholders = kinds.map(() => '?').join(',');
-    const sql = [
-      'SELECT id, session_id, ts_ms, source, trust, kind, text, payload, raw_ref, created_at',
-      'FROM run_events',
-      'WHERE kind IN (' + placeholders + ')',
-      'AND JSON_VALID(payload)',
-      "AND JSON_EXTRACT(payload, '$.plan_id') = ?",
-      'ORDER BY ts_ms ASC, id ASC',
-      'LIMIT ?',
-    ].join(' ');
-    return prepare(sql).all(...kinds, planId, limit);
-  },
-
-  listPlanRefs: (kinds: string[], limit: number = 50) => {
-    // Trusted-kind helper for the Plan View source selector. Keeps discovery on
-    // plan_* run_events only and ignores malformed JSON payloads.
-    const placeholders = kinds.map(() => '?').join(',');
-    const sql = [
-      "SELECT session_id, JSON_EXTRACT(payload, '$.plan_id') AS plan_id,",
-      'COUNT(*) AS event_count, MAX(ts_ms) AS updated_ts_ms',
-      'FROM run_events',
-      'WHERE kind IN (' + placeholders + ')',
-      'AND JSON_VALID(payload)',
-      "AND JSON_TYPE(payload, '$.plan_id') = 'text'",
-      'GROUP BY session_id, plan_id',
-      'ORDER BY updated_ts_ms DESC',
-      'LIMIT ?',
-    ].join(' ');
-    return prepare(sql).all(...kinds, limit);
-  },
-  // Command events
-  getCommands: (sessionId: string, limit: number) =>
-    prepare(`SELECT * FROM command_events WHERE session_id = ? ORDER BY started_at DESC LIMIT ?`).all(sessionId, limit),
-  insertCommand: (sessionId: string, command: string, cwd: string | null, exitCode: number | null, startedAt: string | null, endedAt: string | null, durationMs: number | null, outputSnippet: string | null) =>
-    prepare(`INSERT INTO command_events(session_id, command, cwd, exit_code, started_at, ended_at, duration_ms, output_snippet) VALUES (?,?,?,?,?,?,?,?)`).run(sessionId, command, cwd, exitCode, startedAt, endedAt, durationMs, outputSnippet),
-
-  // Read receipts
-  markRead: (messageId: string, sessionId: string) =>
-    prepare(`INSERT OR IGNORE INTO message_reads (message_id, session_id) VALUES (?, ?)`).run(messageId, sessionId),
-  getReadsForMessage: (messageId: string) =>
-    prepare(`SELECT mr.session_id, mr.read_at, COALESCE(s.display_name, s.name, mr.session_id) as reader_name, s.handle as reader_handle
-             FROM message_reads mr LEFT JOIN sessions s ON s.id = mr.session_id
-             WHERE mr.message_id = ? ORDER BY mr.read_at ASC`).all(messageId),
-  getReadsForSession: (chatSessionId: string) =>
-    prepare(`SELECT mr.message_id, mr.session_id, mr.read_at, COALESCE(s.display_name, s.name, mr.session_id) as reader_name, s.handle as reader_handle
-             FROM message_reads mr
-             LEFT JOIN sessions s ON s.id = mr.session_id
-             JOIN messages m ON m.id = mr.message_id
-             WHERE m.session_id = ?
-             ORDER BY mr.read_at ASC`).all(chatSessionId),
-
-  // Room invites
-  createRoomInvite: (row: {
-    id: string;
-    room_id: string;
-    label: string;
-    password_hash: string;
-    kinds: string;
-    created_by: string | null;
-  }) =>
-    prepare(`INSERT INTO room_invites (id, room_id, label, password_hash, kinds, created_by)
-             VALUES (?, ?, ?, ?, ?, ?)`).run(
-      row.id, row.room_id, row.label, row.password_hash, row.kinds, row.created_by,
-    ),
-  getRoomInvite: (id: string) =>
-    prepare(`SELECT * FROM room_invites WHERE id = ?`).get(id),
-  listRoomInvites: (roomId: string) =>
-    prepare(`SELECT * FROM room_invites WHERE room_id = ? ORDER BY created_at DESC`).all(roomId),
-  revokeRoomInvite: (id: string) =>
-    prepare(`UPDATE room_invites SET revoked_at = datetime('now') WHERE id = ? AND revoked_at IS NULL`).run(id),
-  incrementInviteFailures: (id: string) =>
-    prepare(`UPDATE room_invites SET failed_attempts = failed_attempts + 1, last_failed_at = datetime('now') WHERE id = ?`).run(id),
-  resetInviteFailures: (id: string) =>
-    prepare(`UPDATE room_invites SET failed_attempts = 0, last_failed_at = NULL WHERE id = ?`).run(id),
-
-  // Room tokens
-  createRoomToken: (row: {
-    id: string;
-    invite_id: string;
-    room_id: string;
-    token_hash: string;
-    kind: string;
-    handle: string | null;
-    meta: string;
-  }) =>
-    prepare(`INSERT INTO room_tokens (id, invite_id, room_id, token_hash, kind, handle, meta)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
-      row.id, row.invite_id, row.room_id, row.token_hash, row.kind, row.handle, row.meta,
-    ),
-  getRoomTokenByHash: (hash: string) =>
-    prepare(`SELECT * FROM room_tokens WHERE token_hash = ?`).get(hash),
-  getRoomToken: (id: string) =>
-    prepare(`SELECT * FROM room_tokens WHERE id = ?`).get(id),
-  touchRoomToken: (id: string) =>
-    prepare(`UPDATE room_tokens SET last_seen_at = datetime('now') WHERE id = ?`).run(id),
-  revokeRoomToken: (id: string) =>
-    prepare(`UPDATE room_tokens SET revoked_at = datetime('now') WHERE id = ? AND revoked_at IS NULL`).run(id),
-  listRoomTokens: (inviteId: string) =>
-    prepare(`SELECT * FROM room_tokens WHERE invite_id = ? ORDER BY created_at DESC`).all(inviteId),
-
-  // Deck registry
-  upsertDeck: (row: {
-    slug: string;
-    owner_session_id: string;
-    allowed_room_ids: string;
-    deck_dir: string;
-    dev_port: number | null;
-    trust_mode?: 'safe' | 'trusted';
-    now_ms?: number;
-  }) =>
-    prepare(`INSERT INTO decks (slug, owner_session_id, allowed_room_ids, deck_dir, dev_port, trust_mode, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT(slug) DO UPDATE SET
-               owner_session_id = excluded.owner_session_id,
-               allowed_room_ids = excluded.allowed_room_ids,
-               deck_dir = excluded.deck_dir,
-               dev_port = excluded.dev_port,
-               trust_mode = excluded.trust_mode,
-               updated_at = excluded.updated_at`).run(
-      row.slug,
-      row.owner_session_id,
-      row.allowed_room_ids,
-      row.deck_dir,
-      row.dev_port,
-      row.trust_mode ?? 'trusted',
-      row.now_ms ?? Date.now(),
-      row.now_ms ?? Date.now(),
-    ),
-  setDeckTrustMode: (slug: string, trust_mode: 'safe' | 'trusted', now_ms?: number) =>
-    prepare(`UPDATE decks SET trust_mode = ?, updated_at = ? WHERE slug = ?`).run(
-      trust_mode,
-      now_ms ?? Date.now(),
-      slug,
-    ),
-  setDeckTouchedAt: (slug: string, now_ms?: number) =>
-    prepare(`UPDATE decks SET updated_at = ? WHERE slug = ?`).run(now_ms ?? Date.now(), slug),
-  getDeck: (slug: string) =>
-    prepare(`SELECT * FROM decks WHERE slug = ?`).get(slug),
-  listDecks: () =>
-    prepare(`SELECT * FROM decks ORDER BY updated_at DESC`).all(),
-  deleteDeck: (slug: string) =>
-    prepare(`DELETE FROM decks WHERE slug = ?`).run(slug),
-  listDecksOwnedBy: (ownerSessionId: string) =>
-    prepare(`SELECT * FROM decks WHERE owner_session_id = ?`).all(ownerSessionId),
-
-  // Sheet registry — mirrors the deck registry (same concurrency contract:
-  // whole-file base_hash + if_match_mtime). Cell-aware diffs are a future
-  // follow-up; structural parity is intentional.
-  upsertSheet: (row: {
-    slug: string;
-    owner_session_id: string;
-    allowed_room_ids: string;
-    sheet_dir: string;
-    dev_port: number | null;
-    now_ms?: number;
-  }) =>
-    prepare(`INSERT INTO sheets (slug, owner_session_id, allowed_room_ids, sheet_dir, dev_port, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT(slug) DO UPDATE SET
-               owner_session_id = excluded.owner_session_id,
-               allowed_room_ids = excluded.allowed_room_ids,
-               sheet_dir = excluded.sheet_dir,
-               dev_port = excluded.dev_port,
-               updated_at = excluded.updated_at`).run(
-      row.slug,
-      row.owner_session_id,
-      row.allowed_room_ids,
-      row.sheet_dir,
-      row.dev_port,
-      row.now_ms ?? Date.now(),
-      row.now_ms ?? Date.now(),
-    ),
-  getSheet: (slug: string) =>
-    prepare(`SELECT * FROM sheets WHERE slug = ?`).get(slug),
-  listSheets: () =>
-    prepare(`SELECT * FROM sheets ORDER BY updated_at DESC`).all(),
-  deleteSheet: (slug: string) =>
-    prepare(`DELETE FROM sheets WHERE slug = ?`).run(slug),
-  listSheetsOwnedBy: (ownerSessionId: string) =>
-    prepare(`SELECT * FROM sheets WHERE owner_session_id = ?`).all(ownerSessionId),
-
-  // Site tunnel registry — room-scoped public links for local dev/prototype
-  // servers. Cloudflare Access, if used, is configured outside ANT; the
-  // access_required flag only lets the UI signal that expectation.
-  upsertSiteTunnel: (row: {
-    slug: string;
-    title: string;
-    public_url: string;
-    local_url: string | null;
-    owner_session_id: string;
-    allowed_room_ids: string;
-    status: string;
-    access_required: number;
-    now_ms?: number;
-  }) =>
-    prepare(`INSERT INTO site_tunnels (slug, title, public_url, local_url, owner_session_id, allowed_room_ids, status, access_required, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT(slug) DO UPDATE SET
-               title = excluded.title,
-               public_url = excluded.public_url,
-               local_url = excluded.local_url,
-               owner_session_id = excluded.owner_session_id,
-               allowed_room_ids = excluded.allowed_room_ids,
-               status = excluded.status,
-               access_required = excluded.access_required,
-               updated_at = excluded.updated_at`).run(
-      row.slug,
-      row.title,
-      row.public_url,
-      row.local_url,
-      row.owner_session_id,
-      row.allowed_room_ids,
-      row.status,
-      row.access_required,
-      row.now_ms ?? Date.now(),
-      row.now_ms ?? Date.now(),
-    ),
-  getSiteTunnel: (slug: string) =>
-    prepare(`SELECT * FROM site_tunnels WHERE slug = ?`).get(slug),
-  listSiteTunnels: () =>
-    prepare(`SELECT * FROM site_tunnels ORDER BY updated_at DESC`).all(),
-  deleteSiteTunnel: (slug: string) =>
-    prepare(`DELETE FROM site_tunnels WHERE slug = ?`).run(slug),
-  listSiteTunnelsOwnedBy: (ownerSessionId: string) =>
-    prepare(`SELECT * FROM site_tunnels WHERE owner_session_id = ?`).all(ownerSessionId),
-
-
-  // ── Consent grants (M3 #2) ─────────────────────────────────────────
-  getConsentGrant: (id: string) =>
-    prepare(`SELECT * FROM consent_grants WHERE id = ?`).get(id),
-  listConsentGrants: (sessionId: string) =>
-    prepare(`SELECT * FROM consent_grants WHERE session_id = ? ORDER BY created_at ASC`).all(sessionId),
-  listConsentGrantsByGrantee: (grantedTo: string) =>
-    prepare(`SELECT * FROM consent_grants WHERE granted_to = ? AND status = 'active' ORDER BY created_at ASC`).all(grantedTo),
-  createConsentGrant: (
-    id: string, sessionId: string, grantedTo: string, topic: string,
-    sourceSet: string, duration: string, answerCount: number,
-    maxAnswers: number | null, status: string, grantedAtMs: number,
-    expiresAtMs: number | null, meta: string,
-  ) =>
-    prepare(`INSERT INTO consent_grants (id, session_id, granted_to, topic, source_set, duration, answer_count, max_answers, status, granted_at_ms, expires_at_ms, meta)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-      id, sessionId, grantedTo, topic, sourceSet, duration, answerCount, maxAnswers, status, grantedAtMs, expiresAtMs, meta,
-    ),
-  updateConsentGrant: (id: string, status: string, answerCount: number, expiresAtMs: number | null) =>
-    prepare(`UPDATE consent_grants SET status = ?, answer_count = ?, expires_at_ms = ?, updated_at = datetime('now') WHERE id = ?`).run(status, answerCount, expiresAtMs, id),
-  revokeConsentGrant: (id: string) =>
-    prepare(`UPDATE consent_grants SET status = 'revoked', updated_at = datetime('now') WHERE id = ? AND status = 'active'`).run(id),
-  expireConsentGrants: (nowMs: number) => {
-    const expired = prepare(`SELECT id FROM consent_grants WHERE status = 'active' AND expires_at_ms IS NOT NULL AND expires_at_ms <= ?`).all(nowMs);
-    if (expired.length > 0) {
-      prepare(`UPDATE consent_grants SET status = 'expired', updated_at = datetime('now') WHERE status = 'active' AND expires_at_ms IS NOT NULL AND expires_at_ms <= ?`).run(nowMs);
-    }
-    return expired.length;
-  },
-};
-
-export default getDb;

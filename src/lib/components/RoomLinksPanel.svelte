@@ -1,393 +1,546 @@
+<!--
+  RoomLinksPanel — sibling-room navigation (Task #49 v3 parity).
+
+  Renders the outgoing + incoming room_links for a room so the user can
+  jump straight to a linked discussion / spawned-from room. Lets the user
+  link an existing room with one of four relationship labels:
+    - discussion_of        (sibling discussion)
+    - promoted_summary_for (summary view of another room)
+    - spawned_from         (this room emerged from the other)
+    - follows_up           (follow-up conversation)
+
+  Per JWPK msg_e3tj4mw2rc 2026-05-19: net-new room creation is now
+  in-scope too. The form has a mode toggle (Link existing | Create new);
+  Create-new POSTs to /api/chat-rooms then chains POST /links so the new
+  room appears in the panel immediately. Restores v3 parity.
+-->
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import Skeleton from './Skeleton.svelte';
 
-  interface RoomLink {
+  type RoomLinkWithPeer = {
     id: string;
-    source_room_id: string;
-    target_room_id: string;
-    relationship: string;
+    sourceRoomId: string;
+    targetRoomId: string;
+    relationship: 'discussion_of' | 'promoted_summary_for' | 'spawned_from' | 'follows_up';
     title: string | null;
-    target_name?: string;
-    target_type?: string;
-    source_name?: string;
-    source_type?: string;
-    settings?: string;
-    created_at: string;
-  }
+    peerRoomId: string;
+    peerRoomName: string;
+  };
 
-  let {
-    sessionId,
-    serverUrl = '',
-  }: {
-    sessionId: string;
-    serverUrl?: string;
-  } = $props();
+  type CandidateRoom = { id: string; name: string };
+  type LinkFormMode = 'existing' | 'create';
 
-  let outgoing = $state<RoomLink[]>([]);
-  let incoming = $state<RoomLink[]>([]);
-  let loading = $state(true);
-  let creating = $state(false);
-  let newTitle = $state('');
-  let showCreateForm = $state(false);
-  let showLinkForm = $state(false);
-  let availableRooms = $state<{ id: string; name: string }[]>([]);
-  let selectedRoomId = $state('');
-  let selectedRelationship = $state('discussion_of');
+  type Props = {
+    roomId: string;
+    canManage?: boolean;
+  };
 
-  const RELATIONSHIP_LABELS: Record<string, string> = {
+  let { roomId, canManage = true }: Props = $props();
+
+  const RELATIONSHIP_LABEL: Record<RoomLinkWithPeer['relationship'], string> = {
     discussion_of: 'Discussion',
     promoted_summary_for: 'Summary',
     spawned_from: 'Spawned from',
-    follows_up: 'Follow-up',
+    follows_up: 'Follow-up'
   };
 
-  const RELATIONSHIP_COLORS: Record<string, string> = {
-    discussion_of: '#6366F1',
-    promoted_summary_for: '#10B981',
-    spawned_from: '#F59E0B',
-    follows_up: '#3B82F6',
-  };
+  let outgoing = $state<RoomLinkWithPeer[]>([]);
+  let incoming = $state<RoomLinkWithPeer[]>([]);
+  let isLoading = $state(true);
+  let lastErrorMessage = $state('');
 
-  async function loadLinks() {
-    loading = true;
+  let isLinkFormOpen = $state(false);
+  let formMode = $state<LinkFormMode>('existing');
+  let candidateRooms = $state<CandidateRoom[]>([]);
+  let selectedRoomId = $state('');
+  let selectedRelationship = $state<RoomLinkWithPeer['relationship']>('discussion_of');
+  let isCreatingLink = $state(false);
+  // Create-new mode (JWPK msg_e3tj4mw2rc 2026-05-19): operator types a
+  // name for a brand-new room, picks the relationship; we POST /api/chat-
+  // rooms then chain POST /links so the new room appears in the panel
+  // immediately. Restores v3 parity — single-step create-and-link.
+  let newRoomName = $state('');
+
+  async function loadLinksFromServer() {
+    isLoading = true;
+    lastErrorMessage = '';
     try {
-      const res = await fetch(`/api/sessions/${sessionId}/links`);
-      if (res.ok) {
-        const data = await res.json();
-        outgoing = data.outgoing || [];
-        incoming = data.incoming || [];
-      }
-    } catch { /* silent */ }
-    loading = false;
+      const response = await fetch(`/api/chat-rooms/${encodeURIComponent(roomId)}/links`);
+      if (!response.ok) throw new Error(`Could not load links (${response.status}).`);
+      const body = (await response.json()) as { outgoing: RoomLinkWithPeer[]; incoming: RoomLinkWithPeer[] };
+      outgoing = body.outgoing ?? [];
+      incoming = body.incoming ?? [];
+    } catch (cause) {
+      lastErrorMessage = cause instanceof Error ? cause.message : 'Could not load links.';
+    } finally {
+      isLoading = false;
+    }
   }
 
-  async function createDiscussion() {
-    if (!newTitle.trim()) return;
-    creating = true;
+  async function loadCandidateRooms() {
     try {
-      const res = await fetch(`/api/sessions/${sessionId}/links`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: newTitle.trim() }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        newTitle = '';
-        showCreateForm = false;
-        await loadLinks();
-        // Navigate to the new discussion
-        goto(`/session/${data.targetRoomId}`);
-      }
-    } catch { /* silent */ }
-    creating = false;
+      const response = await fetch('/api/chat-rooms');
+      if (!response.ok) return;
+      const body = (await response.json()) as { chatRooms?: { id: string; name: string }[] };
+      const linked = new Set([
+        ...outgoing.map((link) => link.peerRoomId),
+        ...incoming.map((link) => link.peerRoomId)
+      ]);
+      candidateRooms = (body.chatRooms ?? [])
+        .filter((room) => room.id !== roomId && !linked.has(room.id))
+        .map((room) => ({ id: room.id, name: room.name }));
+    } catch {
+      candidateRooms = [];
+    }
   }
 
-  async function linkExistingRoom() {
+  async function submitLinkExistingRoom() {
     if (!selectedRoomId) return;
-    creating = true;
+    isCreatingLink = true;
+    lastErrorMessage = '';
     try {
-      const res = await fetch(`/api/sessions/${sessionId}/links`, {
+      const response = await fetch(`/api/chat-rooms/${encodeURIComponent(roomId)}/links`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetRoomId: selectedRoomId, relationship: selectedRelationship }),
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ targetRoomId: selectedRoomId, relationship: selectedRelationship })
       });
-      if (res.ok) {
-        selectedRoomId = '';
-        showLinkForm = false;
-        await loadLinks();
+      if (!response.ok) {
+        const failure = await response.json().catch(() => ({ message: response.statusText }));
+        throw new Error(failure.message ?? 'Could not link room.');
       }
-    } catch { /* silent */ }
-    creating = false;
+      selectedRoomId = '';
+      isLinkFormOpen = false;
+      await loadLinksFromServer();
+    } catch (cause) {
+      lastErrorMessage = cause instanceof Error ? cause.message : 'Could not link room.';
+    } finally {
+      isCreatingLink = false;
+    }
   }
 
-  async function loadAvailableRooms() {
+  async function submitCreateAndLinkRoom() {
+    const trimmedName = newRoomName.trim();
+    if (trimmedName.length === 0) return;
+    isCreatingLink = true;
+    lastErrorMessage = '';
     try {
-      const res = await fetch('/api/sessions');
-      if (res.ok) {
-        const data = await res.json();
-        const linked = new Set([...outgoing.map(l => l.target_room_id), ...incoming.map(l => l.source_room_id)]);
-        availableRooms = (data.sessions || [])
-          .filter((s: any) => s.type === 'chat' && s.id !== sessionId && !linked.has(s.id) && !s.deleted_at)
-          .map((s: any) => ({ id: s.id, name: s.display_name || s.name }));
+      // 1. Create the new room.
+      const createResponse = await fetch('/api/chat-rooms', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: trimmedName })
+      });
+      if (!createResponse.ok) {
+        const failure = await createResponse.json().catch(() => ({ message: createResponse.statusText }));
+        throw new Error(failure.message ?? `Could not create room (${createResponse.status}).`);
       }
-    } catch { /* silent */ }
+      const createBody = (await createResponse.json()) as { chatRoom?: { id?: string } };
+      const newRoomId = createBody.chatRoom?.id;
+      if (!newRoomId) {
+        throw new Error('Server did not return a new room id.');
+      }
+      // 2. Link it to the current room with the picked relationship.
+      const linkResponse = await fetch(`/api/chat-rooms/${encodeURIComponent(roomId)}/links`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ targetRoomId: newRoomId, relationship: selectedRelationship })
+      });
+      if (!linkResponse.ok) {
+        const failure = await linkResponse.json().catch(() => ({ message: linkResponse.statusText }));
+        // Surface the partial-success state — the room exists but isn't
+        // linked. Operator can manually link it via the existing-mode tab
+        // without recreating; the error message tells them what happened.
+        throw new Error(`Created '${trimmedName}' but could not link it: ${failure.message ?? linkResponse.statusText}.`);
+      }
+      newRoomName = '';
+      isLinkFormOpen = false;
+      await loadLinksFromServer();
+    } catch (cause) {
+      lastErrorMessage = cause instanceof Error ? cause.message : 'Could not create + link room.';
+    } finally {
+      isCreatingLink = false;
+    }
   }
 
   async function removeLink(linkId: string) {
-    await fetch(`/api/sessions/${sessionId}/links?linkId=${linkId}`, { method: 'DELETE' });
-    await loadLinks();
+    lastErrorMessage = '';
+    try {
+      const response = await fetch(
+        `/api/chat-rooms/${encodeURIComponent(roomId)}/links?linkId=${encodeURIComponent(linkId)}`,
+        { method: 'DELETE' }
+      );
+      if (!response.ok && response.status !== 204) {
+        throw new Error(`Could not remove link (${response.status}).`);
+      }
+      await loadLinksFromServer();
+    } catch (cause) {
+      lastErrorMessage = cause instanceof Error ? cause.message : 'Could not remove link.';
+    }
   }
 
-  // Load on mount
+  function openLinkForm() {
+    isLinkFormOpen = !isLinkFormOpen;
+    if (isLinkFormOpen) void loadCandidateRooms();
+  }
+
+  function gotoRoom(targetRoomId: string) {
+    void goto(`/rooms/${targetRoomId}`);
+  }
+
   $effect(() => {
-    if (sessionId) loadLinks();
+    if (roomId) void loadLinksFromServer();
   });
 </script>
 
-<div class="room-links-panel">
-  <div class="section-header">
-    <span class="section-title">Discussions</span>
-    <div class="flex items-center gap-1">
+<section class="room-links" aria-label="Linked rooms">
+  <header class="links-header">
+    <h2 class="links-title">Linked rooms</h2>
+    {#if canManage}
       <button
-        class="add-btn"
-        onclick={() => { showLinkForm = !showLinkForm; showCreateForm = false; if (showLinkForm) loadAvailableRooms(); }}
-        title="Link existing room"
-        style="font-size: 11px;"
-      >~</button>
-      <button
-        class="add-btn"
-        onclick={() => { showCreateForm = !showCreateForm; showLinkForm = false; }}
-        title="Create new discussion"
-      >+</button>
-    </div>
-  </div>
+        type="button"
+        class="link-add-btn"
+        onclick={openLinkForm}
+        aria-expanded={isLinkFormOpen}
+      >{isLinkFormOpen ? 'Cancel' : '+ Link a room'}</button>
+    {/if}
+  </header>
 
-  {#if showCreateForm}
-    <div class="create-form">
-      <input
-        class="create-input"
-        bind:value={newTitle}
-        placeholder="Discussion topic..."
-        onkeydown={(e) => { if (e.key === 'Enter') createDiscussion(); if (e.key === 'Escape') showCreateForm = false; }}
-      />
+  {#if isLinkFormOpen}
+    <!-- Mode toggle — Link existing vs Create new. JWPK msg_e3tj4mw2rc:
+         restoring v3 parity for the single-step create-and-link flow. -->
+    <div class="link-mode-toggle" role="tablist" aria-label="Link mode">
       <button
-        class="create-btn"
-        onclick={createDiscussion}
-        disabled={!newTitle.trim() || creating}
-      >{creating ? '...' : 'Create'}</button>
+        type="button"
+        role="tab"
+        class="link-mode-btn"
+        class:active={formMode === 'existing'}
+        aria-selected={formMode === 'existing'}
+        onclick={() => (formMode = 'existing')}
+      >Link existing</button>
+      <button
+        type="button"
+        role="tab"
+        class="link-mode-btn"
+        class:active={formMode === 'create'}
+        aria-selected={formMode === 'create'}
+        onclick={() => (formMode = 'create')}
+      >Create new</button>
     </div>
-  {/if}
 
-  {#if showLinkForm}
-    <div class="create-form" style="flex-direction: column; gap: 6px;">
-      <select
-        class="create-input"
-        bind:value={selectedRoomId}
-        style="width: 100%;"
-      >
-        <option value="">— select room —</option>
-        {#each availableRooms as room (room.id)}
-          <option value={room.id}>{room.name}</option>
-        {/each}
-      </select>
-      <div class="flex items-center gap-2">
-        <select
-          class="create-input"
-          bind:value={selectedRelationship}
-          style="flex: 1;"
-        >
-          <option value="discussion_of">Discussion</option>
-          <option value="promoted_summary_for">Summary</option>
-          <option value="follows_up">Follow-up</option>
-          <option value="spawned_from">Spawned from</option>
-        </select>
+    {#if formMode === 'existing'}
+      <form class="link-form" onsubmit={(event) => { event.preventDefault(); void submitLinkExistingRoom(); }}>
+        <label class="link-form-field">
+          <span class="link-form-label">Target room</span>
+          <select bind:value={selectedRoomId} required>
+            <option value="">— select a room —</option>
+            {#each candidateRooms as candidate (candidate.id)}
+              <option value={candidate.id}>{candidate.name}</option>
+            {/each}
+          </select>
+        </label>
+        <label class="link-form-field">
+          <span class="link-form-label">Relationship</span>
+          <select bind:value={selectedRelationship}>
+            <option value="discussion_of">Discussion</option>
+            <option value="promoted_summary_for">Summary</option>
+            <option value="spawned_from">Spawned from</option>
+            <option value="follows_up">Follow-up</option>
+          </select>
+        </label>
         <button
-          class="create-btn"
-          onclick={linkExistingRoom}
-          disabled={!selectedRoomId || creating}
-        >{creating ? '...' : 'Link'}</button>
-      </div>
-    </div>
+          type="submit"
+          class="link-create-btn"
+          disabled={!selectedRoomId || isCreatingLink}
+        >{isCreatingLink ? 'Linking…' : 'Link'}</button>
+      </form>
+    {:else}
+      <form class="link-form" onsubmit={(event) => { event.preventDefault(); void submitCreateAndLinkRoom(); }}>
+        <label class="link-form-field">
+          <span class="link-form-label">New room name</span>
+          <input
+            type="text"
+            bind:value={newRoomName}
+            placeholder="e.g. Migration follow-ups"
+            required
+            disabled={isCreatingLink}
+            autocomplete="off"
+          />
+        </label>
+        <label class="link-form-field">
+          <span class="link-form-label">Relationship</span>
+          <select bind:value={selectedRelationship} disabled={isCreatingLink}>
+            <option value="discussion_of">Discussion</option>
+            <option value="promoted_summary_for">Summary</option>
+            <option value="spawned_from">Spawned from</option>
+            <option value="follows_up">Follow-up</option>
+          </select>
+        </label>
+        <button
+          type="submit"
+          class="link-create-btn"
+          disabled={newRoomName.trim().length === 0 || isCreatingLink}
+        >{isCreatingLink ? 'Creating…' : 'Create + link'}</button>
+      </form>
+    {/if}
   {/if}
 
-  {#if loading}
-    <div class="empty-state">Loading...</div>
+  {#if lastErrorMessage}
+    <p class="links-error" role="alert">{lastErrorMessage}</p>
+  {/if}
+
+  {#if isLoading}
+    <div class="links-skeleton" aria-label="Loading linked rooms" role="status">
+      <Skeleton height="0.95rem" width="55%" />
+      <Skeleton height="0.95rem" width="40%" />
+      <Skeleton height="0.95rem" width="70%" />
+    </div>
   {:else if outgoing.length === 0 && incoming.length === 0}
-    <div class="empty-state">No linked discussions yet</div>
+    <p class="links-empty">No linked rooms yet.</p>
   {:else}
     {#if outgoing.length > 0}
-      <div class="link-list">
+      <ul class="link-list">
         {#each outgoing as link (link.id)}
-          <div
-            class="link-item"
-            role="button"
-            tabindex="0"
-            onclick={() => goto(`/session/${link.target_room_id}`)}
-            onkeydown={(e) => { if (e.key === 'Enter') goto(`/session/${link.target_room_id}`); }}
-            style="--accent: {RELATIONSHIP_COLORS[link.relationship] || '#6366F1'}"
-          >
-            <span class="link-badge">{RELATIONSHIP_LABELS[link.relationship] || link.relationship}</span>
-            <span class="link-name">{link.title || link.target_name || 'Untitled'}</span>
-            <button
-              class="remove-link"
-              onclick={(e) => { e.stopPropagation(); removeLink(link.id); }}
-              title="Remove link"
-            >x</button>
-          </div>
+          <li class="link-row">
+            <button type="button" class="link-jump" onclick={() => gotoRoom(link.peerRoomId)}>
+              <span class="link-badge">{RELATIONSHIP_LABEL[link.relationship]}</span>
+              <span class="link-name">{link.title ?? link.peerRoomName}</span>
+            </button>
+            {#if canManage}
+              <button
+                type="button"
+                class="link-remove"
+                title={`Remove link to ${link.peerRoomName}`}
+                aria-label={`Remove link to ${link.peerRoomName}`}
+                onclick={() => void removeLink(link.id)}
+              >×</button>
+            {/if}
+          </li>
         {/each}
-      </div>
+      </ul>
     {/if}
 
     {#if incoming.length > 0}
-      <div class="incoming-label">Parent rooms</div>
-      <div class="link-list">
+      <h3 class="incoming-heading">Parent rooms</h3>
+      <ul class="link-list">
         {#each incoming as link (link.id)}
-          <div
-            class="link-item parent-link"
-            role="button"
-            tabindex="0"
-            onclick={() => goto(`/session/${link.source_room_id}`)}
-            onkeydown={(e) => { if (e.key === 'Enter') goto(`/session/${link.source_room_id}`); }}
-            style="--accent: #9CA3AF"
-          >
-            <span class="link-badge">Parent</span>
-            <span class="link-name">{link.source_name || 'Parent room'}</span>
-          </div>
+          <li class="link-row">
+            <button type="button" class="link-jump link-jump-parent" onclick={() => gotoRoom(link.peerRoomId)}>
+              <span class="link-badge link-badge-parent">Parent</span>
+              <span class="link-name">{link.peerRoomName}</span>
+            </button>
+          </li>
         {/each}
-      </div>
+      </ul>
     {/if}
   {/if}
-</div>
+</section>
 
 <style>
-  .room-links-panel {
-    padding: 8px 0;
+  .room-links {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--line-soft);
+    border-radius: 0.9rem;
+    background: var(--surface-card);
   }
-
-  .section-header {
+  .links-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 4px 12px 8px;
+    gap: 0.5rem;
   }
-
-  .section-title {
-    font-size: 11px;
-    font-weight: 600;
+  .links-title {
+    margin: 0;
+    font-size: 0.75rem;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-muted, #888);
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+    font-weight: 700;
   }
-
-  .add-btn {
-    width: 22px;
-    height: 22px;
-    border-radius: 4px;
-    border: 1px solid var(--border-subtle, #ffffff10);
+  .link-add-btn {
+    padding: 0.25rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid var(--line-soft);
     background: transparent;
-    color: #10B981;
-    font-size: 14px;
+    color: var(--accent);
+    font-size: 0.78rem;
+    font-weight: 700;
     cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.15s ease;
   }
-  .add-btn:hover { background: #10B98118; border-color: #10B98155; }
-
-  .create-form {
-    display: flex;
-    gap: 6px;
-    padding: 4px 12px 8px;
+  .link-add-btn:hover { border-color: var(--accent); }
+  .link-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 0.4rem;
+    padding: 0.6rem 0.55rem;
+    border: 1px dashed var(--surface-edge);
+    border-radius: 0.6rem;
+    background: var(--bg);
   }
-
-  .create-input {
-    flex: 1;
-    padding: 5px 8px;
-    border-radius: 6px;
-    font-size: 12px;
-    background: #0A1628;
-    border: 1px solid var(--border-subtle, #ffffff10);
-    color: #fff;
-    outline: none;
-  }
-  .create-input:focus { border-color: #6366F1; }
-
-  .create-btn {
-    padding: 5px 12px;
-    border-radius: 6px;
-    font-size: 11px;
-    font-weight: 600;
-    background: #6366F1;
-    border: none;
-    color: #fff;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-  .create-btn:hover { background: #818cf8; }
-  .create-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-  .link-list {
+  .link-form-field {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    padding: 0 8px;
+    gap: 0.2rem;
+    font-size: 0.75rem;
+    color: var(--ink-soft);
   }
-
-  .link-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 8px;
-    border-radius: 6px;
-    border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
-    background: color-mix(in srgb, var(--accent) 5%, transparent);
-    cursor: pointer;
-    transition: all 0.15s ease;
-    text-align: left;
-    width: 100%;
-  }
-  .link-item:hover {
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
-  }
-
-  .link-badge {
-    font-size: 9px;
-    font-weight: 600;
+  .link-form-label {
+    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.03em;
-    padding: 2px 6px;
-    border-radius: 3px;
-    background: color-mix(in srgb, var(--accent) 20%, transparent);
+  }
+  .link-form select,
+  .link-form input[type='text'] {
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--line-soft);
+    border-radius: 0.45rem;
+    background: var(--surface-card);
+    color: var(--ink-strong);
+    font-size: 0.85rem;
+    min-width: 0;
+  }
+  .link-form input[type='text']:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  /* Mode toggle (Link existing | Create new) — sits above the link
+     form so the operator sees the v3-parity create-and-link path
+     immediately. Pill-button pair matches the dashboard list/grid
+     toggle pattern (43914f6). */
+  .link-mode-toggle {
+    display: inline-flex;
+    margin-bottom: 0.45rem;
+    border: 1px solid var(--line-soft);
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--surface-card);
+  }
+  .link-mode-btn {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--ink-soft);
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 700;
+    padding: 0.35rem 0.85rem;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .link-mode-btn + .link-mode-btn { border-left: 1px solid var(--line-soft); }
+  .link-mode-btn:hover { color: var(--ink-strong); }
+  .link-mode-btn.active {
+    background: var(--accent);
+    color: white;
+  }
+  .link-create-btn {
+    align-self: end;
+    padding: 0.45rem 0.85rem;
+    border-radius: 999px;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: white;
+    font-weight: 800;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  .link-create-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+  .links-error {
+    margin: 0;
     color: var(--accent);
+    font-size: 0.82rem;
+  }
+  .links-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    padding: 0.4rem 0;
+  }
+  .links-empty {
+    margin: 0.15rem 0;
+    color: var(--ink-soft);
+    font-size: 0.85rem;
+    font-style: italic;
+  }
+  .link-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .link-row {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .link-jump {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
+    border-radius: 0.5rem;
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+    color: var(--ink-strong);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .link-jump:hover {
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .link-jump-parent {
+    border-style: dashed;
+    background: transparent;
+  }
+  .link-badge {
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    color: var(--accent);
+    font-size: 0.65rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
     flex-shrink: 0;
   }
-
+  .link-badge-parent {
+    background: transparent;
+    border: 1px solid var(--surface-edge);
+    color: var(--ink-soft);
+  }
   .link-name {
-    font-size: 12px;
-    color: var(--text, #fff);
+    flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex: 1;
+    font-size: 0.88rem;
   }
-
-  .remove-link {
-    width: 18px;
-    height: 18px;
-    border-radius: 3px;
-    border: none;
+  .link-remove {
+    width: 1.6rem;
+    height: 1.6rem;
+    padding: 0;
+    border-radius: 999px;
+    border: 1px solid transparent;
     background: transparent;
-    color: var(--text-muted, #888);
-    font-size: 11px;
+    color: var(--ink-soft);
     cursor: pointer;
-    opacity: 0;
-    transition: all 0.15s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
+    font-size: 0.95rem;
   }
-  .link-item:hover .remove-link { opacity: 1; }
-  .remove-link:hover { background: #ef444420; color: #ef4444; }
-
-  .incoming-label {
-    font-size: 10px;
-    color: var(--text-muted, #888);
-    padding: 8px 12px 4px;
+  .link-remove:hover { color: var(--accent); border-color: var(--accent); }
+  .incoming-heading {
+    margin: 0.4rem 0 0.1rem;
+    font-size: 0.7rem;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  .parent-link {
-    border-style: dashed;
-  }
-
-  .empty-state {
-    padding: 12px;
-    text-align: center;
-    font-size: 11px;
-    color: var(--text-muted, #666);
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+    font-weight: 700;
   }
 </style>

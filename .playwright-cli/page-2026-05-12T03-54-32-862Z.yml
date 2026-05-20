@@ -1,0 +1,71 @@
+- generic [ref=e2]:
+  - link "Skip to main content" [ref=e3] [cursor=pointer]:
+    - /url: "#main-content"
+  - main [ref=e4]:
+    - generic [ref=e5]:
+      - link "Back to cockpit" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - generic "ANT" [ref=e7]:
+          - generic [ref=e8]: ANT
+      - navigation "Primary" [ref=e9]:
+        - link "Cockpit" [ref=e10] [cursor=pointer]:
+          - /url: /
+        - link "Rooms" [ref=e11] [cursor=pointer]:
+          - /url: /rooms
+        - link "Terminal" [ref=e12] [cursor=pointer]:
+          - /url: /terminal
+        - link "Ledger" [ref=e13] [cursor=pointer]:
+          - /url: /ledger
+    - generic [ref=e14]:
+      - paragraph [ref=e15]: Asks
+      - heading "Open questions across every room." [level=1] [ref=e16]
+      - generic [ref=e17]: The cross-room queue of asks. Answer to add a reply, dismiss to take it off the list.
+    - list "Open asks queue" [ref=e18]:
+      - listitem [ref=e19]:
+        - article [ref=e20]:
+          - generic [ref=e21]:
+            - link "other-room" [ref=e22] [cursor=pointer]:
+              - /url: /rooms/r148vakeoj
+            - generic [ref=e23]: "@other"
+            - generic [ref=e24]: 5/12/2026, 4:52:13 AM
+          - heading "in other room" [level=2] [ref=e25]
+          - paragraph [ref=e26]: "@you cannot answer"
+          - generic [ref=e27]:
+            - button "Answer" [ref=e28] [cursor=pointer]
+            - button "Dismiss" [ref=e29] [cursor=pointer]
+      - listitem [ref=e30]:
+        - article [ref=e31]:
+          - generic [ref=e32]:
+            - link "asks-ui-mp23j2b8-answer-room" [ref=e33] [cursor=pointer]:
+              - /url: /rooms/gs8h5gxnwq
+            - generic [ref=e34]: "@you"
+            - generic [ref=e35]: 5/12/2026, 4:53:49 AM
+          - heading "asks-ui-mp23j2b8 answer title" [level=2] [ref=e36]
+          - paragraph [ref=e37]: asks-ui-mp23j2b8 answer body
+          - generic [ref=e38]:
+            - button "Answer" [ref=e39] [cursor=pointer]
+            - button "Dismiss" [ref=e40] [cursor=pointer]
+      - listitem [ref=e41]:
+        - article [ref=e42]:
+          - generic [ref=e43]:
+            - link "asks-ui-mp23j2b8-dismiss-room" [ref=e44] [cursor=pointer]:
+              - /url: /rooms/3mwli0tp9g
+            - generic [ref=e45]: "@you"
+            - generic [ref=e46]: 5/12/2026, 4:53:49 AM
+          - heading "asks-ui-mp23j2b8 dismiss title" [level=2] [ref=e47]
+          - paragraph [ref=e48]: asks-ui-mp23j2b8 dismiss body
+          - generic [ref=e49]:
+            - button "Answer" [ref=e50] [cursor=pointer]
+            - button "Dismiss" [ref=e51] [cursor=pointer]
+      - listitem [ref=e52]:
+        - article [ref=e53]:
+          - generic [ref=e54]:
+            - link "asks-ui-mp23j2b8-nonmember-room" [ref=e55] [cursor=pointer]:
+              - /url: /rooms/tsnoyhipzm
+            - generic [ref=e56]: "@other"
+            - generic [ref=e57]: 5/12/2026, 4:53:49 AM
+          - heading "asks-ui-mp23j2b8 nonmember title" [level=2] [ref=e58]
+          - paragraph [ref=e59]: asks-ui-mp23j2b8 nonmember body
+          - generic [ref=e60]:
+            - button "Answer" [ref=e61] [cursor=pointer]
+            - button "Dismiss" [ref=e62] [cursor=pointer]

@@ -1,263 +1,153 @@
+/**
+ * v3-compat shim — translates v3 CLI's `POST /api/sessions/:id/messages` into
+ * v4's `POST /api/chat-rooms/:id/messages`. Unblocks `ant chat send` from the
+ * globally-installed v3 CLI (~/.bun/bin/ant) which hits this path with a v3
+ * body shape and currently 404s → CLI wraps to HTTP 500. localgem (LM Studio
+ * gemma) + every other agent on the v3 CLI tonight hits the same wall.
+ *
+ * v3 body:    { role, content, format, sender_id, msg_type?, meta?, target? }
+ * v4 body:    { body, authorHandle?, kind?, parentMessageId?, pidChain? }
+ *
+ * Strategy: in-process HTTP loopback to the v4 route. Preserves all headers
+ * (cookies, admin bearer, identity-gate inputs) so the v4 handler's auth path
+ * is the one source of truth. We translate body fields only.
+ *
+ * Banked: project_ant_spawned_terminals_dual_table_2026_05_16 (autoRegister)
+ * + the abstract-kindling-fiddle plan (CLI v3→v4 migration). This shim is
+ * intentionally TEMPORARY — once ~/.bun/bin/ant points at the v4 CLI, v3
+ * CLI no longer hits /api/sessions/:id/messages and this route can be
+ * removed.
+ */
+
 import { error, json } from '@sveltejs/kit';
-import type { RequestEvent } from '@sveltejs/kit';
-import { queries } from '$lib/server/db';
-import { nanoid } from 'nanoid';
-import { assertNotRoomScoped, assertCanWrite, assertSameRoom } from '$lib/server/room-scope';
-import { loadMessagesForAgentContext } from '$lib/server/chat-context';
-import { writeMessage, WriteMessageError, resolveSenderSession as resolvePersistedSender } from '$lib/persist';
-import { runSideEffects } from '$lib/server/processor/run-side-effects';
+import type { RequestHandler } from './$types';
+import { doesChatRoomExist } from '$lib/server/chatRoomStore';
+import { postMessage } from '$lib/server/chatMessageStore';
+import { requireAdminAuth } from '$lib/server/chatInviteAuth';
+import { verifyToken } from '$lib/server/chatInviteStore';
 
-const RESOLVED_AGENT_EVENT_STATUSES = new Set(['discarded', 'dismissed', 'settled', 'responded']);
+type V3Body = {
+  role?: unknown;
+  content?: unknown;
+  format?: unknown;
+  sender_id?: unknown;
+  msg_type?: unknown;
+  meta?: unknown;
+  target?: unknown;
+  pidChain?: unknown;
+  parentMessageId?: unknown;
+};
 
-function terminalIdsForAgentEvent(chatId: string, message: any): string[] {
-  const ids = new Set<string>();
-
-  if (message.sender_id) {
-    const sender = queries.getSession(message.sender_id) || queries.getSessionByHandle(message.sender_id);
-    ids.add(sender?.id || message.sender_id);
-  }
-
-  try {
-    const linkedTerminals = queries.getTerminalsByLinkedChat(chatId) as any[];
-    for (const terminal of linkedTerminals) {
-      if (terminal?.id) ids.add(terminal.id);
-    }
-  } catch {}
-
-  return [...ids];
-}
-
-function assertActiveSession(sessionId: string) {
-  const session = queries.getSession(sessionId) as any;
-  if (!session) throw error(404, 'Session not found');
-  if (session.archived || session.deleted_at) throw error(410, 'Session is inactive');
-  return session;
-}
-
-// PATCH /api/sessions/:id/messages?msgId= — update meta (reactions, bookmarks)
-export async function PATCH(event: RequestEvent<{ id: string }>) {
-  // Mutating arbitrary message meta (status flags, etc.) is admin-only —
-  // there's no per-message ownership check yet, so a remote ANT could
-  // change anyone's message metadata otherwise. Sender-bound editing is
-  // a planned follow-up.
-  assertNotRoomScoped(event);
-  const { params, url, request } = event;
-  const msgId = url.searchParams.get('msgId');
-  if (!msgId) return json({ error: 'msgId required' }, { status: 400 });
-  assertActiveSession(params.id);
-
-  let body: any;
-  try {
-    body = await request.json();
-  } catch {
-    return json({ error: 'Invalid JSON' }, { status: 400 });
-  }
-  const { meta } = body;
-  if (!meta) return json({ error: 'meta required' }, { status: 400 });
-
-  // Fetch existing meta and merge
-  const existing: any = queries.listMessages(params.id).find((m: any) => m.id === msgId);
-  if (!existing) return json({ error: 'not found' }, { status: 404 });
-
-  let existingMeta: any = {};
-  try { existingMeta = JSON.parse(existing.meta || '{}'); } catch {}
-  const merged = { ...existingMeta, ...meta };
-
-  queries.updateMessageMeta(msgId, JSON.stringify(merged));
-
-  const { broadcast } = await import('$lib/server/ws-broadcast.js');
-  broadcast(params.id, { type: 'message_updated', sessionId: params.id, msgId, meta: merged });
-
-  if (existing.msg_type === 'agent_event' && RESOLVED_AGENT_EVENT_STATUSES.has(merged.status)) {
-    const { discardEvent } = await import('$lib/server/agent-event-bus.js');
-    const terminalIds = terminalIdsForAgentEvent(params.id, existing);
-    for (const terminalSessionId of terminalIds) {
-      discardEvent(terminalSessionId, msgId);
-    }
-  }
-
-  return json({ msgId, meta: merged });
-}
-
-// DELETE /api/sessions/:id/messages?msgId=
-export async function DELETE(event: RequestEvent<{ id: string }>) {
-  // Same reasoning as PATCH — admin-only until per-message ownership lands.
-  assertNotRoomScoped(event);
-  const { params, url } = event;
-  const msgId = url.searchParams.get('msgId');
-  if (!msgId) return json({ error: 'msgId required' }, { status: 400 });
-  assertActiveSession(params.id);
-
-  queries.deleteMessage(msgId);
-
-  const { broadcast } = await import('$lib/server/ws-broadcast.js');
-  broadcast(params.id, { type: 'message_deleted', sessionId: params.id, msgId });
-
-  return json({ ok: true });
-}
-
-export function GET(event: RequestEvent<{ id: string }>) {
-  assertSameRoom(event, event.params.id);
-  const { params, url } = event;
-  assertActiveSession(params.id);
-
-  const since = url.searchParams.get('since');
-  const before = url.searchParams.get('before');
-  const limitParam = url.searchParams.get('limit');
-  const limit = limitParam ? parseInt(limitParam) : 50;
-  const agentContext = url.searchParams.get('agent_context') === '1' || url.searchParams.get('context') === 'agent';
-
-  let messages: unknown[];
-  if (agentContext) {
-    const rows = loadMessagesForAgentContext(params.id, { since, limit: before ? undefined : limit });
-    messages = before
-      ? rows.filter((m) => m.created_at < before).slice(-limit)
-      : rows;
-  } else if (before) {
-    // Backward pagination: fetch older messages before a given timestamp/id,
-    // returned DESC from DB then reversed so caller gets ASC order.
-    const rows = queries.getMessagesBefore(params.id, before, limit) as unknown[];
-    messages = (rows as unknown[]).reverse();
-  } else if (since) {
-    messages = queries.getMessagesSince(params.id, since, limit) as unknown[];
-  } else if (limitParam) {
-    // Bounded latest-N fetch — DESC then reverse for ASC delivery.
-    // The previous unbounded path silently ignored ?limit=, returning every
-    // message in the room on every page load.
-    const rows = queries.getLatestMessages(params.id, limit) as unknown[];
-    messages = (rows as unknown[]).reverse();
-  } else {
-    messages = queries.listMessages(params.id) as unknown[];
-  }
-  return json({ messages });
-}
-
-export async function POST(event: RequestEvent<{ id: string }>) {
-  // Read-only kinds (web viewer) must NOT be able to escalate to posting via
-  // direct curl. The kind annotation on the bearer is the gate.
-  assertSameRoom(event, event.params.id);
-  assertCanWrite(event);
-  const { params, request } = event;
-  assertActiveSession(params.id);
-  const body = await request.json();
-  const { role, content, format, sender_id, target, reply_to, msg_type, meta, asks } = body;
-  const msgType = msg_type || 'message';
-
-  // agent_response is a special path that short-circuits BEFORE persist.
-  // It depends on handleResponse() which holds in-memory event-bus state
-  // — Tier 1 (writeMessage) does not handle it (serverSplit.md Risks).
-  if (msgType === 'agent_response') {
-    const id = nanoid();
-    let parsedMeta: Record<string, any> = {};
-    try {
-      const metaJson = meta === undefined ? '{}' : typeof meta === 'string' ? meta : JSON.stringify(meta ?? {});
-      parsedMeta = JSON.parse(metaJson || '{}');
-    } catch {}
-    try {
-      const payload = JSON.parse(content);
-      const sourceEvent = payload.event_id ? queries.getMessage(payload.event_id) as any : null;
-      const terminalSessionId = payload.terminal_session_id || sourceEvent?.sender_id;
-      const eventContent = payload.event_content || sourceEvent?.content;
-
-      if (!terminalSessionId || !eventContent) {
-        return json({ error: 'agent_response requires an event_id or terminal_session_id/event_content' }, { status: 400 });
-      }
-
-      const terminal = queries.getSession(terminalSessionId) as any;
-      if (!terminal || terminal.type !== 'terminal') {
-        return json({ error: 'agent_response target terminal not found' }, { status: 404 });
-      }
-
-      const sender = resolvePersistedSender(sender_id || null);
-      const { handleResponse } = await import('$lib/server/agent-event-bus.js');
-      await handleResponse(
-        terminalSessionId,
-        eventContent,
-        { type: payload.type, ...(payload.choice ?? {}) },
-        payload.event_id ?? sourceEvent?.id ?? null,
-        {
-          responseMsgId: null,
-          responderId: sender_id || null,
-          responderName: sender.name,
-          justification: payload.justification ?? payload.reason ?? null,
-          source: String(payload.source ?? parsedMeta.source ?? 'linked_chat'),
-        },
-      );
-
-      return json({
-        id,
-        session_id: params.id,
-        role,
-        format: format || 'json',
-        status: 'complete',
-        sender_id: sender_id || null,
-        target: target || null,
-        reply_to: reply_to || null,
-        msg_type: msgType,
-        handled: true,
-        deliveries: [{
-          adapter: 'agent-event-bus',
-          targetId: terminalSessionId,
-          delivered: true,
-        }],
-      });
-    } catch (e: any) {
-      return json({ error: e?.message || String(e) }, { status: 500 });
-    }
-  }
-
-  // Phase A of server-split-2026-05-11 — Tier 1 persist via writeMessage.
-  // All DB mutations (createMessage, ask writes, meta rewrite, room
-  // membership upsert) run in a single transaction inside the persist
-  // library. The side-effect block below stays inline for now; Phase B
-  // extracts it into runSideEffects().
-  let result;
-  try {
-    result = writeMessage({
-      sessionId: params.id,
-      role,
-      content,
-      format,
-      senderId: sender_id || null,
-      target: target || null,
-      replyTo: reply_to || null,
-      msgType,
-      meta,
-      asks,
-      source: 'http',
-    });
-  } catch (e) {
-    if (e instanceof WriteMessageError) {
-      return json({ error: e.message }, { status: e.status });
-    }
-    throw e;
-  }
-
-  const { message: msg, asks: createdAsks, firstPost } = result;
-
-  // Phase B of server-split-2026-05-11 — Tier 2 processor. runSideEffects
-  // owns every live-server side effect: channel HTTP fanout (now
-  // idempotent per-adapter via delivery_log), MessageRouter.route, agent
-  // event bus emit, asks WS broadcast, and the broadcast_state flip
-  // from 'pending' to 'done' on success. If runSideEffects throws, the
-  // row stays 'pending' and Phase C's catch-up loop owns the retry —
-  // that is the intended semantic, not a bug.
-  const sideEffects = await runSideEffects(result);
-
-  // 3. Return with delivery info + first-post hint when applicable.
-  // The hint is a single line with no skill body — agents fetch the
-  // actual skill via `ant skill <name>` only when they need it.
-  // Lives on the response so the CLI can surface it client-side
-  // without an extra round-trip.
-  const skillHint = firstPost
-    ? 'tip: run `ant skill list` to see ANT helper skills (planning, chat-routing, chat-break, task-lifecycle, artefacts) — saves tokens vs re-explaining.'
+function translateBody(v3: V3Body): Record<string, unknown> | null {
+  const content = typeof v3.content === 'string' ? v3.content : null;
+  if (content === null) return null;
+  const sender = typeof v3.sender_id === 'string' && v3.sender_id.trim().length > 0
+    ? v3.sender_id
     : null;
-
-  return json({
-    ...msg,
-    ask: createdAsks[0] ?? null,
-    asks: createdAsks,
-    deliveries: sideEffects.routedDeliveries,
-    ...(skillHint ? { firstPost: true, hint: skillHint } : {}),
-  }, { status: 201 });
+  const v4: Record<string, unknown> = { body: content };
+  if (sender) v4.authorHandle = sender;
+  // pidChain is the identity-gate input — passthrough if the CLI included it
+  if (Array.isArray(v3.pidChain)) v4.pidChain = v3.pidChain;
+  // parentMessageId carries through verbatim if present
+  if (typeof v3.parentMessageId === 'string') v4.parentMessageId = v3.parentMessageId;
+  // kind/meta/msg_type are dropped — v4's chat-rooms route enforces its own
+  // kind validation. v3 CLI doesn't set kind so default ('human') is fine.
+  return v4;
 }
+
+export const POST: RequestHandler = async ({ params, request, fetch }) => {
+  const id = params.id;
+  if (!id) throw error(400, 'id required.');
+  if (!doesChatRoomExist(id)) {
+    throw error(404, `Chat room ${id} not found (v3-compat shim).`);
+  }
+  const raw = (await request.json().catch(() => null)) as V3Body | null;
+  if (!raw || typeof raw !== 'object') {
+    throw error(400, 'JSON body required.');
+  }
+  const translated = translateBody(raw);
+  if (!translated) {
+    throw error(400, 'v3 body must include a string content field.');
+  }
+
+  // Auth paths (in priority): admin-bearer → v3 room-token → loopback gate.
+  //
+  // 1. Admin bearer: v3 CLI's ctx.apiKey carries the admin token when no
+  //    per-room token is configured. v3 trust model is "admin = full access"
+  //    — sender_id taken at face value.
+  // 2. v3 room-token: when ~/.ant/config.json has a per-room token entry,
+  //    the CLI passes it as `Authorization: Bearer <fullToken>` INSTEAD of
+  //    the admin bearer. verifyToken resolves it to a {handle, room_id};
+  //    we override authorHandle with the token's handle (prevents
+  //    sender_id-spoofing across token kinds).
+  // 3. Otherwise fall through to event.fetch loopback → v4 chat-rooms
+  //    POST → identity gate (pidChain / browser-session).
+  const authHeader = request.headers.get('authorization') ?? '';
+  const bearerSecret = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+
+  let isAdmin = false;
+  try {
+    requireAdminAuth(request);
+    isAdmin = true;
+  } catch {
+    /* not admin — try room-token next */
+  }
+  let roomTokenHandle: string | null = null;
+  if (!isAdmin && bearerSecret.length > 0) {
+    const tokenIdentity = verifyToken(bearerSecret, id);
+    if (tokenIdentity) roomTokenHandle = tokenIdentity.handle ?? null;
+  }
+  if (isAdmin || roomTokenHandle) {
+    const authorHandle = roomTokenHandle
+      ?? (translated.authorHandle as string | undefined)
+      ?? '@cli';
+    const messageBody = translated.body as string;
+    const parentMessageId = translated.parentMessageId as string | undefined;
+    const newMessage = postMessage({
+      roomId: id,
+      authorHandle,
+      body: messageBody,
+      kind: 'human',
+      ...(parentMessageId !== undefined && { parentMessageId })
+    });
+    return json({ ok: true, message: newMessage }, { status: 201 });
+  }
+
+  // Forward to v4 chat-rooms route. SvelteKit's event.fetch preserves cookies
+  // + origin context, so the identity gate sees the same caller it would have
+  // seen on a direct POST. Headers like x-ant-admin-token / Authorization
+  // pass through too.
+  const forwardHeaders = new Headers();
+  forwardHeaders.set('content-type', 'application/json');
+  const cookie = request.headers.get('cookie');
+  if (cookie) forwardHeaders.set('cookie', cookie);
+  const origin = request.headers.get('origin');
+  if (origin) forwardHeaders.set('origin', origin);
+  const auth = request.headers.get('authorization');
+  if (auth) forwardHeaders.set('authorization', auth);
+  const adminToken = request.headers.get('x-ant-admin-token');
+  if (adminToken) forwardHeaders.set('x-ant-admin-token', adminToken);
+
+  const upstream = await fetch(`/api/chat-rooms/${id}/messages`, {
+    method: 'POST',
+    headers: forwardHeaders,
+    body: JSON.stringify(translated)
+  });
+  const text = await upstream.text();
+  // Preserve upstream status + content-type so the v3 CLI sees the same
+  // success/failure shape it would on a direct v4 call.
+  const responseInit: ResponseInit = {
+    status: upstream.status,
+    headers: { 'content-type': upstream.headers.get('content-type') ?? 'application/json' }
+  };
+  return new Response(text, responseInit);
+};
+
+// GET is intentionally NOT shimmed yet — only chat send is on the localgem
+// critical path tonight. Add later if `ant chat tail` becomes needed.
+export const GET: RequestHandler = () => {
+  return json(
+    { error: 'GET shim not implemented; use /api/chat-rooms/:id/messages directly.' },
+    { status: 501 }
+  );
+};

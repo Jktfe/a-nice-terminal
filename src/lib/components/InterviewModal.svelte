@@ -52,6 +52,7 @@
     candidateAgents = [],
     messages = [],
     busy = false,
+    lastErrorMessage = '',
     onClose,
     onSend,
     onAddParticipant,
@@ -71,6 +72,11 @@
     candidateAgents: { handle: string; displayName?: string }[];
     messages: InterviewMessage[];
     busy?: boolean;
+    /** Surface any error returned by the parent's end / send / add-participant
+     *  handlers so the operator sees WHY a click did nothing. Empty string
+     *  hides the banner. Banked from JWPK msg_pooxj42nl0: end-button-bug
+     *  symptom was a silent PATCH failure — the modal must show it. */
+    lastErrorMessage?: string;
     onClose?: () => void;
     onSend?: (content: string) => void | Promise<void>;
     onAddParticipant?: (handle: string) => void | Promise<void>;
@@ -351,7 +357,19 @@
           onclick={() => onEndInterview?.()}
           disabled={busy}
           title="End interview, save transcript, post summary"
-        >End interview</button>
+        >{busy ? 'Ending…' : 'End interview'}</button>
+        <!-- Force-close defence (JWPK msg_pooxj42nl0 (f)): if the server-side
+             end-PATCH silently fails the operator must still be able to
+             dismiss the modal locally. Force-close calls onClose only —
+             interview stays open on the server (can be cleaned up via
+             coordinator force-release). The end-PATCH path is the right
+             one when it works; this is the always-works escape hatch. -->
+        <button
+          type="button"
+          class="iv-force-close"
+          onclick={() => onClose?.()}
+          title="Close this window. The interview stays open on the server until End interview succeeds."
+        >Force close</button>
         <button
           type="button"
           class="iv-close"
@@ -361,6 +379,18 @@
           <NocturneIcon name="x" size={14} color="var(--text-muted)" />
         </button>
       </header>
+
+      {#if lastErrorMessage}
+        <!-- Visible error surface (JWPK msg_pooxj42nl0 (f)): the previous
+             modal swallowed PATCH-end / send-message failures into the
+             parent's lastErrorMessage which never reached this UI. Now the
+             parent threads the error in via the prop and we render it
+             inline so the operator sees why a click did nothing. -->
+        <div class="iv-error" role="alert">
+          <span class="iv-error-glyph" aria-hidden="true">!</span>
+          <p>{lastErrorMessage}</p>
+        </div>
+      {/if}
 
       <div class="iv-participants" aria-label="Interview participants">
         {#each participants as p (p.handle)}
@@ -602,6 +632,51 @@
     border-radius: 4px;
   }
   .iv-close:hover { background: var(--hairline, rgba(0, 0, 0, 0.06)); }
+  .iv-force-close {
+    padding: 4px 10px;
+    border: 1px solid var(--hairline-strong, rgba(0, 0, 0, 0.18));
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-muted, #6b6759);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-left: 6px;
+  }
+  .iv-force-close:hover {
+    border-color: var(--accent, #c63b3b);
+    color: var(--accent, #c63b3b);
+  }
+  .iv-error {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    padding: 10px 16px;
+    margin: 0;
+    background: color-mix(in srgb, var(--accent, #c63b3b) 8%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--accent, #c63b3b) 28%, transparent);
+    color: var(--text, #1b1810);
+  }
+  .iv-error-glyph {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--accent, #c63b3b);
+    color: white;
+    font-size: 11px;
+    font-weight: 900;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 1px;
+  }
+  .iv-error p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text, #1b1810);
+  }
 
   .iv-participants {
     display: flex;

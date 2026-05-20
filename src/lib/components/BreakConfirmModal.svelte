@@ -1,242 +1,176 @@
 <!--
-  BreakConfirmModal — replaces window.confirm() on the /break composer
-  path. iOS PWA standalone mode does not always render native browser
-  dialogs (window.confirm silently returns false in some configs),
-  which left James's break markers never reaching writeMessage and
-  the visual divider never rendering. This modal works consistently
-  on desktop and mobile, focuses the reason field, and supports
-  keyboard Escape / Enter shortcuts.
+  BreakConfirmModal — confirm that the user wants to post a context break.
+  Backs M12 break-context.
 
-  Triggered from MessageInput.svelte when detectBreakCommand sees
-  `/break [reason]`. Caller passes the parsed reason as the initial
-  textarea value; user can edit before confirming.
+  Why a modal: a break is irreversible inside the agent context window — every
+  agent reading the room from this point on will only see messages AFTER the
+  break. The native window.confirm fails silently inside iOS PWA standalone
+  mode, so this is the cross-platform replacement.
 -->
 <script lang="ts">
-  let {
-    open = false,
-    initialReason = '',
-    onConfirm,
-    onCancel,
-  }: {
-    open?: boolean;
-    initialReason?: string;
-    onConfirm: (reason: string) => void;
-    onCancel?: () => void;
-  } = $props();
+  type Props = {
+    isOpen: boolean;
+    reasonTyped: string;
+    onConfirm: () => void;
+    onCancel: () => void;
+    onReasonInput: (newReason: string) => void;
+  };
 
-  let reason = $state('');
-  let textareaEl = $state<HTMLTextAreaElement | null>(null);
+  let { isOpen, reasonTyped, onConfirm, onCancel, onReasonInput }: Props = $props();
 
-  // Sync reason from prop whenever the modal opens — keeps the
-  // edited text fresh each /break attempt rather than carrying over
-  // a previous draft.
-  $effect(() => {
-    if (open) {
-      reason = initialReason;
-      // Focus the textarea after the dialog renders so the user can
-      // immediately type/edit. queueMicrotask so the DOM has settled.
-      queueMicrotask(() => {
-        textareaEl?.focus();
-        textareaEl?.select();
-      });
+  function handleKeyDown(keyboardEvent: KeyboardEvent) {
+    if (!isOpen) return;
+    if (keyboardEvent.key === 'Escape') {
+      keyboardEvent.preventDefault();
+      onCancel();
+      return;
     }
-  });
-
-  function cancel() {
-    onCancel?.();
-  }
-
-  function confirm() {
-    onConfirm(reason.trim());
-  }
-
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      cancel();
-    } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      confirm();
+    if (keyboardEvent.key === 'Enter' && (keyboardEvent.metaKey || keyboardEvent.ctrlKey)) {
+      keyboardEvent.preventDefault();
+      onConfirm();
     }
-  }
-
-  function handleOverlayClick(e: MouseEvent) {
-    // Clicking the overlay (not the dialog content) closes the modal.
-    if (e.target === e.currentTarget) cancel();
   }
 </script>
 
-{#if open}
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div
-    class="break-modal-overlay"
-    role="presentation"
-    onclick={handleOverlayClick}
-    onkeydown={handleKeydown}
-  >
+<svelte:window onkeydown={handleKeyDown} />
+
+{#if isOpen}
+  <div class="break-modal-backdrop">
+    <button
+      type="button"
+      class="backdrop-dismisser"
+      aria-label="Close break confirmation"
+      onclick={onCancel}
+    ></button>
     <div
-      class="break-modal-dialog"
+      class="break-modal"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="break-modal-title"
-      aria-describedby="break-modal-desc"
+      aria-labelledby="breakModalHeading"
+      tabindex="-1"
     >
-      <h2 id="break-modal-title" class="break-modal-title">Post a context break?</h2>
-      <p id="break-modal-desc" class="break-modal-desc">
-        Agents will only see messages posted <strong>after</strong> this
-        break. Older context stays in the chat for humans but is hidden
-        from any new agent prompts. Add a reason so you remember
-        what changed.
+      <h2 id="breakModalHeading">Post a context break?</h2>
+      <p>
+        Agents will only see messages posted after this break. Older context
+        stays visible to humans.
       </p>
 
-      <label class="break-modal-label" for="break-modal-reason">
-        Reason (optional)
-      </label>
-      <textarea
-        id="break-modal-reason"
-        bind:this={textareaEl}
-        bind:value={reason}
-        rows="3"
-        placeholder="What's the new direction?"
-        class="break-modal-textarea"
-        onkeydown={handleKeydown}
-      ></textarea>
+      <label for="breakReasonField">Reason (optional)</label>
+      <input
+        id="breakReasonField"
+        type="text"
+        autocomplete="off"
+        placeholder="e.g. starting the next sprint"
+        value={reasonTyped}
+        oninput={(event) => onReasonInput(event.currentTarget.value)}
+      />
 
       <div class="break-modal-actions">
-        <button type="button" class="break-modal-btn break-modal-btn--ghost" onclick={cancel}>
-          Cancel
-        </button>
-        <button type="button" class="break-modal-btn break-modal-btn--primary" onclick={confirm}>
-          Post break
-        </button>
+        <button type="button" class="cancel" onclick={onCancel}>Cancel</button>
+        <button type="button" class="primary" onclick={onConfirm}>Post break</button>
       </div>
+
+      <p class="hint">Cmd-Enter to post · Esc to cancel</p>
     </div>
   </div>
 {/if}
 
 <style>
-  .break-modal-overlay {
+  .break-modal-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 9999;
+    background: rgba(10, 10, 14, 0.45);
+    display: grid;
+    place-items: center;
+    z-index: 1000;
+    padding: 1rem;
+  }
+
+  .backdrop-dismisser {
+    position: absolute;
+    inset: 0;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  .break-modal {
+    position: relative;
+    width: min(420px, 100%);
+    padding: 1.4rem 1.5rem;
+    background: var(--surface);
+    border-radius: 1rem;
+    border: 1px solid var(--surface-edge);
     display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 16px;
-    background: rgba(15, 23, 42, 0.45);
-    backdrop-filter: blur(2px);
+    flex-direction: column;
+    gap: 0.6rem;
   }
 
-  .break-modal-dialog {
-    width: 100%;
-    max-width: 480px;
-    padding: 20px;
-    border-radius: 12px;
-    background: var(--bg-card, #fff);
-    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.22);
-    border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.08));
-    color: var(--text, #111827);
+  h2 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: var(--ink-strong);
   }
 
-  .break-modal-title {
-    margin: 0 0 8px;
-    font-size: 17px;
-    font-weight: 700;
-    line-height: 1.2;
-  }
-
-  .break-modal-desc {
-    margin: 0 0 16px;
-    font-size: 13px;
-    line-height: 1.45;
-    color: var(--text-muted, #4b5563);
-  }
-
-  .break-modal-label {
-    display: block;
-    margin-bottom: 6px;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--text-muted, #4b5563);
-  }
-
-  .break-modal-textarea {
-    width: 100%;
-    min-height: 72px;
-    padding: 9px 11px;
-    border: 1px solid var(--border-subtle, #d1d5db);
-    border-radius: 8px;
-    background: var(--bg, #fff);
-    color: var(--text, #111827);
-    font-size: 14px;
-    font-family: inherit;
+  p {
+    margin: 0;
+    color: var(--ink-soft);
     line-height: 1.4;
-    resize: vertical;
-    box-sizing: border-box;
   }
 
-  .break-modal-textarea:focus {
-    outline: none;
-    border-color: var(--accent-blue, #2563eb);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-blue, #2563eb) 18%, transparent);
+  label {
+    margin-top: 0.4rem;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--ink);
+  }
+
+  input {
+    padding: 0.6rem 0.8rem;
+    font-size: 0.95rem;
+    border: 1px solid var(--surface-edge);
+    border-radius: 0.6rem;
+    background: var(--bg);
+    color: var(--ink-strong);
+  }
+
+  input:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
   }
 
   .break-modal-actions {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
-    margin-top: 16px;
+    gap: 0.5rem;
+    margin-top: 0.4rem;
   }
 
-  .break-modal-btn {
-    min-height: 40px;
-    padding: 9px 16px;
-    border-radius: 8px;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    border: 1px solid transparent;
-    font-family: inherit;
-    line-height: 1;
-  }
-
-  .break-modal-btn--ghost {
+  button.cancel {
+    padding: 0.5rem 1rem;
     background: transparent;
-    color: var(--text, #111827);
-    border-color: var(--border-subtle, #d1d5db);
+    border: 1px solid var(--surface-edge);
+    border-radius: 999px;
+    color: var(--ink);
+    font-weight: 700;
+    cursor: pointer;
   }
 
-  .break-modal-btn--ghost:hover {
-    background: var(--bg-hover, rgba(0, 0, 0, 0.04));
+  button.primary {
+    padding: 0.5rem 1.1rem;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 999px;
+    font-weight: 800;
+    cursor: pointer;
   }
 
-  .break-modal-btn--primary {
-    background: var(--accent-blue, #2563eb);
-    color: #fff;
-    border-color: var(--accent-blue, #2563eb);
-  }
-
-  .break-modal-btn--primary:hover {
-    background: color-mix(in srgb, var(--accent-blue, #2563eb) 88%, #000);
-  }
-
-  /* Mobile: full-bleed padding, larger touch targets */
-  @media (max-width: 640px) {
-    .break-modal-overlay {
-      padding: 12px;
-      align-items: flex-end;
-    }
-
-    .break-modal-dialog {
-      max-width: none;
-      border-radius: 16px 16px 12px 12px;
-    }
-
-    .break-modal-btn {
-      min-height: 44px;
-    }
+  .hint {
+    margin: 0.3rem 0 0;
+    font-size: 0.72rem;
+    color: var(--ink-soft);
   }
 </style>

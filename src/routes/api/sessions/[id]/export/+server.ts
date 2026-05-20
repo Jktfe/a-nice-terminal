@@ -1,107 +1,29 @@
-import { error, json } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
-import { existsSync } from 'fs';
-import { homedir } from 'os';
-import { join } from 'path';
-import { queries } from '$lib/server/db';
-import { obsidianVaultPath, maybeWriteSessionSummary } from '$lib/server/capture/obsidian-writer.js';
-import { writeOpenSlideDeck } from '$lib/server/capture/open-slide-writer.js';
-import { publicOrigin } from '$lib/server/room-invites.js';
-import { assertCanWrite, assertSameRoom } from '$lib/server/room-scope';
+import { exportSession, parseSessionExportFormat } from '$lib/server/sessionExportStore';
 
-const TARGETS = new Set(['obsidian', 'open-slide']);
+export function GET({ params, url }: RequestEvent<{ id: string }>) {
+  const sessionId = params.id;
+  if (!sessionId) throw error(400, 'session id is required.');
 
-function openSlideOutputDir(): string {
-  const raw = process.env.ANT_OPEN_SLIDE_DIR;
-  if (raw && raw.length > 0) return raw;
-  return join(homedir(), 'CascadeProjects', 'ANT-Open-Slide');
-}
-
-function parseTargets(body: any): string[] {
-  const raw = body?.targets ?? body?.target;
-  if (!raw) return ['obsidian'];
-  const list = Array.isArray(raw) ? raw : String(raw).split(',');
-  const targets = list.map((t) => String(t).trim().toLowerCase()).filter(Boolean);
-  return targets.length ? targets : ['obsidian'];
-}
-
-function requireActiveSession(sessionId: string) {
-  const session = queries.getSession(sessionId) as any;
-  if (!session) throw error(404, 'Session not found');
-  if (session.archived || session.deleted_at) throw error(410, 'Session is inactive');
-  return session;
-}
-
-export function GET(event: RequestEvent<{ id: string }>) {
-  assertSameRoom(event, event.params.id);
-  requireActiveSession(event.params.id);
-
-  // Probe-on-GET: `configured` reflects whether the receiving target actually
-  // exists on disk where the writer would land. Catches the silent-no-op case
-  // where a target was assumed installed but the directory is missing.
-  const vaultPath = obsidianVaultPath();
-  const slidePath = openSlideOutputDir();
-
-  return json({
-    targets: [
-      {
-        id: 'obsidian',
-        label: 'Obsidian',
-        kind: 'vault',
-        description: 'Writes the existing concise markdown session summary into the configured Obsidian vault and memory table.',
-        configured: existsSync(vaultPath),
-        vault_path: vaultPath,
-      },
-      {
-        id: 'open-slide',
-        label: 'Open-Slide',
-        kind: 'render',
-        description: 'Writes a local Open-Slide-ready React evidence deck bundle from ANT session evidence.',
-        configured: existsSync(slidePath),
-        output_dir: slidePath,
-      },
-    ],
-  });
-}
-
-export async function POST(event: RequestEvent<{ id: string }>) {
-  const { params, request } = event;
-  assertSameRoom(event, params.id);
-  assertCanWrite(event);
-  requireActiveSession(params.id);
-
-  let body: any = {};
+  let format;
   try {
-    body = await request.json();
-  } catch {
-    body = {};
+    format = parseSessionExportFormat(url.searchParams.get('format'));
+  } catch (cause) {
+    throw error(400, cause instanceof Error ? cause.message : 'Unsupported export format.');
   }
 
-  const targets = parseTargets(body);
-  const unknown = targets.filter((target) => !TARGETS.has(target));
-  if (unknown.length) {
-    return json({ ok: false, error: `Unknown export target(s): ${unknown.join(', ')}` }, { status: 400 });
+  try {
+    const exported = exportSession({ sessionId, format });
+    return new Response(format === 'json' ? exported.body : exported.body, {
+      headers: {
+        'content-type': exported.contentType,
+        'content-disposition': `attachment; filename="${exported.filename}"`
+      }
+    });
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : 'Could not export session.';
+    if (message.startsWith('No session or room found')) throw error(404, message);
+    throw cause;
   }
-
-  const results: Record<string, unknown> = {};
-  if (targets.includes('obsidian')) {
-    const path = await maybeWriteSessionSummary(params.id);
-    results.obsidian = {
-      ok: Boolean(path),
-      path,
-      vault_path: obsidianVaultPath(),
-      skipped: !path,
-      note: path ? 'Session summary written to Obsidian and memory table.' : 'No Obsidian file written. Vault may be missing or session may not be learnable.',
-    };
-  }
-  if (targets.includes('open-slide')) {
-    const deck = writeOpenSlideDeck(params.id);
-    results.open_slide = {
-      ...deck,
-      deck_page_url: deck.slug ? `${publicOrigin({ url: event.url })}/deck/${deck.slug}` : undefined,
-      file_api_url: deck.slug ? `${publicOrigin({ url: event.url })}/api/decks/${deck.slug}/files` : undefined,
-    };
-  }
-
-  return json({ ok: true, session_id: params.id, targets: results });
 }

@@ -1,62 +1,70 @@
-import { json } from '@sveltejs/kit';
-import type { RequestEvent } from '@sveltejs/kit';
-import { queries } from '$lib/server/db';
+/**
+ * POST /api/identity/resolve — resolve a caller's PID chain to a terminal.
+ *
+ * Body: { pids: [{pid, pid_start}], room_id? }
+ *
+ * Returns:
+ *   { terminal_id, name, agent_kind, handle? }
+ * handle is only populated if room_id was supplied AND a membership exists
+ * for (room_id, terminal_id). Otherwise the response contains terminal
+ * identity only and the caller is anonymous-with-warning in chat.
+ *
+ * Chain walk on the server picks the MOST RECENT match across the chain.
+ * The leaf PID typically matches first; ancestor matches are the fallback
+ * (e.g. the CLI's parent shell is registered but the CLI process itself is
+ * not directly mapped).
+ */
 
-type PidEntry = { pid: number; pid_start: string | null };
+import { json, error } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+import { lookupTerminalByPidChain, type PidChainEntry } from '$lib/server/terminalsStore';
+import { getRoomScopedHandle } from '$lib/server/roomMembershipsStore';
 
-function cleanPidChain(value: unknown): PidEntry[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((entry): PidEntry | null => {
-      if (typeof entry === 'number') {
-        if (!Number.isInteger(entry) || entry <= 1) return null;
-        return { pid: entry, pid_start: null };
-      }
-      if (!entry || typeof entry !== 'object') return null;
-      const pid = Number((entry as any).pid);
-      if (!Number.isInteger(pid) || pid <= 1) return null;
-      const rawStart = (entry as any).pid_start;
-      const pidStart = typeof rawStart === 'string' ? rawStart.trim() || null : null;
-      return { pid, pid_start: pidStart };
-    })
-    .filter((entry): entry is PidEntry => entry !== null)
-    .slice(0, 64);
-}
+type IdentityResolveBody = {
+  pids?: unknown;
+  room_id?: unknown;
+};
 
-export async function POST({ request }: RequestEvent) {
-  let body: any;
-  try {
-    body = await request.json();
-  } catch {
-    return json({ error: "Invalid JSON" }, { status: 400 });
+function parsePidChain(rawPids: unknown): PidChainEntry[] {
+  if (!Array.isArray(rawPids) || rawPids.length === 0) {
+    throw error(400, 'pids must be a non-empty array.');
   }
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return json({ error: "Request body must be a JSON object" }, { status: 400 });
-  }
-  const pids = cleanPidChain(body.pids);
-  if (pids.length === 0) {
-    return json({ error: 'pids must be a non-empty array' }, { status: 400 });
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-  queries.pruneTerminalIdentities(now);
-  const row = queries.resolveTerminalIdentity(pids, now) as any;
-  if (!row) {
-    return json({ identity: null });
-  }
-
-  const handle = row.session_handle || row.handle || null;
-  return json({
-    identity: {
-      sender_id: row.session_id || handle,
-      handle,
-      display_name: row.display_name || row.name || null,
-      session_id: row.session_id || null,
-      pid: row.root_pid,
-      pid_start: row.pid_start || null,
-      source: row.source || 'manual',
-      registered_at: row.registered_at,
-      expires_at: row.expires_at,
-    },
+  return rawPids.map((entry, idx) => {
+    if (!entry || typeof entry !== 'object') {
+      throw error(400, `pids[${idx}] must be an object.`);
+    }
+    const pidRaw = (entry as { pid?: unknown }).pid;
+    const pidStartRaw = (entry as { pid_start?: unknown }).pid_start;
+    const pidNumber = Number(pidRaw);
+    if (!Number.isFinite(pidNumber) || pidNumber <= 0) {
+      throw error(400, `pids[${idx}].pid must be a positive number.`);
+    }
+    const pidStart = typeof pidStartRaw === 'string' ? pidStartRaw : null;
+    return { pid: pidNumber, pid_start: pidStart };
   });
 }
+
+export const POST: RequestHandler = async ({ request }) => {
+  const rawBody = (await request.json().catch(() => null)) as IdentityResolveBody | null;
+  if (!rawBody || typeof rawBody !== 'object') {
+    throw error(400, 'Send a JSON body with pids.');
+  }
+
+  const pidChain = parsePidChain(rawBody.pids);
+  const terminal = lookupTerminalByPidChain(pidChain);
+
+  if (!terminal) {
+    return json({ terminal_id: null, name: null, agent_kind: null, handle: null });
+  }
+
+  const roomIdRaw = rawBody.room_id;
+  const roomId = typeof roomIdRaw === 'string' && roomIdRaw.length > 0 ? roomIdRaw : null;
+  const handle = roomId ? getRoomScopedHandle(roomId, terminal.id) : null;
+
+  return json({
+    terminal_id: terminal.id,
+    name: terminal.name,
+    agent_kind: terminal.agent_kind,
+    handle
+  });
+};

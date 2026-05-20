@@ -1,0 +1,90 @@
+- generic [ref=e2]:
+  - link "Skip to main content" [ref=e3] [cursor=pointer]:
+    - /url: "#main-content"
+  - main [ref=e4]:
+    - generic [ref=e5]:
+      - link "Back to dashboard" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - generic ">_ANT" [ref=e7]:
+          - generic [ref=e8]: ">_ANT"
+      - navigation "Primary" [ref=e9]:
+        - link "Dashboard" [ref=e10] [cursor=pointer]:
+          - /url: /
+          - img [ref=e11]
+          - text: Dashboard
+        - link "Rooms" [ref=e16] [cursor=pointer]:
+          - /url: /rooms
+          - img [ref=e17]
+          - text: Rooms
+        - link "Terminals" [ref=e19] [cursor=pointer]:
+          - /url: /terminal
+          - img [ref=e20]
+          - text: Terminals
+        - link "Plans" [ref=e23] [cursor=pointer]:
+          - /url: /plan
+          - img [ref=e24]
+          - text: Plans
+        - link "CLI" [ref=e27] [cursor=pointer]:
+          - /url: /discover
+          - img [ref=e28]
+          - text: CLI
+        - link "Search" [ref=e30] [cursor=pointer]:
+          - /url: /search
+          - img [ref=e31]
+          - text: Search
+        - link "Settings" [ref=e34] [cursor=pointer]:
+          - /url: /settings
+          - img [ref=e35]
+          - text: Settings
+      - button "Toggle theme" [ref=e38] [cursor=pointer]:
+        - img [ref=e39]
+        - text: Dark
+    - generic [ref=e41]:
+      - paragraph [ref=e42]: Terminals
+      - heading "Terminal." [level=1] [ref=e43]
+      - generic [ref=e44]: Spawn or attach to a tmux session running on the operator's machine.
+    - generic [ref=e45]:
+      - button "+ New terminal" [ref=e46] [cursor=pointer]
+      - generic "Existing terminals" [ref=e47]:
+        - generic [ref=e48]: "Attach existing:"
+        - button "no-shell-verify" [ref=e49] [cursor=pointer]
+        - button "polish-verify" [ref=e50] [cursor=pointer]
+        - button "layer-a-verify" [active] [ref=e51] [cursor=pointer]
+        - button "Terminal Test" [ref=e52] [cursor=pointer]
+        - button "front-3-verify" [ref=e53] [cursor=pointer]
+        - button "Terminal 4" [ref=e54] [cursor=pointer]
+        - button "coord-verify-1" [ref=e55] [cursor=pointer]
+        - button "Terminal 3" [ref=e56] [cursor=pointer]
+        - button "Terminal 2" [ref=e57] [cursor=pointer]
+        - button "Terminal 1" [ref=e58] [cursor=pointer]
+    - region "Active terminal" [ref=e61]:
+      - 'region "Terminal: layer-a-verify" [ref=e62]':
+        - generic "Terminal controls" [ref=e63]:
+          - generic [ref=e64]:
+            - 'generic "status: active" [ref=e65]'
+            - button "layer-a-verify" [ref=e66] [cursor=pointer]
+          - navigation "View mode" [ref=e67]:
+            - button "Chat" [ref=e68] [cursor=pointer]:
+              - img [ref=e69]
+              - text: Chat
+            - button "ANT" [ref=e71] [cursor=pointer]:
+              - img [ref=e72]
+              - text: ANT
+            - button "Raw" [pressed] [ref=e76] [cursor=pointer]:
+              - img [ref=e77]
+              - text: Raw
+        - generic [ref=e81]:
+          - navigation "Terminal special keys" [ref=e82]:
+            - button "Kill" [ref=e83] [cursor=pointer]
+            - button "⇧Tab" [ref=e84] [cursor=pointer]
+            - button "Tab" [ref=e85] [cursor=pointer]
+            - button "Enter" [ref=e86] [cursor=pointer]
+            - button "←" [ref=e87] [cursor=pointer]
+            - button "→" [ref=e88] [cursor=pointer]
+            - button "↑" [ref=e89] [cursor=pointer]
+            - button "↓" [ref=e90] [cursor=pointer]
+            - button "Esc" [ref=e91] [cursor=pointer]
+            - button "Paste" [ref=e92] [cursor=pointer]
+          - generic [ref=e96]:
+            - generic:
+              - textbox "Terminal input"

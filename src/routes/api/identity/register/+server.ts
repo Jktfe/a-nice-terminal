@@ -1,116 +1,93 @@
-import { json } from '@sveltejs/kit';
-import type { RequestEvent } from '@sveltejs/kit';
-import { nanoid } from 'nanoid';
-import { queries } from '$lib/server/db';
+// POST /api/identity/register — register a terminal entity.
+// Idempotent on `name` (UNIQUE). Stores leaf PID; ancestor lookup walks
+// caller-side. TTL clamped 60s..24h in terminalsStore.
 
-function normalizeHandle(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  return trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
-}
+import { json, error } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+import { upsertTerminal, updatePaneTarget, getTerminalById, getTerminalByName } from '$lib/server/terminalsStore';
+import { isValidClientAgentKind, AGENT_KINDS_CLIENT_INPUT } from '$lib/server/agentKindEnum';
+import { classifyIfUnknown } from '$lib/server/agentStatusPoller';
 
-function cleanString(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed || null;
-}
+const VALID_AGENT_KINDS_LIST = Array.from(AGENT_KINDS_CLIENT_INPUT).join(', ');
 
-function ttlSeconds(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return Math.max(60, Math.min(Math.floor(value), 24 * 60 * 60));
+type IdentityRegisterBody = {
+  name?: unknown;
+  pids?: unknown;
+  ttl_seconds?: unknown;
+  source?: unknown;
+  meta?: unknown;
+  pane?: unknown;
+  agent_kind?: unknown;
+};
+
+function parsePidsList(rawPids: unknown): { pid: number; pid_start: string | null }[] {
+  if (!Array.isArray(rawPids) || rawPids.length === 0) {
+    throw error(400, 'pids must be a non-empty array of {pid, pid_start} entries.');
   }
-  if (typeof value !== 'string') return 12 * 60 * 60;
-  const raw = value.trim().toLowerCase();
-  const match = raw.match(/^(\d+)(s|m|h)?$/);
-  if (!match) return 12 * 60 * 60;
-  const amount = Number(match[1]);
-  const unit = match[2] || 's';
-  const seconds = unit === 'h' ? amount * 3600 : unit === 'm' ? amount * 60 : amount;
-  return Math.max(60, Math.min(seconds, 24 * 60 * 60));
-}
-
-function cleanPidEntries(body: any): { pid: number; pid_start: string | null }[] {
-  if (Array.isArray(body?.pids)) {
-    const seen = new Set<number>();
-    return body.pids
-      .map((entry: any) => {
-        const pid = Number(typeof entry === 'number' ? entry : entry?.pid);
-        if (!Number.isInteger(pid) || pid <= 1 || seen.has(pid)) return null;
-        seen.add(pid);
-        return {
-          pid,
-          pid_start: cleanString(entry?.pid_start),
-        };
-      })
-      .filter((entry: { pid: number; pid_start: string | null } | null): entry is { pid: number; pid_start: string | null } => !!entry)
-      .slice(0, 64);
-  }
-
-  const rootPid = Number(body.root_pid ?? body.pid);
-  if (!Number.isInteger(rootPid) || rootPid <= 1) return [];
-  return [{ pid: rootPid, pid_start: cleanString(body.pid_start) }];
-}
-
-export async function POST({ request }: RequestEvent) {
-  let body: any;
-  try {
-    body = await request.json();
-  } catch {
-    return json({ error: "Invalid JSON" }, { status: 400 });
-  }
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return json({ error: "Request body must be a JSON object" }, { status: 400 });
-  }
-  const pids = cleanPidEntries(body);
-  if (pids.length === 0) {
-    return json({ error: 'root_pid or pids must include an integer greater than 1' }, { status: 400 });
-  }
-
-  const sessionId = cleanString(body.session_id);
-  const session = sessionId ? queries.getSession(sessionId) as any : null;
-  if (sessionId && !session) {
-    return json({ error: 'session_id not found' }, { status: 404 });
-  }
-
-  const handle = normalizeHandle(body.handle) || session?.handle || null;
-  if (!handle && !sessionId) {
-    return json({ error: 'handle or session_id required' }, { status: 400 });
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-  const expiresAt = now + ttlSeconds(body.ttl_seconds ?? body.ttl ?? body.duration);
-  const source = cleanString(body.source) || 'manual';
-  const meta = typeof body.meta === 'object' && body.meta !== null ? JSON.stringify(body.meta) : '{}';
-
-  queries.pruneTerminalIdentities(now);
-  const identities = pids.map((entry) => {
-    const id = nanoid();
-    queries.registerTerminalIdentity(
-      id,
-      entry.pid,
-      entry.pid_start,
-      handle,
-      sessionId,
-      source,
-      expiresAt,
-      meta,
-    );
-    return {
-      id,
-      root_pid: entry.pid,
-      pid_start: entry.pid_start,
-      handle,
-      session_id: sessionId,
-      source,
-      registered_at: now,
-      expires_at: expiresAt,
-    };
+  return rawPids.map((entry, idx) => {
+    if (!entry || typeof entry !== 'object') {
+      throw error(400, `pids[${idx}] must be an object.`);
+    }
+    const pidRaw = (entry as { pid?: unknown }).pid;
+    const pidStartRaw = (entry as { pid_start?: unknown }).pid_start;
+    const pidNumber = Number(pidRaw);
+    if (!Number.isFinite(pidNumber) || pidNumber <= 0) {
+      throw error(400, `pids[${idx}].pid must be a positive number.`);
+    }
+    const pidStart = typeof pidStartRaw === 'string' ? pidStartRaw : null;
+    return { pid: pidNumber, pid_start: pidStart };
   });
-
-  return json({
-    ok: true,
-    identity: identities[0],
-    identities,
-  }, { status: 201 });
 }
+
+export const POST: RequestHandler = async ({ request }) => {
+  const rawBody = (await request.json().catch(() => null)) as IdentityRegisterBody | null;
+  if (!rawBody || typeof rawBody !== 'object') {
+    throw error(400, 'Send a JSON body with name and pids.');
+  }
+
+  const nameRaw = rawBody.name;
+  if (typeof nameRaw !== 'string' || nameRaw.trim().length === 0) {
+    throw error(400, 'name must be a non-empty string.');
+  }
+
+  const leafPid = parsePidsList(rawBody.pids)[0];
+  const ttlRaw = rawBody.ttl_seconds;
+  const ttlSeconds = typeof ttlRaw === 'number' && Number.isFinite(ttlRaw) ? ttlRaw : undefined;
+  const sourceRaw = rawBody.source;
+  const source = typeof sourceRaw === 'string' && sourceRaw.length > 0 ? sourceRaw : undefined;
+  const metaRaw = rawBody.meta;
+  const meta = metaRaw && typeof metaRaw === 'object' ? (metaRaw as Record<string, unknown>) : undefined;
+  // M3.2d B1: validate agent_kind BEFORE upsert so invalid never writes a row.
+  const paneRaw = rawBody.pane;
+  const agentKindRaw = rawBody.agent_kind;
+  const paneValue = typeof paneRaw === 'string' && paneRaw.trim().length > 0 ? paneRaw.trim() : null;
+  let agentKindValue: string | null = null;
+  if (typeof agentKindRaw === 'string' && agentKindRaw.length > 0) {
+    if (!isValidClientAgentKind(agentKindRaw)) throw error(400, `agent_kind must be one of: ${VALID_AGENT_KINDS_LIST}`);
+    agentKindValue = agentKindRaw;
+  }
+  // M3.2b: pre-read for INSERT-new probe + path-B kind preservation on re-register.
+  const trimmedName = nameRaw.trim();
+  const existing = getTerminalByName(trimmedName);
+  const existed = existing !== null;
+  const terminal = upsertTerminal({ pid: leafPid.pid, pid_start: leafPid.pid_start,
+    name: trimmedName, ttlSeconds, source, meta });
+  const updateKindValue = agentKindValue !== null
+    ? agentKindValue : (existed ? (existing?.agent_kind ?? null) : null);
+  if (paneValue) updatePaneTarget(terminal.id, paneValue, updateKindValue);
+  // Response kind starts at updateKindValue (preserved); re-fetch only when classify ran.
+  let classifiedAgentKind: string | null = updateKindValue;
+  if (!existed && agentKindValue === null && paneValue !== null) {
+    try {
+      const fresh = getTerminalById(terminal.id);
+      if (fresh) {
+        classifyIfUnknown(fresh);
+        const reread = getTerminalById(terminal.id);
+        if (reread) classifiedAgentKind = reread.agent_kind ?? null;
+      }
+    } catch { /* best-effort: classify failure never blocks 201 */ }
+  }
+  return json({ terminal_id: terminal.id, name: terminal.name,
+    expires_at: terminal.expires_at, tmux_target_pane: paneValue,
+    agent_kind: classifiedAgentKind }, { status: 201 });
+};

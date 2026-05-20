@@ -1,0 +1,437 @@
+<!--
+  RoomStrip — render a list of room cards.
+
+  Each card shows: state dot, name, member avatar chips, summary, last-update.
+  Per-card actions (bookmark + archive + delete) sit outside the link wrapper
+  so they don't trigger navigation. A single ConfirmRoomActionModal is mounted
+  once for the strip; the `pending` state discriminates archive vs delete.
+
+  Rooms with isOpenable=true become clickable links to /rooms/[id]; the link
+  wraps only the body, not the action buttons.
+-->
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { invalidateAll } from '$app/navigation';
+  import type { RoomCard } from '$lib/domain/types';
+  import { roomBookmarks } from '$lib/stores/roomBookmarks.svelte';
+  import AvatarChip from './AvatarChip.svelte';
+  import ConfirmRoomActionModal from './ConfirmRoomActionModal.svelte';
+  import RoomDigestPanel from './RoomDigestPanel.svelte';
+  import RoomCardActivity from './RoomCardActivity.svelte';
+  import LastMessagePreview from './LastMessagePreview.svelte';
+
+  export type OpenableRoomCard = RoomCard & { isOpenable?: boolean };
+
+  type Props = {
+    rooms: OpenableRoomCard[];
+    // #155: when set, cards become draggable and the parent gets a
+    // (fromIndex, toIndex) callback to commit the reorder. Used by the
+    // dashboard's Starred section. Omitted on the rooms-index strip,
+    // which keeps server-driven order.
+    onReorder?: (fromIndex: number, toIndex: number) => void;
+    // JWPK msg_m3h97n3noq: lift v3's dashboard grid/column view. Default
+    // 'list' (current single-column behaviour byte-identical). When 'grid',
+    // cards lay out in gridCols columns at desktop widths; mobile always
+    // collapses to one column for readability.
+    view?: 'list' | 'grid';
+    gridCols?: number;
+  };
+
+  let { rooms, onReorder, view = 'list', gridCols = 2 }: Props = $props();
+  const isReorderable = $derived(typeof onReorder === 'function');
+  const safeGridCols = $derived(Math.max(1, Math.min(5, gridCols)));
+  let dragFromIndex = $state<number | null>(null);
+  let dragOverIndex = $state<number | null>(null);
+
+  onMount(() => { roomBookmarks.init(); });
+
+  type PendingAction = { id: string; name: string; action: 'archive' | 'delete' };
+  let pending = $state<PendingAction | null>(null);
+  let digestRoomId = $state<string | null>(null);
+
+  function openConfirm(room: OpenableRoomCard, action: PendingAction['action']) {
+    pending = { id: room.id, name: room.name, action };
+  }
+
+  function closeConfirm() {
+    pending = null;
+  }
+
+  async function confirmPending() {
+    const target = pending;
+    if (!target) return;
+    const url = target.action === 'delete'
+      ? `/api/chat-rooms/${target.id}`
+      : `/api/chat-rooms/${target.id}/archive`;
+    const method = target.action === 'delete' ? 'DELETE' : 'POST';
+    const resp = await fetch(url, { method });
+    if (resp.ok) {
+      if (target.action === 'delete') {
+        roomBookmarks.remove(target.id);
+      }
+      await invalidateAll();
+    }
+    pending = null;
+  }
+</script>
+
+{#snippet body(room: OpenableRoomCard)}
+  <div class={`state-dot ${room.attentionState}`} aria-hidden="true"></div>
+  <div class="content">
+    <h3>{room.name}</h3>
+    {#if room.members && room.members.length > 0}
+      <div class="members" aria-label={`${room.members.length} ${room.members.length === 1 ? 'participant' : 'participants'}`}>
+        {#each room.members.slice(0, 5) as member, index (member.handle)}
+          <span class="member-slot" style:--member-index={index}>
+            <AvatarChip handle={member.handle} displayName={member.displayName} size="sm" />
+          </span>
+        {/each}
+        {#if room.members.length > 5}
+          <span
+            class="member-overflow"
+            style:--member-index={5}
+            title={room.members.slice(5).map((m) => m.displayName ?? m.handle).join(', ')}
+          >+{room.members.length - 5}</span>
+        {/if}
+      </div>
+    {/if}
+    <LastMessagePreview summary={room.summary} />
+    <small class="card-meta">
+      <RoomCardActivity roomId={room.id} />
+      <span class="card-last-update">{room.lastUpdate}</span>
+    </small>
+  </div>
+{/snippet}
+
+<section
+  class="room-strip"
+  data-view={view}
+  style:--grid-cols={safeGridCols}
+  aria-label="Rooms needing attention"
+>
+  {#each rooms as room, index (room.id)}
+    <article
+      class="room-card"
+      class:bookmarked={roomBookmarks.has(room.id)}
+      class:reorderable={isReorderable}
+      class:drop-target={dragOverIndex === index && dragFromIndex !== null && dragFromIndex !== index}
+      draggable={isReorderable}
+      ondragstart={(event) => {
+        if (!isReorderable) return;
+        dragFromIndex = index;
+        event.dataTransfer?.setData('text/plain', String(index));
+        if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+      }}
+      ondragover={(event) => {
+        if (!isReorderable || dragFromIndex === null) return;
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+        if (dragOverIndex !== index) dragOverIndex = index;
+      }}
+      ondragleave={() => {
+        if (dragOverIndex === index) dragOverIndex = null;
+      }}
+      ondrop={(event) => {
+        if (!isReorderable || dragFromIndex === null) return;
+        event.preventDefault();
+        const from = dragFromIndex;
+        const to = index;
+        dragFromIndex = null;
+        dragOverIndex = null;
+        if (from !== to) onReorder?.(from, to);
+      }}
+      ondragend={() => {
+        dragFromIndex = null;
+        dragOverIndex = null;
+      }}
+    >
+      {#if room.isOpenable}
+        <a class="card-body card-body-link" href={`/rooms/${room.id}`}>
+          {@render body(room)}
+        </a>
+      {:else}
+        <div class="card-body">
+          {@render body(room)}
+        </div>
+      {/if}
+      <div class="actions" aria-label="Room actions">
+        <button
+          type="button"
+          class="action-btn digest"
+          title="Open room digest"
+          aria-label={`Show digest for "${room.name}"`}
+          onclick={() => (digestRoomId = room.id)}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true" width="16" height="16">
+            <path d="M5 4h11l3 3v13a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1zM9 11h8M9 14h8M9 17h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="action-btn bookmark"
+          class:active={roomBookmarks.has(room.id)}
+          aria-pressed={roomBookmarks.has(room.id)}
+          title={roomBookmarks.has(room.id) ? 'Remove bookmark' : 'Bookmark this room'}
+          aria-label={roomBookmarks.has(room.id) ? 'Remove bookmark' : 'Bookmark this room'}
+          onclick={() => roomBookmarks.toggle(room.id)}
+        >
+          {roomBookmarks.has(room.id) ? '★' : '☆'}
+        </button>
+        <button
+          type="button"
+          class="action-btn archive"
+          title="Archive room"
+          aria-label={`Archive room "${room.name}"`}
+          onclick={() => openConfirm(room, 'archive')}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true" width="16" height="16">
+            <path d="M3 5h18v4H3zM5 9v10a1 1 0 001 1h12a1 1 0 001-1V9M10 13h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="action-btn delete"
+          title="Delete room"
+          aria-label={`Delete room "${room.name}"`}
+          onclick={() => openConfirm(room, 'delete')}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true" width="16" height="16">
+            <path d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2M8 7l1 13a1 1 0 001 1h4a1 1 0 001-1l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+    </article>
+  {/each}
+</section>
+
+<ConfirmRoomActionModal
+  open={pending !== null}
+  action={pending?.action ?? 'delete'}
+  roomName={pending?.name ?? ''}
+  onCancel={closeConfirm}
+  onConfirm={confirmPending}
+/>
+
+{#if digestRoomId}
+  <RoomDigestPanel roomId={digestRoomId} onClose={() => (digestRoomId = null)} />
+{/if}
+
+<style>
+  .room-strip {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  /* Dashboard grid view (JWPK msg_m3h97n3noq, v3 lift of useGridStore +
+     DashboardHeader): when data-view="grid", lay cards out in N columns
+     at desktop widths. --grid-cols is the parent-driven choice. Mobile
+     (<720px) always collapses to one column regardless so cards stay
+     readable; medium viewports tighten to half of the requested cols. */
+  .room-strip[data-view='grid'] {
+    grid-template-columns: repeat(var(--grid-cols, 2), minmax(0, 1fr));
+    align-items: start;
+  }
+  @media (max-width: 1100px) {
+    .room-strip[data-view='grid'] {
+      grid-template-columns: repeat(min(var(--grid-cols, 2), 2), minmax(0, 1fr));
+    }
+  }
+  @media (max-width: 720px) {
+    .room-strip[data-view='grid'] {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .room-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.8rem;
+    padding: 1rem;
+    border: 1px solid var(--line-soft);
+    border-radius: 1rem;
+    background: var(--surface-card);
+    transition: border-color 0.12s, transform 0.12s;
+  }
+
+  .room-card.bookmarked {
+    border-color: color-mix(in srgb, var(--accent) 38%, var(--line-soft));
+  }
+
+  /* #155 — drag affordance + active-drop visual */
+  .room-card.reorderable {
+    cursor: grab;
+  }
+  .room-card.reorderable:active {
+    cursor: grabbing;
+  }
+  .room-card.drop-target {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+
+  .card-body {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.8rem;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .card-body-link {
+    text-decoration: none;
+    color: inherit;
+  }
+
+  .card-body-link:hover {
+    transform: translateY(-1px);
+  }
+
+  .card-body-link:hover h3 {
+    color: var(--accent);
+  }
+
+  .state-dot {
+    width: 0.85rem;
+    height: 0.85rem;
+    margin-top: 0.2rem;
+    border-radius: 999px;
+    background: var(--ink-muted);
+  }
+
+  .state-dot.ready {
+    background: var(--ok);
+  }
+
+  .state-dot.working {
+    background: var(--accent);
+  }
+
+  .state-dot.asking {
+    background: var(--info);
+  }
+
+  .state-dot.blocked,
+  .state-dot.stale {
+    background: var(--warn);
+  }
+
+  .content {
+    min-width: 0;
+  }
+
+  h3 {
+    margin: 0;
+    font-size: 1rem;
+    transition: color 0.12s;
+  }
+
+  .members {
+    display: flex;
+    align-items: center;
+    margin-top: 0.4rem;
+    /* Avatar stack — each slot overlaps the previous by ~0.55rem so
+       the cards feel personal even at 5 participants. Z-index stacks
+       so the leftmost avatar sits on top, which keeps the visual
+       order matching the .members iteration order. */
+  }
+  .member-slot {
+    display: inline-flex;
+    margin-left: calc(var(--member-index) * -0.55rem);
+    z-index: calc(10 - var(--member-index));
+    border: 2px solid var(--surface-card);
+    border-radius: 999px;
+    line-height: 0;
+    transition: transform 0.12s;
+  }
+  .member-slot:first-child { margin-left: 0; }
+  .room-card:hover .member-slot { transform: translateY(-1px); }
+  .member-overflow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    margin-left: calc(var(--member-index) * -0.55rem);
+    z-index: calc(10 - var(--member-index));
+    border: 2px solid var(--surface-card);
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--ink-soft);
+    font-size: 0.65rem;
+    font-weight: 800;
+    user-select: none;
+  }
+
+  /* #134: last-message preview rendered by LastMessagePreview.svelte */
+
+  small {
+    display: block;
+    margin-top: 0.45rem;
+    color: var(--ink-muted);
+    font-weight: 700;
+  }
+  .card-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+  }
+  .card-last-update {
+    color: var(--ink-soft);
+    font-weight: 600;
+  }
+
+  .actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    flex: 0 0 auto;
+  }
+
+  .action-btn {
+    width: 2rem;
+    height: 2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid var(--line-soft);
+    border-radius: 999px;
+    background: var(--surface-card);
+    color: var(--ink-strong);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: border-color 0.12s, background-color 0.12s, color 0.12s;
+  }
+  /* Mobile polish: bump action buttons to the 44px Apple HIG / 48dp
+     Material touch-target minimum on coarse pointers so the room card
+     icons (digest / bookmark / archive / delete) are actually tappable
+     on iOS + Android. Desktop with a fine pointer keeps the compact
+     32px footprint so the cards stay scannable. */
+  @media (pointer: coarse) {
+    .action-btn {
+      width: 2.75rem;
+      height: 2.75rem;
+      font-size: 1.1rem;
+    }
+  }
+
+  .action-btn:hover {
+    border-color: var(--accent);
+  }
+
+  .action-btn.bookmark.active {
+    color: #f5b400;
+    border-color: #f5b400;
+  }
+
+  .action-btn.archive:hover {
+    color: var(--accent);
+  }
+
+  .action-btn.delete:hover {
+    color: var(--warn, #c92020);
+    border-color: var(--warn, #c92020);
+  }
+</style>

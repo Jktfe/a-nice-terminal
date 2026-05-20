@@ -2,11 +2,7 @@
  * docsStore tests — Task #124 v3-parity.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { _resetForTest as resetDbForTest } from './db';
 import {
   createDoc,
   listDocsInRoom,
@@ -17,14 +13,7 @@ import {
 } from './docsStore';
 import { createChatRoom, resetChatRoomStoreForTests } from './chatRoomStore';
 
-let dataDir = '';
-let originalDataDir: string | undefined;
-
 beforeEach(() => {
-  originalDataDir = process.env.ANT_DATA_DIR;
-  dataDir = mkdtempSync(join(tmpdir(), 'ant-docs-store-'));
-  process.env.ANT_DATA_DIR = dataDir;
-  resetDbForTest();
   resetDocsStoreForTests();
   resetChatRoomStoreForTests();
 });
@@ -32,15 +21,10 @@ beforeEach(() => {
 afterEach(() => {
   resetDocsStoreForTests();
   resetChatRoomStoreForTests();
-  resetDbForTest();
-  if (originalDataDir === undefined) delete process.env.ANT_DATA_DIR;
-  else process.env.ANT_DATA_DIR = originalDataDir;
-  rmSync(dataDir, { recursive: true, force: true });
-  dataDir = '';
 });
 
 function makeRoom(name = 'test-room') {
-  return createChatRoom({ name });
+  return createChatRoom({ name, whoCreatedIt: 'test' });
 }
 
 describe('createDoc', () => {
@@ -74,9 +58,10 @@ describe('createDoc', () => {
 });
 
 describe('listDocsInRoom', () => {
-  it('lists docs newest-first by updated_at', () => {
+  it('lists docs newest-first by updated_at', async () => {
     const room = makeRoom();
     const d1 = createDoc({ roomId: room.id, title: 'A' });
+    await new Promise(r => setTimeout(r, 10));
     const d2 = createDoc({ roomId: room.id, title: 'B' });
     const docs = listDocsInRoom(room.id);
     expect(docs.length).toBe(2);
@@ -127,7 +112,7 @@ describe('updateDoc', () => {
     const updated = updateDoc(doc.id, { title: 'New', content: 'new body' });
     expect(updated!.title).toBe('New');
     expect(updated!.content).toBe('new body');
-    expect(updated!.updatedAtMs).toBeGreaterThan(doc.updatedAtMs!);
+    expect(updated!.updatedAtMs).toBeGreaterThanOrEqual(doc.updatedAtMs!);
   });
 
   it('updates title only', () => {

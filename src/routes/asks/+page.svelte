@@ -1,389 +1,347 @@
+<!--
+  /asks route — cross-room open asks queue.
+  Backs asks UI slice 3 (paired with AskCard.svelte per the approved split).
+
+  This page owns SSR-derived data + in-flight state + fetch handlers +
+  invalidateAll + the labelled "Open asks queue" region. AskCard is a
+  pure renderer it drives via callback props.
+
+  Per @evolveantcodex contract:
+    - SSR-first via $derived(data.x). No $state+$effect copy.
+    - /api/asks failure and chair lookup are independent (loader).
+    - List region aria-label="Open asks queue".
+    - Answer + Dismiss disable while submitting, soft-fail inline,
+      invalidateAll on success, resolved asks drop out of the queue.
+-->
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { invalidateAll } from '$app/navigation';
+  import SimplePageShell from '$lib/components/SimplePageShell.svelte';
+  import AskCard from '$lib/components/AskCard.svelte';
+  import {
+    submitAnswerFor as askActionsAnswer,
+    submitDismissFor as askActionsDismiss
+  } from '$lib/askActions';
+  import type { Ask } from '$lib/server/askStore';
 
-  interface Ask {
-    id: string;
-    session_id: string;
-    session_name?: string | null;
-    session_type?: string | null;
-    source_message_id?: string | null;
-    title: string;
-    body?: string | null;
-    recommendation?: string | null;
-    status: 'candidate' | 'open' | 'answered' | 'deferred' | 'dismissed';
-    assigned_to?: string | null;
-    owner_kind?: string | null;
-    priority?: 'low' | 'normal' | 'high';
-    answer?: string | null;
-    answer_action?: string | null;
-    inferred?: boolean;
-    confidence?: number;
-    created_at: string;
-    updated_at: string;
-    source_content?: string | null;
-    source_sender_id?: string | null;
+  const ACTOR_HANDLE = '@you';
+
+  type Props = {
+    data: {
+      asksFromServer: Ask[];
+      recentlyAnsweredFromServer: Ask[];
+      roomNameByRoomId: Record<string, string>;
+      asksFetchFailed: boolean;
+    };
+  };
+
+  let { data }: Props = $props();
+
+  const asksFromServer = $derived<Ask[]>(data.asksFromServer);
+  const recentlyAnsweredFromServer = $derived<Ask[]>(data.recentlyAnsweredFromServer);
+  const roomNameByRoomId = $derived<Record<string, string>>(data.roomNameByRoomId);
+  const asksFetchFailed = $derived<boolean>(data.asksFetchFailed);
+
+  // One answer form open at a time; one in-flight verb at a time. Keeps
+  // state shape tight and matches the "one task in focus" UX of a queue.
+  let activeAnswerAskId = $state<string | null>(null);
+  let answerText = $state('');
+  let inFlightAskId = $state<string | null>(null);
+  let inFlightVerb = $state<'answer' | 'dismiss' | null>(null);
+  let lastErrorByAskId = $state<Record<string, string>>({});
+
+  // Ask-pickup notice (task 3947e563, JWPK msg_kjyh3lmypd): per-card
+  // pickup summary loaded best-effort after hydration. The data drives
+  // a small footer line on each Recently-answered card so JWPK can see
+  // 'N messages since answer · M agents acted' without leaving /asks.
+  type PickupSummary = {
+    messagesAfterAnswer: number;
+    distinctAgentsAfterAnswer: number;
+    agentsAfterAnswer: string[];
+    firstMessageAfterAnswer: {
+      messageId: string;
+      authorHandle: string;
+      authorDisplayName: string;
+      postedAt: string;
+      bodyPreview: string;
+    } | null;
+  };
+  let pickupByAskId = $state<Record<string, PickupSummary>>({});
+
+  async function loadPickupForAsk(askId: string): Promise<void> {
+    try {
+      const response = await fetch(`/api/asks/${encodeURIComponent(askId)}/pickup`);
+      if (!response.ok) return;
+      const body = (await response.json()) as { pickup?: PickupSummary };
+      if (body.pickup) pickupByAskId = { ...pickupByAskId, [askId]: body.pickup };
+    } catch { /* best-effort, leave row without summary */ }
   }
 
-  const statusOptions = [
-    { key: 'needs', status: 'open', view: 'actionable', limit: '100', label: 'Needs action' },
-    { key: 'deferred', status: 'deferred', view: 'actionable', limit: '100', label: 'Deferred' },
-    { key: 'candidates', status: 'candidate', view: '', limit: '200', label: 'Review candidates' },
-    { key: 'answered', status: 'answered', view: '', limit: '100', label: 'Answered' },
-    { key: 'all', status: 'all', view: '', limit: '500', label: 'All' },
-  ];
-
-  interface TerminalOption {
-    id: string;
-    name: string;
-    handle?: string | null;
-  }
-
-  let asks = $state<Ask[]>([]);
-  let loading = $state(true);
-  let busyId = $state<string | null>(null);
-  let error = $state<string | null>(null);
-  let searchText = $state('');
-  let statusFilter = $state('needs');
-  let answerDrafts = $state<Record<string, string>>({});
-  let terminals = $state<TerminalOption[]>([]);
-  let bridgeTargets = $state<Record<string, string>>({});
-
-  const visibleAsks = $derived(
-    asks.filter((ask) => {
-      const q = searchText.trim().toLowerCase();
-      if (!q) return true;
-      return [
-        ask.id,
-        ask.title,
-        ask.body,
-        ask.recommendation,
-        ask.session_name,
-        ask.session_id,
-        ask.assigned_to,
-        ask.owner_kind,
-      ].some((value) => String(value || '').toLowerCase().includes(q));
-    })
-  );
-
-  onMount(() => {
-    document.body.classList.add('asks-view-page');
-    void load();
-    void loadTerminals();
-    return () => document.body.classList.remove('asks-view-page');
+  $effect(() => {
+    // Fire on every recently-answered list refresh — invalidateAll after
+    // answer/dismiss will re-trigger this.
+    for (const ask of recentlyAnsweredFromServer) {
+      if (!pickupByAskId[ask.id]) void loadPickupForAsk(ask.id);
+    }
   });
 
-  async function loadTerminals() {
-    try {
-      const res = await fetch('/api/sessions');
-      if (!res.ok) return;
-      const data = await res.json();
-      const list = (data.sessions ?? []) as Array<Record<string, unknown>>;
-      terminals = list
-        .filter((s) => s.type === 'terminal' && !s.archived && !s.deleted_at)
-        .map((s) => ({
-          id: String(s.id),
-          name: String(s.display_name || s.name || s.id),
-          handle: typeof s.handle === 'string' ? s.handle : null,
-        }));
-    } catch {
-      // Non-fatal — bridge dropdown just shows empty.
-    }
+  function resolveRoomNameSafely(roomId: string): string {
+    return roomNameByRoomId[roomId] ?? roomId;
   }
 
-  async function load() {
-    loading = true;
-    error = null;
-    try {
-      const option = statusOptions.find((item) => item.key === statusFilter) ?? statusOptions[0];
-      const params = new URLSearchParams({ status: option.status, limit: option.limit });
-      if (option.view) params.set('view', option.view);
-      const res = await fetch(`/api/asks?${params.toString()}`);
-      if (!res.ok) throw new Error('Failed to load asks');
-      const data = await res.json();
-      asks = data.asks ?? [];
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to load asks';
-    } finally {
-      loading = false;
-    }
+  function describeAnsweredAt(ask: Ask): string {
+    if (!ask.answeredAt) return '';
+    const moment = new Date(ask.answeredAt);
+    if (Number.isNaN(moment.getTime())) return ask.answeredAt;
+    return moment.toLocaleString();
   }
 
-  async function updateAsk(ask: Ask, action: string) {
-    busyId = ask.id;
-    error = null;
+  function clearErrorFor(askId: string) {
+    if (!lastErrorByAskId[askId]) return;
+    const { [askId]: _removed, ...rest } = lastErrorByAskId;
+    lastErrorByAskId = rest;
+  }
+  function setErrorFor(askId: string, message: string) {
+    lastErrorByAskId = { ...lastErrorByAskId, [askId]: message };
+  }
+
+  function openAnswerFormFor(askId: string) {
+    activeAnswerAskId = askId;
+    answerText = '';
+    clearErrorFor(askId);
+  }
+  function cancelAnswerForm() {
+    activeAnswerAskId = null;
+    answerText = '';
+  }
+
+  async function submitAnswerFor(askId: string) {
+    const trimmedAnswer = answerText.trim();
+    if (trimmedAnswer.length === 0) return;
+    inFlightAskId = askId;
+    inFlightVerb = 'answer';
+    clearErrorFor(askId);
     try {
-      const answer = answerDrafts[ask.id] || '';
-      const target = ask.owner_kind === 'terminal' ? bridgeTargets[ask.id] : '';
-      const requestBody: Record<string, unknown> = { action, answer };
-      if (target && (action === 'approve' || action === 'reject' || action === 'answer')) {
-        requestBody.target_session_id = target;
-      }
-      const res = await fetch(`/api/asks/${ask.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
+      await askActionsAnswer({
+        askId,
+        actorHandle: ACTOR_HANDLE,
+        answer: trimmedAnswer
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Failed to update ${ask.id}`);
-      }
-      const data = await res.json();
-      asks = asks.map((item) => item.id === ask.id ? data.ask : item);
-      if (data.bridge && !data.bridge.ok) {
-        error = `Bridge skipped: ${data.bridge.reason || 'unknown'}`;
-      }
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Update failed';
+      activeAnswerAskId = null;
+      answerText = '';
+      await invalidateAll();
+    } catch (causeOfFailure) {
+      setErrorFor(askId, causeOfFailure instanceof Error ? causeOfFailure.message : 'Could not answer the ask.');
     } finally {
-      busyId = null;
+      inFlightAskId = null;
+      inFlightVerb = null;
     }
   }
 
-  async function promoteAsk(ask: Ask) {
-    busyId = ask.id;
-    error = null;
+  async function submitDismissFor(askId: string) {
+    inFlightAskId = askId;
+    inFlightVerb = 'dismiss';
+    clearErrorFor(askId);
     try {
-      const res = await fetch(`/api/asks/${ask.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'open' }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Failed to promote ${ask.id}`);
-      }
-      const data = await res.json();
-      asks = asks.map((item) => item.id === ask.id ? data.ask : item);
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Promote failed';
+      await askActionsDismiss({ askId, actorHandle: ACTOR_HANDLE });
+      if (activeAnswerAskId === askId) activeAnswerAskId = null;
+      await invalidateAll();
+    } catch (causeOfFailure) {
+      setErrorFor(askId, causeOfFailure instanceof Error ? causeOfFailure.message : 'Could not dismiss the ask.');
     } finally {
-      busyId = null;
+      inFlightAskId = null;
+      inFlightVerb = null;
     }
-  }
-
-  function setDraft(id: string, value: string) {
-    answerDrafts = { ...answerDrafts, [id]: value };
-  }
-
-  function statusTone(status: Ask['status']): string {
-    if (status === 'open') return 'background: #EF444418; color: #F87171; border-color: #EF444433;';
-    if (status === 'candidate') return 'background: #F59E0B18; color: #F59E0B; border-color: #F59E0B33;';
-    if (status === 'deferred') return 'background: #6366F118; color: #818CF8; border-color: #6366F133;';
-    if (status === 'answered') return 'background: #10B98118; color: #10B981; border-color: #10B98133;';
-    return 'background: var(--bg-card); color: var(--text-faint); border-color: var(--border-subtle);';
-  }
-
-  function priorityLabel(ask: Ask): string {
-    if (ask.priority === 'high') return 'High';
-    if (ask.priority === 'low') return 'Low';
-    return 'Normal';
   }
 </script>
 
 <svelte:head>
-  <title>ANT · Ask Queue</title>
+  <title>Asks | ANT vNext</title>
 </svelte:head>
 
-<div class="overflow-y-auto" style="background: var(--bg); color: var(--text); height: var(--ant-viewport-h, 100dvh);">
-  <div class="sticky top-0 z-20 border-b" style="background: var(--bg-surface); border-color: var(--border-subtle);">
-    <div class="flex items-center gap-4 px-4 sm:px-6 py-3">
-      <a href="/" class="text-sm transition-colors hover:text-white" style="color: var(--text-muted);">
-        ← Sessions
-      </a>
-      <div class="w-px h-4" style="background: var(--border-light);"></div>
-      <div>
-        <h1 class="text-sm font-semibold">Ask Queue</h1>
-        <p class="text-xs" style="color: var(--text-faint);">Current decisions, blockers, and explicit handoffs.</p>
-      </div>
-      <button
-        type="button"
-        onclick={load}
-        disabled={loading || busyId !== null}
-        class="ml-auto px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
-        style="background: var(--bg-card); color: var(--text-muted); border: 1px solid var(--border-subtle);"
-      >Refresh</button>
-    </div>
-  </div>
-
-  <main class="max-w-6xl mx-auto p-4 sm:p-6 space-y-4">
-    <section class="flex flex-col gap-3 lg:flex-row lg:items-center">
-      <input
-        bind:value={searchText}
-        class="flex-1 px-3 py-2 rounded-lg text-sm outline-none"
-        style="background: var(--bg-card); border: 1px solid var(--border-subtle); color: var(--text);"
-        placeholder="Search asks"
-      />
-      <div class="flex items-center gap-1 overflow-x-auto rounded-lg border p-1" style="border-color: var(--border-subtle); background: var(--bg-card);">
-        {#each statusOptions as option}
-          <button
-            type="button"
-            onclick={() => { statusFilter = option.key; void load(); }}
-            class="px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors"
-            style="{statusFilter === option.key ? 'background: #6366F1; color: white;' : 'color: var(--text-muted);'}"
-          >{option.label}</button>
-        {/each}
-      </div>
-    </section>
-
-    <section class="flex items-center justify-between text-xs" style="color: var(--text-faint);">
-      <span>{visibleAsks.length} visible ask{visibleAsks.length === 1 ? '' : 's'}</span>
-      <span>{asks.filter((ask) => ask.status === 'open').length} needs action</span>
-    </section>
-
-    {#if error}
-      <div class="rounded-lg border px-4 py-3 text-sm" style="background: #EF444414; color: #F87171; border-color: #EF444433;">
-        {error}
-      </div>
-    {/if}
-
-    {#if loading}
-      <div class="flex flex-col items-center justify-center gap-3 py-24">
-        <div class="w-8 h-8 rounded-full border-2 border-[#6366F1] border-t-transparent animate-spin"></div>
-        <p class="text-sm" style="color: var(--text-muted);">Loading asks...</p>
-      </div>
-    {:else if visibleAsks.length === 0}
-      <div class="rounded-lg border border-dashed px-6 py-16 text-center" style="border-color: var(--border-light);">
-        <p class="text-sm font-medium" style="color: var(--text-muted);">No asks in this view</p>
-        <p class="mt-1 text-xs" style="color: var(--text-faint);">New inferred and CLI-created asks will appear here.</p>
+<SimplePageShell
+  eyebrow="Asks"
+  title="Open questions across every room."
+  summary="The cross-room queue of asks. Answer to add a reply, dismiss to take it off the list."
+>
+  {#if asksFetchFailed}
+    <p class="error-message" role="alert">
+      Could not load the asks queue. Try again in a moment.
+    </p>
+  {:else}
+    {#if asksFromServer.length === 0}
+      <div class="empty-celebrate" role="status" aria-label="All open asks resolved">
+        <span class="celebrate-icon" aria-hidden="true">✓</span>
+        <div class="celebrate-text">
+          <strong>All caught up.</strong>
+          <span class="celebrate-detail">No open asks right now. New ones appear here automatically when a member opens one from inside a room.</span>
+        </div>
       </div>
     {:else}
-      <div class="overflow-hidden rounded-lg border" style="border-color: var(--border-subtle);">
-        <div class="hidden lg:grid grid-cols-[minmax(0,1.5fr)_150px_150px_120px_210px] gap-0 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide"
-             style="background: var(--bg-card); color: var(--text-faint); border-bottom: 1px solid var(--border-subtle);">
-          <div>Ask</div>
-          <div>Owner</div>
-          <div>Room</div>
-          <div>Status</div>
-          <div>Resolve</div>
-        </div>
-
-        {#each visibleAsks as ask (ask.id)}
-          <div class="grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_150px_150px_120px_210px] lg:items-start px-4 py-4 border-b last:border-b-0"
-               style="background: var(--bg-surface); border-color: var(--border-subtle);">
-            <div class="min-w-0">
-              <div class="flex flex-wrap items-center gap-2">
-                <span class="font-mono text-[11px]" style="color: var(--text-faint);">{ask.id}</span>
-                <span class="rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase"
-                      style="{ask.priority === 'high' ? 'background: #EF444418; color: #F87171; border-color: #EF444433;' : 'background: var(--bg-card); color: var(--text-faint); border-color: var(--border-subtle);'}">
-                  {priorityLabel(ask)}
-                </span>
-                {#if ask.inferred}
-                  <span class="rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase"
-                        style="background: #0EA5E918; color: #38BDF8; border-color: #0EA5E933;">
-                    Inferred
-                  </span>
-                {/if}
-              </div>
-              <h2 class="mt-1 text-sm font-semibold leading-5" style="color: var(--text);">{ask.title}</h2>
-              {#if ask.body}
-                <p class="mt-1 line-clamp-3 text-xs leading-5" style="color: var(--text-muted);">{ask.body}</p>
-              {/if}
-              {#if ask.recommendation}
-                <p class="mt-2 rounded-md border px-2 py-1.5 text-xs" style="background: #10B98112; color: #34D399; border-color: #10B98133;">
-                  {ask.recommendation}
-                </p>
-              {/if}
-            </div>
-
-            <div class="text-xs">
-              <div class="font-medium" style="color: var(--text);">{ask.assigned_to || 'room'}</div>
-              <div class="mt-0.5 capitalize" style="color: var(--text-faint);">{ask.owner_kind || 'room'}</div>
-            </div>
-
-            <div class="min-w-0 text-xs">
-              <a href={`/session/${ask.session_id}`} class="font-medium hover:underline" style="color: #818CF8;">
-                {ask.session_name || ask.session_id}
-              </a>
-              <div class="mt-0.5 truncate font-mono" style="color: var(--text-faint);">{ask.session_id}</div>
-            </div>
-
-            <div>
-              <span class="inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold capitalize" style="{statusTone(ask.status)}">
-                {ask.status}
-              </span>
-              <div class="mt-1 text-[11px]" style="color: var(--text-faint);">
-                {new Date(ask.updated_at || ask.created_at).toLocaleString()}
-              </div>
-            </div>
-
-            <div class="space-y-2">
-              {#if ask.status === 'candidate'}
-                <button
-                  type="button"
-                  onclick={() => promoteAsk(ask)}
-                  disabled={busyId === ask.id}
-                  class="action-btn w-full"
-                  style="--tone: #38BDF8;"
-                  title="Mark this candidate as actionable — moves it into Needs action without recording an answer."
-                >Promote → Needs action</button>
-              {/if}
-              {#if ask.owner_kind === 'terminal' && terminals.length > 0}
-                <select
-                  value={bridgeTargets[ask.id] || ''}
-                  onchange={(e) => { bridgeTargets = { ...bridgeTargets, [ask.id]: e.currentTarget.value }; }}
-                  class="w-full text-xs rounded-md px-2 py-1.5 outline-none"
-                  style="background: var(--bg-card); border: 1px solid var(--border-subtle); color: var(--text);"
-                  title="Pick a terminal to inject the resolution into when you click Approve/Reject/Answer."
-                >
-                  <option value="">No terminal injection</option>
-                  {#each terminals as t}
-                    <option value={t.id}>→ {t.name}{t.handle ? ` (${t.handle})` : ''}</option>
-                  {/each}
-                </select>
-              {/if}
-              <textarea
-                value={answerDrafts[ask.id] || ''}
-                oninput={(event) => setDraft(ask.id, event.currentTarget.value)}
-                rows="2"
-                class="w-full resize-none rounded-md px-2 py-1.5 text-xs outline-none"
-                style="background: var(--bg-card); border: 1px solid var(--border-subtle); color: var(--text);"
-                placeholder="Response"
-              ></textarea>
-              <div class="grid grid-cols-2 gap-1.5">
-                <button type="button" onclick={() => updateAsk(ask, 'approve')} disabled={busyId === ask.id} class="action-btn" style="--tone: #10B981;">Approve</button>
-                <button type="button" onclick={() => updateAsk(ask, 'answer')} disabled={busyId === ask.id} class="action-btn" style="--tone: #6366F1;">Answer</button>
-                <button type="button" onclick={() => updateAsk(ask, 'defer')} disabled={busyId === ask.id} class="action-btn" style="--tone: #F59E0B;">Defer</button>
-                <button type="button" onclick={() => updateAsk(ask, 'dismiss')} disabled={busyId === ask.id} class="action-btn" style="--tone: #EF4444;">Dismiss</button>
-              </div>
-            </div>
-          </div>
+      <ul class="ask-list" aria-label="Open asks queue">
+        {#each asksFromServer as ask (ask.id)}
+          <li>
+            <AskCard
+              ask={ask}
+              roomNameLabel={resolveRoomNameSafely(ask.roomId)}
+              isAnswerFormOpen={activeAnswerAskId === ask.id}
+              isInFlightAsAnswer={inFlightAskId === ask.id && inFlightVerb === 'answer'}
+              isInFlightAsDismiss={inFlightAskId === ask.id && inFlightVerb === 'dismiss'}
+              lastErrorMessage={lastErrorByAskId[ask.id]}
+              answerText={activeAnswerAskId === ask.id ? answerText : ''}
+              onOpenAnswerForm={() => openAnswerFormFor(ask.id)}
+              onCancelAnswerForm={cancelAnswerForm}
+              onAnswerTextChange={(next) => (answerText = next)}
+              onSubmitAnswer={() => submitAnswerFor(ask.id)}
+              onSubmitDismiss={() => submitDismissFor(ask.id)}
+            />
+          </li>
         {/each}
-      </div>
+      </ul>
     {/if}
-  </main>
-</div>
+
+    {#if recentlyAnsweredFromServer.length > 0}
+      <section class="answered-section" aria-labelledby="recently-answered-heading">
+        <h2 id="recently-answered-heading">Recently answered</h2>
+        <ul class="answered-list">
+          {#each recentlyAnsweredFromServer as ask (ask.id)}
+            {@const pickup = pickupByAskId[ask.id]}
+            <li class="answered-card">
+              <header class="answered-meta">
+                <a href="/rooms/{ask.roomId}">{resolveRoomNameSafely(ask.roomId)}</a>
+                <span>{ask.answeredByDisplayName ?? ask.answeredByHandle ?? 'Answered'}</span>
+                <span class="answered-time">{describeAnsweredAt(ask)}</span>
+              </header>
+              <h3>{ask.title}</h3>
+              <p class="answer-text">{ask.answer}</p>
+              {#if pickup}
+                {#if pickup.messagesAfterAnswer === 0}
+                  <p class="pickup-status pickup-status-quiet" aria-label="No activity since answer">
+                    <span class="pickup-dot pickup-dot-quiet" aria-hidden="true"></span>
+                    No activity in the room since you answered.
+                  </p>
+                {:else}
+                  <p class="pickup-status pickup-status-active" aria-label={`${pickup.messagesAfterAnswer} messages since answer from ${pickup.distinctAgentsAfterAnswer} agents`}>
+                    <span class="pickup-dot pickup-dot-active" aria-hidden="true"></span>
+                    <strong>{pickup.messagesAfterAnswer}</strong>
+                    message{pickup.messagesAfterAnswer === 1 ? '' : 's'}
+                    since · <strong>{pickup.distinctAgentsAfterAnswer}</strong>
+                    agent{pickup.distinctAgentsAfterAnswer === 1 ? '' : 's'} acted
+                    {#if pickup.agentsAfterAnswer.length > 0}
+                      <span class="pickup-handles">({pickup.agentsAfterAnswer.slice(0, 4).join(', ')}{pickup.agentsAfterAnswer.length > 4 ? '…' : ''})</span>
+                    {/if}
+                    {#if pickup.firstMessageAfterAnswer}
+                      <a class="pickup-first" href="/rooms/{ask.roomId}#{pickup.firstMessageAfterAnswer.messageId}" title={pickup.firstMessageAfterAnswer.bodyPreview}>jump to first reply →</a>
+                    {/if}
+                  </p>
+                {/if}
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
+  {/if}
+</SimplePageShell>
 
 <style>
-  .action-btn {
-    border: 1px solid color-mix(in srgb, var(--tone) 32%, transparent);
-    background: color-mix(in srgb, var(--tone) 12%, transparent);
-    color: var(--tone);
-    border-radius: 6px;
-    padding: 6px 8px;
-    font-size: 11px;
+  .error-message { margin: 0 0 0.75rem; color: var(--accent); }
+  /* Celebratory empty-state for an empty asks queue: replaces the
+     bland "no asks" string with a small green check + reassuring copy
+     so the operator gets a positive signal that nothing's waiting. */
+  .empty-celebrate {
+    display: flex;
+    align-items: center;
+    gap: 0.95rem;
+    padding: 1rem 1.1rem;
+    border: 1px solid color-mix(in srgb, var(--ok) 35%, var(--line-soft));
+    border-radius: 0.95rem;
+    background: color-mix(in srgb, var(--ok) 12%, var(--surface-card));
+  }
+  .celebrate-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 999px;
+    background: var(--ok);
+    color: white;
+    font-weight: 900;
+    flex-shrink: 0;
+  }
+  .celebrate-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    color: var(--ink-strong);
+  }
+  .celebrate-text strong { font-size: 0.98rem; }
+  .celebrate-detail { color: var(--ink-soft); font-size: 0.85rem; line-height: 1.4; }
+  .ask-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.7rem; }
+  .answered-section { margin-top: 1rem; }
+  .answered-section h2 { margin: 0 0 0.6rem; font-size: 1rem; color: var(--ink-strong); }
+  .answered-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.55rem; }
+  .answered-card {
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--surface-edge);
+    border-radius: 0.55rem;
+    background: color-mix(in srgb, var(--surface) 82%, var(--bg));
+  }
+  .answered-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.55rem;
+    margin-bottom: 0.35rem;
+    color: var(--ink-soft);
+    font-size: 0.84rem;
+  }
+  .answered-meta a { color: var(--accent); font-weight: 700; text-decoration: none; }
+  .answered-meta a:hover { text-decoration: underline; }
+  .answered-time { margin-left: auto; font-variant-numeric: tabular-nums; }
+  .answered-card h3 { margin: 0 0 0.25rem; font-size: 0.98rem; color: var(--ink-strong); }
+  .answer-text { margin: 0; color: var(--ink); line-height: 1.45; white-space: pre-wrap; }
+  /* Ask-pickup notice line — sits at the foot of each Recently-answered
+     card. Quiet style for 'nothing happened since' (informational, not
+     alarming); active style for 'N agents acted'. Both use a leading dot
+     for at-a-glance status read. JWPK task 3947e563. */
+  .pickup-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.4rem;
+    margin: 0.55rem 0 0;
+    padding: 0.35rem 0.55rem;
+    border-radius: 0.5rem;
+    font-size: 0.8rem;
+  }
+  .pickup-status-quiet {
+    background: var(--bg);
+    color: var(--ink-soft);
+    border: 1px dashed var(--line-soft);
+  }
+  .pickup-status-active {
+    background: color-mix(in srgb, var(--ok) 8%, var(--surface-card));
+    color: var(--ink-strong);
+    border: 1px solid color-mix(in srgb, var(--ok) 25%, var(--line-soft));
+  }
+  .pickup-status strong { color: var(--ink-strong); }
+  .pickup-dot {
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 999px;
+    flex-shrink: 0;
+  }
+  .pickup-dot-quiet  { background: var(--ink-muted); opacity: 0.6; }
+  .pickup-dot-active { background: var(--ok); }
+  .pickup-handles { color: var(--ink-soft); font-size: 0.75rem; font-family: ui-monospace, monospace; }
+  .pickup-first {
+    margin-left: auto;
+    color: var(--accent);
+    font-size: 0.75rem;
     font-weight: 700;
-    line-height: 1;
-    transition: opacity 0.15s ease, background-color 0.15s ease;
+    text-decoration: none;
   }
-
-  .action-btn:hover {
-    background: color-mix(in srgb, var(--tone) 18%, transparent);
-  }
-
-  .action-btn:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-  }
-
-  .line-clamp-3 {
-    display: -webkit-box;
-    line-clamp: 3;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-
-  :global(body.asks-view-page) {
-    overflow: auto;
-  }
+  .pickup-first:hover { text-decoration: underline; }
 </style>

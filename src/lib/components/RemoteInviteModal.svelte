@@ -1,273 +1,253 @@
 <script lang="ts">
-  type Kind = 'cli' | 'mcp' | 'web';
+  type InviteKind = 'cli' | 'mcp' | 'web';
+  type RemoteInvite = {
+    id: string;
+    label: string;
+    kinds: InviteKind[];
+    share: Record<InviteKind, string>;
+  };
 
-  interface InviteResponse {
-    invite: {
-      id: string;
-      label: string;
-      kinds: Kind[];
-      share: Record<Kind, string>;
-    };
-  }
-
-  interface Props {
-    sessionId: string;
-    sessionName: string;
+  type Props = {
+    roomId: string;
     onClose: () => void;
-  }
+  };
 
-  const { sessionId, sessionName, onClose }: Props = $props();
+  let { roomId, onClose }: Props = $props();
 
   let label = $state('');
   let password = $state('');
   let revealPassword = $state(false);
-  let kinds = $state<Record<Kind, boolean>>({ cli: true, mcp: true, web: true });
+  let kinds = $state<Record<InviteKind, boolean>>({ web: true, cli: true, mcp: false });
   let busy = $state(false);
-  let error = $state<string | null>(null);
-  let result = $state<InviteResponse['invite'] | null>(null);
-  let copied = $state<string | null>(null);
+  let errorMessage = $state('');
+  let invite = $state<RemoteInvite | null>(null);
+  let copiedKind = $state<InviteKind | null>(null);
 
-  const selectedKinds = $derived(
-    (Object.entries(kinds) as Array<[Kind, boolean]>)
-      .filter(([, v]) => v)
-      .map(([k]) => k),
-  );
+  const selectedKinds = $derived((Object.entries(kinds) as Array<[InviteKind, boolean]>)
+    .filter(([, enabled]) => enabled).map(([kind]) => kind));
 
-  async function createInvite(event: SubmitEvent) {
-    event.preventDefault();
+  const kindHelp: Record<InviteKind, string> = {
+    web: 'Browser join link for colleagues.',
+    cli: 'Terminal join link for antchat or ant CLI.',
+    mcp: 'MCP integration link for tool clients.'
+  };
+
+  async function createInvite(): Promise<void> {
     if (busy) return;
     busy = true;
-    error = null;
+    errorMessage = '';
     try {
-      const trimmedLabel = label.trim();
-      if (!trimmedLabel) throw new Error('Label is required');
-      if (password.length < 4) throw new Error('Password must be at least 4 characters');
-      if (selectedKinds.length === 0) throw new Error('Pick at least one invite kind');
-
-      const res = await fetch(`/api/sessions/${sessionId}/invites`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          label: trimmedLabel,
-          password,
-          kinds: selectedKinds,
-        }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body?.message || body?.error || `Failed (${res.status})`);
-      }
-      const data = (await res.json()) as InviteResponse;
-      result = data.invite;
+      validateForm();
+      const response = await postInvite();
+      invite = response.invite;
       password = '';
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to create invite';
+    } catch (cause) {
+      errorMessage = cause instanceof Error ? cause.message : 'Could not create invite.';
     } finally {
       busy = false;
     }
   }
 
-  async function copy(value: string, key: string) {
+  function validateForm(): void {
+    if (label.trim().length === 0) throw new Error('Label is required.');
+    if (password.length < 4) throw new Error('Password must be at least 4 characters.');
+    if (selectedKinds.length === 0) throw new Error('Pick at least one access kind.');
+  }
+
+  async function postInvite(): Promise<{ invite: RemoteInvite }> {
+    const response = await fetch(`/api/chat-rooms/${encodeURIComponent(roomId)}/operator-invites`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ label: label.trim(), password, kinds: selectedKinds })
+    });
+    if (!response.ok) {
+      const failure = await response.json().catch(() => ({ message: response.statusText }));
+      throw new Error(failure.message ?? 'Could not create invite.');
+    }
+    return (await response.json()) as { invite: RemoteInvite };
+  }
+
+  async function copyShare(kind: InviteKind, value: string): Promise<void> {
     try {
       await navigator.clipboard.writeText(value);
-      copied = key;
+      copiedKind = kind;
       setTimeout(() => {
-        if (copied === key) copied = null;
-      }, 1500);
+        if (copiedKind === kind) copiedKind = null;
+      }, 1600);
     } catch {
-      error = 'Could not copy to clipboard';
+      errorMessage = 'Could not copy to clipboard.';
     }
   }
 
-  function close() {
-    if (busy) return;
-    onClose();
+  function resetInvite(): void {
+    label = '';
+    password = '';
+    revealPassword = false;
+    kinds = { web: true, cli: true, mcp: false };
+    invite = null;
+    copiedKind = null;
+    errorMessage = '';
   }
 
-  function onBackdropClick(event: MouseEvent) {
-    if (event.target === event.currentTarget) close();
+  function closeIfBackdrop(event: MouseEvent): void {
+    if (event.target === event.currentTarget && !busy) onClose();
   }
-
-  function onKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape') close();
-  }
-
-  const kindHelp: Record<Kind, string> = {
-    cli: 'For `ant join-room` from a terminal',
-    mcp: 'For MCP-based agent integrations',
-    web: 'Opens directly in /remote/[id] (browser/iOS)',
-  };
 </script>
 
-<svelte:window onkeydown={onKeydown} />
+<svelte:window onkeydown={(event) => { if (event.key === 'Escape' && !busy) onClose(); }} />
 
 <div
-  class="invite-backdrop fixed inset-0 z-50 flex items-center justify-center p-4"
-  style="background: rgba(0,0,0,0.55);"
-  onclick={onBackdropClick}
-  onkeydown={(e) => { if (e.key === 'Escape') close(); }}
+  class="backdrop"
   role="dialog"
   aria-modal="true"
-  aria-label="Invite remote participant"
+  aria-labelledby="remoteInviteTitle"
   tabindex="-1"
+  onclick={closeIfBackdrop}
+  onkeydown={(event) => {
+    if ((event.key === 'Enter' || event.key === ' ') && event.target === event.currentTarget && !busy) onClose();
+  }}
 >
-  <div
-    class="invite-sheet w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-lg shadow-xl"
-    style="background: var(--bg-surface); color: var(--text); border: 1px solid var(--border-subtle);"
-  >
-    <header class="px-5 py-3 border-b flex items-center justify-between" style="border-color: var(--border-subtle);">
+  <section class="modal">
+    <header>
       <div>
-        <h2 class="text-sm font-semibold">Invite remote participant</h2>
-        <p class="text-xs" style="color: var(--text-faint);">to <span class="font-mono">{sessionName}</span></p>
+        <h2 id="remoteInviteTitle">Invite remote ANT</h2>
+        <p>Choose access, mint links, share the password out-of-band.</p>
       </div>
-      <button
-        type="button"
-        onclick={close}
-        disabled={busy}
-        class="px-2 py-1 rounded text-xs"
-        style="color: var(--text-muted); background: transparent; border: 0;"
-        aria-label="Close"
-      >Close</button>
+      <button type="button" class="ghost" onclick={onClose} disabled={busy}>Close</button>
     </header>
 
-    {#if !result}
-      <form onsubmit={createInvite} class="px-5 py-4 space-y-3">
-        <div>
-          <label for="invite-label" class="block text-xs font-medium mb-1" style="color: var(--text-muted);">Label</label>
-          <input
-            id="invite-label"
-            type="text"
-            bind:value={label}
-            placeholder="Daisy's laptop, mobile review, …"
-            class="w-full px-3 py-2 rounded-md text-sm outline-none"
-            style="background: var(--bg-card); border: 1px solid var(--border-subtle); color: var(--text);"
-            required
-          />
-        </div>
-
-        <div>
-          <label for="invite-password" class="block text-xs font-medium mb-1" style="color: var(--text-muted);">
-            Password <span style="color: var(--text-faint);">(min 4 chars — share this out-of-band)</span>
-          </label>
-          <div class="flex gap-2">
-            <input
-              id="invite-password"
-              type={revealPassword ? 'text' : 'password'}
-              bind:value={password}
-              autocomplete="new-password"
-              minlength="4"
-              class="flex-1 px-3 py-2 rounded-md text-sm outline-none font-mono"
-              style="background: var(--bg-card); border: 1px solid var(--border-subtle); color: var(--text);"
-              required
-            />
-            <button
-              type="button"
-              onclick={() => (revealPassword = !revealPassword)}
-              class="px-3 py-2 rounded-md text-xs"
-              style="background: var(--bg-card); color: var(--text-muted); border: 1px solid var(--border-subtle);"
-            >{revealPassword ? 'Hide' : 'Show'}</button>
-          </div>
-        </div>
-
-        <fieldset>
-          <legend class="block text-xs font-medium mb-1" style="color: var(--text-muted);">Invite kinds</legend>
-          <div class="space-y-1">
-            {#each ['cli', 'mcp', 'web'] as const as k}
-              <label class="flex items-start gap-2 text-xs cursor-pointer">
-                <input
-                  type="checkbox"
-                  bind:checked={kinds[k]}
-                  class="mt-0.5"
-                />
-                <span>
-                  <span class="font-mono font-semibold" style="color: var(--text);">{k}</span>
-                  <span style="color: var(--text-faint);"> — {kindHelp[k]}</span>
-                </span>
-              </label>
-            {/each}
-          </div>
-        </fieldset>
-
-        {#if error}
-          <div class="text-xs rounded-md px-3 py-2" style="background: #EF444418; color: #F87171; border: 1px solid #EF444433;">
-            {error}
-          </div>
-        {/if}
-
-        <div class="flex justify-end gap-2 pt-2">
-          <button
-            type="button"
-            onclick={close}
-            disabled={busy}
-            class="px-3 py-2 rounded-md text-xs font-medium"
-            style="background: transparent; color: var(--text-muted); border: 1px solid var(--border-subtle);"
-          >Cancel</button>
-          <button
-            type="submit"
-            disabled={busy || selectedKinds.length === 0}
-            class="px-3 py-2 rounded-md text-xs font-medium"
-            style="background: #6366F1; color: white; border: 0;"
-          >{busy ? 'Creating…' : 'Create invite'}</button>
-        </div>
-      </form>
-    {:else}
-      <div class="px-5 py-4 space-y-3">
-        <p class="text-xs" style="color: var(--text-muted);">
-          Share these links with <span class="font-mono">{result.label}</span>. They'll need the password you entered.
-        </p>
-
-        {#each result.kinds as k}
-          {@const value = result.share[k] ?? ''}
-          <div class="space-y-1">
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-mono font-semibold" style="color: var(--text);">{k}</span>
-              <button
-                type="button"
-                onclick={() => copy(value, k)}
-                class="text-xs px-2 py-0.5 rounded"
-                style="background: var(--bg-card); color: var(--text-muted); border: 1px solid var(--border-subtle);"
-              >{copied === k ? 'Copied' : 'Copy'}</button>
+    {#if invite}
+      <div class="content">
+        <p class="hint">Share the selected link with <strong>{invite.label}</strong>. They also need the password.</p>
+        {#each invite.kinds as kind (kind)}
+          {@const value = invite.share[kind] ?? ''}
+          <div class="share-block">
+            <div class="share-head">
+              <span>{kind}</span>
+              <button type="button" onclick={() => void copyShare(kind, value)}>{copiedKind === kind ? 'Copied' : 'Copy'}</button>
             </div>
-            <code
-              class="block text-[11px] font-mono break-all rounded-md px-2 py-1.5"
-              style="background: var(--bg-card); color: var(--text); border: 1px solid var(--border-subtle);"
-            >{value}</code>
+            <code>{value}</code>
           </div>
         {/each}
-
-        <p class="text-[11px] pt-2" style="color: var(--text-faint);">
-          Need a QR code? Run <span class="font-mono" style="color: var(--text-muted);">ant qr</span> in a terminal —
-          it renders the antios:// deep-link for iOS pairing. Web links above can be sent over any channel.
-        </p>
-
-        <div class="flex justify-end gap-2 pt-2">
-          <button
-            type="button"
-            onclick={close}
-            class="px-3 py-2 rounded-md text-xs font-medium"
-            style="background: #6366F1; color: white; border: 0;"
-          >Done</button>
+        <div class="actions">
+          <button type="button" class="secondary" onclick={resetInvite}>Mint another</button>
+          <button type="button" class="primary" onclick={onClose}>Done</button>
         </div>
       </div>
+    {:else}
+      <form class="content" onsubmit={(event) => { event.preventDefault(); void createInvite(); }}>
+        <label for="remoteInviteLabel">Label</label>
+        <input id="remoteInviteLabel" type="text" bind:value={label} placeholder="Alex laptop" maxlength="120" disabled={busy} required />
+
+        <label for="remoteInvitePassword">Password</label>
+        <div class="password-row">
+          <input
+            id="remoteInvitePassword"
+            type={revealPassword ? 'text' : 'password'}
+            bind:value={password}
+            autocomplete="new-password"
+            minlength="4"
+            disabled={busy}
+            required
+          />
+          <button type="button" class="secondary" onclick={() => (revealPassword = !revealPassword)}>{revealPassword ? 'Hide' : 'Show'}</button>
+        </div>
+
+        <fieldset disabled={busy}>
+          <legend>Access</legend>
+          {#each (['web', 'cli', 'mcp'] as const) as kind (kind)}
+            <label class="kind-row">
+              <input type="checkbox" bind:checked={kinds[kind]} />
+              <span><strong>{kind}</strong> - {kindHelp[kind]}</span>
+            </label>
+          {/each}
+        </fieldset>
+
+        {#if errorMessage}
+          <p class="error" role="alert">{errorMessage}</p>
+        {/if}
+
+        <div class="actions">
+          <button type="button" class="secondary" onclick={onClose} disabled={busy}>Cancel</button>
+          <button type="submit" class="primary" disabled={busy || selectedKinds.length === 0}>
+            {busy ? 'Creating...' : 'Create invite'}
+          </button>
+        </div>
+      </form>
     {/if}
-  </div>
+  </section>
 </div>
 
 <style>
-  /* On phones (≤640px) the invite modal becomes a full-width bottom-sheet
-     so the form fields, password reveal, and the long share-URL code
-     blocks are reachable without horizontal scrolling. Safe-area padding
-     keeps the home-indicator from overlapping the Done button. */
+  .backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background: rgba(10, 12, 18, 0.58);
+  }
+  .modal {
+    width: min(34rem, 100%);
+    max-height: 92vh;
+    overflow-y: auto;
+    border: 1px solid var(--surface-edge);
+    border-radius: 0.9rem;
+    background: var(--surface-card);
+    box-shadow: var(--shadow-card);
+  }
+  header, .content { padding: 1rem 1.1rem; }
+  header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  h2 { margin: 0; color: var(--ink-strong); font-size: 1.05rem; }
+  p { margin: 0.25rem 0 0; color: var(--ink-soft); font-size: 0.86rem; }
+  .content { display: flex; flex-direction: column; gap: 0.65rem; }
+  label, legend { color: var(--ink); font-size: 0.82rem; font-weight: 800; }
+  input {
+    min-width: 0;
+    padding: 0.62rem 0.72rem;
+    border: 1px solid var(--surface-edge);
+    border-radius: 0.5rem;
+    background: var(--bg);
+    color: var(--ink-strong);
+    font: inherit;
+  }
+  input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .password-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.45rem; }
+  fieldset { margin: 0; padding: 0; border: 0; display: grid; gap: 0.35rem; }
+  .kind-row { display: flex; align-items: flex-start; gap: 0.5rem; font-weight: 500; }
+  .kind-row input { margin-top: 0.1rem; }
+  .share-block { display: grid; gap: 0.3rem; }
+  .share-head { display: flex; justify-content: space-between; gap: 0.5rem; align-items: center; }
+  .share-head span { font: 800 0.78rem 'JetBrains Mono', ui-monospace, monospace; text-transform: uppercase; }
+  code {
+    display: block;
+    padding: 0.55rem 0.65rem;
+    border: 1px solid var(--surface-edge);
+    border-radius: 0.45rem;
+    background: var(--bg);
+    color: var(--ink-strong);
+    font: 0.78rem 'JetBrains Mono', ui-monospace, monospace;
+    word-break: break-all;
+  }
+  .actions { display: flex; justify-content: flex-end; gap: 0.55rem; margin-top: 0.25rem; }
+  button { border-radius: 999px; padding: 0.55rem 0.9rem; font-weight: 800; cursor: pointer; }
+  .primary { border: 0; background: var(--accent); color: white; }
+  .secondary, .ghost, .share-head button {
+    border: 1px solid var(--surface-edge);
+    background: transparent;
+    color: var(--ink-strong);
+  }
+  button:disabled { opacity: 0.55; cursor: not-allowed; }
+  .error { color: var(--accent); }
   @media (max-width: 640px) {
-    .invite-backdrop {
-      padding: 0;
-      align-items: flex-end;
-    }
-    .invite-sheet {
-      max-width: 100%;
-      max-height: 100vh;
-      border-radius: 16px 16px 0 0;
-      padding-bottom: env(safe-area-inset-bottom, 0px);
-    }
+    .backdrop { align-items: flex-end; padding: 0; }
+    .modal { width: 100%; border-radius: 0.9rem 0.9rem 0 0; }
   }
 </style>

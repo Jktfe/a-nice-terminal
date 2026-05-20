@@ -1,539 +1,216 @@
 <!--
-  Speed diagnostics — opens a real chat-room load against the live
-  server and reports per-endpoint + total wall-clock so we can stop
-  asking "does it feel slow" and look at numbers.
-
-  Owned by mobile-ant-recovery-2026-05-09 — read it on Safari to
-  capture mobile-network reality, not just the localhost happy path.
-
-  No measurement is shipped to the server. Everything stays in the
-  browser, viewable + copyable. Safe to deploy in production.
+  /diagnostics — operator trust surface (B2-8 parity).
+  Exposes /api/health + /api/diagnostics/summary in a readable grid.
+  No admin auth required for this page — the summary endpoint is public.
 -->
-
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import SimplePageShell from '$lib/components/SimplePageShell.svelte';
+  import type { DiagnosticsSummary, HealthData } from './+page';
 
-  type EndpointResult = {
-    label: string;
-    url: string;
-    ok: boolean;
-    status: number;
-    ttfbMs: number | null;
-    totalMs: number;
-    bytes: number;
-    error?: string;
+  type Props = {
+    data: {
+      health: HealthData | null;
+      summary: DiagnosticsSummary | null;
+    };
   };
 
-  let sessionInput = $state('');
-  let running = $state(false);
-  let results = $state<EndpointResult[]>([]);
-  let totalMs = $state<number | null>(null);
-  let userAgent = $state('');
-  let viewport = $state<{ w: number; h: number; dpr: number } | null>(null);
-  let serviceWorker = $state<{ controlled: boolean; scope?: string } | null>(null);
-  let networkInfo = $state<{ effectiveType?: string; downlink?: number; rtt?: number; saveData?: boolean } | null>(null);
+  let { data }: Props = $props();
 
-  // C3 of main-app-improvements-2026-05-10 — system pressure pane.
-  type Pressure = {
-    generated_at_ms: number;
-    platform: string;
-    uptime_s: number;
-    load_avg: { '1m': number; '5m': number; '15m': number };
-    ram: { total_bytes: number; free_bytes: number; used_bytes: number; used_pct: number };
-    node_rss_bytes: number;
-    processes: { total: number | null; agents: number | null };
-    tmux_sessions: number | null;
-    ant_db: { path: string; size_bytes: number | null };
-  };
-  let pressure = $state<Pressure | null>(null);
-  let pressureLoading = $state(false);
-  let pressureError = $state('');
+  const health = $derived(data.health);
+  const summary = $derived(data.summary);
 
-  async function refreshPressure() {
-    pressureLoading = true;
-    pressureError = '';
-    try {
-      const res = await fetch('/api/diagnostics/system-pressure', { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      pressure = (await res.json()) as Pressure;
-    } catch (err) {
-      pressureError = err instanceof Error ? err.message : String(err);
-    } finally {
-      pressureLoading = false;
-    }
-  }
-
-  function fmtBytes(n: number | null | undefined): string {
-    if (n === null || n === undefined) return '—';
-    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    let v = n;
-    let i = 0;
-    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
-    return `${v.toFixed(v >= 100 ? 0 : v >= 10 ? 1 : 2)} ${units[i]}`;
-  }
-
-  function fmtPct(n: number, total: number): string {
-    return total > 0 ? `${((n / total) * 100).toFixed(1)}%` : '—';
-  }
-
-  function fmtUptime(seconds: number): string {
-    const d = Math.floor(seconds / 86400);
-    const h = Math.floor((seconds % 86400) / 3600);
+  function fmtTime(seconds: number | undefined): string {
+    if (seconds == null) return "—";
+    const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
-    if (d > 0) return `${d}d ${h}h ${m}m`;
-    if (h > 0) return `${h}h ${m}m`;
-    return `${m}m`;
-  }
-
-  onMount(async () => {
-    if (typeof navigator !== 'undefined') {
-      userAgent = navigator.userAgent;
-    }
-    if (typeof window !== 'undefined') {
-      viewport = {
-        w: window.innerWidth,
-        h: window.innerHeight,
-        dpr: window.devicePixelRatio || 1,
-      };
-    }
-    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
-      const reg = await navigator.serviceWorker.getRegistration();
-      serviceWorker = {
-        controlled: !!navigator.serviceWorker.controller,
-        scope: reg?.scope,
-      };
-    }
-    // Network Information API — Chrome/Firefox; Safari may not implement.
-    const conn = (navigator as unknown as { connection?: { effectiveType?: string; downlink?: number; rtt?: number; saveData?: boolean } }).connection;
-    if (conn) {
-      networkInfo = {
-        effectiveType: conn.effectiveType,
-        downlink: conn.downlink,
-        rtt: conn.rtt,
-        saveData: conn.saveData,
-      };
-    }
-
-    // Pre-fill with the most recent session id from localStorage if present.
-    if (typeof window !== 'undefined') {
-      const last = window.localStorage.getItem('ant.diagnostics.lastSessionId') || '';
-      if (last) sessionInput = last;
-    }
-
-    // Kick off the system-pressure snapshot, and refresh on
-    // visibilitychange + focus so the numbers stay current when the
-    // operator tabs back in. No interval timer — pressure changes
-    // slowly enough that visibility refresh + manual button is plenty.
-    void refreshPressure();
-    if (typeof document !== 'undefined') {
-      document.addEventListener('visibilitychange', () => {
-        if (!document.hidden) void refreshPressure();
-      });
-    }
-    if (typeof window !== 'undefined') {
-      window.addEventListener('focus', () => void refreshPressure());
-    }
-  });
-
-  async function timeFetch(label: string, url: string): Promise<EndpointResult> {
-    const start = performance.now();
-    try {
-      const res = await fetch(url);
-      const buf = await res.arrayBuffer();
-      const totalElapsed = performance.now() - start;
-      // PerformanceResourceTiming gives us TTFB if available.
-      let ttfbMs: number | null = null;
-      const entries = performance.getEntriesByName(new URL(url, location.origin).href, 'resource');
-      const last = entries[entries.length - 1] as PerformanceResourceTiming | undefined;
-      if (last) {
-        ttfbMs = last.responseStart - last.requestStart;
-      }
-      return {
-        label,
-        url,
-        ok: res.ok,
-        status: res.status,
-        ttfbMs,
-        totalMs: totalElapsed,
-        bytes: buf.byteLength,
-      };
-    } catch (err) {
-      const totalElapsed = performance.now() - start;
-      return {
-        label,
-        url,
-        ok: false,
-        status: 0,
-        ttfbMs: null,
-        totalMs: totalElapsed,
-        bytes: 0,
-        error: err instanceof Error ? err.message : String(err),
-      };
-    }
-  }
-
-  async function run() {
-    const sessionId = sessionInput.trim();
-    if (!sessionId) return;
-    running = true;
-    results = [];
-    totalMs = null;
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('ant.diagnostics.lastSessionId', sessionId);
-    }
-    const start = performance.now();
-    // Fire all eight calls in the same parallel batch the chat-room
-    // loader uses now (post fb850d2/eaeabaf). The diagnostics page
-    // mirrors the production fetch shape so timing reflects what
-    // the user actually feels.
-    const probes: Array<Promise<EndpointResult>> = [
-      timeFetch('GET /api/sessions/<id>', `/api/sessions/${encodeURIComponent(sessionId)}`),
-      timeFetch('GET /api/sessions (list)', '/api/sessions'),
-      timeFetch('GET /api/sessions/<id>/messages?limit=10', `/api/sessions/${encodeURIComponent(sessionId)}/messages?limit=10`),
-      timeFetch('GET /api/sessions/<id>/tasks', `/api/sessions/${encodeURIComponent(sessionId)}/tasks`),
-      timeFetch('GET /api/sessions/<id>/file-refs', `/api/sessions/${encodeURIComponent(sessionId)}/file-refs`),
-      timeFetch('GET /api/sessions/<id>/attachments', `/api/sessions/${encodeURIComponent(sessionId)}/attachments`),
-      timeFetch('GET /api/sessions/<id>/participants', `/api/sessions/${encodeURIComponent(sessionId)}/participants`),
-      timeFetch('GET /api/plans?session_id=<id>&limit=1', `/api/plans?session_id=${encodeURIComponent(sessionId)}&limit=1`),
-    ];
-    results = await Promise.all(probes);
-    totalMs = performance.now() - start;
-    running = false;
-  }
-
-  async function copyResults() {
-    if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return;
-    const dump = formatDump();
-    await navigator.clipboard.writeText(dump).catch(() => {});
-  }
-
-  function formatDump(): string {
-    const lines: string[] = [];
-    lines.push(`ANT speed diagnostics — ${new Date().toISOString()}`);
-    lines.push(`Origin: ${location.origin}`);
-    lines.push(`User agent: ${userAgent}`);
-    if (viewport) lines.push(`Viewport: ${viewport.w}x${viewport.h} (DPR ${viewport.dpr})`);
-    if (serviceWorker) lines.push(`Service worker: controlled=${serviceWorker.controlled}${serviceWorker.scope ? ` scope=${serviceWorker.scope}` : ''}`);
-    if (networkInfo) lines.push(`Network: ${JSON.stringify(networkInfo)}`);
-    lines.push('');
-    lines.push(`Session ID: ${sessionInput.trim()}`);
-    lines.push(`Total wall-clock (parallel batch): ${totalMs?.toFixed(0)}ms`);
-    lines.push('');
-    lines.push('Endpoint                                                 status   TTFB     Total    Bytes');
-    for (const r of results) {
-      const ttfb = r.ttfbMs !== null ? `${r.ttfbMs.toFixed(0)}ms` : '—';
-      lines.push(`${r.label.padEnd(56)} ${String(r.status).padStart(3)}      ${ttfb.padStart(8)} ${r.totalMs.toFixed(0).padStart(6)}ms ${r.bytes.toString().padStart(8)}B${r.error ? ` ERROR: ${r.error}` : ''}`);
-    }
-    return lines.join('\n');
+    const s = seconds % 60;
+    return `${h}h ${m}m ${s}s`;
   }
 </script>
 
-<svelte:head>
-  <title>Speed diagnostics · ANT</title>
-</svelte:head>
+<SimplePageShell eyebrow="Operator" title="Diagnostics" summary="Runtime health, DB size, SSE state, and recent errors.">
+  {#if !summary}
+    <p class="error-nudge">Diagnostics summary unavailable. Check that the server is running.</p>
+  {:else}
+    <section class="diag-grid">
+      <div class="diag-card">
+        <h2>Process</h2>
+        <p>Status: <span class="status-pill" data-state={summary.status}>{summary.status}</span></p>
+        <p>PID: {summary.pid}</p>
+        <p>Uptime: {fmtTime(summary.uptimeSeconds)}</p>
+        <p>Node: {summary.nodeVersion}</p>
+      </div>
 
-<main class="page">
-  <header>
-    <h1>Speed diagnostics</h1>
-    <p class="lede">
-      Time the chat-room load endpoints from this device. Open this on
-      Safari mobile to capture the real mobile-network path; numbers are
-      what the user actually feels, not localhost-only measurement.
-    </p>
-  </header>
+      <div class="diag-card">
+        <h2>Database</h2>
+        <p>Path: <code>{summary.db?.path}</code></p>
+        <p>Main: {summary.db?.mainSize} ({summary.db?.mainBytes?.toLocaleString()} bytes)</p>
+        <p>WAL: {summary.db?.walSize} ({summary.db?.walBytes?.toLocaleString()} bytes)</p>
+        <p>SHM: {summary.db?.shmSize}</p>
+        <p>Reachable: {summary.db?.reachable ? 'yes' : 'no'}</p>
+      </div>
 
-  <section class="panel">
-    <h2>Environment</h2>
-    <dl>
-      <dt>Origin</dt><dd><code>{typeof location !== 'undefined' ? location.origin : ''}</code></dd>
-      <dt>User agent</dt><dd><code class="wrap">{userAgent || '—'}</code></dd>
-      {#if viewport}
-        <dt>Viewport</dt><dd>{viewport.w} × {viewport.h} (DPR {viewport.dpr})</dd>
-      {/if}
-      {#if serviceWorker}
-        <dt>Service worker</dt>
-        <dd>
-          controlled={serviceWorker.controlled ? 'yes' : 'no'}
-          {#if serviceWorker.scope}· scope <code>{serviceWorker.scope}</code>{/if}
-        </dd>
-      {/if}
-      {#if networkInfo}
-        <dt>Network</dt>
-        <dd>
-          {#if networkInfo.effectiveType}{networkInfo.effectiveType}{/if}
-          {#if networkInfo.downlink !== undefined}· {networkInfo.downlink} Mbps{/if}
-          {#if networkInfo.rtt !== undefined}· RTT {networkInfo.rtt}ms{/if}
-          {#if networkInfo.saveData}· save-data on{/if}
-        </dd>
-      {/if}
-    </dl>
-  </section>
-
-  <section class="panel">
-    <div class="result-head">
-      <h2>System pressure</h2>
-      <div class="result-meta">
-        {#if pressure}
-          <span>updated {new Date(pressure.generated_at_ms).toLocaleTimeString()}</span>
+      <div class="diag-card">
+        <h2>SSE Subscribers</h2>
+        <p>Total: {summary.sse?.totalSubscribers ?? 0}</p>
+        {#if summary.sse?.rooms?.length > 0}
+          <ul>
+            {#each summary.sse.rooms as r}
+              <li>{r.roomName}: {r.count}</li>
+            {/each}
+          </ul>
+        {:else}
+          <p class="empty">No active room subscribers.</p>
         {/if}
-        <button type="button" class="copy" onclick={() => void refreshPressure()} disabled={pressureLoading}>
-          {pressureLoading ? 'Refreshing…' : 'Refresh'}
-        </button>
       </div>
-    </div>
-    <p class="hint">
-      Where the load is coming from. Tabs back to refresh; refreshes
-      automatically on focus. Source: <code>/api/diagnostics/system-pressure</code>.
-    </p>
-    {#if pressureError}
-      <p class="hint" style="color: #B91C1C;">Couldn't read pressure: {pressureError}</p>
-    {/if}
-    {#if pressure}
-      <dl>
-        <dt>Platform</dt>
-        <dd>{pressure.platform} · uptime {fmtUptime(pressure.uptime_s)}</dd>
 
-        <dt>Load average</dt>
-        <dd>
-          <code>{pressure.load_avg['1m'].toFixed(2)}</code> 1m ·
-          <code>{pressure.load_avg['5m'].toFixed(2)}</code> 5m ·
-          <code>{pressure.load_avg['15m'].toFixed(2)}</code> 15m
-        </dd>
-
-        <dt>RAM</dt>
-        <dd>
-          <strong>{fmtBytes(pressure.ram.used_bytes)}</strong>
-          / {fmtBytes(pressure.ram.total_bytes)}
-          ({pressure.ram.used_pct.toFixed(1)}% used) ·
-          <span class="hint">free {fmtBytes(pressure.ram.free_bytes)}</span>
-        </dd>
-
-        <dt>Node process (this server)</dt>
-        <dd>
-          {fmtBytes(pressure.node_rss_bytes)} RSS
-          ({fmtPct(pressure.node_rss_bytes, pressure.ram.used_bytes)} of used RAM,
-          {fmtPct(pressure.node_rss_bytes, pressure.ram.total_bytes)} of total)
-        </dd>
-
-        <dt>Processes</dt>
-        <dd>
-          {pressure.processes.total ?? '—'} total ·
-          {pressure.processes.agents ?? '—'} agent (claude/codex/gemini/qwen/copilot/pi)
-          {#if pressure.processes.total !== null && pressure.processes.agents !== null}
-            · <span class="hint">{((pressure.processes.agents / pressure.processes.total) * 100).toFixed(1)}% agents</span>
-          {/if}
-        </dd>
-
-        <dt>tmux sessions</dt>
-        <dd>{pressure.tmux_sessions ?? '—'}</dd>
-
-        <dt>ant.db</dt>
-        <dd>
-          {fmtBytes(pressure.ant_db.size_bytes)} ·
-          <code class="wrap">{pressure.ant_db.path}</code>
-        </dd>
-      </dl>
-    {:else if pressureLoading}
-      <p class="hint">Reading…</p>
-    {/if}
-  </section>
-
-  <section class="panel">
-    <h2>Run a chat-room probe</h2>
-    <p class="hint">
-      Paste a session ID (the room URL ends in <code>/session/&lt;id&gt;</code>).
-      The diagnostics fire all eight critical-path endpoints in one
-      Promise.all and report status, TTFB, total time, and payload size.
-    </p>
-    <form onsubmit={(e) => { e.preventDefault(); void run(); }}>
-      <input
-        type="text"
-        placeholder="O393IH1zFgd_nujpQgnof"
-        bind:value={sessionInput}
-        spellcheck="false"
-        autocapitalize="off"
-        autocomplete="off"
-        class="session-input"
-        aria-label="Session ID"
-      />
-      <button type="submit" disabled={running || !sessionInput.trim()}>
-        {running ? 'Running…' : 'Run probe'}
-      </button>
-    </form>
-  </section>
-
-  {#if results.length > 0}
-    <section class="panel">
-      <div class="result-head">
-        <h2>Results</h2>
-        <div class="result-meta">
-          <span>Total: <strong>{totalMs?.toFixed(0)}ms</strong></span>
-          <button type="button" class="copy" onclick={copyResults}>Copy as text</button>
-        </div>
+      <div class="diag-card">
+        <h2>CLI Hook Lag</h2>
+        {#if summary.cliHookLag?.sampleCount > 0}
+          <p>Latest: {summary.cliHookLag.latestSec}s</p>
+          <p>p50: {summary.cliHookLag.p50Sec}s</p>
+          <p>p99: {summary.cliHookLag.p99Sec}s</p>
+          <p class="empty">Sample: {summary.cliHookLag.sampleCount} events</p>
+        {:else}
+          <p class="empty">No hook events recorded.</p>
+        {/if}
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Endpoint</th>
-            <th>Status</th>
-            <th>TTFB</th>
-            <th>Total</th>
-            <th>Bytes</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each results as r}
-            <tr class:fail={!r.ok}>
-              <td><code>{r.label}</code></td>
-              <td>{r.status}</td>
-              <td>{r.ttfbMs !== null ? `${r.ttfbMs.toFixed(0)}ms` : '—'}</td>
-              <td>{r.totalMs.toFixed(0)}ms</td>
-              <td>{r.bytes.toLocaleString()}B</td>
-            </tr>
-            {#if r.error}
-              <tr class="fail-detail"><td colspan="5"><code>{r.error}</code></td></tr>
-            {/if}
+
+      <div class="diag-card wide">
+        <h2>Recent 500s</h2>
+        <p>All-time: {summary.log500s?.allTime ?? 0} | Last 1000 lines: {summary.log500s?.recent ?? 0}</p>
+        {#if summary.log500s?.latest}
+          <p><code>{summary.log500s.latest}</code></p>
+        {:else}
+          <p class="empty">No 500s in log.</p>
+        {/if}
+      </div>
+
+      <div class="diag-card wide">
+        <h2>Boot Flags</h2>
+        <ul class="flag-list">
+          {#each Object.entries(summary.booted ?? {}) as [flag, ok]}
+            <li class={ok ? 'ok' : 'missing'}>{flag}: {ok ? 'yes' : 'no'}</li>
           {/each}
-        </tbody>
-      </table>
+        </ul>
+      </div>
     </section>
   {/if}
-</main>
+
+  {#if health}
+    <section class="diag-section">
+      <h2>Health Detail</h2>
+      <pre>{JSON.stringify(health, null, 2)}</pre>
+    </section>
+  {/if}
+</SimplePageShell>
 
 <style>
-  .page {
-    max-width: 720px;
-    margin: 0 auto;
-    padding: 1.5rem 1rem 4rem;
-    color: var(--text);
-    font-family: var(--font-sans);
-  }
-  header {
-    margin-bottom: 1.5rem;
-  }
-  h1 {
-    margin: 0 0 0.5rem;
-    font-size: 1.5rem;
-    font-weight: 700;
-  }
-  .lede {
-    color: var(--text-muted);
-    line-height: 1.5;
-    margin: 0;
-  }
-  .panel {
-    border: 1px solid var(--border-subtle);
-    border-radius: 10px;
-    padding: 1rem 1.1rem;
-    margin-bottom: 1rem;
-    background: var(--bg-card);
-  }
-  .panel h2 {
-    margin: 0 0 0.65rem;
-    font-size: 0.95rem;
-    font-weight: 700;
-    color: var(--text);
-  }
-  .hint {
-    color: var(--text-muted);
-    font-size: 0.85rem;
-    margin: 0 0 0.75rem;
-    line-height: 1.45;
-  }
-  dl {
-    margin: 0;
+  /* Swapped non-existent --color-* placeholders for the actual design
+     tokens (--surface-card / --line-soft / --ink-soft / --ok / --warn)
+     so the page renders cleanly in both light + dark mode and matches
+     the rest of the app's visual language. Hardcoded light-mode hex
+     values on status pills + error nudges replaced with color-mix
+     against the semantic tokens. */
+  .diag-grid {
     display: grid;
-    grid-template-columns: minmax(120px, auto) 1fr;
-    column-gap: 0.75rem;
-    row-gap: 0.4rem;
-    font-size: 0.85rem;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 0.9rem;
+    margin-top: 1rem;
   }
-  dt {
-    color: var(--text-muted);
-    font-weight: 600;
+  .diag-card {
+    border: 1px solid var(--line-soft);
+    border-radius: 0.85rem;
+    padding: 1rem 1.1rem;
+    background: var(--surface-card);
   }
-  dd {
-    margin: 0;
-    color: var(--text);
-    word-break: break-word;
+  .diag-card.wide {
+    grid-column: 1 / -1;
   }
-  code {
-    font-family: var(--font-mono);
-    font-size: 0.82em;
+  .diag-card h2 {
+    font-size: 0.78rem;
+    margin: 0 0 0.6rem;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 800;
   }
-  .wrap {
+  .diag-card p, .diag-card li {
+    margin: 0.25rem 0;
+    font-size: 0.9rem;
+    color: var(--ink-strong);
+  }
+  .diag-card code {
+    font-size: 0.78rem;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
     word-break: break-all;
+    color: var(--ink-soft);
   }
-  form {
-    display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
+  .status-pill {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border: 1px solid transparent;
   }
-  .session-input {
-    flex: 1 1 220px;
-    min-width: 0;
-    padding: 0.5rem 0.7rem;
-    border-radius: 6px;
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-input, var(--bg-card));
-    color: var(--text);
-    font-family: var(--font-mono);
+  .status-pill[data-state="ok"] {
+    background: color-mix(in srgb, var(--ok) 18%, transparent);
+    color: var(--ok);
+    border-color: color-mix(in srgb, var(--ok) 32%, transparent);
+  }
+  .status-pill[data-state="degraded"] {
+    background: color-mix(in srgb, var(--warn) 18%, transparent);
+    color: var(--warn);
+    border-color: color-mix(in srgb, var(--warn) 32%, transparent);
+  }
+  .empty {
+    color: var(--ink-muted);
+    font-style: italic;
     font-size: 0.85rem;
   }
-  button[type="submit"] {
-    padding: 0.5rem 1rem;
-    border-radius: 6px;
-    border: 0;
-    background: #6366F1;
-    color: #fff;
-    font-weight: 600;
-    font-size: 0.85rem;
-    cursor: pointer;
+  .error-nudge {
+    color: var(--ink-strong);
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--warn);
+    border-radius: 0.85rem;
+    background: color-mix(in srgb, var(--warn) 16%, var(--surface-card));
   }
-  button[type="submit"]:disabled { opacity: 0.55; cursor: not-allowed; }
-  .copy {
-    padding: 0.35rem 0.7rem;
-    border-radius: 6px;
-    border: 1px solid var(--border-subtle);
-    background: transparent;
-    color: var(--text-muted);
-    font-size: 0.8rem;
-    cursor: pointer;
+  .flag-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    columns: 2;
   }
-  .copy:hover { color: var(--text); }
-  .result-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    margin-bottom: 0.75rem;
-    flex-wrap: wrap;
+  .flag-list li {
+    font-size: 0.78rem;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    padding: 0.1rem 0;
   }
-  .result-meta {
-    display: flex;
-    gap: 0.75rem;
-    align-items: center;
-    color: var(--text-muted);
-    font-size: 0.85rem;
+  .flag-list li.ok { color: var(--ok); }
+  .flag-list li.missing { color: var(--warn); }
+  .diag-section {
+    margin-top: 2rem;
   }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.82rem;
+  .diag-section h2 {
+    font-size: 0.78rem;
+    margin: 0 0 0.6rem;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 800;
   }
-  th, td {
-    text-align: left;
-    padding: 0.4rem 0.5rem;
-    border-bottom: 1px solid var(--border-subtle);
+  .diag-section pre {
+    margin: 0;
+    font-size: 0.78rem;
+    overflow-x: auto;
+    background: var(--bg);
+    color: var(--ink-strong);
+    padding: 1rem 1.1rem;
+    border: 1px solid var(--line-soft);
+    border-radius: 0.85rem;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
   }
-  th {
-    color: var(--text-muted);
-    font-weight: 600;
-  }
-  td:nth-child(2), td:nth-child(3), td:nth-child(4), td:nth-child(5) {
-    font-family: var(--font-mono);
-    text-align: right;
-  }
-  tr.fail td { color: #EF4444; }
-  tr.fail-detail td { padding-top: 0; padding-bottom: 0.5rem; color: #EF4444; word-break: break-word; }
 </style>

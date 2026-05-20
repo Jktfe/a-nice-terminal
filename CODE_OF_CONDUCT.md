@@ -1,35 +1,80 @@
 # Code of Conduct
 
-## Our standards
+ANT adopts the [Contributor Covenant, v2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/)
+as its Code of Conduct.
 
-We want ANT to be an open, respectful, and constructive project.
+## Our Pledge
 
-Examples of positive behavior include:
+We as members, contributors, and maintainers pledge to make participation in
+ANT a harassment-free experience for everyone, regardless of age, body size,
+visible or invisible disability, ethnicity, sex characteristics, gender
+identity and expression, level of experience, education, socio-economic
+status, nationality, personal appearance, race, religion, or sexual identity
+and orientation.
 
-- being respectful in disagreements
-- giving actionable, technical feedback
-- assuming good intent while staying clear and direct
-- focusing discussion on the work rather than the person
+We pledge to act and interact in ways that contribute to an open, welcoming,
+diverse, inclusive, and healthy community.
 
-Examples of unacceptable behavior include:
+## Our Standards
 
-- harassment, discrimination, or personal attacks
-- trolling, intimidation, or sustained disruption
-- publishing private information without permission
-- abusive or insulting language in issues, reviews, or chat
+Examples of behaviour that contributes to a positive environment:
+
+- Demonstrating empathy and kindness toward other people
+- Being respectful of differing opinions, viewpoints, and experiences
+- Giving and gracefully accepting constructive feedback
+- Accepting responsibility and apologising to those affected by our mistakes,
+  and learning from the experience
+- Focusing on what is best not just for us as individuals, but for the
+  overall community
+
+Examples of unacceptable behaviour:
+
+- The use of sexualised language or imagery, and sexual attention or advances
+  of any kind
+- Trolling, insulting or derogatory comments, and personal or political
+  attacks
+- Public or private harassment
+- Publishing others' private information, such as a physical or email
+  address, without their explicit permission
+- Other conduct which could reasonably be considered inappropriate in a
+  professional setting
 
 ## Scope
 
-This code of conduct applies in project spaces, including issues, pull requests, discussions, and other community channels tied to ANT.
+This Code of Conduct applies within all community spaces (issues, pull
+requests, discussions, code review, social channels), and also applies when
+an individual is officially representing the community in public spaces.
 
 ## Enforcement
 
-Project maintainers may remove, edit, or reject comments, commits, code, issues, and other contributions that violate this code of conduct.
+Instances of abusive, harassing, or otherwise unacceptable behaviour may be
+reported privately to the project maintainers at **james@newmodel.vc**.
 
-## Reporting
+All complaints will be reviewed and investigated promptly and fairly. All
+maintainers are obligated to respect the privacy and security of the reporter
+of any incident.
 
-If you experience or witness unacceptable behavior, report it privately to the project maintainer instead of opening a public issue.
+## Enforcement Guidelines
+
+Maintainers will follow these Community Impact Guidelines in determining the
+consequences for any action they deem in violation of this Code of Conduct:
+
+1. **Correction** — Private, written warning, providing clarity around the
+   nature of the violation and an explanation of why the behaviour was
+   inappropriate. A public apology may be requested.
+2. **Warning** — A warning with consequences for continued behaviour. No
+   interaction with the people involved, including unsolicited interaction
+   with those enforcing the Code of Conduct, for a specified period of time.
+3. **Temporary Ban** — A temporary ban from any sort of interaction or
+   public communication with the community for a specified period of time.
+4. **Permanent Ban** — A permanent ban from any sort of public interaction
+   within the community.
 
 ## Attribution
 
-This document is adapted from the Contributor Covenant, version 2.1.
+This Code of Conduct is adapted from the
+[Contributor Covenant, v2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/),
+available at https://www.contributor-covenant.org/version/2/1/code_of_conduct.html.
+
+For answers to common questions about this code of conduct, see the FAQ at
+https://www.contributor-covenant.org/faq.

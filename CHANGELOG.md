@@ -1,58 +1,125 @@
 # Changelog
 
-All notable changes to ANT (`a-nice-terminal`) are tracked here.
+All notable changes to ANT are documented here. Format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project follows
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once 1.0 ships.
+## [0.1.0] — 2026-05-20
 
-## [Unreleased]
+The initial public release of ANT (`a-nice-terminal`).
 
-### Added
-- iOS experience catch-up planning is active: safe-area layout, touch hit targets, keyboard reflow, gestures, composer ergonomics, and folder-drawer mobile acceptance criteria.
+ANT is a self-hosted multi-agent terminal orchestrator built around **long-lived
+agent personae** — the substrate (memory, plans, room context, identity) is the
+durable part; the model behind each agent is just the muscle. Out of the box
+it runs the agents you actually want to keep working with, across CLIs (Claude
+Code, Codex, Gemini, pi, Qwen, Copilot), without phoning home and without
+requiring any paid SaaS dependency.
 
-## [antchat-0.1.0] — 2026-05-06
+### Added — server
 
-First release of `antchat`, a single-binary macOS client for joining ANT rooms without running a server. Versioned and released independently of `a-nice-terminal` core via tags of the form `antchat-v*`; binaries are produced by `.github/workflows/release-antchat.yml`.
+- Operator UI (SvelteKit + Tauri thin-client shell) with rooms, plans, tasks,
+  asks, decks, artefacts, terminals, manual canvas, vault, agents dashboard,
+  cron jobs page.
+- `ant` CLI with chat / plan / task / room / terminal / deck / sheet / ask /
+  flag / hook / memory / doc / share verbs (60+ commands; manifest at
+  `src/lib/cli-manifest/manifest.ts`).
+- Cron primitive — operator-defined recurring jobs with named lifecycle
+  (`start | pause | stop | delete`), four action types (`room.message`,
+  `console.log`, `webhook.post`, `task.create`), 5-second ticker, SSRF guard
+  on `webhook.post`.
+- Plan triggers — event-driven dispatch on plan + task lifecycle, same four
+  actions as cron, with the shared webhook-safety guard.
+- Multi-CLI integration matrix — per-CLI transcript-tail watchers, statusline
+  contracts, `ant hooks doctor` health check for hardcoded URLs / stale ports
+  / template drift.
+- 6 transcript-tail watchers (one per supported CLI) booted via globalThis
+  flag; visible in `/api/health` booted flags.
+- Browser-session auth with 30-day default TTL, Path=/ cookie scoping, same-
+  origin Origin-header check, auto-mint cookie path on identity-gate 403.
+- Demo-login gate via `ANT_DEMO_EMAIL` + `ANT_DEMO_PASSWORD` env (timing-safe
+  password compare). Disabled by default; unset env vars → anonymous walk-in.
 
-### Added
-- WS1A — multi-token room config with per-room kind/handle/label and exported `parseShareString`
-- WS4A — `antchat` skeleton: `join`, `rooms`, `msg`
-- WS4B — `antchat chat` (SSE backfill + live), `open`, `tasks`, `plan`, plus macOS osascript notifier and `mentionsHandle()` helper
-- WS4C — `antchat mcp serve|install|uninstall|print` (stdio JSON-RPC proxy; cross-platform `claude_desktop_config.json` writer)
-- WS4E — `antchat watch run|install|uninstall|status` (LaunchAgent plist + `launchctl bootstrap` with `load -w` fallback)
-- WS5A — `bun run build:antchat:{arm64,x64}` + `antchat/scripts/smoke.sh` smoke harness
-- WS5B — `.github/workflows/release-antchat.yml` matrix build on macos-14 + macos-13 with tarballs, SHA-256 aggregate, and GitHub Release upload
-- WS5C — `homebrew/antchat.rb` formula + `homebrew/update-tap.sh` post-release helper for `Jktfe/homebrew-antchat`
-- WS6A — `antchat/README.md` user-facing walkthrough; root README "ANTchat" section
+### Added — UI surfaces
 
-## [0.2.0] — 2026-05-04
+- `/manual` canvas — every screen on one board, real Playwright-harvested
+  screenshots, hover-peek + click-to-pin detail rail.
+- `/cron` page — full lifecycle UI for cron jobs (create form + active/stopped
+  sections + per-row Start/Pause/Stop/Delete).
+- `/agents` page with per-agent context-window chip, availability-return
+  digest banner (missed @-tags while idle), focus-mode entry.
+- `/plans/[id]/gantt` — read-only svar-gantt timeline view; existing plans
+  dashboard untouched.
+- Terminal settings modal (write-grant + persistence + only-respond + kill-
+  default-disposition) with manual handle input so operators can configure
+  terminals that have no pre-loaded room candidates.
+- Plan card hard-delete affordance on `/plans?show=archived` + `?show=deleted`
+  with arm→commit confirm + cascade-count receipt.
+- Linked rooms create-new mode (v3 parity) — create + link in one step.
+- Login next-URL preservation across the demo-login gate.
 
-### Added
-- B1 — folder navigation drawer (Cmd+P / Ctrl+P, plus toolbar and side-panel tap targets for mobile)
-- B2 — blocked-prompt visibility surfaced in ActivityRail and SessionList
-- B3 — searchable CLI dropdown replacing the native `<select>` in ChatHeader
-- B5 — sidebar terminal pinning (localStorage-backed, cross-tab via `storage` event)
-- B6 — delete-safety guards on session removal
-- B7 — trust-tier hardening on reference panel uploads (R4 §1)
-- B9 — fuzzy/scored @-mention matching (B9 scoring algorithm: exact 1000 / prefix 500 / substring 200 / subsequence 50+)
-- B10 — upload-hardening: auth + rate limit + content-addressed SHA-256 filenames
-- B13 — Add Terminal button in Participants panel (paste join command via existing terminal_input endpoint)
-- M1 — browser-reconnect closure: hook capture writes trust:high command_block run_events; OSC 10/11/12/4 colour-query reply filtering
-- M2 — WebGL renderer behind feature flag (accepted-with-flag; DOM remains default)
-- M3 — CommandBlock rendered from RunEvent with explicit trust-tier gate (raw never rich, medium escaped, high rich)
-- M3.5 — Plan View live API + projector data layer; provenance ladder
-- M4 — Pi RPC adapter projection (trust:high)
-- M5 — Hermes ACP adapter projection (trust:high)
+### Added — distribution
 
-### Changed
-- Test layout split: default `bun run test` runs unit tests only (109/109, 0 skipped); `bun run test:integration` covers live-server suites under `tests/integration/`.
-- CI now uses Node 20.19.4 + bun (matches the launchd runtime) and drops `continue-on-error` on svelte-check — the green checkmark now means a real 0/0/0.
-- `pasteCdToTerminal` shell-quotes paths so folders with spaces or shell metacharacters no longer truncate.
+- macOS Homebrew install rail (`brew install ant-cli`).
+- Windows MSI via Scoop (unsigned; SHA256-verified).
+- Tauri thin-client shell for Mac + Windows native windows.
 
 ### Security
-- Untrusted upload links hardened (M3 §1)
-- Reference panel inline image rendering gated on `/uploads/` prefix (B7)
-- SvelteKit and Vite updated to audited non-vulnerable ranges; `cookie` forced to a safe transitive version.
 
-## [0.1.0] — 2026-04 (pre-changelog)
+- Pre-launch code-review subagent passes (×2) caught and patched 11 launch-
+  blockers before push:
+  - **CVE-LAUNCH-A** — terminals/input + terminals/escape required auth gates.
+  - **CVE-LAUNCH-B** — terminals/kill + agent-launch now server-resolve caller
+    identity; body-supplied `callerHandle: "@you"` no longer spoofable.
+  - **CVE-LAUNCH-C** — chat-room sub-routes (DELETE / name / archive +
+    artefacts + decks) gated through shared `chatRoomAuthGate`.
+  - **CVE-LAUNCH-D** — 8 additional chat-room content sub-routes (aliases,
+    attachments, composer-draft, docs, decks, members, reactions, room-links)
+    gated.
+  - **CVE-LAUNCH-1** — `/api/cron-jobs` POST + GET + PATCH require auth
+    (anonymous network callers can no longer create cron jobs).
+  - **CVE-LAUNCH-2** — `planTriggerDispatcher.ts` webhook.post action shares
+    the SSRF guard from cron via `webhookSafety.ts` (blocks localhost /
+    private / metadata IPs unless `ANT_WEBHOOK_ALLOW_PRIVATE=true`).
+  - **CVE-LAUNCH-3** — terminal settings PATCH adds ownership check
+    (resolveCallerHandleAnyRoom + `terminal_records.created_by` / `.handle`).
+  - **CVE-LAUNCH-5** — `availability-digest` + `asks/pickup` read endpoints
+    gated against anonymous probes (digest requires caller==queried-handle;
+    pickup requires room membership; both admin-bearer-overridable).
+  - **Auth-vs-target anti-spoof** on reactions / members / aliases /
+    composer-draft / docs — caller can only act as themselves; admin-bearer
+    bypass.
+  - **Hardcoded URL scrub** — all references to internal/personal Tailnet
+    hostnames replaced with `<ANT_SERVER_HOST>` / `your-host.example.com` /
+    `test-host.invalid` placeholders per file context.
+- Regression harnesses pinned to CI: `audit-auth-gates.sh` (CVE-A..H probes),
+  `audit-auth-target-gaps.sh` (spoof-target gaps), `audit-server-down-fallback
+  .sh` (CLI degradation when ANT server is down).
+- Full vitest suite: 3671/3671 pass across 417 files (isolated forks, 152s).
 
-Initial v3 architecture: SvelteKit + Node + WebSocket + SQLite (better-sqlite3, FTS5), with PTY daemon survival across server restarts. See [docs/LESSONS.md](docs/LESSONS.md) for design decisions and the commit log for the full history.
+### Configuration
+
+- `ANT_API_KEY` / `ANT_ADMIN_TOKEN`: admin bearer for privileged routes.
+- `ANT_FRESH_DB_PATH`: optional SQLite path.
+- `ANT_OPERATIONAL_RETENTION_DAYS` + `ANT_OPERATIONAL_RETENTION_MAX_DB_BYTES`:
+  operational telemetry retention + size threshold.
+- `HOST` / `PORT`: bind address + port.
+- `ANT_DEMO_EMAIL` / `ANT_DEMO_PASSWORD` / `ANT_DEMO_HANDLE` /
+  `ANT_DEMO_ROOM_ID`: demo-login gate (off by default). ⚠️ Rotate before
+  exposing the server publicly.
+- `ANT_WEBHOOK_ALLOW_PRIVATE=true`: allow cron `webhook.post` to target
+  private/loopback IPs (for self-host sidecar webhook flows). Default fails
+  closed.
+
+### Notes
+
+- Premium native iOS/Android apps, managed hosted services, and verification-
+  policy workflows live outside this OSS repo and are never required to run
+  the self-hosted ANT distribution.
+- AGPL-3.0-or-later: if you fork and host, offer the corresponding source to
+  your users. See `LICENSE` + `NOTICE` + `COMMERCIAL_LICENSE.md`.
+- Security reports: see `SECURITY.md`.
+
+---
+
+Versioned entries below this line follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+sections: Added · Changed · Deprecated · Removed · Fixed · Security.

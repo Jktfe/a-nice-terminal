@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 480" role="img" aria-labelledby="title desc">
+  <title id="title">Scoop install user flow — Windows Tauri antchat</title>
+  <desc id="desc">User-perspective sequence: scoop bucket add, scoop install antchat-tauri, SHA verify (no cert), app launches, first-run Bearer auth.</desc>
+  <style><![CDATA[
+    .bg-card  { fill: var(--surface, #fff); stroke: var(--line-soft, #d6d6d6); stroke-width: 1.5; }
+    .bg-step  { fill: var(--info-soft, #dbeafe); stroke: var(--info, #1d4ed8); stroke-width: 1.5; }
+    .bg-ok    { fill: var(--ok-soft, #dcfce7); stroke: var(--ok, #15803d); stroke-width: 1.5; }
+    .bg-final { fill: var(--accent-soft, #ede9fe); stroke: var(--accent, #6b21a8); stroke-width: 2; }
+    .ink      { fill: var(--ink-strong, #0f172a); }
+    .ink-soft { fill: var(--ink-muted, #475569); }
+    .arrow    { stroke: var(--ink-strong, #0f172a); stroke-width: 1.5; fill: none; }
+    .label    { font-family: system-ui, -apple-system, "SF Pro Text", "Segoe UI", sans-serif; }
+    .h1       { font: 700 26px/1.1 system-ui, sans-serif; }
+    .h2       { font: 700 13px/1.2 system-ui, sans-serif; }
+    .mono     { font: 500 11px/1.2 ui-monospace, "SF Mono", Menlo, monospace; fill: var(--ink-strong, #0f172a); }
+    .small    { font: 500 11px/1.3 system-ui, sans-serif; }
+    .edge     { font: 600 11px/1 system-ui, sans-serif; }
+    .pill     { fill: var(--surface, #fff); stroke: var(--line-soft, #d6d6d6); }
+    .pill-text { font: 700 11px/1 system-ui, sans-serif; }
+
+    @media (prefers-color-scheme: dark) {
+      .bg-card  { fill: #1e293b; stroke: #475569; }
+      .bg-step  { fill: #1e3a8a; stroke: #60a5fa; }
+      .bg-ok    { fill: #064e3b; stroke: #34d399; }
+      .bg-final { fill: #2e1065; stroke: #c084fc; }
+      .ink      { fill: #e2e8f0; }
+      .ink-soft { fill: #94a3b8; }
+      .arrow    { stroke: #e2e8f0; }
+      .pill     { fill: #1e293b; stroke: #475569; }
+    }
+  ]]></style>
+
+  <text x="540" y="40" class="label h1 ink" text-anchor="middle">Scoop install user flow</text>
+  <text x="540" y="62" class="label small ink-soft" text-anchor="middle">Windows Tauri antchat · no code-signing cert needed · SHA-verified by Scoop</text>
+
+  <!-- Step 1: bucket add -->
+  <g transform="translate(40, 110)">
+    <rect class="bg-step" x="0" y="0" width="200" height="120" rx="10"/>
+    <text class="label h2 ink" x="100" y="22" text-anchor="middle">1. Add bucket</text>
+    <text class="label small ink-soft" x="100" y="44" text-anchor="middle">one-time setup</text>
+    <text class="mono" x="100" y="72" text-anchor="middle">scoop bucket add</text>
+    <text class="mono" x="100" y="88" text-anchor="middle">antchat</text>
+    <text class="mono ink-soft" x="100" y="104" text-anchor="middle">github.com/Jktfe/...</text>
+  </g>
+
+  <!-- Step 2: install -->
+  <g transform="translate(270, 110)">
+    <rect class="bg-step" x="0" y="0" width="200" height="120" rx="10"/>
+    <text class="label h2 ink" x="100" y="22" text-anchor="middle">2. Install</text>
+    <text class="label small ink-soft" x="100" y="44" text-anchor="middle">downloads MSI/exe</text>
+    <text class="mono" x="100" y="72" text-anchor="middle">scoop install</text>
+    <text class="mono" x="100" y="88" text-anchor="middle">antchat-tauri</text>
+    <text class="label small ink-soft" x="100" y="106" text-anchor="middle">from GitHub Releases</text>
+  </g>
+
+  <!-- Step 3: SHA verify -->
+  <g transform="translate(500, 110)">
+    <rect class="bg-ok" x="0" y="0" width="200" height="120" rx="10"/>
+    <text class="label h2 ink" x="100" y="22" text-anchor="middle">3. SHA verify</text>
+    <text class="label small ink-soft" x="100" y="44" text-anchor="middle">automatic, no cert</text>
+    <text class="label small ink-soft" x="100" y="64" text-anchor="middle">Scoop checks manifest</text>
+    <text class="label small ink-soft" x="100" y="80" text-anchor="middle">SHA256 against download</text>
+    <text class="label small ink-soft" x="100" y="100" text-anchor="middle">— no SmartScreen prompt —</text>
+  </g>
+
+  <!-- Step 4: launch -->
+  <g transform="translate(730, 110)">
+    <rect class="bg-step" x="0" y="0" width="200" height="120" rx="10"/>
+    <text class="label h2 ink" x="100" y="22" text-anchor="middle">4. Launch</text>
+    <text class="label small ink-soft" x="100" y="44" text-anchor="middle">app appears in Start</text>
+    <text class="mono" x="100" y="72" text-anchor="middle">antchat-tauri</text>
+    <text class="label small ink-soft" x="100" y="94" text-anchor="middle">Tauri webview opens</text>
+    <text class="label small ink-soft" x="100" y="110" text-anchor="middle">Svelte 5 UI renders</text>
+  </g>
+
+  <!-- Step 5: first-run auth -->
+  <g transform="translate(380, 290)">
+    <rect class="bg-final" x="0" y="0" width="320" height="120" rx="10"/>
+    <text class="label h2 ink" x="160" y="22" text-anchor="middle">5. First-run Bearer auth</text>
+    <text class="label small ink-soft" x="160" y="44" text-anchor="middle">paste licence code → token persisted</text>
+    <text class="mono" x="160" y="68" text-anchor="middle">POST /api/auth/login</text>
+    <text class="mono" x="160" y="84" text-anchor="middle">code: NEW-MODEL-ANT-DEV-&lt;email&gt;</text>
+    <text class="label small ink-soft" x="160" y="104" text-anchor="middle">token cached via tauri-plugin-store</text>
+  </g>
+
+  <!-- Arrows -->
+  <line class="arrow" x1="240" y1="170" x2="268" y2="170" marker-end="url(#a)"/>
+  <line class="arrow" x1="470" y1="170" x2="498" y2="170" marker-end="url(#a)"/>
+  <line class="arrow" x1="700" y1="170" x2="728" y2="170" marker-end="url(#a)"/>
+  <path class="arrow" d="M 830 230 Q 830 290 700 320" marker-end="url(#a)"/>
+
+  <!-- Footer -->
+  <g transform="translate(40, 450)">
+    <text class="label small ink-soft" x="0" y="0">Per JWPK msg_mtpqhnd0bx (2026-05-19): Scoop-only distribution for Windows Tauri antchat v1. No EV/OV cert.</text>
+    <rect class="pill" x="940" y="-15" width="120" height="22" rx="11"/>
+    <text class="label pill-text ink" x="1000" y="0" text-anchor="middle">OSS · canvas-eligible</text>
+  </g>
+
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+</svg>

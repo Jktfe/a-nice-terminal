@@ -1,145 +1,152 @@
-// ANT v3 — Server Hooks
-// Handles WebSocket upgrades and middleware
-
+// hooks.server.ts — SvelteKit server-startup wiring (M3.2c follow-up).
+// First request triggers a globalThis-guarded one-shot startPoller() call so
+// the agentStatusPoller actually runs in production. classifyIfUnknown then
+// fires on every poll-tick for NULL-kind terminals (M3.2c integration was
+// shipped 2026-05-14 but never engaged — this closes the gap).
 import type { Handle } from '@sveltejs/kit';
-import { resolveToken } from '$lib/server/room-invites';
+import { redirect } from '@sveltejs/kit';
+import { startPoller } from '$lib/server/agentStatusPoller';
+import { ensureRunEventsPersistenceBooted } from '$lib/server/terminalRunEventsBoot';
+import { ensureOperationalRetentionSweepBooted } from '$lib/server/operationalRetention';
+import { ensureCronJobTickerBooted } from '$lib/server/cronJobTicker';
+import { projectAntRegistryFileBestEffort } from '$lib/server/antRegistryFile';
+import { resolveBrowserSessionSecretIgnoringRoom } from '$lib/server/browserSessionStore';
 
-// Public invite-exchange path — no Tailnet IP and no master API key required.
-// Auth is enforced inside the route by the per-invite password gate.
-const EXCHANGE_RE = /^\/api\/sessions\/[^/]+\/invites\/[^/]+\/exchange$/;
+const POLLER_BOOTED_KEY = '__antPollerBootedAt';
 
-// Room viewer page (SPA shell) — must be reachable without a bearer so the
-// client-side password gate can run and exchange the invite for a token.
-const ROOM_PAGE_RE = /^\/r\/[^/]+\/?$/;
-const DECK_API_RE = /^\/api\/decks(?:\/|$)/;
-const INTERVIEW_API_RE = /^\/api\/interviews(?:\/|$)/;
-const DOC_API_RE = /^\/api\/docs(?:\/|$)/;
-const TUNNEL_API_RE = /^\/api\/tunnels(?:\/|$)/;
+function bootPollerOnce(): void {
+  const slot = globalThis as Record<string, unknown>;
+  if (slot[POLLER_BOOTED_KEY]) return;
+  // startPoller is itself idempotent (returns existing controller on
+  // re-call), but the boot-flag avoids the unnecessary import-traversal
+  // on every request after the first.
+  startPoller();
+  // TERMINALS-T2a: subscribe to v3 pty-daemon output once + persist as
+  // run_events for ANT-view "retained forever" scrollback.
+  ensureRunEventsPersistenceBooted();
+  // #164: terminal_run_events/cli_hook_events are operational telemetry,
+  // not permanent product data. Keep the visible recent window and sweep
+  // old rows nightly so the SQLite file cannot grow without bound again.
+  ensureOperationalRetentionSweepBooted();
+  // #141: project the current terminal/agent registry to a markdown file
+  // on boot so recovery state exists even before the next register event.
+  projectAntRegistryFileBestEffort();
+  // Cron-jobs primitive (JWPK msg_hjv6ac64zo 2026-05-19): server-side
+  // ticker that fires `status='running'` cron_jobs rows whose
+  // next_fire_at_ms is in the past. Boot-once via globalThis flag so
+  // dev HMR / multiple imports don't double-subscribe.
+  ensureCronJobTickerBooted();
+  slot[POLLER_BOOTED_KEY] = Date.now();
+}
 
-// URL prefixes that map to a room id. Used to verify that a presented room
-// token authorises the URL it's being used against.
-const ROOM_URL_PATTERNS = [
-  /^\/api\/sessions\/([^/]+)/,  // primary HTTP API
-  /^\/mcp\/room\/([^/]+)/,      // remote MCP transport (P3)
-];
+// JWPK msg_yh5d58msjf demo-login gate. When ANT_DEMO_EMAIL is set on
+// the launchd plist, anonymous visitors get redirected to /login until
+// they sign in. Unsetting the env disables the gate entirely with zero
+// code change.
+//
+// Paths that bypass the gate (so /login itself can load + the auth
+// endpoint can be POSTed to + SvelteKit's own infra works):
+//   - /login
+//   - /api/auth/* (the demo-login endpoint + future auth surface)
+//   - /api/health (operational liveness probe — gating it would break
+//     external uptime monitors)
+//   - SvelteKit-internal /_app/* JS/CSS chunks (must be reachable so
+//     /login itself can render)
+//   - favicon.ico and similar static assets
+function isGateBypassPath(pathname: string): boolean {
+  if (pathname === '/login' || pathname.startsWith('/login/')) return true;
+  // ALL /api/* endpoints bypass the page-gate. The demo-login gate is for
+  // unauthenticated browser PAGES. API endpoints already enforce identity
+  // via pidChain + room-membership resolvers (server-resolved). Gating /api/*
+  // here would break the agent CLI fleet which posts to chat/asks/plans
+  // without browser sessions — agents got 303→/login instead of 403 after
+  // initial ship 2026-05-18 (msg_kqmykpllfy → coordinator hot-patch).
+  if (pathname.startsWith('/api/')) return true;
+  if (pathname.startsWith('/_app/')) return true;
+  if (pathname === '/favicon.ico') return true;
+  return false;
+}
 
-function urlRoomId(pathname: string): string | null {
-  for (const re of ROOM_URL_PATTERNS) {
-    const m = pathname.match(re);
-    if (m) return m[1];
+function readCookie(cookieHeader: string | null, name: string): string | null {
+  if (!cookieHeader) return null;
+  for (const part of cookieHeader.split(';')) {
+    const [key, ...rest] = part.trim().split('=');
+    if (key === name) return rest.join('=');
   }
   return null;
 }
 
-// Three states a Bearer header can be in for /api/* requests:
-//   - 'admin'         → it's the master ANT_API_KEY, full access
-//   - 'room-scoped'   → it's a valid room token AND the URL targets its room
-//   - 'wrong-room'    → it's a valid room token but the URL targets a
-//                       different room — explicit 403, do NOT fall through
-//                       to the same-origin shortcut and let the request slip
-//   - 'none'          → no Bearer, or an unknown one
-type BearerState =
-  | { kind: 'admin' }
-  | { kind: 'room-scoped'; roomId: string; tokenKind: string | null }
-  | { kind: 'wrong-room' }
-  | { kind: 'none' };
-
-function extractBearer(event: Parameters<Handle>[0]['event']): string {
-  const auth = event.request.headers.get('authorization') || '';
-  if (auth.startsWith('Bearer ')) return auth.slice(7);
-  // MCP clients that can't set headers may pass the token via ?token=.
-  // Restricted to /mcp/* paths so we don't broaden the API auth surface.
-  if (event.url.pathname.startsWith('/mcp/')) {
-    const q = event.url.searchParams.get('token');
-    if (q) return q;
+/**
+ * Multi-cookie iteration — JWPK msg_6556jggvwk (2026-05-19): /plans/triggers
+ * redirect loop. Browsers send multiple `ant_browser_session=...` cookies
+ * when paths differ (Path=/ demo-login + Path=/api/chat-rooms/{id} per-room
+ * mints). The single-readCookie path returns only the first match, so if
+ * the room-scoped cookie sorts ahead of the demo-login cookie, the page-gate
+ * tests it via `resolveBrowserSessionSecretIgnoringRoom` and gets nothing
+ * because that helper validates against the FULL secret table — but only
+ * one of the inputs gets a chance. Mirrors the multi-cookie fix that
+ * 2dd31af + b185190 + 4924827 applied to /api/* paths.
+ */
+function readAllCookies(cookieHeader: string | null, name: string): string[] {
+  if (!cookieHeader) return [];
+  const matches: string[] = [];
+  for (const part of cookieHeader.split(';')) {
+    const trimmed = part.trim();
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) continue;
+    if (trimmed.slice(0, eq) === name) matches.push(trimmed.slice(eq + 1));
   }
-  return '';
+  return matches;
 }
 
-function classifyBearer(event: Parameters<Handle>[0]['event']): BearerState {
-  const bearer = extractBearer(event);
-  if (!bearer) return { kind: 'none' };
-  if (process.env.ANT_API_KEY && bearer === process.env.ANT_API_KEY) return { kind: 'admin' };
-  const resolved = resolveToken(bearer);
-  if (!resolved) return { kind: 'none' };
-  const targetRoom = urlRoomId(event.url.pathname);
-  if (!targetRoom && (DECK_API_RE.test(event.url.pathname) || INTERVIEW_API_RE.test(event.url.pathname) || DOC_API_RE.test(event.url.pathname) || TUNNEL_API_RE.test(event.url.pathname))) {
-    return {
-      kind: 'room-scoped',
-      roomId: resolved.invite.room_id,
-      tokenKind: resolved.token.kind ?? null,
-    };
+function gateIsEnabled(): boolean {
+  return !!process.env.ANT_DEMO_EMAIL && !!process.env.ANT_DEMO_PASSWORD;
+}
+
+function isAuthenticated(event: { request: Request }): boolean {
+  const secrets = readAllCookies(event.request.headers.get('cookie'), 'ant_browser_session');
+  if (secrets.length === 0) return false;
+  // ANY of the multiple cookies resolving counts as authenticated. Fixes
+  // JWPK msg_6556jggvwk /plans/triggers redirect loop where the first-
+  // returned cookie was room-scoped + the demo-login cookie sorted second.
+  for (const secret of secrets) {
+    if (resolveBrowserSessionSecretIgnoringRoom(secret) !== null) return true;
   }
-  if (!targetRoom) return { kind: 'wrong-room' };
-  if (targetRoom !== resolved.invite.room_id) return { kind: 'wrong-room' };
-  return {
-    kind: 'room-scoped',
-    roomId: resolved.invite.room_id,
-    tokenKind: resolved.token.kind ?? null,
-  };
+  return false;
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
-  const isExchange = EXCHANGE_RE.test(event.url.pathname);
-  const bearer = isExchange ? { kind: 'none' as const } : classifyBearer(event);
+  bootPollerOnce();
 
-  if (bearer.kind === 'wrong-room') {
-    return new Response(JSON.stringify({ error: 'Token does not authorise this room' }), {
-      status: 403,
-      headers: { 'Content-Type': 'application/json' },
-    });
+  // Demo-login gate runs before route handling so anonymous visitors
+  // never see app pages while the gate is on. JWPK msg about repeated
+  // "I get redirected and can't get back where I was" pain (2026-05-19):
+  // preserve the originally-requested URL as `?next=` so /login can hop
+  // the operator back after sign-in, instead of always dumping to /rooms.
+  if (gateIsEnabled() && !isGateBypassPath(event.url.pathname) && !isAuthenticated(event)) {
+    const nextPath = event.url.pathname + event.url.search;
+    const loginUrl = nextPath && nextPath !== '/'
+      ? `/login?next=${encodeURIComponent(nextPath)}`
+      : '/login';
+    throw redirect(303, loginUrl);
   }
 
-  const scopedRoomId = bearer.kind === 'room-scoped' ? bearer.roomId : null;
-  const scopedTokenKind = bearer.kind === 'room-scoped' ? bearer.tokenKind : null;
-  const isPublic = isExchange || ROOM_PAGE_RE.test(event.url.pathname) || scopedRoomId !== null || bearer.kind === 'admin';
-
-  // Tailscale IP check (optional — only enforce if ANT_TAILSCALE_ONLY is set).
-  // Public routes bypass: invite exchange has its own password gate; room-token
-  // requests have already proven possession of an unrevoked bearer.
-  if (process.env.ANT_TAILSCALE_ONLY === 'true' && !isPublic) {
-    const ip = event.request.headers.get('x-forwarded-for') ||
-               event.getClientAddress();
-    const isTailscale = ip != null && (ip.startsWith('100.') || ip === '127.0.0.1' || ip === '::1');
-    if (!isTailscale) {
-      return new Response('Forbidden', { status: 403 });
-    }
+  const response = await resolve(event);
+  // GAP-55 dogfood-pause root cause (2026-05-14): rebuilds change chunk hashes
+  // (e.g. 12.OldHash.js → 12.NewHash.js). Browsers caching old SSR HTML keep
+  // referencing the stale modulepreload links → 404 → app silently breaks
+  // (e.g. SSE subscription never initialises). Prevent that by telling the
+  // browser to revalidate HTML on every navigation. Hashed JS/CSS chunks
+  // remain immutable per Vite's default Cache-Control + content-hash naming.
+  const contentType = response.headers.get('content-type') ?? '';
+  if (contentType.startsWith('text/html')) {
+    response.headers.set('cache-control', 'no-cache, no-store, must-revalidate');
   }
-
-  // API key check — enforced for external API calls only, not browser UI (same-origin)
-  // or room-token-scoped requests (a narrower bearer beats the master key).
-  const apiKey = process.env.ANT_API_KEY;
-  if (apiKey && event.url.pathname.startsWith('/api/') && !isPublic) {
-    const origin = event.request.headers.get('origin');
-    // Accept Origin matching either event.url.origin OR the Host header.
-    // adapter-node + TLS sometimes sets event.url to the cert's CN
-    // (e.g. a Tailscale hostname) while the browser hits localhost —
-    // both are same-machine and should pass.
-    const host = event.request.headers.get('host');
-    const hostOrigin = host ? `${event.url.protocol}//${host}` : null;
-    const isSameOrigin = !origin
-      || origin === event.url.origin
-      || origin === hostOrigin;
-    if (!isSameOrigin) {
-      const provided = event.request.headers.get('authorization')?.replace('Bearer ', '') ||
-                       event.request.headers.get('x-api-key') ||
-                       event.url.searchParams.get('apiKey');
-      if (provided !== apiKey) {
-        return new Response(JSON.stringify({ error: 'Invalid or missing API key' }), {
-          status: 401,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-    }
-  }
-
-  // P2b will read this in route handlers to enforce per-room scope on writes.
-  // Wrapped to avoid TS noise in repos without an app.d.ts Locals declaration.
-  if (scopedRoomId) {
-    (event.locals as Record<string, unknown>).roomScope = {
-      roomId: scopedRoomId,
-      kind: scopedTokenKind,
-    };
-  }
-  return resolve(event);
+  return response;
 };
+
+// Test seam — lets the test reset the boot flag between cases.
+export function _testResetPollerBoot(): void {
+  const slot = globalThis as Record<string, unknown>;
+  delete slot[POLLER_BOOTED_KEY];
+}

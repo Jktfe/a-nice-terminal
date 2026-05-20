@@ -1,0 +1,19 @@
+{
+  "_comment_": "Windows Claude Desktop MCP config — drop into %APPDATA%/Claude/claude_desktop_config.json (or merge with existing mcpServers block). wta-11 (windows-tauri-antchat-2026-05-19). Env-driven per gold-standard rule: never hard-code a URL/port. Operator sets ANT_HOST + ANT_PORT in their shell before launching Claude Desktop, or edits this file to point at their server. Template defaults are dev-local; production swaps via env or hand-edit.",
+  "mcpServers": {
+    "a-nice-terminal": {
+      "command": "node.exe",
+      "args": [
+        "dist/index.js"
+      ],
+      "cwd": "%USERPROFILE%\\CascadeProjects\\a-nice-terminal\\packages\\mcp",
+      "env": {
+        "ANT_HOST": "127.0.0.1",
+        "ANT_PORT": "6174",
+        "ANT_TLS_CERT": "false",
+        "ANT_API_KEY": "${ANT_API_KEY}",
+        "_comment_env_": "ANT_HOST/PORT default to local dev. Override for Tailscale (your-host.example.com:6458 + ANT_TLS_CERT=true) or remote. ANT_API_KEY resolved from operator env at Claude Desktop launch — do NOT bake the key into this file."
+      }
+    }
+  }
+}

@@ -1,8 +1,8 @@
 // Pure client-safe freshness classifier for ~/.ant/state/<cli>/<id>.json.
-// Lives here (not in agent-state-reader.ts) because the reader imports
-// node:fs/os/path and must not leak into the browser bundle. The reader
-// re-exports from this module so server callers keep their existing
-// import surface; the UI imports from here directly.
+// Lives in lib/shared so both server (agent-state-reader) and UI (status
+// dot) can import without dragging node:fs/os/path into the browser
+// bundle. Lifted from v3 src/lib/shared/state-freshness.ts (2026-05-15
+// AGENT-STATE-READER lift slice).
 
 export const STATE_FRESHNESS_LIVE_MS = 30_000;
 

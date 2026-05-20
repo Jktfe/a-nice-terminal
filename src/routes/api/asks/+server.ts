@@ -1,145 +1,178 @@
-import { error, json } from '@sveltejs/kit';
-import type { RequestEvent } from '@sveltejs/kit';
-import { queries } from '$lib/server/db';
-import { createAskId } from '$lib/server/ask-ids';
+/**
+ * Asks — open + list, room-scoped or cross-room.
+ *
+ *   GET /api/asks[?roomId=...]
+ *     → 200 { asks: Ask[] }   open asks only, open-order
+ *     → 404                   unknown roomId when provided
+ *
+ *   POST /api/asks
+ *     Body: { roomId, openedByHandle, title, body, openedByDisplayName? }
+ *     → 201 { ask }   the new ask (status=open)
+ *     → 400           missing/blank fields, malformed JSON
+ *     → 404           unknown room, or openedByHandle is not a member
+ *
+ * Backs asks foundation slice 1 backend.
+ *
+ * Security: membership-before-validation matches the rest of the platform
+ * (M16/M11/M19/M24/M17). Load the room, normalise the handle, reject
+ * non-members with 404, THEN validate other body fields. No-create
+ * guarantee: every failed POST path returns early before askStore.openAsk
+ * is invoked, so a subsequent GET /api/asks shows zero state change.
+ */
+
+import { json, error } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+import { findChatRoomById } from '$lib/server/chatRoomStore';
 import {
-  isActionableAskContent,
-  normalizeAskOwnerKind,
-  normalizeAskPriority,
-  normalizeAskStatus,
-  titleFromAskContent,
-} from '$lib/server/ask-inference';
-import { assertCanWrite, roomScope } from '$lib/server/room-scope';
-import { emitAskRunEvent } from '$lib/server/ask-events';
+  listAllRecentlyAnsweredAsks,
+  listAllOpenAsks,
+  listRecentlyAnsweredAsksInRoom,
+  listOpenAsksInRoom,
+  openAskInRoom
+} from '$lib/server/askStore';
+import {
+  backfillAskCandidatesFromRecentMessages,
+  listOpenAskCandidates
+} from '$lib/server/askCandidateStore';
 
-const ACTIVE_STATUSES = ['open', 'candidate', 'deferred'];
-
-function requireActiveSession(sessionId: string) {
-  const session = queries.getSession(sessionId);
-  if (!session) throw error(404, 'Session not found');
-  if (session.archived || session.deleted_at) throw error(410, 'Session is inactive');
-  return session;
-}
-
-function parseStatuses(raw: string | null): string[] | null {
-  if (!raw || raw === 'active' || raw === 'pending') return ACTIVE_STATUSES;
-  if (raw === 'all') return null;
-  return raw.split(',')
-    .map((part) => normalizeAskStatus(part.trim(), 'open'))
-    .filter((value, index, arr) => arr.indexOf(value) === index);
-}
-
-function parseLimit(raw: string | null): number {
-  const value = Number(raw || 100);
-  if (!Number.isFinite(value)) return 100;
-  return Math.max(1, Math.min(Math.floor(value), 500));
-}
-
-function parseJsonObject(value: unknown): Record<string, unknown> {
-  if (!value) return {};
-  if (typeof value === 'object') return value as Record<string, unknown>;
+export const GET: RequestHandler = ({ url }) => {
   try {
-    const parsed = JSON.parse(String(value));
-    return parsed && typeof parsed === 'object' ? parsed : {};
+    backfillAskCandidatesFromRecentMessages();
   } catch {
-    return {};
+    /* candidate backfill is best-effort; explicit asks remain authoritative */
   }
-}
+  const rawRoomId = url.searchParams.get('roomId');
+  if (rawRoomId === null) {
+    return json({
+      asks: listAllOpenAsks(),
+      recentlyAnswered: listAllRecentlyAnsweredAsks(),
+      candidates: listOpenAskCandidates()
+    });
+  }
+  const trimmedRoomId = rawRoomId.trim();
+  if (trimmedRoomId.length === 0) {
+    return json({
+      asks: listAllOpenAsks(),
+      recentlyAnswered: listAllRecentlyAnsweredAsks(),
+      candidates: listOpenAskCandidates()
+    });
+  }
+  if (!findChatRoomById(trimmedRoomId)) {
+    throw error(404, 'Room not found.');
+  }
+  const openOnly = url.searchParams.get('openOnly') === '1';
+  if (openOnly) {
+    return json({ asks: listOpenAsksInRoom(trimmedRoomId) });
+  }
+  return json({
+    asks: listOpenAsksInRoom(trimmedRoomId),
+    recentlyAnswered: listRecentlyAnsweredAsksInRoom(trimmedRoomId),
+    candidates: listOpenAskCandidates(trimmedRoomId)
+  });
+};
 
-function publicAsk(row: any) {
-  return {
-    ...row,
-    inferred: row.inferred === 1,
-    confidence: typeof row.confidence === 'number' ? row.confidence : Number(row.confidence ?? 0),
-    meta: parseJsonObject(row.meta),
-  };
-}
+export const POST: RequestHandler = async ({ request }) => {
+  const bodyAsObject = await parseRequiredJsonBody(request);
 
-export function GET(event: RequestEvent) {
-  const scope = roomScope(event);
-  const sessionId = scope?.roomId || event.url.searchParams.get('session_id') || event.url.searchParams.get('sessionId');
-  const assignedTo = event.url.searchParams.get('assigned_to') || event.url.searchParams.get('assignedTo');
-  const statuses = parseStatuses(event.url.searchParams.get('status'));
-  const limit = parseLimit(event.url.searchParams.get('limit'));
-  const view = event.url.searchParams.get('view');
-  if (sessionId) requireActiveSession(sessionId);
-
-  let asks = queries.listAsks({
-    sessionId,
-    statuses,
-    assignedTo,
-    limit,
-  }).map(publicAsk);
-  if (view === 'actionable') {
-    asks = asks.filter((ask: ReturnType<typeof publicAsk>) => isActionableAskContent(
-      `${ask.title}\n${ask.body || ask.source_content || ''}`,
-      ask.confidence,
-      ask.inferred,
-    ));
+  const roomIdRaw = bodyAsObject.roomId;
+  if (typeof roomIdRaw !== 'string' || roomIdRaw.trim().length === 0) {
+    throw error(400, 'roomId must be a non-empty string.');
+  }
+  const room = findChatRoomById(roomIdRaw.trim());
+  if (!room) {
+    throw error(404, 'Room not found.');
   }
 
-  return json({ asks });
-}
+  const openedByHandleRaw = bodyAsObject.openedByHandle;
+  if (typeof openedByHandleRaw !== 'string' || openedByHandleRaw.trim().length === 0) {
+    throw error(400, 'openedByHandle must be a non-empty string.');
+  }
+  const trimmedHandle = openedByHandleRaw.trim();
+  const handleWithAtSign = trimmedHandle.startsWith('@')
+    ? trimmedHandle
+    : `@${trimmedHandle}`;
+  // Asks principle (JWPK msg_86qcfvbkur 2026-05-19, locked in
+  // audits/2026-05-19-asks-principle-user-only.md): Open Asks are
+  // user-facing decision points only. Agent-pattern handles cannot file
+  // asks via this surface — they must use POST /api/tasks for internal
+  // tracking. Legitimate aggregator paths ([@you] mentions + 🙋🙌
+  // reactions) go through askCandidateStore, not this endpoint.
+  if (isAgentHandle(handleWithAtSign)) {
+    throw error(
+      400,
+      'Agent handles cannot open user-facing asks. Use POST /api/tasks for agent-internal tracking. (Asks principle, audits/2026-05-19-asks-principle-user-only.md.)'
+    );
+  }
+  const isMemberOfRoom = room.members.some((member) => member.handle === handleWithAtSign);
+  if (!isMemberOfRoom) {
+    throw error(404, `${handleWithAtSign} is not a member of this room.`);
+  }
 
-export async function POST(event: RequestEvent) {
-  assertCanWrite(event);
-  const scope = roomScope(event);
+  const titleRaw = bodyAsObject.title;
+  if (typeof titleRaw !== 'string' || titleRaw.trim().length === 0) {
+    throw error(400, 'title must be a non-empty string.');
+  }
+  const bodyTextRaw = bodyAsObject.body;
+  if (typeof bodyTextRaw !== 'string' || bodyTextRaw.trim().length === 0) {
+    throw error(400, 'body must be a non-empty string.');
+  }
+  const openedByDisplayNameRaw = bodyAsObject.openedByDisplayName;
+  const openedByDisplayName =
+    typeof openedByDisplayNameRaw === 'string' ? openedByDisplayNameRaw : undefined;
 
-  let body: any;
   try {
-    body = await event.request.json();
+    const ask = openAskInRoom({
+      roomId: room.id,
+      openedByHandle: handleWithAtSign,
+      openedByDisplayName,
+      title: titleRaw,
+      body: bodyTextRaw
+    });
+    return json({ ask }, { status: 201 });
+  } catch (causeOfFailure) {
+    const failureMessage =
+      causeOfFailure instanceof Error ? causeOfFailure.message : 'Could not open ask.';
+    throw error(400, failureMessage);
+  }
+};
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * Agent handles use the @evolveant* prefix (Claude, Codex, Svelte, UX,
+ * and future fleet members). The asks-principle audit
+ * (audits/2026-05-19-asks-principle-user-only.md) reserves user-facing
+ * asks for human operators; agents must use POST /api/tasks for
+ * internal tracking. Configurable via ANT_ASK_AGENT_PATTERN env if a
+ * deployment wants a different convention.
+ */
+function isAgentHandle(handle: string): boolean {
+  const pattern = process.env.ANT_ASK_AGENT_PATTERN ?? '^@evolveant';
+  try {
+    return new RegExp(pattern).test(handle);
   } catch {
-    return json({ error: "Invalid JSON" }, { status: 400 });
+    // Bad regex env → fall back to the default check, never silently allow.
+    return /^@evolveant/.test(handle);
   }
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return json({ error: "Request body must be a JSON object" }, { status: 400 });
+}
+
+async function parseRequiredJsonBody(request: Request): Promise<Record<string, unknown>> {
+  const requestBodyText = await request.text();
+  if (requestBodyText.length === 0) {
+    throw error(400, 'Body must be a JSON object.');
   }
-  const sessionId = typeof body.session_id === "string" ? body.session_id.trim() : typeof body.sessionId === "string" ? body.sessionId.trim() : "";
-  if (!sessionId) return json({ error: 'session_id required' }, { status: 400 });
-  if (scope && scope.roomId !== sessionId) {
-    return json({ error: 'Room token does not authorise this room' }, { status: 403 });
+  try {
+    const parsed = JSON.parse(requestBodyText);
+    if (!isPlainObject(parsed)) {
+      throw error(400, 'Body must be a JSON object.');
+    }
+    return parsed;
+  } catch (parseFailure) {
+    if (parseFailure instanceof SyntaxError) {
+      throw error(400, 'Body must be valid JSON.');
+    }
+    throw parseFailure;
   }
-  requireActiveSession(sessionId);
-
-  const rawTitle = String(body.title || body.question || '').trim();
-  const rawBody = String(body.body || body.context || body.description || '').trim();
-  const title = rawTitle || titleFromAskContent(rawBody || String(body.recommendation || ''));
-  if (!title) return json({ error: 'title or question required' }, { status: 400 });
-
-  const status = normalizeAskStatus(body.status, 'open');
-  const ownerKind = normalizeAskOwnerKind(body.owner_kind ?? body.ownerKind, 'room');
-  const priority = normalizeAskPriority(body.priority, 'normal');
-  const assignedTo = String(body.assigned_to || body.assignedTo || body.audience || ownerKind || 'room').trim() || 'room';
-  const meta = parseJsonObject(body.meta);
-  const sourceMessageId = typeof body.source_message_id === 'string'
-    ? body.source_message_id
-    : typeof body.sourceMessageId === 'string'
-      ? body.sourceMessageId
-      : null;
-
-  const id = createAskId();
-  queries.createAsk(
-    id,
-    sessionId,
-    sourceMessageId,
-    title,
-    rawBody,
-    typeof body.recommendation === 'string' && body.recommendation.trim() ? body.recommendation.trim() : null,
-    status,
-    assignedTo,
-    ownerKind,
-    priority,
-    typeof body.created_by === 'string' ? body.created_by : typeof body.createdBy === 'string' ? body.createdBy : null,
-    body.inferred ? 1 : 0,
-    Number(body.confidence ?? 0) || 0,
-    JSON.stringify({ ...meta, source: meta.source ?? 'manual' }),
-  );
-
-  const ask = publicAsk(queries.getAsk(id));
-  emitAskRunEvent('ask_created', ask);
-  const { broadcast, broadcastGlobal } = await import('$lib/server/ws-broadcast.js');
-  broadcast(sessionId, { type: 'ask_created', sessionId, ask });
-  broadcastGlobal({ type: 'ask_created', sessionId, ask });
-
-  return json({ ask }, { status: 201 });
 }

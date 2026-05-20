@@ -2,12 +2,11 @@
  * docsStore — Task #124 v3-parity: room-scoped markdown docs.
  *
  * Stores markdown content inline (not just ref_url like artefacts).
- * Supports create, list, get, update, soft-delete. Content is
- * searchable via the room-scoped search endpoint.
+ * Supports create, list, get, update, soft-delete.
  */
 
 import { randomUUID } from 'node:crypto';
-import getDb from './db';
+import { getIdentityDb } from './db';
 
 export type RoomDoc = {
   id: string;
@@ -53,7 +52,7 @@ export function createDoc(input: {
   if (trimmedTitle.length === 0) {
     throw new Error('title cannot be blank.');
   }
-  const db = getDb();
+  const db = getIdentityDb();
   const id = randomUUID();
   const nowMs = input.nowMs ?? Date.now();
   const content = input.content ?? '';
@@ -76,7 +75,7 @@ export function createDoc(input: {
 }
 
 export function listDocsInRoom(roomId: string): RoomDoc[] {
-  const rows = getDb()
+  const rows = getIdentityDb()
     .prepare(
       `SELECT id, room_id, title, content, created_by, created_at_ms, updated_at_ms, deleted_at_ms
          FROM chat_room_docs
@@ -88,7 +87,7 @@ export function listDocsInRoom(roomId: string): RoomDoc[] {
 }
 
 export function getDoc(id: string): RoomDoc | undefined {
-  const row = getDb()
+  const row = getIdentityDb()
     .prepare(
       `SELECT id, room_id, title, content, created_by, created_at_ms, updated_at_ms, deleted_at_ms
          FROM chat_room_docs
@@ -103,7 +102,7 @@ export function updateDoc(id: string, input: {
   content?: string;
   nowMs?: number;
 }): RoomDoc | undefined {
-  const db = getDb();
+  const db = getIdentityDb();
   const existing = getDoc(id);
   if (!existing) return undefined;
 
@@ -125,7 +124,7 @@ export function updateDoc(id: string, input: {
 }
 
 export function softDeleteDoc(id: string, nowMs?: number): boolean {
-  const result = getDb()
+  const result = getIdentityDb()
     .prepare(
       `UPDATE chat_room_docs
           SET deleted_at_ms = ?
@@ -136,5 +135,5 @@ export function softDeleteDoc(id: string, nowMs?: number): boolean {
 }
 
 export function resetDocsStoreForTests(): void {
-  getDb().prepare(`DELETE FROM chat_room_docs`).run();
+  getIdentityDb().prepare(`DELETE FROM chat_room_docs`).run();
 }

@@ -1,0 +1,109 @@
+- generic [ref=e2]:
+  - link "Skip to main content" [ref=e3] [cursor=pointer]:
+    - /url: "#main-content"
+  - main [ref=e4]:
+    - generic [ref=e5]:
+      - link "Back to dashboard" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - generic ">_ANT" [ref=e7]:
+          - generic [ref=e8]: ">_ANT"
+      - navigation "Primary" [ref=e9]:
+        - link "Dashboard" [ref=e10] [cursor=pointer]:
+          - /url: /
+          - img [ref=e11]
+          - text: Dashboard
+        - link "Rooms" [ref=e16] [cursor=pointer]:
+          - /url: /rooms
+          - img [ref=e17]
+          - text: Rooms
+        - link "Terminals" [ref=e19] [cursor=pointer]:
+          - /url: /terminal
+          - img [ref=e20]
+          - text: Terminals
+        - link "Plans" [ref=e23] [cursor=pointer]:
+          - /url: /plan
+          - img [ref=e24]
+          - text: Plans
+        - link "CLI" [ref=e27] [cursor=pointer]:
+          - /url: /discover
+          - img [ref=e28]
+          - text: CLI
+        - link "Search" [ref=e30] [cursor=pointer]:
+          - /url: /search
+          - img [ref=e31]
+          - text: Search
+        - link "Settings" [ref=e34] [cursor=pointer]:
+          - /url: /settings
+          - img [ref=e35]
+          - text: Settings
+      - button "Toggle theme" [ref=e38] [cursor=pointer]:
+        - img [ref=e39]
+        - text: Dark
+    - generic [ref=e41]:
+      - paragraph [ref=e42]: Terminals
+      - heading "Terminal." [level=1] [ref=e43]
+      - generic [ref=e44]: Spawn or attach to a tmux session running on the operator's machine.
+    - generic [ref=e45]:
+      - button "+ New terminal" [ref=e46] [cursor=pointer]
+      - generic [ref=e47]:
+        - generic [ref=e48]: "Attach existing:"
+        - button "FhDrRSkkDPSR…" [ref=e49] [cursor=pointer]
+        - button "4rWAMwy7otd2…" [ref=e50] [cursor=pointer]
+        - button "I555k_iF-bYU…" [ref=e51] [cursor=pointer]
+        - button "PcgU4P7nf5Xl…" [ref=e52] [cursor=pointer]
+        - button "4INRH5iGqzXf…" [ref=e53] [cursor=pointer]
+        - button "E_lRnqKnMD2T…" [ref=e54] [cursor=pointer]
+        - button "1tbpZJrxMTeU…" [ref=e55] [cursor=pointer]
+        - button "4PvQ0S1aInTA…" [ref=e56] [cursor=pointer]
+        - button "yIJ5e1W_JalD…" [ref=e57] [cursor=pointer]
+        - button "vapyNgvL4g9f…" [ref=e58] [cursor=pointer]
+        - button "TTVPh3mnu8wE…" [ref=e59] [cursor=pointer]
+        - button "RQO32LuIK8xm…" [ref=e60] [cursor=pointer]
+        - button "T9IfKx1Ye_TT…" [ref=e61] [cursor=pointer]
+        - button "JS0KCfQ_kzsV…" [ref=e62] [cursor=pointer]
+        - button "uEWgMqjoXGpB…" [ref=e63] [cursor=pointer]
+        - button "Ma92xcNOI6XA…" [ref=e64] [cursor=pointer]
+        - button "xmFqfyWsDhdl…" [ref=e65] [cursor=pointer]
+        - button "zgRIMxddcGs5…" [ref=e66] [cursor=pointer]
+        - button "tfaN3qh1VBDX…" [ref=e67] [cursor=pointer]
+        - button "9eK078oEBZRK…" [ref=e68] [cursor=pointer]
+        - button "t_n7tm0ziaud…" [ref=e69] [cursor=pointer]
+        - button "t_k1xjw7j3ie…" [ref=e70] [cursor=pointer]
+        - button "t_7jx1ql596n…" [ref=e71] [cursor=pointer]
+        - button "t_nk02esmr96…" [ref=e72] [cursor=pointer]
+        - button "t_axsett6797…" [ref=e73] [cursor=pointer]
+        - button "t_s2fojncig7…" [ref=e74] [cursor=pointer]
+        - button "t_6lls9u6t6m…" [ref=e75] [cursor=pointer]
+        - button "t_wzr49m93yr…" [ref=e76] [cursor=pointer]
+        - button "t_5td9ksrm2p…" [ref=e77] [cursor=pointer]
+        - button "t_p3kmphux3y…" [ref=e80] [cursor=pointer]
+    - region "Active terminal" [ref=e81]:
+      - 'region "Terminal: Terminal t_p3km" [ref=e82]':
+        - generic "Terminal controls" [ref=e83]:
+          - generic [ref=e84]:
+            - 'generic "status: active" [ref=e85]'
+            - button "Terminal t_p3km" [ref=e86] [cursor=pointer]
+          - navigation "View mode" [ref=e87]:
+            - button "Chat" [pressed] [ref=e88] [cursor=pointer]:
+              - img [ref=e89]
+              - text: Chat
+            - button "ANT" [ref=e91] [cursor=pointer]:
+              - img [ref=e92]
+              - text: ANT
+            - button "Raw" [ref=e96] [cursor=pointer]:
+              - img [ref=e97]
+              - text: Raw
+        - region "Terminal chat view" [ref=e106]:
+          - generic [ref=e108]:
+            - paragraph [ref=e109]:
+              - strong [ref=e110]: No chat-formatted output yet.
+            - paragraph [ref=e111]:
+              - text: Switch to
+              - emphasis [ref=e112]: ANT
+              - text: for the rich event view, or
+              - emphasis [ref=e113]: Raw
+              - text: to watch the PTY stream. The chat filter populates once the output-classifier (T2c) graduates raw bytes into message kinds.
+          - generic [ref=e114]:
+            - textbox "Send line to terminal" [ref=e115]:
+              - /placeholder: Type a line — Enter to send to the terminal
+            - button "Send" [disabled] [ref=e116]

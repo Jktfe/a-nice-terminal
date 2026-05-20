@@ -1,53 +1,43 @@
-// ANT v3 — Key-addressed memory access
-//
-// GET    /api/memories/key/<key>          → latest row for this key
-// PUT    /api/memories/key/<key>          → upsert row (value in body)
-// DELETE /api/memories/key/<key>          → delete by key
-//
-// The key segment is declared as `[...key]` so it can contain slashes
-// (`tasks/t-42`, `agents/haiku-local`, `done/2026-04-11/t-91`). The
-// mempalace schema relies on slash-delimited keys for prefix scans.
+/**
+ * GET    /api/memories/key/<key>   → fetch one memory row by key.
+ * DELETE /api/memories/key/<key>   → hard-delete + audit-log the value.
+ *
+ * Uses SvelteKit's rest param `[...key]` so slashes inside the key
+ * (e.g. "agents/researchant/role") survive routing without double
+ * URL-encoding. Callers can pass either the literal slashes or the
+ * encoded "%2F" form — both resolve to the same lookup.
+ */
 
 import { json, error } from '@sveltejs/kit';
-import type { RequestEvent } from '@sveltejs/kit';
-import { queries } from '$lib/server/db';
-import { assertNotRoomScoped } from '$lib/server/room-scope.js';
+import type { RequestHandler } from './$types';
+import { deleteMemory, getMemory } from '$lib/server/memoriesStore';
 
-export function GET(event: RequestEvent<{ key: string }>) {
-  assertNotRoomScoped(event);
-  const { params } = event;
-  const row = queries.getMemoryByKey(params.key);
-  if (!row) throw error(404, `No memory at key: ${params.key}`);
-  return json({ memory: row });
+function resolveKey(rawKey: string | undefined): string {
+  if (!rawKey || rawKey.length === 0) {
+    throw error(400, 'Memory key is required in the URL path.');
+  }
+  // SvelteKit already URL-decodes path segments; the [...key] rest param
+  // joins them with '/'. If the caller passed a double-encoded slash
+  // (%252F), they will see literal "%2F" here — decode once more so the
+  // stored key shape matches the canonical form.
+  return rawKey.replace(/%2F/gi, '/');
 }
 
-export async function PUT(event: RequestEvent<{ key: string }>) {
-  assertNotRoomScoped(event);
-  const { params, request } = event;
-  let body: any;
-  try {
-    body = await request.json();
-  } catch {
-    throw error(400, "Invalid JSON");
+export const GET: RequestHandler = async ({ params }) => {
+  const key = resolveKey(params.key);
+  const memory = getMemory(key);
+  if (!memory) {
+    throw error(404, `No memory at key "${key}".`);
   }
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    throw error(400, "Request body must be a JSON object");
+  return json({ memory });
+};
+
+export const DELETE: RequestHandler = async ({ params, url }) => {
+  const key = resolveKey(params.key);
+  const byHandle = url.searchParams.get('byHandle');
+  const wasDeleted = deleteMemory(key, byHandle);
+  if (!wasDeleted) {
+    throw error(404, `No memory at key "${key}".`);
   }
-  const value = typeof body.value === 'string' ? body.value : JSON.stringify(body.value ?? body);
-  if (!value) throw error(400, 'value is required');
-
-  const tags = JSON.stringify(Array.isArray(body.tags) ? body.tags : []);
-  const sessionId = body.session_id ?? null;
-  const createdBy = body.created_by ?? null;
-
-  queries.upsertMemoryByKey(params.key, value, tags, sessionId, createdBy);
-  const row = queries.getMemoryByKey(params.key);
-  return json({ ok: true, memory: row });
-}
-
-export function DELETE(event: RequestEvent<{ key: string }>) {
-  assertNotRoomScoped(event);
-  const { params } = event;
-  queries.deleteMemoryByKey(params.key);
   return new Response(null, { status: 204 });
-}
+};

@@ -1,33 +1,43 @@
+/**
+ * fresh-ANT theme store — NAV-POLISH 2026-05-14.
+ *
+ * Reads localStorage + prefers-color-scheme on init, toggles
+ * `data-theme="dark"` on <html>, persists user choice.
+ *
+ * Why Svelte 5 $state: we want the value reactive in the top-bar
+ * button label, and a $state class export is the lightweight
+ * idiom for a singleton this small.
+ */
 const STORAGE_KEY = 'ant-theme';
 
-function createThemeStore() {
-  const stored = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
-  let dark = $state(stored === 'dark');
+class ThemeStore {
+  isDark = $state(false);
 
-  function apply(isDark: boolean) {
-    const html = document.documentElement;
-    if (isDark) {
-      html.setAttribute('data-theme', 'dark');
+  init() {
+    if (typeof document === 'undefined') return;
+    const stored = localStorage.getItem(STORAGE_KEY);
+    let initial: 'light' | 'dark';
+    if (stored === 'dark' || stored === 'light') {
+      initial = stored;
     } else {
-      html.removeAttribute('data-theme');
+      initial = window.matchMedia('(prefers-color-scheme: dark)').matches
+        ? 'dark'
+        : 'light';
     }
-    localStorage.setItem(STORAGE_KEY, isDark ? 'dark' : 'light');
+    this.apply(initial);
   }
 
-  function toggle() {
-    dark = !dark;
-    apply(dark);
+  toggle() {
+    this.apply(this.isDark ? 'light' : 'dark');
   }
 
-  function init() {
-    apply(dark);
+  private apply(value: 'light' | 'dark') {
+    this.isDark = value === 'dark';
+    if (typeof document !== 'undefined') {
+      document.documentElement.dataset.theme = value;
+      try { localStorage.setItem(STORAGE_KEY, value); } catch { /* private mode */ }
+    }
   }
-
-  return {
-    get dark() { return dark; },
-    toggle,
-    init,
-  };
 }
 
-export const theme = createThemeStore();
+export const theme = new ThemeStore();

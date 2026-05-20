@@ -1,30 +1,27 @@
 # Security Policy
 
-## Reporting a vulnerability
+## Supported Versions
 
-Please do not open a public GitHub issue for security-sensitive reports.
+The public release tracks the current `main` branch until formal versioned
+releases are cut.
 
-Instead, use GitHub private vulnerability reporting for this repository:
+## Reporting a Vulnerability
 
-<https://github.com/Jktfe/a-nice-terminal/security/advisories/new>
+Please report security issues privately via GitHub Security Advisories:
 
-Include:
+https://github.com/Jktfe/a-nice-terminal/security/advisories/new
 
-- a description of the vulnerability
-- affected files, routes, or commands
-- reproduction steps or proof of concept
-- any suggested mitigation if you have one
+Do not open public issues for vulnerabilities, exposed tokens, authentication
+bypasses, or data disclosure findings.
 
-## What to expect
+## Secrets and Local State
 
-The maintainer will review the report, confirm impact, and decide on remediation and disclosure timing.
+Do not commit:
 
-## Scope
+- `.env` or `.env.*` files, except `.env.example`
+- SQLite databases such as `fresh-ant.db`
+- launchd plists containing local paths or secrets
+- `.mcp.json`, Claude/Codex local settings, or local agent state
+- screenshots or artefacts containing private room content
 
-Security reports are especially helpful for:
-
-- authentication and authorization flaws
-- secret exposure
-- command execution or PTY isolation issues
-- WebSocket or chat routing vulnerabilities
-- data leakage across sessions, users, or agents
+Use bearer tokens only over trusted local/private networks or HTTPS.

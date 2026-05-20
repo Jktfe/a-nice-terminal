@@ -1,78 +1,96 @@
-import { json } from '@sveltejs/kit';
-import type { RequestEvent } from '@sveltejs/kit';
-import { queries } from '$lib/server/db.js';
-import { toSafeMemoryFtsQuery } from '$lib/server/memory-search.js';
-import { assertNotRoomScoped } from '$lib/server/room-scope.js';
+/**
+ * HTTP endpoints for the memory CRUD subsystem (MEMORY-CRUD 2026-05-16).
+ *
+ * GET  /api/memories?prefix=&scope=&target=
+ *   List memory rows. With `prefix` (and no scope), filters keys by prefix.
+ *   With `scope` (global/terminal/room), filters by scope + optional target.
+ *   With both, the scope filter wins and prefix is applied client-side by
+ *   the caller (keeps the SQL paths simple).
+ *
+ * POST /api/memories
+ *   Body: { key, value, scope?, scope_target?, byHandle? }
+ *   Upserts by key. Returns { memory, created } where `created=true` when
+ *   the row was freshly inserted, false when an existing row was updated.
+ *
+ * Key-by-path read/delete live at /api/memories/key/[...key]/+server.ts.
+ * Audit read lives at /api/memories/audit/+server.ts.
+ *
+ * No auth yet — same maturity as /api/memory-recall. The pidChain identity
+ * gate lands when the broader memory ACL design ships.
+ */
 
-export async function GET(event: RequestEvent) {
-  assertNotRoomScoped(event);
-  const { url } = event;
-  const q = url.searchParams.get('q')?.trim();
-  const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 200);
-  const scope = url.searchParams.get('scope') || (url.searchParams.get('include_archives') === '1' ? 'all' : 'operational');
+import { json, error } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+import {
+  listMemoriesByPrefix,
+  listMemoriesForScope,
+  putMemory,
+  type MemoryScope
+} from '$lib/server/memoriesStore';
 
-  if (q) {
-    const ftsQuery = toSafeMemoryFtsQuery(q);
-    if (!ftsQuery) return json({ memories: [], scope });
-
-    const results = scope === 'all'
-      ? queries.searchMemories(ftsQuery, limit)
-      : scope === 'archive'
-        ? queries.searchArchiveMemories(ftsQuery, limit)
-        : queries.searchOperationalMemories(ftsQuery, limit);
-    return json({ memories: results, scope });
-  }
-
-  const memories = scope === 'all'
-    ? queries.listMemories(limit)
-    : scope === 'archive'
-      ? queries.listArchiveMemories(limit)
-      : queries.listOperationalMemories(limit);
-  return json({ memories, scope });
+function parseScopeParam(raw: string | null): MemoryScope | null {
+  if (!raw) return null;
+  if (raw === 'global' || raw === 'terminal' || raw === 'room') return raw;
+  return null;
 }
 
-export async function POST(event: RequestEvent) {
-  assertNotRoomScoped(event);
-  const { request } = event;
+export const GET: RequestHandler = async ({ url }) => {
+  const scopeParam = parseScopeParam(url.searchParams.get('scope'));
+  const targetParam = url.searchParams.get('target');
+  const prefixParam = url.searchParams.get('prefix');
 
-  let body: any;
-  try {
-    body = await request.json();
-  } catch {
-    return json({ ok: false, error: "Invalid JSON" }, { status: 400 });
+  if (scopeParam) {
+    const memories = listMemoriesForScope(scopeParam, targetParam);
+    return json({ memories });
   }
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return json({ ok: false, error: "Request body must be a JSON object" }, { status: 400 });
-  }
+  const memories = listMemoriesByPrefix(prefixParam ?? '');
+  return json({ memories });
+};
 
+export const POST: RequestHandler = async ({ request }) => {
+  const rawBody = await request.json().catch(() => null);
+  if (!rawBody || typeof rawBody !== 'object') {
+    throw error(400, 'Send a JSON body with at least key + value fields.');
+  }
+  const body = rawBody as Record<string, unknown>;
   const key = body.key;
   const value = body.value;
-  const tags = body.tags ?? [];
-  const session_id = body.session_id ?? null;
-  const created_by = body.created_by ?? null;
-
-  const cleanKey = typeof key === 'string' ? key.trim() : '';
-  const cleanValue = typeof value === 'string'
-    ? value.trim()
-    : value == null
-      ? ''
-      : JSON.stringify(value);
-
-  if (!cleanKey || !cleanValue) {
-    return json({ ok: false, error: 'key and value are required' }, { status: 400 });
+  if (typeof key !== 'string' || key.trim().length === 0) {
+    throw error(400, 'The key field must be a non-empty string.');
   }
+  if (typeof value !== 'string') {
+    throw error(400, 'The value field must be a string.');
+  }
+  const scopeRaw = typeof body.scope === 'string' ? body.scope : null;
+  const scope = parseScopeParam(scopeRaw) ?? (scopeRaw === null ? null : null);
+  if (scopeRaw !== null && scopeRaw !== '' && scope === null) {
+    throw error(400, `scope must be one of global, terminal, room (got "${scopeRaw}").`);
+  }
+  const scopeTargetRaw =
+    typeof body.scope_target === 'string'
+      ? body.scope_target
+      : typeof body.scopeTarget === 'string'
+        ? body.scopeTarget
+        : null;
+  const byHandleRaw =
+    typeof body.byHandle === 'string'
+      ? body.byHandle
+      : typeof body.by_handle === 'string'
+        ? body.by_handle
+        : null;
 
-  const tagValue = typeof tags === 'string' ? tags : JSON.stringify(Array.isArray(tags) ? tags : []);
-  queries.upsertMemoryByKey(cleanKey, cleanValue, tagValue, session_id, created_by);
-  const memory = queries.getMemoryByKey(cleanKey);
-  return json({ ok: true, memory }, { status: 201 });
-}
-
-export async function DELETE(event: RequestEvent) {
-  assertNotRoomScoped(event);
-  const { url } = event;
-  const id = url.searchParams.get('id');
-  if (!id) return json({ ok: false, error: 'id required' }, { status: 400 });
-  queries.deleteMemory(id);
-  return json({ ok: true });
-}
+  try {
+    const result = putMemory({
+      key,
+      value,
+      scope: scope ?? 'global',
+      scopeTarget: scopeTargetRaw,
+      byHandle: byHandleRaw
+    });
+    return json(result, { status: result.created ? 201 : 200 });
+  } catch (causeOfFailure) {
+    const message =
+      causeOfFailure instanceof Error ? causeOfFailure.message : 'Could not write memory.';
+    throw error(400, message);
+  }
+};

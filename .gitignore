@@ -1,72 +1,55 @@
+.DS_Store
 node_modules/
 .svelte-kit/
 build/
+.ant-runtime/
 dist/
+.vite/
 .env
-certs/
+.env.*
+!.env.example
 *.db
-*.db-wal
-*.db-shm
+*.db-*
 *.sqlite
-*.sqlite-wal
-*.sqlite-shm
-.ant-v3/
-/tmp/
-
-# Personal / host-specific files — never commit these
-*.plist
-ANT-v3-plan.md
-CLAUDE.md
+*.sqlite-*
+coverage/
+playwright-report/
+test-results/
+*.log
 .mcp.json
 .claude/
-.claude/settings.local.json
-docs/superpowers/
-
-# Design files and screenshots
-*.pen
+.ant-agent-sheet/
 screenshots/
-
-# Logs
-*.log
-logs/
-.aider*
-
-# Uploaded files
-static/uploads/
 static/artefacts/
 
-# Tool/IDE state
-.claude/scheduled_tasks.lock
+# Tauri (m6.4)
+src-tauri/target/
+src-tauri/gen/
+
+
+# Agent-spawned worktree dirs (per-session, ephemeral)
 .claude/worktrees/
-.gemini/
-.playwright-cli/
-.playwright-mcp/
+.worktrees/
 
-# Runtime state
-.ant-runtime/
+# Operator-deployed launchd plists may carry absolute home paths,
+# node-bin paths, and secrets-env paths that should never land in
+# the OSS history. The `.template` shipped variant has placeholders
+# operators substitute; the live file stays local.
+deploy/com.ant.fresh.plist
+deploy/*.plist
+!deploy/*.plist.template
 
-# Probe test outputs
-ant-probe/output*.txt
-ant-probe/string_utils.py
+# Editor + tooling crud
+.idea/
+.vscode/
+*.swp
+*~
 
-# Playwright + evidence captures
-output/
-docs/*-evidence.png
-docs/*-expanded.png
-docs/visual-overhaul-*.png
+# Backup files (any .bak, .bak-YYYY-MM-DD, .bak-pre-foo, etc)
+*.bak
+*.bak-*
 
-# Scratch docs
-suggested-hooks-for-gemini.md
-
-# Internal audit docs (often contain personal references)
-docs/mempalace-*.md
-docs/*-audit-*.md
-
-# TLS certs + private keys — NEVER commit (tailnet/dev TLS material)
-*.crt
-*.key
-*.pem
-*.p12
-
-# macOS
-.DS_Store
+# OS noise
+Thumbs.db
+ehthumbs.db
+Desktop.ini
