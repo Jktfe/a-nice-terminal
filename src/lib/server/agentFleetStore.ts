@@ -310,8 +310,30 @@ function computeStreakDays(heatmap: number[]): number {
   return streak;
 }
 
+// "Live and attached" — a handle is in this set if it owns at least one
+// room_memberships row whose joined `terminals` row is pane_status='verified'
+// AND not expired. Stale / unknown panes, missing terminals, and TTL-expired
+// rows are excluded; JWPK msg_1kd1y30gqs: "should only be the live and
+// attached ones". `terminals.expires_at` is unix seconds (see
+// terminalsStore.sweepExpiredTerminals).
+function listLiveAttachedHandles(nowMs: number): Set<string> {
+  const db = getIdentityDb();
+  const nowSeconds = Math.floor(nowMs / 1000);
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT rm.handle AS handle
+       FROM room_memberships rm
+       JOIN terminals t ON t.id = rm.terminal_id
+       WHERE t.pane_status = 'verified'
+         AND (t.expires_at IS NULL OR t.expires_at > ?)`
+    )
+    .all(nowSeconds) as Array<{ handle: string }>;
+  return new Set(rows.map((r) => r.handle));
+}
+
 export function listFleetAgents(nowMs: number = Date.now()): FleetAgent[] {
-  const agents = listAgents();
+  const liveHandles = listLiveAttachedHandles(nowMs);
+  const agents = listAgents().filter((a) => liveHandles.has(a.handle));
   const handles = agents.map((a) => a.handle);
 
   const counts = aggregateCounts(handles, nowMs);

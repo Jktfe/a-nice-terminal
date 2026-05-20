@@ -79,10 +79,38 @@ describe('GET /api/agents', () => {
   });
 });
 
+// A live + attached terminal is required for an agent to appear in the
+// fleet. Tests opt in by inserting a pane_status='verified' row and a
+// matching room_memberships row joining the handle to the terminal.
+function attachLiveTerminal(handle: string, roomId: string, sessionId: string) {
+  const db = getIdentityDb();
+  db.prepare(
+    `INSERT INTO terminals (id, pid, pid_start, name, tmux_target_pane, pane_status, source, expires_at, meta, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 'verified', 'test', NULL, '{}', ?, ?)`
+  ).run(sessionId, 1, 'x', `term-${sessionId}`, `tmux:${sessionId}`, 1, 1);
+  db.prepare(
+    `INSERT INTO room_memberships (id, room_id, handle, terminal_id, created_at)
+     VALUES (?, ?, ?, ?, ?)`
+  ).run(`rm-${sessionId}`, roomId, handle, sessionId, 1);
+}
+
+function attachStaleTerminal(handle: string, roomId: string, sessionId: string) {
+  const db = getIdentityDb();
+  db.prepare(
+    `INSERT INTO terminals (id, pid, pid_start, name, tmux_target_pane, pane_status, source, expires_at, meta, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 'stale', 'test', NULL, '{}', ?, ?)`
+  ).run(sessionId, 1, 'x', `term-${sessionId}`, `tmux:${sessionId}`, 1, 1);
+  db.prepare(
+    `INSERT INTO room_memberships (id, room_id, handle, terminal_id, created_at)
+     VALUES (?, ?, ?, ?, ?)`
+  ).run(`rm-${sessionId}`, roomId, handle, sessionId, 1);
+}
+
 describe('GET /api/agents?view=fleet', () => {
   it('returns the rich fleet shape with zero defaults for a fresh agent', async () => {
     const room = createChatRoom({ name: 'fleet-room', whoCreatedIt: '@you' });
     inviteAgentToRoom({ roomId: room.id, agentHandle: '@alpha', agentDisplayName: 'Alpha' });
+    attachLiveTerminal('@alpha', room.id, 'sess-alpha');
 
     const res = await GET(req('http://x/api/agents?view=fleet'));
     expect(res.status).toBe(200);
@@ -118,6 +146,8 @@ describe('GET /api/agents?view=fleet', () => {
     const room = createChatRoom({ name: 'busy-room', whoCreatedIt: '@you' });
     inviteAgentToRoom({ roomId: room.id, agentHandle: '@alpha', agentDisplayName: 'Alpha' });
     inviteAgentToRoom({ roomId: room.id, agentHandle: '@beta', agentDisplayName: 'Beta' });
+    attachLiveTerminal('@alpha', room.id, 'sess-alpha');
+    attachLiveTerminal('@beta', room.id, 'sess-beta');
 
     const m1 = postMessage({ roomId: room.id, authorHandle: '@alpha', body: 'hi', kind: 'agent' });
     const m2 = postMessage({ roomId: room.id, authorHandle: '@alpha', body: 'again', kind: 'agent' });
@@ -163,5 +193,42 @@ describe('GET /api/agents?view=fleet', () => {
     expect(beta.stats.messages24h).toBe(1);
     expect(beta.stats.positiveReactions).toBe(0);
     expect(beta.collaborators).toEqual(['@alpha']);
+  });
+
+  it('excludes agents without a live + attached terminal (archived / killed / stale)', async () => {
+    const room = createChatRoom({ name: 'mixed-room', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@live', agentDisplayName: 'Live' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@stale', agentDisplayName: 'Stale' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@detached', agentDisplayName: 'Detached' });
+
+    attachLiveTerminal('@live', room.id, 'sess-live');
+    attachStaleTerminal('@stale', room.id, 'sess-stale');
+    // @detached has no terminal — represents an archived agent or one whose
+    // terminal has been killed (terminal_records hard-deleted).
+
+    const res = await GET(req('http://x/api/agents?view=fleet'));
+    const body = await res.json();
+    expect(body.agents.map((a: { handle: string }) => a.handle)).toEqual(['@live']);
+  });
+
+  it('excludes agents whose live terminal has expired (TTL past)', async () => {
+    const room = createChatRoom({ name: 'expiry-room', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@expired', agentDisplayName: 'Expired' });
+
+    const db = getIdentityDb();
+    // expires_at is unix seconds; set to 1 (1970-01-01) so it's always in the
+    // past relative to a real Date.now().
+    db.prepare(
+      `INSERT INTO terminals (id, pid, pid_start, name, tmux_target_pane, pane_status, source, expires_at, meta, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'verified', 'test', 1, '{}', ?, ?)`
+    ).run('sess-exp', 1, 'x', 'term-exp', 'tmux:exp', 1, 1);
+    db.prepare(
+      `INSERT INTO room_memberships (id, room_id, handle, terminal_id, created_at)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run('rm-exp', room.id, '@expired', 'sess-exp', 1);
+
+    const res = await GET(req('http://x/api/agents?view=fleet'));
+    const body = await res.json();
+    expect(body.agents).toEqual([]);
   });
 });
