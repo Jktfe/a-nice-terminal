@@ -165,7 +165,7 @@
       <button class="activity-chip" onclick={() => toggleAgent(agent.handle)} class:active={selectedHandle === agent.handle}>
         <AgentDot id={agent.handle.replace('@', '')} size={10} state={dotState(agent.status?.state ?? null)} />
         <span class="activity-name">{agent.displayName || agent.handle}</span>
-        <span class="activity-pill {statusClass(agent.status?.state)}">{statusLabel(agent.status?.state)}</span>
+        <span class="activity-pill {statusClass(agent.status?.state ?? null)}">{statusLabel(agent.status?.state ?? null)}</span>
         {#if agent.stats.messages24h > 0}
           <span class="activity-msgs">{agent.stats.messages24h}</span>
         {/if}
@@ -205,7 +205,7 @@
 
           <!-- Status row -->
           <div class="status-row">
-            <span class="status-pill {statusClass(agent.status?.state)}">{statusLabel(agent.status?.state)}</span>
+            <span class="status-pill {statusClass(agent.status?.state ?? null)}">{statusLabel(agent.status?.state ?? null)}</span>
             {#if agent.status?.atMs}
               <span class="duration">⏱ {fmtDuration(agent.status.atMs)}</span>
             {/if}
@@ -342,7 +342,7 @@
           <div class="focus-header">
             <AgentDot id={selectedAgent.handle.replace('@', '')} size={16} state={dotState(selectedAgent.status?.state ?? null)} />
             <span class="focus-name">{selectedAgent.displayName || selectedAgent.handle}</span>
-            <span class="focus-status-pill {statusClass(selectedAgent.status?.state)}">{statusLabel(selectedAgent.status?.state)}</span>
+            <span class="focus-status-pill {statusClass(selectedAgent.status?.state ?? null)}">{statusLabel(selectedAgent.status?.state ?? null)}</span>
             <button class="focus-close" onclick={() => selectedHandle = null}>✕</button>
           </div>
           <div class="focus-stats">
