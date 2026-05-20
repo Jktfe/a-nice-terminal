@@ -32,6 +32,7 @@ import { handlePlanVerb } from './ant-cli-plan.mjs';
 import { handleReactionVerb } from './ant-cli-reaction.mjs';
 import { handleRegisterVerb, handleAddVerb, handleResolveVerb } from './ant-cli-register.mjs';
 import { handleRemoteVerb, handleRemoteRoomVerb } from './ant-cli-remote.mjs';
+import { handleRouterVerb } from './ant-cli-router.mjs';
 import { handleRoomVerb } from './ant-cli-room.mjs';
 import { handleScreenshotVerb } from './ant-cli-screenshot.mjs';
 import { handleSessionsVerb } from './ant-cli-sessions.mjs';
@@ -49,7 +50,7 @@ const DEFAULT_SERVER_URL = process.env.ANT_SERVER_URL ?? 'http://127.0.0.1:6174'
 const DISPATCH = {
   plan: handlePlanVerb, invite: handleInviteVerb, chat: handleChatVerb, room: handleRoomVerb,
   reaction: handleReactionVerb, status: handleStatusVerb, delivery: handleDeliveryVerb, audit: handleAuditVerb, docs: handleDocsVerb,
-  decks: handleDecksVerb, remote: handleRemoteVerb, 'remote-room': handleRemoteRoomVerb, discussion: handleDiscussionVerb, linkedchat: handleLinkedchatVerb, fingerprint: handleFingerprintVerb, mcp: handleMcpVerb, chair: handleChairVerb, interview: handleInterviewVerb, screenshot: handleScreenshotVerb, hooks: handleHooksVerb, new: handleNewVerb, list: handleListVerb, terminal: handleTerminalVerb, settings: handleSettingsVerb, flag: handleFlagVerb, task: handleTaskVerb, memory: handleMemoryVerb, sessions: handleSessionsVerb, voice: handleVoiceVerb, tunnel: handleTunnelVerb, pairing: handlePairingVerb, agents: handleAgentsVerb, share: handleShareVerb, identity: handleIdentityVerb, register: handleRegisterVerb, add: handleAddVerb, resolve: handleResolveVerb
+  decks: handleDecksVerb, remote: handleRemoteVerb, 'remote-room': handleRemoteRoomVerb, discussion: handleDiscussionVerb, linkedchat: handleLinkedchatVerb, fingerprint: handleFingerprintVerb, mcp: handleMcpVerb, chair: handleChairVerb, interview: handleInterviewVerb, screenshot: handleScreenshotVerb, hooks: handleHooksVerb, new: handleNewVerb, list: handleListVerb, terminal: handleTerminalVerb, settings: handleSettingsVerb, flag: handleFlagVerb, task: handleTaskVerb, memory: handleMemoryVerb, sessions: handleSessionsVerb, voice: handleVoiceVerb, tunnel: handleTunnelVerb, pairing: handlePairingVerb, agents: handleAgentsVerb, share: handleShareVerb, identity: handleIdentityVerb, register: handleRegisterVerb, add: handleAddVerb, resolve: handleResolveVerb, router: handleRouterVerb
 };
 
 export function makeCliRunner({ fetchImpl, writeOut, writeErr, serverUrl } = {}) {
@@ -290,6 +291,7 @@ Verbs:
   fingerprint detect <terminal-id>    Detect agent kind via 5-source cascade.
   mcp list|grant|revoke               Manage MCP adapter grants (admin-bearer).
   remote admit|redeem|mapping         Remote ANT bridge admission + mapping management.
+  router start --room ROOM --handle @h  Route mentions into a local terminal pane.
   remote-room send|status|ack|quarantine  Remote-bridge message ops (admin-bearer).`);
 }
 export { CliInputError, CliNetworkError };
