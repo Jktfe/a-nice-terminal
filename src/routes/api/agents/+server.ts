@@ -16,6 +16,7 @@ import type { RequestHandler } from './$types';
 import { listAgents, getAgent, updateAgentMetadata } from '$lib/server/agentRegistryStore';
 import { listFleetAgents } from '$lib/server/agentFleetStore';
 import { doesChatRoomExist } from '$lib/server/chatRoomStore';
+import { listTerminals } from '$lib/server/ptyClient';
 
 function serialize(agent: ReturnType<typeof getAgent>) {
   if (!agent) return null;
@@ -37,7 +38,8 @@ export const GET: RequestHandler = async ({ url }) => {
     }
   }
   if (url.searchParams.get('view') === 'fleet') {
-    return json({ agents: listFleetAgents() });
+    const liveSessionIds = new Set(await listTerminals());
+    return json({ agents: listFleetAgents(liveSessionIds) });
   }
   const agents = listAgents(roomId ?? undefined);
   return json({ agents: agents.map(serialize) });

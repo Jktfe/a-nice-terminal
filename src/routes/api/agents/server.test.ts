@@ -1,5 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetIdentityDbForTests, getIdentityDb } from '$lib/server/db';
+
+// The fleet route hits the v3 pty daemon to learn which tmux sessions are
+// alive. Tests run without the daemon socket, so stub listTerminals to
+// return whichever ids each test wants to mark "alive".
+const liveSessionIds: string[] = [];
+function setLiveSessions(ids: string[]) {
+  liveSessionIds.length = 0;
+  liveSessionIds.push(...ids);
+}
+vi.mock('$lib/server/ptyClient', () => ({
+  listTerminals: async () => liveSessionIds.slice(),
+}));
+
 import { createChatRoom, inviteAgentToRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
 import { postMessage, resetChatMessageStoreForTests } from '$lib/server/chatMessageStore';
 import { addReactionToMessage, resetMessageReactionStoreForTests } from '$lib/server/messageReactionStore';
@@ -15,6 +28,7 @@ beforeEach(() => {
   resetChatMessageStoreForTests();
   resetMessageReactionStoreForTests();
   resetAskStoreForTests();
+  setLiveSessions([]);
 });
 
 afterEach(() => {
@@ -79,27 +93,17 @@ describe('GET /api/agents', () => {
   });
 });
 
-// A live + attached terminal is required for an agent to appear in the
-// fleet. Tests opt in by inserting a pane_status='verified' row and a
-// matching room_memberships row joining the handle to the terminal.
-function attachLiveTerminal(handle: string, roomId: string, sessionId: string) {
+// Bind a handle to a terminal_id via room_memberships + terminals. The
+// terminal counts as "live and attached" only when the caller also adds the
+// session id to setLiveSessions() — that mirrors the production check that
+// asks the pty daemon which tmux sessions still exist.
+function attachTerminal(handle: string, roomId: string, sessionId: string, opts?: { expiresAt?: number | null }) {
   const db = getIdentityDb();
+  const expiresAt = opts?.expiresAt === undefined ? null : opts.expiresAt;
   db.prepare(
     `INSERT INTO terminals (id, pid, pid_start, name, tmux_target_pane, pane_status, source, expires_at, meta, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 'verified', 'test', NULL, '{}', ?, ?)`
-  ).run(sessionId, 1, 'x', `term-${sessionId}`, `tmux:${sessionId}`, 1, 1);
-  db.prepare(
-    `INSERT INTO room_memberships (id, room_id, handle, terminal_id, created_at)
-     VALUES (?, ?, ?, ?, ?)`
-  ).run(`rm-${sessionId}`, roomId, handle, sessionId, 1);
-}
-
-function attachStaleTerminal(handle: string, roomId: string, sessionId: string) {
-  const db = getIdentityDb();
-  db.prepare(
-    `INSERT INTO terminals (id, pid, pid_start, name, tmux_target_pane, pane_status, source, expires_at, meta, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 'stale', 'test', NULL, '{}', ?, ?)`
-  ).run(sessionId, 1, 'x', `term-${sessionId}`, `tmux:${sessionId}`, 1, 1);
+     VALUES (?, ?, ?, ?, ?, 'verified', 'test', ?, '{}', ?, ?)`
+  ).run(sessionId, 1, 'x', `term-${sessionId}`, `tmux:${sessionId}`, expiresAt, 1, 1);
   db.prepare(
     `INSERT INTO room_memberships (id, room_id, handle, terminal_id, created_at)
      VALUES (?, ?, ?, ?, ?)`
@@ -110,7 +114,8 @@ describe('GET /api/agents?view=fleet', () => {
   it('returns the rich fleet shape with zero defaults for a fresh agent', async () => {
     const room = createChatRoom({ name: 'fleet-room', whoCreatedIt: '@you' });
     inviteAgentToRoom({ roomId: room.id, agentHandle: '@alpha', agentDisplayName: 'Alpha' });
-    attachLiveTerminal('@alpha', room.id, 'sess-alpha');
+    attachTerminal('@alpha', room.id, 'sess-alpha');
+    setLiveSessions(['sess-alpha']);
 
     const res = await GET(req('http://x/api/agents?view=fleet'));
     expect(res.status).toBe(200);
@@ -146,8 +151,9 @@ describe('GET /api/agents?view=fleet', () => {
     const room = createChatRoom({ name: 'busy-room', whoCreatedIt: '@you' });
     inviteAgentToRoom({ roomId: room.id, agentHandle: '@alpha', agentDisplayName: 'Alpha' });
     inviteAgentToRoom({ roomId: room.id, agentHandle: '@beta', agentDisplayName: 'Beta' });
-    attachLiveTerminal('@alpha', room.id, 'sess-alpha');
-    attachLiveTerminal('@beta', room.id, 'sess-beta');
+    attachTerminal('@alpha', room.id, 'sess-alpha');
+    attachTerminal('@beta', room.id, 'sess-beta');
+    setLiveSessions(['sess-alpha', 'sess-beta']);
 
     const m1 = postMessage({ roomId: room.id, authorHandle: '@alpha', body: 'hi', kind: 'agent' });
     const m2 = postMessage({ roomId: room.id, authorHandle: '@alpha', body: 'again', kind: 'agent' });
@@ -195,37 +201,29 @@ describe('GET /api/agents?view=fleet', () => {
     expect(beta.collaborators).toEqual(['@alpha']);
   });
 
-  it('excludes agents without a live + attached terminal (archived / killed / stale)', async () => {
+  it('excludes agents whose terminal is archived (tmux session no longer exists)', async () => {
     const room = createChatRoom({ name: 'mixed-room', whoCreatedIt: '@you' });
     inviteAgentToRoom({ roomId: room.id, agentHandle: '@live', agentDisplayName: 'Live' });
-    inviteAgentToRoom({ roomId: room.id, agentHandle: '@stale', agentDisplayName: 'Stale' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@archived', agentDisplayName: 'Archived' });
     inviteAgentToRoom({ roomId: room.id, agentHandle: '@detached', agentDisplayName: 'Detached' });
 
-    attachLiveTerminal('@live', room.id, 'sess-live');
-    attachStaleTerminal('@stale', room.id, 'sess-stale');
-    // @detached has no terminal — represents an archived agent or one whose
-    // terminal has been killed (terminal_records hard-deleted).
+    attachTerminal('@live', room.id, 'sess-live');
+    attachTerminal('@archived', room.id, 'sess-archived');
+    // @detached has no terminal row at all.
+    // Only sess-live is in the live tmux set — @archived's tmux pane has
+    // been killed, so its terminal_records row is offline / archived.
+    setLiveSessions(['sess-live']);
 
     const res = await GET(req('http://x/api/agents?view=fleet'));
     const body = await res.json();
     expect(body.agents.map((a: { handle: string }) => a.handle)).toEqual(['@live']);
   });
 
-  it('excludes agents whose live terminal has expired (TTL past)', async () => {
+  it('excludes agents whose terminal has expired (TTL past) even when tmux still claims it', async () => {
     const room = createChatRoom({ name: 'expiry-room', whoCreatedIt: '@you' });
     inviteAgentToRoom({ roomId: room.id, agentHandle: '@expired', agentDisplayName: 'Expired' });
-
-    const db = getIdentityDb();
-    // expires_at is unix seconds; set to 1 (1970-01-01) so it's always in the
-    // past relative to a real Date.now().
-    db.prepare(
-      `INSERT INTO terminals (id, pid, pid_start, name, tmux_target_pane, pane_status, source, expires_at, meta, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'verified', 'test', 1, '{}', ?, ?)`
-    ).run('sess-exp', 1, 'x', 'term-exp', 'tmux:exp', 1, 1);
-    db.prepare(
-      `INSERT INTO room_memberships (id, room_id, handle, terminal_id, created_at)
-       VALUES (?, ?, ?, ?, ?)`
-    ).run('rm-exp', room.id, '@expired', 'sess-exp', 1);
+    attachTerminal('@expired', room.id, 'sess-exp', { expiresAt: 1 });
+    setLiveSessions(['sess-exp']);
 
     const res = await GET(req('http://x/api/agents?view=fleet'));
     const body = await res.json();

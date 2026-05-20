@@ -310,29 +310,36 @@ function computeStreakDays(heatmap: number[]): number {
   return streak;
 }
 
-// "Live and attached" — a handle is in this set if it owns at least one
-// room_memberships row whose joined `terminals` row is pane_status='verified'
-// AND not expired. Stale / unknown panes, missing terminals, and TTL-expired
-// rows are excluded; JWPK msg_1kd1y30gqs: "should only be the live and
-// attached ones". `terminals.expires_at` is unix seconds (see
-// terminalsStore.sweepExpiredTerminals).
-function listLiveAttachedHandles(nowMs: number): Set<string> {
+// "Live and attached" — JWPK msg_g127w99mxe: pane_status='verified' alone
+// isn't enough because nobody updates the column when a tmux session is
+// killed externally; rows stay 'verified' long after the pane is gone. The
+// authoritative liveness signal is the current tmux session set (what /api
+// /terminals already uses for its `alive` flag). The caller passes the set
+// of live tmux session ids; we intersect with room_memberships → terminals
+// to keep only handles whose terminal is BOTH bound to an existing tmux pane
+// AND not TTL-expired.
+function listLiveAttachedHandles(nowMs: number, liveSessionIds: ReadonlySet<string>): Set<string> {
+  if (liveSessionIds.size === 0) return new Set();
   const db = getIdentityDb();
   const nowSeconds = Math.floor(nowMs / 1000);
+  const placeholders = [...liveSessionIds].map(() => '?').join(',');
   const rows = db
     .prepare(
       `SELECT DISTINCT rm.handle AS handle
        FROM room_memberships rm
        JOIN terminals t ON t.id = rm.terminal_id
-       WHERE t.pane_status = 'verified'
+       WHERE rm.terminal_id IN (${placeholders})
          AND (t.expires_at IS NULL OR t.expires_at > ?)`
     )
-    .all(nowSeconds) as Array<{ handle: string }>;
+    .all(...liveSessionIds, nowSeconds) as Array<{ handle: string }>;
   return new Set(rows.map((r) => r.handle));
 }
 
-export function listFleetAgents(nowMs: number = Date.now()): FleetAgent[] {
-  const liveHandles = listLiveAttachedHandles(nowMs);
+export function listFleetAgents(
+  liveSessionIds: ReadonlySet<string>,
+  nowMs: number = Date.now()
+): FleetAgent[] {
+  const liveHandles = listLiveAttachedHandles(nowMs, liveSessionIds);
   const agents = listAgents().filter((a) => liveHandles.has(a.handle));
   const handles = agents.map((a) => a.handle);
 

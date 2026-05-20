@@ -59,8 +59,11 @@
     const slug = slugify(r.name) || r.sessionId.slice(0, 8);
     return '@' + slug;
   }
+  const liveTerminals = $derived(terminals.filter((r) => r.alive));
+  const staleTerminals = $derived(terminals.filter((r) => !r.alive));
+
   const availableHandles = $derived.by<string[]>(() => {
-    const handles = terminals.map((r) => deriveHandle(r));
+    const handles = liveTerminals.map((r) => deriveHandle(r));
     return [...new Set(handles)].sort();
   });
 
@@ -194,7 +197,7 @@
   type Group = { kind: string; label: string; records: TerminalRecord[] };
   const groupedTerminals = $derived.by<Group[]>(() => {
     const byKind = new Map<string, TerminalRecord[]>();
-    for (const r of terminals) {
+    for (const r of liveTerminals) {
       const key = (r.agentKind ?? '').toString();
       const arr = byKind.get(key) ?? [];
       arr.push(r);
@@ -229,7 +232,7 @@
 
     <section class="tier tier-primary" aria-label="ANT terminals">
       <h3 class="tier-heading">ANT terminals <span class="muted">— grouped by agent kind</span></h3>
-      {#if terminals.length === 0}
+      {#if liveTerminals.length === 0}
         <p class="tier-empty">No ANT terminals yet — click "+ New ANT terminal" above to create one, or attach an existing tmux pane below.</p>
       {:else}
         {#each groupedTerminals as group (group.kind || 'none')}
@@ -237,12 +240,11 @@
             <h4 class="group-heading">{group.label}</h4>
             <div class="chips">
               {#each group.records as record (record.sessionId)}
-                <button
-                  type="button"
-                  class="chip ant-chip"
-                  class:active={activeId === record.sessionId}
-                  class:dead={!record.alive}
-                  title={record.alive ? `${record.sessionId} • ${record.createdBy ?? ''}` : `${record.sessionId} (not alive)`}
+              <button
+                type="button"
+                class="chip ant-chip"
+                class:active={activeId === record.sessionId}
+                  title={`${record.sessionId} • ${record.createdBy ?? ''}`}
                   onclick={() => attach(record)}
                 >{chipLabel(record)}</button>
               {/each}
@@ -251,6 +253,19 @@
         {/each}
       {/if}
     </section>
+
+    {#if staleTerminals.length > 0}
+      <section class="tier tier-stale" aria-label="Archived terminals">
+        <h3 class="tier-heading">Archived terminals <span class="muted">— tmux pane gone, kept for history</span></h3>
+        <div class="chips">
+          {#each staleTerminals as record (record.sessionId)}
+            <span class="chip ant-chip dead" title={`${record.sessionId} is archived (tmux pane no longer exists)`}>
+              {chipLabel(record)}
+            </span>
+          {/each}
+        </div>
+      </section>
+    {/if}
 
     <section class="tier tier-secondary" aria-label="Tmux sessions, no handle">
       <h3 class="tier-heading">Attach existing tmux <span class="muted">— not in ANT yet</span></h3>
@@ -362,7 +377,8 @@
   .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
   .chip { padding: 0.35rem 0.65rem; border: 1px solid var(--line-soft); border-radius: 999px; background: var(--surface-card); color: var(--ink-strong); font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; }
   .chip.active { border-color: var(--accent); color: var(--accent); font-weight: 700; }
-  .chip.dead { opacity: 0.55; }
+  .chip.dead { opacity: 0.55; cursor: default; }
+  .tier-stale { margin-top: 0.9rem; padding-top: 0.75rem; border-top: 1px dashed var(--surface-edge); }
   .tmux-chip { font-family: ui-monospace, monospace; color: var(--ink-soft); }
   .tmux-chip:hover { color: var(--accent); border-color: var(--accent); }
   .tmux-chip .promote-hint { font-size: 0.7rem; opacity: 0.7; }
