@@ -53,3 +53,9 @@ deploy/*.plist
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# Account-strategy deck artefacts — user-management discussion is OUT of
+# OSS scope (per JWPK msg_l3l92803r9 + users-room convergence with
+# @usermgtclaude). Slides live on disk + are served via the local
+# launchd OSS server but MUST NOT ship in the public OSS repo.
+static/artefacts/jfeboje2kj/
