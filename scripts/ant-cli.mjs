@@ -260,10 +260,19 @@ Verbs:
 }
 export { CliInputError, CliNetworkError };
 
+// `import.meta.main` is Bun's canonical "I am the entrypoint" flag and is
+// true for both `bun run script.mjs` and bun-compile standalone binaries
+// (where `import.meta.url` lives in the $bunfs virtual filesystem and will
+// never match `file://${process.argv[1]}` on disk). The file-URL equality
+// check is kept as the Node-runtime fallback so plain `node
+// scripts/ant-cli.mjs` invocation still works in test/dev.
 const isThisFileTheEntrypoint =
-  typeof process !== 'undefined' &&
-  process.argv[1] &&
-  import.meta.url === `file://${process.argv[1]}`;
+  (typeof import.meta.main === 'boolean' && import.meta.main) ||
+  (
+    typeof process !== 'undefined' &&
+    process.argv[1] &&
+    import.meta.url === `file://${process.argv[1]}`
+  );
 
 if (isThisFileTheEntrypoint) {
   const runner = makeCliRunner();
