@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   mapPiContentItem, parsePiTranscriptLine, ingestPiTranscriptLine,
-  readCwdFromPiSessionLine
+  readCwdFromPiSessionLine, readContextFillFromPiUsageLine
 } from './piTranscriptTail';
 import { listLatestTerminalRunEvents } from './terminalRunEventsStore';
 import { getIdentityDb } from './db';
+import { getTerminalById, upsertTerminal } from './terminalsStore';
 
 describe('mapPiContentItem', () => {
   it('user text → command', () => {
@@ -84,6 +85,32 @@ describe('readCwdFromPiSessionLine', () => {
   });
 });
 
+describe('readContextFillFromPiUsageLine', () => {
+  it('extracts Pi context fill from assistant usage counters', () => {
+    const line = JSON.stringify({
+      type: 'message',
+      message: {
+        role: 'assistant',
+        usage: { input: 32_000, cacheRead: 16_000, cacheWrite: 16_000 }
+      }
+    });
+
+    expect(readContextFillFromPiUsageLine(line)).toEqual({
+      fill: 0.5,
+      inputTokens: 64_000,
+      contextWindow: 128_000
+    });
+  });
+
+  it('ignores Pi lines without usage', () => {
+    expect(readContextFillFromPiUsageLine('garbage')).toBeNull();
+    expect(readContextFillFromPiUsageLine(JSON.stringify({
+      type: 'message',
+      message: { role: 'assistant', content: [] }
+    }))).toBeNull();
+  });
+});
+
 describe('ingestPiTranscriptLine — DB roundtrip', () => {
   beforeEach(() => {
     try { getIdentityDb().prepare(`DELETE FROM terminal_run_events`).run(); } catch {}
@@ -109,5 +136,23 @@ describe('ingestPiTranscriptLine — DB roundtrip', () => {
       type: 'session', cwd: '/x', id: 'y'
     }))).toBe(0);
     expect(listLatestTerminalRunEvents(SID, 5)).toHaveLength(0);
+  });
+
+  it('persists context-fill from Pi usage lines alongside run events', () => {
+    const terminal = upsertTerminal({ pid: 422, pid_start: 'pst', name: 'pi-context-fill-test' });
+    const line = JSON.stringify({
+      type: 'message',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'pi reply' }],
+        usage: { input: 32_000, cacheRead: 16_000, cacheWrite: 16_000 }
+      }
+    });
+
+    expect(ingestPiTranscriptLine(terminal.id, line)).toBe(1);
+    const row = getTerminalById(terminal.id);
+    expect(row?.agent_context_fill).toBeCloseTo(0.5);
+    expect(row?.agent_context_fill_source).toBe('pi-transcript-usage');
+    expect(typeof row?.agent_context_fill_at_ms).toBe('number');
   });
 });

@@ -119,7 +119,9 @@ export function decideMentionKeyAction(
   if (pressedKey === 'ArrowDown') return { action: 'navigate-down' };
   if (pressedKey === 'ArrowUp') return { action: 'navigate-up' };
   if (pressedKey === 'Enter' || pressedKey === 'Tab') {
-    return { action: 'insert', handleToInsert: options[activeIndex].handleToInsert };
+    const safeActiveIndex =
+      activeIndex >= 0 && activeIndex < options.length ? activeIndex : 0;
+    return { action: 'insert', handleToInsert: options[safeActiveIndex].handleToInsert };
   }
   if (pressedKey === 'Escape') return { action: 'dismiss' };
   return { action: 'pass-through' };

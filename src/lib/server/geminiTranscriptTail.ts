@@ -18,8 +18,12 @@
 import { appendTerminalRunEvent } from './terminalRunEventsStore';
 import { broadcastTerminalEvent } from './terminalEventBroadcast';
 import { transcriptEventKey } from './transcriptEventId';
+import { contextFillFromTokens, numberValue, type ContextFillReading } from './contextFillTelemetry';
+import { setAgentContextFill } from './terminalsStore';
 import type { ClassifiedKind } from './classifiers/types';
 import type { TerminalRunEventTrust } from './terminalRunEventsStore';
+
+const DEFAULT_GEMINI_CONTEXT_WINDOW = 1_000_000;
 
 export type GeminiMappedEvent = {
   kind: ClassifiedKind;
@@ -34,6 +38,7 @@ type GeminiJsonlEvent = {
   sessionId?: string;
   content?: string | GeminiContentItem[];
   thoughts?: GeminiThought[];
+  tokens?: { input?: number; cached?: number; tool?: number };
   $set?: Record<string, unknown>;
 };
 
@@ -86,6 +91,15 @@ export function parseGeminiTranscriptLine(rawLine: string): GeminiMappedEvent[] 
 }
 
 export function ingestGeminiTranscriptLine(sessionId: string, rawLine: string): number {
+  const contextFill = readContextFillFromGeminiTokensLine(rawLine);
+  if (contextFill) {
+    try {
+      setAgentContextFill(sessionId, contextFill.fill, 'gemini-transcript-tokens');
+    } catch {
+      // Context telemetry must never block transcript ingestion.
+    }
+  }
+
   const events = parseGeminiTranscriptLine(rawLine);
   let nativeId: string | null = null;
   try { nativeId = (JSON.parse(rawLine.trim()) as { id?: string }).id ?? null; } catch { /* hash fallback */ }
@@ -105,6 +119,23 @@ export function ingestGeminiTranscriptLine(sessionId: string, rawLine: string): 
     } catch { /* best-effort */ }
   }
   return events.length;
+}
+
+export function readContextFillFromGeminiTokensLine(rawLine: string): ContextFillReading | null {
+  const trimmed = rawLine.trim();
+  if (trimmed.length === 0) return null;
+  try {
+    const o = JSON.parse(trimmed) as GeminiJsonlEvent;
+    const tokens = o.tokens;
+    if (!tokens) return null;
+    const inputTokens =
+      numberValue(tokens.input)
+      + numberValue(tokens.cached)
+      + numberValue(tokens.tool);
+    return contextFillFromTokens(inputTokens, DEFAULT_GEMINI_CONTEXT_WINDOW);
+  } catch {
+    return null;
+  }
 }
 
 // gemini stores chats under ~/.gemini/tmp/<lowercase-basename-of-cwd>/chats/

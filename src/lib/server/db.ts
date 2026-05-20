@@ -1082,7 +1082,93 @@ const SCHEMA_DDL_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_cron_jobs_status_next
     ON cron_jobs (status, next_fire_at_ms)`,
   `CREATE INDEX IF NOT EXISTS idx_cron_jobs_created_by
-    ON cron_jobs (created_by_handle, status)`
+    ON cron_jobs (created_by_handle, status)`,
+
+  // ─── Consent-gated impersonation (plan_consent_gate_2026_05_20) ───
+  // owners: stable identity for every kind="human" member. The handle
+  // string can be renamed (owner_handles tracks aliases); owner_id is
+  // the load-bearing identity that consent grants reference. password_hash
+  // is bcrypt (cost 12). totp_secret_encrypted is the base32 TOTP secret
+  // wrapped by ANT_OWNER_SECRET_KEY (env), null until enrollment. The
+  // totp_last_counter prevents replay of the same 30-second code window.
+  `CREATE TABLE IF NOT EXISTS owners (
+    id                         TEXT PRIMARY KEY,
+    primary_handle             TEXT NOT NULL UNIQUE,
+    password_hash              TEXT NOT NULL,
+    totp_secret_encrypted      TEXT,
+    totp_enrolled_at_ms        INTEGER,
+    totp_last_counter          INTEGER,
+    created_at_ms              INTEGER NOT NULL,
+    updated_at_ms              INTEGER NOT NULL
+  )`,
+
+  // owner_handles: rename history + alias support. One owner can hold
+  // multiple handles over time; is_primary=1 mirrors owners.primary_handle.
+  // Every chat write that resolves to a kind="human" handle goes through
+  // (handle) → owner_id via this table.
+  `CREATE TABLE IF NOT EXISTS owner_handles (
+    owner_id        TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE,
+    handle          TEXT NOT NULL UNIQUE,
+    is_primary      INTEGER NOT NULL DEFAULT 0,
+    assigned_at_ms  INTEGER NOT NULL,
+    PRIMARY KEY (owner_id, handle)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_owner_handles_lookup
+    ON owner_handles (handle)`,
+
+  // owner_recovery_codes: 10 one-time backup codes printed at TOTP
+  // enrollment. Stored as bcrypt hashes — never the plaintext. used_at_ms
+  // null = still valid; set on consumption. PRIMARY KEY (owner_id, code_hash)
+  // because the same hash collision across owners is fine.
+  `CREATE TABLE IF NOT EXISTS owner_recovery_codes (
+    owner_id     TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE,
+    code_hash    TEXT NOT NULL,
+    issued_at_ms INTEGER NOT NULL,
+    used_at_ms   INTEGER,
+    PRIMARY KEY (owner_id, code_hash)
+  )`,
+
+  // human_consent_grants: distinct from the existing consent_grants
+  // (which is topic-scoped Lane A work). Each row authorises a SPECIFIC
+  // terminal to post as a SPECIFIC human owner for a bounded window /
+  // use-count. Created only from the owner's own terminal + password +
+  // current TOTP code. Status lifecycle: active → consumed (uses--) →
+  // active OR exhausted; or active → expired (TTL) OR revoked.
+  `CREATE TABLE IF NOT EXISTS human_consent_grants (
+    id                       TEXT PRIMARY KEY,
+    owner_id                 TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE,
+    granted_to_terminal_id   TEXT NOT NULL,
+    granted_to_handle        TEXT NOT NULL,
+    max_uses                 INTEGER,
+    uses_consumed            INTEGER NOT NULL DEFAULT 0,
+    status                   TEXT NOT NULL DEFAULT 'active'
+                             CHECK (status IN ('active','revoked','expired','exhausted')),
+    granted_at_ms            INTEGER NOT NULL,
+    expires_at_ms            INTEGER,
+    created_by_terminal_id   TEXT NOT NULL,
+    revoked_at_ms            INTEGER,
+    revoked_by_handle        TEXT,
+    updated_at_ms            INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_human_consent_grants_lookup
+    ON human_consent_grants (owner_id, granted_to_terminal_id, status)`,
+  `CREATE INDEX IF NOT EXISTS idx_human_consent_grants_expiry
+    ON human_consent_grants (status, expires_at_ms)`,
+
+  // human_consent_grant_audit: append-only audit row per consumption,
+  // revocation, expiry, exhaustion event. Every chat message posted
+  // under a grant writes a 'consumed' row referencing message_id.
+  `CREATE TABLE IF NOT EXISTS human_consent_grant_audit (
+    id            TEXT PRIMARY KEY,
+    grant_id      TEXT NOT NULL REFERENCES human_consent_grants(id) ON DELETE CASCADE,
+    action        TEXT NOT NULL CHECK (action IN ('created','consumed','revoked','expired','exhausted')),
+    actor_handle  TEXT,
+    actor_terminal_id TEXT,
+    message_id    TEXT,
+    occurred_at_ms INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_human_consent_grant_audit_grant
+    ON human_consent_grant_audit (grant_id, occurred_at_ms)`
 ];
 
 function resolveDbFilePath(): string {

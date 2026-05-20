@@ -19,8 +19,12 @@
 import { appendTerminalRunEvent } from './terminalRunEventsStore';
 import { broadcastTerminalEvent } from './terminalEventBroadcast';
 import { transcriptEventKey } from './transcriptEventId';
+import { contextFillFromTokens, numberValue, type ContextFillReading } from './contextFillTelemetry';
+import { setAgentContextFill } from './terminalsStore';
 import type { ClassifiedKind } from './classifiers/types';
 import type { TerminalRunEventTrust } from './terminalRunEventsStore';
+
+const DEFAULT_PI_CONTEXT_WINDOW = 128_000;
 
 export type PiMappedEvent = {
   kind: ClassifiedKind;
@@ -41,6 +45,11 @@ type PiContentItem = {
 type PiMessage = {
   role?: string;
   content?: PiContentItem[];
+  usage?: {
+    input?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+  };
 };
 
 type PiJsonlEvent = {
@@ -101,6 +110,15 @@ export function parsePiTranscriptLine(rawLine: string): PiMappedEvent[] {
 }
 
 export function ingestPiTranscriptLine(sessionId: string, rawLine: string): number {
+  const contextFill = readContextFillFromPiUsageLine(rawLine);
+  if (contextFill) {
+    try {
+      setAgentContextFill(sessionId, contextFill.fill, 'pi-transcript-usage');
+    } catch {
+      // Context telemetry must never block transcript ingestion.
+    }
+  }
+
   const events = parsePiTranscriptLine(rawLine);
   let nativeId: string | null = null;
   try { nativeId = (JSON.parse(rawLine.trim()) as { id?: string }).id ?? null; } catch { /* hash fallback */ }
@@ -120,6 +138,23 @@ export function ingestPiTranscriptLine(sessionId: string, rawLine: string): numb
     } catch { /* best-effort */ }
   }
   return events.length;
+}
+
+export function readContextFillFromPiUsageLine(rawLine: string): ContextFillReading | null {
+  const trimmed = rawLine.trim();
+  if (trimmed.length === 0) return null;
+  try {
+    const o = JSON.parse(trimmed) as PiJsonlEvent;
+    const usage = o.message?.usage;
+    if (!usage) return null;
+    const inputTokens =
+      numberValue(usage.input)
+      + numberValue(usage.cacheRead)
+      + numberValue(usage.cacheWrite);
+    return contextFillFromTokens(inputTokens, DEFAULT_PI_CONTEXT_WINDOW);
+  } catch {
+    return null;
+  }
 }
 
 export function readCwdFromPiSessionLine(rawLine: string): string | null {

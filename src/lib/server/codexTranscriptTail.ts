@@ -25,6 +25,7 @@
 import { appendTerminalRunEvent } from './terminalRunEventsStore';
 import { broadcastTerminalEvent } from './terminalEventBroadcast';
 import { transcriptEventKey } from './transcriptEventId';
+import { setAgentContextFill } from './terminalsStore';
 import type { ClassifiedKind } from './classifiers/types';
 import type { TerminalRunEventTrust } from './terminalRunEventsStore';
 
@@ -45,6 +46,10 @@ type CodexPayload = {
   arguments?: string | unknown;
   output?: string;
   cwd?: string;
+  info?: {
+    last_token_usage?: { input_tokens?: number };
+    model_context_window?: number;
+  };
 };
 type CodexJsonlEvent = {
   type?: string;
@@ -125,6 +130,15 @@ export function parseCodexTranscriptLine(rawLine: string): CodexMappedEvent[] {
 }
 
 export function ingestCodexTranscriptLine(sessionId: string, rawLine: string): number {
+  const contextFill = readContextFillFromCodexTokenCountLine(rawLine);
+  if (contextFill) {
+    try {
+      setAgentContextFill(sessionId, contextFill.fill, 'codex-transcript-token-count');
+    } catch {
+      // Context telemetry must never block transcript ingestion.
+    }
+  }
+
   const events = parseCodexTranscriptLine(rawLine);
   // Codex rollout lines carry NO native per-line id — transcriptEventKey
   // falls back to a stable content hash of rawLine.
@@ -160,4 +174,28 @@ export function readCwdFromSessionMetaLine(rawLine: string): string | null {
     const cwd = o.payload?.cwd;
     return typeof cwd === 'string' && cwd.length > 0 ? cwd : null;
   } catch { return null; }
+}
+
+export function readContextFillFromCodexTokenCountLine(rawLine: string): {
+  fill: number;
+  inputTokens: number;
+  contextWindow: number;
+} | null {
+  const trimmed = rawLine.trim();
+  if (trimmed.length === 0) return null;
+  try {
+    const o = JSON.parse(trimmed) as CodexJsonlEvent;
+    if (o.type !== 'event_msg' || o.payload?.type !== 'token_count') return null;
+    const inputTokens = Number(o.payload.info?.last_token_usage?.input_tokens);
+    const contextWindow = Number(o.payload.info?.model_context_window);
+    if (!Number.isFinite(inputTokens) || inputTokens < 0) return null;
+    if (!Number.isFinite(contextWindow) || contextWindow <= 0) return null;
+    return {
+      fill: Math.min(1, inputTokens / contextWindow),
+      inputTokens,
+      contextWindow
+    };
+  } catch {
+    return null;
+  }
 }

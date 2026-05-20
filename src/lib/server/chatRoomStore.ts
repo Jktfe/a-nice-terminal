@@ -17,6 +17,7 @@
 import { randomUUID } from 'node:crypto';
 import type { RoomAttentionState } from '$lib/domain/types';
 import { getIdentityDb } from './db';
+import { findTerminalRecordByHandle } from './terminalRecordsStore';
 
 export type ParticipantBackgroundStyle = 'card' | 'tint' | 'transparent';
 
@@ -194,6 +195,10 @@ function rowToRoom(row: ChatRoomRow, members: RoomMember[]): ChatRoom {
 }
 
 function memberRowToMember(row: ChatRoomMemberRow): RoomMember {
+  const kind: RoomMember['kind'] =
+    row.kind === 'human' && row.handle !== '@you' && findTerminalRecordByHandle(row.handle)
+      ? 'agent'
+      : row.kind;
   return {
     handle: row.handle,
     displayName: row.display_name,
@@ -201,10 +206,10 @@ function memberRowToMember(row: ChatRoomMemberRow): RoomMember {
     displayIcon: row.display_icon ?? defaultParticipantIcon(row.display_name || row.handle),
     displayBackgroundStyle: normaliseParticipantBackgroundStyle(
       row.display_background_style,
-      row.kind
+      kind
     ),
     joinedAt: row.joined_at,
-    kind: row.kind
+    kind
   };
 }
 
@@ -255,6 +260,30 @@ export function createChatRoom(input: { name: string; whoCreatedIt: string }): C
   if (trimmedName.length === 0) {
     throw new Error('A chat room needs a name with at least one character.');
   }
+  // creatorKind detection: @you = human (always). Otherwise prefer a
+  // terminal_record match. If that misses (race between agent registration
+  // and side-room creation, or terminal_records not yet populated), check
+  // for an existing live room-membership binding under the same handle —
+  // that binding only exists for handles backed by a real terminal_id.
+  // Without this fallback, agents creating side-rooms get stored as
+  // kind='human' and the agent pill goes missing.
+  const hasExistingAgentBinding = (handle: string): boolean => {
+    if (handle === '@you' || handle.startsWith('@browser-bs_')) return false;
+    const row = getIdentityDb()
+      .prepare(
+        `SELECT 1 FROM room_memberships
+         WHERE handle = ? AND terminal_id != '' AND revoked_at_ms IS NULL
+         LIMIT 1`
+      )
+      .get(handle);
+    return !!row;
+  };
+  const creatorKind: RoomMember['kind'] =
+    input.whoCreatedIt === '@you'
+      ? 'human'
+      : findTerminalRecordByHandle(input.whoCreatedIt) || hasExistingAgentBinding(input.whoCreatedIt)
+        ? 'agent'
+        : 'human';
 
   const db = getIdentityDb();
   const newRoomId = makeRoomId();
@@ -277,15 +306,16 @@ export function createChatRoom(input: { name: string; whoCreatedIt: string }): C
 
     db.prepare(`INSERT INTO chat_room_members
       (id, room_id, handle, display_name, display_color, display_icon, display_background_style, joined_at, kind)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'human')`).run(
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       randomUUID(),
       newRoomId,
       input.whoCreatedIt,
       input.whoCreatedIt,
       defaultParticipantColor(input.whoCreatedIt),
       defaultParticipantIcon(input.whoCreatedIt),
-      defaultParticipantBackgroundStyle('human'),
-      nowIso
+      defaultParticipantBackgroundStyle(creatorKind),
+      nowIso,
+      creatorKind
     );
 
     // Task #138: server operator @you is always a member

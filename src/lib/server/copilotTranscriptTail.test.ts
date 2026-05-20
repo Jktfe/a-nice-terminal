@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   mapCopilotEvent, parseCopilotTranscriptLine, ingestCopilotTranscriptLine,
-  readCwdFromCopilotSessionStartLine
+  readCwdFromCopilotSessionStartLine, readContextFillFromCopilotMetricsLine
 } from './copilotTranscriptTail';
 import { listLatestTerminalRunEvents } from './terminalRunEventsStore';
 import { getIdentityDb } from './db';
+import { getTerminalById, upsertTerminal } from './terminalsStore';
 
 describe('mapCopilotEvent', () => {
   it('user.message → command', () => {
@@ -89,6 +90,31 @@ describe('readCwdFromCopilotSessionStartLine', () => {
   });
 });
 
+describe('readContextFillFromCopilotMetricsLine', () => {
+  it('extracts Copilot context fill from shutdown model metrics', () => {
+    const line = JSON.stringify({
+      type: 'session.shutdown',
+      data: {
+        modelMetrics: {
+          'claude-sonnet-4.6': {
+            usage: {
+              inputTokens: 50_000,
+              cacheReadTokens: 40_000,
+              cacheWriteTokens: 10_000
+            }
+          }
+        }
+      }
+    });
+
+    expect(readContextFillFromCopilotMetricsLine(line)).toEqual({
+      fill: 0.5,
+      inputTokens: 100_000,
+      contextWindow: 200_000
+    });
+  });
+});
+
 describe('ingestCopilotTranscriptLine — DB roundtrip', () => {
   beforeEach(() => {
     try { getIdentityDb().prepare(`DELETE FROM terminal_run_events`).run(); } catch {}
@@ -112,5 +138,29 @@ describe('ingestCopilotTranscriptLine — DB roundtrip', () => {
     expect(ingestCopilotTranscriptLine(SID, JSON.stringify({
       type: 'hook.start', data: {}
     }))).toBe(0);
+  });
+
+  it('persists context-fill from Copilot metrics lines without creating run events', () => {
+    const terminal = upsertTerminal({ pid: 425, pid_start: 'pst', name: 'copilot-context-fill-test' });
+    const line = JSON.stringify({
+      type: 'session.shutdown',
+      data: {
+        modelMetrics: {
+          'claude-sonnet-4.6': {
+            usage: {
+              inputTokens: 50_000,
+              cacheReadTokens: 40_000,
+              cacheWriteTokens: 10_000
+            }
+          }
+        }
+      }
+    });
+
+    expect(ingestCopilotTranscriptLine(terminal.id, line)).toBe(0);
+    const row = getTerminalById(terminal.id);
+    expect(row?.agent_context_fill).toBeCloseTo(0.5);
+    expect(row?.agent_context_fill_source).toBe('copilot-transcript-metrics');
+    expect(typeof row?.agent_context_fill_at_ms).toBe('number');
   });
 });

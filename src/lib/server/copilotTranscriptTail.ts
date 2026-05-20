@@ -15,8 +15,12 @@
 import { appendTerminalRunEvent } from './terminalRunEventsStore';
 import { broadcastTerminalEvent } from './terminalEventBroadcast';
 import { transcriptEventKey } from './transcriptEventId';
+import { contextFillFromTokens, numberValue, type ContextFillReading } from './contextFillTelemetry';
+import { setAgentContextFill } from './terminalsStore';
 import type { ClassifiedKind } from './classifiers/types';
 import type { TerminalRunEventTrust } from './terminalRunEventsStore';
+
+const DEFAULT_COPILOT_CONTEXT_WINDOW = 200_000;
 
 export type CopilotMappedEvent = {
   kind: ClassifiedKind;
@@ -32,6 +36,13 @@ type CopilotJsonlEvent = {
     toolRequests?: CopilotToolRequest[];
     result?: { content?: string; detailedContent?: string };
     context?: { cwd?: string };
+    modelMetrics?: Record<string, {
+      usage?: {
+        inputTokens?: number;
+        cacheReadTokens?: number;
+        cacheWriteTokens?: number;
+      };
+    }>;
   };
 };
 
@@ -83,6 +94,15 @@ export function parseCopilotTranscriptLine(rawLine: string): CopilotMappedEvent[
 }
 
 export function ingestCopilotTranscriptLine(sessionId: string, rawLine: string): number {
+  const contextFill = readContextFillFromCopilotMetricsLine(rawLine);
+  if (contextFill) {
+    try {
+      setAgentContextFill(sessionId, contextFill.fill, 'copilot-transcript-metrics');
+    } catch {
+      // Context telemetry must never block transcript ingestion.
+    }
+  }
+
   const events = parseCopilotTranscriptLine(rawLine);
   let nativeId: string | null = null;
   try { nativeId = (JSON.parse(rawLine.trim()) as { id?: string }).id ?? null; } catch { /* hash fallback */ }
@@ -102,6 +122,30 @@ export function ingestCopilotTranscriptLine(sessionId: string, rawLine: string):
     } catch { /* best-effort */ }
   }
   return events.length;
+}
+
+export function readContextFillFromCopilotMetricsLine(rawLine: string): ContextFillReading | null {
+  const trimmed = rawLine.trim();
+  if (trimmed.length === 0) return null;
+  try {
+    const o = JSON.parse(trimmed) as CopilotJsonlEvent;
+    if (o.type !== 'session.shutdown') return null;
+    const metrics = o.data?.modelMetrics;
+    if (!metrics) return null;
+    let maxInputTokens = 0;
+    for (const entry of Object.values(metrics)) {
+      const usage = entry?.usage;
+      if (!usage) continue;
+      const inputTokens =
+        numberValue(usage.inputTokens)
+        + numberValue(usage.cacheReadTokens)
+        + numberValue(usage.cacheWriteTokens);
+      if (inputTokens > maxInputTokens) maxInputTokens = inputTokens;
+    }
+    return contextFillFromTokens(maxInputTokens, DEFAULT_COPILOT_CONTEXT_WINDOW);
+  } catch {
+    return null;
+  }
 }
 
 export function readCwdFromCopilotSessionStartLine(rawLine: string): string | null {

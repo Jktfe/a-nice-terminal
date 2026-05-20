@@ -19,6 +19,7 @@ import {
   type ChatRoom,
   type RoomMember
 } from './chatRoomStore';
+import { bindRoomHandleToLiveTerminal } from './terminalHandleBinding';
 
 export type BindResult = {
   room: ChatRoom;
@@ -49,12 +50,24 @@ export function bindTokenToRoomMembership(input: {
   const normalisedHandle = normaliseHandle(identity.handle);
   const existing = findMemberByHandle(room, normalisedHandle);
   if (existing) {
+    // Side-rooms fanout bug fix (2026-05-20): even when the chat_room_members
+    // row already exists, the room_memberships row (which fanout actually
+    // reads to find the live PTY) may be missing or bound to a stale
+    // browser-session synthetic terminal. Re-bind so subsequent messages
+    // route to the live terminal record's pane.
+    bindRoomHandleToLiveTerminal(input.roomId, normalisedHandle);
     return { room, member: existing, identity };
   }
   const updatedRoom = inviteAgentToRoom({
     roomId: input.roomId,
     agentHandle: normalisedHandle
   });
+  // Side-rooms fanout bug fix (2026-05-20): inviteAgentToRoom only writes
+  // chat_room_members. Without the matching room_memberships row,
+  // fanoutMessageToRoomTerminals silently skips this member because the
+  // membership lookup returns no terminal_id. Bind the live terminal here
+  // so message delivery works from the first message onward.
+  bindRoomHandleToLiveTerminal(input.roomId, normalisedHandle);
   const justJoined = findMemberByHandle(updatedRoom, normalisedHandle);
   if (!justJoined) {
     throw new Error('inviteAgentToRoom did not surface the new member');

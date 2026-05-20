@@ -12,6 +12,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { createChatRoom, listChatRooms } from '$lib/server/chatRoomStore';
 import { recordParticipation } from '$lib/server/chatRoomParticipationHistoryStore';
+import { bindRoomHandleToLiveTerminal } from '$lib/server/terminalHandleBinding';
 
 export const GET: RequestHandler = async () => {
   return json({ chatRooms: listChatRooms() });
@@ -45,6 +46,7 @@ export const POST: RequestHandler = async ({ request }) => {
   try {
     const newRoom = createChatRoom({ name: nameFromBody, whoCreatedIt });
     recordParticipation({ globalHandle: whoCreatedIt, roomId: newRoom.id });
+    bindRoomHandleToLiveTerminal(newRoom.id, whoCreatedIt);
     return json({ chatRoom: newRoom }, { status: 201 });
   } catch (causeOfFailure) {
     const message =

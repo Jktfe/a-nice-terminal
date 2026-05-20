@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   mapCodexEvent, parseCodexTranscriptLine, ingestCodexTranscriptLine,
+  readContextFillFromCodexTokenCountLine,
   readCwdFromSessionMetaLine
 } from './codexTranscriptTail';
 import { listLatestTerminalRunEvents } from './terminalRunEventsStore';
 import { getIdentityDb } from './db';
+import { getTerminalById, upsertTerminal } from './terminalsStore';
 
 describe('mapCodexEvent — pure', () => {
   it('response_item message user input_text → kind=command', () => {
@@ -119,6 +121,45 @@ describe('readCwdFromSessionMetaLine', () => {
   });
 });
 
+describe('readContextFillFromCodexTokenCountLine', () => {
+  it('extracts context fill from codex token_count event messages', () => {
+    const line = JSON.stringify({
+      type: 'event_msg',
+      payload: {
+        type: 'token_count',
+        info: {
+          last_token_usage: { input_tokens: 129_200 },
+          model_context_window: 258_400
+        }
+      }
+    });
+
+    expect(readContextFillFromCodexTokenCountLine(line)).toEqual({
+      fill: 0.5,
+      inputTokens: 129_200,
+      contextWindow: 258_400
+    });
+  });
+
+  it('ignores malformed or incomplete token-count lines', () => {
+    expect(readContextFillFromCodexTokenCountLine('not json')).toBeNull();
+    expect(readContextFillFromCodexTokenCountLine(JSON.stringify({
+      type: 'event_msg',
+      payload: { type: 'agent_message' }
+    }))).toBeNull();
+    expect(readContextFillFromCodexTokenCountLine(JSON.stringify({
+      type: 'event_msg',
+      payload: {
+        type: 'token_count',
+        info: {
+          last_token_usage: { input_tokens: 1 },
+          model_context_window: 0
+        }
+      }
+    }))).toBeNull();
+  });
+});
+
 describe('ingestCodexTranscriptLine — DB roundtrip', () => {
   beforeEach(() => {
     try { getIdentityDb().prepare(`DELETE FROM terminal_run_events`).run(); } catch {}
@@ -148,5 +189,26 @@ describe('ingestCodexTranscriptLine — DB roundtrip', () => {
       type: 'event_msg', payload: { type: 'agent_message', message: 'dup body' }
     }))).toBe(0);
     expect(listLatestTerminalRunEvents(SID, 5)).toHaveLength(0);
+  });
+
+  it('persists context-fill from token_count lines without creating run events', () => {
+    const terminal = upsertTerminal({ pid: 321, pid_start: 'pst', name: 'codex-context-fill-test' });
+    const line = JSON.stringify({
+      type: 'event_msg',
+      payload: {
+        type: 'token_count',
+        info: {
+          last_token_usage: { input_tokens: 206_720 },
+          model_context_window: 258_400
+        }
+      }
+    });
+
+    expect(ingestCodexTranscriptLine(terminal.id, line)).toBe(0);
+    const row = getTerminalById(terminal.id);
+    expect(row?.agent_context_fill).toBeCloseTo(0.8);
+    expect(row?.agent_context_fill_source).toBe('codex-transcript-token-count');
+    expect(typeof row?.agent_context_fill_at_ms).toBe('number');
+    expect(listLatestTerminalRunEvents(terminal.id, 5)).toHaveLength(0);
   });
 });

@@ -38,6 +38,7 @@
         class="mention-option"
         class:active={optionIndex === activeIndex}
         class:broadcast={option.optionKind === 'broadcast'}
+        onmousedown={(event) => event.preventDefault()}
         onclick={() => onPick(option.handleToInsert)}
         onmouseenter={() => onHover(optionIndex)}
       >

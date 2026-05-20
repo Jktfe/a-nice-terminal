@@ -191,6 +191,13 @@ describe('decideMentionKeyAction', () => {
     });
   });
 
+  it('falls back to the first option when the active index is stale', () => {
+    expect(decideMentionKeyAction('Tab', fakeOptions, 99)).toEqual({
+      action: 'insert',
+      handleToInsert: '@a'
+    });
+  });
+
   it('returns dismiss on Escape', () => {
     expect(decideMentionKeyAction('Escape', fakeOptions, 0)).toEqual({ action: 'dismiss' });
   });

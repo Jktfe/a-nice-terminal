@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   mapGeminiEvent, parseGeminiTranscriptLine, ingestGeminiTranscriptLine,
-  geminiProjectDirNameForCwd
+  geminiProjectDirNameForCwd, readContextFillFromGeminiTokensLine
 } from './geminiTranscriptTail';
 import { listLatestTerminalRunEvents } from './terminalRunEventsStore';
 import { getIdentityDb } from './db';
+import { getTerminalById, upsertTerminal } from './terminalsStore';
 
 describe('geminiProjectDirNameForCwd', () => {
   it('lowercases basename', () => {
@@ -75,6 +76,29 @@ describe('parseGeminiTranscriptLine', () => {
   });
 });
 
+describe('readContextFillFromGeminiTokensLine', () => {
+  it('extracts Gemini context fill from tokens counters', () => {
+    const line = JSON.stringify({
+      type: 'gemini',
+      tokens: { input: 700_000, cached: 100_000, tool: 100_000, output: 10 }
+    });
+
+    expect(readContextFillFromGeminiTokensLine(line)).toEqual({
+      fill: 0.9,
+      inputTokens: 900_000,
+      contextWindow: 1_000_000
+    });
+  });
+
+  it('ignores Gemini lines without tokens', () => {
+    expect(readContextFillFromGeminiTokensLine('garbage')).toBeNull();
+    expect(readContextFillFromGeminiTokensLine(JSON.stringify({
+      type: 'gemini',
+      content: 'reply'
+    }))).toBeNull();
+  });
+});
+
 describe('ingestGeminiTranscriptLine — DB roundtrip', () => {
   beforeEach(() => {
     try { getIdentityDb().prepare(`DELETE FROM terminal_run_events`).run(); } catch {}
@@ -98,5 +122,20 @@ describe('ingestGeminiTranscriptLine — DB roundtrip', () => {
     expect(ingestGeminiTranscriptLine(SID, JSON.stringify({ type: 'info', content: 'x' }))).toBe(0);
     expect(ingestGeminiTranscriptLine(SID, JSON.stringify({ sessionId: 'x' }))).toBe(0);
     expect(listLatestTerminalRunEvents(SID, 5)).toHaveLength(0);
+  });
+
+  it('persists context-fill from Gemini token lines alongside run events', () => {
+    const terminal = upsertTerminal({ pid: 423, pid_start: 'pst', name: 'gemini-context-fill-test' });
+    const line = JSON.stringify({
+      type: 'gemini',
+      content: 'answer body',
+      tokens: { input: 700_000, cached: 100_000, tool: 100_000 }
+    });
+
+    expect(ingestGeminiTranscriptLine(terminal.id, line)).toBe(1);
+    const row = getTerminalById(terminal.id);
+    expect(row?.agent_context_fill).toBeCloseTo(0.9);
+    expect(row?.agent_context_fill_source).toBe('gemini-transcript-tokens');
+    expect(typeof row?.agent_context_fill_at_ms).toBe('number');
   });
 });

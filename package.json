@@ -61,6 +61,7 @@
     "better-sqlite3": "^12.10.0",
     "isomorphic-dompurify": "^3.13.0",
     "marked": "^18.0.3",
+    "otpauth": "^9.5.1",
     "protobufjs": "^8.3.0",
     "qrcode": "^1.5.4",
     "vscode-jsonrpc": "^8.2.1"

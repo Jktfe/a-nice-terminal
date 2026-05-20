@@ -21,8 +21,12 @@
 import { appendTerminalRunEvent } from './terminalRunEventsStore';
 import { broadcastTerminalEvent } from './terminalEventBroadcast';
 import { transcriptEventKey } from './transcriptEventId';
+import { contextFillFromTokens, numberValue, type ContextFillReading } from './contextFillTelemetry';
+import { setAgentContextFill } from './terminalsStore';
 import type { ClassifiedKind } from './classifiers/types';
 import type { TerminalRunEventTrust } from './terminalRunEventsStore';
+
+const DEFAULT_QWEN_CONTEXT_WINDOW = 262_144;
 
 export type QwenMappedEvent = {
   kind: ClassifiedKind;
@@ -44,12 +48,24 @@ type QwenPart = {
 type QwenMessage = {
   role?: string;
   parts?: QwenPart[];
+  usageMetadata?: {
+    promptTokenCount?: number;
+    cachedContentTokenCount?: number;
+  };
 };
 
 type QwenJsonlEvent = {
   type?: string;
+  subtype?: string;
   cwd?: string;
   message?: QwenMessage;
+  systemPayload?: {
+    uiEvent?: {
+      'event.name'?: string;
+      input_token_count?: number;
+      cached_content_token_count?: number;
+    };
+  };
 };
 
 export function mapQwenPart(role: string, part: QwenPart): QwenMappedEvent | null {
@@ -116,6 +132,15 @@ export function parseQwenTranscriptLine(rawLine: string): QwenMappedEvent[] {
 }
 
 export function ingestQwenTranscriptLine(sessionId: string, rawLine: string): number {
+  const contextFill = readContextFillFromQwenUsageLine(rawLine);
+  if (contextFill) {
+    try {
+      setAgentContextFill(sessionId, contextFill.fill, 'qwen-transcript-usage');
+    } catch {
+      // Context telemetry must never block transcript ingestion.
+    }
+  }
+
   const events = parseQwenTranscriptLine(rawLine);
   let nativeId: string | null = null;
   try { nativeId = (JSON.parse(rawLine.trim()) as { uuid?: string }).uuid ?? null; } catch { /* hash fallback */ }
@@ -135,6 +160,32 @@ export function ingestQwenTranscriptLine(sessionId: string, rawLine: string): nu
     } catch { /* best-effort */ }
   }
   return events.length;
+}
+
+export function readContextFillFromQwenUsageLine(rawLine: string): ContextFillReading | null {
+  const trimmed = rawLine.trim();
+  if (trimmed.length === 0) return null;
+  try {
+    const o = JSON.parse(trimmed) as QwenJsonlEvent;
+    const usage = o.message?.usageMetadata;
+    if (usage) {
+      const inputTokens =
+        numberValue(usage.promptTokenCount)
+        + numberValue(usage.cachedContentTokenCount);
+      return contextFillFromTokens(inputTokens, DEFAULT_QWEN_CONTEXT_WINDOW);
+    }
+
+    const uiEvent = o.systemPayload?.uiEvent;
+    if (uiEvent && uiEvent['event.name'] === 'qwen-code.api_response') {
+      const inputTokens =
+        numberValue(uiEvent.input_token_count)
+        + numberValue(uiEvent.cached_content_token_count);
+      return contextFillFromTokens(inputTokens, DEFAULT_QWEN_CONTEXT_WINDOW);
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export function readCwdFromQwenLine(rawLine: string): string | null {

@@ -25,8 +25,12 @@
 import { appendTerminalRunEvent } from './terminalRunEventsStore';
 import { broadcastTerminalEvent } from './terminalEventBroadcast';
 import { transcriptEventKey } from './transcriptEventId';
+import { contextFillFromTokens, numberValue, type ContextFillReading } from './contextFillTelemetry';
+import { setAgentContextFill } from './terminalsStore';
 import type { ClassifiedKind } from './classifiers/types';
 import type { TerminalRunEventTrust } from './terminalRunEventsStore';
+
+const DEFAULT_CLAUDE_CONTEXT_WINDOW = 200_000;
 
 export type ClaudeMappedEvent = {
   kind: ClassifiedKind;
@@ -43,6 +47,11 @@ type ClaudeContentItem =
 type ClaudeMessage = {
   role?: string;
   content?: string | ClaudeContentItem[];
+  usage?: {
+    input_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
 };
 
 type ClaudeJsonlEvent = {
@@ -145,7 +154,33 @@ function nativeIdFromLine(rawLine: string): string | null {
   } catch { return null; }
 }
 
+export function readContextFillFromClaudeUsageLine(rawLine: string): ContextFillReading | null {
+  const trimmed = rawLine.trim();
+  if (trimmed.length === 0) return null;
+  try {
+    const o = JSON.parse(trimmed) as ClaudeJsonlEvent;
+    const usage = o.message?.usage;
+    if (!usage) return null;
+    const inputTokens =
+      numberValue(usage.input_tokens)
+      + numberValue(usage.cache_read_input_tokens)
+      + numberValue(usage.cache_creation_input_tokens);
+    return contextFillFromTokens(inputTokens, DEFAULT_CLAUDE_CONTEXT_WINDOW);
+  } catch {
+    return null;
+  }
+}
+
 export function ingestTranscriptLine(sessionId: string, rawLine: string): number {
+  const contextFill = readContextFillFromClaudeUsageLine(rawLine);
+  if (contextFill) {
+    try {
+      setAgentContextFill(sessionId, contextFill.fill, 'claude-transcript-usage');
+    } catch {
+      // Context telemetry must never block transcript ingestion.
+    }
+  }
+
   const events = parseTranscriptLine(rawLine);
   const nativeId = nativeIdFromLine(rawLine);
   let i = 0;

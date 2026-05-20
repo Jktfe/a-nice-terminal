@@ -4,7 +4,8 @@ import { createChatRoom, inviteAgentToRoom, resetChatRoomStoreForTests } from '$
 import { setRoomMode } from '$lib/server/roomModesStore';
 import { getIdentityDb, resetIdentityDbForTests } from '$lib/server/db';
 import { addMembership } from '$lib/server/roomMembershipsStore';
-import { upsertTerminal } from '$lib/server/terminalsStore';
+import { adoptExternalProcessForTerminal, upsertTerminal } from '$lib/server/terminalsStore';
+import { createTerminalRecord } from '$lib/server/terminalRecordsStore';
 
 type PostOptions = {
   roomId: string;
@@ -89,6 +90,34 @@ describe('POST /api/chat-rooms/:roomId/browser-session', () => {
     expect(browserSessionCount()).toBe(1);
     const payload = await response.json();
     expect(payload.browserSession.handle).toBe('@you');
+  });
+
+  it('binds agent browser-session mint to the live terminal record before browser fallback', async () => {
+    const record = createTerminalRecord({
+      sessionId: 'codex-live-session',
+      name: 'evolveantcodex',
+      handle: '@evolveantcodex',
+      agentKind: 'codex',
+      tmuxTargetPane: 'codex-live-session:0.0'
+    });
+    adoptExternalProcessForTerminal({
+      record,
+      pid: 4242,
+      pidStart: 'pid-start-codex',
+      ttlSeconds: 3600
+    });
+    const room = createChatRoom({ name: 'codex side room', whoCreatedIt: '@evolveantcodex' });
+
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({ authorHandle: '@evolveantcodex' })
+    });
+
+    expect(response.status).toBe(201);
+    const membership = getIdentityDb()
+      .prepare(`SELECT terminal_id FROM room_memberships WHERE room_id = ? AND handle = ? AND revoked_at_ms IS NULL`)
+      .get(room.id, '@evolveantcodex') as { terminal_id: string } | undefined;
+    expect(membership?.terminal_id).toBe('codex-live-session');
   });
 
   it('CLOSED rooms reject an arbitrary existing identity handle that is not in the room model', async () => {

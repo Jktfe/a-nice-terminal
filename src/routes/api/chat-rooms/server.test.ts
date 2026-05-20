@@ -16,6 +16,10 @@ import {
   listPriorCollaboratorsExcludingRoom,
   resetChatRoomParticipationHistoryStoreForTests
 } from '$lib/server/chatRoomParticipationHistoryStore';
+import { resetIdentityDbForTests } from '$lib/server/db';
+import { getTerminalIdByHandle } from '$lib/server/roomMembershipsStore';
+import { adoptExternalProcessForTerminal } from '$lib/server/terminalsStore';
+import { createTerminalRecord } from '$lib/server/terminalRecordsStore';
 
 function eventForPost(body?: string) {
   const url = new URL('http://localhost/api/chat-rooms');
@@ -61,6 +65,7 @@ async function callGet(): Promise<Response> {
 
 describe('POST /api/chat-rooms whoCreatedIt normalisation', () => {
   beforeEach(() => {
+    resetIdentityDbForTests();
     resetChatMessageStoreForTests();
     resetChatRoomStoreForTests();
     resetChatRoomParticipationHistoryStoreForTests();
@@ -107,6 +112,50 @@ describe('POST /api/chat-rooms whoCreatedIt normalisation', () => {
     expect(response.status).toBe(201);
     const created = listChatRooms()[0];
     expect(created.whoCreatedIt).toBe('@evolveantclaude');
+  });
+
+  it('binds an agent-created room to the live terminal record', async () => {
+    const record = createTerminalRecord({
+      sessionId: 'claude-live-session',
+      name: 'evolveantclaude',
+      handle: '@evolveantclaude',
+      agentKind: 'claude',
+      tmuxTargetPane: 'claude-live-session:0.0'
+    });
+    adoptExternalProcessForTerminal({
+      record,
+      pid: 5151,
+      pidStart: 'pid-start-claude',
+      ttlSeconds: 3600
+    });
+
+    const response = await callPost(
+      JSON.stringify({ name: 'claude side room', whoCreatedIt: '@evolveantclaude' })
+    );
+
+    expect(response.status).toBe(201);
+    const created = listChatRooms()[0];
+    expect(getTerminalIdByHandle(created.id, '@evolveantclaude')).toBe('claude-live-session');
+    expect(created.members.find((member) => member.handle === '@evolveantclaude')?.kind).toBe('agent');
+  });
+
+  it('renders legacy human creator rows as agent when a terminal record exists', async () => {
+    await callPost(JSON.stringify({ name: 'legacy side room', whoCreatedIt: '@evolveantcodex' }));
+    const createdBeforeRecord = listChatRooms()[0];
+    expect(createdBeforeRecord.members.find((member) => member.handle === '@evolveantcodex')?.kind)
+      .toBe('human');
+
+    createTerminalRecord({
+      sessionId: 'codex-live-session',
+      name: 'evolveantcodex',
+      handle: '@evolveantcodex',
+      agentKind: 'codex',
+      tmuxTargetPane: 'codex-live-session:0.0'
+    });
+
+    const repaired = findChatRoomById(createdBeforeRecord.id);
+    expect(repaired?.members.find((member) => member.handle === '@evolveantcodex')?.kind)
+      .toBe('agent');
   });
 
   it('rejects room names containing leaked --name flag (#144)', async () => {

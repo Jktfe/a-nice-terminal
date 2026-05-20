@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   parseTranscriptLine, mapClaudeContentItem, encodedCwdSegmentFor,
-  ingestTranscriptLine
+  ingestTranscriptLine, readContextFillFromClaudeUsageLine
 } from './claudeCodeTranscriptTail';
 import { listLatestTerminalRunEvents } from './terminalRunEventsStore';
 import { getIdentityDb } from './db';
+import { getTerminalById, upsertTerminal } from './terminalsStore';
 
 describe('encodedCwdSegmentFor', () => {
   it('replaces / with - and prefixes', () => {
@@ -99,6 +100,35 @@ describe('parseTranscriptLine', () => {
   });
 });
 
+describe('readContextFillFromClaudeUsageLine', () => {
+  it('extracts Claude context fill from message usage counters', () => {
+    const line = JSON.stringify({
+      type: 'assistant',
+      message: {
+        usage: {
+          input_tokens: 10_000,
+          cache_read_input_tokens: 20_000,
+          cache_creation_input_tokens: 10_000
+        }
+      }
+    });
+
+    expect(readContextFillFromClaudeUsageLine(line)).toEqual({
+      fill: 0.2,
+      inputTokens: 40_000,
+      contextWindow: 200_000
+    });
+  });
+
+  it('ignores malformed or non-usage Claude lines', () => {
+    expect(readContextFillFromClaudeUsageLine('garbage')).toBeNull();
+    expect(readContextFillFromClaudeUsageLine(JSON.stringify({
+      type: 'user',
+      message: { role: 'user', content: 'hello' }
+    }))).toBeNull();
+  });
+});
+
 describe('ingestTranscriptLine — DB roundtrip', () => {
   beforeEach(() => {
     try { getIdentityDb().prepare(`DELETE FROM terminal_run_events`).run(); } catch {}
@@ -142,5 +172,27 @@ describe('ingestTranscriptLine — DB roundtrip', () => {
     const SID = 't_tr_3';
     expect(ingestTranscriptLine(SID, JSON.stringify({ type: 'system' }))).toBe(0);
     expect(listLatestTerminalRunEvents(SID, 5)).toHaveLength(0);
+  });
+
+  it('persists context-fill from Claude usage lines alongside run events', () => {
+    const terminal = upsertTerminal({ pid: 421, pid_start: 'pst', name: 'claude-context-fill-test' });
+    const line = JSON.stringify({
+      type: 'assistant',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'reply body' }],
+        usage: {
+          input_tokens: 10_000,
+          cache_read_input_tokens: 20_000,
+          cache_creation_input_tokens: 10_000
+        }
+      }
+    });
+
+    expect(ingestTranscriptLine(terminal.id, line)).toBe(1);
+    const row = getTerminalById(terminal.id);
+    expect(row?.agent_context_fill).toBeCloseTo(0.2);
+    expect(row?.agent_context_fill_source).toBe('claude-transcript-usage');
+    expect(typeof row?.agent_context_fill_at_ms).toBe('number');
   });
 });

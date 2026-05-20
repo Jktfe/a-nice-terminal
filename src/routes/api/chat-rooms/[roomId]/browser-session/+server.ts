@@ -5,6 +5,7 @@ import { addMembership, getTerminalIdByHandle } from '$lib/server/roomMembership
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { createBrowserSession } from '$lib/server/browserSessionStore';
 import { getRoomMode } from '$lib/server/roomModesStore';
+import { bindRoomHandleToLiveTerminal } from '$lib/server/terminalHandleBinding';
 
 function normalizeHandle(rawHandle: string): string {
   const trimmed = rawHandle.trim();
@@ -136,7 +137,7 @@ export const POST: RequestHandler = async ({ params, request, url }) => {
   // downstream accepts the browser session. The terminal is scoped per
   // (room, handle); no PID since the browser tab is the "process";
   // source='browser-session-default' distinguishes from CLI registers.
-  if (!getTerminalIdByHandle(roomId, authorHandle)) {
+  if (!bindRoomHandleToLiveTerminal(roomId, authorHandle) && !getTerminalIdByHandle(roomId, authorHandle)) {
     const syntheticTerminal = upsertTerminal({
       pid: 0,
       pid_start: `browser-session-${Date.now()}`,

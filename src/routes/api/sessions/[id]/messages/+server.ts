@@ -22,9 +22,13 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { doesChatRoomExist } from '$lib/server/chatRoomStore';
-import { postMessage } from '$lib/server/chatMessageStore';
+import { listMessagesPageInRoom, postMessage, type ChatMessage } from '$lib/server/chatMessageStore';
 import { requireAdminAuth } from '$lib/server/chatInviteAuth';
 import { verifyToken } from '$lib/server/chatInviteStore';
+import { broadcastToRoom } from '$lib/server/eventBroadcast';
+import { fanoutMessageToRoomTerminals } from '$lib/server/pty-inject-fanout';
+import { hasBareEveryoneMention } from '$lib/chat/mentionRouting';
+import { collectAskCandidatesFromMessage } from '$lib/server/askCandidateStore';
 
 type V3Body = {
   role?: unknown;
@@ -37,6 +41,9 @@ type V3Body = {
   pidChain?: unknown;
   parentMessageId?: unknown;
 };
+
+const DEFAULT_MESSAGE_PAGE_SIZE = 50;
+const MAX_MESSAGE_PAGE_SIZE = 200;
 
 function translateBody(v3: V3Body): Record<string, unknown> | null {
   const content = typeof v3.content === 'string' ? v3.content : null;
@@ -53,6 +60,45 @@ function translateBody(v3: V3Body): Record<string, unknown> | null {
   // kind/meta/msg_type are dropped — v4's chat-rooms route enforces its own
   // kind validation. v3 CLI doesn't set kind so default ('human') is fine.
   return v4;
+}
+
+function parseLimit(rawLimit: string | null): number {
+  if (rawLimit === null || rawLimit.trim().length === 0) return DEFAULT_MESSAGE_PAGE_SIZE;
+  const parsed = Number(rawLimit);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw error(400, 'limit must be a positive integer.');
+  }
+  return Math.min(parsed, MAX_MESSAGE_PAGE_SIZE);
+}
+
+function emitLegacyMessageSideEffects(roomId: string, message: ChatMessage): void {
+  try {
+    collectAskCandidatesFromMessage(message);
+  } catch {
+    /* ask-candidate inference is best-effort */
+  }
+  try {
+    fanoutMessageToRoomTerminals(roomId, message, {
+      forceBroadcastToAll: hasBareEveryoneMention(message.body)
+    });
+  } catch {
+    /* fanout is best-effort */
+  }
+  try {
+    broadcastToRoom(roomId, { type: 'message_added', message });
+  } catch {
+    /* SSE broadcast is best-effort */
+  }
+  try {
+    broadcastToRoom(roomId, {
+      type: 'agent_activity',
+      handle: message.authorHandle,
+      status: 'working',
+      at: new Date().toISOString()
+    });
+  } catch {
+    /* activity tick is best-effort */
+  }
 }
 
 export const POST: RequestHandler = async ({ params, request, fetch }) => {
@@ -110,6 +156,7 @@ export const POST: RequestHandler = async ({ params, request, fetch }) => {
       kind: 'human',
       ...(parentMessageId !== undefined && { parentMessageId })
     });
+    emitLegacyMessageSideEffects(id, newMessage);
     return json({ ok: true, message: newMessage }, { status: 201 });
   }
 
@@ -143,11 +190,13 @@ export const POST: RequestHandler = async ({ params, request, fetch }) => {
   return new Response(text, responseInit);
 };
 
-// GET is intentionally NOT shimmed yet — only chat send is on the localgem
-// critical path tonight. Add later if `ant chat tail` becomes needed.
-export const GET: RequestHandler = () => {
-  return json(
-    { error: 'GET shim not implemented; use /api/chat-rooms/:id/messages directly.' },
-    { status: 501 }
-  );
+export const GET: RequestHandler = ({ params, url }) => {
+  const id = params.id;
+  if (!id) throw error(400, 'id required.');
+  if (!doesChatRoomExist(id)) {
+    throw error(404, `Chat room ${id} not found (v3-compat shim).`);
+  }
+  const limit = parseLimit(url.searchParams.get('limit'));
+  const page = listMessagesPageInRoom({ roomId: id, limit });
+  return json({ messages: page.messages });
 };
