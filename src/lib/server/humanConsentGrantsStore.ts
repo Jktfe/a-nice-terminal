@@ -180,6 +180,13 @@ export function findActiveGrantForOwnerAndTerminal(input: {
  * status transition to 'exhausted' if max_uses reached. Writes audit
  * row referencing the message_id for traceability.
  *
+ * Task #31 refactor: the active-only filter is pushed into the SQL
+ * WHERE clause. The conditional UPDATE matches at most one row when
+ * status='active'; if it matches zero rows we fall through to a SELECT
+ * that classifies the terminal state. This eliminates the prior
+ * SELECT-then-branch-then-UPDATE read-modify-write window where a
+ * concurrent caller could observe stale uses_consumed.
+ *
  * Returns 'ok' on accept, 'expired'/'exhausted'/'revoked'/'unknown'
  * for the various failure paths.
  */
@@ -194,44 +201,67 @@ export function consumeHumanConsentGrant(input: {
   const db = getIdentityDb();
   let result: 'ok' | 'expired' | 'exhausted' | 'revoked' | 'unknown' = 'unknown';
   db.transaction(() => {
-    const row = db
-      .prepare(`SELECT * FROM human_consent_grants WHERE id = ?`)
-      .get(input.grantId) as GrantRow | undefined;
-    if (!row) return;
-    // Already-terminal states get a clean return without writing audit
-    // rows — the audit row was written at the transition; repeat callers
-    // get the status read back, not a duplicate audit entry.
-    if (row.status === 'revoked') { result = 'revoked'; return; }
-    if (row.status === 'exhausted') { result = 'exhausted'; return; }
-    if (row.status === 'expired') { result = 'expired'; return; }
-    if (row.expires_at_ms !== null && row.expires_at_ms <= now) {
-      db.prepare(
-        `UPDATE human_consent_grants SET status = 'expired', updated_at_ms = ? WHERE id = ?`
-      ).run(now, input.grantId);
+    // First, eagerly transition any TTL-elapsed grant to 'expired'. This
+    // is a no-op for non-expired rows (WHERE filter on expires_at_ms
+    // means 0 changes). Doing it inline keeps the conditional UPDATE
+    // below honest: an active-but-stale grant must not be consumable.
+    const expireResult = db
+      .prepare(
+        `UPDATE human_consent_grants
+         SET status = 'expired', updated_at_ms = ?
+         WHERE id = ? AND status = 'active'
+           AND expires_at_ms IS NOT NULL AND expires_at_ms <= ?`
+      )
+      .run(now, input.grantId, now);
+    if (expireResult.changes > 0) {
       writeAudit({ grantId: input.grantId, action: 'expired', occurredAtMs: now });
       result = 'expired';
       return;
     }
-    const newUses = row.uses_consumed + 1;
-    const newStatus: GrantStatus =
-      row.max_uses !== null && newUses >= row.max_uses ? 'exhausted' : 'active';
-    db.prepare(
-      `UPDATE human_consent_grants
-       SET uses_consumed = ?, status = ?, updated_at_ms = ?
-       WHERE id = ?`
-    ).run(newUses, newStatus, now, input.grantId);
-    writeAudit({
-      grantId: input.grantId,
-      action: 'consumed',
-      actorHandle: input.actorHandle,
-      actorTerminalId: input.actorTerminalId,
-      messageId: input.messageId,
-      occurredAtMs: now
-    });
-    if (newStatus === 'exhausted') {
-      writeAudit({ grantId: input.grantId, action: 'exhausted', occurredAtMs: now });
+    // Conditional UPDATE: only an active row matches. We bump uses
+    // and transition to 'exhausted' inline when max_uses is hit, using
+    // a CASE expression so the status decision is made by SQLite from
+    // the row's own (current) uses_consumed/max_uses.
+    const consumeResult = db
+      .prepare(
+        `UPDATE human_consent_grants
+         SET uses_consumed = uses_consumed + 1,
+             status = CASE
+               WHEN max_uses IS NOT NULL AND uses_consumed + 1 >= max_uses
+                 THEN 'exhausted'
+               ELSE 'active'
+             END,
+             updated_at_ms = ?
+         WHERE id = ? AND status = 'active'`
+      )
+      .run(now, input.grantId);
+    if (consumeResult.changes > 0) {
+      writeAudit({
+        grantId: input.grantId,
+        action: 'consumed',
+        actorHandle: input.actorHandle,
+        actorTerminalId: input.actorTerminalId,
+        messageId: input.messageId,
+        occurredAtMs: now
+      });
+      const refreshed = db
+        .prepare(`SELECT status FROM human_consent_grants WHERE id = ?`)
+        .get(input.grantId) as { status: GrantStatus } | undefined;
+      if (refreshed?.status === 'exhausted') {
+        writeAudit({ grantId: input.grantId, action: 'exhausted', occurredAtMs: now });
+      }
+      result = 'ok';
+      return;
     }
-    result = 'ok';
+    // Zero rows matched — classify the terminal state without writing
+    // a duplicate audit row (the original transition wrote it).
+    const row = db
+      .prepare(`SELECT status FROM human_consent_grants WHERE id = ?`)
+      .get(input.grantId) as { status: GrantStatus } | undefined;
+    if (!row) return; // result stays 'unknown'
+    if (row.status === 'revoked' || row.status === 'exhausted' || row.status === 'expired') {
+      result = row.status;
+    }
   })();
   return result;
 }
