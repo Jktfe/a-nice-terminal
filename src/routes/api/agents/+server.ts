@@ -14,6 +14,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { listAgents, getAgent, updateAgentMetadata } from '$lib/server/agentRegistryStore';
+import { listFleetAgents } from '$lib/server/agentFleetStore';
 import { doesChatRoomExist } from '$lib/server/chatRoomStore';
 
 function serialize(agent: ReturnType<typeof getAgent>) {
@@ -34,6 +35,9 @@ export const GET: RequestHandler = async ({ url }) => {
     if (!doesChatRoomExist(roomId)) {
       throw error(404, 'Room not found.');
     }
+  }
+  if (url.searchParams.get('view') === 'fleet') {
+    return json({ agents: listFleetAgents() });
   }
   const agents = listAgents(roomId ?? undefined);
   return json({ agents: agents.map(serialize) });
