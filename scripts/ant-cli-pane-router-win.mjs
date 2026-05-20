@@ -3,8 +3,8 @@
  * ant-cli-pane-router-win.mjs — bridge xenoANT room messages into a
  * WezTerm pane on this Windows box.
  *
- * Spawns `ant chat tail --room <id> --json` as a subprocess, parses each
- * polled message, filters @-mentions targeting MY_HANDLE or @everyone,
+ * Spawns `ant chat tail --room <id>` as a subprocess, parses each polled
+ * message line, filters @-mentions targeting MY_HANDLE or @everyone,
  * suppresses the bot's own messages and dupes, then injects via
  * `wezterm cli send-text --pane-id <id> --no-paste`.
  *
@@ -60,10 +60,33 @@ function log(...a) {
   process.stderr.write(`[${ts} router] ${a.join(' ')}\n`);
 }
 
-// ---------- filtering ----------------------------------------------------
+// ---------- parsing + filtering ------------------------------------------
 
 const seenIds = new Set();
 const SEEN_CAP = 5000;
+
+function parseTailLine(line) {
+  // Current fresh `ant chat tail` output:
+  //   2026-05-20T13:00:00.000Z [agent] @handle: message body
+  // Keep JSON support too, so this stays compatible if `tail --json` lands later.
+  try {
+    const parsed = JSON.parse(line);
+    if (parsed && typeof parsed === 'object') return parsed;
+  } catch {
+    // fall through to text parser
+  }
+
+  const match = line.match(/^(.+?) \[([^\]]+)\] ([^:]+): (.*)$/);
+  if (!match) return null;
+  const [, postedAt, kind, authorHandle, body] = match;
+  return {
+    id: line,
+    postedAt,
+    kind,
+    authorHandle,
+    body
+  };
+}
 
 function shouldRoute(msg) {
   if (!msg || typeof msg !== 'object') return false;
@@ -121,10 +144,10 @@ async function injectMessage(msg) {
   }
 }
 
-// ---------- subprocess: ant chat tail --json ----------------------------
+// ---------- subprocess: ant chat tail ------------------------------------
 
 function spawnTail() {
-  const tailArgs = ['chat', 'tail', '--room', ROOM, '--json', '--poll-ms', String(POLL_MS)];
+  const tailArgs = ['chat', 'tail', '--room', ROOM, '--poll-ms', String(POLL_MS)];
   log(`spawn: ${CLI} ${tailArgs.join(' ')}`);
   const child = spawn(CLI, tailArgs, { stdio: ['ignore', 'pipe', 'inherit'] });
   child.on('error', err => log(`spawn error: ${err.message}`));
@@ -149,13 +172,8 @@ async function runForever() {
         for (const line of lines) {
           const trimmed = line.trim();
           if (!trimmed) continue;
-          let msg;
-          try {
-            msg = JSON.parse(trimmed);
-          } catch {
-            // Tolerant: non-JSON line (e.g. a warning) — ignore
-            continue;
-          }
+          const msg = parseTailLine(trimmed);
+          if (!msg) continue;
           if (shouldRoute(msg)) {
             // Fire-and-forget — injections must not block the stream
             injectMessage(msg).catch(err => log(`inject error: ${err.message}`));
