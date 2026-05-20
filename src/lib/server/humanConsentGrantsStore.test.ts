@@ -121,6 +121,32 @@ describe('humanConsentGrantsStore', () => {
     expect(result?.id).toBe(fresh.id);
   });
 
+  it('revoke stress-loop produces exactly one revoked audit row (txn covers SELECT+UPDATE)', () => {
+    // Regression for task #30: revokeHumanConsentGrant wraps the
+    // SELECT-then-UPDATE in db.transaction(), so re-entrant calls on the
+    // same grant see the post-revoke status on the SELECT and skip the
+    // UPDATE+audit-write. better-sqlite3 is synchronous, so this loop
+    // exercises serial re-entry, not true concurrency — but it pins the
+    // contract that "N revoke calls produce exactly one 'revoked' audit
+    // row" which is the property the txn guarantees.
+    const owner = createOwner({ handle: '@you', password: 'pw' });
+    const grant = createHumanConsentGrant({
+      ownerId: owner.id,
+      grantedToTerminalId: 't_claude',
+      grantedToHandle: '@you',
+      createdByTerminalId: 't_human',
+      durationMs: 30 * 60_000,
+      maxUses: 5
+    });
+    for (let i = 0; i < 100; i++) {
+      revokeHumanConsentGrant({ grantId: grant.id, revokedByHandle: '@you' });
+    }
+    expect(findHumanConsentGrantById(grant.id)?.status).toBe('revoked');
+    const actions = auditFor(grant.id);
+    expect(actions.filter((a) => a === 'revoked').length).toBe(1);
+    expect(actions).toEqual(['created', 'revoked']);
+  });
+
   it('listGrantsForOwner returns active grants by default and all on includeInactive', () => {
     const owner = createOwner({ handle: '@you', password: 'pw' });
     const a = createHumanConsentGrant({
