@@ -18,7 +18,8 @@
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { postMessage, listMessagesInRoom, listMessagesPageInRoom } from '$lib/server/chatMessageStore';
+import { postMessage, listMessagesInRoom, listMessagesPageInRoom, generateMessageId } from '$lib/server/chatMessageStore';
+import { resolveHumanOwnership, gateAndConsumeForWrite } from '$lib/server/consentGate';
 import { broadcastToRoom } from '$lib/server/eventBroadcast';
 import { doesChatRoomExist } from '$lib/server/chatRoomStore';
 import { fanoutMessageToRoomTerminals } from '$lib/server/pty-inject-fanout';
@@ -85,7 +86,49 @@ export const POST: RequestHandler = async ({ params, request }) => {
       ? authorHandleRaw
       : null;
 
-  const { handle: authorHandle, warningHeader, clearStaleBrowserCookie, mintFreshBrowserSessionCookie } = resolveMessageAuthorHandle(params.roomId, request, rawBody, clientAuthorHandle);
+  const {
+    handle: authorHandle,
+    warningHeader,
+    clearStaleBrowserCookie,
+    mintFreshBrowserSessionCookie,
+    callerTerminalId,
+    authPath
+  } = resolveMessageAuthorHandle(params.roomId, request, rawBody, clientAuthorHandle);
+
+  // plan_consent_gate_2026_05_20 T6: fail-closed post-gate. If the resolved
+  // authorHandle maps to a human owner_id, the caller MUST either be on the
+  // owner's own terminal (self-post carve-out) OR consume one unit of an
+  // active human_consent_grant. The bearer auth path is treated as self-post
+  // because the bearer token is the human's own first-party credential.
+  //
+  // Order matters: the gate runs BEFORE the auto-join membership step below.
+  // If we let auto-join run first it would mint a (room, @human, agentTerminal)
+  // membership row that the consent gate's self-post carve-out would honour,
+  // back-dooring around the explicit grant requirement.
+  //
+  // We pre-allocate the message id so the gate's audit row (action='consumed',
+  // message_id=...) and the chat_messages.id are byte-identical.
+  const preallocatedMessageId = generateMessageId();
+  let consumedGrantId: string | null = null;
+  if (authPath !== 'bearer') {
+    const ownership = resolveHumanOwnership(authorHandle);
+    if (ownership.kind === 'human') {
+      if (!callerTerminalId) {
+        // Human-kind handle resolved but no terminal identity attached to the
+        // request — an agent without a terminal is trying to write as a human.
+        // Deny fail-closed; downstream surfaces should establish a terminal
+        // identity (cookie or pidChain → terminal) before retrying.
+        throw error(403, 'human_impersonation_no_terminal');
+      }
+      const gateResult = gateAndConsumeForWrite({
+        ownerId: ownership.ownerId,
+        callerTerminalId,
+        callerHandle: authorHandle,
+        messageId: preallocatedMessageId
+      });
+      consumedGrantId = gateResult.grantId;
+    }
+  }
 
   // Rules manual sections 3 + 12: "When that terminal posts to an open room,
   // ANT can add it to the room automatically and let the message through."
@@ -131,10 +174,12 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
   try {
     const newMessage = postMessage({
+      id: preallocatedMessageId,
       roomId: params.roomId,
       authorHandle,
       body: messageBody,
       kind,
+      consumedGrantId,
       ...(parentMessageId !== undefined && { parentMessageId }),
       ...(discussion_id !== undefined && { discussion_id })
     });
@@ -267,6 +312,16 @@ type AuthorResolution = {
    *  201 response so subsequent posts no longer race. Holds the full
    *  cookie header value (already includes Path/HttpOnly/SameSite). */
   mintFreshBrowserSessionCookie?: string;
+  /** plan_consent_gate_2026_05_20 T6: the terminal id the caller proved
+   *  ownership of via cookie / pidChain. Used by the post-side consent
+   *  gate to verify an agent posting AS a human has an active grant for
+   *  THIS specific terminal. Undefined when no terminal could be tied to
+   *  the request (e.g. bearer-only auth — see authPath flag). */
+  callerTerminalId?: string;
+  /** plan_consent_gate_2026_05_20 T6: how the caller authenticated. The
+   *  consent gate treats 'bearer' as authenticated self-post (no grant
+   *  needed) because a bearer token is a first-party human credential. */
+  authPath: 'bearer' | 'cookie' | 'pidchain' | 'caller-grant';
 };
 
 function resolveMessageAuthorHandle(
@@ -288,7 +343,7 @@ function resolveMessageAuthorHandle(
       if (clientAuthorHandle !== null && normalizeHandle(clientAuthorHandle) !== bearerHandle) {
         rejectMessageIdentity(roomId, 'authorHandle does not match antchat Bearer token.');
       }
-      return { handle: bearerHandle };
+      return { handle: bearerHandle, authPath: 'bearer' };
     }
     // Invalid/expired Bearer token — fall through (cookie/pidChain may
     // still validate the request).
@@ -312,7 +367,11 @@ function resolveMessageAuthorHandle(
         rejectMessageIdentity(roomId, 'authorHandle does not match browser session.');
       }
       touchBrowserSessionLastSeen(resolved.session_id);
-      return { handle: resolved.handle };
+      return {
+        handle: resolved.handle,
+        callerTerminalId: resolved.terminal_id,
+        authPath: 'cookie'
+      };
     }
   }
   if (browserSessionSecrets.length > 0) {
@@ -330,8 +389,11 @@ function resolveMessageAuthorHandle(
     if (clientAuthorHandle !== null && normalizeHandle(clientAuthorHandle) !== resolvedHandle) {
       rejectMessageIdentity(roomId, 'authorHandle does not match server-resolved identity.');
     }
+    const pidchainTerminal = lookupTerminalByPidChain(pidChain);
     return {
       handle: resolvedHandle,
+      authPath: 'pidchain',
+      ...(pidchainTerminal && { callerTerminalId: pidchainTerminal.id }),
       ...(clearStaleBrowserCookie && { clearStaleBrowserCookie: true })
     };
   }
@@ -370,8 +432,11 @@ function resolveMessageAuthorHandle(
         handle: normalizeHandle(clientAuthorHandle)
       });
       if (grant) {
+        const pidchainTerminal = lookupTerminalByPidChain(pidChain);
         return {
           handle: grant.handle,
+          authPath: 'caller-grant',
+          ...(pidchainTerminal && { callerTerminalId: pidchainTerminal.id }),
           ...(clearStaleBrowserCookie && { clearStaleBrowserCookie: true })
         };
       }

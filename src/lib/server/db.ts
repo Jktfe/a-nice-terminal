@@ -906,6 +906,11 @@ const SCHEMA_DDL_STATEMENTS = [
   `ALTER TABLE chat_messages ADD COLUMN deleted_at_ms INTEGER`,
   `ALTER TABLE chat_messages ADD COLUMN deleted_by_handle TEXT`,
   `ALTER TABLE chat_messages ADD COLUMN edited_at_ms INTEGER`,
+  // plan_consent_gate_2026_05_20 T6: record the consuming human_consent_grant
+  // on the message row for audit. Nullable — self-posts and agent-as-agent
+  // writes leave it NULL; only an agent posting AS a human consumes a grant.
+  // FK keeps the row pointing to the live grant audit trail.
+  `ALTER TABLE chat_messages ADD COLUMN consumed_grant_id TEXT REFERENCES human_consent_grants(id)`,
   // plan_events SQLite projection (JWPK msg_71divtsj8r ratified ask_r0v3b4t...:
   // plan events should persist across launchd kickstart). Schema mirrors the
   // existing planModeStore.PlanEvent shape exactly — JSON columns for the

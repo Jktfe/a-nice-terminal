@@ -673,3 +673,138 @@ describe('M3.6a-v1 deprecation-window strict-403 flip', () => {
     expect(response.headers.get('set-cookie') ?? '').toContain('Max-Age=0');
   });
 });
+
+// plan_consent_gate_2026_05_20 T6: fail-closed post-gate. "no agent can post
+// as a human without that human's consent" — when a write resolves an author
+// handle to a human owner_id, the caller MUST either be on the owner's own
+// terminal (self-post) OR consume one unit of an active human_consent_grant.
+// The consuming grant_id is recorded on chat_messages.consumed_grant_id for
+// audit. Self-posts leave the column NULL.
+describe('plan_consent_gate_2026_05_20 T6: post-gate + grant_id audit', () => {
+  beforeEach(async () => {
+    resetChatRoomStoreForTests();
+    resetChatMessageStoreForTests();
+    resetIdentityDbForTests();
+    // File-based vitest DB persists across `resetIdentityDbForTests` (it only
+    // closes the handle). Owners.primary_handle UNIQUE constraint trips when
+    // each test re-uses @james. Explicit purge on a freshly-opened handle.
+    const { getIdentityDb } = await import('$lib/server/db');
+    const db = getIdentityDb();
+    db.prepare(`DELETE FROM owner_handles`).run();
+    db.prepare(`DELETE FROM human_consent_grants`).run();
+    db.prepare(`DELETE FROM owners`).run();
+  });
+
+  async function importStores() {
+    const { createOwner } = await import('$lib/server/ownersStore');
+    const { createHumanConsentGrant } = await import('$lib/server/humanConsentGrantsStore');
+    const { getIdentityDb } = await import('$lib/server/db');
+    return { createOwner, createHumanConsentGrant, getIdentityDb };
+  }
+
+  it('rejects 403 when an agent posts AS a human handle with no active grant', async () => {
+    const { createOwner } = await importStores();
+    const { grantHumanGrant } = await import('$lib/server/callerGrantsStore');
+    const room = createChatRoom({ name: 'gate-no-grant', whoCreatedIt: '@you' });
+    // Make @you a real owner (human-kind handle in owner_handles). With no
+    // human_consent_grant tied to the agent's terminal, the post-gate denies.
+    createOwner({ handle: '@you', password: 'pw' });
+    // Agent's terminal exists (lookupTerminalByPidChain finds it) but is NOT
+    // a member of @you in this room, so resolveServerSideHandle returns null
+    // and the route falls through to the caller-grants path. A human caller-
+    // grant lets the agent post AS @you at the identity layer — and the new
+    // consent gate is exactly the guard for this impersonation vector.
+    upsertTerminal({ pid: 12321, pid_start: 'agent-ps', name: 'rogue-agent' });
+    grantHumanGrant({
+      pid: 12321,
+      pidStart: 'agent-ps',
+      expiresAtMs: Date.now() + 15 * 60_000,
+      grantedByHandle: '@you'
+    });
+
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({
+        body: 'rogue post as @you via grant',
+        authorHandle: '@you',
+        pidChain: [{ pid: 12321, pid_start: 'agent-ps' }]
+      })
+    });
+
+    expect(response.status).toBe(403);
+    const payload = await response.json();
+    expect(payload.message).toMatch(/human_impersonation_/);
+    expect(listMessagesInRoom(room.id)).toHaveLength(0);
+  });
+
+  it('accepts 201 + records consumed_grant_id on the row when an active grant covers the agent terminal', async () => {
+    const { createOwner, createHumanConsentGrant, getIdentityDb } = await importStores();
+    const { grantHumanGrant } = await import('$lib/server/callerGrantsStore');
+    const room = createChatRoom({ name: 'gate-grant-ok', whoCreatedIt: '@you' });
+    // Make @you a real owner (human-kind handle) so the gate fires when the
+    // caller-grant resolves the authorHandle to @you.
+    const owner = createOwner({ handle: '@you', password: 'pw' });
+    const agentTerminal = upsertTerminal({ pid: 13131, pid_start: 'agent-ps2', name: 'consented-agent' });
+    // Caller-grant lets the agent's pidChain post as @you at the identity
+    // layer. The consent gate then runs and finds an active human_consent_grant
+    // tied to the same terminal, consumes one unit, and records the grant_id.
+    grantHumanGrant({
+      pid: 13131,
+      pidStart: 'agent-ps2',
+      expiresAtMs: Date.now() + 15 * 60_000,
+      grantedByHandle: '@you'
+    });
+    const grant = createHumanConsentGrant({
+      ownerId: owner.id,
+      grantedToTerminalId: agentTerminal.id,
+      grantedToHandle: '@you',
+      createdByTerminalId: 't_human_self',
+      durationMs: 30 * 60_000,
+      maxUses: 3
+    });
+
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({
+        body: 'consented agent post',
+        authorHandle: '@you',
+        pidChain: [{ pid: 13131, pid_start: 'agent-ps2' }]
+      })
+    });
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload.message.authorHandle).toBe('@you');
+
+    const row = getIdentityDb()
+      .prepare(`SELECT consumed_grant_id FROM chat_messages WHERE id = ?`)
+      .get(payload.message.id) as { consumed_grant_id: string | null };
+    expect(row.consumed_grant_id).toBe(grant.id);
+  });
+
+  it('self-post (human on own terminal) returns 201 with consumed_grant_id NULL', async () => {
+    const { createOwner, getIdentityDb } = await importStores();
+    const room = createChatRoom({ name: 'gate-self-post', whoCreatedIt: '@you' });
+    // Owner exists with the SAME handle the caller will post under, and the
+    // caller's terminal is the room member for that handle — the self-post
+    // carve-out fires inside the gate (room_memberships join → owner).
+    createOwner({ handle: '@james', password: 'pw' });
+    const ownTerminal = upsertTerminal({ pid: 14141, pid_start: 'own-ps', name: 'james-own' });
+    addMembership({ room_id: room.id, handle: '@james', terminal_id: ownTerminal.id });
+
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({
+        body: 'self post as james',
+        authorHandle: '@james',
+        pidChain: [{ pid: 14141, pid_start: 'own-ps' }]
+      })
+    });
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+
+    const row = getIdentityDb()
+      .prepare(`SELECT consumed_grant_id FROM chat_messages WHERE id = ?`)
+      .get(payload.message.id) as { consumed_grant_id: string | null };
+    expect(row.consumed_grant_id).toBeNull();
+  });
+});
