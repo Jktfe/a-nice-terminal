@@ -113,13 +113,13 @@ describe('ant chat tail', () => {
     expect(captured.stderr.join('\n')).toContain('500');
   });
 
-  it('T9: body truncation: >280 chars gets ellipsis', async () => {
+  it('T9: tail emits full bodies so agent routers do not lose instructions', async () => {
     const longBody = 'a'.repeat(500);
     const messages = [makeMessage({ postOrder: 1, body: longBody })];
     const { runtime, captured } = makeRuntime(() => okMessages(messages));
     await handleChatVerb('tail', ['--room', 'room-a', '--since-order', '0', '--once'], runtime, { CliInputError });
-    expect(captured.stdout[0].length).toBeLessThanOrEqual(400);
-    expect(captured.stdout[0]).toContain('…');
+    expect(captured.stdout[0]).toContain(longBody);
+    expect(captured.stdout[0]).not.toContain('…');
   });
 
   it('T10: multiple new messages emit in postOrder order', async () => {

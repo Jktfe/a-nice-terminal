@@ -15,8 +15,8 @@
  * fetch.
  *
  * Output line: <postedAt> [<kind>] <authorHandle>: <body>
- * Body truncated to ~280 chars with ellipsis. No token, no admin
- * concerns — messages are public per the room contract.
+ * Body is emitted in full. Agent routers consume this stream, so truncating
+ * here silently drops instructions.
  */
 
 import { processIdentityChain } from './ant-cli-identity-chain.mjs';
@@ -55,7 +55,6 @@ function parseDurationToMs(raw, CliInputError) {
 const POLL_MS_MIN = 500;
 const POLL_MS_MAX = 30000;
 const POLL_MS_DEFAULT = 2000;
-const BODY_TRUNCATE_LIMIT = 280;
 
 export async function handleChatVerb(action, args, runtime, ctx) {
   const { CliInputError } = ctx;
@@ -458,15 +457,9 @@ function clampPollMs(rawValue) {
   return parsed;
 }
 
-function truncateBody(body) {
-  if (typeof body !== 'string') return '';
-  if (body.length <= BODY_TRUNCATE_LIMIT) return body;
-  return body.slice(0, BODY_TRUNCATE_LIMIT - 1) + '…';
-}
-
 function formatMessageLine(message) {
   const kindTag = ALLOWED_KIND_TAGS.has(message.kind) ? message.kind : 'unknown';
-  return `${message.postedAt} [${kindTag}] ${message.authorHandle}: ${truncateBody(message.body ?? '')}`;
+  return `${message.postedAt} [${kindTag}] ${message.authorHandle}: ${message.body ?? ''}`;
 }
 
 async function sleepMillis(ms) {
