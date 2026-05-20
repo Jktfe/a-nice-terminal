@@ -8,6 +8,8 @@
 
 import { processIdentityChain } from './ant-cli-identity-chain.mjs';
 import { resolveCliVersion } from './ant-cli-version-helper.mjs';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 const DEFAULT_SERVER_URL = process.env.ANT_SERVER_URL ?? 'http://127.0.0.1:6174';
 
 const REGISTER_MODULE = './ant-cli-register.mjs';
@@ -260,10 +262,20 @@ Verbs:
 }
 export { CliInputError, CliNetworkError };
 
-const isThisFileTheEntrypoint =
-  typeof process !== 'undefined' &&
-  process.argv[1] &&
-  import.meta.url === `file://${process.argv[1]}`;
+function isEntrypoint() {
+  if (import.meta.main === true) return true;
+  if (typeof process === 'undefined' || !process.argv[1]) return false;
+  try {
+    const thisFile = resolve(fileURLToPath(import.meta.url));
+    const argvFile = resolve(process.argv[1]);
+    if (process.platform === 'win32') return thisFile.toLowerCase() === argvFile.toLowerCase();
+    return thisFile === argvFile;
+  } catch {
+    return import.meta.url === `file://${process.argv[1]}`;
+  }
+}
+
+const isThisFileTheEntrypoint = isEntrypoint();
 
 if (isThisFileTheEntrypoint) {
   const runner = makeCliRunner();
