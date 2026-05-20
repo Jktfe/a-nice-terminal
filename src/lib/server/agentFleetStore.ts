@@ -318,21 +318,39 @@ function computeStreakDays(heatmap: number[]): number {
 // of live tmux session ids; we intersect with room_memberships → terminals
 // to keep only handles whose terminal is BOTH bound to an existing tmux pane
 // AND not TTL-expired.
-function listLiveAttachedHandles(nowMs: number, liveSessionIds: ReadonlySet<string>): Set<string> {
-  if (liveSessionIds.size === 0) return new Set();
+//
+// We also lift terminals.agent_status here so /agents can render the
+// current working/thinking/idle/response-required state (JWPK msg_7vpz9qyahp:
+// "Why does it say 0 active now when I can see agents working"). When an
+// agent has multiple live terminals (e.g. registered into multiple rooms),
+// the most-recent agent_status_at_ms wins.
+type HandleStatus = { state: string; atMs: number };
+function listLiveAttachedHandles(
+  nowMs: number,
+  liveSessionIds: ReadonlySet<string>
+): Map<string, HandleStatus> {
+  if (liveSessionIds.size === 0) return new Map();
   const db = getIdentityDb();
   const nowSeconds = Math.floor(nowMs / 1000);
   const placeholders = [...liveSessionIds].map(() => '?').join(',');
   const rows = db
     .prepare(
-      `SELECT DISTINCT rm.handle AS handle
+      `SELECT rm.handle AS handle, t.agent_status AS state, t.agent_status_at_ms AS at_ms
        FROM room_memberships rm
        JOIN terminals t ON t.id = rm.terminal_id
        WHERE rm.terminal_id IN (${placeholders})
          AND (t.expires_at IS NULL OR t.expires_at > ?)`
     )
-    .all(...liveSessionIds, nowSeconds) as Array<{ handle: string }>;
-  return new Set(rows.map((r) => r.handle));
+    .all(...liveSessionIds, nowSeconds) as Array<{ handle: string; state: string; at_ms: number }>;
+
+  const out = new Map<string, HandleStatus>();
+  for (const row of rows) {
+    const prev = out.get(row.handle);
+    if (!prev || row.at_ms > prev.atMs) {
+      out.set(row.handle, { state: row.state, atMs: row.at_ms });
+    }
+  }
+  return out;
 }
 
 export function listFleetAgents(
@@ -354,6 +372,7 @@ export function listFleetAgents(
       sparkline: new Array(SPARKLINE_HOURS).fill(0),
       heatmap: new Array(HEATMAP_DAYS).fill(0),
     };
+    const liveStatus = liveHandles.get(a.handle) ?? null;
     return {
       handle: a.handle,
       displayName: a.displayName,
@@ -363,7 +382,7 @@ export function listFleetAgents(
       rooms: a.rooms,
       pastRooms: [],
       collaborators: collaborators.get(a.handle) ?? [],
-      status: null,
+      status: liveStatus ? { state: liveStatus.state, atMs: liveStatus.atMs } : null,
       workspace: workspaces.get(a.handle) ?? null,
       productivityScore: computeProductivityScore(c),
       deliveryRate: computeDeliveryRate(c),
