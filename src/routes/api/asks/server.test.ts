@@ -14,6 +14,7 @@ import {
   postMessage,
   resetChatMessageStoreForTests
 } from '$lib/server/chatMessageStore';
+import { issueToken, resetAntchatAuthTokensForTests } from '$lib/server/antchatAuthStore';
 
 type CallPostOptions = { body?: string };
 
@@ -51,11 +52,14 @@ async function callPost(options: CallPostOptions): Promise<Response> {
   });
 }
 
-async function callGet(rawSearch: string = ''): Promise<Response> {
+async function callGet(rawSearch: string = '', headers?: Record<string, string>): Promise<Response> {
   const url = `http://localhost/api/asks${rawSearch}`;
+  const requestHeaders = headers ?? {
+    authorization: `Bearer ${issueToken('you@example.com').token}`
+  };
   return asResponse(() => {
     const event = {
-      request: new Request(url),
+      request: new Request(url, { headers: requestHeaders }),
       params: {},
       url: new URL(url)
     } as unknown as Parameters<typeof GET>[0];
@@ -74,7 +78,14 @@ describe('POST + GET /api/asks', () => {
   beforeEach(() => {
     resetChatRoomStoreForTests();
     resetChatMessageStoreForTests();
+    resetAntchatAuthTokensForTests();
     resetAskStoreForTests();
+  });
+
+  it('GET rejects unauthenticated reads', async () => {
+    const response = await callGet('', {});
+
+    expect(response.status).toBe(401);
   });
 
   it('Asks principle (JWPK msg_86qcfvbkur 2026-05-19): agent handles cannot open user-facing asks', async () => {

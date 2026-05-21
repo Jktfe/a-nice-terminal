@@ -25,11 +25,26 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { listPendingForHandle } from '$lib/server/pendingMessagesStore';
+import { resolveChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
 
-export const GET: RequestHandler = ({ url }) => {
+function normaliseHandle(rawHandle: string): string {
+  const trimmed = rawHandle.trim();
+  return trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
+}
+
+export const GET: RequestHandler = async ({ request, url }) => {
   const handleRaw = url.searchParams.get('handle');
   if (handleRaw === null || handleRaw.trim().length === 0) {
     throw error(400, 'handle query parameter is required.');
+  }
+  const requestedHandle = normaliseHandle(handleRaw);
+
+  const access = await resolveChatRoomReadAccess(request);
+  if (!access) {
+    throw error(401, 'Authentication required.');
+  }
+  if (!access.isAdminBearer && !access.handles.includes(requestedHandle)) {
+    throw error(404, 'Room not found.');
   }
 
   let sinceMs: number | undefined;
@@ -42,6 +57,6 @@ export const GET: RequestHandler = ({ url }) => {
     sinceMs = parsed;
   }
 
-  const messages = listPendingForHandle(handleRaw, sinceMs);
+  const messages = listPendingForHandle(requestedHandle, sinceMs);
   return json({ messages });
 };

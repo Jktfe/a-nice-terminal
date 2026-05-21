@@ -9,13 +9,17 @@ import {
   postMessage,
   resetChatMessageStoreForTests
 } from '$lib/server/chatMessageStore';
+import { issueToken, resetAntchatAuthTokensForTests } from '$lib/server/antchatAuthStore';
 
-function callGet(query: Record<string, string>): Promise<Response> {
+function callGet(query: Record<string, string>, headers?: Record<string, string>): Promise<Response> {
   const url = new URL(
     `http://localhost/api/chat-rooms/messages/pending?${new URLSearchParams(query).toString()}`
   );
+  const requestHeaders = headers ?? {
+    authorization: `Bearer ${issueToken('me@example.com').token}`
+  };
   const event = {
-    request: new Request(url.toString()),
+    request: new Request(url.toString(), { headers: requestHeaders }),
     params: {},
     url
   } as unknown as Parameters<typeof GET>[0];
@@ -35,6 +39,19 @@ describe('GET /api/chat-rooms/messages/pending', () => {
   beforeEach(() => {
     resetChatMessageStoreForTests();
     resetChatRoomStoreForTests();
+    resetAntchatAuthTokensForTests();
+  });
+
+  it('401 rejects unauthenticated reads', async () => {
+    const response = await callGet({ handle: '@me' }, {});
+
+    expect(response.status).toBe(401);
+  });
+
+  it('404 rejects reads for a different handle', async () => {
+    const response = await callGet({ handle: '@someoneelse' });
+
+    expect(response.status).toBe(404);
   });
 
   it('200 returns pending mentions in post_order ASC', async () => {

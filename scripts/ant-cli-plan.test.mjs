@@ -202,4 +202,23 @@ describe('ant plan CLI write verbs', () => {
     expect(captured.posts[1].body).toMatchObject({ action: 'unarchive' });
     expect(JSON.parse(captured.stdout[1]).plan.archivedAtMs).toBeNull();
   });
+
+  it('C12: attach-room POSTs a plan-room link through the ANT plan CLI', async () => {
+    const { runtime, captured } = makeRuntime();
+    await handlePlanVerb('attach-room', ['plan-a', 'room-1', '--attached-by', '@codex'], runtime, { CliInputError });
+    expect(captured.requests[0].url).toBe('http://test.local/api/plans/plan-a/rooms');
+    expect(captured.requests[0].init.method).toBe('POST');
+    expect(captured.posts[0].body).toEqual({ roomId: 'room-1', attachedBy: '@codex' });
+  });
+
+  it('C13: attach-room requires a room id', async () => {
+    const { runtime } = makeRuntime();
+    let captured = null;
+    try {
+      await handlePlanVerb('attach-room', ['plan-a'], runtime, { CliInputError });
+    } catch (failure) {
+      captured = failure;
+    }
+    expect(captured).toBeInstanceOf(CliInputError);
+  });
 });

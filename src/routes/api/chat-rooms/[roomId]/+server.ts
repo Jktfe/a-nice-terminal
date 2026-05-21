@@ -13,12 +13,14 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { findChatRoomById, softDeleteChatRoom } from '$lib/server/chatRoomStore';
 import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
+import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
 
-export const GET: RequestHandler = async ({ params }) => {
+export const GET: RequestHandler = async ({ params, request }) => {
   const room = findChatRoomById(params.roomId);
   if (!room) {
     throw error(404, 'Room not found.');
   }
+  await requireChatRoomReadAccess(request, room);
   return json({ chatRoom: room });
 };
 

@@ -4,13 +4,18 @@
 // fires on every poll-tick for NULL-kind terminals (M3.2c integration was
 // shipped 2026-05-14 but never engaged — this closes the gap).
 import type { Handle } from '@sveltejs/kit';
-import { redirect } from '@sveltejs/kit';
+import { error, redirect } from '@sveltejs/kit';
 import { startPoller } from '$lib/server/agentStatusPoller';
 import { ensureRunEventsPersistenceBooted } from '$lib/server/terminalRunEventsBoot';
 import { ensureOperationalRetentionSweepBooted } from '$lib/server/operationalRetention';
 import { ensureCronJobTickerBooted } from '$lib/server/cronJobTicker';
 import { projectAntRegistryFileBestEffort } from '$lib/server/antRegistryFile';
 import { resolveBrowserSessionSecretIgnoringRoom } from '$lib/server/browserSessionStore';
+import { findChatRoomById } from '$lib/server/chatRoomStore';
+import {
+  requireChatRoomReadAccess,
+  resolveChatRoomReadAccess
+} from '$lib/server/chatRoomReadGate';
 
 const POLLER_BOOTED_KEY = '__antPollerBootedAt';
 
@@ -115,8 +120,31 @@ function isAuthenticated(event: { request: Request }): boolean {
   return false;
 }
 
+async function gateChatRoomReadApi(event: Parameters<Handle>[0]['event']): Promise<void> {
+  if (event.request.method !== 'GET') return;
+  const pathname = event.url.pathname;
+
+  if (pathname === '/api/chat-rooms/recovery') {
+    const access = await resolveChatRoomReadAccess(event.request);
+    if (!access) throw error(401, 'Authentication required.');
+    if (!access.isAdminBearer) throw error(404, 'Room not found.');
+    return;
+  }
+
+  const prefix = '/api/chat-rooms/';
+  if (!pathname.startsWith(prefix)) return;
+  if (pathname === '/api/chat-rooms/messages/pending') return;
+  const roomId = pathname.slice(prefix.length).split('/')[0];
+  if (!roomId || roomId === 'messages' || roomId === 'recovery') return;
+
+  const room = findChatRoomById(roomId);
+  if (!room) throw error(404, 'Room not found.');
+  await requireChatRoomReadAccess(event.request, room);
+}
+
 export const handle: Handle = async ({ event, resolve }) => {
   bootPollerOnce();
+  await gateChatRoomReadApi(event);
 
   // Demo-login gate runs before route handling so anonymous visitors
   // never see app pages while the gate is on. JWPK msg about repeated
