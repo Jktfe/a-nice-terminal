@@ -1,9 +1,9 @@
 <!--
   FocusModeModal — #78b agent/participant focus mode entry UI.
-  JWPK correction: focus is FOR agents, not self-focus.
-  Pick a participant, set duration + reason, PUT /api/chat-rooms/:roomId/focus-mode.
+  Refactored to ModalShell. Preserves exact API.
 -->
 <script lang="ts">
+  import ModalShell from './ModalShell.svelte';
   import type { RoomMember } from '$lib/server/chatRoomStore';
 
   type Props = {
@@ -77,19 +77,12 @@
       submitting = false;
     }
   }
-
-  function onKeydown(e: KeyboardEvent) { if (e.key === 'Escape') onClose(); }
 </script>
 
-<svelte:window onkeydown={onKeydown} />
+<ModalShell open={true} onCancel={onClose} size="default">
+  {#snippet title()}Set agent focus{/snippet}
 
-<button type="button" class="backdrop" aria-label="Close" onclick={onClose}></button>
-
-<div class="modal" role="dialog" aria-modal="true" aria-labelledby="fmh">
-  <header>
-    <h2 id="fmh">Set agent focus</h2>
-    <p class="sub">Choose an agent, set the focus target, and pick how long others should avoid interrupting.</p>
-  </header>
+  <p class="sub">Choose an agent, set the focus target, and pick how long others should avoid interrupting.</p>
 
   <form onsubmit={(e) => { e.preventDefault(); void submit(); }}>
     <fieldset class="member-picker">
@@ -131,28 +124,17 @@
     {#if err}
       <p class="error" role="alert">{err}</p>
     {/if}
-
-    <div class="actions">
-      <button type="button" class="ghost" onclick={onClose}>Cancel</button>
-      <button type="submit" class="primary" disabled={submitting || !selectedHandle}>{submitting ? 'Setting…' : 'Set focus'}</button>
-    </div>
   </form>
-</div>
+
+  {#snippet actions()}
+    <button type="button" class="ghost" onclick={onClose}>Cancel</button>
+    <button type="submit" class="primary" disabled={submitting || !selectedHandle} onclick={() => void submit()}>
+      {submitting ? 'Setting…' : 'Set focus'}
+    </button>
+  {/snippet}
+</ModalShell>
 
 <style>
-  .backdrop {
-    position: fixed; inset: 0; z-index: 1000; border: none; padding: 0; margin: 0;
-    background: rgba(20, 18, 14, 0.4); cursor: pointer;
-  }
-  .modal {
-    position: fixed; top: 50%; left: 50%; z-index: 1001;
-    width: min(28rem, calc(100vw - 2rem)); transform: translate(-50%, -50%);
-    padding: 1.1rem 1.3rem; border: 1px solid var(--line-soft); border-radius: 0.85rem;
-    background: var(--surface-card); box-shadow: 0 12px 32px rgba(20, 18, 14, 0.22);
-    display: flex; flex-direction: column; gap: 0.85rem;
-  }
-  header { display: flex; flex-direction: column; gap: 0.2rem; }
-  h2 { margin: 0; font-size: 1.05rem; color: var(--ink-strong); }
   .sub { margin: 0; color: var(--ink-soft); font-size: 0.85rem; }
   form { display: flex; flex-direction: column; gap: 0.75rem; }
   .member-picker { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.3rem; }
@@ -171,9 +153,8 @@
   .custom span, .reason span { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft); font-weight: 800; }
   .custom input, .reason textarea { padding: 0.55rem 0.7rem; border: 1px solid var(--line-soft); border-radius: 0.55rem; background: var(--bg); color: var(--ink-strong); font: inherit; }
   .error { margin: 0; color: var(--accent); font-size: 0.85rem; }
-  .actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
-  .ghost, .primary { padding: 0.5rem 1rem; border-radius: 999px; font-weight: 800; font-size: 0.9rem; cursor: pointer; }
-  .ghost { border: 1px solid var(--line-soft); background: transparent; color: var(--ink-strong); }
-  .primary { border: none; background: var(--accent); color: white; }
-  .primary:disabled { opacity: 0.55; cursor: not-allowed; }
+  button.ghost, button.primary { padding: 0.5rem 1rem; border-radius: 999px; font-weight: 800; font-size: 0.9rem; cursor: pointer; }
+  button.ghost { border: 1px solid var(--line-soft); background: transparent; color: var(--ink-strong); }
+  button.primary { border: none; background: var(--accent); color: white; }
+  button.primary:disabled { opacity: 0.55; cursor: not-allowed; }
 </style>
