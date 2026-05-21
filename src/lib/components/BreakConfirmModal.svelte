@@ -1,13 +1,10 @@
 <!--
   BreakConfirmModal — confirm that the user wants to post a context break.
-  Backs M12 break-context.
-
-  Why a modal: a break is irreversible inside the agent context window — every
-  agent reading the room from this point on will only see messages AFTER the
-  break. The native window.confirm fails silently inside iOS PWA standalone
-  mode, so this is the cross-platform replacement.
+  Phase-1 thin wrapper around ModalShell. Preserves exact exports.
 -->
 <script lang="ts">
+  import ModalShell from './ModalShell.svelte';
+
   type Props = {
     isOpen: boolean;
     reasonTyped: string;
@@ -34,86 +31,37 @@
 
 <svelte:window onkeydown={handleKeyDown} />
 
-{#if isOpen}
-  <div class="break-modal-backdrop">
-    <button
-      type="button"
-      class="backdrop-dismisser"
-      aria-label="Close break confirmation"
-      onclick={onCancel}
-    ></button>
-    <div
-      class="break-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="breakModalHeading"
-      tabindex="-1"
-    >
-      <h2 id="breakModalHeading">Post a context break?</h2>
-      <p>
-        Agents will only see messages posted after this break. Older context
-        stays visible to humans.
-      </p>
+<ModalShell open={isOpen} onCancel={onCancel} size="default">
+  <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+  <!-- title slot -->
+  {#snippet title()}Post a context break?{/snippet}
 
-      <label for="breakReasonField">Reason (optional)</label>
-      <input
-        id="breakReasonField"
-        type="text"
-        autocomplete="off"
-        placeholder="e.g. starting the next sprint"
-        value={reasonTyped}
-        oninput={(event) => onReasonInput(event.currentTarget.value)}
-      />
+  <!-- body slot -->
+  <p>
+    Agents will only see messages posted after this break. Older context
+    stays visible to humans.
+  </p>
 
-      <div class="break-modal-actions">
-        <button type="button" class="cancel" onclick={onCancel}>Cancel</button>
-        <button type="button" class="primary" onclick={onConfirm}>Post break</button>
-      </div>
+  <label for="breakReasonField">Reason (optional)</label>
+  <input
+    id="breakReasonField"
+    type="text"
+    autocomplete="off"
+    placeholder="e.g. starting the next sprint"
+    value={reasonTyped}
+    oninput={(event) => onReasonInput(event.currentTarget.value)}
+  />
 
-      <p class="hint">Cmd-Enter to post · Esc to cancel</p>
-    </div>
-  </div>
-{/if}
+  <p class="hint">Cmd-Enter to post · Esc to cancel</p>
+
+  <!-- actions slot -->
+  {#snippet actions()}
+    <button type="button" class="cancel" onclick={onCancel}>Cancel</button>
+    <button type="button" class="primary" onclick={onConfirm}>Post break</button>
+  {/snippet}
+</ModalShell>
 
 <style>
-  .break-modal-backdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(10, 10, 14, 0.45);
-    display: grid;
-    place-items: center;
-    z-index: 1000;
-    padding: 1rem;
-  }
-
-  .backdrop-dismisser {
-    position: absolute;
-    inset: 0;
-    background: transparent;
-    border: 0;
-    padding: 0;
-    cursor: pointer;
-  }
-
-  .break-modal {
-    position: relative;
-    width: min(420px, 100%);
-    padding: 1.4rem 1.5rem;
-    background: var(--surface);
-    border-radius: 1rem;
-    border: 1px solid var(--surface-edge);
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
-  }
-
-  h2 {
-    margin: 0;
-    font-size: 1.1rem;
-    font-weight: 800;
-    color: var(--ink-strong);
-  }
-
   p {
     margin: 0;
     color: var(--ink-soft);
@@ -141,11 +89,10 @@
     outline-offset: 1px;
   }
 
-  .break-modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.5rem;
-    margin-top: 0.4rem;
+  .hint {
+    margin: 0.3rem 0 0;
+    font-size: 0.72rem;
+    color: var(--ink-soft);
   }
 
   button.cancel {
@@ -166,11 +113,5 @@
     border-radius: 999px;
     font-weight: 800;
     cursor: pointer;
-  }
-
-  .hint {
-    margin: 0.3rem 0 0;
-    font-size: 0.72rem;
-    color: var(--ink-soft);
   }
 </style>
