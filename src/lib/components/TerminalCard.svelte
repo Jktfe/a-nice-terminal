@@ -232,8 +232,36 @@
   onMount(() => {
     void loadTerminalRecord();
     void loadKillDefault();
-    const poll = setInterval(() => { void loadAgentState(); }, 15_000);
-    return () => clearInterval(poll);
+
+    // Live agent-state via SSE — pushes a frame as soon as the state
+    // file changes (~250ms server-side poll cadence), so the status
+    // pill stays in sync with what the CLI is actually doing instead
+    // of waiting up to 15s for the next REST poll. EventSource auto-
+    // reconnects on transient failures; the safety poll below catches
+    // the case where the connection silently dies (proxy timeout, etc).
+    let es: EventSource | null = null;
+    if (browser) {
+      try {
+        es = new EventSource(`/api/terminals/${encodeURIComponent(terminalId)}/agent-state/stream`);
+        es.onmessage = (ev) => {
+          try {
+            const body = JSON.parse(ev.data) as { snapshot?: AgentStateSnapshot | null };
+            agentState = body.snapshot ?? null;
+          } catch { /* malformed frame — ignore */ }
+        };
+      } catch { /* SSE unsupported — the safety poll below still keeps the pill alive */ }
+    }
+    // Safety net: REST poll at 30s catches dropped SSE connections.
+    // Was 15s pre-SSE; now we lean on the stream for responsiveness
+    // and only fall back when it goes quiet.
+    const poll = setInterval(() => { void loadAgentState(); }, 30_000);
+    return () => {
+      clearInterval(poll);
+      if (es) {
+        es.onmessage = null;
+        es.close();
+      }
+    };
   });
 
   const storageKey = $derived(`ant.terminal.view.${terminalId}`);
