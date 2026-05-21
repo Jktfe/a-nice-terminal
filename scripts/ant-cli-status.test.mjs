@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { makeCliRunner } from './ant-cli.mjs';
 import { handleStatusVerb } from './ant-cli-status.mjs';
+import * as identityChain from './ant-cli-identity-chain.mjs';
 
 class CliInputError extends Error {}
 
@@ -22,6 +23,10 @@ function makeRuntime(responseBuilder) {
 }
 
 const okJson = (body, status = 200) => ({ ok: true, status, json: async () => body, text: async () => JSON.stringify(body) });
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('ant status wrappers (M3.4a-v1)', () => {
   it('S1: show GETs the room status surface and renders one line per member', async () => {
@@ -164,5 +169,46 @@ describe('ant status wrappers (M3.4a-v1)', () => {
     const code = await runner.run(['status', 'show', '--room', 'room-a']);
     expect(code).toBe(0);
     expect(calls[0].url).toBe('http://test.local/api/chat-rooms/room-a/status');
+  });
+
+  it('P1: planning resolves current terminal, pushes thinking, and posts the planning notice when --room is supplied', async () => {
+    vi.spyOn(identityChain, 'processIdentityChain').mockReturnValue([{ pid: 42, pid_start: 'start' }]);
+    const { runtime, captured } = makeRuntime((idx) => {
+      if (idx === 1) return okJson({ terminal_id: 'term-plan' });
+      if (idx === 2) return okJson({ terminal_id: 'term-plan', agent_status: 'thinking', agent_status_source: 'ant-activity' });
+      return okJson({ message: { id: 'msg1' } });
+    });
+
+    const code = await handleStatusVerb(
+      'planning',
+      ['--room', 'room-a', '--msg', 'planning T14 - ETA 15m'],
+      runtime,
+      { CliInputError }
+    );
+
+    expect(code).toBe(0);
+    expect(captured.requests[0].url).toBe('http://test.local/api/identity/resolve');
+    expect(JSON.parse(captured.requests[0].init.body).pids).toEqual([{ pid: 42, pid_start: 'start' }]);
+    expect(captured.requests[1].url).toBe('http://test.local/api/terminals/term-plan/agent-status');
+    expect(JSON.parse(captured.requests[1].init.body).status).toBe('thinking');
+    expect(JSON.parse(captured.requests[1].init.body).evidence_json.mode).toBe('planning');
+    expect(captured.requests[2].url).toBe('http://test.local/api/chat-rooms/room-a/messages');
+    expect(JSON.parse(captured.requests[2].init.body).body).toBe('planning T14 - ETA 15m');
+    expect(captured.stdout[0]).toContain('planning');
+  });
+
+  it('P2: idle pushes idle for the current terminal without posting chat', async () => {
+    vi.spyOn(identityChain, 'processIdentityChain').mockReturnValue([{ pid: 44, pid_start: 'start-idle' }]);
+    const { runtime, captured } = makeRuntime((idx) => {
+      if (idx === 1) return okJson({ terminal_id: 'term-idle' });
+      return okJson({ terminal_id: 'term-idle', agent_status: 'idle', agent_status_source: 'ant-activity' });
+    });
+
+    await handleStatusVerb('idle', [], runtime, { CliInputError });
+
+    expect(captured.requests).toHaveLength(2);
+    expect(captured.requests[1].url).toBe('http://test.local/api/terminals/term-idle/agent-status');
+    expect(JSON.parse(captured.requests[1].init.body).status).toBe('idle');
+    expect(captured.stdout[0]).toContain('idle');
   });
 });

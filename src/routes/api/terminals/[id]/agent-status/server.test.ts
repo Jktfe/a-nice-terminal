@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { resetIdentityDbForTests } from '$lib/server/db';
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { installHookNonce } from '$lib/server/agentStatusHookAuth';
-import { getAgentStatus } from '$lib/server/agentStatusStore';
+import { getAgentStatus, listEventsForTerminal } from '$lib/server/agentStatusStore';
 import { GET, PUT } from './+server';
 
 beforeEach(() => {
@@ -134,5 +134,28 @@ describe('PUT /api/terminals/:id/agent-status (Q4 hook-nonce + PER-PUSH rotation
     const getRes = await GET(getReq(tid));
     const body = await getRes.json();
     expect(body.evidence_json).toBeTruthy();
+  });
+
+  it('200 accepts pid-chain auth for the matching terminal and records ant-activity source', async () => {
+    const terminal = upsertTerminal({ pid: process.pid, pid_start: 'pst', name: 'pid-auth' });
+    const res = await PUT(putReq(terminal.id, {
+      status: 'thinking',
+      pids: [{ pid: process.pid, pid_start: 'pst' }],
+      evidence_json: { mode: 'planning' }
+    }));
+    expect(res.status).toBe(200);
+    expect(getAgentStatus(terminal.id)?.agent_status).toBe('thinking');
+    expect(getAgentStatus(terminal.id)?.agent_status_source).toBe('ant-activity');
+    expect(listEventsForTerminal(terminal.id)[0].evidence_json).toContain('planning');
+  });
+
+  it('401 rejects pid-chain auth that resolves a different terminal', async () => {
+    const caller = upsertTerminal({ pid: process.pid, pid_start: 'caller', name: 'caller' });
+    const target = makeTerminal('target');
+    expect(caller.id).not.toBe(target);
+    await expect(PUT(putReq(target, {
+      status: 'thinking',
+      pids: [{ pid: process.pid, pid_start: 'caller' }]
+    }))).rejects.toMatchObject({ status: 401 });
   });
 });
