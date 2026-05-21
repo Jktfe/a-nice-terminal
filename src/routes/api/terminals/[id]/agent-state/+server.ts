@@ -42,7 +42,9 @@ const AGENT_KIND_TO_CLI: Record<string, AgentCli> = {
   'qwen-cli': 'qwen-cli',
   'pi': 'pi',
   'copilot': 'copilot-cli',
-  'copilot-cli': 'copilot-cli'
+  'copilot-cli': 'copilot-cli',
+  'agy': 'antigravity',
+  'antigravity': 'antigravity'
 };
 
 function tmuxPaneCurrentPath(pane: string): string | null {
