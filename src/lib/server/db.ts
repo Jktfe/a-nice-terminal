@@ -1309,6 +1309,18 @@ export function getIdentityDb(): DatabaseInstance {
   const db = new Database(dbFile);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  // Speed Pact T-Sec-Speed-2: busy_timeout was 0 (default) — SQLite returned
+  // SQLITE_BUSY immediately on any lock contention. With concurrent writers
+  // (agentStatusPoller every 10s + chat-message inserts + task creates + plan
+  // events all sharing this DB file), reads like /api/plans were stalling
+  // 1.5-7s and `database is locked` surfaced on chat sends. 5000ms gives
+  // SQLite a 5-second native busy-wait that resolves contention without
+  // bouncing back to the JS retry layer. Standard better-sqlite3 best practice.
+  db.pragma('busy_timeout = 5000');
+  // cache_size in pages (negative = KB). -64000 = 64MB page cache — small
+  // memory cost, large win on repeated SELECTs like listAllTerminals (431
+  // rows) that the poller does twice per tick.
+  db.pragma('cache_size = -64000');
   applySchemaMigrations(db);
   ensureYouMembership(db);
   sweepAutoCreatedRoomPlansInDb(db);
