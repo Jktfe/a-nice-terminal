@@ -6,9 +6,16 @@ import { lookupTerminalByPidChain, upsertTerminal } from '$lib/server/terminalsS
 import { createBrowserSession } from '$lib/server/browserSessionStore';
 import { getRoomMode } from '$lib/server/roomModesStore';
 import { bindRoomHandleToLiveTerminal } from '$lib/server/terminalHandleBinding';
-import { parsePidChainFromBody } from '$lib/server/identityGate';
+import { parsePidChainFromBody, resolveServerSideHandle } from '$lib/server/identityGate';
+import {
+  canReadChatRoom,
+  resolveChatRoomReadAccess,
+  type ChatRoomReadAccess
+} from '$lib/server/chatRoomReadGate';
+import { familyHandlesForPrincipal } from '$lib/server/agentFamilyStore';
 import {
   resolveHumanOwnership,
+  type OwnershipResolution,
   requireHumanImpersonationConsent
 } from '$lib/server/consentGate';
 
@@ -93,6 +100,50 @@ function buildSessionCookie(
   return parts.join('; ');
 }
 
+function accessFromPidChain(roomId: string, body: Record<string, unknown>): ChatRoomReadAccess | null {
+  const handle = resolveServerSideHandle(roomId, parsePidChainFromBody(body));
+  if (!handle) return null;
+  return {
+    isAdminBearer: false,
+    source: 'pid-chain',
+    handles: familyHandlesForPrincipal(handle),
+    principalHandles: [normalizeHandle(handle)],
+    resolvedRoomIds: [roomId]
+  };
+}
+
+async function requireMintRoomAccess(
+  request: Request,
+  body: Record<string, unknown>,
+  roomId: string,
+  room: NonNullable<ReturnType<typeof findChatRoomById>>
+): Promise<ChatRoomReadAccess> {
+  const access =
+    (await resolveChatRoomReadAccess(request, roomId)) ??
+    accessFromPidChain(roomId, body);
+  if (!access) throw error(401, 'Authentication required.');
+  if (!canReadChatRoom(room, access)) throw error(403, 'caller cannot mint for this room.');
+  return access;
+}
+
+function sameHumanOwner(a: string, b: OwnershipResolution): boolean {
+  if (b.kind !== 'human') return false;
+  const aOwnership = resolveHumanOwnership(a);
+  return aOwnership.kind === 'human' && aOwnership.ownerId === b.ownerId;
+}
+
+function accessIsHumanSelfMint(
+  access: ChatRoomReadAccess,
+  authorHandle: string,
+  ownership: OwnershipResolution
+): boolean {
+  if (ownership.kind !== 'human') return false;
+  if (!access.handles.includes(authorHandle)) return false;
+  if (access.source === 'local-bearer' || access.source === 'accounts-bearer') return true;
+  if (access.source !== 'browser-session') return false;
+  return access.principalHandles?.some((handle) => sameHumanOwner(handle, ownership)) ?? false;
+}
+
 export const POST: RequestHandler = async ({ params, request, url }) => {
   const roomId = params.roomId ?? '';
   if (roomId.length === 0) throw error(400, 'URL roomId is required.');
@@ -107,6 +158,8 @@ export const POST: RequestHandler = async ({ params, request, url }) => {
   }
   const authorHandle = normalizeHandle(rawHandle);
 
+  const access = await requireMintRoomAccess(request, body, roomId, room);
+
   // plan_consent_gate_2026_05_20 T5 (JWPK-locked 2026-05-20): consent
   // gate fail-closed BEFORE we mint a session cookie for a human handle.
   // If authorHandle resolves to a human owner, the caller's terminal
@@ -119,42 +172,31 @@ export const POST: RequestHandler = async ({ params, request, url }) => {
   // post-side and admin-bearer surfaces are gated by sibling T6/T7.
   const ownership = resolveHumanOwnership(authorHandle);
   if (ownership.kind === 'human') {
-    const pidChainForGate = parsePidChainFromBody(body);
-    const callerTerminal = lookupTerminalByPidChain(pidChainForGate);
-    if (!callerTerminal) {
-      // No terminal identity → consent cannot be evaluated; deny rather
-      // than fall through. Consent requires a real, registered terminal.
-      throw error(403, 'human_impersonation_no_grant');
+    if (!accessIsHumanSelfMint(access, authorHandle, ownership)) {
+      const pidChainForGate = parsePidChainFromBody(body);
+      const callerTerminal = lookupTerminalByPidChain(pidChainForGate);
+      if (!callerTerminal) {
+        // No terminal identity → consent cannot be evaluated; deny rather
+        // than fall through. Consent requires a real, registered terminal.
+        throw error(403, 'human_impersonation_no_grant');
+      }
+      requireHumanImpersonationConsent({
+        ownerId: ownership.ownerId,
+        callerTerminalId: callerTerminal.id
+      });
     }
-    requireHumanImpersonationConsent({
-      ownerId: ownership.ownerId,
-      callerTerminalId: callerTerminal.id
-    });
+  } else if (!access.isAdminBearer && !access.handles.includes(authorHandle)) {
+    throw error(403, 'caller cannot mint requested handle.');
   }
 
   if (!room.members.some((member) => member.handle === authorHandle)) {
-    // JWPK msg_0dmc9bbiln + msg_23zhfticim (2026-05-19) — open-room
-    // auto-join via browser-session mint. The pidChain path in
-    // messages/+server.ts:99-114 already auto-joins for CLI callers
-    // when roomMode is open; this closes the parallel browser path.
-    // Strict 403 only stays in closed / heads-down rooms.
+    // Authenticated same-family callers may still join an open room
+    // through browser-session mint. The access checks above prevent
+    // anonymous callers or unrelated handles from reaching this branch.
     const mode = getRoomMode(roomId);
     if (mode === 'closed' || mode === 'heads-down') {
       throw error(403, 'authorHandle is not a room member.');
     }
-    // mode is brainstorm (open) — auto-join happens BELOW via the
-    // lazy-create synthetic-terminal + addMembership block at lines
-    // 132-141. That block runs whenever the handle has no terminal
-    // binding for this room (which includes the just-auto-joined
-    // stranger here), upserts the synthetic terminal FIRST, then
-    // addMembership with the real id.
-    //
-    // Coord 0bbc7db note (real prod 500 path): the previous version
-    // here addMembership'd with `terminal_id: ''` which child-2tes the
-    // room_memberships FK to terminals(id). Strangers entering a
-    // brainstorm-mode room via the browser-session mint got 500. Fix
-    // is just to remove the bad pre-emptive addMembership and let the
-    // lazy-create path handle both the terminal AND the membership.
   }
 
   // GAP-55 (2026-05-14, JWPK Tailscale dogfood evidence): browser-only

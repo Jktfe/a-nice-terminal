@@ -332,7 +332,7 @@ async function mintBrowserSessionCookie(runtime, roomId, explicitHandle) {
       'content-type': 'application/json',
       origin: runtime.serverUrl
     },
-    body: JSON.stringify({ authorHandle: handle })
+    body: JSON.stringify({ authorHandle: handle, pidChain: processIdentityChain() })
   });
   if (!response.ok) return null;
   // Parse Set-Cookie. fetch undici returns a comma-joined string on .get

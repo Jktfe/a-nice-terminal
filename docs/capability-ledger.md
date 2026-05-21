@@ -80,6 +80,7 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Realtime and plan-room read gates | P0 home-server leak, 2026-05-21 | CHANGE | Codex | SSE room events and plan-room links now use the same resolved read gate as room messages; anonymous callers fail closed and authorized callers only see readable rooms. |
 | CLI agent read auth | P0 home-server auth regression, 2026-05-21 | CHANGE | Codex | Room-scoped CLI GETs now send pidChain for registered-terminal reads and can mint the same browser-session cookie used by writes when a read gate returns 401, preserving agent tail/router/message reads after fail-closed route auth. |
 | Agent status poller budget | Home-server responsiveness, 2026-05-21 | CHANGE | Codex | Bounded synchronous tmux/fingerprint subprocess work per tick and shortened subprocess timeouts so background status refresh cannot monopolize the Node event loop. |
+| Browser-session mint auth | P0 home-server auth bypass, 2026-05-22 | CHANGE | Codex | Browser-session minting now requires bearer, existing browser-session, or registered pidChain room access, and rejects arbitrary/spoofed authorHandle requests unless the caller is the same owner family or has human-consent authorization. |
 | Planning-mode signal | Speed Pact T14, 2026-05-22 | CHANGE | Codex | Added `ant status planning` / `ant status idle` so agents can push the existing thinking/idle icon state from their PID identity and optionally post the planning notice into a room. |
 
 ## Audit Backlog

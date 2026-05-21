@@ -27,7 +27,9 @@ import { expandHandlesToOwnerFamilies } from './agentFamilyStore';
 
 export type ChatRoomReadAccess = {
   isAdminBearer: boolean;
+  source?: 'admin-bearer' | 'local-bearer' | 'accounts-bearer' | 'browser-session' | 'pid-chain';
   handles: string[];
+  principalHandles?: string[];
   resolvedRoomIds?: string[];
 };
 
@@ -93,7 +95,13 @@ function tryLocalAntchatBearer(request: Request): ChatRoomReadAccess | null {
   if (!token) return null;
   const record = resolveAntchatToken(token);
   if (!record) return null;
-  return { isAdminBearer: false, handles: handlesForEmail(record.email) };
+  const principalHandles = handlesForEmail(record.email);
+  return {
+    isAdminBearer: false,
+    source: 'local-bearer',
+    handles: principalHandles,
+    principalHandles
+  };
 }
 
 async function tryAccountsBearer(request: Request): Promise<ChatRoomReadAccess | null> {
@@ -102,13 +110,16 @@ async function tryAccountsBearer(request: Request): Promise<ChatRoomReadAccess |
 
   const identity = await resolveAccountsBearerIdentity(token);
   if (!identity) return null;
-  const handles = expandHandlesToOwnerFamilies([
+  const principalHandles = [
     ...handlesForEmail(identity.email),
     ...identity.handles
+  ];
+  const handles = expandHandlesToOwnerFamilies([
+    ...principalHandles
   ]);
   if (handles.length === 0) return null;
 
-  return { isAdminBearer: false, handles };
+  return { isAdminBearer: false, source: 'accounts-bearer', handles, principalHandles };
 }
 
 function tryBrowserSession(request: Request, roomId?: string): ChatRoomReadAccess | null {
@@ -121,9 +132,12 @@ function tryBrowserSession(request: Request, roomId?: string): ChatRoomReadAcces
     const resolved = resolveBrowserSessionSecretIgnoringRoom(cookieSecret);
     if (resolved) {
       touchBrowserSessionLastSeen(resolved.session_id);
+      const principalHandle = normaliseHandle(resolved.handle);
       return {
         isAdminBearer: false,
-        handles: expandHandlesToOwnerFamilies([normaliseHandle(resolved.handle)])
+        source: 'browser-session',
+        handles: expandHandlesToOwnerFamilies([principalHandle]),
+        principalHandles: [principalHandle]
       };
     }
   }
@@ -160,7 +174,9 @@ function tryPidChainQuery(request: Request, roomId?: string): ChatRoomReadAccess
   if (!handle) return null;
   return {
     isAdminBearer: false,
+    source: 'pid-chain',
     handles: expandHandlesToOwnerFamilies([normaliseHandle(handle)]),
+    principalHandles: [normaliseHandle(handle)],
     resolvedRoomIds: [roomId]
   };
 }
@@ -169,7 +185,7 @@ export async function resolveChatRoomReadAccess(
   request: Request,
   roomId?: string
 ): Promise<ChatRoomReadAccess | null> {
-  if (tryAdminBearer(request)) return { isAdminBearer: true, handles: [] };
+  if (tryAdminBearer(request)) return { isAdminBearer: true, source: 'admin-bearer', handles: [] };
 
   const localBearer = tryLocalAntchatBearer(request);
   if (localBearer) return localBearer;
