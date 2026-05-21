@@ -130,7 +130,7 @@
           type="button"
           class="action-row"
           onclick={() => onAction('change-handle')}
-        >Set @mention alias</button>
+        >Add @mention alias</button>
       </li>
       <li>
         <button
