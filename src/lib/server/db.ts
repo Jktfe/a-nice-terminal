@@ -489,6 +489,18 @@ const SCHEMA_DDL_STATEMENTS = [
     updated_at_ms INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_quick_shortcuts_order ON quick_shortcuts (order_index ASC)`,
+  // cwd_bookmarks: server-side persistence for the cwd pills surfaced under
+  // the breadcrumb in TerminalFolderPicker. Mirrors quick_shortcuts pattern
+  // per JWPK 2026-05-15 lock (GLOBAL scope, fresh-ant.db) so bookmarks sync
+  // across Tailscale devices (mac / macbook-server / ipad / iPhone). UNIQUE
+  // path prevents duplicate entries; order_index drives display order.
+  `CREATE TABLE IF NOT EXISTS cwd_bookmarks (
+    id            TEXT PRIMARY KEY,
+    path          TEXT NOT NULL UNIQUE,
+    order_index   INTEGER NOT NULL DEFAULT 0,
+    created_at_ms INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_cwd_bookmarks_order ON cwd_bookmarks (order_index ASC)`,
   // ANTSCRIPT v1 — plan_triggers: event → action mappings.
   // plan_id = NULL is a wildcard ("apply to every plan"). event is one of
   // plan.completed / plan.archived / plan.deleted / plan.restored. action is
