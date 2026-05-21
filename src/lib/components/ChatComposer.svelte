@@ -212,24 +212,13 @@
     textareaRef.style.height = `${textareaRef.scrollHeight}px`;
   }
 
-  // v2 (post 5b4150d revert) — return the cursor to the composer after a
-  // successful send so JWPK can fire rapid-fire messages to different
-  // agents (msg_7v0za7t9x6). v1 used setTimeout(focus, 0); the resulting
-  // refresh-required regression was traced to a SvelteKit service worker
-  // chunk-cache issue, not the focus call itself, but queueMicrotask is
-  // still the safer pattern: it runs on the SAME reactive flush as the
-  // state writes that empty the body / reset state, so focus lands before
-  // any onMessagePosted parent-side re-render kicks off and there's no
-  // collision with the message-list autoscroll cascade.
+  // queueMicrotask (not setTimeout) so focus lands on the SAME reactive
+  // flush as the state writes that empty the body — avoids racing the
+  // parent's onMessagePosted re-render and the message-list autoscroll.
   function refocusComposerOnNextTick(): void {
     queueMicrotask(() => {
       if (!textareaRef) return;
-      // Only steal focus if the user hasn't already moved on (clicked
-      // elsewhere, opened the picker, etc.). The check makes the helper
-      // safe to call unconditionally from any send path.
-      if (document.activeElement !== textareaRef) {
-        textareaRef.focus();
-      }
+      if (document.activeElement !== textareaRef) textareaRef.focus();
       autoResizeTextarea();
     });
   }
@@ -240,14 +229,11 @@
     bodyBeingTyped = spliced.newBody;
     mentionTrigger = null;
     composerState = spliced.newBody.trim().length === 0 ? 'emptyComposerWaitingForBody' : 'bodyBeingTyped';
-    // Svelte 5 one-way `value={bodyBeingTyped}` won't reliably sync the
-    // textarea DOM when state changes from inside an event handler that
-    // also called preventDefault — the input is considered "user-
-    // controlled" and the programmatic update is dropped on the next
-    // flush. Explicitly set the DOM value AND dispatch a synthetic
-    // input event so Svelte's bind path re-reads it and stays
-    // consistent. Belt + suspenders; without both, the mention pick
-    // looks like a no-op even though state updated correctly.
+    // Svelte 5 one-way `value={bodyBeingTyped}` drops programmatic updates
+    // when a focused textarea's event handler also called preventDefault.
+    // Set the DOM value explicitly AND dispatch a synthetic input so
+    // Svelte's bind path re-reads — without both, the pick looks like a
+    // no-op even though state updated.
     if (textareaRef) {
       textareaRef.value = spliced.newBody;
       textareaRef.dispatchEvent(new InputEvent('input', { bubbles: true }));

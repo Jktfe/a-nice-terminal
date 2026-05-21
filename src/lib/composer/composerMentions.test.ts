@@ -39,7 +39,7 @@ const sampleMembers: RoomMember[] = [
 ];
 
 const sampleAliases: RoomAliasEntry[] = [
-  { roomId: 'r', globalHandle: '@evolveantcodex', alias: '@cdx', setAt: '' }
+  { roomId: 'r', globalHandle: '@evolveantcodex', alias: '@cdx', setBy: null, setAt: '' }
 ];
 
 describe('detectMentionTrigger', () => {
