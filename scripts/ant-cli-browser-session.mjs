@@ -38,7 +38,7 @@ export async function mintAntCliBrowserSessionCookie(runtime, roomId, explicitHa
       'content-type': 'application/json',
       origin: runtime.serverUrl
     },
-    body: JSON.stringify({ authorHandle: handle })
+    body: JSON.stringify({ authorHandle: handle, pidChain: processIdentityChain() })
   });
   if (!response.ok) return null;
   return extractAntBrowserSessionCookie(response);

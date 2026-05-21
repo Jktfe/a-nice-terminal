@@ -8,6 +8,8 @@ import { adoptExternalProcessForTerminal, upsertTerminal } from '$lib/server/ter
 import { createTerminalRecord } from '$lib/server/terminalRecordsStore';
 import { createOwner } from '$lib/server/ownersStore';
 import { createHumanConsentGrant } from '$lib/server/humanConsentGrantsStore';
+import { createBrowserSession } from '$lib/server/browserSessionStore';
+import { issueToken } from '$lib/server/antchatAuthStore';
 
 type PostOptions = {
   roomId: string;
@@ -15,6 +17,7 @@ type PostOptions = {
   origin?: string | null;
   host?: string | null;
   url?: string;
+  headers?: Record<string, string>;
 };
 
 beforeEach(() => {
@@ -23,14 +26,15 @@ beforeEach(() => {
   resetChatRoomStoreForTests();
 });
 
-function bindIdentityMembership(roomId: string, handle: string): void {
+function bindIdentityMembership(roomId: string, handle: string): { pidChain: { pid: number; pid_start: string }[] } {
   const terminal = upsertTerminal({ pid: 777, pid_start: `pst-${handle}`, name: `term-${roomId}-${handle}` });
   addMembership({ room_id: roomId, handle, terminal_id: terminal.id });
+  return { pidChain: [{ pid: terminal.pid, pid_start: terminal.pid_start ?? `pst-${handle}` }] };
 }
 
 async function callPost(options: PostOptions): Promise<Response> {
   const targetUrl = options.url ?? `https://ant.local/api/chat-rooms/${options.roomId}/browser-session`;
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  const headers: Record<string, string> = { 'content-type': 'application/json', ...(options.headers ?? {}) };
   if (options.origin !== null) headers.origin = options.origin ?? new URL(targetUrl).origin;
   if (options.host !== null) headers.host = options.host ?? new URL(targetUrl).host;
   const request = new Request(targetUrl, { method: 'POST', headers, body: options.body });
@@ -59,8 +63,11 @@ function browserSessionCount(): number {
 describe('POST /api/chat-rooms/:roomId/browser-session', () => {
   it('mints a browser session cookie for an existing room member with identity membership', async () => {
     const room = createChatRoom({ name: 'browser', whoCreatedIt: '@you' });
-    bindIdentityMembership(room.id, '@you');
-    const response = await callPost({ roomId: room.id, body: JSON.stringify({ authorHandle: '@you' }) });
+    const caller = bindIdentityMembership(room.id, '@you');
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({ authorHandle: '@you', pidChain: caller.pidChain })
+    });
     expect(response.status).toBe(201);
     const body = await response.json();
     expect(body.browserSession).toMatchObject({
@@ -85,13 +92,59 @@ describe('POST /api/chat-rooms/:roomId/browser-session', () => {
   // The strict pre-fix 403 silently broke the entire downstream SSE chain.
   // Option A lazy-creates a synthetic browser terminal + room_memberships
   // row so the route returns 201 + valid session cookie.
-  it('GAP-55: room model-member without a terminal binding gets a synthetic terminal + 201 session', async () => {
+  it('rejects unauthenticated room model-member mints', async () => {
     const room = createChatRoom({ name: 'browser', whoCreatedIt: '@you' });
     const response = await callPost({ roomId: room.id, body: JSON.stringify({ authorHandle: '@you' }) });
+    expect(response.status).toBe(401);
+    expect(browserSessionCount()).toBe(0);
+  });
+
+  it('allows a bearer-authenticated human to mint their own room browser session without pidChain', async () => {
+    createOwner({ handle: '@jamesm5', password: 'pw' });
+    const room = createChatRoom({ name: 'browser-human-bearer', whoCreatedIt: '@jamesm5' });
+    const { token } = issueToken('james+m5@newmodel.vc');
+
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({ authorHandle: '@jamesm5' }),
+      headers: { authorization: `Bearer ${token}` }
+    });
+
     expect(response.status).toBe(201);
     expect(browserSessionCount()).toBe(1);
-    const payload = await response.json();
-    expect(payload.browserSession.handle).toBe('@you');
+  });
+
+  it('allows a human login cookie to mint that human family browser session without pidChain', async () => {
+    createOwner({ handle: '@human', password: 'pw' });
+    const room = createChatRoom({ name: 'browser-human-cookie', whoCreatedIt: '@human' });
+    bindIdentityMembership(room.id, '@human');
+    const loginSession = createBrowserSession({ roomId: room.id, authorHandle: '@human' });
+
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({ authorHandle: '@human' }),
+      headers: { cookie: `ant_browser_session=${loginSession?.browserSessionSecret ?? ''}` }
+    });
+
+    expect(response.status).toBe(201);
+    expect(browserSessionCount()).toBe(2);
+  });
+
+  it('does not let an agent browser-session cookie mint as a human without consent', async () => {
+    createOwner({ handle: '@human', password: 'pw' });
+    const room = createChatRoom({ name: 'browser-agent-cookie-human-spoof', whoCreatedIt: '@human' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@antmacdevcodex' });
+    bindIdentityMembership(room.id, '@antmacdevcodex');
+    const agentSession = createBrowserSession({ roomId: room.id, authorHandle: '@antmacdevcodex' });
+
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({ authorHandle: '@human' }),
+      headers: { cookie: `ant_browser_session=${agentSession?.browserSessionSecret ?? ''}` }
+    });
+
+    expect(response.status).toBe(403);
+    expect(browserSessionCount()).toBe(1);
   });
 
   it('binds agent browser-session mint to the live terminal record before browser fallback', async () => {
@@ -109,10 +162,14 @@ describe('POST /api/chat-rooms/:roomId/browser-session', () => {
       ttlSeconds: 3600
     });
     const room = createChatRoom({ name: 'codex side room', whoCreatedIt: '@evolveantcodex' });
+    addMembership({ room_id: room.id, handle: '@evolveantcodex', terminal_id: record.session_id });
 
     const response = await callPost({
       roomId: room.id,
-      body: JSON.stringify({ authorHandle: '@evolveantcodex' })
+      body: JSON.stringify({
+        authorHandle: '@evolveantcodex',
+        pidChain: [{ pid: 4242, pid_start: 'pid-start-codex' }]
+      })
     });
 
     expect(response.status).toBe(201);
@@ -130,33 +187,42 @@ describe('POST /api/chat-rooms/:roomId/browser-session', () => {
     // explicitly closes the room before probing.
     const room = createChatRoom({ name: 'browser', whoCreatedIt: '@you' });
     setRoomMode({ roomId: room.id, mode: 'closed', set_by: '@you' });
-    bindIdentityMembership(room.id, '@stranger');
-    const response = await callPost({ roomId: room.id, body: JSON.stringify({ authorHandle: '@stranger' }) });
+    const caller = bindIdentityMembership(room.id, '@stranger');
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({ authorHandle: '@stranger', pidChain: caller.pidChain })
+    });
     expect(response.status).toBe(403);
     expect(browserSessionCount()).toBe(0);
   });
 
-  // OPEN-room auto-join SHIPPED — d61203e (open-room semantics) +
-  // followup-fix that deletes the FK-child-2ting pre-emptive
-  // addMembership({terminal_id: ''}) at line 118 and lets the
-  // lazy-create synthetic-terminal block below (lines ~120-128)
-  // handle BOTH terminal upsert AND addMembership atomically with a
-  // valid FK reference.
-  it('OPEN rooms auto-join an arbitrary stranger via browser-session mint', async () => {
+  it('rejects unauthenticated arbitrary handles in OPEN rooms', async () => {
     const room = createChatRoom({ name: 'browser', whoCreatedIt: '@you' });
     const response = await callPost({ roomId: room.id, body: JSON.stringify({ authorHandle: '@stranger' }) });
-    expect(response.status).toBe(201);
-    expect(browserSessionCount()).toBe(1);
-    const payload = await response.json();
-    expect(payload.browserSession.handle).toBe('@stranger');
-    expect(findChatRoomById(room.id)?.members.some((member) => member.handle === '@stranger' && member.kind === 'agent')).toBe(true);
+    expect(response.status).toBe(401);
+    expect(browserSessionCount()).toBe(0);
+    expect(findChatRoomById(room.id)?.members.some((member) => member.handle === '@stranger')).toBe(false);
+  });
+
+  it('rejects an authenticated caller minting an unrelated handle', async () => {
+    const room = createChatRoom({ name: 'browser', whoCreatedIt: '@you' });
+    const caller = bindIdentityMembership(room.id, '@serverlaptop');
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({ authorHandle: '@nobody', pidChain: caller.pidChain })
+    });
+    expect(response.status).toBe(403);
+    expect(browserSessionCount()).toBe(0);
   });
 
   it('normalises authorHandle against both room model and identity membership', async () => {
     const room = createChatRoom({ name: 'browser', whoCreatedIt: '@you' });
     inviteAgentToRoom({ roomId: room.id, agentHandle: '@codex' });
-    bindIdentityMembership(room.id, '@codex');
-    const response = await callPost({ roomId: room.id, body: JSON.stringify({ authorHandle: ' codex ' }) });
+    const caller = bindIdentityMembership(room.id, '@codex');
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({ authorHandle: ' codex ', pidChain: caller.pidChain })
+    });
     expect(response.status).toBe(201);
     const body = await response.json();
     expect(body.browserSession.handle).toBe('@codex');
@@ -164,20 +230,20 @@ describe('POST /api/chat-rooms/:roomId/browser-session', () => {
 
   it('rejects cross-origin, missing-origin, and host-mismatch POSTs before minting', async () => {
     const room = createChatRoom({ name: 'browser', whoCreatedIt: '@you' });
-    bindIdentityMembership(room.id, '@you');
+    const caller = bindIdentityMembership(room.id, '@you');
     expect((await callPost({
       roomId: room.id,
-      body: JSON.stringify({ authorHandle: '@you' }),
+      body: JSON.stringify({ authorHandle: '@you', pidChain: caller.pidChain }),
       origin: 'https://evil.local'
     })).status).toBe(403);
     expect((await callPost({
       roomId: room.id,
-      body: JSON.stringify({ authorHandle: '@you' }),
+      body: JSON.stringify({ authorHandle: '@you', pidChain: caller.pidChain }),
       origin: null
     })).status).toBe(403);
     expect((await callPost({
       roomId: room.id,
-      body: JSON.stringify({ authorHandle: '@you' }),
+      body: JSON.stringify({ authorHandle: '@you', pidChain: caller.pidChain }),
       host: 'wrong.local'
     })).status).toBe(403);
     expect(browserSessionCount()).toBe(0);
@@ -195,6 +261,7 @@ describe('POST /api/chat-rooms/:roomId/browser-session', () => {
       // consent grant for owner_id — gate must throw 403 with structured
       // human_impersonation_no_grant body before any session is minted.
       const callerTerminal = upsertTerminal({ pid: 9991, pid_start: 'pst-caller', name: 'caller' });
+      addMembership({ room_id: room.id, handle: '@caller', terminal_id: callerTerminal.id });
       const response = await callPost({
         roomId: room.id,
         body: JSON.stringify({
@@ -217,6 +284,7 @@ describe('POST /api/chat-rooms/:roomId/browser-session', () => {
       // human_consent_grants FK (created_by_terminal_id) holds.
       const ownerSelfTerminal = upsertTerminal({ pid: 1, pid_start: 'pst-owner', name: 'owner-self' });
       const callerTerminal = upsertTerminal({ pid: 9992, pid_start: 'pst-grant', name: 'grant-caller' });
+      addMembership({ room_id: room.id, handle: '@agent-with-grant', terminal_id: callerTerminal.id });
       createHumanConsentGrant({
         ownerId: owner.id,
         grantedToTerminalId: callerTerminal.id,
@@ -240,12 +308,12 @@ describe('POST /api/chat-rooms/:roomId/browser-session', () => {
 
     it('lets an agent handle mint pass — gate does not fire on non-human owners', async () => {
       const room = createChatRoom({ name: 'consent-agent-pass', whoCreatedIt: '@you' });
+      const caller = bindIdentityMembership(room.id, '@codex');
       // @codex is NOT in owner_handles → resolveHumanOwnership returns
-      // { kind: 'agent' } and the gate never runs. Behaviour identical
-      // to the GAP-55 auto-join path proven in test above.
+      // { kind: 'agent' } and the gate never runs.
       const response = await callPost({
         roomId: room.id,
-        body: JSON.stringify({ authorHandle: '@codex' })
+        body: JSON.stringify({ authorHandle: '@codex', pidChain: caller.pidChain })
       });
       expect(response.status).toBe(201);
       expect(browserSessionCount()).toBe(1);
@@ -256,10 +324,10 @@ describe('POST /api/chat-rooms/:roomId/browser-session', () => {
 
   it('omits Secure on http but keeps strict cookie attributes', async () => {
     const room = createChatRoom({ name: 'browser', whoCreatedIt: '@you' });
-    bindIdentityMembership(room.id, '@you');
+    const caller = bindIdentityMembership(room.id, '@you');
     const response = await callPost({
       roomId: room.id,
-      body: JSON.stringify({ authorHandle: '@you' }),
+      body: JSON.stringify({ authorHandle: '@you', pidChain: caller.pidChain }),
       url: `http://localhost/api/chat-rooms/${room.id}/browser-session`
     });
     const setCookie = response.headers.get('set-cookie') ?? '';

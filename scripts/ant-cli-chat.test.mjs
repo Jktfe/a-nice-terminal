@@ -106,6 +106,7 @@ describe('ant chat tail', () => {
       url: 'http://test.local/api/chat-rooms/room-a/browser-session',
       init: expect.objectContaining({ method: 'POST' })
     });
+    expect(bodyAt(captured, 1)).toMatchObject({ authorHandle: '@agent', pidChain: expect.any(Array) });
     expect(captured.requests[2].init.headers.cookie).toBe('ant_browser_session=session-123');
     expect(captured.stdout.join('\n')).toContain('hello after auth');
   });

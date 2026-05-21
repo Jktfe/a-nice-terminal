@@ -135,6 +135,10 @@ describe('ant router', () => {
       url: 'http://localhost:4321/api/chat-rooms/r1/browser-session',
       init: expect.objectContaining({ method: 'POST' })
     });
+    expect(JSON.parse(fetchCalls[1].init.body)).toMatchObject({
+      authorHandle: '@agent',
+      pidChain: expect.any(Array)
+    });
     expect(fetchCalls[2].init.headers.cookie).toBe('ant_browser_session=router-cookie');
     expect(writes).toEqual(['[antchat r1 from @you] hello @agent', '\r']);
   });
