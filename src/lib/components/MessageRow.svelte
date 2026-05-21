@@ -52,21 +52,15 @@
     /** Bubbles up when ClaimActionBar mints/releases a claim so
      *  MessageList can re-hydrate its bulk cache. */
     onClaimChanged?: () => void;
+    /** True when the current viewer is an agent member of this room.
+     *  MessageList derives this from the live room roster, not from
+     *  brittle handle prefixes. */
+    viewerIsAgent?: boolean;
     asHandle?: string;
     readReceiptEvent?: Record<string, unknown> | null;
   };
 
-  let { message, member, onReplyRequested, childCount = 0, parentMessage, claims = [], roomMode = 'brainstorm', onClaimChanged, asHandle, readReceiptEvent }: Props = $props();
-
-  // Viewer-is-agent gate for the ClaimActionBar (JWPK msg_np3zwn7w60).
-  // The 🖐️/🤝/👐 pills are AGENT coordination signals — humans don't
-  // claim via the web UI, so they only see the read-only ClaimChip
-  // state. Match the ^@evolveant agent prefix the server uses to
-  // reject agent handles from the user-facing Open Asks queue (commit
-  // 24b9c43) so the cross-surface rule reads as one.
-  const viewerIsAgent = $derived(
-    typeof asHandle === 'string' && /^@evolveant/i.test(asHandle.trim())
-  );
+  let { message, member, onReplyRequested, childCount = 0, parentMessage, claims = [], roomMode = 'brainstorm', onClaimChanged, viewerIsAgent = false, asHandle, readReceiptEvent }: Props = $props();
   // deleteError is owned by MessageRowHeader but bound back here so the
   // <p class="message-error"> renders in its original spot below the
   // message body (visual contract preserved across the split).

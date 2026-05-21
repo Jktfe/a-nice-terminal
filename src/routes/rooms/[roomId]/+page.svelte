@@ -48,6 +48,7 @@
   import type { Ask } from '$lib/server/askStore';
   import type { TaskForRoom } from '$lib/server/taskStore';
   import type { FocusEntry } from '$lib/server/focusModeStore';
+  import type { RoomMode } from '$lib/server/roomModesStore';
 
   type SharedFileMetadata = Omit<SharedFile, 'contentsBase64'>;
 
@@ -80,6 +81,7 @@
     plansForRoom: RoomPlanLink[];
     tasksForRoom: TaskForRoom[];
     focusedMembers: FocusEntry[];
+    roomMode?: RoomMode;
     allRoomLabels?: Record<string, string>;
   };
   type Props = { data: RoomPageData };
@@ -115,6 +117,7 @@
   const asksFetchFailed = $derived<boolean>(data.asksFetchFailed ?? false);
   const plansForRoom = $derived<RoomPlanLink[]>(data.plansForRoom ?? []);
   const tasksForRoom = $derived<TaskForRoom[]>(data.tasksForRoom ?? []);
+  const roomMode = $derived<RoomMode>(data.roomMode ?? 'brainstorm');
   const primaryRoomPlanHref = $derived(
     plansForRoom[0]?.planId
       ? `/plans/${encodeURIComponent(plansForRoom[0].planId)}`
@@ -415,6 +418,7 @@
     messages={liveMessageRoomId === null ? messagesFromServer : liveMessages}
     members={roomFromServer.members}
     roomId={roomFromServer.id}
+    {roomMode}
     asHandle={callerHandle}
     onReplyRequested={setReplyingTo}
     {hasOlderMessages}

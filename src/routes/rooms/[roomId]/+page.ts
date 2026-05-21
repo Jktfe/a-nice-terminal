@@ -8,9 +8,11 @@ import type { SharedFile } from '$lib/server/chatAttachmentStore';
 import type { Ask } from '$lib/server/askStore';
 import type { TaskForRoom } from '$lib/server/taskStore';
 import type { FocusEntry } from '$lib/server/focusModeStore';
+import type { RoomMode } from '$lib/server/roomModesStore';
 
 type SharedFileMetadata = Omit<SharedFile, 'contentsBase64'>;
 type AsksFetchResult = { asks: Ask[]; asksFetchFailed: boolean };
+type RoomModeFetchResult = { mode: RoomMode };
 type MessagesFetchResult = {
   messages: ChatMessage[];
   paging?: {
@@ -35,7 +37,7 @@ export const load: PageLoad = async ({ fetch, params }) => {
   // POST entirely. onMount runs in the browser on every fresh room view
   // and on every route remount.
 
-  const [messagesBody, aliasesBody, agentEventsBody, attachmentsBody, asksBody, plansBody, tasksBody, focusBody, allRoomsBody] =
+  const [messagesBody, aliasesBody, agentEventsBody, attachmentsBody, asksBody, plansBody, tasksBody, focusBody, roomModeBody, allRoomsBody] =
     await Promise.all([
       // Emergency cap: 10 messages until we virtualise the message list.
       // Larger limits compound with markdown rendering + per-row
@@ -109,6 +111,15 @@ export const load: PageLoad = async ({ fetch, params }) => {
             ? ((await response.json()) as { focusedMembers: FocusEntry[] })
             : { focusedMembers: [] as FocusEntry[] }
       ),
+      // M3.b.4 room modes are persisted separately from the room row.
+      // Load them with the rest of the room view data so heads-down
+      // claim chips and controls use the actual room mode on first paint.
+      fetch(`/api/chat-rooms/${encodeURIComponent(params.roomId)}/mode`).then(
+        async (response) =>
+          response.ok
+            ? ((await response.json()) as RoomModeFetchResult)
+            : { mode: 'brainstorm' as RoomMode }
+      ),
       // RoomQuickNav left-rail label source. SSR-loaded as part of this
       // page's existing Promise.all so the rail can render starred-room
       // names directly from data props — no client-side fetch, no
@@ -140,6 +151,7 @@ export const load: PageLoad = async ({ fetch, params }) => {
     plansForRoom: plansBody.plans,
     tasksForRoom: (tasksBody as { tasks: TaskForRoom[] }).tasks,
     focusedMembers: (focusBody as { focusedMembers: FocusEntry[] }).focusedMembers,
+    roomMode: roomModeBody.mode,
     allRoomLabels
   };
 };
