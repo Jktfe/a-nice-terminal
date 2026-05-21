@@ -133,11 +133,19 @@
       const { Terminal } = await import('@xterm/xterm');
       const { FitAddon } = await import('@xterm/addon-fit');
       await import('@xterm/xterm/css/xterm.css');
+      // Ensure the Nerd Font is loaded BEFORE xterm measures glyph widths,
+      // otherwise xterm uses the fallback metrics and never re-measures.
+      if (typeof document !== 'undefined' && document.fonts) {
+        try { await document.fonts.load("14px 'Symbols Nerd Font'"); } catch { /* swallow */ }
+      }
       term = new Terminal({
         cursorBlink: true,
-        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+        // "Symbols Nerd Font" first so powerline / starship / git icons in
+        // the user's prompt render as glyphs instead of missing-char boxes.
+        // Falls back to system monospace for everything else.
+        fontFamily: '"Symbols Nerd Font", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
         fontSize: 14,
-        theme: { background: '#181512', foreground: '#f7ffe8' },
+        theme: { background: '#000000', foreground: '#f7ffe8' },
         scrollback: 5000
       });
       fitAddon = new FitAddon();
@@ -236,6 +244,18 @@
 </div>
 
 <style>
+  /* SymbolsNerdFont — covers the powerline / starship / git / weather
+     glyphs your shell prompt emits. Self-hosted in /static/fonts so the
+     terminal renders identically on every machine on the tailnet without
+     a network round-trip. font-display:block keeps the boxes off-screen
+     until the font is ready so the first paint doesn't flash □. */
+  @font-face {
+    font-family: 'Symbols Nerd Font';
+    src: url('/fonts/SymbolsNerdFont-Regular.ttf') format('truetype');
+    font-display: block;
+    font-weight: normal;
+    font-style: normal;
+  }
   .terminal-stack {
     display: flex; flex-direction: column;
     max-height: 32rem; height: 32rem; overflow: hidden;
@@ -244,10 +264,10 @@
   .ant-terminal-host {
     flex: 1 1 auto;
     width: 100%;
-    background: #181512;
+    background: #000000;
     padding: 0.5rem;
     overflow: hidden;
   }
   /* xterm-js handles its own internal layout; the host just provides the
-     bounding box + the dark background that bleeds through any padding. */
+     bounding box + the black background that bleeds through any padding. */
 </style>
