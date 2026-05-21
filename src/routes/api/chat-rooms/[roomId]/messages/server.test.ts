@@ -113,6 +113,19 @@ describe('GET /api/chat-rooms/:roomId/messages pagination', () => {
     expect(response.status).toBe(401);
   });
 
+  it('allows CLI message reads when the query pidChain resolves to a room member', async () => {
+    const room = createChatRoom({ name: 'pidchain-read', whoCreatedIt: '@you' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'visible via pidChain' });
+    const caller = verifiedCaller(room.id, '@agent');
+    const query = `?pidChain=${encodeURIComponent(JSON.stringify(caller.pidChain))}`;
+
+    const response = await callGet(room.id, query);
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.messages.map((message: { body: string }) => message.body)).toContain('visible via pidChain');
+  });
+
   it('hides message reads from authenticated non-members', async () => {
     const room = createChatRoom({ name: 'private-messages', whoCreatedIt: '@mark' });
     postMessage({ roomId: room.id, authorHandle: '@you', body: 'secret' });

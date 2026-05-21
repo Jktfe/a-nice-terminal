@@ -5,6 +5,7 @@
  * ~/.ant/config.json or ANT_HANDLE, so a CLI can mint the same
  * browser-session cookie the write path already uses, then retry the GET.
  */
+import { processIdentityChain } from './ant-cli-identity-chain.mjs';
 
 export function resolveAntCliHandleForRoom(runtime, roomId, explicitHandle) {
   if (typeof explicitHandle === 'string' && explicitHandle.trim().length > 0) {
@@ -49,7 +50,7 @@ export async function fetchRoomJsonWithBrowserSessionFallback(
   path,
   explicitHandle
 ) {
-  const url = `${runtime.serverUrl}${path}`;
+  const url = appendPidChainQuery(`${runtime.serverUrl}${path}`);
   const first = await runtime.fetchImpl(url);
   if (first.ok) return first.json();
   if (first.status !== 401) throw await makeGetFailure(url, first);
@@ -65,6 +66,14 @@ export async function fetchRoomJsonWithBrowserSessionFallback(
   });
   if (!retry.ok) throw await makeGetFailure(url, retry);
   return retry.json();
+}
+
+function appendPidChainQuery(rawUrl) {
+  const url = new URL(rawUrl);
+  if (!url.searchParams.has('pidChain')) {
+    url.searchParams.set('pidChain', JSON.stringify(processIdentityChain()));
+  }
+  return url.toString();
 }
 
 function extractAntBrowserSessionCookie(response) {
