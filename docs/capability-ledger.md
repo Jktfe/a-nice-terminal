@@ -65,10 +65,10 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Draft persistence | audit blockers | CHANGE | Claude | Never lose typed text. |
 | Consent grants | audit blockers | CHANGE | Codex | Lane A implemented general room grants with topic/source/duration/max-answer gate, audit trail, and ask-answer enforcement. |
 | Archive recovery surface | audit blockers | CHANGE | Codex | Lane A implemented `/safety` recovery surface for archived rooms/plans plus explicit soft-delete boundaries. |
-| Agent telemetry | audit blockers | CHANGE | Codex | User-facing status, not debug soup. |
+| Agent telemetry | audit blockers | KEEP | Codex | User-facing status, not debug soup. Wired up agent status (idle/thinking/working/response-required) directly to SQLite terminals + chat_agent_status_events tables, bypassing fingerprinting! |
 | Sheets artefacts | audit blockers | CHANGE | Codex | Trust model and audit rail. |
 | Plan event editing | audit blockers | CHANGE | Codex | Inline or modal, but explicit. |
-| Agent session overview | Claude Code agent view, 2026-05-11 | CHANGE | Codex | Borrow the good parts: needs-input status, peek/reply, background sessions, and next-run visibility. Keep ANT multi-vendor and multi-machine. |
+| Agent session overview | Claude Code agent view, 2026-05-11 | KEEP | Codex | Borrowed good parts: status pills in Svelte room footers + fleet grid wired to SQLite. Bypasses stdout fingerprinting via direct script-based state updates. |
 | Multi-model routing and cost savings | Current ANT agent mix and James product direction | CHANGE | Codex | Different models behave differently and cost differently. vNext must make Claude, Codex, Gemini, Qwen, Copilot, Pi, GLM, Kimi, and future agents first-class participants instead of forcing one vendor path. |
 | Model routing preferences | Router-not-viewer stance | CHANGE | Claude/Codex | Users need defaults by task type plus override controls. Agent rows need model, cost tier, and tokens consumed this session. |
 | Session tracker agent | James product direction | CHANGE | Codex | A cheap always-on tracker can watch sessions, cost, stale working states, decisions, and completions, then escalate only the prepared item. |
