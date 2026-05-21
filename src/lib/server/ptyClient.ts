@@ -17,7 +17,7 @@
 
 import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdirSync, openSync, readSync, closeSync, existsSync, statSync, watch as fsWatch } from 'node:fs';
+import { mkdirSync, openSync, readSync, closeSync, existsSync, readdirSync, statSync, watch as fsWatch } from 'node:fs';
 import { join } from 'node:path';
 
 const execFile = promisify(execFileCb);
@@ -36,6 +36,11 @@ interface State {
   /** fs.watch handle for the PTY_DIR (single watcher; lazy-initialised). */
   dirWatcher: ReturnType<typeof fsWatch> | null;
   watcherBooted: boolean;
+  /** Polling fallback timer — macOS fs.watch silently misses appends to
+   *  existing files (FSEvents coalescing). The poll stats every known
+   *  session-file periodically so live shell output reliably reaches
+   *  SSE subscribers even when the watcher dropped the event. */
+  pollTimer: ReturnType<typeof setInterval> | null;
   /** Per-session input queue tail: each writeInput chains onto the
    *  previous promise so all tmux send-keys subprocesses for one session
    *  run in arrival order. Without this, fast typing scrambles characters
@@ -51,6 +56,7 @@ function getStore(): State {
       fileOffsets: new Map(),
       dirWatcher: null,
       watcherBooted: false,
+      pollTimer: null,
       inputQueueTails: new Map()
     };
   }
@@ -90,13 +96,42 @@ function drainSessionFile(sessionId: string): void {
 
 function bootDirWatcher(): void {
   const s = getStore();
-  if (s.watcherBooted) return;
+  // Lazy-init fields that may be missing after HMR cycles where a cached
+  // store predates them (same pattern as inputQueueTails above).
+  if (!s.fileOffsets) s.fileOffsets = new Map();
   ensurePtyDirExists();
-  s.dirWatcher = fsWatch(PTY_DIR, (_event, filename) => {
-    if (!filename || !filename.endsWith('.out')) return;
-    const sessionId = filename.slice(0, -'.out'.length);
-    drainSessionFile(sessionId);
-  });
+
+  // Seed offsets for any .out files already on disk so the poll knows
+  // about pre-existing tmux sessions (server restart / HMR). Start at the
+  // current file size — historical bytes reach the SSE handler via the
+  // scrollback capture, so we don't re-emit them through subscribeOutput.
+  try {
+    for (const entry of readdirSync(PTY_DIR)) {
+      if (!entry.endsWith('.out')) continue;
+      const sessionId = entry.slice(0, -'.out'.length);
+      if (s.fileOffsets.has(sessionId)) continue;
+      try { s.fileOffsets.set(sessionId, statSync(join(PTY_DIR, entry)).size); }
+      catch { /* skip — file disappeared mid-scan */ }
+    }
+  } catch { /* PTY_DIR missing — ensurePtyDirExists above covers creation */ }
+
+  if (!s.dirWatcher) {
+    s.dirWatcher = fsWatch(PTY_DIR, (_event, filename) => {
+      if (!filename || !filename.endsWith('.out')) return;
+      const sessionId = filename.slice(0, -'.out'.length);
+      drainSessionFile(sessionId);
+    });
+  }
+  // macOS fs.watch silently misses appends to existing files under
+  // FSEvents — without polling, live shell output never reaches the SSE
+  // subscribers between OS-level write barriers. Poll every 120ms over
+  // each known session; drainSessionFile is a no-op when there are no
+  // new bytes, so the cost is one stat per active session per tick.
+  if (!s.pollTimer) {
+    s.pollTimer = setInterval(() => {
+      for (const sessionId of s.fileOffsets.keys()) drainSessionFile(sessionId);
+    }, 120);
+  }
   s.watcherBooted = true;
 }
 
