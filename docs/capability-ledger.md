@@ -77,6 +77,7 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Accounts bearer home-server cache | Mac app 0.1.8 auth path, 2026-05-21 | CHANGE | Codex | Added shared accounts bearer introspection and local cache so Mac bearer reads/writes/license refresh do not re-hit accounts after the first successful resolve. |
 | Plan attach-room CLI | RoomPlansPanel CLI gap, 2026-05-21 | CHANGE | Codex | Added the missing `ant plan attach-room <plan_id> <room_id>` command path so documented plan-room attachment has a working CLI surface. |
 | Heads-down claim UX | Room-mode design contract, 2026-05-21 | CHANGE | Codex | Threaded persisted room mode into the room view and changed claim controls to use roster member kind instead of a hard-coded agent handle prefix. |
+| Planning-mode signal | Speed Pact T14, 2026-05-22 | CHANGE | Codex | Added `ant status planning` / `ant status idle` so agents can push the existing thinking/idle icon state from their PID identity and optionally post the planning notice into a room. |
 
 ## Audit Backlog
 
