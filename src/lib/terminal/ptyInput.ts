@@ -10,17 +10,38 @@
  */
 import { isTerminalResponseLoopback } from '$lib/terminal/ansiResponseFilter';
 
+// Per-terminal serial queue. The browser fans HTTP requests across up to
+// 6 parallel connections, so fast typing (xterm emits one onData per
+// keystroke) arrives at the server out of order — the shell ends up
+// seeing "hlleo" instead of "hello". Chaining each POST onto the
+// previous one keeps in-flight requests at exactly 1 per terminal,
+// preserving the order the user typed.
+const postQueueTails = new Map<string, Promise<unknown>>();
+
 /** Single POST of one chunk. Loopback-guarded (never echo a terminal's
- *  own ANSI response back into it). Fire-and-forget per backend contract. */
+ *  own ANSI response back into it). Serialised per terminal so fast
+ *  typing doesn't arrive scrambled at the PTY. */
 export async function postInput(terminalId: string, data: string): Promise<void> {
   if (isTerminalResponseLoopback(data)) return;
-  await fetch(`/api/terminals/${encodeURIComponent(terminalId)}/input`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ data })
-  }).catch((cause) => {
-    console.error('[ptyInput] input POST failed', cause);
+  const prev = postQueueTails.get(terminalId) ?? Promise.resolve();
+  const next = prev
+    .catch(() => { /* prior failure shouldn't poison the queue */ })
+    .then(() =>
+      fetch(`/api/terminals/${encodeURIComponent(terminalId)}/input`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ data })
+      }).catch((cause) => {
+        console.error('[ptyInput] input POST failed', cause);
+      })
+    );
+  // Drop the tail once it settles so the Map doesn't grow on long
+  // sessions; compare-and-set keeps later writes' tails intact.
+  const cleanup = next.finally(() => {
+    if (postQueueTails.get(terminalId) === cleanup) postQueueTails.delete(terminalId);
   });
+  postQueueTails.set(terminalId, cleanup);
+  await next;
 }
 
 /** Free-text submit: send the text, then send CR 5ms later so the shell

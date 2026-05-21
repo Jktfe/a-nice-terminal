@@ -36,6 +36,11 @@ interface State {
   /** fs.watch handle for the PTY_DIR (single watcher; lazy-initialised). */
   dirWatcher: ReturnType<typeof fsWatch> | null;
   watcherBooted: boolean;
+  /** Per-session input queue tail: each writeInput chains onto the
+   *  previous promise so all tmux send-keys subprocesses for one session
+   *  run in arrival order. Without this, fast typing scrambles characters
+   *  because parallel execFile invocations race at the OS level. */
+  inputQueueTails: Map<string, Promise<void>>;
 }
 
 function getStore(): State {
@@ -45,7 +50,8 @@ function getStore(): State {
       outputCbs: new Set(),
       fileOffsets: new Map(),
       dirWatcher: null,
-      watcherBooted: false
+      watcherBooted: false,
+      inputQueueTails: new Map()
     };
   }
   return g.__antPtyClient;
@@ -160,10 +166,50 @@ export async function spawnTerminal(
 }
 
 export function writeInput(sessionId: string, data: string): void {
-  // Use send-keys -l (literal) — treats data as plain text, no key-name
-  // interpretation. send-keys is synchronous from tmux's POV, fire-and-forget
-  // from ours; we don't await to match the old void signature.
-  execFileCb(TMUX, ['send-keys', '-t', `${sessionId}:0.0`, '-l', data], () => { /* swallow */ });
+  // tmux send-keys quirk: `-l` sends bytes literally, which is what we want
+  // for text typing — but a literal CR (\r) lands as cursor-to-col-1 rather
+  // than a shell-line submission. To submit the line, tmux needs the `Enter`
+  // keyname (no -l). Split on CR/LF: text runs go through `-l`, CR/LF go
+  // through as `Enter`. Without this, typing "ls" + Enter (xterm sends
+  // "ls\r") would leave "ls" sitting on the prompt unexecuted.
+  //
+  // Serialisation: each writeInput call chains onto the per-session queue
+  // tail so all tmux send-keys subprocesses run in arrival order. Fast
+  // typing produces a separate POST per keystroke; without serialisation
+  // the parallel execFile invocations race at the OS level and the shell
+  // sees characters out of order ("hello" → "hlleo").
+  const target = `${sessionId}:0.0`;
+  const segments: Array<['l', string] | ['k', 'Enter']> = [];
+  let segmentStart = 0;
+  for (let i = 0; i < data.length; i++) {
+    const ch = data.charCodeAt(i);
+    if (ch !== 0x0d && ch !== 0x0a) continue;
+    if (i > segmentStart) segments.push(['l', data.slice(segmentStart, i)]);
+    segments.push(['k', 'Enter']);
+    segmentStart = i + 1;
+  }
+  if (segmentStart < data.length) segments.push(['l', data.slice(segmentStart)]);
+  if (segments.length === 0) return;
+
+  const store = getStore();
+  // Lazy-init survives HMR cases where a cached store predates this field.
+  if (!store.inputQueueTails) store.inputQueueTails = new Map();
+  const tails = store.inputQueueTails;
+  const prevTail = tails.get(sessionId) ?? Promise.resolve();
+  const nextTail = prevTail.then(async () => {
+    for (const seg of segments) {
+      const args = seg[0] === 'l'
+        ? ['send-keys', '-t', target, '-l', seg[1]]
+        : ['send-keys', '-t', target, seg[1]];
+      try { await execFile(TMUX, args); } catch { /* tmux failures shouldn't break the queue */ }
+    }
+  });
+  // Drop the tail once it settles so the Map doesn't grow unboundedly on
+  // long-lived sessions. Compare-and-set keeps later writes' tails intact.
+  const cleanupTail = nextTail.finally(() => {
+    if (tails.get(sessionId) === cleanupTail) tails.delete(sessionId);
+  });
+  tails.set(sessionId, cleanupTail);
 }
 
 export function resizeTerminal(sessionId: string, cols: number, rows: number): void {
