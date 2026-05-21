@@ -287,6 +287,11 @@
   }
 
   async function handleCd(path: string): Promise<void> {
+    // Optimistic update — we just told the shell to go there, so the
+    // breadcrumb and the + bookmark target should reflect intent right
+    // away. OSC-7/1337 detection on the Raw view (or the next pwd
+    // refresh) corrects this if the cd actually fails.
+    currentCwd = path;
     // Two-call PTY protocol per banked feedback_pty_paste_buffer_first +
     // feedback_shell_quote_pty_inject. Shell-quote, then CR 5ms later.
     await ptyPostInput(terminalId, 'cd ' + shellQuote(path));
