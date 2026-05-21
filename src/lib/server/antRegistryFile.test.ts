@@ -4,8 +4,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resetIdentityDbForTests } from './db';
 import { createTerminalRecord } from './terminalRecordsStore';
-import { upsertTerminal } from './terminalsStore';
+import { upsertTerminal, updatePaneTarget } from './terminalsStore';
 import { antRegistryFilePath, buildAntRegistryMarkdown, projectAntRegistryFile } from './antRegistryFile';
+import {
+  createChatRoom,
+  inviteAgentToRoom,
+  resetChatRoomStoreForTests
+} from './chatRoomStore';
+import { addMembership } from './roomMembershipsStore';
+import {
+  setRoomAlias,
+  resetChatRoomAliasStoreForTests
+} from './chatRoomAliasStore';
 
 let tmpDir: string;
 const previousDb = process.env.ANT_FRESH_DB_PATH;
@@ -46,6 +56,37 @@ describe('ANT registry file projection', () => {
     expect(markdown).toContain('@evolveantcodex');
     expect(markdown).toContain('codex');
     expect(markdown).toContain('codex-pane');
+  });
+
+  it('PID-as-identity slice 5: room-alias section maps alias → handle → PID → tmux pane', () => {
+    resetChatRoomStoreForTests();
+    resetChatRoomAliasStoreForTests();
+    const room = createChatRoom({ name: 'registry-aliases-room', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@evolveantcodex' });
+
+    const codexTerminal = upsertTerminal({
+      pid: 47238,
+      pid_start: 'p47238',
+      name: 'registry-codex-term'
+    });
+    updatePaneTarget(codexTerminal.id, 'antv4:codex.0', 'codex_cli');
+    addMembership({
+      room_id: room.id,
+      handle: '@evolveantcodex',
+      terminal_id: codexTerminal.id
+    });
+
+    setRoomAlias({ roomId: room.id, globalHandle: '@evolveantcodex', newAlias: '@cdx' });
+    setRoomAlias({ roomId: room.id, globalHandle: '@evolveantcodex', newAlias: '@codex-shouting' });
+
+    const markdown = buildAntRegistryMarkdown(1779000000000);
+    expect(markdown).toContain('## Room aliases');
+    expect(markdown).toContain('registry-aliases-room');
+    expect(markdown).toContain('@cdx');
+    expect(markdown).toContain('@codex-shouting');
+    expect(markdown).toContain('@evolveantcodex');
+    expect(markdown).toContain('PID 47238');
+    expect(markdown).toContain('tmux antv4');
   });
 
   it('writes a recoverable markdown registry file', () => {
