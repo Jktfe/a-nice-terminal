@@ -17,6 +17,18 @@ export default defineConfig({
     // CLI/preflight tests under parallel worker load. The work is fast
     // in isolation; the timeout was overrun, not the test logic.
     testTimeout: 30_000,
-    hookTimeout: 30_000
+    hookTimeout: 30_000,
+    teardownTimeout: 30_000,
+    // pool=forks (over default 'threads') with maxForks=4 — under heavy
+    // parallel load the worker→main IPC channel was hitting its ~5s
+    // timeout for onTaskUpdate, surfacing as "Timeout calling
+    // onTaskUpdate" unhandled errors even though every test passed.
+    // Forked processes have their own event loop AND capping concurrency
+    // at 4 keeps the main thread from drowning in IPC traffic from too
+    // many parallel reporters. Slightly slower walltime; no false flake.
+    pool: 'forks',
+    poolOptions: {
+      forks: { maxForks: 4 }
+    }
   }
 });
