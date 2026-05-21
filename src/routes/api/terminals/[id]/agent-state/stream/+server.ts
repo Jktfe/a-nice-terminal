@@ -31,6 +31,24 @@ import {
   type AgentStateSnapshot
 } from '$lib/server/agentStateReader';
 import { resolveTerminalRecordCliSession } from '$lib/server/terminalSessionLink';
+import { getAgentStatus, setAgentStatus, type AgentStatus } from '$lib/server/agentStatusStore';
+
+/** Map the freeform stateLabel from a CLI state file to the projected
+ *  enum the room-participant pill reads via terminals.agent_status.
+ *  Claude writes capitalised words ("Working", "Available", "Menu");
+ *  antigravity writes lowercase enum values directly. Unknown strings
+ *  fall back to 'idle' so the pill at least doesn't crash on a new
+ *  state label we haven't seen yet. */
+function projectStateLabelToAgentStatus(label: string | undefined): AgentStatus {
+  if (!label) return 'idle';
+  const k = label.trim().toLowerCase();
+  if (k === 'working') return 'working';
+  if (k === 'thinking') return 'thinking';
+  if (k === 'response-required' || k === 'response needed') return 'response-required';
+  if (k.startsWith('menu')) return 'response-required';
+  if (k === 'available' || k === 'idle' || k === 'waiting') return 'idle';
+  return 'idle';
+}
 
 const TMUX_BIN = process.env.ANT_TMUX_BIN ?? '/opt/homebrew/bin/tmux';
 const POLL_INTERVAL_MS = 250;
@@ -108,6 +126,26 @@ export const GET: RequestHandler = ({ params }) => {
           if (payload === lastSerialised) return;
           lastSerialised = payload;
           controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+
+          // Also project the new state into terminals.agent_status so the
+          // room-participant pill (which reads from that column via
+          // /api/chat-rooms/[id]/agent-statuses) stays in sync without
+          // its own SSE plumbing. ParticipantsPanel polls every 30s AND
+          // refreshes on agent_activity events, so this write is the
+          // single upstream that lights both pills at once. No-op when
+          // the projected status hasn't changed (mirrors agentStatusPoller).
+          if (snap) {
+            const projected = projectStateLabelToAgentStatus(snap.stateLabel);
+            const current = getAgentStatus(sessionId);
+            if (!current || current.agent_status !== projected) {
+              setAgentStatus({
+                terminalId: sessionId,
+                newStatus: projected,
+                source: 'hook',
+                evidence: { stateLabel: snap.stateLabel ?? null, via: 'agent-state-stream' }
+              });
+            }
+          }
         } catch {
           // Resolver / stream failure — fall silent for this tick; the
           // next tick (or the heartbeat) will surface the error if the
