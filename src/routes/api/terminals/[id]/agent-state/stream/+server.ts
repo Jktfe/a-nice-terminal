@@ -66,6 +66,26 @@ const CWD_CACHE_TTL_MS = 5_000;
 type CwdCacheEntry = { value: string | null; expiresAtMs: number };
 const cwdCache = new Map<string, CwdCacheEntry>();
 
+// "Response needed" debounce. Claude's on-stop.sh fires at the end of every
+// turn — including the brief gaps between tool calls during a single
+// long-running response. The classifier sees the assistant's prose tail
+// and (correctly, in isolation) verdicts ResponseNeeded, which gets
+// projected as response-required and paints the participant pill as
+// "Needs Reply" while the agent is in fact still mid-turn and about to
+// fire another tool call. The next pre-tool-use hook flips state back to
+// "Working" ~1-2s later, so the pill flaps.
+//
+// Fix: remember the wall-clock ms when we last projected `working` for
+// each terminal. When the projection wants to write response-required
+// within DEBOUNCE_MS of that mark, skip the write — the SSE poll keeps
+// re-checking every 1s and once enough quiet time has elapsed the
+// projection will commit, surfacing genuine end-of-turn waiting without
+// the transient flap. 3s is comfortably longer than the gap between
+// tool calls in a streaming claude turn (typically <1s) but short
+// enough that real "waiting on JWPK" lights the pill quickly.
+const RESPONSE_REQUIRED_DEBOUNCE_MS = 3_000;
+const lastWorkingAtByTerminal = new Map<string, number>();
+
 const AGENT_KIND_TO_CLI: Record<string, AgentCli> = {
   'claude': 'claude-code',
   'claude-code': 'claude-code',
@@ -161,12 +181,28 @@ export const GET: RequestHandler = ({ params }) => {
             const projected = projectStateLabelToAgentStatus(snap.stateLabel);
             const current = getAgentStatus(sessionId);
             if (!current || current.agent_status !== projected) {
-              setAgentStatus({
-                terminalId: sessionId,
-                newStatus: projected,
-                source: 'hook',
-                evidence: { stateLabel: snap.stateLabel ?? null, via: 'agent-state-stream' }
-              });
+              // Suppress transient response-required flips that happen
+              // between claude tool calls (see comment near
+              // RESPONSE_REQUIRED_DEBOUNCE_MS above). If we recently
+              // projected working, hold the response-required write —
+              // the next poll tick will re-check, and if the agent
+              // really is end-of-turn the write commits once the
+              // debounce window has elapsed.
+              const nowMs = Date.now();
+              const lastWorkingAt = lastWorkingAtByTerminal.get(sessionId) ?? 0;
+              const isFlap = projected === 'response-required'
+                && nowMs - lastWorkingAt < RESPONSE_REQUIRED_DEBOUNCE_MS;
+              if (!isFlap) {
+                setAgentStatus({
+                  terminalId: sessionId,
+                  newStatus: projected,
+                  source: 'hook',
+                  evidence: { stateLabel: snap.stateLabel ?? null, via: 'agent-state-stream' }
+                });
+                if (projected === 'working') {
+                  lastWorkingAtByTerminal.set(sessionId, nowMs);
+                }
+              }
             }
           }
         } catch {
