@@ -33,8 +33,8 @@
 <!-- JWPK msg_np3zwn7w60 + ux msg_vqj1js81zt: the 🖐️/🤝/👐 action
      pills are AGENT-only coordination signals — humans don't claim
      via the web UI. Gate the ClaimActionBar on a viewer-is-agent
-     check (same ^@evolveant prefix the server uses for asks-
-     rejection so there's a single source of truth across surfaces).
+     check derived from the room roster in MessageList, so aliases and
+     new agent handle families do not need component changes.
      Humans see only the ClaimChip in the header. -->
 <div class="row-action-strip">
   {#if viewerIsAgent}

@@ -121,6 +121,11 @@
   const membersByHandle = $derived(
     new Map(members.map((member) => [member.handle, member]))
   );
+  const viewerIsAgent = $derived.by(() => {
+    const handle = asHandle?.trim();
+    if (!handle) return false;
+    return membersByHandle.get(handle)?.kind === 'agent';
+  });
   const newestMessageId = $derived(messages.at(-1)?.id ?? '');
 
   function isNearBottom(element: HTMLElement): boolean {
@@ -241,6 +246,7 @@
           member={membersByHandle.get(message.authorHandle)}
           claims={claimsByMessageId.get(message.id) ?? []}
           {roomMode}
+          {viewerIsAgent}
           onClaimChanged={refreshClaims}
           {asHandle}
           {readReceiptEvent}
