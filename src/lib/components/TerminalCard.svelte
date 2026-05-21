@@ -333,6 +333,31 @@
     }
   }
 
+  /** Launch a native terminal emulator already attached to this session
+   *  via the server-side /launch endpoint. Replaces the older copy-to-
+   *  clipboard flow for the iTerm2 / Ghostty buttons so a single click
+   *  does what the button label says.
+   *
+   *  We still flip copiedAccessCommand to drive the same "launched X"
+   *  flash state the copy buttons use — keeps the UX coherent. */
+  async function launchEmulator(label: string, app: 'iterm' | 'ghostty'): Promise<void> {
+    try {
+      const res = await fetch(`/api/terminals/${encodeURIComponent(terminalId)}/launch`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ app })
+      });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      copiedAccessCommand = label;
+      setTimeout(() => {
+        if (copiedAccessCommand === label) copiedAccessCommand = null;
+      }, 1800);
+    } catch (cause) {
+      console.error('[TerminalCard] launch failed', cause);
+      copiedAccessCommand = null;
+    }
+  }
+
   async function handleRename(nextName: string): Promise<void> {
     onRename?.(nextName);
     await fetch(`/api/terminals/${encodeURIComponent(terminalId)}`, {
@@ -380,11 +405,11 @@
         <button type="button" onclick={() => void copyAccessCommand('SSH', access.commands.sshTmux)}>
           {copiedAccessCommand === 'SSH' ? 'Copied SSH' : 'Copy SSH tmux'}
         </button>
-        <button type="button" onclick={() => void copyAccessCommand('iTerm2', access.commands.iterm2)}>
-          {copiedAccessCommand === 'iTerm2' ? 'Copied iTerm2' : 'iTerm2'}
+        <button type="button" onclick={() => void launchEmulator('iTerm2', 'iterm')}>
+          {copiedAccessCommand === 'iTerm2' ? 'Opened iTerm2' : 'iTerm2'}
         </button>
-        <button type="button" onclick={() => void copyAccessCommand('Ghostty', access.commands.ghostty)}>
-          {copiedAccessCommand === 'Ghostty' ? 'Copied Ghostty' : 'Ghostty'}
+        <button type="button" onclick={() => void launchEmulator('Ghostty', 'ghostty')}>
+          {copiedAccessCommand === 'Ghostty' ? 'Opened Ghostty' : 'Ghostty'}
         </button>
       </div>
     {/if}
