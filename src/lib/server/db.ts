@@ -1202,7 +1202,22 @@ const SCHEMA_DDL_STATEMENTS = [
     posted_at_ms        INTEGER NOT NULL,
     PRIMARY KEY (terminal_id, transcript_event_id)
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_transcript_chat_idempotency_room ON transcript_chat_idempotency (room_id, posted_at_ms)`
+  `CREATE INDEX IF NOT EXISTS idx_transcript_chat_idempotency_room ON transcript_chat_idempotency (room_id, posted_at_ms)`,
+  // PID-as-identity model 2026-05-21 (JWPK msg_n2cyrel4u5):
+  // Identity = PID; aliases are pure display, stack unlimited per (room×handle),
+  // unique-per-room so routing stays deterministic. Replaces the in-mem Map that
+  // evaporated on every kickstart.
+  `CREATE TABLE IF NOT EXISTS chat_room_aliases (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    room_id       TEXT NOT NULL,
+    global_handle TEXT NOT NULL,
+    alias         TEXT NOT NULL,
+    set_by        TEXT,
+    set_at_ms     INTEGER NOT NULL,
+    UNIQUE(room_id, alias)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_aliases_room_handle ON chat_room_aliases (room_id, global_handle)`,
+  `CREATE INDEX IF NOT EXISTS idx_aliases_room_set_at ON chat_room_aliases (room_id, set_at_ms DESC)`
 ];
 
 function resolveDbFilePath(): string {
