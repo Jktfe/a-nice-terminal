@@ -203,7 +203,9 @@ describe('chatRoomAliasStore', () => {
     expect(findHandleForAliasInRoom(room.id, '@codex-mac')).toBe('@evolveantcodex');
     // Bare global handle resolves to itself
     expect(findHandleForAliasInRoom(room.id, '@evolveantcodex')).toBe('@evolveantcodex');
-    expect(findHandleForAliasInRoom(room.id, '@unknown')).toBeUndefined();
+    // Unknown handles resolve to themselves — caller's membership filter
+    // decides whether the resulting handle is a real recipient.
+    expect(findHandleForAliasInRoom(room.id, '@unknown')).toBe('@unknown');
   });
 
   it('aliases persist via SQLite (survive an in-conversation reset of the in-mem chat-room store)', () => {

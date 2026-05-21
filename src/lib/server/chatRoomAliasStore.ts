@@ -107,23 +107,30 @@ export function listAliasesForRoom(roomId: string): RoomAliasEntry[] {
     .map(rowToEntry);
 }
 
-/** Reverse lookup: which global handle does this alias text point at? */
+/**
+ * Reverse lookup: which global handle does this alias text point at?
+ *
+ * Resolution order:
+ *   1. SQLite alias row whose `alias` equals the candidate text → owning handle.
+ *   2. Otherwise the candidate IS its own global handle (a bare handle that
+ *      nobody has aliased is its own canonical form). The caller's downstream
+ *      membership filter decides whether the resolved handle actually exists
+ *      in the room — we don't gate that here so this stays a pure name
+ *      resolver and works equally for the SQLite-backed and in-mem-only
+ *      callers.
+ */
 export function findHandleForAliasInRoom(
   roomId: string,
   aliasText: string
-): string | undefined {
+): string {
   const candidate = normaliseToAtHandle(aliasText);
-  const room = findChatRoomById(roomId);
-  // A bare global handle is its own "alias" — counts even with no row.
-  if (room?.members.some((member) => member.handle === candidate)) return candidate;
-
   const row = getIdentityDb()
     .prepare<[string, string], { global_handle: string }>(
       `SELECT global_handle FROM chat_room_aliases
        WHERE room_id = ? AND alias = ? LIMIT 1`
     )
     .get(roomId, candidate);
-  return row?.global_handle;
+  return row?.global_handle ?? candidate;
 }
 
 /**

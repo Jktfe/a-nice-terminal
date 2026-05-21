@@ -32,8 +32,31 @@ import { deriveHandle, getTerminalRecord } from './terminalRecordsStore';
 import { hasBareEveryoneMention, hasBracketedMention, listBareMentionHandles } from '../chat/mentionRouting';
 import { listReadersForMessage, markMessageRead } from './messageReadReceiptStore';
 import { broadcastToRoom } from './eventBroadcast';
-import { findAliasForHandleInRoom } from './chatRoomAliasStore';
+import { findHandleForAliasInRoom } from './chatRoomAliasStore';
 import { getActiveWorkingClaim } from './entityClaimStore';
+
+/**
+ * PID-as-identity model JWPK msg_n2cyrel4u5 (2026-05-21).
+ *
+ * Bare mentions in a message body can be ANY alias the recipient owns in this
+ * room, not just the global handle. Resolve every token through the alias
+ * table BEFORE deciding who to route to — once resolved, downstream code only
+ * compares against the canonical membership.handle and never has to reason
+ * about which alias was used.
+ *
+ * Pre-2026-05-21 we resolved only the most-recently-set alias at
+ * routing time, which silently dropped older aliases as soon as a new one
+ * was added (chatRoomAliasStore was 1-alias-per-handle then). Now any of
+ * the N stacked aliases routes correctly.
+ */
+function resolveBareMentionsToGlobalHandles(roomId: string, body: string): Set<string> {
+  const resolved = new Set<string>();
+  for (const token of listBareMentionHandles(body)) {
+    if (token.toLowerCase() === '@everyone') continue;
+    resolved.add(findHandleForAliasInRoom(roomId, token));
+  }
+  return resolved;
+}
 
 const FANOUT_KINDS_ALLOWED = new Set(['human', 'agent']);
 
@@ -122,13 +145,15 @@ function recipientHandleForLinkedTerminal(sessionId: string): string {
 }
 
 function membershipIsTargeted(
-  roomId: string,
   membership: RoomMembershipRow,
   targetedHandles: Set<string>
 ): boolean {
-  if (targetedHandles.has(membership.handle)) return true;
-  const alias = findAliasForHandleInRoom(roomId, membership.handle);
-  return alias !== undefined && targetedHandles.has(alias);
+  // PID-as-identity: targetedHandles is already canonical (every alias was
+  // resolved to its owning global handle at parse time via
+  // resolveBareMentionsToGlobalHandles). Equality on the canonical handle is
+  // all that's needed — no more "is this token also an alias of mine?"
+  // fallback that only ever worked for the most-recent alias.
+  return targetedHandles.has(membership.handle);
 }
 
 function isOperatorBroadcastAuthor(handle: string): boolean {
@@ -170,9 +195,7 @@ export function fanoutMessageToRoomTerminals(
   const mode = getRoomMode(roomId);
   if (mode === 'closed') return;
   const memberships = listMembershipsForRoom(roomId);
-  const targetedHandles = new Set(
-    listBareMentionHandles(message.body).filter((handle) => handle.toLowerCase() !== '@everyone')
-  );
+  const targetedHandles = resolveBareMentionsToGlobalHandles(roomId, message.body);
   const containsInformationalMention = hasBracketedMention(message.body);
   const broadcastToAll =
     options.forceBroadcastToAll === true ||
@@ -202,7 +225,7 @@ export function fanoutMessageToRoomTerminals(
   }
   for (const membership of memberships) {
     if (membership.handle === message.authorHandle) continue;
-    if (!broadcastToAll && !membershipIsTargeted(room.id, membership, targetedHandles)) continue;
+    if (!broadcastToAll && !membershipIsTargeted(membership, targetedHandles)) continue;
     if (!activeClaimAllowsRecipient(message, membership.handle)) continue;
     const terminal = getTerminalById(membership.terminal_id);
     if (!terminal || !terminal.tmux_target_pane) continue;
@@ -220,14 +243,18 @@ export function fanoutMessageToRoomTerminals(
         : {};
       const onlyRespondToRaw = metaParsed.onlyRespondTo;
       if (Array.isArray(onlyRespondToRaw) && onlyRespondToRaw.length > 0) {
-        const allowedHandles = new Set(
-          onlyRespondToRaw
-            .filter((h): h is string => typeof h === 'string' && h.length > 0)
-            .map((h) => (h.startsWith('@') ? h : `@${h}`))
-        );
-        if (allowedHandles.size > 0) {
-          const messageBareMentions = listBareMentionHandles(message.body);
-          const hasAllowedMention = messageBareMentions.some((h) => allowedHandles.has(h));
+        // Canonicalise the allowlist via the same alias resolver as
+        // targetedHandles — operator may have typed an alias (@cdx) but
+        // means the underlying member, so route on canonical handles in
+        // both directions. PID-as-identity 2026-05-21.
+        const allowedGlobalHandles = new Set<string>();
+        for (const raw of onlyRespondToRaw) {
+          if (typeof raw !== 'string' || raw.length === 0) continue;
+          const withAt = raw.startsWith('@') ? raw : `@${raw}`;
+          allowedGlobalHandles.add(findHandleForAliasInRoom(room.id, withAt));
+        }
+        if (allowedGlobalHandles.size > 0) {
+          const hasAllowedMention = [...targetedHandles].some((h) => allowedGlobalHandles.has(h));
           if (!hasAllowedMention) continue;  // filter out, terminal stays quiet
         }
       }
