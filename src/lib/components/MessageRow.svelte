@@ -7,19 +7,20 @@
   Verdict: KEEP
   Simplification: per-message rendering extracted from the list wrapper
     so MessageList stays thin and each row owns its decorations.
+
+  2026-05-21 split: header / reply-indicator / action-strip carved into
+  sibling MessageRow* components to clear the 600-line component cap.
+  Zero behaviour change — same props, same DOM order, same classes.
 -->
 <script lang="ts">
   import type { ChatMessage } from '$lib/server/chatMessageStore';
   import type { RoomMember } from '$lib/server/chatRoomStore';
   import type { EntityClaim } from '$lib/server/entityClaimStore';
-  import MessageReactionsBar from './MessageReactionsBar.svelte';
   import MessageReadIndicator from './MessageReadIndicator.svelte';
-  import MemberIcon from './MemberIcon.svelte';
-  import ClaimChip from './ClaimChip.svelte';
-  import ClaimActionBar from './ClaimActionBar.svelte';
+  import MessageRowHeader from './MessageRowHeader.svelte';
+  import MessageRowReply from './MessageRowReply.svelte';
+  import MessageRowActions from './MessageRowActions.svelte';
   import { renderMarkdown } from '$lib/chat/renderMarkdown';
-  import { fly } from 'svelte/transition';
-  import { cubicOut } from 'svelte/easing';
 
   type Props = {
     message: ChatMessage;
@@ -66,27 +67,10 @@
   const viewerIsAgent = $derived(
     typeof asHandle === 'string' && /^@evolveant/i.test(asHandle.trim())
   );
-  let rowElement = $state<HTMLElement | null>(null);
-  let deleteBusy = $state(false);
+  // deleteError is owned by MessageRowHeader but bound back here so the
+  // <p class="message-error"> renders in its original spot below the
+  // message body (visual contract preserved across the split).
   let deleteError = $state('');
-  // JWPK msg_8lvlf400gr (2026-05-19): replace the blocking native
-  // confirm() with an in-page double-click pattern. First click arms the
-  // button (shows "Confirm?"), second click within DELETE_ARM_WINDOW_MS
-  // commits. Clicking elsewhere or letting the timer expire disarms.
-  // Removes the dialog (which actively breaks browser-automation per
-  // the chrome-devtools-mcp guideline + drops a modal in the user's
-  // face for a routine action).
-  const DELETE_ARM_WINDOW_MS = 4000;
-  let deleteArmed = $state(false);
-  let deleteArmedTimer: ReturnType<typeof setTimeout> | null = null;
-
-  function disarmDelete(): void {
-    deleteArmed = false;
-    if (deleteArmedTimer) {
-      clearTimeout(deleteArmedTimer);
-      deleteArmedTimer = null;
-    }
-  }
   // JWPK msg_90prrrfb6x: removed the per-row showReactions hover state
   // + duplicate caller-reaction-badge. MessageReactionsBar is now a
   // self-contained always-rendered trigger + popover-picker that owns
@@ -112,65 +96,9 @@
       (message.kind === 'human' || message.kind === 'agent')
   );
 
-  async function handleDeleteClick(event: MouseEvent): Promise<void> {
-    if (!canDelete) return;
-    if (!deleteArmed) {
-      // First click — arm the confirm state. Stop propagation so the
-      // outside-click handler below doesn't immediately disarm us on
-      // the same event tick.
-      event.stopPropagation();
-      deleteArmed = true;
-      deleteArmedTimer = setTimeout(disarmDelete, DELETE_ARM_WINDOW_MS);
-      return;
-    }
-    // Second click — commit.
-    event.stopPropagation();
-    disarmDelete();
-    deleteBusy = true;
-    deleteError = '';
-    try {
-      const response = await fetch(
-        `/api/chat-rooms/${encodeURIComponent(message.roomId)}/messages/${encodeURIComponent(message.id)}`,
-        { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}) }
-      );
-      if (!response.ok) {
-        throw new Error(`Delete failed (${response.status}).`);
-      }
-      // Optimistic flip — SSE message_updated will reconcile.
-      message.deletedAtMs = Date.now();
-      message.deletedByHandle = asHandle ?? null;
-    } catch (cause) {
-      deleteError = cause instanceof Error ? cause.message : 'Delete failed.';
-      setTimeout(() => (deleteError = ''), 4000);
-    } finally {
-      deleteBusy = false;
-    }
-  }
-
-  // Outside-click disarm — install only while armed so we don't leak
-  // listeners on every message row in a busy thread.
-  $effect(() => {
-    if (!deleteArmed) return;
-    const onDocClick = () => disarmDelete();
-    // microtask delay so the arming click doesn't itself trigger disarm
-    queueMicrotask(() => document.addEventListener('click', onDocClick, { once: true }));
-    return () => {
-      document.removeEventListener('click', onDocClick);
-    };
-  });
-
   function describeDeletedAt(ms: number | null | undefined): string {
     if (!ms) return '';
     try { return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
-  }
-
-  function describeMomentFromIso(isoTimestamp: string): string {
-    try {
-      const whenItWasPosted = new Date(isoTimestamp);
-      return whenItWasPosted.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    } catch {
-      return '';
-    }
   }
 
   function firstLetterOf(label: string): string {
@@ -192,93 +120,28 @@
   </div>
 {:else}
   <article
-    bind:this={rowElement}
     class="message-row"
     class:is-agent={message.kind === 'agent'}
     class:is-reply={Boolean(message.parentMessageId)}
     data-background-style={displayBackgroundStyle}
     style:--speaker-color={displayColor}
   >
-    <header>
-      <span class="speaker-mark" aria-hidden="true">
-        <MemberIcon icon={displayIcon} fallbackText={displayName} size="md" />
-      </span>
-      <span class="author-handle">{displayName}</span>
-      {#if displayName !== message.authorHandle}
-        <span class="canonical-handle">{message.authorHandle}</span>
-      {/if}
-      {#if message.kind === 'agent'}
-        <span class="agent-badge">agent</span>
-      {/if}
-      <span class="posted-at">{describeMomentFromIso(message.postedAt)}</span>
-      {#if childCount > 0}
-        <span
-          class="reply-count"
-          aria-label={`${childCount} ${childCount === 1 ? 'reply' : 'replies'}`}
-        >{childCount}↳</span>
-      {/if}
-      {#if onReplyRequested && (message.kind === 'human' || message.kind === 'agent') && !isDeleted}
-        <button
-          type="button"
-          class="reply-button"
-          onclick={() => onReplyRequested(message.id)}
-        >Reply</button>
-      {/if}
-      {#if canDelete}
-        <!-- JWPK msg_ou1qurnobt: option 3, word label — show "Delete"
-             text on own messages so the affordance is unambiguous. The
-             × on its own was too subtle in the muted-icon style and
-             tested as a "is this broken?" moment. Armed state still
-             pulses red with "Confirm?" copy. -->
-        <button
-          type="button"
-          class="delete-button"
-          class:armed={deleteArmed}
-          aria-label={deleteArmed ? 'Confirm delete — click again within 4 seconds' : 'Delete this message'}
-          title={deleteArmed ? 'Click again to confirm — or click elsewhere to cancel' : 'Delete this message'}
-          disabled={deleteBusy}
-          onclick={handleDeleteClick}
-        >{deleteBusy ? 'Deleting…' : deleteArmed ? 'Confirm?' : 'Delete'}</button>
-      {/if}
-      {#if message.editedAtMs && !isDeleted}
-        <span class="edited-badge" title={`Edited ${new Date(message.editedAtMs).toLocaleString()}`}>(edited)</span>
-      {/if}
-      <!-- JWPK msg_np3zwn7w60: look/work/pass pills are bench coordination
-           state, "NOT for users and shouldn't be visible to them". Gated
-           on viewerIsAgent so agents viewing the web UI still see the
-           chip, but human users (@you, team members) don't. -->
-      {#if viewerIsAgent}
-        <ClaimChip {claims} {roomMode} />
-      {/if}
-    </header>
+    <MessageRowHeader
+      {message}
+      {displayName}
+      {displayIcon}
+      {childCount}
+      {canDelete}
+      {isDeleted}
+      {viewerIsAgent}
+      {claims}
+      {roomMode}
+      {onReplyRequested}
+      {asHandle}
+      bind:deleteError
+    />
     {#if message.parentMessageId}
-      <!-- JWPK msg_wcq5fwlhg7: when the parent is loaded, show WHO + a
-           truncated preview ("Reply to @parent: 'first 60 chars…'") so
-           reading agents + humans don't have to scroll back up to figure
-           out what a reply is replying to. Falls back to the bare
-           indicator when the parent is paged-out off-screen. Click
-           jumps to the parent via anchor link. -->
-      {#if parentMessage}
-        {@const previewBody = (parentMessage.body ?? '').replace(/\s+/g, ' ').trim()}
-        {@const previewTruncated = previewBody.length > 60 ? previewBody.slice(0, 60).trimEnd() + '…' : previewBody}
-        {@const parentDeleted = Boolean(parentMessage.deletedAtMs)}
-        <a
-          class="reply-indicator reply-indicator-rich"
-          href={`#${parentMessage.id}`}
-          title={parentDeleted ? 'Original message was deleted' : `Reply to ${parentMessage.authorHandle}`}
-        >
-          <span class="reply-arrow" aria-hidden="true">↳</span>
-          <span class="reply-prefix">Reply to</span>
-          <span class="reply-parent-author">{parentMessage.authorDisplayName ?? parentMessage.authorHandle}</span>
-          {#if parentDeleted}
-            <span class="reply-parent-body reply-parent-deleted">(deleted)</span>
-          {:else if previewTruncated.length > 0}
-            <span class="reply-parent-body">{previewTruncated}</span>
-          {/if}
-        </a>
-      {:else}
-        <span class="reply-indicator" title="Replying to an older message not loaded yet">↳ Reply</span>
-      {/if}
+      <MessageRowReply {parentMessage} />
     {/if}
     {#if isDeleted}
       <div class="message-tombstone" role="note">
@@ -297,46 +160,20 @@
          own picker open/close state internally, so MessageRow no
          longer tracks any per-row reaction visibility. -->
     {#if !isDeleted}
-      <!-- JWPK msg_np3zwn7w60 + ux msg_vqj1js81zt: the 🖐️/🤝/👐 action
-           pills are AGENT-only coordination signals — humans don't claim
-           via the web UI. Gate the ClaimActionBar on a viewer-is-agent
-           check (same ^@evolveant prefix the server uses for asks-
-           rejection so there's a single source of truth across surfaces).
-           Humans see only the ClaimChip in the header. -->
-      <div class="row-action-strip">
-        {#if viewerIsAgent}
-          <ClaimActionBar
-            roomId={message.roomId}
-            messageId={message.id}
-            asHandle={asHandle ?? '@you'}
-            {claims}
-            {onClaimChanged}
-          />
-        {/if}
-        <MessageReactionsBar
-          roomId={message.roomId}
-          messageId={message.id}
-          {asHandle}
-        />
-      </div>
+      <MessageRowActions
+        roomId={message.roomId}
+        messageId={message.id}
+        {viewerIsAgent}
+        {claims}
+        {asHandle}
+        {onClaimChanged}
+      />
     {/if}
     <MessageReadIndicator roomId={message.roomId} messageId={message.id} {asHandle} {readReceiptEvent} />
   </article>
 {/if}
 
 <style>
-  /* JWPK M6 UI slice 2: claim action bar + reactions bar share a row at
-     the bottom-right of each message. Both surfaces are inline + small
-     so they don't fight the message body for vertical space. */
-  .row-action-strip {
-    position: absolute;
-    bottom: 0.3rem;
-    right: 0.6rem;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    z-index: 2;
-  }
   .message-row {
     position: relative;
     display: flex;
@@ -368,160 +205,6 @@
     border-left: 2px solid var(--surface-edge);
     padding-left: 1rem;
   }
-  header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.78rem;
-  }
-  .speaker-mark {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.45rem;
-    height: 1.45rem;
-    border-radius: 0.45rem;
-    background: var(--speaker-color);
-    color: white;
-    font-size: 0.82rem;
-    font-weight: 900;
-    line-height: 1;
-    flex: 0 0 auto;
-  }
-  .author-handle {
-    font-weight: 800;
-    color: var(--ink-strong);
-  }
-  .canonical-handle {
-    color: var(--ink-soft);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.72rem;
-  }
-  .agent-badge {
-    font-size: 0.65rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--accent);
-    font-weight: 800;
-  }
-  .posted-at {
-    margin-left: auto;
-    color: var(--ink-soft);
-  }
-  .reply-indicator {
-    font-size: 0.72rem;
-    color: var(--ink-soft);
-    font-style: italic;
-  }
-  /* JWPK msg_wcq5fwlhg7: rich reply indicator carries author + truncated
-     parent body so agents reading the chat see WHAT a reply is responding
-     to without scrolling back up. Clickable anchor links to the parent
-     row's id so a click scrolls into view. */
-  .reply-indicator-rich {
-    display: inline-flex;
-    align-items: baseline;
-    gap: 0.35rem;
-    margin: 0.2rem 0 0.4rem;
-    padding: 0.25rem 0.6rem;
-    border-left: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
-    background: color-mix(in srgb, var(--accent) 4%, transparent);
-    border-radius: 0 0.4rem 0.4rem 0;
-    text-decoration: none;
-    color: var(--ink-soft);
-    font-style: normal;
-    line-height: 1.4;
-    max-width: 56ch;
-  }
-  .reply-indicator-rich:hover {
-    background: color-mix(in srgb, var(--accent) 8%, transparent);
-    border-left-color: var(--accent);
-  }
-  .reply-arrow {
-    color: var(--accent);
-    font-weight: 700;
-    flex-shrink: 0;
-  }
-  .reply-prefix {
-    color: var(--ink-soft);
-    flex-shrink: 0;
-  }
-  .reply-parent-author {
-    color: var(--ink-strong);
-    font-weight: 700;
-    flex-shrink: 0;
-  }
-  .reply-parent-body {
-    color: var(--ink-soft);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-  }
-  .reply-parent-deleted {
-    font-style: italic;
-    opacity: 0.7;
-  }
-  .reply-button {
-    padding: 0.1rem 0.55rem;
-    margin-left: 0.35rem;
-    background: transparent;
-    color: var(--accent);
-    border: 1px solid var(--surface-edge);
-    border-radius: 999px;
-    font-size: 0.72rem;
-    font-weight: 700;
-    cursor: pointer;
-  }
-  .reply-button:hover { background: var(--surface); }
-  /* #74 delete affordance — only visible on rows the caller authored.
-     Sits next to the reply button with a dim default state so it
-     doesn't visually compete with content, brightens on hover. */
-  .delete-button {
-    padding: 0.15rem 0.55rem;
-    margin-left: 0.35rem;
-    line-height: 1.3;
-    background: transparent;
-    color: var(--warn, #b45309);
-    border: 1px solid color-mix(in srgb, var(--warn, #b45309) 35%, transparent);
-    border-radius: 999px;
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    cursor: pointer;
-    transition: color 0.12s, border-color 0.12s, background 0.12s;
-  }
-  .delete-button:hover:not(:disabled) {
-    color: var(--danger, #b91c1c);
-    border-color: var(--danger, #b91c1c);
-    background: color-mix(in srgb, var(--danger, #b91c1c) 6%, transparent);
-  }
-  /* Second-confirm armed state — morphs from "×" pill to "Confirm?" pill.
-     Distinct danger styling so the destructive action reads as such; the
-     4s auto-disarm + outside-click handler give an obvious cancel path. */
-  .delete-button.armed {
-    padding: 0.15rem 0.7rem;
-    background: var(--danger, #b91c1c);
-    color: white;
-    border-color: var(--danger, #b91c1c);
-    font-size: 0.72rem;
-    animation: delete-armed-pulse 1.2s ease-in-out infinite;
-  }
-  .delete-button.armed:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--danger, #b91c1c) 85%, black);
-    color: white;
-  }
-  @keyframes delete-armed-pulse {
-    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger, #b91c1c) 50%, transparent); }
-    50%      { box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger, #b91c1c) 0%,  transparent); }
-  }
-  .delete-button:disabled { opacity: 0.45; cursor: wait; }
-  @media (pointer: coarse) {
-    .delete-button { padding: 0.3rem 0.85rem; font-size: 0.82rem; }
-    .delete-button.armed { padding: 0.3rem 0.9rem; font-size: 0.82rem; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .delete-button.armed { animation: none; }
-  }
   /* #74 tombstone replaces the body when deletedAtMs is set. */
   .message-tombstone {
     padding: 0.35rem 0.6rem;
@@ -529,13 +212,6 @@
     font-size: 0.85rem;
     border-left: 2px dashed var(--surface-edge);
     margin: 0.35rem 0;
-  }
-  /* #76 edited badge — subtle italic indicator next to the timestamp. */
-  .edited-badge {
-    margin-left: 0.35rem;
-    color: var(--ink-soft);
-    font-size: 0.72rem;
-    font-style: italic;
   }
   .message-error {
     margin: 0.35rem 0 0;
@@ -545,14 +221,6 @@
     background: color-mix(in srgb, var(--warn) 14%, var(--surface-card));
     color: var(--ink-strong);
     font-size: 0.8rem;
-  }
-  .reply-count {
-    font-size: 0.7rem;
-    color: var(--ink-soft);
-    background: var(--surface);
-    border-radius: 999px;
-    padding: 0.1rem 0.45rem;
-    font-weight: 700;
   }
   .message-body {
     margin: 0;
