@@ -25,6 +25,7 @@
 import { appendTerminalRunEvent } from './terminalRunEventsStore';
 import { broadcastTerminalEvent } from './terminalEventBroadcast';
 import { transcriptEventKey } from './transcriptEventId';
+import { fanoutMessageToLinkedChatRoom } from './transcriptToChatFanout';
 import { contextFillFromTokens, numberValue, type ContextFillReading } from './contextFillTelemetry';
 import { setAgentContextFill } from './terminalsStore';
 import type { ClassifiedKind } from './classifiers/types';
@@ -186,6 +187,7 @@ export function ingestTranscriptLine(sessionId: string, rawLine: string): number
   let i = 0;
   for (const ev of events) {
     const tsMs = Date.now();
+    const evKey = transcriptEventKey(nativeId, rawLine, i++);
     appendTerminalRunEvent({
       terminalId: sessionId,
       kind: ev.kind,
@@ -193,7 +195,7 @@ export function ingestTranscriptLine(sessionId: string, rawLine: string): number
       trust: ev.trust,
       tsMs,
       source: 'transcript',
-      transcriptEventId: transcriptEventKey(nativeId, rawLine, i++)
+      transcriptEventId: evKey
     });
     try {
       broadcastTerminalEvent(sessionId, {
@@ -201,6 +203,15 @@ export function ingestTranscriptLine(sessionId: string, rawLine: string): number
         ts_ms: tsMs, source: 'transcript'
       });
     } catch { /* broadcast best-effort */ }
+    // Closes the Chat-view gap (2026-05-21): clean transcript 'message'
+    // events fan out into the linked chat room so agent replies surface
+    // in TerminalChatView. fail-silent on bad rooms / dedupe / missing link.
+    fanoutMessageToLinkedChatRoom({
+      terminalSessionId: sessionId,
+      transcriptEventId: evKey,
+      kind: ev.kind,
+      text: ev.text
+    });
   }
   return events.length;
 }
