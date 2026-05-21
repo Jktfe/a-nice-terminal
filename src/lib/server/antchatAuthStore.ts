@@ -141,6 +141,52 @@ export function issueToken(email: string): { token: string; expiresAtMs: number 
   return { token, expiresAtMs };
 }
 
+/**
+ * Cache a bearer token that was minted externally (e.g. by accounts.antonline.dev's
+ * /api/auth/login) so subsequent SYNC bearer-resolution paths can resolve it
+ * without round-tripping back to accounts on every call.
+ *
+ * Why: `chatRoomReadGate.tryAccountsBearer` does async introspection against
+ * accounts/api/auth/me to validate unknown bearers — works for read paths
+ * (which are async). The WRITE-side gate `authGate.resolveAntchatBearer` is
+ * synchronous and only looks at this local table, so without caching the
+ * token here, every write from a Mac app authenticated through accounts
+ * fails with a 403 'Server-resolved identity required' even though the
+ * read gate just accepted the same bearer 200ms earlier.
+ *
+ * Idempotent: if the token already exists for the same email, it's a no-op.
+ * If the token exists with a stale email or expiry, the row is replaced.
+ * If the token doesn't exist, it's inserted.
+ *
+ * Caller supplies the expiresAtMs from the upstream payload (accounts' /api/auth/me
+ * returns its session.expiresAt) so the local cache evicts at the same moment
+ * the upstream session expires. Falls back to SESSION_TTL_MS from now if the
+ * caller doesn't have a value to pass.
+ */
+export function cacheExternalToken(input: {
+  token: string;
+  email: string;
+  expiresAtMs?: number;
+}): void {
+  const normalizedEmail = normalizeAntchatEmail(input.email);
+  if (normalizedEmail.length === 0) return;
+  const issuedAtMs = Date.now();
+  const expiresAtMs =
+    typeof input.expiresAtMs === 'number' && input.expiresAtMs > issuedAtMs
+      ? input.expiresAtMs
+      : issuedAtMs + SESSION_TTL_MS;
+  getIdentityDb()
+    .prepare(
+      `INSERT INTO antchat_auth_tokens (token, email, issued_at_ms, expires_at_ms)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(token) DO UPDATE SET
+         email = excluded.email,
+         issued_at_ms = excluded.issued_at_ms,
+         expires_at_ms = excluded.expires_at_ms`
+    )
+    .run(input.token, normalizedEmail, issuedAtMs, expiresAtMs);
+}
+
 export function resolveToken(token: string): SessionRecord | null {
   const db = getIdentityDb();
   const row = db
