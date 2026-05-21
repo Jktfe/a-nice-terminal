@@ -13,18 +13,103 @@
 const BOOLEAN_FLAGS = new Set(['json', 'rich']);
 
 import { handleStatusChasingVerb } from './ant-cli-status-chasing.mjs';
+import { processIdentityChain } from './ant-cli-identity-chain.mjs';
 
 export async function handleStatusVerb(action, args, runtime, ctx) {
   const { CliInputError } = ctx;
   if (action === 'chasing') return handleStatusChasingVerb(args, runtime, ctx);
+  if (action === 'planning') return runPlanning(args, runtime, CliInputError);
+  if (action === 'idle') return runSetCurrentStatus('idle', args, runtime, CliInputError);
   const flags = parseFlags(args, CliInputError);
   if (action === 'show') return runShow(flags, runtime, CliInputError);
   if (!action || action === 'help' || action === '--help') {
     runtime.writeOut('ant status show --room ROOM_ID [--rich] [--json]  OR  ant status show --terminal TERMINAL_ID --rich [--json]');
+    runtime.writeOut('ant status planning [--room ROOM_ID] [--msg TEXT] [--json]');
+    runtime.writeOut('ant status idle [--json]');
     runtime.writeOut('ant status chasing --handle @h [--min-idle-minutes 30] [--json]');
     return action ? 0 : 1;
   }
   throw new CliInputError(`unknown status verb: ${action}`);
+}
+
+async function sendJson(runtime, path, method, body) {
+  const response = await runtime.fetchImpl(`${runtime.serverUrl}${path}`, {
+    method,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Request failed (${response.status}): ${text.slice(0, 200)}`);
+  }
+  return response.json();
+}
+
+async function resolveCurrentTerminal(runtime, pidChain) {
+  const payload = await sendJson(runtime, '/api/identity/resolve', 'POST', { pids: pidChain });
+  const terminalId = payload?.terminal_id ?? payload?.terminalId ?? null;
+  if (!terminalId) {
+    throw new Error('current pidChain did not resolve to a terminal; run `ant register` from this shell first');
+  }
+  return terminalId;
+}
+
+async function runPlanning(args, runtime, CliInputError) {
+  const flags = parseFlags(args, CliInputError);
+  const message = (flags.msg ?? flags.message ?? 'going into planning mode').trim();
+  const result = await setCurrentAgentStatus({
+    status: 'thinking',
+    mode: 'planning',
+    flags,
+    runtime,
+    evidence: { mode: 'planning', message }
+  });
+  if (flags.room) {
+    await sendJson(runtime, `/api/chat-rooms/${encodeURIComponent(flags.room)}/messages`, 'POST', {
+      body: message,
+      pidChain: result.pidChain
+    });
+  }
+  if (flags.json !== undefined) {
+    runtime.writeOut(JSON.stringify(result.payload));
+  } else {
+    runtime.writeOut(`planning\t${result.terminalId}`);
+  }
+  return 0;
+}
+
+async function runSetCurrentStatus(status, args, runtime, CliInputError) {
+  const flags = parseFlags(args, CliInputError);
+  const result = await setCurrentAgentStatus({
+    status,
+    mode: status,
+    flags,
+    runtime,
+    evidence: { mode: status }
+  });
+  if (flags.json !== undefined) {
+    runtime.writeOut(JSON.stringify(result.payload));
+  } else {
+    runtime.writeOut(`${status}\t${result.terminalId}`);
+  }
+  return 0;
+}
+
+async function setCurrentAgentStatus({ status, mode, flags, runtime, evidence }) {
+  const terminalIdFromFlag = flags.terminal;
+  const pidChain = processIdentityChain();
+  const terminalId = terminalIdFromFlag ?? await resolveCurrentTerminal(runtime, pidChain);
+  const payload = await sendJson(
+    runtime,
+    `/api/terminals/${encodeURIComponent(terminalId)}/agent-status`,
+    'PUT',
+    {
+      status,
+      pids: pidChain,
+      evidence_json: { ...evidence, source: `ant status ${mode}` }
+    }
+  );
+  return { terminalId, pidChain, payload };
 }
 
 function parseFlags(rawArgs, CliInputError) {

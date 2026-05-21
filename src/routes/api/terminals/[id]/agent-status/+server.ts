@@ -19,6 +19,7 @@ import {
   listEventsForTerminal
 } from '$lib/server/agentStatusStore';
 import { verifyAndRotateHookNonce } from '$lib/server/agentStatusHookAuth';
+import { lookupTerminalByPidChain, type PidChainEntry } from '$lib/server/terminalsStore';
 
 function flattenRow(terminalId: string) {
   const row = getAgentStatus(terminalId);
@@ -56,25 +57,65 @@ export const PUT: RequestHandler = async ({ request, params }) => {
   const status = (body as Record<string, unknown>).status;
   const nonce = (body as Record<string, unknown>).nonce;
   const evidenceJsonRaw = (body as Record<string, unknown>).evidence_json;
-  if (typeof nonce !== 'string' || nonce.length === 0) throw error(401, 'nonce required');
   if (!isAllowedAgentStatus(status)) {
     throw error(400, 'status must be one of: idle | thinking | working | response-required');
   }
-  const nextNonce = verifyAndRotateHookNonce(terminalId, nonce);
-  if (!nextNonce) throw error(401, 'nonce mismatch');
+  const auth = authenticateStatusWrite(terminalId, body);
+  if (!auth.ok) throw error(401, auth.message);
   const evidence = evidenceJsonRaw === undefined || evidenceJsonRaw === null
     ? null
     : (typeof evidenceJsonRaw === 'string' ? safeParse(evidenceJsonRaw) : evidenceJsonRaw as Record<string, unknown>);
   try {
-    setAgentStatus({ terminalId, newStatus: status, source: 'hook', evidence });
+    setAgentStatus({ terminalId, newStatus: status, source: auth.source, evidence });
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : 'set failed';
     if (message.includes('not found')) throw error(404, 'terminal not found');
     throw error(400, message);
   }
   const flat = flattenRow(terminalId);
-  return json({ ...flat, next_nonce: nextNonce }, { status: 200 });
+  return json(auth.nextNonce ? { ...flat, next_nonce: auth.nextNonce } : flat, { status: 200 });
 };
+
+type StatusWriteAuth =
+  | { ok: true; source: 'hook'; nextNonce: string }
+  | { ok: true; source: 'ant-activity'; nextNonce: null }
+  | { ok: false; message: string };
+
+function authenticateStatusWrite(terminalId: string, body: unknown): StatusWriteAuth {
+  const record = body as Record<string, unknown>;
+  const nonce = record.nonce;
+  if (typeof nonce === 'string' && nonce.length > 0) {
+    const nextNonce = verifyAndRotateHookNonce(terminalId, nonce);
+    return nextNonce
+      ? { ok: true, source: 'hook', nextNonce }
+      : { ok: false, message: 'nonce mismatch' };
+  }
+
+  const pidChain = parseStatusPidChain(record.pidChain ?? record.pids);
+  if (pidChain.length === 0) return { ok: false, message: 'nonce or pidChain required' };
+  const resolved = lookupTerminalByPidChain(pidChain);
+  if (!resolved || resolved.id !== terminalId) {
+    return { ok: false, message: 'pidChain does not resolve to this terminal' };
+  }
+  return { ok: true, source: 'ant-activity', nextNonce: null };
+}
+
+function parseStatusPidChain(raw: unknown): PidChainEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const chain: PidChainEntry[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const pidValue = (entry as { pid?: unknown }).pid;
+    const pid = typeof pidValue === 'number' ? pidValue : Number(pidValue);
+    if (!Number.isFinite(pid) || pid <= 0) continue;
+    const pidStartValue = (entry as { pid_start?: unknown }).pid_start;
+    chain.push({
+      pid: Math.floor(pid),
+      pid_start: typeof pidStartValue === 'string' ? pidStartValue : null
+    });
+  }
+  return chain;
+}
 
 function safeParse(raw: string): Record<string, unknown> | null {
   try {
