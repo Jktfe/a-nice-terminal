@@ -1,120 +1,208 @@
 /**
- * ptyClient — Unix-socket client for the v3 pty-daemon at ~/.ant/pty.sock.
- * fresh-ANT terminals are HOSTED by v3's daemon (Option A per
- * terminals-backend-design-contract 2026-05-14 Q1) so server restarts
- * don't kill running tmux sessions. globalThis singleton survives HMR.
+ * ptyClient — v4-native terminal control via direct tmux invocations.
  *
- * Protocol mirrors v3 src/lib/server/pty-client.ts: newline-delimited JSON
- * over Unix socket. Outgoing verbs: spawn, write, resize, kill, list, ping.
- * Incoming events: spawned (callId), output, list (callId).
+ * No external daemon. No Unix socket round-trip. The v4 SvelteKit process
+ * spawns tmux directly via execFile; tmux's own server (a separate OS
+ * process) hosts the sessions, so v4 server restarts don't kill terminals.
+ *
+ * Output capture: each session has `tmux pipe-pane` writing to
+ * ~/.ant/pty/<sessionId>.out. A single fs.watch on that directory drives
+ * the subscribeOutput callback for all subscribers. Per-file read offsets
+ * tracked in-memory so each chunk is emitted exactly once.
+ *
+ * The exported API is byte-compatible with the previous Unix-socket
+ * client — all route handlers + the run-events persistence boot continue
+ * to work unchanged.
  */
 
-import * as net from 'net';
+import { execFile as execFileCb } from 'node:child_process';
+import { promisify } from 'node:util';
+import { mkdirSync, openSync, readSync, closeSync, existsSync, statSync, watch as fsWatch } from 'node:fs';
 import { join } from 'node:path';
 
-const SOCK_PATH = join(process.env.HOME || '/tmp', '.ant', 'pty.sock');
+const execFile = promisify(execFileCb);
+
+const TMUX = '/opt/homebrew/bin/tmux';
+const ANT_DIR = join(process.env.HOME || '/tmp', '.ant');
+const PTY_DIR = join(ANT_DIR, 'pty');
 
 type OutputCb = (sessionId: string, data: string) => void;
 type SpawnResult = { alive: boolean; scrollback?: string };
 
-type State = {
-  socket: net.Socket | null;
-  connected: boolean;
-  queue: string[];
-  buf: string;
+interface State {
   outputCbs: Set<OutputCb>;
-  pendingSpawns: Map<string, (r: SpawnResult) => void>;
-  // v3 daemon's `list` response does NOT echo callId, so match FIFO.
-  pendingLists: Array<(r: string[]) => void>;
-  spawnCounter: number;
-};
+  /** Per-session byte offset already emitted from its .out file. */
+  fileOffsets: Map<string, number>;
+  /** fs.watch handle for the PTY_DIR (single watcher; lazy-initialised). */
+  dirWatcher: ReturnType<typeof fsWatch> | null;
+  watcherBooted: boolean;
+}
 
 function getStore(): State {
   const g = globalThis as unknown as { __antPtyClient?: State };
   if (!g.__antPtyClient) {
     g.__antPtyClient = {
-      socket: null, connected: false, queue: [], buf: '',
-      outputCbs: new Set(), pendingSpawns: new Map(), pendingLists: [],
-      spawnCounter: 0
+      outputCbs: new Set(),
+      fileOffsets: new Map(),
+      dirWatcher: null,
+      watcherBooted: false
     };
   }
   return g.__antPtyClient;
 }
 
-function ensureConnected(): void {
+function ensurePtyDirExists(): void {
+  if (!existsSync(PTY_DIR)) mkdirSync(PTY_DIR, { recursive: true });
+}
+
+/**
+ * Read any new bytes appended to <sessionId>.out since we last emitted.
+ * Updates the per-session offset and fans out to every subscriber.
+ */
+function drainSessionFile(sessionId: string): void {
   const s = getStore();
-  if (s.socket) return;
-  const sock = net.createConnection(SOCK_PATH);
-  s.socket = sock;
-  sock.on('connect', () => {
-    s.connected = true;
-    for (const msg of s.queue) sock.write(msg);
-    s.queue = [];
-  });
-  sock.on('data', (chunk) => {
-    s.buf += chunk.toString();
-    const lines = s.buf.split('\n');
-    s.buf = lines.pop()!;
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try {
-        const msg = JSON.parse(line);
-        if (msg.type === 'output' && typeof msg.sessionId === 'string') {
-          for (const cb of s.outputCbs) { try { cb(msg.sessionId, String(msg.data ?? '')); } catch { /* swallow */ } }
-        } else if (msg.type === 'spawned') {
-          const key = `${msg.sessionId}:${msg.callId}`;
-          s.pendingSpawns.get(key)?.({ alive: !!msg.alive, scrollback: msg.scrollback ?? '' });
-          s.pendingSpawns.delete(key);
-        } else if (msg.type === 'list') {
-          // v3 daemon doesn't echo callId on list — resolve oldest pending FIFO.
-          const sessions = Array.isArray(msg.sessions) ? msg.sessions : [];
-          const resolver = s.pendingLists.shift();
-          resolver?.(sessions);
-        }
-      } catch { /* malformed line */ }
+  const path = join(PTY_DIR, `${sessionId}.out`);
+  if (!existsSync(path)) return;
+  let st;
+  try { st = statSync(path); } catch { return; }
+  const prev = s.fileOffsets.get(sessionId) ?? 0;
+  if (st.size <= prev) return;
+  const fd = openSync(path, 'r');
+  try {
+    const len = st.size - prev;
+    const buf = Buffer.allocUnsafe(len);
+    readSync(fd, buf, 0, len, prev);
+    s.fileOffsets.set(sessionId, st.size);
+    const data = buf.toString('utf8');
+    for (const cb of s.outputCbs) {
+      try { cb(sessionId, data); } catch { /* swallow */ }
     }
-  });
-  sock.on('close', () => { s.connected = false; s.socket = null; setTimeout(ensureConnected, 1000); });
-  sock.on('error', () => { s.connected = false; s.socket = null; });
+  } finally {
+    closeSync(fd);
+  }
 }
 
-function send(msg: object): void {
-  const line = JSON.stringify(msg) + '\n';
+function bootDirWatcher(): void {
   const s = getStore();
-  if (s.connected && s.socket) s.socket.write(line);
-  else { s.queue.push(line); ensureConnected(); }
+  if (s.watcherBooted) return;
+  ensurePtyDirExists();
+  s.dirWatcher = fsWatch(PTY_DIR, (_event, filename) => {
+    if (!filename || !filename.endsWith('.out')) return;
+    const sessionId = filename.slice(0, -'.out'.length);
+    drainSessionFile(sessionId);
+  });
+  s.watcherBooted = true;
 }
 
-export function spawnTerminal(sessionId: string, opts: { cwd?: string; cols?: number; rows?: number } = {}): Promise<SpawnResult> {
-  const s = getStore();
-  const callId = ++s.spawnCounter;
-  const key = `${sessionId}:${callId}`;
-  return new Promise((resolve) => {
-    s.pendingSpawns.set(key, resolve);
-    send({ type: 'spawn', sessionId, cwd: opts.cwd ?? process.env.HOME, cols: opts.cols ?? 120, rows: opts.rows ?? 30, callId });
-    setTimeout(() => { if (s.pendingSpawns.delete(key)) resolve({ alive: false }); }, 5000);
-  });
+// ─── tmux command helpers ──────────────────────────────────────────────
+
+async function tmux(args: string[]): Promise<{ stdout: string; stderr: string }> {
+  return execFile(TMUX, args, { maxBuffer: 8 * 1024 * 1024 });
 }
 
-export function writeInput(sessionId: string, data: string): void { send({ type: 'write', sessionId, data }); }
-export function resizeTerminal(sessionId: string, cols: number, rows: number): void { send({ type: 'resize', sessionId, cols, rows }); }
-export function killTerminal(sessionId: string): void { send({ type: 'kill', sessionId }); }
+async function sessionExists(sessionId: string): Promise<boolean> {
+  try {
+    await tmux(['has-session', '-t', sessionId]);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
-export function listTerminals(): Promise<string[]> {
-  const s = getStore();
-  return new Promise((resolve) => {
-    s.pendingLists.push(resolve);
-    send({ type: 'list' });
-    setTimeout(() => {
-      const idx = s.pendingLists.indexOf(resolve);
-      if (idx >= 0) { s.pendingLists.splice(idx, 1); resolve([]); }
-    }, 2000);
-  });
+// ─── public API ────────────────────────────────────────────────────────
+
+export async function spawnTerminal(
+  sessionId: string,
+  opts: { cwd?: string; cols?: number; rows?: number } = {}
+): Promise<SpawnResult> {
+  ensurePtyDirExists();
+  bootDirWatcher();
+
+  const cwd = opts.cwd ?? process.env.HOME ?? '/tmp';
+  const cols = opts.cols ?? 120;
+  const rows = opts.rows ?? 30;
+  const outPath = join(PTY_DIR, `${sessionId}.out`);
+
+  try {
+    if (await sessionExists(sessionId)) {
+      // Re-attach to existing session — capture current scrollback as initial.
+      try {
+        const { stdout } = await tmux(['capture-pane', '-p', '-t', sessionId]);
+        return { alive: true, scrollback: stdout };
+      } catch {
+        return { alive: true, scrollback: '' };
+      }
+    }
+
+    // Create a detached session sized to the client viewport, started in cwd.
+    await tmux([
+      'new-session', '-d',
+      '-s', sessionId,
+      '-x', String(cols),
+      '-y', String(rows),
+      '-c', cwd
+    ]);
+
+    // Pipe pane output to disk (-o = overwrite previous pipe; we own the
+    // file). The shell wrapper guarantees the file is created even before
+    // first byte arrives.
+    await tmux(['pipe-pane', '-o', '-t', `${sessionId}:0.0`, `cat >> ${shellQuote(outPath)}`]);
+
+    // Seed the file-offset baseline at 0 so subsequent appends fan out.
+    getStore().fileOffsets.set(sessionId, 0);
+
+    return { alive: true, scrollback: '' };
+  } catch (cause) {
+    // eslint-disable-next-line no-console
+    console.error('[ptyClient] spawn failed', sessionId, cause);
+    return { alive: false };
+  }
+}
+
+export function writeInput(sessionId: string, data: string): void {
+  // Use send-keys -l (literal) — treats data as plain text, no key-name
+  // interpretation. send-keys is synchronous from tmux's POV, fire-and-forget
+  // from ours; we don't await to match the old void signature.
+  execFileCb(TMUX, ['send-keys', '-t', `${sessionId}:0.0`, '-l', data], () => { /* swallow */ });
+}
+
+export function resizeTerminal(sessionId: string, cols: number, rows: number): void {
+  execFileCb(
+    TMUX,
+    ['resize-window', '-t', sessionId, '-x', String(cols), '-y', String(rows)],
+    () => { /* swallow */ }
+  );
+}
+
+export function killTerminal(sessionId: string): void {
+  execFileCb(TMUX, ['kill-session', '-t', sessionId], () => { /* swallow */ });
+}
+
+export async function listTerminals(): Promise<string[]> {
+  try {
+    const { stdout } = await tmux(['list-sessions', '-F', '#{session_name}']);
+    return stdout.trim().length === 0 ? [] : stdout.trim().split('\n');
+  } catch {
+    // `tmux list-sessions` exits non-zero when no server is running — that's
+    // not an error, just an empty list.
+    return [];
+  }
 }
 
 export function subscribeOutput(cb: OutputCb): () => void {
   const s = getStore();
   s.outputCbs.add(cb);
-  ensureConnected();
+  bootDirWatcher();
   return () => { s.outputCbs.delete(cb); };
+}
+
+// ─── helpers ───────────────────────────────────────────────────────────
+
+/**
+ * Minimal shell-escape for the pipe-pane command. The path is a constant
+ * we control (~/.ant/pty/<id>.out) but we still single-quote defensively
+ * so a sessionId containing a single-quote can't break out.
+ */
+function shellQuote(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
 }
