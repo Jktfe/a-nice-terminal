@@ -76,8 +76,14 @@ export const GET: RequestHandler = ({ params }) => {
 export const POST: RequestHandler = async ({ params, request }) => {
   assertRoomExists(params.roomId);
   const bodyAsObject = await parseRequiredJsonBody(request);
-  // LAUNCH-BLOCKER CVE FIX D (2026-05-20): identity-gate aliases POST.
-  const auth = requireChatRoomMutationAuth(params.roomId, request, bodyAsObject);
+  // Identity gate stays — caller must still be authenticated for THIS room.
+  // PID-as-identity model JWPK msg_n2cyrel4u5 (2026-05-21): aliases are pure
+  // display; routing is by the immutable global handle / PID. The previous
+  // anti-spoof check (caller-must-be-target, CVE FIX D 2026-05-20) was
+  // guarding a display layer that the wire format never honoured anyway —
+  // any room member can now rename any other member. UNIQUE(room_id, alias)
+  // at the DB layer still prevents two members from sharing alias text.
+  requireChatRoomMutationAuth(params.roomId, request, bodyAsObject);
 
   const globalHandle = bodyAsObject.globalHandle;
   const newAlias = bodyAsObject.newAlias;
@@ -87,12 +93,6 @@ export const POST: RequestHandler = async ({ params, request }) => {
   }
   if (typeof newAlias !== 'string') {
     throw error(400, 'newAlias must be a string.');
-  }
-  // Auth-vs-target anti-spoof (msg_hodqchn3ek #3, UX harness ddc44e8
-  // GAP-3c, 2026-05-20): caller can only alias THEIR OWN handle in
-  // this room. Admin-bearer bypass for operator/CI tooling.
-  if (!auth.isAdminBearer && auth.handle !== globalHandle) {
-    throw error(403, `caller ${auth.handle} cannot set alias for ${globalHandle}`);
   }
 
   try {
@@ -117,16 +117,15 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
 export const DELETE: RequestHandler = ({ params, url, request }) => {
   assertRoomExists(params.roomId);
-  // LAUNCH-BLOCKER CVE FIX D (2026-05-20): identity-gate aliases DELETE.
-  const auth = requireChatRoomMutationAuth(params.roomId, request, null);
+  // Identity gate stays — caller must still be authenticated for THIS room.
+  // Same PID-as-identity reframe as POST: a room member can drop ANY
+  // member's aliases. The CVE-fix-D anti-spoof check is gone because the
+  // wire format routes by global handle / PID, not alias text.
+  requireChatRoomMutationAuth(params.roomId, request, null);
 
   const globalHandle = url.searchParams.get('globalHandle');
   if (!globalHandle) {
     throw error(400, 'globalHandle query parameter required.');
-  }
-  // Auth-vs-target anti-spoof: caller can only remove THEIR OWN alias.
-  if (!auth.isAdminBearer && auth.handle !== globalHandle) {
-    throw error(403, `caller ${auth.handle} cannot remove alias for ${globalHandle}`);
   }
 
   assertMemberOfRoom(params.roomId, globalHandle);

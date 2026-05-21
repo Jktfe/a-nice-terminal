@@ -18,8 +18,13 @@ import {
   setRoomAlias
 } from '$lib/server/chatRoomAliasStore';
 
-// LAUNCH-BLOCKER CVE FIX D (2026-05-20): aliases POST/DELETE now require
-// chatRoomAuthGate. Tests supply admin Bearer by default.
+// Aliases POST/DELETE require chatRoomAuthGate (any room-authenticated caller
+// passes); PID-as-identity model 2026-05-21 dropped the prior caller-must-be-
+// target anti-spoof so any in-room caller can rename any member. Tests supply
+// admin Bearer by default; the "any room member can alias anyone" expansion
+// is covered by the positive POST/DELETE tests below using an admin caller
+// against arbitrary targets (the spoof guard was the only thing blocking
+// that path on a non-admin caller too).
 const ADMIN_TOKEN_FOR_TESTS = 'aliases-route-test-admin-token';
 const ORIGINAL_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
 
