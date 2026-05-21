@@ -51,9 +51,64 @@ export function buildAntRegistryMarkdown(nowMs = Date.now()): string {
     ].join(' | ')} |`);
   }
 
+  // Per-room alias projection (PID-as-identity slice 5, JWPK 2026-05-21).
+  // The registry is JWPK's human-to-PID-to-tmux-pane lookup ("ok ClaudeV4
+  // is this PID I can tmux into"). Aliases stack per (room × handle), so
+  // when JWPK sees @cdx-shouting in a chat snippet he can grep here for
+  // the alias → owning handle → PID → tmux pane chain.
+  const aliasRows = listAliasRowsForRegistry();
+  if (aliasRows.length > 0) {
+    lines.push('');
+    lines.push('## Room aliases');
+    let currentRoomId: string | null = null;
+    for (const row of aliasRows) {
+      if (row.room_id !== currentRoomId) {
+        lines.push('');
+        lines.push(`### ${row.room_name ?? row.room_id} (${row.room_id})`);
+        currentRoomId = row.room_id;
+      }
+      const pidSuffix = row.terminal_pid ? ` — PID ${row.terminal_pid}` : '';
+      const paneSuffix = row.tmux_target_pane ? ` — tmux ${tmuxSession(row.tmux_target_pane)}` : '';
+      lines.push(`- ${md(row.alias)} → ${md(row.global_handle)}${pidSuffix}${paneSuffix}`);
+    }
+  }
+
   lines.push('');
   lines.push('<!-- This file is a projected mirror. ANT database state is canonical. -->');
   return lines.join('\n');
+}
+
+type AliasRegistryRow = {
+  room_id: string;
+  room_name: string | null;
+  global_handle: string;
+  alias: string;
+  set_at_ms: number;
+  terminal_pid: number | null;
+  tmux_target_pane: string | null;
+};
+
+function listAliasRowsForRegistry(): AliasRegistryRow[] {
+  // LEFT JOIN through room_memberships→terminals so the PID + tmux pane
+  // appear next to each alias when the member is terminal-backed (humans
+  // get NULLs and skip the suffix). Sorted by room creation order then
+  // alias age newest-first so the file reads top-down naturally.
+  return getIdentityDb().prepare(`
+    SELECT
+      a.room_id,
+      cr.name AS room_name,
+      a.global_handle,
+      a.alias,
+      a.set_at_ms,
+      t.pid AS terminal_pid,
+      t.tmux_target_pane
+    FROM chat_room_aliases a
+    LEFT JOIN chat_rooms cr ON cr.id = a.room_id
+    LEFT JOIN room_memberships rm
+      ON rm.room_id = a.room_id AND rm.handle = a.global_handle
+    LEFT JOIN terminals t ON t.id = rm.terminal_id
+    ORDER BY cr.creation_order ASC, a.set_at_ms DESC, a.id DESC
+  `).all() as AliasRegistryRow[];
 }
 
 export function projectAntRegistryFile(options: { force?: boolean } = {}): AntRegistryProjectionResult {
