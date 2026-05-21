@@ -1,24 +1,44 @@
-# ANT — Agent-Native Terminal
+# ANT (a-nice-terminal)
 
-> ⚡ A self-hosted operator console for the AI agents you actually keep around.
-> Multi-CLI, multi-model, multi-agent — running on your hardware, on your network, with the substrate (memory, plans, rooms, identity) as the durable part and the model behind each agent as the muscle.
+> ⚡ The self-hosted transport, evidence, and collaboration substrate for your AI team.
+> Multi-agent, multi-human, and multi-tool — running on your hardware, on your network. ANT turns ephemeral agent runs into a durable, shared professional workspace.
 
-ANT is for operators who run more than one CLI agent at once — Claude Code, Codex, Gemini, pi, Qwen, Copilot — and want them to share rooms, plans, decisions, and banked memory instead of starting from zero every session. The server in this repository is the open-source substrate. Native clients, hosted billing, and licence enforcement live in separate packages and are never required to run ANT.
+---
 
-The agent is the constant; the model behind it is interchangeable muscle. Substrate work compounds across sessions and across model swaps; model work does not.
+## What is ANT?
+
+ANT started as a quest for a cleaner terminal view — solving tmux scrolling, stripping away screen paint noise (like repetitive loading bars and spinning status glyphs), and capturing clean database-backed logs.
+
+But as agents got better, they stayed around longer. We realized that an agent is only as good as the space it occupies. 
+
+Today, ANT is a durable, privacy-first work environment for professional operations. It is the **transport, evidence, and rendering layer** that lets humans and agents share plans, tasks, documents, and tools to ship real work. Whether you are drafting reports, building presentation decks, organizing spreadsheets, or coordinating a deployment, ANT is the shared office where your agents live and cooperate.
+
+---
+
+## The Pillars of Durable Work
+
+**Context that doesn't blow up: The 14-Day Flow**
+Usually, when an agent's context window fills up, the flow is broken. You have to restart, retrain, and rebuild context from scratch. 
+With ANT's durable database-backed memory, agents manage their own context dynamically—frequently keeping active context around 25-35% without losing their train of thought. We have had specialized agents run continuously for **14 days** straight, producing elite professional work all the way to the end because they never lost their flow.
+
+**Zero-Distraction Team Coordination**
+ANT is designed from the ground up for absolute privacy. Your files and memory remain on your hardware. Yet, when multiple team members run ANT servers, their agents can securely coordinate to fetch templates, verify info, and hand off tasks. This completely eliminates the need for sending "umpteen emails" back and forth, automating administrative chore-work and keeping human operators free from distraction.
+
+**Hybrid Power: Local LLMs & Shared Angles**
+You don't need to burn expensive cloud tokens on routine sweeps. ANT supports both local LLMs and cloud models. By distributing work across a team of specialized agents—each approaching a problem from a different angle or cost tier—agents rarely get stuck. Routine session tracking and code checks run locally, while heavy reasoning (like Claude) is reserved for deep judgment. The result? You get high-volume results and rarely, if ever, hit your weekly API limits.
 
 ---
 
 ## What people actually do with it
 
-**Ship a feature with five agents in one room.**
-Open a room, invite three Claude Code agents and a Codex agent, paste the brief, and step away. Each agent picks tasks off the shared plan, posts progress, reacts to each other's work, and raises an `ask_*` when blocked. The room is the unit of context — not the session — so when one agent hits its context window, the next picks up from the same plan, the same artefacts, and the same in-jokes. You stay out of the loop until the asks panel lights up.
+**Co-author professional deliverables in one room.**
+Open a room, invite your specialized research and document agents, paste your brief, and link your Obsidian vault. The agents pull skills and templates from your shared Obsidian pool, draft reports, outline presentation decks, organize spreadsheets, and cross-verify each other's work. The room is the unit of context — not the session — so your team builds on a shared history of decisions and drafts, week after week.
 
-**Hand a long job to an agent overnight.**
-Spawn a terminal, attach a `@codex` or `@coordinator`, hand off a brief, and close the laptop. ANT keeps the PTY alive, captures the transcript, fires cron jobs against the plan, posts webhooks when tasks flip to `done`, and surfaces an ask on your phone if the agent needs you. Wake up, open the dashboard, read the asks panel, accept the PR. The agent remembers what it did, who told it to do it, and what last week's tradeoff was.
+**Unblock your team via the Cross-Agent Inbox.**
+If an agent blocks on a question (e.g., *"Where is the invoice template?"*), they raise an ask. While you are out having lunch, another idle agent in the room that has access to that template jumps in and resolves the ask autonomously. For everything else, you get a single, unified Inbox. Instead of hunting through messy terminal transcripts or chat logs, you can quickly answer outstanding questions in one place and get back to your day.
 
-**Route work to the cheapest model that can do it.**
-Claude Code for judgement-heavy reasoning, Codex for code, Gemini for multimodal, Qwen or GLM for cheap parallel sweeps, pi for local-machine work. Every agent row in ANT shows its model, provider, cost tier, and tokens used in the session — so when the router picks the cheap model you see why, and when it escalates to the expensive one you see why too. A continuous low-cost agent watches the room all day for the price of a coffee; the expensive models only fire when the work warrants them.
+**Close the laptop and let the substrate work.**
+Hand a complex, multi-step plan to your agents and close the lid. Because ANT runs on a robust tmux control-mode daemon, it keeps the execution alive, compiles the transcript, runs plans, and posts status updates. With PTY-inject, agents can reply exactly where you work, capturing full evidence of their run and presenting it in clean, readable markdown cards when you return.
 
 ---
 
@@ -50,9 +70,9 @@ ANT is a four-layer system. Only the bottom layer is in this repository; everyth
 ```mermaid
 flowchart LR
   subgraph Clients[Premium native clients · private repos]
-    AC[antchat<br/>Mac]
-    AW[antchat-tauri<br/>Windows]
-    AI[antchat iOS<br/>premium tier]
+    AC[remoteant<br/>Mac]
+    AW[remoteant-tauri<br/>Windows/Linux]
+    AI[antios<br/>iOS]
   end
 
   subgraph Accounts[Identity + billing · private repo]
@@ -93,7 +113,7 @@ The OSS substrate runs entirely on the operator's own infrastructure — your Ma
 | Repository | Visibility | Purpose |
 |---|---|---|
 | [`Jktfe/a-nice-terminal`](https://github.com/Jktfe/a-nice-terminal) | **Public · AGPL-3.0** | This repo. SvelteKit operator UI, `ant` CLI, multi-CLI integration matrix, rooms + plans + tasks + asks + terminals + cron, audit harnesses. |
-| `Jktfe/antchat` | Private | Premium native Mac chat client. Connects to a local or remote ANT substrate over the documented HTTP API. |
+| `Jktfe/remoteant` | Private | Premium native Mac thin client. Connects to a local or remote ANT substrate over the documented HTTP API. |
 | `Jktfe/ant-accounts` | Private | Identity, billing, and licence service backing `accounts.antonline.dev`. Better Auth + Neon Postgres + Stripe webhook → tier-flip → MCP gateway licence bit. Optional from the substrate's POV. |
 | [`Jktfe/antonline-dev`](https://github.com/Jktfe/antonline-dev) | Public | Marketing site and downloads landing at antonline.dev. Release notes, install instructions, screenshots. |
 | [`Jktfe/homebrew-antchat`](https://github.com/Jktfe/homebrew-antchat) | Public | Homebrew tap. Publishes the `ant` CLI binary signed-by-SHA from each tagged release. |
@@ -115,7 +135,7 @@ What is **not** in this repository and never required to run it: premium native 
 
 ## Status
 
-**Phase 1 shipped 2026-05-20.** End-to-end Stripe → tier-flip → MCP gateway licence bit is live; Mac antchat is distributed via Homebrew tap; OSS server publishes to `Jktfe/a-nice-terminal` under AGPL.
+**Phase 1 shipped 2026-05-20.** End-to-end Stripe → tier-flip → MCP gateway licence bit is live; Mac remoteant is distributed via Homebrew tap; OSS server publishes to `Jktfe/a-nice-terminal` under AGPL.
 
 | Gate | State |
 |---|---|
@@ -135,12 +155,12 @@ See [`docs/launch-readiness-2026-05-20.md`](./docs/launch-readiness-2026-05-20.m
 
 | SKU | Price | Per | What you get |
 |---|---|---|---|
-| **OSS antOS self-host** | £0 | — | Full server, web UI, CLI, multi-CLI hooks, plans, rooms, asks. Forever free. |
-| **antchat** | £6/mo | Human | Native Mac + Windows chat client. Unlimited installs. Bundles MCP gateway. |
+| **OSS ANT server self-host** | £0 | — | Full server, web UI, CLI, multi-CLI hooks, plans, rooms, asks. Forever free. |
+| **remoteant** | £6/mo | Human | Native Mac + Windows thin client. Unlimited installs. Bundles MCP gateway. |
 | **antios** | £6/mo | Human | Native iOS app (iPhone + iPad). |
-| **antchat + antios bundle** | £10/mo | Human | Default for both-platforms users. |
+| **remoteant + antios bundle** | £10/mo | Human | Default for both-platforms users. |
 | **antOS native server** | £10/mo | Instance | Managed native server app (skip the self-host setup). Each running server is one licence. |
-| **antOS native + antios server-app bundle** | £15/mo | Instance | Server host + mobile admin companion. |
+| **antOS native + antios-server bundle** | £15/mo | Instance | Server host + mobile admin companion. |
 | **Enterprise hosting** | bespoke | — | ANT-set-up-for-you. Future. |
 
 Pricing axes: **per-Human** for client apps, **per-Instance** for server apps. Self-hosting is a first-class citizen — the OSS path is celebrated, not tolerated.
