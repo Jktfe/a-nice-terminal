@@ -1,7 +1,14 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-const maximumLineCount = 260;
+// Raised from 260 → 600 per JWPK 2026-05-21. The 260 cap had created
+// a 40-file backlog that nobody had bandwidth to refactor; most of
+// those flagged components (270-450 lines) are genuinely coherent
+// units whose extraction would just spread complexity across files
+// rather than reduce it. 600 still flags the real outliers
+// (rooms/[roomId] 1243, InterviewModal 888, manual 793, etc.) that
+// ARE worth splitting when there's room.
+const maximumLineCount = 600;
 const foldersToCheck = ['src/lib/components', 'src/routes'];
 
 function listSvelteFiles(folder) {
