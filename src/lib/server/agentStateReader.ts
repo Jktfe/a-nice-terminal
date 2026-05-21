@@ -58,7 +58,21 @@ export interface AgentStateSnapshot {
 }
 
 function candidateDirs(cli: AgentCli): string[] {
-  return [join(process.env.HOME || homedir(), '.ant', 'state', cli)];
+  const home = process.env.HOME || homedir();
+  const dirs = [join(home, '.ant', 'state', cli)];
+  // CLI-native state dirs (where the CLI's own hooks/daemons write).
+  // ANT reads these as a fallback so we don't depend on a separate hook
+  // bridge always being wired up — works out-of-the-box for new CLIs and
+  // for fresh installs where ~/.ant/state/<cli>/ hasn't been seeded yet.
+  // The shape varies per CLI but readSnapshot is tolerant; only the keys
+  // we recognise (state, cwd, project_dir, pid, last_*_ts, session_start)
+  // are surfaced — the rest stays in `raw` for callers that want it.
+  switch (cli) {
+    case 'claude-code':
+      dirs.push(join(home, '.claude', 'state'));
+      break;
+  }
+  return dirs;
 }
 
 const fileCache = new Map<string, { snap: AgentStateSnapshot; mtimeMs: number }>();

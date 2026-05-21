@@ -52,6 +52,19 @@ function tmuxPaneCurrentPath(pane: string): string | null {
   } catch { return null; }
 }
 
+function countJsonlsNewerThan(dirPath: string, sinceMtimeMs: number): number {
+  let entries: string[];
+  try { entries = readdirSync(dirPath); } catch { return 0; }
+  let count = 0;
+  for (const name of entries) {
+    if (!name.endsWith('.jsonl')) continue;
+    try {
+      if (statSync(join(dirPath, name)).mtimeMs > sinceMtimeMs) count += 1;
+    } catch { /* skip */ }
+  }
+  return count;
+}
+
 function findNewestJsonl(dirPath: string, sinceMtimeMs: number): string | null {
   let entries: string[];
   try { entries = readdirSync(dirPath); } catch { return null; }
@@ -123,14 +136,27 @@ export function tailOnceForTerminal(record: {
   const projectDir = join(PROJECTS_DIR, encodedCwdSegmentFor(cwd));
   const cached = tailStates.get(record.session_id);
   let jsonlPath = cached?.jsonlPath ?? null;
-  // Re-resolve newest jsonl if we don't have one or its mtime stopped
-  // changing. Cheap: just re-pick newest each tick — file count is small.
+  // Re-resolve via the PID-disambiguated link if we can; only fall back
+  // to "newest jsonl in this project dir" when there's exactly ONE
+  // candidate jsonl. With multiple jsonls (two claude terminals in the
+  // same cwd) the newest-wins fallback misattributes events to whichever
+  // terminal happens to be polled — cross-contamination bug 2026-05-21.
+  // No data is better than wrong data; the ANT view just stays empty
+  // until a PID-state file exists to disambiguate.
   const linked = resolveTerminalRecordCliSession(record, { cwd });
-  const newest = linked
+  const linkedJsonl = linked
     ? findJsonlForSessionId(projectDir, linked.sessionId, record.created_at_ms - 1)
     : null;
-  const fallbackNewest = newest ?? findNewestJsonl(projectDir, record.created_at_ms - 1);
-  if (fallbackNewest) jsonlPath = fallbackNewest;
+  if (linkedJsonl) {
+    jsonlPath = linkedJsonl;
+  } else if (!cached) {
+    // First-attach path with no link: only tail if disambiguation is
+    // unambiguous (exactly one candidate jsonl in the project dir).
+    const candidates = countJsonlsNewerThan(projectDir, record.created_at_ms - 1);
+    if (candidates === 1) {
+      jsonlPath = findNewestJsonl(projectDir, record.created_at_ms - 1);
+    }
+  }
   if (!jsonlPath) return 0;
   const fromOffset = resolveTailStartOffset(cached, jsonlPath);
   const { text, newOffset } = readAppendedBytes(jsonlPath, fromOffset);
