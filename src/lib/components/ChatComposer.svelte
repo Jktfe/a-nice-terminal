@@ -9,6 +9,12 @@
   import MentionTagsStrip from './MentionTagsStrip.svelte';
   import TypingIndicator from './TypingIndicator.svelte';
   import ChatComposerReplyPill from './ChatComposerReplyPill.svelte';
+  import ChatComposerAttachmentChips from './ChatComposerAttachmentChips.svelte';
+  import ChatComposerEditingPill from './ChatComposerEditingPill.svelte';
+  import ChatComposerAttachButton from './ChatComposerAttachButton.svelte';
+  import ChatComposerUploadStatus from './ChatComposerUploadStatus.svelte';
+  import ChatComposerSendButton from './ChatComposerSendButton.svelte';
+  import ChatComposerErrorMessages from './ChatComposerErrorMessages.svelte';
   import { ensureBrowserSessionForRoom } from '$lib/browserSessionClient';
   import { looksLikeBreakCommand, reasonFromBreakCommand } from '$lib/composer/composerSlashCommands';
   import {
@@ -23,6 +29,7 @@
     extractFilesFromPasteEvent,
     uploadAttachmentToRoom
   } from '$lib/composer/composerAttachments';
+  import { loadDraftForRoom, persistDraftForRoom } from '$lib/composer/composerDraftStore';
   import type { RoomMember } from '$lib/server/chatRoomStore';
   import type { RoomAliasEntry } from '$lib/server/chatRoomAliasStore';
   import type { ChatMessage } from '$lib/server/chatMessageStore';
@@ -59,41 +66,12 @@
   // previous message; submit then PATCHes that id instead of POSTing.
   let editingMessageId = $state<string | null>(null);
 
-  // JWPK msg_ivazv32bya: composer drafts persist PER-ROOM so navigating
-  // away (room hop, hard refresh, accidental close) doesn't throw away
-  // unfinished work. Storage key is scoped to roomId so room A's draft
-  // doesn't leak into room B. Persists on every keystroke (cheap —
-  // localStorage write is sub-ms for these sizes); clears after a
-  // successful send + on draft empty.
-  function draftStorageKey(roomScopeId: string): string {
-    return `ant.composer-draft.${roomScopeId}`;
-  }
-  function loadDraftForRoom(roomScopeId: string): string {
-    if (typeof localStorage === 'undefined') return '';
-    try {
-      return localStorage.getItem(draftStorageKey(roomScopeId)) ?? '';
-    } catch {
-      return '';
-    }
-  }
-  function persistDraftForRoom(roomScopeId: string, draft: string): void {
-    if (typeof localStorage === 'undefined') return;
-    try {
-      const trimmed = draft.trimEnd();
-      if (trimmed.length === 0) {
-        localStorage.removeItem(draftStorageKey(roomScopeId));
-      } else {
-        localStorage.setItem(draftStorageKey(roomScopeId), draft);
-      }
-    } catch {
-      /* private mode or quota — draft survives only in memory */
-    }
-  }
-
-  // Initial draft load — reads localStorage for the room the composer
-  // mounts into. The $effect below handles room hops by re-loading
-  // when roomId changes; for the initial render, this seeds the
-  // textarea so a refresh restores the draft immediately.
+  // Composer drafts persist PER-ROOM via loadDraftForRoom /
+  // persistDraftForRoom (see $lib/composer/composerDraftStore). Storage
+  // key is scoped to roomId so room A's draft doesn't leak into room B.
+  // Initial draft load reads localStorage for the room the composer
+  // mounts into; the $effect below handles room hops by re-loading
+  // when roomId changes so a refresh restores the draft immediately.
   // svelte-ignore state_referenced_locally
   let bodyBeingTyped = $state(loadDraftForRoom(roomId));
   // svelte-ignore state_referenced_locally
@@ -119,14 +97,12 @@
   let mentionTrigger = $state<MentionTrigger | null>(null);
   let mentionActiveIndex = $state(0);
   let textareaRef = $state<HTMLTextAreaElement | null>(null);
-  let attachInputRef = $state<HTMLInputElement | null>(null);
   let priorCollaboratorHandles = $state<string[]>([]);
   let isDropTargetHovered = $state(false);
   let uploadsInFlight = $state<string[]>([]);
-  // Composer attachment chips: a small preview of every file the
-  // operator just attached (image thumbnail or paperclip icon), with
-  // an × to drop the chip and strip its markdown link from the body
-  // before sending. Cleared on successful send.
+  // Composer attachment chips: small previews of every attached file
+  // (image thumbnail or paperclip icon), with × to drop the chip and
+  // strip its markdown link from the body. Cleared on successful send.
   type AttachedChip = {
     attachmentId: string;
     filename: string;
@@ -488,7 +464,6 @@
     composerState = 'emptyComposerWaitingForBody';
     onMessagePosted?.(message);
   }
-
 </script>
 
 <section class="chat-composer" aria-labelledby="composerHeading">
@@ -501,42 +476,11 @@
     />
   {/if}
   {#if editingMessageId}
-    <p class="editing-pill" role="status">
-      Editing your message —
-      <button type="button" class="cancel-edit" onclick={cancelEditing}>cancel (Esc)</button>
-    </p>
+    <ChatComposerEditingPill onCancel={cancelEditing} />
   {/if}
   <MentionTagsStrip body={bodyBeingTyped} onUpdate={(newBody) => handleBodyInput(newBody)} />
-  {#if uploadsInFlight.length > 0}
-    <p class="upload-status" role="status">
-      Uploading {uploadsInFlight.length === 1 ? uploadsInFlight[0] : `${uploadsInFlight.length} files…`}
-    </p>
-  {/if}
-  {#if attachedChips.length > 0}
-    <!-- Composer attachment thumbnails. One chip per attached file
-         with a small image preview (for image mimes) or paperclip icon
-         for others, plus an × to drop the chip and strip its markdown
-         link from the body before sending. -->
-    <ul class="attached-chips" aria-label="Attached files">
-      {#each attachedChips as chip (chip.attachmentId)}
-        <li class="attached-chip">
-          {#if chip.previewObjectUrl}
-            <img class="chip-thumb" src={chip.previewObjectUrl} alt={chip.filename} />
-          {:else}
-            <span class="chip-icon" aria-hidden="true">📎</span>
-          {/if}
-          <span class="chip-name" title={chip.filename}>{chip.filename}</span>
-          <button
-            type="button"
-            class="chip-remove"
-            aria-label={`Remove ${chip.filename}`}
-            title="Remove attachment"
-            onclick={() => removeAttachedChip(chip.attachmentId)}
-          >×</button>
-        </li>
-      {/each}
-    </ul>
-  {/if}
+  <ChatComposerUploadStatus {uploadsInFlight} />
+  <ChatComposerAttachmentChips chips={attachedChips} onRemove={removeAttachedChip} />
   <form
     onsubmit={(submitEvent) => { submitEvent.preventDefault(); submitMessage(); }}
     class:drop-hover={isDropTargetHovered}
@@ -567,51 +511,16 @@
       onHover={(newIndex) => (mentionActiveIndex = newIndex)}
     />
 
-    {#if sessionMintError}
-      <p class="error-message" role="alert">{sessionMintError}</p>
-    {/if}
-
-    {#if lastErrorMessage}
-      <p class="error-message" role="alert">{lastErrorMessage}</p>
-    {/if}
+    <ChatComposerErrorMessages {sessionMintError} {lastErrorMessage} />
 
     <div class="composer-footer">
       <div class="composer-actions">
-        <input
-          type="file"
-          bind:this={attachInputRef}
-          class="attach-input"
-          multiple
-          aria-hidden="true"
-          tabindex="-1"
-          onchange={(event) => {
-            const fileList = event.currentTarget.files;
-            if (fileList && fileList.length > 0) {
-              void ingestDroppedOrPastedFiles(Array.from(fileList));
-            }
-            event.currentTarget.value = '';
-          }}
-        />
-        <button
-          type="button"
-          class="attach-action"
-          aria-label="Attach a file"
-          title="Attach a file"
-          onclick={() => attachInputRef?.click()}
+        <ChatComposerAttachButton
           disabled={composerState === 'submittingToServer'}
-        >📎</button>
+          onFilesSelected={(files) => void ingestDroppedOrPastedFiles(files)}
+        />
         <span class="send-action-slot">
-          <button type="submit" class="primary" disabled={composerState !== 'bodyBeingTyped'}>
-            {#if composerState === 'submittingToServer'}
-              {editingMessageId ? 'Saving…' : 'Sending…'}
-            {:else if editingMessageId}
-              Save edit
-            {:else if looksLikeBreakCommand(bodyBeingTyped)}
-              Post break
-            {:else}
-              Send
-            {/if}
-          </button>
+          <ChatComposerSendButton {composerState} {editingMessageId} {bodyBeingTyped} />
         </span>
       </div>
     </div>
@@ -643,109 +552,6 @@
     outline-offset: 4px;
     border-radius: 0.5rem;
   }
-  .upload-status {
-    margin: 0;
-    padding: 0.35rem 0.6rem;
-    border-radius: 0.5rem;
-    background: color-mix(in srgb, var(--accent) 8%, transparent);
-    color: var(--accent);
-    font-size: 0.82rem;
-    font-weight: 700;
-  }
-  /* Composer attachment chips — preview row above the textarea. */
-  .attached-chips {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-  }
-  .attached-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.25rem 0.45rem 0.25rem 0.3rem;
-    border: 1px solid var(--line-soft);
-    border-radius: 0.55rem;
-    background: var(--surface-card);
-    color: var(--ink-strong);
-    font-size: 0.82rem;
-    max-width: 14rem;
-  }
-  .chip-thumb {
-    width: 1.8rem;
-    height: 1.8rem;
-    object-fit: cover;
-    border-radius: 0.35rem;
-    flex-shrink: 0;
-    background: var(--bg);
-  }
-  .chip-icon {
-    width: 1.8rem;
-    height: 1.8rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 0.35rem;
-    background: var(--bg);
-    color: var(--ink-soft);
-    flex-shrink: 0;
-  }
-  .chip-name {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-weight: 700;
-  }
-  .chip-remove {
-    width: 1.3rem;
-    height: 1.3rem;
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: var(--ink-soft);
-    font-size: 0.95rem;
-    font-weight: 800;
-    cursor: pointer;
-    border-radius: 999px;
-    line-height: 1;
-    flex-shrink: 0;
-  }
-  .chip-remove:hover { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
-  @media (pointer: coarse) {
-    .chip-remove { width: 1.75rem; height: 1.75rem; font-size: 1.05rem; }
-  }
-  /* #76 — editing-mode indicator pill. Sits above the textarea so the
-     user sees "I'm editing, not posting new" + can hit Esc / click to
-     cancel without losing the text. */
-  .editing-pill {
-    margin: 0;
-    padding: 0.35rem 0.75rem;
-    border: 1px dashed var(--accent);
-    border-radius: 0.5rem;
-    background: color-mix(in srgb, var(--accent) 8%, transparent);
-    color: var(--accent);
-    font-size: 0.82rem;
-    font-weight: 700;
-    display: flex;
-    align-items: center;
-    gap: 0.55rem;
-  }
-  .cancel-edit {
-    margin-left: auto;
-    padding: 0.18rem 0.6rem;
-    border: 1px solid var(--accent);
-    border-radius: 999px;
-    background: transparent;
-    color: var(--accent);
-    font: inherit;
-    font-size: 0.78rem;
-    font-weight: 800;
-    cursor: pointer;
-  }
-  .cancel-edit:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
   .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
   form { display: flex; flex-direction: column; gap: 0.55rem; }
   /* Task #69: stronger affordance — the textarea is the clickable target,
@@ -789,31 +595,4 @@
     padding-left: 0.65rem;
     border-left: 1px solid var(--line-soft);
   }
-  .attach-input {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
-  }
-  .attach-action {
-    width: 2.2rem;
-    height: 2.2rem;
-    padding: 0;
-    border: 1px solid var(--line-soft);
-    border-radius: 999px;
-    background: transparent;
-    color: var(--ink-strong);
-    font-size: 1rem;
-    cursor: pointer;
-  }
-  .attach-action:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-  .attach-action:disabled { opacity: 0.55; cursor: not-allowed; }
-  button.primary { padding: 0.5rem 1rem; font-weight: 800; font-size: 0.9rem; color: white; background: var(--accent); border: none; border-radius: 999px; cursor: pointer; }
-  button.primary:disabled { opacity: 0.55; cursor: not-allowed; }
-  .error-message { margin: 0; color: var(--accent); font-size: 0.85rem; }
 </style>
