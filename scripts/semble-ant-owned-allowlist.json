@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Semble MCP v1 index scope for ANT-owned repositories only.",
+  "includeRoots": [
+    {
+      "name": "ant",
+      "path": "/Users/jamesking/CascadeProjects/ant",
+      "reason": "Current private v4 staging repo."
+    },
+    {
+      "name": "a-nice-terminal",
+      "path": "/Users/jamesking/CascadeProjects/a-nice-terminal",
+      "reason": "Public OSS target repo."
+    },
+    {
+      "name": "antchat",
+      "path": "/Users/jamesking/CascadeProjects/antchat",
+      "reason": "Thin client and native-app-adjacent room client repo."
+    }
+  ],
+  "excludeGlobs": [
+    "**/.git/**",
+    "**/node_modules/**",
+    "**/build/**",
+    "**/.svelte-kit/**",
+    "**/dist/**",
+    "**/.env",
+    "**/.env.*",
+    "**/*.db",
+    "**/*.db-*",
+    "**/*.sqlite",
+    "**/*.sqlite-*",
+    "**/.mcp.json",
+    "**/.claude/**",
+    "**/.codex/**",
+    "**/static/artefacts/**",
+    "**/screenshots/**"
+  ],
+  "denyRoots": [
+    "/Users/jamesking/CascadeProjects/ObsidiANT",
+    "/Users/jamesking/.ant",
+    "/Users/jamesking/.claude",
+    "/Users/jamesking/.codex",
+    "/Users/jamesking/.gemini",
+    "/Users/jamesking/.pi",
+    "/Users/jamesking/.copilot",
+    "/Users/jamesking/.qwen"
+  ],
+  "notes": [
+    "Do not widen to /Users/jamesking/CascadeProjects/* in v1.",
+    "Do not index memory vaults, local agent state, MCP secrets, terminal transcripts, or generated artefacts.",
+    "Semble is a discovery aid. Agents must still open source files before editing."
+  ]
+}

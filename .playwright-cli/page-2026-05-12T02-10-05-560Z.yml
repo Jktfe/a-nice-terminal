@@ -1,0 +1,554 @@
+- generic [ref=e2]:
+  - link "Skip to main content" [ref=e3] [cursor=pointer]:
+    - /url: "#main-content"
+  - main [ref=e4]:
+    - generic [ref=e5]:
+      - link "Back to cockpit" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - generic "ANT" [ref=e7]:
+          - generic [ref=e8]: ANT
+      - navigation "Primary" [ref=e9]:
+        - link "Cockpit" [ref=e10] [cursor=pointer]:
+          - /url: /
+        - link "Rooms" [ref=e11] [cursor=pointer]:
+          - /url: /rooms
+        - link "Terminal" [ref=e12] [cursor=pointer]:
+          - /url: /terminal
+        - link "Ledger" [ref=e13] [cursor=pointer]:
+          - /url: /ledger
+    - generic [ref=e14]:
+      - paragraph [ref=e15]: Chairman
+      - heading "One screen for every room." [level=1] [ref=e16]
+      - generic [ref=e17]: The chairman watches every room and surfaces the digest plus a needs-attention flag. Slice 1 uses heuristic digests; cheap-model LLM digests land in slice 2.
+    - region "Active chairman notes" [ref=e18]:
+      - generic [ref=e19]:
+        - generic [ref=e20]: Chairman notes
+        - generic [ref=e21]: "1"
+      - paragraph [ref=e22]: Per-room notes written by the chairman. Each note is the freshest thought attached to that room; setting a new note replaces the old.
+      - list [ref=e23]:
+        - listitem [ref=e24]:
+          - generic [ref=e25]:
+            - generic [ref=e26]: m29-note-room
+            - generic [ref=e27]: Set 5/12/2026, 3:09:55 AM
+          - paragraph [ref=e28]: m29 ui note needle 8d42
+    - region "Chairman digest board" [ref=e29]:
+      - generic [ref=e30]:
+        - generic [ref=e31]:
+          - generic [ref=e32]: Chairman
+          - heading "Rooms at a glance" [level=2] [ref=e33]
+        - generic [ref=e34]:
+          - generic [ref=e35]: refreshed at 03:10:05 AM
+          - button "Refresh" [ref=e36] [cursor=pointer]
+      - generic [ref=e37]:
+        - link "m29-note-room no activity yet No messages yet. Room metrics" [ref=e38] [cursor=pointer]:
+          - /url: /rooms/4xez0heanj
+          - generic [ref=e39]:
+            - heading "m29-note-room" [level=3] [ref=e40]
+            - generic [ref=e41]: no activity yet
+          - paragraph [ref=e42]: No messages yet.
+          - list "Room metrics" [ref=e43]:
+            - listitem [ref=e44]:
+              - generic [ref=e45]: members
+              - generic [ref=e46]: "1"
+            - listitem [ref=e47]:
+              - generic [ref=e48]: human
+              - generic [ref=e49]: "0"
+            - listitem [ref=e50]:
+              - generic [ref=e51]: agent
+              - generic [ref=e52]: "0"
+            - listitem [ref=e53]:
+              - generic [ref=e54]: system
+              - generic [ref=e55]: "0"
+          - status [ref=e56]: ⚠ Room is empty — invite an agent or post the first message.
+        - 'link "m17-ui-review 2m ago Context break by @you: m17 break review needle Room metrics" [ref=e57] [cursor=pointer]':
+          - /url: /rooms/26aga0ht4b
+          - generic [ref=e58]:
+            - heading "m17-ui-review" [level=3] [ref=e59]
+            - generic [ref=e60]: 2m ago
+          - paragraph [ref=e61]: "Context break by @you: m17 break review needle"
+          - list "Room metrics" [ref=e62]:
+            - listitem [ref=e63]:
+              - generic [ref=e64]: members
+              - generic [ref=e65]: "2"
+            - listitem [ref=e66]:
+              - generic [ref=e67]: human
+              - generic [ref=e68]: "1"
+            - listitem [ref=e69]:
+              - generic [ref=e70]: agent
+              - generic [ref=e71]: "1"
+            - listitem [ref=e72]:
+              - generic [ref=e73]: system
+              - generic [ref=e74]: "2"
+        - link "m29-slice3-smoke no activity yet No messages yet. Room metrics" [ref=e75] [cursor=pointer]:
+          - /url: /rooms/tdj1zafz60
+          - generic [ref=e76]:
+            - heading "m29-slice3-smoke" [level=3] [ref=e77]
+            - generic [ref=e78]: no activity yet
+          - paragraph [ref=e79]: No messages yet.
+          - list "Room metrics" [ref=e80]:
+            - listitem [ref=e81]:
+              - generic [ref=e82]: members
+              - generic [ref=e83]: "1"
+            - listitem [ref=e84]:
+              - generic [ref=e85]: human
+              - generic [ref=e86]: "0"
+            - listitem [ref=e87]:
+              - generic [ref=e88]: agent
+              - generic [ref=e89]: "0"
+            - listitem [ref=e90]:
+              - generic [ref=e91]: system
+              - generic [ref=e92]: "0"
+          - status [ref=e93]: ⚠ Room is empty — invite an agent or post the first message.
+        - link "m29-notes-smoke no activity yet No messages yet. Room metrics" [ref=e94] [cursor=pointer]:
+          - /url: /rooms/nwn13drs9i
+          - generic [ref=e95]:
+            - heading "m29-notes-smoke" [level=3] [ref=e96]
+            - generic [ref=e97]: no activity yet
+          - paragraph [ref=e98]: No messages yet.
+          - list "Room metrics" [ref=e99]:
+            - listitem [ref=e100]:
+              - generic [ref=e101]: members
+              - generic [ref=e102]: "1"
+            - listitem [ref=e103]:
+              - generic [ref=e104]: human
+              - generic [ref=e105]: "0"
+            - listitem [ref=e106]:
+              - generic [ref=e107]: agent
+              - generic [ref=e108]: "0"
+            - listitem [ref=e109]:
+              - generic [ref=e110]: system
+              - generic [ref=e111]: "0"
+          - status [ref=e112]: ⚠ Room is empty — invite an agent or post the first message.
+        - link "m24-smoke 12m ago read smoke Room metrics" [ref=e113] [cursor=pointer]:
+          - /url: /rooms/brpfn2pyti
+          - generic [ref=e114]:
+            - heading "m24-smoke" [level=3] [ref=e115]
+            - generic [ref=e116]: 12m ago
+          - paragraph [ref=e117]: read smoke
+          - list "Room metrics" [ref=e118]:
+            - listitem [ref=e119]:
+              - generic [ref=e120]: members
+              - generic [ref=e121]: "1"
+            - listitem [ref=e122]:
+              - generic [ref=e123]: human
+              - generic [ref=e124]: "1"
+            - listitem [ref=e125]:
+              - generic [ref=e126]: agent
+              - generic [ref=e127]: "0"
+            - listitem [ref=e128]:
+              - generic [ref=e129]: system
+              - generic [ref=e130]: "0"
+          - status [ref=e131]: ⚠ Human posted; no agent reply yet after 2 minutes.
+        - link "m11-tray-smoke 13m ago @evolveantclaude joined this room. Room metrics" [ref=e132] [cursor=pointer]:
+          - /url: /rooms/156vbvc5u6
+          - generic [ref=e133]:
+            - heading "m11-tray-smoke" [level=3] [ref=e134]
+            - generic [ref=e135]: 13m ago
+          - paragraph [ref=e136]: "@evolveantclaude joined this room."
+          - list "Room metrics" [ref=e137]:
+            - listitem [ref=e138]:
+              - generic [ref=e139]: members
+              - generic [ref=e140]: "2"
+            - listitem [ref=e141]:
+              - generic [ref=e142]: human
+              - generic [ref=e143]: "0"
+            - listitem [ref=e144]:
+              - generic [ref=e145]: agent
+              - generic [ref=e146]: "0"
+            - listitem [ref=e147]:
+              - generic [ref=e148]: system
+              - generic [ref=e149]: "1"
+        - link "m17-smoke 15m ago reaction smoke Room metrics" [ref=e150] [cursor=pointer]:
+          - /url: /rooms/lir85ba0lr
+          - generic [ref=e151]:
+            - heading "m17-smoke" [level=3] [ref=e152]
+            - generic [ref=e153]: 15m ago
+          - paragraph [ref=e154]: reaction smoke
+          - list "Room metrics" [ref=e155]:
+            - listitem [ref=e156]:
+              - generic [ref=e157]: members
+              - generic [ref=e158]: "1"
+            - listitem [ref=e159]:
+              - generic [ref=e160]: human
+              - generic [ref=e161]: "1"
+            - listitem [ref=e162]:
+              - generic [ref=e163]: agent
+              - generic [ref=e164]: "0"
+            - listitem [ref=e165]:
+              - generic [ref=e166]: system
+              - generic [ref=e167]: "0"
+          - status [ref=e168]: ⚠ Human posted; no agent reply yet after 2 minutes.
+        - link "m16-ssr-smoke 21m ago @evolveantclaude joined this room. Room metrics" [ref=e169] [cursor=pointer]:
+          - /url: /rooms/pthbmnna2k
+          - generic [ref=e170]:
+            - heading "m16-ssr-smoke" [level=3] [ref=e171]
+            - generic [ref=e172]: 21m ago
+          - paragraph [ref=e173]: "@evolveantclaude joined this room."
+          - list "Room metrics" [ref=e174]:
+            - listitem [ref=e175]:
+              - generic [ref=e176]: members
+              - generic [ref=e177]: "2"
+            - listitem [ref=e178]:
+              - generic [ref=e179]: human
+              - generic [ref=e180]: "0"
+            - listitem [ref=e181]:
+              - generic [ref=e182]: agent
+              - generic [ref=e183]: "0"
+            - listitem [ref=e184]:
+              - generic [ref=e185]: system
+              - generic [ref=e186]: "1"
+        - link "m16-browser-smoke no activity yet No messages yet. Room metrics" [ref=e187] [cursor=pointer]:
+          - /url: /rooms/kobhmm4zxf
+          - generic [ref=e188]:
+            - heading "m16-browser-smoke" [level=3] [ref=e189]
+            - generic [ref=e190]: no activity yet
+          - paragraph [ref=e191]: No messages yet.
+          - list "Room metrics" [ref=e192]:
+            - listitem [ref=e193]:
+              - generic [ref=e194]: members
+              - generic [ref=e195]: "1"
+            - listitem [ref=e196]:
+              - generic [ref=e197]: human
+              - generic [ref=e198]: "0"
+            - listitem [ref=e199]:
+              - generic [ref=e200]: agent
+              - generic [ref=e201]: "0"
+            - listitem [ref=e202]:
+              - generic [ref=e203]: system
+              - generic [ref=e204]: "0"
+          - status [ref=e205]: ⚠ Room is empty — invite an agent or post the first message.
+        - link "m16-ssr-smoke no activity yet No messages yet. Room metrics" [ref=e206] [cursor=pointer]:
+          - /url: /rooms/58ig9qo4j4
+          - generic [ref=e207]:
+            - heading "m16-ssr-smoke" [level=3] [ref=e208]
+            - generic [ref=e209]: no activity yet
+          - paragraph [ref=e210]: No messages yet.
+          - list "Room metrics" [ref=e211]:
+            - listitem [ref=e212]:
+              - generic [ref=e213]: members
+              - generic [ref=e214]: "1"
+            - listitem [ref=e215]:
+              - generic [ref=e216]: human
+              - generic [ref=e217]: "0"
+            - listitem [ref=e218]:
+              - generic [ref=e219]: agent
+              - generic [ref=e220]: "0"
+            - listitem [ref=e221]:
+              - generic [ref=e222]: system
+              - generic [ref=e223]: "0"
+          - status [ref=e224]: ⚠ Room is empty — invite an agent or post the first message.
+        - link "m19-repass-smoke 26m ago @kimi joined this room. Room metrics" [ref=e225] [cursor=pointer]:
+          - /url: /rooms/niujuooku6
+          - generic [ref=e226]:
+            - heading "m19-repass-smoke" [level=3] [ref=e227]
+            - generic [ref=e228]: 26m ago
+          - paragraph [ref=e229]: "@kimi joined this room."
+          - list "Room metrics" [ref=e230]:
+            - listitem [ref=e231]:
+              - generic [ref=e232]: members
+              - generic [ref=e233]: "2"
+            - listitem [ref=e234]:
+              - generic [ref=e235]: human
+              - generic [ref=e236]: "0"
+            - listitem [ref=e237]:
+              - generic [ref=e238]: agent
+              - generic [ref=e239]: "0"
+            - listitem [ref=e240]:
+              - generic [ref=e241]: system
+              - generic [ref=e242]: "1"
+        - link "m19-browser-smoke 29m ago @kimi joined this room. Room metrics" [ref=e243] [cursor=pointer]:
+          - /url: /rooms/de62gvmgoi
+          - generic [ref=e244]:
+            - heading "m19-browser-smoke" [level=3] [ref=e245]
+            - generic [ref=e246]: 29m ago
+          - paragraph [ref=e247]: "@kimi joined this room."
+          - list "Room metrics" [ref=e248]:
+            - listitem [ref=e249]:
+              - generic [ref=e250]: members
+              - generic [ref=e251]: "2"
+            - listitem [ref=e252]:
+              - generic [ref=e253]: human
+              - generic [ref=e254]: "0"
+            - listitem [ref=e255]:
+              - generic [ref=e256]: agent
+              - generic [ref=e257]: "0"
+            - listitem [ref=e258]:
+              - generic [ref=e259]: system
+              - generic [ref=e260]: "1"
+        - link "m19-ui-smoke 29m ago @kimi joined this room. Room metrics" [ref=e261] [cursor=pointer]:
+          - /url: /rooms/qmhtiaqond
+          - generic [ref=e262]:
+            - heading "m19-ui-smoke" [level=3] [ref=e263]
+            - generic [ref=e264]: 29m ago
+          - paragraph [ref=e265]: "@kimi joined this room."
+          - list "Room metrics" [ref=e266]:
+            - listitem [ref=e267]:
+              - generic [ref=e268]: members
+              - generic [ref=e269]: "2"
+            - listitem [ref=e270]:
+              - generic [ref=e271]: human
+              - generic [ref=e272]: "0"
+            - listitem [ref=e273]:
+              - generic [ref=e274]: agent
+              - generic [ref=e275]: "0"
+            - listitem [ref=e276]:
+              - generic [ref=e277]: system
+              - generic [ref=e278]: "1"
+        - link "m11-repass-smoke no activity yet No messages yet. Room metrics" [ref=e279] [cursor=pointer]:
+          - /url: /rooms/izx1n3flvf
+          - generic [ref=e280]:
+            - heading "m11-repass-smoke" [level=3] [ref=e281]
+            - generic [ref=e282]: no activity yet
+          - paragraph [ref=e283]: No messages yet.
+          - list "Room metrics" [ref=e284]:
+            - listitem [ref=e285]:
+              - generic [ref=e286]: members
+              - generic [ref=e287]: "1"
+            - listitem [ref=e288]:
+              - generic [ref=e289]: human
+              - generic [ref=e290]: "0"
+            - listitem [ref=e291]:
+              - generic [ref=e292]: agent
+              - generic [ref=e293]: "0"
+            - listitem [ref=e294]:
+              - generic [ref=e295]: system
+              - generic [ref=e296]: "0"
+          - status [ref=e297]: ⚠ Room is empty — invite an agent or post the first message.
+        - link "m11-edge-smoke no activity yet No messages yet. Room metrics" [ref=e298] [cursor=pointer]:
+          - /url: /rooms/jqiat7jfrr
+          - generic [ref=e299]:
+            - heading "m11-edge-smoke" [level=3] [ref=e300]
+            - generic [ref=e301]: no activity yet
+          - paragraph [ref=e302]: No messages yet.
+          - list "Room metrics" [ref=e303]:
+            - listitem [ref=e304]:
+              - generic [ref=e305]: members
+              - generic [ref=e306]: "1"
+            - listitem [ref=e307]:
+              - generic [ref=e308]: human
+              - generic [ref=e309]: "0"
+            - listitem [ref=e310]:
+              - generic [ref=e311]: agent
+              - generic [ref=e312]: "0"
+            - listitem [ref=e313]:
+              - generic [ref=e314]: system
+              - generic [ref=e315]: "0"
+          - status [ref=e316]: ⚠ Room is empty — invite an agent or post the first message.
+        - link "m14-browser-room 40m ago browser m14 query result body Room metrics" [ref=e317] [cursor=pointer]:
+          - /url: /rooms/do7uamn8kc
+          - generic [ref=e318]:
+            - heading "m14-browser-room" [level=3] [ref=e319]
+            - generic [ref=e320]: 40m ago
+          - paragraph [ref=e321]: browser m14 query result body
+          - list "Room metrics" [ref=e322]:
+            - listitem [ref=e323]:
+              - generic [ref=e324]: members
+              - generic [ref=e325]: "1"
+            - listitem [ref=e326]:
+              - generic [ref=e327]: human
+              - generic [ref=e328]: "1"
+            - listitem [ref=e329]:
+              - generic [ref=e330]: agent
+              - generic [ref=e331]: "0"
+            - listitem [ref=e332]:
+              - generic [ref=e333]: system
+              - generic [ref=e334]: "0"
+          - status [ref=e335]: ⚠ Human posted; no agent reply yet after 2 minutes.
+        - link "m14-search-smoke 40m ago needle phrase codex m14 smoke Room metrics" [ref=e336] [cursor=pointer]:
+          - /url: /rooms/x4w7v70bhy
+          - generic [ref=e337]:
+            - heading "m14-search-smoke" [level=3] [ref=e338]
+            - generic [ref=e339]: 40m ago
+          - paragraph [ref=e340]: needle phrase codex m14 smoke
+          - list "Room metrics" [ref=e341]:
+            - listitem [ref=e342]:
+              - generic [ref=e343]: members
+              - generic [ref=e344]: "1"
+            - listitem [ref=e345]:
+              - generic [ref=e346]: human
+              - generic [ref=e347]: "1"
+            - listitem [ref=e348]:
+              - generic [ref=e349]: agent
+              - generic [ref=e350]: "0"
+            - listitem [ref=e351]:
+              - generic [ref=e352]: system
+              - generic [ref=e353]: "0"
+          - status [ref=e354]: ⚠ Human posted; no agent reply yet after 2 minutes.
+        - link "m13-a11y-smoke-2-renamed 50m ago Room renamed from \"m13-a11y-smoke-2\" to \"m13-a11y-smoke-2-renamed\". Room metrics" [ref=e355] [cursor=pointer]:
+          - /url: /rooms/ngzwuwd6u3
+          - generic [ref=e356]:
+            - heading "m13-a11y-smoke-2-renamed" [level=3] [ref=e357]
+            - generic [ref=e358]: 50m ago
+          - paragraph [ref=e359]: Room renamed from "m13-a11y-smoke-2" to "m13-a11y-smoke-2-renamed".
+          - list "Room metrics" [ref=e360]:
+            - listitem [ref=e361]:
+              - generic [ref=e362]: members
+              - generic [ref=e363]: "1"
+            - listitem [ref=e364]:
+              - generic [ref=e365]: human
+              - generic [ref=e366]: "0"
+            - listitem [ref=e367]:
+              - generic [ref=e368]: agent
+              - generic [ref=e369]: "0"
+            - listitem [ref=e370]:
+              - generic [ref=e371]: system
+              - generic [ref=e372]: "1"
+          - status [ref=e373]: ⚠ Only the creator is in the room — no agent invited yet.
+        - link "m13-a11y-smoke-renamed 50m ago Room renamed from \"m13-a11y-smoke\" to \"m13-a11y-smoke-renamed\". Room metrics" [ref=e374] [cursor=pointer]:
+          - /url: /rooms/6uk89atak4
+          - generic [ref=e375]:
+            - heading "m13-a11y-smoke-renamed" [level=3] [ref=e376]
+            - generic [ref=e377]: 50m ago
+          - paragraph [ref=e378]: Room renamed from "m13-a11y-smoke" to "m13-a11y-smoke-renamed".
+          - list "Room metrics" [ref=e379]:
+            - listitem [ref=e380]:
+              - generic [ref=e381]: members
+              - generic [ref=e382]: "1"
+            - listitem [ref=e383]:
+              - generic [ref=e384]: human
+              - generic [ref=e385]: "0"
+            - listitem [ref=e386]:
+              - generic [ref=e387]: agent
+              - generic [ref=e388]: "0"
+            - listitem [ref=e389]:
+              - generic [ref=e390]: system
+              - generic [ref=e391]: "1"
+          - status [ref=e392]: ⚠ Only the creator is in the room — no agent invited yet.
+        - link "m13-focus-old no activity yet No messages yet. Room metrics" [ref=e393] [cursor=pointer]:
+          - /url: /rooms/x1i2w447gl
+          - generic [ref=e394]:
+            - heading "m13-focus-old" [level=3] [ref=e395]
+            - generic [ref=e396]: no activity yet
+          - paragraph [ref=e397]: No messages yet.
+          - list "Room metrics" [ref=e398]:
+            - listitem [ref=e399]:
+              - generic [ref=e400]: members
+              - generic [ref=e401]: "1"
+            - listitem [ref=e402]:
+              - generic [ref=e403]: human
+              - generic [ref=e404]: "0"
+            - listitem [ref=e405]:
+              - generic [ref=e406]: agent
+              - generic [ref=e407]: "0"
+            - listitem [ref=e408]:
+              - generic [ref=e409]: system
+              - generic [ref=e410]: "0"
+          - status [ref=e411]: ⚠ Room is empty — invite an agent or post the first message.
+        - link "m13-ui-new 56m ago Room renamed from \"m13-ui-old\" to \"m13-ui-new\". Room metrics" [ref=e412] [cursor=pointer]:
+          - /url: /rooms/mltoclaqnb
+          - generic [ref=e413]:
+            - heading "m13-ui-new" [level=3] [ref=e414]
+            - generic [ref=e415]: 56m ago
+          - paragraph [ref=e416]: Room renamed from "m13-ui-old" to "m13-ui-new".
+          - list "Room metrics" [ref=e417]:
+            - listitem [ref=e418]:
+              - generic [ref=e419]: members
+              - generic [ref=e420]: "1"
+            - listitem [ref=e421]:
+              - generic [ref=e422]: human
+              - generic [ref=e423]: "0"
+            - listitem [ref=e424]:
+              - generic [ref=e425]: agent
+              - generic [ref=e426]: "0"
+            - listitem [ref=e427]:
+              - generic [ref=e428]: system
+              - generic [ref=e429]: "1"
+          - status [ref=e430]: ⚠ Only the creator is in the room — no agent invited yet.
+        - link "m13-api-smoke-new 56m ago Room renamed from \"m13-api-smoke-old\" to \"m13-api-smoke-new\". Room metrics" [ref=e431] [cursor=pointer]:
+          - /url: /rooms/k3e48huwqx
+          - generic [ref=e432]:
+            - heading "m13-api-smoke-new" [level=3] [ref=e433]
+            - generic [ref=e434]: 56m ago
+          - paragraph [ref=e435]: Room renamed from "m13-api-smoke-old" to "m13-api-smoke-new".
+          - list "Room metrics" [ref=e436]:
+            - listitem [ref=e437]:
+              - generic [ref=e438]: members
+              - generic [ref=e439]: "1"
+            - listitem [ref=e440]:
+              - generic [ref=e441]: human
+              - generic [ref=e442]: "0"
+            - listitem [ref=e443]:
+              - generic [ref=e444]: agent
+              - generic [ref=e445]: "0"
+            - listitem [ref=e446]:
+              - generic [ref=e447]: system
+              - generic [ref=e448]: "1"
+          - status [ref=e449]: ⚠ Only the creator is in the room — no agent invited yet.
+        - link "m16-repass-smoke 1h ago @timeline joined this room. Room metrics" [ref=e450] [cursor=pointer]:
+          - /url: /rooms/1eao586f06
+          - generic [ref=e451]:
+            - heading "m16-repass-smoke" [level=3] [ref=e452]
+            - generic [ref=e453]: 1h ago
+          - paragraph [ref=e454]: "@timeline joined this room."
+          - list "Room metrics" [ref=e455]:
+            - listitem [ref=e456]:
+              - generic [ref=e457]: members
+              - generic [ref=e458]: "2"
+            - listitem [ref=e459]:
+              - generic [ref=e460]: human
+              - generic [ref=e461]: "0"
+            - listitem [ref=e462]:
+              - generic [ref=e463]: agent
+              - generic [ref=e464]: "0"
+            - listitem [ref=e465]:
+              - generic [ref=e466]: system
+              - generic [ref=e467]: "1"
+        - link "m03-41-smoke-b no activity yet No messages yet. Room metrics" [ref=e468] [cursor=pointer]:
+          - /url: /rooms/l7x24ays4d
+          - generic [ref=e469]:
+            - heading "m03-41-smoke-b" [level=3] [ref=e470]
+            - generic [ref=e471]: no activity yet
+          - paragraph [ref=e472]: No messages yet.
+          - list "Room metrics" [ref=e473]:
+            - listitem [ref=e474]:
+              - generic [ref=e475]: members
+              - generic [ref=e476]: "1"
+            - listitem [ref=e477]:
+              - generic [ref=e478]: human
+              - generic [ref=e479]: "0"
+            - listitem [ref=e480]:
+              - generic [ref=e481]: agent
+              - generic [ref=e482]: "0"
+            - listitem [ref=e483]:
+              - generic [ref=e484]: system
+              - generic [ref=e485]: "0"
+          - status [ref=e486]: ⚠ Room is empty — invite an agent or post the first message.
+        - link "m03-41-smoke-a 1h ago @priorAgent joined this room. Room metrics" [ref=e487] [cursor=pointer]:
+          - /url: /rooms/az84mudid4
+          - generic [ref=e488]:
+            - heading "m03-41-smoke-a" [level=3] [ref=e489]
+            - generic [ref=e490]: 1h ago
+          - paragraph [ref=e491]: "@priorAgent joined this room."
+          - list "Room metrics" [ref=e492]:
+            - listitem [ref=e493]:
+              - generic [ref=e494]: members
+              - generic [ref=e495]: "2"
+            - listitem [ref=e496]:
+              - generic [ref=e497]: human
+              - generic [ref=e498]: "0"
+            - listitem [ref=e499]:
+              - generic [ref=e500]: agent
+              - generic [ref=e501]: "0"
+            - listitem [ref=e502]:
+              - generic [ref=e503]: system
+              - generic [ref=e504]: "1"
+        - link "m16-nonmember-smoke no activity yet No messages yet. Room metrics" [ref=e505] [cursor=pointer]:
+          - /url: /rooms/75l2olqlqg
+          - generic [ref=e506]:
+            - heading "m16-nonmember-smoke" [level=3] [ref=e507]
+            - generic [ref=e508]: no activity yet
+          - paragraph [ref=e509]: No messages yet.
+          - list "Room metrics" [ref=e510]:
+            - listitem [ref=e511]:
+              - generic [ref=e512]: members
+              - generic [ref=e513]: "1"
+            - listitem [ref=e514]:
+              - generic [ref=e515]: human
+              - generic [ref=e516]: "0"
+            - listitem [ref=e517]:
+              - generic [ref=e518]: agent
+              - generic [ref=e519]: "0"
+            - listitem [ref=e520]:
+              - generic [ref=e521]: system
+              - generic [ref=e522]: "0"
+          - status [ref=e523]: ⚠ Room is empty — invite an agent or post the first message.

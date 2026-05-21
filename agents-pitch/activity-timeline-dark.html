@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ANT Agents — Activity Timeline</title>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --font-sans: 'Geist', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+    --ink-900: #0C1021; --ink-800: #0E1322; --ink-700: #121828; --ink-600: #161C30;
+    --ink-500: #222940; --ink-400: #363E58; --ink-300: #565E7A; --ink-200: #8990A8;
+    --ink-100: #BFC6D6; --ink-50: #E3E7F0;
+    --emerald-500: #22C55E; --emerald-400: #34D06F; --blue-500: #3B82F6;
+    --amber-400: #F59E0B; --radius-card: 10px;
+    --agent-claude: #E07856; --agent-codex: #2EBD85; --agent-gemini: #5B8DEF;
+    --agent-ollama: #F2B65A; --agent-copilot: #9B6BF0; --agent-qwen: #EC493A;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:var(--font-sans); background:var(--ink-900); color:var(--ink-50); min-height:100vh; padding:2rem; }
+  .page-header { margin-bottom:2rem; }
+  .page-header h1 { font-size:1.85rem; font-weight:900; letter-spacing:-0.02em; margin-bottom:0.5rem; }
+  .page-header p { color:var(--ink-200); font-size:0.92rem; max-width:64ch; line-height:1.5; }
+  .legend { display:flex; gap:1.5rem; margin-bottom:1.5rem; font-family:var(--font-mono); font-size:10px; }
+  .legend-item { display:flex; align-items:center; gap:0.4rem; }
+  .legend-swatch { width:8px; height:8px; border-radius:1px; }
+  .timeline { background:var(--ink-800); border:1px solid rgba(255,255,255,0.06); border-radius:var(--radius-card); padding:1.25rem; }
+  .timeline-row { display:flex; align-items:center; gap:1rem; margin-bottom:0.75rem; }
+  .timeline-row:last-child { margin-bottom:0; }
+  .agent-label { min-width:90px; font-size:12px; font-weight:600; display:flex; align-items:center; gap:0.4rem; }
+  .agent-label .dot { width:7px; height:7px; border-radius:50%; }
+  .time-axis { flex:1; height:28px; position:relative; background:var(--ink-700); border-radius:4px; overflow:hidden; }
+  .event-bar { position:absolute; top:4px; bottom:4px; width:2px; border-radius:1px; opacity:0.85; }
+  .time-labels { display:flex; justify-content:space-between; margin-top:0.5rem; padding-left:106px; font-family:var(--font-mono); font-size:9px; color:var(--ink-400); }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>Activity Timeline</h1>
+  <p>Last 60 minutes of agent events. Dense clusters = active work, blank stretches = idle.</p>
+</div>
+
+<div class="legend">
+  <div class="legend-item"><span class="legend-swatch" style="background:var(--emerald-400)"></span>hook</div>
+  <div class="legend-item"><span class="legend-swatch" style="background:var(--ink-300)"></span>terminal</div>
+  <div class="legend-item"><span class="legend-swatch" style="background:var(--amber-400)"></span>status</div>
+  <div class="legend-item"><span class="legend-swatch" style="background:var(--blue-500)"></span>acp</div>
+</div>
+
+<div class="timeline">
+  <div class="timeline-row">
+    <div class="agent-label"><span class="dot" style="background:var(--agent-codex)"></span>@codex</div>
+    <div class="time-axis">
+      <div class="event-bar" style="left:5%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:8%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:12%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:15%; background:var(--ink-300);"></div>
+      <div class="event-bar" style="left:18%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:22%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:25%; background:var(--amber-400);"></div>
+      <div class="event-bar" style="left:35%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:38%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:42%; background:var(--ink-300);"></div>
+      <div class="event-bar" style="left:45%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:48%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:52%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:55%; background:var(--amber-400);"></div>
+      <div class="event-bar" style="left:65%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:68%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:72%; background:var(--ink-300);"></div>
+      <div class="event-bar" style="left:75%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:78%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:82%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:85%; background:var(--amber-400);"></div>
+      <div class="event-bar" style="left:88%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:92%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:95%; background:var(--ink-300);"></div>
+    </div>
+  </div>
+
+  <div class="timeline-row">
+    <div class="agent-label"><span class="dot" style="background:var(--agent-gemini)"></span>@gemini</div>
+    <div class="time-axis">
+      <div class="event-bar" style="left:10%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:14%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:20%; background:var(--ink-300);"></div>
+      <div class="event-bar" style="left:25%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:30%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:35%; background:var(--blue-500);"></div>
+      <div class="event-bar" style="left:40%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:45%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:50%; background:var(--ink-300);"></div>
+      <div class="event-bar" style="left:55%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:60%; background:var(--amber-400);"></div>
+      <div class="event-bar" style="left:65%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:70%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:75%; background:var(--ink-300);"></div>
+      <div class="event-bar" style="left:80%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:85%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:90%; background:var(--blue-500);"></div>
+      <div class="event-bar" style="left:95%; background:var(--emerald-400);"></div>
+    </div>
+  </div>
+
+  <div class="timeline-row">
+    <div class="agent-label"><span class="dot" style="background:var(--agent-qwen)"></span>@qwen</div>
+    <div class="time-axis">
+      <div class="event-bar" style="left:15%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:20%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:25%; background:var(--ink-300);"></div>
+      <div class="event-bar" style="left:30%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:60%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:65%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:70%; background:var(--ink-300);"></div>
+      <div class="event-bar" style="left:75%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:80%; background:var(--amber-400);"></div>
+      <div class="event-bar" style="left:85%; background:var(--emerald-400);"></div>
+    </div>
+  </div>
+
+  <div class="timeline-row">
+    <div class="agent-label"><span class="dot" style="background:var(--agent-claude)"></span>@claude</div>
+    <div class="time-axis">
+      <div class="event-bar" style="left:5%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:8%; background:var(--ink-300);"></div>
+      <div class="event-bar" style="left:12%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:50%; background:var(--amber-400);"></div>
+      <div class="event-bar" style="left:55%; background:var(--ink-300);"></div>
+      <div class="event-bar" style="left:60%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:65%; background:var(--emerald-400);"></div>
+    </div>
+  </div>
+
+  <div class="timeline-row">
+    <div class="agent-label"><span class="dot" style="background:var(--agent-ollama)"></span>@ollama</div>
+    <div class="time-axis">
+      <div class="event-bar" style="left:20%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:25%; background:var(--ink-300);"></div>
+      <div class="event-bar" style="left:70%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:75%; background:var(--amber-400);"></div>
+      <div class="event-bar" style="left:80%; background:var(--ink-300);"></div>
+    </div>
+  </div>
+
+  <div class="timeline-row">
+    <div class="agent-label"><span class="dot" style="background:var(--agent-copilot)"></span>@copilot</div>
+    <div class="time-axis">
+      <div class="event-bar" style="left:30%; background:var(--emerald-400);"></div>
+      <div class="event-bar" style="left:35%; background:var(--ink-300);"></div>
+    </div>
+  </div>
+
+  <div class="time-labels">
+    <span>-60m</span>
+    <span>-45m</span>
+    <span>-30m</span>
+    <span>-15m</span>
+    <span>now</span>
+  </div>
+</div>
+
+</body>
+</html>

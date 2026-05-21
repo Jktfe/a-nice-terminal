@@ -1,0 +1,129 @@
+- generic [ref=e2]:
+  - link "Skip to main content" [ref=e3] [cursor=pointer]:
+    - /url: "#main-content"
+  - main [ref=e4]:
+    - generic [ref=e5]:
+      - link "Back to cockpit" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - generic "ANT" [ref=e7]:
+          - generic [ref=e8]: ANT
+      - navigation "Primary" [ref=e9]:
+        - link "Cockpit" [ref=e10] [cursor=pointer]:
+          - /url: /
+        - link "Rooms" [ref=e11] [cursor=pointer]:
+          - /url: /rooms
+        - link "Terminal" [ref=e12] [cursor=pointer]:
+          - /url: /terminal
+        - link "Ledger" [ref=e13] [cursor=pointer]:
+          - /url: /ledger
+    - generic [ref=e14]:
+      - paragraph [ref=e15]: Routing
+      - heading "Where each task goes — and why." [level=1] [ref=e16]
+      - generic [ref=e17]: ANT routes work to the agent that fits the task. This page shows the default routings; overrides per task type land in the next slice.
+    - region "Set or clear a routing override" [ref=e18]:
+      - generic [ref=e19]: Override editor
+      - generic [ref=e20]:
+        - generic [ref=e21]: Task type
+        - combobox "Task type" [ref=e22]:
+          - option "long-context-reasoning" [selected]
+          - option "parallel-scaffolding"
+          - option "multimodal-review"
+          - option "code-generation"
+          - option "local-machine-work"
+          - option "long-running-loop"
+          - option "session-tracking"
+          - option "security-review"
+          - option "interaction-audit"
+      - generic [ref=e23]:
+        - generic [ref=e24]: Provider
+        - textbox "Provider" [ref=e25]
+      - generic [ref=e26]:
+        - generic [ref=e27]: Model name
+        - textbox "Model name" [ref=e28]
+      - generic [ref=e29]:
+        - generic [ref=e30]: Reason
+        - textbox "Reason" [ref=e31]
+      - generic [ref=e32]:
+        - button "Save override" [disabled] [ref=e33]
+        - button "Clear override" [disabled] [ref=e34]
+    - region "Default model routings" [ref=e35]:
+      - table [ref=e36]:
+        - rowgroup [ref=e37]:
+          - row "Task type Route Cost tier Reason" [ref=e38]:
+            - columnheader "Task type" [ref=e39]
+            - columnheader "Route" [ref=e40]
+            - columnheader "Cost tier" [ref=e41]
+            - columnheader "Reason" [ref=e42]
+        - rowgroup [ref=e43]:
+          - row "Long-context reasoning Anthropic Claude premium Strong judgement and synthesis on large prompts." [ref=e44]:
+            - rowheader "Long-context reasoning" [ref=e45]
+            - cell "Anthropic Claude" [ref=e46]:
+              - generic [ref=e47]: Anthropic
+              - text: Claude
+            - cell "premium" [ref=e48]:
+              - generic [ref=e49]: premium
+            - cell "Strong judgement and synthesis on large prompts." [ref=e50]
+          - row "Cheap parallel scaffolding OSS pool GLM-4.6 / Kimi-K2 cheap Lower token cost for many independent tasks at once." [ref=e51]:
+            - rowheader "Cheap parallel scaffolding" [ref=e52]
+            - cell "OSS pool GLM-4.6 / Kimi-K2" [ref=e53]:
+              - generic [ref=e54]: OSS pool
+              - text: GLM-4.6 / Kimi-K2
+            - cell "cheap" [ref=e55]:
+              - generic [ref=e56]: cheap
+            - cell "Lower token cost for many independent tasks at once." [ref=e57]
+          - row "Multimodal review Google Gemini balanced Strong mixed-media fit (image + text)." [ref=e58]:
+            - rowheader "Multimodal review" [ref=e59]
+            - cell "Google Gemini" [ref=e60]:
+              - generic [ref=e61]: Google
+              - text: Gemini
+            - cell "balanced" [ref=e62]:
+              - generic [ref=e63]: balanced
+            - cell "Strong mixed-media fit (image + text)." [ref=e64]
+          - row "Code generation OpenAI Codex balanced Strong implementation fit for generating code from intent." [ref=e65]:
+            - rowheader "Code generation" [ref=e66]
+            - cell "OpenAI Codex" [ref=e67]:
+              - generic [ref=e68]: OpenAI
+              - text: Codex
+            - cell "balanced" [ref=e69]:
+              - generic [ref=e70]: balanced
+            - cell "Strong implementation fit for generating code from intent." [ref=e71]
+          - row "Local machine work Pi wrapper Local agent local Runs where the credentials and files actually live." [ref=e72]:
+            - rowheader "Local machine work" [ref=e73]
+            - cell "Pi wrapper Local agent" [ref=e74]:
+              - generic [ref=e75]: Pi wrapper
+              - text: Local agent
+            - cell "local" [ref=e76]:
+              - generic [ref=e77]: local
+            - cell "Runs where the credentials and files actually live." [ref=e78]
+          - row "Long-running loop OSS pool GLM-4.6 with Claude on review cheap Do not burn premium tokens on polling work." [ref=e79]:
+            - rowheader "Long-running loop" [ref=e80]
+            - cell "OSS pool GLM-4.6 with Claude on review" [ref=e81]:
+              - generic [ref=e82]: OSS pool
+              - text: GLM-4.6 with Claude on review
+            - cell "cheap" [ref=e83]:
+              - generic [ref=e84]: cheap
+            - cell "Do not burn premium tokens on polling work." [ref=e85]
+          - row "Session tracking OSS pool GLM / Kimi / Haiku cheap Chairman watches rooms continuously; cheap model is correct fit." [ref=e86]:
+            - rowheader "Session tracking" [ref=e87]
+            - cell "OSS pool GLM / Kimi / Haiku" [ref=e88]:
+              - generic [ref=e89]: OSS pool
+              - text: GLM / Kimi / Haiku
+            - cell "cheap" [ref=e90]:
+              - generic [ref=e91]: cheap
+            - cell "Chairman watches rooms continuously; cheap model is correct fit." [ref=e92]
+          - row "Security review OpenAI Codex (or specialist) balanced Good fit for adversarial code and policy review." [ref=e93]:
+            - rowheader "Security review" [ref=e94]
+            - cell "OpenAI Codex (or specialist)" [ref=e95]:
+              - generic [ref=e96]: OpenAI
+              - text: Codex (or specialist)
+            - cell "balanced" [ref=e97]:
+              - generic [ref=e98]: balanced
+            - cell "Good fit for adversarial code and policy review." [ref=e99]
+          - row "Interaction audit OSS pool Kimi-K2 / GLM-4.6 cheap Broad permutation sweep at lower cost." [ref=e100]:
+            - rowheader "Interaction audit" [ref=e101]
+            - cell "OSS pool Kimi-K2 / GLM-4.6" [ref=e102]:
+              - generic [ref=e103]: OSS pool
+              - text: Kimi-K2 / GLM-4.6
+            - cell "cheap" [ref=e104]:
+              - generic [ref=e105]: cheap
+            - cell "Broad permutation sweep at lower cost." [ref=e106]

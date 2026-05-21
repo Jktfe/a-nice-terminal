@@ -1,0 +1,113 @@
+{
+  "capturedAt": "2026-05-19T21:47:45.540Z",
+  "targets": [
+    {
+      "slug": "rooms-index",
+      "url": "http://localhost:6174/rooms",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "slug": "vault",
+      "url": "http://localhost:6174/vault",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "slug": "plans-index",
+      "url": "http://localhost:6174/plans",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "slug": "plan-evidence",
+      "url": "http://localhost:6174/plans/evidence",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "slug": "memory-recall",
+      "url": "http://localhost:6174/memory",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "slug": "search",
+      "url": "http://localhost:6174/search",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "slug": "invite-redeem",
+      "url": "http://localhost:6174/r/invite-placeholder",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "slug": "terminals-index",
+      "url": "http://localhost:6174/terminals",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "slug": "dashboard",
+      "url": "http://localhost:6174/",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "slug": "settings",
+      "url": "http://localhost:6174/settings",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "slug": "discover",
+      "url": "http://localhost:6174/discover",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "slug": "policies",
+      "url": "http://localhost:6174/policies",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "slug": "antonline-dev",
+      "url": "http://localhost:6174/antonline-dev",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "slug": "room-view",
+      "url": "http://localhost:6174/rooms/zj4jlety9q",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "slug": "room-participants",
+      "url": "http://localhost:6174/rooms/zj4jlety9q#participants",
+      "status": 0,
+      "ok": true
+    },
+    {
+      "slug": "plan-detail",
+      "url": "http://localhost:6174/plans/v4-fresh-ant",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "slug": "terminal-detail",
+      "url": "http://localhost:6174/terminals",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "slug": "remote-bridge",
+      "url": "http://localhost:6174/policies",
+      "status": 200,
+      "ok": true
+    }
+  ]
+}

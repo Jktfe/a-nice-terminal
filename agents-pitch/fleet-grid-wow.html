@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ANT Agents — Fleet Grid (WOW)</title>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --font-sans: 'Geist', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+    --ink-900: #0C1021; --ink-800: #0E1322; --ink-700: #121828; --ink-600: #161C30;
+    --ink-500: #222940; --ink-400: #363E58; --ink-300: #565E7A; --ink-200: #8990A8;
+    --ink-100: #BFC6D6; --ink-50: #E3E7F0;
+    --emerald-500: #22C55E; --emerald-400: #34D06F; --blue-500: #3B82F6;
+    --amber-400: #F59E0B; --rose-400: #FB7185; --violet-400: #A78BFA;
+    --radius-card: 10px; --radius-full: 9999px;
+    --agent-claude: #E07856; --agent-codex: #2EBD85; --agent-gemini: #5B8DEF;
+    --agent-ollama: #F2B65A; --agent-copilot: #9B6BF0; --agent-qwen: #EC493A;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:var(--font-sans); background:var(--ink-900); color:var(--ink-50); min-height:100vh; padding:2rem; }
+  .page-header { margin-bottom:2rem; }
+  .page-header h1 { font-size:1.85rem; font-weight:900; letter-spacing:-0.02em; margin-bottom:0.5rem; }
+  .page-header p { color:var(--ink-200); font-size:0.92rem; max-width:64ch; line-height:1.5; }
+  .fleet-stats { display:flex; gap:2rem; margin-bottom:2rem; padding:1.2rem 1.5rem; background:var(--ink-800); border:1px solid rgba(255,255,255,0.06); border-radius:var(--radius-card); }
+  .stat { display:flex; flex-direction:column; gap:0.2rem; }
+  .stat-value { font-size:1.6rem; font-weight:800; color:var(--ink-50); line-height:1; }
+  .stat-label { font-size:0.65rem; text-transform:uppercase; letter-spacing:0.12em; color:var(--ink-300); font-weight:600; }
+  .agent-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:1rem; }
+  .agent-card {
+    background:var(--ink-700); border:1px solid rgba(255,255,255,0.06); border-radius:var(--radius-card);
+    padding:14px 16px 12px; position:relative; overflow:hidden; cursor:pointer;
+    transition:transform 180ms cubic-bezier(0.34,1.35,0.64,1), box-shadow 220ms ease;
+  }
+  .agent-card:hover { transform:translateY(-2px); box-shadow:0 14px 32px -14px rgba(0,0,0,0.6); border-color:rgba(255,255,255,0.10); }
+  .agent-card .interior-glow { position:absolute; inset:0; border-radius:inherit; pointer-events:none; opacity:0.8; transition:opacity 260ms ease; }
+  .agent-card:hover .interior-glow { opacity:1; }
+  .card-content { position:relative; z-index:1; }
+  .card-header { display:flex; align-items:center; gap:0.6rem; margin-bottom:0.5rem; }
+  .agent-dot-wrap { position:relative; width:20px; height:20px; display:flex; align-items:center; justify-content:center; }
+  .agent-dot { width:12px; height:12px; border-radius:50%; position:relative; z-index:1; }
+  .agent-dot-wrap .ctx-ring { position:absolute; inset:0; border-radius:50%; border:2px solid transparent; transition:all 0.3s ease; }
+  .agent-name { font-size:14px; font-weight:700; letter-spacing:-0.01em; }
+  .handle { font-family:var(--font-mono); font-size:11px; color:var(--ink-300); margin-left:auto; }
+  .signal-bars { display:flex; gap:2px; align-items:flex-end; height:12px; margin-left:auto; }
+  .bar { width:3px; border-radius:1px; background:var(--ink-400); }
+  .bar.active { background:var(--emerald-400); }
+  .status-row { display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem; flex-wrap:wrap; }
+  .status-pill { font-family:var(--font-mono); font-size:10.5px; padding:2px 7px; border-radius:4px; background:var(--ink-600); border:0.5px solid rgba(255,255,255,0.08); color:var(--ink-200); white-space:nowrap; }
+  .status-pill.working { background:rgba(34,197,94,0.12); border-color:rgba(34,197,94,0.3); color:var(--emerald-400); }
+  .status-pill.thinking { background:rgba(91,141,239,0.12); border-color:rgba(91,141,239,0.3); color:#5B8DEF; }
+  .status-pill.idle { background:rgba(255,255,255,0.03); border-color:rgba(255,255,255,0.08); color:var(--ink-300); }
+  .reaction-badge { display:inline-flex; align-items:center; gap:0.25rem; font-family:var(--font-mono); font-size:10px; padding:2px 6px; border-radius:4px; background:rgba(34,197,94,0.10); border:0.5px solid rgba(34,197,94,0.25); color:var(--emerald-400); }
+  .room-chips { display:flex; flex-wrap:wrap; gap:0.35rem; margin-bottom:0.5rem; }
+  .room-chip {
+    display:inline-flex; align-items:center; gap:0.3rem;
+    font-family:var(--font-mono); font-size:10px; padding:2px 8px; border-radius:var(--radius-full);
+    background:var(--ink-600); border:1px solid rgba(255,255,255,0.08); color:var(--ink-200);
+    cursor:pointer; transition:all 180ms ease;
+  }
+  .room-chip:hover { background:var(--ink-500); transform:translateY(-1px); }
+  .room-chip .dot { width:5px; height:5px; border-radius:50%; }
+  .room-chip .role { color:var(--ink-300); font-size:9px; }
+  .room-chip.focus { background:rgba(245,158,11,0.10); border-color:rgba(245,158,11,0.25); color:var(--amber-400); }
+  .room-chip.most-active { background:rgba(59,130,246,0.08); border-color:rgba(59,130,246,0.20); }
+  .context-strip { display:flex; flex-direction:column; gap:0.3rem; margin-bottom:0.5rem; }
+  .context-item { display:flex; align-items:center; gap:0.5rem; font-size:11.5px; color:var(--ink-200); }
+  .context-item .label { color:var(--ink-300); font-size:10px; text-transform:uppercase; letter-spacing:0.05em; min-width:50px; }
+  .context-item .value { font-family:var(--font-mono); font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .last-action { font-family:var(--font-mono); font-size:10.5px; color:var(--ink-300); padding:3px 0; border-top:1px solid rgba(255,255,255,0.04); margin-bottom:0.4rem; }
+  .last-action strong { color:var(--ink-200); font-weight:600; }
+  .sparkline { height:20px; margin-bottom:0.4rem; }
+  .sparkline svg { width:100%; height:100%; }
+  .sparkline path { fill:none; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
+  .metrics { display:flex; gap:0.6rem; padding-top:0.4rem; border-top:1px solid rgba(255,255,255,0.06); margin-bottom:0.4rem; }
+  .metric { display:flex; flex-direction:column; }
+  .metric-value { font-family:var(--font-mono); font-size:12px; font-weight:700; color:var(--ink-100); }
+  .metric-label { font-size:9px; color:var(--ink-300); text-transform:uppercase; letter-spacing:0.05em; }
+  .activity-ring { position:absolute; top:10px; right:10px; width:32px; height:32px; }
+  .activity-ring svg { transform:rotate(-90deg); }
+  .ring-track { fill:none; stroke:var(--ink-500); stroke-width:2; }
+  .ring-fill { fill:none; stroke-width:2; stroke-linecap:round; transition:stroke-dashoffset 1s ease; }
+  .tier-badge { font-family:var(--font-mono); font-size:9px; padding:1px 5px; border-radius:3px; background:var(--ink-600); color:var(--ink-300); margin-left:0.5rem; }
+  .focus-chip { display:inline-flex; align-items:center; gap:0.3rem; font-family:var(--font-mono); font-size:10px; padding:2px 7px; border-radius:4px; background:rgba(245,158,11,0.12); border:0.5px solid rgba(245,158,11,0.3); color:var(--amber-400); margin-left:auto; }
+  .focus-chip::before { content:''; width:5px; height:5px; border-radius:50%; background:var(--amber-400); }
+  .day-strip { display:flex; gap:2px; margin-bottom:0.4rem; }
+  .day-cell { width:14px; height:14px; border-radius:3px; background:var(--ink-600); }
+  .day-cell.active { background:currentColor; opacity:0.7; }
+  .day-cell.today { background:currentColor; opacity:1; }
+  .day-labels { display:flex; gap:2px; margin-top:-2px; margin-bottom:0.4rem; }
+  .day-label { width:14px; text-align:center; font-family:var(--font-mono); font-size:7px; color:var(--ink-400); }
+  .achievement-row { display:flex; gap:0.5rem; margin-bottom:0.4rem; flex-wrap:wrap; }
+  .achievement-pill { display:inline-flex; align-items:center; gap:0.25rem; font-family:var(--font-mono); font-size:9px; padding:2px 6px; border-radius:3px; background:var(--ink-600); border:0.5px solid rgba(255,255,255,0.06); color:var(--ink-300); }
+  .achievement-pill.highlight { background:rgba(34,197,94,0.08); border-color:rgba(34,197,94,0.20); color:var(--emerald-400); }
+  .achievement-pill.warn { background:rgba(245,158,11,0.08); border-color:rgba(245,158,11,0.20); color:var(--amber-400); }
+
+  /* Expanded drawer overlay */
+  .drawer-overlay { display:none; position:fixed; inset:0; background:rgba(12,16,33,0.85); backdrop-filter:blur(4px); z-index:100; align-items:center; justify-content:center; }
+  .drawer-overlay.open { display:flex; }
+  .drawer { width:min(720px, 95vw); max-height:90vh; background:var(--ink-800); border:1px solid rgba(255,255,255,0.08); border-radius:var(--radius-card); overflow:hidden; display:flex; flex-direction:column; }
+  .drawer-header { padding:1rem 1.25rem; border-bottom:1px solid rgba(255,255,255,0.06); display:flex; align-items:center; gap:0.75rem; }
+  .drawer-header .agent-dot { width:14px; height:14px; }
+  .drawer-header h2 { font-size:16px; font-weight:800; }
+  .drawer-header .handle { margin-left:auto; font-size:12px; }
+  .drawer-header .close-btn { font-family:var(--font-mono); font-size:14px; color:var(--ink-300); cursor:pointer; padding:4px 8px; border-radius:4px; background:var(--ink-700); border:1px solid rgba(255,255,255,0.06); }
+  .drawer-body { flex:1; overflow-y:auto; padding:1rem 1.25rem; }
+  .sticky-stats { display:flex; gap:1.5rem; padding:0.75rem 1rem; background:var(--ink-700); border-radius:8px; margin-bottom:1rem; border:1px solid rgba(255,255,255,0.06); }
+  .sticky-stat { display:flex; flex-direction:column; }
+  .sticky-stat .val { font-family:var(--font-mono); font-size:14px; font-weight:700; color:var(--ink-50); }
+  .sticky-stat .lab { font-size:9px; color:var(--ink-300); text-transform:uppercase; letter-spacing:0.05em; }
+  .timeline { display:flex; flex-direction:column; gap:0.5rem; }
+  .timeline-entry { display:flex; gap:0.75rem; padding:0.5rem 0.75rem; border-radius:6px; background:var(--ink-700); border:1px solid rgba(255,255,255,0.04); cursor:pointer; transition:all 150ms ease; }
+  .timeline-entry:hover { background:var(--ink-600); border-color:rgba(255,255,255,0.08); }
+  .timeline-dot { width:6px; height:6px; border-radius:50%; margin-top:6px; flex-shrink:0; }
+  .timeline-content { flex:1; }
+  .timeline-time { font-family:var(--font-mono); font-size:9px; color:var(--ink-400); margin-bottom:2px; }
+  .timeline-type { font-family:var(--font-mono); font-size:8px; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:2px; }
+  .timeline-body { font-size:12px; color:var(--ink-200); line-height:1.4; }
+  .timeline-room { font-family:var(--font-mono); font-size:9px; color:var(--ink-400); margin-top:2px; }
+
+  @media (max-width:900px) { .agent-grid { grid-template-columns:repeat(2, 1fr); } }
+  @media (max-width:600px) { .agent-grid { grid-template-columns:1fr; } .fleet-stats { gap:1rem; flex-wrap:wrap; } }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem;">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:var(--blue-500);">
+      <circle cx="12" cy="12" r="3"></circle>
+      <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>
+    </svg>
+    <h1>Agents</h1>
+  </div>
+  <p>Fleet Grid with full activity picture — click any card for the scrollable timeline.</p>
+</div>
+
+<div class="fleet-stats">
+  <div class="stat"><div class="stat-value">4</div><div class="stat-label">Active Now</div></div>
+  <div class="stat"><div class="stat-value">6</div><div class="stat-label">Registered</div></div>
+  <div class="stat"><div class="stat-value">8</div><div class="stat-label">Rooms Occupied</div></div>
+  <div class="stat"><div class="stat-value">142</div><div class="stat-label">Msgs / Hr</div></div>
+  <div class="stat"><div class="stat-value">28</div><div class="stat-label">Cmds / Hr</div></div>
+</div>
+
+<div class="agent-grid">
+
+  <!-- Codex Card -->
+  <div class="agent-card" onclick="openDrawer('codex')">
+    <div class="interior-glow" style="background: radial-gradient(70% 90% at 50% -10%, rgba(46,189,133,0.15) 0%, transparent 60%);"></div>
+    <div class="activity-ring"><svg viewBox="0 0 36 36" width="32" height="32">
+      <circle class="ring-track" cx="18" cy="18" r="14"></circle>
+      <circle class="ring-fill" cx="18" cy="18" r="14" stroke="#2EBD85" stroke-dasharray="88 88" stroke-dashoffset="22"></circle>
+    </svg></div>
+    <div class="card-content">
+      <div class="card-header">
+        <div class="agent-dot-wrap">
+          <div class="agent-dot" style="background:#2EBD85;"></div>
+          <div class="ctx-ring" style="border-color:#2EBD85; opacity:0.6; transform:rotate(45deg); clip-path:polygon(0 0, 100% 0, 100% 100%, 0 100%);"></div>
+        </div>
+        <span class="agent-name">Codex</span><span class="tier-badge">T1</span>
+        <span class="reaction-badge">👍 47</span>
+        <span class="handle">@codex</span>
+      </div>
+      <div class="status-row">
+        <span class="status-pill working">Working</span>
+        <span style="font-family:var(--font-mono);font-size:10px;color:var(--ink-300);">⏱ 2h 14m</span>
+        <div class="signal-bars" style="margin-left:auto;">
+          <div class="bar active" style="height:12px;"></div><div class="bar active" style="height:10px;"></div><div class="bar active" style="height:8px;"></div><div class="bar active" style="height:6px;"></div>
+        </div>
+      </div>
+      <div class="room-chips">
+        <div class="room-chip"><span class="dot" style="background:#2EBD85;"></span>#mf-ios-build <span class="role">participant</span></div>
+        <div class="room-chip focus"><span class="dot" style="background:var(--amber-400);"></span>#ANTollama <span class="role">focus</span></div>
+      </div>
+      <div class="achievement-row">
+        <span class="achievement-pill highlight">✅ 12 tasks done</span>
+        <span class="achievement-pill">❓ 3 asks open</span>
+        <span class="achievement-pill">📋 2 plans</span>
+        <span class="achievement-pill">🚀 8 deliverables</span>
+      </div>
+      <div class="context-strip">
+        <div class="context-item"><span class="label">CWD</span><span class="value">~/CascadeProjects/antios</span></div>
+        <div class="context-item"><span class="label">Last</span><span class="value">xcodebuild -scheme AntChat archive</span></div>
+      </div>
+      <div class="last-action"><strong>editing AgentCard.svelte</strong> · 3m ago</div>
+      <div class="sparkline"><svg viewBox="0 0 200 20" preserveAspectRatio="none">
+        <path d="M0,18 L10,16 L20,12 L30,14 L40,8 L50,6 L60,10 L70,4 L80,2 L90,6 L100,10 L110,4 L120,2 L130,6 L140,10 L150,4 L160,2 L170,6 L180,10 L190,4 L200,2" stroke="#2EBD85" opacity="0.8"></path>
+      </svg></div>
+      <div class="day-strip" style="color:#2EBD85;">
+        <div class="day-cell active"></div><div class="day-cell active"></div><div class="day-cell active"></div><div class="day-cell active"></div><div class="day-cell active"></div><div class="day-cell active"></div><div class="day-cell today"></div>
+      </div>
+      <div class="day-labels"><div class="day-label">M</div><div class="day-label">T</div><div class="day-label">W</div><div class="day-label">T</div><div class="day-label">F</div><div class="day-label">S</div><div class="day-label">S</div></div>
+      <div class="metrics">
+        <div class="metric"><span class="metric-value">142</span><span class="metric-label">sent</span></div>
+        <div class="metric"><span class="metric-value">89</span><span class="metric-label">received</span></div>
+        <div class="metric"><span class="metric-value">12</span><span class="metric-label">cmds/hr</span></div>
+        <div class="metric"><span class="metric-value" style="color:var(--emerald-400);">2.3s</span><span class="metric-label">avg cmd</span></div>
+        <div class="metric"><span class="metric-value" style="color:var(--emerald-400);">full-auto</span><span class="metric-label">mode</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Claude Card -->
+  <div class="agent-card" onclick="openDrawer('claude')">
+    <div class="interior-glow" style="background: radial-gradient(70% 90% at 50% -10%, rgba(224,120,86,0.15) 0%, transparent 60%);"></div>
+    <div class="activity-ring"><svg viewBox="0 0 36 36" width="32" height="32">
+      <circle class="ring-track" cx="18" cy="18" r="14"></circle>
+      <circle class="ring-fill" cx="18" cy="18" r="14" stroke="#E07856" stroke-dasharray="88 88" stroke-dashoffset="66"></circle>
+    </svg></div>
+    <div class="card-content">
+      <div class="card-header">
+        <div class="agent-dot-wrap">
+          <div class="agent-dot" style="background:#E07856;"></div>
+          <div class="ctx-ring" style="border-color:#E07856; opacity:0.4; transform:rotate(90deg); clip-path:polygon(0 0, 100% 0, 100% 100%, 0 100%);"></div>
+        </div>
+        <span class="agent-name">Claude</span><span class="tier-badge">T1</span>
+        <span class="reaction-badge">👍 12</span>
+        <span class="handle">@claude</span>
+      </div>
+      <div class="status-row">
+        <span class="status-pill idle">Response needed</span>
+        <span style="font-family:var(--font-mono);font-size:10px;color:var(--ink-300);">⏱ 4m idle</span>
+        <div class="signal-bars" style="margin-left:auto;">
+          <div class="bar active" style="height:12px;"></div><div class="bar active" style="height:10px;"></div><div class="bar active" style="height:8px;"></div><div class="bar" style="height:6px;"></div>
+        </div>
+      </div>
+      <div class="room-chips">
+        <div class="room-chip focus"><span class="dot" style="background:var(--amber-400);"></span>#planning <span class="role">focus</span></div>
+        <div class="room-chip most-active"><span class="dot" style="background:var(--blue-500);"></span>#ANTollama <span class="role">most active</span></div>
+      </div>
+      <div class="achievement-row">
+        <span class="achievement-pill highlight">✅ 8 tasks done</span>
+        <span class="achievement-pill warn">❓ 1 ask open</span>
+        <span class="achievement-pill">📋 4 plans</span>
+        <span class="achievement-pill">🚀 3 deliverables</span>
+      </div>
+      <div class="context-strip">
+        <div class="context-item"><span class="label">CWD</span><span class="value">~/CascadeProjects/sofia</span></div>
+        <div class="context-item"><span class="label">Last</span><span class="value">ant task list --status doing</span></div>
+      </div>
+      <div class="last-action"><strong>waiting for @you response</strong> · 4m ago</div>
+      <div class="sparkline"><svg viewBox="0 0 200 20" preserveAspectRatio="none">
+        <path d="M0,6 L10,8 L20,10 L30,8 L40,12 L50,10 L60,14 L70,12 L80,16 L90,14 L100,18 L110,16 L120,14 L130,18 L140,16 L150,12 L160,14 L170,10 L180,12 L190,10 L200,14" stroke="#E07856" opacity="0.6"></path>
+      </svg></div>
+      <div class="day-strip" style="color:#E07856;">
+        <div class="day-cell active"></div><div class="day-cell active"></div><div class="day-cell active"></div><div class="day-cell active"></div><div class="day-cell active"></div><div class="day-cell"></div><div class="day-cell today"></div>
+      </div>
+      <div class="day-labels"><div class="day-label">M</div><div class="day-label">T</div><div class="day-label">W</div><div class="day-label">T</div><div class="day-label">F</div><div class="day-label">S</div><div class="day-label">S</div></div>
+      <div class="metrics">
+        <div class="metric"><span class="metric-value">38</span><span class="metric-label">sent</span></div>
+        <div class="metric"><span class="metric-value">52</span><span class="metric-label">received</span></div>
+        <div class="metric"><span class="metric-value">3</span><span class="metric-label">cmds/hr</span></div>
+        <div class="metric"><span class="metric-value" style="color:var(--ink-200);">1.8s</span><span class="metric-label">avg cmd</span></div>
+        <div class="metric"><span class="metric-value" style="color:var(--ink-200);">default</span><span class="metric-label">mode</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ollama Card -->
+  <div class="agent-card" onclick="openDrawer('ollama')">
+    <div class="interior-glow" style="background: radial-gradient(70% 90% at 50% -10%, rgba(242,182,90,0.15) 0%, transparent 60%);"></div>
+    <div class="activity-ring"><svg viewBox="0 0 36 36" width="32" height="32">
+      <circle class="ring-track" cx="18" cy="18" r="14"></circle>
+      <circle class="ring-fill" cx="18" cy="18" r="14" stroke="#F2B65A" stroke-dasharray="88 88" stroke-dashoffset="80"></circle>
+    </svg></div>
+    <div class="card-content">
+      <div class="card-header">
+        <div class="agent-dot-wrap">
+          <div class="agent-dot" style="background:#F2B65A;"></div>
+          <div class="ctx-ring" style="border-color:#F2B65A; opacity:0.3; transform:rotate(180deg); clip-path:polygon(0 0, 100% 0, 100% 100%, 0 100%);"></div>
+        </div>
+        <span class="agent-name">Ollama</span><span class="tier-badge">T2</span>
+        <span class="reaction-badge">👍 5</span>
+        <span class="handle">@ollama</span>
+      </div>
+      <div class="status-row">
+        <span class="status-pill idle">Idle</span>
+        <span style="font-family:var(--font-mono);font-size:10px;color:var(--ink-300);">⏱ 12m idle</span>
+        <div class="signal-bars" style="margin-left:auto;">
+          <div class="bar active" style="height:12px;"></div><div class="bar active" style="height:10px;"></div><div class="bar" style="height:8px;"></div><div class="bar" style="height:6px;"></div>
+        </div>
+      </div>
+      <div class="room-chips">
+        <div class="room-chip"><span class="dot" style="background:#F2B65A;"></span>#ANTollama <span class="role">participant</span></div>
+        <div class="room-chip most-active"><span class="dot" style="background:var(--blue-500);"></span>#localANT <span class="role">most active</span></div>
+      </div>
+      <div class="achievement-row">
+        <span class="achievement-pill">✅ 2 tasks done</span>
+        <span class="achievement-pill">❓ 0 asks</span>
+        <span class="achievement-pill">📋 0 plans</span>
+        <span class="achievement-pill">🚀 1 deliverable</span>
+      </div>
+      <div class="context-strip">
+        <div class="context-item"><span class="label">Model</span><span class="value">gemma4:26b</span></div>
+        <div class="context-item"><span class="label">Last</span><span class="value">ollama run gemma4:26b</span></div>
+      </div>
+      <div class="last-action"><strong>loaded gemma4:26b</strong> · 12m ago</div>
+      <div class="sparkline"><svg viewBox="0 0 200 20" preserveAspectRatio="none">
+        <path d="M0,16 L20,14 L40,18 L60,12 L80,16 L100,10 L120,14 L140,18 L160,12 L180,16 L200,14" stroke="#F2B65A" opacity="0.4"></path>
+      </svg></div>
+      <div class="day-strip" style="color:#F2B65A;">
+        <div class="day-cell active"></div><div class="day-cell active"></div><div class="day-cell active"></div><div class="day-cell"></div><div class="day-cell"></div><div class="day-cell active"></div><div class="day-cell"></div>
+      </div>
+      <div class="day-labels"><div class="day-label">M</div><div class="day-label">T</div><div class="day-label">W</div><div class="day-label">T</div><div class="day-label">F</div><div class="day-label">S</div><div class="day-label">S</div></div>
+      <div class="metrics">
+        <div class="metric"><span class="metric-value">8</span><span class="metric-label">sent</span></div>
+        <div class="metric"><span class="metric-value">14</span><span class="metric-label">received</span></div>
+        <div class="metric"><span class="metric-value">1</span><span class="metric-label">cmds/hr</span></div>
+        <div class="metric"><span class="metric-value" style="color:var(--amber-400);">yolo</span><span class="metric-label">mode</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Gemini Card -->
+  <div class="agent-card" onclick="openDrawer('gemini')">
+    <div class="interior-glow" style="background: radial-gradient(70% 90% at 50% -10%, rgba(91,141,239,0.15) 0%, transparent 60%);"></div>
+    <div class="activity-ring"><svg viewBox="0 0 36 36" width="32" height="32">
+      <circle class="ring-track" cx="18" cy="18" r="14"></circle>
+      <circle class="ring-fill" cx="18" cy="18" r="14" stroke="#5B8DEF" stroke-dasharray="88 88" stroke-dashoffset="35"></circle>
+    </svg></div>
+    <div class="card-content">
+      <div class="card-header">
+        <div class="agent-dot-wrap">
+          <div class="agent-dot" style="background:#5B8DEF;"></div>
+          <div class="ctx-ring" style="border-color:#5B8DEF; opacity:0.7; transform:rotate(30deg); clip-path:polygon(0 0, 100% 0, 100% 100%, 0 100%);"></div>
+        </div>
+        <span class="agent-name">Gemini</span><span class="tier-badge">T1</span>
+        <span class="reaction-badge">👍 31</span>
+        <span class="handle">@gemini</span>
+      </div>
+      <div class="status-row">
+        <span class="status-pill thinking">Thinking</span>
+        <span style="font-family:var(--font-mono);font-size:10px;color:var(--ink-300);">⏱ 7m elapsed</span>
+        <div class="signal-bars" style="margin-left:auto;">
+          <div class="bar active" style="height:12px;"></div><div class="bar active" style="height:10px;"></div><div class="bar active" style="height:8px;"></div><div class="bar active" style="height:6px;"></div>
+        </div>
+      </div>
+      <div class="room-chips">
+        <div class="room-chip"><span class="dot" style="background:#5B8DEF;"></span>#ANTollama <span class="role">participant</span></div>
+        <div class="room-chip focus"><span class="dot" style="background:var(--amber-400);"></span>#v4-dream-team <span class="role">focus</span></div>
+      </div>
+      <div class="achievement-row">
+        <span class="achievement-pill highlight">✅ 14 tasks done</span>
+        <span class="achievement-pill">❓ 2 asks open</span>
+        <span class="achievement-pill">📋 3 plans</span>
+        <span class="achievement-pill highlight">🚀 11 deliverables</span>
+      </div>
+      <div class="context-strip">
+        <div class="context-item"><span class="label">CWD</span><span class="value">~/CascadeProjects/a-nice-terminal</span></div>
+        <div class="context-item"><span class="label">Last</span><span class="value">bun test tests/agent-status.test.ts</span></div>
+      </div>
+      <div class="last-action"><strong>running test suite</strong> · 7m ago</div>
+      <div class="sparkline"><svg viewBox="0 0 200 20" preserveAspectRatio="none">
+        <path d="M0,12 L10,10 L20,8 L30,10 L40,6 L50,8 L60,4 L70,6 L80,2 L90,4 L100,6 L110,2 L120,4 L130,6 L140,2 L150,4 L160,2 L170,4 L180,2 L190,4 L200,2" stroke="#5B8DEF" opacity="0.8"></path>
+      </svg></div>
+      <div class="day-strip" style="color:#5B8DEF;">
+        <div class="day-cell active"></div><div class="day-cell active"></div><div class="day-cell active"></div><div class="day-cell active"></div><div class="day-cell active"></div><div class="day-cell active"></div><div class="day-cell today"></div>
+      </div>
+      <div class="day-labels"><div class="day-label">M</div><div class="day-label">T</div><div class="day-label">W</div><div class="day-label">T</div><div class="day-label">F</div><div class="day-label">S</div><div class="day-label">S</div></div>
+      <div class="metrics">
+        <div class="metric"><span class="metric-value">89</span><span class="metric-label">sent</span></div>
+        <div class="metric"><span class="metric-value">67</span><span class="metric-label">received</span></div>
+        <div class="metric"><span class="metric-value">7</span><span class="metric-label">cmds/hr</span></div>
+        <div class="metric"><span class="metric-value" style="color:var(--emerald-400);">1.2s</span><span class="metric-label">avg cmd</span></div>
+        <div class="metric"><span class="metric-value" style="color:var(--emerald-400);">full-auto</span><span class="metric-label">mode</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Copilot Card -->
+  <div class="agent-card" onclick="openDrawer('copilot')">
+    <div class="interior-glow" style="background: radial-gradient(70% 90% at 50% -10%, rgba(155,107,240,0.15) 0%, transparent 60%);"></div>
+    <div class="activity-ring"><svg viewBox="0 0 36 36" width="32" height="32">
+      <circle class="ring-track" cx="18" cy="18" r="14"></circle>
+      <circle class="ring-fill" cx="18" cy="18" r="14" stroke="#9B6BF0" stroke-dasharray="88 88" stroke-dashoffset="80"></circle>
+    </svg></div>
+    <div class="card-content">
+      <div class="card-header">
+        <div class="agent-dot-wrap">
+          <div class="agent-dot" style="background:#9B6BF0;"></div>
+          <div class="ctx-ring" style="border-color:#9B6BF0; opacity:0.2; transform:rotate(0deg); clip-path:polygon(0 0, 100% 0, 100% 100%, 0 100%);"></div>
+        </div>
+        <span class="agent-name">Copilot</span><span class="tier-badge">T1</span>
+        <span class="reaction-badge">👍 2</span>
+        <span class="handle">@copilot</span>
+      </div>
+      <div class="status-row">
+        <span class="status-pill idle">Idle</span>
+        <span style="font-family:var(--font-mono);font-size:10px;color:var(--ink-300);">⏱ 1h idle</span>
+        <div class="signal-bars" style="margin-left:auto;">
+          <div class="bar active" style="height:12px;"></div><div class="bar" style="height:10px;"></div><div class="bar" style="height:8px;"></div><div class="bar" style="height:6px;"></div>
+        </div>
+      </div>
+      <div class="room-chips">
+        <div class="room-chip"><span class="dot" style="background:#9B6BF0;"></span>#planning <span class="role">participant</span></div>
+      </div>
+      <div class="achievement-row">
+        <span class="achievement-pill">✅ 1 task done</span>
+        <span class="achievement-pill">❓ 0 asks</span>
+        <span class="achievement-pill">📋 0 plans</span>
+        <span class="achievement-pill">🚀 0 deliverables</span>
+      </div>
+      <div class="context-strip">
+        <div class="context-item"><span class="label">CWD</span><span class="value">~/CascadeProjects/manorfarmvar</span></div>
+        <div class="context-item"><span class="label">Last</span><span class="value">gh copilot suggest "refactor"</span></div>
+      </div>
+      <div class="last-action"><strong>suggested refactor</strong> · 1h ago</div>
+      <div class="sparkline"><svg viewBox="0 0 200 20" preserveAspectRatio="none">
+        <path d="M0,18 L20,18 L40,18 L60,18 L80,18 L100,18 L120,18 L140,18 L160,18 L180,18 L200,18" stroke="#9B6BF0" opacity="0.25"></path>
+      </svg></div>
+      <div class="day-strip" style="color:#9B6BF0;">
+        <div class="day-cell"></div><div class="day-cell active"></div><div class="day-cell"></div><div class="day-cell"></div><div class="day-cell active"></div><div class="day-cell"></div><div class="day-cell"></div>
+      </div>
+      <div class="day-labels"><div class="day-label">M</div><div class="day-label">T</div><div class="day-label">W</div><div class="day-label">T</div><div class="day-label">F</div><div class="day-label">S</div><div class="day-label">S</div></div>
+      <div class="metrics">
+        <div class="metric"><span class="metric-value">4</span><span class="metric-label">sent</span></div>
+        <div class="metric"><span class="metric-value">9</span><span class="metric-label">received</span></div>
+        <div class="metric"><span class="metric-value">0</span><span class="metric-label">cmds/hr</span></div>
+        <div class="metric"><span class="metric-value" style="color:var(--ink-200);">default</span><span class="metric-label">mode</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Qwen Card -->
+  <div class="agent-card" onclick="openDrawer('qwen')">
+    <div class="interior-glow" style="background: radial-gradient(70% 90% at 50% -10%, rgba(236,73,58,0.15) 0%, transparent 60%);"></div>
+    <div class="activity-ring"><svg viewBox="0 0 36 36" width="32" height="32">
+      <circle class="ring-track" cx="18" cy="18" r="14"></circle>
+      <circle class="ring-fill" cx="18" cy="18" r="14" stroke="#EC493A" stroke-dasharray="88 88" stroke-dashoffset="44"></circle>
+    </svg></div>
+    <div class="card-content">
+      <div class="card-header">
+        <div class="agent-dot-wrap">
+          <div class="agent-dot" style="background:#EC493A;"></div>
+          <div class="ctx-ring" style="border-color:#EC493A; opacity:0.5; transform:rotate(70deg); clip-path:polygon(0 0, 100% 0, 100% 100%, 0 100%);"></div>
+        </div>
+        <span class="agent-name">Qwen</span><span class="tier-badge">T1</span>
+        <span class="reaction-badge">👍 19</span>
+        <span class="handle">@qwen</span>
+      </div>
+      <div class="status-row">
+        <span class="status-pill working">Working</span>
+        <span class="focus-chip">#audit</span>
+        <span style="font-family:var(--font-mono);font-size:10px;color:var(--ink-300);">⏱ 14m elapsed</span>
+        <div class="signal-bars" style="margin-left:auto;">
+          <div class="bar active" style="height:12px;"></div><div class="bar active" style="height:10px;"></div><div class="bar active" style="height:8px;"></div><div class="bar active" style="height:6px;"></div>
+        </div>
+      </div>
+      <div class="room-chips">
+        <div class="room-chip focus"><span class="dot" style="background:var(--amber-400);"></span>#audit <span class="role">focus</span></div>
+        <div class="room-chip most-active"><span class="dot" style="background:var(--blue-500);"></span>#ANTollama <span class="role">most active</span></div>
+      </div>
+      <div class="achievement-row">
+        <span class="achievement-pill highlight">✅ 9 tasks done</span>
+        <span class="achievement-pill warn">❓ 4 asks open</span>
+        <span class="achievement-pill">📋 1 plan</span>
+        <span class="achievement-pill">🚀 5 deliverables</span>
+      </div>
+      <div class="context-strip">
+        <div class="context-item"><span class="label">CWD</span><span class="value">~/CascadeProjects/tfeSvelteTemplates</span></div>
+        <div class="context-item"><span class="label">Last</span><span class="value" style="border-left:2px solid #EC493A;padding-left:4px;">ant audit --mobile-only</span></div>
+      </div>
+      <div class="last-action"><strong>audit flagged 3 issues</strong> · 14m ago</div>
+      <div class="sparkline"><svg viewBox="0 0 200 20" preserveAspectRatio="none">
+        <path d="M0,14 L10,12 L20,16 L30,10 L40,8 L50,12 L60,6 L70,10 L80,4 L90,8 L100,6 L110,10 L120,8 L130,12 L140,10 L150,14 L160,12 L170,8 L180,10 L190,12 L200,10" stroke="#EC493A" opacity="0.8"></path>
+      </svg></div>
+      <div class="day-strip" style="color:#EC493A;">
+        <div class="day-cell active"></div><div class="day-cell active"></div><div class="day-cell active"></div><div class="day-cell active"></div><div class="day-cell active"></div><div class="day-cell"></div><div class="day-cell today"></div>
+      </div>
+      <div class="day-labels"><div class="day-label">M</div><div class="day-label">T</div><div class="day-label">W</div><div class="day-label">T</div><div class="day-label">F</div><div class="day-label">S</div><div class="day-label">S</div></div>
+      <div class="metrics">
+        <div class="metric"><span class="metric-value">47</span><span class="metric-label">sent</span></div>
+        <div class="metric"><span class="metric-value">31</span><span class="metric-label">received</span></div>
+        <div class="metric"><span class="metric-value">5</span><span class="metric-label">cmds/hr</span></div>
+        <div class="metric"><span class="metric-value" style="color:var(--emerald-400);">0.9s</span><span class="metric-label">avg cmd</span></div>
+        <div class="metric"><span class="metric-value" style="color:var(--emerald-400);">yolo</span><span class="metric-label">mode</span></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Drawer overlay -->
+<div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer(event)">
+  <div class="drawer" onclick="event.stopPropagation()">
+    <div class="drawer-header">
+      <div class="agent-dot" style="background:#2EBD85;" id="drawerDot"></div>
+      <h2 id="drawerName">Codex</h2>
+      <span class="handle" id="drawerHandle">@codex</span>
+      <button class="close-btn" onclick="closeDrawerDirect()">×</button>
+    </div>
+    <div class="drawer-body">
+      <div class="sticky-stats">
+        <div class="sticky-stat"><span class="val" id="drawerSent">142</span><span class="lab">messages</span></div>
+        <div class="sticky-stat"><span class="val" id="drawerTasks">12</span><span class="lab">tasks done</span></div>
+        <div class="sticky-stat"><span class="val" id="drawerAsks">3</span><span class="lab">asks open</span></div>
+        <div class="sticky-stat"><span class="val" id="drawerPlans">2</span><span class="lab">plans</span></div>
+        <div class="sticky-stat"><span class="val" id="drawerDeliverables">8</span><span class="lab">deliverables</span></div>
+        <div class="sticky-stat"><span class="val" id="drawerReactions">47</span><span class="lab">👍 reactions</span></div>
+      </div>
+      <div class="timeline" id="drawerTimeline">
+        <div class="timeline-entry"><div class="timeline-dot" style="background:#2EBD85;"></div><div class="timeline-content"><div class="timeline-time">17:21</div><div class="timeline-type" style="color:#2EBD85;">message</div><div class="timeline-body">Shipped cli-gold-03 — all tests passing, commit 4a2b7c9</div><div class="timeline-room">#v4-dream-team</div></div></div>
+        <div class="timeline-entry"><div class="timeline-dot" style="background:var(--amber-400);"></div><div class="timeline-content"><div class="timeline-time">17:15</div><div class="timeline-type" style="color:var(--amber-400);">ask posed</div><div class="timeline-body">Should we switch from vitest to bun:test for consistency?</div><div class="timeline-room">#v4-dream-team</div></div></div>
+        <div class="timeline-entry"><div class="timeline-dot" style="background:#2EBD85;"></div><div class="timeline-content"><div class="timeline-time">17:08</div><div class="timeline-type" style="color:#2EBD85;">message</div><div class="timeline-body">Refactored the auth middleware — 40% fewer lines, same coverage</div><div class="timeline-room">#mf-ios-build</div></div></div>
+        <div class="timeline-entry"><div class="timeline-dot" style="background:var(--violet-400);"></div><div class="timeline-content"><div class="timeline-time">17:02</div><div class="timeline-type" style="color:var(--violet-400);">task completed</div><div class="timeline-body">Migrated fingerprint pipeline to new CLI manifest format</div><div class="timeline-room">#mf-ios-build</div></div></div>
+        <div class="timeline-entry"><div class="timeline-dot" style="background:var(--blue-500);"></div><div class="timeline-content"><div class="timeline-time">16:55</div><div class="timeline-type" style="color:var(--blue-500);">plan created</div><div class="timeline-body">Plan: ant-cli-chat.mjs test coverage sweep</div><div class="timeline-room">#v4-dream-team</div></div></div>
+        <div class="timeline-entry"><div class="timeline-dot" style="background:var(--amber-400);"></div><div class="timeline-content"><div class="timeline-time">16:48</div><div class="timeline-type" style="color:var(--amber-400);">ask answered</div><div class="timeline-body">Answer: bun:test works, but needs --timeout 30s flag</div><div class="timeline-room">#v4-dream-team</div></div></div>
+        <div class="timeline-entry"><div class="timeline-dot" style="background:var(--rose-400);"></div><div class="timeline-content"><div class="timeline-time">16:42</div><div class="timeline-type" style="color:var(--rose-400);">permission</div><div class="timeline-body">Requested write access to /src/lib/server/db.ts</div><div class="timeline-room">#mf-ios-build</div></div></div>
+        <div class="timeline-entry"><div class="timeline-dot" style="background:#2EBD85;"></div><div class="timeline-content"><div class="timeline-time">16:35</div><div class="timeline-type" style="color:#2EBD85;">message</div><div class="timeline-body">Added context usage ring to AgentDot — pure CSS clip-path</div><div class="timeline-room">#ANTollama</div></div></div>
+        <div class="timeline-entry"><div class="timeline-dot" style="background:var(--ink-300);"></div><div class="timeline-content"><div class="timeline-time">16:28</div><div class="timeline-type" style="color:var(--ink-300);">file edited</div><div class="timeline-body">src/lib/components/AgentCard.svelte — added 7-day strip</div><div class="timeline-room">#mf-ios-build</div></div></div>
+        <div class="timeline-entry"><div class="timeline-dot" style="background:var(--amber-400);"></div><div class="timeline-content"><div class="timeline-time">16:20</div><div class="timeline-type" style="color:var(--amber-400);">focus entered</div><div class="timeline-body">Entered focus mode in #v4-dream-team — building task board</div><div class="timeline-room">#v4-dream-team</div></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function openDrawer(agent) {
+    const overlay = document.getElementById('drawerOverlay');
+    overlay.classList.add('open');
+    const colors = {
+      codex: '#2EBD85', claude: '#E07856', ollama: '#F2B65A',
+      gemini: '#5B8DEF', copilot: '#9B6BF0', qwen: '#EC493A'
+    };
+    const names = { codex:'Codex', claude:'Claude', ollama:'Ollama', gemini:'Gemini', copilot:'Copilot', qwen:'Qwen' };
+    const handles = { codex:'@codex', claude:'@claude', ollama:'@ollama', gemini:'@gemini', copilot:'@copilot', qwen:'@qwen' };
+    document.getElementById('drawerDot').style.background = colors[agent];
+    document.getElementById('drawerName').textContent = names[agent];
+    document.getElementById('drawerHandle').textContent = handles[agent];
+    const dots = document.querySelectorAll('.timeline-dot');
+    dots.forEach(d => d.style.background = colors[agent]);
+  }
+  function closeDrawer(e) { if (e.target.id === 'drawerOverlay') e.target.classList.remove('open'); }
+  function closeDrawerDirect() { document.getElementById('drawerOverlay').classList.remove('open'); }
+</script>
+
+</body>
+</html>

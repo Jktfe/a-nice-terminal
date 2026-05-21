@@ -1,0 +1,69 @@
+- generic [ref=e2]:
+  - link "Skip to main content" [ref=e3] [cursor=pointer]:
+    - /url: "#main-content"
+  - main [ref=e71]:
+    - generic [ref=e72]:
+      - link "Back to dashboard" [ref=e73] [cursor=pointer]:
+        - /url: /
+        - generic ">_ANT" [ref=e74]:
+          - generic [ref=e75]: ">_ANT"
+      - navigation "Primary" [ref=e76]:
+        - link "Dashboard" [ref=e77] [cursor=pointer]:
+          - /url: /
+          - img [ref=e78]
+          - text: Dashboard
+        - link "Rooms" [ref=e83] [cursor=pointer]:
+          - /url: /rooms
+          - img [ref=e84]
+          - text: Rooms
+        - link "Terminals" [ref=e86] [cursor=pointer]:
+          - /url: /terminals
+          - img [ref=e87]
+          - text: Terminals
+        - link "Plans" [ref=e90] [cursor=pointer]:
+          - /url: /plan
+          - img [ref=e91]
+          - text: Plans
+        - link "CLI" [ref=e94] [cursor=pointer]:
+          - /url: /discover
+          - img [ref=e95]
+          - text: CLI
+        - link "Search" [ref=e97] [cursor=pointer]:
+          - /url: /search
+          - img [ref=e98]
+          - text: Search
+        - link "Settings" [ref=e101] [cursor=pointer]:
+          - /url: /settings
+          - img [ref=e102]
+          - text: Settings
+      - button "Toggle theme" [ref=e105] [cursor=pointer]:
+        - img [ref=e106]
+        - text: Dark
+    - generic [ref=e108]:
+      - paragraph [ref=e109]: Plan
+      - heading "Gantt." [level=1] [ref=e110]
+      - generic [ref=e111]: gate-s2-mp6ttly9 — 1/3 tasks complete (33%).
+    - link "← All plans" [ref=e112] [cursor=pointer]:
+      - /url: /plans
+    - generic [ref=e113]:
+      - generic [ref=e114]:
+        - text: Priority
+        - combobox "Priority" [ref=e115]:
+          - option "All" [selected]
+          - option "1"
+          - option "2"
+          - option "3"
+      - generic [ref=e116]:
+        - text: Agent
+        - combobox "Agent" [ref=e117]:
+          - option "All"
+          - option "@claude2"
+          - option "@codex" [selected]
+          - option "@researchant"
+      - generic [ref=e118]: 1 of 3 shown
+    - 'button "First task 1 Agent: @codex" [ref=e121] [cursor=pointer]':
+      - generic [ref=e122]:
+        - generic "First task" [ref=e123]
+        - generic [ref=e124]: "1"
+      - 'generic "Agent: @codex" [ref=e126]'
+  - generic [ref=e70]: gate-s2-mp6ttly9 · Plan | ANT vNext

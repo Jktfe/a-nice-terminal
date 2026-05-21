@@ -1,0 +1,43 @@
+- generic [ref=e2]:
+  - link "Skip to main content" [ref=e3] [cursor=pointer]:
+    - /url: "#main-content"
+  - main [ref=e4]:
+    - generic [ref=e5]:
+      - link "Back to cockpit" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - generic "ANT" [ref=e7]:
+          - generic [ref=e8]: ANT
+      - navigation "Primary" [ref=e9]:
+        - link "Cockpit" [ref=e10] [cursor=pointer]:
+          - /url: /
+        - link "Rooms" [ref=e11] [cursor=pointer]:
+          - /url: /rooms
+        - link "Terminal" [ref=e12] [cursor=pointer]:
+          - /url: /terminal
+        - link "Ledger" [ref=e13] [cursor=pointer]:
+          - /url: /ledger
+    - generic [ref=e14]:
+      - paragraph [ref=e15]: Memory
+      - heading "Recall across rooms and notes." [level=1] [ref=e16]
+      - generic [ref=e17]: Search messages, chairman notes, and (soon) more surfaces in one place.
+    - generic [ref=e18]:
+      - generic [ref=e19]: Recall query
+      - searchbox "Recall query" [ref=e20]: recall needle alpha
+      - button "Recall" [ref=e21] [cursor=pointer]
+    - paragraph [ref=e22]: Found 2 hits for "recall needle alpha".
+    - list "Recall results" [ref=e23]:
+      - listitem [ref=e24]:
+        - generic [ref=e25]:
+          - link "memory-recall-smoke" [ref=e26] [cursor=pointer]:
+            - /url: /rooms/72vgzi1l6b
+          - generic [ref=e27]: Chairman note
+          - generic [ref=e28]: 5/12/2026, 3:51:24 AM
+        - paragraph [ref=e29]: recall needle alpha chairman note
+      - listitem [ref=e30]:
+        - generic [ref=e31]:
+          - link "memory-recall-smoke" [ref=e32] [cursor=pointer]:
+            - /url: /rooms/72vgzi1l6b
+          - generic [ref=e33]: Message
+          - generic [ref=e34]: "@you"
+          - generic [ref=e35]: 5/12/2026, 3:51:23 AM
+        - paragraph [ref=e36]: recall needle alpha message

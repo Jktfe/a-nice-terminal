@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 520" role="img" aria-labelledby="title desc">
+  <title id="title">Tauri↔ANT-server bridge — state machine</title>
+  <desc id="desc">State machine for the Windows Tauri antchat client connection to the ANT v4 server. Six states: idle, authing, authed, online, server-down-degraded, reconnecting. Demonstrates the gold-standard hard rule (server-down keeps app responsive, never blocks usage).</desc>
+  <style><![CDATA[
+    .bg-card    { fill: var(--surface, #fff); stroke: var(--line-soft, #d6d6d6); stroke-width: 1.5; }
+    .bg-idle    { fill: var(--surface-2, #f1f1ef); stroke: var(--ink-soft, #64748b); stroke-width: 1.5; }
+    .bg-auth    { fill: var(--info-soft, #dbeafe); stroke: var(--info, #1d4ed8); stroke-width: 1.5; }
+    .bg-online  { fill: var(--ok-soft, #dcfce7); stroke: var(--ok, #15803d); stroke-width: 2; }
+    .bg-degraded{ fill: var(--warn-soft, #fef3c7); stroke: var(--warn, #b45309); stroke-width: 1.5; stroke-dasharray: 5 3; }
+    .bg-reconn  { fill: var(--accent-soft, #ede9fe); stroke: var(--accent, #6b21a8); stroke-width: 1.5; }
+    .ink        { fill: var(--ink-strong, #0f172a); }
+    .ink-soft   { fill: var(--ink-muted, #475569); }
+    .arrow      { stroke: var(--ink-strong, #0f172a); stroke-width: 1.5; fill: none; }
+    .arrow-rev  { stroke: var(--ink-muted, #64748b); stroke-width: 1.2; fill: none; stroke-dasharray: 4 3; }
+    .label      { font-family: system-ui, -apple-system, "SF Pro Text", "Segoe UI", sans-serif; }
+    .h1         { font: 700 26px/1.1 system-ui, sans-serif; }
+    .h2         { font: 700 13px/1.2 system-ui, sans-serif; }
+    .body       { font: 500 11px/1.3 system-ui, sans-serif; }
+    .edge       { font: 600 10px/1 system-ui, sans-serif; }
+    .pill       { fill: var(--surface, #fff); stroke: var(--line-soft, #d6d6d6); }
+    .pill-text  { font: 700 11px/1 system-ui, sans-serif; }
+
+    @media (prefers-color-scheme: dark) {
+      .bg-card    { fill: #1e293b; stroke: #475569; }
+      .bg-idle    { fill: #0f172a; stroke: #94a3b8; }
+      .bg-auth    { fill: #1e3a8a; stroke: #60a5fa; }
+      .bg-online  { fill: #064e3b; stroke: #34d399; }
+      .bg-degraded{ fill: #422006; stroke: #fbbf24; }
+      .bg-reconn  { fill: #2e1065; stroke: #c084fc; }
+      .ink        { fill: #e2e8f0; }
+      .ink-soft   { fill: #94a3b8; }
+      .arrow      { stroke: #e2e8f0; }
+      .arrow-rev  { stroke: #94a3b8; }
+      .pill       { fill: #1e293b; stroke: #475569; }
+    }
+  ]]></style>
+
+  <text x="540" y="40" class="label h1 ink" text-anchor="middle">Tauri ↔ ANT-server bridge</text>
+  <text x="540" y="62" class="label body ink-soft" text-anchor="middle">Windows antchat client connection states · server-down never blocks app (gold-standard hard rule)</text>
+
+  <!-- Idle (app launched, no auth yet) -->
+  <g transform="translate(40, 110)">
+    <rect class="bg-idle" x="0" y="0" width="160" height="80" rx="10"/>
+    <text class="label h2 ink" x="80" y="22" text-anchor="middle">IDLE</text>
+    <text class="label body ink-soft" x="80" y="44" text-anchor="middle">app launched</text>
+    <text class="label body ink-soft" x="80" y="60" text-anchor="middle">no token cached</text>
+  </g>
+
+  <!-- Authing -->
+  <g transform="translate(240, 110)">
+    <rect class="bg-auth" x="0" y="0" width="160" height="80" rx="10"/>
+    <text class="label h2 ink" x="80" y="22" text-anchor="middle">AUTHING</text>
+    <text class="label body ink-soft" x="80" y="44" text-anchor="middle">POST /api/auth/login</text>
+    <text class="label body ink-soft" x="80" y="60" text-anchor="middle">licence code → token</text>
+  </g>
+
+  <!-- Authed (token persisted, not yet connected) -->
+  <g transform="translate(440, 110)">
+    <rect class="bg-auth" x="0" y="0" width="160" height="80" rx="10"/>
+    <text class="label h2 ink" x="80" y="22" text-anchor="middle">AUTHED</text>
+    <text class="label body ink-soft" x="80" y="44" text-anchor="middle">token cached</text>
+    <text class="label body ink-soft" x="80" y="60" text-anchor="middle">via tauri-plugin-store</text>
+  </g>
+
+  <!-- Online (steady state) -->
+  <g transform="translate(640, 110)">
+    <rect class="bg-online" x="0" y="0" width="160" height="80" rx="10"/>
+    <text class="label h2 ink" x="80" y="22" text-anchor="middle">ONLINE</text>
+    <text class="label body ink-soft" x="80" y="44" text-anchor="middle">SSE subscribed</text>
+    <text class="label body ink-soft" x="80" y="60" text-anchor="middle">chat round-trip live</text>
+  </g>
+
+  <!-- Server-down-degraded -->
+  <g transform="translate(640, 280)">
+    <rect class="bg-degraded" x="0" y="0" width="200" height="110" rx="10"/>
+    <text class="label h2 ink" x="100" y="22" text-anchor="middle">SERVER-DOWN-DEGRADED</text>
+    <text class="label body ink-soft" x="100" y="46" text-anchor="middle">/api/health 5xx or refused</text>
+    <text class="label body ink-soft" x="100" y="62" text-anchor="middle">app stays responsive</text>
+    <text class="label body ink-soft" x="100" y="78" text-anchor="middle">cached messages render</text>
+    <text class="label body ink-soft" x="100" y="94" text-anchor="middle">composer disabled, queue draft</text>
+  </g>
+
+  <!-- Reconnecting -->
+  <g transform="translate(420, 280)">
+    <rect class="bg-reconn" x="0" y="0" width="180" height="110" rx="10"/>
+    <text class="label h2 ink" x="90" y="22" text-anchor="middle">RECONNECTING</text>
+    <text class="label body ink-soft" x="90" y="46" text-anchor="middle">exponential backoff</text>
+    <text class="label body ink-soft" x="90" y="62" text-anchor="middle">1s · 2s · 4s · 8s · 30s</text>
+    <text class="label body ink-soft" x="90" y="78" text-anchor="middle">existing token retried</text>
+    <text class="label body ink-soft" x="90" y="94" text-anchor="middle">no re-login needed</text>
+  </g>
+
+  <!-- Arrows: idle → authing → authed → online -->
+  <line class="arrow" x1="200" y1="150" x2="238" y2="150" marker-end="url(#a)"/>
+  <text class="label edge ink-soft" x="219" y="142" text-anchor="middle">user types code</text>
+
+  <line class="arrow" x1="400" y1="150" x2="438" y2="150" marker-end="url(#a)"/>
+  <text class="label edge ink-soft" x="419" y="142" text-anchor="middle">201 token</text>
+
+  <line class="arrow" x1="600" y1="150" x2="638" y2="150" marker-end="url(#a)"/>
+  <text class="label edge ink-soft" x="619" y="142" text-anchor="middle">connect SSE</text>
+
+  <!-- ONLINE ↔ SERVER-DOWN-DEGRADED -->
+  <path class="arrow" d="M 720 192 L 720 278" marker-end="url(#a)"/>
+  <text class="label edge ink-soft" x="755" y="240" text-anchor="middle">/health fails</text>
+
+  <!-- DEGRADED → RECONNECTING -->
+  <path class="arrow" d="M 640 340 L 602 340" marker-end="url(#a)"/>
+  <text class="label edge ink-soft" x="621" y="333" text-anchor="middle">backoff timer</text>
+
+  <!-- RECONNECTING → ONLINE on success -->
+  <path class="arrow" d="M 510 280 Q 510 220 718 192" marker-end="url(#a)"/>
+  <text class="label edge ink-soft" x="600" y="220" text-anchor="middle">/health 200</text>
+
+  <!-- RECONNECTING → DEGRADED on fail (loop) -->
+  <path class="arrow-rev" d="M 600 360 L 638 360" marker-end="url(#a)"/>
+  <text class="label edge ink-soft" x="619" y="378" text-anchor="middle">fail · retry</text>
+
+  <!-- AUTHED → ONLINE on initial connect — already above -->
+  <!-- AUTHED → DEGRADED if server down at connect time -->
+  <path class="arrow-rev" d="M 520 192 Q 520 240 640 290" marker-end="url(#a)"/>
+  <text class="label edge ink-soft" x="540" y="240" text-anchor="middle">SSE fail</text>
+
+  <!-- Hard-rule callout -->
+  <g transform="translate(40, 410)">
+    <rect class="bg-card" x="0" y="0" width="1000" height="70" rx="10"/>
+    <text class="label h2 ink" x="20" y="22">Hard rule (JWPK msg_gnv0oeuva2)</text>
+    <text class="label body ink-soft" x="20" y="42">SERVER-DOWN-DEGRADED is a first-class state, not an error screen. App stays open, draft queues locally,</text>
+    <text class="label body ink-soft" x="20" y="58">RECONNECTING fires in the background. User work continues. Verified by scripts/audit-server-down-fallback.sh.</text>
+  </g>
+
+  <g transform="translate(40, 500)">
+    <text class="label body ink-soft" x="0" y="0">windows-tauri-antchat-2026-05-19 plan · task wta-09 · pairs with auth-fallback + scoop-install visuals</text>
+    <rect class="pill" x="900" y="-15" width="120" height="22" rx="11"/>
+    <text class="label pill-text ink" x="960" y="0" text-anchor="middle">OSS · canvas-eligible</text>
+  </g>
+
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+</svg>

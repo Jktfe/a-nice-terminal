@@ -1,0 +1,56 @@
+name: Release Tauri Windows
+
+on:
+  push:
+    tags:
+      - 'antchat-tauri-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Tauri dependencies
+        run: rustup target add x86_64-pc-windows-msvc
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: src-tauri
+          args: --target x86_64-pc-windows-msvc
+          tagName: antchat-tauri-v__VERSION__
+          releaseName: 'ANT Desktop v__VERSION__ (Windows)'
+          releaseBody: 'Unsigned MSI installer. Scoop-verified via SHA256.'
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: false
+
+      - name: Find MSI artifact
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem -Path src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi | Select-Object -First 1
+          if (-not $msi) { throw "MSI not found" }
+          Write-Output "MSI_PATH=$msi" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Compute SHA256
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash -Path $env:MSI_PATH -Algorithm SHA256).Hash.ToLower()
+          Write-Output "MSI_HASH=$hash" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "$hash  $(Split-Path $env:MSI_PATH -Leaf)" | Out-File SHA256SUMS -Encoding utf8
+
+      - name: Upload SHA256SUMS
+        uses: actions/upload-artifact@v4
+        with:
+          name: sha256sums
+          path: SHA256SUMS

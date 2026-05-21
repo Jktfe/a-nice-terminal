@@ -1,0 +1,194 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 640" role="img" aria-labelledby="title desc">
+  <title id="title">ANT routing modes — brainstorm × heads-down × focus</title>
+  <desc id="desc">Three-column comparison of how a message reaches eligible members under brainstorm-mode parallel fanout, heads-down ordered responder walk, and per-agent focus-mode queue-to-digest.</desc>
+
+  <style><![CDATA[
+    .bg-card    { fill: var(--surface, #fff); stroke: var(--line-soft, #d6d6d6); stroke-width: 1.5; }
+    .bg-mode-b  { fill: var(--accent-soft, #fce7f3); stroke: var(--accent, #be185d); stroke-width: 1.5; }
+    .bg-mode-h  { fill: var(--info-soft, #dbeafe); stroke: var(--info, #1d4ed8); stroke-width: 1.5; }
+    .bg-mode-f  { fill: var(--warn-soft, #fef3c7); stroke: var(--warn, #b45309); stroke-width: 1.5; }
+    .bg-deliver { fill: var(--ok-soft, #dcfce7); stroke: var(--ok, #15803d); stroke-width: 1.5; }
+    .bg-queue   { fill: var(--surface, #f5f5f4); stroke: var(--line-soft, #c4c4c4); stroke-width: 1.5; stroke-dasharray: 3 2; }
+    .ink        { fill: var(--ink-strong, #0f172a); }
+    .ink-soft   { fill: var(--ink-muted, #475569); }
+    .col-head-b { fill: var(--accent, #be185d); }
+    .col-head-h { fill: var(--info, #1d4ed8); }
+    .col-head-f { fill: var(--warn, #b45309); }
+    .arrow      { stroke: var(--ink-strong, #0f172a); stroke-width: 1.5; fill: none; }
+    .arrow-soft { stroke: var(--ink-muted, #64748b); stroke-width: 1.2; fill: none; stroke-dasharray: 4 3; }
+    .label      { font-family: system-ui, -apple-system, "SF Pro Text", "Segoe UI", sans-serif; }
+    .h1         { font: 700 28px/1.1 system-ui, sans-serif; }
+    .h2         { font: 700 16px/1.2 system-ui, sans-serif; }
+    .body       { font: 500 12px/1.25 system-ui, sans-serif; }
+    .small      { font: 500 11px/1.2 system-ui, sans-serif; }
+    .emoji      { font-size: 16px; }
+    .pill       { fill: var(--surface, #fff); stroke: var(--line-soft, #d6d6d6); }
+    .pill-text  { font: 600 11px/1 system-ui, sans-serif; }
+
+    @media (prefers-color-scheme: dark) {
+      .bg-card    { fill: #1e293b; stroke: #475569; }
+      .bg-mode-b  { fill: #500724; stroke: #ec4899; }
+      .bg-mode-h  { fill: #1e3a8a; stroke: #60a5fa; }
+      .bg-mode-f  { fill: #422006; stroke: #fbbf24; }
+      .bg-deliver { fill: #064e3b; stroke: #34d399; }
+      .bg-queue   { fill: #1e293b; stroke: #475569; }
+      .ink        { fill: #e2e8f0; }
+      .ink-soft   { fill: #94a3b8; }
+      .col-head-b { fill: #f472b6; }
+      .col-head-h { fill: #60a5fa; }
+      .col-head-f { fill: #fbbf24; }
+      .arrow      { stroke: #e2e8f0; }
+      .arrow-soft { stroke: #94a3b8; }
+      .pill       { fill: #1e293b; stroke: #475569; }
+    }
+  ]]></style>
+
+  <!-- Title -->
+  <text x="540" y="42" class="label h1 ink" text-anchor="middle">Routing modes · 3-up</text>
+  <text x="540" y="66" class="label body ink-soft" text-anchor="middle">How a plain message decides who receives — by room mode + per-agent focus</text>
+
+  <!-- Column headers -->
+  <text x="180" y="108" class="label h2 col-head-b" text-anchor="middle">Brainstorm (room mode)</text>
+  <text x="540" y="108" class="label h2 col-head-h" text-anchor="middle">Heads-down (room mode)</text>
+  <text x="900" y="108" class="label h2 col-head-f" text-anchor="middle">Focus (per-agent)</text>
+
+  <text x="180" y="124" class="label small ink-soft" text-anchor="middle">parallel fanout</text>
+  <text x="540" y="124" class="label small ink-soft" text-anchor="middle">ordered responder walk</text>
+  <text x="900" y="124" class="label small ink-soft" text-anchor="middle">inbox gate · queue-to-digest</text>
+
+  <!-- COLUMN 1: BRAINSTORM -->
+  <g transform="translate(40, 145)">
+    <!-- Input -->
+    <rect class="bg-card" x="0" y="0" width="280" height="50" rx="8"/>
+    <text class="label body ink" x="140" y="22" text-anchor="middle">Plain message</text>
+    <text class="label small ink-soft" x="140" y="40" text-anchor="middle">'hey can someone help with X?'</text>
+
+    <line class="arrow" x1="140" y1="50" x2="140" y2="80" marker-end="url(#a)"/>
+
+    <!-- Mode decision -->
+    <rect class="bg-mode-b" x="0" y="90" width="280" height="50" rx="8"/>
+    <text class="label h2 ink" x="140" y="112" text-anchor="middle">Mode = brainstorm</text>
+    <text class="label small ink-soft" x="140" y="130" text-anchor="middle">every eligible member receives in parallel</text>
+
+    <line class="arrow" x1="60"  y1="140" x2="50"  y2="170" marker-end="url(#a)"/>
+    <line class="arrow" x1="140" y1="140" x2="140" y2="170" marker-end="url(#a)"/>
+    <line class="arrow" x1="220" y1="140" x2="230" y2="170" marker-end="url(#a)"/>
+
+    <!-- Fanout to 3 members in parallel -->
+    <rect class="bg-deliver" x="10"  y="180" width="80" height="50" rx="8"/>
+    <text class="label small ink"  x="50" y="200" text-anchor="middle">@svelte</text>
+    <text class="label small ink-soft" x="50" y="216" text-anchor="middle">pty-inject</text>
+
+    <rect class="bg-deliver" x="100" y="180" width="80" height="50" rx="8"/>
+    <text class="label small ink"  x="140" y="200" text-anchor="middle">@codex</text>
+    <text class="label small ink-soft" x="140" y="216" text-anchor="middle">pty-inject</text>
+
+    <rect class="bg-deliver" x="190" y="180" width="80" height="50" rx="8"/>
+    <text class="label small ink"  x="230" y="200" text-anchor="middle">@kimi</text>
+    <text class="label small ink-soft" x="230" y="216" text-anchor="middle">pty-inject</text>
+
+    <!-- Claim hook -->
+    <line class="arrow-soft" x1="140" y1="230" x2="140" y2="260" marker-end="url(#a)"/>
+    <rect class="bg-card" x="0" y="270" width="280" height="50" rx="8"/>
+    <text class="emoji" x="20" y="295">🖐️</text>
+    <text class="label small ink" x="50" y="295">claim primitive layers on top</text>
+    <text class="label small ink-soft" x="20" y="312">handshake absorbs → others stand down</text>
+
+    <!-- Exception note -->
+    <line class="arrow-soft" x1="140" y1="320" x2="140" y2="345" marker-end="url(#a)"/>
+    <rect class="bg-queue" x="0" y="355" width="280" height="40" rx="8"/>
+    <text class="label small ink" x="140" y="378" text-anchor="middle">⚡ bare-@X narrows to X only</text>
+  </g>
+
+  <!-- COLUMN 2: HEADS-DOWN -->
+  <g transform="translate(400, 145)">
+    <rect class="bg-card" x="0" y="0" width="280" height="50" rx="8"/>
+    <text class="label body ink" x="140" y="22" text-anchor="middle">Plain message</text>
+    <text class="label small ink-soft" x="140" y="40" text-anchor="middle">same as brainstorm input</text>
+
+    <line class="arrow" x1="140" y1="50" x2="140" y2="80" marker-end="url(#a)"/>
+
+    <rect class="bg-mode-h" x="0" y="90" width="280" height="50" rx="8"/>
+    <text class="label h2 ink" x="140" y="112" text-anchor="middle">Mode = heads-down</text>
+    <text class="label small ink-soft" x="140" y="130" text-anchor="middle">walk room order · skip busy · stop on accept</text>
+
+    <line class="arrow" x1="140" y1="140" x2="140" y2="170" marker-end="url(#a)"/>
+
+    <!-- Sequential walk -->
+    <rect class="bg-deliver" x="0" y="180" width="280" height="40" rx="8"/>
+    <text class="label small ink" x="20" y="204">1. Deliver to @svelte (first in room order)</text>
+
+    <line class="arrow" x1="140" y1="220" x2="140" y2="240" marker-end="url(#a)"/>
+    <rect class="bg-card" x="0" y="245" width="280" height="40" rx="8"/>
+    <text class="emoji" x="20" y="269">👐</text>
+    <text class="label small ink" x="50" y="269">svelte busy / passes → next agent</text>
+
+    <line class="arrow" x1="140" y1="285" x2="140" y2="305" marker-end="url(#a)"/>
+    <rect class="bg-deliver" x="0" y="310" width="280" height="40" rx="8"/>
+    <text class="label small ink" x="20" y="334">2. Deliver to @codex (next in order)</text>
+
+    <line class="arrow" x1="140" y1="350" x2="140" y2="370" marker-end="url(#a)"/>
+    <rect class="bg-mode-h" x="0" y="375" width="280" height="40" rx="8"/>
+    <text class="emoji" x="20" y="399">🤝</text>
+    <text class="label small ink" x="50" y="399">codex accepts → walk stops</text>
+
+    <!-- Failure path -->
+    <line class="arrow-soft" x1="140" y1="415" x2="140" y2="430" marker-end="url(#a)"/>
+    <rect class="bg-queue" x="0" y="440" width="280" height="40" rx="8"/>
+    <text class="label small ink-soft" x="140" y="464" text-anchor="middle">end-of-walk: 'nobody was available'</text>
+  </g>
+
+  <!-- COLUMN 3: FOCUS -->
+  <g transform="translate(760, 145)">
+    <rect class="bg-card" x="0" y="0" width="280" height="50" rx="8"/>
+    <text class="label body ink" x="140" y="22" text-anchor="middle">Bare @claude (focused)</text>
+    <text class="label small ink-soft" x="140" y="40" text-anchor="middle">'@claude what's the licence call?'</text>
+
+    <line class="arrow" x1="140" y1="50" x2="140" y2="80" marker-end="url(#a)"/>
+
+    <rect class="bg-mode-f" x="0" y="90" width="280" height="50" rx="8"/>
+    <text class="label h2 ink" x="140" y="112" text-anchor="middle">@claude.focus = on (30m)</text>
+    <text class="label small ink-soft" x="140" y="130" text-anchor="middle">per-agent gate · TTL countdown active</text>
+
+    <line class="arrow" x1="60"  y1="140" x2="50"  y2="170" marker-end="url(#a)"/>
+    <line class="arrow" x1="220" y1="140" x2="230" y2="170" marker-end="url(#a)"/>
+
+    <!-- Claude path: queued -->
+    <rect class="bg-queue" x="10" y="180" width="120" height="80" rx="8"/>
+    <text class="label small ink" x="70" y="200" text-anchor="middle">@claude</text>
+    <text class="label small ink-soft" x="70" y="220" text-anchor="middle">queued to</text>
+    <text class="label small ink-soft" x="70" y="234" text-anchor="middle">digest, not</text>
+    <text class="label small ink-soft" x="70" y="248" text-anchor="middle">live-injected</text>
+
+    <!-- Others path: see focused chip -->
+    <rect class="bg-card" x="150" y="180" width="120" height="80" rx="8"/>
+    <text class="label small ink" x="210" y="200" text-anchor="middle">@others</text>
+    <text class="label small ink-soft" x="210" y="220" text-anchor="middle">see chip</text>
+    <text class="label small ink-soft" x="210" y="234" text-anchor="middle">'focused</text>
+    <text class="label small ink-soft" x="210" y="248" text-anchor="middle">· 18m left'</text>
+
+    <!-- Digest delivery on expiry -->
+    <line class="arrow" x1="70" y1="260" x2="70" y2="290" marker-end="url(#a)"/>
+    <rect class="bg-deliver" x="0" y="300" width="280" height="50" rx="8"/>
+    <text class="label small ink" x="140" y="320" text-anchor="middle">on focus expiry / claude toggles off</text>
+    <text class="label small ink-soft" x="140" y="338" text-anchor="middle">digest delivers N queued msgs as one</text>
+
+    <!-- Override -->
+    <line class="arrow-soft" x1="140" y1="350" x2="140" y2="370" marker-end="url(#a)"/>
+    <rect class="bg-queue" x="0" y="380" width="280" height="40" rx="8"/>
+    <text class="label small ink-soft" x="140" y="404" text-anchor="middle">[@everyone hold] · admin --force = override</text>
+  </g>
+
+  <!-- Footer / legend -->
+  <g transform="translate(40, 580)">
+    <text class="label small ink-soft" x="0" y="0">Spec sources: fresh-ant-rules-manual-2026-05-13 (room mode contract) · ask_hj2ubjbum8dmpce8dc1 (claim primitive) · task 01cbaa23 (focus-mode v3-lift). Composes with claim-primitive-state-machine-2026-05-19.svg.</text>
+    <rect class="pill" x="900" y="-15" width="120" height="22" rx="11"/>
+    <text class="label pill-text ink" x="960" y="0" text-anchor="middle">OSS · canvas-eligible</text>
+  </g>
+
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+</svg>

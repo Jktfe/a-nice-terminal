@@ -1,0 +1,85 @@
+- generic [ref=e2]:
+  - link "Skip to main content" [ref=e3] [cursor=pointer]:
+    - /url: "#main-content"
+  - main [ref=e4]:
+    - generic [ref=e5]:
+      - link "Back to cockpit" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - generic "ANT" [ref=e7]:
+          - generic [ref=e8]: ANT
+      - navigation "Primary" [ref=e9]:
+        - link "Cockpit" [ref=e10] [cursor=pointer]:
+          - /url: /
+        - link "Rooms" [ref=e11] [cursor=pointer]:
+          - /url: /rooms
+        - link "Terminal" [ref=e12] [cursor=pointer]:
+          - /url: /terminal
+        - link "Ledger" [ref=e13] [cursor=pointer]:
+          - /url: /ledger
+    - generic [ref=e14]:
+      - paragraph [ref=e15]: Chat room
+      - heading "m11-b1-repass" [level=1] [ref=e16]
+      - generic [ref=e17]: Started by @you, just now.
+    - link "Back to all rooms" [ref=e18] [cursor=pointer]:
+      - /url: /rooms
+      - text: ← All rooms
+    - generic [ref=e20]:
+      - generic [ref=e21]: m11-b1-repass
+      - button "Rename room" [ref=e22] [cursor=pointer]: ✎
+    - region "Messages in this room" [ref=e23]:
+      - paragraph [ref=e24]: No messages yet. Say hello to get the room moving.
+    - region "Send a message" [ref=e25]:
+      - heading "Send a message" [level=2] [ref=e26]
+      - generic [ref=e27]:
+        - textbox "Say something to the room…" [ref=e28]
+        - generic [ref=e29]:
+          - generic [ref=e30]: Enter to send · /break for context break · @ to mention · Shift-Enter for newline
+          - button "Send" [disabled] [ref=e31]
+    - region "Shared files in this room" [ref=e72]:
+      - generic [ref=e73]:
+        - generic [ref=e74]: Shared files
+        - generic [ref=e75]: "1"
+      - list [ref=e76]:
+        - listitem [ref=e77]:
+          - link "m11-b1-repass-4f90.txt" [ref=e78] [cursor=pointer]:
+            - /url: /api/chat-rooms/ac2ibmva0r/attachments/file_9bboq8zrg6
+          - generic [ref=e79]: 27 B · @you · 12/05/2026, 03:25:31
+    - generic [ref=e32]:
+      - button [ref=e33]
+      - button "Share a file in this room" [ref=e34] [cursor=pointer]: Share a file
+    - region "Participants" [ref=e35]:
+      - generic [ref=e36]:
+        - heading "Participants" [level=2] [ref=e37]
+        - button "+ Invite" [ref=e38] [cursor=pointer]
+      - list [ref=e39]:
+        - listitem [ref=e40]:
+          - button "Open detail for @you" [ref=e41] [cursor=pointer]:
+            - generic [ref=e43]: "@you"
+            - generic [ref=e44]: idle
+    - region "Invite an agent" [ref=e46]:
+      - heading "Invite an agent" [level=2] [ref=e47]
+      - generic [ref=e48]:
+        - generic [ref=e49]: Type or pick a handle
+        - textbox "Type or pick a handle" [ref=e50]:
+          - /placeholder: "@evolveantclaude"
+        - generic [ref=e51]:
+          - button "@evolveantclaude Claude" [ref=e52] [cursor=pointer]:
+            - generic [ref=e53]: "@evolveantclaude"
+            - generic [ref=e54]: Claude
+          - button "@evolveantcodex Codex" [ref=e55] [cursor=pointer]:
+            - generic [ref=e56]: "@evolveantcodex"
+            - generic [ref=e57]: Codex
+          - button "@glm GLM-4.6" [ref=e58] [cursor=pointer]:
+            - generic [ref=e59]: "@glm"
+            - generic [ref=e60]: GLM-4.6
+          - button "@kimi Kimi-K2" [ref=e61] [cursor=pointer]:
+            - generic [ref=e62]: "@kimi"
+            - generic [ref=e63]: Kimi-K2
+          - button "@gemini Gemini" [ref=e64] [cursor=pointer]:
+            - generic [ref=e65]: "@gemini"
+            - generic [ref=e66]: Gemini
+          - button "@chairman Session tracker" [ref=e67] [cursor=pointer]:
+            - generic [ref=e68]: "@chairman"
+            - generic [ref=e69]: Session tracker
+        - button "Send invite" [disabled] [ref=e70]
+  - generic [ref=e71]: m11-b1-repass | ANT vNext
