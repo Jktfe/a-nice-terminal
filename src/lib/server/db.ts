@@ -1189,6 +1189,20 @@ const SCHEMA_DDL_STATEMENTS = [
   ,
   `ALTER TABLE owners ADD COLUMN external_account_id TEXT`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_owners_external_account_id ON owners (external_account_id) WHERE external_account_id IS NOT NULL`
+  ,
+  // transcriptToChatFanout (2026-05-21): dedupe table for transcript-derived
+  // chat-room posts. One row per (terminal_id, transcript_event_id) means
+  // re-ingesting the same JSONL line on restart will NOT double-post into
+  // the linked chat room. Survives restart unlike an in-memory Set.
+  `CREATE TABLE IF NOT EXISTS transcript_chat_idempotency (
+    terminal_id         TEXT NOT NULL,
+    transcript_event_id TEXT NOT NULL,
+    chat_message_id     TEXT NOT NULL,
+    room_id             TEXT NOT NULL,
+    posted_at_ms        INTEGER NOT NULL,
+    PRIMARY KEY (terminal_id, transcript_event_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_transcript_chat_idempotency_room ON transcript_chat_idempotency (room_id, posted_at_ms)`
 ];
 
 function resolveDbFilePath(): string {

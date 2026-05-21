@@ -25,6 +25,7 @@
 import { appendTerminalRunEvent } from './terminalRunEventsStore';
 import { broadcastTerminalEvent } from './terminalEventBroadcast';
 import { transcriptEventKey } from './transcriptEventId';
+import { fanoutMessageToLinkedChatRoom } from './transcriptToChatFanout';
 import { setAgentContextFill } from './terminalsStore';
 import type { ClassifiedKind } from './classifiers/types';
 import type { TerminalRunEventTrust } from './terminalRunEventsStore';
@@ -145,6 +146,7 @@ export function ingestCodexTranscriptLine(sessionId: string, rawLine: string): n
   let i = 0;
   for (const ev of events) {
     const tsMs = Date.now();
+    const evKey = transcriptEventKey(null, rawLine, i++);
     appendTerminalRunEvent({
       terminalId: sessionId,
       kind: ev.kind,
@@ -152,7 +154,7 @@ export function ingestCodexTranscriptLine(sessionId: string, rawLine: string): n
       trust: ev.trust,
       tsMs,
       source: 'transcript',
-      transcriptEventId: transcriptEventKey(null, rawLine, i++)
+      transcriptEventId: evKey
     });
     try {
       broadcastTerminalEvent(sessionId, {
@@ -160,6 +162,12 @@ export function ingestCodexTranscriptLine(sessionId: string, rawLine: string): n
         ts_ms: tsMs, source: 'transcript'
       });
     } catch { /* broadcast best-effort */ }
+    fanoutMessageToLinkedChatRoom({
+      terminalSessionId: sessionId,
+      transcriptEventId: evKey,
+      kind: ev.kind,
+      text: ev.text
+    });
   }
   return events.length;
 }

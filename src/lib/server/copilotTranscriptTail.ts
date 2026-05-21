@@ -15,6 +15,7 @@
 import { appendTerminalRunEvent } from './terminalRunEventsStore';
 import { broadcastTerminalEvent } from './terminalEventBroadcast';
 import { transcriptEventKey } from './transcriptEventId';
+import { fanoutMessageToLinkedChatRoom } from './transcriptToChatFanout';
 import { contextFillFromTokens, numberValue, type ContextFillReading } from './contextFillTelemetry';
 import { setAgentContextFill } from './terminalsStore';
 import type { ClassifiedKind } from './classifiers/types';
@@ -109,10 +110,11 @@ export function ingestCopilotTranscriptLine(sessionId: string, rawLine: string):
   let i = 0;
   for (const ev of events) {
     const tsMs = Date.now();
+    const evKey = transcriptEventKey(nativeId, rawLine, i++);
     appendTerminalRunEvent({
       terminalId: sessionId, kind: ev.kind, text: ev.text, trust: ev.trust,
       tsMs, source: 'transcript',
-      transcriptEventId: transcriptEventKey(nativeId, rawLine, i++)
+      transcriptEventId: evKey
     });
     try {
       broadcastTerminalEvent(sessionId, {
@@ -120,6 +122,12 @@ export function ingestCopilotTranscriptLine(sessionId: string, rawLine: string):
         ts_ms: tsMs, source: 'transcript'
       });
     } catch { /* best-effort */ }
+    fanoutMessageToLinkedChatRoom({
+      terminalSessionId: sessionId,
+      transcriptEventId: evKey,
+      kind: ev.kind,
+      text: ev.text
+    });
   }
   return events.length;
 }
