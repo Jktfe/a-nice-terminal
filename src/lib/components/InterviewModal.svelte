@@ -12,8 +12,15 @@
   //
   // Boundary: this is NOT a chatroom — no tasks, files, remote-hands,
   // pinning, asks, or share affordances. Just a focused dialog.
+  //
+  // 2026-05-21: split into InterviewModalHeader / *Participants / *Thread /
+  // *Composer sub-components to keep this file under the 600-line cap.
+  // All state + side effects stay here so behaviour is unchanged.
 
-  import NocturneIcon from './NocturneIcon.svelte';
+  import InterviewModalHeader from './InterviewModalHeader.svelte';
+  import InterviewModalParticipants from './InterviewModalParticipants.svelte';
+  import InterviewModalThread from './InterviewModalThread.svelte';
+  import InterviewModalComposer from './InterviewModalComposer.svelte';
   import { resolvePreferredProvider, type TTSProvider, type TTSHandle } from '$lib/voice/interview-tts';
 
   /** A message in the interview thread. Distinct from chat messages —
@@ -87,7 +94,6 @@
 
   let composer = $state('');
   let scrollEl: HTMLDivElement | null = $state(null);
-  let pickerOpen = $state(false);
   /** Used by the focus trap to bound Tab cycling. */
   let cardEl: HTMLElement | null = $state(null);
 
@@ -305,80 +311,18 @@
     ></button>
 
     <section class="iv-card" bind:this={cardEl}>
-      <header class="iv-head">
-        <div class="iv-head-title">
-          <span class="iv-head-eyebrow">Interview</span>
-          <h2>{targetLabel()}</h2>
-          <span class="iv-head-source" title={parentMessage.content}>
-            from "{(parentMessage.content ?? '').slice(0, 80)}{(parentMessage.content ?? '').length > 80 ? '…' : ''}"
-          </span>
-        </div>
-        {#if activeMsgId}
-          <!-- Narration controls — surface when an utterance is in
-               flight so the user can pause / resume / stop the read-aloud
-               without scrolling to the per-message replay button. -->
-          {#if activePaused}
-            <button
-              type="button"
-              class="iv-narration"
-              onclick={resumeNarration}
-              title="Resume narration"
-              aria-label="Resume narration"
-            >
-              <NocturneIcon name="play" size={11} color="currentColor" />
-              <span>resume</span>
-            </button>
-          {:else}
-            <button
-              type="button"
-              class="iv-narration"
-              onclick={pauseNarration}
-              title="Pause narration"
-              aria-label="Pause narration"
-            >
-              <span class="iv-pause-glyph" aria-hidden="true">⏸</span>
-              <span>pause</span>
-            </button>
-          {/if}
-          <button
-            type="button"
-            class="iv-narration"
-            onclick={stopNarration}
-            title="Stop narration"
-            aria-label="Stop narration"
-          >
-            <span class="iv-stop-glyph" aria-hidden="true">⏹</span>
-            <span>stop</span>
-          </button>
-        {/if}
-        <button
-          type="button"
-          class="iv-end"
-          onclick={() => onEndInterview?.()}
-          disabled={busy}
-          title="End interview, save transcript, post summary"
-        >{busy ? 'Ending…' : 'End interview'}</button>
-        <!-- Force-close defence (JWPK msg_pooxj42nl0 (f)): if the server-side
-             end-PATCH silently fails the operator must still be able to
-             dismiss the modal locally. Force-close calls onClose only —
-             interview stays open on the server (can be cleaned up via
-             coordinator force-release). The end-PATCH path is the right
-             one when it works; this is the always-works escape hatch. -->
-        <button
-          type="button"
-          class="iv-force-close"
-          onclick={() => onClose?.()}
-          title="Close this window. The interview stays open on the server until End interview succeeds."
-        >Force close</button>
-        <button
-          type="button"
-          class="iv-close"
-          onclick={() => onClose?.()}
-          aria-label="Close (interview stays open in the background)"
-        >
-          <NocturneIcon name="x" size={14} color="var(--text-muted)" />
-        </button>
-      </header>
+      <InterviewModalHeader
+        targetLabel={targetLabel()}
+        parentMessageContent={parentMessage.content}
+        {activeMsgId}
+        {activePaused}
+        {busy}
+        onPause={pauseNarration}
+        onResume={resumeNarration}
+        onStop={stopNarration}
+        onEndInterview={() => onEndInterview?.()}
+        onClose={() => onClose?.()}
+      />
 
       {#if lastErrorMessage}
         <!-- Visible error surface (JWPK msg_pooxj42nl0 (f)): the previous
@@ -392,125 +336,27 @@
         </div>
       {/if}
 
-      <div class="iv-participants" aria-label="Interview participants">
-        {#each participants as p (p.handle)}
-          <div class="iv-participant" class:iv-participant--muted={p.muted}>
-            <span class="iv-pdot" data-target={p.isTarget ? 'true' : 'false'}></span>
-            <span class="iv-phandle">{p.displayName ?? p.handle}</span>
-            {#if p.isTarget}
-              <span class="iv-ptag">target</span>
-            {/if}
-            <button
-              type="button"
-              class="iv-pmute"
-              onclick={() => onToggleMute?.(p.handle, !p.muted)}
-              title={p.muted ? `Unmute ${p.handle}` : `Mute ${p.handle}`}
-              aria-pressed={p.muted}
-            >
-              <NocturneIcon name={p.muted ? 'x' : 'mic'} size={11} color="currentColor" />
-              <span>{p.muted ? 'muted' : 'speaking'}</span>
-            </button>
-            {#if !p.isTarget}
-              <button
-                type="button"
-                class="iv-premove"
-                onclick={() => onRemoveParticipant?.(p.handle)}
-                title={`Remove ${p.handle} from this interview`}
-                aria-label={`Remove ${p.handle}`}
-              >
-                <NocturneIcon name="x" size={10} color="currentColor" />
-              </button>
-            {/if}
-          </div>
-        {/each}
-        {#if candidateAgents.length > 0}
-          <div class="iv-add-wrap">
-            <button
-              type="button"
-              class="iv-add-btn"
-              onclick={() => (pickerOpen = !pickerOpen)}
-              aria-expanded={pickerOpen}
-              title="Add an agent from this room"
-            >+ add agent</button>
-            {#if pickerOpen}
-              <div class="iv-picker" role="menu">
-                {#each candidateAgents as a (a.handle)}
-                  <button
-                    type="button"
-                    class="iv-picker-row"
-                    role="menuitem"
-                    onclick={() => {
-                      pickerOpen = false;
-                      void onAddParticipant?.(a.handle);
-                    }}
-                  >
-                    <span class="iv-pdot"></span>
-                    <span>{a.displayName ?? a.handle}</span>
-                  </button>
-                {/each}
-              </div>
-            {/if}
-          </div>
-        {/if}
-      </div>
+      <InterviewModalParticipants
+        {participants}
+        {candidateAgents}
+        {onAddParticipant}
+        {onRemoveParticipant}
+        {onToggleMute}
+      />
 
-      <div
-        class="iv-thread"
-        bind:this={scrollEl}
-        role="log"
-        aria-live="polite"
-        aria-label="Interview transcript"
-      >
-        {#if messages.length === 0}
-          <p class="iv-empty">
-            Send a message to start the interview. The
-            target agent (and any added agents) will reply here, and
-            their responses will be read aloud unless you mute them.
-          </p>
-        {/if}
-        {#each messages as m (m.id)}
-          <div class="iv-msg" data-role={m.role}>
-            <span class="iv-msg-meta">
-              <span>{m.role === 'user' ? 'You' : (m.agentHandle ?? 'agent')}</span>
-              {#if m.role === 'agent'}
-                <button
-                  type="button"
-                  class="iv-replay"
-                  onclick={() => replayMessage(m)}
-                  title={activeMsgId === m.id ? 'Currently playing' : 'Replay this message'}
-                  aria-label="Replay message audio"
-                >
-                  <NocturneIcon name={activeMsgId === m.id ? 'mic' : 'play'} size={10} color="currentColor" />
-                </button>
-              {/if}
-            </span>
-            <p class="iv-msg-body">{m.content}</p>
-          </div>
-        {/each}
-      </div>
+      <InterviewModalThread
+        {messages}
+        {activeMsgId}
+        bind:scrollEl
+        onReplay={replayMessage}
+      />
 
-      <form
-        class="iv-composer"
-        onsubmit={(e) => { e.preventDefault(); void submit(); }}
-      >
-        <textarea
-          bind:this={composerEl}
-          bind:value={composer}
-          placeholder="Type a question or use Whisper Flow / system dictation. Enter to send, Shift+Enter for newline."
-          rows="2"
-          aria-label="Interview message"
-          disabled={busy}
-        ></textarea>
-        <button
-          type="submit"
-          class="iv-send"
-          disabled={busy || composer.trim().length === 0}
-          aria-label="Send"
-        >
-          <NocturneIcon name="send" size={13} color="currentColor" />
-          <span>send</span>
-        </button>
-      </form>
+      <InterviewModalComposer
+        bind:composer
+        bind:composerEl
+        {busy}
+        onSubmit={submit}
+      />
     </section>
   </div>
 {/if}
@@ -548,105 +394,6 @@
     font: 14px/1.5 var(--font-sans, -apple-system, system-ui, sans-serif);
   }
 
-  .iv-head {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    padding: 14px 16px 10px;
-    border-bottom: 1px solid var(--hairline, rgba(0, 0, 0, 0.08));
-  }
-  .iv-head-title { flex: 1; min-width: 0; }
-  .iv-head-eyebrow {
-    display: block;
-    font-size: 10.5px;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--text-muted, #6b7280);
-  }
-  .iv-head-title h2 {
-    margin: 2px 0 0;
-    font-size: 16px;
-    font-weight: 600;
-    overflow-wrap: anywhere;
-  }
-  .iv-head-source {
-    display: block;
-    margin-top: 2px;
-    font-size: 11.5px;
-    color: var(--text-muted, #6b7280);
-    font-style: italic;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .iv-end {
-    border: 0.5px solid currentColor;
-    background: transparent;
-    color: var(--accent-amber, #c2860a);
-    font: inherit;
-    font-size: 12px;
-    padding: 5px 10px;
-    border-radius: 4px;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-  .iv-narration {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    border: 0.5px solid currentColor;
-    background: transparent;
-    color: var(--text-muted, #6b7280);
-    font: inherit;
-    font-size: 11.5px;
-    padding: 3px 8px;
-    border-radius: 4px;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-  .iv-narration:hover {
-    color: var(--text, #111);
-  }
-  .iv-pause-glyph,
-  .iv-stop-glyph {
-    font-size: 11px;
-    line-height: 1;
-  }
-  .iv-end:hover:not(:disabled) {
-    background: rgba(194, 134, 10, 0.08);
-  }
-  .iv-end:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-  }
-  .iv-close {
-    border: 0;
-    background: transparent;
-    cursor: pointer;
-    padding: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 4px;
-  }
-  .iv-close:hover { background: var(--hairline, rgba(0, 0, 0, 0.06)); }
-  .iv-force-close {
-    padding: 4px 10px;
-    border: 1px solid var(--hairline-strong, rgba(0, 0, 0, 0.18));
-    border-radius: 999px;
-    background: transparent;
-    color: var(--text-muted, #6b6759);
-    font-size: 11px;
-    font-weight: 700;
-    cursor: pointer;
-    margin-left: 6px;
-  }
-  .iv-force-close:hover {
-    border-color: var(--accent, #c63b3b);
-    color: var(--accent, #c63b3b);
-  }
   .iv-error {
     display: flex;
     gap: 8px;
@@ -676,212 +423,5 @@
     font-size: 13px;
     line-height: 1.45;
     color: var(--text, #1b1810);
-  }
-
-  .iv-participants {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--hairline, rgba(0, 0, 0, 0.08));
-  }
-  .iv-participant {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 3px 8px;
-    border-radius: 999px;
-    border: 0.5px solid var(--hairline-strong, rgba(0, 0, 0, 0.14));
-    background: var(--hairline, rgba(0, 0, 0, 0.04));
-    font-size: 12px;
-  }
-  .iv-participant--muted {
-    opacity: 0.55;
-  }
-  .iv-pdot {
-    width: 6px;
-    height: 6px;
-    border-radius: 999px;
-    background: var(--accent-blue, #3b82f6);
-  }
-  .iv-pdot[data-target='true'] {
-    background: var(--accent-emerald, #22c55e);
-  }
-  .iv-phandle { font-family: var(--font-mono, monospace); font-size: 11.5px; }
-  .iv-ptag {
-    font-size: 9.5px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--text-muted, #6b7280);
-  }
-  .iv-pmute {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    border: 0.5px solid currentColor;
-    background: transparent;
-    color: inherit;
-    padding: 0 6px;
-    border-radius: 3px;
-    font: inherit;
-    font-size: 10.5px;
-    cursor: pointer;
-    line-height: 18px;
-  }
-  .iv-pmute:hover { background: rgba(0, 0, 0, 0.04); }
-  .iv-premove {
-    border: 0;
-    background: transparent;
-    color: var(--text-muted, #6b7280);
-    cursor: pointer;
-    padding: 0 2px;
-    display: inline-flex;
-    align-items: center;
-  }
-  .iv-premove:hover { color: var(--text, #111); }
-  .iv-add-wrap {
-    position: relative;
-    display: inline-flex;
-  }
-  .iv-add-btn {
-    border: 0.5px dashed var(--hairline-strong, rgba(0, 0, 0, 0.18));
-    background: transparent;
-    color: var(--text-muted, #6b7280);
-    font: inherit;
-    font-size: 11.5px;
-    padding: 3px 10px;
-    border-radius: 999px;
-    cursor: pointer;
-  }
-  .iv-add-btn:hover { color: var(--text, #111); }
-  .iv-picker {
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    background: var(--surface, #fff);
-    border: 0.5px solid var(--hairline-strong, rgba(0, 0, 0, 0.16));
-    border-radius: 6px;
-    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
-    min-width: 180px;
-    z-index: 2;
-    padding: 4px;
-  }
-  .iv-picker-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    border: 0;
-    background: transparent;
-    cursor: pointer;
-    padding: 6px 10px;
-    border-radius: 4px;
-    font: inherit;
-    font-size: 12px;
-    text-align: left;
-  }
-  .iv-picker-row:hover { background: var(--hairline, rgba(0, 0, 0, 0.05)); }
-
-  .iv-thread {
-    flex: 1;
-    overflow-y: auto;
-    padding: 14px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    background: var(--bg-soft, rgba(0, 0, 0, 0.015));
-  }
-  .iv-empty {
-    color: var(--text-muted, #6b7280);
-    font-size: 12.5px;
-    margin: 8px 0;
-    line-height: 1.55;
-  }
-  .iv-msg {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    max-width: 92%;
-  }
-  .iv-msg[data-role='user'] {
-    align-self: flex-end;
-    align-items: flex-end;
-  }
-  .iv-msg-meta {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 10.5px;
-    color: var(--text-muted, #6b7280);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    font-family: var(--font-mono, monospace);
-  }
-  .iv-replay {
-    border: 0;
-    background: transparent;
-    cursor: pointer;
-    padding: 0;
-    color: var(--text-muted, #6b7280);
-    display: inline-flex;
-    align-items: center;
-  }
-  .iv-replay:hover { color: var(--text, #111); }
-  .iv-msg-body {
-    margin: 0;
-    padding: 8px 12px;
-    border-radius: 10px;
-    background: var(--surface, #fff);
-    border: 0.5px solid var(--hairline, rgba(0, 0, 0, 0.08));
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-  }
-  .iv-msg[data-role='user'] .iv-msg-body {
-    background: var(--accent-blue, #3b82f6);
-    color: #fff;
-    border-color: transparent;
-  }
-
-  .iv-composer {
-    display: flex;
-    gap: 8px;
-    padding: 10px 16px 14px;
-    border-top: 1px solid var(--hairline, rgba(0, 0, 0, 0.08));
-    background: var(--surface, #fff);
-  }
-  .iv-composer textarea {
-    flex: 1;
-    resize: vertical;
-    min-height: 44px;
-    max-height: 180px;
-    border: 0.5px solid var(--hairline-strong, rgba(0, 0, 0, 0.16));
-    background: var(--bg-soft, rgba(0, 0, 0, 0.02));
-    color: inherit;
-    border-radius: 6px;
-    padding: 8px 10px;
-    font: inherit;
-    font-size: 13px;
-  }
-  .iv-composer textarea:focus {
-    outline: 2px solid var(--accent-blue, #3b82f6);
-    outline-offset: -1px;
-  }
-  .iv-send {
-    align-self: flex-end;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    border: 0;
-    background: var(--accent-blue, #3b82f6);
-    color: #fff;
-    font: inherit;
-    font-size: 12.5px;
-    padding: 9px 14px;
-    border-radius: 6px;
-    cursor: pointer;
-  }
-  .iv-send:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
   }
 </style>
