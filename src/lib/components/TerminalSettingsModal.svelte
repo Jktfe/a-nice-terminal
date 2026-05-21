@@ -20,6 +20,8 @@
   endpoint isn't yet deployed (404) so the UI ships ahead of the server.
 -->
 <script lang="ts">
+  import TerminalSettingsOnlyRespond from './TerminalSettingsOnlyRespond.svelte';
+
   type PersistenceChoice = '1h' | '24h' | '7d' | 'forever';
   type WriteGrant = { handle: string; grantedAtMs: number };
   type KillDefault = 'prompt' | 'archive' | 'delete' | 'just-kill';
@@ -376,79 +378,19 @@
           </div>
         </section>
 
-        <!-- Section 3: Only-respond-to-@ -->
-        <section class="settings-section" aria-labelledby="onlyRespondHeading">
-          <h3 id="onlyRespondHeading">Only respond to specific handles</h3>
-          <p class="section-help">When set, this terminal only reacts to bare <code>@handle</code> mentions of the picked handles (no <code>@everyone</code>, no bracketed mentions, no plain text). Leave empty for default behaviour.</p>
-          <p class="section-help membership-tip">
-            <strong>Tip:</strong> the handle must be a registered room member for delivery to fire.
-            Register a local agent in its shell with
-            <code>ant register --handle @yourhandle --room &lt;roomId&gt;</code>,
-            or use <code>ant grantagent --pid &lt;PID&gt; --handle @yourhandle</code> from an operator shell.
-          </p>
-
-          {#if settings.onlyRespondTo.length > 0}
-            <ul class="grant-list">
-              {#each settings.onlyRespondTo as handle (handle)}
-                <li class="grant-row">
-                  <span class="grant-handle">{handle}</span>
-                  <button
-                    type="button"
-                    class="revoke-btn"
-                    onclick={() => void removeOnlyRespondHandle(handle)}
-                    disabled={saving}
-                    aria-label={`Remove ${handle} from only-respond list`}
-                  >Remove</button>
-                </li>
-              {/each}
-            </ul>
-          {/if}
-
-          {#if roomAgentHandles.length > 0}
-            <div class="respond-picker" role="group" aria-label="Room agents quick-pick">
-              {#each roomAgentHandles as handle (handle)}
-                {@const active = settings.onlyRespondTo.includes(handle)}
-                <button
-                  type="button"
-                  class="respond-chip"
-                  class:active
-                  onclick={() => void toggleOnlyRespondTo(handle)}
-                  disabled={saving}
-                  aria-pressed={active}
-                >{handle}</button>
-              {/each}
-            </div>
-          {/if}
-
-          <!-- Manual handle input — same pattern as the write-grant section.
-               Always visible so the operator can pin any handle (local agent
-               that isn't in the linked room's member list yet, etc). -->
-          <div class="grant-picker">
-            <input
-              type="text"
-              bind:value={manualOnlyRespondInput}
-              placeholder="@handle (only respond to this handle)"
-              disabled={saving}
-              aria-label="Type a handle to restrict the terminal to"
-              onkeydown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void addOnlyRespondManual(); } }}
-            />
-            <button
-              type="button"
-              class="grant-btn"
-              onclick={() => void addOnlyRespondManual()}
-              disabled={saving || manualOnlyRespondInput.trim().length === 0}
-            >Add</button>
-          </div>
-
-          {#if isOnlyRespondActive()}
-            <button
-              type="button"
-              class="clear-respond"
-              onclick={() => void clearOnlyRespondTo()}
-              disabled={saving}
-            >Clear — respond to everyone</button>
-          {/if}
-        </section>
+        <!-- Section 3: Only-respond-to-@ (extracted to keep parent under 600 lines) -->
+        <TerminalSettingsOnlyRespond
+          onlyRespondTo={settings.onlyRespondTo}
+          {roomAgentHandles}
+          {manualOnlyRespondInput}
+          {saving}
+          onManualInputChange={(next) => { manualOnlyRespondInput = next; }}
+          onAddManual={() => void addOnlyRespondManual()}
+          onToggleHandle={(handle) => void toggleOnlyRespondTo(handle)}
+          onRemoveHandle={(handle) => void removeOnlyRespondHandle(handle)}
+          onClear={() => void clearOnlyRespondTo()}
+          isActive={isOnlyRespondActive()}
+        />
       {/if}
 
       <footer class="settings-footer">
@@ -494,20 +436,6 @@
   .settings-section { display: flex; flex-direction: column; gap: 0.55rem; }
   .settings-section h3 { margin: 0; font-size: 0.95rem; color: var(--ink-strong); }
   .section-help { margin: 0; color: var(--ink-soft); font-size: 0.82rem; line-height: 1.4; }
-  .section-help.membership-tip {
-    padding: 0.45rem 0.6rem;
-    background: color-mix(in srgb, var(--info, #2563eb) 8%, var(--bg));
-    border-left: 3px solid var(--info, #2563eb);
-    border-radius: 0.4rem;
-    color: var(--ink-strong);
-  }
-  .section-help.membership-tip code {
-    font-family: ui-monospace, monospace;
-    font-size: 0.78rem;
-    background: var(--bg);
-    padding: 0.05rem 0.3rem;
-    border-radius: 0.25rem;
-  }
   .empty-state { margin: 0.2rem 0; color: var(--ink-soft); font-size: 0.82rem; font-style: italic; }
   .error { margin: 0; color: var(--warn, #c92020); font-size: 0.85rem; font-weight: 700; }
   .muted { margin: 0; color: var(--ink-soft); font-size: 0.85rem; }
@@ -585,34 +513,6 @@
     border-color: var(--accent);
   }
   .persistence-choice:disabled { opacity: 0.5; cursor: not-allowed; }
-
-  .respond-picker { display: flex; gap: 0.35rem; flex-wrap: wrap; }
-  .respond-chip {
-    padding: 0.3rem 0.7rem;
-    border: 1px solid var(--line-soft);
-    border-radius: 999px;
-    background: var(--bg);
-    color: var(--ink-soft);
-    font-family: ui-monospace, monospace; font-size: 0.78rem; font-weight: 600;
-    cursor: pointer;
-  }
-  .respond-chip.active {
-    color: white;
-    background: var(--accent);
-    border-color: var(--accent);
-  }
-  .respond-chip:disabled { opacity: 0.5; cursor: not-allowed; }
-  .clear-respond {
-    align-self: flex-start;
-    padding: 0.3rem 0.7rem;
-    border: 1px dashed var(--line-soft);
-    border-radius: 999px;
-    background: transparent;
-    color: var(--ink-soft);
-    font-size: 0.78rem; font-weight: 700;
-    cursor: pointer;
-  }
-  .clear-respond:hover { color: var(--ink-strong); border-color: var(--ink-strong); }
 
   .settings-footer { display: flex; justify-content: flex-end; padding-top: 0.7rem; border-top: 1px solid var(--line-soft); }
   .done-btn {
