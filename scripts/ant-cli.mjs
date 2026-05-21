@@ -44,7 +44,10 @@ import { handleTaskVerb } from './ant-cli-task.mjs';
 import { handleTerminalVerb } from './ant-cli-terminal.mjs';
 import { handleTunnelVerb } from './ant-cli-tunnel.mjs';
 import { handleVoiceVerb } from './ant-cli-voice.mjs';
-import { resolve } from 'node:path';
+import { fetchRoomJsonWithBrowserSessionFallback } from './ant-cli-browser-session.mjs';
+import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const DEFAULT_SERVER_URL = 'http://127.0.0.1:6174';
 const ENV_SERVER_URL = process.env.ANT_SERVER_URL?.trim();
@@ -55,7 +58,7 @@ const DISPATCH = {
   decks: handleDecksVerb, remote: handleRemoteVerb, 'remote-room': handleRemoteRoomVerb, discussion: handleDiscussionVerb, linkedchat: handleLinkedchatVerb, fingerprint: handleFingerprintVerb, mcp: handleMcpVerb, chair: handleChairVerb, interview: handleInterviewVerb, screenshot: handleScreenshotVerb, hooks: handleHooksVerb, new: handleNewVerb, list: handleListVerb, terminal: handleTerminalVerb, settings: handleSettingsVerb, flag: handleFlagVerb, task: handleTaskVerb, memory: handleMemoryVerb, sessions: handleSessionsVerb, voice: handleVoiceVerb, tunnel: handleTunnelVerb, pairing: handlePairingVerb, agents: handleAgentsVerb, share: handleShareVerb, identity: handleIdentityVerb, register: handleRegisterVerb, add: handleAddVerb, resolve: handleResolveVerb, router: handleRouterVerb
 };
 
-export function makeCliRunner({ fetchImpl, writeOut, writeErr, serverUrl, serverUrlSource: suppliedServerUrlSource } = {}) {
+export function makeCliRunner({ fetchImpl, writeOut, writeErr, serverUrl, serverUrlSource: suppliedServerUrlSource, config } = {}) {
   const output = writeOut ?? ((line) => console.log(line));
   const errorOutput = writeErr ?? ((line) => console.error(line));
   const configuredServerUrl = serverUrl ?? ENV_SERVER_URL ?? DEFAULT_SERVER_URL;
@@ -67,6 +70,7 @@ export function makeCliRunner({ fetchImpl, writeOut, writeErr, serverUrl, server
     writeErr: errorOutput,
     serverUrl: configuredServerUrl,
     serverUrlSource,
+    config: config ?? loadAntConfig(),
     fallbackWarned: false
   };
 
@@ -255,14 +259,27 @@ async function postBreak(roomId, reason, runtime) {
 
 async function listMessages(roomId, runtime) {
   if (!roomId) throw new CliInputError('rooms messages needs a roomId');
-  const response = await fetchFromServer(runtime, `/api/chat-rooms/${roomId}/messages`);
-  await throwIfNotOk(response);
-  const body = await response.json();
+  const body = await fetchRoomJsonWithBrowserSessionFallback(
+    runtime,
+    roomId,
+    `/api/chat-rooms/${roomId}/messages`
+  );
   for (const message of body.messages ?? []) {
     const tag = message.kind === 'system-break' ? '━━' : message.authorDisplayName;
     runtime.writeOut(`[${message.postedAt}] ${tag}: ${message.body}`);
   }
   return 0;
+}
+
+function loadAntConfig() {
+  const configPath = join(homedir(), '.ant', 'config.json');
+  try {
+    if (!existsSync(configPath)) return {};
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8'));
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
 }
 
 async function fetchFromServer(runtime, path, init) {

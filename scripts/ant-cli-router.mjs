@@ -9,6 +9,7 @@
 
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { fetchRoomJsonWithBrowserSessionFallback } from './ant-cli-browser-session.mjs';
 
 const BOOLEAN_FLAGS = new Set(['once']);
 const POLL_MS_DEFAULT = 2000;
@@ -92,7 +93,7 @@ async function runStart(flags, runtime, ctx) {
 
   let firstMessages;
   try {
-    firstMessages = await fetchMessages(roomId, runtime);
+    firstMessages = await fetchMessages(roomId, runtime, ownHandle);
   } catch (failure) {
     runtime.writeErr(`Router failed: ${failure instanceof Error ? failure.message : String(failure)}`);
     return 1;
@@ -108,7 +109,7 @@ async function runStart(flags, runtime, ctx) {
     await sleepImpl(pollMs);
     let pollMessages;
     try {
-      pollMessages = await fetchMessages(roomId, runtime);
+      pollMessages = await fetchMessages(roomId, runtime, ownHandle);
     } catch (failure) {
       runtime.writeErr(`Router failed: ${failure instanceof Error ? failure.message : String(failure)}`);
       return 1;
@@ -163,14 +164,9 @@ function resolveHandle(flags, CliInputError) {
   return trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
 }
 
-async function fetchMessages(roomId, runtime) {
-  const url = `${runtime.serverUrl}/api/chat-rooms/${encodeURIComponent(roomId)}/messages`;
-  const response = await runtime.fetchImpl(url);
-  if (!response.ok) {
-    const bodyText = await response.text().catch(() => '');
-    throw new Error(`GET ${url} returned ${response.status}: ${bodyText.slice(0, 200)}`);
-  }
-  const parsed = await response.json();
+async function fetchMessages(roomId, runtime, explicitHandle) {
+  const path = `/api/chat-rooms/${encodeURIComponent(roomId)}/messages`;
+  const parsed = await fetchRoomJsonWithBrowserSessionFallback(runtime, roomId, path, explicitHandle);
   return parsed.messages ?? [];
 }
 

@@ -19,6 +19,11 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { requireAdminAuth } from '$lib/server/chatInviteAuth';
 import { resolveCallerHandleAnyRoom } from '$lib/server/authGate';
+import { findChatRoomById } from '$lib/server/chatRoomStore';
+import {
+  canReadChatRoom,
+  resolveChatRoomReadAccess
+} from '$lib/server/chatRoomReadGate';
 import {
   attachPlanToRoom,
   listRoomsForPlan,
@@ -46,10 +51,19 @@ function requirePlanRoomLinkAuth(request: Request): PlanRoomLinkAuth {
   throw error(401, 'browser-session, antchat Bearer, or admin-bearer required');
 }
 
-export const GET: RequestHandler = async ({ params }) => {
+export const GET: RequestHandler = async ({ params, request }) => {
   const planId = params.planId ?? '';
   if (planId.length === 0) throw error(400, 'planId is required.');
-  return json({ rooms: listRoomsForPlan(planId) });
+  const access = await resolveChatRoomReadAccess(request);
+  if (!access) throw error(401, 'Authentication required.');
+  const rooms = listRoomsForPlan(planId);
+  if (access.isAdminBearer) return json({ rooms });
+  return json({
+    rooms: rooms.filter((link) => {
+      const room = findChatRoomById(link.roomId);
+      return room ? canReadChatRoom(room, access) : false;
+    })
+  });
 };
 
 export const POST: RequestHandler = async ({ params, request }) => {

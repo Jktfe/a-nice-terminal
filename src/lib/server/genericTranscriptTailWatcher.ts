@@ -65,8 +65,8 @@ export function tailOnceForTerminal(record: {
   const parser = getTranscriptTailParser(record.agent_kind);
   if (!parser) return 0;
 
-  const cached = tailStates.get(record.session_id) ?? null;
-  const jsonlPath = parser.findJsonlPath(record, cached);
+  const cached = tailStates.get(record.session_id);
+  const jsonlPath = parser.findJsonlPath(record, cached ?? null);
   if (!jsonlPath) return 0;
 
   const fromOffset = resolveTailStartOffset(cached, jsonlPath);

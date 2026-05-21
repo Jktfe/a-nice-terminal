@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { resetIdentityDbForTests } from '$lib/server/db';
-import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
+import {
+  createChatRoom,
+  removeMemberFromRoom,
+  resetChatRoomStoreForTests
+} from '$lib/server/chatRoomStore';
+import { issueToken, resetAntchatAuthTokensForTests } from '$lib/server/antchatAuthStore';
 import {
   _resetPlanRoomLinksForTests,
   attachPlanToRoom
@@ -15,6 +20,7 @@ beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = ':memory:';
   process.env.ANT_ADMIN_TOKEN = ADMIN_TOKEN;
   resetIdentityDbForTests();
+  resetAntchatAuthTokensForTests();
   resetChatRoomStoreForTests();
   _resetPlanRoomLinksForTests();
 });
@@ -22,6 +28,7 @@ beforeEach(() => {
 afterEach(() => {
   _resetPlanRoomLinksForTests();
   resetChatRoomStoreForTests();
+  resetAntchatAuthTokensForTests();
   resetIdentityDbForTests();
   if (PREV_DB_PATH === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = PREV_DB_PATH;
@@ -31,7 +38,17 @@ afterEach(() => {
 
 function getReq(planId: string): Parameters<typeof GET>[0] {
   return {
-    params: { planId }
+    params: { planId },
+    request: new Request('http://x/api/plans/' + encodeURIComponent(planId) + '/rooms')
+  } as Parameters<typeof GET>[0];
+}
+
+function getReqWithBearer(planId: string, token: string): Parameters<typeof GET>[0] {
+  return {
+    params: { planId },
+    request: new Request('http://x/api/plans/' + encodeURIComponent(planId) + '/rooms', {
+      headers: { authorization: `Bearer ${token}` }
+    })
   } as Parameters<typeof GET>[0];
 }
 
@@ -53,29 +70,30 @@ function postReq(
 }
 
 describe('GET /api/plans/:planId/rooms', () => {
-  it('lists rooms attached to the plan and rejects missing plan ids', async () => {
-    const alpha = createChatRoom({ name: 'alpha', whoCreatedIt: '@tester' });
-    const beta = createChatRoom({ name: 'beta', whoCreatedIt: '@tester' });
+  it('rejects unauthenticated plan-room reads', async () => {
+    await expect(GET(getReq('plan-a'))).rejects.toMatchObject({ status: 401 });
+  });
+
+  it('lists only readable rooms attached to the plan and rejects missing plan ids', async () => {
+    const alpha = createChatRoom({ name: 'alpha', whoCreatedIt: '@you' });
+    const beta = createChatRoom({ name: 'beta', whoCreatedIt: '@mark' });
+    removeMemberFromRoom({ roomId: beta.id, globalHandle: '@you' });
     attachPlanToRoom({ planId: 'plan-a', roomId: alpha.id, attachedBy: '@codex' });
     attachPlanToRoom({ planId: 'plan-a', roomId: beta.id });
     attachPlanToRoom({ planId: 'other-plan', roomId: alpha.id });
 
-    const res = await GET(getReq('plan-a'));
+    const { token } = issueToken('you@example.com');
+    const res = await GET(getReqWithBearer('plan-a', token));
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    expect(body.rooms.map((room: { roomId: string }) => room.roomId)).toEqual([alpha.id, beta.id]);
+    expect(body.rooms.map((room: { roomId: string }) => room.roomId)).toEqual([alpha.id]);
     expect(body.rooms[0]).toMatchObject({
       roomId: alpha.id,
       name: 'alpha',
       attachedBy: '@codex'
     });
-    expect(body.rooms[1]).toMatchObject({
-      roomId: beta.id,
-      name: 'beta',
-      attachedBy: null
-    });
-    await expect(GET(getReq(''))).rejects.toMatchObject({ status: 400 });
+    await expect(GET(getReqWithBearer('', token))).rejects.toMatchObject({ status: 400 });
   });
 });
 

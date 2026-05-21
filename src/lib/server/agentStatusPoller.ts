@@ -34,6 +34,7 @@ export type { CaptureFn };
 const POLL_MIN_MS = 5_000;
 const POLL_MAX_MS = 60_000;
 const POLL_DEFAULT_MS = 10_000;
+const POLL_MAX_TERMINALS_DEFAULT = 5;
 
 export type PollerController = {
   stop: () => void;
@@ -79,6 +80,12 @@ function isPollableTerminal(terminal: TerminalRow): boolean {
   if (terminal.agent_kind === null || terminal.agent_kind === undefined || terminal.agent_kind === 'remote') return false;
   if (terminal.tmux_target_pane === null || terminal.tmux_target_pane === undefined || terminal.tmux_target_pane.length === 0) return false;
   return true;
+}
+
+function maxTerminalsPerTick(): number {
+  const raw = Number(process.env.ANT_AGENT_STATUS_MAX_TERMINALS_PER_TICK);
+  if (!Number.isFinite(raw) || raw <= 0) return POLL_MAX_TERMINALS_DEFAULT;
+  return Math.max(1, Math.min(50, Math.floor(raw)));
 }
 
 // defaultTmuxCaptureFn now lives in ./tmuxCapture (M3.2c B1 cycle break).
@@ -132,14 +139,15 @@ export function startPoller(input: StartPollerInput = {}): PollerController {
   let timer: ReturnType<typeof setInterval> | null = null;
 
   const runOnce = async (): Promise<void> => {
+    const maxTerminals = maxTerminalsPerTick();
     // M3.2c: classify NULL-kind terminals first so they become pollable in the
     // same tick. B3 lock — per-terminal try/catch so one classify-throw does
     // not block siblings (mirrors the per-terminal isolation on pollOneTerminal).
-    for (const terminal of listAllTerminals()) {
+    for (const terminal of listAllTerminals().slice(0, maxTerminals)) {
       if (terminal.agent_kind !== null && terminal.agent_kind !== undefined) continue;
       try { classifyIfUnknown(terminal, captureFn); } catch { /* isolated per-terminal */ }
     }
-    const terminals = listAllTerminals().filter(isPollableTerminal);
+    const terminals = listAllTerminals().filter(isPollableTerminal).slice(0, maxTerminals);
     for (const terminal of terminals) {
       try { await pollOneTerminal(terminal, captureFn); } catch { /* per-terminal failure does not block other terminals */ }
     }

@@ -77,6 +77,9 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Accounts bearer home-server cache | Mac app 0.1.8 auth path, 2026-05-21 | CHANGE | Codex | Added shared accounts bearer introspection and local cache so Mac bearer reads/writes/license refresh do not re-hit accounts after the first successful resolve. |
 | Plan attach-room CLI | RoomPlansPanel CLI gap, 2026-05-21 | CHANGE | Codex | Added the missing `ant plan attach-room <plan_id> <room_id>` command path so documented plan-room attachment has a working CLI surface. |
 | Heads-down claim UX | Room-mode design contract, 2026-05-21 | CHANGE | Codex | Threaded persisted room mode into the room view and changed claim controls to use roster member kind instead of a hard-coded agent handle prefix. |
+| Realtime and plan-room read gates | P0 home-server leak, 2026-05-21 | CHANGE | Codex | SSE room events and plan-room links now use the same resolved read gate as room messages; anonymous callers fail closed and authorized callers only see readable rooms. |
+| CLI agent read auth | P0 home-server auth regression, 2026-05-21 | CHANGE | Codex | Room-scoped CLI GETs now mint the same browser-session cookie used by writes when a read gate returns 401, preserving agent tail/router/message reads after fail-closed route auth. |
+| Agent status poller budget | Home-server responsiveness, 2026-05-21 | CHANGE | Codex | Bounded synchronous tmux/fingerprint subprocess work per tick and shortened subprocess timeouts so background status refresh cannot monopolize the Node event loop. |
 
 ## Audit Backlog
 
