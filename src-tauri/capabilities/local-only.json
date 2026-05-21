@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "local-only",
+  "description": "M6.5 Q4 B2 origin gating: PTY + sensitive invoke commands restricted to local origins only. Remote-ANT webview content is explicitly DENIED. Current JS-facing surface: configcmd::save_desktop_config (T2d-2a wizard JSON write). PTY remains Rust-internal. Capability config gates any future JS-facing commands.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default"
+  ]
+}

@@ -1,0 +1,486 @@
+{
+  "_meta": {
+    "name": "ant-fresh-flowspec-v2-2026-05-13",
+    "project_id": "31a7ba82-b694-41de-9724-9b8ddee6d077",
+    "supersedes": "ant-fresh-flowspec-spec-2026-05-13.json (v1 used non-FlowSpec generic taxonomy → render error e.data.columns.slice undefined)",
+    "purpose": "Source-grounded visual map of fresh-ANT logic for JWPK to verify the system has persisted as intended.",
+    "author": "@researchant",
+    "date": "2026-05-13",
+    "scope": "Read-only mapping. Code-grounded only — routes, stores, CLI verbs, fanout queue, verifyPaneTargetState, twoCallSubmit, kind guards, persistence/auth gaps.",
+    "review_boundary": "@evolveantcodex reviews for factual drift against source. NOT implementation-readiness.",
+    "schema": "FlowSpec native primitives — dataPoints / components / transforms / tables / annotations.",
+    "id_convention": "Stable IDs across v1 → v2 where mapping is natural (e.g. node:store:terminals → table:terminals).",
+    "counts": "6 tables, 4 dataPoints (msg-kinds), 21 components (11 routes + 10 cli-verbs), 10 transforms, 4 annotations."
+  },
+
+  "annotations": [
+    {
+      "id": "ann:volatile-stores",
+      "label": "Chat room/message/invite stores VOLATILE — wiped on every kickstart",
+      "kind": "warning",
+      "applies_to": ["table:chatRoomStore", "table:chatMessageStore", "table:chatInviteStore", "table:planMode"],
+      "source": "chatRoomStore.ts:34 (in-memory Map), chatMessageStore.ts:38 (in-memory Map), planModeStore.ts (in-memory)",
+      "remediation": "ROOMS-PERSISTENCE-A slice — design contract on disk at docs/rooms-persistence-0-design-contract-2026-05-13.md"
+    },
+    {
+      "id": "ann:identity-gate-posts",
+      "label": "IDENTITY-GATE-POSTS BLOCKER — arbitrary authorHandle accepted, NO caller-identity validation",
+      "kind": "blocker",
+      "applies_to": ["component:route:post-message"],
+      "source": "src/routes/api/chat-rooms/[roomId]/messages/+server.ts:42-46 — authorHandle = authorHandleRaw || '@you', no resolve against caller PID-tree",
+      "remediation": "IDENTITY-GATE-POSTS slice (claude2 owns) — POST handler must call /api/identity/resolve internally with caller PID chain + room_id, override authorHandle from room_memberships(room_id, terminal_id)"
+    },
+    {
+      "id": "ann:context-render-contamination",
+      "label": "Context/render contamination — UNRESOLVED security incident (real, NOT intentional test per JWPK)",
+      "kind": "security-incident",
+      "applies_to": ["transform:fanoutMessageToRoomTerminals", "transform:twoCallSubmit", "transform:pasteBufferToTarget"],
+      "source": "Multi-agent observation 2026-05-13: foreign system-reminders for tool-call results not initiated by the agent (ls of v3 cli/, full Read of /Users/you/.claude/skills/pptx/html2pptx.md). researchant + claude2 + evolveantclaude all observed independently. claude2 diagnostic: bleed is one-directional (results IN, posts OUT clean), automated trigger pattern, MULTI-SESSION at Claude Code session/context layer (NOT in fresh-ANT, NOT in PTY-INJECT). researchant investigation report ranked HOOK_SERVER 127.0.0.1:6457 as H1 + pptx-skill-auto-Read as H2.",
+      "remediation": "Investigation ongoing. Recommended next steps: inspect HOOK_SERVER process state + logs, test by temporarily disabling pre-tool-use hooks see if bleed stops."
+    },
+    {
+      "id": "ann:fanout-kind-guard",
+      "label": "Fanout kind-guard — only human/agent messages enqueue; system/system-break excluded (recursion lockout)",
+      "kind": "design-correctness",
+      "applies_to": ["transform:fanoutMessageToRoomTerminals"],
+      "source": "src/lib/server/pty-inject-fanout.ts:26 (FANOUT_KINDS_ALLOWED = Set('human','agent')) + line 70 (early return on disallowed kinds)",
+      "purpose": "Prevents recursion: system-emitted stale-markers don't re-fanout to all members and trigger more stale-markers"
+    }
+  ],
+
+  "tables": [
+    {
+      "id": "table:terminals",
+      "label": "terminals",
+      "sourceType": "sqlite",
+      "endpoint": "~/.ant/fresh-ant.db (better-sqlite3)",
+      "source_ref": "src/lib/server/terminalsStore.ts:1-180 + src/lib/server/db.ts SCHEMA_DDL_STATEMENTS",
+      "note": "Persists across kickstart (PTY-INJECT-A B4b)",
+      "columns": [
+        { "name": "id", "type": "string", "primaryKey": true },
+        { "name": "pid", "type": "integer", "constraints": ["not-null"] },
+        { "name": "pid_start", "type": "string" },
+        { "name": "name", "type": "string", "constraints": ["unique", "not-null"] },
+        { "name": "tmux_target_pane", "type": "string" },
+        { "name": "agent_kind", "type": "string", "constraints": ["enum: claude_code|codex|aider|gemini|null"] },
+        { "name": "pane_status", "type": "string", "constraints": ["enum: verified|stale|unknown"] },
+        { "name": "pane_stale_since", "type": "integer" },
+        { "name": "expires_at", "type": "integer" },
+        { "name": "created_at", "type": "integer", "constraints": ["not-null"] },
+        { "name": "updated_at", "type": "integer", "constraints": ["not-null"] }
+      ]
+    },
+    {
+      "id": "table:roomMemberships",
+      "label": "room_memberships",
+      "sourceType": "sqlite",
+      "endpoint": "~/.ant/fresh-ant.db (better-sqlite3)",
+      "source_ref": "src/lib/server/roomMembershipsStore.ts:1-117",
+      "note": "Persists across kickstart. UNIQUE(room_id, handle) — handles are room-scoped per JWPK data model.",
+      "columns": [
+        { "name": "id", "type": "string", "primaryKey": true },
+        { "name": "room_id", "type": "string", "constraints": ["not-null"] },
+        { "name": "handle", "type": "string", "constraints": ["not-null", "unique-with-room_id"] },
+        { "name": "terminal_id", "type": "string", "constraints": ["not-null", "fk: terminals.id"] },
+        { "name": "created_at", "type": "integer", "constraints": ["not-null"] }
+      ]
+    },
+    {
+      "id": "table:chatRoomStore",
+      "label": "chatRoomStore (in-memory Map)",
+      "sourceType": "in-memory",
+      "endpoint": "process memory — wipes on kickstart",
+      "source_ref": "src/lib/server/chatRoomStore.ts:34 — chatRoomsById = new Map()",
+      "annotation_refs": ["ann:volatile-stores"],
+      "columns": [
+        { "name": "id", "type": "string", "primaryKey": true },
+        { "name": "name", "type": "string" },
+        { "name": "summary", "type": "string" },
+        { "name": "attentionState", "type": "string" },
+        { "name": "lastUpdate", "type": "string" },
+        { "name": "whenItWasCreated", "type": "string" },
+        { "name": "whoCreatedIt", "type": "string" },
+        { "name": "creationOrder", "type": "integer" },
+        { "name": "members", "type": "array", "constraints": ["array of {handle, displayName, joinedAt, kind}"] }
+      ]
+    },
+    {
+      "id": "table:chatMessageStore",
+      "label": "chatMessageStore (in-memory Map)",
+      "sourceType": "in-memory",
+      "endpoint": "process memory — wipes on kickstart",
+      "source_ref": "src/lib/server/chatMessageStore.ts:38 — messagesByRoomId = new Map()",
+      "annotation_refs": ["ann:volatile-stores"],
+      "columns": [
+        { "name": "id", "type": "string", "primaryKey": true },
+        { "name": "roomId", "type": "string" },
+        { "name": "authorHandle", "type": "string" },
+        { "name": "authorDisplayName", "type": "string" },
+        { "name": "kind", "type": "string", "constraints": ["enum: human|agent|system|system-break"] },
+        { "name": "body", "type": "string" },
+        { "name": "postedAt", "type": "string" },
+        { "name": "postOrder", "type": "integer", "constraints": ["monotonic per-room"] },
+        { "name": "parentMessageId", "type": "string", "constraints": ["nullable"] }
+      ]
+    },
+    {
+      "id": "table:chatInviteStore",
+      "label": "chatInviteStore (in-memory)",
+      "sourceType": "in-memory",
+      "endpoint": "process memory — wipes on kickstart",
+      "source_ref": "src/lib/server/chatInviteStore.ts:1-251",
+      "annotation_refs": ["ann:volatile-stores"],
+      "columns": [
+        { "name": "id", "type": "string", "primaryKey": true },
+        { "name": "roomId", "type": "string" },
+        { "name": "invite_token", "type": "string" },
+        { "name": "ttl_seconds", "type": "integer" },
+        { "name": "expires_at", "type": "integer" },
+        { "name": "redeemed_by", "type": "string" }
+      ]
+    },
+    {
+      "id": "table:planMode",
+      "label": "planModeStore (in-memory append-only event log)",
+      "sourceType": "in-memory",
+      "endpoint": "process memory — wipes on kickstart, recoverable via PLAN-VISIBLE seed:overnight",
+      "source_ref": "src/lib/server/planModeStore.ts:1-133",
+      "annotation_refs": ["ann:volatile-stores"],
+      "columns": [
+        { "name": "id", "type": "string", "primaryKey": true },
+        { "name": "plan_id", "type": "string" },
+        { "name": "parent_id", "type": "string", "constraints": ["nullable"] },
+        { "name": "kind", "type": "string", "constraints": ["enum: plan_section|plan_decision|plan_milestone|plan_acceptance|plan_test"] },
+        { "name": "status", "type": "string", "constraints": ["enum: planned|active|blocked|passing|failing|done|archived"] },
+        { "name": "ts_millis", "type": "integer", "constraints": ["server-injected monotonic"] },
+        { "name": "evidence", "type": "object", "constraints": ["EvidenceRef shape"] },
+        { "name": "provenance", "type": "object", "constraints": ["ProvenanceRef shape — chat_message_id optional"] }
+      ]
+    }
+  ],
+
+  "dataPoints": [
+    {
+      "id": "datapoint:msg-kind-human",
+      "label": "msg.kind = human",
+      "type": "enum",
+      "source": "captured",
+      "constraints": ["fanout-eligible"],
+      "source_ref": "chatMessageStore.ts:19 + pty-inject-fanout.ts:26"
+    },
+    {
+      "id": "datapoint:msg-kind-agent",
+      "label": "msg.kind = agent",
+      "type": "enum",
+      "source": "captured",
+      "constraints": ["fanout-eligible"],
+      "source_ref": "chatMessageStore.ts:19 + pty-inject-fanout.ts:26"
+    },
+    {
+      "id": "datapoint:msg-kind-system",
+      "label": "msg.kind = system",
+      "type": "enum",
+      "source": "inferred",
+      "sourceDefinition": "Server-emitted via postSystemMessage (e.g. stale-marker)",
+      "constraints": ["EXCLUDED from fanout (recursion lockout)"],
+      "source_ref": "chatMessageStore.ts:95-120 + pty-inject-fanout.ts:70",
+      "annotation_refs": ["ann:fanout-kind-guard"]
+    },
+    {
+      "id": "datapoint:msg-kind-system-break",
+      "label": "msg.kind = system-break",
+      "type": "enum",
+      "source": "inferred",
+      "sourceDefinition": "Context-break marker via postBreakMessage",
+      "constraints": ["EXCLUDED from fanout"],
+      "source_ref": "chatMessageStore.ts:122-147 + pty-inject-fanout.ts:70",
+      "annotation_refs": ["ann:fanout-kind-guard"]
+    }
+  ],
+
+  "components": [
+    {
+      "id": "component:route:identity-register",
+      "label": "POST /api/identity/register",
+      "captures": ["pid", "pid_start", "name", "ttl_seconds", "pane", "agent_kind"],
+      "displays": ["terminal_id", "expires_at"],
+      "source_ref": "src/routes/api/identity/register/+server.ts:1-94",
+      "note": "Writes to terminals via upsertTerminal"
+    },
+    {
+      "id": "component:route:identity-resolve",
+      "label": "POST /api/identity/resolve",
+      "captures": ["pid_chain", "room_id"],
+      "displays": ["terminal_id", "name", "agent_kind", "handle"],
+      "source_ref": "src/routes/api/identity/resolve/+server.ts:1-70",
+      "note": "Walks chain, returns handle only if room_id supplied AND room_memberships row exists"
+    },
+    {
+      "id": "component:route:sessions-add",
+      "label": "POST /api/sessions/add",
+      "captures": ["pid", "name", "room_id", "handle"],
+      "displays": ["terminal_id", "membership_id"],
+      "source_ref": "src/routes/api/sessions/add/+server.ts:1-97"
+    },
+    {
+      "id": "component:route:chat-rooms-list",
+      "label": "GET /api/chat-rooms",
+      "displays": ["chat_room_list"],
+      "source_ref": "listChatRooms()"
+    },
+    {
+      "id": "component:route:chat-rooms-create",
+      "label": "POST /api/chat-rooms",
+      "captures": ["room_name", "whoCreatedIt"],
+      "displays": ["new_chat_room"],
+      "source_ref": "createChatRoom()"
+    },
+    {
+      "id": "component:route:chat-invites",
+      "label": "POST /api/chat-invites",
+      "captures": ["room_id", "ttl_seconds", "ANT_ADMIN_TOKEN"],
+      "displays": ["invite_token"],
+      "source_ref": "Admin-token gated. 503 if ANT_ADMIN_TOKEN unset, 401 if mismatch"
+    },
+    {
+      "id": "component:route:get-messages",
+      "label": "GET /api/chat-rooms/:roomId/messages",
+      "captures": ["room_id"],
+      "displays": ["message_list"],
+      "source_ref": "src/routes/api/chat-rooms/[roomId]/messages/+server.ts:24-29"
+    },
+    {
+      "id": "component:route:post-message",
+      "label": "POST /api/chat-rooms/:roomId/messages",
+      "captures": ["room_id", "body", "authorHandle", "kind", "parentMessageId"],
+      "displays": ["new_message"],
+      "source_ref": "src/routes/api/chat-rooms/[roomId]/messages/+server.ts:31-77",
+      "annotation_refs": ["ann:identity-gate-posts"],
+      "note": "Line 42-46: authorHandle DEFAULTS to '@you' with NO caller-identity validation. Line 67: calls fanoutMessageToRoomTerminals in try/catch (best-effort)."
+    },
+    {
+      "id": "component:route:plan-get",
+      "label": "GET /api/plan/:planId",
+      "captures": ["plan_id"],
+      "displays": ["plan_event_list"],
+      "source_ref": "src/routes/api/plan/[planId]/+server.ts (projectPlanEvents)"
+    },
+    {
+      "id": "component:route:plan-post",
+      "label": "POST /api/plan/:planId",
+      "captures": ["plan_id", "event"],
+      "displays": ["appended_event"],
+      "source_ref": "Server-injected monotonic ts_millis"
+    },
+    {
+      "id": "component:route:plan-mode-page",
+      "label": "GET /plan-mode/:planId (SSR page)",
+      "captures": ["plan_id"],
+      "displays": ["plan_event_timeline"],
+      "source_ref": "src/routes/plan-mode/[planId]/+page.server.ts + +page.svelte (JWPK monitor surface)"
+    },
+    {
+      "id": "component:cli:rooms-list",
+      "label": "ant rooms list",
+      "captures": [],
+      "displays": ["chat_room_list"],
+      "source_ref": "scripts/ant-cli.mjs DISPATCH + ant-cli-chat.mjs"
+    },
+    {
+      "id": "component:cli:rooms-create",
+      "label": "ant rooms create <name>",
+      "captures": ["room_name"],
+      "displays": ["new_chat_room"]
+    },
+    {
+      "id": "component:cli:rooms-post",
+      "label": "ant rooms post <roomId> <message>",
+      "captures": ["room_id", "body"],
+      "displays": ["new_message"],
+      "annotation_refs": ["ann:identity-gate-posts"],
+      "note": "CLI does NOT pass --handle; server defaults to '@you' or '@cli' bypassing caller-identity attribution"
+    },
+    {
+      "id": "component:cli:rooms-messages",
+      "label": "ant rooms messages <roomId>",
+      "captures": ["room_id"],
+      "displays": ["message_list"]
+    },
+    {
+      "id": "component:cli:rooms-invite",
+      "label": "ant rooms invite <roomId> <handle>",
+      "captures": ["room_id", "handle"],
+      "displays": ["invite_token"]
+    },
+    {
+      "id": "component:cli:rooms-break",
+      "label": "ant rooms break <roomId> [reason]",
+      "captures": ["room_id", "reason"],
+      "displays": ["new_break_message"]
+    },
+    {
+      "id": "component:cli:chat-tail",
+      "label": "ant chat tail --room <roomId> [--once] [--since-ms <ts>]",
+      "captures": ["room_id", "since_ms"],
+      "displays": ["streaming_messages"],
+      "source_ref": "scripts/ant-cli-chat.mjs (tail handler) — default = indefinite polling until SIGINT"
+    },
+    {
+      "id": "component:cli:register",
+      "label": "ant register --name <name> [--pane %X] [--agent-kind <kind>] [--mirror-v3]",
+      "captures": ["name", "pane", "agent_kind", "ttl"],
+      "displays": ["terminal_id"],
+      "source_ref": "scripts/ant-cli-register.mjs:1-208 — chain walk DEFAULT-ON, --mirror-v3 opt-in only"
+    },
+    {
+      "id": "component:cli:add-session",
+      "label": "ant add session --pid X | --name Y",
+      "captures": ["pid", "name"],
+      "displays": ["terminal_id"]
+    },
+    {
+      "id": "component:cli:add-membership",
+      "label": "ant add membership --room R --handle @H --name N",
+      "captures": ["room_id", "handle", "name"],
+      "displays": ["membership_id"]
+    }
+  ],
+
+  "transforms": [
+    {
+      "id": "transform:processIdentityChain",
+      "label": "processIdentityChain(startPid?, maxDepth?)",
+      "type": "lookup",
+      "inputs": ["start_pid"],
+      "outputs": ["pid_chain"],
+      "logic": {
+        "type": "shell-walk",
+        "content": "Walk ps -o ppid= up the tree from start_pid. Dedup via seen Set. Max depth 32. Capture pid_start via ps -o lstart= each step. Returns [{pid, pid_start}, ...]. CHAIN-WALK IS DEFAULT-ON in fresh-ANT (vs v3 --chain opt-in)."
+      },
+      "source_ref": "scripts/ant-cli-identity-chain.mjs:1-66"
+    },
+    {
+      "id": "transform:fanoutMessageToRoomTerminals",
+      "label": "fanoutMessageToRoomTerminals(roomId, newMessage)",
+      "type": "fanout",
+      "inputs": ["chat_message", "room_id"],
+      "outputs": ["enqueued_inject_items", "fanout_skipped_for_system"],
+      "logic": {
+        "type": "guarded-fanout",
+        "content": "Reject system/system-break (line 70). Look up room_memberships. Filter sender. For each member with tmux_target_pane: enqueue via queueKeyFor(roomId, terminalId). kind ∈ {human,agent} only."
+      },
+      "source_ref": "src/lib/server/pty-inject-fanout.ts:1-100",
+      "annotation_refs": ["ann:fanout-kind-guard", "ann:context-render-contamination"]
+    },
+    {
+      "id": "transform:queue-enqueue",
+      "label": "makeInjectQueue.enqueue(key, item) — 500ms batch flush",
+      "type": "schedule",
+      "inputs": ["enqueued_inject_items", "queue_key"],
+      "outputs": ["batched_inject_envelope"],
+      "logic": {
+        "type": "scheduler",
+        "content": "Per-(roomId,terminalId) compound key. If queue empty, schedule 500ms flush via setTimeout. Subsequent items append to same batch. On flush: invoke callback with all queued items."
+      },
+      "source_ref": "src/lib/server/pty-inject-queue.ts:1-86"
+    },
+    {
+      "id": "transform:verifyPaneTargetState",
+      "label": "verifyPaneTargetState(terminal) — 2-stage liveness + ready-state",
+      "type": "validation",
+      "inputs": ["terminal", "tmux_target_pane", "agent_kind"],
+      "outputs": ["pane_status (verified|stale|unknown)"],
+      "logic": {
+        "type": "two-stage-check",
+        "content": "Stage 1: runScrubbedTmux('capture-pane', '-t', pane, '-p', '-S', '-50'). If error → stale. If success+empty → unknown. If success+non-empty → Stage 2. Stage 2: matchReadyStateFor — for claude_code: captured.includes('│ >' OR '❯') AND NOT captured.includes('esc to interrupt')."
+      },
+      "source_ref": "src/lib/server/pty-inject-bridge.ts:65-90"
+    },
+    {
+      "id": "transform:matchReadyStateFor",
+      "label": "matchReadyStateFor(agentKind, captured)",
+      "type": "validation",
+      "inputs": ["agent_kind", "captured_text"],
+      "outputs": ["ready_match (boolean)"],
+      "logic": {
+        "type": "regex-match",
+        "content": "agent_kind=claude_code: '│ >' OR '❯' marker present AND NOT 'esc to interrupt'. agent_kind ∈ {codex,aider,gemini}: NOT YET IMPLEMENTED, returns false. agent_kind null: false."
+      },
+      "source_ref": "src/lib/server/pty-inject-bridge.ts:65-70"
+    },
+    {
+      "id": "transform:twoCallSubmit",
+      "label": "twoCallSubmit(pane, text, agentKind, onScheduledFailure, scheduler)",
+      "type": "workflow",
+      "inputs": ["pane", "envelope_text", "agent_kind"],
+      "outputs": ["paste_dispatched", "enter_dispatched_150", "enter_dispatched_300_if_claude_code"],
+      "logic": {
+        "type": "scheduled-multi-step",
+        "content": "1. pasteBufferToTarget(pane, text). 2. scheduler 150ms → sendEnterToTarget(pane) wrapped in try/catch → onScheduledFailure on InjectTmuxFailure. 3. If agent_kind=claude_code: scheduler 300ms → SECOND sendEnter (Claude Code TUI requires double-return per v3 ask-pty-bridge.ts source)."
+      },
+      "source_ref": "src/lib/server/pty-inject-bridge.ts:104-145",
+      "annotation_refs": ["ann:context-render-contamination"]
+    },
+    {
+      "id": "transform:pasteBufferToTarget",
+      "label": "pasteBufferToTarget(pane, text)",
+      "type": "side-effect",
+      "inputs": ["pane", "text"],
+      "outputs": ["paste_completed_or_InjectTmuxFailure"],
+      "logic": {
+        "type": "tmux-3-call",
+        "content": "load-buffer (status check + throw on non-zero) → paste-buffer (status check, defers throw so cleanup runs) → delete-buffer (status check). Each via runScrubbedTmux."
+      },
+      "source_ref": "src/lib/server/pty-inject-bridge.ts:90-108",
+      "annotation_refs": ["ann:context-render-contamination"]
+    },
+    {
+      "id": "transform:sendEnterToTarget",
+      "label": "sendEnterToTarget(pane)",
+      "type": "side-effect",
+      "inputs": ["pane"],
+      "outputs": ["enter_dispatched_or_InjectTmuxFailure"],
+      "logic": {
+        "type": "tmux-call",
+        "content": "runScrubbedTmux('send-keys', '-t', pane, 'Enter'). spawnSync status === 0 assertion; throws InjectTmuxFailure on non-zero."
+      },
+      "source_ref": "src/lib/server/pty-inject-bridge.ts:110-118"
+    },
+    {
+      "id": "transform:runScrubbedTmux",
+      "label": "runScrubbedTmux(args, stdin?)",
+      "type": "side-effect",
+      "inputs": ["args[]", "stdin?"],
+      "outputs": ["spawnSync_result"],
+      "logic": {
+        "type": "scrubbed-spawn",
+        "content": "spawnSync from node:child_process. Deletes TMUX, TMUX_PANE, TMUX_PLUGIN_MANAGER_PATH from childEnv. spawn(TMUX_BIN, args, { input, env }) — argv arrays only, NO shell interpolation. Single entry-point for ALL tmux calls (B3 strict)."
+      },
+      "source_ref": "src/lib/server/pty-inject-bridge.ts:21-60"
+    },
+    {
+      "id": "transform:emitStaleMarker",
+      "label": "emitStaleMarker(roomId, handle) — rate-limited 1/handle/room/60min",
+      "type": "side-effect",
+      "inputs": ["room_id", "handle"],
+      "outputs": ["system_message (msg-kind=system) OR silent-drop"],
+      "logic": {
+        "type": "rate-limit-then-emit",
+        "content": "Module-level Map<roomId+handle, lastTs>. If now - lastTs >= 60min OR no entry: postSystemMessage(roomId, '@<handle> appears offline (pane stale)'). Else silent-drop. Recursion lockout via msg-kind=system being excluded from fanout."
+      },
+      "source_ref": "src/lib/server/pty-inject-fanout.ts:69-74 (postSystemMessage call) + chatMessageStore.ts:95-120"
+    }
+  ],
+
+  "_handoff_notes_for_evolveantclaude": [
+    "v2 spec: re-authored to FlowSpec NATIVE PRIMITIVES (dataPoints / components / transforms / tables) per JWPK Do-it-properly directive after v1 render error e.data.columns.slice undefined.",
+    "Use mcp__flowspec__create_node with the appropriate FlowSpec type for each entity: tables → Table, dataPoints → DataPoint, components → Component, transforms → Transform.",
+    "Tables now have proper `columns` arrays — should resolve the .slice undefined error. Other primitives don't need columns.",
+    "Edges in FlowSpec native are typically derived from displays/captures/inputs/outputs relationships, not declared separately. The renderer should be able to infer the dataflow from these fields. If explicit edges are still needed, they can be derived: component.captures[X] ← upstream-of-X, component.displays[X] ← downstream-of-X, transform.inputs[X] ← upstream, transform.outputs[X] ← downstream.",
+    "Annotations array preserved separately — render as visual flags.",
+    "Counts: 6 tables, 4 dataPoints, 21 components (11 routes + 10 cli-verbs), 10 transforms, 4 annotations.",
+    "Recommend: clear the existing canvas in project 31a7ba82 OR create a fresh project ant-fresh-flowspec-v2; the v1 generic-taxonomy nodes are incompatible with v2 native taxonomy.",
+    "v1 stable IDs preserved where mapping is natural (table:terminals was node:store:terminals etc.) so factual-drift review can grep both.",
+    "evolveantcodex factual-drift review: same source_refs as v1 — files unchanged."
+  ]
+}

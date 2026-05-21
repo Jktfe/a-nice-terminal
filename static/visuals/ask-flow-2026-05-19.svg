@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 520" role="img" aria-labelledby="title desc">
+  <title id="title">ANT asks lifecycle — state machine</title>
+  <desc id="desc">Asks workflow from candidate aggregation through open/picked-up/answered or dismissed states. Includes premium-tier overlay for combined/deduped/summarised multi-source asks.</desc>
+
+  <style><![CDATA[
+    .bg-card    { fill: var(--surface, #fff); stroke: var(--line-soft, #d6d6d6); stroke-width: 1.5; }
+    .bg-cand    { fill: var(--surface, #fef9c3); stroke: var(--warn, #b45309); stroke-width: 1.5; stroke-dasharray: 3 2; }
+    .bg-open    { fill: var(--info-soft, #dbeafe); stroke: var(--info, #1d4ed8); stroke-width: 1.5; }
+    .bg-picked  { fill: var(--accent-soft, #fce7f3); stroke: var(--accent, #be185d); stroke-width: 2; }
+    .bg-answer  { fill: var(--ok-soft, #dcfce7); stroke: var(--ok, #15803d); stroke-width: 1.5; }
+    .bg-dismiss { fill: var(--danger-soft, #fee2e2); stroke: var(--danger, #b91c1c); stroke-width: 1.5; }
+    .bg-premium { fill: var(--accent-soft, #ede9fe); stroke: var(--accent, #6b21a8); stroke-width: 1.5; stroke-dasharray: 5 3; }
+    .ink        { fill: var(--ink-strong, #0f172a); }
+    .ink-soft   { fill: var(--ink-muted, #475569); }
+    .arrow      { stroke: var(--ink-strong, #0f172a); stroke-width: 1.5; fill: none; }
+    .arrow-rev  { stroke: var(--ink-muted, #64748b); stroke-width: 1.2; fill: none; stroke-dasharray: 4 3; }
+    .label      { font-family: system-ui, -apple-system, "SF Pro Text", "Segoe UI", sans-serif; }
+    .h1         { font: 700 28px/1.1 system-ui, sans-serif; }
+    .h2         { font: 700 14px/1.2 system-ui, sans-serif; }
+    .body       { font: 500 12px/1.25 system-ui, sans-serif; }
+    .small      { font: 500 11px/1.2 system-ui, sans-serif; }
+    .edge       { font: 600 11px/1 system-ui, sans-serif; }
+    .pill       { fill: var(--surface, #fff); stroke: var(--line-soft, #d6d6d6); }
+    .pill-text  { font: 600 11px/1 system-ui, sans-serif; }
+
+    @media (prefers-color-scheme: dark) {
+      .bg-card    { fill: #1e293b; stroke: #475569; }
+      .bg-cand    { fill: #422006; stroke: #fbbf24; }
+      .bg-open    { fill: #1e3a8a; stroke: #60a5fa; }
+      .bg-picked  { fill: #500724; stroke: #ec4899; }
+      .bg-answer  { fill: #064e3b; stroke: #34d399; }
+      .bg-dismiss { fill: #450a0a; stroke: #f87171; }
+      .bg-premium { fill: #2e1065; stroke: #c084fc; }
+      .ink        { fill: #e2e8f0; }
+      .ink-soft   { fill: #94a3b8; }
+      .arrow      { stroke: #e2e8f0; }
+      .arrow-rev  { stroke: #94a3b8; }
+      .pill       { fill: #1e293b; stroke: #475569; }
+    }
+  ]]></style>
+
+  <!-- Title -->
+  <text x="540" y="40" class="label h1 ink" text-anchor="middle">Asks lifecycle</text>
+  <text x="540" y="64" class="label body ink-soft" text-anchor="middle">candidate → open → picked_up → answered / dismissed (premium: combined · deduped · summarised)</text>
+
+  <!-- Candidate -->
+  <g transform="translate(40, 170)">
+    <rect class="bg-cand" x="0" y="0" width="180" height="100" rx="10"/>
+    <text class="label h2 ink" x="90" y="22" text-anchor="middle">CANDIDATE</text>
+    <text class="label small ink-soft" x="90" y="44" text-anchor="middle">auto-aggregated from</text>
+    <text class="label small ink-soft" x="90" y="60" text-anchor="middle">@you mentions, 🙌 reactions</text>
+    <text class="label small ink-soft" x="90" y="76" text-anchor="middle">242+ in queue today</text>
+  </g>
+
+  <!-- Open -->
+  <g transform="translate(280, 170)">
+    <rect class="bg-open" x="0" y="0" width="180" height="100" rx="10"/>
+    <text class="label h2 ink" x="90" y="22" text-anchor="middle">OPEN</text>
+    <text class="label small ink-soft" x="90" y="44" text-anchor="middle">visible in /asks queue</text>
+    <text class="label small ink-soft" x="90" y="60" text-anchor="middle">awaiting agent pickup</text>
+    <text class="label small ink-soft" x="90" y="76" text-anchor="middle">user can ratify directly</text>
+  </g>
+
+  <!-- Picked_up -->
+  <g transform="translate(520, 170)">
+    <rect class="bg-picked" x="0" y="0" width="180" height="100" rx="10"/>
+    <text class="label h2 ink" x="90" y="22" text-anchor="middle">PICKED_UP</text>
+    <text class="label small ink-soft" x="90" y="44" text-anchor="middle">agent reading + acting</text>
+    <text class="label small ink-soft" x="90" y="60" text-anchor="middle">'picked up by @X · 12m'</text>
+    <text class="label small ink-soft" x="90" y="76" text-anchor="middle">30min auto-revert TTL</text>
+  </g>
+
+  <!-- Answered -->
+  <g transform="translate(760, 90)">
+    <rect class="bg-answer" x="0" y="0" width="180" height="80" rx="10"/>
+    <text class="label h2 ink" x="90" y="22" text-anchor="middle">ANSWERED</text>
+    <text class="label small ink-soft" x="90" y="44" text-anchor="middle">user / agent ratify</text>
+    <text class="label small ink-soft" x="90" y="60" text-anchor="middle">content sealed + archived</text>
+  </g>
+
+  <!-- Dismissed -->
+  <g transform="translate(760, 270)">
+    <rect class="bg-dismiss" x="0" y="0" width="180" height="80" rx="10"/>
+    <text class="label h2 ink" x="90" y="22" text-anchor="middle">DISMISSED</text>
+    <text class="label small ink-soft" x="90" y="44" text-anchor="middle">closed without ratify</text>
+    <text class="label small ink-soft" x="90" y="60" text-anchor="middle">recoverable from history</text>
+  </g>
+
+  <!-- Premium overlay -->
+  <g transform="translate(280, 380)">
+    <rect class="bg-premium" x="0" y="0" width="660" height="80" rx="10"/>
+    <text class="label h2 ink" x="20" y="22">PREMIUM OVERLAY · multi-source dedup</text>
+    <text class="label small ink-soft" x="20" y="44">combined-from-N · deduped-from-M · summarised-N-sub-questions</text>
+    <text class="label small ink-soft" x="20" y="60">chip on the ask card: 'merged from 3 originals' → click to see source asks</text>
+  </g>
+
+  <!-- Arrows -->
+  <!-- candidate → open -->
+  <line class="arrow" x1="220" y1="220" x2="278" y2="220" marker-end="url(#a)"/>
+  <text class="label edge ink-soft" x="249" y="210" text-anchor="middle">promote</text>
+  <text class="label small ink-soft" x="249" y="240" text-anchor="middle">UI #162 or CLI</text>
+
+  <!-- open → picked_up -->
+  <line class="arrow" x1="460" y1="220" x2="518" y2="220" marker-end="url(#a)"/>
+  <text class="label edge ink-soft" x="489" y="210" text-anchor="middle">agent acts</text>
+  <text class="label small ink-soft" x="489" y="240" text-anchor="middle">first reply OR /pickup</text>
+
+  <!-- picked_up → answered -->
+  <path class="arrow" d="M 700 200 Q 740 200 750 140 L 758 140" marker-end="url(#a)"/>
+  <text class="label edge ink-soft" x="725" y="170" text-anchor="middle">ratify</text>
+
+  <!-- picked_up → dismissed -->
+  <path class="arrow" d="M 700 250 Q 740 270 750 300 L 758 310" marker-end="url(#a)"/>
+  <text class="label edge ink-soft" x="725" y="280" text-anchor="middle">close</text>
+
+  <!-- picked_up → open (auto-revert) -->
+  <path class="arrow-rev" d="M 540 270 Q 480 320 460 260" marker-end="url(#a)"/>
+  <text class="label small ink-soft" x="500" y="310" text-anchor="middle">30m no activity → back to open</text>
+
+  <!-- open → answered (skip pickup) -->
+  <path class="arrow-rev" d="M 380 170 Q 580 90 758 110" marker-end="url(#a)"/>
+  <text class="label small ink-soft" x="570" y="80" text-anchor="middle">user direct ratify (skip pickup)</text>
+
+  <!-- Footer -->
+  <g transform="translate(40, 480)">
+    <text class="label small ink-soft" x="0" y="0">Spec source: filed ask for picked_up state + premium dedup (msg_8lb0akppba, 2026-05-19). Pairs with task #162 (candidate→ask UI promotion).</text>
+    <rect class="pill" x="940" y="-15" width="120" height="22" rx="11"/>
+    <text class="label pill-text ink" x="1000" y="0" text-anchor="middle">OSS · canvas-eligible</text>
+  </g>
+
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+</svg>

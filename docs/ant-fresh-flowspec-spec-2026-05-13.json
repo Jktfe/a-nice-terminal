@@ -1,0 +1,665 @@
+{
+  "_meta": {
+    "name": "ant-fresh-flowspec-2026-05-13",
+    "project_id": "31a7ba82-b694-41de-9724-9b8ddee6d077",
+    "purpose": "Source-grounded visual map of fresh-ANT logic for JWPK to verify the system has persisted as intended.",
+    "author": "@researchant",
+    "date": "2026-05-13",
+    "scope": "Read-only mapping. Code-grounded only — routes, stores, CLI verbs, fanout queue, verifyPaneTargetState, twoCallSubmit, kind guards, persistence/auth gaps.",
+    "review_boundary": "@evolveantcodex reviews for factual drift against source. NOT implementation-readiness.",
+    "node_id_convention": "node:<kind>:<short-name> — kind ∈ {store, route, cli-verb, fn, msg-kind, table, gap}",
+    "edge_id_convention": "edge:<from-short>→<to-short>"
+  },
+
+  "clusters": [
+    { "id": "cluster:identity",     "label": "Identity layer",          "color": "#4A90E2" },
+    { "id": "cluster:messaging",    "label": "Messaging layer",         "color": "#7ED321" },
+    { "id": "cluster:persistence",  "label": "Persistence layer",       "color": "#9013FE" },
+    { "id": "cluster:inject",       "label": "PTY-INJECT chain",        "color": "#F5A623" },
+    { "id": "cluster:cli",          "label": "CLI verbs",               "color": "#50E3C2" },
+    { "id": "cluster:gaps",         "label": "Critical gaps (BLOCKER)", "color": "#D0021B" }
+  ],
+
+  "annotations": [
+    {
+      "id": "ann:volatile-stores",
+      "label": "Chat room/message/invite stores VOLATILE — wiped on every kickstart",
+      "kind": "warning",
+      "applies_to": ["node:store:chatRoomStore", "node:store:chatMessageStore", "node:store:chatInviteStore"],
+      "source": "chatRoomStore.ts:34 (in-memory Map), chatMessageStore.ts:38 (in-memory Map), chatInviteStore.ts (in-memory pattern)",
+      "remediation": "ROOMS-PERSISTENCE-A slice (queued, design contract on disk at docs/rooms-persistence-0-design-contract-2026-05-13.md)"
+    },
+    {
+      "id": "ann:identity-gate-posts",
+      "label": "IDENTITY-GATE-POSTS — arbitrary authorHandle accepted, NO caller-identity validation",
+      "kind": "blocker",
+      "applies_to": ["node:route:post-message"],
+      "source": "src/routes/api/chat-rooms/[roomId]/messages/+server.ts:42-46 — authorHandle = authorHandleRaw || '@you', no resolve against caller PID-tree",
+      "remediation": "IDENTITY-GATE-POSTS slice (queued by coordinator, critical) — POST handler must call /api/identity/resolve internally with caller PID chain + room_id, override authorHandle from room_memberships(room_id, terminal_id)"
+    },
+    {
+      "id": "ann:context-render-contamination",
+      "label": "Context/render contamination — UNRESOLVED security incident",
+      "kind": "security-incident",
+      "applies_to": ["node:fn:fanoutMessageToRoomTerminals", "node:fn:twoCallSubmit", "node:fn:pasteBufferToTarget"],
+      "source": "Multi-agent observation 2026-05-13: foreign system-reminders for tool-call results not initiated by the agent (ls of v3 cli/, full Read of /Users/you/.claude/skills/pptx/html2pptx.md). Three agents (researchant, claude2, evolveantclaude) independently observed. Render-vs-stored diagnosis by claude2: stored body is clean, render/inject path contaminates.",
+      "remediation": "Pending JWPK confirmation on intent (intentional injection-defense test vs real vector)"
+    },
+    {
+      "id": "ann:fanout-kind-guard",
+      "label": "Fanout kind-guard — only human/agent messages enqueue; system/system-break excluded",
+      "kind": "design-correctness",
+      "applies_to": ["node:fn:fanoutMessageToRoomTerminals"],
+      "source": "src/lib/server/pty-inject-fanout.ts:26 (FANOUT_KINDS_ALLOWED = Set('human','agent')) + line 70 (early return on disallowed kinds)",
+      "purpose": "Prevents recursion: system-emitted stale-markers don't re-fanout to all members and trigger more stale-markers"
+    }
+  ],
+
+  "nodes": [
+    {
+      "id": "node:store:terminals",
+      "kind": "store",
+      "cluster": "cluster:identity",
+      "label": "terminalsStore",
+      "subtitle": "better-sqlite3 — survives kickstart",
+      "source_ref": "src/lib/server/terminalsStore.ts:1-180",
+      "ops": ["upsertTerminal", "getById", "getByName", "lookupByPidChain", "listAll", "deleteTerminal", "sweepExpired", "updatePaneTarget", "markPaneVerified", "markPaneStale"],
+      "schema": "terminals(id, pid, pid_start, name, tmux_target_pane?, agent_kind?, pane_status, pane_stale_since, expires_at, created_at, updated_at)"
+    },
+    {
+      "id": "node:store:roomMemberships",
+      "kind": "store",
+      "cluster": "cluster:identity",
+      "label": "roomMembershipsStore",
+      "subtitle": "better-sqlite3 — survives kickstart",
+      "source_ref": "src/lib/server/roomMembershipsStore.ts:1-117",
+      "ops": ["addMembership", "getRoomScopedHandle", "getTerminalIdByHandle", "listForRoom", "listForTerminal", "removeMembership"],
+      "schema": "room_memberships(id, room_id, handle, terminal_id, created_at) UNIQUE(room_id, handle)"
+    },
+    {
+      "id": "node:store:chatRoomStore",
+      "kind": "store",
+      "cluster": "cluster:messaging",
+      "label": "chatRoomStore",
+      "subtitle": "in-memory Map — VOLATILE (wipes on kickstart)",
+      "source_ref": "src/lib/server/chatRoomStore.ts:34 — chatRoomsById = new Map()",
+      "ops": ["createChatRoom", "listChatRooms", "findChatRoomById", "doesChatRoomExist", "inviteAgentToRoom", "removeMemberFromRoom", "renameChatRoom"],
+      "schema": "ChatRoom(id, name, summary, attentionState, lastUpdate, whenItWasCreated, whoCreatedIt, creationOrder, members[])",
+      "annotation_refs": ["ann:volatile-stores"]
+    },
+    {
+      "id": "node:store:chatMessageStore",
+      "kind": "store",
+      "cluster": "cluster:messaging",
+      "label": "chatMessageStore",
+      "subtitle": "in-memory Map — VOLATILE (wipes on kickstart)",
+      "source_ref": "src/lib/server/chatMessageStore.ts:38 — messagesByRoomId = new Map()",
+      "ops": ["postMessage", "postSystemMessage", "postBreakMessage", "listMessagesInRoom", "listMessagesAfterLatestBreak"],
+      "schema": "ChatMessage(id, roomId, authorHandle, authorDisplayName, kind, body, postedAt, postOrder, parentMessageId?)",
+      "annotation_refs": ["ann:volatile-stores"]
+    },
+    {
+      "id": "node:store:chatInviteStore",
+      "kind": "store",
+      "cluster": "cluster:messaging",
+      "label": "chatInviteStore",
+      "subtitle": "in-memory — VOLATILE (wipes on kickstart)",
+      "source_ref": "src/lib/server/chatInviteStore.ts:1-251",
+      "ops": ["createInvite", "redeemInvite", "listInvitesForRoom", "expireInvite"],
+      "annotation_refs": ["ann:volatile-stores"]
+    },
+    {
+      "id": "node:store:planMode",
+      "kind": "store",
+      "cluster": "cluster:messaging",
+      "label": "planModeStore",
+      "subtitle": "in-memory append-only event log — VOLATILE",
+      "source_ref": "src/lib/server/planModeStore.ts:1-133",
+      "ops": ["appendPlanEvent", "projectPlanEvents"],
+      "schema": "PlanEvent(id, plan_id, parent_id?, kind ∈ {plan_section, plan_decision, plan_milestone, plan_acceptance, plan_test}, status ∈ {planned, active, blocked, passing, failing, done, archived}, ts_millis, evidence?, provenance?)",
+      "annotation_refs": ["ann:volatile-stores"],
+      "note": "Recoverable via re-running PLAN-VISIBLE seed:overnight (idempotent, latest-wins per identity-key)"
+    },
+
+    {
+      "id": "node:msg-kind:human",
+      "kind": "msg-kind",
+      "cluster": "cluster:messaging",
+      "label": "human",
+      "subtitle": "User-posted message — fanout-eligible",
+      "source_ref": "chatMessageStore.ts:19 + pty-inject-fanout.ts:26 (FANOUT_KINDS_ALLOWED)"
+    },
+    {
+      "id": "node:msg-kind:agent",
+      "kind": "msg-kind",
+      "cluster": "cluster:messaging",
+      "label": "agent",
+      "subtitle": "Agent-posted message — fanout-eligible",
+      "source_ref": "chatMessageStore.ts:19 + pty-inject-fanout.ts:26"
+    },
+    {
+      "id": "node:msg-kind:system",
+      "kind": "msg-kind",
+      "cluster": "cluster:messaging",
+      "label": "system",
+      "subtitle": "Server-emitted notice (e.g. stale-marker) — EXCLUDED from fanout",
+      "source_ref": "chatMessageStore.ts:95-120 (postSystemMessage) + pty-inject-fanout.ts:70 (kind guard)",
+      "annotation_refs": ["ann:fanout-kind-guard"]
+    },
+    {
+      "id": "node:msg-kind:system-break",
+      "kind": "msg-kind",
+      "cluster": "cluster:messaging",
+      "label": "system-break",
+      "subtitle": "Context-break marker — EXCLUDED from fanout",
+      "source_ref": "chatMessageStore.ts:122-147 (postBreakMessage) + pty-inject-fanout.ts:70 (kind guard)",
+      "annotation_refs": ["ann:fanout-kind-guard"]
+    },
+
+    {
+      "id": "node:route:identity-register",
+      "kind": "route",
+      "cluster": "cluster:identity",
+      "label": "POST /api/identity/register",
+      "subtitle": "Register a terminal with optional pane + agent_kind",
+      "source_ref": "src/routes/api/identity/register/+server.ts:1-94",
+      "body": "{root_pid, pid_start?, name, ttl_seconds?, source?, meta?, pane?, agent_kind?, pane_status?}",
+      "returns": "{terminal_id, name, expires_at}"
+    },
+    {
+      "id": "node:route:identity-resolve",
+      "kind": "route",
+      "cluster": "cluster:identity",
+      "label": "POST /api/identity/resolve",
+      "subtitle": "Walk caller PID chain → terminal_id, optional room-scoped handle",
+      "source_ref": "src/routes/api/identity/resolve/+server.ts:1-70",
+      "body": "{pids: [{pid, pid_start}, ...], room_id?}",
+      "returns": "{terminal_id, name, agent_kind, handle?}",
+      "note": "Returns handle only if room_id supplied AND room_memberships row exists. Server walks chain MOST RECENT match."
+    },
+    {
+      "id": "node:route:sessions-add",
+      "kind": "route",
+      "cluster": "cluster:identity",
+      "label": "POST /api/sessions/add",
+      "subtitle": "Retrospective registration (ant add session / add membership)",
+      "source_ref": "src/routes/api/sessions/add/+server.ts:1-97"
+    },
+    {
+      "id": "node:route:chat-rooms-list",
+      "kind": "route",
+      "cluster": "cluster:messaging",
+      "label": "GET /api/chat-rooms",
+      "source_ref": "src/routes/api/chat-rooms/+server.ts (listChatRooms)"
+    },
+    {
+      "id": "node:route:chat-rooms-create",
+      "kind": "route",
+      "cluster": "cluster:messaging",
+      "label": "POST /api/chat-rooms",
+      "subtitle": "Calls chatRoomStore.createChatRoom"
+    },
+    {
+      "id": "node:route:chat-invites",
+      "kind": "route",
+      "cluster": "cluster:messaging",
+      "label": "POST /api/chat-invites",
+      "subtitle": "Admin-token gated. Returns 503 if ANT_ADMIN_TOKEN not set, 401 if mismatch."
+    },
+    {
+      "id": "node:route:get-messages",
+      "kind": "route",
+      "cluster": "cluster:messaging",
+      "label": "GET /api/chat-rooms/:roomId/messages",
+      "subtitle": "Returns oldest-first messages for room",
+      "source_ref": "src/routes/api/chat-rooms/[roomId]/messages/+server.ts:24-29"
+    },
+    {
+      "id": "node:route:post-message",
+      "kind": "route",
+      "cluster": "cluster:messaging",
+      "label": "POST /api/chat-rooms/:roomId/messages",
+      "subtitle": "Posts a message + triggers best-effort fanout",
+      "source_ref": "src/routes/api/chat-rooms/[roomId]/messages/+server.ts:31-77",
+      "body": "{body, authorHandle?, kind?, parentMessageId?}",
+      "returns": "{ message } HTTP 201 / 400 on validation / 404 on parent-not-in-room",
+      "annotation_refs": ["ann:identity-gate-posts"],
+      "note": "Line 42-46: authorHandle DEFAULTS to '@you' with NO caller-identity validation. Line 67: calls fanoutMessageToRoomTerminals in try/catch (best-effort)."
+    },
+    {
+      "id": "node:route:plan-get",
+      "kind": "route",
+      "cluster": "cluster:messaging",
+      "label": "GET /api/plan/:planId",
+      "subtitle": "Projects planModeStore events",
+      "source_ref": "src/routes/api/plan/[planId]/+server.ts"
+    },
+    {
+      "id": "node:route:plan-post",
+      "kind": "route",
+      "cluster": "cluster:messaging",
+      "label": "POST /api/plan/:planId",
+      "subtitle": "Append plan event with server-injected monotonic ts_millis"
+    },
+    {
+      "id": "node:route:plan-mode-page",
+      "kind": "route",
+      "cluster": "cluster:messaging",
+      "label": "GET /plan-mode/:planId",
+      "subtitle": "SSR page rendering plan events (JWPK monitor surface)",
+      "source_ref": "src/routes/plan-mode/[planId]/+page.server.ts + +page.svelte"
+    },
+
+    {
+      "id": "node:fn:fanoutMessageToRoomTerminals",
+      "kind": "fn",
+      "cluster": "cluster:inject",
+      "label": "fanoutMessageToRoomTerminals(roomId, newMessage)",
+      "subtitle": "Entry guard for PTY-INJECT chain",
+      "source_ref": "src/lib/server/pty-inject-fanout.ts:1-100",
+      "behavior": "Reject system/system-break (line 70). Look up room_memberships. Filter sender. For each member with tmux_target_pane: enqueue via queueKeyFor(roomId, terminalId).",
+      "annotation_refs": ["ann:fanout-kind-guard", "ann:context-render-contamination"]
+    },
+    {
+      "id": "node:fn:queue-enqueue",
+      "kind": "fn",
+      "cluster": "cluster:inject",
+      "label": "makeInjectQueue.enqueue(key, item)",
+      "subtitle": "Per-(roomId,terminalId) 500ms batch flush",
+      "source_ref": "src/lib/server/pty-inject-queue.ts:1-86",
+      "behavior": "If queue empty, schedule 500ms flush. Subsequent items append to same batch. On flush: call provided callback with all queued items."
+    },
+    {
+      "id": "node:fn:verifyPaneTargetState",
+      "kind": "fn",
+      "cluster": "cluster:inject",
+      "label": "verifyPaneTargetState(terminal)",
+      "subtitle": "2-stage liveness + ready-state check",
+      "source_ref": "src/lib/server/pty-inject-bridge.ts:65-90",
+      "behavior": "Stage 1: runScrubbedTmux('capture-pane', '-t', pane, '-p', '-S', '-50') — pass-or-stale. Stage 2: matchReadyStateFor(agent_kind, captured) — for claude_code: captured.includes('│ >' OR '❯') AND NOT captured.includes('esc to interrupt'). Outcomes: verified | stale | unknown."
+    },
+    {
+      "id": "node:fn:matchReadyStateFor",
+      "kind": "fn",
+      "cluster": "cluster:inject",
+      "label": "matchReadyStateFor(agentKind, captured)",
+      "subtitle": "Per-agent ready-prompt heuristic",
+      "source_ref": "src/lib/server/pty-inject-bridge.ts:65-70",
+      "behavior": "agent_kind=claude_code: '│ >' OR '❯' marker present AND no 'esc to interrupt'. agent_kind ∈ {codex,aider,gemini}: NOT YET IMPLEMENTED, returns false (defaults to unverified). agent_kind null: false."
+    },
+    {
+      "id": "node:fn:twoCallSubmit",
+      "kind": "fn",
+      "cluster": "cluster:inject",
+      "label": "twoCallSubmit(pane, text, agentKind, onScheduledFailure, scheduler)",
+      "subtitle": "Plain-text two-call protocol with claude_code double-return",
+      "source_ref": "src/lib/server/pty-inject-bridge.ts:104-145",
+      "behavior": "1. pasteBufferToTarget(pane, text). 2. Schedule sendEnterToTarget(pane) at +150ms wrapped in try/catch → onScheduledFailure on InjectTmuxFailure. 3. If agent_kind=claude_code: schedule ANOTHER sendEnter at +300ms (Claude Code TUI requires double-return per v3 ask-pty-bridge.ts source).",
+      "annotation_refs": ["ann:context-render-contamination"]
+    },
+    {
+      "id": "node:fn:pasteBufferToTarget",
+      "kind": "fn",
+      "cluster": "cluster:inject",
+      "label": "pasteBufferToTarget(pane, text)",
+      "subtitle": "tmux load-buffer + paste-buffer + delete-buffer",
+      "source_ref": "src/lib/server/pty-inject-bridge.ts:90-108",
+      "behavior": "Each tmux call (load-buffer, paste-buffer, delete-buffer) checks status === 0; throws InjectTmuxFailure on non-zero. paste-buffer failure DEFERS throw so delete-buffer cleanup runs.",
+      "annotation_refs": ["ann:context-render-contamination"]
+    },
+    {
+      "id": "node:fn:sendEnterToTarget",
+      "kind": "fn",
+      "cluster": "cluster:inject",
+      "label": "sendEnterToTarget(pane)",
+      "subtitle": "tmux send-keys -t pane Enter",
+      "source_ref": "src/lib/server/pty-inject-bridge.ts:110-118",
+      "behavior": "Wraps spawnSync; throws InjectTmuxFailure on status !== 0."
+    },
+    {
+      "id": "node:fn:runScrubbedTmux",
+      "kind": "fn",
+      "cluster": "cluster:inject",
+      "label": "runScrubbedTmux(args, stdin?)",
+      "subtitle": "Single env-scrubbed entrypoint for ALL tmux calls (Q6/B3)",
+      "source_ref": "src/lib/server/pty-inject-bridge.ts:21-60",
+      "behavior": "import { spawnSync } from 'node:child_process'. Deletes TMUX, TMUX_PANE, TMUX_PLUGIN_MANAGER_PATH from childEnv. spawn(TMUX_BIN, args, { input, env }) — argv arrays only, NO shell interpolation."
+    },
+    {
+      "id": "node:fn:emitStaleMarker",
+      "kind": "fn",
+      "cluster": "cluster:inject",
+      "label": "emitStaleMarker(roomId, handle)",
+      "subtitle": "Rate-limited (1/handle/room/60min) system-message",
+      "source_ref": "src/lib/server/pty-inject-bridge.ts (rate-limit map)",
+      "behavior": "Module-level Map<roomId+handle, lastTs>. If now - lastTs >= 60min OR no entry: postSystemMessage(roomId, '@<handle> appears offline (pane stale)'). Else silent-drop. Recursion lockout via msg-kind=system being excluded from fanout."
+    },
+
+    {
+      "id": "node:fn:processIdentityChain",
+      "kind": "fn",
+      "cluster": "cluster:identity",
+      "label": "processIdentityChain(startPid?, maxDepth?)",
+      "subtitle": "Walk ps -o ppid= up the tree, capture pid_start at each step",
+      "source_ref": "scripts/ant-cli-identity-chain.mjs:1-66",
+      "behavior": "Default startPid = process.pid. Dedup via seen Set. Max depth 32. Capture pid_start via ps -o lstart= each step. Returns [{pid, pid_start}, ...]. CHAIN-WALK IS DEFAULT-ON in fresh-ANT (v3 had --chain opt-in flag; superseded)."
+    },
+
+    {
+      "id": "node:cli-verb:rooms-list",
+      "kind": "cli-verb",
+      "cluster": "cluster:cli",
+      "label": "ant rooms list",
+      "source_ref": "scripts/ant-cli.mjs DISPATCH + ant-cli-chat.mjs"
+    },
+    {
+      "id": "node:cli-verb:rooms-create",
+      "kind": "cli-verb",
+      "cluster": "cluster:cli",
+      "label": "ant rooms create <name>"
+    },
+    {
+      "id": "node:cli-verb:rooms-post",
+      "kind": "cli-verb",
+      "cluster": "cluster:cli",
+      "label": "ant rooms post <roomId> <message>",
+      "annotation_refs": ["ann:identity-gate-posts"],
+      "note": "CLI does NOT pass --handle; server defaults to '@you' (or '@cli' depending on path), bypassing caller-identity attribution. This is the surface of IDENTITY-GATE-POSTS."
+    },
+    {
+      "id": "node:cli-verb:rooms-messages",
+      "kind": "cli-verb",
+      "cluster": "cluster:cli",
+      "label": "ant rooms messages <roomId>"
+    },
+    {
+      "id": "node:cli-verb:rooms-invite",
+      "kind": "cli-verb",
+      "cluster": "cluster:cli",
+      "label": "ant rooms invite <roomId> <handle>"
+    },
+    {
+      "id": "node:cli-verb:rooms-break",
+      "kind": "cli-verb",
+      "cluster": "cluster:cli",
+      "label": "ant rooms break <roomId> [reason]"
+    },
+    {
+      "id": "node:cli-verb:chat-tail",
+      "kind": "cli-verb",
+      "cluster": "cluster:cli",
+      "label": "ant chat tail --room <roomId> [--once] [--since-ms <ts>]",
+      "source_ref": "scripts/ant-cli-chat.mjs (tail handler)",
+      "behavior": "Default = indefinite polling until SIGINT. --once = single fetch. Strict postOrder lastSeenOrder advance."
+    },
+    {
+      "id": "node:cli-verb:register",
+      "kind": "cli-verb",
+      "cluster": "cluster:cli",
+      "label": "ant register --name <name> [--pane %X] [--agent-kind <kind>] [--ttl 12h] [--mirror-v3]",
+      "source_ref": "scripts/ant-cli-register.mjs:1-208",
+      "behavior": "Calls processIdentityChain(), POSTs to /api/identity/register. --mirror-v3 opt-in opt-in only (default fresh-ANT-only per B5b correction)."
+    },
+    {
+      "id": "node:cli-verb:add-session",
+      "kind": "cli-verb",
+      "cluster": "cluster:cli",
+      "label": "ant add session --pid X | --name Y",
+      "subtitle": "Retrospective registration"
+    },
+    {
+      "id": "node:cli-verb:add-membership",
+      "kind": "cli-verb",
+      "cluster": "cluster:cli",
+      "label": "ant add membership --room R --handle @H --name N"
+    }
+  ],
+
+  "edges": [
+    {
+      "id": "edge:client→post-message",
+      "from": "node:cli-verb:rooms-post",
+      "to": "node:route:post-message",
+      "label": "curl POST {body, authorHandle?, kind?, parentMessageId?}",
+      "kind": "calls"
+    },
+    {
+      "id": "edge:post-message→chatMessageStore",
+      "from": "node:route:post-message",
+      "to": "node:store:chatMessageStore",
+      "label": "postMessage(input)",
+      "kind": "calls",
+      "source_ref": "messages/+server.ts:59"
+    },
+    {
+      "id": "edge:post-message→fanout",
+      "from": "node:route:post-message",
+      "to": "node:fn:fanoutMessageToRoomTerminals",
+      "label": "fanoutMessageToRoomTerminals(roomId, newMessage) — best-effort try/catch",
+      "kind": "calls",
+      "source_ref": "messages/+server.ts:67"
+    },
+    {
+      "id": "edge:fanout→rooms",
+      "from": "node:fn:fanoutMessageToRoomTerminals",
+      "to": "node:store:roomMemberships",
+      "label": "lookup memberships by roomId",
+      "kind": "reads"
+    },
+    {
+      "id": "edge:fanout→terminals",
+      "from": "node:fn:fanoutMessageToRoomTerminals",
+      "to": "node:store:terminals",
+      "label": "lookup terminal_id → pane + agent_kind",
+      "kind": "reads"
+    },
+    {
+      "id": "edge:fanout→queue",
+      "from": "node:fn:fanoutMessageToRoomTerminals",
+      "to": "node:fn:queue-enqueue",
+      "label": "enqueue(queueKeyFor(roomId, terminalId), item) — kind ∈ {human,agent} only",
+      "kind": "calls",
+      "source_ref": "src/lib/server/pty-inject-fanout.ts:80-89 (enqueue block inside fanoutMessageToRoomTerminals; queueKeyFor + queue.enqueue)",
+      "annotation_refs": ["ann:fanout-kind-guard"]
+    },
+    {
+      "id": "edge:queue-flush→verify",
+      "from": "node:fn:queue-enqueue",
+      "to": "node:fn:verifyPaneTargetState",
+      "label": "After 500ms: flush callback iterates batch, calls verify per terminal",
+      "kind": "schedules",
+      "source_ref": "src/lib/server/pty-inject-queue.ts:63-66 (flush callback fires) → src/lib/server/pty-inject-fanout.ts:55-66 (fanout flush handler invokes bridge) → src/lib/server/pty-inject-bridge.ts:213 (injectToTerminal entry, calls verifyPaneTargetState)"
+    },
+    {
+      "id": "edge:verify→runTmux-capture",
+      "from": "node:fn:verifyPaneTargetState",
+      "to": "node:fn:runScrubbedTmux",
+      "label": "Stage 1: capture-pane -t pane -p -S -50",
+      "kind": "calls",
+      "source_ref": "src/lib/server/pty-inject-bridge.ts:74 (capture-pane call inside verifyPaneTargetState)"
+    },
+    {
+      "id": "edge:verify→matcher",
+      "from": "node:fn:verifyPaneTargetState",
+      "to": "node:fn:matchReadyStateFor",
+      "label": "Stage 2: ready-state regex match",
+      "kind": "calls",
+      "source_ref": "src/lib/server/pty-inject-bridge.ts:83 (matchReadyStateFor call inside verifyPaneTargetState)"
+    },
+    {
+      "id": "edge:verify-verified→twoCallSubmit",
+      "from": "node:fn:verifyPaneTargetState",
+      "to": "node:fn:twoCallSubmit",
+      "label": "verified → twoCallSubmit(pane, envelope, agent_kind, onScheduledFailure)",
+      "kind": "calls-on-condition",
+      "condition": "pane_status = verified",
+      "source_ref": "src/lib/server/pty-inject-bridge.ts:213-224 (verified branch in injectToTerminal: builds onScheduledFailure closure + calls twoCallSubmit)"
+    },
+    {
+      "id": "edge:verify-stale→stale-marker",
+      "from": "node:fn:verifyPaneTargetState",
+      "to": "node:fn:emitStaleMarker",
+      "label": "stale OR unknown → emit rate-limited system-message",
+      "kind": "calls-on-condition",
+      "condition": "pane_status ∈ {stale, unknown}",
+      "source_ref": "src/lib/server/pty-inject-bridge.ts:237-241 (stale branch in injectToTerminal: markPaneStale + emitStaleMarker) + :215-220 (onScheduledFailure closure markPaneStale path) + :225-230 (verify-returned-stale branch)"
+    },
+    {
+      "id": "edge:twoCall→pasteBuffer",
+      "from": "node:fn:twoCallSubmit",
+      "to": "node:fn:pasteBufferToTarget",
+      "label": "Step 1: paste-buffer text",
+      "kind": "calls",
+      "source_ref": "src/lib/server/pty-inject-bridge.ts:130 (pasteBufferToTarget call in twoCallSubmit, scheduler step 1)"
+    },
+    {
+      "id": "edge:twoCall→sendEnter-150",
+      "from": "node:fn:twoCallSubmit",
+      "to": "node:fn:sendEnterToTarget",
+      "sourceHandle": "source-bottom",
+      "label": "Step 2: setTimeout 150ms → sendEnter (try/catch → onScheduledFailure)",
+      "kind": "schedules",
+      "source_ref": "src/lib/server/pty-inject-bridge.ts:130-140 (scheduler 150ms wrap, try/catch routes to onScheduledFailure on InjectTmuxFailure)"
+    },
+    {
+      "id": "edge:twoCall→sendEnter-300",
+      "from": "node:fn:twoCallSubmit",
+      "to": "node:fn:sendEnterToTarget",
+      "sourceHandle": "source-bottom",
+      "label": "Step 3: claude_code only — setTimeout 300ms → SECOND sendEnter (try/catch → onScheduledFailure)",
+      "kind": "schedules-conditional",
+      "condition": "agent_kind = claude_code",
+      "source_ref": "src/lib/server/pty-inject-bridge.ts:134-136 (nested scheduler 300ms inside if agentKind === 'claude_code', try/catch routes to onScheduledFailure)"
+    },
+    {
+      "id": "edge:pasteBuffer→runTmux",
+      "from": "node:fn:pasteBufferToTarget",
+      "to": "node:fn:runScrubbedTmux",
+      "label": "tmux load-buffer + paste-buffer + delete-buffer (status assertions on each)",
+      "kind": "calls",
+      "source_ref": "src/lib/server/pty-inject-bridge.ts:95-108 (load-buffer status check + paste-buffer status check + delete-buffer in finally, all via runScrubbedTmux)"
+    },
+    {
+      "id": "edge:sendEnter→runTmux",
+      "from": "node:fn:sendEnterToTarget",
+      "to": "node:fn:runScrubbedTmux",
+      "label": "tmux send-keys -t pane Enter",
+      "kind": "calls",
+      "source_ref": "src/lib/server/pty-inject-bridge.ts:110-118 (sendEnterToTarget calls runScrubbedTmux('send-keys', ...) + status assertion)"
+    },
+    {
+      "id": "edge:emit-stale→system-msg",
+      "from": "node:fn:emitStaleMarker",
+      "to": "node:msg-kind:system",
+      "label": "postSystemMessage(roomId, '@<handle> appears offline (pane stale)')",
+      "kind": "produces",
+      "annotation_refs": ["ann:fanout-kind-guard"],
+      "source_ref": "src/lib/server/pty-inject-fanout.ts:69-74 (postSystemMessage call producing stale-marker after rate-limit check) + chatMessageStore.ts:95-120 (postSystemMessage definition: kind='system', authorHandle='@system')",
+      "note": "system-kind message — guaranteed NOT to re-enter fanout (recursion lockout)"
+    },
+
+    {
+      "id": "edge:register→identity-chain",
+      "from": "node:cli-verb:register",
+      "to": "node:fn:processIdentityChain",
+      "label": "default-on chain walk",
+      "kind": "calls"
+    },
+    {
+      "id": "edge:register→identity-register-route",
+      "from": "node:cli-verb:register",
+      "to": "node:route:identity-register",
+      "label": "POST {pids, name, pane?, agent_kind?, ttl_seconds?}",
+      "kind": "calls"
+    },
+    {
+      "id": "edge:identity-register→terminals",
+      "from": "node:route:identity-register",
+      "to": "node:store:terminals",
+      "label": "upsertTerminal(...)",
+      "kind": "writes"
+    },
+    {
+      "id": "edge:identity-resolve→terminals",
+      "from": "node:route:identity-resolve",
+      "to": "node:store:terminals",
+      "label": "lookupByPidChain(pids)",
+      "kind": "reads"
+    },
+    {
+      "id": "edge:identity-resolve→memberships",
+      "from": "node:route:identity-resolve",
+      "to": "node:store:roomMemberships",
+      "label": "if room_id given: getRoomScopedHandle(roomId, terminal_id)",
+      "kind": "reads-on-condition"
+    },
+
+    {
+      "id": "edge:add-membership→sessions-add",
+      "from": "node:cli-verb:add-membership",
+      "to": "node:route:sessions-add",
+      "label": "POST {room_id, handle, terminal_name | terminal_id}",
+      "kind": "calls"
+    },
+    {
+      "id": "edge:sessions-add→memberships",
+      "from": "node:route:sessions-add",
+      "to": "node:store:roomMemberships",
+      "label": "addMembership(roomId, handle, terminal_id)",
+      "kind": "writes"
+    },
+
+    {
+      "id": "edge:rooms-create→chatRoomStore",
+      "from": "node:route:chat-rooms-create",
+      "to": "node:store:chatRoomStore",
+      "label": "createChatRoom({name, whoCreatedIt})",
+      "kind": "writes"
+    },
+    {
+      "id": "edge:rooms-list→chatRoomStore",
+      "from": "node:route:chat-rooms-list",
+      "to": "node:store:chatRoomStore",
+      "label": "listChatRooms()",
+      "kind": "reads"
+    },
+    {
+      "id": "edge:get-messages→chatMessageStore",
+      "from": "node:route:get-messages",
+      "to": "node:store:chatMessageStore",
+      "label": "listMessagesInRoom(roomId)",
+      "kind": "reads"
+    },
+    {
+      "id": "edge:plan-get→planMode",
+      "from": "node:route:plan-get",
+      "to": "node:store:planMode",
+      "label": "projectPlanEvents(planId)",
+      "kind": "reads"
+    },
+    {
+      "id": "edge:plan-post→planMode",
+      "from": "node:route:plan-post",
+      "to": "node:store:planMode",
+      "label": "appendPlanEvent(event)",
+      "kind": "writes"
+    },
+    {
+      "id": "edge:plan-mode-page→planMode",
+      "from": "node:route:plan-mode-page",
+      "to": "node:store:planMode",
+      "label": "SSR loads projectPlanEvents(planId)",
+      "kind": "reads"
+    }
+  ],
+
+  "_handoff_notes_for_evolveantclaude": [
+    "Node IDs are stable — use exactly as-is for create_node calls.",
+    "Edge IDs are stable — use exactly as-is for create_edge calls. Unicode arrows fine (system uses UUIDs internally; ant-id is metadata only).",
+    "Cluster assignment via the 'cluster' field on each node — set color from the clusters list.",
+    "Annotations have id refs from nodes/edges — render as visual flags (e.g. red for blocker/security-incident, amber for warning, green for design-correctness).",
+    "Source-refs (file:line) are present where I had read access — evolveantcodex factual-drift review should grep these to verify shape.",
+    "CORRECTED COUNT 2026-05-13 (after evolveantcodex pre-ingest HOLD): 6 clusters, 4 annotations, 41 nodes (6 stores + 4 msg-kinds + 11 routes + 10 fns + 10 cli-verbs), 30 edges. Earlier metadata said 31/27 which was a counting error in researchant's first pass.",
+    "AMENDED 2026-05-13: source_ref added to 10 inject-chain edges per evolveantcodex review (fanout→queue, queue-flush→verify, verify→runTmux-capture, verify→matcher, verify-verified→twoCallSubmit, twoCall→pasteBuffer, twoCall→sendEnter-150, twoCall→sendEnter-300, pasteBuffer→runTmux, sendEnter→runTmux, emit-stale→system-msg)."
+  ]
+}

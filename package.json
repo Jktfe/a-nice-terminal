@@ -1,0 +1,69 @@
+{
+  "name": "ant-vnext",
+  "private": true,
+  "version": "0.1.4",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Jktfe/a-nice-terminal.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Jktfe/a-nice-terminal/issues"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev --host 127.0.0.1 --port 6174",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 6174",
+    "start": "node scripts/start-snapshot.mjs",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check:component-size": "node scripts/check-component-lines.mjs",
+    "check:v3-bias": "node scripts/check-v3-bias.mjs",
+    "test": "vitest run",
+    "code-qa": "bun run check:component-size && bun run check && bun run test",
+    "rebuild:sqlite": "npm rebuild better-sqlite3",
+    "auth:cutover-check": "node scripts/check-auth-cutover.mjs",
+    "seed:overnight": "node scripts/seed-overnight-plan.mjs",
+    "prebuild:cli": "node scripts/build-cli-version-constant.mjs",
+    "build:cli:arm64-darwin": "bun run prebuild:cli && bun build --compile --target=bun-darwin-arm64 ./scripts/ant-cli.mjs --outfile dist/ant-aarch64-apple-darwin",
+    "build:cli:x64-darwin": "bun run prebuild:cli && bun build --compile --target=bun-darwin-x64 ./scripts/ant-cli.mjs --outfile dist/ant-x86_64-apple-darwin",
+    "build:cli:darwin": "bun run build:cli:arm64-darwin && bun run build:cli:x64-darwin",
+    "build:cli:win-x64": "bun run prebuild:cli && bun build --compile --target=bun-windows-x64 ./scripts/ant-cli.mjs --outfile dist/ant-x86_64-pc-windows-msvc.exe",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-auto": "^6.0.0",
+    "@sveltejs/adapter-node": "^5.5.4",
+    "@sveltejs/kit": "^2.0.0",
+    "@sveltejs/vite-plugin-svelte": "^5.0.0",
+    "@tauri-apps/cli": "^2",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/dompurify": "^3.2.0",
+    "@types/qrcode": "^1.5.6",
+    "jsdom": "^29.1.1",
+    "svelte": "^5.0.0",
+    "svelte-check": "^4.0.0",
+    "typescript": "^5.0.0",
+    "vite": "^6.0.0",
+    "vitest": "^3.0.0"
+  },
+  "dependencies": {
+    "@svar-ui/svelte-gantt": "^2.6.2",
+    "@univerjs/core": "^0.22.1",
+    "@univerjs/design": "^0.22.1",
+    "@univerjs/docs": "^0.22.1",
+    "@univerjs/sheets": "^0.22.1",
+    "@univerjs/slides": "^0.22.1",
+    "@univerjs/ui": "^0.22.1",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.10.0",
+    "isomorphic-dompurify": "^3.13.0",
+    "marked": "^18.0.3",
+    "otpauth": "^9.5.1",
+    "protobufjs": "^8.3.0",
+    "qrcode": "^1.5.4",
+    "vscode-jsonrpc": "^8.2.1"
+  }
+}

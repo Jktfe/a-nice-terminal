@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#fff7ed" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#0c1021" media="(prefers-color-scheme: dark)" />
+<title>ANT Desktop — First Run</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 2rem; background: #fff7ed; color: #2c2a26; max-width: 480px; margin: 0 auto; }
+  h1 { margin: 0 0 0.5rem; font-weight: 600; }
+  p { color: #6b6862; margin: 0.25rem 0 1.5rem; }
+  label { display: block; margin: 1rem 0 0.25rem; font-weight: 500; }
+  input { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #d6d3d1; border-radius: 6px; background: white; color: #2c2a26; font-size: 1rem; box-sizing: border-box; }
+  button { margin-top: 1.5rem; padding: 0.5rem 1rem; background: #dc6a4d; color: white; border: 0; border-radius: 6px; font-size: 1rem; cursor: pointer; }
+  button:hover { background: #c25a40; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .err { color: #dc2626; margin-top: 0.5rem; font-size: 0.875rem; min-height: 1.25rem; }
+  .ok { color: #059669; margin-top: 0.5rem; font-size: 0.875rem; min-height: 1.25rem; }
+  .tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+  .tab { padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; background: #e7e5e4; border: none; }
+  .tab.active { background: #dc6a4d; color: white; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  .row { display: flex; gap: 0.5rem; align-items: flex-end; }
+  .row input { flex: 1; }
+  .row button { margin-top: 1rem; padding: 0.5rem 0.75rem; font-size: 0.875rem; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #0c1021; color: #e6e4dd; }
+    p { color: #9a9690; }
+    input { background: #1a1f2e; color: #e6e4dd; border-color: #2c3142; }
+    .err { color: #f87171; }
+    .ok { color: #34d399; }
+    .tab { background: #1a1f2e; }
+  }
+</style>
+</head>
+<body>
+<h1>ANT Desktop</h1>
+<p>Connect to your ANT server. Choose a sign-in method.</p>
+
+<div class="tabs">
+  <button class="tab active" data-tab="login">Team Login</button>
+  <button class="tab" data-tab="invite">Invite Token</button>
+</div>
+
+<div class="tab-panel active" id="panel-login">
+  <label for="serverUrl">Server URL</label>
+  <div class="row">
+    <input id="serverUrl" type="url" placeholder="https://your-host.example.com:6458" />
+    <button id="btnTestLogin">Test</button>
+  </div>
+  <div class="ok" id="okLogin"></div>
+
+  <label for="email">Email</label>
+  <input id="email" type="email" placeholder="redacted@example.com" />
+
+  <label for="password">Password</label>
+  <input id="password" type="password" placeholder="••••••" />
+
+  <label for="license">License Key</label>
+  <input id="license" type="text" placeholder="ANT-XXXX-XXXX" />
+
+  <button id="btnLogin">Sign In</button>
+  <div class="err" id="errLogin"></div>
+</div>
+
+<div class="tab-panel" id="panel-invite">
+  <label for="invUrl">Server URL</label>
+  <div class="row">
+    <input id="invUrl" type="url" placeholder="https://your-host.example.com:6458" />
+    <button id="btnTestInvite">Test</button>
+  </div>
+  <div class="ok" id="okInvite"></div>
+
+  <label for="roomId">Room ID</label>
+  <input id="roomId" type="text" placeholder="ms25g8vtlh" />
+
+  <label for="token">Invite Token</label>
+  <input id="token" type="text" placeholder="ant_t_..." />
+
+  <button id="btnInvite">Connect</button>
+  <div class="err" id="errInvite"></div>
+</div>
+
+<script>
+const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+const invoke = isTauri ? window.__TAURI__.core.invoke : null;
+
+async function saveConfig(cfg) {
+  if (isTauri) {
+    await invoke('save_desktop_config', cfg);
+  } else {
+    for (const [k, v] of Object.entries(cfg)) {
+      localStorage.setItem('ant:' + k, v);
+    }
+  }
+}
+
+function bindTest(btnId, urlId, okId) {
+  document.getElementById(btnId).addEventListener('click', async () => {
+    const url = document.getElementById(urlId).value.trim();
+    const ok = document.getElementById(okId);
+    ok.textContent = '';
+    ok.className = 'ok';
+    if (!/^https?:\/\//.test(url)) { ok.textContent = 'URL must start with http:// or https://'; ok.className = 'err'; return; }
+    try {
+      const res = await fetch(url + '/api/health', { method: 'GET', signal: AbortSignal.timeout(5000) });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        ok.textContent = 'Server reachable — status: ' + (data.status || 'ok');
+      } else {
+        ok.textContent = 'Server returned ' + res.status;
+        ok.className = 'err';
+      }
+    } catch (e) {
+      ok.textContent = 'Unreachable: ' + (e?.message || e);
+      ok.className = 'err';
+    }
+  });
+}
+
+bindTest('btnTestLogin', 'serverUrl', 'okLogin');
+bindTest('btnTestInvite', 'invUrl', 'okInvite');
+
+// Tab switching
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+// Team Login flow
+document.getElementById('btnLogin').addEventListener('click', async () => {
+  const serverUrl = document.getElementById('serverUrl').value.trim();
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+  const license = document.getElementById('license').value.trim();
+  const err = document.getElementById('errLogin');
+  err.textContent = '';
+
+  if (!/^https?:\/\//.test(serverUrl)) { err.textContent = 'Server URL must start with http:// or https://'; return; }
+  if (!email) { err.textContent = 'Email required.'; return; }
+  if (!password) { err.textContent = 'Password required.'; return; }
+  if (!license) { err.textContent = 'License key required.'; return; }
+
+  try {
+    const res = await fetch(serverUrl + '/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, license })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      err.textContent = data.message || 'Login failed (' + res.status + ')';
+      return;
+    }
+    if (!data.token) {
+      err.textContent = 'No token returned by server.';
+      return;
+    }
+    await saveConfig({ server_url: serverUrl, room_id: '', bridge_token: data.token });
+    location.href = serverUrl + '/rooms';
+  } catch (e) {
+    err.textContent = 'Request failed: ' + (e?.message || e);
+  }
+});
+
+// Invite Token flow
+document.getElementById('btnInvite').addEventListener('click', async () => {
+  const serverUrl = document.getElementById('invUrl').value.trim();
+  const roomId = document.getElementById('roomId').value.trim();
+  const token = document.getElementById('token').value.trim();
+  const err = document.getElementById('errInvite');
+  err.textContent = '';
+
+  if (!/^https?:\/\//.test(serverUrl)) { err.textContent = 'Server URL must start with http:// or https://'; return; }
+  if (!roomId) { err.textContent = 'Room ID required.'; return; }
+  if (!token) { err.textContent = 'Invite token required.'; return; }
+
+  try {
+    await saveConfig({ server_url: serverUrl, room_id: roomId, bridge_token: token });
+    location.href = serverUrl + '/r/' + roomId;
+  } catch (e) {
+    err.textContent = 'Storage failed: ' + (e?.message || e);
+  }
+});
+
+// Auto-fill from saved config
+(async () => {
+  if (!isTauri) {
+    const saved = localStorage.getItem('ant:server_url');
+    if (saved && location.hash !== '#configure') { location.href = saved + '/rooms'; }
+  }
+})();
+</script>
+</body>
+</html>

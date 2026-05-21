@@ -1,0 +1,30 @@
+{
+  "version": "0.1.1",
+  "description": "ANT Desktop — Tauri thin-client for Windows",
+  "homepage": "https://github.com/Jktfe/antDev",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/Jktfe/antDev/releases/download/antchat-tauri-v0.1.1/ANT_0.1.1_x64_en-US.msi",
+      "hash": "b1473b3ef98af5cbf3bd599536713fac285c746e4a998fffb19477b79a323275"
+    }
+  },
+  "bin": "ANT.exe",
+  "shortcuts": [
+    [
+      "ANT.exe",
+      "ANT Desktop"
+    ]
+  ],
+  "checkver": {
+    "url": "https://github.com/Jktfe/antDev/releases/latest",
+    "regex": "antchat-tauri-v([\\d.]+)"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/Jktfe/antDev/releases/download/antchat-tauri-v$version/ANT_$version_x64_en-US.msi"
+      }
+    }
+  }
+}

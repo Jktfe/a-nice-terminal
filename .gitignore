@@ -1,0 +1,61 @@
+.DS_Store
+node_modules/
+.svelte-kit/
+build/
+.ant-runtime/
+dist/
+.vite/
+.env
+.env.*
+!.env.example
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+coverage/
+playwright-report/
+test-results/
+*.log
+.mcp.json
+.claude/
+.ant-agent-sheet/
+screenshots/
+static/artefacts/
+
+# Tauri (m6.4)
+src-tauri/target/
+src-tauri/gen/
+
+
+# Agent-spawned worktree dirs (per-session, ephemeral)
+.claude/worktrees/
+.worktrees/
+
+# Operator-deployed launchd plists may carry absolute home paths,
+# node-bin paths, and secrets-env paths that should never land in
+# the OSS history. The `.template` shipped variant has placeholders
+# operators substitute; the live file stays local.
+deploy/com.ant.fresh.plist
+deploy/*.plist
+!deploy/*.plist.template
+
+# Editor + tooling crud
+.idea/
+.vscode/
+*.swp
+*~
+
+# Backup files (any .bak, .bak-YYYY-MM-DD, .bak-pre-foo, etc)
+*.bak
+*.bak-*
+
+# OS noise
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Account-strategy deck artefacts — user-management discussion is OUT of
+# OSS scope (per JWPK msg_l3l92803r9 + users-room convergence with
+# @usermgtclaude). Slides live on disk + are served via the local
+# launchd OSS server but MUST NOT ship in the public OSS repo.
+static/artefacts/jfeboje2kj/
