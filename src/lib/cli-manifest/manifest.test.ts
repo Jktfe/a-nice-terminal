@@ -124,8 +124,17 @@ describe('cli-manifest schema integrity', () => {
 });
 
 describe('cli-manifest source_ref grep validity (available verbs only)', () => {
+  // Verbs flagged repo='v3' (or any non-fresh-ant repo) live in a different
+  // codebase that isn't checked out alongside this one. Their source_refs
+  // point at v3 paths like `cli/commands/plan.ts:160-190` which by design
+  // don't exist locally. Skip them so the grep-validity tests only assert
+  // on source_refs we own.
+  const isLocalRepoVerb = (verb: { repo?: string }) =>
+    verb.repo === undefined || verb.repo === 'fresh-ant';
+
   it('every available source_ref points to an existing file', () => {
     for (const verb of listAvailableVerbs()) {
+      if (!isLocalRepoVerb(verb)) continue;
       for (const { filePath } of parseSourceRefs(verb.source_ref, verb)) {
         expect(existsSync(filePath), `available verb ${verb.id} source_ref file missing: ${filePath}`).toBe(true);
       }
@@ -134,6 +143,7 @@ describe('cli-manifest source_ref grep validity (available verbs only)', () => {
 
   it('every available source_ref line range is within the file', () => {
     for (const verb of listAvailableVerbs()) {
+      if (!isLocalRepoVerb(verb)) continue;
       for (const { filePath, lineRanges } of parseSourceRefs(verb.source_ref, verb)) {
         if (lineRanges.length === 0) continue;
         const fileLineCount = readFileSync(filePath, 'utf8').split('\n').length;
