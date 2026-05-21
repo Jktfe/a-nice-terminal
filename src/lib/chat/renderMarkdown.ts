@@ -1,14 +1,47 @@
 /**
  * Safe markdown → HTML renderer for chat messages.
  *
- * Ported from v3 src/lib/markdown/chat-markdown.ts (M-MSGRENDER).
- * Uses marked (GFM) + isomorphic-dompurify for XSS protection.
- * Wraps tables in scrollable containers for mobile/overflow safety.
+ * marked (GFM) + sanitize-html for XSS protection. Wraps tables in
+ * scrollable containers for mobile/overflow safety.
  *
- * Task #59 / M-MSGRENDER slice 1 (tables) / evolveantdeep
+ * Why sanitize-html not DOMPurify: DOMPurify needs a DOM (jsdom in
+ * Node), and jsdom@29 pulls @exodus/bytes which became ESM-only —
+ * breaking CJS-require chains in our Node-22 test runner. sanitize-html
+ * is pure-Node, no DOM dep, identical security guarantee for the
+ * markdown-derived HTML we feed it.
  */
 import { marked } from 'marked';
-import DOMPurify from 'isomorphic-dompurify';
+import sanitizeHtml from 'sanitize-html';
+
+const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
+  allowedTags: [
+    'a', 'b', 'i', 'em', 'strong', 'code', 'pre', 'p', 'br', 'hr',
+    'ul', 'ol', 'li', 'blockquote',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'table', 'thead', 'tbody', 'tr', 'th', 'td',
+    'span', 'div'
+  ],
+  allowedAttributes: {
+    a: ['href', 'name', 'target', 'rel'],
+    code: ['class'],
+    pre: ['class'],
+    span: ['class'],
+    div: ['class'],
+    th: ['align'],
+    td: ['align']
+  },
+  allowedSchemes: ['http', 'https', 'mailto'],
+  // HTML5 void elements, not XHTML — emit `<br>` not `<br />`. Matches
+  // the markup marked produces directly and keeps chat-message tests
+  // that grep for `<br>` working.
+  selfClosing: [],
+  // Marked emits href before the visible text; sanitize-html keeps both.
+  // Force noopener+noreferrer on external links so a rogue rel attribute
+  // can't open a tabnabbing path.
+  transformTags: {
+    a: sanitizeHtml.simpleTransform('a', { rel: 'noopener noreferrer' })
+  }
+};
 
 const TABLE_OPEN_RE = /<table(\s[^>]*)?>/gi;
 const TABLE_CLOSE_RE = /<\/table>/gi;
@@ -65,5 +98,5 @@ export function renderMarkdown(raw: string | null | undefined): string {
   if (!raw) return '';
   const normalised = unescapeShellEscapes(raw);
   const parsed = marked.parse(normalised, { breaks: true, gfm: true }) as string;
-  return wrapTables(DOMPurify.sanitize(parsed));
+  return wrapTables(sanitizeHtml(parsed, SANITIZE_OPTIONS));
 }
