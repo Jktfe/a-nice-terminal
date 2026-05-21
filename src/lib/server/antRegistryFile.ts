@@ -94,6 +94,11 @@ function listRegistryRows(): RegistryRow[] {
   `).all() as RegistryRow[];
 
   const seen = new Set(recordRows.map((row) => row.session_id));
+  // Filter out browser-session rows: those are page-load tracking entries
+  // (cookie issuance, identity-gate pidchain stub, etc.), not operator-
+  // named terminals. Including them was noise — the Registry should be a
+  // human-readable list of REAL agents, not a SQL dump. Per JWPK
+  // 2026-05-21 ("ANT Registry.md is filled with a load of noise…").
   const terminalOnlyRows = db.prepare(`
     SELECT
       t.id AS session_id,
@@ -106,6 +111,8 @@ function listRegistryRows(): RegistryRow[] {
       t.source AS terminal_source,
       NULL AS record_updated_at_ms
     FROM terminals t
+    WHERE t.source NOT LIKE 'browser-session%'
+      AND (t.agent_kind IS NULL OR t.agent_kind != 'browser')
   `).all() as RegistryRow[];
 
   return [...recordRows, ...terminalOnlyRows.filter((row) => !seen.has(row.session_id))]
