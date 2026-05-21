@@ -5,14 +5,15 @@
   backdrop click dismissal, focus trap, aria attributes.
 
   Snippet props:
-    - title     → h2 content
-    - children  → body content (default slot)
-    - actions   → button row
+    - title       → h2 content
+    - headerRight → optional content placed to the right of the title (e.g. close button)
+    - children    → body content (default slot)
+    - actions     → button row
 
   Props:
-    - open      → boolean, controls visibility
-    - onCancel  → called on Escape, backdrop click, or explicit cancel
-    - size?     → 'narrow' | 'default' | 'wide' (default: 'default')
+    - open        → boolean, controls visibility
+    - onCancel    → called on Escape, backdrop click, or explicit cancel
+    - size?       → 'narrow' | 'default' | 'wide' (default: 'default')
     - data-testid → optional
 -->
 <script lang="ts">
@@ -24,11 +25,12 @@
     size?: 'narrow' | 'default' | 'wide';
     'data-testid'?: string;
     title?: Snippet;
+    headerRight?: Snippet;
     actions?: Snippet;
     children?: Snippet;
   };
 
-  let { open, onCancel, size = 'default', 'data-testid': testId, title, actions, children }: Props = $props();
+  let { open, onCancel, size = 'default', 'data-testid': testId, title, headerRight, actions, children }: Props = $props();
 
   let dialogElement = $state<HTMLDialogElement | null>(null);
   let headingId = $state(`modal-heading-${Math.random().toString(36).slice(2, 8)}`);
@@ -72,7 +74,12 @@
   onclick={handleBackdropClick}
   oncancel={handleCancelEvent}
 >
-  <h2 id={headingId}>{@render title?.()}</h2>
+  <div class="modal-shell__header">
+    <h2 id={headingId}>{@render title?.()}</h2>
+    {#if headerRight}
+      <div class="modal-shell__header-right">{@render headerRight()}</div>
+    {/if}
+  </div>
   <div class="modal-shell__body">{@render children?.()}</div>
   <div class="modal-shell__actions">{@render actions?.()}</div>
 </dialog>
@@ -103,11 +110,23 @@
     width: min(560px, calc(100vw - 2rem));
   }
 
-  .modal-shell h2 {
-    margin: 0 0 0.9rem;
+  .modal-shell__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 0.9rem;
+  }
+
+  .modal-shell__header h2 {
+    margin: 0;
     font-size: 1.05rem;
     font-weight: 800;
     color: var(--ink-strong);
+  }
+
+  .modal-shell__header-right {
+    flex-shrink: 0;
   }
 
   .modal-shell__body {
