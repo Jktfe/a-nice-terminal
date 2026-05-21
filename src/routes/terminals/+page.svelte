@@ -44,7 +44,6 @@
   let modalSessionId = $state<string | null>(null);
   let pendingName = $state('');
   let pendingUser = $state('@you');
-  let pendingAllowlist = $state('');  // free-text fallback for custom handles
   let pendingPickedHandles = $state<string[]>([]);  // multi-select from existing handles
 
   // PICKER-SAME-SET 2026-05-14: picker source == bottom-tier ANT terminals
@@ -90,7 +89,6 @@
     modalSessionId = null;
     pendingName = `Terminal ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
     pendingUser = '@you';
-    pendingAllowlist = '';
     pendingPickedHandles = [];
     modalOpen = true;
   }
@@ -100,7 +98,6 @@
     modalSessionId = pane.sessionId;
     pendingName = `Attached ${pane.sessionId.slice(0, 8)}`;
     pendingUser = '@you';
-    pendingAllowlist = '';
     pendingPickedHandles = [];
     modalOpen = true;
   }
@@ -109,10 +106,6 @@
     modalOpen = false;
     pendingName = '';
     modalSessionId = null;
-  }
-
-  function parseAllowlist(raw: string): string[] {
-    return raw.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
   }
 
   async function confirmClaim(): Promise<void> {
@@ -125,9 +118,7 @@
     try {
       const body: Record<string, unknown> = { name, user };
       if (modalSessionId) body.sessionId = modalSessionId;
-      const customAllowlist = parseAllowlist(pendingAllowlist);
-      const allowlist = [...new Set([...pendingPickedHandles, ...customAllowlist])];
-      if (allowlist.length > 0) body.allowlist = allowlist;
+      if (pendingPickedHandles.length > 0) body.allowlist = [...pendingPickedHandles];
       const res = await fetch('/api/terminals', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -307,8 +298,6 @@
         />
       {/key}
     </section>
-  {:else}
-    <p class="empty">No terminals attached. Click a chip above or "+ New ANT terminal".</p>
   {/if}
 
   <KillConfirmModal
@@ -335,20 +324,24 @@
 
         <fieldset class="allowlist-picker">
           <legend>Allowlist (optional)</legend>
-          <p class="picker-hint">Pick from known handles or add custom below. Empty = creator + operator only.</p>
+          <p class="picker-hint">Empty = creator + operator only.</p>
           {#if availableHandles.length === 0}
             <p class="picker-empty">No handles registered yet.</p>
           {:else}
             <div class="handle-pills">
               {#each availableHandles as h (h)}
-                <label class="handle-toggle">
-                  <input type="checkbox" checked={pendingPickedHandles.includes(h)} onchange={() => toggleHandle(h)} />
+                <button
+                  type="button"
+                  class="handle-pill"
+                  class:selected={pendingPickedHandles.includes(h)}
+                  aria-pressed={pendingPickedHandles.includes(h)}
+                  onclick={() => toggleHandle(h)}
+                >
                   {h}
-                </label>
+                </button>
               {/each}
             </div>
           {/if}
-          <input type="text" bind:value={pendingAllowlist} placeholder="extra handles: @alice,@bob" aria-label="Custom allowlist handles" />
         </fieldset>
         <div class="actions">
           <button type="button" class="secondary" onclick={cancelModal}>Cancel</button>
@@ -392,7 +385,6 @@
   .chip-kill:hover { color: var(--accent, #c63b3b); border-color: var(--accent, #c63b3b); background: var(--bg); opacity: 1; }
   .error { margin: 0; color: var(--accent); font-weight: 800; }
   .terminal-mount { border-radius: 0.85rem; }
-  .empty { margin: 1rem 0; padding: 1.25rem; border-radius: 0.85rem; border: 1px dashed var(--surface-edge); background: var(--bg); color: var(--ink-soft); text-align: center; }
   .modal-backdrop { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; padding: 1rem; }
   .modal-card { background: var(--surface-card); border: 1px solid var(--line-soft); border-radius: 0.8rem; padding: 1.25rem; max-width: 28rem; width: 100%; display: grid; gap: 0.55rem; }
   .modal-card h2 { margin: 0; color: var(--ink-strong); }
@@ -405,7 +397,7 @@
   .allowlist-picker legend { padding: 0 0.3rem; font-size: 0.78rem; color: var(--ink-soft); }
   .picker-hint, .picker-empty { margin: 0; font-size: 0.75rem; color: var(--ink-soft); }
   .handle-pills { display: flex; flex-wrap: wrap; gap: 0.3rem; }
-  .handle-toggle { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.2rem 0.5rem; border: 1px solid var(--line-soft); border-radius: 999px; background: var(--bg); font-size: 0.78rem; font-family: ui-monospace, monospace; cursor: pointer; }
-  .handle-toggle input { margin: 0; }
-  .handle-toggle:has(input:checked) { border-color: var(--accent); color: var(--accent); }
+  .handle-pill { padding: 0.25rem 0.7rem; border: 1px solid var(--line-soft); border-radius: 999px; background: var(--bg); color: var(--ink-strong); font-size: 0.8rem; font-family: ui-monospace, monospace; cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s; }
+  .handle-pill:hover { border-color: var(--accent); color: var(--accent); }
+  .handle-pill.selected { background: var(--accent); border-color: var(--accent); color: white; font-weight: 700; }
 </style>
