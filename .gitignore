@@ -59,3 +59,6 @@ Desktop.ini
 # @usermgtclaude). Slides live on disk + are served via the local
 # launchd OSS server but MUST NOT ship in the public OSS repo.
 static/artefacts/jfeboje2kj/
+
+# Antigravity CLI runtime state (per-session UUID files; not source)
+.antigravitycli/
