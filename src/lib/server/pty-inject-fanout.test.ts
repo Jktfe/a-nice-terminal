@@ -258,6 +258,37 @@ describe('fanoutMessageToRoomTerminals — mention-targeted routing', () => {
     expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t2.id}`)).toBe(1);
   });
 
+  it('PID-as-identity (slice 3): mention of an OLDER stacked alias still routes', () => {
+    // Pre-slice-3 fanout fell back to findAliasForHandleInRoom which only
+    // returned the most-recently-set alias. Stack two aliases, mention the
+    // OLDER one, and the agent should still receive — proves the resolver
+    // walks the full alias table not just the latest row.
+    const room = createChatRoom({ name: 'stacked-alias-room', whoCreatedIt: '@test' });
+    const sender = upsertTerminal({ pid: 9001, pid_start: 'p1', name: 'stacked-sender' });
+    const target = upsertTerminal({ pid: 9002, pid_start: 'p2', name: 'stacked-target' });
+    updatePaneTarget(target.id, '%stacked-target', 'claude_code');
+    addMembership({ room_id: room.id, handle: '@sender', terminal_id: sender.id });
+    addMembership({ room_id: room.id, handle: '@evolveantcodex', terminal_id: target.id });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@evolveantcodex' });
+    // Older alias first, newer alias second — both should route.
+    setRoomAlias({ roomId: room.id, globalHandle: '@evolveantcodex', newAlias: '@codex-mac' });
+    setRoomAlias({ roomId: room.id, globalHandle: '@evolveantcodex', newAlias: '@cdx-latest' });
+
+    const olderMention = postMessage({
+      roomId: room.id, authorHandle: '@sender',
+      body: '@codex-mac older alias should still route', kind: 'human'
+    });
+    fanoutMessageToRoomTerminals(room.id, olderMention);
+    expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${target.id}`)).toBe(1);
+
+    const newerMention = postMessage({
+      roomId: room.id, authorHandle: '@sender',
+      body: '@cdx-latest and the newer alias too', kind: 'human'
+    });
+    fanoutMessageToRoomTerminals(room.id, newerMention);
+    expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${target.id}`)).toBe(2);
+  });
+
   it('bare @everyone enqueues every room member except sender', () => {
     const room = createChatRoom({ name: 'everyone-room', whoCreatedIt: '@test' });
     const t1 = upsertTerminal({ pid: 1, pid_start: 'p1', name: 'sender-term' });
