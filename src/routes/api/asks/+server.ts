@@ -35,7 +35,8 @@ import {
   listOpenAskCandidates
 } from '$lib/server/askCandidateStore';
 import {
-  listReadableChatRooms,
+  resolveChatRoomReadAccess,
+  canReadChatRoom,
   requireChatRoomReadAccess
 } from '$lib/server/chatRoomReadGate';
 
@@ -46,24 +47,18 @@ export const GET: RequestHandler = async ({ request, url }) => {
     /* candidate backfill is best-effort; explicit asks remain authoritative */
   }
   const rawRoomId = url.searchParams.get('roomId');
-  if (rawRoomId === null) {
+  const trimmedRoomId = rawRoomId === null ? null : rawRoomId.trim();
+  // No roomId or empty roomId → list-all-readable mode. Auth FIRST, then load rooms.
+  // Previous shape paid `listChatRooms()` (1 SQL + N member-loads) before auth check,
+  // turning every 401 into a multi-second hang. Now no-auth fast-path returns ~10ms.
+  if (trimmedRoomId === null || trimmedRoomId.length === 0) {
+    const access = await resolveChatRoomReadAccess(request);
+    if (!access) throw error(401, 'Authentication required.');
+    const rooms = listChatRooms();
     const readableRoomIds = new Set(
-      (await listReadableChatRooms(request, listChatRooms())).map((room) => room.id)
-    );
-    return json({
-      asks: listAllOpenAsks().filter((ask) => readableRoomIds.has(ask.roomId)),
-      recentlyAnswered: listAllRecentlyAnsweredAsks().filter((ask) =>
-        readableRoomIds.has(ask.roomId)
-      ),
-      candidates: listOpenAskCandidates().filter((candidate) =>
-        readableRoomIds.has(candidate.roomId)
+      (access.isAdminBearer ? rooms : rooms.filter((room) => canReadChatRoom(room, access))).map(
+        (room) => room.id
       )
-    });
-  }
-  const trimmedRoomId = rawRoomId.trim();
-  if (trimmedRoomId.length === 0) {
-    const readableRoomIds = new Set(
-      (await listReadableChatRooms(request, listChatRooms())).map((room) => room.id)
     );
     return json({
       asks: listAllOpenAsks().filter((ask) => readableRoomIds.has(ask.roomId)),

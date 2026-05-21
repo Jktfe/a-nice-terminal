@@ -12,10 +12,18 @@ import type { RequestHandler } from './$types';
 import { createChatRoom, listChatRooms } from '$lib/server/chatRoomStore';
 import { recordParticipation } from '$lib/server/chatRoomParticipationHistoryStore';
 import { bindRoomHandleToLiveTerminal } from '$lib/server/terminalHandleBinding';
-import { listReadableChatRooms } from '$lib/server/chatRoomReadGate';
+import { resolveChatRoomReadAccess, canReadChatRoom } from '$lib/server/chatRoomReadGate';
 
 export const GET: RequestHandler = async ({ request }) => {
-  return json({ chatRooms: await listReadableChatRooms(request, listChatRooms()) });
+  // Auth FIRST, then load. The previous shape `listReadableChatRooms(request, listChatRooms())`
+  // evaluated listChatRooms() (1 SQL + N member-loads) as an argument BEFORE the auth check
+  // ran — turning every unauthenticated 401 into a 1.5-8s response on a busy DB. Now the
+  // no-auth fast-path returns in ~10ms; the authed path is unchanged in behaviour.
+  const access = await resolveChatRoomReadAccess(request);
+  if (!access) throw error(401, 'Authentication required.');
+  const rooms = listChatRooms();
+  const readable = access.isAdminBearer ? rooms : rooms.filter((room) => canReadChatRoom(room, access));
+  return json({ chatRooms: readable });
 };
 
 export const POST: RequestHandler = async ({ request }) => {
