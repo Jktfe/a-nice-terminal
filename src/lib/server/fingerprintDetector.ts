@@ -26,6 +26,7 @@ const KIND_PATTERNS: Array<{ kind: AgentKind; rx: RegExp }> = [
   { kind: 'gemini', rx: /\bgemini\b/i },
   { kind: 'aider', rx: /\baider\b/i }
 ];
+const FINGERPRINT_SPAWN_TIMEOUT_MS = 250;
 
 function classifyText(text: string | null): AgentKind | null {
   if (!text || text.length === 0) return null;
@@ -39,7 +40,7 @@ export type PsRunner = (pid: number) => { ppid: number; comm: string } | null;
 export const defaultPsRunner: PsRunner = (pid) => {
   try {
     const r = spawnSync('ps', ['-o', 'pid=,ppid=,comm=', '-p', String(pid)],
-      { encoding: 'utf8', timeout: 2_000 });
+      { encoding: 'utf8', timeout: FINGERPRINT_SPAWN_TIMEOUT_MS });
     if (r.status !== 0 || !r.stdout) return null;
     const parts = r.stdout.split('\n').map((l) => l.trim()).find((l) => l.length > 0)?.split(/\s+/);
     if (!parts || parts.length < 3) return null;
@@ -72,13 +73,13 @@ export const defaultTmuxTitleFn = (terminal: TerminalRow): string | null => {
   if (!pane || pane.length === 0) return null;
   try {
     const r = spawnSync('tmux', ['display-message', '-p', '-t', pane, '#{pane_title}'],
-      { encoding: 'utf8', timeout: 2_000 });
+      { encoding: 'utf8', timeout: FINGERPRINT_SPAWN_TIMEOUT_MS });
     return r.status === 0 ? ((r.stdout ?? '').trim() || null) : null;
   } catch { return null; }
 };
 export const defaultDriverVersionFn: DriverVersionFn = (binary) => {
   try {
-    const r = spawnSync(binary, ['--version'], { encoding: 'utf8', timeout: 2_000 });
+    const r = spawnSync(binary, ['--version'], { encoding: 'utf8', timeout: FINGERPRINT_SPAWN_TIMEOUT_MS });
     if (r.status !== 0 || !r.stdout) return 'unknown';
     return r.stdout.split('\n')[0]?.trim() || 'unknown';
   } catch { return 'unknown'; }

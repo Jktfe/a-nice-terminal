@@ -25,6 +25,7 @@ import {
   makeStandardSendJson
 } from './ant-cli-shared-resolve.mjs';
 import { handleChatPendingVerb } from './ant-cli-chat-pending.mjs';
+import { fetchRoomJsonWithBrowserSessionFallback } from './ant-cli-browser-session.mjs';
 
 const ALLOWED_KIND_TAGS = new Set(['human', 'agent', 'system', 'system-break']);
 const BOOLEAN_FLAGS = new Set(['once', 'json', 'clear']);
@@ -466,14 +467,9 @@ async function sleepMillis(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchMessages(roomId, runtime) {
-  const url = `${runtime.serverUrl}/api/chat-rooms/${encodeURIComponent(roomId)}/messages`;
-  const response = await runtime.fetchImpl(url);
-  if (!response.ok) {
-    const bodyText = await response.text().catch(() => '');
-    throw new Error(`GET ${url} returned ${response.status}: ${bodyText.slice(0, 200)}`);
-  }
-  const parsed = await response.json();
+async function fetchMessages(roomId, runtime, explicitHandle) {
+  const path = `/api/chat-rooms/${encodeURIComponent(roomId)}/messages`;
+  const parsed = await fetchRoomJsonWithBrowserSessionFallback(runtime, roomId, path, explicitHandle);
   return parsed.messages ?? [];
 }
 
@@ -492,7 +488,7 @@ async function runTail(flags, runtime, CliInputError) {
   const runOnce = flags.once !== undefined;
   let firstMessages;
   try {
-    firstMessages = await fetchMessages(room, runtime);
+    firstMessages = await fetchMessages(room, runtime, flags.handle);
   } catch (failure) {
     runtime.writeErr(`Tail failed: ${failure instanceof Error ? failure.message : String(failure)}`);
     return 1;
@@ -507,7 +503,7 @@ async function runTail(flags, runtime, CliInputError) {
     await sleepMillis(pollMs);
     let pollMessages;
     try {
-      pollMessages = await fetchMessages(room, runtime);
+      pollMessages = await fetchMessages(room, runtime, flags.handle);
     } catch (failure) {
       runtime.writeErr(`Tail failed: ${failure instanceof Error ? failure.message : String(failure)}`);
       return 1;

@@ -10,10 +10,12 @@ import { startPoller, defaultTmuxCaptureFn, _testResetPoller } from './agentStat
 import type { TerminalRow } from './terminalsStore';
 
 const PREV_POLL_MS = process.env.ANT_AGENT_STATUS_POLL_MS;
+const PREV_MAX_TERMINALS = process.env.ANT_AGENT_STATUS_MAX_TERMINALS_PER_TICK;
 
 beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = ':memory:';
   delete process.env.ANT_AGENT_STATUS_POLL_MS;
+  delete process.env.ANT_AGENT_STATUS_MAX_TERMINALS_PER_TICK;
   resetIdentityDbForTests();
   _testResetPoller();
 });
@@ -23,6 +25,8 @@ afterEach(() => {
   delete process.env.ANT_FRESH_DB_PATH;
   if (PREV_POLL_MS === undefined) delete process.env.ANT_AGENT_STATUS_POLL_MS;
   else process.env.ANT_AGENT_STATUS_POLL_MS = PREV_POLL_MS;
+  if (PREV_MAX_TERMINALS === undefined) delete process.env.ANT_AGENT_STATUS_MAX_TERMINALS_PER_TICK;
+  else process.env.ANT_AGENT_STATUS_MAX_TERMINALS_PER_TICK = PREV_MAX_TERMINALS;
 });
 
 function makeAgentTerminal(name: string, agentKind: string | null = 'claude_code', pane: string | null = '%1'): string {
@@ -123,6 +127,14 @@ describe('agentStatusPoller — runOnce per-terminal', () => {
     const c = startPoller({ captureFn: (term) => { captures.push(term.name); return 'capture'; }, intervalMs: 5000 });
     await c.runOnce(); c.stop();
     expect(captures.sort()).toEqual(['t-a', 't-b', 't-c']);
+  });
+  it('limits terminal polling per tick when ANT_AGENT_STATUS_MAX_TERMINALS_PER_TICK is set', async () => {
+    process.env.ANT_AGENT_STATUS_MAX_TERMINALS_PER_TICK = '2';
+    makeAgentTerminal('t-a'); makeAgentTerminal('t-b'); makeAgentTerminal('t-c');
+    const captures: string[] = [];
+    const c = startPoller({ captureFn: (term) => { captures.push(term.name); return 'capture'; }, intervalMs: 5000 });
+    await c.runOnce(); c.stop();
+    expect(captures).toHaveLength(2);
   });
   it('per-terminal capture failure does NOT block other terminals', async () => {
     const t1 = makeAgentTerminal('t-fail');

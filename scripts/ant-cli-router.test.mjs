@@ -95,4 +95,47 @@ describe('ant router', () => {
     expect(exitCode).toBe(0);
     expect(writes).toEqual(['[antchat r1 from @you] hello @agent', '\r']);
   });
+
+  it('mints a browser-session cookie and retries when the read gate returns 401', async () => {
+    const writes = [];
+    const fetchCalls = [];
+    const fetchImpl = async (url, init = {}) => {
+      fetchCalls.push({ url, init });
+      if (fetchCalls.length === 1) return makeJsonResponse({ message: 'Authentication required.' }, 401);
+      if (fetchCalls.length === 2) {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'set-cookie': 'ant_browser_session=router-cookie; Path=/api/chat-rooms/r1' }
+        });
+      }
+      return makeJsonResponse({
+        messages: [{ id: 'm1', postOrder: 1, authorHandle: '@you', body: 'hello @agent' }]
+      });
+    };
+    const runtime = {
+      fetchImpl,
+      writeOut: () => {},
+      writeErr: () => {},
+      serverUrl: 'http://localhost:4321'
+    };
+    class CliInputError extends Error {}
+    const exitCode = await handleRouterVerb('start', [
+      '--room', 'r1',
+      '--handle', '@agent',
+      '--since-order', '0',
+      '--once'
+    ], runtime, {
+      CliInputError,
+      sendTextImpl: async (text) => writes.push(text),
+      sleepImpl: async () => {}
+    });
+
+    expect(exitCode).toBe(0);
+    expect(fetchCalls[1]).toMatchObject({
+      url: 'http://localhost:4321/api/chat-rooms/r1/browser-session',
+      init: expect.objectContaining({ method: 'POST' })
+    });
+    expect(fetchCalls[2].init.headers.cookie).toBe('ant_browser_session=router-cookie');
+    expect(writes).toEqual(['[antchat r1 from @you] hello @agent', '\r']);
+  });
 });

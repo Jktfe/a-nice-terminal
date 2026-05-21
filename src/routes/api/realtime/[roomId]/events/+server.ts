@@ -12,16 +12,19 @@
 
 import type { RequestHandler } from './$types';
 import { error } from '@sveltejs/kit';
-import { doesChatRoomExist } from '$lib/server/chatRoomStore';
+import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { subscribeToRoom, unsubscribeFromRoom } from '$lib/server/eventBroadcast';
+import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
 
 const HEARTBEAT_INTERVAL_MS = 25_000;
 const HEARTBEAT_LINE = ': heartbeat\n\n';
 
-export const GET: RequestHandler = ({ params }) => {
+export const GET: RequestHandler = async ({ params, request }) => {
   const roomId = params.roomId ?? '';
   if (roomId.length === 0) throw error(400, 'roomId required.');
-  if (!doesChatRoomExist(roomId)) throw error(404, 'room not found');
+  const room = findChatRoomById(roomId);
+  if (!room) throw error(404, 'room not found');
+  await requireChatRoomReadAccess(request, room);
 
   let heartbeatHandle: ReturnType<typeof setInterval> | null = null;
 

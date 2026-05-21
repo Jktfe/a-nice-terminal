@@ -84,6 +84,31 @@ describe('ant chat tail', () => {
     expect(captured.gets).toHaveLength(1);
   });
 
+  it('T4b: tail mints a browser-session cookie and retries when read gate returns 401', async () => {
+    const messages = [makeMessage({ id: 'm1', postOrder: 1, body: 'hello after auth' })];
+    const { runtime, captured } = makeRuntime((callIndex) => {
+      if (callIndex === 1) return failure(401, 'Authentication required.');
+      if (callIndex === 2) {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'set-cookie': 'ant_browser_session=session-123; Path=/api/chat-rooms/room-a' }
+        });
+      }
+      return okMessages(messages);
+    });
+    runtime.config = { handle: '@agent' };
+
+    const code = await handleChatVerb('tail', ['--room', 'room-a', '--since-order', '0', '--once'], runtime, { CliInputError });
+
+    expect(code).toBe(0);
+    expect(captured.requests[1]).toMatchObject({
+      url: 'http://test.local/api/chat-rooms/room-a/browser-session',
+      init: expect.objectContaining({ method: 'POST' })
+    });
+    expect(captured.requests[2].init.headers.cookie).toBe('ant_browser_session=session-123');
+    expect(captured.stdout.join('\n')).toContain('hello after auth');
+  });
+
   it('T5: missing --room raises CliInputError before any fetch', async () => {
     const { runtime, captured } = makeRuntime(() => okMessages([]));
     let captured_err = null;
