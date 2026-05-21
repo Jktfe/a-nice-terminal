@@ -51,8 +51,20 @@ function projectStateLabelToAgentStatus(label: string | undefined): AgentStatus 
 }
 
 const TMUX_BIN = process.env.ANT_TMUX_BIN ?? '/opt/homebrew/bin/tmux';
-const POLL_INTERVAL_MS = 250;
+// 1s server-side poll — 250ms was hammering the system because each tick
+// spawns a tmux subprocess + ps walk per open terminal stream. With N
+// open terminals that's ~4N subprocesses/sec which made everything feel
+// like treacle. 1s is still 15x faster than the old REST poll and well
+// inside human perception for status-pill updates.
+const POLL_INTERVAL_MS = 1_000;
 const HEARTBEAT_INTERVAL_MS = 25_000;
+// tmuxPaneCurrentPath cache — the cwd doesn't change every tick; cache
+// per-pane for 5s so the SSE poll doesn't spawn a tmux subprocess on
+// every emission. Cache is process-wide because the stream handler
+// recreates per-request.
+const CWD_CACHE_TTL_MS = 5_000;
+type CwdCacheEntry = { value: string | null; expiresAtMs: number };
+const cwdCache = new Map<string, CwdCacheEntry>();
 
 const AGENT_KIND_TO_CLI: Record<string, AgentCli> = {
   'claude': 'claude-code',
@@ -73,14 +85,25 @@ const AGENT_KIND_TO_CLI: Record<string, AgentCli> = {
 
 function tmuxPaneCurrentPath(pane: string): string | null {
   if (!pane) return null;
+  const nowMs = Date.now();
+  const cached = cwdCache.get(pane);
+  if (cached && cached.expiresAtMs > nowMs) return cached.value;
   try {
     const r = spawnSync(TMUX_BIN, [
       'display-message', '-p', '-t', pane, '#{pane_current_path}'
     ], { timeout: 500 });
-    if (r.status !== 0) return null;
+    if (r.status !== 0) {
+      cwdCache.set(pane, { value: null, expiresAtMs: nowMs + CWD_CACHE_TTL_MS });
+      return null;
+    }
     const path = (r.stdout?.toString('utf8') ?? '').trim();
-    return path.length > 0 ? path : null;
-  } catch { return null; }
+    const value = path.length > 0 ? path : null;
+    cwdCache.set(pane, { value, expiresAtMs: nowMs + CWD_CACHE_TTL_MS });
+    return value;
+  } catch {
+    cwdCache.set(pane, { value: null, expiresAtMs: nowMs + CWD_CACHE_TTL_MS });
+    return null;
+  }
 }
 
 function resolveSnapshot(terminalId: string): AgentStateSnapshot | null {
