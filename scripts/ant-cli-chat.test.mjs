@@ -82,6 +82,7 @@ describe('ant chat tail', () => {
     const { runtime, captured } = makeRuntime(() => okMessages([makeMessage({ postOrder: 1 })]));
     await handleChatVerb('tail', ['--room', 'room-a', '--once'], runtime, { CliInputError });
     expect(captured.gets).toHaveLength(1);
+    expect(new URL(captured.gets[0]).searchParams.get('pidChain')).toBeTruthy();
   });
 
   it('T4b: tail mints a browser-session cookie and retries when read gate returns 401', async () => {

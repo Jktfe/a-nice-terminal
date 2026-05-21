@@ -230,7 +230,9 @@ describe('ant-cli', () => {
       });
       const exitCode = await runner.run(['rooms', 'messages', 'r1']);
       expect(exitCode).toBe(0);
-      expect(fetchCalls[0].url).toBe('http://localhost:4321/api/chat-rooms/r1/messages');
+      const url = new URL(fetchCalls[0].url);
+      expect(`${url.origin}${url.pathname}`).toBe('http://localhost:4321/api/chat-rooms/r1/messages');
+      expect(url.searchParams.get('pidChain')).toBeTruthy();
       expect(writtenOut[0]).toContain('James');
       expect(writtenOut[1]).toContain('━━');
     });

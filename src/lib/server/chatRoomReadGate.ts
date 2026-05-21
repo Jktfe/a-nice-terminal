@@ -20,6 +20,7 @@ import {
   touchBrowserSessionLastSeen
 } from './browserSessionStore';
 import { getCookieValuesFromRequest } from './authGate';
+import { resolveServerSideHandle, type PidChainEntry } from './identityGate';
 import { findHandleForAliasInRoom } from './chatRoomAliasStore';
 import type { ChatRoom } from './chatRoomStore';
 import { expandHandlesToOwnerFamilies } from './agentFamilyStore';
@@ -27,6 +28,7 @@ import { expandHandlesToOwnerFamilies } from './agentFamilyStore';
 export type ChatRoomReadAccess = {
   isAdminBearer: boolean;
   handles: string[];
+  resolvedRoomIds?: string[];
 };
 
 function tryAdminBearer(request: Request): boolean {
@@ -128,6 +130,41 @@ function tryBrowserSession(request: Request, roomId?: string): ChatRoomReadAcces
   return null;
 }
 
+function parsePidChainFromQuery(request: Request): PidChainEntry[] {
+  const raw = new URL(request.url).searchParams.get('pidChain');
+  if (!raw) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const chain: PidChainEntry[] = [];
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== 'object') continue;
+    const pidValue = (entry as { pid?: unknown }).pid;
+    if (typeof pidValue !== 'number' || !Number.isFinite(pidValue) || pidValue <= 0) continue;
+    const pidStartValue = (entry as { pid_start?: unknown }).pid_start;
+    chain.push({
+      pid: Math.floor(pidValue),
+      pid_start: typeof pidStartValue === 'string' ? pidStartValue : null
+    });
+  }
+  return chain;
+}
+
+function tryPidChainQuery(request: Request, roomId?: string): ChatRoomReadAccess | null {
+  if (!roomId) return null;
+  const handle = resolveServerSideHandle(roomId, parsePidChainFromQuery(request));
+  if (!handle) return null;
+  return {
+    isAdminBearer: false,
+    handles: expandHandlesToOwnerFamilies([normaliseHandle(handle)]),
+    resolvedRoomIds: [roomId]
+  };
+}
+
 export async function resolveChatRoomReadAccess(
   request: Request,
   roomId?: string
@@ -140,11 +177,15 @@ export async function resolveChatRoomReadAccess(
   const accountsBearer = await tryAccountsBearer(request);
   if (accountsBearer) return accountsBearer;
 
-  return tryBrowserSession(request, roomId);
+  const browserSession = tryBrowserSession(request, roomId);
+  if (browserSession) return browserSession;
+
+  return tryPidChainQuery(request, roomId);
 }
 
 export function canReadChatRoom(room: ChatRoom, access: ChatRoomReadAccess): boolean {
   if (access.isAdminBearer) return true;
+  if (access.resolvedRoomIds?.includes(room.id)) return true;
   for (const handle of access.handles) {
     if (room.members.some((member) => member.handle === handle)) return true;
     const globalHandle = findHandleForAliasInRoom(room.id, handle);
