@@ -240,6 +240,18 @@
     bodyBeingTyped = spliced.newBody;
     mentionTrigger = null;
     composerState = spliced.newBody.trim().length === 0 ? 'emptyComposerWaitingForBody' : 'bodyBeingTyped';
+    // Svelte 5 one-way `value={bodyBeingTyped}` won't reliably sync the
+    // textarea DOM when state changes from inside an event handler that
+    // also called preventDefault — the input is considered "user-
+    // controlled" and the programmatic update is dropped on the next
+    // flush. Explicitly set the DOM value AND dispatch a synthetic
+    // input event so Svelte's bind path re-reads it and stays
+    // consistent. Belt + suspenders; without both, the mention pick
+    // looks like a no-op even though state updated correctly.
+    if (textareaRef) {
+      textareaRef.value = spliced.newBody;
+      textareaRef.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    }
     setTimeout(() => {
       textareaRef?.focus();
       textareaRef?.setSelectionRange(spliced.newCursorIndex, spliced.newCursorIndex);
