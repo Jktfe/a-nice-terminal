@@ -37,16 +37,20 @@ import {
   resolveToken as resolveAntchatToken,
   userShapeForEmail as antchatUserShapeForEmail
 } from '$lib/server/antchatAuthStore';
+import { resolveAccountsBearerIdentity } from '$lib/server/accountsBearerIdentity';
 import { hasBareEveryoneMention } from '$lib/chat/mentionRouting';
 import { collectAskCandidatesFromMessage } from '$lib/server/askCandidateStore';
+import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
 
 const DEFAULT_MESSAGE_PAGE_SIZE = 100;
 const MAX_MESSAGE_PAGE_SIZE = 200;
 
-export const GET: RequestHandler = async ({ params, url }) => {
-  if (!doesChatRoomExist(params.roomId)) {
+export const GET: RequestHandler = async ({ params, request, url }) => {
+  const room = findChatRoomById(params.roomId);
+  if (!room) {
     throw error(404, 'Room not found.');
   }
+  await requireChatRoomReadAccess(request, room);
   const limit = parseLimit(url.searchParams.get('limit'));
   const before = parseBefore(url.searchParams.get('before'));
   const page = listMessagesPageInRoom({
@@ -93,7 +97,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
     mintFreshBrowserSessionCookie,
     callerTerminalId,
     authPath
-  } = resolveMessageAuthorHandle(params.roomId, request, rawBody, clientAuthorHandle);
+  } = await resolveMessageAuthorHandle(params.roomId, request, rawBody, clientAuthorHandle);
 
   // plan_consent_gate_2026_05_20 T6: fail-closed post-gate. If the resolved
   // authorHandle maps to a human owner_id, the caller MUST either be on the
@@ -330,12 +334,17 @@ type AuthorResolution = {
   authPath: 'bearer' | 'cookie' | 'pidchain' | 'caller-grant';
 };
 
-function resolveMessageAuthorHandle(
+async function resolveAccountsBearerHandle(token: string): Promise<string | null> {
+  const identity = await resolveAccountsBearerIdentity(token);
+  return identity?.handle ?? null;
+}
+
+async function resolveMessageAuthorHandle(
   roomId: string,
   request: Request,
   rawBody: unknown,
   clientAuthorHandle: string | null
-): AuthorResolution {
+): Promise<AuthorResolution> {
   // Step 0 (antchat Bearer bridge per JWPK msg_gqie1ekg4e demo-pressure):
   // Mac antchat clients send `Authorization: Bearer <token>` issued by
   // POST /api/auth/login. Resolve that token to a handle BEFORE the
@@ -350,6 +359,13 @@ function resolveMessageAuthorHandle(
         rejectMessageIdentity(roomId, 'authorHandle does not match antchat Bearer token.');
       }
       return { handle: bearerHandle, authPath: 'bearer' };
+    }
+    const accountsHandle = await resolveAccountsBearerHandle(antchatBearer);
+    if (accountsHandle) {
+      if (clientAuthorHandle !== null && normalizeHandle(clientAuthorHandle) !== accountsHandle) {
+        rejectMessageIdentity(roomId, 'authorHandle does not match accounts Bearer token.');
+      }
+      return { handle: accountsHandle, authPath: 'bearer' };
     }
     // Invalid/expired Bearer token — fall through (cookie/pidChain may
     // still validate the request).

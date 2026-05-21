@@ -22,7 +22,7 @@
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { findChatRoomById } from '$lib/server/chatRoomStore';
+import { findChatRoomById, listChatRooms } from '$lib/server/chatRoomStore';
 import {
   listAllRecentlyAnsweredAsks,
   listAllOpenAsks,
@@ -34,8 +34,12 @@ import {
   backfillAskCandidatesFromRecentMessages,
   listOpenAskCandidates
 } from '$lib/server/askCandidateStore';
+import {
+  listReadableChatRooms,
+  requireChatRoomReadAccess
+} from '$lib/server/chatRoomReadGate';
 
-export const GET: RequestHandler = ({ url }) => {
+export const GET: RequestHandler = async ({ request, url }) => {
   try {
     backfillAskCandidatesFromRecentMessages();
   } catch {
@@ -43,23 +47,39 @@ export const GET: RequestHandler = ({ url }) => {
   }
   const rawRoomId = url.searchParams.get('roomId');
   if (rawRoomId === null) {
+    const readableRoomIds = new Set(
+      (await listReadableChatRooms(request, listChatRooms())).map((room) => room.id)
+    );
     return json({
-      asks: listAllOpenAsks(),
-      recentlyAnswered: listAllRecentlyAnsweredAsks(),
-      candidates: listOpenAskCandidates()
+      asks: listAllOpenAsks().filter((ask) => readableRoomIds.has(ask.roomId)),
+      recentlyAnswered: listAllRecentlyAnsweredAsks().filter((ask) =>
+        readableRoomIds.has(ask.roomId)
+      ),
+      candidates: listOpenAskCandidates().filter((candidate) =>
+        readableRoomIds.has(candidate.roomId)
+      )
     });
   }
   const trimmedRoomId = rawRoomId.trim();
   if (trimmedRoomId.length === 0) {
+    const readableRoomIds = new Set(
+      (await listReadableChatRooms(request, listChatRooms())).map((room) => room.id)
+    );
     return json({
-      asks: listAllOpenAsks(),
-      recentlyAnswered: listAllRecentlyAnsweredAsks(),
-      candidates: listOpenAskCandidates()
+      asks: listAllOpenAsks().filter((ask) => readableRoomIds.has(ask.roomId)),
+      recentlyAnswered: listAllRecentlyAnsweredAsks().filter((ask) =>
+        readableRoomIds.has(ask.roomId)
+      ),
+      candidates: listOpenAskCandidates().filter((candidate) =>
+        readableRoomIds.has(candidate.roomId)
+      )
     });
   }
-  if (!findChatRoomById(trimmedRoomId)) {
+  const room = findChatRoomById(trimmedRoomId);
+  if (!room) {
     throw error(404, 'Room not found.');
   }
+  await requireChatRoomReadAccess(request, room);
   const openOnly = url.searchParams.get('openOnly') === '1';
   if (openOnly) {
     return json({ asks: listOpenAsksInRoom(trimmedRoomId) });

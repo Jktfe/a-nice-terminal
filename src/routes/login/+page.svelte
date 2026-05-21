@@ -102,7 +102,7 @@
       </p>
       <a class="muted-link" href="/rooms">Continue anonymously →</a>
     {:else}
-      <p class="muted">Demo access — credentials provided separately.</p>
+      <p class="muted">Team access — credentials provided separately.</p>
       <form class="login-form" onsubmit={handleSubmit} aria-describedby={errorMessage ? 'loginError' : undefined}>
         <label>
           <span>Email</span>

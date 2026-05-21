@@ -72,6 +72,10 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Multi-model routing and cost savings | Current ANT agent mix and James product direction | CHANGE | Codex | Different models behave differently and cost differently. vNext must make Claude, Codex, Gemini, Qwen, Copilot, Pi, GLM, Kimi, and future agents first-class participants instead of forcing one vendor path. |
 | Model routing preferences | Router-not-viewer stance | CHANGE | Claude/Codex | Users need defaults by task type plus override controls. Agent rows need model, cost tier, and tokens consumed this session. |
 | Session tracker agent | James product direction | CHANGE | Codex | A cheap always-on tracker can watch sessions, cost, stale working states, decisions, and completions, then escalate only the prepared item. |
+| Room read authorization | P0 home-server leak, 2026-05-21 | CHANGE | Codex | Implemented fail-closed room list/message/ask read gates: no anonymous room list, bearer/browser-session callers see only rooms their resolved identity can read. |
+| Agent family access scope | JWPK room rule, 2026-05-21 | CHANGE | Codex | Implemented owner-family expansion so a user's agents can share that user's rooms without giving another user's agents broad access. |
+| Accounts bearer home-server cache | Mac app 0.1.8 auth path, 2026-05-21 | CHANGE | Codex | Added shared accounts bearer introspection and local cache so Mac bearer reads/writes/license refresh do not re-hit accounts after the first successful resolve. |
+| Plan attach-room CLI | RoomPlansPanel CLI gap, 2026-05-21 | CHANGE | Codex | Added the missing `ant plan attach-room <plan_id> <room_id>` command path so documented plan-room attachment has a working CLI surface. |
 
 ## Audit Backlog
 

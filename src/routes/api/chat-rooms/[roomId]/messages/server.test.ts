@@ -1,8 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET, POST } from './+server';
 import {
   createChatRoom,
   findChatRoomById,
+  removeMemberFromRoom,
   resetChatRoomStoreForTests
 } from '$lib/server/chatRoomStore';
 import {
@@ -14,10 +15,11 @@ import { resetIdentityDbForTests } from '$lib/server/db';
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { addMembership } from '$lib/server/roomMembershipsStore';
 import { createBrowserSession } from '$lib/server/browserSessionStore';
+import { issueToken, resetAntchatAuthTokensForTests } from '$lib/server/antchatAuthStore';
 import { resetAskStoreForTests } from '$lib/server/askStore';
 import { listOpenAskCandidates } from '$lib/server/askCandidateStore';
 
-type CallOptions = { roomId: string; body?: string; cookie?: string };
+type CallOptions = { roomId: string; body?: string; cookie?: string; headers?: Record<string, string> };
 
 async function callPost(options: CallOptions): Promise<Response> {
   const request = new Request(
@@ -26,7 +28,8 @@ async function callPost(options: CallOptions): Promise<Response> {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        ...(options.cookie !== undefined && { cookie: options.cookie })
+        ...(options.cookie !== undefined && { cookie: options.cookie }),
+        ...options.headers
       },
       body: options.body
     }
@@ -50,10 +53,14 @@ async function callPost(options: CallOptions): Promise<Response> {
   }
 }
 
-async function callGet(roomId: string, query = ''): Promise<Response> {
+async function callGet(
+  roomId: string,
+  query = '',
+  headers: Record<string, string> = {}
+): Promise<Response> {
   const url = new URL(`http://localhost/api/chat-rooms/${roomId}/messages${query}`);
   const event = {
-    request: new Request(url),
+    request: new Request(url, { headers }),
     params: { roomId },
     url
   } as unknown as Parameters<typeof GET>[0];
@@ -85,11 +92,36 @@ function verifiedCaller(roomId: string, handle = '@you') {
   return { authorHandle: handle, pidChain: [{ pid, pid_start }] };
 }
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe('GET /api/chat-rooms/:roomId/messages pagination', () => {
   beforeEach(() => {
     resetChatRoomStoreForTests();
     resetChatMessageStoreForTests();
+    resetAntchatAuthTokensForTests();
     resetAskStoreForTests();
+  });
+
+  it('rejects unauthenticated message reads', async () => {
+    const room = createChatRoom({ name: 'private-messages', whoCreatedIt: '@you' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'secret' });
+
+    const response = await callGet(room.id);
+
+    expect(response.status).toBe(401);
+  });
+
+  it('hides message reads from authenticated non-members', async () => {
+    const room = createChatRoom({ name: 'private-messages', whoCreatedIt: '@mark' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'secret' });
+    removeMemberFromRoom({ roomId: room.id, globalHandle: '@you' });
+    const { token } = issueToken('redacted@example.com');
+
+    const response = await callGet(room.id, '', { authorization: `Bearer ${token}` });
+
+    expect(response.status).toBe(404);
   });
 
   it('returns the newest message page by default instead of the full room history', async () => {
@@ -98,7 +130,8 @@ describe('GET /api/chat-rooms/:roomId/messages pagination', () => {
       postMessage({ roomId: room.id, authorHandle: '@you', body: `message ${i}` });
     }
 
-    const response = await callGet(room.id);
+    const { token } = issueToken('you@example.com');
+    const response = await callGet(room.id, '', { authorization: `Bearer ${token}` });
     expect(response.status).toBe(200);
     const payload = await response.json();
     expect(payload.messages).toHaveLength(100);
@@ -119,7 +152,12 @@ describe('GET /api/chat-rooms/:roomId/messages pagination', () => {
       seeded.push(postMessage({ roomId: room.id, authorHandle: '@you', body: `message ${i}` }));
     }
 
-    const response = await callGet(room.id, `?limit=2&before=${seeded[3].postOrder}`);
+    const { token } = issueToken('you@example.com');
+    const response = await callGet(
+      room.id,
+      `?limit=2&before=${seeded[3].postOrder}`,
+      { authorization: `Bearer ${token}` }
+    );
     expect(response.status).toBe(200);
     const payload = await response.json();
     expect(payload.messages.map((message: { body: string }) => message.body)).toEqual([
@@ -134,9 +172,11 @@ describe('GET /api/chat-rooms/:roomId/messages pagination', () => {
 
   it('rejects malformed pagination parameters', async () => {
     const room = createChatRoom({ name: 'bad-page-route', whoCreatedIt: '@you' });
-    const limitResponse = await callGet(room.id, '?limit=0');
+    const { token } = issueToken('you@example.com');
+    const auth = { authorization: `Bearer ${token}` };
+    const limitResponse = await callGet(room.id, '?limit=0', auth);
     expect(limitResponse.status).toBe(400);
-    const beforeResponse = await callGet(room.id, '?before=abc');
+    const beforeResponse = await callGet(room.id, '?before=abc', auth);
     expect(beforeResponse.status).toBe(400);
   });
 });
@@ -250,7 +290,8 @@ describe('POST /api/chat-rooms/:roomId/messages with M30 slice 2 parentMessageId
       body: JSON.stringify({ body: 'reply', parentMessageId: parent.id, ...verifiedCaller(room.id) })
     });
     expect(postResponse.status).toBe(201);
-    const getResponse = await callGet(room.id);
+    const { token } = issueToken('you@example.com');
+    const getResponse = await callGet(room.id, '', { authorization: `Bearer ${token}` });
     const listPayload = await getResponse.json();
     const replyInList = listPayload.messages.find(
       (message: { body: string }) => message.body === 'reply'
@@ -311,6 +352,63 @@ describe('POST /api/chat-rooms/:roomId/messages IDENTITY-GATE-POSTS (transition 
     expect(response.status).toBe(201);
     const payload = await response.json();
     expect(payload.message.authorHandle).toBe('@researchant');
+  });
+
+  it('accounts-issued bearer stamps the resolved Mac user handle', async () => {
+    const room = createChatRoom({ name: 'mac-bearer-post', whoCreatedIt: '@jamesm5' });
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({
+        user: {
+          email: 'redacted@example.com',
+          handle: '@jamesm5'
+        },
+        homeServerUrl: 'https://mac.kingfisher-interval.ts.net'
+      }), { status: 200 })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await callPost({
+      roomId: room.id,
+      headers: { authorization: 'Bearer accounts-token' },
+      body: JSON.stringify({
+        body: 'hello from the Mac app',
+        authorHandle: '@jamesm5'
+      })
+    });
+
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload.message.authorHandle).toBe('@jamesm5');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://accounts.antonline.dev/api/auth/me',
+      expect.objectContaining({
+        headers: { authorization: 'Bearer accounts-token' }
+      })
+    );
+  });
+
+  it('accounts-issued bearer rejects a mismatched client authorHandle', async () => {
+    const room = createChatRoom({ name: 'mac-bearer-spoof', whoCreatedIt: '@jamesm5' });
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      new Response(JSON.stringify({
+        user: {
+          email: 'redacted@example.com',
+          handle: '@jamesm5'
+        }
+      }), { status: 200 })
+    ));
+
+    const response = await callPost({
+      roomId: room.id,
+      headers: { authorization: 'Bearer accounts-token' },
+      body: JSON.stringify({
+        body: 'spoof attempt',
+        authorHandle: '@you'
+      })
+    });
+
+    expect(response.status).toBe(403);
+    expect(listMessagesInRoom(room.id)).toHaveLength(0);
   });
 
   it('pidChain resolves a terminal but the terminal has NO membership in this room: rejects without fallback', async () => {

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +8,7 @@ import { GET as meGet } from '../me/+server';
 import { POST as logoutPost } from '../logout/+server';
 import { POST as rotatePost } from '../rotate-password/+server';
 import { POST as licencePost } from '../../license/validate/+server';
+import { POST as licenceRefreshPost } from '../../license/refresh/+server';
 import { resetAntchatAuthTokensForTests } from '$lib/server/antchatAuthStore';
 
 const PREV_USERS_PATH = process.env.ANTCHAT_DEV_USERS_PATH;
@@ -77,6 +78,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   resetAntchatAuthTokensForTests();
   rmSync(tmpDir, { recursive: true, force: true });
   if (PREV_USERS_PATH === undefined) delete process.env.ANTCHAT_DEV_USERS_PATH;
@@ -234,5 +236,67 @@ describe('POST /api/license/validate for Mac antchat', () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ valid: false, tier: 'free' });
+  });
+});
+
+describe('POST /api/license/refresh for Mac antchat', () => {
+  async function login(): Promise<string> {
+    const response = await loginPost(eventForPost('http://localhost/api/auth/login', {
+      email: 'test@example.com',
+      password: 'correct-password',
+      license: 'NEW-MODEL-ANT-DEV-test@example.com'
+    }));
+    const body = await response.json();
+    return body.token;
+  }
+
+  it('returns the licence shape for a local home-server bearer token', async () => {
+    const token = await login();
+
+    const response = await capture(() => licenceRefreshPost(eventForPost(
+      'http://localhost/api/license/refresh',
+      {},
+      { authorization: `Bearer ${token}` }
+    )));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      valid: true,
+      tier: 'paid',
+      features: ['all']
+    });
+  });
+
+  it('accepts an accounts-issued bearer token by resolving /api/auth/me upstream', async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ user: { email: 'test@example.com' } }), { status: 200 })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await capture(() => licenceRefreshPost(eventForPost(
+      'http://localhost/api/license/refresh',
+      {},
+      { authorization: 'Bearer accounts_token_123' }
+    )));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      valid: true,
+      tier: 'paid',
+      features: ['all']
+    });
+    const cachedResponse = await capture(() => licenceRefreshPost(eventForPost(
+      'http://localhost/api/license/refresh',
+      {},
+      { authorization: 'Bearer accounts_token_123' }
+    )));
+    expect(cachedResponse.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://accounts.antonline.dev/api/auth/me',
+      expect.objectContaining({
+        headers: { authorization: 'Bearer accounts_token_123' }
+      })
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

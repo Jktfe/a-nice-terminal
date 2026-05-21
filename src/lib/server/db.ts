@@ -1133,6 +1133,20 @@ const SCHEMA_DDL_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_owner_handles_lookup
     ON owner_handles (handle)`,
 
+  // agent_handles: which human owner a given agent handle belongs to.
+  // Read authorization expands user/agent principals through this table so
+  // a user's own agents share room scope without leaking across users.
+  `CREATE TABLE IF NOT EXISTS agent_handles (
+    owner_id        TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE,
+    handle          TEXT NOT NULL UNIQUE,
+    assigned_at_ms  INTEGER NOT NULL,
+    PRIMARY KEY (owner_id, handle)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_handles_owner
+    ON agent_handles (owner_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_handles_lookup
+    ON agent_handles (handle)`,
+
   // owner_recovery_codes: 10 one-time backup codes printed at TOTP
   // enrollment. Stored as bcrypt hashes — never the plaintext. used_at_ms
   // null = still valid; set on consumption. PRIMARY KEY (owner_id, code_hash)

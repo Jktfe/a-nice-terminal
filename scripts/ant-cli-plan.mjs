@@ -35,6 +35,7 @@ const PLAN_VERB_USAGE = [
   '  test-status <planId> --milestone ID --title TEXT --status S',
   '  test-archive <planId> --milestone ID --title TEXT',
   '  decision-archive <planId> --parent PARENT_ID --title TEXT',
+  '  attach-room <planId> <roomId> [--attached-by @h] [--json]',
   '  list [--include-archived] [--json]',
   '  archive <planId> [--unarchive] [--json]',
   '  show <planId> [--include-archived] [--json]',
@@ -54,6 +55,9 @@ export async function handlePlanVerb(action, args, runtime, ctx) {
   const planId = args[0];
   if (!planId || planId.startsWith('--')) {
     throw new CliInputError(`plan ${action ?? ''} needs a planId as the first arg`);
+  }
+  if (action === 'attach-room') {
+    return runAttachRoomVerb(planId, args.slice(1), runtime, CliInputError);
   }
   const flags = parseFlags(args.slice(1), CliInputError);
   switch (action) {
@@ -321,6 +325,39 @@ async function runArchivePlanVerb(planId, flags, runtime, CliInputError) {
     runtime.writeOut(JSON.stringify(payload));
   } else {
     runtime.writeOut(`Plan ${planId} ${action}d.`);
+  }
+  return 0;
+}
+
+async function runAttachRoomVerb(planId, rawArgs, runtime, CliInputError) {
+  const roomId = rawArgs[0];
+  if (!roomId || roomId.startsWith('--')) {
+    throw new CliInputError('plan attach-room needs a roomId as the second arg');
+  }
+  const flags = parseFlags(rawArgs.slice(1), CliInputError);
+  const headers = { 'content-type': 'application/json' };
+  const adminToken = process.env.ANT_ADMIN_TOKEN ?? process.env.ANT_ADMIN_BEARER;
+  if (adminToken) {
+    headers.authorization = `Bearer ${adminToken}`;
+  }
+  const body = { roomId };
+  if (flags['attached-by'] !== undefined) body.attachedBy = flags['attached-by'];
+  const response = await runtime.fetchImpl(`${runtime.serverUrl}/api/plans/${encodeURIComponent(planId)}/rooms`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Request failed (${response.status}): ${text.slice(0, 200)}`);
+  }
+  const payload = await response.json();
+  if (flags.json !== undefined) {
+    runtime.writeOut(JSON.stringify(payload));
+  } else if (payload.alreadyAttached) {
+    runtime.writeOut(`Plan ${planId} already attached to room ${roomId}.`);
+  } else {
+    runtime.writeOut(`Attached plan ${planId} to room ${roomId}.`);
   }
   return 0;
 }

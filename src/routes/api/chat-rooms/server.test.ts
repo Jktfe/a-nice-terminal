@@ -9,9 +9,11 @@ import { GET, POST } from './+server';
 import {
   findChatRoomById,
   listChatRooms,
+  removeMemberFromRoom,
   resetChatRoomStoreForTests
 } from '$lib/server/chatRoomStore';
 import { postMessage, resetChatMessageStoreForTests } from '$lib/server/chatMessageStore';
+import { issueToken, resetAntchatAuthTokensForTests } from '$lib/server/antchatAuthStore';
 import {
   listPriorCollaboratorsExcludingRoom,
   resetChatRoomParticipationHistoryStoreForTests
@@ -44,10 +46,10 @@ async function callPost(body?: string): Promise<Response> {
   }
 }
 
-async function callGet(): Promise<Response> {
+async function callGet(headers: Record<string, string> = {}): Promise<Response> {
   const url = new URL('http://localhost/api/chat-rooms');
   const event = {
-    request: new Request(url),
+    request: new Request(url, { headers }),
     params: {},
     url
   } as unknown as Parameters<typeof GET>[0];
@@ -67,6 +69,7 @@ describe('POST /api/chat-rooms whoCreatedIt normalisation', () => {
   beforeEach(() => {
     resetIdentityDbForTests();
     resetChatMessageStoreForTests();
+    resetAntchatAuthTokensForTests();
     resetChatRoomStoreForTests();
     resetChatRoomParticipationHistoryStoreForTests();
   });
@@ -176,6 +179,72 @@ describe('POST /api/chat-rooms whoCreatedIt normalisation', () => {
     expect(body.message).toContain('Room name cannot contain CLI flags');
   });
 
+  it('GET rejects unauthenticated room-list reads', async () => {
+    await callPost(JSON.stringify({ name: 'private-room', whoCreatedIt: '@you' }));
+
+    const response = await callGet();
+
+    expect(response.status).toBe(401);
+  });
+
+  it('GET filters rooms to the authenticated antchat bearer handle', async () => {
+    const jamesRoom = (await (await callPost(
+      JSON.stringify({ name: 'james room', whoCreatedIt: '@jamesm5' })
+    )).json()).chatRoom as { id: string };
+    await callPost(JSON.stringify({ name: 'operator room', whoCreatedIt: '@you' }));
+    const { token } = issueToken('redacted@example.com');
+
+    const response = await callGet({ authorization: `Bearer ${token}` });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.chatRooms.map((room: { id: string }) => room.id)).toEqual([jamesRoom.id]);
+  });
+
+  it('GET expands a user bearer to their owned agent family', async () => {
+    const agentRoom = (await (await callPost(
+      JSON.stringify({ name: 'james-agent-room', whoCreatedIt: '@antmacdevcodex' })
+    )).json()).chatRoom as { id: string };
+    const markRoom = (await (await callPost(
+      JSON.stringify({ name: 'mark-room', whoCreatedIt: '@mark' })
+    )).json()).chatRoom as { id: string };
+    removeMemberFromRoom({ roomId: markRoom.id, globalHandle: '@you' });
+    const { token } = issueToken('redacted@example.com');
+
+    const response = await callGet({ authorization: `Bearer ${token}` });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.chatRooms.map((room: { id: string }) => room.id)).toContain(agentRoom.id);
+    expect(body.chatRooms.map((room: { name: string }) => room.name)).not.toContain('mark-room');
+  });
+
+  it('GET expands a user bearer to their owned agent without crossing owners', async () => {
+    const serverLaptopRoom = (await (await callPost(
+      JSON.stringify({ name: 'serverlaptop-room', whoCreatedIt: '@serverlaptop' })
+    )).json()).chatRoom as { id: string };
+    const { token } = issueToken('redacted@example.com');
+
+    const response = await callGet({ authorization: `Bearer ${token}` });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.chatRooms.map((room: { id: string }) => room.id)).not.toContain(serverLaptopRoom.id);
+  });
+
+  it('GET treats serverlaptop as James-owned, not Mark-owned', async () => {
+    const serverLaptopRoom = (await (await callPost(
+      JSON.stringify({ name: 'serverlaptop-room', whoCreatedIt: '@serverlaptop' })
+    )).json()).chatRoom as { id: string };
+    const { token } = issueToken('redacted@example.com');
+
+    const response = await callGet({ authorization: `Bearer ${token}` });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.chatRooms.map((room: { id: string }) => room.id)).toContain(serverLaptopRoom.id);
+  });
+
   it('GET returns room summaries derived from latest messages', async () => {
     const createResponse = await callPost(
       JSON.stringify({ name: 'active-room', whoCreatedIt: '@you' })
@@ -188,7 +257,8 @@ describe('POST /api/chat-rooms whoCreatedIt normalisation', () => {
       body: 'claimed #136b cockpit UI'
     });
 
-    const response = await callGet();
+    const { token } = issueToken('you@example.com');
+    const response = await callGet({ authorization: `Bearer ${token}` });
     const body = await response.json();
 
     expect(body.chatRooms[0].summary).toBe('@evolveantsvelte: claimed #136b cockpit UI');

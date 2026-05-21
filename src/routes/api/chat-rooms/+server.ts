@@ -1,11 +1,10 @@
 /**
  * HTTP endpoints for chat rooms.
  *
- * GET  /api/chat-rooms          → list every chat room, newest first.
+ * GET  /api/chat-rooms          → list readable chat rooms, newest first.
  * POST /api/chat-rooms          → create one chat room from { name } and return it.
  *
- * No authentication yet. M01 ships the screen and round-trip; identity wiring
- * lands when the cap-2 work on the agent registry settles.
+ * Read auth is fail-closed and server-filtered by room membership.
  */
 
 import { json, error } from '@sveltejs/kit';
@@ -13,9 +12,10 @@ import type { RequestHandler } from './$types';
 import { createChatRoom, listChatRooms } from '$lib/server/chatRoomStore';
 import { recordParticipation } from '$lib/server/chatRoomParticipationHistoryStore';
 import { bindRoomHandleToLiveTerminal } from '$lib/server/terminalHandleBinding';
+import { listReadableChatRooms } from '$lib/server/chatRoomReadGate';
 
-export const GET: RequestHandler = async () => {
-  return json({ chatRooms: listChatRooms() });
+export const GET: RequestHandler = async ({ request }) => {
+  return json({ chatRooms: await listReadableChatRooms(request, listChatRooms()) });
 };
 
 export const POST: RequestHandler = async ({ request }) => {

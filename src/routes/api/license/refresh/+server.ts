@@ -23,11 +23,20 @@ import {
   resolveToken,
   licenceShapeForEmail
 } from '$lib/server/antchatAuthStore';
+import { resolveAccountsBearerIdentity } from '$lib/server/accountsBearerIdentity';
+
+async function resolveEmailFromBearer(token: string): Promise<string | null> {
+  const localSession = resolveToken(token);
+  if (localSession) return localSession.email;
+
+  const identity = await resolveAccountsBearerIdentity(token);
+  return identity?.email ?? null;
+}
 
 export const POST: RequestHandler = async ({ request }) => {
   const token = bearerTokenFromHeader(request.headers.get('authorization'));
   if (!token) throw error(401, 'antchat bearer token required');
-  const session = resolveToken(token);
-  if (!session) throw error(401, 'antchat bearer token invalid or expired');
-  return json(licenceShapeForEmail(session.email));
+  const email = await resolveEmailFromBearer(token);
+  if (!email) throw error(401, 'antchat bearer token invalid or expired');
+  return json(licenceShapeForEmail(email));
 };
