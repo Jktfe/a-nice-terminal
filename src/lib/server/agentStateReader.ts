@@ -29,7 +29,8 @@ export type AgentCli =
   | 'gemini-cli'
   | 'qwen-cli'
   | 'pi'
-  | 'copilot-cli';
+  | 'copilot-cli'
+  | 'antigravity';
 
 export type AgentStateLabel = string;
 export type AgentMenuKind = string;
@@ -71,6 +72,16 @@ function candidateDirs(cli: AgentCli): string[] {
     case 'claude-code':
       dirs.push(join(home, '.claude', 'state'));
       break;
+    case 'antigravity':
+      // Antigravity writes a single ~/.antigravity/status.json with
+      // {status, updatedAt, updatedAtMs, terminalId, pid, ppid}. Single
+      // file = single-active-agy-session for v1 (per JWPK 2026-05-21
+      // spec); multi-session would need agy to write per-sid files.
+      // listSnapshots' generic readSnapshot would key the snapshot by
+      // basename ("status") so readAntigravityStatusFile below overrides
+      // sessionId to use the embedded .terminalId field instead.
+      dirs.push(join(home, '.antigravity'));
+      break;
   }
   return dirs;
 }
@@ -99,15 +110,35 @@ function readSnapshot(filePath: string, cli: AgentCli): AgentStateSnapshot | nul
   } catch {
     return null;
   }
-  const sessionId = basename(filePath, '.json');
-  const stateLabel = (raw.state as AgentStateLabel | undefined) ?? undefined;
+  // sessionId default = filename (matches the per-session-file pattern of
+  // claude-code / codex-cli / gemini-cli). Antigravity writes a single
+  // ~/.antigravity/status.json and embeds the ANT session_id in the
+  // payload's .terminalId field, so for that CLI we derive sessionId from
+  // .terminalId instead — keeps one reader path, no special-case caller.
+  let sessionId = basename(filePath, '.json');
+  if (cli === 'antigravity' && typeof raw.terminalId === 'string' && raw.terminalId.length > 0) {
+    sessionId = raw.terminalId;
+  }
+  // Antigravity uses `status` where the other CLIs use `state`. Use the
+  // standard field first so a CLI that emits both keeps `.state` as the
+  // canonical surface; antigravity's `status` is the fallback.
+  const stateLabel =
+    (raw.state as AgentStateLabel | undefined) ??
+    (raw.status as AgentStateLabel | undefined) ??
+    undefined;
   const menuKind = (raw.menu_kind as AgentMenuKind | null | undefined) ?? null;
+  // Antigravity's `updatedAtMs` is a single "last touched" — surface it as
+  // editAt so the status pill ages out consistently with the other CLIs.
+  const antigravityEditAt =
+    cli === 'antigravity' && typeof raw.updatedAtMs === 'number'
+      ? raw.updatedAtMs
+      : undefined;
   const snap: AgentStateSnapshot = {
     sessionId, cli, stateLabel, menuKind,
     timestamps: {
       sentAt: parseIso(raw.last_user_ts),
       respAt: parseIso(raw.last_resp_ts),
-      editAt: parseIso(raw.last_edit_ts)
+      editAt: parseIso(raw.last_edit_ts) ?? antigravityEditAt
     },
     sessionStartedAt: parseIso(raw.session_start),
     cwd: typeof raw.cwd === 'string' ? raw.cwd : undefined,

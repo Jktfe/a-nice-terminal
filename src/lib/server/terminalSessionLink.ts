@@ -130,6 +130,9 @@ export function agentKindToCli(agentKind: string | null | undefined): AgentCli |
     case 'copilot':
     case 'copilot-cli':
       return 'copilot-cli';
+    case 'agy':
+    case 'antigravity':
+      return 'antigravity';
     default:
       return null;
   }
