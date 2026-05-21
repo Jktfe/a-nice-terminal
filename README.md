@@ -9,9 +9,9 @@
 
 ANT started as a quest for a cleaner terminal view — solving tmux scrolling, stripping away screen paint noise (like repetitive loading bars and spinning status glyphs), and capturing clean database-backed logs.
 
-But as agents got better, they stayed around longer. We realized that an agent is only as good as the space it occupies. 
+But as agents got better, they stayed around longer. We realised that an agent is only as good as the space it occupies. 
 
-Today, ANT is a durable, privacy-first work environment for professional operations. It is the **transport, evidence, and rendering layer** that lets humans and agents share plans, tasks, documents, and tools to ship real work. Whether you are drafting reports, building presentation decks, organizing spreadsheets, or coordinating a deployment, ANT is the shared office where your agents live and cooperate.
+Today, ANT is a durable, privacy-first work environment for professional operations. It is the **transport, evidence, and rendering layer** that lets humans and agents share plans, tasks, documents, and tools to ship real work. Whether you are drafting reports, building presentation decks, organising spreadsheets, or coordinating a deployment, ANT is the shared office where your agents live and cooperate.
 
 ---
 
@@ -19,20 +19,20 @@ Today, ANT is a durable, privacy-first work environment for professional operati
 
 **Context that doesn't blow up: The 14-Day Flow**
 Usually, when an agent's context window fills up, the flow is broken. You have to restart, retrain, and rebuild context from scratch. 
-With ANT's durable database-backed memory, agents manage their own context dynamically—frequently keeping active context around 25-35% without losing their train of thought. We have had specialized agents run continuously for **14 days** straight, producing elite professional work all the way to the end because they never lost their flow.
+With ANT's durable database-backed memory, agents manage their own context dynamically—frequently keeping active context around 25-35% without losing their train of thought. We have had specialised agents run continuously for **14 days** straight, producing elite professional work all the way to the end because they never lost their flow.
 
 **Zero-Distraction Team Coordination**
 ANT is designed from the ground up for absolute privacy. Your files and memory remain on your hardware. Yet, when multiple team members run ANT servers, their agents can securely coordinate to fetch templates, verify info, and hand off tasks. This completely eliminates the need for sending "umpteen emails" back and forth, automating administrative chore-work and keeping human operators free from distraction.
 
 **Hybrid Power: Local LLMs & Shared Angles**
-You don't need to burn expensive cloud tokens on routine sweeps. ANT supports both local LLMs and cloud models. By distributing work across a team of specialized agents—each approaching a problem from a different angle or cost tier—agents rarely get stuck. Routine session tracking and code checks run locally, while heavy reasoning (like Claude) is reserved for deep judgment. The result? You get high-volume results and rarely, if ever, hit your weekly API limits.
+You don't need to burn expensive cloud tokens on routine sweeps. ANT supports both local LLMs and cloud models. By distributing work across a team of specialised agents—each approaching a problem from a different angle or cost tier—agents rarely get stuck. Routine session tracking and code checks run locally, while heavy reasoning (like Claude) is reserved for deep judgment. The result? You get high-volume results and rarely, if ever, hit your weekly API limits.
 
 ---
 
 ## What people actually do with it
 
 **Co-author professional deliverables in one room.**
-Open a room, invite your specialized research and document agents, paste your brief, and link your Obsidian vault. The agents pull skills and templates from your shared Obsidian pool, draft reports, outline presentation decks, organize spreadsheets, and cross-verify each other's work. The room is the unit of context — not the session — so your team builds on a shared history of decisions and drafts, week after week.
+Open a room, invite your specialised research and document agents, paste your brief, and link your Obsidian vault. The agents pull skills and templates from your shared Obsidian pool, draft reports, outline presentation decks, organise spreadsheets, and cross-verify each other's work. The room is the unit of context — not the session — so your team builds on a shared history of decisions and drafts, week after week.
 
 **Unblock your team via the Cross-Agent Inbox.**
 If an agent blocks on a question (e.g., *"Where is the invoice template?"*), they raise an ask. While you are out having lunch, another idle agent in the room that has access to that template jumps in and resolves the ask autonomously. For everything else, you get a single, unified Inbox. Instead of hunting through messy terminal transcripts or chat logs, you can quickly answer outstanding questions in one place and get back to your day.
