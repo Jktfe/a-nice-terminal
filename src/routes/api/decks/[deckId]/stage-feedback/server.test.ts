@@ -4,6 +4,9 @@ import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoom
 import { createDeck, resetDeckStoreForTests } from '$lib/server/deckStore';
 import { resetChatMessageStoreForTests, listMessagesInRoom } from '$lib/server/chatMessageStore';
 import { resetPlanModeStoreForTests } from '$lib/server/planModeStore';
+import { listArtefactsInRoom, resetChatRoomArtefactStoreForTests } from '$lib/server/chatRoomArtefactStore';
+import { getArtefactContentByArtefactId, resetChatRoomArtefactContentStoreForTests } from '$lib/server/chatRoomArtefactContentStore';
+import { getTask, _resetTaskStoreForTests } from '$lib/server/taskStore';
 
 const ADMIN_TOKEN_FOR_TESTS = 'stage-feedback-test-admin-token';
 const ORIGINAL_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
@@ -47,14 +50,20 @@ describe('POST /api/decks/:deckId/stage-feedback', () => {
     resetDeckStoreForTests();
     resetChatMessageStoreForTests();
     resetPlanModeStoreForTests();
+    resetChatRoomArtefactStoreForTests();
+    resetChatRoomArtefactContentStoreForTests();
+    _resetTaskStoreForTests();
   });
 
-  it('publishes a stage_feedback plan event and room message', async () => {
+  it('publishes stage feedback and seeds an alternative proposal track', async () => {
     const room = createChatRoom({ name: 'stage room', whoCreatedIt: '@you' });
     const deck = createDeck({
       roomId: room.id,
       title: 'Stage Deck',
-      slides: [{ id: 's1', title: 'Slide 1', content: 'Hello', speakerNotes: 'Say hello' }]
+      slides: [
+        { id: 's1', title: 'Slide 1', content: 'Hello', speakerNotes: 'Say hello' },
+        { id: 's2', title: 'Slide 2', content: 'Next claim', speakerNotes: 'Say next claim' }
+      ]
     });
 
     const response = await runPost(eventFor(deck.id, {
@@ -68,12 +77,38 @@ describe('POST /api/decks/:deckId/stage-feedback', () => {
     expect(body.ok).toBe(true);
     expect(body.slideIndex).toBe(0);
     expect(body.ref).toContain('stage:');
+    expect(body.proposal.ref).toMatch(/^\/artefacts\//);
+    expect(body.proposal.taskIds).toHaveLength(3);
+    expect(body.generatedAlternatives).toBe(1);
 
     const messages = listMessagesInRoom(room.id);
     expect(messages.length).toBeGreaterThanOrEqual(1);
     expect(messages[0].kind).toBe('system');
     expect(messages[0].body).toContain('Stage feedback');
     expect(messages[0].body).toContain('No, we do not do that');
+    expect(messages[0].body).toContain('Alternative track: /artefacts/');
+
+    const artefacts = listArtefactsInRoom(room.id);
+    expect(artefacts).toHaveLength(1);
+    expect(artefacts[0]).toMatchObject({
+      kind: 'doc',
+      title: 'Alternative Track: Stage Deck / slide 1'
+    });
+    const content = getArtefactContentByArtefactId(artefacts[0].id);
+    expect(content?.contentBody).toContain('## User Feedback');
+    expect(content?.contentBody).toContain('No, we do not do that');
+    expect(content?.contentBody).toContain('## Agent Work Required');
+    expect(content?.contentBody).toContain('## Lens Frames');
+    expect(content?.contentBody).toContain('### FCA');
+
+    const task = getTask(body.proposal.taskIds[0]);
+    expect(task).not.toBeNull();
+    expect(task?.planId).toBe(`stage-${deck.id}`);
+    expect(task?.evidence[0]).toMatchObject({
+      kind: 'proposal',
+      ref: `/artefacts/${artefacts[0].id}#lens-poc`,
+      label: 'POC: Alternative Track: Stage Deck / slide 1'
+    });
   });
 
   it('rejects empty feedback text', async () => {

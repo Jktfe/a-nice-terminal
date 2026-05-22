@@ -65,6 +65,7 @@ function rowToArtefact(row: ArtefactRow): RoomArtefact {
 }
 
 export function createArtefactInRoom(input: {
+  id?: string;
   roomId: string;
   kind: ArtefactKind;
   title: string;
@@ -78,7 +79,7 @@ export function createArtefactInRoom(input: {
     throw new Error('title cannot be blank.');
   }
   const db = getIdentityDb();
-  const id = randomUUID();
+  const id = input.id ?? randomUUID();
   const createdAtMs = input.nowMs ?? Date.now();
   db.prepare(
     `INSERT INTO chat_room_artefacts
