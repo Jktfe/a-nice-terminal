@@ -16,6 +16,29 @@ afterEach(() => {
 });
 
 describe('resolveAccountsBearerIdentity', () => {
+  it('extracts orgId and handles from accounts /api/auth/me', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      user: {
+        email: 'james@newmodel.vc',
+        handle: '@jamesK'
+      },
+      orgId: 'org_newmodel_team',
+      expiresAt: 1780000000000
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(resolveAccountsBearerIdentity('team-token')).resolves.toMatchObject({
+      email: 'james@newmodel.vc',
+      handle: '@jamesK',
+      handles: expect.arrayContaining(['@jamesK']),
+      orgId: 'org_newmodel_team',
+      expiresAtMs: 1780000000000
+    });
+  });
+
   it('returns null quickly when the accounts service does not respond', async () => {
     process.env.ANT_ACCOUNTS_BEARER_TIMEOUT_MS = '25';
     vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) =>

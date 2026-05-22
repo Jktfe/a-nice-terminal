@@ -502,6 +502,56 @@ export function inviteAgentToRoom(input: {
   return loadRoomById(input.roomId)!;
 }
 
+export function inviteHumanToRoom(input: {
+  roomId: string;
+  humanHandle: string;
+  humanDisplayName?: string;
+}): ChatRoom {
+  if (!doesChatRoomExist(input.roomId)) {
+    throw new Error(`No room found with id ${input.roomId}.`);
+  }
+
+  const handleTrimmed = input.humanHandle.trim();
+  if (handleTrimmed.length === 0) {
+    throw new Error('A human handle cannot be blank.');
+  }
+
+  const handleWithAtSign = handleTrimmed.startsWith('@') ? handleTrimmed : `@${handleTrimmed}`;
+
+  const db = getIdentityDb();
+  const alreadyMember = db
+    .prepare(`SELECT 1 AS present FROM chat_room_members WHERE room_id = ? AND handle = ?`)
+    .get(input.roomId, handleWithAtSign) as { present: number } | undefined;
+  if (alreadyMember) {
+    throw new Error(`${handleWithAtSign} is already a member of this room.`);
+  }
+
+  const nowIso = new Date().toISOString();
+  const lastUpdate = describeMomentNow();
+  const displayName = input.humanDisplayName?.trim() || handleWithAtSign;
+
+  const txn = db.transaction(() => {
+    db.prepare(`INSERT INTO chat_room_members
+      (id, room_id, handle, display_name, display_color, display_icon, display_background_style, joined_at, kind)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'human')`).run(
+      randomUUID(),
+      input.roomId,
+      handleWithAtSign,
+      displayName,
+      defaultParticipantColor(handleWithAtSign),
+      defaultParticipantIcon(displayName),
+      defaultParticipantBackgroundStyle('human'),
+      nowIso
+    );
+    db.prepare(`UPDATE chat_rooms SET last_update = ? WHERE id = ?`).run(
+      lastUpdate, input.roomId
+    );
+  });
+
+  txn();
+  return loadRoomById(input.roomId)!;
+}
+
 export function ensureAgentMemberInRoom(input: {
   roomId: string;
   agentHandle: string;

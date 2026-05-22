@@ -22,6 +22,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import {
   inviteAgentToRoom,
+  inviteHumanToRoom,
   removeMemberFromRoom,
   findChatRoomById,
   CannotRemoveRoomMemberError
@@ -30,8 +31,13 @@ import { removeRoomAlias } from '$lib/server/chatRoomAliasStore';
 import { postSystemMessage } from '$lib/server/chatMessageStore';
 import { recordParticipation } from '$lib/server/chatRoomParticipationHistoryStore';
 import { resolveCallerIdentityOrDeprecate, buildStaleBrowserCookieClearHeader } from '$lib/server/authGate';
+import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
 import { findTerminalRecordByHandle } from '$lib/server/terminalRecordsStore';
 import { addMembership, removeMembership } from '$lib/server/roomMembershipsStore';
+import {
+  findAccountsOrgMemberByHandle,
+  listAccountsOrgMembersForRequest
+} from '$lib/server/accountsOrgMembers';
 
 function assertRoomExists(roomId: string): void {
   if (!findChatRoomById(roomId)) {
@@ -56,7 +62,40 @@ function normaliseToAtHandle(raw: string): string {
 export const POST: RequestHandler = async ({ params, request }) => {
   const rawBody = await request.json().catch(() => null);
   if (!rawBody || typeof rawBody !== 'object') {
-    throw error(400, 'Send a JSON body with an agentHandle field.');
+    throw error(400, 'Send a JSON body with an agentHandle or handle field.');
+  }
+
+  const humanHandle = (rawBody as { handle?: unknown; humanHandle?: unknown }).handle ??
+    (rawBody as { humanHandle?: unknown }).humanHandle;
+  if (typeof humanHandle === 'string') {
+    const room = findChatRoomById(params.roomId);
+    if (!room) throw error(404, 'Room not found.');
+    await requireChatRoomReadAccess(request, room);
+
+    const orgMembers = await listAccountsOrgMembersForRequest(request);
+    if (!orgMembers) throw error(403, 'same-org membership required.');
+    const teammate = findAccountsOrgMemberByHandle(orgMembers.members, humanHandle);
+    if (!teammate) throw error(403, 'target handle is not in your organisation.');
+
+    const normalisedHumanHandle = normaliseToAtHandle(teammate.handle);
+    const existingMember = room.members.find(
+      (member) => member.handle === normalisedHumanHandle
+    );
+    if (existingMember) {
+      throw error(409, `${normalisedHumanHandle} is already a member of this room.`);
+    }
+
+    const updatedRoom = inviteHumanToRoom({
+      roomId: params.roomId,
+      humanHandle: normalisedHumanHandle,
+      humanDisplayName: teammate.displayName
+    });
+    postSystemMessage({
+      roomId: params.roomId,
+      body: `${normalisedHumanHandle} joined this room.`
+    });
+    recordParticipation({ globalHandle: normalisedHumanHandle, roomId: params.roomId });
+    return json({ chatRoom: updatedRoom, member: teammate }, { status: 200 });
   }
 
   const agentHandle = (rawBody as { agentHandle?: unknown }).agentHandle;
