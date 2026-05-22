@@ -152,6 +152,62 @@ export function listAllRecentlyAnsweredAsks(limit = 20): Ask[] {
  * ask in {open, merged} targets them. Returns ALL such asks (across every
  * room) so a UI can render the pill + the inbox count from a single read.
  */
+/**
+ * Asks-as-pill (slice 5): roll the SOURCE ask into the INTO ask. The source
+ * flips to status='merged' and carries forward the pointer + audit fields;
+ * the into ask is left untouched. Because 'merged' is part of
+ * RESPONSE_REQUIRED_STATUSES the askee's pill stays lit (the into ask still
+ * needs a response — usually itself another question rolled up by the Chair
+ * premium feature in the native apps).
+ *
+ * Validation:
+ *   - source must currently be 'open' (don't double-merge or merge an
+ *     already-resolved ask; that's an audit-trail violation)
+ *   - into must exist and be in {open, merged} (can chain merges into an
+ *     umbrella that's been merged itself)
+ *   - source and into must share the same targetHandle (you can't merge a
+ *     question for @james into a question for @mark — that's silent reassign)
+ *   - source.id !== into.id (no self-merge)
+ *
+ * Returns the updated source ask.
+ */
+export function mergeAsks(input: {
+  sourceAskId: string;
+  intoAskId: string;
+  mergedByHandle: string;
+}): Ask {
+  const trimmedMergedBy = input.mergedByHandle.trim();
+  if (trimmedMergedBy.length === 0) {
+    throw new Error('A mergedByHandle is required to merge an ask.');
+  }
+  if (input.sourceAskId === input.intoAskId) {
+    throw new Error('Cannot merge an ask into itself.');
+  }
+  const source = findAskById(input.sourceAskId);
+  if (!source) throw new Error(`Ask ${input.sourceAskId} not found.`);
+  const into = findAskById(input.intoAskId);
+  if (!into) throw new Error(`Ask ${input.intoAskId} not found.`);
+  if (source.status !== 'open') {
+    throw new Error(`Ask ${input.sourceAskId} is already ${source.status}; only open asks can be merged.`);
+  }
+  if (into.status !== 'open' && into.status !== 'merged') {
+    throw new Error(`Cannot merge into ask ${input.intoAskId} (status=${into.status}).`);
+  }
+  if (source.targetHandle !== into.targetHandle) {
+    throw new Error(
+      `Cannot merge across target handles (source=${source.targetHandle ?? 'NULL'}, into=${into.targetHandle ?? 'NULL'}).`
+    );
+  }
+
+  const nowMs = Date.now();
+  getIdentityDb().prepare(
+    `UPDATE asks SET status = 'merged', merged_into_ask_id = ?, merged_by_handle = ?,
+     merged_at_ms = ? WHERE id = ?`
+  ).run(input.intoAskId, trimmedMergedBy, nowMs, input.sourceAskId);
+
+  return findAskById(input.sourceAskId)!;
+}
+
 export function listResponseRequiredAsksForHandle(targetHandle: string): Ask[] {
   return listOrdered(
     "target_handle = ? AND status IN ('open','merged')",
