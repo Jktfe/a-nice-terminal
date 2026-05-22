@@ -90,6 +90,9 @@
       !isDeleted &&
       (message.kind === 'human' || message.kind === 'agent')
   );
+  const isAnsweredAskReceipt = $derived(
+    message.kind === 'system' && message.body.startsWith('Open ask answered by ')
+  );
 
   function describeDeletedAt(ms: number | null | undefined): string {
     if (!ms) return '';
@@ -110,8 +113,11 @@
     <span class="break-text">{message.body}</span>
   </div>
 {:else if message.kind === 'system'}
-  <div class="system-row">
+  <div class="system-row" class:has-read-receipts={isAnsweredAskReceipt}>
     <span class="system-text">{message.body}</span>
+    {#if isAnsweredAskReceipt}
+      <MessageReadIndicator roomId={message.roomId} messageId={message.id} {asHandle} {readReceiptEvent} />
+    {/if}
   </div>
 {:else}
   <article
@@ -307,8 +313,13 @@
      + the @media (pointer: coarse) override are no longer needed. */
   .system-row {
     display: flex;
+    flex-direction: column;
+    align-items: center;
     justify-content: center;
     padding: 0.35rem 0;
+  }
+  .system-row.has-read-receipts {
+    gap: 0.15rem;
   }
   .system-text {
     font-size: 0.78rem;
