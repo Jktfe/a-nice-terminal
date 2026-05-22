@@ -46,7 +46,7 @@ export type EvidenceListOpts = {
 
 const EVIDENCE_KINDS: ReadonlySet<EvidenceRef['kind']> = new Set<
   EvidenceRef['kind']
->(['run_event', 'task', 'url', 'file', 'chat_message', 'proposal']);
+>(['run_event', 'task', 'url', 'file', 'chat_message', 'proposal', 'stage_focus']);
 
 export function isEvidenceKind(value: unknown): value is EvidenceRef['kind'] {
   return typeof value === 'string' && EVIDENCE_KINDS.has(value as EvidenceRef['kind']);
@@ -158,7 +158,8 @@ export function evidenceStats(): EvidenceStats {
     url: 0,
     file: 0,
     chat_message: 0,
-    proposal: 0
+    proposal: 0,
+    stage_focus: 0
   };
   let withLabel = 0;
   for (const row of all) {
