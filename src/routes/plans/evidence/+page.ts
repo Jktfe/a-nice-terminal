@@ -21,7 +21,9 @@ const KINDS: ReadonlySet<EvidenceRef['kind']> = new Set<EvidenceRef['kind']>([
   'task',
   'url',
   'file',
-  'chat_message'
+  'chat_message',
+  'proposal',
+  'stage_focus'
 ]);
 
 export const load: PageLoad = async ({ fetch, url }) => {
@@ -45,7 +47,15 @@ export const load: PageLoad = async ({ fetch, url }) => {
     : {
         evidence: [],
         stats: {
-          byKind: { run_event: 0, task: 0, url: 0, file: 0, chat_message: 0, proposal: 0 },
+          byKind: {
+            run_event: 0,
+            task: 0,
+            url: 0,
+            file: 0,
+            chat_message: 0,
+            proposal: 0,
+            stage_focus: 0
+          },
           total: 0,
           withLabel: 0
         }
