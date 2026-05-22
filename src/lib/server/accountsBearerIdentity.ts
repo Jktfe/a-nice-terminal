@@ -13,6 +13,7 @@ type AccountsMeResponse = {
   email?: unknown;
   handle?: unknown;
   handles?: unknown;
+  orgId?: unknown;
   expiresAt?: unknown;
 };
 
@@ -20,6 +21,7 @@ export type AccountsBearerIdentity = {
   email: string;
   handle: string;
   handles: string[];
+  orgId?: string;
   expiresAtMs?: number;
 };
 
@@ -59,11 +61,17 @@ function extractExpiresAtMs(payload: AccountsMeResponse): number | undefined {
   return undefined;
 }
 
+function extractOrgId(payload: AccountsMeResponse): string | undefined {
+  return typeof payload.orgId === 'string' && payload.orgId.trim().length > 0
+    ? payload.orgId.trim()
+    : undefined;
+}
+
 function handlesFromPayload(payload: AccountsMeResponse, fallbackHandle: string): string[] {
   const handles: string[] = [];
-  addHandle(handles, fallbackHandle);
   addHandle(handles, payload.user?.handle);
   addHandle(handles, payload.handle);
+  addHandle(handles, fallbackHandle);
 
   const payloadHandles = Array.isArray(payload.user?.handles)
     ? payload.user.handles
@@ -111,6 +119,7 @@ export async function resolveAccountsBearerIdentity(
   const fallbackHandle = userShapeForEmail(email).handle;
   const handles = handlesFromPayload(payload, fallbackHandle);
   const handle = handles[0] ?? fallbackHandle;
+  const orgId = extractOrgId(payload);
   const expiresAtMs = extractExpiresAtMs(payload);
 
   cacheExternalToken({
@@ -123,6 +132,7 @@ export async function resolveAccountsBearerIdentity(
     email,
     handle,
     handles,
+    ...(orgId !== undefined && { orgId }),
     ...(expiresAtMs !== undefined && { expiresAtMs })
   };
 }

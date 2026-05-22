@@ -7,6 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { vi } from 'vitest';
 import { POST, DELETE } from './+server';
 import {
   createChatRoom,
@@ -28,6 +29,20 @@ import { resetIdentityDbForTests } from '$lib/server/db';
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { addMembership, getTerminalIdByHandle } from '$lib/server/roomMembershipsStore';
 import { createTerminalRecord } from '$lib/server/terminalRecordsStore';
+import { issueToken } from '$lib/server/antchatAuthStore';
+import { listAccountsOrgMembersForRequest } from '$lib/server/accountsOrgMembers';
+
+vi.mock('$lib/server/accountsOrgMembers', async () => {
+  const actual = await vi.importActual<typeof import('$lib/server/accountsOrgMembers')>(
+    '$lib/server/accountsOrgMembers'
+  );
+  return {
+    ...actual,
+    listAccountsOrgMembersForRequest: vi.fn()
+  };
+});
+
+const listAccountsOrgMembersForRequestMock = vi.mocked(listAccountsOrgMembersForRequest);
 
 // INVITE-VALIDATE (2026-05-15): POST /members now requires the invited
 // handle to resolve to a terminal_records row. Tests that expect a 201
@@ -51,11 +66,17 @@ function seedTerminalForHandle(handle: string): string {
   return terminal.id;
 }
 
-function eventFor(method: 'POST' | 'DELETE', roomId: string, body?: string, query = '') {
+function eventFor(
+  method: 'POST' | 'DELETE',
+  roomId: string,
+  body?: string,
+  query = '',
+  headers: Record<string, string> = {}
+) {
   const url = new URL(`http://localhost/api/chat-rooms/${roomId}/members${query}`);
   const request = new Request(url.toString(), {
     method,
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     body
   });
   return { request, params: { roomId }, url } as unknown as Parameters<typeof POST>[0];
@@ -77,7 +98,8 @@ async function runHandler(
   }
 }
 
-const callPost = (roomId: string, body?: string) => runHandler(POST, eventFor('POST', roomId, body));
+const callPost = (roomId: string, body?: string, headers: Record<string, string> = {}) =>
+  runHandler(POST, eventFor('POST', roomId, body, '', headers));
 const callDelete = (roomId: string, query?: string) =>
   runHandler(DELETE, eventFor('DELETE', roomId, undefined, query ?? ''));
 
@@ -87,6 +109,7 @@ describe('/api/chat-rooms/:roomId/members', () => {
     resetChatRoomStoreForTests();
     resetChatMessageStoreForTests();
     resetChatRoomAliasStoreForTests();
+    listAccountsOrgMembersForRequestMock.mockReset();
   });
 
   describe('POST invite (M02)', () => {
@@ -126,6 +149,74 @@ describe('/api/chat-rooms/:roomId/members', () => {
       const room = createChatRoom({ name: 'no-handle', whoCreatedIt: '@you' });
       const response = await callPost(room.id, JSON.stringify({}));
       expect(response.status).toBe(400);
+    });
+
+    it('adds a same-org human member without requiring a terminal record', async () => {
+      const room = createChatRoom({ name: 'human-invite', whoCreatedIt: '@jamesK' });
+      const { token } = issueToken('redacted@example.com');
+      listAccountsOrgMembersForRequestMock.mockResolvedValueOnce({
+        orgId: 'org_newmodel_team',
+        members: [
+          {
+            userId: 'user_marco',
+            email: 'redacted@example.com',
+            displayName: 'Marco',
+            handle: '@marco',
+            role: 'member'
+          }
+        ]
+      });
+
+      const response = await callPost(
+        room.id,
+        JSON.stringify({ handle: '@marco' }),
+        { authorization: `Bearer ${token}` }
+      );
+
+      expect(response.status).toBe(200);
+      const updated = findChatRoomById(room.id);
+      expect(updated?.members.find((member) => member.handle === '@marco')).toMatchObject({
+        displayName: 'Marco',
+        kind: 'human'
+      });
+      expect(getTerminalIdByHandle(room.id, '@marco')).toBeNull();
+      const systemMessages = listMessagesInRoom(room.id).filter((m) => m.kind === 'system');
+      expect(systemMessages.some((m) => m.body === '@marco joined this room.')).toBe(true);
+    });
+
+    it('rejects same-org human invite when the target handle is outside the caller org', async () => {
+      const room = createChatRoom({ name: 'human-invite-cross-org', whoCreatedIt: '@jamesK' });
+      const { token } = issueToken('redacted@example.com');
+      listAccountsOrgMembersForRequestMock.mockResolvedValueOnce({
+        orgId: 'org_newmodel_team',
+        members: [
+          {
+            userId: 'user_mark',
+            email: 'redacted@example.com',
+            displayName: 'Mark Hanington',
+            handle: '@mark',
+            role: 'member'
+          }
+        ]
+      });
+
+      const response = await callPost(
+        room.id,
+        JSON.stringify({ handle: '@outsider' }),
+        { authorization: `Bearer ${token}` }
+      );
+
+      expect(response.status).toBe(403);
+      expect(findChatRoomById(room.id)?.members.some((member) => member.handle === '@outsider')).toBe(false);
+    });
+
+    it('rejects same-org human invite for unauthenticated callers', async () => {
+      const room = createChatRoom({ name: 'human-invite-unauth', whoCreatedIt: '@jamesK' });
+
+      const response = await callPost(room.id, JSON.stringify({ handle: '@marco' }));
+
+      expect(response.status).toBe(401);
+      expect(listAccountsOrgMembersForRequestMock).not.toHaveBeenCalled();
     });
   });
 
