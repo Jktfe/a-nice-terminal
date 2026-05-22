@@ -19,6 +19,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { answerAsk, findAskById, hasResponseRequiredAsksForHandle, type Ask } from '$lib/server/askStore';
+import { inboxRoomIdFor } from '$lib/server/humanInboxRoomStore';
 import { consumeConsentGrant } from '$lib/server/consentGrantStore';
 import { postSystemMessage } from '$lib/server/chatMessageStore';
 import { broadcastToRoom } from '$lib/server/eventBroadcast';
@@ -112,16 +113,26 @@ export const POST: RequestHandler = async ({ params, request }) => {
     // target handle. We only emit when the resolved ask actually had a target;
     // legacy NULL-target rows don't drive a pill.
     if (ask.targetHandle) {
+      const askResolvedPayload = {
+        type: 'ask_resolved' as const,
+        askId: ask.id,
+        targetHandle: ask.targetHandle,
+        status: updatedAsk.status,
+        stillResponseRequired: hasResponseRequiredAsksForHandle(ask.targetHandle)
+      };
       try {
-        broadcastToRoom(ask.roomId, {
-          type: 'ask_resolved',
-          askId: ask.id,
-          targetHandle: ask.targetHandle,
-          status: updatedAsk.status,
-          stillResponseRequired: hasResponseRequiredAsksForHandle(ask.targetHandle)
-        });
+        broadcastToRoom(ask.roomId, askResolvedPayload);
       } catch {
         /* pill broadcast best-effort; UIs re-poll on focus anyway */
+      }
+      // Mirror into the askee's inbox room (per-human inbox JWPK 2026-05-22)
+      // so the inbox UI auto-updates without polling. Separate try/catch so
+      // an originating-room broadcast failure doesn't suppress the inbox
+      // one (and vice-versa).
+      try {
+        broadcastToRoom(inboxRoomIdFor(ask.targetHandle), askResolvedPayload);
+      } catch {
+        /* inbox broadcast best-effort */
       }
     }
     return json({
