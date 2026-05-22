@@ -30,6 +30,7 @@
     { id: 'preferences', label: 'Preferences' },
     { id: 'shortcuts', label: 'Shortcuts' },
     { id: 'identity', label: 'Identity' },
+    { id: 'voice', label: 'Voice' },
     { id: 'plugins', label: 'Plugins' },
     { id: 'tools', label: 'Tools' },
     { id: 'skills', label: 'Skills' },
@@ -37,6 +38,94 @@
     { id: 'system', label: 'System' },
     { id: 'activity', label: 'Activity' }
   ];
+
+  // Voice settings — read-only slice 3 (write path TBD with auth hardening).
+  // Displays the current /api/voice/elevenlabs state + a Test Voice button
+  // so JWPK / agents can verify the configured ElevenLabs key + voice ID
+  // without leaving the Settings page.
+  type VoiceConfig = {
+    available: boolean;
+    stage_provider: string;
+    stage_autoplay: boolean;
+    browser_fallback_allowed: boolean;
+    default_voice_id: string;
+    default_model_id: string;
+  };
+  let voiceConfig = $state<VoiceConfig | null>(null);
+  let voiceLoadError = $state('');
+  let testVoiceStatus = $state<'idle' | 'playing' | 'error'>('idle');
+  let testVoiceNotice = $state('');
+  let testAudio: HTMLAudioElement | null = null;
+
+  async function loadVoiceConfig(): Promise<void> {
+    try {
+      const response = await fetch('/api/voice/elevenlabs');
+      if (!response.ok) {
+        voiceLoadError = `Could not load voice config (HTTP ${response.status}).`;
+        return;
+      }
+      voiceConfig = await response.json();
+      voiceLoadError = '';
+    } catch {
+      voiceLoadError = 'Could not load voice config (network).';
+    }
+  }
+
+  async function testVoice(): Promise<void> {
+    if (testVoiceStatus === 'playing' && testAudio) {
+      testAudio.pause();
+      testAudio = null;
+      testVoiceStatus = 'idle';
+      testVoiceNotice = 'Test stopped.';
+      return;
+    }
+    if (!voiceConfig?.available) {
+      testVoiceNotice = 'ElevenLabs API key not configured on the server.';
+      return;
+    }
+    testVoiceStatus = 'playing';
+    testVoiceNotice = 'Synthesising...';
+    try {
+      const response = await fetch('/api/voice/elevenlabs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          text: 'This is a test of the Stage voice. Hello from ANT settings.'
+        })
+      });
+      if (!response.ok) {
+        testVoiceStatus = 'error';
+        testVoiceNotice = `Voice test failed (HTTP ${response.status}).`;
+        return;
+      }
+      const cacheState = response.headers.get('X-ANT-Voice-Cache') ?? 'unknown';
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      testAudio = new Audio(url);
+      testAudio.onended = () => {
+        testVoiceStatus = 'idle';
+        testVoiceNotice = `Done. Cache: ${cacheState}.`;
+        URL.revokeObjectURL(url);
+        testAudio = null;
+      };
+      testAudio.onerror = () => {
+        testVoiceStatus = 'error';
+        testVoiceNotice = 'Audio playback failed.';
+        URL.revokeObjectURL(url);
+        testAudio = null;
+      };
+      await testAudio.play();
+      testVoiceNotice = `Playing... (cache: ${cacheState})`;
+    } catch {
+      testVoiceStatus = 'error';
+      testVoiceNotice = 'Voice test failed (network).';
+    }
+  }
+
+  // Load voice config on mount (browser only).
+  if (typeof window !== 'undefined') {
+    void loadVoiceConfig();
+  }
 </script>
 
 <svelte:head>
@@ -70,6 +159,49 @@
   <section id="identity" class="settings-section">
     <h2>Identity</h2>
     <p class="stub-note">Handle, fingerprint, and registration status surface here once <code>/api/identity/me</code> is wired. Today: outbound chat is stamped with whatever the CLI register flow set, or <code>@you</code> for unregistered browser sessions.</p>
+  </section>
+
+  <section id="voice" class="settings-section">
+    <h2>Voice</h2>
+    {#if voiceLoadError}
+      <p class="stub-note">{voiceLoadError}</p>
+    {:else if voiceConfig === null}
+      <p class="stub-note">Loading voice config…</p>
+    {:else}
+      <div class="row">
+        <span>Provider</span>
+        <code>{voiceConfig.stage_provider}</code>
+      </div>
+      <div class="row">
+        <span>ElevenLabs API key</span>
+        <code>{voiceConfig.available ? 'configured ✓' : 'not configured'}</code>
+      </div>
+      <div class="row">
+        <span>Voice ID</span>
+        <code>{voiceConfig.default_voice_id}</code>
+      </div>
+      <div class="row">
+        <span>Model</span>
+        <code>{voiceConfig.default_model_id}</code>
+      </div>
+      <div class="row">
+        <span>Autoplay on slide change</span>
+        <code>{voiceConfig.stage_autoplay ? 'on' : 'off'}</code>
+      </div>
+      <div class="row">
+        <span>Test voice</span>
+        <button type="button" class="btn" onclick={testVoice} disabled={!voiceConfig.available && testVoiceStatus !== 'playing'}>
+          {testVoiceStatus === 'playing' ? 'Stop test' : 'Test voice'}
+        </button>
+      </div>
+      {#if testVoiceNotice}
+        <p class="stub-note" role="status">{testVoiceNotice}</p>
+      {/if}
+      <p class="stub-note">
+        Configuration today is server-env only — set <code>ELEVENLABS_API_KEY</code> + <code>ELEVENLABS_DEFAULT_VOICE_ID</code> in <code>~/.ant/secrets.env</code>.
+        Write-from-UI lands in a follow-up slice with admin-auth gate. Per JWPK voice spec 2026-05-22.
+      </p>
+    {/if}
   </section>
 
   <section id="plugins" class="settings-section">
