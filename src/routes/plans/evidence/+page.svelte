@@ -8,13 +8,13 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
-  import type { EvidenceRef } from '$lib/server/planModeStore';
+  import type { TaskEvidenceKind } from '$lib/server/planEvidenceStore';
   import type { EvidenceRow } from '$lib/server/planEvidenceStore';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
 
-  const KIND_ORDER: EvidenceRef['kind'][] = [
+  const KIND_ORDER: TaskEvidenceKind[] = [
     'run_event',
     'task',
     'url',
@@ -23,7 +23,7 @@
     'proposal',
     'stage_focus'
   ];
-  const KIND_LABEL: Record<EvidenceRef['kind'], string> = {
+  const KIND_LABEL: Record<TaskEvidenceKind, string> = {
     run_event: 'run event',
     task: 'task',
     url: 'url',
@@ -32,7 +32,7 @@
     proposal: 'proposal',
     stage_focus: 'stage focus'
   };
-  const KIND_ICON: Record<EvidenceRef['kind'], string> = {
+  const KIND_ICON: Record<TaskEvidenceKind, string> = {
     run_event: 'R',
     task: 'T',
     url: 'U',
@@ -47,7 +47,7 @@
   // svelte-ignore state_referenced_locally — init-from-prop is intentional.
   let qInput = $state<string>(data.filter.q ?? '');
 
-  function buildHref(patch: { kind?: EvidenceRef['kind'] | null; q?: string | null; planId?: string | null }): string {
+  function buildHref(patch: { kind?: TaskEvidenceKind | null; q?: string | null; planId?: string | null }): string {
     const qs = new URLSearchParams();
     const nextKind = patch.kind !== undefined ? patch.kind : data.filter.kind;
     const nextQ = patch.q !== undefined ? patch.q : data.filter.q;
@@ -66,12 +66,12 @@
 
   function pickKind(e: Event): void {
     const value = (e.currentTarget as HTMLSelectElement).value;
-    const next = value === 'all' ? null : (value as EvidenceRef['kind']);
+    const next = value === 'all' ? null : (value as TaskEvidenceKind);
     goto(buildHref({ kind: next }));
   }
 
   const grouped = $derived.by(() => {
-    const map = new Map<EvidenceRef['kind'], EvidenceRow[]>();
+    const map = new Map<TaskEvidenceKind, EvidenceRow[]>();
     for (const row of data.evidence) {
       const list = map.get(row.kind) ?? [];
       list.push(row);

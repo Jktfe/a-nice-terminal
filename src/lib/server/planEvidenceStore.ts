@@ -24,32 +24,48 @@ export type EvidenceRow = {
   planId: string | null;
   planTitle: string | null;
   status: TaskStatus;
-  kind: EvidenceRef['kind'];
+  // Narrowed to TaskEvidenceKind — this store reads from tasks.evidence
+  // only, where plan-event-only kinds (stage_pause_context, stage_focus
+  // when written by stage routes) cannot appear by construction.
+  kind: TaskEvidenceKind;
   ref: string;
   label: string | null;
   taskCreatedAtMs: number;
   narration: string | null;
 };
 
+/**
+ * Kinds this store actually surfaces. EvidenceRef['kind'] may include
+ * kinds that live in plan_events only (e.g. 'stage_pause_context',
+ * 'stage_focus' — those are projected by stageStore, not here). When
+ * planEvidenceStore is extended to read plan_events.evidence_json, this
+ * type can widen back to EvidenceRef['kind'].
+ */
+export type TaskEvidenceKind = Exclude<EvidenceRef['kind'], 'stage_pause_context'>;
+
 export type EvidenceStats = {
-  byKind: Record<EvidenceRef['kind'], number>;
+  byKind: Record<TaskEvidenceKind, number>;
   total: number;
   withLabel: number;
 };
 
 export type EvidenceListOpts = {
-  kind?: EvidenceRef['kind'];
+  kind?: TaskEvidenceKind;
   planId?: string;
   q?: string;
   limit?: number;
 };
 
-const EVIDENCE_KINDS: ReadonlySet<EvidenceRef['kind']> = new Set<
-  EvidenceRef['kind']
+// NOTE: stage_pause_context is intentionally excluded — it lives in
+// plan_events only (not task.evidence). Future slice: extend reader to
+// read plan_events.evidence_json, then widen TaskEvidenceKind back to
+// EvidenceRef['kind'].
+const EVIDENCE_KINDS: ReadonlySet<TaskEvidenceKind> = new Set<
+  TaskEvidenceKind
 >(['run_event', 'task', 'url', 'file', 'chat_message', 'proposal', 'stage_focus']);
 
-export function isEvidenceKind(value: unknown): value is EvidenceRef['kind'] {
-  return typeof value === 'string' && EVIDENCE_KINDS.has(value as EvidenceRef['kind']);
+export function isEvidenceKind(value: unknown): value is TaskEvidenceKind {
+  return typeof value === 'string' && EVIDENCE_KINDS.has(value as TaskEvidenceKind);
 }
 
 const DEFAULT_LIMIT = 200;
@@ -115,13 +131,18 @@ function fetchAllRows(): EvidenceRow[] {
     const status: TaskStatus = isTaskStatus(row.status) ? row.status : 'pending';
     const evidence = parseEvidence(row.evidence);
     for (const ev of evidence) {
+      // Defensive: tasks.evidence should never carry plan-event-only
+      // kinds (stage_pause_context), but if a future store boundary
+      // ever leaks one through, drop the row rather than violate the
+      // narrowed kind type.
+      if (!EVIDENCE_KINDS.has(ev.kind as TaskEvidenceKind)) continue;
       out.push({
         taskId: row.id,
         taskSubject: row.subject,
         planId: row.plan_id,
         planTitle: row.plan_title,
         status,
-        kind: ev.kind,
+        kind: ev.kind as TaskEvidenceKind,
         ref: ev.ref,
         label: ev.label ?? null,
         narration: ev.narration ?? null,
@@ -152,7 +173,7 @@ export function listAllEvidence(opts: EvidenceListOpts = {}): EvidenceRow[] {
 
 export function evidenceStats(): EvidenceStats {
   const all = fetchAllRows();
-  const byKind: Record<EvidenceRef['kind'], number> = {
+  const byKind: Record<TaskEvidenceKind, number> = {
     run_event: 0,
     task: 0,
     url: 0,

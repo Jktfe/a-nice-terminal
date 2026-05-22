@@ -37,10 +37,23 @@ export type PlanStatus =
 export type PlanAuthorKind = 'agent' | 'human' | 'system';
 
 export type EvidenceRef = {
-  kind: 'run_event' | 'task' | 'url' | 'file' | 'chat_message' | 'proposal' | 'stage_focus';
+  kind: 'run_event' | 'task' | 'url' | 'file' | 'chat_message' | 'proposal' | 'stage_focus' | 'stage_pause_context';
   ref: string;
   label?: string;
   narration?: string;
+  /**
+   * Stage live-edit pause-context fields (γ2). Present only on
+   * evidence with kind='stage_pause_context'. Per codex schema review
+   * 2026-05-22: `estimated_` prefix on derived fields so agent
+   * consumers don't over-trust them.
+   */
+  slide_id?: string;
+  slide_index?: number;
+  narration_source?: 'narration' | 'speakerNotes' | 'content';
+  paused_at_ms?: number;
+  estimated_char_offset?: number;
+  spoken_window?: string;
+  deck_id?: string;
 };
 
 export type ProvenanceRef = {
