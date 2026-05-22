@@ -45,7 +45,7 @@ export const load: PageLoad = async ({ fetch, url }) => {
     : {
         evidence: [],
         stats: {
-          byKind: { run_event: 0, task: 0, url: 0, file: 0, chat_message: 0 },
+          byKind: { run_event: 0, task: 0, url: 0, file: 0, chat_message: 0, proposal: 0 },
           total: 0,
           withLabel: 0
         }

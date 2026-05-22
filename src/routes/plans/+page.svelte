@@ -3,7 +3,7 @@
   "Unfiled" lane for standalone tasks. The URL toggle ?show=archived or
   ?show=deleted swaps to archived / soft-deleted plans (Unfiled hides —
   it's an active-work card). Footer sub-nav links to /plans/insights +
-  /plans/evidence + /plans/triggers.
+  /plans/evidence + /plans/proposals + /plans/triggers.
 -->
 <script lang="ts">
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
@@ -41,6 +41,7 @@
     <span class="subnav-sep" aria-hidden="true">·</span>
     <a class="subnav-link" href="/plans/insights">Insights →</a>
     <a class="subnav-link" href="/plans/evidence">Evidence →</a>
+    <a class="subnav-link" href="/plans/proposals">Proposals →</a>
     <a class="subnav-link" href="/plans/triggers">Triggers →</a>
   </nav>
 
