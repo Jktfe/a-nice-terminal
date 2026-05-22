@@ -23,6 +23,7 @@ export type RoomDeck = {
   theme: string | null;
   createdBy: string | null;
   accessPassword: string | null;
+  parentDeckId: string | null;
   createdAtMs: number;
   updatedAtMs: number | null;
 };
@@ -35,6 +36,7 @@ type DeckRow = {
   theme: string | null;
   created_by: string | null;
   access_password: string | null;
+  parent_deck_id: string | null;
   created_at_ms: number;
   updated_at_ms: number | null;
   deleted_at_ms: number | null;
@@ -54,6 +56,7 @@ function rowToDeck(row: DeckRow): RoomDeck {
     theme: row.theme,
     createdBy: row.created_by,
     accessPassword: row.access_password,
+    parentDeckId: row.parent_deck_id,
     createdAtMs: row.created_at_ms,
     updatedAtMs: row.updated_at_ms
   };
@@ -66,6 +69,7 @@ export function createDeck(input: {
   theme?: string | null;
   createdBy?: string | null;
   accessPassword?: string | null;
+  parentDeckId?: string | null;
   nowMs?: number;
 }): RoomDeck {
   const trimmedTitle = input.title.trim();
@@ -79,14 +83,15 @@ export function createDeck(input: {
 
   db.prepare(
     `INSERT INTO chat_room_decks
-     (id, room_id, title, slides_json, theme, created_by, access_password, created_at_ms, updated_at_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     (id, room_id, title, slides_json, theme, created_by, access_password, parent_deck_id, created_at_ms, updated_at_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id, input.roomId, trimmedTitle,
     JSON.stringify(slides),
     input.theme ?? null,
     input.createdBy ?? null,
     input.accessPassword ?? null,
+    input.parentDeckId ?? null,
     nowMs, nowMs
   );
 
@@ -98,6 +103,7 @@ export function createDeck(input: {
     theme: input.theme ?? null,
     createdBy: input.createdBy ?? null,
     accessPassword: input.accessPassword ?? null,
+    parentDeckId: input.parentDeckId ?? null,
     createdAtMs: nowMs,
     updatedAtMs: nowMs
   };
