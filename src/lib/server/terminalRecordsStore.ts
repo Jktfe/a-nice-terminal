@@ -9,6 +9,7 @@
 
 import { getIdentityDb } from './db';
 import { projectAntRegistryFileBestEffort } from './antRegistryFile';
+import { recomputeInboxEdgesForTerminalOwnershipChange } from './humanInboxMembership';
 
 export type TerminalRecord = {
   session_id: string;
@@ -100,6 +101,21 @@ export function createTerminalRecord(input: CreateInput): TerminalRecord {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(input.sessionId, name, roomId, forwardChat, agentKind, tmuxTargetPane, linkedChatRoomId, createdBy, allowlistJson, handle, now, now);
   projectAntRegistryFileBestEffort();
+  // Per-human inbox (JWPK 2026-05-22): a terminal created by a human grants
+  // its agent inhabitant membership in the human's inbox even before a
+  // shared chat room exists. Lazy-imported to keep terminalRecordsStore
+  // from pulling chat-room-store transitively at module load (cycle risk).
+  if (createdBy && handle) {
+    try {
+      recomputeInboxEdgesForTerminalOwnershipChange({
+        agentHandle: handle,
+        previousOwnerHandle: null,
+        newOwnerHandle: createdBy
+      });
+    } catch {
+      /* recompute is a side-effect; never block the terminal write */
+    }
+  }
   return { session_id: input.sessionId, name, auto_forward_room_id: roomId, auto_forward_chat: forwardChat, agent_kind: agentKind, tmux_target_pane: tmuxTargetPane, linked_chat_room_id: linkedChatRoomId, created_by: createdBy, allowlist: allowlistJson, handle, created_at_ms: now, updated_at_ms: now };
 }
 
@@ -128,6 +144,20 @@ export function updateTerminalRecord(sessionId: string, patch: TerminalRecordPat
      WHERE session_id = ?`
   ).run(name, roomId, forwardChat, agentKind, tmuxTargetPane, linkedChatRoomId, createdBy, allowlistJson, handle, now, sessionId);
   projectAntRegistryFileBestEffort();
+  // Recompute inbox edges if created_by changed OR the agent handle moved.
+  // Both old + new owners get recomputed so a transfer auto-drops the
+  // previous owner's inbox membership when no other shared context remains.
+  if ((existing.created_by !== createdBy || existing.handle !== handle) && handle) {
+    try {
+      recomputeInboxEdgesForTerminalOwnershipChange({
+        agentHandle: handle,
+        previousOwnerHandle: existing.created_by,
+        newOwnerHandle: createdBy
+      });
+    } catch {
+      /* recompute is a side-effect; never block the terminal write */
+    }
+  }
   return { session_id: sessionId, name, auto_forward_room_id: roomId, auto_forward_chat: forwardChat, agent_kind: agentKind, tmux_target_pane: tmuxTargetPane, linked_chat_room_id: linkedChatRoomId, created_by: createdBy, allowlist: allowlistJson, handle, created_at_ms: existing.created_at_ms, updated_at_ms: now };
 }
 

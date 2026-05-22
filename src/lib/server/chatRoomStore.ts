@@ -18,6 +18,8 @@ import { randomUUID } from 'node:crypto';
 import type { RoomAttentionState } from '$lib/domain/types';
 import { getIdentityDb } from './db';
 import { findTerminalRecordByHandle } from './terminalRecordsStore';
+import { recomputeInboxEdgesForRoomMembershipChange } from './humanInboxMembership';
+import { ensureHumanInboxRoom } from './humanInboxRoomStore';
 
 export type ParticipantBackgroundStyle = 'card' | 'tint' | 'transparent';
 
@@ -338,6 +340,17 @@ export function createChatRoom(input: { name: string; whoCreatedIt: string }): C
   });
 
   txn();
+  // Per-human inbox: provision the creator's inbox (if human) + recompute
+  // edges so any pre-existing agents in the room come into the inbox.
+  // The @you membership added above also triggers a recompute through the
+  // same hook, so @you's inbox is provisioned the first time @you appears
+  // anywhere in the system.
+  if (creatorKind === 'human') ensureHumanInboxRoom(input.whoCreatedIt);
+  if (input.whoCreatedIt !== '@you') ensureHumanInboxRoom('@you');
+  recomputeInboxEdgesForRoomMembershipChange(newRoomId, input.whoCreatedIt);
+  if (input.whoCreatedIt !== '@you') {
+    recomputeInboxEdgesForRoomMembershipChange(newRoomId, '@you');
+  }
   return loadRoomById(newRoomId)!;
 }
 
@@ -499,6 +512,7 @@ export function inviteAgentToRoom(input: {
   });
 
   txn();
+  recomputeInboxEdgesForRoomMembershipChange(input.roomId, handleWithAtSign);
   return loadRoomById(input.roomId)!;
 }
 
@@ -549,6 +563,8 @@ export function inviteHumanToRoom(input: {
   });
 
   txn();
+  ensureHumanInboxRoom(handleWithAtSign);
+  recomputeInboxEdgesForRoomMembershipChange(input.roomId, handleWithAtSign);
   return loadRoomById(input.roomId)!;
 }
 
@@ -625,6 +641,12 @@ export function removeMemberFromRoom(input: {
     );
   });
   txn();
+  // After the delete, recompute every inbox edge involving the removed
+  // handle. The helper walks the REMAINING members to find pairings — so
+  // if the removed agent had no other shared rooms with each human in
+  // this room, the inbox membership is dropped (JWPK 2026-05-22 auto-
+  // remove correction).
+  recomputeInboxEdgesForRoomMembershipChange(input.roomId, input.globalHandle);
 
   return loadRoomById(input.roomId)!;
 }
