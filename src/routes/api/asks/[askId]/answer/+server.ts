@@ -18,8 +18,11 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
-import { answerAsk, findAskById } from '$lib/server/askStore';
+import { answerAsk, findAskById, type Ask } from '$lib/server/askStore';
 import { consumeConsentGrant } from '$lib/server/consentGrantStore';
+import { postSystemMessage } from '$lib/server/chatMessageStore';
+import { broadcastToRoom } from '$lib/server/eventBroadcast';
+import { fanoutMessageToRoomTerminals } from '$lib/server/pty-inject-fanout';
 
 export const POST: RequestHandler = async ({ params, request }) => {
   const ask = findAskById(params.askId);
@@ -86,6 +89,24 @@ export const POST: RequestHandler = async ({ params, request }) => {
       answeredByDisplayName,
       answer: answerRaw
     });
+    try {
+      const roomMessage = postSystemMessage({
+        roomId: ask.roomId,
+        body: formatAnsweredAskRoomMessage(ask, updatedAsk)
+      });
+      try {
+        fanoutMessageToRoomTerminals(ask.roomId, roomMessage);
+      } catch {
+        /* terminal fanout is best-effort; the room message is already persisted */
+      }
+      try {
+        broadcastToRoom(ask.roomId, { type: 'message_added', message: roomMessage });
+      } catch {
+        /* browser broadcast is best-effort; the room message is already persisted */
+      }
+    } catch {
+      /* The ask answer is authoritative; a receipt failure must not re-open it. */
+    }
     return json({
       ask: updatedAsk,
       consent: consentResult?.allowed
@@ -102,6 +123,12 @@ export const POST: RequestHandler = async ({ params, request }) => {
     throw error(400, failureMessage);
   }
 };
+
+function formatAnsweredAskRoomMessage(originalAsk: Ask, answeredAsk: Ask): string {
+  const answeredBy = answeredAsk.answeredByHandle ?? 'unknown';
+  const answer = answeredAsk.answer ?? '';
+  return `Open ask answered by ${answeredBy}: ${originalAsk.title}\n\n${answer}`;
+}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
