@@ -100,13 +100,38 @@ async function postJson(runtime, url, body) {
   });
 }
 
+// 0.1.8 slice A (Xeno windows-cli-auth-wedge follow-up 2026-05-22):
+// when --pid is not given, prefer the grandparent over process.ppid so
+// `ant register` from MSYS2 bash doesn't anchor to a one-off cygwin
+// helper that dies the moment the register call returns. Subsequent
+// `ant chat send` invocations spawn fresh helpers (different PIDs) but
+// the bash / shell ancestor stays put, so the server's pidChain lookup
+// matches on the bash entry of both register-time and resolve-time
+// chains.
+//
+// Safe on Mac/Linux too: chain[0] (the immediate shell) is stable
+// across invocations, but chain[1] (the terminal emulator) is also
+// stable AND appears in every subsequent resolve chain — so registering
+// against either yields a match. We pick the longer-lived ancestor by
+// default for the MSYS2 case without regressing the POSIX case.
+//
+// Explicit --pid still wins; users with a known stable PID (e.g.
+// claude.exe pid 51680 from Xeno's manual recovery) bypass this.
+export function chooseRegisterPidChain(initialChain, hasExplicitPid) {
+  if (hasExplicitPid) return initialChain;
+  if (initialChain.length < 2) return initialChain;
+  return initialChain.slice(1);
+}
+
 async function runRegister(flags, runtime, CliInputError) {
   const handle = flags.handle;
   const name = flags.name;
   if (!name) throw new CliInputError('register requires --name <terminalName>');
   const ttlSeconds = parseTtlSeconds(flags.ttl);
-  const startPidRaw = flags.pid ? Number(flags.pid) : runtime.processPpid ?? process.ppid;
-  const chain = processIdentityChain(startPidRaw);
+  const hasExplicitPid = flags.pid !== undefined;
+  const startPidRaw = hasExplicitPid ? Number(flags.pid) : runtime.processPpid ?? process.ppid;
+  const initialChain = processIdentityChain(startPidRaw);
+  const chain = chooseRegisterPidChain(initialChain, hasExplicitPid);
   if (chain.length === 0) {
     runtime.writeErr('Could not read PID chain (ps unavailable or PID invalid).');
     return 1;
