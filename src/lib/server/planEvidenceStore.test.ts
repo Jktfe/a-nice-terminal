@@ -40,7 +40,8 @@ describe('planEvidenceStore', () => {
       url: 0,
       file: 0,
       chat_message: 0,
-      proposal: 0
+      proposal: 0,
+      stage_focus: 0
     });
   });
 
