@@ -23,15 +23,20 @@
 -->
 <script lang="ts">
   import type { EntityClaim, ClaimKind } from '$lib/server/entityClaimStore';
+  import type { RoomMember } from '$lib/server/chatRoomStore';
 
   type Props = {
     claims: EntityClaim[];
+    /** Room roster order is the heads-down seniority order. Claim rows
+     *  use it for compact #1/#2 markers so agents can scan who is next
+     *  without reading the full room membership list. */
+    members?: RoomMember[];
     /** Room mode informs whether the 🤝 working claim is soft (brainstorm)
      *  or hard (heads-down). Defaults to soft. */
     roomMode?: 'brainstorm' | 'heads-down' | 'closed';
   };
 
-  let { claims = [], roomMode = 'brainstorm' }: Props = $props();
+  let { claims = [], members = [], roomMode = 'brainstorm' }: Props = $props();
 
   // Group claims by kind. Looking + pass can have multiple agents
   // simultaneously (each claimant is a distinct row); working is
@@ -41,15 +46,33 @@
   const workingClaim = $derived(claims.find((c) => c.claim_kind === 'working') ?? null);
   const passClaims = $derived(claims.filter((c) => c.claim_kind === 'pass'));
 
-  function nowMs(): number {
-    return Date.now();
-  }
+  const agentOrderByHandle = $derived.by(() => {
+    const order = new Map<string, number>();
+    members
+      .filter((member) => member.kind === 'agent')
+      .forEach((member, index) => order.set(member.handle, index + 1));
+    return order;
+  });
+
+  const expiringClaimCount = $derived(
+    claims.filter((claim) => claim.expires_at_ms !== null).length
+  );
+  let clockNowMs = $state(Date.now());
+
+  $effect(() => {
+    if (expiringClaimCount === 0) return;
+    clockNowMs = Date.now();
+    const timer = setInterval(() => {
+      clockNowMs = Date.now();
+    }, 1000);
+    return () => clearInterval(timer);
+  });
 
   /** Compact "12m left" / "1h 14m left" / "indefinite" copy for working
    *  claims, taking the current wall clock into account. */
-  function remainingLabel(expiresAtMs: number | null): string {
+  function remainingLabel(expiresAtMs: number | null, nowMs: number): string {
     if (expiresAtMs === null) return 'indefinite';
-    const remaining = expiresAtMs - nowMs();
+    const remaining = expiresAtMs - nowMs;
     if (remaining <= 0) return 'expiring';
     const totalSeconds = Math.floor(remaining / 1000);
     if (totalSeconds < 60) return `${totalSeconds}s left`;
@@ -66,6 +89,10 @@
     return `${items.slice(0, 2).map((c) => c.claimed_by_handle).join(', ')} +${items.length - 2} more`;
   }
 
+  function seniorityForHandle(handle: string, fallbackIndex: number): number {
+    return agentOrderByHandle.get(handle) ?? fallbackIndex + 1;
+  }
+
   const hasAny = $derived(
     lookingClaims.length > 0 || workingClaim !== null || passClaims.length > 0
   );
@@ -73,22 +100,30 @@
 
 {#if hasAny}
   <span class="claim-strip" aria-label="Claim state">
-    {#if lookingClaims.length > 0}
-      <span class="claim-pill claim-looking" title={`Looking: ${joinedHandleList(lookingClaims)}`}>
+    {#each lookingClaims as claim, index (claim.id)}
+      <span class="claim-pill claim-looking" title={`Reading #${seniorityForHandle(claim.claimed_by_handle, index)}: ${claim.claimed_by_handle}`}>
         <span class="claim-emoji" aria-hidden="true">🖐️</span>
-        <span class="claim-detail">{joinedHandleList(lookingClaims)}</span>
+        <span class="claim-order">#{seniorityForHandle(claim.claimed_by_handle, index)}</span>
+        <span class="claim-detail">
+          <span class="claim-handle">{claim.claimed_by_handle}</span>
+          {#if claim.expires_at_ms !== null}
+            <span class="claim-countdown">·</span>
+            <span class="claim-countdown">{remainingLabel(claim.expires_at_ms, clockNowMs)}</span>
+          {/if}
+        </span>
       </span>
-    {/if}
+    {/each}
     {#if workingClaim}
       <span
         class={`claim-pill claim-working claim-working-${roomMode}`}
         title={`Working: ${workingClaim.claimed_by_handle}`}
       >
         <span class="claim-emoji" aria-hidden="true">🤝</span>
+        <span class="claim-order">#{seniorityForHandle(workingClaim.claimed_by_handle, 0)}</span>
         <span class="claim-detail">
           <span class="claim-handle">{workingClaim.claimed_by_handle}</span>
           <span class="claim-countdown">·</span>
-          <span class="claim-countdown">{remainingLabel(workingClaim.expires_at_ms)}</span>
+          <span class="claim-countdown">{remainingLabel(workingClaim.expires_at_ms, clockNowMs)}</span>
         </span>
       </span>
     {/if}
@@ -124,6 +159,21 @@
   }
   .claim-emoji {
     font-size: 0.85rem;
+    line-height: 1;
+  }
+  .claim-order {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.35rem;
+    height: 1rem;
+    padding: 0 0.25rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--ink-soft) 9%, transparent);
+    color: var(--ink-soft);
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.58rem;
+    font-weight: 800;
     line-height: 1;
   }
   .claim-detail {

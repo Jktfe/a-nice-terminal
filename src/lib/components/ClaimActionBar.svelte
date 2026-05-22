@@ -176,10 +176,10 @@
     class:active={myLooking !== null}
     onclick={handleLookingClick}
     disabled={busy !== null}
-    title={myLooking ? 'You are looking — click to release' : "I'm looking at this (90s)"}
+    title={myLooking ? 'You are reading — click to release' : "I'm reading this (90s)"}
   >
     <span aria-hidden="true">🖐️</span>
-    <span class="claim-btn-label">{myLooking ? 'looking' : 'look'}</span>
+    <span class="claim-btn-label">{myLooking ? 'reading' : 'read'}</span>
   </button>
 
   <div class="claim-btn-group">
@@ -192,14 +192,14 @@
       disabled={busy !== null}
       title={
         myWorking
-          ? 'You are working on this — click to release'
+          ? 'You are taking this — click to release'
           : someoneElseWorking
             ? `Already claimed by ${someoneElseWorking.claimed_by_handle}`
-            : "I'm working on this — pick TTL"
+            : "I'm taking this — pick TTL"
       }
     >
       <span aria-hidden="true">🤝</span>
-      <span class="claim-btn-label">{myWorking ? 'working' : 'work'}</span>
+      <span class="claim-btn-label">{myWorking ? 'taking' : 'take'}</span>
     </button>
     {#if ttlPickerOpen}
       <div class="ttl-picker" role="menu" aria-label="Choose claim duration">

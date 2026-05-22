@@ -10,6 +10,7 @@
 -->
 <script lang="ts">
   import type { ChatMessage } from '$lib/server/chatMessageStore';
+  import type { RoomMember } from '$lib/server/chatRoomStore';
   import type { EntityClaim } from '$lib/server/entityClaimStore';
   import MemberIcon from './MemberIcon.svelte';
   import ClaimChip from './ClaimChip.svelte';
@@ -23,6 +24,7 @@
     isDeleted: boolean;
     viewerIsAgent: boolean;
     claims: EntityClaim[];
+    members?: RoomMember[];
     roomMode: 'brainstorm' | 'heads-down' | 'closed';
     onReplyRequested?: (messageId: string) => void;
     asHandle?: string;
@@ -40,6 +42,7 @@
     isDeleted,
     viewerIsAgent,
     claims,
+    members = [],
     roomMode,
     onReplyRequested,
     asHandle,
@@ -172,7 +175,7 @@
        on viewerIsAgent so agents viewing the web UI still see the
        chip, but human users (@you, team members) don't. -->
   {#if viewerIsAgent}
-    <ClaimChip {claims} {roomMode} />
+    <ClaimChip {claims} {members} {roomMode} />
   {/if}
 </header>
 
