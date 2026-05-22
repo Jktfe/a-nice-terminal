@@ -42,6 +42,7 @@ import {
 import { listInboxOwnersWhereHandleIsMember } from '$lib/server/humanInboxRoomStore';
 import { lookupTerminalByPidChain } from '$lib/server/terminalsStore';
 import { deriveHandle, getTerminalRecord } from '$lib/server/terminalRecordsStore';
+import { getIdentityDb } from '$lib/server/db';
 
 /**
  * Per-human inbox pidChain auth (JWPK 2026-05-22): the no-roomId branch
@@ -69,8 +70,22 @@ function resolvePidChainInboxScope(request: Request): { handles: string[]; inbox
     if (chain.length === 0) return null;
     const terminal = lookupTerminalByPidChain(chain);
     if (!terminal) return null;
+    // Try terminal_records first (canonical agent identity). When absent
+    // (e.g. agents that registered via room_memberships only — like the
+    // dogfood @claudev4 with no terminal_records row), fall back to ANY
+    // room_memberships row for this terminal — that handle is what the
+    // messages-post path already trusts via resolveServerSideHandle's
+    // getRoomScopedHandle.
     const record = getTerminalRecord(terminal.id);
-    const handle = record ? deriveHandle(record) : null;
+    let handle: string | null = record ? deriveHandle(record) : null;
+    if (!handle) {
+      const fallback = getIdentityDb().prepare(
+        `SELECT handle FROM room_memberships
+         WHERE terminal_id = ? AND revoked_at_ms IS NULL
+         LIMIT 1`
+      ).get(terminal.id) as { handle: string } | undefined;
+      handle = fallback?.handle ?? null;
+    }
     if (!handle) return null;
     const inboxOwners = listInboxOwnersWhereHandleIsMember(handle);
     if (inboxOwners.length === 0) return null;
