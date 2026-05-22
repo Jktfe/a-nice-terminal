@@ -9,6 +9,7 @@
 import { getIdentityDb } from './db';
 import { createEntityStore } from './sqliteEntityStore';
 import { findChatRoomById } from './chatRoomStore';
+import { inboxRoomIdFor } from './humanInboxRoomStore';
 
 // Asks-as-pill model (JWPK 2026-05-22): 'merged' is NON-terminal — a merged
 // ask still counts toward the askee's response-required pill because the
@@ -249,6 +250,23 @@ export class AskTargetNotHumanError extends Error {
   }
 }
 
+/**
+ * Thrown when an asker tries to open an ask targeting a human they have NO
+ * shared context with — no shared chat room AND no terminal-ownership
+ * relationship. Per-human inbox model JWPK 2026-05-22: this is the
+ * boundary that stops cold-email-style asks from strangers.
+ */
+export class AskerNotInInboxError extends Error {
+  askerHandle: string;
+  targetHandle: string;
+  constructor(askerHandle: string, targetHandle: string) {
+    super(`${askerHandle} cannot ask ${targetHandle}: no shared room or owned terminal grants inbox access.`);
+    this.name = 'AskerNotInInboxError';
+    this.askerHandle = askerHandle;
+    this.targetHandle = targetHandle;
+  }
+}
+
 export function openAskInRoom(input: {
   roomId: string;
   openedByHandle: string;
@@ -276,9 +294,40 @@ export function openAskInRoom(input: {
   if (targetForRow !== null) {
     const room = findChatRoomById(trimmedRoomId);
     if (!room) throw new Error(`Cannot open ask for unknown room ${trimmedRoomId}.`);
-    const targetMember = room.members.find((member) => member.handle === targetForRow);
-    if (!targetMember) throw new AskTargetNotHumanError(targetForRow, 'not-a-member');
-    if (targetMember.kind !== 'human') throw new AskTargetNotHumanError(targetForRow, 'is-agent');
+    // Per-human inbox (JWPK 2026-05-22): the askee no longer needs to be
+    // a member of the originating room — the asker just needs inbox
+    // access. Look up the target's kind from any source (room membership
+    // OR the inbox room itself; an inbox room's owner is always human).
+    let targetKind: 'human' | 'agent' | null = null;
+    const memberInRoom = room.members.find((member) => member.handle === targetForRow);
+    if (memberInRoom) {
+      targetKind = memberInRoom.kind;
+    } else {
+      const inboxRow = getIdentityDb().prepare(
+        `SELECT kind FROM chat_room_members WHERE handle = ? AND kind = 'human' LIMIT 1`
+      ).get(targetForRow) as { kind: 'human' | 'agent' } | undefined;
+      if (inboxRow) targetKind = inboxRow.kind;
+    }
+    if (targetKind === null) throw new AskTargetNotHumanError(targetForRow, 'not-a-member');
+    if (targetKind !== 'human') throw new AskTargetNotHumanError(targetForRow, 'is-agent');
+
+    // Inbox-membership check: the asker must be in the askee's inbox,
+    // UNLESS the asker is the askee (you can always ask yourself) OR they
+    // share the originating room (the @-mention fanout path proves this
+    // implicitly). The inbox check is the security boundary that stops
+    // strangers from cold-emailing.
+    if (trimmedHandle !== targetForRow) {
+      const askerInRoom = room.members.some((member) => member.handle === trimmedHandle);
+      if (!askerInRoom) {
+        const inboxId = inboxRoomIdFor(targetForRow);
+        const askerInInbox = getIdentityDb().prepare(
+          `SELECT 1 FROM chat_room_members WHERE room_id = ? AND handle = ? LIMIT 1`
+        ).get(inboxId, trimmedHandle);
+        if (!askerInInbox) {
+          throw new AskerNotInInboxError(trimmedHandle, targetForRow);
+        }
+      }
+    }
   }
 
   const id = makeAskId();
