@@ -5,7 +5,15 @@
  *   ant decks add --room ROOM_ID --title TITLE [--slides-json JSON] [--theme TEXT] [--json]
  *   ant decks update --room ROOM_ID --id DECK_ID [--title TEXT] [--slides-json JSON] [--theme TEXT] [--json]
  *   ant decks remove --room ROOM_ID --id DECK_ID [--json]
+ *
+ * Auth: mutating verbs (add/update/remove) include the caller's pidChain
+ * in the JSON body so the server-side requireChatRoomMutationAuth gate's
+ * Step-4 pidChain path resolves the @handle. Without this, agent CLI
+ * calls 401 even when the agent is a room member — banked 2026-05-22
+ * as a missing-pidChain-on-mutation CLI gap.
  */
+
+import { processIdentityChain } from './ant-cli-identity-chain.mjs';
 
 const BOOLEAN_FLAGS = new Set(['json']);
 
@@ -110,7 +118,8 @@ async function runAdd(flags, runtime, CliInputError) {
       slides,
       theme: flags.theme ?? 'default',
       createdBy: runtime.handle ?? null,
-      accessPassword: flags.password ?? null
+      accessPassword: flags.password ?? null,
+      pidChain: processIdentityChain()
     })
   });
   if (!response.ok) {
@@ -145,6 +154,7 @@ async function runUpdate(flags, runtime, CliInputError) {
   }
   if (flags.theme !== undefined) body.theme = flags.theme;
   if (flags.password !== undefined) body.accessPassword = flags.password;
+  body.pidChain = processIdentityChain();
 
   const url = `${runtime.serverUrl}/api/chat-rooms/${encodeURIComponent(roomId)}/decks?deckId=${encodeURIComponent(deckId)}`;
   const response = await runtime.fetchImpl(url, {
@@ -174,7 +184,11 @@ async function runRemove(flags, runtime, CliInputError) {
   if (!deckId) throw new CliInputError('--id is required for decks remove.');
 
   const url = `${runtime.serverUrl}/api/chat-rooms/${encodeURIComponent(roomId)}/decks?deckId=${encodeURIComponent(deckId)}`;
-  const response = await runtime.fetchImpl(url, { method: 'DELETE' });
+  const response = await runtime.fetchImpl(url, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pidChain: processIdentityChain() })
+  });
   if (!response.ok) {
     const bodyText = await response.text().catch(() => '');
     runtime.writeErr(`decks remove failed (${response.status}): ${bodyText.slice(0, 200)}`);
