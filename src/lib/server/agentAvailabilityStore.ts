@@ -135,6 +135,7 @@ function loadMembers(): MemberRow[] {
        FROM chat_room_members crm
        JOIN chat_rooms cr ON cr.id = crm.room_id
        WHERE crm.kind = 'agent'
+         AND crm.room_id NOT LIKE '__inbox_%'
        ORDER BY crm.handle ASC, crm.joined_at DESC`
     )
     .all() as MemberRow[];

@@ -25,14 +25,22 @@ import { upsertTerminal } from '$lib/server/terminalsStore';
 
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
+const previousAdminToken = process.env.ANT_ADMIN_TOKEN;
+const TEST_ADMIN_TOKEN = 'chair-enabled-test-admin-token';
 
 type AnyHandler = (event: unknown) => unknown;
 
-function eventFor(method: 'GET' | 'PUT', path: string, body?: string): unknown {
+function eventFor(method: 'GET' | 'PUT', path: string, body?: string, opts?: { withAuth?: boolean }): unknown {
   const url = new URL(`http://localhost${path}`);
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  // Auth-fix-9cbf1f0 made GET /api/chat-rooms and GET /api/asks require
+  // auth before doing expensive list work. Tests attach the admin bearer
+  // by default so the contract under test is "endpoint returns 200 for
+  // authenticated callers", not "endpoint is publicly readable".
+  if (opts?.withAuth !== false) headers.authorization = `Bearer ${TEST_ADMIN_TOKEN}`;
   const request = new Request(url.toString(), {
     method,
-    headers: { 'content-type': 'application/json' },
+    headers,
     body
   });
   return { request, params: {}, url };
@@ -55,6 +63,7 @@ describe('/api/chair-enabled + Chair-disabled boot guardrail', () => {
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ant-chair-enabled-'));
     process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
+    process.env.ANT_ADMIN_TOKEN = TEST_ADMIN_TOKEN;
     resetIdentityDbForTests();
     resetChairEnabledStoreForTests();
   });
@@ -64,6 +73,8 @@ describe('/api/chair-enabled + Chair-disabled boot guardrail', () => {
     rmSync(tmpDir, { recursive: true, force: true });
     if (previousEnvValue === undefined) delete process.env.ANT_FRESH_DB_PATH;
     else process.env.ANT_FRESH_DB_PATH = previousEnvValue;
+    if (previousAdminToken === undefined) delete process.env.ANT_ADMIN_TOKEN;
+    else process.env.ANT_ADMIN_TOKEN = previousAdminToken;
   });
 
   it('GET /api/chair-enabled returns default-true and PUT toggles it (M4.4 T2: with pidChain)', async () => {

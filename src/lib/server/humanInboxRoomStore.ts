@@ -86,12 +86,18 @@ export function ensureHumanInboxRoom(humanHandle: string): string {
   const nowIso = new Date().toISOString();
 
   const txn = db.transaction(() => {
-    // creation_order is UNIQUE so we have to pick a fresh one each time.
-    // INSERT OR IGNORE skips when the inbox already exists; if we DID
-    // insert, we add the human as the seed member.
-    const nextOrderRow = db
-      .prepare(`SELECT COALESCE(MAX(creation_order), 0) + 1 AS next FROM chat_rooms`)
-      .get() as { next: number };
+    // creation_order is UNIQUE INTEGER NOT NULL. Inbox rooms shouldn't
+    // consume positive-space creation_order slots — that bumps the
+    // numbering of normal rooms and breaks listChatRooms ordering tests
+    // that assert [1,2,3] for three newly-created rooms. Use the
+    // NEGATIVE half of the integer line: monotonically decreasing
+    // (-1, -2, -3, ...) by walking down from the current minimum.
+    // listChatRooms filters __inbox_* by id pattern so the negative
+    // creation_order is invisible to that surface.
+    const minOrderRow = db
+      .prepare(`SELECT COALESCE(MIN(creation_order), 0) AS min FROM chat_rooms WHERE id LIKE '__inbox_%'`)
+      .get() as { min: number };
+    const inboxOrder = Math.min(0, minOrderRow.min) - 1;
     const result = db.prepare(`INSERT OR IGNORE INTO chat_rooms
       (id, name, summary, attention_state, last_update,
        when_it_was_created, who_created_it, creation_order)
@@ -103,7 +109,7 @@ export function ensureHumanInboxRoom(humanHandle: string): string {
       nowIso,
       nowIso,
       withAt,
-      nextOrderRow.next
+      inboxOrder
     );
     if (result.changes > 0) {
       db.prepare(`INSERT OR IGNORE INTO chat_room_members
