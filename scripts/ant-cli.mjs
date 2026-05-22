@@ -42,6 +42,7 @@ import { handleScreenshotVerb } from './ant-cli-screenshot.mjs';
 import { handleSessionsVerb } from './ant-cli-sessions.mjs';
 import { handleSettingsVerb } from './ant-cli-settings.mjs';
 import { handleShareVerb } from './ant-cli-share.mjs';
+import { handleStageVerb } from './ant-cli-stage.mjs';
 import { handleStatusVerb } from './ant-cli-status.mjs';
 import { handleTaskVerb } from './ant-cli-task.mjs';
 import { handleTerminalVerb } from './ant-cli-terminal.mjs';
@@ -58,7 +59,7 @@ const ENV_SERVER_URL = process.env.ANT_SERVER_URL?.trim();
 const DISPATCH = {
   plan: handlePlanVerb, ask: handleAskVerb, artefact: handleArtefactVerb, attach: handleAttachVerb, invite: handleInviteVerb, chat: handleChatVerb, room: handleRoomVerb,
   reaction: handleReactionVerb, handle: handleHandleVerb, status: handleStatusVerb, delivery: handleDeliveryVerb, audit: handleAuditVerb, docs: handleDocsVerb,
-  decks: handleDecksVerb, remote: handleRemoteVerb, 'remote-room': handleRemoteRoomVerb, discussion: handleDiscussionVerb, linkedchat: handleLinkedchatVerb, fingerprint: handleFingerprintVerb, mcp: handleMcpVerb, chair: handleChairVerb, interview: handleInterviewVerb, screenshot: handleScreenshotVerb, hooks: handleHooksVerb, new: handleNewVerb, list: handleListVerb, terminal: handleTerminalVerb, settings: handleSettingsVerb, flag: handleFlagVerb, task: handleTaskVerb, memory: handleMemoryVerb, sessions: handleSessionsVerb, voice: handleVoiceVerb, tunnel: handleTunnelVerb, pairing: handlePairingVerb, agents: handleAgentsVerb, share: handleShareVerb, identity: handleIdentityVerb, register: handleRegisterVerb, add: handleAddVerb, resolve: handleResolveVerb, router: handleRouterVerb
+  decks: handleDecksVerb, stage: handleStageVerb, remote: handleRemoteVerb, 'remote-room': handleRemoteRoomVerb, discussion: handleDiscussionVerb, linkedchat: handleLinkedchatVerb, fingerprint: handleFingerprintVerb, mcp: handleMcpVerb, chair: handleChairVerb, interview: handleInterviewVerb, screenshot: handleScreenshotVerb, hooks: handleHooksVerb, new: handleNewVerb, list: handleListVerb, terminal: handleTerminalVerb, settings: handleSettingsVerb, flag: handleFlagVerb, task: handleTaskVerb, memory: handleMemoryVerb, sessions: handleSessionsVerb, voice: handleVoiceVerb, tunnel: handleTunnelVerb, pairing: handlePairingVerb, agents: handleAgentsVerb, share: handleShareVerb, identity: handleIdentityVerb, register: handleRegisterVerb, add: handleAddVerb, resolve: handleResolveVerb, router: handleRouterVerb
 };
 
 export function makeCliRunner({ fetchImpl, writeOut, writeErr, serverUrl, serverUrlSource: suppliedServerUrlSource, config } = {}) {
@@ -348,7 +349,8 @@ Verbs:
   mcp list|grant|revoke               Manage MCP adapter grants (admin-bearer).
   remote admit|redeem|mapping         Remote ANT bridge admission + mapping management.
   router start --room ROOM --handle @h  Route mentions into a local terminal pane.
-  remote-room send|status|ack|quarantine  Remote-bridge message ops (admin-bearer).`);
+  remote-room send|status|ack|quarantine  Remote-bridge message ops (admin-bearer).
+  stage focus|current                  Publish/read current deck focus for Stage.`);
 }
 export { CliInputError, CliNetworkError };
 
