@@ -46,6 +46,22 @@ describe('createDeck', () => {
     expect(deck.slides[0].title).toBe('Slide 1');
   });
 
+  it('normalizes imported body-only slides for the deck viewer', () => {
+    const room = makeRoom();
+    const deck = createDeck({
+      roomId: room.id,
+      title: 'Imported',
+      slides: [{ title: 'Slide 1', body: 'Hello from body' } as unknown as NonNullable<Parameters<typeof createDeck>[0]['slides']>[number]]
+    });
+
+    const found = getDeck(deck.id);
+    expect(found!.slides[0]).toMatchObject({
+      id: 'slide-1',
+      title: 'Slide 1',
+      content: 'Hello from body'
+    });
+  });
+
   it('trims title', () => {
     const room = makeRoom();
     const deck = createDeck({ roomId: room.id, title: '  Trimmed  ' });

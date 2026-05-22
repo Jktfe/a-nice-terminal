@@ -42,11 +42,46 @@ type DeckRow = {
   deleted_at_ms: number | null;
 };
 
+type RawDeckSlide = {
+  id?: unknown;
+  title?: unknown;
+  content?: unknown;
+  body?: unknown;
+  layout?: unknown;
+};
+
+function normalizeSlide(raw: unknown, index: number): DeckSlide | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const slide = raw as RawDeckSlide;
+  const title = typeof slide.title === 'string' && slide.title.trim().length > 0
+    ? slide.title
+    : `Slide ${index + 1}`;
+  const content = typeof slide.content === 'string'
+    ? slide.content
+    : (typeof slide.body === 'string' ? slide.body : '');
+  const normalized: DeckSlide = {
+    id: typeof slide.id === 'string' && slide.id.length > 0 ? slide.id : `slide-${index + 1}`,
+    title,
+    content
+  };
+  if (typeof slide.layout === 'string' && slide.layout.length > 0) {
+    normalized.layout = slide.layout;
+  }
+  return normalized;
+}
+
+function normalizeSlides(rawSlides: unknown): DeckSlide[] {
+  if (!Array.isArray(rawSlides)) return [];
+  return rawSlides
+    .map((slide, index) => normalizeSlide(slide, index))
+    .filter((slide): slide is DeckSlide => slide !== null);
+}
+
 function rowToDeck(row: DeckRow): RoomDeck {
   let slides: DeckSlide[] = [];
   try {
     const parsed = JSON.parse(row.slides_json);
-    if (Array.isArray(parsed)) slides = parsed;
+    slides = normalizeSlides(parsed);
   } catch { /* ignore malformed JSON */ }
   return {
     id: row.id,
@@ -79,7 +114,7 @@ export function createDeck(input: {
   const db = getIdentityDb();
   const id = randomUUID();
   const nowMs = input.nowMs ?? Date.now();
-  const slides = input.slides ?? [];
+  const slides = normalizeSlides(input.slides ?? []);
 
   db.prepare(
     `INSERT INTO chat_room_decks
@@ -153,7 +188,7 @@ export function updateDeck(id: string, input: {
 
   const nowMs = input.nowMs ?? Date.now();
   const title = input.title !== undefined ? input.title.trim() : existing.title;
-  const slides = input.slides !== undefined ? input.slides : existing.slides;
+  const slides = input.slides !== undefined ? normalizeSlides(input.slides) : existing.slides;
   const theme = input.theme !== undefined ? input.theme : existing.theme;
   const accessPassword = input.accessPassword !== undefined ? input.accessPassword : existing.accessPassword;
 
