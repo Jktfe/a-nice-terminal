@@ -15,6 +15,7 @@ import {
   normalizeAntchatEmail
 } from './antchatAuthStore';
 import { resolveAccountsBearerIdentity } from './accountsBearerIdentity';
+import { verifyToken as verifyRoomInviteToken } from './chatInviteStore';
 import {
   resolveBrowserSessionSecretIgnoringRoom,
   touchBrowserSessionLastSeen
@@ -27,7 +28,7 @@ import { expandHandlesToOwnerFamilies } from './agentFamilyStore';
 
 export type ChatRoomReadAccess = {
   isAdminBearer: boolean;
-  source?: 'admin-bearer' | 'local-bearer' | 'accounts-bearer' | 'browser-session' | 'pid-chain';
+  source?: 'admin-bearer' | 'local-bearer' | 'accounts-bearer' | 'browser-session' | 'pid-chain' | 'room-invite-bearer';
   handles: string[];
   principalHandles?: string[];
   resolvedRoomIds?: string[];
@@ -122,6 +123,34 @@ async function tryAccountsBearer(request: Request): Promise<ChatRoomReadAccess |
   return { isAdminBearer: false, source: 'accounts-bearer', handles, principalHandles };
 }
 
+// 0.1.8 slice C (Xeno windows-cli-auth-wedge follow-up 2026-05-22):
+// invite-derived room tokens (from `ant invite exchange`) are bearers
+// scoped to a single roomId, with an optional handle binding. Slice B
+// in 0.1.6 made `/browser-session` skip the same-origin gate when ANY
+// bearer is present, but `requireMintRoomAccess` downstream only knew
+// about admin / local-antchat / accounts bearers — so a perfectly
+// valid room-invite token still 401'd ("Authentication required").
+// This resolver fills the gap. Requires roomId because verifyToken
+// rejects cross-room reuse by design.
+function tryRoomInviteBearer(request: Request, roomId?: string): ChatRoomReadAccess | null {
+  if (!roomId) return null;
+  const token = bearerTokenFromHeader(request.headers.get('authorization'));
+  if (!token) return null;
+  const identity = verifyRoomInviteToken(token, roomId);
+  if (!identity) return null;
+  // Handle is null until the invite is redeemed against a specific
+  // alias. Room-scoped access still applies in that case — the room-id
+  // match is the proof, not the handle.
+  const principalHandles = identity.handle ? [normaliseHandle(identity.handle)] : [];
+  return {
+    isAdminBearer: false,
+    source: 'room-invite-bearer',
+    handles: expandHandlesToOwnerFamilies(principalHandles),
+    principalHandles: principalHandles.length > 0 ? principalHandles : undefined,
+    resolvedRoomIds: [roomId]
+  };
+}
+
 function tryBrowserSession(request: Request, roomId?: string): ChatRoomReadAccess | null {
   const cookieSecrets = getCookieValuesFromRequest(request, 'ant_browser_session');
   for (const cookieSecret of cookieSecrets) {
@@ -192,6 +221,9 @@ export async function resolveChatRoomReadAccess(
 
   const accountsBearer = await tryAccountsBearer(request);
   if (accountsBearer) return accountsBearer;
+
+  const roomInviteBearer = tryRoomInviteBearer(request, roomId);
+  if (roomInviteBearer) return roomInviteBearer;
 
   const browserSession = tryBrowserSession(request, roomId);
   if (browserSession) return browserSession;

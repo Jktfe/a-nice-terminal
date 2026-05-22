@@ -10,6 +10,7 @@ import { createOwner } from '$lib/server/ownersStore';
 import { createHumanConsentGrant } from '$lib/server/humanConsentGrantsStore';
 import { createBrowserSession } from '$lib/server/browserSessionStore';
 import { issueToken } from '$lib/server/antchatAuthStore';
+import { createInvite, exchangePasswordForToken } from '$lib/server/chatInviteStore';
 
 type PostOptions = {
   roomId: string;
@@ -112,6 +113,67 @@ describe('POST /api/chat-rooms/:roomId/browser-session', () => {
 
     expect(response.status).toBe(201);
     expect(browserSessionCount()).toBe(1);
+  });
+
+  // 0.1.8 slice C (Xeno windows-cli-auth-wedge follow-up 2026-05-22):
+  // invite-derived room tokens minted by `ant invite exchange` must mint
+  // a browser-session cookie when presented as a bearer alongside the
+  // matching authorHandle. Prior to this slice, slice B in 0.1.6 skipped
+  // the same-origin gate when a bearer was present, but requireMintRoomAccess
+  // downstream rejected room-invite tokens — only admin / local-antchat /
+  // accounts bearers passed. That left the CLI's auto-mint fallback path
+  // dead-ended on Windows where pidChain identity was also misaligned.
+  it('mints for an invite-derived room-token bearer with the bound handle', async () => {
+    const room = createChatRoom({ name: 'browser-room-invite', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@xenocc' });
+    const invite = createInvite({
+      roomId: room.id,
+      label: 'xeno-bench',
+      password: 'hello',
+      kinds: ['cli']
+    });
+    const { tokenSecret } = exchangePasswordForToken({
+      inviteId: invite.id,
+      password: 'hello',
+      kind: 'cli',
+      handle: 'xenocc'
+    });
+
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({ authorHandle: '@xenocc' }),
+      headers: { authorization: `Bearer ${tokenSecret}` }
+    });
+
+    expect(response.status).toBe(201);
+    expect(browserSessionCount()).toBe(1);
+  });
+
+  it('rejects an invite-derived room-token bearer scoped to a different room', async () => {
+    const roomA = createChatRoom({ name: 'browser-room-invite-A', whoCreatedIt: '@you' });
+    const roomB = createChatRoom({ name: 'browser-room-invite-B', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: roomB.id, agentHandle: '@xenocc' });
+    const invite = createInvite({
+      roomId: roomA.id,
+      label: 'xeno-bench',
+      password: 'hello',
+      kinds: ['cli']
+    });
+    const { tokenSecret } = exchangePasswordForToken({
+      inviteId: invite.id,
+      password: 'hello',
+      kind: 'cli',
+      handle: 'xenocc'
+    });
+
+    const response = await callPost({
+      roomId: roomB.id,
+      body: JSON.stringify({ authorHandle: '@xenocc' }),
+      headers: { authorization: `Bearer ${tokenSecret}` }
+    });
+
+    expect(response.status).toBe(401);
+    expect(browserSessionCount()).toBe(0);
   });
 
   it('allows a human login cookie to mint that human family browser session without pidChain', async () => {
