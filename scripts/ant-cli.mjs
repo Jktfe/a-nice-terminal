@@ -326,7 +326,31 @@ async function readErrorBodyMessage(response) {
   }
 }
 
-function formatCallFailure(causeOfFailure) {
+// 0.1.8 slice D (Xeno windows-cli-auth-wedge follow-up 2026-05-22):
+// when the server returns either of the two wedge-state signatures —
+// 403 "Server-resolved identity required" (every write surface) or
+// 400 "pids must be a non-empty array" (the lookup-by-pidChain
+// surfaces) — surface a concrete recovery hint instead of letting
+// the user re-read the cryptic server message. Both signatures
+// indicate the caller's pidChain doesn't resolve to a registered
+// terminal, which has one canonical fix: register from this shell.
+const WEDGE_HINT = `
+⚠ No terminal is registered for this shell (or the binding is stale).
+  Recover by running:
+    ant register --name <your-terminal-name> --handle <@your-handle>
+  On Windows MSYS2 bash, if the implicit pidChain still anchors to a
+  short-lived helper, pass --pid <stable-PID> to anchor to your long-
+  lived shell (run \`ps\` and pick the bash or wezterm process).`;
+
+function appendWedgeHintIfApplicable(rendered, message) {
+  if (typeof message !== 'string') return rendered;
+  if (!/Server-resolved identity required|pids must be a non-empty array/i.test(message)) {
+    return rendered;
+  }
+  return `${rendered}\n${WEDGE_HINT}`;
+}
+
+export function formatCallFailure(causeOfFailure) {
   // Xeno 2026-05-22 follow-up: the previous shape returned the literal
   // string "Unknown error." for any non-Error non-CliNetworkError reject
   // (e.g. dynamic-import failures on compiled Bun binaries). That hid the
@@ -338,9 +362,13 @@ function formatCallFailure(causeOfFailure) {
   if (causeOfFailure instanceof CliNetworkError) return causeOfFailure.message;
   if (causeOfFailure instanceof Error) {
     const stack = typeof causeOfFailure.stack === 'string' ? causeOfFailure.stack : '';
-    return stack.length > 0 ? `${causeOfFailure.message}\n${stack}` : causeOfFailure.message;
+    const base = stack.length > 0 ? `${causeOfFailure.message}\n${stack}` : causeOfFailure.message;
+    return appendWedgeHintIfApplicable(base, causeOfFailure.message);
   }
-  if (causeOfFailure !== undefined && causeOfFailure !== null) return String(causeOfFailure);
+  if (causeOfFailure !== undefined && causeOfFailure !== null) {
+    const rendered = String(causeOfFailure);
+    return appendWedgeHintIfApplicable(rendered, rendered);
+  }
   return 'Unknown error.';
 }
 
