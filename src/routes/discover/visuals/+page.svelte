@@ -20,8 +20,16 @@
     summary: string;
     tier: 'oss' | 'premium-overlay';
     sourcePath: string; // ObsidiANT-relative for the source-of-truth link
+    /** Optional callout describing how the live system has moved on
+     *  from the May-19 SVG. Rendered as a small notice on the card. */
+    staleNote?: string;
   };
 
+  // Each diagram carries a `staleNote` when the May-19 SVG predates a
+  // model change shipped since. The SVG itself stays as the May-19
+  // baseline (regenerating is a design pass) — the note surfaces the
+  // delta + points readers at the canonical Obsidian source for the
+  // current state.
   const VISUALS: Visual[] = [
     {
       slug: 'claim-primitive-state-machine-2026-05-19',
@@ -49,21 +57,46 @@
       title: 'Asks workflow lifecycle',
       summary: 'candidate → open → picked_up → answered / dismissed (auto-revert TTL on pickup). Premium overlay: combined-from-N · deduped-from-M · summarised-N-sub-questions multi-source intelligence layer.',
       tier: 'premium-overlay',
-      sourcePath: 'ObsidiANT/audits/visuals/ask-flow-2026-05-19.md'
+      sourcePath: 'ObsidiANT/audits/visuals/ask-flow-2026-05-19.md',
+      staleNote: 'Diagram is the May-19 baseline. Model has since gained: `target_handle` (humans only), `merged` status (non-terminal), AskerNotInInboxError boundary, per-human inbox-room auth + broadcast, fanout auto-opens an ask on every @-mention of a human, and `ant ask` CLI verbs.'
     },
     {
       slug: 'decision-trees-triptych-2026-05-19',
       title: 'Decision trees triptych',
       summary: 'Three side-by-side trees for message-time choices: which-room · bracketed [@] vs bare @ · when to 🖐️ / 🤝 / 👐.',
       tier: 'oss',
-      sourcePath: 'ObsidiANT/audits/visuals/decision-trees-triptych-2026-05-19.md'
+      sourcePath: 'ObsidiANT/audits/visuals/decision-trees-triptych-2026-05-19.md',
+      staleNote: 'The bare-@ branch no longer just routes the message — bare-@-mentioning a HUMAN now auto-opens an ask. The other two trees are still accurate.'
     },
     {
       slug: 'mode-matrices-2026-05-19',
       title: 'Mode matrices',
       summary: 'Two grids: routing token × room mode, and focus state × inbox queue. Cell-by-cell what the server does for each combination.',
       tier: 'oss',
-      sourcePath: 'ObsidiANT/audits/visuals/mode-matrices-2026-05-19.md'
+      sourcePath: 'ObsidiANT/audits/visuals/mode-matrices-2026-05-19.md',
+      staleNote: 'Agent-status cascade inverted to `hook PRIMARY > fingerprint > default`; ASK_PATTERN regex removed; response-required is now derived from open asks (humans only), not from fingerprint output.'
+    },
+    {
+      slug: 'auth-fallback-2026-05-19',
+      title: 'Auth fallback',
+      summary: 'Identity-gate cascade: admin-bearer → local-antchat-bearer → accounts-bearer → browser-session → pidChain → 401. What each surface accepts and why each fallback exists.',
+      tier: 'oss',
+      sourcePath: 'ObsidiANT/audits/visuals/auth-fallback-2026-05-19.svg',
+      staleNote: 'No-roomId mode now also accepts pidChain via inbox-membership resolution (asks-as-pill, 2026-05-22). The per-room cascade is unchanged.'
+    },
+    {
+      slug: 'scoop-install-flow-2026-05-19',
+      title: 'Scoop install flow',
+      summary: 'Windows installer scoop manifest pipeline: GitHub Release artefact → scoop bucket JSON → `scoop install ant` → user PATH. Cross-platform install parity track.',
+      tier: 'oss',
+      sourcePath: 'ObsidiANT/audits/visuals/scoop-install-flow-2026-05-19.svg'
+    },
+    {
+      slug: 'tauri-server-bridge-2026-05-19',
+      title: 'Tauri server bridge',
+      summary: 'How the Tauri shell talks to the local ANT server: IPC commands → bridge process → loopback HTTP. Native-shell-over-web pattern for the desktop binary.',
+      tier: 'oss',
+      sourcePath: 'ObsidiANT/audits/visuals/tauri-server-bridge-2026-05-19.svg'
     }
   ];
 
@@ -90,9 +123,11 @@
   </nav>
 
   <p class="meta">
-    Six diagrams, all theme-aware (each SVG carries its own light + dark
-    fallback via <code>prefers-color-scheme</code>). Click a card to open
-    the visual full-size.
+    {VISUALS.length} diagrams, all theme-aware (each SVG carries its own
+    light + dark fallback via <code>prefers-color-scheme</code>). Click a
+    card to open the visual full-size. Diagrams marked with a yellow note
+    have moved on since the May-19 baseline — the note describes the
+    delta; the canonical source markdown holds the latest state.
   </p>
 
   <ul class="visuals-grid" aria-label="Visual gallery">
@@ -107,6 +142,9 @@
             <span class="tier-tag" class:tier-premium={v.tier === 'premium-overlay'}>{tierLabel(v.tier)}</span>
           </div>
           <p class="summary">{v.summary}</p>
+          {#if v.staleNote}
+            <p class="stale-note" role="note"><strong>Since baseline:</strong> {v.staleNote}</p>
+          {/if}
           <p class="source">
             Source: <code>{v.sourcePath}</code>
           </p>
@@ -203,6 +241,19 @@
     color: var(--ink-strong);
     line-height: 1.5;
     font-size: 0.92rem;
+  }
+  .stale-note {
+    margin: 0;
+    padding: 0.5rem 0.7rem;
+    background: color-mix(in srgb, #d97706 12%, var(--surface-card));
+    border-left: 3px solid #d97706;
+    border-radius: 0.35rem;
+    color: var(--ink-strong);
+    font-size: 0.82rem;
+    line-height: 1.45;
+  }
+  .stale-note strong {
+    color: #d97706;
   }
   .source {
     margin: 0;
