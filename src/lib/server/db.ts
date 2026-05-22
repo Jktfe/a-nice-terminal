@@ -847,6 +847,7 @@ const SCHEMA_DDL_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_chat_room_decks_search ON chat_room_decks (room_id, title)`,
   // Task #159: deck access control — add password column to existing tables.
   `ALTER TABLE chat_room_decks ADD COLUMN access_password TEXT`,
+  `ALTER TABLE chat_room_decks ADD COLUMN parent_deck_id TEXT`,
   // Task #130 v3-parity: persist asks to SQLite (was in-memory Maps).
   `CREATE TABLE IF NOT EXISTS asks (
     id              TEXT PRIMARY KEY,

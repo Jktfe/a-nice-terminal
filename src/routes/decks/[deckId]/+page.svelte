@@ -92,6 +92,12 @@
     <p class="share-notice" role="status">{shareNotice}</p>
   {/if}
 
+  {#if deck.parentDeckId}
+    <p class="version-badge">
+      Version B of <a href={'/decks/' + encodeURIComponent(deck.parentDeckId ?? '')}>parent deck</a>
+    </p>
+  {/if}
+
   {#if slideCount === 0}
     <p class="empty-deck">This deck has no slides yet.</p>
   {:else if activeSlide}
@@ -328,5 +334,18 @@
     border-top: 1px solid var(--line-soft);
     color: var(--ink-soft);
     font-size: 0.8rem;
+  }
+  .version-badge {
+    font-size: 0.8125rem;
+    color: var(--ink-muted);
+    background: rgba(59, 130, 246, 0.08);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    border-radius: 0.375rem;
+    padding: 0.375rem 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+  .version-badge a {
+    color: #1d4ed8;
+    text-decoration: underline;
   }
 </style>
