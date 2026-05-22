@@ -1387,6 +1387,20 @@ export function getIdentityDb(): DatabaseInstance {
   ensureYouMembership(db);
   sweepAutoCreatedRoomPlansInDb(db);
   globalSlot[DB_GLOBAL_KEY] = db;
+  // Per-human inbox backfill (asks-as-pill JWPK 2026-05-22): seed inbox
+  // rooms + memberships for existing humans on first call. Best-effort —
+  // a backfill failure must NEVER block the DB handle return; the live
+  // hooks in chatRoomStore + terminalRecordsStore will fill gaps as
+  // membership changes happen post-deploy. Lazy import to avoid the
+  // cycle (humanInboxBackfill → ensureHumanInboxRoom → getIdentityDb).
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    void import('./humanInboxBackfill').then((module) => {
+      try { module.backfillHumanInboxes(); } catch { /* idempotent — swallow */ }
+    });
+  } catch {
+    /* import failure (e.g. test env) — swallow */
+  }
   return db;
 }
 
