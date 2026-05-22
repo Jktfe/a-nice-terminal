@@ -6,6 +6,7 @@
  * browser-session cookie the write path already uses, then retry the GET.
  */
 import { processIdentityChain } from './ant-cli-identity-chain.mjs';
+import { resolveRoomServerUrl } from './ant-cli-shared-resolve.mjs';
 
 export function resolveAntCliHandleForRoom(runtime, roomId, explicitHandle) {
   if (typeof explicitHandle === 'string' && explicitHandle.trim().length > 0) {
@@ -31,12 +32,16 @@ export function resolveAntCliHandleForRoom(runtime, roomId, explicitHandle) {
 export async function mintAntCliBrowserSessionCookie(runtime, roomId, explicitHandle) {
   const handle = resolveAntCliHandleForRoom(runtime, roomId, explicitHandle);
   if (!handle) return null;
-  const url = `${runtime.serverUrl}/api/chat-rooms/${encodeURIComponent(roomId)}/browser-session`;
+  // Slice H follow-up (2026-05-22): mint against the per-room server,
+  // not the runtime default. Necessary so chat-tail's 401-then-mint
+  // fallback hits the same server that serves the room's writes.
+  const base = resolveRoomServerUrl(runtime, roomId);
+  const url = `${base}/api/chat-rooms/${encodeURIComponent(roomId)}/browser-session`;
   const response = await runtime.fetchImpl(url, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      origin: runtime.serverUrl
+      origin: base
     },
     body: JSON.stringify({ authorHandle: handle, pidChain: processIdentityChain() })
   });
@@ -50,7 +55,8 @@ export async function fetchRoomJsonWithBrowserSessionFallback(
   path,
   explicitHandle
 ) {
-  const url = appendPidChainQuery(`${runtime.serverUrl}${path}`);
+  const base = resolveRoomServerUrl(runtime, roomId);
+  const url = appendPidChainQuery(`${base}${path}`);
   const first = await runtime.fetchImpl(url);
   if (first.ok) return first.json();
   if (first.status !== 401) throw await makeGetFailure(url, first);
@@ -61,7 +67,7 @@ export async function fetchRoomJsonWithBrowserSessionFallback(
   const retry = await runtime.fetchImpl(url, {
     headers: {
       cookie,
-      origin: runtime.serverUrl
+      origin: base
     }
   });
   if (!retry.ok) throw await makeGetFailure(url, retry);
