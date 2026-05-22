@@ -1,25 +1,27 @@
 /**
- * fingerprintHasher — M3.4a-v2 source-priority cascade (T2).
+ * fingerprintHasher — agent-status cascade.
  *
- * Two pure exports:
- *   hashCaptureOutput(text)            → SHA256 hash of tmux capture-pane text
- *   deriveStateFromFingerprint(input)  → fingerprint-only decision + hash + evidence
- *   decideAgentStatus(cascade)         → final agent_status + source per FL2 cascade
+ * Cascade (asks-as-pill JWPK 2026-05-22 — INVERTED from the v2 order):
+ *   1. Hook push PRIMARY — explicit tool_use_start/stop/Stop/Notification
+ *      events translated by hookEventStatusMapper, written by
+ *      /api/cli-hook. Trust the agent's own emissions over heuristic
+ *      tmux pattern-matching.
+ *   2. Fingerprint FALLBACK — kept for (a) unknown CLIs without a hook
+ *      bridge yet and (b) catching dead/hung agents the hook never closed
+ *      out. Only consulted when no fresh hook event exists for the
+ *      terminal (poller's responsibility — see agentStatusPoller).
+ *   3. ANT activity / PID CPU — legacy sources retained as last-resort
+ *      tiebreakers but no live writer wires them in production.
+ *   4. Default idle.
  *
- * Priority cascade (per contract Q4 lock + JWPK FL2 2026-05-13):
- *   1. Fingerprint PRIMARY when fresh+can-decide
- *   2. Hook push SECONDARY when fingerprint stale-or-null
- *   3. ANT activity TERTIARY when above null
- *   4. PID CPU TIEBREAKER when above null
- *   5. Default idle
- *
- * Hook NEVER wins over a fresh fingerprint decision (contract B1 lock).
+ * ASK_PATTERN regex DELETED: response-required is now derived from the
+ * asks store (humans only). Agents only ever wear idle/thinking/working;
+ * tmux output never drives the pill.
  */
 
 import { createHash } from 'node:crypto';
 import type { AgentStatus, AgentStatusSource } from './agentStatusStore';
 
-const ASK_PATTERN = /Awaiting|What should|Need direction|🙋‍♂️/i;
 const TOOL_CALL_SIGNATURE = /⏺|🔧|^→ /m;
 const FINGERPRINT_STALE_MS = 30_000;
 const FINGERPRINT_CHANGE_FRESH_MS = 5_000;
@@ -49,7 +51,8 @@ export function deriveStateFromFingerprint(input: FingerprintInput): Fingerprint
   const ageMs = input.prevAtMs !== null ? input.nowMs - input.prevAtMs : Number.POSITIVE_INFINITY;
   const evidence = { hashChanged, ageMs };
 
-  if (ASK_PATTERN.test(input.captureText)) return { status: 'response-required', hash: newHash, evidence };
+  // ASK_PATTERN check removed — response-required is asks-store-derived, not
+  // fingerprint-derived. See askStore.hasResponseRequiredAsksForHandle.
   if (hashChanged && ageMs < FINGERPRINT_CHANGE_FRESH_MS && TOOL_CALL_SIGNATURE.test(input.captureText)) {
     return { status: 'working', hash: newHash, evidence };
   }
@@ -72,11 +75,16 @@ export type CascadeDecision = {
 };
 
 export function decideAgentStatus(input: CascadeInput): CascadeDecision {
-  if (input.fingerprint?.status) {
-    return { status: input.fingerprint.status, source: 'fingerprint', evidence: input.fingerprint.evidence };
-  }
+  // Hook PRIMARY (asks-as-pill JWPK 2026-05-22 inversion). The agent's
+  // explicit emissions beat heuristic fingerprint regex matches.
   if (input.hookPush?.nonceValid && input.hookPush.ageMs < FINGERPRINT_STALE_MS) {
     return { status: input.hookPush.status, source: 'hook', evidence: { ageMs: input.hookPush.ageMs } };
+  }
+  // Fingerprint FALLBACK. Only consulted when hook is absent/stale — the
+  // poller's job is to skip the fingerprint sample entirely when a fresh
+  // hook event already covers the terminal.
+  if (input.fingerprint?.status) {
+    return { status: input.fingerprint.status, source: 'fingerprint', evidence: input.fingerprint.evidence };
   }
   if (input.antActivity) {
     const recentMsg = input.antActivity.lastMessageAgeMs !== null && input.antActivity.lastMessageAgeMs < ANT_ACTIVITY_FRESH_MS;
