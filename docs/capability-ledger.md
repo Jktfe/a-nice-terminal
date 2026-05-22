@@ -87,6 +87,7 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Ask answer seen-by receipts | Speed Pact T16, 2026-05-22 | CHANGE | Codex | Answered-ask system receipts now render the existing message read indicator, reusing terminal fanout read marks and `message_read` SSE events instead of adding a separate ask-specific receipt system. |
 | Status-line install pilot | Speed Pact T17, 2026-05-22 | CHANGE | Codex | Added `ant status install-line --cli qwen-cli` as the first idempotent status-line installer: it backs up Qwen's statusline script, preserves visible Qwen status text, and emits ANT-canonical state JSON under `~/.ant/state/qwen-cli/`. |
 | Status-line room invite | Speed Pact T17 Phase 2, 2026-05-22 | CHANGE | Codex | Added a room footer action and `/api/chat-rooms/:roomId/status-line-invite` endpoint that posts one system invite and fans it out through the existing room message path so agents can install the proven qwen-cli status-line shape. |
+| Validation v1 policy preset + scoring | validation-feature-v1 M-JKsRule/M-Score, 2026-05-22 | CHANGE | Codex | Added JK's rule as a reusable verification-policy preset, a premium-gated preset seed endpoint, and pointer-based claim scoring. This intentionally reuses external artefact pointers instead of adding a document parser. |
 
 ## Audit Backlog
 
