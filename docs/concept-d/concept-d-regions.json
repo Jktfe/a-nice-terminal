@@ -1,0 +1,152 @@
+{
+  "_meta": {
+    "source": "/Users/jamesking/CascadeProjects/antOSux.pen",
+    "frame": "Concept D — antux · The Workspace (operations awareness × room depth × native macOS)",
+    "frameId": "oHqAq",
+    "position": { "x": 1520, "y": -1122 },
+    "size": { "width": 1440, "height": 1080 },
+    "exportedAt": "2026-05-22",
+    "exportedBy": "@antux",
+    "purpose": "Slice 1 visual contract anchor for @antmacdevcodex (QA) — node ids resolve back into Pencil for crop / inspect"
+  },
+  "regions": [
+    {
+      "id": "mmX8j",
+      "name": "NSToolbar · title chrome",
+      "role": "Region 1 — Top toolbar",
+      "size": { "width": "fill_container", "height": 72 },
+      "padding": [24, 0],
+      "gap": 18,
+      "alignItems": "center",
+      "tokens": {
+        "background": "--surface-card #FFFFFF",
+        "borderBottom": "--line-soft #EAD8CA"
+      },
+      "children": [
+        { "id": "bUBQz", "name": "traffic lights", "role": "macOS NSWindow.standardButton" },
+        { "id": "PHLpw", "name": "brand", "role": "AntBrandMark — >_ANT wordmark + ant-logo.svg" },
+        { "id": "qRgTE", "name": "titleSep", "role": "·" },
+        { "id": "ZvpzU", "name": "windowTitle", "role": "remoteant" },
+        { "id": "L7xWC", "name": "spc1", "role": "Spacer()" },
+        { "id": "b2ziEi", "name": "⌘K palette", "role": "search field, 380×36, ⌘K keycap trailing" },
+        { "id": "D5XenL", "name": "liveDot", "role": "Connected pill, ok-soft + green text" },
+        { "id": "L15xW", "name": "notif", "role": "Notification bell + accent badge" },
+        { "id": "tfhtx", "name": "share", "role": "Share button" },
+        { "id": "Jl0PP", "name": "menubar", "role": "menu-bar pop-out hint chevron" },
+        { "id": "YZcZl", "name": "profile", "role": "avatar + James + chev" }
+      ]
+    },
+    {
+      "id": "Z5SjX",
+      "name": "Sources sidebar",
+      "role": "Region 2 — Left sidebar",
+      "size": { "width": 224, "height": "fill_container" },
+      "appStorage": {
+        "width": "sidebar.width",
+        "visible": "sidebar.visible"
+      },
+      "constraints": { "min": 200, "max": 300, "default": 224 },
+      "tokens": {
+        "background": "--surface-raised #FFF0DF",
+        "borderRight": "--line-soft #EAD8CA"
+      },
+      "children": [
+        { "id": "Bhl8B", "name": "sbHead", "role": "SOURCES eyebrow + Plus + panel-left-close collapse" },
+        { "id": "VEMJO", "name": "sbNav", "role": "7-item nav list (Today/Asks/Rooms/Library/Agents/Vault/Memory) — Slice 2 fills" },
+        { "id": "gygJS", "name": "Saved rooms", "role": "Drag-reorderable list w/ grip handles — Slice 2 fills" },
+        { "id": "Q4OnGF", "name": "divider", "role": "1px line-soft" },
+        { "id": "cfpKq", "name": "localWrap", "role": "ON THIS MAC mini-section — Slice 2 fills" },
+        { "id": "ePI2v", "name": "sbSpacer", "role": "fill_container spacer to push CTA down" },
+        { "id": "OjOWW", "name": "ctaWrap", "role": "Start something accent CTA + connection footer" }
+      ]
+    },
+    {
+      "id": "k4Juf",
+      "name": "Ops column · Today",
+      "role": "Region 3 — Middle column",
+      "size": { "width": 340, "height": "fill_container" },
+      "appStorage": {
+        "width": "ops.width",
+        "visible": "ops.visible"
+      },
+      "constraints": { "min": 280, "max": 420, "default": 340 },
+      "tokens": {
+        "background": "--surface-app #FFF7ED",
+        "borderRight": "--line-soft #EAD8CA"
+      },
+      "children": [
+        { "id": "FeBMd", "name": "opsHead", "role": "FRIDAY eyebrow + Today title + filter chip + panel-left-close collapse" },
+        { "id": "UNsjB", "name": "opsScroll", "role": "Three stacked sections (asks/rooms/plans) — Slice 3 fills with real cards; Slice 1 shows .redacted skeletons" }
+      ]
+    },
+    {
+      "id": "DUxR1",
+      "name": "Focused Room",
+      "role": "Region 4 — Room area (detail)",
+      "size": { "width": "fill_container", "height": "fill_container" },
+      "constraints": { "min": 600 },
+      "tokens": {
+        "background": "--surface-card #FFFFFF"
+      },
+      "children": [
+        {
+          "id": "iuS2k",
+          "name": "rmHead",
+          "role": "Room header — eyebrow + title + avatar stack + Invite/Screenshot/Share/right-shelf collapse + drag-drop hint",
+          "tokens": { "background": "--surface-raised #FFF0DF" }
+        },
+        {
+          "id": "O7AtE",
+          "name": "rmBody",
+          "role": "Horizontal split",
+          "children": [
+            { "id": "i7DS9h", "name": "chat", "role": "Chat stream — Slice 4 fills; Slice 1 = .redacted skeletons + composer placeholder" },
+            { "id": "tVpIS", "name": "RoomShelf", "role": "Right-side tabbed inspector (340w)" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "xw1XI",
+      "name": "Native bridges strip",
+      "role": "Region 5 — Bottom drawer",
+      "size": { "width": "fill_container", "height": 104 },
+      "appStorage": {
+        "hidden": "bridges.hidden"
+      },
+      "states": {
+        "expanded": { "height": 104, "showsChips": true },
+        "collapsed": { "height": 16, "showsHandle": true }
+      },
+      "tokens": {
+        "background": "--surface-raised #FFF0DF",
+        "borderTop": "--line-soft #EAD8CA"
+      },
+      "children": [
+        { "id": "vonYR", "name": "brHandle", "role": "48×4 drag-pip" },
+        { "id": "vuNe1", "name": "brHdr", "role": "NATIVE BRIDGES eyebrow + sub" },
+        {
+          "id": "t05GzU",
+          "name": "chips",
+          "role": "12 placeholder app chips — Slice 5 wires real drag receivers; Slice 1 = visual only, no-op",
+          "children": [
+            { "id": "sNZLw", "name": "Mail", "iconFill": "#3478F6" },
+            { "id": "qUl59", "name": "Calendar", "iconFill": "#FF3B30" },
+            { "id": "mSyuz", "name": "Reminders", "iconFill": "#5856D6" },
+            { "id": "psLYl", "name": "Notes", "iconFill": "#FFC107" },
+            { "id": "EFPO8", "name": "Safari", "iconFill": "#1E88E5" },
+            { "id": "eWohX", "name": "Chrome", "iconFill": "#4285F4" },
+            { "id": "cn7da", "name": "Teams", "iconFill": "#6264A7" },
+            { "id": "dYUyc", "name": "Zoom", "iconFill": "#2D8CFF" },
+            { "id": "FgSEO", "name": "Office", "iconFill": "#D24726" },
+            { "id": "Qh97e", "name": "iWork", "iconFill": "#FF8B23" },
+            { "id": "OI3Hy", "name": "Files", "iconFill": "#2D6CDF" },
+            { "id": "p2q4KO", "name": "+ Connect", "iconFill": "--surface-app, dashed border" }
+          ]
+        },
+        { "id": "UjQKw", "name": "brCol", "role": "Hide button — chevron-down + label, folds strip to 16h sliver" }
+      ]
+    }
+  ],
+  "_note": "Pencil canvas has some legacy fills (#F5EFE3, #FDFBF6, #D9CFB9) that weren't swept in the bulk reskin. Implementers should follow the TOKEN names in slice-1-shell.md, not the literal hexes still present in the .pen — source of truth is src/app.css. To regenerate the live state: mcp__pencil__batch_get with the IDs above."
+}

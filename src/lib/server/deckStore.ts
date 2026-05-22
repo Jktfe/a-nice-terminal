@@ -121,14 +121,22 @@ export function listDecksInRoom(roomId: string): RoomDeck[] {
   return rows.map(rowToDeck);
 }
 
+/** Strip trailing punctuation that chat autolinkers often append
+ *  when a URL is wrapped in markdown backticks or followed by punctuation.
+ */
+function normalizeDeckId(raw: string): string {
+  return raw.replace(/[\\`]+$/g, '');
+}
+
 export function getDeck(id: string): RoomDeck | undefined {
+  const cleanId = normalizeDeckId(id);
   const row = getIdentityDb()
     .prepare(
       `SELECT id, room_id, title, slides_json, theme, created_by, access_password, parent_deck_id, created_at_ms, updated_at_ms, deleted_at_ms
          FROM chat_room_decks
         WHERE id = ? AND deleted_at_ms IS NULL`
     )
-    .get(id) as DeckRow | undefined;
+    .get(cleanId) as DeckRow | undefined;
   return row ? rowToDeck(row) : undefined;
 }
 

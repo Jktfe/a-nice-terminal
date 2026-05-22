@@ -67,7 +67,7 @@ export type ChatRoomMutationAuthResult = {
  * identity paths (cookie / pidChain / antchat). That keeps non-admin auth
  * working when the operator hasn't configured admin tokens at all.
  */
-function tryAdminBearer(request: Request): boolean {
+export function tryAdminBearer(request: Request): boolean {
   const configured = process.env.ANT_ADMIN_TOKEN;
   if (!configured || configured.length === 0) return false;
   const header = request.headers.get('authorization') ?? '';
