@@ -84,6 +84,7 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Planning-mode signal | Speed Pact T14, 2026-05-22 | CHANGE | Codex | Added `ant status planning` / `ant status idle` so agents can push the existing thinking/idle icon state from their PID identity and optionally post the planning notice into a room. |
 | Ask answer room receipts | Speed Pact T15, 2026-05-22 | CHANGE | Codex | Ask answers now create a system message in the originating room and use the normal terminal fanout + SSE message path so agents see the answer without polling the asks API. |
 | Ask answer seen-by receipts | Speed Pact T16, 2026-05-22 | CHANGE | Codex | Answered-ask system receipts now render the existing message read indicator, reusing terminal fanout read marks and `message_read` SSE events instead of adding a separate ask-specific receipt system. |
+| Status-line install pilot | Speed Pact T17, 2026-05-22 | CHANGE | Codex | Added `ant status install-line --cli qwen-cli` as the first idempotent status-line installer: it backs up Qwen's statusline script, preserves visible Qwen status text, and emits ANT-canonical state JSON under `~/.ant/state/qwen-cli/`. |
 
 ## Audit Backlog
 

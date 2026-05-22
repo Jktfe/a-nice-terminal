@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { spawnSync } from 'node:child_process';
+import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { makeCliRunner } from './ant-cli.mjs';
 import { handleStatusVerb } from './ant-cli-status.mjs';
 import * as identityChain from './ant-cli-identity-chain.mjs';
@@ -210,5 +214,74 @@ describe('ant status wrappers (M3.4a-v1)', () => {
     expect(captured.requests[1].url).toBe('http://test.local/api/terminals/term-idle/agent-status');
     expect(JSON.parse(captured.requests[1].init.body).status).toBe('idle');
     expect(captured.stdout[0]).toContain('idle');
+  });
+
+  it('I1: install-line writes the qwen statusline template and backs up existing files', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'ant-statusline-'));
+    const target = join(tempDir, 'statusline-command.sh');
+    await writeFile(target, '#!/bin/sh\necho old\n', 'utf8');
+    const { runtime, captured } = makeRuntime(() => okJson({}));
+
+    const code = await handleStatusVerb(
+      'install-line',
+      ['--cli', 'qwen-cli', '--target', target, '--json'],
+      runtime,
+      { CliInputError }
+    );
+
+    expect(code).toBe(0);
+    const payload = JSON.parse(captured.stdout[0]);
+    expect(payload.cli).toBe('qwen-cli');
+    expect(payload.targetPath).toBe(target);
+    expect(payload.installed).toBe(true);
+    expect(payload.backupPath).toBe(`${target}.bak-pre-ant-statusline`);
+    const installed = await readFile(target, 'utf8');
+    expect(installed).toContain('.ant/state/qwen-cli');
+    expect(installed).toContain('qwen-statusline');
+    expect(installed).toContain('Response needed');
+    expect((await stat(target)).mode & 0o111).toBeGreaterThan(0);
+    expect(await readFile(`${target}.bak-pre-ant-statusline`, 'utf8')).toContain('echo old');
+
+    const stateDir = join(tempDir, 'state');
+    const run = spawnSync('bash', [target], {
+      input: JSON.stringify({
+        session_id: 'qwen-test-session',
+        cwd: '/tmp/qwen-project',
+        metrics: { models: { qwen: { api: { total_requests: 1, total_errors: 0 } } } }
+      }),
+      env: { ...process.env, ANT_STATE_DIR: stateDir },
+      encoding: 'utf8',
+      timeout: 2_000
+    });
+    expect(run.error).toBeUndefined();
+    expect(run.status).toBe(0);
+    expect(run.stdout.trim()).toBe('Working');
+    const state = JSON.parse(await readFile(join(stateDir, 'qwen-test-session.json'), 'utf8'));
+    expect(state.state).toBe('Working');
+    expect(state.cwd).toBe('/tmp/qwen-project');
+  });
+
+  it('I2: install-line is idempotent when the qwen template is already installed', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'ant-statusline-'));
+    const target = join(tempDir, 'statusline-command.sh');
+    const { runtime, captured } = makeRuntime(() => okJson({}));
+
+    await handleStatusVerb('install-line', ['--cli', 'qwen', '--target', target, '--json'], runtime, { CliInputError });
+    await handleStatusVerb('install-line', ['--cli', 'qwen-cli', '--target', target, '--json'], runtime, { CliInputError });
+
+    const secondPayload = JSON.parse(captured.stdout[1]);
+    expect(secondPayload.installed).toBe(false);
+    expect(secondPayload.alreadyInstalled).toBe(true);
+    expect(secondPayload.backupPath).toBeNull();
+  });
+
+  it('I3: install-line rejects unsupported CLIs before touching disk', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'ant-statusline-'));
+    const target = join(tempDir, 'statusline-command.sh');
+    const { runtime } = makeRuntime(() => okJson({}));
+
+    await expect(
+      handleStatusVerb('install-line', ['--cli', 'claude-code', '--target', target], runtime, { CliInputError })
+    ).rejects.toThrow('only qwen-cli is supported');
   });
 });

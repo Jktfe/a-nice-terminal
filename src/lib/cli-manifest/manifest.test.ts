@@ -211,6 +211,14 @@ describe('cli-manifest helpers', () => {
     expect(v1?.summary.toLowerCase()).toContain('pane/terminal delivery status');
   });
 
+  it('status-install-line is available as the qwen-cli status-line installer pilot', () => {
+    const verb = findVerbById('status-install-line');
+    expect(verb).toBeDefined();
+    expect(verb?.status).toBe('available');
+    expect(verb?.usage).toContain('install-line');
+    expect(verb?.summary.toLowerCase()).toContain('qwen-cli');
+  });
+
   it('available verbs with no flags do not advertise -- in usage', () => {
     for (const verb of listAvailableVerbs()) {
       if (verb.flags.length === 0) expect(verb.usage.includes('--'), `${verb.id} usage has -- but no flags`).toBe(false);

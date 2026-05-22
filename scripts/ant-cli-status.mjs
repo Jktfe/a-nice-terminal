@@ -14,18 +14,24 @@ const BOOLEAN_FLAGS = new Set(['json', 'rich']);
 
 import { handleStatusChasingVerb } from './ant-cli-status-chasing.mjs';
 import { processIdentityChain } from './ant-cli-identity-chain.mjs';
+import { copyFile, chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { homedir } from 'node:os';
 
 export async function handleStatusVerb(action, args, runtime, ctx) {
   const { CliInputError } = ctx;
   if (action === 'chasing') return handleStatusChasingVerb(args, runtime, ctx);
   if (action === 'planning') return runPlanning(args, runtime, CliInputError);
   if (action === 'idle') return runSetCurrentStatus('idle', args, runtime, CliInputError);
+  if (action === 'install-line') return runInstallLine(args, runtime, CliInputError);
   const flags = parseFlags(args, CliInputError);
   if (action === 'show') return runShow(flags, runtime, CliInputError);
   if (!action || action === 'help' || action === '--help') {
     runtime.writeOut('ant status show --room ROOM_ID [--rich] [--json]  OR  ant status show --terminal TERMINAL_ID --rich [--json]');
     runtime.writeOut('ant status planning [--room ROOM_ID] [--msg TEXT] [--json]');
     runtime.writeOut('ant status idle [--json]');
+    runtime.writeOut('ant status install-line --cli qwen-cli [--target PATH] [--json]');
     runtime.writeOut('ant status chasing --handle @h [--min-idle-minutes 30] [--json]');
     return action ? 0 : 1;
   }
@@ -94,6 +100,129 @@ async function runSetCurrentStatus(status, args, runtime, CliInputError) {
   }
   return 0;
 }
+
+async function runInstallLine(args, runtime, CliInputError) {
+  const flags = parseFlags(args, CliInputError);
+  const cli = normalizeInstallLineCli(requireFlag(flags, 'cli', CliInputError), CliInputError);
+  const targetPath = resolve(flags.target ?? defaultStatusLineTarget(cli));
+  const template = statusLineTemplateForCli(cli);
+  let backupPath = null;
+  let installed = true;
+  let alreadyInstalled = false;
+
+  if (existsSync(targetPath)) {
+    const current = await readFile(targetPath, 'utf8').catch(() => null);
+    if (current === template) {
+      installed = false;
+      alreadyInstalled = true;
+    } else {
+      backupPath = `${targetPath}.bak-pre-ant-statusline`;
+      if (!existsSync(backupPath)) {
+        await copyFile(targetPath, backupPath);
+      }
+    }
+  }
+
+  if (installed) {
+    await mkdir(dirname(targetPath), { recursive: true });
+    await writeFile(targetPath, template, 'utf8');
+    await chmod(targetPath, 0o755);
+  }
+
+  const payload = { cli, targetPath, installed, alreadyInstalled, backupPath };
+  if (flags.json !== undefined) {
+    runtime.writeOut(JSON.stringify(payload));
+  } else if (alreadyInstalled) {
+    runtime.writeOut(`${cli} status line already installed at ${targetPath}`);
+  } else {
+    runtime.writeOut(`Installed ${cli} status line at ${targetPath}`);
+    if (backupPath) runtime.writeOut(`Backup: ${backupPath}`);
+  }
+  return 0;
+}
+
+function normalizeInstallLineCli(rawCli, CliInputError) {
+  const cli = rawCli.trim();
+  if (cli === 'qwen' || cli === 'qwen-cli') return 'qwen-cli';
+  throw new CliInputError('only qwen-cli is supported by status install-line pilot');
+}
+
+function defaultStatusLineTarget(cli) {
+  if (cli === 'qwen-cli') return join(homedir(), '.qwen', 'statusline-command.sh');
+  throw new Error(`Unsupported status-line CLI: ${cli}`);
+}
+
+function statusLineTemplateForCli(cli) {
+  if (cli !== 'qwen-cli') throw new Error(`Unsupported status-line CLI: ${cli}`);
+  return QWEN_STATUSLINE_TEMPLATE;
+}
+
+const QWEN_STATUSLINE_TEMPLATE = `#!/bin/bash
+# ANT qwen-cli status line pilot.
+# Keeps Qwen's visible status text, and also writes ANT-canonical state JSON
+# to ~/.ant/state/qwen-cli/<sessionId>.json for agentStateReader.
+
+input=$(cat)
+
+requests=$(echo "$input" | jq '[.metrics.models | to_entries[].value.api.total_requests] | add // 0' 2>/dev/null)
+errors=$(echo "$input" | jq '[.metrics.models | to_entries[].value.api.total_errors] | add // 0' 2>/dev/null)
+session_id=$(echo "$input" | jq -r '.session_id // .session.id // .conversation_id // .id // "qwen-statusline"' 2>/dev/null)
+cwd=$(echo "$input" | jq -r '.cwd // empty' 2>/dev/null)
+
+requests=\${requests:-0}
+errors=\${errors:-0}
+session_id=\${session_id:-qwen-statusline}
+
+if [ "$errors" -gt 0 ]; then
+  visible_status="Error"
+  ant_state="Response needed"
+elif [ "$requests" -eq 0 ]; then
+  visible_status="Idle"
+  ant_state="Available"
+elif [ $((requests % 2)) -ne 0 ]; then
+  visible_status="Working"
+  ant_state="Working"
+elif [ "$requests" -ge 4 ]; then
+  visible_status="Complete"
+  ant_state="Waiting"
+else
+  visible_status="Needs Input"
+  ant_state="Response needed"
+fi
+
+state_dir="\${ANT_STATE_DIR:-$HOME/.ant/state/qwen-cli}"
+mkdir -p "$state_dir" 2>/dev/null || true
+safe_session=$(printf "%s" "$session_id" | tr -c 'A-Za-z0-9._-' '_')
+state_file="$state_dir/$safe_session.json"
+tmp_file="$state_file.tmp"
+now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+if [ -f "$state_file" ]; then
+  session_start=$(jq -r '.session_start // empty' "$state_file" 2>/dev/null)
+else
+  session_start=""
+fi
+session_start=\${session_start:-$now}
+
+jq -n \\
+  --arg state "$ant_state" \\
+  --arg session_start "$session_start" \\
+  --arg cwd "$cwd" \\
+  --arg last_edit_ts "$now" \\
+  --arg visible_status "$visible_status" \\
+  --argjson requests "$requests" \\
+  --argjson errors "$errors" \\
+  '{
+    state: $state,
+    session_start: $session_start,
+    cwd: $cwd,
+    last_edit_ts: $last_edit_ts,
+    qwen_visible_status: $visible_status,
+    qwen_requests: $requests,
+    qwen_errors: $errors
+  }' > "$tmp_file" 2>/dev/null && mv "$tmp_file" "$state_file" 2>/dev/null || true
+
+echo "$visible_status"
+`;
 
 async function setCurrentAgentStatus({ status, mode, flags, runtime, evidence }) {
   const terminalIdFromFlag = flags.terminal;
