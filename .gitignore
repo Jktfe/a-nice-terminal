@@ -25,6 +25,9 @@ static/artefacts/
 # Tauri (m6.4)
 src-tauri/target/
 src-tauri/gen/
+# E1 (Windows-app router sidecar 2026-05-22): bun-compiled router
+# binaries land here at build time; build artefacts, not source.
+src-tauri/binaries/
 
 
 # Agent-spawned worktree dirs (per-session, ephemeral)

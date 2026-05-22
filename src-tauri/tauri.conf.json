@@ -31,6 +31,7 @@
     "active": true,
     "targets": ["app", "dmg", "msi"],
     "icon": ["icons/icon.png", "icons/icon.ico"],
+    "externalBin": ["binaries/ant-router"],
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper"

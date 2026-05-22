@@ -29,6 +29,10 @@
     "build:cli:x64-darwin": "bun run prebuild:cli && bun build --compile --target=bun-darwin-x64 ./scripts/ant-cli.mjs --outfile dist/ant-x86_64-apple-darwin",
     "build:cli:darwin": "bun run build:cli:arm64-darwin && bun run build:cli:x64-darwin",
     "build:cli:win-x64": "bun run prebuild:cli && bun build --compile --target=bun-windows-x64 ./scripts/ant-cli.mjs --outfile dist/ant-x86_64-pc-windows-msvc.exe",
+    "build:router:arm64-darwin": "bun build --compile --target=bun-darwin-arm64 ./scripts/ant-cli-pane-router-win.mjs --outfile src-tauri/binaries/ant-router-aarch64-apple-darwin",
+    "build:router:x64-darwin": "bun build --compile --target=bun-darwin-x64 ./scripts/ant-cli-pane-router-win.mjs --outfile src-tauri/binaries/ant-router-x86_64-apple-darwin",
+    "build:router:darwin": "bun run build:router:arm64-darwin && bun run build:router:x64-darwin",
+    "build:router:win-x64": "bun build --compile --target=bun-windows-x64 ./scripts/ant-cli-pane-router-win.mjs --outfile src-tauri/binaries/ant-router-x86_64-pc-windows-msvc.exe",
     "tauri": "tauri"
   },
   "devDependencies": {
