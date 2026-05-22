@@ -244,6 +244,7 @@
           {message}
           parentMessage={message.parentMessageId ? messagesById.get(message.parentMessageId) : undefined}
           member={membersByHandle.get(message.authorHandle)}
+          {members}
           claims={claimsByMessageId.get(message.id) ?? []}
           {roomMode}
           {viewerIsAgent}

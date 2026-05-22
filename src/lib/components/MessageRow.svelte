@@ -25,6 +25,7 @@
   type Props = {
     message: ChatMessage;
     member?: RoomMember;
+    members?: RoomMember[];
     // M30 slice 3b: optional reply callback. When supplied, the row
     // shows a Reply button for human/agent kinds; clicking emits the
     // message id up to the room page, which sets up reply state and
@@ -60,7 +61,7 @@
     readReceiptEvent?: Record<string, unknown> | null;
   };
 
-  let { message, member, onReplyRequested, childCount = 0, parentMessage, claims = [], roomMode = 'brainstorm', onClaimChanged, viewerIsAgent = false, asHandle, readReceiptEvent }: Props = $props();
+  let { message, member, members = [], onReplyRequested, childCount = 0, parentMessage, claims = [], roomMode = 'brainstorm', onClaimChanged, viewerIsAgent = false, asHandle, readReceiptEvent }: Props = $props();
   // deleteError is owned by MessageRowHeader but bound back here so the
   // <p class="message-error"> renders in its original spot below the
   // message body (visual contract preserved across the split).
@@ -129,6 +130,7 @@
       {isDeleted}
       {viewerIsAgent}
       {claims}
+      {members}
       {roomMode}
       {onReplyRequested}
       {asHandle}
