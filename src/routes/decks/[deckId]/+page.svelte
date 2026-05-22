@@ -144,6 +144,14 @@
     return currentProvider;
   }
 
+  function detectNarrationSource(slide: DeckSlide | undefined): 'narration' | 'speakerNotes' | 'content' {
+    if (!slide) return 'content';
+    const slideAny = slide as { narration?: string; speakerNotes?: string };
+    if (typeof slideAny.speakerNotes === 'string' && slideAny.speakerNotes.trim().length > 0) return 'speakerNotes';
+    if (typeof slideAny.narration === 'string' && slideAny.narration.trim().length > 0) return 'narration';
+    return 'content';
+  }
+
   function capturePauseSnapshot(): void {
     if (!activeSlide || speakingIndex === null) return;
     const narration = getNarrationForSlide(activeSlide);
@@ -166,6 +174,36 @@
       lastSpokenWindow,
       capturedAtMs: Date.now()
     };
+    // γ2: persist + broadcast to the room so subscribed agents can act.
+    // Best-effort — UI capture (γ1) already succeeded; if the network
+    // POST fails, surface a notice but don't clear the local snapshot.
+    void persistPauseContext();
+  }
+
+  async function persistPauseContext(): Promise<void> {
+    if (!pauseSnapshot || !activeSlide) return;
+    try {
+      const response = await fetch(
+        `/api/decks/${encodeURIComponent(deck.id)}/stage-pause-context`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            slideId: pauseSnapshot.slideId,
+            slideIndex: pauseSnapshot.slideIndex,
+            narrationSource: detectNarrationSource(activeSlide),
+            pausedAtMs: pauseSnapshot.capturedAtMs,
+            estimatedCharOffset: pauseSnapshot.estimatedCharOffset,
+            spokenWindow: pauseSnapshot.lastSpokenWindow
+          })
+        }
+      );
+      if (!response.ok) {
+        voiceNotice = `Pause context broadcast failed (HTTP ${response.status}).`;
+      }
+    } catch {
+      voiceNotice = 'Pause context broadcast failed (network).';
+    }
   }
 
   function pauseOrResume(): void {
@@ -352,10 +390,10 @@
     </section>
   {/if}
 
-  <section class="feedback-panel" aria-label="Stage feedback (β + γ1)">
+  <section class="feedback-panel" aria-label="Stage feedback (β + γ1 + γ2)">
     <header>
       <h3>Feedback</h3>
-      <p class="panel-hint">Pause narration to anchor feedback to a specific spoken moment. Submission lands with γ2 (room broadcast) — for now, capture only.</p>
+      <p class="panel-hint">Pause narration to anchor feedback to a specific spoken moment. The pause context is broadcast to the room (γ2) so agents can subscribe; feedback submission wires up in δ.</p>
     </header>
 
     {#if pauseSnapshot}
@@ -394,8 +432,8 @@
     </label>
 
     <div class="feedback-actions">
-      <button type="button" class="toolbar-btn" disabled aria-disabled="true" title="γ2 wires submission; γ1 is local capture only">
-        Submit (γ2 — not yet wired)
+      <button type="button" class="toolbar-btn" disabled aria-disabled="true" title="δ wires feedback submission; γ2 only broadcasts the pause context">
+        Submit (δ — not yet wired)
       </button>
       <button type="button" class="toolbar-btn" onclick={() => { pauseSnapshot = null; feedbackText = ''; pasteContext = ''; }}>
         Clear
