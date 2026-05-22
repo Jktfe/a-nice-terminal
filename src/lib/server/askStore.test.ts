@@ -6,8 +6,14 @@ import {
   listAllOpenAsks,
   listOpenAsksInRoom,
   openAskInRoom,
-  resetAskStoreForTests
+  resetAskStoreForTests,
+  AskTargetNotHumanError
 } from './askStore';
+import {
+  createChatRoom,
+  inviteAgentToRoom,
+  resetChatRoomStoreForTests
+} from './chatRoomStore';
 
 describe('askStore', () => {
   beforeEach(() => {
@@ -347,6 +353,73 @@ describe('askStore', () => {
       dismissAsk({ askId: willDismiss.id, dismissedByHandle: '@bob' });
       expect(listOpenAsksInRoom('r1').map((ask) => ask.id)).toEqual([openOne.id]);
       expect(listAllOpenAsks().map((ask) => ask.id)).toEqual([openOne.id]);
+    });
+  });
+
+  describe('targetHandle (asks-as-pill slice 2)', () => {
+    beforeEach(() => {
+      resetChatRoomStoreForTests();
+    });
+
+    it('persists targetHandle when present + a human room member', () => {
+      const room = createChatRoom({ name: 'pill-target-human', whoCreatedIt: '@you' });
+      const ask = openAskInRoom({
+        roomId: room.id,
+        openedByHandle: '@agentaskr',
+        targetHandle: '@you',
+        title: 'q',
+        body: 'b'
+      });
+      expect(ask.targetHandle).toBe('@you');
+      const reread = findAskById(ask.id);
+      expect(reread?.targetHandle).toBe('@you');
+    });
+
+    it('throws AskTargetNotHumanError when targetHandle is an agent member', () => {
+      const room = createChatRoom({ name: 'pill-target-agent', whoCreatedIt: '@you' });
+      inviteAgentToRoom({ roomId: room.id, agentHandle: '@evolveantcodex' });
+      let raised: AskTargetNotHumanError | null = null;
+      try {
+        openAskInRoom({
+          roomId: room.id,
+          openedByHandle: '@you',
+          targetHandle: '@evolveantcodex',
+          title: 'q',
+          body: 'b'
+        });
+      } catch (cause) {
+        if (cause instanceof AskTargetNotHumanError) raised = cause;
+      }
+      expect(raised?.reason).toBe('is-agent');
+      expect(raised?.targetHandle).toBe('@evolveantcodex');
+    });
+
+    it('throws AskTargetNotHumanError when targetHandle is not a member', () => {
+      const room = createChatRoom({ name: 'pill-target-stranger', whoCreatedIt: '@you' });
+      let raised: AskTargetNotHumanError | null = null;
+      try {
+        openAskInRoom({
+          roomId: room.id,
+          openedByHandle: '@you',
+          targetHandle: '@randomstranger',
+          title: 'q',
+          body: 'b'
+        });
+      } catch (cause) {
+        if (cause instanceof AskTargetNotHumanError) raised = cause;
+      }
+      expect(raised?.reason).toBe('not-a-member');
+    });
+
+    it('back-compat: omitting targetHandle still opens a room-broadcast ask', () => {
+      const room = createChatRoom({ name: 'pill-no-target', whoCreatedIt: '@you' });
+      const ask = openAskInRoom({
+        roomId: room.id,
+        openedByHandle: '@you',
+        title: 'broadcast',
+        body: 'b'
+      });
+      expect(ask.targetHandle).toBeUndefined();
     });
   });
 });

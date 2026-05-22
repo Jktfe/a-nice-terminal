@@ -8,6 +8,7 @@
 
 import { getIdentityDb } from './db';
 import { createEntityStore } from './sqliteEntityStore';
+import { findChatRoomById } from './chatRoomStore';
 
 // Asks-as-pill model (JWPK 2026-05-22): 'merged' is NON-terminal — a merged
 // ask still counts toward the askee's response-required pill because the
@@ -146,13 +147,34 @@ export function listAllRecentlyAnsweredAsks(limit = 20): Ask[] {
   );
 }
 
+/**
+ * Thrown when openAskInRoom is called with a targetHandle that isn't a
+ * `kind=human` member of the room. Asks are the human inbox — agents react
+ * to messages via hooks (working/thinking pill), not via asks. This guard
+ * is also the security boundary JWPK called out: agents cannot extract a
+ * response from a human via a side-channel; the only legal path is an
+ * in-room ask that other members can see and audit.
+ */
+export class AskTargetNotHumanError extends Error {
+  targetHandle: string;
+  reason: 'not-a-member' | 'is-agent';
+  constructor(targetHandle: string, reason: 'not-a-member' | 'is-agent') {
+    super(`${targetHandle} cannot receive an ask in this room: ${reason}`);
+    this.name = 'AskTargetNotHumanError';
+    this.targetHandle = targetHandle;
+    this.reason = reason;
+  }
+}
+
 export function openAskInRoom(input: {
   roomId: string;
   openedByHandle: string;
   openedByDisplayName?: string;
-  /** The human handle being asked. Optional in slice 1 schema migration so
-   *  legacy in-flight calls don't break; slice 2 turns this into a required
-   *  field at the call sites + enforces human-membership. */
+  /** The human handle being asked. Required when present; the asks-as-pill
+   *  model only addresses humans, so callers should pass this on the fanout
+   *  + CLI paths. Older callers (Task #130 v3-parity manual asks) may omit
+   *  while we migrate them — those rows persist with target_handle NULL and
+   *  show up as room-broadcast asks in the inbox until they're closed. */
   targetHandle?: string;
   title: string;
   body: string;
@@ -167,6 +189,14 @@ export function openAskInRoom(input: {
   if (trimmedBody.length === 0) throw new Error('An ask needs a non-blank body.');
   const trimmedTarget = input.targetHandle?.trim();
   const targetForRow = trimmedTarget && trimmedTarget.length > 0 ? trimmedTarget : null;
+
+  if (targetForRow !== null) {
+    const room = findChatRoomById(trimmedRoomId);
+    if (!room) throw new Error(`Cannot open ask for unknown room ${trimmedRoomId}.`);
+    const targetMember = room.members.find((member) => member.handle === targetForRow);
+    if (!targetMember) throw new AskTargetNotHumanError(targetForRow, 'not-a-member');
+    if (targetMember.kind !== 'human') throw new AskTargetNotHumanError(targetForRow, 'is-agent');
+  }
 
   const id = makeAskId();
   const nowMs = Date.now();
