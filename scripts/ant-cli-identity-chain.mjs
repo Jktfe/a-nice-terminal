@@ -15,13 +15,19 @@
  * Platform branches (Xeno windows-cli-auth-wedge-2026-05-22 diagnosis):
  *   - darwin / linux: `ps -o {lstart,ppid}= -p <pid>` — single-syscall, no shell
  *   - win32 / MSYS2 / git-bash: `powershell.exe -NoProfile -Command
- *     "Get-CimInstance Win32_Process -Filter 'ProcessId=N' | Select-Object
- *     ProcessId, ParentProcessId, CreationDate | ConvertTo-Json -Compress"`.
- *     CIM returns CreationDate as a real DateTime that ConvertTo-Json
- *     serialises as ISO 8601 (`/Date(ms)/` was the legacy WMIC pain — CIM
- *     avoids it). Chose CIM over `wmic` because wmic is deprecated in
- *     Win 11 (still ships, Microsoft can pull any quarter); per-call
- *     overhead is ~150-200ms cold but durable across Win versions.
+ *     "Get-CimInstance Win32_Process -Filter 'ProcessId=N' | ForEach-Object {
+ *     [PSCustomObject]@{ ProcessId=$_.ProcessId; ParentProcessId=$_.ParentProcessId;
+ *     CreationDate=$_.CreationDate.ToString('o') } } | ConvertTo-Json -Compress"`.
+ *     The `.ToString('o')` step is load-bearing: PowerShell's default
+ *     ConvertTo-Json serialises System.DateTime as the legacy .NET
+ *     DataContract form `/Date(unix-ms)/`, NOT ISO 8601 — that broke the
+ *     server's (pid, pid_start) tuple-comparison on 0.1.6 (Xeno smoke
+ *     2026-05-22 returned 10-deep chains with `/Date(MS)/` timestamps).
+ *     `.ToString('o')` forces the .NET round-trip ISO 8601 format
+ *     (sub-second precision + UTC offset) BEFORE JSON serialisation.
+ *     Chose CIM over `wmic` because wmic is deprecated in Win 11
+ *     (still ships, Microsoft can pull any quarter); per-call overhead
+ *     is ~150-200ms cold but durable across Win versions.
  *
  * No shell, no arg interpolation; PIDs cast to String() before exec.
  */
@@ -72,17 +78,16 @@ function readWindowsProcessRecord(pid) {
         '-NoProfile',
         '-NonInteractive',
         '-Command',
-        `Get-CimInstance Win32_Process -Filter 'ProcessId=${Number(pid)}' | Select-Object ProcessId, ParentProcessId, CreationDate | ConvertTo-Json -Compress`
+        `Get-CimInstance Win32_Process -Filter 'ProcessId=${Number(pid)}' | ForEach-Object { [PSCustomObject]@{ ProcessId = $_.ProcessId; ParentProcessId = $_.ParentProcessId; CreationDate = $_.CreationDate.ToString('o') } } | ConvertTo-Json -Compress`
       ],
       { stdio: 'pipe', windowsHide: true }
     ).toString().trim();
     if (stdout.length > 0) {
       const parsed = JSON.parse(stdout);
-      // CreationDate from ConvertTo-Json: when CIM returns a DateTime,
-      // PowerShell's JSON serialiser writes either an ISO string like
-      // "2026-05-22T17:30:45.123Z" or a wrapped `\/Date(ms)\/` legacy
-      // form. Both round-trip into the server's (pid, pid_start) tuple
-      // verbatim — opaque on the wire, never parsed by us.
+      // CreationDate is now a clean ISO 8601 string via .ToString('o')
+      // in the PS pipeline above — round-trips verbatim into the
+      // server's (pid, pid_start) tuple. Object form retained as a
+      // safety fallback in case a future PS edition wraps the string.
       record = {
         ppid: Number.isFinite(parsed?.ParentProcessId) ? parsed.ParentProcessId : null,
         startTime: parsed?.CreationDate ?? null
