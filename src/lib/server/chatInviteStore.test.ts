@@ -9,6 +9,7 @@ import {
   hashPassword,
   hashToken,
   listActiveInvitesForRoom,
+  listActiveInvitesWithUsageForRoom,
   mintTokenSecret,
   resetChatInviteStoreForTests,
   revokeInvite,
@@ -283,5 +284,67 @@ describe('B2-2-summary — getInvitePreview public preview (2026-05-15)', () => 
 
   it('returns null for unknown invite id', () => {
     expect(getInvitePreview('inv_does_not_exist')).toBeNull();
+  });
+});
+
+describe('chatInviteStore usage summaries', () => {
+  it('returns safe zero-use metadata for active invites', () => {
+    const invite = createInvite({
+      roomId: 'room-a',
+      label: 'Mark Claude Desktop',
+      password: 'hello-mark',
+      kinds: ['mcp', 'cli'],
+      createdBy: '@you'
+    });
+
+    const [summary] = listActiveInvitesWithUsageForRoom('room-a');
+
+    expect(summary.id).toBe(invite.id);
+    expect(summary.redeemed_count).toBe(0);
+    expect(summary.active_token_count).toBe(0);
+    expect(summary.last_redeemed_at).toBeNull();
+    expect(summary.last_seen_at).toBeNull();
+    expect(summary.redemptions).toEqual([]);
+    expect(JSON.stringify(summary)).not.toContain('password');
+    expect(JSON.stringify(summary)).not.toContain('tokenSecret');
+  });
+
+  it('summarises redeemed handles, kinds, last seen, and revoked token state', () => {
+    const invite = createInvite({
+      roomId: 'room-a',
+      label: 'Mark Claude Desktop',
+      password: 'hello-mark',
+      kinds: ['mcp', 'cli'],
+      createdBy: '@you'
+    });
+    const cliToken = exchangePasswordForToken({
+      inviteId: invite.id,
+      password: 'hello-mark',
+      kind: 'cli',
+      handle: '@mark-terminal'
+    });
+    exchangePasswordForToken({
+      inviteId: invite.id,
+      password: 'hello-mark',
+      kind: 'mcp',
+      handle: '@marckCD'
+    });
+    expect(verifyToken(cliToken.tokenSecret, 'room-a')?.handle).toBe('@mark-terminal');
+    expect(revokeToken(cliToken.tokenId)).toBe(true);
+
+    const [summary] = listActiveInvitesWithUsageForRoom('room-a');
+
+    expect(summary.redeemed_count).toBe(2);
+    expect(summary.active_token_count).toBe(1);
+    expect(summary.last_redeemed_at).toBeTruthy();
+    expect(summary.last_seen_at).toBeTruthy();
+    expect(summary.redemptions.map((token) => token.handle)).toEqual([
+      '@mark-terminal',
+      '@marckCD'
+    ]);
+    expect(summary.redemptions.map((token) => token.kind)).toEqual(['cli', 'mcp']);
+    expect(summary.redemptions[0].revoked_at).toBeTruthy();
+    expect(summary.redemptions[1].revoked_at).toBeNull();
+    expect(JSON.stringify(summary)).not.toContain(cliToken.tokenSecret);
   });
 });

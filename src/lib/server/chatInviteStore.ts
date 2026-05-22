@@ -168,6 +168,22 @@ export type PublicInviteSummary = {
   created_at: string;
 };
 
+export type PublicInviteRedemption = {
+  kind: InviteKind;
+  handle: string | null;
+  created_at: string;
+  last_seen_at: string | null;
+  revoked_at: string | null;
+};
+
+export type PublicInviteWithUsage = PublicInviteSummary & {
+  redemptions: PublicInviteRedemption[];
+  redeemed_count: number;
+  active_token_count: number;
+  last_redeemed_at: string | null;
+  last_seen_at: string | null;
+};
+
 export type TokenIdentity = {
   tokenId: string;
   inviteId: string;
@@ -416,6 +432,59 @@ export function listActiveInvitesForRoom(roomId: string): PublicInviteSummary[] 
     )
     .all(roomId) as InviteRow[];
   return rows.map((row) => toPublicSummary(rowToInvite(row)));
+}
+
+type InviteUsageTokenRow = {
+  invite_id: string;
+  kind: InviteKind;
+  handle: string | null;
+  created_at: string;
+  last_seen_at: string | null;
+  revoked_at: string | null;
+};
+
+export function listActiveInvitesWithUsageForRoom(roomId: string): PublicInviteWithUsage[] {
+  const invites = listActiveInvitesForRoom(roomId);
+  if (invites.length === 0) return [];
+
+  const db = getIdentityDb();
+  const tokenRows = db
+    .prepare(
+      `SELECT invite_id, kind, handle, created_at, last_seen_at, revoked_at
+       FROM chat_invite_tokens
+       WHERE room_id = ?
+       ORDER BY created_at ASC`
+    )
+    .all(roomId) as InviteUsageTokenRow[];
+
+  const tokensByInvite = new Map<string, PublicInviteRedemption[]>();
+  for (const token of tokenRows) {
+    const redemptions = tokensByInvite.get(token.invite_id) ?? [];
+    redemptions.push({
+      kind: token.kind,
+      handle: token.handle,
+      created_at: token.created_at,
+      last_seen_at: token.last_seen_at,
+      revoked_at: token.revoked_at
+    });
+    tokensByInvite.set(token.invite_id, redemptions);
+  }
+
+  return invites.map((invite) => {
+    const redemptions = tokensByInvite.get(invite.id) ?? [];
+    const seenAtValues = redemptions
+      .map((token) => token.last_seen_at)
+      .filter((value): value is string => typeof value === 'string' && value.length > 0)
+      .sort();
+    return {
+      ...invite,
+      redemptions,
+      redeemed_count: redemptions.length,
+      active_token_count: redemptions.filter((token) => token.revoked_at === null).length,
+      last_redeemed_at: redemptions.length > 0 ? redemptions[redemptions.length - 1].created_at : null,
+      last_seen_at: seenAtValues.length > 0 ? seenAtValues[seenAtValues.length - 1] : null
+    };
+  });
 }
 
 // B2-2-summary (2026-05-15): public, no-admin-auth invite preview. The

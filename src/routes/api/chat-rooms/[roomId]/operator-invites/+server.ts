@@ -27,14 +27,19 @@ import { resolveBrowserSessionSecret } from '$lib/server/browserSessionStore';
 import { OPERATOR_HANDLE } from '$lib/server/allowlistGuard';
 import {
   createInvite,
-  listActiveInvitesForRoom,
+  listActiveInvitesWithUsageForRoom,
   type InviteKind,
+  type PublicInviteWithUsage,
   type PublicInviteSummary
 } from '$lib/server/chatInviteStore';
 
 const ALLOWED_KIND_VALUES: readonly InviteKind[] = ['cli', 'mcp', 'web'];
 
 type OperatorInvite = PublicInviteSummary & {
+  share: Record<InviteKind, string>;
+};
+
+type OperatorInviteWithUsage = PublicInviteWithUsage & {
   share: Record<InviteKind, string>;
 };
 
@@ -94,6 +99,10 @@ function withShares(summary: PublicInviteSummary, serverUrl: string): OperatorIn
   return { ...summary, share };
 }
 
+function withUsageShares(summary: PublicInviteWithUsage, serverUrl: string): OperatorInviteWithUsage {
+  return { ...summary, share: withShares(summary, serverUrl).share };
+}
+
 function parseRequestedKinds(raw: unknown): InviteKind[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter(
@@ -106,7 +115,9 @@ export const GET: RequestHandler = ({ params, request, url }) => {
   if (!findChatRoomById(params.roomId)) throw error(404, 'Room not found.');
   requireOperatorBrowserSession(request, params.roomId);
   const serverUrl = publicOrigin(url);
-  const invites = listActiveInvitesForRoom(params.roomId).map((row) => withShares(row, serverUrl));
+  const invites = listActiveInvitesWithUsageForRoom(params.roomId).map((row) =>
+    withUsageShares(row, serverUrl)
+  );
   return json({ invites });
 };
 
