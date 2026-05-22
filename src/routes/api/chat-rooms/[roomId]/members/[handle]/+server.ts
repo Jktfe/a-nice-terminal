@@ -59,17 +59,15 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw error(400, 'Send a JSON object.');
   }
-  // LAUNCH-BLOCKER CVE FIX D (2026-05-20): identity-gate members PATCH.
-  // Without this any unauthenticated caller could rewrite display
-  // name/color/icon for any room member.
-  const auth = requireChatRoomMutationAuth(params.roomId, request, body);
-  // Auth-vs-target anti-spoof (msg_hodqchn3ek #3, UX harness ddc44e8
-  // GAP-3 class, 2026-05-20): caller can only update THEIR OWN
-  // member presentation. Admin-bearer bypass for operator/CI tooling.
+  // Identity gate stays — caller must still be authenticated for THIS room.
+  // PID-as-identity model JWPK 2026-05-21 + 2026-05-22 (msg_uof0d8oafe):
+  // presentation (displayName / displayColor / displayIcon / background
+  // style) is cosmetic, not identity. The immutable handle / PID are
+  // load-bearing; display fields can be edited by any room member without
+  // a spoofing path opening up. Same reframe we applied to room aliases
+  // when we dropped the equivalent CVE-FIX-D guard there.
+  requireChatRoomMutationAuth(params.roomId, request, body);
   const targetHandle = decodeHandleParam(params.handle);
-  if (!auth.isAdminBearer && auth.handle !== targetHandle) {
-    throw error(403, `caller ${auth.handle} cannot update presentation for ${targetHandle}`);
-  }
 
   const displayNameRaw = (body as { displayName?: unknown }).displayName;
   const displayColorRaw = (body as { displayColor?: unknown }).displayColor;
