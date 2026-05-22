@@ -42,6 +42,11 @@ export type AntchatUser = {
   handle: string;
 };
 
+export type LicensedAntchatUser = AntchatUser & {
+  role: 'owner' | 'admin' | 'member';
+  tier?: string;
+};
+
 type StoredUser = {
   email: string;
   password_hash: string;
@@ -106,6 +111,23 @@ export function findStoredUser(email: string): StoredUser | null {
   const target = normalizeAntchatEmail(email);
   const users = readUsers().users;
   return users.find((u) => normalizeAntchatEmail(u.email) === target) ?? null;
+}
+
+function normalizeStoredRole(role: string | undefined): 'owner' | 'admin' | 'member' {
+  if (role === 'owner' || role === 'admin' || role === 'member') return role;
+  return 'member';
+}
+
+export function listLicensedAntchatUsers(): LicensedAntchatUser[] {
+  const users = readUsers().users;
+  const licences = readLicences();
+  return users
+    .filter((user) => emailAllowedByLicence(user.email))
+    .map((user) => ({
+      ...userShapeForEmail(user.email),
+      role: normalizeStoredRole(user.role),
+      tier: user.tier ?? licences.tier
+    }));
 }
 
 export function emailAllowedByLicence(email: string): boolean {
