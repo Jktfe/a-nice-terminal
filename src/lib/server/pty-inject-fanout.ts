@@ -34,6 +34,62 @@ import { listReadersForMessage, markMessageRead } from './messageReadReceiptStor
 import { broadcastToRoom } from './eventBroadcast';
 import { findHandleForAliasInRoom } from './chatRoomAliasStore';
 import { getActiveWorkingClaim } from './entityClaimStore';
+import { openAskInRoom, AskTargetNotHumanError } from './askStore';
+import type { ChatRoom } from './chatRoomStore';
+
+// (room × askee × messageId) → already opened; prevents double-file under
+// retried fanout. Bounded — entries age out after fanout for the message
+// completes; in practice only ever holds a handful of entries at a time
+// (one per still-fanning message). No TTL needed.
+const askedForMessage = new Set<string>();
+function askedKey(roomId: string, askee: string, messageId: string): string {
+  return `${roomId}::${askee}::${messageId}`;
+}
+
+function autoOpenAsksForHumanMentions(
+  room: ChatRoom,
+  message: ChatMessage,
+  targetedHandles: Set<string>
+): void {
+  if (targetedHandles.size === 0) return;
+  // System messages are not asks — they're side-effects of other actions.
+  if (message.kind !== 'human' && message.kind !== 'agent') return;
+  for (const handle of targetedHandles) {
+    if (handle === message.authorHandle) continue;
+    const member = room.members.find((m) => m.handle === handle);
+    if (!member || member.kind !== 'human') continue;  // agent target → no ask
+    const dedupeKey = askedKey(room.id, handle, message.id);
+    if (askedForMessage.has(dedupeKey)) continue;
+    askedForMessage.add(dedupeKey);
+    try {
+      openAskInRoom({
+        roomId: room.id,
+        openedByHandle: message.authorHandle,
+        targetHandle: handle,
+        // Title = first ~80 chars of body; falls back to "Question" when
+        // body opens with the @-mention and not much else (rare).
+        title: makeAskTitle(message.body, handle),
+        body: message.body
+      });
+    } catch (cause) {
+      // AskTargetNotHumanError = race (member kind flipped between check
+      // and openAskInRoom); fail silently. Anything else is unexpected
+      // and worth logging without breaking the underlying fanout.
+      if (!(cause instanceof AskTargetNotHumanError)) {
+        console.warn(`[fanout] auto-open ask failed for ${handle}:`, cause);
+      }
+    }
+  }
+}
+
+function makeAskTitle(body: string, targetHandle: string): string {
+  const stripped = body
+    .replace(new RegExp(`(^|\\s)${targetHandle}\\b`, 'g'), ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (stripped.length === 0) return 'Question';
+  return stripped.length <= 80 ? stripped : `${stripped.slice(0, 77)}...`;
+}
 
 /**
  * PID-as-identity model JWPK msg_n2cyrel4u5 (2026-05-21).
@@ -197,6 +253,15 @@ export function fanoutMessageToRoomTerminals(
   const memberships = listMembershipsForRoom(roomId);
   const targetedHandles = resolveBareMentionsToGlobalHandles(roomId, message.body);
   const containsInformationalMention = hasBracketedMention(message.body);
+
+  // Asks-as-pill (JWPK 2026-05-22): every bare @-mention of a HUMAN member
+  // opens an ask targeting that human, with the message body as the ask
+  // content. Skips agent targets, self-mentions, and system messages. The
+  // ask is the canonical source-of-truth for the human's response-required
+  // pill (askStore.hasResponseRequiredAsksForHandle). Idempotency: dedupe
+  // on (room × askee × messageId) via a small in-process Set so a
+  // double-fanout of the same message doesn't double-file the ask.
+  autoOpenAsksForHumanMentions(room, message, targetedHandles);
   const broadcastToAll =
     options.forceBroadcastToAll === true ||
     hasBareEveryoneMention(message.body) ||

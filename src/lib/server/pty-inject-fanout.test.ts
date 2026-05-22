@@ -662,3 +662,91 @@ describe('fanoutMessageToRoomTerminals — M3.4a-v2 T3d touchpoint integration',
   });
 
 });
+
+describe('fanoutMessageToRoomTerminals — asks-as-pill auto-open (slice 6)', () => {
+  it('opens an ask when an agent @-mentions a HUMAN member of the room', async () => {
+    const { listAllOpenAsks, resetAskStoreForTests } = await import('./askStore');
+    resetAskStoreForTests();
+    const room = createChatRoom({ name: 'auto-open-human', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@askr' });
+    const sender = upsertTerminal({ pid: 7001, pid_start: 'p1', name: 'auto-open-sender' });
+    addMembership({ room_id: room.id, handle: '@askr', terminal_id: sender.id });
+
+    const message = postMessage({
+      roomId: room.id, authorHandle: '@askr',
+      body: '@you can you confirm the deployment plan?', kind: 'agent'
+    });
+    fanoutMessageToRoomTerminals(room.id, message);
+
+    const open = listAllOpenAsks().filter((a) => a.targetHandle === '@you');
+    expect(open).toHaveLength(1);
+    expect(open[0].openedByHandle).toBe('@askr');
+    expect(open[0].body).toContain('confirm the deployment');
+  });
+
+  it('does NOT open an ask when an agent @-mentions another agent', async () => {
+    const { listAllOpenAsks, resetAskStoreForTests } = await import('./askStore');
+    resetAskStoreForTests();
+    const room = createChatRoom({ name: 'no-ask-agent-target', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@askr' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@askee-agent' });
+    const sender = upsertTerminal({ pid: 7002, pid_start: 'p2', name: 'agent-sender' });
+    const askee = upsertTerminal({ pid: 7003, pid_start: 'p3', name: 'agent-askee' });
+    addMembership({ room_id: room.id, handle: '@askr', terminal_id: sender.id });
+    addMembership({ room_id: room.id, handle: '@askee-agent', terminal_id: askee.id });
+
+    const message = postMessage({
+      roomId: room.id, authorHandle: '@askr',
+      body: '@askee-agent thoughts on slice 5?', kind: 'agent'
+    });
+    fanoutMessageToRoomTerminals(room.id, message);
+
+    expect(listAllOpenAsks()).toHaveLength(0);
+  });
+
+  it('opens ONE ask per (room × askee × message) — idempotent under retried fanout', async () => {
+    const { listAllOpenAsks, resetAskStoreForTests } = await import('./askStore');
+    resetAskStoreForTests();
+    const room = createChatRoom({ name: 'idempotent-open', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@askr' });
+
+    const message = postMessage({
+      roomId: room.id, authorHandle: '@askr',
+      body: '@you a question worth opening', kind: 'agent'
+    });
+    fanoutMessageToRoomTerminals(room.id, message);
+    fanoutMessageToRoomTerminals(room.id, message);
+    fanoutMessageToRoomTerminals(room.id, message);
+
+    expect(listAllOpenAsks().filter((a) => a.targetHandle === '@you')).toHaveLength(1);
+  });
+
+  it('skips self-mention (@you posting "@you remember to ...")', async () => {
+    const { listAllOpenAsks, resetAskStoreForTests } = await import('./askStore');
+    resetAskStoreForTests();
+    const room = createChatRoom({ name: 'self-mention', whoCreatedIt: '@you' });
+    const message = postMessage({
+      roomId: room.id, authorHandle: '@you',
+      body: '@you reminder to ship', kind: 'human'
+    });
+    fanoutMessageToRoomTerminals(room.id, message);
+    expect(listAllOpenAsks()).toHaveLength(0);
+  });
+
+  it('opens asks for human targets via @-aliases (alias resolves to canonical human handle)', async () => {
+    const { listAllOpenAsks, resetAskStoreForTests } = await import('./askStore');
+    resetAskStoreForTests();
+    const room = createChatRoom({ name: 'alias-to-human', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@askr' });
+    setRoomAlias({ roomId: room.id, globalHandle: '@you', newAlias: '@jwpk' });
+
+    const message = postMessage({
+      roomId: room.id, authorHandle: '@askr',
+      body: '@jwpk a question via your alias', kind: 'agent'
+    });
+    fanoutMessageToRoomTerminals(room.id, message);
+
+    const open = listAllOpenAsks().filter((a) => a.targetHandle === '@you');
+    expect(open).toHaveLength(1);
+  });
+});
