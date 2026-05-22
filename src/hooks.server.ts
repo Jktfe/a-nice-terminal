@@ -69,6 +69,11 @@ function isGateBypassPath(pathname: string): boolean {
   if (pathname.startsWith('/api/')) return true;
   if (pathname.startsWith('/_app/')) return true;
   if (pathname === '/favicon.ico') return true;
+  // /mcp/* routes are the share-URL onboarding surface (JWPK msg_7i2h8klrtp);
+  // the route itself enforces invite+password auth via exchangePasswordForToken.
+  // Bypassing the demo-login cookie gate lets an unauthenticated Claude
+  // Desktop agent follow the shared URL directly to the JSON / HTML config.
+  if (pathname.startsWith('/mcp/')) return true;
   return false;
 }
 
