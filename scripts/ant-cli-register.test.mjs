@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { handleRegisterVerb, handleAddVerb, handleResolveVerb } from './ant-cli-register.mjs';
+import { handleRegisterVerb, handleAddVerb, handleResolveVerb, chooseRegisterPidChain } from './ant-cli-register.mjs';
 
 class CliInputError extends Error {}
 
@@ -153,5 +153,39 @@ describe('handleResolveVerb', () => {
     await handleResolveVerb('--room', ['r-7'], runtime, { CliInputError });
     const body = JSON.parse(captured.calls[0].init.body);
     expect(body.room_id).toBe('r-7');
+  });
+});
+
+// 0.1.8 slice A (Xeno windows-cli-auth-wedge follow-up 2026-05-22):
+// when --pid is implicit, register against the grandparent rather than
+// the one-off MSYS2 cygwin helper at the immediate ppid. Explicit --pid
+// remains untouched.
+describe('chooseRegisterPidChain', () => {
+  const HELPER = { pid: 65764, pid_start: 'iso-2026-05-22T20:36:39.4326010+01:00' };
+  const BASH = { pid: 52788, pid_start: 'iso-2026-05-22T20:36:39.3812590+01:00' };
+  const WEZTERM = { pid: 11804, pid_start: 'iso-2026-05-13T16:40:55+01:00' };
+
+  it('returns the chain unchanged when --pid was explicit', () => {
+    const chain = [HELPER, BASH, WEZTERM];
+    expect(chooseRegisterPidChain(chain, true)).toEqual(chain);
+  });
+
+  it('drops the immediate ppid when chain has >= 2 entries and --pid was implicit', () => {
+    const chain = [HELPER, BASH, WEZTERM];
+    expect(chooseRegisterPidChain(chain, false)).toEqual([BASH, WEZTERM]);
+  });
+
+  it('returns the chain unchanged when it has only one entry (no grandparent fallback)', () => {
+    expect(chooseRegisterPidChain([HELPER], false)).toEqual([HELPER]);
+  });
+
+  it('returns the chain unchanged when it is empty', () => {
+    expect(chooseRegisterPidChain([], false)).toEqual([]);
+  });
+
+  it('does not mutate the input chain', () => {
+    const chain = [HELPER, BASH, WEZTERM];
+    chooseRegisterPidChain(chain, false);
+    expect(chain).toEqual([HELPER, BASH, WEZTERM]);
   });
 });
