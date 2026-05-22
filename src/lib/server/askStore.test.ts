@@ -7,7 +7,8 @@ import {
   listOpenAsksInRoom,
   openAskInRoom,
   resetAskStoreForTests,
-  AskTargetNotHumanError
+  AskTargetNotHumanError,
+  AskerNotInInboxError
 } from './askStore';
 import {
   createChatRoom,
@@ -363,6 +364,9 @@ describe('askStore', () => {
 
     it('persists targetHandle when present + a human room member', () => {
       const room = createChatRoom({ name: 'pill-target-human', whoCreatedIt: '@you' });
+      // Inbox-membership precondition (slice 5): asker must share a room
+      // with the askee. inviteAgentToRoom triggers the recompute hook.
+      inviteAgentToRoom({ roomId: room.id, agentHandle: '@agentaskr' });
       const ask = openAskInRoom({
         roomId: room.id,
         openedByHandle: '@agentaskr',
@@ -409,6 +413,35 @@ describe('askStore', () => {
         if (cause instanceof AskTargetNotHumanError) raised = cause;
       }
       expect(raised?.reason).toBe('not-a-member');
+    });
+
+    it('inbox-auth (slice 5): asker NOT in askee\'s inbox + not in originating room → AskerNotInInboxError', () => {
+      const room = createChatRoom({ name: 'inbox-auth-deny', whoCreatedIt: '@you' });
+      // @stranger has no shared room or terminal-ownership with @you.
+      let raised: AskerNotInInboxError | null = null;
+      try {
+        openAskInRoom({
+          roomId: room.id,
+          openedByHandle: '@stranger',
+          targetHandle: '@you',
+          title: 'q', body: 'b'
+        });
+      } catch (cause) {
+        if (cause instanceof AskerNotInInboxError) raised = cause;
+      }
+      expect(raised?.askerHandle).toBe('@stranger');
+      expect(raised?.targetHandle).toBe('@you');
+    });
+
+    it('inbox-auth (slice 5): self-ask is always allowed (no inbox check)', () => {
+      const room = createChatRoom({ name: 'self-ask', whoCreatedIt: '@you' });
+      const ask = openAskInRoom({
+        roomId: room.id,
+        openedByHandle: '@you',
+        targetHandle: '@you',
+        title: 'a reminder', body: 'don\'t forget x'
+      });
+      expect(ask.targetHandle).toBe('@you');
     });
 
     it('back-compat: omitting targetHandle still opens a room-broadcast ask', () => {
