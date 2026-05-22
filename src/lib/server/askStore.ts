@@ -1,11 +1,13 @@
 /**
  * askStore — Task #130 v3-parity: persisted asks in SQLite.
  *
- * Previously in-memory Maps; now stored in the asks table so they
- * survive server restarts. Supports open, answer, dismiss, list.
+ * Refactored to use sqliteEntityStore for read-side deduplication.
+ * Write operations (open, answer, dismiss) remain entity-specific
+ * because validation + business logic vary per operation.
  */
 
 import { getIdentityDb } from './db';
+import { createEntityStore } from './sqliteEntityStore';
 
 export type AskStatus = 'open' | 'answered' | 'dismissed';
 
@@ -78,6 +80,47 @@ function rowToAsk(row: AskRow): Ask {
   return ask;
 }
 
+const ASK_COLUMNS = [
+  'id', 'room_id', 'opened_by_handle', 'opened_by_display_name', 'title', 'body', 'status',
+  'opened_at_ms', 'answer', 'answered_by_handle', 'answered_by_display_name', 'answered_at_ms',
+  'dismissed_by_handle', 'dismissed_by_display_name', 'dismissed_at_ms'
+];
+
+const { get: getAskRaw, listOrdered } = createEntityStore<Ask, AskRow>({
+  table: 'asks',
+  columns: ASK_COLUMNS,
+  rowToDomain: rowToAsk
+});
+
+// Re-export get with the old name for backward compatibility
+export function findAskById(askId: string): Ask | undefined {
+  return getAskRaw(askId) ?? undefined;
+}
+
+export function listOpenAsksInRoom(roomId: string): Ask[] {
+  return listOrdered("room_id = ? AND status = 'open'", 'opened_at_ms ASC, rowid ASC', [roomId]);
+}
+
+export function listRecentlyAnsweredAsksInRoom(roomId: string, limit = 20): Ask[] {
+  return listOrdered(
+    "room_id = ? AND status = 'answered'",
+    'answered_at_ms DESC, rowid DESC LIMIT ?',
+    [roomId, Math.max(0, Math.floor(limit))]
+  );
+}
+
+export function listAllOpenAsks(): Ask[] {
+  return listOrdered("status = 'open'", 'opened_at_ms ASC, rowid ASC');
+}
+
+export function listAllRecentlyAnsweredAsks(limit = 20): Ask[] {
+  return listOrdered(
+    "status = 'answered'",
+    'answered_at_ms DESC, rowid DESC LIMIT ?',
+    [Math.max(0, Math.floor(limit))]
+  );
+}
+
 export function openAskInRoom(input: {
   roomId: string;
   openedByHandle: string;
@@ -86,28 +129,19 @@ export function openAskInRoom(input: {
   body: string;
 }): Ask {
   const trimmedRoomId = input.roomId.trim();
-  if (trimmedRoomId.length === 0) {
-    throw new Error('A roomId is required to open an ask.');
-  }
+  if (trimmedRoomId.length === 0) throw new Error('A roomId is required to open an ask.');
   const trimmedHandle = input.openedByHandle.trim();
-  if (trimmedHandle.length === 0) {
-    throw new Error('An openedByHandle is required to open an ask.');
-  }
+  if (trimmedHandle.length === 0) throw new Error('An openedByHandle is required to open an ask.');
   const trimmedTitle = input.title.trim();
-  if (trimmedTitle.length === 0) {
-    throw new Error('An ask needs a non-blank title.');
-  }
+  if (trimmedTitle.length === 0) throw new Error('An ask needs a non-blank title.');
   const trimmedBody = input.body.trim();
-  if (trimmedBody.length === 0) {
-    throw new Error('An ask needs a non-blank body.');
-  }
+  if (trimmedBody.length === 0) throw new Error('An ask needs a non-blank body.');
 
   const id = makeAskId();
   const nowMs = Date.now();
-  const openedByDisplayName =
-    input.openedByDisplayName?.trim().length
-      ? input.openedByDisplayName.trim()
-      : trimmedHandle;
+  const openedByDisplayName = input.openedByDisplayName?.trim().length
+    ? input.openedByDisplayName.trim()
+    : trimmedHandle;
 
   getIdentityDb().prepare(
     `INSERT INTO asks
@@ -116,86 +150,9 @@ export function openAskInRoom(input: {
   ).run(id, trimmedRoomId, trimmedHandle, openedByDisplayName, trimmedTitle, trimmedBody, 'open', nowMs);
 
   return {
-    id,
-    roomId: trimmedRoomId,
-    openedByHandle: trimmedHandle,
-    openedByDisplayName,
-    title: trimmedTitle,
-    body: trimmedBody,
-    status: 'open',
-    openedAt: msToIso(nowMs)
+    id, roomId: trimmedRoomId, openedByHandle: trimmedHandle, openedByDisplayName,
+    title: trimmedTitle, body: trimmedBody, status: 'open', openedAt: msToIso(nowMs)
   };
-}
-
-export function listOpenAsksInRoom(roomId: string): Ask[] {
-  const rows = getIdentityDb()
-    .prepare(
-      `SELECT id, room_id, opened_by_handle, opened_by_display_name, title, body, status,
-              opened_at_ms, answer, answered_by_handle, answered_by_display_name, answered_at_ms,
-              dismissed_by_handle, dismissed_by_display_name, dismissed_at_ms
-         FROM asks
-        WHERE room_id = ? AND status = 'open'
-        ORDER BY opened_at_ms ASC, rowid ASC`
-    )
-    .all(roomId) as AskRow[];
-  return rows.map(rowToAsk);
-}
-
-export function listRecentlyAnsweredAsksInRoom(roomId: string, limit = 20): Ask[] {
-  const rows = getIdentityDb()
-    .prepare(
-      `SELECT id, room_id, opened_by_handle, opened_by_display_name, title, body, status,
-              opened_at_ms, answer, answered_by_handle, answered_by_display_name, answered_at_ms,
-              dismissed_by_handle, dismissed_by_display_name, dismissed_at_ms
-         FROM asks
-        WHERE room_id = ? AND status = 'answered'
-        ORDER BY answered_at_ms DESC, rowid DESC
-        LIMIT ?`
-    )
-    .all(roomId, Math.max(0, Math.floor(limit))) as AskRow[];
-  return rows.map(rowToAsk);
-}
-
-export function listAllOpenAsks(): Ask[] {
-  const rows = getIdentityDb()
-    .prepare(
-      `SELECT id, room_id, opened_by_handle, opened_by_display_name, title, body, status,
-              opened_at_ms, answer, answered_by_handle, answered_by_display_name, answered_at_ms,
-              dismissed_by_handle, dismissed_by_display_name, dismissed_at_ms
-         FROM asks
-        WHERE status = 'open'
-        ORDER BY opened_at_ms ASC, rowid ASC`
-    )
-    .all() as AskRow[];
-  return rows.map(rowToAsk);
-}
-
-export function listAllRecentlyAnsweredAsks(limit = 20): Ask[] {
-  const rows = getIdentityDb()
-    .prepare(
-      `SELECT id, room_id, opened_by_handle, opened_by_display_name, title, body, status,
-              opened_at_ms, answer, answered_by_handle, answered_by_display_name, answered_at_ms,
-              dismissed_by_handle, dismissed_by_display_name, dismissed_at_ms
-         FROM asks
-        WHERE status = 'answered'
-        ORDER BY answered_at_ms DESC, rowid DESC
-        LIMIT ?`
-    )
-    .all(Math.max(0, Math.floor(limit))) as AskRow[];
-  return rows.map(rowToAsk);
-}
-
-export function findAskById(askId: string): Ask | undefined {
-  const row = getIdentityDb()
-    .prepare(
-      `SELECT id, room_id, opened_by_handle, opened_by_display_name, title, body, status,
-              opened_at_ms, answer, answered_by_handle, answered_by_display_name, answered_at_ms,
-              dismissed_by_handle, dismissed_by_display_name, dismissed_at_ms
-         FROM asks
-        WHERE id = ?`
-    )
-    .get(askId) as AskRow | undefined;
-  return row ? rowToAsk(row) : undefined;
 }
 
 export function answerAsk(input: {
@@ -205,37 +162,18 @@ export function answerAsk(input: {
   answer: string;
 }): Ask {
   const trimmedAnswer = input.answer.trim();
-  if (trimmedAnswer.length === 0) {
-    throw new Error('An answer needs at least one non-blank character.');
-  }
+  if (trimmedAnswer.length === 0) throw new Error('An answer needs at least one non-blank character.');
   const trimmedHandle = input.answeredByHandle.trim();
-  if (trimmedHandle.length === 0) {
-    throw new Error('An answeredByHandle is required to answer an ask.');
-  }
+  if (trimmedHandle.length === 0) throw new Error('An answeredByHandle is required to answer an ask.');
   const ask = findAskById(input.askId);
-  if (!ask) {
-    throw new Error(`Ask ${input.askId} not found.`);
-  }
-  if (ask.status !== 'open') {
-    throw new Error(`Ask ${input.askId} is already ${ask.status}.`);
-  }
+  if (!ask) throw new Error(`Ask ${input.askId} not found.`);
+  if (ask.status !== 'open') throw new Error(`Ask ${input.askId} is already ${ask.status}.`);
 
   const nowMs = Date.now();
   getIdentityDb().prepare(
-    `UPDATE asks
-        SET status = 'answered',
-            answer = ?,
-            answered_by_handle = ?,
-            answered_by_display_name = ?,
-            answered_at_ms = ?
-      WHERE id = ?`
-  ).run(
-    trimmedAnswer,
-    trimmedHandle,
-    input.answeredByDisplayName ?? trimmedHandle,
-    nowMs,
-    input.askId
-  );
+    `UPDATE asks SET status = 'answered', answer = ?, answered_by_handle = ?,
+     answered_by_display_name = ?, answered_at_ms = ? WHERE id = ?`
+  ).run(trimmedAnswer, trimmedHandle, input.answeredByDisplayName ?? trimmedHandle, nowMs, input.askId);
 
   return findAskById(input.askId)!;
 }
@@ -246,31 +184,16 @@ export function dismissAsk(input: {
   dismissedByDisplayName?: string;
 }): Ask {
   const trimmedHandle = input.dismissedByHandle.trim();
-  if (trimmedHandle.length === 0) {
-    throw new Error('A dismissedByHandle is required to dismiss an ask.');
-  }
+  if (trimmedHandle.length === 0) throw new Error('A dismissedByHandle is required to dismiss an ask.');
   const ask = findAskById(input.askId);
-  if (!ask) {
-    throw new Error(`Ask ${input.askId} not found.`);
-  }
-  if (ask.status !== 'open') {
-    throw new Error(`Ask ${input.askId} is already ${ask.status}.`);
-  }
+  if (!ask) throw new Error(`Ask ${input.askId} not found.`);
+  if (ask.status !== 'open') throw new Error(`Ask ${input.askId} is already ${ask.status}.`);
 
   const nowMs = Date.now();
   getIdentityDb().prepare(
-    `UPDATE asks
-        SET status = 'dismissed',
-            dismissed_by_handle = ?,
-            dismissed_by_display_name = ?,
-            dismissed_at_ms = ?
-      WHERE id = ?`
-  ).run(
-    trimmedHandle,
-    input.dismissedByDisplayName ?? trimmedHandle,
-    nowMs,
-    input.askId
-  );
+    `UPDATE asks SET status = 'dismissed', dismissed_by_handle = ?,
+     dismissed_by_display_name = ?, dismissed_at_ms = ? WHERE id = ?`
+  ).run(trimmedHandle, input.dismissedByDisplayName ?? trimmedHandle, nowMs, input.askId);
 
   return findAskById(input.askId)!;
 }
