@@ -60,6 +60,14 @@ describe('humanInboxRoomStore', () => {
     expect(jamesId).toBe('__inbox_james__');
   });
 
+  it('inbox rooms do NOT show up in listChatRooms() (hidden from normal lists)', async () => {
+    const { listChatRooms } = await import('./chatRoomStore');
+    ensureHumanInboxRoom('@you');
+    ensureHumanInboxRoom('@james');
+    const visible = listChatRooms().map((room) => room.id);
+    expect(visible.some((id) => id.startsWith('__inbox_'))).toBe(false);
+  });
+
   it('inbox room id survives common handle weirdness without colliding', () => {
     expect(inboxRoomIdFor('@user.with.dots')).toBe(inboxRoomIdFor('@user-with-dots'));
     // (deliberately collapses '.' → '-' — the slug is best-effort; humans

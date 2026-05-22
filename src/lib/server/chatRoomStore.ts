@@ -371,6 +371,7 @@ export function listChatRooms(): ChatRoom[] {
                   SELECT linked_chat_room_id FROM terminal_records
                   WHERE linked_chat_room_id IS NOT NULL
                 )
+                AND id NOT LIKE '__inbox_%'
               ORDER BY creation_order DESC`)
     .all() as ChatRoomRow[];
   return rows.map((row) => rowToRoom(row, loadMembersForRoom(row.id)));
@@ -446,6 +447,7 @@ export function listArchivedChatRooms(): RecoverableChatRoom[] {
                      archived_at_ms, deleted_at_ms
               FROM chat_rooms
               WHERE archived_at_ms IS NOT NULL AND deleted_at_ms IS NULL
+                AND id NOT LIKE '__inbox_%'
               ORDER BY archived_at_ms DESC, creation_order DESC`)
     .all() as RecoverableChatRoomRow[];
   return rows.map((row) => recoverableRowToRoom(row, true));
@@ -458,6 +460,7 @@ export function listDeletedChatRooms(): RecoverableChatRoom[] {
                      archived_at_ms, deleted_at_ms
               FROM chat_rooms
               WHERE deleted_at_ms IS NOT NULL
+                AND id NOT LIKE '__inbox_%'
               ORDER BY deleted_at_ms DESC, creation_order DESC`)
     .all() as RecoverableChatRoomRow[];
   return rows.map((row) =>
