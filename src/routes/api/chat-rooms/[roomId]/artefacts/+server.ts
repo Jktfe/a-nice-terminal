@@ -61,10 +61,11 @@ export const POST: RequestHandler = async ({ params, request }) => {
   return json(artefact, { status: 201 });
 };
 
-export const DELETE: RequestHandler = ({ params, url, request }) => {
+export const DELETE: RequestHandler = async ({ params, url, request }) => {
   if (!findChatRoomById(params.roomId)) throw error(404, 'Room not found.');
+  const payload = (await request.json().catch(() => null)) as unknown;
   // LAUNCH-BLOCKER CVE FIX C (Finding #3, 2026-05-20)
-  requireChatRoomMutationAuth(params.roomId, request, null);
+  requireChatRoomMutationAuth(params.roomId, request, payload);
   const artefactId = url.searchParams.get('artefactId');
   if (!artefactId) throw error(400, 'artefactId query parameter required.');
   const removed = softDeleteArtefact(artefactId);

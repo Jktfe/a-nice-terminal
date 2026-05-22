@@ -83,7 +83,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
         kind: 'stage_focus',
         ref,
         label,
-        narration: slide.content
+        narration: slide.speakerNotes ?? slide.narration ?? slide.content
       }
     ],
     provenance: { source: 'deck-viewer', section: deck.id, author: auth.handle }

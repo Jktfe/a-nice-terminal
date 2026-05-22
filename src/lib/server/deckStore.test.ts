@@ -62,6 +62,28 @@ describe('createDeck', () => {
     });
   });
 
+  it('preserves imported speaker notes and narration for stage voice', () => {
+    const room = makeRoom();
+    const deck = createDeck({
+      roomId: room.id,
+      title: 'Stage Deck',
+      slides: [{
+        id: 's1',
+        title: 'Slide 1',
+        body: 'Visible slide text',
+        speakerNotes: 'Talk around the logic, not the bullet.',
+        narration: 'Fallback presenter narration.'
+      } as unknown as NonNullable<Parameters<typeof createDeck>[0]['slides']>[number]]
+    });
+
+    const found = getDeck(deck.id);
+    expect(found!.slides[0]).toMatchObject({
+      content: 'Visible slide text',
+      speakerNotes: 'Talk around the logic, not the bullet.',
+      narration: 'Fallback presenter narration.'
+    });
+  });
+
   it('trims title', () => {
     const room = makeRoom();
     const deck = createDeck({ roomId: room.id, title: '  Trimmed  ' });

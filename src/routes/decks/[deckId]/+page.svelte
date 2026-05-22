@@ -14,17 +14,27 @@
   import { onMount } from 'svelte';
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
   import { renderMarkdown } from '$lib/chat/renderMarkdown';
-  import { resolvePreferredProvider, type TTSHandle } from '$lib/voice/interview-tts';
+  import { BrowserTTSProvider, ElevenLabsTTSProvider, type TTSHandle, type TTSProvider } from '$lib/voice/interview-tts';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
+  type DeckSlide = PageData['deck']['slides'][number];
 
   let activeIndex = $state(0);
   let inspectMode = $state(false);
   let shareNotice = $state('');
   let lastPublishedFocusRef = '';
   let speakingIndex = $state<number | null>(null);
+  let pausedIndex = $state<number | null>(null);
+  let voiceNotice = $state('');
+  let voiceSettings = $state<{
+    provider: 'elevenlabs' | 'browser' | 'off';
+    autoplay: boolean;
+    elevenLabsAvailable: boolean;
+    voiceId?: string;
+  }>({ provider: 'elevenlabs', autoplay: true, elevenLabsAvailable: false });
   let currentTTSHandle: TTSHandle | null = null;
+  let currentProvider: TTSProvider | null = null;
 
   const deck = $derived(data.deck);
   const slides = $derived(deck.slides ?? []);
@@ -38,6 +48,7 @@
     stopSpeaking();
     activeIndex = clamped;
     void publishStageFocus(clamped);
+    if (voiceSettings.autoplay) void playCurrentSlide();
   }
 
   function next(): void { clampedSet(activeIndex + 1); }
@@ -60,39 +71,105 @@
     currentTTSHandle?.cancel();
     currentTTSHandle = null;
     speakingIndex = null;
+    pausedIndex = null;
   }
 
-  async function speakCurrentSlide(): Promise<void> {
+  function getNarrationForSlide(slide: DeckSlide | undefined): string {
+    if (!slide) return '';
+    return (slide.speakerNotes ?? slide.narration ?? slide.content ?? '').trim();
+  }
+
+  async function loadVoiceSettings(): Promise<void> {
+    try {
+      const response = await fetch('/api/voice/elevenlabs');
+      if (!response.ok) return;
+      const settings = await response.json() as {
+        available?: boolean;
+        stage_provider?: string;
+        stage_autoplay?: boolean;
+        default_voice_id?: string;
+      };
+      const provider = settings.stage_provider === 'browser' || settings.stage_provider === 'off'
+        ? settings.stage_provider
+        : 'elevenlabs';
+      voiceSettings = {
+        provider,
+        autoplay: settings.stage_autoplay !== false,
+        elevenLabsAvailable: settings.available === true,
+        voiceId: typeof settings.default_voice_id === 'string' ? settings.default_voice_id : undefined
+      };
+    } catch {
+      voiceNotice = 'Could not load Stage voice settings.';
+    }
+  }
+
+  async function resolveStageProvider(): Promise<TTSProvider | null> {
+    if (voiceSettings.provider === 'off') {
+      voiceNotice = 'Stage voice is turned off in settings.';
+      return null;
+    }
+    if (voiceSettings.provider === 'browser') {
+      currentProvider = currentProvider?.name === 'browser' ? currentProvider : new BrowserTTSProvider();
+      voiceNotice = 'Using browser voice because Stage voice provider is set to browser.';
+      return currentProvider;
+    }
+    currentProvider = currentProvider?.name === 'elevenlabs' ? currentProvider : new ElevenLabsTTSProvider();
+    if (!voiceSettings.elevenLabsAvailable && !(await currentProvider.available())) {
+      voiceNotice = 'ElevenLabs is not configured on this server.';
+      return null;
+    }
+    voiceNotice = 'Using ElevenLabs Stage voice.';
+    return currentProvider;
+  }
+
+  function pauseOrResume(): void {
+    if (!currentTTSHandle) return;
+    if (currentTTSHandle.isPaused()) {
+      currentTTSHandle.resume();
+      pausedIndex = null;
+      return;
+    }
+    currentTTSHandle.pause();
+    pausedIndex = speakingIndex;
+  }
+
+  async function playCurrentSlide(): Promise<void> {
     if (!activeSlide) return;
     if (speakingIndex === activeIndex && currentTTSHandle) {
-      stopSpeaking();
+      pauseOrResume();
       return;
     }
     stopSpeaking();
     // Narration precedence (per JWPK deck-voice-spec 2026-05-22):
-    //  1. slide.narration — explicit TTS-only voice line
-    //  2. slide.speakerNotes — written presenter notes (also fine for TTS)
+    //  1. slide.speakerNotes — written presenter notes
+    //  2. slide.narration — explicit TTS-only voice line
     //  3. slide.content — on-slide bullets (last resort; you don't read off the slide)
-    const slideAny = activeSlide as { narration?: string; speakerNotes?: string };
-    const narration =
-      slideAny.narration ?? slideAny.speakerNotes ?? activeSlide.content ?? '';
-    if (narration.trim().length === 0) return;
+    const narration = getNarrationForSlide(activeSlide);
+    if (narration.length === 0) {
+      voiceNotice = 'No speaker notes or narration for this slide.';
+      return;
+    }
     try {
-      const provider = await resolvePreferredProvider();
-      const handle = provider.speak(narration);
+      const provider = await resolveStageProvider();
+      if (!provider) return;
+      const handle = provider.speak(narration, { voiceId: voiceSettings.voiceId });
       currentTTSHandle = handle;
       const indexAtStart = activeIndex;
       speakingIndex = indexAtStart;
+      pausedIndex = null;
       handle.onStart = () => { speakingIndex = indexAtStart; };
       handle.onEnd = () => {
         if (currentTTSHandle === handle) {
           currentTTSHandle = null;
           speakingIndex = null;
+          pausedIndex = null;
         }
       };
     } catch {
       speakingIndex = null;
+      pausedIndex = null;
       currentTTSHandle = null;
+      voiceNotice = 'Could not play Stage voice.';
     }
   }
 
@@ -135,6 +212,9 @@
   onMount(() => {
     window.addEventListener('keydown', handleKey);
     void publishStageFocus(activeIndex);
+    void loadVoiceSettings().then(() => {
+      if (voiceSettings.autoplay) void playCurrentSlide();
+    });
     return () => {
       stopSpeaking();
       window.removeEventListener('keydown', handleKey);
@@ -156,9 +236,14 @@
       {inspectMode ? 'Hide JSON' : 'Inspect JSON'}
       <kbd>I</kbd>
     </button>
-    <button type="button" class="toolbar-btn" onclick={speakCurrentSlide} aria-pressed={speakingIndex === activeIndex}>
-      {speakingIndex === activeIndex ? 'Stop narration' : 'Speak slide'}
+    <button type="button" class="toolbar-btn" onclick={playCurrentSlide} aria-pressed={speakingIndex === activeIndex}>
+      {pausedIndex === activeIndex ? 'Resume' : (speakingIndex === activeIndex ? 'Pause' : 'Start voice')}
     </button>
+    {#if speakingIndex === activeIndex}
+      <button type="button" class="toolbar-btn" onclick={stopSpeaking}>
+        Stop
+      </button>
+    {/if}
     <button type="button" class="toolbar-btn" onclick={copyShareLink}>
       Copy share link
     </button>
@@ -166,6 +251,10 @@
 
   {#if shareNotice}
     <p class="share-notice" role="status">{shareNotice}</p>
+  {/if}
+
+  {#if voiceNotice}
+    <p class="share-notice" role="status">{voiceNotice}</p>
   {/if}
 
   {#if deck.parentDeckId}

@@ -188,7 +188,7 @@ describe('POST /api/decks/:deckId/stage-focus', () => {
     expect(response.status).toBe(201);
     const body = await response.json();
     expect(body.focus).toMatchObject({
-      ref: `stage:${deck.id}:slide:0`,
+      ref: `stage:${deck.id}:slide:slide-1`,
       label: 'Slide 1: Opening'
     });
   });
