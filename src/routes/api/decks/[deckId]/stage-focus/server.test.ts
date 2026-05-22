@@ -170,4 +170,26 @@ describe('POST /api/decks/:deckId/stage-focus', () => {
       label: 'Slide 1: Opening'
     });
   });
+
+  it('uses the slide index as the focus ref when slides do not have ids', async () => {
+    const room = createChatRoom({ name: 'idless stage room', whoCreatedIt: '@you' });
+    const deck = createDeck({
+      roomId: room.id,
+      title: 'Imported Deck',
+      slides: [{ id: undefined as unknown as string, title: 'Opening', content: 'One' }]
+    });
+
+    const response = await runPost(eventFor(deck.id, {
+      planId: 'stage-primitive-v1',
+      slideIndex: 0,
+      slideTitle: 'Opening'
+    }));
+
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body.focus).toMatchObject({
+      ref: `stage:${deck.id}:slide:0`,
+      label: 'Slide 1: Opening'
+    });
+  });
 });

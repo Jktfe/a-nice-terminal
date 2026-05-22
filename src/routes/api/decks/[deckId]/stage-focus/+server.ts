@@ -57,7 +57,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
       ? payload.planId.trim()
       : `stage-${deck.id}`;
   const label = `Slide ${slideIndex + 1}: ${slide.title}`;
-  const ref = `stage:${deck.id}:slide:${slide.id}`;
+  const ref = `stage:${deck.id}:slide:${readSlideRefPart(slide.id, slideIndex)}`;
   const tsMillis = Date.now();
 
   appendPlanEvent({
@@ -107,4 +107,8 @@ function readSlideIndex(raw: unknown, slideCount: number): number {
   if (slideCount === 0) throw error(400, 'Deck has no slides.');
   if (raw < 0 || raw >= slideCount) throw error(400, 'slideIndex is outside the deck.');
   return raw;
+}
+
+function readSlideRefPart(slideId: unknown, slideIndex: number): string {
+  return typeof slideId === 'string' && slideId.length > 0 ? slideId : String(slideIndex);
 }
