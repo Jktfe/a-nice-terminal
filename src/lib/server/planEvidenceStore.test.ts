@@ -39,7 +39,8 @@ describe('planEvidenceStore', () => {
       task: 0,
       url: 0,
       file: 0,
-      chat_message: 0
+      chat_message: 0,
+      proposal: 0
     });
   });
 

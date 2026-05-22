@@ -7,12 +7,29 @@
 -->
 <script lang="ts">
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
+  import { resolvePreferredProvider, type TTSProvider } from '$lib/voice/interview-tts';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
 
   let adopting = $state<string | null>(null);
   let notice = $state<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  let playing = $state<string | null>(null);
+  let ttsProvider: TTSProvider | null = null;
+
+  async function playNarration(taskId: string, narration: string) {
+    if (!ttsProvider) {
+      ttsProvider = await resolvePreferredProvider();
+    }
+    if (!ttsProvider.available()) {
+      notice = { kind: 'err', text: 'TTS not available.' };
+      return;
+    }
+    playing = taskId;
+    const handle = ttsProvider.speak(narration);
+    handle.onEnd = () => { playing = null; };
+    handle.onStart = () => { playing = taskId; };
+  }
 
   async function adopt(proposal: { taskId: string; planId: string | null; ref: string; label: string | null }) {
     if (!proposal.planId) {
@@ -87,6 +104,15 @@
               in plan <strong>{p.planTitle}</strong>
             {/if}
           </div>
+          {#if p.narration}
+            <button
+              class="play-btn"
+              disabled={playing === p.taskId}
+              onclick={() => playNarration(p.taskId, p.narration ?? '')}
+            >
+              {playing === p.taskId ? '▶ Playing…' : '▶ Play narration'}
+            </button>
+          {/if}
           <button
             class="adopt-btn"
             disabled={adopting === p.taskId || !p.planId}
@@ -179,7 +205,7 @@
     font-size: 0.8125rem;
     color: var(--ink-muted);
   }
-  .adopt-btn {
+  .play-btn, .adopt-btn {
     align-self: flex-start;
     margin-top: 0.25rem;
     padding: 0.375rem 0.75rem;
@@ -189,10 +215,18 @@
     border-radius: 0.375rem;
     cursor: pointer;
   }
+  .play-btn {
+    background: rgba(59, 130, 246, 0.1);
+    border-color: rgba(59, 130, 246, 0.3);
+    color: #1d4ed8;
+  }
+  .play-btn:hover:not(:disabled) {
+    background: rgba(59, 130, 246, 0.2);
+  }
   .adopt-btn:hover:not(:disabled) {
     background: var(--surface-2);
   }
-  .adopt-btn:disabled {
+  .play-btn:disabled, .adopt-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
