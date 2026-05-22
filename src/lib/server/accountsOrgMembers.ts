@@ -1,4 +1,4 @@
-import { bearerTokenFromHeader } from './antchatAuthStore';
+import { bearerTokenFromHeader, listLicensedAntchatUsers } from './antchatAuthStore';
 import { accountsBaseUrl } from './accountsProxy';
 import { resolveAccountsBearerIdentity } from './accountsBearerIdentity';
 
@@ -93,4 +93,18 @@ export function findAccountsOrgMemberByHandle(
 ): AccountsOrgMember | null {
   const target = normalizeHandle(handle).toLowerCase();
   return members.find((member) => member.handle.toLowerCase() === target) ?? null;
+}
+
+export function listLocalLicensedOrgMembers(): { orgId: string; members: AccountsOrgMember[] } {
+  return {
+    orgId: process.env.ANT_DEFAULT_ORG_ID || 'org_newmodel_team',
+    members: listLicensedAntchatUsers().map((user) => ({
+      userId: user.id,
+      email: user.email,
+      displayName: user.displayName,
+      handle: normalizeHandle(user.handle),
+      role: user.role,
+      tier: user.tier
+    }))
+  };
 }

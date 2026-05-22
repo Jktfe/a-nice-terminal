@@ -7,6 +7,7 @@
 -->
 <script lang="ts">
   import InviteAgentForm from './InviteAgentForm.svelte';
+  import InviteTeamMemberForm from './InviteTeamMemberForm.svelte';
   import ParticipantsPanel from './ParticipantsPanel.svelte';
   import type { RoomMember } from '$lib/server/chatRoomStore';
   import type { RoomAliasEntry } from '$lib/server/chatRoomAliasStore';
@@ -41,6 +42,19 @@
   {onMemberPicked}
   {onInviteRequested}
 />
+<details class="nested-invite-toggle">
+  <summary class="nested-invite-summary">
+    <span class="nested-invite-label">Invite team member</span>
+    <span class="nested-invite-chevron" aria-hidden="true">▾</span>
+  </summary>
+  <div class="nested-invite-body">
+    <InviteTeamMemberForm
+      {roomId}
+      existingMemberHandles={members.map((m) => m.handle)}
+      onMemberInvited={() => onAgentInvited()}
+    />
+  </div>
+</details>
 <details id="inviteAgentSection" class="nested-invite-toggle">
   <summary class="nested-invite-summary">
     <span class="nested-invite-label">Invite an agent</span>

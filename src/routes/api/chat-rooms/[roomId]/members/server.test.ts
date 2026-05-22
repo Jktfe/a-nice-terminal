@@ -8,7 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { vi } from 'vitest';
-import { POST, DELETE } from './+server';
+import { GET, POST, DELETE } from './+server';
 import {
   createChatRoom,
   inviteAgentToRoom,
@@ -30,7 +30,10 @@ import { upsertTerminal } from '$lib/server/terminalsStore';
 import { addMembership, getTerminalIdByHandle } from '$lib/server/roomMembershipsStore';
 import { createTerminalRecord } from '$lib/server/terminalRecordsStore';
 import { issueToken } from '$lib/server/antchatAuthStore';
-import { listAccountsOrgMembersForRequest } from '$lib/server/accountsOrgMembers';
+import {
+  listAccountsOrgMembersForRequest,
+  listLocalLicensedOrgMembers
+} from '$lib/server/accountsOrgMembers';
 
 vi.mock('$lib/server/accountsOrgMembers', async () => {
   const actual = await vi.importActual<typeof import('$lib/server/accountsOrgMembers')>(
@@ -38,11 +41,13 @@ vi.mock('$lib/server/accountsOrgMembers', async () => {
   );
   return {
     ...actual,
-    listAccountsOrgMembersForRequest: vi.fn()
+    listAccountsOrgMembersForRequest: vi.fn(),
+    listLocalLicensedOrgMembers: vi.fn(actual.listLocalLicensedOrgMembers)
   };
 });
 
 const listAccountsOrgMembersForRequestMock = vi.mocked(listAccountsOrgMembersForRequest);
+const listLocalLicensedOrgMembersMock = vi.mocked(listLocalLicensedOrgMembers);
 
 // INVITE-VALIDATE (2026-05-15): POST /members now requires the invited
 // handle to resolve to a terminal_records row. Tests that expect a 201
@@ -67,7 +72,7 @@ function seedTerminalForHandle(handle: string): string {
 }
 
 function eventFor(
-  method: 'POST' | 'DELETE',
+  method: 'GET' | 'POST' | 'DELETE',
   roomId: string,
   body?: string,
   query = '',
@@ -100,6 +105,8 @@ async function runHandler(
 
 const callPost = (roomId: string, body?: string, headers: Record<string, string> = {}) =>
   runHandler(POST, eventFor('POST', roomId, body, '', headers));
+const callGet = (roomId: string, headers: Record<string, string> = {}) =>
+  runHandler(GET, eventFor('GET', roomId, undefined, '', headers));
 const callDelete = (roomId: string, query?: string) =>
   runHandler(DELETE, eventFor('DELETE', roomId, undefined, query ?? ''));
 
@@ -110,6 +117,44 @@ describe('/api/chat-rooms/:roomId/members', () => {
     resetChatMessageStoreForTests();
     resetChatRoomAliasStoreForTests();
     listAccountsOrgMembersForRequestMock.mockReset();
+    listLocalLicensedOrgMembersMock.mockReset();
+  });
+
+  describe('GET invite candidates', () => {
+    it('returns same-org members with inRoom markers for room members', async () => {
+      const room = createChatRoom({ name: 'org-members', whoCreatedIt: '@jamesK' });
+      const { token } = issueToken('redacted@example.com');
+      listAccountsOrgMembersForRequestMock.mockResolvedValueOnce({
+        orgId: 'org_newmodel_team',
+        members: [
+          {
+            userId: 'user_james',
+            email: 'redacted@example.com',
+            displayName: 'James K',
+            handle: '@jamesK',
+            role: 'owner'
+          },
+          {
+            userId: 'user_marco',
+            email: 'redacted@example.com',
+            displayName: 'Marco',
+            handle: '@marco',
+            role: 'member'
+          }
+        ]
+      });
+
+      const response = await callGet(room.id, { authorization: `Bearer ${token}` });
+
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        orgId: string;
+        members: Array<{ handle: string; inRoom: boolean }>;
+      };
+      expect(body.orgId).toBe('org_newmodel_team');
+      expect(body.members.find((member) => member.handle === '@jamesK')?.inRoom).toBe(true);
+      expect(body.members.find((member) => member.handle === '@marco')?.inRoom).toBe(false);
+    });
   });
 
   describe('POST invite (M02)', () => {

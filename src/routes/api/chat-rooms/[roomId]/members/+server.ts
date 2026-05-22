@@ -36,7 +36,8 @@ import { findTerminalRecordByHandle } from '$lib/server/terminalRecordsStore';
 import { addMembership, removeMembership } from '$lib/server/roomMembershipsStore';
 import {
   findAccountsOrgMemberByHandle,
-  listAccountsOrgMembersForRequest
+  listAccountsOrgMembersForRequest,
+  listLocalLicensedOrgMembers
 } from '$lib/server/accountsOrgMembers';
 
 function assertRoomExists(roomId: string): void {
@@ -59,6 +60,26 @@ function normaliseToAtHandle(raw: string): string {
   return `@${trimmed}`;
 }
 
+async function listOrgMembersForInviteRequest(request: Request) {
+  return (await listAccountsOrgMembersForRequest(request)) ?? listLocalLicensedOrgMembers();
+}
+
+export const GET: RequestHandler = async ({ params, request }) => {
+  const room = findChatRoomById(params.roomId);
+  if (!room) throw error(404, 'Room not found.');
+  await requireChatRoomReadAccess(request, room);
+
+  const orgMembers = await listOrgMembersForInviteRequest(request);
+  const roomHandles = new Set(room.members.map((member) => member.handle.toLowerCase()));
+  return json({
+    orgId: orgMembers.orgId,
+    members: orgMembers.members.map((member) => ({
+      ...member,
+      inRoom: roomHandles.has(normaliseToAtHandle(member.handle).toLowerCase())
+    }))
+  });
+};
+
 export const POST: RequestHandler = async ({ params, request }) => {
   const rawBody = await request.json().catch(() => null);
   if (!rawBody || typeof rawBody !== 'object') {
@@ -72,8 +93,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
     if (!room) throw error(404, 'Room not found.');
     await requireChatRoomReadAccess(request, room);
 
-    const orgMembers = await listAccountsOrgMembersForRequest(request);
-    if (!orgMembers) throw error(403, 'same-org membership required.');
+    const orgMembers = await listOrgMembersForInviteRequest(request);
     const teammate = findAccountsOrgMemberByHandle(orgMembers.members, humanHandle);
     if (!teammate) throw error(403, 'target handle is not in your organisation.');
 
