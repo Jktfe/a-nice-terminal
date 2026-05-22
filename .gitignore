@@ -62,3 +62,4 @@ static/artefacts/jfeboje2kj/
 
 # Antigravity CLI runtime state (per-session UUID files; not source)
 .antigravitycli/
+node_modules
