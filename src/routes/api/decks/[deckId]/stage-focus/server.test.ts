@@ -6,6 +6,7 @@ import { resetChatMessageStoreForTests, listMessagesInRoom } from '$lib/server/c
 import { subscribeRoomEvents } from '$lib/server/eventBroadcast';
 import { resetPlanModeStoreForTests } from '$lib/server/planModeStore';
 import { getCurrentFocus } from '$lib/server/stageStore';
+import { GET } from './+server';
 
 const ADMIN_TOKEN_FOR_TESTS = 'stage-focus-route-test-admin-token';
 const ORIGINAL_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
@@ -20,6 +21,7 @@ afterAll(() => {
 });
 
 type AnyEvent = Parameters<typeof POST>[0];
+type GetEvent = Parameters<typeof GET>[0];
 
 function eventFor(deckId: string, body: unknown, withAuth = true): AnyEvent {
   const url = new URL(`http://localhost/api/decks/${deckId}/stage-focus`);
@@ -36,6 +38,19 @@ function eventFor(deckId: string, body: unknown, withAuth = true): AnyEvent {
 async function runPost(event: AnyEvent): Promise<Response> {
   try {
     return (await POST(event)) as Response;
+  } catch (thrownByHandler) {
+    if (thrownByHandler instanceof Response) return thrownByHandler;
+    const httpFailure = thrownByHandler as { status?: number; body?: { message?: string } };
+    if (typeof httpFailure?.status === 'number') {
+      return new Response(JSON.stringify(httpFailure.body ?? {}), { status: httpFailure.status });
+    }
+    throw thrownByHandler;
+  }
+}
+
+async function runGet(event: GetEvent): Promise<Response> {
+  try {
+    return (await GET(event)) as Response;
   } catch (thrownByHandler) {
     if (thrownByHandler instanceof Response) return thrownByHandler;
     const httpFailure = thrownByHandler as { status?: number; body?: { message?: string } };
@@ -123,5 +138,36 @@ describe('POST /api/decks/:deckId/stage-focus', () => {
     expect(response.status).toBe(401);
     expect(getCurrentFocus(deck.id)).toBeNull();
     expect(listMessagesInRoom(room.id)).toEqual([]);
+  });
+
+  it('lets an authorized caller read the current focus through the read gate', async () => {
+    const room = createChatRoom({ name: 'readable stage room', whoCreatedIt: '@you' });
+    const deck = createDeck({
+      roomId: room.id,
+      title: 'Readable Stage',
+      slides: [{ id: 's1', title: 'Opening', content: 'One' }]
+    });
+    await runPost(eventFor(deck.id, {
+      planId: 'stage-primitive-v1',
+      slideId: 's1',
+      slideIndex: 0,
+      slideTitle: 'Opening'
+    }));
+    const url = new URL(`http://localhost/api/decks/${deck.id}/stage-focus`);
+    url.searchParams.set('pidChain', JSON.stringify([]));
+    const response = await runGet({
+      request: new Request(url.toString(), {
+        headers: { authorization: `Bearer ${ADMIN_TOKEN_FOR_TESTS}` }
+      }),
+      params: { deckId: deck.id },
+      url
+    } as unknown as GetEvent);
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.focus).toMatchObject({
+      ref: `stage:${deck.id}:slide:s1`,
+      label: 'Slide 1: Opening'
+    });
   });
 });
