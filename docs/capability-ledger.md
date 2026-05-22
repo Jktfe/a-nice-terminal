@@ -82,6 +82,7 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Agent status poller budget | Home-server responsiveness, 2026-05-21 | CHANGE | Codex | Bounded synchronous tmux/fingerprint subprocess work per tick and shortened subprocess timeouts so background status refresh cannot monopolize the Node event loop. |
 | Browser-session mint auth | P0 home-server auth bypass, 2026-05-22 | CHANGE | Codex | Browser-session minting now requires bearer, existing browser-session, or registered pidChain room access, and rejects arbitrary/spoofed authorHandle requests unless the caller is the same owner family or has human-consent authorization. |
 | Planning-mode signal | Speed Pact T14, 2026-05-22 | CHANGE | Codex | Added `ant status planning` / `ant status idle` so agents can push the existing thinking/idle icon state from their PID identity and optionally post the planning notice into a room. |
+| Ask answer room receipts | Speed Pact T15, 2026-05-22 | CHANGE | Codex | Ask answers now create a system message in the originating room and use the normal terminal fanout + SSE message path so agents see the answer without polling the asks API. |
 
 ## Audit Backlog
 

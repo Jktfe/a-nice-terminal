@@ -12,6 +12,11 @@ import {
   resetAskStoreForTests,
   type Ask
 } from '$lib/server/askStore';
+import {
+  listMessagesInRoom,
+  resetChatMessageStoreForTests
+} from '$lib/server/chatMessageStore';
+import { subscribeRoomEvents } from '$lib/server/eventBroadcast';
 
 type CallPostOptions = { askId: string; body?: string };
 
@@ -56,6 +61,7 @@ describe('POST /api/asks/:askId/answer', () => {
   beforeEach(() => {
     resetChatRoomStoreForTests();
     resetAskStoreForTests();
+    resetChatMessageStoreForTests();
   });
 
   it('200 when a room member answers an open ask', async () => {
@@ -69,6 +75,37 @@ describe('POST /api/asks/:askId/answer', () => {
     expect(body.ask.status).toBe('answered');
     expect(body.ask.answer).toBe('because');
     expect(body.ask.answeredByHandle).toBe('@you');
+  });
+
+  it('posts and broadcasts the answer into the originating room', async () => {
+    const ask = seedOpenAsk('@you');
+    const broadcastEvents: Record<string, unknown>[] = [];
+    const unsubscribe = subscribeRoomEvents(ask.roomId, (event) => {
+      broadcastEvents.push(event);
+    });
+
+    try {
+      const response = await callPost({
+        askId: ask.id,
+        body: JSON.stringify({ answeredByHandle: '@you', answer: 'Because the answer belongs in-room.' })
+      });
+
+      expect(response.status).toBe(200);
+    } finally {
+      unsubscribe();
+    }
+
+    const messages = listMessagesInRoom(ask.roomId);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].kind).toBe('system');
+    expect(messages[0].authorHandle).toBe('@system');
+    expect(messages[0].body).toContain('Open ask answered by @you: t');
+    expect(messages[0].body).toContain('Because the answer belongs in-room.');
+    expect(broadcastEvents).toHaveLength(1);
+    expect(broadcastEvents[0]).toMatchObject({
+      type: 'message_added',
+      message: messages[0]
+    });
   });
 
   it('404 when the askId is unknown — no mutation', async () => {
