@@ -30,7 +30,9 @@
     file: 'file',
     chat_message: 'chat',
     proposal: 'proposal',
-    stage_focus: 'stage focus'
+    stage_focus: 'stage focus',
+    stage_pause_context: 'stage pause',
+    stage_feedback: 'stage feedback'
   };
   const KIND_ICON: Record<TaskEvidenceKind, string> = {
     run_event: 'R',
@@ -39,7 +41,9 @@
     file: 'F',
     chat_message: 'C',
     proposal: 'P',
-    stage_focus: 'S'
+    stage_focus: 'S',
+    stage_pause_context: 'P',
+    stage_feedback: 'F'
   };
 
   // Local search input, primed from URL on load. Submitting the form
