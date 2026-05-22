@@ -28,7 +28,7 @@ export const GET: RequestHandler = ({ params }) => {
 export const POST: RequestHandler = async ({ params, request }) => {
   if (!findChatRoomById(params.roomId)) throw error(404, "Room not found.");
   const payload = (await request.json().catch(() => null)) as
-    | { title?: unknown; slides?: unknown; theme?: unknown; createdBy?: unknown; accessPassword?: unknown }
+    | { title?: unknown; slides?: unknown; theme?: unknown; createdBy?: unknown; accessPassword?: unknown; parentDeckId?: unknown }
     | null;
   if (!payload) throw error(400, "JSON body required.");
 
@@ -57,7 +57,8 @@ export const POST: RequestHandler = async ({ params, request }) => {
     slides,
     theme: typeof payload.theme === "string" ? payload.theme : null,
     createdBy,
-    accessPassword: typeof payload.accessPassword === "string" ? payload.accessPassword : null
+    accessPassword: typeof payload.accessPassword === "string" ? payload.accessPassword : null,
+    parentDeckId: typeof payload.parentDeckId === "string" ? payload.parentDeckId : null
   });
   return json(serializeDeckForApi(deck), { status: 201 });
 };
