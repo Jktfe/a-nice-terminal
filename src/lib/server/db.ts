@@ -857,6 +857,10 @@ const SCHEMA_DDL_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_asks_room_status ON asks (room_id, status, opened_at_ms DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_asks_id ON asks (id)`,
+  // Asks-as-pill model JWPK 2026-05-22: target_handle is the human askee.
+  // Adding nullable for back-compat with existing rows; new rows require it.
+  `ALTER TABLE asks ADD COLUMN target_handle TEXT`,
+  `CREATE INDEX IF NOT EXISTS idx_asks_target_status ON asks (target_handle, status)`,
   // Task #162: candidate asks inferred from chat signals before premium
   // Chair filtering. These are distinct from explicit asks until promoted.
   `CREATE TABLE IF NOT EXISTS ask_candidates (
@@ -1264,6 +1268,64 @@ function applySchemaMigrations(db: DatabaseInstance): void {
       if (!message.includes('duplicate column name')) throw cause;
     }
   }
+  extendAsksStatusCheckToIncludeMerged(db);
+}
+
+/**
+ * Asks-as-pill (JWPK 2026-05-22): the `status` CHECK on `asks` only
+ * permitted ('open','answered','dismissed'). SQLite doesn't allow
+ * modifying a CHECK constraint via ALTER TABLE, so we rebuild the table
+ * via the standard `_new` + copy + drop + rename dance — but only when
+ * the live schema is missing the new value. Idempotent: skipped on a
+ * fresh DB (the asks table comes back with the extended CHECK from the
+ * main DDL the moment we update it), and skipped after a successful
+ * rebuild.
+ */
+function extendAsksStatusCheckToIncludeMerged(db: DatabaseInstance): void {
+  const existingSchema = db
+    .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'asks'`)
+    .get() as { sql: string | null } | undefined;
+  if (!existingSchema || !existingSchema.sql) return;
+  if (existingSchema.sql.includes("'merged'")) return;
+
+  const rebuild = db.transaction(() => {
+    db.prepare(`CREATE TABLE asks_new (
+      id              TEXT PRIMARY KEY,
+      room_id         TEXT NOT NULL,
+      opened_by_handle TEXT NOT NULL,
+      opened_by_display_name TEXT,
+      title           TEXT NOT NULL,
+      body            TEXT NOT NULL,
+      status          TEXT NOT NULL CHECK (status IN ('open','answered','dismissed','merged')) DEFAULT 'open',
+      opened_at_ms    INTEGER NOT NULL,
+      answer          TEXT,
+      answered_by_handle TEXT,
+      answered_by_display_name TEXT,
+      answered_at_ms  INTEGER,
+      dismissed_by_handle TEXT,
+      dismissed_by_display_name TEXT,
+      dismissed_at_ms INTEGER,
+      target_handle   TEXT,
+      merged_into_ask_id TEXT,
+      merged_at_ms    INTEGER,
+      merged_by_handle TEXT
+    )`).run();
+    db.prepare(`INSERT INTO asks_new (
+      id, room_id, opened_by_handle, opened_by_display_name, title, body, status,
+      opened_at_ms, answer, answered_by_handle, answered_by_display_name, answered_at_ms,
+      dismissed_by_handle, dismissed_by_display_name, dismissed_at_ms, target_handle
+    ) SELECT
+      id, room_id, opened_by_handle, opened_by_display_name, title, body, status,
+      opened_at_ms, answer, answered_by_handle, answered_by_display_name, answered_at_ms,
+      dismissed_by_handle, dismissed_by_display_name, dismissed_at_ms, target_handle
+    FROM asks`).run();
+    db.prepare(`DROP TABLE asks`).run();
+    db.prepare(`ALTER TABLE asks_new RENAME TO asks`).run();
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_asks_room_status ON asks (room_id, status, opened_at_ms DESC)`).run();
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_asks_id ON asks (id)`).run();
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_asks_target_status ON asks (target_handle, status)`).run();
+  });
+  rebuild();
 }
 
 // B2-8 diagnostics: expose the resolved DB file path so the ops endpoint
