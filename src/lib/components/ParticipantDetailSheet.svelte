@@ -144,6 +144,14 @@
           View activity <span class="placeholder-note">(soon)</span>
         </button>
       </li>
+      {#if member.kind === 'agent'}
+        <li>
+          <a
+            class="action-row"
+            href={`/terminals#${encodeURIComponent(member.handle)}`}
+          >Go to terminal</a>
+        </li>
+      {/if}
       {#if canManageMembers}
         <li>
           <button
@@ -255,6 +263,10 @@
     font: inherit;
     color: var(--ink-strong);
     font-weight: 700;
+    /* Also normalise <a> so 'Go to terminal' looks identical to the buttons */
+    display: block;
+    text-decoration: none;
+    box-sizing: border-box;
   }
   :global(:root[data-theme='dark']) .action-row {
     background: #222b1c;
