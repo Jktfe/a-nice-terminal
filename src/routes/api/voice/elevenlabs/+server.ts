@@ -17,10 +17,39 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { resolveBrowserSessionSecretIgnoringRoom } from '$lib/server/browserSessionStore';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { homedir } from 'node:os';
 
 const DEFAULT_VOICE_ID = process.env.ELEVENLABS_DEFAULT_VOICE_ID || '21m00Tcm4TlvDq8ikWAM';
 const DEFAULT_MODEL_ID = process.env.ELEVENLABS_DEFAULT_MODEL_ID || 'eleven_turbo_v2_5';
 const ELEVENLABS_BASE = 'https://api.elevenlabs.io/v1';
+const DEFAULT_STAGE_PROVIDER = process.env.ANT_STAGE_VOICE_PROVIDER || 'elevenlabs';
+const DEFAULT_STAGE_AUTOPLAY = process.env.ANT_STAGE_VOICE_AUTOPLAY !== 'false';
+
+// SvelteKit only allows GET/POST/etc as named exports from +server.ts files.
+// Helpers must be `_`-prefixed (or unexported). Prefixed so build passes;
+// internal call site updated below. Codex's WIP — leaving function shape
+// intact, just renaming the export.
+export function _resolveElevenLabsCachePath(input: {
+  text: string;
+  voiceId: string;
+  modelId: string;
+}): { path: string; key: string } {
+  const cacheRoot = process.env.ANT_VOICE_CACHE_DIR || join(homedir(), '.ant', 'cache', 'voice');
+  mkdirSync(cacheRoot, { recursive: true });
+  const key = createHash('sha256')
+    .update(JSON.stringify({
+      provider: 'elevenlabs',
+      text: input.text,
+      voiceId: input.voiceId,
+      modelId: input.modelId
+    }))
+    .digest('hex');
+  return { key, path: join(cacheRoot, `${key}.mp3`) };
+}
 
 function readCookie(request: Request, name: string): string | null {
   const header = request.headers.get('cookie');
@@ -45,6 +74,9 @@ function requireBrowserSession(event: RequestEvent): void {
 export function GET() {
   return json({
     available: !!process.env.ELEVENLABS_API_KEY,
+    stage_provider: DEFAULT_STAGE_PROVIDER,
+    stage_autoplay: DEFAULT_STAGE_AUTOPLAY,
+    browser_fallback_allowed: DEFAULT_STAGE_PROVIDER === 'browser',
     default_voice_id: DEFAULT_VOICE_ID,
     default_model_id: DEFAULT_MODEL_ID,
   });
@@ -70,6 +102,20 @@ export async function POST(event: RequestEvent) {
 
   const voiceId = typeof body.voice_id === 'string' && body.voice_id ? body.voice_id : DEFAULT_VOICE_ID;
   const modelId = typeof body.model_id === 'string' && body.model_id ? body.model_id : DEFAULT_MODEL_ID;
+  const cache = _resolveElevenLabsCachePath({ text, voiceId, modelId });
+
+  if (existsSync(cache.path)) {
+    const audio = await readFile(cache.path);
+    return new Response(audio, {
+      status: 200,
+      headers: {
+        'Content-Type': 'audio/mpeg',
+        'Cache-Control': 'private, max-age=31536000, immutable',
+        'X-ANT-Voice-Cache': 'hit',
+        'X-ANT-Voice-Cache-Key': cache.key
+      },
+    });
+  }
 
   const upstream = await fetch(`${ELEVENLABS_BASE}/text-to-speech/${encodeURIComponent(voiceId)}`, {
     method: 'POST',
@@ -93,11 +139,17 @@ export async function POST(event: RequestEvent) {
     throw error(upstream.status, `ElevenLabs upstream: ${errBody.slice(0, 200) || upstream.statusText}`);
   }
 
-  return new Response(upstream.body, {
+  const audio = Buffer.from(await upstream.arrayBuffer());
+  mkdirSync(dirname(cache.path), { recursive: true });
+  await writeFile(cache.path, audio);
+
+  return new Response(audio, {
     status: 200,
     headers: {
       'Content-Type': 'audio/mpeg',
-      'Cache-Control': 'no-store',
+      'Cache-Control': 'private, max-age=31536000, immutable',
+      'X-ANT-Voice-Cache': 'miss',
+      'X-ANT-Voice-Cache-Key': cache.key
     },
   });
 }
