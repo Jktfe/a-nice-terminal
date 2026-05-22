@@ -89,6 +89,7 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Status-line room invite | Speed Pact T17 Phase 2, 2026-05-22 | CHANGE | Codex | Added a room footer action and `/api/chat-rooms/:roomId/status-line-invite` endpoint that posts one system invite and fans it out through the existing room message path so agents can install the proven qwen-cli status-line shape. |
 | Validation v1 policy preset + scoring | validation-feature-v1 M-JKsRule/M-Score, 2026-05-22 | CHANGE | Codex | Added JK's rule as a reusable verification-policy preset, a premium-gated preset seed endpoint, and pointer-based claim scoring. This intentionally reuses external artefact pointers instead of adding a document parser. |
 | Validation claim extractor | validation-feature-v1 M-Extractor, 2026-05-22 | CHANGE | Codex | Added a thin extractor boundary that turns external-tool API fragments into stable `ValidationClaimPointer[]` records with source pointers and simple claim kinds. It does not parse Docs/Notion/Sheets/PDF files or replace those tools. |
+| Validation v1 orchestration planner | validation-feature-v1 M-Orchestrator, 2026-05-22 | CHANGE | Codex | Added a side-effect-free planner that maps validation claim pointers plus policy requirements onto existing transport primitives: heads-down agent work, human interviews, artefact checks, and context-summary checks. No new transport or parser. |
 
 ## Audit Backlog
 
