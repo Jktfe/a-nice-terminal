@@ -18,6 +18,7 @@
  */
 
 import { getIdentityDb } from './db';
+import { createEntityStore } from './sqliteEntityStore';
 import { projectPlanEvents, type EvidenceRef } from './planModeStore';
 import { ensurePlanRow } from './planStore';
 
@@ -142,6 +143,14 @@ function rowToTask(row: TaskRow): Task {
   };
 }
 
+const TASK_COLUMNS = ['*'];
+
+const { get: getTaskRaw, listOrdered } = createEntityStore<Task, TaskRow>({
+  table: 'tasks',
+  columns: TASK_COLUMNS,
+  rowToDomain: rowToTask
+});
+
 export function createTask(input: CreateTaskInput): Task {
   const db = getIdentityDb();
   const now = Date.now();
@@ -180,35 +189,28 @@ export function createTask(input: CreateTaskInput): Task {
   return created;
 }
 
+
 export function getTask(id: string): Task | null {
-  const row = getIdentityDb()
-    .prepare(`SELECT * FROM tasks WHERE id = ?`)
-    .get(id) as TaskRow | undefined;
-  return row ? rowToTask(row) : null;
+  return getTaskRaw(id);
 }
 
 export function listTasks(opts: { includeDeleted?: boolean } = {}): Task[] {
-  const where = opts.includeDeleted ? '' : ` WHERE status != 'deleted'`;
-  const rows = getIdentityDb()
-    .prepare(`SELECT * FROM tasks${where} ORDER BY created_at_ms ASC`)
-    .all() as TaskRow[];
-  return rows.map(rowToTask);
+  if (opts.includeDeleted) {
+    return listOrdered(undefined, 'created_at_ms ASC');
+  }
+  return listOrdered(`status != 'deleted'`, 'created_at_ms ASC');
 }
 
 export function listTasksForPlan(planId: string): Task[] {
-  const rows = getIdentityDb()
-    .prepare(
-      `SELECT * FROM tasks
-        WHERE plan_id = ? AND status != 'deleted'
-        ORDER BY priority IS NULL, priority ASC, created_at_ms ASC`
-    )
-    .all(planId) as TaskRow[];
-  return rows.map(rowToTask);
+  return listOrdered(
+    `plan_id = ? AND status != 'deleted'`,
+    `priority IS NULL, priority ASC, created_at_ms ASC`,
+    [planId]
+  );
 }
 
 
 export type TaskForRoom = Task & { planTitle: string | null };
-
 export function listTasksForRoom(roomId: string): TaskForRoom[] {
   const db = getIdentityDb();
   const planRows = db
