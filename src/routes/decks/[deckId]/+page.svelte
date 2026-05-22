@@ -21,6 +21,7 @@
   let activeIndex = $state(0);
   let inspectMode = $state(false);
   let shareNotice = $state('');
+  let lastPublishedFocusRef = '';
 
   const deck = $derived(data.deck);
   const slides = $derived(deck.slides ?? []);
@@ -30,7 +31,9 @@
 
   function clampedSet(next: number): void {
     if (slideCount === 0) return;
-    activeIndex = Math.max(0, Math.min(slideCount - 1, next));
+    const clamped = Math.max(0, Math.min(slideCount - 1, next));
+    activeIndex = clamped;
+    void publishStageFocus(clamped);
   }
 
   function next(): void { clampedSet(activeIndex + 1); }
@@ -63,8 +66,31 @@
     }
   }
 
+  async function publishStageFocus(index: number): Promise<void> {
+    const slide = slides[index];
+    if (!slide) return;
+    const focusRef = `${deck.id}:${slide.id}:${index}`;
+    if (focusRef === lastPublishedFocusRef) return;
+    lastPublishedFocusRef = focusRef;
+    try {
+      const response = await fetch(`/api/decks/${encodeURIComponent(deck.id)}/stage-focus`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          slideId: slide.id,
+          slideIndex: index,
+          slideTitle: slide.title
+        })
+      });
+      if (!response.ok) lastPublishedFocusRef = '';
+    } catch {
+      lastPublishedFocusRef = '';
+    }
+  }
+
   onMount(() => {
     window.addEventListener('keydown', handleKey);
+    void publishStageFocus(activeIndex);
     return () => window.removeEventListener('keydown', handleKey);
   });
 </script>
@@ -122,7 +148,7 @@
             role="tab"
             aria-selected={index === activeIndex}
             aria-label={`Slide ${index + 1}: ${slide.title}`}
-            onclick={() => (activeIndex = index)}
+            onclick={() => clampedSet(index)}
           ></button>
         {/each}
       </div>

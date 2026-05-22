@@ -12,6 +12,7 @@ describe('deckApi', () => {
       theme: null,
       createdBy: '@you',
       accessPassword: 'secret123',
+      parentDeckId: null,
       createdAtMs: 1,
       updatedAtMs: 2
     };
@@ -34,6 +35,7 @@ describe('deckApi', () => {
       theme: 'default',
       createdBy: null,
       accessPassword: '',
+      parentDeckId: null,
       createdAtMs: 1,
       updatedAtMs: null
     };
@@ -52,6 +54,7 @@ describe('deckApi', () => {
       theme: null,
       createdBy: null,
       accessPassword: null,
+      parentDeckId: null,
       createdAtMs: 1,
       updatedAtMs: null
     };
