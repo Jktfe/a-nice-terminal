@@ -39,6 +39,46 @@ import {
   canReadChatRoom,
   requireChatRoomReadAccess
 } from '$lib/server/chatRoomReadGate';
+import { listInboxOwnersWhereHandleIsMember } from '$lib/server/humanInboxRoomStore';
+import { lookupTerminalByPidChain } from '$lib/server/terminalsStore';
+import { deriveHandle, getTerminalRecord } from '$lib/server/terminalRecordsStore';
+
+/**
+ * Per-human inbox pidChain auth (JWPK 2026-05-22): the no-roomId branch
+ * needs a way for CLI callers (pidChain) to authenticate without an
+ * upfront room context. Resolve the caller's terminal → their handle →
+ * the inbox rooms they're a member of → the set of askees they have
+ * permission to see. Returns null when the caller has no inbox edges
+ * (== no shared context with any human == no business reading asks).
+ */
+function resolvePidChainInboxScope(request: Request): { handles: string[]; inboxOwners: string[] } | null {
+  try {
+    const raw = new URL(request.url).searchParams.get('pidChain');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    const chain = parsed
+      .map((entry) => {
+        if (!entry || typeof entry !== 'object') return null;
+        const pid = (entry as { pid?: unknown }).pid;
+        if (typeof pid !== 'number' || !Number.isFinite(pid) || pid <= 0) return null;
+        const pidStart = (entry as { pid_start?: unknown }).pid_start;
+        return { pid: Math.floor(pid), pid_start: typeof pidStart === 'string' ? pidStart : null };
+      })
+      .filter((entry): entry is { pid: number; pid_start: string | null } => entry !== null);
+    if (chain.length === 0) return null;
+    const terminal = lookupTerminalByPidChain(chain);
+    if (!terminal) return null;
+    const record = getTerminalRecord(terminal.id);
+    const handle = record ? deriveHandle(record) : null;
+    if (!handle) return null;
+    const inboxOwners = listInboxOwnersWhereHandleIsMember(handle);
+    if (inboxOwners.length === 0) return null;
+    return { handles: [handle], inboxOwners };
+  } catch {
+    return null;
+  }
+}
 
 export const GET: RequestHandler = async ({ request, url }) => {
   try {
@@ -53,10 +93,30 @@ export const GET: RequestHandler = async ({ request, url }) => {
   // turning every 401 into a multi-second hang. Now no-auth fast-path returns ~10ms.
   if (trimmedRoomId === null || trimmedRoomId.length === 0) {
     const access = await resolveChatRoomReadAccess(request);
-    if (!access) throw error(401, 'Authentication required.');
+    // Per-human inbox path (JWPK 2026-05-22): when the regular gate fails,
+    // try resolving via pidChain → terminal → inbox memberships. This is
+    // the CLI auth path that was 401ing pre-2026-05-22 because pidChain
+    // alone required a roomId.
+    const inboxScope = access ? null : resolvePidChainInboxScope(request);
+    if (!access && !inboxScope) throw error(401, 'Authentication required.');
+
+    if (inboxScope) {
+      // Inbox-scoped read: response is asks whose target_handle the caller
+      // has inbox access to. Cross-room aggregation by definition.
+      const ownersSet = new Set(inboxScope.inboxOwners);
+      const matchesByTarget = (ask: { targetHandle?: string }) =>
+        ask.targetHandle !== undefined && ownersSet.has(ask.targetHandle);
+      return json({
+        asks: listAllOpenAsks().filter(matchesByTarget),
+        recentlyAnswered: listAllRecentlyAnsweredAsks().filter(matchesByTarget),
+        candidates: []
+      });
+    }
+
+    // Existing room-scoped read (admin-bearer / cookie / accounts-bearer).
     const rooms = listChatRooms();
     const readableRoomIds = new Set(
-      (access.isAdminBearer ? rooms : rooms.filter((room) => canReadChatRoom(room, access))).map(
+      (access!.isAdminBearer ? rooms : rooms.filter((room) => canReadChatRoom(room, access!))).map(
         (room) => room.id
       )
     );

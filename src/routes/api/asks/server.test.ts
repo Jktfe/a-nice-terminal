@@ -450,4 +450,41 @@ describe('POST + GET /api/asks', () => {
       'answered-A'
     ]);
   });
+
+  it('GET (no roomId) with pidChain → returns asks targeting humans whose inbox the caller is in', async () => {
+    const { upsertTerminal } = await import('$lib/server/terminalsStore');
+    const { createTerminalRecord } = await import('$lib/server/terminalRecordsStore');
+    const { openAskInRoom } = await import('$lib/server/askStore');
+
+    const room = createChatRoom({ name: 'pidchain-inbox-room', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@askr' });
+
+    // Set up a real terminal the agent inhabits so pidChain → terminal → handle resolves.
+    const term = upsertTerminal({ pid: 4242, pid_start: 'pa', name: 'pidchain-inbox-term' });
+    createTerminalRecord({ sessionId: term.id, name: term.name, handle: '@askr' });
+
+    // Agent fires an ask targeting @you (only opens because asker is in the room
+    // with @you AND therefore in @you's inbox via path (a)).
+    openAskInRoom({
+      roomId: room.id, openedByHandle: '@askr', targetHandle: '@you',
+      title: 'inbox-pid-test', body: 'q'
+    });
+
+    // GET with pidChain (no roomId, no other auth) — caller resolves to @askr.
+    const url = new URL('http://localhost/api/asks');
+    const pidChain = encodeURIComponent(JSON.stringify([{ pid: 4242, pid_start: 'pa' }]));
+    url.searchParams.set('pidChain', JSON.parse(decodeURIComponent(pidChain)) as never as string);
+    const request = new Request(`http://localhost/api/asks?pidChain=${pidChain}`);
+    const event = { request, url: new URL(request.url) } as unknown as Parameters<typeof GET>[0];
+    const response = await asResponse(() => GET(event));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.asks.map((ask: { title: string }) => ask.title)).toContain('inbox-pid-test');
+  });
+
+  it('GET (no roomId) with NO auth at all → 401', async () => {
+    const event = { request: new Request('http://localhost/api/asks'), url: new URL('http://localhost/api/asks') } as unknown as Parameters<typeof GET>[0];
+    const response = await asResponse(() => GET(event));
+    expect(response.status).toBe(401);
+  });
 });

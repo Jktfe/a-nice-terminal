@@ -53,6 +53,30 @@ export function isInboxRoomId(roomId: string): boolean {
  * registration) — the deterministic id + INSERT OR IGNORE on the room AND
  * the member row mean races collapse to no-ops.
  */
+/**
+ * For a given handle (human or agent), return every human whose inbox the
+ * handle is a member of. Used by the /api/asks auth gate to decide which
+ * askees' asks the caller can see.
+ *
+ * A human is always in their own inbox so this returns [self] for humans
+ * regardless of other state.
+ */
+export function listInboxOwnersWhereHandleIsMember(handle: string): string[] {
+  const db = getIdentityDb();
+  const rows = db.prepare(
+    `SELECT room_id FROM chat_room_members
+     WHERE handle = ? AND room_id LIKE '__inbox_%'`
+  ).all(handle) as Array<{ room_id: string }>;
+  const owners: string[] = [];
+  for (const row of rows) {
+    // __inbox_<slug>__ → @<slug>. Slugs lowercase, no @; reconstruct
+    // by stripping prefix/suffix and prepending @.
+    const slug = row.room_id.slice('__inbox_'.length, -'__'.length);
+    if (slug.length > 0) owners.push(`@${slug}`);
+  }
+  return owners;
+}
+
 export function ensureHumanInboxRoom(humanHandle: string): string {
   const trimmed = humanHandle.trim();
   if (trimmed.length === 0) throw new Error('humanHandle cannot be blank.');
