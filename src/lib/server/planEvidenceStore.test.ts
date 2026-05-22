@@ -43,7 +43,8 @@ describe('planEvidenceStore', () => {
       proposal: 0,
       stage_focus: 0,
       stage_pause_context: 0,
-      stage_feedback: 0
+      stage_feedback: 0,
+      stage_alternative: 0
     });
   });
 

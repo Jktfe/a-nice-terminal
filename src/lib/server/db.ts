@@ -719,6 +719,17 @@ const SCHEMA_DDL_STATEMENTS = [
     deleted_at_ms   INTEGER
   )`,
   `CREATE INDEX IF NOT EXISTS idx_chat_room_artefacts_room_kind ON chat_room_artefacts (room_id, kind, created_at_ms DESC)`,
+  `CREATE TABLE IF NOT EXISTS chat_room_artefact_content (
+    id                TEXT PRIMARY KEY,
+    artefact_id       TEXT NOT NULL REFERENCES chat_room_artefacts(id) ON DELETE CASCADE,
+    room_id           TEXT NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
+    kind              TEXT NOT NULL CHECK (kind IN ('deck','doc')),
+    content_format    TEXT NOT NULL CHECK (content_format IN ('markdown','univer-json')),
+    content_body      TEXT NOT NULL,
+    updated_at_ms     INTEGER NOT NULL,
+    updated_by_handle TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_room_artefact_content_artefact ON chat_room_artefact_content (artefact_id)`,
   // #155/#427: starred rooms are an operator preference, not a
   // browser-local accident. One row per owner/room, ordered by the
   // drag order used on the dashboard.

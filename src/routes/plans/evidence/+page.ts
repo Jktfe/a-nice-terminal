@@ -23,7 +23,10 @@ const KINDS: ReadonlySet<TaskEvidenceKind> = new Set<TaskEvidenceKind>([
   'file',
   'chat_message',
   'proposal',
-  'stage_focus'
+  'stage_focus',
+  'stage_pause_context',
+  'stage_feedback',
+  'stage_alternative'
 ]);
 
 export const load: PageLoad = async ({ fetch, url }) => {
@@ -55,8 +58,9 @@ export const load: PageLoad = async ({ fetch, url }) => {
             chat_message: 0,
             proposal: 0,
             stage_focus: 0,
-      stage_pause_context: 0,
-      stage_feedback: 0
+            stage_pause_context: 0,
+            stage_feedback: 0,
+            stage_alternative: 0
           },
           total: 0,
           withLabel: 0

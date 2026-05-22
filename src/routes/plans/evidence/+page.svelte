@@ -21,7 +21,10 @@
     'file',
     'chat_message',
     'proposal',
-    'stage_focus'
+    'stage_focus',
+    'stage_pause_context',
+    'stage_feedback',
+    'stage_alternative'
   ];
   const KIND_LABEL: Record<TaskEvidenceKind, string> = {
     run_event: 'run event',
@@ -32,7 +35,8 @@
     proposal: 'proposal',
     stage_focus: 'stage focus',
     stage_pause_context: 'stage pause',
-    stage_feedback: 'stage feedback'
+    stage_feedback: 'stage feedback',
+    stage_alternative: 'stage alternative'
   };
   const KIND_ICON: Record<TaskEvidenceKind, string> = {
     run_event: 'R',
@@ -43,7 +47,8 @@
     proposal: 'P',
     stage_focus: 'S',
     stage_pause_context: 'P',
-    stage_feedback: 'F'
+    stage_feedback: 'F',
+    stage_alternative: 'A'
   };
 
   // Local search input, primed from URL on load. Submitting the form

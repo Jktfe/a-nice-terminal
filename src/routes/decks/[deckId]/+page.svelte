@@ -56,6 +56,9 @@
   let pauseSnapshot = $state<PauseSnapshot | null>(null);
   let feedbackText = $state('');
   let pasteContext = $state('');
+  let pauseContextRef = $state('');
+  let feedbackSubmitting = $state(false);
+  let feedbackNotice = $state<{ kind: 'ok' | 'err'; text: string; ref?: string } | null>(null);
   let speakStartMs = 0;
 
   const deck = $derived(data.deck);
@@ -200,9 +203,48 @@
       );
       if (!response.ok) {
         voiceNotice = `Pause context broadcast failed (HTTP ${response.status}).`;
+        pauseContextRef = '';
+        return;
       }
+      const body = await response.json() as { pause_context?: { ref?: string } };
+      pauseContextRef = typeof body.pause_context?.ref === 'string' ? body.pause_context.ref : '';
     } catch {
       voiceNotice = 'Pause context broadcast failed (network).';
+      pauseContextRef = '';
+    }
+  }
+
+  async function submitFeedback(): Promise<void> {
+    if (!pauseSnapshot || !activeSlide || feedbackText.trim().length === 0 || feedbackSubmitting) return;
+    feedbackSubmitting = true;
+    feedbackNotice = null;
+    try {
+      const response = await fetch(`/api/decks/${encodeURIComponent(deck.id)}/stage-feedback`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          slideIndex: pauseSnapshot.slideIndex,
+          feedbackText,
+          pasteContext,
+          pauseContextRef
+        })
+      });
+      if (!response.ok) {
+        feedbackNotice = { kind: 'err', text: `Feedback submit failed (HTTP ${response.status}).` };
+        return;
+      }
+      const body = await response.json() as { proposal?: { ref?: string } };
+      feedbackNotice = {
+        kind: 'ok',
+        text: 'Alternative track created for agent expansion.',
+        ref: body.proposal?.ref
+      };
+      feedbackText = '';
+      pasteContext = '';
+    } catch {
+      feedbackNotice = { kind: 'err', text: 'Feedback submit failed (network).' };
+    } finally {
+      feedbackSubmitting = false;
     }
   }
 
@@ -393,8 +435,17 @@
   <section class="feedback-panel" aria-label="Stage feedback (β + γ1 + γ2)">
     <header>
       <h3>Feedback</h3>
-      <p class="panel-hint">Pause narration to anchor feedback to a specific spoken moment. The pause context is broadcast to the room (γ2) so agents can subscribe; feedback submission wires up in δ.</p>
+      <p class="panel-hint">Pause narration to anchor feedback to a specific spoken moment. Submitting creates a Version B proposal track for agents without mutating the source deck.</p>
     </header>
+
+    {#if feedbackNotice}
+      <p class={feedbackNotice.kind === 'ok' ? 'feedback-ok' : 'feedback-err'} role="status">
+        {feedbackNotice.text}
+        {#if feedbackNotice.ref}
+          <a href={feedbackNotice.ref}>Open proposal</a>
+        {/if}
+      </p>
+    {/if}
 
     {#if pauseSnapshot}
       <div class="pause-context" aria-label="Captured pause context">
@@ -432,10 +483,15 @@
     </label>
 
     <div class="feedback-actions">
-      <button type="button" class="toolbar-btn" disabled aria-disabled="true" title="δ wires feedback submission; γ2 only broadcasts the pause context">
-        Submit (δ — not yet wired)
+      <button
+        type="button"
+        class="toolbar-btn"
+        disabled={!pauseSnapshot || feedbackText.trim().length === 0 || feedbackSubmitting}
+        onclick={submitFeedback}
+      >
+        {feedbackSubmitting ? 'Submitting…' : 'Create alternative track'}
       </button>
-      <button type="button" class="toolbar-btn" onclick={() => { pauseSnapshot = null; feedbackText = ''; pasteContext = ''; }}>
+      <button type="button" class="toolbar-btn" onclick={() => { pauseSnapshot = null; feedbackText = ''; pasteContext = ''; pauseContextRef = ''; feedbackNotice = null; }}>
         Clear
       </button>
     </div>
@@ -464,6 +520,26 @@
     margin: 0.25rem 0 0.75rem;
     color: var(--ink-soft);
     font-size: 0.9rem;
+  }
+  .feedback-ok,
+  .feedback-err {
+    margin: 0.5rem 0 0.75rem;
+    padding: 0.55rem 0.7rem;
+    border-radius: 0.45rem;
+    font-size: 0.9rem;
+  }
+  .feedback-ok {
+    border: 1px solid rgba(22, 163, 74, 0.35);
+    background: rgba(22, 163, 74, 0.1);
+  }
+  .feedback-err {
+    border: 1px solid rgba(220, 38, 38, 0.35);
+    background: rgba(220, 38, 38, 0.08);
+  }
+  .feedback-ok a {
+    margin-left: 0.5rem;
+    color: var(--accent);
+    font-weight: 700;
   }
   .pause-context {
     margin: 0.5rem 0 1rem;
