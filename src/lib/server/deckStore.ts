@@ -112,7 +112,7 @@ export function createDeck(input: {
 export function listDecksInRoom(roomId: string): RoomDeck[] {
   const rows = getIdentityDb()
     .prepare(
-      `SELECT id, room_id, title, slides_json, theme, created_by, created_at_ms, updated_at_ms, deleted_at_ms
+      `SELECT id, room_id, title, slides_json, theme, created_by, access_password, parent_deck_id, created_at_ms, updated_at_ms, deleted_at_ms
          FROM chat_room_decks
         WHERE room_id = ? AND deleted_at_ms IS NULL
         ORDER BY updated_at_ms DESC, created_at_ms DESC`
@@ -124,7 +124,7 @@ export function listDecksInRoom(roomId: string): RoomDeck[] {
 export function getDeck(id: string): RoomDeck | undefined {
   const row = getIdentityDb()
     .prepare(
-      `SELECT id, room_id, title, slides_json, theme, created_by, access_password, created_at_ms, updated_at_ms, deleted_at_ms
+      `SELECT id, room_id, title, slides_json, theme, created_by, access_password, parent_deck_id, created_at_ms, updated_at_ms, deleted_at_ms
          FROM chat_room_decks
         WHERE id = ? AND deleted_at_ms IS NULL`
     )
