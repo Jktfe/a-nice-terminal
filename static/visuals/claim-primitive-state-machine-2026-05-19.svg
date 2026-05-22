@@ -2,10 +2,10 @@
   <title id="title">ANT claim primitive — state machine</title>
   <desc id="desc">Three-column visual showing the 🖐️/🤝/👐 reaction lifecycle for brainstorm-mode pre-claim wait, brainstorm-mode handshake suppression, and heads-down-mode ordered responder walk.</desc>
 
-  <!-- Theme-aware via currentColor; intended to be rendered inside an element
-       that sets color: var(--ink-strong) for ink and accent fills are
-       theme-bound by class hooks. Inline minimal CSS provides safe defaults
-       for stand-alone preview; consumers override via CSS variables. -->
+  <!-- Theme-aware via currentColor; rendered inside an element whose ink
+       and accent fills are theme-bound by class hooks. Inline minimal CSS
+       provides safe defaults for stand-alone preview; consumers override
+       via CSS variables (ink-strong, ink-muted, surface, accent, etc.). -->
   <style><![CDATA[
     .bg-card     { fill: var(--surface, #fff); stroke: var(--line-soft, #d6d6d6); stroke-width: 1.5; }
     .bg-pre      { fill: var(--surface-edge, #fef9c3); stroke: var(--warn, #b45309); stroke-width: 1.5; }

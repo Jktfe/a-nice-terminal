@@ -123,7 +123,7 @@
   <title>Screens canvas · Every screen. One board. · ANT</title>
 </svelte:head>
 
-<SimplePageShell>
+<SimplePageShell showIntro={false}>
   <header class="manual-header">
     <nav class="discover-subnav" aria-label="Discover sections">
       <span class="subnav-label">Discover:</span>
