@@ -91,6 +91,7 @@ export function listAgents(roomId?: string): AgentRegistryEntry[] {
         FROM chat_room_members crm
         JOIN chat_rooms cr ON cr.id = crm.room_id
         WHERE crm.room_id = ? AND crm.kind = 'agent'
+          AND crm.room_id NOT LIKE '__inbox_%'
         ORDER BY crm.handle ASC`
       )
       .all(roomId) as AgentMemberRow[];
@@ -111,6 +112,7 @@ export function listAgents(roomId?: string): AgentRegistryEntry[] {
       FROM chat_room_members crm
       JOIN chat_rooms cr ON cr.id = crm.room_id
       WHERE crm.kind = 'agent'
+        AND crm.room_id NOT LIKE '__inbox_%'
       ORDER BY crm.handle ASC`
     )
     .all() as AgentMemberRow[];
@@ -133,6 +135,7 @@ export function getAgent(handle: string): AgentRegistryEntry | null {
       FROM chat_room_members crm
       JOIN chat_rooms cr ON cr.id = crm.room_id
       WHERE crm.handle = ? AND crm.kind = 'agent'
+        AND crm.room_id NOT LIKE '__inbox_%'
       ORDER BY crm.joined_at DESC`
     )
     .all(handle) as AgentMemberRow[];
