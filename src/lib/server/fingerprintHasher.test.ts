@@ -18,14 +18,20 @@ describe('fingerprintHasher (M3.4a-v2 T2 pure cascade)', () => {
   });
 
   describe('deriveStateFromFingerprint', () => {
-    it('returns response-required when the capture matches an ask pattern', () => {
+    // ASK_PATTERN regex removed in asks-as-pill JWPK 2026-05-22 — response-
+    // required is asks-store-derived, not fingerprint-derived. The capture
+    // that used to produce response-required now falls through to one of
+    // {working, thinking, idle, null} based on the change-detection rules.
+    it('"Awaiting your direction" capture no longer maps to response-required', () => {
       const r = deriveStateFromFingerprint({
         captureText: '⏺ Awaiting your direction...',
         prevHash: 'abc',
         prevAtMs: 100,
         nowMs: 200
       });
-      expect(r.status).toBe('response-required');
+      expect(r.status).not.toBe('response-required');
+      // Hash changed + tool-call signature present + fresh → working
+      expect(r.status).toBe('working');
     });
 
     it('returns working when hash changed within 5s AND tool-call signature visible', () => {
@@ -92,26 +98,27 @@ describe('fingerprintHasher (M3.4a-v2 T2 pure cascade)', () => {
       evidence: { hashChanged: true, ageMs: 1000 }
     };
 
-    it('fingerprint PRIMARY: fingerprint decision wins over a competing hook push (FL2 B1 anchor)', () => {
+    // Cascade INVERTED in asks-as-pill JWPK 2026-05-22: hook PRIMARY now.
+    it('hook PRIMARY: hook decision wins over a competing fingerprint (post-inversion anchor)', () => {
       const r = decideAgentStatus({
         fingerprint: freshFingerprintWorking,
         hookPush: { status: 'idle', nonceValid: true, ageMs: 100 },
         antActivity: null,
         pidCpu: null
       });
-      expect(r.status).toBe('working');
-      expect(r.source).toBe('fingerprint');
+      expect(r.status).toBe('idle');
+      expect(r.source).toBe('hook');
     });
 
-    it('hook fallback: hook used when fingerprint cannot decide (null status)', () => {
+    it('fingerprint fallback: fingerprint used when hook absent/stale', () => {
       const r = decideAgentStatus({
-        fingerprint: { status: null, hash: 'h', evidence: { hashChanged: false, ageMs: 0 } },
-        hookPush: { status: 'response-required', nonceValid: true, ageMs: 500 },
+        fingerprint: { status: 'thinking', hash: 'h', evidence: { hashChanged: true, ageMs: 1000 } },
+        hookPush: null,
         antActivity: null,
         pidCpu: null
       });
-      expect(r.status).toBe('response-required');
-      expect(r.source).toBe('hook');
+      expect(r.status).toBe('thinking');
+      expect(r.source).toBe('fingerprint');
     });
 
     it('hook ignored when nonce invalid OR push too old', () => {

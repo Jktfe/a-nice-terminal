@@ -45,6 +45,9 @@ import {
   listCliHookEventsForSession,
   listRecentCliHookEvents
 } from '$lib/server/cliHookEventsStore';
+import { getAgentStatus, setAgentStatus } from '$lib/server/agentStatusStore';
+import { mapHookEventToAgentStatus } from '$lib/server/hookEventStatusMapper';
+import { getTerminalById } from '$lib/server/terminalsStore';
 
 const MAX_LIMIT = 1000;
 const DEFAULT_LIMIT = 100;
@@ -108,6 +111,32 @@ export const POST: RequestHandler = async ({ request, url }) => {
     toolUseId: asNonBlankString(body.tool_use_id) ?? undefined,
     payload: body
   });
+
+  // Asks-as-pill (slice 8): the hook event also drives the agent's pill.
+  // hookEventStatusMapper translates the canonical event name into one of
+  // {idle, thinking, working}. response-required is asks-only and never
+  // emitted here. We only write when the terminal exists (the hook may
+  // fire before the terminal is registered — that's fine, the poller's
+  // fingerprint fallback will pick it up later) and when the new status
+  // actually differs (no-op writes pollute the audit log).
+  try {
+    const nextStatus = mapHookEventToAgentStatus(hookEventName);
+    if (nextStatus && getTerminalById(sessionId)) {
+      const current = getAgentStatus(sessionId);
+      if (!current || current.agent_status !== nextStatus) {
+        setAgentStatus({
+          terminalId: sessionId,
+          newStatus: nextStatus,
+          source: 'hook',
+          evidence: { hookEventName, sourceCli }
+        });
+      }
+    }
+  } catch {
+    // Hook-to-status is a best-effort projection. A failure here must NEVER
+    // break the underlying cli_hook_events insert (which is what the rest
+    // of the system depends on for retention + cross-cli traceability).
+  }
 
   return json(
     {
