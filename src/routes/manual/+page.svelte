@@ -120,17 +120,32 @@
 </script>
 
 <svelte:head>
-  <title>Manual · Every screen. One board. · ANT</title>
+  <title>Screens canvas · Every screen. One board. · ANT</title>
 </svelte:head>
 
 <SimplePageShell>
   <header class="manual-header">
-    <h1>The manual</h1>
+    <nav class="discover-subnav" aria-label="Discover sections">
+      <span class="subnav-label">Discover:</span>
+      <a class="subnav-link" href="/discover">CLI verbs</a>
+      <a class="subnav-link" href="/discover/visuals">Visuals</a>
+      <a class="subnav-link" href="/discover/vocab">Vocab</a>
+      <a class="subnav-link active" href="/manual" aria-current="page">Screens canvas</a>
+    </nav>
+    <h1>Screens canvas</h1>
     <p class="manual-tagline">Every screen. One board.</p>
     <p class="manual-intro">
-      Every page in ANT shown at real screen size, laid out together. Drag the
-      canvas to pan, use + / − to zoom from board-overview to pixel-perfect.
-      Click any tile to pin its detail in the side rail; <kbd>Esc</kbd> to clear.
+      Every page in ANT laid out together. Drag the canvas to pan, use + / − to
+      zoom from board-overview to pixel-perfect. Click any tile to pin its
+      detail in the side rail; <kbd>Esc</kbd> to clear.
+    </p>
+    <p class="manual-stale-note" role="note">
+      <strong>Tile screenshots are from May 20.</strong> Several surfaces have
+      shipped since (PID-as-identity aliases, per-human inbox + asks-as-pill,
+      rooms-sort-by-message-activity, new <code>ant artefact</code> /
+      <code>ant attach</code> / <code>ant ask</code> CLI verbs). The cluster
+      shape + navigation is current; the rendered pixels are not. Re-harvest
+      via the Playwright collection script when next freed up.
     </p>
   </header>
 
@@ -224,6 +239,62 @@
     color: var(--ink-soft);
     max-width: 60ch;
     line-height: 1.5;
+  }
+  .manual-stale-note {
+    margin: 0.85rem 0 0;
+    padding: 0.65rem 0.85rem;
+    max-width: 65ch;
+    background: color-mix(in srgb, #d97706 12%, var(--surface-card));
+    border-left: 3px solid #d97706;
+    border-radius: 0.4rem;
+    color: var(--ink-strong);
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+  .manual-stale-note strong {
+    color: #d97706;
+  }
+  .manual-stale-note code {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.92em;
+    background: color-mix(in srgb, var(--ink-strong) 6%, transparent);
+    padding: 0.05em 0.3em;
+    border-radius: 0.25em;
+  }
+  /* Subnav lifted from /discover/visuals so all four pillar pages share one
+     consistent header navigation. */
+  .discover-subnav {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin: 0 0 0.85rem;
+    font-size: 0.86rem;
+  }
+  .subnav-label {
+    color: var(--ink-soft);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.72rem;
+  }
+  .subnav-link {
+    padding: 0.2rem 0.55rem;
+    border-radius: 0.35rem;
+    border: 1px solid var(--surface-edge);
+    background: var(--surface-card);
+    color: var(--ink-strong);
+    text-decoration: none;
+    font-weight: 700;
+  }
+  .subnav-link:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .subnav-link.active {
+    background: var(--accent);
+    color: var(--surface-card);
+    border-color: var(--accent);
   }
   /* Slice 4 rail layout — two columns when rail is open, single column
      otherwise. Mobile (<1100px) always single-column; rail stacks below
