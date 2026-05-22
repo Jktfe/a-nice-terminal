@@ -373,7 +373,7 @@ function resolveCallerHandleForRoom(runtime, roomId, explicitHandle) {
 }
 
 async function sendJsonWithCookie(runtime, path, method, body, cookieValue, baseUrl) {
-  const base = baseUrl ?? runtime.serverUrl;
+  const base = resolveBaseUrlForPath(runtime, path, baseUrl);
   const response = await runtime.fetchImpl(`${base}${path}`, {
     method,
     headers: {
@@ -438,8 +438,26 @@ function handleFlag(flags) {
   return raw.startsWith('@') ? raw : `@${raw}`;
 }
 
+// Slice H follow-up (2026-05-22): extend per-room server_url routing
+// from chat-send-only to every chat-room-scoped verb without per-
+// caller wiring. Explicit baseUrl still wins (chat-send threads it
+// through to mintBrowserSessionCookie + sendJsonWithCookie for
+// consistency across all three legs of the auto-mint flow).
+function resolveBaseUrlForPath(runtime, path, baseUrl) {
+  if (baseUrl) return baseUrl;
+  const matched = path.match(/^\/api\/chat-rooms\/([^/]+)/);
+  if (matched) {
+    try {
+      return resolveRoomServerUrl(runtime, decodeURIComponent(matched[1]));
+    } catch {
+      // decodeURIComponent throws on malformed escapes; fall through.
+    }
+  }
+  return runtime.serverUrl;
+}
+
 async function sendJson(runtime, path, method, body, baseUrl) {
-  const base = baseUrl ?? runtime.serverUrl;
+  const base = resolveBaseUrlForPath(runtime, path, baseUrl);
   const response = await runtime.fetchImpl(`${base}${path}`, {
     method,
     headers: { 'content-type': 'application/json' },
