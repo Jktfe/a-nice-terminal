@@ -19,21 +19,24 @@
     'task',
     'url',
     'file',
-    'chat_message'
+    'chat_message',
+    'proposal'
   ];
   const KIND_LABEL: Record<EvidenceRef['kind'], string> = {
     run_event: 'run event',
     task: 'task',
     url: 'url',
     file: 'file',
-    chat_message: 'chat'
+    chat_message: 'chat',
+    proposal: 'proposal'
   };
   const KIND_ICON: Record<EvidenceRef['kind'], string> = {
     run_event: 'R',
     task: 'T',
     url: 'U',
     file: 'F',
-    chat_message: 'C'
+    chat_message: 'C',
+    proposal: 'P'
   };
 
   // Local search input, primed from URL on load. Submitting the form
