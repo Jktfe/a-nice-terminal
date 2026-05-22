@@ -55,6 +55,7 @@ function bootPollerOnce(): void {
 //   - /api/auth/* (the demo-login endpoint + future auth surface)
 //   - /api/health (operational liveness probe — gating it would break
 //     external uptime monitors)
+//   - /decks/* (shareable deck route; deckAccessGate enforces room/password)
 //   - SvelteKit-internal /_app/* JS/CSS chunks (must be reachable so
 //     /login itself can render)
 //   - favicon.ico and similar static assets
@@ -67,6 +68,11 @@ function isGateBypassPath(pathname: string): boolean {
   // without browser sessions — agents got 303→/login instead of 403 after
   // initial ship 2026-05-18 (msg_kqmykpllfy → coordinator hot-patch).
   if (pathname.startsWith('/api/')) return true;
+  // Deck pages are intentionally shareable. The page loader calls
+  // /api/decks/:id, where deckAccessGate enforces either room membership
+  // or ?password=. If the global demo-login gate catches /decks first,
+  // password links can never reach their own access gate.
+  if (pathname.startsWith('/decks/')) return true;
   if (pathname.startsWith('/_app/')) return true;
   if (pathname === '/favicon.ico') return true;
   // /mcp/* routes are the share-URL onboarding surface (JWPK msg_7i2h8klrtp);

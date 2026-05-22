@@ -13,6 +13,8 @@ afterEach(() => {
   _testResetPollerBoot();
   _testResetPoller();
   delete process.env.ANT_FRESH_DB_PATH;
+  delete process.env.ANT_DEMO_EMAIL;
+  delete process.env.ANT_DEMO_PASSWORD;
 });
 
 function fakeEvent() {
@@ -26,6 +28,17 @@ function fakeEvent() {
 }
 
 const passResolve = () => Promise.resolve(new Response('ok'));
+
+function pageEvent(path: string) {
+  const url = new URL(`http://localhost${path}`);
+  return {
+    request: new Request(url),
+    url,
+    cookies: { get: () => undefined, getAll: () => [], set: () => {}, delete: () => {} },
+    locals: {}, params: {}, platform: undefined, route: { id: null }, isDataRequest: false,
+    isSubRequest: false, getClientAddress: () => '127.0.0.1', setHeaders: () => {}
+  } as unknown as Parameters<typeof handle>[0]['event'];
+}
 
 describe('hooks.server — boot poller on first request', () => {
   it('first handle invocation sets the boot-flag in globalThis', async () => {
@@ -51,5 +64,16 @@ describe('hooks.server — boot poller on first request', () => {
     expect((globalThis as Record<string, unknown>).__antPollerBootedAt).toBeDefined();
     _testResetPollerBoot();
     expect((globalThis as Record<string, unknown>).__antPollerBootedAt).toBeUndefined();
+  });
+
+  it('lets shareable deck pages reach their own password access gate', async () => {
+    process.env.ANT_DEMO_EMAIL = 'demo@example.com';
+    process.env.ANT_DEMO_PASSWORD = 'secret';
+    const res = await handle({
+      event: pageEvent('/decks/deck-1?password=hunter2'),
+      resolve: passResolve
+    });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('ok');
   });
 });
