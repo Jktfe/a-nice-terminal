@@ -2,6 +2,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { DELETE, GET, POST } from './+server';
 import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
 import { resetChatRoomArtefactStoreForTests } from '$lib/server/chatRoomArtefactStore';
+import { addMembership } from '$lib/server/roomMembershipsStore';
+import { upsertTerminal } from '$lib/server/terminalsStore';
 
 // LAUNCH-BLOCKER CVE FIX C (Finding #3, 2026-05-20): POST/DELETE now require
 // chatRoomAuthGate. Default tests supply admin Bearer; 401-unauth tests use
@@ -122,6 +124,35 @@ describe('/api/chat-rooms/:roomId/artefacts', () => {
       eventFor('DELETE', room.id, `?artefactId=${created.id}`)
     );
     expect(removeAgain.status).toBe(404);
+  });
+
+  it('DELETE accepts pidChain from CLI body so agents can remove their artefacts', async () => {
+    const room = createChatRoom({ name: 'r', whoCreatedIt: '@you' });
+    const terminal = upsertTerminal({
+      pid: 77_001,
+      pid_start: 'artefact-remove-test',
+      name: 'artefact-remove-agent',
+      ttlSeconds: 60 * 60
+    });
+    addMembership({ room_id: room.id, handle: '@agent', terminal_id: terminal.id });
+    const create = await runHandler(
+      POST,
+      eventFor('POST', room.id, '', { kind: 'doc', title: 'wrong pointer' })
+    );
+    const created = await create.json();
+
+    const remove = await runHandler(
+      DELETE,
+      eventFor(
+        'DELETE',
+        room.id,
+        `?artefactId=${created.id}`,
+        { pidChain: [{ pid: 77_001, pid_start: 'artefact-remove-test' }] },
+        false
+      )
+    );
+
+    expect(remove.status).toBe(204);
   });
 
   it('DELETE 400s when artefactId is missing', async () => {
