@@ -18,7 +18,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
-import { answerAsk, findAskById, type Ask } from '$lib/server/askStore';
+import { answerAsk, findAskById, hasResponseRequiredAsksForHandle, type Ask } from '$lib/server/askStore';
 import { consumeConsentGrant } from '$lib/server/consentGrantStore';
 import { postSystemMessage } from '$lib/server/chatMessageStore';
 import { broadcastToRoom } from '$lib/server/eventBroadcast';
@@ -106,6 +106,23 @@ export const POST: RequestHandler = async ({ params, request }) => {
       }
     } catch {
       /* The ask answer is authoritative; a receipt failure must not re-open it. */
+    }
+    // Asks-as-pill (slice 3): tell the room the askee's pill may have flipped.
+    // Listeners re-derive `response-required` from the open-asks count for the
+    // target handle. We only emit when the resolved ask actually had a target;
+    // legacy NULL-target rows don't drive a pill.
+    if (ask.targetHandle) {
+      try {
+        broadcastToRoom(ask.roomId, {
+          type: 'ask_resolved',
+          askId: ask.id,
+          targetHandle: ask.targetHandle,
+          status: updatedAsk.status,
+          stillResponseRequired: hasResponseRequiredAsksForHandle(ask.targetHandle)
+        });
+      } catch {
+        /* pill broadcast best-effort; UIs re-poll on focus anyway */
+      }
     }
     return json({
       ask: updatedAsk,

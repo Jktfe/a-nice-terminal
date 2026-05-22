@@ -15,7 +15,8 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
-import { dismissAsk, findAskById } from '$lib/server/askStore';
+import { dismissAsk, findAskById, hasResponseRequiredAsksForHandle } from '$lib/server/askStore';
+import { broadcastToRoom } from '$lib/server/eventBroadcast';
 
 export const POST: RequestHandler = async ({ params, request }) => {
   const ask = findAskById(params.askId);
@@ -52,6 +53,23 @@ export const POST: RequestHandler = async ({ params, request }) => {
       dismissedByHandle: handleWithAtSign,
       dismissedByDisplayName
     });
+    // Asks-as-pill (slice 4): tell the room the askee's pill MAY have flipped.
+    // Same shape as the /answer broadcast so a single client handler covers
+    // both resolutions. Dismiss is silent in-chat (no system message) — the
+    // ask just disappears from the inbox.
+    if (ask.targetHandle) {
+      try {
+        broadcastToRoom(ask.roomId, {
+          type: 'ask_resolved',
+          askId: ask.id,
+          targetHandle: ask.targetHandle,
+          status: updatedAsk.status,
+          stillResponseRequired: hasResponseRequiredAsksForHandle(ask.targetHandle)
+        });
+      } catch {
+        /* pill broadcast best-effort */
+      }
+    }
     return json({ ask: updatedAsk });
   } catch (causeOfFailure) {
     const failureMessage =

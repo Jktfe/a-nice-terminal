@@ -148,6 +148,33 @@ export function listAllRecentlyAnsweredAsks(limit = 20): Ask[] {
 }
 
 /**
+ * Asks-as-pill (slice 3): humans get response-required when at least one
+ * ask in {open, merged} targets them. Returns ALL such asks (across every
+ * room) so a UI can render the pill + the inbox count from a single read.
+ */
+export function listResponseRequiredAsksForHandle(targetHandle: string): Ask[] {
+  return listOrdered(
+    "target_handle = ? AND status IN ('open','merged')",
+    'opened_at_ms ASC, rowid ASC',
+    [targetHandle]
+  );
+}
+
+/**
+ * Cheap "is the pill on?" predicate without paying for the full row list.
+ * Used by the SSE broadcast on ask-resolve to decide whether the pill
+ * should flip back to clear or stay lit (other open asks may remain).
+ */
+export function hasResponseRequiredAsksForHandle(targetHandle: string): boolean {
+  const row = getIdentityDb().prepare(
+    `SELECT 1 FROM asks
+     WHERE target_handle = ? AND status IN ('open','merged')
+     LIMIT 1`
+  ).get(targetHandle) as { 1: number } | undefined;
+  return row !== undefined;
+}
+
+/**
  * Thrown when openAskInRoom is called with a targetHandle that isn't a
  * `kind=human` member of the room. Asks are the human inbox — agents react
  * to messages via hooks (working/thinking pill), not via asks. This guard
