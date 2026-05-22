@@ -362,6 +362,13 @@ export function listChatRooms(): ChatRoom[] {
   // Direct lookup-by-id paths (findChatRoomById, loadRoomById) are NOT
   // filtered — linked rooms remain reachable by their id.
   const db = getIdentityDb();
+  // ORDER BY (JWPK 2026-05-22): most-recently-messaged rooms first.
+  // last_post_order is the cached MAX(post_order) for the room — set
+  // inside chatMessageStore.insertMessageRow's transaction. The COALESCE
+  // falls back to a derived MAX(post_order) subquery for rooms whose
+  // column hasn't been backfilled yet, and finally to -1 so unmessaged
+  // rooms drop below ANY messaged room. creation_order DESC is the
+  // stable tiebreaker among rooms with the same activity score.
   const rows = db
     .prepare(`SELECT id, name, summary, attention_state, last_update,
                      when_it_was_created, who_created_it, creation_order
@@ -372,7 +379,13 @@ export function listChatRooms(): ChatRoom[] {
                   WHERE linked_chat_room_id IS NOT NULL
                 )
                 AND id NOT LIKE '__inbox_%'
-              ORDER BY creation_order DESC`)
+              ORDER BY
+                COALESCE(
+                  last_post_order,
+                  (SELECT MAX(post_order) FROM chat_messages WHERE room_id = chat_rooms.id),
+                  -1
+                ) DESC,
+                creation_order DESC`)
     .all() as ChatRoomRow[];
   return rows.map((row) => rowToRoom(row, loadMembersForRoom(row.id)));
 }
