@@ -5,30 +5,41 @@
  *   ant invite create --room R --label L --password P --kinds cli,mcp [--created-by H] [--admin-token T]
  *   ant invite list   --room R [--admin-token T]
  *   ant invite exchange --invite-id ID --password P --kind cli [--handle H]
+ *   ant invite redeem  --room ROOM_ID --token TOKEN_SECRET
+ *   ant invite revoke  --invite-id ID [--admin-token T]
+ *   ant invite join-url <url> --password P --handle @H [--print-token]
  *
- * Admin tasks (create + list) require an admin bearer, supplied via
- * --admin-token flag or ANT_ADMIN_TOKEN env. CLI-side check happens
+ * Admin tasks (create + list + revoke) require an admin bearer, supplied
+ * via --admin-token flag or ANT_ADMIN_TOKEN env. CLI-side check happens
  * BEFORE the fetch so the request never leaves the machine without a
- * token. Exchange is password-gated only (the password itself is the
- * auth) and never logged.
+ * token. Exchange + join-url are password-gated only (the password
+ * itself is the auth) and are never logged.
  *
- * Safety: tokenSecret is printed ONCE on successful exchange and nowhere
- * else. The admin-token value and the password value are NEVER echoed
- * to stdout or stderr, including in error paths.
+ * Safety: tokenSecret is printed ONCE on successful exchange (or on
+ * join-url with --print-token) and nowhere else. The admin-token value
+ * and the password value are NEVER echoed to stdout or stderr, including
+ * in error paths (see redactSensitive).
  */
 
 const ALLOWED_KINDS = new Set(['cli', 'mcp', 'web']);
-const BOOLEAN_FLAGS = new Set([]);
+const BOOLEAN_FLAGS = new Set(['print-token']);
+
+// Verbs that accept positional arguments. parseFlags collects bare
+// tokens into _positionals for these verbs instead of throwing on the
+// "expected --flag" rule that protects typo detection elsewhere.
+const POSITIONAL_VERBS = new Set(['join-url']);
 
 export async function handleInviteVerb(action, args, runtime, ctx) {
   const { CliInputError } = ctx;
-  const flags = parseFlags(args, CliInputError);
+  const allowPositionals = POSITIONAL_VERBS.has(action);
+  const flags = parseFlags(args, CliInputError, { allowPositionals });
   switch (action) {
     case 'create': return runCreate(flags, runtime, CliInputError);
     case 'list': return runList(flags, runtime, CliInputError);
     case 'exchange': return runExchange(flags, runtime, CliInputError);
     case 'redeem': return runRedeem(flags, runtime, CliInputError);
     case 'revoke': return runRevoke(flags, runtime, CliInputError);
+    case 'join-url': return runJoinUrl(flags, runtime, CliInputError);
     case undefined:
     case 'help':
     case '--help':
@@ -40,12 +51,21 @@ export async function handleInviteVerb(action, args, runtime, ctx) {
   }
 }
 
-function parseFlags(rawArgs, CliInputError) {
+function parseFlags(rawArgs, CliInputError, opts = {}) {
+  const { allowPositionals = false } = opts;
   const collected = {};
+  const positionals = [];
   let cursor = 0;
   while (cursor < rawArgs.length) {
     const token = rawArgs[cursor];
-    if (!token.startsWith('--')) throw new CliInputError(`expected --flag, got "${token}"`);
+    if (!token.startsWith('--')) {
+      if (allowPositionals) {
+        positionals.push(token);
+        cursor += 1;
+        continue;
+      }
+      throw new CliInputError(`expected --flag, got "${token}"`);
+    }
     const flagName = token.slice(2);
     if (BOOLEAN_FLAGS.has(flagName)) {
       collected[flagName] = 'true';
@@ -59,16 +79,18 @@ function parseFlags(rawArgs, CliInputError) {
     collected[flagName] = flagValue;
     cursor += 2;
   }
+  if (allowPositionals) collected._positionals = positionals;
   return collected;
 }
 
 function writeUsage(runtime) {
-  runtime.writeOut('ant invite <create|list|exchange|redeem|revoke> [flags]');
-  runtime.writeOut('  create --room R --label L --password P --kinds cli,mcp [--created-by H] [--admin-token T]');
-  runtime.writeOut('  list   --room R [--admin-token T]');
+  runtime.writeOut('ant invite <create|list|exchange|redeem|revoke|join-url> [flags]');
+  runtime.writeOut('  create   --room R --label L --password P --kinds cli,mcp [--created-by H] [--admin-token T]');
+  runtime.writeOut('  list     --room R [--admin-token T]');
   runtime.writeOut('  exchange --invite-id ID --password P --kind cli [--handle H]');
-  runtime.writeOut('  redeem --room ROOM_ID --token TOKEN_SECRET');
-  runtime.writeOut('  revoke --invite-id ID [--admin-token T]');
+  runtime.writeOut('  redeem   --room ROOM_ID --token TOKEN_SECRET');
+  runtime.writeOut('  revoke   --invite-id ID [--admin-token T]');
+  runtime.writeOut('  join-url <url> --password P --handle @H [--print-token]');
 }
 
 function requireFlag(flags, name, CliInputError) {
@@ -201,6 +223,105 @@ async function runRedeem(flags, runtime, CliInputError) {
   }
   const parsed = await response.json();
   runtime.writeOut(`${parsed.member.handle}\t${parsed.room.name}\t${parsed.room.id}`);
+  return 0;
+}
+
+/**
+ * Parse the share-URL forms emitted by /mcp/room/[roomId] and the
+ * accounts/web invite flow. Returns { origin, roomId, inviteId } if
+ * recognised, else null.
+ *
+ * Recognised shapes:
+ *   https://<host>/mcp/room/<ROOM>?invite=<INV>[&...]
+ *   https://<host>/r/<ROOM>?invite=<INV>
+ *   ant://<host>/room/<ROOM>?invite=<INV>
+ *
+ * For an absolute URL we use the WHATWG URL parser so query-string
+ * decoding is correct; for ant:// schemes the parser still works because
+ * the host + pathname components are well-formed.
+ */
+export function parseJoinUrl(raw) {
+  if (typeof raw !== 'string' || raw.length === 0) return null;
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  const path = url.pathname;
+  const roomMatch = path.match(/^\/(?:mcp\/room|r|room)\/([A-Za-z0-9_-]+)\/?$/);
+  if (!roomMatch) return null;
+  const roomId = roomMatch[1];
+  const inviteId = url.searchParams.get('invite');
+  if (!inviteId) return null;
+  // For ant:// or any non-http scheme, the home server should still be
+  // reached over https. Rewrite the protocol but keep host+port intact.
+  const origin = url.protocol === 'http:' || url.protocol === 'https:'
+    ? `${url.protocol}//${url.host}`
+    : `https://${url.host}`;
+  return { origin, roomId, inviteId };
+}
+
+async function runJoinUrl(flags, runtime, CliInputError) {
+  const positional = (flags._positionals ?? [])[0];
+  const urlFromFlag = typeof flags.url === 'string' ? flags.url : undefined;
+  const rawUrl = positional ?? urlFromFlag;
+  if (!rawUrl) {
+    throw new CliInputError('join-url requires a URL (positional arg or --url)');
+  }
+  const parsed = parseJoinUrl(rawUrl);
+  if (!parsed) {
+    throw new CliInputError(`could not parse invite URL: ${rawUrl}`);
+  }
+  const password = requireFlag(flags, 'password', CliInputError);
+  const handle = requireFlag(flags, 'handle', CliInputError);
+  const printToken = flags['print-token'] === 'true';
+
+  // Hit the URL's origin, not runtime.serverUrl — the share-URL ALWAYS
+  // names the home server it belongs to. Cross-host join would silently
+  // join the wrong server otherwise.
+  const baseUrl = parsed.origin;
+
+  const exchangeResponse = await runtime.fetchImpl(
+    `${baseUrl}/api/chat-invites/${encodeURIComponent(parsed.inviteId)}/exchange`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password, kind: 'cli', handle })
+    }
+  );
+  if (!exchangeResponse.ok) {
+    runtime.writeErr(`Exchange failed (${exchangeResponse.status}): ${await readErrorMessage(exchangeResponse, [password])}`);
+    return 1;
+  }
+  const exchangeBody = await exchangeResponse.json();
+  const tokenSecret = exchangeBody.tokenSecret;
+  if (typeof tokenSecret !== 'string' || tokenSecret.length === 0) {
+    runtime.writeErr('Exchange returned no tokenSecret — server contract violation');
+    return 1;
+  }
+
+  const redeemResponse = await runtime.fetchImpl(
+    `${baseUrl}/api/chat-rooms/${encodeURIComponent(parsed.roomId)}/join-with-token`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tokenSecret })
+    }
+  );
+  if (!redeemResponse.ok) {
+    runtime.writeErr(`Redeem failed (${redeemResponse.status}): ${await readErrorMessage(redeemResponse, [tokenSecret])}`);
+    return 1;
+  }
+  const redeemBody = await redeemResponse.json();
+
+  // One-line success summary. tokenSecret is gated behind --print-token
+  // because the common bash-agent path doesn't need it on stdout (the
+  // membership is durable; future calls auth via cookie or admin-bearer).
+  runtime.writeOut(`${redeemBody.member.handle}\t${redeemBody.room.name}\t${redeemBody.room.id}\t${baseUrl}`);
+  if (printToken) {
+    runtime.writeOut(tokenSecret);
+  }
   return 0;
 }
 
