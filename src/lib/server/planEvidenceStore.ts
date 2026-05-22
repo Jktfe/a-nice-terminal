@@ -41,7 +41,7 @@ export type EvidenceRow = {
  * planEvidenceStore is extended to read plan_events.evidence_json, this
  * type can widen back to EvidenceRef['kind'].
  */
-export type TaskEvidenceKind = Exclude<EvidenceRef['kind'], 'stage_pause_context'>;
+export type TaskEvidenceKind = EvidenceRef['kind'];
 
 export type EvidenceStats = {
   byKind: Record<TaskEvidenceKind, number>;
@@ -180,7 +180,9 @@ export function evidenceStats(): EvidenceStats {
     file: 0,
     chat_message: 0,
     proposal: 0,
-    stage_focus: 0
+    stage_focus: 0,
+      stage_pause_context: 0,
+      stage_feedback: 0
   };
   let withLabel = 0;
   for (const row of all) {

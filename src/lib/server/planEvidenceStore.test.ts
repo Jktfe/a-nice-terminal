@@ -41,7 +41,9 @@ describe('planEvidenceStore', () => {
       file: 0,
       chat_message: 0,
       proposal: 0,
-      stage_focus: 0
+      stage_focus: 0,
+      stage_pause_context: 0,
+      stage_feedback: 0
     });
   });
 
