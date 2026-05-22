@@ -327,8 +327,19 @@ async function readErrorBodyMessage(response) {
 }
 
 function formatCallFailure(causeOfFailure) {
+  // Xeno 2026-05-22 follow-up: the previous shape returned the literal
+  // string "Unknown error." for any non-Error non-CliNetworkError reject
+  // (e.g. dynamic-import failures on compiled Bun binaries). That hid the
+  // real cause for an entire release cycle. Always surface message + stack
+  // when available so the next mystery can be diagnosed from the first
+  // command output. CliNetworkError stays terse (it's user-friendly by
+  // design); all other Errors get message + stack; non-Error rejects get
+  // String()'d so at least the value is visible.
   if (causeOfFailure instanceof CliNetworkError) return causeOfFailure.message;
-  if (causeOfFailure instanceof Error) return causeOfFailure.message;
+  if (causeOfFailure instanceof Error) {
+    const stack = typeof causeOfFailure.stack === 'string' ? causeOfFailure.stack : '';
+    return stack.length > 0 ? `${causeOfFailure.message}\n${stack}` : causeOfFailure.message;
+  }
   if (causeOfFailure !== undefined && causeOfFailure !== null) return String(causeOfFailure);
   return 'Unknown error.';
 }

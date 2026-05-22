@@ -40,7 +40,28 @@ async function parseRequiredJsonBody(request: Request): Promise<Record<string, u
   }
 }
 
+function hasBearerAuthHeader(request: Request): boolean {
+  const auth = request.headers.get('authorization') ?? '';
+  return auth.startsWith('Bearer ');
+}
+
 function requireSameOrigin(request: Request, url: URL): void {
+  // Asks-as-pill / Windows-CLI-wedge fix (Xeno 2026-05-22): bearer-bypass.
+  // The same-origin gate exists to stop random callers from minting a
+  // browser session for the room — but a caller already holding a valid
+  // Bearer token (admin / local-antchat / accounts) has independently
+  // proven room access via `requireMintRoomAccess` further down. Refusing
+  // to mint a cookie for them is over-strict and was deadlocking the
+  // CLI's auto-mint fallback on Windows where pidChain identity-walking
+  // is broken. The bearer is the canonical "I am authorised" signal here;
+  // the cookie is just a downstream-convenience artefact.
+  //
+  // SECURITY NOTE: this does NOT skip ANY auth — `requireMintRoomAccess`
+  // still validates the bearer + room membership downstream. We only skip
+  // the BROWSER-RESTRICTION test (Origin.host === Host) when a bearer is
+  // present. Invalid bearers will 401 at the gate below.
+  if (hasBearerAuthHeader(request)) return;
+
   const origin = request.headers.get('origin');
   const host = request.headers.get('host');
   if (!origin || !host) throw error(403, 'same-origin browser POST required');

@@ -12,16 +12,29 @@
  *
  * Chain walk is DEFAULT-ON per PTY-INJECT-0 v2 doc Q8 — no --chain opt-in.
  *
- * Implementation note: uses execFileSync from node:child_process for ps
- * subprocess calls. ps reads /proc-like data on macOS; no shell, no
- * arguments interpolated, no injection surface.
+ * Platform branches (Xeno windows-cli-auth-wedge-2026-05-22 diagnosis):
+ *   - darwin / linux: `ps -o {lstart,ppid}= -p <pid>` — single-syscall, no shell
+ *   - win32 / MSYS2 / git-bash: `powershell.exe -NoProfile -Command
+ *     "Get-CimInstance Win32_Process -Filter 'ProcessId=N' | Select-Object
+ *     ProcessId, ParentProcessId, CreationDate | ConvertTo-Json -Compress"`.
+ *     CIM returns CreationDate as a real DateTime that ConvertTo-Json
+ *     serialises as ISO 8601 (`/Date(ms)/` was the legacy WMIC pain — CIM
+ *     avoids it). Chose CIM over `wmic` because wmic is deprecated in
+ *     Win 11 (still ships, Microsoft can pull any quarter); per-call
+ *     overhead is ~150-200ms cold but durable across Win versions.
+ *
+ * No shell, no arg interpolation; PIDs cast to String() before exec.
  */
 
 import { execFileSync } from 'node:child_process';
+import { platform } from 'node:os';
 
 const MAX_CHAIN_DEPTH = 32;
+const IS_WINDOWS = platform() === 'win32';
 
-function readProcessStartTime(pid) {
+// ─── POSIX (darwin / linux / MSYS2-with-real-ps) ─────────────────────
+
+function readProcessStartTimePosix(pid) {
   try {
     return execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], { stdio: 'pipe' })
       .toString()
@@ -31,7 +44,7 @@ function readProcessStartTime(pid) {
   }
 }
 
-function readParentPid(pid) {
+function readParentPidPosix(pid) {
   try {
     const raw = execFileSync('ps', ['-o', 'ppid=', '-p', String(pid)], { stdio: 'pipe' })
       .toString()
@@ -41,6 +54,72 @@ function readParentPid(pid) {
   } catch {
     return null;
   }
+}
+
+// ─── Windows (CIM via PowerShell) ───────────────────────────────────
+
+/** Cache one CIM lookup per (pid) so the chain walk's two helpers
+ *  (start-time + ppid) don't pay 2× the ~150ms CIM cold cost per hop. */
+const winCimCache = new Map();
+
+function readWindowsProcessRecord(pid) {
+  if (winCimCache.has(pid)) return winCimCache.get(pid);
+  let record = null;
+  try {
+    const stdout = execFileSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `Get-CimInstance Win32_Process -Filter 'ProcessId=${Number(pid)}' | Select-Object ProcessId, ParentProcessId, CreationDate | ConvertTo-Json -Compress`
+      ],
+      { stdio: 'pipe', windowsHide: true }
+    ).toString().trim();
+    if (stdout.length > 0) {
+      const parsed = JSON.parse(stdout);
+      // CreationDate from ConvertTo-Json: when CIM returns a DateTime,
+      // PowerShell's JSON serialiser writes either an ISO string like
+      // "2026-05-22T17:30:45.123Z" or a wrapped `\/Date(ms)\/` legacy
+      // form. Both round-trip into the server's (pid, pid_start) tuple
+      // verbatim — opaque on the wire, never parsed by us.
+      record = {
+        ppid: Number.isFinite(parsed?.ParentProcessId) ? parsed.ParentProcessId : null,
+        startTime: parsed?.CreationDate ?? null
+      };
+    }
+  } catch {
+    record = null;
+  }
+  winCimCache.set(pid, record);
+  return record;
+}
+
+function readProcessStartTimeWindows(pid) {
+  const record = readWindowsProcessRecord(pid);
+  if (!record) return null;
+  if (typeof record.startTime === 'string') return record.startTime;
+  // Some PowerShell builds emit { value: "ISO", DisplayHint: ... } when
+  // serialising DateTime. Flatten if so.
+  if (record.startTime && typeof record.startTime === 'object' && typeof record.startTime.value === 'string') {
+    return record.startTime.value;
+  }
+  return null;
+}
+
+function readParentPidWindows(pid) {
+  const record = readWindowsProcessRecord(pid);
+  return record && Number.isFinite(record.ppid) && record.ppid > 0 ? record.ppid : null;
+}
+
+// ─── Public API (platform-switched) ─────────────────────────────────
+
+function readProcessStartTime(pid) {
+  return IS_WINDOWS ? readProcessStartTimeWindows(pid) : readProcessStartTimePosix(pid);
+}
+
+function readParentPid(pid) {
+  return IS_WINDOWS ? readParentPidWindows(pid) : readParentPidPosix(pid);
 }
 
 export function pidStart(pid) {
