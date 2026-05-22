@@ -28,6 +28,7 @@ export type EvidenceRow = {
   ref: string;
   label: string | null;
   taskCreatedAtMs: number;
+  narration: string | null;
 };
 
 export type EvidenceStats = {
@@ -123,6 +124,7 @@ function fetchAllRows(): EvidenceRow[] {
         kind: ev.kind,
         ref: ev.ref,
         label: ev.label ?? null,
+        narration: ev.narration ?? null,
         taskCreatedAtMs: row.created_at_ms
       });
     }
