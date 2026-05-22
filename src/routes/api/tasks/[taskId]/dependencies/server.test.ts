@@ -75,6 +75,22 @@ describe('/api/tasks/:taskId/dependencies', () => {
     expect(res.status).toBe(400);
   });
 
+  it('POST 400 when the new edge would create a cycle', async () => {
+    createTask({ id: 't-a', subject: 'Task A', status: 'pending' });
+    createTask({ id: 't-b', subject: 'Task B', status: 'pending' });
+    createTask({ id: 't-c', subject: 'Task C', status: 'pending' });
+
+    await run(POST as unknown as AnyHandler, eventFor('t-b', 'POST', { blockerId: 't-a' }));
+    await run(POST as unknown as AnyHandler, eventFor('t-c', 'POST', { blockerId: 't-b' }));
+
+    const res = await run(POST as unknown as AnyHandler, eventFor('t-a', 'POST', { blockerId: 't-c' }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.message).toContain('cycle');
+    expect(getTask('t-a')?.blockedBy).toEqual([]);
+    expect(getTask('t-c')?.blocks).toEqual([]);
+  });
+
   it('POST 404 when task is missing', async () => {
     createTask({ id: 't-b', subject: 'Task B', status: 'pending' });
     const res = await run(POST as unknown as AnyHandler, eventFor('missing', 'POST', { blockerId: 't-b' }));

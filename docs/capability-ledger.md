@@ -40,6 +40,7 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Link discussions | v5 chat/room lane | DEDUPE | Claude | Discussion is a room facet, not a separate destination. |
 | Artefact rail | v5 chat/room lane | CHANGE | Claude | Decks, docs, sheets, files, and sites share the rail. |
 | Plans and tasks | v5 system lane | CHANGE | Codex | Plan is scoreboard, tasks are ownership and review. |
+| DAG task dependencies | v5 system lane | CHANGE | Codex | Implemented a first usable DAG slice on the plan Gantt surface: persisted task dependency edges, cycle prevention, safe add/remove controls, and rendered graph links. |
 | Shared docs | v5 chat/room lane | CHANGE | Claude | Room-facing durable synthesis. |
 | Memory recall | v5 chat/room lane | CHANGE | Claude | Searchable context, not a dumping ground. |
 | Navigate to other chats | v5 chat/room lane | CHANGE | Claude | Command palette and room switcher. |
