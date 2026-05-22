@@ -27,6 +27,7 @@
  */
 
 import { makeStandardSendJson, resolveChatRoomIdentifier } from './ant-cli-shared-resolve.mjs';
+import { processIdentityChain } from './ant-cli-identity-chain.mjs';
 
 const BOOLEAN_FLAGS = new Set(['json']);
 
@@ -140,7 +141,11 @@ async function runMerge(args, runtime, CliInputError) {
 async function runList(args, runtime, CliInputError) {
   const { flags } = parseFlags(args, CliInputError);
   const sendJson = makeStandardSendJson(runtime);
-  const result = await sendJson('/api/asks', 'GET');
+  // GET /api/asks needs auth — pidChain via query param resolves the
+  // caller's terminal → inbox memberships → scope. See per-human inbox
+  // slice 4 (2026-05-22). Without this the route returns 401.
+  const pidChain = encodeURIComponent(JSON.stringify(processIdentityChain()));
+  const result = await sendJson(`/api/asks?pidChain=${pidChain}`, 'GET');
   let asks = (result?.asks ?? []).filter((ask) => ask.status === 'open' || ask.status === 'merged');
   if (flags.for) {
     const handle = ensureAtHandle(flags.for);
