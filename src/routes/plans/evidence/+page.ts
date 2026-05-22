@@ -8,15 +8,15 @@
  */
 
 import type { PageLoad } from './$types';
-import type { EvidenceRef } from '$lib/server/planModeStore';
 import type {
   EvidenceRow,
-  EvidenceStats
+  EvidenceStats,
+  TaskEvidenceKind
 } from '$lib/server/planEvidenceStore';
 
 type EvidenceResponse = { evidence: EvidenceRow[]; stats: EvidenceStats };
 
-const KINDS: ReadonlySet<EvidenceRef['kind']> = new Set<EvidenceRef['kind']>([
+const KINDS: ReadonlySet<TaskEvidenceKind> = new Set<TaskEvidenceKind>([
   'run_event',
   'task',
   'url',
@@ -28,9 +28,9 @@ const KINDS: ReadonlySet<EvidenceRef['kind']> = new Set<EvidenceRef['kind']>([
 
 export const load: PageLoad = async ({ fetch, url }) => {
   const kindRaw = url.searchParams.get('kind');
-  const kind: EvidenceRef['kind'] | null =
-    kindRaw && KINDS.has(kindRaw as EvidenceRef['kind'])
-      ? (kindRaw as EvidenceRef['kind'])
+  const kind: TaskEvidenceKind | null =
+    kindRaw && KINDS.has(kindRaw as TaskEvidenceKind)
+      ? (kindRaw as TaskEvidenceKind)
       : null;
   const planId = url.searchParams.get('planId');
   const q = url.searchParams.get('q');
