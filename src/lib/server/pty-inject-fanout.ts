@@ -34,8 +34,9 @@ import { listReadersForMessage, markMessageRead } from './messageReadReceiptStor
 import { broadcastToRoom } from './eventBroadcast';
 import { findHandleForAliasInRoom } from './chatRoomAliasStore';
 import { getActiveWorkingClaim } from './entityClaimStore';
-import { openAskInRoom, AskTargetNotHumanError } from './askStore';
+import { openAskInRoom, AskTargetNotHumanError, AskerNotInInboxError } from './askStore';
 import type { ChatRoom } from './chatRoomStore';
+import { inboxRoomIdFor } from './humanInboxRoomStore';
 
 // (room × askee × messageId) → already opened; prevents double-file under
 // retried fanout. Bounded — entries age out after fanout for the message
@@ -62,7 +63,7 @@ function autoOpenAsksForHumanMentions(
     if (askedForMessage.has(dedupeKey)) continue;
     askedForMessage.add(dedupeKey);
     try {
-      openAskInRoom({
+      const opened = openAskInRoom({
         roomId: room.id,
         openedByHandle: message.authorHandle,
         targetHandle: handle,
@@ -71,11 +72,32 @@ function autoOpenAsksForHumanMentions(
         title: makeAskTitle(message.body, handle),
         body: message.body
       });
+      // Per-human inbox slice 6: broadcast ask_added into the askee's
+      // inbox room so the inbox UI shows the new question immediately
+      // (no poll). The originating-room fanout already covers the
+      // chat-side message rendering.
+      try {
+        broadcastToRoom(inboxRoomIdFor(handle), {
+          type: 'ask_added',
+          askId: opened.id,
+          targetHandle: handle,
+          roomId: room.id,
+          openedByHandle: message.authorHandle,
+          title: opened.title
+        });
+      } catch {
+        /* inbox broadcast best-effort */
+      }
     } catch (cause) {
       // AskTargetNotHumanError = race (member kind flipped between check
-      // and openAskInRoom); fail silently. Anything else is unexpected
-      // and worth logging without breaking the underlying fanout.
-      if (!(cause instanceof AskTargetNotHumanError)) {
+      // and openAskInRoom); fail silently. AskerNotInInboxError can
+      // legitimately fire when a fresh agent @-mentions a human in a
+      // room the agent isn't a member of yet (rare race) — also silent.
+      // Anything else is unexpected and worth logging without breaking
+      // the underlying fanout.
+      const isExpected = cause instanceof AskTargetNotHumanError ||
+                         cause instanceof AskerNotInInboxError;
+      if (!isExpected) {
         console.warn(`[fanout] auto-open ask failed for ${handle}:`, cause);
       }
     }

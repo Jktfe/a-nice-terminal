@@ -17,6 +17,7 @@ import type { RequestHandler } from './$types';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { dismissAsk, findAskById, hasResponseRequiredAsksForHandle } from '$lib/server/askStore';
 import { broadcastToRoom } from '$lib/server/eventBroadcast';
+import { inboxRoomIdFor } from '$lib/server/humanInboxRoomStore';
 
 export const POST: RequestHandler = async ({ params, request }) => {
   const ask = findAskById(params.askId);
@@ -58,16 +59,24 @@ export const POST: RequestHandler = async ({ params, request }) => {
     // both resolutions. Dismiss is silent in-chat (no system message) — the
     // ask just disappears from the inbox.
     if (ask.targetHandle) {
+      const askResolvedPayload = {
+        type: 'ask_resolved' as const,
+        askId: ask.id,
+        targetHandle: ask.targetHandle,
+        status: updatedAsk.status,
+        stillResponseRequired: hasResponseRequiredAsksForHandle(ask.targetHandle)
+      };
       try {
-        broadcastToRoom(ask.roomId, {
-          type: 'ask_resolved',
-          askId: ask.id,
-          targetHandle: ask.targetHandle,
-          status: updatedAsk.status,
-          stillResponseRequired: hasResponseRequiredAsksForHandle(ask.targetHandle)
-        });
+        broadcastToRoom(ask.roomId, askResolvedPayload);
       } catch {
         /* pill broadcast best-effort */
+      }
+      // Mirror into the askee's inbox room so the inbox UI flips in real-
+      // time when dismissed from anywhere (per-human inbox slice 6).
+      try {
+        broadcastToRoom(inboxRoomIdFor(ask.targetHandle), askResolvedPayload);
+      } catch {
+        /* inbox broadcast best-effort */
       }
     }
     return json({ ask: updatedAsk });
