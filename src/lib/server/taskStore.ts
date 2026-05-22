@@ -294,6 +294,24 @@ export function deleteTask(id: string): boolean {
 
 export class TaskDependencyError extends Error {}
 
+function dependsOnTask(tasks: readonly Task[], startTaskId: string, targetTaskId: string): boolean {
+  const blockersByTask = new Map(tasks.map((task) => [task.id, task.blockedBy]));
+  const seen = new Set<string>();
+  const stack = [startTaskId];
+
+  while (stack.length > 0) {
+    const currentId = stack.pop();
+    if (!currentId || seen.has(currentId)) continue;
+    seen.add(currentId);
+    for (const blockerId of blockersByTask.get(currentId) ?? []) {
+      if (blockerId === targetTaskId) return true;
+      stack.push(blockerId);
+    }
+  }
+
+  return false;
+}
+
 /**
  * Add a dependency edge: `taskId` becomes blocked_by `blockerId` and
  * `blockerId` gains `taskId` in its `blocks`. Both sides + updated_at are
@@ -316,6 +334,9 @@ export function addDependency(taskId: string, blockerId: string): void {
     const blockedBy = new Set(task.blockedBy);
     const blocks = new Set(blocker.blocks);
     if (blockedBy.has(blockerId) && blocks.has(taskId)) return; // already linked
+    if (dependsOnTask(listTasks(), blockerId, taskId)) {
+      throw new TaskDependencyError('Adding this dependency would create a cycle.');
+    }
     blockedBy.add(blockerId);
     blocks.add(taskId);
     const now = Date.now();
