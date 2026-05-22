@@ -3,7 +3,8 @@ import { addMembership, getTerminalIdByHandle } from './roomMembershipsStore';
 import {
   adoptExternalProcessForTerminal,
   autoRegisterTerminalForSpawnedSession,
-  getTerminalById
+  getTerminalById,
+  type TerminalRow
 } from './terminalsStore';
 
 function normalizeHandle(rawHandle: string): string {
@@ -12,13 +13,38 @@ function normalizeHandle(rawHandle: string): string {
   return trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
 }
 
+// 0.1.8 slice B (Xeno windows-cli-auth-wedge follow-up 2026-05-22):
+// liveness check on the existing binding. Without this, a broken-walker
+// register (pre-0.1.6 Windows or any POSIX ps failure) leaves a terminal
+// row with pid_start: null bound to the room_memberships entry; any
+// subsequent register with a working walker silently no-ops on the
+// early-return, leaving the user wedged. Yesterday's xenocc-windows
+// row from 0.1.5 was exactly this shape — needed manual `ant add
+// membership` to re-bind.
+function isExistingTerminalStillLive(terminal: TerminalRow): boolean {
+  // Broken-walker registrations leave pid_start: null (POSIX `ps` failed,
+  // or pre-0.1.6 Windows walker without CIM support). Treat as dead so
+  // a re-register with a working walker can supersede the binding.
+  if (terminal.pid_start === null) return false;
+  // Expired by TTL: caller is expected to re-register past expires_at.
+  // Don't pin a stale binding against fresh identity claims.
+  // expires_at is stored in UNIX SECONDS (see upsertTerminal +
+  // currentUnixSeconds), so compare against seconds, not Date.now() ms.
+  if (terminal.expires_at !== null && terminal.expires_at * 1000 < Date.now()) return false;
+  return true;
+}
+
 export function bindRoomHandleToLiveTerminal(roomId: string, rawHandle: string): string | null {
   const handle = normalizeHandle(rawHandle);
   if (roomId.trim().length === 0 || handle.length === 0) return null;
 
   const existingTerminalId = getTerminalIdByHandle(roomId, handle);
   const existingTerminal = existingTerminalId ? getTerminalById(existingTerminalId) : null;
-  if (existingTerminal && !existingTerminal.source.startsWith('browser')) {
+  if (
+    existingTerminal &&
+    !existingTerminal.source.startsWith('browser') &&
+    isExistingTerminalStillLive(existingTerminal)
+  ) {
     return existingTerminal.id;
   }
 
