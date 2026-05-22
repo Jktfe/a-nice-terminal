@@ -35,6 +35,7 @@
   function clampedSet(next: number): void {
     if (slideCount === 0) return;
     const clamped = Math.max(0, Math.min(slideCount - 1, next));
+    stopSpeaking();
     activeIndex = clamped;
     void publishStageFocus(clamped);
   }
@@ -55,20 +56,26 @@
     }
   }
 
+  function stopSpeaking(): void {
+    currentTTSHandle?.cancel();
+    currentTTSHandle = null;
+    speakingIndex = null;
+  }
+
   async function speakCurrentSlide(): Promise<void> {
     if (!activeSlide) return;
     if (speakingIndex === activeIndex && currentTTSHandle) {
-      currentTTSHandle.cancel();
-      currentTTSHandle = null;
-      speakingIndex = null;
+      stopSpeaking();
       return;
     }
-    if (currentTTSHandle) {
-      currentTTSHandle.cancel();
-      currentTTSHandle = null;
-    }
+    stopSpeaking();
+    // Narration precedence (per JWPK deck-voice-spec 2026-05-22):
+    //  1. slide.narration — explicit TTS-only voice line
+    //  2. slide.speakerNotes — written presenter notes (also fine for TTS)
+    //  3. slide.content — on-slide bullets (last resort; you don't read off the slide)
+    const slideAny = activeSlide as { narration?: string; speakerNotes?: string };
     const narration =
-      (activeSlide as { narration?: string }).narration ?? activeSlide.content ?? '';
+      slideAny.narration ?? slideAny.speakerNotes ?? activeSlide.content ?? '';
     if (narration.trim().length === 0) return;
     try {
       const provider = await resolvePreferredProvider();
@@ -128,7 +135,10 @@
   onMount(() => {
     window.addEventListener('keydown', handleKey);
     void publishStageFocus(activeIndex);
-    return () => window.removeEventListener('keydown', handleKey);
+    return () => {
+      stopSpeaking();
+      window.removeEventListener('keydown', handleKey);
+    };
   });
 </script>
 

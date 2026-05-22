@@ -12,6 +12,11 @@ export type DeckSlide = {
   id: string;
   title: string;
   content: string;
+  /** Speaker notes — what the presenter SAYS while the slide is shown.
+   *  Separate from `content` (which is what's rendered on the slide).
+   *  When absent, TTS falls back to reading `content` aloud. */
+  speakerNotes?: string;
+  narration?: string;
   layout?: string;
 };
 
@@ -47,6 +52,10 @@ type RawDeckSlide = {
   title?: unknown;
   content?: unknown;
   body?: unknown;
+  speakerNotes?: unknown;
+  speaker_notes?: unknown;
+  notes?: unknown;
+  narration?: unknown;
   layout?: unknown;
 };
 
@@ -64,6 +73,18 @@ function normalizeSlide(raw: unknown, index: number): DeckSlide | null {
     title,
     content
   };
+  const speakerNotes =
+    typeof slide.speakerNotes === 'string'
+      ? slide.speakerNotes
+      : (typeof slide.speaker_notes === 'string'
+        ? slide.speaker_notes
+        : (typeof slide.notes === 'string' ? slide.notes : undefined));
+  if (speakerNotes && speakerNotes.trim().length > 0) {
+    normalized.speakerNotes = speakerNotes;
+  }
+  if (typeof slide.narration === 'string' && slide.narration.trim().length > 0) {
+    normalized.narration = slide.narration;
+  }
   if (typeof slide.layout === 'string' && slide.layout.length > 0) {
     normalized.layout = slide.layout;
   }
