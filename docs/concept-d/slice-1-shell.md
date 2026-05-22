@@ -16,6 +16,7 @@ This is the chrome ONLY — no live data, no real wiring. Everything inside the 
 | # | Decision | SwiftUI primitive |
 |---|---|---|
 | 1 | NSToolbar | `.toolbar { }` on `NavigationSplitView` |
+| 1b | **Layout topology (as-built, antchat 824b33d):** `NavigationSplitView(sidebar:, detail:)` — 2-column not 3 — with `OpsColumn` + `RoomColumn` composed in an HStack inside the detail slot. Reason: SwiftUI 3-column `NavigationSplitView` fights with independent `@AppStorage`-driven collapse state per column. 2-col + HStack keeps NavSplitView managing only the real macOS sidebar; Ops/Room visibility become plain SwiftUI conditionals.  |
 | 2 | Window restore | `NSWindow.frameAutosaveName` ("antchat.remoteant") |
 | 3 | Column-width persistence | `@AppStorage("sidebar.width" / "ops.width" / "shelf.width" / "bridges.hidden")` |
 | 4 | App lifecycle | `App` protocol in `AntchatApp.swift` — no `NSApplicationDelegate` |
@@ -37,7 +38,7 @@ WindowGroup { AppShellView() }
 
 **INCLUDES** (in this PR):
 - `AntchatApp.swift` — scene config + commands
-- `Views/Shell/AppShellView.swift` — `NavigationSplitView` + bottom drawer composition
+- `Views/Shell/AppShellView.swift` — `NavigationSplitView(sidebar:, detail:)` (2-column) with `HStack { OpsColumn(); RoomColumn() }` in the detail slot, plus `BridgesStrip` underneath as a bottom drawer. Ops + Room column visibility live as plain SwiftUI conditionals on `@AppStorage` keys, not as NavSplitView columns
 - `Views/Shell/AntToolbar.swift` — top chrome (Region 1)
 - `Views/Shell/SidebarColumn.swift` — left column shell (Region 2)
 - `Views/Shell/OpsColumn.swift` — middle column shell (Region 3)
@@ -62,16 +63,20 @@ WindowGroup { AppShellView() }
 
 Order (left → right):
 1. macOS traffic lights (automatic)
-2. `AntBrandMark` — `>_ANT` wordmark (chevron `#0A85F0`, underscore `#1AC270`, ANT adaptive `--ink-strong`) + `ant-logo.svg` 38×38
-3. Title separator `·`
-4. Window title `"remoteant"`
-5. Spacer (`Spacer()`)
-6. ⌘K Search palette — 380 × 36, hint `"Search rooms, asks, files, agents, plans…"`, trailing `⌘K` keycap
-7. Connected pill — green dot + `"Connected"`
-8. Notification bell + accent badge (placeholder count `3`)
-9. Share button (`square.and.arrow.up`)
-10. Menu-bar chevron (`chevron.up`)
-11. Profile chip — avatar + `"James"` + `chevron.down`
+2. **Sidebar toggle** — `ToolbarItem(placement: .navigation)` Button bound to `@AppStorage("sidebar.visible")`. Icon `sidebar.left` (collapsed) / `sidebar.left.fill` (expanded). **PERSISTS regardless of column state** so a collapsed sidebar can always be reopened from here. ⌘1 / ⌘B alias the same action.
+3. **Ops toggle** — second `ToolbarItem(placement: .navigation)` Button bound to `@AppStorage("ops.visible")`. Icon `sidebar.squares.left` (collapsed) / `sidebar.squares.left.fill` (expanded). Same persistence rule. ⌘2 alias.
+4. `AntBrandMark` — `>_ANT` wordmark (chevron `#0A85F0`, underscore `#1AC270`, ANT adaptive `--ink-strong`) + `ant-logo.svg` 38×38
+5. Title separator `·`
+6. Window title `"remoteant"`
+7. Spacer (`Spacer()`)
+8. ⌘K Search palette — 380 × 36, hint `"Search rooms, asks, files, agents, plans…"`, trailing `⌘K` keycap
+9. Connected pill — green dot + `"Connected"`
+10. Notification bell + accent badge (placeholder count `3`)
+11. Share button (`square.and.arrow.up`)
+12. Menu-bar chevron (`chevron.up`)
+13. Profile chip — avatar + `"James"` + `chevron.down`
+
+> **Collapse / expand invariant:** every collapsible region MUST have a control that persists in chrome OUTSIDE the region. Sidebar + Ops use these toolbar toggles. Room shelf uses the `panel-right` chev in the **room header** (which persists because the room header doesn't collapse with the shelf). Bridges strip uses the chevron-up handle that appears in the **collapsed sliver** (16 h band remains visible when the strip is hidden). Without these persistent siblings, a collapsed region is a dead end.
 
 **Tokens:**
 | Element | Token |
@@ -250,7 +255,7 @@ All declared via `.commands { CommandMenu(...) }` so they appear in the menu bar
 | # | PASS criterion | Where this slice satisfies |
 |---|---|---|
 | 1 | Launches at default 1440×1080, min 1280×800, no clipping | `AntchatApp.swift` `.defaultSize` + `.windowResizability(.contentSize)` |
-| 2 | NavigationSplitView 3-column: sidebar 224 w · ops 340 w · room fill | `AppShellView.swift` |
+| 2 | 3 columns visible: sidebar 224 w · ops 340 w · room fill — implemented as 2-column NavSplitView with Ops + Room in HStack-in-detail (see row 1b) | `AppShellView.swift` |
 | 3 | Toolbar matches Concept D intent | `AntToolbar.swift` + `AntBrandMark.swift` |
 | 4 | Tokens mirror source palette | `Tokens.swift` + all per-region token maps above |
 | 5 | Left / right / bottom each have visible independent collapse + restore | Per-region `@AppStorage` keys; toggling one does **not** alter sibling state |
@@ -258,6 +263,8 @@ All declared via `.commands { CommandMenu(...) }` so they appear in the menu bar
 | 7 | Chair / Validation premium tabs visible but locked | `.disabled(true)` + warn styling, no hidden state |
 | 8 | Keyboard / a11y basics | `.accessibilityLabel` on every chrome control + `.commands` shortcuts |
 | 9 | Build evidence | Swift build green + screenshots at 1440×1080 + 1280×800 + sidebar-collapsed + ops-collapsed + shelf-collapsed + bridges-collapsed |
+| 10 | Every collapsed region can be re-expanded WITHOUT keyboard | Sidebar + Ops via persistent toolbar buttons (Region 1 items 2–3); Room shelf via room-header chev; Bridges via 16 h sliver chev-up |
+| 11 | Every new view in `Views/Shell/` ships with a `#Preview { … }` block | `AppShellView`, `AntToolbar`, `SidebarColumn`, `OpsColumn`, `RoomColumn`, `RoomShelf`, `BridgesStrip` — each previewable in Xcode canvas in isolation, fed `.redacted(reason: .placeholder)` skeleton data so they render standalone without app state |
 
 **BLOCKER triggers:** any crash on launch, missing 3-column shell, token/brand mismatch vs Concept D, non-independent collapse state, clipped text/chrome at either target size, or any bridge chip presenting fake working behaviour.
 
@@ -265,7 +272,7 @@ All declared via `.commands { CommandMenu(...) }` so they appear in the menu bar
 
 ## Existing files that get touched
 - `antchat/Antchat/AntchatApp.swift` — replace scene config
-- `antchat/Antchat/Views/Shell/AppShellView.swift` — switch from current layout to `NavigationSplitView` + bottom drawer composition
+- `antchat/Antchat/Views/Shell/AppShellView.swift` — switch from current layout to 2-column `NavigationSplitView(sidebar:, detail:)`, `HStack { OpsColumn(); RoomColumn() }` in detail slot, `BridgesStrip` as bottom drawer; Ops + Room visibility = plain conditionals on `@AppStorage`
 - `antchat/Antchat/Views/AntBrandMark.swift` — replace stale `"Ant Chat / Native Mac"` wordmark with canonical `>_ANT` + `ant-logo.svg`
 - `antchat/Antchat/Theme/DirectionCTheme.swift` — **leave for now**. Slice 1 introduces `Tokens.swift` as new source of truth; DirectionCTheme call-sites migrate progressively over slices 2–6
 - `antchat/Antchat/Assets.xcassets/ANTlogo.imageset/` — swap the source PNG for the live `ant-logo.svg` (or vector PDF generated from it)
