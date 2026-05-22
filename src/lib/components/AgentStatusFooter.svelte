@@ -38,6 +38,7 @@
 
   let statuses = $state<StatusEntry[]>([]);
   let lastFetchFailed = $state(false);
+  let inviteState = $state<'idle' | 'sending' | 'sent' | 'failed'>('idle');
 
   async function refreshFromServer() {
     try {
@@ -48,6 +49,22 @@
       lastFetchFailed = false;
     } catch {
       lastFetchFailed = true;
+    }
+  }
+
+  async function broadcastStatusLineInvite() {
+    if (!roomId || inviteState === 'sending') return;
+    inviteState = 'sending';
+    try {
+      const response = await fetch(`/api/chat-rooms/${encodeURIComponent(roomId)}/status-line-invite`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ cli: 'qwen-cli' })
+      });
+      if (!response.ok) throw new Error(`Could not send invite (${response.status}).`);
+      inviteState = 'sent';
+    } catch {
+      inviteState = 'failed';
     }
   }
 
@@ -102,6 +119,21 @@
     {/each}
     {#if lastFetchFailed}
       <span class="status-stale" role="status">offline</span>
+    {/if}
+    <button
+      type="button"
+      class="status-line-invite"
+      aria-label="Invite room agents to install the qwen status line"
+      title="Post the qwen status-line install invite to this room"
+      disabled={inviteState === 'sending'}
+      onclick={broadcastStatusLineInvite}
+    >
+      {inviteState === 'sending' ? 'Sending…' : 'Invite status line'}
+    </button>
+    {#if inviteState === 'sent'}
+      <span class="status-invite-note" role="status">sent</span>
+    {:else if inviteState === 'failed'}
+      <span class="status-invite-note status-invite-error" role="status">failed</span>
     {/if}
   </aside>
 {/if}
@@ -188,5 +220,34 @@
     font-size: 0.66rem;
     text-transform: uppercase;
     letter-spacing: 0.04em;
+  }
+  .status-line-invite {
+    margin-left: auto;
+    border: 1px solid var(--line-soft);
+    border-radius: 0.45rem;
+    background: var(--surface-card);
+    color: var(--ink-strong);
+    padding: 0.18rem 0.55rem;
+    font: inherit;
+    font-size: 0.68rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .status-line-invite:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--accent, #2563eb) 55%, var(--line-soft));
+    background: color-mix(in srgb, var(--accent, #2563eb) 8%, var(--surface-card));
+  }
+  .status-line-invite:disabled {
+    cursor: progress;
+    opacity: 0.65;
+  }
+  .status-invite-note {
+    color: var(--ink-soft);
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .status-invite-error {
+    color: #dc2626;
   }
 </style>
