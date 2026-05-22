@@ -14,6 +14,7 @@
   import { onMount } from 'svelte';
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
   import { renderMarkdown } from '$lib/chat/renderMarkdown';
+  import { resolvePreferredProvider, type TTSHandle } from '$lib/voice/interview-tts';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
@@ -22,6 +23,8 @@
   let inspectMode = $state(false);
   let shareNotice = $state('');
   let lastPublishedFocusRef = '';
+  let speakingIndex = $state<number | null>(null);
+  let currentTTSHandle: TTSHandle | null = null;
 
   const deck = $derived(data.deck);
   const slides = $derived(deck.slides ?? []);
@@ -49,6 +52,40 @@
       prev();
     } else if (event.key === 'i' || event.key === 'I') {
       inspectMode = !inspectMode;
+    }
+  }
+
+  async function speakCurrentSlide(): Promise<void> {
+    if (!activeSlide) return;
+    if (speakingIndex === activeIndex && currentTTSHandle) {
+      currentTTSHandle.cancel();
+      currentTTSHandle = null;
+      speakingIndex = null;
+      return;
+    }
+    if (currentTTSHandle) {
+      currentTTSHandle.cancel();
+      currentTTSHandle = null;
+    }
+    const narration =
+      (activeSlide as { narration?: string }).narration ?? activeSlide.content ?? '';
+    if (narration.trim().length === 0) return;
+    try {
+      const provider = await resolvePreferredProvider();
+      const handle = provider.speak(narration);
+      currentTTSHandle = handle;
+      const indexAtStart = activeIndex;
+      speakingIndex = indexAtStart;
+      handle.onStart = () => { speakingIndex = indexAtStart; };
+      handle.onEnd = () => {
+        if (currentTTSHandle === handle) {
+          currentTTSHandle = null;
+          speakingIndex = null;
+        }
+      };
+    } catch {
+      speakingIndex = null;
+      currentTTSHandle = null;
     }
   }
 
@@ -108,6 +145,9 @@
     <button type="button" class="toolbar-btn" onclick={() => (inspectMode = !inspectMode)} aria-pressed={inspectMode}>
       {inspectMode ? 'Hide JSON' : 'Inspect JSON'}
       <kbd>I</kbd>
+    </button>
+    <button type="button" class="toolbar-btn" onclick={speakCurrentSlide} aria-pressed={speakingIndex === activeIndex}>
+      {speakingIndex === activeIndex ? 'Stop narration' : 'Speak slide'}
     </button>
     <button type="button" class="toolbar-btn" onclick={copyShareLink}>
       Copy share link
