@@ -155,7 +155,8 @@ export function evidenceStats(): EvidenceStats {
     task: 0,
     url: 0,
     file: 0,
-    chat_message: 0
+    chat_message: 0,
+    proposal: 0
   };
   let withLabel = 0;
   for (const row of all) {
