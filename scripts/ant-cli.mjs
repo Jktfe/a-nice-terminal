@@ -286,6 +286,7 @@ function loadAntConfig() {
   }
 }
 
+
 async function fetchFromServer(runtime, path, init) {
   try {
     return await runtime.fetchImpl(`${runtime.serverUrl}${path}`, init);

@@ -22,7 +22,8 @@
 import { processIdentityChain } from './ant-cli-identity-chain.mjs';
 import {
   resolveChatRoomIdentifier,
-  makeStandardSendJson
+  makeStandardSendJson,
+  resolveRoomServerUrl
 } from './ant-cli-shared-resolve.mjs';
 import { handleChatPendingVerb } from './ant-cli-chat-pending.mjs';
 import { fetchRoomJsonWithBrowserSessionFallback } from './ant-cli-browser-session.mjs';
@@ -293,18 +294,22 @@ async function runSend(flags, runtime, CliInputError) {
   // localhost server). The mint server-side already verifies the handle
   // IS a room member, so this can't be used to spoof.
   const messagesPath = `/api/chat-rooms/${encodeURIComponent(room)}/messages`;
+  // 0.1.8 slice H: prefer the per-room server_url stamped by
+  // `ant invite redeem` over the global runtime.serverUrl. Explicit
+  // ANT_SERVER_URL env still wins inside resolveRoomServerUrl.
+  const roomServerUrl = resolveRoomServerUrl(runtime, room);
   let result;
   try {
-    result = await sendJson(runtime, messagesPath, 'POST', payload);
+    result = await sendJson(runtime, messagesPath, 'POST', payload, roomServerUrl);
   } catch (firstAttemptError) {
     const isIdentityWedge =
       firstAttemptError instanceof Error &&
       /returned 403/.test(firstAttemptError.message) &&
       /Server-resolved identity required/.test(firstAttemptError.message);
     if (!isIdentityWedge) throw firstAttemptError;
-    const mintedCookie = await mintBrowserSessionCookie(runtime, room, flags.handle);
+    const mintedCookie = await mintBrowserSessionCookie(runtime, room, flags.handle, roomServerUrl);
     if (!mintedCookie) throw firstAttemptError;
-    result = await sendJsonWithCookie(runtime, messagesPath, 'POST', payload, mintedCookie);
+    result = await sendJsonWithCookie(runtime, messagesPath, 'POST', payload, mintedCookie, roomServerUrl);
   }
   if (flags.json !== undefined) {
     runtime.writeOut(JSON.stringify(result));
@@ -321,16 +326,16 @@ async function runSend(flags, runtime, CliInputError) {
  * name=value pair, no other attributes) suitable for a Cookie request
  * header, or null on failure.
  */
-async function mintBrowserSessionCookie(runtime, roomId, explicitHandle) {
+async function mintBrowserSessionCookie(runtime, roomId, explicitHandle, baseUrl) {
   const handle = resolveCallerHandleForRoom(runtime, roomId, explicitHandle);
   if (!handle) return null;
-  const url = `${runtime.serverUrl}/api/chat-rooms/${encodeURIComponent(roomId)}/browser-session`;
-  const hostHeader = new URL(runtime.serverUrl).host;
+  const base = baseUrl ?? runtime.serverUrl;
+  const url = `${base}/api/chat-rooms/${encodeURIComponent(roomId)}/browser-session`;
   const response = await runtime.fetchImpl(url, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      origin: runtime.serverUrl
+      origin: base
     },
     body: JSON.stringify({ authorHandle: handle, pidChain: processIdentityChain() })
   });
@@ -367,13 +372,14 @@ function resolveCallerHandleForRoom(runtime, roomId, explicitHandle) {
   return null;
 }
 
-async function sendJsonWithCookie(runtime, path, method, body, cookieValue) {
-  const response = await runtime.fetchImpl(`${runtime.serverUrl}${path}`, {
+async function sendJsonWithCookie(runtime, path, method, body, cookieValue, baseUrl) {
+  const base = baseUrl ?? runtime.serverUrl;
+  const response = await runtime.fetchImpl(`${base}${path}`, {
     method,
     headers: {
       'content-type': 'application/json',
       cookie: cookieValue,
-      origin: runtime.serverUrl
+      origin: base
     },
     body: JSON.stringify(body)
   });
@@ -432,8 +438,9 @@ function handleFlag(flags) {
   return raw.startsWith('@') ? raw : `@${raw}`;
 }
 
-async function sendJson(runtime, path, method, body) {
-  const response = await runtime.fetchImpl(`${runtime.serverUrl}${path}`, {
+async function sendJson(runtime, path, method, body, baseUrl) {
+  const base = baseUrl ?? runtime.serverUrl;
+  const response = await runtime.fetchImpl(`${base}${path}`, {
     method,
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body)

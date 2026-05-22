@@ -77,3 +77,32 @@ export function makeStandardSendJson(runtime) {
     return response.json();
   };
 }
+
+// 0.1.8 slice H (Xeno goal-2 footnote 2026-05-20): ant chat send was
+// requiring an explicit ANT_SERVER_URL env override even when
+// ~/.ant/config.json already had a per-room server_url stamped in by
+// `ant invite redeem`. Precedence: env (user-explicit override) wins
+// first, then the per-room token's server_url for the addressed room,
+// then top-level config.serverUrl, then the default. Callers that know
+// the roomId (chat send, chat tail, message read, etc.) should route
+// through this resolver instead of reading runtime.serverUrl directly.
+//
+// Lives here (not ant-cli.mjs) to avoid the ant-cli.mjs → ant-cli-chat.mjs
+// → ant-cli.mjs circular import that ES-module-bound late-resolved would
+// have left as a runtime hazard.
+export function resolveRoomServerUrl(runtime, roomId) {
+  if (runtime.serverUrlSource === 'env') return runtime.serverUrl;
+  const tokens = runtime.config?.tokens;
+  if (tokens && typeof tokens === 'object' && typeof roomId === 'string' && roomId.length > 0) {
+    const entry = tokens[roomId];
+    if (entry && typeof entry === 'object') {
+      const candidate = entry.server_url;
+      if (typeof candidate === 'string' && candidate.length > 0) return candidate;
+    }
+  }
+  const configRoot = runtime.config;
+  if (configRoot && typeof configRoot === 'object' && typeof configRoot.serverUrl === 'string' && configRoot.serverUrl.length > 0) {
+    return configRoot.serverUrl;
+  }
+  return runtime.serverUrl;
+}
