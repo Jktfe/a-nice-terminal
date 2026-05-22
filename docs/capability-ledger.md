@@ -88,6 +88,7 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Status-line install pilot | Speed Pact T17, 2026-05-22 | CHANGE | Codex | Added `ant status install-line --cli qwen-cli` as the first idempotent status-line installer: it backs up Qwen's statusline script, preserves visible Qwen status text, and emits ANT-canonical state JSON under `~/.ant/state/qwen-cli/`. |
 | Status-line room invite | Speed Pact T17 Phase 2, 2026-05-22 | CHANGE | Codex | Added a room footer action and `/api/chat-rooms/:roomId/status-line-invite` endpoint that posts one system invite and fans it out through the existing room message path so agents can install the proven qwen-cli status-line shape. |
 | Validation v1 policy preset + scoring | validation-feature-v1 M-JKsRule/M-Score, 2026-05-22 | CHANGE | Codex | Added JK's rule as a reusable verification-policy preset, a premium-gated preset seed endpoint, and pointer-based claim scoring. This intentionally reuses external artefact pointers instead of adding a document parser. |
+| Validation claim extractor | validation-feature-v1 M-Extractor, 2026-05-22 | CHANGE | Codex | Added a thin extractor boundary that turns external-tool API fragments into stable `ValidationClaimPointer[]` records with source pointers and simple claim kinds. It does not parse Docs/Notion/Sheets/PDF files or replace those tools. |
 
 ## Audit Backlog
 
