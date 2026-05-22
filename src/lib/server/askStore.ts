@@ -9,13 +9,23 @@
 import { getIdentityDb } from './db';
 import { createEntityStore } from './sqliteEntityStore';
 
-export type AskStatus = 'open' | 'answered' | 'dismissed';
+// Asks-as-pill model (JWPK 2026-05-22): 'merged' is NON-terminal — a merged
+// ask still counts toward the askee's response-required pill because the
+// merged-into ask will answer it (typically with another question rolled up
+// by the Chair premium feature). Only 'answered' and 'dismissed' release
+// the pill.
+export type AskStatus = 'open' | 'answered' | 'dismissed' | 'merged';
+
+/** Statuses that keep the askee's response-required pill alive. */
+export const RESPONSE_REQUIRED_STATUSES: readonly AskStatus[] = ['open', 'merged'];
 
 export type Ask = {
   id: string;
   roomId: string;
   openedByHandle: string;
   openedByDisplayName: string;
+  /** The human handle the ask is targeting. Null on legacy rows pre-2026-05-22. */
+  targetHandle?: string;
   title: string;
   body: string;
   status: AskStatus;
@@ -27,6 +37,9 @@ export type Ask = {
   dismissedByHandle?: string;
   dismissedByDisplayName?: string;
   dismissedAt?: string;
+  mergedIntoAskId?: string;
+  mergedByHandle?: string;
+  mergedAt?: string;
 };
 
 type AskRow = {
@@ -34,6 +47,7 @@ type AskRow = {
   room_id: string;
   opened_by_handle: string;
   opened_by_display_name: string;
+  target_handle: string | null;
   title: string;
   body: string;
   status: string;
@@ -45,6 +59,9 @@ type AskRow = {
   dismissed_by_handle: string | null;
   dismissed_by_display_name: string | null;
   dismissed_at_ms: number | null;
+  merged_into_ask_id: string | null;
+  merged_by_handle: string | null;
+  merged_at_ms: number | null;
 };
 
 function makeAskId(): string {
@@ -66,6 +83,7 @@ function rowToAsk(row: AskRow): Ask {
     status: row.status as AskStatus,
     openedAt: msToIso(row.opened_at_ms)
   };
+  if (row.target_handle !== null) ask.targetHandle = row.target_handle;
   if (row.answer !== null) {
     ask.answer = row.answer;
     ask.answeredByHandle = row.answered_by_handle ?? undefined;
@@ -77,13 +95,20 @@ function rowToAsk(row: AskRow): Ask {
     ask.dismissedByDisplayName = row.dismissed_by_display_name ?? undefined;
     ask.dismissedAt = row.dismissed_at_ms ? msToIso(row.dismissed_at_ms) : undefined;
   }
+  if (row.merged_into_ask_id !== null) {
+    ask.mergedIntoAskId = row.merged_into_ask_id;
+    ask.mergedByHandle = row.merged_by_handle ?? undefined;
+    ask.mergedAt = row.merged_at_ms ? msToIso(row.merged_at_ms) : undefined;
+  }
   return ask;
 }
 
 const ASK_COLUMNS = [
-  'id', 'room_id', 'opened_by_handle', 'opened_by_display_name', 'title', 'body', 'status',
-  'opened_at_ms', 'answer', 'answered_by_handle', 'answered_by_display_name', 'answered_at_ms',
-  'dismissed_by_handle', 'dismissed_by_display_name', 'dismissed_at_ms'
+  'id', 'room_id', 'opened_by_handle', 'opened_by_display_name', 'target_handle',
+  'title', 'body', 'status', 'opened_at_ms',
+  'answer', 'answered_by_handle', 'answered_by_display_name', 'answered_at_ms',
+  'dismissed_by_handle', 'dismissed_by_display_name', 'dismissed_at_ms',
+  'merged_into_ask_id', 'merged_by_handle', 'merged_at_ms'
 ];
 
 const { get: getAskRaw, listOrdered } = createEntityStore<Ask, AskRow>({
@@ -125,6 +150,10 @@ export function openAskInRoom(input: {
   roomId: string;
   openedByHandle: string;
   openedByDisplayName?: string;
+  /** The human handle being asked. Optional in slice 1 schema migration so
+   *  legacy in-flight calls don't break; slice 2 turns this into a required
+   *  field at the call sites + enforces human-membership. */
+  targetHandle?: string;
   title: string;
   body: string;
 }): Ask {
@@ -136,6 +165,8 @@ export function openAskInRoom(input: {
   if (trimmedTitle.length === 0) throw new Error('An ask needs a non-blank title.');
   const trimmedBody = input.body.trim();
   if (trimmedBody.length === 0) throw new Error('An ask needs a non-blank body.');
+  const trimmedTarget = input.targetHandle?.trim();
+  const targetForRow = trimmedTarget && trimmedTarget.length > 0 ? trimmedTarget : null;
 
   const id = makeAskId();
   const nowMs = Date.now();
@@ -145,14 +176,20 @@ export function openAskInRoom(input: {
 
   getIdentityDb().prepare(
     `INSERT INTO asks
-     (id, room_id, opened_by_handle, opened_by_display_name, title, body, status, opened_at_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, trimmedRoomId, trimmedHandle, openedByDisplayName, trimmedTitle, trimmedBody, 'open', nowMs);
+     (id, room_id, opened_by_handle, opened_by_display_name, target_handle,
+      title, body, status, opened_at_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id, trimmedRoomId, trimmedHandle, openedByDisplayName, targetForRow,
+    trimmedTitle, trimmedBody, 'open', nowMs
+  );
 
-  return {
+  const ask: Ask = {
     id, roomId: trimmedRoomId, openedByHandle: trimmedHandle, openedByDisplayName,
     title: trimmedTitle, body: trimmedBody, status: 'open', openedAt: msToIso(nowMs)
   };
+  if (targetForRow !== null) ask.targetHandle = targetForRow;
+  return ask;
 }
 
 export function answerAsk(input: {
