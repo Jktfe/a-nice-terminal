@@ -91,6 +91,7 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Validation claim extractor | validation-feature-v1 M-Extractor, 2026-05-22 | CHANGE | Codex | Added a thin extractor boundary that turns external-tool API fragments into stable `ValidationClaimPointer[]` records with source pointers and simple claim kinds. It does not parse Docs/Notion/Sheets/PDF files or replace those tools. |
 | Validation v1 orchestration planner | validation-feature-v1 M-Orchestrator, 2026-05-22 | CHANGE | Codex | Added a side-effect-free planner that maps validation claim pointers plus policy requirements onto existing transport primitives: heads-down agent work, human interviews, artefact checks, and context-summary checks. No new transport or parser. |
 | Validation markdown/doc extractor | validation-feature-v1 M-Extractor Markdown slice, 2026-05-22 | CHANGE | Codex | Added the first real source adapter for markdown/doc bodies: paragraphs, list items, and table data rows become line-pointed validation claim pointers while frontmatter, code fences, headings, quotes, and table headers are ignored. |
+| Validation markdown file pilot | validation-feature-v1 M-Extractor local-file pilot, 2026-05-22 | CHANGE | Codex | Added a one-file local markdown entrypoint so an ObsidiANT markdown document can be read and passed through the markdown/doc extractor with stable file or obsidian source pointers. No crawler, DB, API route, or non-markdown parser. |
 
 ## Audit Backlog
 
