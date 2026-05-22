@@ -144,8 +144,32 @@
     return refUrl.startsWith('http://') || refUrl.startsWith('https://') || refUrl.startsWith('/');
   }
 
+  function isFileRef(refUrl: string | null): boolean {
+    return refUrl !== null && refUrl.startsWith('file://');
+  }
+
   function artefactHref(entry: RoomArtefact): string {
     return `/artefacts/${encodeURIComponent(entry.id)}`;
+  }
+
+  // Browsers refuse to navigate to file:// from a regular http(s) page (XSS
+  // sandbox rule). For agents that referenced a local file via `ant artefact
+  // add --ref-url file:///path/to/the.html`, the next-best UX is "copy the
+  // path so the human can open it in Finder / `open` / VS Code". Toast
+  // confirms; falls back to a window.prompt if clipboard API is blocked
+  // (older / restrictive browser contexts).
+  let copiedArtefactId = $state<string | null>(null);
+  async function copyFilePath(artefactId: string, refUrl: string): Promise<void> {
+    const path = refUrl.startsWith('file://') ? refUrl.slice('file://'.length) : refUrl;
+    try {
+      await navigator.clipboard.writeText(path);
+      copiedArtefactId = artefactId;
+      setTimeout(() => {
+        if (copiedArtefactId === artefactId) copiedArtefactId = null;
+      }, 1800);
+    } catch {
+      window.prompt('Copy the path:', path);
+    }
   }
 </script>
 
@@ -202,6 +226,16 @@
               <li class="artefact-row">
                 {#if isClickableRef(entry.refUrl)}
                   <a class="artefact-title" href={artefactHref(entry)}>{entry.title}</a>
+                {:else if isFileRef(entry.refUrl)}
+                  <button
+                    type="button"
+                    class="artefact-title file-ref"
+                    title="Copy the file path to clipboard"
+                    onclick={() => void copyFilePath(entry.id, entry.refUrl!)}
+                  >{entry.title}</button>
+                  {#if copiedArtefactId === entry.id}
+                    <span class="copied-toast" role="status">path copied</span>
+                  {/if}
                 {:else}
                   <span class="artefact-title">{entry.title}</span>
                 {/if}
@@ -349,6 +383,25 @@
     color: var(--accent);
     text-decoration: underline;
     text-underline-offset: 2px;
+  }
+  button.artefact-title.file-ref {
+    border: none;
+    background: none;
+    padding: 0;
+    margin: 0;
+    color: var(--accent);
+    text-decoration: underline dotted;
+    text-underline-offset: 2px;
+    cursor: copy;
+    font: inherit;
+    text-align: left;
+  }
+  .copied-toast {
+    font-size: 0.7rem;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.3rem;
   }
   .ref-hint {
     font-size: 0.7rem;
