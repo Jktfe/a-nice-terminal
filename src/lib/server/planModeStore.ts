@@ -37,7 +37,7 @@ export type PlanStatus =
 export type PlanAuthorKind = 'agent' | 'human' | 'system';
 
 export type EvidenceRef = {
-  kind: 'run_event' | 'task' | 'url' | 'file' | 'chat_message';
+  kind: 'run_event' | 'task' | 'url' | 'file' | 'chat_message' | 'proposal';
   ref: string;
   label?: string;
 };
