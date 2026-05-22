@@ -14,8 +14,9 @@
     - Render the visible list inline ("Read by 3: @you, @kimi, @chair").
       Handles must be visible — never tooltip-only — per @evolveantcodex
       a11y guard for this slice.
-    - Render nothing for an empty readers list. System and system-break
-      rows never mount this component (MessageRow gates on kind).
+    - Render nothing for an empty readers list. System-break rows never
+      mount this component; system rows mount it only for answered-ask
+      receipts so ask visibility reuses the normal read-receipt path.
     - Soft-fail every fetch error — the indicator is decorative, never
       blocks message rendering.
 -->
