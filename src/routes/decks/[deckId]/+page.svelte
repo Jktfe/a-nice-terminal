@@ -36,6 +36,28 @@
   let currentTTSHandle: TTSHandle | null = null;
   let currentProvider: TTSProvider | null = null;
 
+  // β + γ1 — feedback panel + local pause-context capture.
+  // Per JWPK stage-live-edit-spec (codex-amended): when TTS pauses, snapshot
+  // slide id + narration text + best-effort elapsed seconds + estimated
+  // last-spoken text window. UI-local state only — no room broadcast yet
+  // (that's γ2), no agent processing (that's ε), no artefact mutation.
+  // Approximate speaking rate used to derive last-spoken-window (chars/sec).
+  const APPROX_CHARS_PER_SEC = 16;
+  type PauseSnapshot = {
+    slideIndex: number;
+    slideId: string;
+    slideTitle: string;
+    narrationText: string;
+    elapsedMs: number;
+    estimatedCharOffset: number;
+    lastSpokenWindow: string;
+    capturedAtMs: number;
+  };
+  let pauseSnapshot = $state<PauseSnapshot | null>(null);
+  let feedbackText = $state('');
+  let pasteContext = $state('');
+  let speakStartMs = 0;
+
   const deck = $derived(data.deck);
   const slides = $derived(deck.slides ?? []);
   const slideCount = $derived(slides.length);
@@ -122,6 +144,30 @@
     return currentProvider;
   }
 
+  function capturePauseSnapshot(): void {
+    if (!activeSlide || speakingIndex === null) return;
+    const narration = getNarrationForSlide(activeSlide);
+    if (narration.length === 0) return;
+    const elapsedMs = speakStartMs > 0 ? Date.now() - speakStartMs : 0;
+    const elapsedSec = elapsedMs / 1000;
+    const estimatedCharOffset = Math.min(
+      Math.floor(elapsedSec * APPROX_CHARS_PER_SEC),
+      narration.length
+    );
+    const windowStart = Math.max(0, estimatedCharOffset - 120);
+    const lastSpokenWindow = narration.slice(windowStart, estimatedCharOffset);
+    pauseSnapshot = {
+      slideIndex: activeIndex,
+      slideId: activeSlide.id,
+      slideTitle: activeSlide.title,
+      narrationText: narration,
+      elapsedMs,
+      estimatedCharOffset,
+      lastSpokenWindow,
+      capturedAtMs: Date.now()
+    };
+  }
+
   function pauseOrResume(): void {
     if (!currentTTSHandle) return;
     if (currentTTSHandle.isPaused()) {
@@ -131,6 +177,7 @@
     }
     currentTTSHandle.pause();
     pausedIndex = speakingIndex;
+    capturePauseSnapshot();
   }
 
   async function playCurrentSlide(): Promise<void> {
@@ -157,7 +204,8 @@
       const indexAtStart = activeIndex;
       speakingIndex = indexAtStart;
       pausedIndex = null;
-      handle.onStart = () => { speakingIndex = indexAtStart; };
+      speakStartMs = Date.now();
+      handle.onStart = () => { speakingIndex = indexAtStart; speakStartMs = Date.now(); };
       handle.onEnd = () => {
         if (currentTTSHandle === handle) {
           currentTTSHandle = null;
@@ -304,6 +352,57 @@
     </section>
   {/if}
 
+  <section class="feedback-panel" aria-label="Stage feedback (β + γ1)">
+    <header>
+      <h3>Feedback</h3>
+      <p class="panel-hint">Pause narration to anchor feedback to a specific spoken moment. Submission lands with γ2 (room broadcast) — for now, capture only.</p>
+    </header>
+
+    {#if pauseSnapshot}
+      <div class="pause-context" aria-label="Captured pause context">
+        <div class="ctx-row"><span class="ctx-label">Slide</span><code>{pauseSnapshot.slideIndex + 1} · {pauseSnapshot.slideTitle}</code></div>
+        <div class="ctx-row"><span class="ctx-label">Elapsed</span><code>{(pauseSnapshot.elapsedMs / 1000).toFixed(1)}s · ~char {pauseSnapshot.estimatedCharOffset} of {pauseSnapshot.narrationText.length}</code></div>
+        {#if pauseSnapshot.lastSpokenWindow}
+          <div class="ctx-row ctx-window">
+            <span class="ctx-label">Last spoken</span>
+            <q>…{pauseSnapshot.lastSpokenWindow}</q>
+          </div>
+        {/if}
+      </div>
+    {:else}
+      <p class="panel-hint">No pause context yet. Hit <strong>Pause</strong> during narration to capture.</p>
+    {/if}
+
+    <label class="feedback-field">
+      <span>Your correction or feedback</span>
+      <textarea
+        bind:value={feedbackText}
+        placeholder={pauseSnapshot ? `e.g. "no — we don't do that, we do this..."` : 'Pause narration first to anchor your feedback.'}
+        rows="3"
+        disabled={!pauseSnapshot}
+      ></textarea>
+    </label>
+
+    <label class="feedback-field">
+      <span>Additional context (paste)</span>
+      <textarea
+        bind:value={pasteContext}
+        placeholder={pauseSnapshot ? 'Paste a URL, snippet, or doc reference that clarifies what "that" refers to.' : ''}
+        rows="2"
+        disabled={!pauseSnapshot}
+      ></textarea>
+    </label>
+
+    <div class="feedback-actions">
+      <button type="button" class="toolbar-btn" disabled aria-disabled="true" title="γ2 wires submission; γ1 is local capture only">
+        Submit (γ2 — not yet wired)
+      </button>
+      <button type="button" class="toolbar-btn" onclick={() => { pauseSnapshot = null; feedbackText = ''; pasteContext = ''; }}>
+        Clear
+      </button>
+    </div>
+  </section>
+
   <footer class="deck-meta">
     <span>Created {new Date(deck.createdAtMs).toLocaleString()}</span>
     {#if deck.createdBy}<span> · by {deck.createdBy}</span>{/if}
@@ -312,6 +411,73 @@
 </SimplePageShell>
 
 <style>
+  .feedback-panel {
+    margin-top: 2rem;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--border-soft, #d5d0c4);
+    border-radius: 0.5rem;
+    background: var(--bg-surface, #fffaf0);
+  }
+  .feedback-panel header h3 {
+    margin: 0 0 0.25rem;
+    font-size: 1.05rem;
+  }
+  .panel-hint {
+    margin: 0.25rem 0 0.75rem;
+    color: var(--ink-soft);
+    font-size: 0.9rem;
+  }
+  .pause-context {
+    margin: 0.5rem 0 1rem;
+    padding: 0.75rem;
+    background: var(--bg-elevated, #fff);
+    border: 1px solid var(--border-soft, #ebe6d8);
+    border-radius: 0.375rem;
+    font-size: 0.85rem;
+  }
+  .ctx-row {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 0.25rem;
+    align-items: baseline;
+  }
+  .ctx-row code { font-family: ui-monospace, monospace; }
+  .ctx-label {
+    color: var(--ink-soft);
+    min-width: 6rem;
+  }
+  .ctx-window q {
+    font-style: italic;
+    color: var(--ink-soft);
+  }
+  .feedback-field {
+    display: block;
+    margin: 0.5rem 0;
+  }
+  .feedback-field span {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--ink-soft);
+    margin-bottom: 0.25rem;
+  }
+  .feedback-field textarea {
+    width: 100%;
+    font-family: inherit;
+    padding: 0.5rem;
+    border: 1px solid var(--border-soft, #d5d0c4);
+    border-radius: 0.375rem;
+    resize: vertical;
+  }
+  .feedback-field textarea:disabled {
+    background: var(--bg-disabled, #f5f1e8);
+    cursor: not-allowed;
+  }
+  .feedback-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+
   .back {
     display: inline-block;
     color: var(--ink-soft);
