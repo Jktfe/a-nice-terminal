@@ -1,18 +1,15 @@
 /**
- * POST /api/decks/:deckId/stage-focus
+ * POST /api/decks/:deckId/stage-focus — publish focused slide.
+ * GET  /api/decks/:deckId/stage-focus — read current focus.
  *
- * Stage v1 M-Viewer: publish the currently visible slide from the existing
- * shareable deck viewer into the existing Stage evidence stream. This is a
- * tiny write-side companion to stageStore.ts, not a new Stage persistence
- * layer.
+ * Stage v1 M-Viewer: publish + query the currently visible slide.
  */
 
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getDeck } from '$lib/server/deckStore';
-import { findChatRoomById } from '$lib/server/chatRoomStore';
-import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
-import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
+import { requireChatRoomMutationAuth, tryAdminBearer } from '$lib/server/chatRoomAuthGate';
+import { resolveDeckAccess } from '$lib/server/deckAccessGate';
 import { appendPlanEvent } from '$lib/server/planModeStore';
 import { getCurrentFocus } from '$lib/server/stageStore';
 import { postSystemMessage } from '$lib/server/chatMessageStore';
@@ -26,13 +23,24 @@ type StageFocusPayload = {
   slideTitle?: unknown;
 };
 
-export const GET: RequestHandler = async ({ params, request }) => {
+export const GET: RequestHandler = ({ params, request, url }) => {
   const deck = getDeck(params.deckId);
   if (!deck) throw error(404, 'Deck not found.');
-  const room = findChatRoomById(deck.roomId);
-  if (!room) throw error(404, 'Room not found.');
-  await requireChatRoomReadAccess(request, room);
-  return json({ focus: getCurrentFocus(deck.id) });
+
+  const access = tryAdminBearer(request)
+    ? { allowed: true as const }
+    : resolveDeckAccess({
+        deckRoomId: deck.roomId,
+        deckAccessPassword: deck.accessPassword,
+        request,
+        url
+      });
+  if (!access.allowed) {
+    throw error(403, access.reason);
+  }
+
+  const focus = getCurrentFocus(deck.id);
+  return json({ deckId: deck.id, focus });
 };
 
 export const POST: RequestHandler = async ({ params, request }) => {
@@ -57,7 +65,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
       ? payload.planId.trim()
       : `stage-${deck.id}`;
   const label = `Slide ${slideIndex + 1}: ${slide.title}`;
-  const ref = `stage:${deck.id}:slide:${readSlideRefPart(slide.id, slideIndex)}`;
+  const ref = `stage:${deck.id}:slide:${slide.id ?? slideIndex}`;
   const tsMillis = Date.now();
 
   appendPlanEvent({
@@ -107,8 +115,4 @@ function readSlideIndex(raw: unknown, slideCount: number): number {
   if (slideCount === 0) throw error(400, 'Deck has no slides.');
   if (raw < 0 || raw >= slideCount) throw error(400, 'slideIndex is outside the deck.');
   return raw;
-}
-
-function readSlideRefPart(slideId: unknown, slideIndex: number): string {
-  return typeof slideId === 'string' && slideId.length > 0 ? slideId : String(slideIndex);
 }
