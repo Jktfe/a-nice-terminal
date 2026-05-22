@@ -69,7 +69,8 @@ async function runList(flags, runtime, CliInputError) {
   const roomId = flags.room;
   if (!roomId) throw new CliInputError('--room is required for decks list.');
 
-  const url = `${runtime.serverUrl}/api/chat-rooms/${encodeURIComponent(roomId)}/decks`;
+  const url = new URL(`${runtime.serverUrl}/api/chat-rooms/${encodeURIComponent(roomId)}/decks`);
+  url.searchParams.set('pidChain', JSON.stringify(processIdentityChain()));
   const response = await runtime.fetchImpl(url);
   if (!response.ok) {
     const bodyText = await response.text().catch(() => '');
