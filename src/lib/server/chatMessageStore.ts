@@ -126,6 +126,15 @@ function insertMessageRow(input: {
       input.parentMessageId, input.discussionId,
       input.consumedGrantId ?? null
     );
+    // Stamp the room with the freshest post_order so listChatRooms can
+    // sort by "most recently messaged" without a per-row subquery in the
+    // hot path. JWPK 2026-05-22: this REPLACES the membership-churn-
+    // driven reorder; rooms only reorder when a real message lands.
+    // Also bump last_update so the displayed "X minutes ago" string
+    // reflects the last message time, not the last membership change.
+    db.prepare(`UPDATE chat_rooms SET last_post_order = ?, last_update = ? WHERE id = ?`).run(
+      postOrder, input.postedAt, input.roomId
+    );
     return postOrder;
   });
   const postOrder = txn();

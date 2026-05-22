@@ -224,6 +224,16 @@ const SCHEMA_DDL_STATEMENTS = [
     creation_order      INTEGER NOT NULL UNIQUE
   )`,
   `CREATE INDEX IF NOT EXISTS idx_chat_rooms_creation_order ON chat_rooms (creation_order DESC)`,
+  // Per JWPK 2026-05-22 (msg_a1cnonmsij): rooms list should sort by the
+  // time of the last MESSAGE — not by membership churn / agent status.
+  // post_order is the monotonic global counter on chat_messages, so the
+  // max post_order per room == "most recently active room". We store it
+  // here for fast ORDER BY (no per-row subquery in the hot list path)
+  // AND keep a COALESCE fallback on listChatRooms in case the column
+  // hasn't been backfilled yet for a row. NULL = no messages in the
+  // room yet; falls back to creation_order as a stable tiebreaker.
+  `ALTER TABLE chat_rooms ADD COLUMN last_post_order INTEGER`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_rooms_last_post_order ON chat_rooms (last_post_order DESC)`,
   `CREATE TABLE IF NOT EXISTS chat_room_members (
     id            TEXT PRIMARY KEY,
     room_id       TEXT NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
@@ -1386,6 +1396,23 @@ export function getIdentityDb(): DatabaseInstance {
   applySchemaMigrations(db);
   ensureYouMembership(db);
   sweepAutoCreatedRoomPlansInDb(db);
+  // Backfill chat_rooms.last_post_order from the live chat_messages
+  // history once (JWPK 2026-05-22 rooms-sort fix). Idempotent: only
+  // touches rows where the column is currently NULL. Cheap — one
+  // GROUP-BY SELECT joined back via correlated subquery. Future
+  // messages set the column at INSERT time inside insertMessageRow's
+  // transaction. Fail-quiet: backfill is convergence, not correctness.
+  try {
+    db.prepare(`
+      UPDATE chat_rooms
+      SET last_post_order = (
+        SELECT MAX(post_order) FROM chat_messages WHERE room_id = chat_rooms.id
+      )
+      WHERE last_post_order IS NULL
+    `).run();
+  } catch {
+    /* swallow — listChatRooms ORDER BY's COALESCE fallback covers NULL rows */
+  }
   globalSlot[DB_GLOBAL_KEY] = db;
   // Per-human inbox backfill (asks-as-pill JWPK 2026-05-22): seed inbox
   // rooms + memberships for existing humans on first call. Best-effort —
