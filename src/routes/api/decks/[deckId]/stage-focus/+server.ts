@@ -10,7 +10,9 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getDeck } from '$lib/server/deckStore';
+import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
+import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
 import { appendPlanEvent } from '$lib/server/planModeStore';
 import { getCurrentFocus } from '$lib/server/stageStore';
 import { postSystemMessage } from '$lib/server/chatMessageStore';
@@ -22,6 +24,15 @@ type StageFocusPayload = {
   slideId?: unknown;
   slideIndex?: unknown;
   slideTitle?: unknown;
+};
+
+export const GET: RequestHandler = async ({ params, request }) => {
+  const deck = getDeck(params.deckId);
+  if (!deck) throw error(404, 'Deck not found.');
+  const room = findChatRoomById(deck.roomId);
+  if (!room) throw error(404, 'Room not found.');
+  await requireChatRoomReadAccess(request, room);
+  return json({ focus: getCurrentFocus(deck.id) });
 };
 
 export const POST: RequestHandler = async ({ params, request }) => {
