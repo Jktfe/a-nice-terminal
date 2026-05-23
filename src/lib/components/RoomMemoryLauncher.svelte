@@ -1,131 +1,311 @@
 <!--
-  RoomMemoryLauncher — in-room entry point for memory recall, scoped to
-  this room (M22 family / memory-recall slice 10).
-
-  PURE FORM. URL-DRIVEN NAVIGATION ONLY. There is no JS state, no fetch,
-  no invalidateAll, no store imports, no endpoint imports, no callbacks
-  (per @evolveantcodex slice 10 guardrails). Submitting the form is a
-  plain GET to /memory with q and roomId fields, which lands on the
-  accepted slice 9 scoped-recall UI (Scoped to <Room> banner + Clear
-  scope link + scoped hit list).
-
-  Audit-note on copied form pattern:
-  Copied-from src/routes/memory/+page.svelte (memory-recall UI slice 2,
-  the existing search form at the top of the /memory route)
-  Verdict: KEEP — same labelled-form pattern; the launcher just adds a
-  hidden roomId input to scope the navigation to this specific room.
-
-  Per @evolveantcodex slice 10 guardrails:
-    - Pure form/navigation only — no fetch, no invalidateAll, no state.
-    - Real accessible label on the search input.
-    - Labelled section with a visible heading.
-    - Hidden roomId field carries the current room id.
-    - Empty-input submit lands on /memory?q=&roomId=<this-room> which
-      the accepted slice 9 UI handles via the empty-query state.
+  RoomMemoryLauncher — in-room memory side-panel.
+  
+  Fetches room memories from /api/rooms/:roomId/memories and displays
+  them as clickable links. Also provides a quick-add form for new
+  memories (title + body).
 -->
 <script lang="ts">
+  import { onMount } from 'svelte';
+
+  type RoomMemory = {
+    memoryId: string;
+    title: string;
+    body: string;
+    createdAt: string;
+    linkedRooms: string[];
+    tags: string[];
+  };
+
   type Props = { roomId: string };
   let { roomId }: Props = $props();
+
+  let memories = $state<RoomMemory[]>([]);
+  let loading = $state(true);
+  let error = $state('');
+  let showNewForm = $state(false);
+  let newTitle = $state('');
+  let newBody = $state('');
+  let submitting = $state(false);
+  let expandedId = $state<string | null>(null);
+
+  async function loadMemories() {
+    loading = true;
+    error = '';
+    try {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/memories`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as { memories: RoomMemory[] };
+      memories = data.memories ?? [];
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Failed to load memories';
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function createMemory() {
+    if (!newTitle.trim() || submitting) return;
+    submitting = true;
+    try {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/memories`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: newTitle.trim(), body: newBody.trim(), tags: [] })
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      newTitle = '';
+      newBody = '';
+      showNewForm = false;
+      await loadMemories();
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Failed to create memory';
+    } finally {
+      submitting = false;
+    }
+  }
+
+  onMount(() => { void loadMemories(); });
 </script>
 
-<section
-  class="memory-launcher"
-  aria-labelledby="room-memory-heading"
->
-  <h2 id="room-memory-heading" class="heading">Memory recall in this room</h2>
-  <form method="GET" action="/memory" class="launcher-form">
+<section class="memory-panel" aria-labelledby="room-memory-heading">
+  <div class="panel-header">
+    <h2 id="room-memory-heading" class="heading">Room memories</h2>
+    <button
+      type="button"
+      class="add-btn"
+      onclick={() => showNewForm = !showNewForm}
+      aria-label={showNewForm ? 'Cancel new memory' : 'Add new memory'}
+    >
+      {showNewForm ? '✕' : '+'}
+    </button>
+  </div>
+
+  {#if showNewForm}
+    <form class="new-form" onsubmit={(e) => { e.preventDefault(); void createMemory(); }}>
+      <input
+        type="text"
+        placeholder="Memory title…"
+        bind:value={newTitle}
+        class="input"
+        required
+      />
+      <textarea
+        placeholder="What should be remembered?"
+        bind:value={newBody}
+        class="textarea"
+        rows={3}
+      ></textarea>
+      <button type="submit" class="submit-btn" disabled={submitting || !newTitle.trim()}>
+        {submitting ? 'Saving…' : 'Save memory'}
+      </button>
+    </form>
+  {/if}
+
+  {#if loading}
+    <p class="status">Loading…</p>
+  {:else if error}
+    <p class="status err">{error}</p>
+  {:else if memories.length === 0}
+    <p class="status">No memories pinned to this room yet.</p>
+  {:else}
+    <ul class="memory-list" role="list">
+      {#each memories as mem}
+        <li class="memory-item">
+          <button
+            type="button"
+            class="memory-title"
+            onclick={() => expandedId = expandedId === mem.memoryId ? null : mem.memoryId}
+            aria-expanded={expandedId === mem.memoryId}
+          >
+            <span class="title-text">{mem.title}</span>
+            <span class="expand-icon">{expandedId === mem.memoryId ? '▾' : '▸'}</span>
+          </button>
+          {#if expandedId === mem.memoryId}
+            <div class="memory-body">
+              <p class="meta">{new Date(mem.createdAt).toLocaleString()} · {mem.tags.join(', ') || 'no tags'}</p>
+              <pre class="body-text">{mem.body}</pre>
+            </div>
+          {/if}
+        </li>
+      {/each}
+    </ul>
+  {/if}
+
+  <form method="GET" action="/memory" class="search-form">
     <input type="hidden" name="roomId" value={roomId} />
-    <label for="roomMemoryField" class="visually-hidden">
-      Search this room's memory
-    </label>
     <input
-      id="roomMemoryField"
       name="q"
       type="search"
-      autocomplete="off"
-      placeholder="Search this room's memory…"
+      placeholder="Search all room memory…"
       class="search-input"
     />
-    <button type="submit" class="primary">Search</button>
-  </form>
-  <form method="GET" action="/memory" class="launcher-form secondary">
-    <input type="hidden" name="roomId" value={roomId} />
-    <input type="hidden" name="longMemory" value="1" />
-    <label for="roomLongMemoryField" class="visually-hidden">
-      Search this room's long memory
-    </label>
-    <input
-      id="roomLongMemoryField"
-      name="q"
-      type="search"
-      autocomplete="off"
-      placeholder="Search before the latest break…"
-      class="search-input"
-    />
-    <button type="submit" class="secondary-button">Long memory</button>
+    <button type="submit" class="search-btn">Search</button>
   </form>
 </section>
 
 <style>
-  .memory-launcher {
-    margin-top: 1rem;
-    padding: 0.9rem 1rem;
-    border: 1px solid var(--surface-edge);
-    border-radius: 0.7rem;
-    background: var(--surface);
+  .memory-panel {
+    padding: 0.6rem 0;
+  }
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
   }
   .heading {
-    margin: 0 0 0.55rem;
-    font-size: 1rem;
+    margin: 0;
+    font-size: 0.95rem;
     color: var(--ink-strong);
   }
-  .launcher-form {
-    display: flex;
-    gap: 0.5rem;
+  .add-btn {
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 999px;
+    border: 1px solid var(--surface-edge);
+    background: var(--surface-card);
+    color: var(--ink-strong);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
-  .launcher-form.secondary { margin-top: 0.5rem; }
-  .search-input {
-    flex: 1;
-    padding: 0.5rem 0.7rem;
-    font-size: 0.95rem;
+  .add-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .new-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-bottom: 0.6rem;
+    padding: 0.5rem;
     border: 1px solid var(--surface-edge);
     border-radius: 0.5rem;
+    background: var(--surface);
+  }
+  .input, .textarea {
+    padding: 0.4rem 0.55rem;
+    font-size: 0.9rem;
+    border: 1px solid var(--surface-edge);
+    border-radius: 0.4rem;
     background: var(--bg);
     color: var(--ink-strong);
+    font-family: inherit;
   }
-  .search-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
-  button.primary {
-    padding: 0.5rem 1.05rem;
+  .textarea { resize: vertical; }
+  .submit-btn {
+    align-self: flex-start;
+    padding: 0.35rem 0.8rem;
     background: var(--accent);
     color: white;
     border: none;
     border-radius: 999px;
     font-weight: 700;
+    font-size: 0.85rem;
     cursor: pointer;
   }
-  .secondary-button {
-    padding: 0.5rem 1.05rem;
+  .submit-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .status {
+    margin: 0.4rem 0;
+    font-size: 0.85rem;
+    color: var(--ink-soft);
+  }
+  .status.err { color: #c0392b; }
+  .memory-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .memory-item {
+    border: 1px solid var(--surface-edge);
+    border-radius: 0.45rem;
+    overflow: hidden;
+  }
+  .memory-title {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.45rem 0.6rem;
+    background: var(--surface-card);
+    border: none;
+    color: var(--ink-strong);
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: left;
+  }
+  .memory-title:hover {
+    background: color-mix(in srgb, var(--accent, #6b21a8) 6%, var(--surface-card));
+  }
+  .title-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .expand-icon {
+    font-size: 0.75rem;
+    color: var(--ink-soft);
+    flex-shrink: 0;
+  }
+  .memory-body {
+    padding: 0.5rem 0.6rem;
+    background: var(--surface);
+    border-top: 1px solid var(--surface-edge);
+  }
+  .meta {
+    margin: 0 0 0.3rem;
+    font-size: 0.75rem;
+    color: var(--ink-soft);
+  }
+  .body-text {
+    margin: 0;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    color: var(--ink-strong);
+    white-space: pre-wrap;
+    font-family: inherit;
+  }
+  .search-form {
+    display: flex;
+    gap: 0.4rem;
+    margin-top: 0.6rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--surface-edge);
+  }
+  .search-input {
+    flex: 1;
+    padding: 0.4rem 0.55rem;
+    font-size: 0.85rem;
+    border: 1px solid var(--surface-edge);
+    border-radius: 0.4rem;
+    background: var(--bg);
+    color: var(--ink-strong);
+  }
+  .search-btn {
+    padding: 0.4rem 0.7rem;
     background: var(--surface-card);
     color: var(--ink-strong);
     border: 1px solid var(--surface-edge);
     border-radius: 999px;
     font-weight: 700;
+    font-size: 0.8rem;
     cursor: pointer;
-    white-space: nowrap;
   }
-  .secondary-button:hover {
+  .search-btn:hover {
     border-color: var(--accent);
     color: var(--accent);
-  }
-  .visually-hidden {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
   }
 </style>
