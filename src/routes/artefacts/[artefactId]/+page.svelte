@@ -33,6 +33,18 @@
         missingSlots: number;
       };
     };
+    validationWork: null | {
+      created: number;
+      reused: number;
+      items: Array<{
+        taskId: string;
+        taskTitle: string;
+        claimId: string;
+        sourcePointer: string;
+        verifierKind: string;
+        reused: boolean;
+      }>;
+    };
   };
 
   const artefact = $derived(data.artefact);
@@ -45,17 +57,20 @@
   const canValidate = $derived(['doc', 'deck'].includes(artefact.kind));
   const kindLabel = $derived(artefact.kind === 'doc' ? 'Document' : artefact.kind === 'deck' ? 'Slides' : artefact.kind === 'spreadsheet' ? 'Spreadsheet' : 'Artefact');
   let validationLoading = $state(false);
+  let workLoading = $state(false);
   let validationError = $state('');
   let validationResult = $state<ValidationResult | null>(null);
 
-  async function validateArtefact() {
-    validationLoading = true;
+  async function runValidation(createWork = false) {
+    if (createWork) workLoading = true;
+    else validationLoading = true;
+    const existing = validationResult;
     validationError = '';
     try {
       const response = await fetch(`/api/artefacts/${encodeURIComponent(artefact.id)}/validate`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ policySlug: 'jks-validation-rule' })
+        body: JSON.stringify({ policySlug: 'jks-validation-rule', createWork })
       });
       if (!response.ok) {
         const message = await response.text();
@@ -63,9 +78,11 @@
       }
       validationResult = await response.json() as ValidationResult;
     } catch (err) {
+      validationResult = existing;
       validationError = err instanceof Error ? err.message : 'Validation failed.';
     } finally {
       validationLoading = false;
+      workLoading = false;
     }
   }
 </script>
@@ -95,7 +112,7 @@
         <span class="panel-label">Validation Lens</span>
         <strong>JK's Validation Rule</strong>
       </div>
-      <button class="validate-button" type="button" onclick={validateArtefact} disabled={validationLoading}>
+      <button class="validate-button" type="button" onclick={() => runValidation(false)} disabled={validationLoading || workLoading}>
         {validationLoading ? 'Validating...' : 'Validate claims'}
       </button>
       {#if validationError}
@@ -106,6 +123,18 @@
           <span class="score">{validationResult.score.percent}%</span>
           <span>{validationResult.score.passedClaims}/{validationResult.score.totalClaims} claims pass this lens</span>
           <span>{validationResult.orchestration.summary.missingSlots} missing verifier slots</span>
+        </div>
+        <div class="work-row">
+          <button class="secondary-button" type="button" onclick={() => runValidation(true)} disabled={workLoading || validationLoading}>
+            {workLoading ? 'Creating work...' : 'Create verifier work'}
+          </button>
+          {#if validationResult.validationWork}
+            <span>
+              {validationResult.validationWork.created} created · {validationResult.validationWork.reused} already existed
+            </span>
+          {:else}
+            <span>Creates room tasks for missing verifier slots without marking claims as trusted.</span>
+          {/if}
         </div>
         <ol class="claim-list">
           {#each validationResult.claims as claim}
@@ -199,6 +228,19 @@
     font-weight: 850;
     cursor: pointer;
   }
+  .secondary-button {
+    border: 1px solid var(--line-soft);
+    border-radius: 0.45rem;
+    background: transparent;
+    color: var(--ink);
+    padding: 0.5rem 0.75rem;
+    font-weight: 850;
+    cursor: pointer;
+  }
+  .secondary-button:disabled {
+    cursor: wait;
+    opacity: 0.72;
+  }
   .validate-button:disabled {
     cursor: wait;
     opacity: 0.72;
@@ -222,6 +264,15 @@
     color: var(--ink);
     font-size: 1.55rem;
     font-weight: 900;
+  }
+  .work-row {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem 1rem;
+    align-items: center;
+    color: var(--ink-soft);
+    font-weight: 750;
   }
   .claim-list {
     grid-column: 1 / -1;

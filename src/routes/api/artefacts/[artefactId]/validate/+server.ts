@@ -25,10 +25,13 @@ import {
   planValidationOrchestration,
   type ValidationParticipant
 } from '$lib/server/validationOrchestrator';
+import { createValidationWorkItems } from '$lib/server/validationWorkItems';
 
 type ValidateArtefactPayload = {
   policySlug?: unknown;
   participants?: unknown;
+  createWork?: unknown;
+  maxWorkItems?: unknown;
 };
 
 type ValidationLens = {
@@ -135,6 +138,20 @@ export const POST: RequestHandler = async ({ params, request }) => {
     claims,
     participants
   });
+  const createWork = payload.createWork === true;
+  const maxWorkItems = typeof payload.maxWorkItems === 'number' && Number.isFinite(payload.maxWorkItems)
+    ? payload.maxWorkItems
+    : undefined;
+  const workItems = createWork
+    ? createValidationWorkItems({
+        artefactId: artefact.id,
+        roomId: artefact.roomId,
+        lensSlug: lens.slug,
+        orchestration,
+        createdBy: access.principalHandles?.[0] ?? access.handles[0] ?? '@admin',
+        maxItems: maxWorkItems
+      })
+    : [];
 
   return json({
     artefact: {
@@ -152,6 +169,22 @@ export const POST: RequestHandler = async ({ params, request }) => {
     },
     claims,
     score,
-    orchestration
+    orchestration,
+    validationWork: createWork
+      ? {
+          created: workItems.filter((item) => !item.reused).length,
+          reused: workItems.filter((item) => item.reused).length,
+          items: workItems.map((item) => ({
+            taskId: item.task.id,
+            taskTitle: item.task.title,
+            claimId: item.claimId,
+            claimText: item.claimText,
+            sourcePointer: item.sourcePointer,
+            verifierKind: item.verifierKind,
+            reason: item.reason,
+            reused: item.reused
+          }))
+        }
+      : null
   });
 };
