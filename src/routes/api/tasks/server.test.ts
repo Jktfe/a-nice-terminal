@@ -4,7 +4,7 @@
  * drift while S2 FE builds against these routes.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -17,6 +17,17 @@ import { GET as planTasksGET } from '../plans/[planId]/tasks/+server';
 
 let tmpDir: string;
 const prevDbPath = process.env.ANT_FRESH_DB_PATH;
+const ADMIN_TOKEN_FOR_TESTS = 'tasks-server-route-test-admin-token';
+const prevAdminToken = process.env.ANT_ADMIN_TOKEN;
+
+beforeAll(() => {
+  process.env.ANT_ADMIN_TOKEN = ADMIN_TOKEN_FOR_TESTS;
+});
+
+afterAll(() => {
+  if (prevAdminToken === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = prevAdminToken;
+});
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'ant-task-routes-'));
@@ -37,10 +48,13 @@ async function call<E>(
   handler: (event: E) => unknown,
   opts: { method?: string; url: string; params?: Record<string, string>; body?: unknown }
 ): Promise<Result> {
-  const init: RequestInit = { method: opts.method ?? 'GET' };
+  const init: RequestInit = {
+    method: opts.method ?? 'GET',
+    headers: { authorization: `Bearer ${ADMIN_TOKEN_FOR_TESTS}` }
+  };
   if (opts.body !== undefined) {
     init.body = JSON.stringify(opts.body);
-    init.headers = { 'content-type': 'application/json' };
+    init.headers = { ...init.headers, 'content-type': 'application/json' };
   }
   const url = new URL(`http://localhost${opts.url}`);
   const event = { request: new Request(url, init), params: opts.params ?? {}, url } as unknown as E;
