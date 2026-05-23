@@ -41,6 +41,7 @@ import { resolveAccountsBearerIdentity } from '$lib/server/accountsBearerIdentit
 import { hasBareEveryoneMention } from '$lib/chat/mentionRouting';
 import { collectAskCandidatesFromMessage } from '$lib/server/askCandidateStore';
 import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
+import { getContextBreakEnforcement } from '$lib/server/contextBreakSettingsStore';
 
 const DEFAULT_MESSAGE_PAGE_SIZE = 100;
 const MAX_MESSAGE_PAGE_SIZE = 200;
@@ -58,7 +59,9 @@ export const GET: RequestHandler = async ({ params, request, url }) => {
   // system-break in the room. Caller can opt out with ?include_pre_break=true
   // to get full history with pagination as before. β2 user-setting toggle
   // will gate whether the opt-out is honoured per user.
-  const includePreBreak = url.searchParams.get('include_pre_break') === 'true';
+  const enforcement = getContextBreakEnforcement(params.roomId);
+  const includePreBreak =
+    enforcement !== 'hard' && url.searchParams.get('include_pre_break') === 'true';
   const page = listMessagesPageInRoom({
     roomId: params.roomId,
     limit,
