@@ -17,6 +17,21 @@
 
 import { randomUUID } from 'node:crypto';
 import { getIdentityDb } from './db';
+import { postSystemMessage } from './chatMessageStore';
+import { resolveHumanOwnership } from './consentGate';
+
+// β3 (JWPK msg_fuvbzkd4wx 2026-05-23): on first agent join into a room, post
+// a one-time system message stating the context-break + memory rules. Skips
+// human handles (who already know the rules) and skips on existing-row
+// re-bind (the message is per-(room, agent) first-time only).
+const AGENT_JOIN_PREAMBLE_BODY = [
+  '**Agent join — context discipline for this room** (one-time system notice).',
+  '',
+  '1. `kind=system-break` messages are a HARD backwards-scan boundary. Don\'t read older context unless explicitly asked.',
+  '2. Memory files (`room-memories/<memoryID>.md`) are room-only by default — only pull if linked from recent room posts or @you asks.',
+  '',
+  'Use the ask primitive for real decisions. Tight ACKs for coordination. Surface obstacles as 2-4 logic-shape paths, never bulk-dump.',
+].join('\n');
 
 export type RoomMembershipRow = {
   id: string;
@@ -67,6 +82,15 @@ export function addMembership(input: AddMembershipInput): RoomMembershipRow {
     VALUES (?, ?, ?, ?, ?)`).run(
     newId, input.room_id, handle, input.terminal_id, now
   );
+
+  // β3 agent-join preamble. Best-effort; never block the membership insert.
+  try {
+    maybePostAgentJoinPreamble(input.room_id, handle);
+  } catch {
+    /* Posting the preamble is non-critical — swallow errors so a system-
+       message failure can't break room join. */
+  }
+
   return {
     id: newId,
     room_id: input.room_id,
@@ -74,6 +98,12 @@ export function addMembership(input: AddMembershipInput): RoomMembershipRow {
     terminal_id: input.terminal_id,
     created_at: now
   };
+}
+
+function maybePostAgentJoinPreamble(roomId: string, handle: string): void {
+  const ownership = resolveHumanOwnership(handle);
+  if (ownership.kind !== 'agent') return;
+  postSystemMessage({ roomId, body: AGENT_JOIN_PREAMBLE_BODY });
 }
 
 export function getRoomScopedHandle(roomId: string, terminalId: string): string | null {
