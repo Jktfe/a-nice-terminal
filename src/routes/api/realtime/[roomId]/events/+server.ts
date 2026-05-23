@@ -13,7 +13,11 @@
 import type { RequestHandler } from './$types';
 import { error } from '@sveltejs/kit';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
-import { subscribeToRoom, unsubscribeFromRoom } from '$lib/server/eventBroadcast';
+import {
+  currentSeqForRoom,
+  subscribeToRoom,
+  unsubscribeFromRoom
+} from '$lib/server/eventBroadcast';
 import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
 
 const HEARTBEAT_INTERVAL_MS = 25_000;
@@ -34,6 +38,16 @@ export const GET: RequestHandler = async ({ params, request }) => {
       // Initial comment so the connection is fully established + the
       // browser fires `open` before any real event.
       controller.enqueue(new TextEncoder().encode(': connected\n\n'));
+      // Synthetic `connected` event with latest_seq lets the consumer
+      // know what seq the room is currently at — used by the finish
+      // layer to render "catching up" vs "caught up" UX (SSE consumer
+      // contract v0, @claudev4 add #1 ratified 2026-05-23).
+      const latestSeq = currentSeqForRoom(roomId);
+      controller.enqueue(
+        new TextEncoder().encode(
+          `data: ${JSON.stringify({ type: 'connected', latest_seq: latestSeq })}\n\n`
+        )
+      );
       heartbeatHandle = setInterval(() => {
         try {
           controller.enqueue(new TextEncoder().encode(HEARTBEAT_LINE));
