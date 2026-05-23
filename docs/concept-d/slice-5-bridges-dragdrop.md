@@ -16,7 +16,7 @@
 | 1 | **Drop target = whole RoomColumn body**, NOT the BridgesStrip chips. Users drag TO the room they're focused on, not TO a chip. | `RoomColumn.swift` — `.onDrop(of: [.fileURL, .image, .pdf], delegate: RoomDropDelegate())` |
 | 2 | **NSItemProvider types** for v1: `.fileURL`, `.image`, `.pdf`. Plain text + URLs defer to Slice 5.5. Covers Finder + Mail attachments + Notes exports + screenshots — the 80%. | `RoomDropDelegate.swift` filters by `provider.canLoadObject(ofClass: URL.self)` etc |
 | 3 | **Auto-name from filename.** Inline rename via double-click in RoomShelf Artefacts tab (lifted from Slice 4 Artefacts panel). No prompt sheet per drop. | `MessagesService.uploadArtefact(roomId:, fileURL:, displayName: filename)` |
-| 4 | **No-room-selected drop** → opens room picker sheet (reuses SAVED ROOMS sorted by recency + search field for non-saved rooms). User picks → drop completes against that room + writes `currentRoom.id`. | New `Views/Chat/RoomPickerSheet.swift` |
+| 4 | **No-room-selected drop, Slice 5 v1 (shipped at 5940b6c):** `.onDrop` returns false silently + a soft toast `"Pick a room first"` surfaces briefly, with the sidebar SAVED ROOMS section highlighting for ~1.5 s to hint where to choose. **v0.2.2 polish upgrade:** add `RoomPickerSheet` (reuses SAVED ROOMS sorted by recency + search field) — drag pending state holds providers, picker dismisses, drop replays against picked room + writes `currentRoom.id`. | v1 path = soft toast in `RoomColumn.swift`; v0.2.2 path = new `Views/Chat/RoomPickerSheet.swift` |
 | 5 | **Backend** — existing `POST /api/chat-rooms/:roomId/artefacts` endpoint. **NO server work in Slice 5.** Pure Mac app delivery. | Confirm endpoint shape; multipart upload with `roomId` + `displayName` + binary body |
 | 6 | **Multi-file drop allowed.** Sequential upload with per-file progress. One file failing does NOT cancel siblings. | `RoomDropDelegate` collects `[NSItemProvider]`, iterates with `TaskGroup` |
 | 7 | **Visual feedback states:** | See Sub-region A below |
@@ -140,7 +140,7 @@ If a user attempts to drop ON a BridgesStrip chip, the chip ignores the drop (do
 | 2 | Drag enter / over / exit visual states match Sub-region A spec | manual + screenshot at each state |
 | 3 | Single-file drop → upload → `system_artefact_added` appended to chat + RoomShelf Artefacts count increments | manual: drag a PDF → message appears, count goes up |
 | 4 | Multi-file drop → sequential upload, per-file progress, one failure doesn't cancel siblings | manual: drop 3 files; mid-upload network failure on file 2 → files 1 + 3 succeed, file 2 shows retry |
-| 5 | No-room-selected drop → opens RoomPickerSheet → pick room → drop completes against that room | manual: clear currentRoom.id, drag file in, picker appears, choose room, file uploads |
+| 5 | No-room-selected drop → soft toast `"Pick a room first"` + SAVED ROOMS section highlights briefly | manual: clear currentRoom.id, drag file in, observe toast + highlight, no upload triggered. (v0.2.2 polish replaces with RoomPickerSheet — drag completes against picked room.) |
 | 6 | Cancel drop in picker → all pending uploads abandoned, no chat messages appended | manual + grep for orphaned items in `uploads` array |
 | 7 | Auto-name from filename; double-click in Artefacts tab renames inline | manual: drop `report.pdf` → artefact card titled "report.pdf"; double-click → inline editor |
 | 8 | Errors surface as retry chip (5xx / network) or non-retry chip (413 / 401) per Sub-region C | manual + harness with simulated bad responses |
