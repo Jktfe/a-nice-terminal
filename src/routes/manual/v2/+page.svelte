@@ -54,6 +54,25 @@
   let loading = $state(true);
   let loadError = $state<string | null>(null);
 
+  // Slice 1.5 (JWPK msg_iu0yjpat78 2026-05-23): author-mode toggle.
+  // View mode = click overlays to inspect. Author mode = drag to move,
+  // drag corners to resize, drag empty area to create, edit inspector
+  // form, delete per region. Auto-save on each interaction (no
+  // explicit save button — pointer-up commits to server).
+  let mode = $state<'view' | 'author'>('view');
+  let stageEl = $state<HTMLElement | null>(null);
+  type DragKind = 'move' | 'resize-nw' | 'resize-ne' | 'resize-sw' | 'resize-se' | 'create';
+  type DragState = {
+    kind: DragKind;
+    annotation: Annotation | null;     // existing element being mutated (null when creating)
+    startImgX: number;                  // pointer-down position in image-pixel coordinates
+    startImgY: number;
+    startBbox: Bbox;                    // bbox at pointer-down time
+    moved: boolean;                     // did the user actually drag? (suppresses save on no-op clicks)
+  };
+  let drag = $state<DragState | null>(null);
+  let saveError = $state<string | null>(null);
+
   async function loadStates() {
     try {
       const response = await fetch('/api/manual/states');
@@ -89,6 +108,205 @@
     selectedAnnotation = annotation;
   }
 
+  // ─── author-mode drag math ─────────────────────────────────────────
+
+  function clientToImagePx(clientX: number, clientY: number): { x: number; y: number } {
+    if (!stageEl || !selectedState) return { x: 0, y: 0 };
+    const rect = stageEl.getBoundingClientRect();
+    const relX = Math.max(0, Math.min(clientX - rect.left, rect.width));
+    const relY = Math.max(0, Math.min(clientY - rect.top, rect.height));
+    return {
+      x: (relX / rect.width) * selectedState.viewport_w,
+      y: (relY / rect.height) * selectedState.viewport_h
+    };
+  }
+
+  function beginRegionDrag(event: PointerEvent, annotation: Annotation) {
+    if (mode !== 'author') return;
+    event.stopPropagation();
+    event.preventDefault();
+    selectedAnnotation = annotation;
+    const pt = clientToImagePx(event.clientX, event.clientY);
+    drag = {
+      kind: 'move',
+      annotation,
+      startImgX: pt.x,
+      startImgY: pt.y,
+      startBbox: { ...annotation.bbox },
+      moved: false
+    };
+    (event.currentTarget as HTMLElement)?.setPointerCapture?.(event.pointerId);
+  }
+
+  function beginResizeDrag(event: PointerEvent, annotation: Annotation, corner: 'nw' | 'ne' | 'sw' | 'se') {
+    if (mode !== 'author') return;
+    event.stopPropagation();
+    event.preventDefault();
+    selectedAnnotation = annotation;
+    const pt = clientToImagePx(event.clientX, event.clientY);
+    drag = {
+      kind: `resize-${corner}`,
+      annotation,
+      startImgX: pt.x,
+      startImgY: pt.y,
+      startBbox: { ...annotation.bbox },
+      moved: false
+    };
+    (event.currentTarget as HTMLElement)?.setPointerCapture?.(event.pointerId);
+  }
+
+  function beginCreateDrag(event: PointerEvent) {
+    if (mode !== 'author') return;
+    // Only respond to direct hits on the stage / image — clicks on
+    // overlays bubble here too but are stopped at beginRegionDrag.
+    const target = event.target as HTMLElement;
+    if (!target.classList.contains('canvas-image-stage') &&
+        !target.classList.contains('canvas-image')) return;
+    event.preventDefault();
+    const pt = clientToImagePx(event.clientX, event.clientY);
+    drag = {
+      kind: 'create',
+      annotation: null,
+      startImgX: pt.x,
+      startImgY: pt.y,
+      startBbox: { x: pt.x, y: pt.y, w: 0, h: 0 },
+      moved: false
+    };
+    (event.currentTarget as HTMLElement)?.setPointerCapture?.(event.pointerId);
+  }
+
+  function applyDrag(event: PointerEvent) {
+    if (!drag || !selectedState) return;
+    event.preventDefault();
+    const pt = clientToImagePx(event.clientX, event.clientY);
+    const dx = pt.x - drag.startImgX;
+    const dy = pt.y - drag.startImgY;
+    if (!drag.moved && (Math.abs(dx) > 2 || Math.abs(dy) > 2)) drag.moved = true;
+
+    let next: Bbox;
+    const sb = drag.startBbox;
+    if (drag.kind === 'move' && drag.annotation) {
+      next = { x: sb.x + dx, y: sb.y + dy, w: sb.w, h: sb.h };
+    } else if (drag.kind === 'create') {
+      const x = Math.min(drag.startImgX, pt.x);
+      const y = Math.min(drag.startImgY, pt.y);
+      next = { x, y, w: Math.abs(pt.x - drag.startImgX), h: Math.abs(pt.y - drag.startImgY) };
+    } else if (drag.kind === 'resize-nw') {
+      next = { x: sb.x + dx, y: sb.y + dy, w: sb.w - dx, h: sb.h - dy };
+    } else if (drag.kind === 'resize-ne') {
+      next = { x: sb.x, y: sb.y + dy, w: sb.w + dx, h: sb.h - dy };
+    } else if (drag.kind === 'resize-sw') {
+      next = { x: sb.x + dx, y: sb.y, w: sb.w - dx, h: sb.h + dy };
+    } else {
+      next = { x: sb.x, y: sb.y, w: sb.w + dx, h: sb.h + dy };
+    }
+    // Clamp to image bounds + minimum size
+    const vw = selectedState.viewport_w, vh = selectedState.viewport_h;
+    const min = 16;
+    next.x = Math.max(0, Math.min(next.x, vw - min));
+    next.y = Math.max(0, Math.min(next.y, vh - min));
+    next.w = Math.max(min, Math.min(next.w, vw - next.x));
+    next.h = Math.max(min, Math.min(next.h, vh - next.y));
+
+    if (drag.kind === 'create') {
+      drag.startBbox = next; // reuse startBbox as live preview for the rubber-band
+    } else if (drag.annotation) {
+      drag.annotation.bbox = next;
+      annotations = [...annotations]; // trigger reactivity
+    }
+  }
+
+  async function endDrag(event: PointerEvent) {
+    if (!drag) return;
+    event.preventDefault();
+    const finished = drag;
+    drag = null;
+    if (!selectedState) return;
+
+    if (finished.kind === 'create') {
+      // Only create if the rubber-band actually moved (a click without
+      // drag would create a min-sized box at the click point, which we
+      // suppress to avoid stray clicks → spurious elements).
+      if (!finished.moved) return;
+      try {
+        const url = `/api/manual/states/${encodeURIComponent(selectedState.screen_id)}/${encodeURIComponent(selectedState.state_slug)}/annotations`;
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            itemName: 'Untitled element',
+            bbox: finished.startBbox,
+            cliVerbs: [], dataSources: [], intendedActions: [],
+            tabOrder: Math.max(...annotations.map((a) => a.tab_order), -1) + 1
+          })
+        });
+        if (!response.ok) throw new Error(`create ${response.status}`);
+        const data = await response.json();
+        annotations = [...annotations, data.annotation];
+        selectedAnnotation = data.annotation;
+      } catch (err) {
+        saveError = err instanceof Error ? err.message : String(err);
+      }
+      return;
+    }
+
+    // Move / resize: PATCH the existing annotation
+    if (!finished.annotation || !finished.moved) return;
+    await persistAnnotation(finished.annotation);
+  }
+
+  async function persistAnnotation(a: Annotation) {
+    if (!selectedState) return;
+    saveError = null;
+    try {
+      const url = `/api/manual/states/${encodeURIComponent(a.screen_id)}/${encodeURIComponent(a.state_slug)}/annotations/${encodeURIComponent(a.element_slug)}`;
+      const response = await fetch(url, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          itemName: a.item_name,
+          bbox: a.bbox,
+          cliVerbs: a.cli_verbs,
+          dataSources: a.data_sources,
+          logicText: a.logic_text,
+          intendedActions: a.intended_actions,
+          tabOrder: a.tab_order
+        })
+      });
+      if (!response.ok) throw new Error(`patch ${response.status}`);
+    } catch (err) {
+      saveError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  async function deleteAnnotation(a: Annotation) {
+    if (!selectedState) return;
+    if (!confirm(`Delete element "${a.item_name}"? This cannot be undone.`)) return;
+    saveError = null;
+    try {
+      const url = `/api/manual/states/${encodeURIComponent(a.screen_id)}/${encodeURIComponent(a.state_slug)}/annotations/${encodeURIComponent(a.element_slug)}`;
+      const response = await fetch(url, { method: 'DELETE' });
+      if (!response.ok) throw new Error(`delete ${response.status}`);
+      annotations = annotations.filter((x) => x.element_slug !== a.element_slug);
+      if (selectedAnnotation?.element_slug === a.element_slug) selectedAnnotation = null;
+    } catch (err) {
+      saveError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  function parseCommaList(raw: string): string[] {
+    return raw.split(/\s*,\s*/).map((s) => s.trim()).filter((s) => s.length > 0);
+  }
+
+  async function updateFieldAndPersist(field: keyof Annotation, value: unknown) {
+    if (!selectedAnnotation) return;
+    (selectedAnnotation as Record<string, unknown>)[field] = value;
+    annotations = annotations.map((a) =>
+      a.element_slug === selectedAnnotation!.element_slug ? selectedAnnotation! : a
+    );
+    await persistAnnotation(selectedAnnotation);
+  }
+
   onMount(loadStates);
 </script>
 
@@ -115,101 +333,224 @@
         <!-- Left: screen tile with overlay boxes -->
         <section class="canvas-tile">
           <div class="canvas-meta">
-            <div class="screen-title">{selectedState.screen_id} · {selectedState.state_label}</div>
-            {#if selectedState.description}
-              <div class="screen-description">{selectedState.description}</div>
+            <div class="screen-meta-row">
+              <div>
+                <div class="screen-title">{selectedState.screen_id} · {selectedState.state_label}</div>
+                {#if selectedState.description}
+                  <div class="screen-description">{selectedState.description}</div>
+                {/if}
+              </div>
+              <div class="mode-toggle" role="radiogroup" aria-label="Mode">
+                <button
+                  type="button"
+                  class:active={mode === 'view'}
+                  onclick={() => { mode = 'view'; }}
+                  aria-pressed={mode === 'view'}
+                >View</button>
+                <button
+                  type="button"
+                  class:active={mode === 'author'}
+                  onclick={() => { mode = 'author'; }}
+                  aria-pressed={mode === 'author'}
+                >Author</button>
+              </div>
+            </div>
+            {#if mode === 'author'}
+              <div class="author-hint">
+                Drag overlays to move · drag corner handles to resize · drag empty area to create a new region · saves automatically.
+                {#if saveError}<span class="author-error"> · last save failed: {saveError}</span>{/if}
+              </div>
             {/if}
           </div>
           <div class="canvas-image-frame">
-            <div class="canvas-image-stage">
+            <div
+              class="canvas-image-stage"
+              class:author-cursor={mode === 'author'}
+              bind:this={stageEl}
+              onpointerdown={beginCreateDrag}
+              onpointermove={applyDrag}
+              onpointerup={endDrag}
+              onpointercancel={endDrag}
+            >
               <img
                 class="canvas-image"
                 src={selectedState.screenshot_path}
                 alt="Screen: {selectedState.screen_id} ({selectedState.state_label})"
                 draggable="false"
               />
-              <!-- Overlay regions positioned in % so the layout scales with the image.
-                   The stage div takes its height from the image itself, so % is
-                   computed against the actual rendered image bounds (no letterbox drift). -->
+              <!-- Overlay regions positioned in % so the layout scales with the image. -->
               {#each annotations as annotation (annotation.element_slug)}
-              {@const xPct = (annotation.bbox.x / selectedState.viewport_w) * 100}
-              {@const yPct = (annotation.bbox.y / selectedState.viewport_h) * 100}
-              {@const wPct = (annotation.bbox.w / selectedState.viewport_w) * 100}
-              {@const hPct = (annotation.bbox.h / selectedState.viewport_h) * 100}
-              <button
-                type="button"
-                class="canvas-region"
-                class:selected={selectedAnnotation?.element_slug === annotation.element_slug}
-                style="left: {xPct}%; top: {yPct}%; width: {wPct}%; height: {hPct}%;"
-                tabindex="0"
-                aria-label="Select element: {annotation.item_name}"
-                onclick={() => pickAnnotation(annotation)}
-                onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickAnnotation(annotation); } }}
-              >
-                <span class="region-slug">{annotation.item_name}</span>
-              </button>
+                {@const xPct = (annotation.bbox.x / selectedState.viewport_w) * 100}
+                {@const yPct = (annotation.bbox.y / selectedState.viewport_h) * 100}
+                {@const wPct = (annotation.bbox.w / selectedState.viewport_w) * 100}
+                {@const hPct = (annotation.bbox.h / selectedState.viewport_h) * 100}
+                <button
+                  type="button"
+                  class="canvas-region"
+                  class:selected={selectedAnnotation?.element_slug === annotation.element_slug}
+                  class:author-mode={mode === 'author'}
+                  style="left: {xPct}%; top: {yPct}%; width: {wPct}%; height: {hPct}%;"
+                  tabindex="0"
+                  aria-label="Select element: {annotation.item_name}"
+                  onclick={(e) => { if (mode === 'view') pickAnnotation(annotation); else e.preventDefault(); }}
+                  onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickAnnotation(annotation); } }}
+                  onpointerdown={(e) => beginRegionDrag(e, annotation)}
+                >
+                  <span class="region-slug">{annotation.item_name}</span>
+                  {#if mode === 'author' && selectedAnnotation?.element_slug === annotation.element_slug}
+                    <span class="resize-handle nw" onpointerdown={(e) => beginResizeDrag(e, annotation, 'nw')} aria-hidden="true"></span>
+                    <span class="resize-handle ne" onpointerdown={(e) => beginResizeDrag(e, annotation, 'ne')} aria-hidden="true"></span>
+                    <span class="resize-handle sw" onpointerdown={(e) => beginResizeDrag(e, annotation, 'sw')} aria-hidden="true"></span>
+                    <span class="resize-handle se" onpointerdown={(e) => beginResizeDrag(e, annotation, 'se')} aria-hidden="true"></span>
+                  {/if}
+                </button>
               {/each}
+              <!-- Live rubber-band preview when creating a new region -->
+              {#if drag?.kind === 'create' && drag.moved}
+                {@const xPct = (drag.startBbox.x / selectedState.viewport_w) * 100}
+                {@const yPct = (drag.startBbox.y / selectedState.viewport_h) * 100}
+                {@const wPct = (drag.startBbox.w / selectedState.viewport_w) * 100}
+                {@const hPct = (drag.startBbox.h / selectedState.viewport_h) * 100}
+                <div
+                  class="canvas-rubber-band"
+                  style="left: {xPct}%; top: {yPct}%; width: {wPct}%; height: {hPct}%;"
+                ></div>
+              {/if}
             </div>
           </div>
         </section>
 
-        <!-- Right: inspector panel -->
+        <!-- Right: inspector panel (read in view mode, edit in author mode) -->
         <aside class="canvas-inspector">
           {#if selectedAnnotation}
-            <h2>{selectedAnnotation.item_name}</h2>
+            {#if mode === 'view'}
+              <h2>{selectedAnnotation.item_name}</h2>
 
-            <section class="inspector-section">
-              <h3>CLI</h3>
-              {#if selectedAnnotation.cli_verbs.length === 0}
-                <p class="inspector-empty">No CLI verb wired to this element yet.</p>
-              {:else}
-                <ul class="inspector-list">
-                  {#each selectedAnnotation.cli_verbs as verb}
-                    <li><code>{verb}</code></li>
-                  {/each}
-                </ul>
-              {/if}
-            </section>
+              <section class="inspector-section">
+                <h3>CLI</h3>
+                {#if selectedAnnotation.cli_verbs.length === 0}
+                  <p class="inspector-empty">No CLI verb wired to this element yet.</p>
+                {:else}
+                  <ul class="inspector-list">
+                    {#each selectedAnnotation.cli_verbs as verb}
+                      <li><code>{verb}</code></li>
+                    {/each}
+                  </ul>
+                {/if}
+              </section>
 
-            <section class="inspector-section">
-              <h3>Data sources</h3>
-              {#if selectedAnnotation.data_sources.length === 0}
-                <p class="inspector-empty">No data sources logged.</p>
-              {:else}
-                <ul class="inspector-list">
-                  {#each selectedAnnotation.data_sources as src}
-                    <li><code>{src}</code></li>
-                  {/each}
-                </ul>
-              {/if}
-            </section>
+              <section class="inspector-section">
+                <h3>Data sources</h3>
+                {#if selectedAnnotation.data_sources.length === 0}
+                  <p class="inspector-empty">No data sources logged.</p>
+                {:else}
+                  <ul class="inspector-list">
+                    {#each selectedAnnotation.data_sources as src}
+                      <li><code>{src}</code></li>
+                    {/each}
+                  </ul>
+                {/if}
+              </section>
 
-            <section class="inspector-section">
-              <h3>Logic</h3>
-              <p>{selectedAnnotation.logic_text ?? '—'}</p>
-            </section>
+              <section class="inspector-section">
+                <h3>Logic</h3>
+                <p>{selectedAnnotation.logic_text ?? '—'}</p>
+              </section>
 
-            <section class="inspector-section">
-              <h3>Intended actions</h3>
-              {#if selectedAnnotation.intended_actions.length === 0}
-                <p class="inspector-empty">—</p>
-              {:else}
-                <ul class="inspector-list">
-                  {#each selectedAnnotation.intended_actions as action}
-                    <li>{action}</li>
-                  {/each}
-                </ul>
-              {/if}
-            </section>
+              <section class="inspector-section">
+                <h3>Intended actions</h3>
+                {#if selectedAnnotation.intended_actions.length === 0}
+                  <p class="inspector-empty">—</p>
+                {:else}
+                  <ul class="inspector-list">
+                    {#each selectedAnnotation.intended_actions as action}
+                      <li>{action}</li>
+                    {/each}
+                  </ul>
+                {/if}
+              </section>
 
-            <section class="inspector-section">
-              <h3>Notes</h3>
-              <p class="inspector-empty">Capture lands in slice 3 — Add button coming soon.</p>
-            </section>
+              <section class="inspector-section">
+                <h3>Notes</h3>
+                <p class="inspector-empty">Capture lands in slice 3 — Add button coming soon.</p>
+              </section>
+            {:else}
+              <!-- Author mode: editable form. Each input persists on
+                   blur (no explicit save — keeps the surface honest). -->
+              <h2 class="inspector-edit-title">Editing element</h2>
+
+              <section class="inspector-section">
+                <h3>Item name</h3>
+                <input
+                  type="text"
+                  class="inspector-input"
+                  value={selectedAnnotation.item_name}
+                  onblur={(e) => updateFieldAndPersist('item_name', (e.currentTarget as HTMLInputElement).value)}
+                />
+              </section>
+
+              <section class="inspector-section">
+                <h3>CLI <span class="hint">(comma-separated)</span></h3>
+                <input
+                  type="text"
+                  class="inspector-input"
+                  value={selectedAnnotation.cli_verbs.join(', ')}
+                  onblur={(e) => updateFieldAndPersist('cli_verbs', parseCommaList((e.currentTarget as HTMLInputElement).value))}
+                />
+              </section>
+
+              <section class="inspector-section">
+                <h3>Data sources <span class="hint">(comma-separated)</span></h3>
+                <input
+                  type="text"
+                  class="inspector-input"
+                  value={selectedAnnotation.data_sources.join(', ')}
+                  onblur={(e) => updateFieldAndPersist('data_sources', parseCommaList((e.currentTarget as HTMLInputElement).value))}
+                />
+              </section>
+
+              <section class="inspector-section">
+                <h3>Logic</h3>
+                <textarea
+                  class="inspector-textarea"
+                  rows="3"
+                  value={selectedAnnotation.logic_text ?? ''}
+                  onblur={(e) => updateFieldAndPersist('logic_text', (e.currentTarget as HTMLTextAreaElement).value || null)}
+                ></textarea>
+              </section>
+
+              <section class="inspector-section">
+                <h3>Intended actions <span class="hint">(comma-separated)</span></h3>
+                <input
+                  type="text"
+                  class="inspector-input"
+                  value={selectedAnnotation.intended_actions.join(', ')}
+                  onblur={(e) => updateFieldAndPersist('intended_actions', parseCommaList((e.currentTarget as HTMLInputElement).value))}
+                />
+              </section>
+
+              <section class="inspector-section">
+                <h3>Bounding box <span class="hint">(image pixels)</span></h3>
+                <div class="inspector-bbox">
+                  x: {Math.round(selectedAnnotation.bbox.x)} ·
+                  y: {Math.round(selectedAnnotation.bbox.y)} ·
+                  w: {Math.round(selectedAnnotation.bbox.w)} ·
+                  h: {Math.round(selectedAnnotation.bbox.h)}
+                </div>
+              </section>
+
+              <section class="inspector-section">
+                <button type="button" class="inspector-danger" onclick={() => deleteAnnotation(selectedAnnotation!)}>Delete element</button>
+              </section>
+            {/if}
           {:else}
             <div class="inspector-empty-state">
-              <p>Click any element on the screen to inspect it.</p>
-              <p class="inspector-hint">Tab through them with your keyboard, or click directly.</p>
+              {#if mode === 'view'}
+                <p>Click any element on the screen to inspect it.</p>
+                <p class="inspector-hint">Tab through them with your keyboard, or click directly.</p>
+              {:else}
+                <p>Pick an element to edit, or drag-create a new one on an empty area.</p>
+              {/if}
             </div>
           {/if}
         </aside>
@@ -397,4 +738,119 @@
   }
   .inspector-empty-state p { margin: 0 0 0.4rem; }
   .inspector-hint { font-size: 0.8rem; color: var(--ink-muted, #94a3b8); }
+
+  /* ─── author-mode chrome (slice 1.5) ──────────────────────────── */
+  .screen-meta-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+  .mode-toggle {
+    display: inline-flex;
+    border: 1px solid var(--line-soft, #d6d6d6);
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--surface, #fff);
+  }
+  .mode-toggle button {
+    background: transparent;
+    border: none;
+    padding: 4px 12px;
+    font: 600 0.78rem/1.2 ui-sans-serif, system-ui, sans-serif;
+    color: var(--ink-muted, #475569);
+    cursor: pointer;
+  }
+  .mode-toggle button.active {
+    background: var(--accent, #6b21a8);
+    color: white;
+  }
+  .author-hint {
+    margin-top: 0.5rem;
+    font: 500 0.78rem/1.4 ui-sans-serif, system-ui, sans-serif;
+    color: var(--ink-muted, #475569);
+    padding: 0.4rem 0.6rem;
+    background: rgba(168, 85, 247, 0.06);
+    border-left: 3px solid var(--accent, #6b21a8);
+    border-radius: 0 4px 4px 0;
+  }
+  .author-error { color: #b91c1c; }
+
+  .canvas-image-stage.author-cursor { cursor: crosshair; }
+  .canvas-region.author-mode { cursor: move; }
+  .canvas-region.author-mode.selected { z-index: 2; }
+
+  .resize-handle {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    background: white;
+    border: 2px solid var(--accent, #6b21a8);
+    border-radius: 3px;
+    cursor: nwse-resize;
+    z-index: 3;
+  }
+  .resize-handle.nw { top: -8px; left: -8px; cursor: nwse-resize; }
+  .resize-handle.ne { top: -8px; right: -8px; cursor: nesw-resize; }
+  .resize-handle.sw { bottom: -8px; left: -8px; cursor: nesw-resize; }
+  .resize-handle.se { bottom: -8px; right: -8px; cursor: nwse-resize; }
+
+  .canvas-rubber-band {
+    position: absolute;
+    background: rgba(34, 197, 94, 0.18);
+    border: 2px dashed rgba(21, 128, 61, 0.9);
+    border-radius: 4px;
+    pointer-events: none;
+    z-index: 4;
+  }
+
+  /* ─── editable inspector ─────────────────────────────────────── */
+  .inspector-edit-title {
+    font: 800 0.92rem/1.2 ui-sans-serif, system-ui, sans-serif;
+    color: var(--accent, #6b21a8);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 0 0 0.6rem;
+  }
+  .inspector-section h3 .hint {
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--ink-muted, #94a3b8);
+    margin-left: 0.4rem;
+  }
+  .inspector-input,
+  .inspector-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.4rem 0.55rem;
+    border: 1px solid var(--line-soft, #d6d6d6);
+    border-radius: 6px;
+    font: 500 0.85rem/1.4 ui-sans-serif, system-ui, sans-serif;
+    background: var(--surface, #fff);
+    color: var(--ink-strong, #0f172a);
+  }
+  .inspector-input:focus,
+  .inspector-textarea:focus {
+    outline: 2px solid var(--accent, #6b21a8);
+    outline-offset: 1px;
+    border-color: transparent;
+  }
+  .inspector-textarea { font-family: inherit; resize: vertical; }
+  .inspector-bbox {
+    font: 500 0.78rem/1.3 ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--ink-muted, #475569);
+    padding: 0.35rem 0.5rem;
+    background: var(--surface-2, #f1f5f9);
+    border-radius: 4px;
+  }
+  .inspector-danger {
+    width: 100%;
+    padding: 0.5rem 0.8rem;
+    font: 600 0.82rem/1.2 ui-sans-serif, system-ui, sans-serif;
+    color: #b91c1c;
+    background: transparent;
+    border: 1px solid #fca5a5;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .inspector-danger:hover {
+    background: rgba(220, 38, 38, 0.08);
+    border-color: #b91c1c;
+  }
 </style>
