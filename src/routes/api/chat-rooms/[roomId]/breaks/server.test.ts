@@ -7,12 +7,16 @@
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { POST } from './+server';
+import { DELETE } from './[breakId]/+server';
 import {
   createChatRoom,
   resetChatRoomStoreForTests
 } from '$lib/server/chatRoomStore';
 import {
+  getMessageById,
   listMessagesInRoom,
+  postBreakMessage,
+  postMessage,
   resetChatMessageStoreForTests
 } from '$lib/server/chatMessageStore';
 
@@ -57,6 +61,39 @@ async function callBreaksPost(options: CallOptions): Promise<Response> {
 
   try {
     return (await POST(event)) as Response;
+  } catch (thrownByHandler) {
+    if (thrownByHandler instanceof Response) return thrownByHandler;
+    const httpFailure = thrownByHandler as { status?: number; body?: { message?: string } };
+    if (typeof httpFailure?.status === 'number') {
+      return new Response(JSON.stringify(httpFailure.body ?? {}), { status: httpFailure.status });
+    }
+    throw thrownByHandler;
+  }
+}
+
+type DeleteCallOptions = {
+  roomId: string;
+  breakId: string;
+  withAuth?: boolean;
+};
+
+async function callBreakDelete(options: DeleteCallOptions): Promise<Response> {
+  const headers: Record<string, string> = {};
+  if (options.withAuth !== false) {
+    headers.authorization = `Bearer ${ADMIN_TOKEN_FOR_TESTS}`;
+  }
+  const request = new Request(
+    `http://localhost/api/chat-rooms/${options.roomId}/breaks/${options.breakId}`,
+    { method: 'DELETE', headers }
+  );
+  const event = {
+    request,
+    params: { roomId: options.roomId, breakId: options.breakId },
+    url: new URL(`http://localhost/api/chat-rooms/${options.roomId}/breaks/${options.breakId}`)
+  } as unknown as Parameters<typeof DELETE>[0];
+
+  try {
+    return (await DELETE(event)) as Response;
   } catch (thrownByHandler) {
     if (thrownByHandler instanceof Response) return thrownByHandler;
     const httpFailure = thrownByHandler as { status?: number; body?: { message?: string } };
@@ -140,5 +177,57 @@ describe('POST /api/chat-rooms/:roomId/breaks', () => {
     });
     expect(response.status).toBe(401);
     expect(listMessagesInRoom(room.id)).toHaveLength(0);
+  });
+});
+
+describe('DELETE /api/chat-rooms/:roomId/breaks/:breakId', () => {
+  beforeEach(() => {
+    resetChatRoomStoreForTests();
+    resetChatMessageStoreForTests();
+  });
+
+  it('soft-deletes a break message for an authenticated room mutator', async () => {
+    const room = createChatRoom({ name: 'delete-break', whoCreatedIt: '@you' });
+    const breakMessage = postBreakMessage({
+      roomId: room.id,
+      postedByHandle: '@you',
+      reason: 'mistaken break'
+    });
+
+    const response = await callBreakDelete({ roomId: room.id, breakId: breakMessage.id });
+
+    expect(response.status).toBe(204);
+    const updated = getMessageById(breakMessage.id);
+    expect(updated?.kind).toBe('system-break');
+    expect(updated?.deletedAtMs).toEqual(expect.any(Number));
+    expect(updated?.deletedByHandle).toBe('@admin');
+  });
+
+  it('returns 401 and leaves the break untouched when no auth is provided', async () => {
+    const room = createChatRoom({ name: 'delete-break-unauth', whoCreatedIt: '@you' });
+    const breakMessage = postBreakMessage({ roomId: room.id, postedByHandle: '@you' });
+
+    const response = await callBreakDelete({
+      roomId: room.id,
+      breakId: breakMessage.id,
+      withAuth: false
+    });
+
+    expect(response.status).toBe(401);
+    expect(getMessageById(breakMessage.id)?.deletedAtMs).toBeUndefined();
+  });
+
+  it('returns 404 and does not delete a normal message through the break endpoint', async () => {
+    const room = createChatRoom({ name: 'delete-non-break', whoCreatedIt: '@you' });
+    const normalMessage = postMessage({
+      roomId: room.id,
+      authorHandle: '@you',
+      body: 'not a break'
+    });
+
+    const response = await callBreakDelete({ roomId: room.id, breakId: normalMessage.id });
+
+    expect(response.status).toBe(404);
+    expect(getMessageById(normalMessage.id)?.deletedAtMs).toBeUndefined();
   });
 });

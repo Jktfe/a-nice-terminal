@@ -10,6 +10,7 @@ import {
   postMessage,
   resetChatMessageStoreForTests
 } from './chatMessageStore';
+import { getIdentityDb } from './db';
 
 describe('chatMessageStore — break context (M12)', () => {
   beforeEach(() => {
@@ -90,6 +91,27 @@ describe('chatMessageStore — break context (M12)', () => {
     const agentVisible = listMessagesAfterLatestBreak(room.id);
     expect(agentVisible.map((m) => m.body)).toEqual([
       expect.stringContaining('second'),
+      'latest'
+    ]);
+  });
+
+  it('listMessagesAfterLatestBreak ignores deleted breaks when choosing the boundary', () => {
+    const room = createChatRoom({ name: 'deleted-break', whoCreatedIt: '@you' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'oldest' });
+    const firstBreak = postBreakMessage({ roomId: room.id, postedByHandle: '@you', reason: 'first' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'middle' });
+    const secondBreak = postBreakMessage({ roomId: room.id, postedByHandle: '@you', reason: 'second' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'latest' });
+
+    getIdentityDb()
+      .prepare(`UPDATE chat_messages SET deleted_at_ms = ?, deleted_by_handle = ? WHERE id = ?`)
+      .run(1234, '@you', secondBreak.id);
+
+    const agentVisible = listMessagesAfterLatestBreak(room.id);
+    expect(agentVisible.map((m) => m.body)).toEqual([
+      firstBreak.body,
+      'middle',
+      secondBreak.body,
       'latest'
     ]);
   });
