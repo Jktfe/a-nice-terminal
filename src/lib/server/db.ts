@@ -313,6 +313,11 @@ const SCHEMA_DDL_STATEMENTS = [
   `ALTER TABLE chat_rooms ADD COLUMN current_interview_id TEXT`,
   // Contract binding (2026-05-23): which governance contract this room follows.
   `ALTER TABLE chat_rooms ADD COLUMN contract_id TEXT`,
+  // Context-break enforcement (2026-05-23): hard mode makes the latest
+  // system-break a server-side context boundary. off/advisory keep history
+  // available for deliberate recall paths while UI/agents can still warn.
+  `ALTER TABLE chat_rooms ADD COLUMN context_break_enforcement TEXT NOT NULL DEFAULT 'hard'
+    CHECK (context_break_enforcement IN ('off','advisory','hard'))`,
   `CREATE TABLE IF NOT EXISTS chat_room_interviews (
     id              TEXT PRIMARY KEY,
     room_id         TEXT NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,

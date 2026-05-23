@@ -8,6 +8,7 @@ import {
 } from '$lib/server/chatRoomStore';
 import {
   listMessagesInRoom,
+  postBreakMessage,
   postMessage,
   resetChatMessageStoreForTests
 } from '$lib/server/chatMessageStore';
@@ -154,7 +155,8 @@ describe('GET /api/chat-rooms/:roomId/messages pagination', () => {
       limit: 100,
       before: null,
       hasMore: true,
-      nextBefore: payload.messages[0].postOrder
+      nextBefore: payload.messages[0].postOrder,
+      sinceBreak: true
     });
   });
 
@@ -181,6 +183,28 @@ describe('GET /api/chat-rooms/:roomId/messages pagination', () => {
     expect(payload.paging.before).toBe(seeded[3].postOrder);
     expect(payload.paging.hasMore).toBe(true);
     expect(payload.paging.nextBefore).toBe(payload.messages[0].postOrder);
+  });
+
+  it('keeps hard context-break mode server-side even when include_pre_break is requested', async () => {
+    const room = createChatRoom({ name: 'hard-break-boundary', whoCreatedIt: '@you' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'before the break' });
+    postBreakMessage({ roomId: room.id, postedByHandle: '@you', reason: 'reset' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'after the break' });
+    const { token } = issueToken('you@example.com');
+
+    const response = await callGet(
+      room.id,
+      '?include_pre_break=true',
+      { authorization: `Bearer ${token}` }
+    );
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.messages.map((message: { body: string }) => message.body)).toEqual([
+      expect.stringContaining('Context break'),
+      'after the break'
+    ]);
+    expect(payload.paging.sinceBreak).toBe(true);
   });
 
   it('rejects malformed pagination parameters', async () => {
