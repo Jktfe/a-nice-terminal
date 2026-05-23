@@ -9,7 +9,7 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { randomUUID } from 'node:crypto';
 import { getDeck } from '$lib/server/deckStore';
-import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
+import { requireStagePresenterAuth } from '$lib/server/stagePresenterAuth';
 import { appendPlanEvent } from '$lib/server/planModeStore';
 import { postSystemMessage } from '$lib/server/chatMessageStore';
 import { broadcastToRoom } from '$lib/server/eventBroadcast';
@@ -112,7 +112,7 @@ function buildAlternativeTrackMarkdown(input: {
   ].join('\n');
 }
 
-export const POST: RequestHandler = async ({ params, request }) => {
+export const POST: RequestHandler = async ({ params, request, url }) => {
   const deck = getDeck(params.deckId);
   if (!deck) throw error(404, 'Deck not found.');
 
@@ -121,7 +121,13 @@ export const POST: RequestHandler = async ({ params, request }) => {
     throw error(400, 'JSON body required.');
   }
 
-  const auth = requireChatRoomMutationAuth(deck.roomId, request, payload);
+  const auth = requireStagePresenterAuth({
+    roomId: deck.roomId,
+    deckAccessPassword: deck.accessPassword,
+    request,
+    url,
+    rawBody: payload
+  });
 
   const slideIndex =
     typeof payload.slideIndex === 'number' && Number.isInteger(payload.slideIndex)
@@ -209,7 +215,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
     body: feedbackText,
     order: slideIndex,
     author_handle: auth.handle,
-    author_kind: auth.isAdminBearer ? 'system' : 'agent',
+    author_kind: auth.isAdminBearer ? 'system' : (auth.isDeckPassword ? 'human' : 'agent'),
     ts_millis: tsMillis,
     evidence: [
       {
