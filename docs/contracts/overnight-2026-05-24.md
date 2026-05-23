@@ -27,8 +27,8 @@ All 5 are OSS-visible. No agent should claim "I didn't have the protocol".
 
 ## The 4 hard rules for the overnight window
 
-1. **Worktree-only** — no direct commits to main. Branch off main, worktree → commit → peer-review → merge.
-2. **Single peer-ACK suffices** — author + 1 reviewer = 2 distinct agents. Don't wait for JWPK.
+1. **Worktree-only for code changes** — no direct commits to main when touching `src/`, `scripts/`, schema migrations, or anything that can break the running server. Branch off main, worktree → commit → peer-review → merge. **Carve-out:** Chair-authored operational docs in `docs/contracts/` or `docs/audits/` that are URGENT and contain NO code paths MAY ship direct (this brief itself shipped via that carve-out as commit `4e13640`).
+2. **Single peer-ACK suffices for code merges** — author + 1 reviewer = 2 distinct agents. Don't wait for JWPK.
 3. **Bank major decisions** — every non-obvious choice gets a memory file or capability-ledger row. "Memory must be room-visible" per banked feedback — also `ant artefact add` if appropriate.
 4. **Use asks for genuine decisions only** — if it's a real product call JWPK must make, open an ask. If it's a scope guess, build-both or pick from backlog. The default is keep moving.
 
