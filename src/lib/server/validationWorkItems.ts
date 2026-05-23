@@ -14,6 +14,7 @@ export type ValidationWorkItem = {
   claimText: string;
   sourcePointer: string;
   verifierKind: ValidationVerifierKind;
+  assignedTo: string | null;
   reason: string;
   reused: boolean;
 };
@@ -75,12 +76,49 @@ export function createValidationWorkItems(input: {
   for (const claimPlan of input.orchestration.claimPlans) {
     const claim = claimPlan.claim;
     const claimText = shortQuote(claim.text);
-    let order = 0;
+    for (const assignment of claimPlan.assignments) {
+      if (items.length >= maxItems) return items;
+      const id = stableTaskId([
+        input.artefactId,
+        input.lensSlug,
+        claim.id,
+        assignment.verifierKind,
+        assignment.handle
+      ]);
+      const { task, reused } = createOrReuseTask({
+        id,
+        title: `Validate ${claim.id} (${assignment.handle})`,
+        description: workDescription({
+          artefactId: input.artefactId,
+          lensSlug: input.lensSlug,
+          claimId: claim.id,
+          claimText: claim.text,
+          sourcePointer: claim.source.pointer,
+          verifierKind: assignment.verifierKind,
+          reason: assignment.reason
+        }),
+        status: 'todo',
+        assignedTo: assignment.handle,
+        roomId: input.roomId,
+        planId: `validation-${input.artefactId}`,
+        createdBy: input.createdBy,
+        orderIndex: items.length
+      });
+      items.push({
+        task,
+        claimId: claim.id,
+        claimText,
+        sourcePointer: claim.source.pointer,
+        verifierKind: assignment.verifierKind,
+        assignedTo: task.assignedTo,
+        reason: assignment.reason,
+        reused
+      });
+    }
 
     for (const missing of claimPlan.missing) {
       for (let index = 0; index < missing.count; index += 1) {
         if (items.length >= maxItems) return items;
-        order += 1;
         const id = stableTaskId([
           input.artefactId,
           input.lensSlug,
@@ -105,7 +143,7 @@ export function createValidationWorkItems(input: {
           roomId: input.roomId,
           planId: `validation-${input.artefactId}`,
           createdBy: input.createdBy,
-          orderIndex: items.length + order
+          orderIndex: items.length
         });
         items.push({
           task,
@@ -113,6 +151,7 @@ export function createValidationWorkItems(input: {
           claimText,
           sourcePointer: claim.source.pointer,
           verifierKind: missing.verifierKind,
+          assignedTo: task.assignedTo,
           reason: missing.reason,
           reused
         });

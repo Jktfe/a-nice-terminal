@@ -42,6 +42,7 @@
         claimId: string;
         sourcePointer: string;
         verifierKind: string;
+        assignedTo: string | null;
         reused: boolean;
       }>;
     };
