@@ -14,7 +14,8 @@ function requireAuth(request: Request): void {
   }
 }
 
-export const GET: RequestHandler = async ({ params }) => {
+export const GET: RequestHandler = async ({ params, request }) => {
+  requireAuth(request);
   const style = getDesignStyle(params.styleId);
   if (!style) throw error(404, 'Style not found.');
   return json({ style });
