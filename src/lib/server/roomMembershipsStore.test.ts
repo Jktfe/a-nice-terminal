@@ -190,14 +190,18 @@ describe('β3 agent-join system message', () => {
     const { createChatRoom } = await import('./chatRoomStore');
     const { listMessagesInRoom } = await import('./chatMessageStore');
     const { getIdentityDb } = await import('./db');
-    // Register @human as a human owner so resolveHumanOwnership returns kind='human'
+    // Register @human-tester as a human owner so resolveHumanOwnership
+    // returns kind='human'. owners table requires NOT NULL password_hash
+    // + updated_at_ms (per schema in db.ts).
     const db = getIdentityDb();
-    db.prepare(`INSERT INTO owners (id, primary_handle, created_at_ms) VALUES (?, ?, ?)`).run(
-      'owner-1', '@human-tester', Date.now()
-    );
-    db.prepare(`INSERT INTO owner_handles (handle, owner_id, assigned_at_ms) VALUES (?, ?, ?)`).run(
-      '@human-tester', 'owner-1', Date.now()
-    );
+    const now = Date.now();
+    db.prepare(
+      `INSERT INTO owners (id, primary_handle, password_hash, created_at_ms, updated_at_ms)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run('owner-1', '@human-tester', 'test-hash', now, now);
+    db.prepare(
+      `INSERT INTO owner_handles (handle, owner_id, assigned_at_ms) VALUES (?, ?, ?)`
+    ).run('@human-tester', 'owner-1', now);
     const room = createChatRoom({ name: 'join-test-2', whoCreatedIt: '@you' });
     const tid = makeTerminal('human-t');
     addMembership({ room_id: room.id, handle: '@human-tester', terminal_id: tid });
@@ -205,13 +209,21 @@ describe('β3 agent-join system message', () => {
     expect(msgs.filter((m) => m.kind === 'system')).toHaveLength(0);
   });
 
-  it('does NOT re-post on second addMembership for same (room, handle)', async () => {
+  it('does NOT re-post when addMembership is called again for same (room, handle)', async () => {
+    // Per kimi's review note: second addMembership with same (room_id, handle)
+    // returns the EXISTING row via the early-return branch — no INSERT fires,
+    // so no second preamble. The earlier version of this test relied on the
+    // UNIQUE constraint throwing, which masked the actual "early return"
+    // path. We now exercise both the same-terminal case (no-op) and the
+    // different-terminal case (terminal_id update, still no INSERT).
     const { createChatRoom } = await import('./chatRoomStore');
     const { listMessagesInRoom } = await import('./chatMessageStore');
     const room = createChatRoom({ name: 'join-test-3', whoCreatedIt: '@you' });
-    const tid = makeTerminal('agent-t2');
-    addMembership({ room_id: room.id, handle: '@speedycodex', terminal_id: tid });
-    addMembership({ room_id: room.id, handle: '@speedycodex', terminal_id: tid });
+    const tid1 = makeTerminal('agent-t2');
+    const tid2 = makeTerminal('agent-t2b');
+    addMembership({ room_id: room.id, handle: '@speedycodex', terminal_id: tid1 });
+    addMembership({ room_id: room.id, handle: '@speedycodex', terminal_id: tid1 }); // same term
+    addMembership({ room_id: room.id, handle: '@speedycodex', terminal_id: tid2 }); // rebind term
     const msgs = listMessagesInRoom(room.id);
     expect(msgs.filter((m) => m.kind === 'system')).toHaveLength(1);
   });

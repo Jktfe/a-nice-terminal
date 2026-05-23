@@ -28,7 +28,7 @@ const AGENT_JOIN_PREAMBLE_BODY = [
   '**Agent join — context discipline for this room** (one-time system notice).',
   '',
   '1. `kind=system-break` messages are a HARD backwards-scan boundary. Don\'t read older context unless explicitly asked.',
-  '2. Memory files (`memory/*.md`) are room-only by default — only pull if linked from recent room posts or @you asks.',
+  '2. Memory files (`room-memories/<memoryID>.md`) are room-only by default — only pull if linked from recent room posts or @you asks.',
   '',
   'Use the ask primitive for real decisions. Tight ACKs for coordination. Surface obstacles as 2-4 logic-shape paths, never bulk-dump.',
 ].join('\n');
