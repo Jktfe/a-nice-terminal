@@ -311,6 +311,8 @@ const SCHEMA_DDL_STATEMENTS = [
   // current_interview_id is APP-LEVEL pointer (no FK per SQLite ALTER
   // TABLE constraint; cleanup edge is chat_room_interviews.room_id CASCADE).
   `ALTER TABLE chat_rooms ADD COLUMN current_interview_id TEXT`,
+  // Contract binding (2026-05-23): which governance contract this room follows.
+  `ALTER TABLE chat_rooms ADD COLUMN contract_id TEXT`,
   `CREATE TABLE IF NOT EXISTS chat_room_interviews (
     id              TEXT PRIMARY KEY,
     room_id         TEXT NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
