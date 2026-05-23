@@ -8,6 +8,7 @@
 -->
 <script lang="ts">
   import type { Task } from '$lib/server/taskStore';
+  import ValidationBadge from './ValidationBadge.svelte';
 
   type Props = {
     task: Task | null;
@@ -297,6 +298,9 @@
     {/if}
 
     {#if validationTask}
+      <div class="badge-row">
+        <ValidationBadge claimAnchor={validationTask.claimId} />
+      </div>
       <section class="verifier-card" data-validation-run-endpoint={validationRunEndpoint}>
         <h3>Submit verifier evidence</h3>
         <dl class="verifier-meta">
