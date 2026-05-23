@@ -53,9 +53,16 @@ export const GET: RequestHandler = async ({ params, request, url }) => {
   await requireChatRoomReadAccess(request, room);
   const limit = parseLimit(url.searchParams.get('limit'));
   const before = parseBefore(url.searchParams.get('before'));
+  // Server-side context-break boundary (JWPK msg_ef2p1p75j9, 2026-05-23):
+  // by default the endpoint returns only messages since the most recent
+  // system-break in the room. Caller can opt out with ?include_pre_break=true
+  // to get full history with pagination as before. β2 user-setting toggle
+  // will gate whether the opt-out is honoured per user.
+  const includePreBreak = url.searchParams.get('include_pre_break') === 'true';
   const page = listMessagesPageInRoom({
     roomId: params.roomId,
     limit,
+    sinceBreak: !includePreBreak,
     ...(before !== undefined && { beforePostOrder: before })
   });
   return json({
@@ -64,7 +71,8 @@ export const GET: RequestHandler = async ({ params, request, url }) => {
       limit,
       before: before ?? null,
       hasMore: page.hasMore,
-      nextBefore: page.nextBefore
+      nextBefore: page.nextBefore,
+      sinceBreak: !includePreBreak
     }
   });
 };
