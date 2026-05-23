@@ -368,6 +368,7 @@
     roomName={roomFromServer.name}
     startedBy={roomFromServer.whoCreatedIt}
     lastUpdate={roomFromServer.lastUpdate}
+    contractId={roomFromServer.contractId}
   >
     {#snippet menu()}
       <RoomMenuDropdown summary="More" innerIds={['participants', 'focus', 'asks', 'plans', 'tasks', 'linked-rooms', 'interviews', 'artefacts', 'screenshots', 'memory', 'attachments']}>
