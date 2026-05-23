@@ -43,6 +43,66 @@ describe('validationLensStore', () => {
       const all = listValidationSchemas(true);
       expect(all).toHaveLength(1);
     });
+
+    it('defaults schemas to public/global scope', () => {
+      createValidationSchema({
+        id: 'test-public-default', name: 'Default Public Lens', lensKind: 'custom',
+        description: 'Defaults to public/global when no owner scope is supplied.',
+        rulesJson: '[]', createdBy: '@test', archivedAtMs: null,
+      });
+
+      const schema = getValidationSchema('test-public-default');
+      expect(schema).toMatchObject({
+        scope: 'public',
+        scopeId: 'global',
+      });
+    });
+
+    it('filters visible schemas by public, user, and org scope', () => {
+      createValidationSchema({
+        id: 'public-lens', name: 'Public Lens', lensKind: 'custom',
+        description: 'Visible to everyone',
+        rulesJson: '[]', createdBy: '@test', archivedAtMs: null,
+        scope: 'public', scopeId: 'global',
+      });
+      createValidationSchema({
+        id: 'user-lens', name: 'User Lens', lensKind: 'custom',
+        description: 'Visible to @james',
+        rulesJson: '[]', createdBy: '@test', archivedAtMs: null,
+        scope: 'user', scopeId: '@james',
+      });
+      createValidationSchema({
+        id: 'org-lens', name: 'Org Lens', lensKind: 'custom',
+        description: 'Visible to org_newmodel_team',
+        rulesJson: '[]', createdBy: '@test', archivedAtMs: null,
+        scope: 'org', scopeId: 'org_newmodel_team',
+      });
+      createValidationSchema({
+        id: 'other-user-lens', name: 'Other User Lens', lensKind: 'custom',
+        description: 'Hidden from @james',
+        rulesJson: '[]', createdBy: '@test', archivedAtMs: null,
+        scope: 'user', scopeId: '@other',
+      });
+      createValidationSchema({
+        id: 'other-org-lens', name: 'Other Org Lens', lensKind: 'custom',
+        description: 'Hidden from org_newmodel_team',
+        rulesJson: '[]', createdBy: '@test', archivedAtMs: null,
+        scope: 'org', scopeId: 'org_other',
+      });
+
+      const visible = listValidationSchemas({
+        visibleTo: {
+          handles: ['@james'],
+          orgId: 'org_newmodel_team',
+          isAdmin: false,
+        },
+      });
+      expect(visible.map((schema) => schema.id).sort()).toEqual([
+        'org-lens',
+        'public-lens',
+        'user-lens',
+      ]);
+    });
   });
 
   describe('validation runs', () => {
