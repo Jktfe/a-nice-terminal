@@ -9,13 +9,36 @@
 type Subscriber = ReadableStreamDefaultController<Uint8Array>;
 
 type Globals = {
-  __antEventBroadcast?: { subscribers: Map<string, Set<Subscriber>> };
+  __antEventBroadcast?: {
+    subscribers: Map<string, Set<Subscriber>>;
+    seq: Map<string, number>;
+  };
 };
 
-function getStore(): { subscribers: Map<string, Set<Subscriber>> } {
+function getStore(): {
+  subscribers: Map<string, Set<Subscriber>>;
+  seq: Map<string, number>;
+} {
   const g = globalThis as unknown as Globals;
-  if (!g.__antEventBroadcast) g.__antEventBroadcast = { subscribers: new Map() };
+  if (!g.__antEventBroadcast)
+    g.__antEventBroadcast = { subscribers: new Map(), seq: new Map() };
   return g.__antEventBroadcast;
+}
+
+// Per-room monotonic sequence counter (SSE consumer contract v0).
+// In-memory only; resets on server restart. Consumers MUST treat
+// seq going backwards as "server restarted, continue forward" rather
+// than reordering — the consumer pattern's `lastSeq = event.seq`
+// silently handles this. Per @claudev4 ratify (yz4clwzvbm 2026-05-23).
+export function nextSeqForRoom(roomId: string): number {
+  const store = getStore();
+  const next = (store.seq.get(roomId) ?? 0) + 1;
+  store.seq.set(roomId, next);
+  return next;
+}
+
+export function currentSeqForRoom(roomId: string): number {
+  return getStore().seq.get(roomId) ?? 0;
 }
 
 export function subscribeToRoom(roomId: string, controller: Subscriber): void {
@@ -35,8 +58,16 @@ export function unsubscribeFromRoom(roomId: string, controller: Subscriber): voi
 export function broadcastToRoom(roomId: string, event: Record<string, unknown>): void {
   const { subscribers } = getStore();
   const roomSet = subscribers.get(roomId);
+  // Mint a seq even with no subscribers so currentSeqForRoom() advances
+  // — keeps the connect-frame's latest_seq honest about what's happened
+  // in the room, not what subscribers happened to be online for.
+  const seq = nextSeqForRoom(roomId);
   if (!roomSet || roomSet.size === 0) return;
-  const payload = `data: ${JSON.stringify(event)}\n\n`;
+  const eventWithSeq = { ...event, seq };
+  // SSE `id:` header lets the browser EventSource set lastEventId so
+  // auto-reconnect resumes with a Last-Event-ID header. Node consumers
+  // read the inline `seq` field for the same purpose.
+  const payload = `id: ${seq}\ndata: ${JSON.stringify(eventWithSeq)}\n\n`;
   const bytes = new TextEncoder().encode(payload);
   for (const controller of roomSet) {
     try {
