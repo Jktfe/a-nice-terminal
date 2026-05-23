@@ -37,7 +37,6 @@ function nativeClientConfig(request: Request) {
     recommendedBaseUrl,
     endpoints: {
       capabilities: '/api/capabilities',
-      contracts: '/api/contracts',
       health: '/api/health',
       rooms: '/api/chat-rooms',
       room: '/api/chat-rooms/{roomId}',
