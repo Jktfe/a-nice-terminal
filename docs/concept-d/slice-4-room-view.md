@@ -13,7 +13,7 @@
 
 | # | Decision | SwiftUI / file |
 |---|---|---|
-| 1 | **Lift, don't rewrite.** | Extract chat surface from `LegacyAppShellView` into `Antchat/Views/Chat/` (`ChatStream.swift`, `ChatMessageRow.swift`, `ChatComposer.swift`). No fresh chat logic; mechanical port preserves FINDING-3 self-post, fanout, pidChain, focus mode. |
+| 1 | **Lift, don't rewrite — BUT SURGICAL.** | Extract ONLY the chat surface from `LegacyAppShellView` into `Antchat/Views/Chat/` (`ChatStream.swift`, `ChatMessageRow.swift`, `ChatComposer.swift`). **DO NOT bulk-lift the LegacyAppShellView side-panels.** See "DO NOT LIFT" callout below the table — those surfaces are REPLACED by the new RoomShelf tabs, not duplicated into RoomColumn body. JWPK dogfood `msg_wsdvgzkgkb` saw the over-lift result (the OLD panel stack rendered alongside the new shelf). Fix is to delete every legacy-panel reference from RoomColumn body. |
 | 2 | **MessagesService.** | New `Antchat/Services/MessagesService.swift` at `AppShellView` root. Long-poll keyed on `currentRoom.id`; 30 s passive refresh fallback. Same `LoadState<T>` shape as Slices 2/3. |
 | 3 | **RoomShelf tab content.** | Each of the 8 tabs ships a static content panel in `Antchat/Views/Shell/RoomShelf/`. ★Chair + ★Validation are `PremiumLockedPanel.swift` (shared locked-card placeholder). |
 | 4 | **Empty "no room selected".** | Keep the existing fallback in `RoomColumn.swift:65` from Slice 2.5 — when `currentRoom.id` is nil/empty, show "Pick a room" empty state. |
@@ -23,6 +23,35 @@
 | 8 | **Honour ALL v0.1.x message kinds.** | `ChatMessageRow` switches on `Message.kind`: `chat`, `system_break`, `focus_banner`, `agent_status`, `plan_step`, `ask_card`, `deck_slide`. Anything dropped = regression to existing users. |
 | 9 | **NO cost meter.** | Per the remoteant chrome cleanup — cost is server-operator concern, stays in `/dashboard`. Do not re-introduce by accident. |
 | 10 | **All tokens via `Tokens.*`** | No raw hex in `Views/Chat/` or `Views/Shell/RoomShelf/`. |
+
+---
+
+## DO NOT LIFT — surfaces that stay OUT of RoomColumn body
+
+Per JWPK dogfood `msg_wsdvgzkgkb` (Slice 4 redo guidance). The following v0.1.x `LegacyAppShellView` sub-views/panels **MUST NOT** be lifted into `RoomColumn` body. They are replaced by RoomShelf tabs in the right rail, and rendering them in the middle column produces the dup-panel mess JWPK flagged.
+
+| Legacy surface | Where it goes instead |
+|---|---|
+| Participants list / member roster panel | RoomColumn header avatar stack + (future) Members RoomShelf tab |
+| Focus mode panel | Stays as a popover / drawer triggered by avatar click — NOT inline |
+| Open asks panel | RoomShelf "Asks" tab (or merge with existing Interviews tab) |
+| Documents panel | RoomShelf "Artefacts" tab |
+| Tasks panel | RoomShelf "Plan" tab |
+| Artefacts panel (legacy) | RoomShelf "Artefacts" tab (the new one) |
+| Screenshots panel | RoomShelf "Attachments" tab |
+| Linked rooms panel | RoomShelf "Linked rooms" tab |
+| Pinned / workflow side panels | Removed entirely (per JWPK "remove this") |
+| Cost / token meter | Stays removed per Slice 1 chrome cleanup |
+
+**Lift checklist for the build:**
+1. Open `LegacyAppShellView.swift`. Identify the `ScrollView` or `VStack` that holds the chat messages.
+2. Extract ONLY that subtree (and its direct dependencies) into `ChatStream.swift`.
+3. Identify the message-input `TextField` + Send button. Extract ONLY those into `ChatComposer.swift`.
+4. Identify the per-row rendering switch. Extract ONLY that into `ChatMessageRow.swift`.
+5. Every OTHER `View` instantiation in `LegacyAppShellView` — Participants / Focus / Asks / Docs / Tasks / Artefacts panels — gets **deleted** from the RoomColumn composition. If a surface needs to live somewhere, it's in the corresponding RoomShelf tab; if it doesn't have one yet, it's a backlog item, not a RoomColumn child.
+6. `RoomColumn.body` end state = `VStack { header; dragDropHint; ChatStream(); ChatComposer() }`. Nothing else.
+
+If the build sees a panel that has nowhere to go, FLAG it in chat rather than bulk-lifting "just to be safe."
 
 ---
 
