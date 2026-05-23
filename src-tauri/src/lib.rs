@@ -13,6 +13,7 @@ pub mod configcmd;
 pub mod consent;
 pub mod poller;
 pub mod pty;
+pub mod router_sidecar;
 pub mod strongholdcfg;
 
 use tauri::Manager;
@@ -33,6 +34,7 @@ pub fn run() {
         .plugin(tauri_plugin_stronghold::Builder::with_argon2(&salt_path).build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_shell::init())
         .manage(pty_registry.clone())
         .setup(move |app| {
             // wta-12: create system tray icon + menu
@@ -44,6 +46,13 @@ pub fn run() {
             let registry = pty_registry.clone();
             let handle = app.handle().clone();
             let app_data = app.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            // E2 (2026-05-23): clone the handle once more for the router-
+            // sidecar spawn so it can fire independently of the poller loop.
+            // Both branches read the same PollerConfig but use it differently:
+            // poller drives the message-event polling loop; router-sidecar
+            // bridges room messages into a WezTerm pane via ant-router child.
+            let app_handle_for_router = app.handle().clone();
+            let app_data_for_router = app_data.clone();
             tauri::async_runtime::spawn(async move {
                 let cfg = strongholdcfg::load_poller_config(&app_data).unwrap_or_else(|| poller::PollerConfig {
                     server_url: std::env::var("ANT_DESKTOP_SERVER_URL").unwrap_or_default(),
@@ -51,6 +60,19 @@ pub fn run() {
                     room_id: std::env::var("ANT_DESKTOP_ROOM_ID").unwrap_or_default(),
                 });
                 poller::run_polling_loop(handle, registry, cfg).await;
+            });
+            // Fire the router-sidecar spawn after a small delay so the poller
+            // claims stronghold first. Reads the same config independently.
+            tauri::async_runtime::spawn(async move {
+                let cfg = strongholdcfg::load_poller_config(&app_data_for_router);
+                let room_id = cfg.map(|c| c.room_id).unwrap_or_default();
+                // Handle is None for now — E4 will extend the config schema
+                // with handle + paneTargeting fields and pass them through.
+                router_sidecar::spawn_router_if_applicable(
+                    &app_handle_for_router,
+                    room_id,
+                    None,
+                );
             });
             Ok(())
         })
