@@ -12,7 +12,9 @@
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
+  import DeckViewerToolbar from '$lib/components/DeckViewerToolbar.svelte';
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
+  import StageFeedbackPanel from '$lib/components/StageFeedbackPanel.svelte';
   import { renderMarkdown } from '$lib/chat/renderMarkdown';
   import { BrowserTTSProvider, ElevenLabsTTSProvider, type TTSHandle, type TTSProvider } from '$lib/voice/interview-tts';
   import type { PageData } from './$types';
@@ -373,25 +375,17 @@
   title={deck.title}
   summary={`From /rooms/${deck.roomId} · ${slideCount} slide${slideCount === 1 ? '' : 's'}`}
 >
-  <div class="deck-toolbar" role="toolbar" aria-label="Deck controls">
-    <a class="back" href={`/rooms/${encodeURIComponent(deck.roomId)}`}>← Back to room</a>
-    <span class="deck-spacer"></span>
-    <button type="button" class="toolbar-btn" onclick={() => (inspectMode = !inspectMode)} aria-pressed={inspectMode}>
-      {inspectMode ? 'Hide JSON' : 'Inspect JSON'}
-      <kbd>I</kbd>
-    </button>
-    <button type="button" class="toolbar-btn" onclick={playCurrentSlide} aria-pressed={speakingIndex === activeIndex}>
-      {pausedIndex === activeIndex ? 'Resume' : (speakingIndex === activeIndex ? 'Pause' : 'Start voice')}
-    </button>
-    {#if speakingIndex === activeIndex}
-      <button type="button" class="toolbar-btn" onclick={stopSpeaking}>
-        Stop
-      </button>
-    {/if}
-    <button type="button" class="toolbar-btn" onclick={copyShareLink}>
-      Copy share link
-    </button>
-  </div>
+  <DeckViewerToolbar
+    roomId={deck.roomId}
+    {inspectMode}
+    speakingThisSlide={speakingIndex === activeIndex}
+    pausedThisSlide={pausedIndex === activeIndex}
+    canStopVoice={speakingIndex === activeIndex}
+    onToggleInspect={() => (inspectMode = !inspectMode)}
+    onPlayPause={playCurrentSlide}
+    onStop={stopSpeaking}
+    onCopyShareLink={copyShareLink}
+  />
 
   {#if shareNotice}
     <p class="share-notice" role="status">{shareNotice}</p>
@@ -448,70 +442,21 @@
     </section>
   {/if}
 
-  <section class="feedback-panel" aria-label="Stage feedback (β + γ1 + γ2)">
-    <header>
-      <h3>Feedback</h3>
-      <p class="panel-hint">Pause narration to anchor feedback to a specific spoken moment. Submitting creates a Version B proposal track for agents without mutating the source deck.</p>
-    </header>
-
-    {#if feedbackNotice}
-      <p class={feedbackNotice.kind === 'ok' ? 'feedback-ok' : 'feedback-err'} role="status">
-        {feedbackNotice.text}
-        {#if feedbackNotice.ref}
-          <a href={feedbackNotice.ref}>Open proposal</a>
-        {/if}
-      </p>
-    {/if}
-
-    {#if pauseSnapshot}
-      <div class="pause-context" aria-label="Captured pause context">
-        <div class="ctx-row"><span class="ctx-label">Slide</span><code>{pauseSnapshot.slideIndex + 1} · {pauseSnapshot.slideTitle}</code></div>
-        <div class="ctx-row"><span class="ctx-label">Elapsed</span><code>{(pauseSnapshot.elapsedMs / 1000).toFixed(1)}s · ~char {pauseSnapshot.estimatedCharOffset} of {pauseSnapshot.narrationText.length}</code></div>
-        {#if pauseSnapshot.lastSpokenWindow}
-          <div class="ctx-row ctx-window">
-            <span class="ctx-label">Last spoken</span>
-            <q>…{pauseSnapshot.lastSpokenWindow}</q>
-          </div>
-        {/if}
-      </div>
-    {:else}
-      <p class="panel-hint">No pause context yet. Hit <strong>Pause</strong> during narration to capture.</p>
-    {/if}
-
-    <label class="feedback-field">
-      <span>Your correction or feedback</span>
-      <textarea
-        bind:value={feedbackText}
-        placeholder={pauseSnapshot ? `e.g. "no — we don't do that, we do this..."` : 'Pause narration first to anchor your feedback.'}
-        rows="3"
-        disabled={!pauseSnapshot}
-      ></textarea>
-    </label>
-
-    <label class="feedback-field">
-      <span>Additional context (paste)</span>
-      <textarea
-        bind:value={pasteContext}
-        placeholder={pauseSnapshot ? 'Paste a URL, snippet, or doc reference that clarifies what "that" refers to.' : ''}
-        rows="2"
-        disabled={!pauseSnapshot}
-      ></textarea>
-    </label>
-
-    <div class="feedback-actions">
-      <button
-        type="button"
-        class="toolbar-btn"
-        disabled={!pauseSnapshot || feedbackText.trim().length === 0 || feedbackSubmitting}
-        onclick={submitFeedback}
-      >
-        {feedbackSubmitting ? 'Submitting…' : 'Submit'}
-      </button>
-      <button type="button" class="toolbar-btn" onclick={() => { pauseSnapshot = null; feedbackText = ''; pasteContext = ''; pauseContextRef = ''; feedbackNotice = null; }}>
-        Clear
-      </button>
-    </div>
-  </section>
+  <StageFeedbackPanel
+    {pauseSnapshot}
+    bind:feedbackText
+    bind:pasteContext
+    {feedbackSubmitting}
+    {feedbackNotice}
+    onSubmit={submitFeedback}
+    onClear={() => {
+      pauseSnapshot = null;
+      feedbackText = '';
+      pasteContext = '';
+      pauseContextRef = '';
+      feedbackNotice = null;
+    }}
+  />
 
   <footer class="deck-meta">
     <span>Created {new Date(deck.createdAtMs).toLocaleString()}</span>
@@ -521,134 +466,6 @@
 </SimplePageShell>
 
 <style>
-  .feedback-panel {
-    margin-top: 2rem;
-    padding: 1rem 1.25rem;
-    border: 1px solid var(--border-soft, #d5d0c4);
-    border-radius: 0.5rem;
-    background: var(--bg-surface, #fffaf0);
-  }
-  .feedback-panel header h3 {
-    margin: 0 0 0.25rem;
-    font-size: 1.05rem;
-  }
-  .panel-hint {
-    margin: 0.25rem 0 0.75rem;
-    color: var(--ink-soft);
-    font-size: 0.9rem;
-  }
-  .feedback-ok,
-  .feedback-err {
-    margin: 0.5rem 0 0.75rem;
-    padding: 0.55rem 0.7rem;
-    border-radius: 0.45rem;
-    font-size: 0.9rem;
-  }
-  .feedback-ok {
-    border: 1px solid rgba(22, 163, 74, 0.35);
-    background: rgba(22, 163, 74, 0.1);
-  }
-  .feedback-err {
-    border: 1px solid rgba(220, 38, 38, 0.35);
-    background: rgba(220, 38, 38, 0.08);
-  }
-  .feedback-ok a {
-    margin-left: 0.5rem;
-    color: var(--accent);
-    font-weight: 700;
-  }
-  .pause-context {
-    margin: 0.5rem 0 1rem;
-    padding: 0.75rem;
-    background: var(--bg-elevated, #fff);
-    border: 1px solid var(--border-soft, #ebe6d8);
-    border-radius: 0.375rem;
-    font-size: 0.85rem;
-  }
-  .ctx-row {
-    display: flex;
-    gap: 0.75rem;
-    margin-bottom: 0.25rem;
-    align-items: baseline;
-  }
-  .ctx-row code { font-family: ui-monospace, monospace; }
-  .ctx-label {
-    color: var(--ink-soft);
-    min-width: 6rem;
-  }
-  .ctx-window q {
-    font-style: italic;
-    color: var(--ink-soft);
-  }
-  .feedback-field {
-    display: block;
-    margin: 0.5rem 0;
-  }
-  .feedback-field span {
-    display: block;
-    font-size: 0.85rem;
-    color: var(--ink-soft);
-    margin-bottom: 0.25rem;
-  }
-  .feedback-field textarea {
-    width: 100%;
-    font-family: inherit;
-    padding: 0.5rem;
-    border: 1px solid var(--border-soft, #d5d0c4);
-    border-radius: 0.375rem;
-    resize: vertical;
-  }
-  .feedback-field textarea:disabled {
-    background: var(--bg-disabled, #f5f1e8);
-    cursor: not-allowed;
-  }
-  .feedback-actions {
-    display: flex;
-    gap: 0.5rem;
-    margin-top: 0.5rem;
-  }
-
-  .back {
-    display: inline-block;
-    color: var(--ink-soft);
-    text-decoration: none;
-    font-weight: 700;
-    font-size: 0.85rem;
-  }
-  .back:hover { color: var(--accent); }
-  .deck-toolbar {
-    display: flex;
-    align-items: center;
-    gap: 0.55rem;
-    padding: 0.55rem 0;
-    margin-bottom: 1rem;
-  }
-  .deck-spacer { flex: 1; }
-  .toolbar-btn {
-    padding: 0.45rem 0.85rem;
-    border: 1px solid var(--line-soft);
-    border-radius: 999px;
-    background: var(--surface-card);
-    color: var(--ink-strong);
-    font: inherit;
-    font-weight: 800;
-    font-size: 0.82rem;
-    cursor: pointer;
-    transition: border-color 0.12s, color 0.12s;
-  }
-  .toolbar-btn:hover { border-color: var(--accent); color: var(--accent); }
-  .toolbar-btn[aria-pressed='true'] { border-color: var(--accent); color: var(--accent); }
-  .toolbar-btn kbd {
-    display: inline-block;
-    margin-left: 0.4rem;
-    padding: 0.05rem 0.35rem;
-    border: 1px solid var(--line-soft);
-    border-radius: 0.3rem;
-    background: var(--bg);
-    color: var(--ink-soft);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.7rem;
-  }
   .share-notice {
     margin: 0 0 0.85rem;
     padding: 0.55rem 0.85rem;

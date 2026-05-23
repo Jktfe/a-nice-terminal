@@ -126,3 +126,11 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Context break delete | Slice 4 room mechanics, 2026-05-23 | CHANGE | Codex | Added room-mutation-gated `DELETE /api/chat-rooms/:roomId/breaks/:breakId` for soft-deleting system-break rows. Agent context slicing now ignores deleted breaks when choosing the active boundary, while normal message delete remains author-owned and still refuses system messages. |
 | Contracts distribution split | contract-pack-v1, 2026-05-23 | CHANGE | Claude/Codex | Added `scripts/sync-contracts.mjs` to classify private-vault contracts by `visibility: oss | premium | private`. OSS-visible contracts sync to `docs/contracts/`; premium contracts sync to the private antchat resource folder and are not exposed through a public server dump/list endpoint. Missing visibility fails closed. |
 | Room contract binding | contract-binding-v1 2026-05-23 | CHANGE | Kimi | `chat_rooms.contract_id` column + `POST /api/chat-rooms/:roomId/contract` endpoint (requires room mutation auth). RoomNameHeader shows 📜 contract badge when a room is bound to a governance contract. Enables room-level protocol enforcement. |
+
+## 2026-05-23 Ship Log
+
+| Capability | Source | Status | Owner | Notes |
+|---|---|---|---|---|
+| Design-styles primitive | JWPK dictation #1, 2026-05-23 | KEEP | Kimi | Banked styles (palette/font/asset/spacing/shadow/border) scoped to org/user/public. SQLite table + store + REST API. 4/4 store tests pass. |
+| Away-mode tiers | JWPK dictation #8, 2026-05-23 | KEEP | Kimi | Three presence tiers (away-desk/office/phone) + 0-100 intensity dial. SQLite table + store + REST API. 5/5 store tests pass. |
+| Stage presenter auth bridge | JWPK 401 blocker, 2026-05-23 | CHANGE | Codex | `requireStagePresenterAuth` accepts deck password from URL query for pause-context + stage-feedback POSTs. Already shipped in ea1b5c0. |
