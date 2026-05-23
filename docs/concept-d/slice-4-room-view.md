@@ -103,7 +103,13 @@
 - Click `—break—` button → opens a small prompt sheet asking for an optional break label (placeholder: `"Slice close · Decision · …"`)
 - Submit → `POST /api/chat-rooms/:id/breaks` with `{ label }` → server inserts a `system_break` message; ChatStream renders via existing `MessageKind.system_break` row
 - Alternatively, typing `/break <label>` in the TextField + Send is auto-recognised as a break post (same endpoint, label is the text after `/break`)
-- Break DELETE deferred to v0.3 — server `DELETE /api/chat-rooms/:id/breaks/:breakId` doesn't exist yet (banked memory). Slice 4 renders breaks but no delete-affordance per row.
+- Break DELETE is in scope for Slice 4. Server contract:
+  `DELETE /api/chat-rooms/:id/breaks/:breakId` soft-deletes the system-break
+  row and broadcasts `message_updated`. Do **not** use
+  `DELETE /api/chat-rooms/:id/messages/:messageId` for breaks; the normal
+  message delete path intentionally refuses `system` / `system-break` rows.
+  The row affordance is a small destructive delete action on rendered break
+  markers, with a confirmation dialog.
 
 **Deferred to Slice 4.5 (not in scope this slice):**
 - Multi-line input
