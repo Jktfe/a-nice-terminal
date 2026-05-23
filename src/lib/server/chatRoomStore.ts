@@ -42,6 +42,7 @@ export type ChatRoom = {
   whenItWasCreated: string;
   whoCreatedIt: string;
   creationOrder: number;
+  contractId: string | null;
   members: RoomMember[];
 };
 
@@ -69,6 +70,7 @@ type ChatRoomRow = {
   when_it_was_created: string;
   who_created_it: string;
   creation_order: number;
+  contract_id: string | null;
 };
 
 type RecoverableChatRoomRow = ChatRoomRow & {
@@ -192,6 +194,7 @@ function rowToRoom(row: ChatRoomRow, members: RoomMember[]): ChatRoom {
     whenItWasCreated: row.when_it_was_created,
     whoCreatedIt: row.who_created_it,
     creationOrder: row.creation_order,
+    contractId: row.contract_id ?? null,
     members
   };
 }
@@ -248,7 +251,7 @@ function loadMembersForRoom(roomId: string): RoomMember[] {
 function loadRoomById(roomId: string): ChatRoom | undefined {
   const db = getIdentityDb();
   const row = db
-    .prepare(`SELECT id, name, summary, attention_state, last_update,
+    .prepare(`SELECT id, name, summary, attention_state, last_update, contract_id,
                      when_it_was_created, who_created_it, creation_order
               FROM chat_rooms
               WHERE id = ? AND deleted_at_ms IS NULL AND archived_at_ms IS NULL`)
@@ -370,7 +373,7 @@ export function listChatRooms(): ChatRoom[] {
   // rooms drop below ANY messaged room. creation_order DESC is the
   // stable tiebreaker among rooms with the same activity score.
   const rows = db
-    .prepare(`SELECT id, name, summary, attention_state, last_update,
+    .prepare(`SELECT id, name, summary, attention_state, last_update, contract_id,
                      when_it_was_created, who_created_it, creation_order
               FROM chat_rooms
               WHERE deleted_at_ms IS NULL AND archived_at_ms IS NULL
@@ -455,7 +458,7 @@ export function unarchiveChatRoom(roomId: string): boolean {
 
 export function listArchivedChatRooms(): RecoverableChatRoom[] {
   const rows = getIdentityDb()
-    .prepare(`SELECT id, name, summary, attention_state, last_update,
+    .prepare(`SELECT id, name, summary, attention_state, last_update, contract_id,
                      when_it_was_created, who_created_it, creation_order,
                      archived_at_ms, deleted_at_ms
               FROM chat_rooms
@@ -468,7 +471,7 @@ export function listArchivedChatRooms(): RecoverableChatRoom[] {
 
 export function listDeletedChatRooms(): RecoverableChatRoom[] {
   const rows = getIdentityDb()
-    .prepare(`SELECT id, name, summary, attention_state, last_update,
+    .prepare(`SELECT id, name, summary, attention_state, last_update, contract_id,
                      when_it_was_created, who_created_it, creation_order,
                      archived_at_ms, deleted_at_ms
               FROM chat_rooms
@@ -688,6 +691,12 @@ export function renameChatRoom(input: {
   );
 
   return { previousName: room.name, chatRoom: loadRoomById(input.roomId)! };
+}
+
+
+export function updateRoomContract(roomId: string, contractId: string | null): void {
+  const db = getIdentityDb();
+  db.prepare('UPDATE chat_rooms SET contract_id = ? WHERE id = ?').run(contractId ?? null, roomId);
 }
 
 export function updateRoomMemberPresentation(input: {
