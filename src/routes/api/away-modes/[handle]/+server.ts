@@ -14,7 +14,8 @@ function requireAuth(request: Request): void {
   }
 }
 
-export const GET: RequestHandler = async ({ params }) => {
+export const GET: RequestHandler = async ({ params, request }) => {
+  requireAuth(request);
   const mode = getAwayMode(params.handle);
   if (!mode) {
     // Return active as default when no record exists
