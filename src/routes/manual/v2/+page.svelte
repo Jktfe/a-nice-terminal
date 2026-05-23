@@ -54,6 +54,15 @@
   let loading = $state(true);
   let loadError = $state<string | null>(null);
 
+  // Slice 2 (JWPK msg_kjc604olp8 2026-05-23): state-switcher chrome.
+  // newStateForm.open toggles the inline create-form; the rest are the
+  // form fields. File upload happens inline (multipart POST) and the
+  // returned screenshotPath gets stamped onto the create-state body.
+  let newStateForm = $state<{ open: boolean; label: string; uploading: boolean; uploadError: string | null }>({
+    open: false, label: '', uploading: false, uploadError: null
+  });
+  let fileInputEl = $state<HTMLInputElement | null>(null);
+
   // Slice 1.5 (JWPK msg_iu0yjpat78 2026-05-23): author-mode toggle.
   // View mode = click overlays to inspect. Author mode = drag to move,
   // drag corners to resize, drag empty area to create, edit inspector
@@ -307,6 +316,111 @@
     await persistAnnotation(selectedAnnotation);
   }
 
+  // ─── slice 2: state-switcher + screenshot upload ──────────────────
+
+  function openNewStateForm() {
+    newStateForm = { open: true, label: '', uploading: false, uploadError: null };
+    // Focus the label input on next tick so keyboard users land there.
+    queueMicrotask(() => {
+      document.getElementById('new-state-label')?.focus();
+    });
+  }
+
+  function cancelNewState() {
+    newStateForm = { open: false, label: '', uploading: false, uploadError: null };
+    if (fileInputEl) fileInputEl.value = '';
+  }
+
+  async function saveNewState() {
+    if (!selectedState) return;
+    const label = newStateForm.label.trim();
+    if (label.length === 0) {
+      newStateForm = { ...newStateForm, uploadError: 'State label required' };
+      return;
+    }
+    const file = fileInputEl?.files?.[0];
+    if (!file) {
+      newStateForm = { ...newStateForm, uploadError: 'Pick a screenshot file' };
+      return;
+    }
+
+    newStateForm = { ...newStateForm, uploading: true, uploadError: null };
+    try {
+      // Derive a slug from the label up-front so the upload filename + state row align.
+      const stateSlug = label.toLowerCase().trim()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 48) || `state-${Date.now().toString(36)}`;
+
+      // 1. Upload the screenshot.
+      const fd = new FormData();
+      fd.append('screenId', selectedState.screen_id);
+      fd.append('stateSlug', stateSlug);
+      fd.append('file', file);
+      const uploadResponse = await fetch('/api/manual/screenshots', { method: 'POST', body: fd });
+      if (!uploadResponse.ok) throw new Error(`upload ${uploadResponse.status}`);
+      const uploadData = await uploadResponse.json();
+
+      // 2. Create the state row pointing at the uploaded screenshot.
+      const stateResponse = await fetch(
+        `/api/manual/states/${encodeURIComponent(selectedState.screen_id)}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            stateLabel: label,
+            stateSlug,
+            screenshotPath: uploadData.path,
+            viewportW: uploadData.width,
+            viewportH: uploadData.height
+          })
+        }
+      );
+      if (!stateResponse.ok) throw new Error(`create state ${stateResponse.status}`);
+      const stateData = await stateResponse.json();
+
+      // 3. Refresh state catalogue + switch to the new state.
+      const catalogue = await fetch('/api/manual/states').then((r) => r.json());
+      states = catalogue.states ?? [];
+      cancelNewState();
+      await selectState(stateData.state);
+    } catch (err) {
+      newStateForm = {
+        ...newStateForm,
+        uploading: false,
+        uploadError: err instanceof Error ? err.message : String(err)
+      };
+    }
+  }
+
+  async function deleteSelectedState() {
+    if (!selectedState) return;
+    if (statesForCurrentScreen().length <= 1) {
+      alert('Cannot delete the last state of a screen. Add another first or delete via the API.');
+      return;
+    }
+    if (!confirm(`Delete state "${selectedState.state_label}"? This removes ${annotations.length} annotation${annotations.length === 1 ? '' : 's'} and cannot be undone.`)) return;
+
+    try {
+      const response = await fetch(
+        `/api/manual/states/${encodeURIComponent(selectedState.screen_id)}/${encodeURIComponent(selectedState.state_slug)}`,
+        { method: 'DELETE' }
+      );
+      if (!response.ok) throw new Error(`delete state ${response.status}`);
+      const catalogue = await fetch('/api/manual/states').then((r) => r.json());
+      states = catalogue.states ?? [];
+      const fallback = states.find((s) => s.screen_id === selectedState!.screen_id) ?? states[0];
+      if (fallback) await selectState(fallback);
+    } catch (err) {
+      saveError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  function statesForCurrentScreen(): ScreenState[] {
+    if (!selectedState) return [];
+    return states.filter((s) => s.screen_id === selectedState!.screen_id);
+  }
+
   onMount(loadStates);
 </script>
 
@@ -332,6 +446,59 @@
       <div class="canvas-layout">
         <!-- Left: screen tile with overlay boxes -->
         <section class="canvas-tile">
+          <!-- Slice 2 state-switcher tabs: every state of the current
+               screen as a tab row above the canvas. "+ Add" in author
+               mode opens the inline create-state form. -->
+          <div class="state-tabs" role="tablist" aria-label="Screen states">
+            {#each statesForCurrentScreen() as state (state.state_slug)}
+              <button
+                type="button"
+                role="tab"
+                class="state-tab"
+                class:active={selectedState?.state_slug === state.state_slug}
+                aria-selected={selectedState?.state_slug === state.state_slug}
+                onclick={() => selectState(state)}
+              >{state.state_label}</button>
+            {/each}
+            {#if mode === 'author'}
+              <button type="button" class="state-tab state-tab-add" onclick={openNewStateForm}>+ Add state</button>
+            {/if}
+          </div>
+
+          {#if newStateForm.open}
+            <div class="new-state-form">
+              <div class="new-state-row">
+                <label for="new-state-label">State label</label>
+                <input
+                  id="new-state-label"
+                  type="text"
+                  class="inspector-input"
+                  bind:value={newStateForm.label}
+                  placeholder="e.g. Filter dropdown open"
+                  onkeydown={(e) => { if (e.key === 'Enter') saveNewState(); if (e.key === 'Escape') cancelNewState(); }}
+                />
+              </div>
+              <div class="new-state-row">
+                <label for="new-state-file">Screenshot</label>
+                <input
+                  id="new-state-file"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  bind:this={fileInputEl}
+                />
+              </div>
+              {#if newStateForm.uploadError}
+                <div class="new-state-error">{newStateForm.uploadError}</div>
+              {/if}
+              <div class="new-state-actions">
+                <button type="button" class="new-state-cancel" onclick={cancelNewState} disabled={newStateForm.uploading}>Cancel</button>
+                <button type="button" class="new-state-save" onclick={saveNewState} disabled={newStateForm.uploading}>
+                  {newStateForm.uploading ? 'Uploading…' : 'Add state'}
+                </button>
+              </div>
+            </div>
+          {/if}
+
           <div class="canvas-meta">
             <div class="screen-meta-row">
               <div>
@@ -340,19 +507,26 @@
                   <div class="screen-description">{selectedState.description}</div>
                 {/if}
               </div>
-              <div class="mode-toggle" role="radiogroup" aria-label="Mode">
-                <button
-                  type="button"
-                  class:active={mode === 'view'}
-                  onclick={() => { mode = 'view'; }}
-                  aria-pressed={mode === 'view'}
-                >View</button>
-                <button
-                  type="button"
-                  class:active={mode === 'author'}
-                  onclick={() => { mode = 'author'; }}
-                  aria-pressed={mode === 'author'}
-                >Author</button>
+              <div class="meta-actions">
+                <div class="mode-toggle" role="radiogroup" aria-label="Mode">
+                  <button
+                    type="button"
+                    class:active={mode === 'view'}
+                    onclick={() => { mode = 'view'; }}
+                    aria-pressed={mode === 'view'}
+                  >View</button>
+                  <button
+                    type="button"
+                    class:active={mode === 'author'}
+                    onclick={() => { mode = 'author'; }}
+                    aria-pressed={mode === 'author'}
+                  >Author</button>
+                </div>
+                {#if mode === 'author' && statesForCurrentScreen().length > 1}
+                  <button type="button" class="state-delete-btn" onclick={deleteSelectedState} title="Delete this state (and its annotations)">
+                    Delete state
+                  </button>
+                {/if}
               </div>
             </div>
             {#if mode === 'author'}
@@ -850,6 +1024,111 @@
     cursor: pointer;
   }
   .inspector-danger:hover {
+    background: rgba(220, 38, 38, 0.08);
+    border-color: #b91c1c;
+  }
+
+  /* ─── slice 2: state-switcher tabs + create-state form ────────── */
+  .state-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 0.75rem;
+    border-bottom: 1px solid var(--line-soft, #e2e8f0);
+    padding-bottom: 0.5rem;
+  }
+  .state-tab {
+    background: var(--surface, #fff);
+    border: 1px solid var(--line-soft, #d6d6d6);
+    border-radius: 999px;
+    padding: 5px 14px;
+    font: 600 0.82rem/1.2 ui-sans-serif, system-ui, sans-serif;
+    color: var(--ink-muted, #475569);
+    cursor: pointer;
+  }
+  .state-tab:hover { border-color: var(--accent, #6b21a8); color: var(--ink-strong, #0f172a); }
+  .state-tab.active {
+    background: var(--accent, #6b21a8);
+    color: white;
+    border-color: var(--accent, #6b21a8);
+  }
+  .state-tab-add {
+    border-style: dashed;
+    color: var(--accent, #6b21a8);
+  }
+
+  .new-state-form {
+    background: var(--surface-2, #f8fafc);
+    border: 1px solid var(--line-soft, #e2e8f0);
+    border-radius: 8px;
+    padding: 0.7rem 0.85rem;
+    margin-bottom: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .new-state-row {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+  }
+  .new-state-row label {
+    flex: 0 0 7rem;
+    font: 600 0.8rem/1.2 ui-sans-serif, system-ui, sans-serif;
+    color: var(--ink-muted, #475569);
+  }
+  .new-state-row .inspector-input { flex: 1; }
+  .new-state-row input[type="file"] {
+    flex: 1;
+    font: 500 0.82rem/1.2 ui-sans-serif, system-ui, sans-serif;
+  }
+  .new-state-error {
+    font: 500 0.8rem/1.3 ui-sans-serif, system-ui, sans-serif;
+    color: #b91c1c;
+    background: rgba(220, 38, 38, 0.06);
+    border-radius: 4px;
+    padding: 0.3rem 0.5rem;
+  }
+  .new-state-actions {
+    display: flex;
+    gap: 0.4rem;
+    justify-content: flex-end;
+  }
+  .new-state-cancel,
+  .new-state-save {
+    padding: 0.4rem 0.9rem;
+    font: 600 0.82rem/1.2 ui-sans-serif, system-ui, sans-serif;
+    border-radius: 6px;
+    cursor: pointer;
+    border: 1px solid var(--line-soft, #d6d6d6);
+  }
+  .new-state-cancel { background: transparent; color: var(--ink-muted, #475569); }
+  .new-state-save {
+    background: var(--accent, #6b21a8);
+    color: white;
+    border-color: var(--accent, #6b21a8);
+  }
+  .new-state-save:disabled,
+  .new-state-cancel:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .meta-actions {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+  }
+  .state-delete-btn {
+    background: transparent;
+    border: 1px solid #fca5a5;
+    color: #b91c1c;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font: 600 0.78rem/1.2 ui-sans-serif, system-ui, sans-serif;
+    cursor: pointer;
+  }
+  .state-delete-btn:hover {
     background: rgba(220, 38, 38, 0.08);
     border-color: #b91c1c;
   }
