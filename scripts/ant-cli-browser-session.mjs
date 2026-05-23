@@ -49,6 +49,27 @@ export async function mintAntCliBrowserSessionCookie(runtime, roomId, explicitHa
   return extractAntBrowserSessionCookie(response);
 }
 
+// 0.1.9 (Xeno router 502 root-cause fix 2026-05-23): when a per-room
+// invite token is in ~/.ant/config.json, send Authorization: Bearer
+// instead of pidChain-in-URL. The 9-deep pidChain query string was
+// ~1500 bytes URL-encoded and crossed an upstream proxy limit somewhere
+// in the TLS-termination chain (Tailscale most likely), returning 502
+// before requests reached the SvelteKit server. Slice C already lit up
+// `tryRoomInviteBearer` server-side in resolveChatRoomReadAccess —
+// /messages GET reads accept the bearer with zero server change.
+//
+// Falls back to the existing pidChain-in-URL + cookie-mint path when
+// no token is in config (CLI sessions that never redeemed an invite).
+function lookupRoomToken(runtime, roomId) {
+  if (typeof roomId !== 'string' || roomId.length === 0) return null;
+  const tokens = runtime.config?.tokens;
+  if (!tokens || typeof tokens !== 'object') return null;
+  const entry = tokens[roomId];
+  if (!entry || typeof entry !== 'object') return null;
+  const token = entry.token;
+  return typeof token === 'string' && token.length > 0 ? token : null;
+}
+
 export async function fetchRoomJsonWithBrowserSessionFallback(
   runtime,
   roomId,
@@ -56,6 +77,28 @@ export async function fetchRoomJsonWithBrowserSessionFallback(
   explicitHandle
 ) {
   const base = resolveRoomServerUrl(runtime, roomId);
+  const bearerToken = lookupRoomToken(runtime, roomId);
+  // Bearer path: URL stays bare — no pidChain query param. The bearer
+  // proves room-scoped read access via slice C's tryRoomInviteBearer
+  // resolver. This is the primary path for any agent that redeemed an
+  // invite (i.e. anyone whose CLI has ever connected to this room).
+  if (bearerToken) {
+    const url = `${base}${path}`;
+    const response = await runtime.fetchImpl(url, {
+      headers: {
+        authorization: `Bearer ${bearerToken}`,
+        origin: base
+      }
+    });
+    if (response.ok) return response.json();
+    // If the bearer is rejected (revoked, expired, or wrong room), fall
+    // through to the legacy pidChain + cookie-mint path rather than
+    // surface a hard 401 — this preserves the existing user-recovery
+    // story for stale-token edge cases.
+    if (response.status !== 401) throw await makeGetFailure(url, response);
+  }
+
+  // Legacy / no-token path: pidChain in URL + cookie-mint fallback.
   const url = appendPidChainQuery(`${base}${path}`);
   const first = await runtime.fetchImpl(url);
   if (first.ok) return first.json();
