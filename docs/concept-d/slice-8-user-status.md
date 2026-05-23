@@ -116,26 +116,25 @@ The menu button from Slice 8 MVP (already in `RoomColumn.swift`) shifts from wri
 
 ---
 
-## Sub-region D — Agent-behaviour contract (the substrate-primitive part)
+## Sub-region D — Agent-behaviour contract — REMOVED FROM SLICE 8 SCOPE
 
-**This is the load-bearing piece.** Without it, status is decoration. With it, status routes agent behaviour across the whole substrate.
+**Per JWPK `msg_e1u1mrgk8v`:** status in Slice 8 is **decoration + cross-room visibility only**. The agent-behaviour matrix (queue-vs-digest, ping-vs-defer, escalation thresholds) is being developed by other agents as a separate substrate feature; ANT just provides the status primitive that the eventual routing layer will read.
 
-| Status | @-tag pinging | Asks fanout | Chair (Slice 6) | Autonomous escalation |
-|---|---|---|---|---|
-| **Working** | Immediate ping in-room | Cross-room fanout per existing rules | Live session-replay banner on return | Standard escalation thresholds |
-| **Away from desk** | Defer to digest on return (queue in `member_return_digest`); only `urgent` asks ping immediately | Same cross-room fanout but DOWNGRADE non-urgent | Digest-only — no live replay, summary banner on return | Threshold raised — only critical blockers reverse-escalate |
-| **Away from office** | All asks queue to digest; no live pings | Fanout to other available members preferred; user's queue grows but no notifications | Digest with daily-summary frequency, not return-trigger | Threshold raised further — only blocker-with-no-other-path |
+**What Slice 8 ships:**
+- User picks a status (UI — Slice 8 MVP, already shipped at `4e9ed78`)
+- Status persists locally + syncs to server (Sub-regions A + B)
+- Status visible on member avatars across rooms + on the toolbar profile chip (Sub-region C)
+- That's it.
 
-**Where this lives:**
-- Per-agent server logic: `agents.handleAsk(target:, ask:)` reads `target.status` + applies the matrix
-- `member_return_digest` table — accumulates queued items per (handle, room) when target is non-working; flushed when target → working
-- `ant agents` CLI surfaces status-aware queue sizes — e.g. `"@james has 14 queued asks (away from desk for 2h)"`
-- Slice 6 ★Chair reads status to gate queue-vs-digest UI
-- Future Slice X autonomous-escalation reads status to bound aggressiveness
+**What Slice 8 does NOT ship:**
+- No `member_return_digest` table
+- No agent dispatch logic reading `target.status`
+- No queue-vs-digest gating
+- No "Chair reads status" coupling (Slice 6 is independent for now)
+
+**Future plumbing:** when the substrate-routing feature lands (owned elsewhere), it consumes the `identities.status` column written by this slice's endpoint. No coordination needed today.
 
 **Existing CVE-fix-D-style auth gate:** status changes do NOT bypass identity verification — only the AUTHENTICATED user can change their own status. No agent-impersonation of status changes.
-
-**Important non-goal:** status is NOT a global Do-Not-Disturb. Critical asks still cut through "Away from desk" — defined by `ask.priority == "critical"`. The contract defines DEFAULTS, not absolutes.
 
 ---
 
@@ -148,12 +147,11 @@ The menu button from Slice 8 MVP (already in `RoomColumn.swift`) shifts from wri
 | 3 | Mac client `IdentityStatusService` write-through is optimistic + reverts on server failure | manual + simulated 500 |
 | 4 | Avatar status dot renders for every room member in the avatar stack + focus drawer; correct token color per status | screenshot sweep of 3-status states |
 | 5 | Toolbar profile chip shows current user's status dot | screenshot sweep |
-| 6 | Agent-behaviour matrix in Sub-region D implemented server-side: at minimum, the @-tag pinging behaviour changes per status | server harness — fire @-tag at different status targets, observe ping vs digest queue |
-| 7 | `member_return_digest` table populates on non-working → working transitions, flushes on transition to working, and an at-return banner appears | manual: set Away from desk, send asks, return to Working, see digest banner |
-| 8 | `ant agents` CLI surfaces queue size + status for each agent | terminal output capture |
-| 9 | VoiceOver labels: every status dot has `accessibilityLabel("status: \(name), \(status.label)")` | VO sweep |
-| 10 | All tokens via `Tokens.*`, no raw hex in `IdentityStatusService` / `MemberAvatar` / status views | grep audit |
-| 11 | `xcodebuild` green + server tests green + screenshot evidence | CI + `docs/concept-d/slice-8-screenshots/` |
+| 6 | VoiceOver labels: every status dot has `accessibilityLabel("status: \(name), \(status.label)")` | VO sweep |
+| 7 | All tokens via `Tokens.*`, no raw hex in `IdentityStatusService` / `MemberAvatar` / status views | grep audit |
+| 8 | `xcodebuild` green + server tests green + screenshot evidence | CI + `docs/concept-d/slice-8-screenshots/` |
+
+*(Per JWPK `msg_e1u1mrgk8v` — agent-behaviour matrix gates removed from Slice 8. Status is decoration-only this slice; the routing layer that consumes status is being developed elsewhere.)*
 
 ---
 
@@ -162,7 +160,7 @@ The menu button from Slice 8 MVP (already in `RoomColumn.swift`) shifts from wri
 **New (server):**
 - `src/routes/api/identity/status/+server.ts` — PATCH route
 - DB migration: add `status` + `status_changed_at` columns to `identities`
-- New `member_return_digest` table (id, handle, room_id, accumulated_json, last_updated_at)
+- *(no `member_return_digest` table — that was for the agent-behaviour matrix which is no longer in Slice 8 scope per JWPK `msg_e1u1mrgk8v`)*
 
 **New (Mac):**
 - `antchat/Antchat/Services/IdentityStatusService.swift`
@@ -176,7 +174,7 @@ The menu button from Slice 8 MVP (already in `RoomColumn.swift`) shifts from wri
 - `antchat/Antchat/AppShellView.swift` — instantiate `IdentityStatusService()` + inject
 
 **Modified (server):**
-- agent dispatch logic (file TBD — wherever asks are routed to targets) reads `target.status` and applies the Sub-region D matrix
+- *(none — agent dispatch logic was Sub-region D, removed from Slice 8 scope per JWPK `msg_e1u1mrgk8v`)*
 
 ---
 
@@ -191,13 +189,13 @@ The menu button from Slice 8 MVP (already in `RoomColumn.swift`) shifts from wri
 
 ---
 
-## Slice 8 → Slice 6 handshake
+## Slice 8 → Slice 6 handshake — DECOUPLED
 
-Slice 6 (★ Chair / ★ Validation) must read `identityStatusService.remote` (or its equivalent server-side `target.status`) when deciding queue-vs-digest behaviour. This spec locks the contract so Slice 6 can build against it.
+Per JWPK `msg_e1u1mrgk8v`, Slice 8 status is decoration-only; Slice 6 ★ Chair (now correctly framed as an agent-kind per `project_chair_is_agent_kind_2026_05_23`) does **NOT** depend on `user.status`. The two slices are independent. The eventual feature that plumbs `user.status` into agent-routing is owned elsewhere and will consume the `identities.status` column without any coordination from Slice 6 or Slice 8.
 
 ## Open items
 
-None UX. Awaiting @antmacdevcodex PASS gate ratification + server-side agent dispatch implementation owner.
+None UX. Awaiting @antmacdevcodex PASS gate ratification + server route owner (codex or substrate agent).
 
 ## Hand-off
 
