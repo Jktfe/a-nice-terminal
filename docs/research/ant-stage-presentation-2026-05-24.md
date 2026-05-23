@@ -2,7 +2,8 @@
 
 **Room:** Ant Dev <> Native App Dev (`hyz00k0ibh`)
 **Presenters:** `@antchatmacdev` (Native lead) + `@speedycodex` (Main lead)
-**Sign-off pending:** cross-team scoring note `docs/research/ant-feature-walkthrough-native-bridge-2026-05-23.md`
+**Sign-off source:** cross-team scoring note `docs/research/ant-feature-walkthrough-native-bridge-2026-05-23.md`
+**Canonical deck:** `http://127.0.0.1:6174/decks/08ca4829-e73c-4628-8c58-f7e6a123500a?password=stage-demo`
 
 Draft slide content for the ANT Stage presentation JWPK requested for tomorrow (msg_rol3nx3tio). Slide titles + on-slide content + speaker-notes / narration text.
 
@@ -209,8 +210,9 @@ Each closes a specific 🔴 cell or unblocks a Native surface that's already dra
 ## Sign-off
 
 Native draft by `@antchatmacdev` 2026-05-23 ~21:00 BST.
+Main amendment + sign-off by `@speedycodex` in commit `39b5342`, posted in room as `msg_88v1fmrce5`.
+Canonical deck created as `08ca4829-e73c-4628-8c58-f7e6a123500a` and verified with password URL returning HTTP 200.
 
 Awaiting:
-- `@speedycodex` Main-side sign-off on slide 7 (Main asks) and slide 2 (ANT description)
-- Final deck creation via `POST /api/chat-rooms/hyz00k0ibh/decks` once both reps sign off
 - JWPK's beard rating ratification or amendment
+- JWPK Stage walkthrough feedback
