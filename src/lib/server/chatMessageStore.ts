@@ -257,29 +257,56 @@ export function listMessagesPageInRoom(input: {
   roomId: string;
   beforePostOrder?: number;
   limit: number;
+  sinceBreak?: boolean;
 }): { messages: ChatMessage[]; hasMore: boolean; nextBefore: number | null } {
   const normalizedLimit = Math.max(1, Math.floor(input.limit));
   const db = getIdentityDb();
+
+  // β1 of context-break server-side enforcement (JWPK msg_ef2p1p75j9): when
+  // sinceBreak is set, clamp the lower bound to the most recent non-deleted
+  // system-break post_order. Caller can opt out by omitting the flag.
+  const breakFloor = input.sinceBreak ? findLatestBreakPostOrder(input.roomId) : null;
+
   const rows = (
     input.beforePostOrder === undefined
-      ? db
-          .prepare(`SELECT id, room_id, author_handle, author_display_name, kind,
-                           body, posted_at, post_order, parent_message_id, discussion_id,
-                     deleted_at_ms, deleted_by_handle, edited_at_ms
-                    FROM chat_messages
-                    WHERE room_id = ?
-                    ORDER BY post_order DESC
-                    LIMIT ?`)
-          .all(input.roomId, normalizedLimit + 1)
-      : db
-          .prepare(`SELECT id, room_id, author_handle, author_display_name, kind,
-                           body, posted_at, post_order, parent_message_id, discussion_id,
-                     deleted_at_ms, deleted_by_handle, edited_at_ms
-                    FROM chat_messages
-                    WHERE room_id = ? AND post_order < ?
-                    ORDER BY post_order DESC
-                    LIMIT ?`)
-          .all(input.roomId, input.beforePostOrder, normalizedLimit + 1)
+      ? breakFloor === null
+        ? db
+            .prepare(`SELECT id, room_id, author_handle, author_display_name, kind,
+                             body, posted_at, post_order, parent_message_id, discussion_id,
+                       deleted_at_ms, deleted_by_handle, edited_at_ms
+                      FROM chat_messages
+                      WHERE room_id = ?
+                      ORDER BY post_order DESC
+                      LIMIT ?`)
+            .all(input.roomId, normalizedLimit + 1)
+        : db
+            .prepare(`SELECT id, room_id, author_handle, author_display_name, kind,
+                             body, posted_at, post_order, parent_message_id, discussion_id,
+                       deleted_at_ms, deleted_by_handle, edited_at_ms
+                      FROM chat_messages
+                      WHERE room_id = ? AND post_order >= ?
+                      ORDER BY post_order DESC
+                      LIMIT ?`)
+            .all(input.roomId, breakFloor, normalizedLimit + 1)
+      : breakFloor === null
+        ? db
+            .prepare(`SELECT id, room_id, author_handle, author_display_name, kind,
+                             body, posted_at, post_order, parent_message_id, discussion_id,
+                       deleted_at_ms, deleted_by_handle, edited_at_ms
+                      FROM chat_messages
+                      WHERE room_id = ? AND post_order < ?
+                      ORDER BY post_order DESC
+                      LIMIT ?`)
+            .all(input.roomId, input.beforePostOrder, normalizedLimit + 1)
+        : db
+            .prepare(`SELECT id, room_id, author_handle, author_display_name, kind,
+                             body, posted_at, post_order, parent_message_id, discussion_id,
+                       deleted_at_ms, deleted_by_handle, edited_at_ms
+                      FROM chat_messages
+                      WHERE room_id = ? AND post_order < ? AND post_order >= ?
+                      ORDER BY post_order DESC
+                      LIMIT ?`)
+            .all(input.roomId, input.beforePostOrder, breakFloor, normalizedLimit + 1)
   ) as ChatMessageRow[];
   const hasMore = rows.length > normalizedLimit;
   const pageRows = rows.slice(0, normalizedLimit).reverse();
@@ -289,6 +316,16 @@ export function listMessagesPageInRoom(input: {
     hasMore,
     nextBefore: hasMore && messages.length > 0 ? messages[0].postOrder : null
   };
+}
+
+export function findLatestBreakPostOrder(roomId: string): number | null {
+  const db = getIdentityDb();
+  const row = db
+    .prepare(`SELECT post_order FROM chat_messages
+              WHERE room_id = ? AND kind = 'system-break' AND deleted_at_ms IS NULL
+              ORDER BY post_order DESC LIMIT 1`)
+    .get(roomId) as { post_order: number } | undefined;
+  return row ? row.post_order : null;
 }
 
 /**
