@@ -121,14 +121,17 @@
             {/if}
           </div>
           <div class="canvas-image-frame">
-            <img
-              class="canvas-image"
-              src={selectedState.screenshot_path}
-              alt="Screen: {selectedState.screen_id} ({selectedState.state_label})"
-              draggable="false"
-            />
-            <!-- Overlay regions positioned in % so the layout scales with the image -->
-            {#each annotations as annotation (annotation.element_slug)}
+            <div class="canvas-image-stage">
+              <img
+                class="canvas-image"
+                src={selectedState.screenshot_path}
+                alt="Screen: {selectedState.screen_id} ({selectedState.state_label})"
+                draggable="false"
+              />
+              <!-- Overlay regions positioned in % so the layout scales with the image.
+                   The stage div takes its height from the image itself, so % is
+                   computed against the actual rendered image bounds (no letterbox drift). -->
+              {#each annotations as annotation (annotation.element_slug)}
               {@const xPct = (annotation.bbox.x / selectedState.viewport_w) * 100}
               {@const yPct = (annotation.bbox.y / selectedState.viewport_h) * 100}
               {@const wPct = (annotation.bbox.w / selectedState.viewport_w) * 100}
@@ -145,7 +148,8 @@
               >
                 <span class="region-slug">{annotation.item_name}</span>
               </button>
-            {/each}
+              {/each}
+            </div>
           </div>
         </section>
 
@@ -262,19 +266,30 @@
     font: 500 0.85rem/1.35 ui-sans-serif, system-ui, sans-serif;
     color: var(--ink-muted, #475569);
   }
+  /* The frame lets the image dictate height (width: 100%, height: auto)
+     so the overlay-coordinate space matches the rendered image exactly.
+     Earlier shape used aspect-ratio + object-fit: contain which gave
+     subpixel letterboxing → overlays drifted vertically vs the image
+     (JWPK msg_eefo9z7141). The wrapper-around-image-with-natural-height
+     pattern is the robust positioning-context approach.
+
+     Border lives on an OUTER decorative wrapper so the inner
+     positioning-context isn't affected by border-box vs content-box. */
   .canvas-image-frame {
-    position: relative;
     background: #fff;
     border: 1px solid var(--line-soft, #e2e8f0);
     border-radius: 12px;
     overflow: hidden;
-    aspect-ratio: 16 / 10;
+  }
+  .canvas-image-stage {
+    position: relative;
+    display: block;
+    line-height: 0;
   }
   .canvas-image {
     display: block;
     width: 100%;
-    height: 100%;
-    object-fit: contain;
+    height: auto;
     user-select: none;
   }
   .canvas-region {
