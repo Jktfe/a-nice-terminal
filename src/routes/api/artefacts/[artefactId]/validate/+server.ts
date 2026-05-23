@@ -181,6 +181,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
             claimText: item.claimText,
             sourcePointer: item.sourcePointer,
             verifierKind: item.verifierKind,
+            assignedTo: item.assignedTo,
             reason: item.reason,
             reused: item.reused
           }))

@@ -204,6 +204,48 @@ describe('POST /api/artefacts/:artefactId/validate', () => {
     expect(tasks.map((task) => task.planId)).toEqual([`validation-${artefact.id}`, `validation-${artefact.id}`]);
   });
 
+  it('routes verifier work to supplied participants when available', async () => {
+    const room = createChatRoom({ name: 'validation room', whoCreatedIt: '@you' });
+    const artefact = createArtefactInRoom({
+      roomId: room.id,
+      kind: 'doc',
+      title: 'Claims with participants',
+      createdBy: '@speedycodex'
+    });
+    upsertArtefactContent({
+      id: 'participant-claims-doc',
+      artefactId: artefact.id,
+      roomId: room.id,
+      kind: 'doc',
+      contentFormat: 'markdown',
+      contentBody: 'This launch has 7 compliance checks.',
+      updatedByHandle: '@speedycodex'
+    });
+    ensureJksValidationRulePolicy({ ownerHandle: '@you', actorKind: 'human' });
+
+    const response = await runPost(eventFor(artefact.id, {
+      policySlug: JKS_VALIDATION_RULE_SLUG,
+      createWork: true,
+      participants: [
+        { kind: 'agent', handle: '@speedycodex' },
+        { kind: 'agent', handle: '@speedykimi' }
+      ]
+    }));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.orchestration.summary.assignments).toBe(2);
+    expect(body.orchestration.summary.missingSlots).toBe(0);
+    expect(body.validationWork.created).toBe(2);
+    expect(body.validationWork.items.map((item: { assignedTo: string | null }) => item.assignedTo)).toEqual([
+      '@speedycodex',
+      '@speedykimi'
+    ]);
+
+    const tasks = listTasks({ roomId: room.id });
+    expect(tasks.map((task) => task.assignedTo)).toEqual(['@speedycodex', '@speedykimi']);
+  });
+
   it('rejects artefacts without stored markdown content', async () => {
     const room = createChatRoom({ name: 'validation room', whoCreatedIt: '@you' });
     const artefact = createArtefactInRoom({
