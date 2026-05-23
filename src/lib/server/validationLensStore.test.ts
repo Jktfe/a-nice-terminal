@@ -34,6 +34,7 @@ describe('validationLensStore', () => {
     it('excludes archived by default', () => {
       createValidationSchema({
         id: 'test-2', name: 'Archived Lens', lensKind: 'custom',
+        description: 'Archived test lens',
         rulesJson: '[]', createdBy: '@test', archivedAtMs: null,
       });
       archiveValidationSchema('test-2');
@@ -48,6 +49,7 @@ describe('validationLensStore', () => {
     it('creates and completes a run', () => {
       createValidationSchema({
         id: 'schema-1', name: 'POC', lensKind: 'poc',
+        description: 'POC test lens',
         rulesJson: '[]', createdBy: '@test', archivedAtMs: null,
       });
       createValidationRun({
