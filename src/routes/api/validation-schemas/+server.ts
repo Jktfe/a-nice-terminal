@@ -1,17 +1,36 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { listValidationSchemas, seedValidationSchemas } from '$lib/server/validationLensStore';
+import {
+  listValidationSchemas,
+  seedValidationSchemas,
+  type ValidationSchemaVisibility
+} from '$lib/server/validationLensStore';
 import { tryAdminBearer } from '$lib/server/chatRoomAuthGate';
+import { bearerTokenFromHeader } from '$lib/server/antchatAuthStore';
+import { resolveAccountsBearerIdentity } from '$lib/server/accountsBearerIdentity';
 
-// Containment-first per banked policy: any caller with the admin bearer can
-// read the schema list. Schema scope (org/user/public) is a planned slice
-// from JWPK's 2026-05-23 dictation; until that lands, treat the list as
-// auth-required and let the future scope filter open up specific rows.
-export const GET: RequestHandler = async ({ request }) => {
-  if (!tryAdminBearer(request)) {
+async function visibilityForRequest(request: Request): Promise<ValidationSchemaVisibility> {
+  if (tryAdminBearer(request)) {
+    return { isAdmin: true };
+  }
+  const token = bearerTokenFromHeader(request.headers.get('authorization'));
+  if (!token) {
+    return { isAdmin: false, handles: [] };
+  }
+  const identity = await resolveAccountsBearerIdentity(token);
+  if (!identity) {
     throw error(401, 'Authentication required.');
   }
+  return {
+    isAdmin: false,
+    handles: identity.handles,
+    ...(identity.orgId && { orgId: identity.orgId })
+  };
+}
+
+export const GET: RequestHandler = async ({ request }) => {
   seedValidationSchemas(); // idempotent
-  const schemas = listValidationSchemas();
+  const visibleTo = await visibilityForRequest(request);
+  const schemas = listValidationSchemas({ visibleTo });
   return json({ schemas });
 };

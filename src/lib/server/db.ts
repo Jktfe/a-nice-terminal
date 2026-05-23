@@ -1273,13 +1273,18 @@ const SCHEMA_DDL_STATEMENTS = [
     name            TEXT NOT NULL,
     description     TEXT,
     lens_kind       TEXT NOT NULL CHECK (lens_kind IN ('poc','fca','investment_memo','scientific_claim','marketing_copy','custom')),
+    scope           TEXT NOT NULL DEFAULT 'public' CHECK (scope IN ('org','user','public')),
+    scope_id        TEXT NOT NULL DEFAULT 'global',
     rules_json      TEXT NOT NULL DEFAULT '[]',
     created_by      TEXT,
     created_at_ms   INTEGER NOT NULL,
     updated_at_ms   INTEGER NOT NULL,
     archived_at_ms  INTEGER
   )`,
+  `ALTER TABLE validation_schemas ADD COLUMN scope TEXT NOT NULL DEFAULT 'public' CHECK (scope IN ('org','user','public'))`,
+  `ALTER TABLE validation_schemas ADD COLUMN scope_id TEXT NOT NULL DEFAULT 'global'`,
   `CREATE INDEX IF NOT EXISTS idx_validation_schemas_kind ON validation_schemas (lens_kind)`,
+  `CREATE INDEX IF NOT EXISTS idx_validation_schemas_scope ON validation_schemas (scope, scope_id, lens_kind)`,
   `CREATE TABLE IF NOT EXISTS validation_runs (
     id                TEXT PRIMARY KEY,
     schema_id         TEXT NOT NULL REFERENCES validation_schemas(id) ON DELETE CASCADE,
