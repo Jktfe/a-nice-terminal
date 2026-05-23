@@ -1257,7 +1257,36 @@ const SCHEMA_DDL_STATEMENTS = [
     UNIQUE(room_id, alias)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_aliases_room_handle ON chat_room_aliases (room_id, global_handle)`,
-  `CREATE INDEX IF NOT EXISTS idx_aliases_room_set_at ON chat_room_aliases (room_id, set_at_ms DESC)`
+  `CREATE INDEX IF NOT EXISTS idx_aliases_room_set_at ON chat_room_aliases (room_id, set_at_ms DESC)`,
+  // VALIDATION-LENS (2026-05-23): per-user validation schemas + runs.
+  // A lens is a named validation schema (POC, FCA, investment-memo, etc).
+  // validation_runs tracks per-claim-anchor evaluations against a lens.
+  `CREATE TABLE IF NOT EXISTS validation_schemas (
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL,
+    description     TEXT,
+    lens_kind       TEXT NOT NULL CHECK (lens_kind IN ('poc','fca','investment_memo','scientific_claim','marketing_copy','custom')),
+    rules_json      TEXT NOT NULL DEFAULT '[]',
+    created_by      TEXT,
+    created_at_ms   INTEGER NOT NULL,
+    updated_at_ms   INTEGER NOT NULL,
+    archived_at_ms  INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_validation_schemas_kind ON validation_schemas (lens_kind)`,
+  `CREATE TABLE IF NOT EXISTS validation_runs (
+    id                TEXT PRIMARY KEY,
+    schema_id         TEXT NOT NULL REFERENCES validation_schemas(id) ON DELETE CASCADE,
+    claim_anchor      TEXT NOT NULL,
+    claim_text        TEXT NOT NULL,
+    status            TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','passed','failed','waived')),
+    score             INTEGER,
+    result_json       TEXT,
+    started_at_ms     INTEGER NOT NULL,
+    completed_at_ms   INTEGER,
+    run_by            TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_validation_runs_schema ON validation_runs (schema_id, claim_anchor)`,
+  `CREATE INDEX IF NOT EXISTS idx_validation_runs_claim ON validation_runs (claim_anchor, completed_at_ms DESC)`
 ];
 
 function resolveDbFilePath(): string {
