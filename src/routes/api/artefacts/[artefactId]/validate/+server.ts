@@ -26,6 +26,8 @@ import {
   type ValidationParticipant
 } from '$lib/server/validationOrchestrator';
 import { createValidationWorkItems } from '$lib/server/validationWorkItems';
+import { listValidationRunsForClaim, type ValidationRun } from '$lib/server/validationLensStore';
+import type { ValidationClaimCheck, ValidationClaimPointer } from '$lib/server/validationScoring';
 
 type ValidateArtefactPayload = {
   policySlug?: unknown;
@@ -91,6 +93,51 @@ function parseParticipants(value: unknown): ValidationParticipant[] {
     .filter((participant): participant is ValidationParticipant => participant !== null);
 }
 
+function verifierKindFromRun(run: ValidationRun): ValidationVerifierKind | null {
+  if (!run.resultJson) return null;
+  let parsed: { verifierKind?: unknown };
+  try {
+    parsed = JSON.parse(run.resultJson) as { verifierKind?: unknown };
+  } catch {
+    return null;
+  }
+  if (
+    parsed.verifierKind === 'agent' ||
+    parsed.verifierKind === 'human' ||
+    parsed.verifierKind === 'file' ||
+    parsed.verifierKind === 'context_summary'
+  ) {
+    return parsed.verifierKind;
+  }
+  return null;
+}
+
+function checkFromRun(run: ValidationRun): ValidationClaimCheck | null {
+  if (run.status !== 'passed' && run.status !== 'failed') return null;
+  const verifierKind = verifierKindFromRun(run);
+  if (!verifierKind) return null;
+  return {
+    verifierKind,
+    outcome: run.status === 'passed' ? 'pass' : 'fail'
+  };
+}
+
+function applyValidationRuns(
+  claims: ValidationClaimPointer[],
+  schemaId: string
+): ValidationClaimPointer[] {
+  return claims.map((claim) => {
+    const checks = listValidationRunsForClaim(claim.id)
+      .filter((run) => run.schemaId === schemaId)
+      .map(checkFromRun)
+      .filter((check): check is ValidationClaimCheck => check !== null);
+    return {
+      ...claim,
+      checks: [...claim.checks, ...checks]
+    };
+  });
+}
+
 export const POST: RequestHandler = async ({ params, request }) => {
   const flags = getFeatureFlagsForTier(CURRENT_TIER);
   if (!flags.verification_api) {
@@ -120,7 +167,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
     throw error(400, 'Only doc and deck artefacts can be validated in this slice.');
   }
 
-  const claims = extractMarkdownValidationClaimPointers({
+  const extractedClaims = extractMarkdownValidationClaimPointers({
     markdown: content.contentBody,
     sourcePointer: `artefact:${artefact.id}`,
     url: `/artefacts/${artefact.id}`
@@ -131,6 +178,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
       tool: content.kind
     }
   }));
+  const claims = applyValidationRuns(extractedClaims, lens.slug);
   const score = scoreValidationClaims(lens.policy, claims);
   const participants = parseParticipants(payload.participants);
   const orchestration = planValidationOrchestration({
