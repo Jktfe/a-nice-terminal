@@ -1288,7 +1288,36 @@ const SCHEMA_DDL_STATEMENTS = [
     run_by            TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS idx_validation_runs_schema ON validation_runs (schema_id, claim_anchor)`,
-  `CREATE INDEX IF NOT EXISTS idx_validation_runs_claim ON validation_runs (claim_anchor, completed_at_ms DESC)`
+  `CREATE INDEX IF NOT EXISTS idx_validation_runs_claim ON validation_runs (claim_anchor, completed_at_ms DESC)`,
+  // DESIGN-STYLES (2026-05-23): banked styles for decks, UI surfaces, and org branding.
+  // Styles are scoped to org or user, shareable, and referenced by id.
+  `CREATE TABLE IF NOT EXISTS design_styles (
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL,
+    kind            TEXT NOT NULL CHECK (kind IN ('palette','font','asset','spacing','shadow','border')),
+    scope           TEXT NOT NULL CHECK (scope IN ('org','user','public')),
+    scope_id        TEXT NOT NULL,
+    data_json       TEXT NOT NULL DEFAULT '{}',
+    tags_json       TEXT NOT NULL DEFAULT '[]',
+    is_default      INTEGER NOT NULL DEFAULT 0,
+    created_by      TEXT,
+    created_at_ms   INTEGER NOT NULL,
+    updated_at_ms   INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_design_styles_scope ON design_styles (scope, scope_id, kind)`,
+  `CREATE INDEX IF NOT EXISTS idx_design_styles_kind ON design_styles (kind, created_at_ms DESC)`,
+  // AWAY-MODE (2026-05-23): user presence tiers + agent-intensity dial.
+  // Tier maps to expected duration; intensity controls token-burn aggressiveness.
+  `CREATE TABLE IF NOT EXISTS away_modes (
+    handle          TEXT PRIMARY KEY,
+    tier            TEXT NOT NULL CHECK (tier IN ('active','away-desk','away-office','away-phone')),
+    intensity       INTEGER NOT NULL DEFAULT 50 CHECK (intensity >= 0 AND intensity <= 100),
+    note            TEXT,
+    expected_back_ms INTEGER,
+    set_by          TEXT,
+    set_at_ms       INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_away_modes_tier ON away_modes (tier, set_at_ms DESC)`
 ];
 
 function resolveDbFilePath(): string {
