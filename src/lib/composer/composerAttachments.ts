@@ -7,7 +7,18 @@
  * dependencies; the server-side store does the size cap + sanity checks.
  */
 
+import {
+  ensureBrowserSessionForRoom,
+  type EnsureBrowserSessionInput,
+  type EnsureBrowserSessionResult
+} from '$lib/browserSessionClient';
+
 const MAX_FILE_BYTES = 4_500_000;
+
+type FetchLike = typeof fetch;
+type EnsureSessionForRoom = (
+  input: EnsureBrowserSessionInput
+) => Promise<EnsureBrowserSessionResult>;
 
 export type AttachmentUploadResult = {
   attachmentId: string;
@@ -49,13 +60,30 @@ export async function uploadAttachmentToRoom(input: {
   roomId: string;
   file: File;
   uploadedByHandle: string;
+  fetcher?: FetchLike;
+  ensureSessionForRoom?: EnsureSessionForRoom;
 }): Promise<AttachmentUploadResult> {
   if (input.file.size > MAX_FILE_BYTES) {
     throw new Error(`File "${input.file.name}" is too big to attach (max ~4.5 MB).`);
   }
 
+  const ensureSession = input.ensureSessionForRoom ?? ensureBrowserSessionForRoom;
+  const browserSessionResult = await ensureSession({
+    roomId: input.roomId,
+    authorHandle: input.uploadedByHandle,
+    force: true
+  });
+  if (!browserSessionResult.ok) {
+    throw new Error(
+      browserSessionResult.reason === 'no-handle'
+        ? 'No handle resolved yet for this room — refresh and try again.'
+        : `Could not establish identity for ${input.uploadedByHandle} in this room: ${browserSessionResult.reason}`
+    );
+  }
+
   const contentsBase64 = await readAsBase64(input.file);
-  const response = await fetch(
+  const fetcher = input.fetcher ?? fetch;
+  const response = await fetcher(
     `/api/chat-rooms/${encodeURIComponent(input.roomId)}/attachments`,
     {
       method: 'POST',
