@@ -6,6 +6,12 @@ import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoom
 import { resetPolicyStoreForTests } from '$lib/server/policyStore';
 import { ensureJksValidationRulePolicy, JKS_VALIDATION_RULE_SLUG } from '$lib/server/validationPolicyPresets';
 import { listTasks, resetTasksStoreForTests } from '$lib/server/tasksStore';
+import {
+  completeValidationRun,
+  createValidationRun,
+  createValidationSchema
+} from '$lib/server/validationLensStore';
+import { getIdentityDb } from '$lib/server/db';
 
 const ADMIN_TOKEN_FOR_TESTS = 'artefact-validation-route-test-admin-token';
 const ORIGINAL_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
@@ -56,6 +62,9 @@ describe('POST /api/artefacts/:artefactId/validate', () => {
     resetChatRoomStoreForTests();
     resetPolicyStoreForTests();
     resetTasksStoreForTests();
+    const db = getIdentityDb();
+    db.prepare('DELETE FROM validation_runs').run();
+    db.prepare('DELETE FROM validation_schemas').run();
   });
 
   it('applies a policy lens to a markdown artefact and returns claim-level scores', async () => {
@@ -202,6 +211,76 @@ describe('POST /api/artefacts/:artefactId/validate', () => {
     expect(tasks[0].description).toContain(firstBody.claims[0].text);
     expect(tasks[0].description).toContain(firstBody.claims[0].source.pointer);
     expect(tasks.map((task) => task.planId)).toEqual([`validation-${artefact.id}`, `validation-${artefact.id}`]);
+  });
+
+  it('scores claims using completed validation runs for the selected lens', async () => {
+    const room = createChatRoom({ name: 'validation room', whoCreatedIt: '@you' });
+    const artefact = createArtefactInRoom({
+      roomId: room.id,
+      kind: 'doc',
+      title: 'Verified claims',
+      createdBy: '@speedycodex'
+    });
+    upsertArtefactContent({
+      id: 'verified-claims-doc',
+      artefactId: artefact.id,
+      roomId: room.id,
+      kind: 'doc',
+      contentFormat: 'markdown',
+      contentBody: 'The plan is safe.',
+      updatedByHandle: '@speedycodex'
+    });
+    ensureJksValidationRulePolicy({ ownerHandle: '@you', actorKind: 'human' });
+    createValidationSchema({
+      id: JKS_VALIDATION_RULE_SLUG,
+      name: "JK's Validation Rule",
+      description: 'Test schema row for validation runs',
+      lensKind: 'custom',
+      rulesJson: '{}',
+      createdBy: '@you',
+      archivedAtMs: null
+    });
+
+    const before = await runPost(eventFor(artefact.id, { policySlug: JKS_VALIDATION_RULE_SLUG }));
+    const beforeBody = await before.json();
+    const claim = beforeBody.claims[0];
+    createValidationRun({
+      id: 'run-agent-pass',
+      schemaId: JKS_VALIDATION_RULE_SLUG,
+      claimAnchor: claim.id,
+      claimText: claim.text,
+      status: 'pending',
+      score: null,
+      resultJson: JSON.stringify({ verifierKind: 'agent' }),
+      runBy: '@speedycodex'
+    });
+    completeValidationRun('run-agent-pass', 'passed', 100, JSON.stringify({ verifierKind: 'agent' }));
+    createValidationRun({
+      id: 'run-agent-pass-2',
+      schemaId: JKS_VALIDATION_RULE_SLUG,
+      claimAnchor: claim.id,
+      claimText: claim.text,
+      status: 'pending',
+      score: null,
+      resultJson: JSON.stringify({ verifierKind: 'agent' }),
+      runBy: '@speedykimi'
+    });
+    completeValidationRun('run-agent-pass-2', 'passed', 100, JSON.stringify({ verifierKind: 'agent' }));
+
+    const after = await runPost(eventFor(artefact.id, { policySlug: JKS_VALIDATION_RULE_SLUG }));
+
+    expect(after.status).toBe(200);
+    const afterBody = await after.json();
+    expect(beforeBody.score.percent).toBe(0);
+    expect(afterBody.score).toMatchObject({
+      totalClaims: 1,
+      passedClaims: 1,
+      percent: 100
+    });
+    expect(afterBody.claims[0].checks).toEqual([
+      { verifierKind: 'agent', outcome: 'pass' },
+      { verifierKind: 'agent', outcome: 'pass' }
+    ]);
   });
 
   it('routes verifier work to supplied participants when available', async () => {
