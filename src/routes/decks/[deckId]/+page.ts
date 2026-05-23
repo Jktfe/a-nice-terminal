@@ -14,5 +14,5 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
     throw error(response.status, `Could not load deck (${response.status}).`);
   }
   const body = (await response.json()) as { deck: RoomDeck };
-  return { deck: body.deck };
+  return { deck: body.deck, deckPassword: password ?? '' };
 };

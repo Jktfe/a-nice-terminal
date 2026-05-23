@@ -48,22 +48,26 @@ afterEach(() => {
   else process.env.ANT_ADMIN_TOKEN = prevAdminToken;
 });
 
-function makeRequest(body: unknown, opts: { withAuth?: boolean } = { withAuth: true }): Request {
+function makeRequest(body: unknown, opts: { withAuth?: boolean; password?: string } = { withAuth: true }): Request {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (opts.withAuth) headers['authorization'] = `Bearer ${ADMIN_TOKEN}`;
-  return new Request('http://test/api/decks/d/stage-pause-context', {
+  const url = new URL('http://test/api/decks/d/stage-pause-context');
+  if (opts.password) url.searchParams.set('password', opts.password);
+  return new Request(url.toString(), {
     method: 'POST',
     headers,
     body: JSON.stringify(body)
   });
 }
 
-async function callPost(deckId: string, body: unknown, opts?: { withAuth?: boolean }): Promise<Response> {
+async function callPost(deckId: string, body: unknown, opts?: { withAuth?: boolean; password?: string }): Promise<Response> {
   // Cast through unknown to satisfy SvelteKit's RequestEvent type without
   // building the full handler context — POST only reads params + request.
-  return await (POST as unknown as (event: { params: { deckId: string }; request: Request }) => Promise<Response>)({
+  const request = makeRequest(body, opts ?? { withAuth: true });
+  return await (POST as unknown as (event: { params: { deckId: string }; request: Request; url: URL }) => Promise<Response>)({
     params: { deckId },
-    request: makeRequest(body, opts ?? { withAuth: true })
+    request,
+    url: new URL(request.url)
   });
 }
 
@@ -154,6 +158,48 @@ describe('POST /api/decks/[deckId]/stage-pause-context', () => {
     expect(ev[0].kind).toBe('stage_pause_context');
     expect(ev[0].ref).toContain(`stage:${deck.id}:pause:s1:`);
     expect(ev[0].estimated_char_offset).toBe(42);
+  });
+
+  it('allows a deck-password presenter to persist pause context without room auth', async () => {
+    const deck = createDeck({
+      roomId: setupRoom(),
+      title: 'password stage',
+      accessPassword: 'stage-demo',
+      slides: [{ id: 's1', title: 'one', content: 'first slide content' }]
+    });
+    const res = await callPost(deck.id, {
+      slideIndex: 0,
+      slideId: 's1',
+      narrationSource: 'content',
+      pausedAtMs: Date.now(),
+      estimatedCharOffset: 12,
+      spokenWindow: 'the presenter paused here'
+    }, { withAuth: false, password: 'stage-demo' });
+
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.pause_context.created_by).toBe('@stage-presenter');
+    expect(body.pause_context.ref).toContain(`stage:${deck.id}:pause:s1:`);
+  });
+
+  it('rejects a wrong deck password without creating pause evidence', async () => {
+    const deck = createDeck({
+      roomId: setupRoom(),
+      title: 'password stage',
+      accessPassword: 'stage-demo',
+      slides: [{ id: 's1', title: 'one', content: 'first slide content' }]
+    });
+
+    await expect(callPost(deck.id, {
+      slideIndex: 0,
+      slideId: 's1'
+    }, { withAuth: false, password: 'wrong' })).rejects.toMatchObject({ status: 403 });
+
+    const { getIdentityDb } = await import('$lib/server/db');
+    const rows = getIdentityDb()
+      .prepare(`SELECT id FROM plan_events WHERE plan_id = ?`)
+      .all(`stage-${deck.id}`);
+    expect(rows).toHaveLength(0);
   });
 
   it('clamps paused_at_ms to server time when drift > 60s', async () => {

@@ -19,12 +19,15 @@ afterAll(() => {
 
 type AnyEvent = Parameters<typeof POST>[0];
 
-function eventFor(deckId: string, body: unknown): AnyEvent {
+function eventFor(deckId: string, body: unknown, opts: { withAuth?: boolean; password?: string } = { withAuth: true }): AnyEvent {
   const url = new URL(`http://localhost/api/decks/${deckId}/stage-feedback`);
+  if (opts.password) url.searchParams.set('password', opts.password);
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (opts.withAuth ?? true) headers.authorization = `Bearer ${ADMIN_TOKEN_FOR_TESTS}`;
   return {
     request: new Request(url.toString(), {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${ADMIN_TOKEN_FOR_TESTS}` },
+      headers,
       body: JSON.stringify(body)
     }),
     params: { deckId },
@@ -109,6 +112,49 @@ describe('POST /api/decks/:deckId/stage-feedback', () => {
       ref: `/artefacts/${artefacts[0].id}#lens-poc`,
       label: 'POC: Alternative Track: Stage Deck / slide 1'
     });
+  });
+
+  it('allows a deck-password presenter to submit feedback without room auth', async () => {
+    const room = createChatRoom({ name: 'stage room', whoCreatedIt: '@you' });
+    const deck = createDeck({
+      roomId: room.id,
+      title: 'Stage Deck',
+      accessPassword: 'stage-demo',
+      slides: [{ id: 's1', title: 'Slide 1', content: 'Hello', speakerNotes: 'Say hello' }]
+    });
+
+    const response = await runPost(eventFor(deck.id, {
+      slideIndex: 0,
+      feedbackText: 'This should go to the hidden Stage discussion.',
+      pasteContext: 'Presenter supplied context.'
+    }, { withAuth: false, password: 'stage-demo' }));
+
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body.ok).toBe(true);
+    expect(body.proposal.ref).toMatch(/^\/artefacts\//);
+
+    const messages = listMessagesInRoom(room.id);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].body).toContain('This should go to the hidden Stage discussion.');
+  });
+
+  it('rejects a wrong deck password for feedback submission', async () => {
+    const room = createChatRoom({ name: 'stage room', whoCreatedIt: '@you' });
+    const deck = createDeck({
+      roomId: room.id,
+      title: 'Stage Deck',
+      accessPassword: 'stage-demo',
+      slides: [{ id: 's1', title: 'Slide 1', content: 'Hello' }]
+    });
+
+    const response = await runPost(eventFor(deck.id, {
+      slideIndex: 0,
+      feedbackText: 'Should not land.'
+    }, { withAuth: false, password: 'wrong' }));
+
+    expect(response.status).toBe(403);
+    expect(listMessagesInRoom(room.id)).toEqual([]);
   });
 
   it('rejects empty feedback text', async () => {

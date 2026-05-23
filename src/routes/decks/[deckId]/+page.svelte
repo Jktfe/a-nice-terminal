@@ -62,6 +62,7 @@
   let speakStartMs = 0;
 
   const deck = $derived(data.deck);
+  const deckPasswordQuery = $derived(data.deckPassword ? `?password=${encodeURIComponent(data.deckPassword)}` : '');
   const slides = $derived(deck.slides ?? []);
   const slideCount = $derived(slides.length);
   const activeSlide = $derived(slides[activeIndex]);
@@ -187,7 +188,7 @@
     if (!pauseSnapshot || !activeSlide) return;
     try {
       const response = await fetch(
-        `/api/decks/${encodeURIComponent(deck.id)}/stage-pause-context`,
+        `/api/decks/${encodeURIComponent(deck.id)}/stage-pause-context${deckPasswordQuery}`,
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -219,7 +220,7 @@
     feedbackSubmitting = true;
     feedbackNotice = null;
     try {
-      const response = await fetch(`/api/decks/${encodeURIComponent(deck.id)}/stage-feedback`, {
+      const response = await fetch(`/api/decks/${encodeURIComponent(deck.id)}/stage-feedback${deckPasswordQuery}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -237,7 +238,7 @@
       // ε trigger: fire process-alternatives in background
       let altCount = 0;
       try {
-        const altRes = await fetch(`/api/decks/${encodeURIComponent(deck.id)}/process-alternatives`, {
+        const altRes = await fetch(`/api/decks/${encodeURIComponent(deck.id)}/process-alternatives${deckPasswordQuery}`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({})
@@ -504,7 +505,7 @@
         disabled={!pauseSnapshot || feedbackText.trim().length === 0 || feedbackSubmitting}
         onclick={submitFeedback}
       >
-        {feedbackSubmitting ? 'Submitting…' : 'Create alternative track'}
+        {feedbackSubmitting ? 'Submitting…' : 'Submit'}
       </button>
       <button type="button" class="toolbar-btn" onclick={() => { pauseSnapshot = null; feedbackText = ''; pasteContext = ''; pauseContextRef = ''; feedbackNotice = null; }}>
         Clear
