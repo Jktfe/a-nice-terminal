@@ -31,13 +31,14 @@ Format: 10 slides. Each block below is one slide.
 
 > ANT is the **coordination + trust layer** for human + AI teams.
 
-Connects the tools people already use — Cursor, Claude Desktop, Calendar, Obsidian, Slidev, Figma, native mobile apps — into **rooms** where humans and agents work **as peers**.
+It connects the tools people already use — Cursor, Claude Desktop, Calendar, Obsidian, Slidev, Figma, native mobile apps — into **rooms** where humans and agents work **as peers**.
 
 - Rooms = operational context, not chat
 - AI output = inspectable work, not black-box prose
-- Teams move while humans are away — bounded autonomy
+- Trust = claims, memories, endorsements, validation, and evidence attached to the work
+- Autonomy = teams move while humans are away, within room modes and contracts
 
-**Narration:** "ANT is not a Slack replacement. Not a Notion replacement. It's the connecting layer that lets the tools you already use carry agent-shared context, with claims you can inspect, evidence you can audit, and alternatives you can pick from. Stage is the clearest product proof of that — a presentation is no longer static; feedback becomes alternative tracks."
+**Narration:** "ANT is not a Slack replacement. Not a Notion replacement. It's the coordination and trust layer for human and AI teams. A room is not just a chat thread; it is the operational context where people, agents, files, memories, asks, tasks, plans, validation runs, and decisions meet. The key point is inspectability. AI output should not be black-box prose you either trust or reject. It should be work with anchors, evidence, endorsements, validation lenses, and alternatives. Stage is the clearest product proof of that — a presentation is no longer static; feedback becomes alternative tracks."
 
 ---
 
@@ -129,19 +130,22 @@ We scored every ANT section through both.
 
 ## Slide 7 — What Main Must Build Next
 
-**Title:** Five asks of Main
+**Title:** Main substrate: shipped vs next
 
 **Content:**
 
-- **A.** `endorsements` table + CLI verb + include in message fetch payload (Section 3)
-- **B.** Reaction summary inline in message fetch payload — emoji + count + topReactors[] (Section 3)
-- **C.** Unified `/api/chat-rooms/:roomId/memories` over both file-backed + key/value stores (Section 5)
-- **D.** Per-agent context-fill % in `/api/agents/availability` response (Section 9)
-- **E.** Per-attachment visibility + retention metadata in upload response (Section 4)
+**Shipped during this joint pass**
+- **B. Reaction summaries on message reads** — `db5b89e`: `reactions: [{ emoji, count, topReactors }]` now appears on messages with reactions.
+- **C. Unified room memory feed** — `a46a8bb`: `/api/rooms/:roomId/memories` now merges file-backed room memories and `ant memory put --scope room --target ROOM_ID` key/value memories.
+
+**Next Main asks**
+- **A. Typed endorsements** — table + CLI verb + message payload chips: `signed_off`, `validated`, `agreed`, `blocked`, `other`.
+- **D. Per-agent context-fill %** in `/api/agents/availability` so Native can show context-window pressure before agents lose the thread.
+- **E. Per-attachment visibility + retention metadata** in upload response so Rox can see who can access a file and how long it lives.
 
 Each closes a specific 🔴 cell or unblocks a Native surface that's already drawn.
 
-**Narration:** "Five surfaces that Native has either drawn or stubbed, waiting for substrate. Codex already has worktrees for reaction summaries and the memory bridge — those two are in flight."
+**Narration:** "Slide seven is the healthiest kind of status change: two of the five Main asks are no longer asks. Reaction summaries now ride on message reads, so Native's tolerant reaction chips can light up. The room memory bridge now merges both memory stores, so a room memory banked through the CLI appears in the same endpoint as file-backed memories. The remaining asks are narrower and clearer: typed endorsements, per-agent context-fill percentage, and attachment visibility and retention metadata."
 
 ---
 
@@ -207,6 +211,6 @@ Each closes a specific 🔴 cell or unblocks a Native surface that's already dra
 Native draft by `@antchatmacdev` 2026-05-23 ~21:00 BST.
 
 Awaiting:
-- `@speedycodex` Main-side amendment + sign-off on slide 7 (Main asks) and slide 2 (ANT description)
+- `@speedycodex` Main-side sign-off on slide 7 (Main asks) and slide 2 (ANT description)
 - Final deck creation via `POST /api/chat-rooms/hyz00k0ibh/decks` once both reps sign off
 - JWPK's beard rating ratification or amendment
