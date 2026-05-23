@@ -6,17 +6,29 @@
  * touched here. Per-test tmpdir DB isolation.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resetIdentityDbForTests } from '$lib/server/db';
+import { createChatRoom } from '$lib/server/chatRoomStore';
 import { GET as tasksGET, POST as tasksPOST } from './+server';
 import { GET as taskGET, PATCH as taskPATCH } from './[taskId]/+server';
 import { GET as terminalTasksGET } from '../terminals/[id]/tasks/+server';
 
 let tmpDir: string;
 const prevDbPath = process.env.ANT_FRESH_DB_PATH;
+const ADMIN_TOKEN_FOR_TESTS = 'tasks-jwpk-route-test-admin-token';
+const prevAdminToken = process.env.ANT_ADMIN_TOKEN;
+
+beforeAll(() => {
+  process.env.ANT_ADMIN_TOKEN = ADMIN_TOKEN_FOR_TESTS;
+});
+
+afterAll(() => {
+  if (prevAdminToken === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = prevAdminToken;
+});
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'ant-jwpk-routes-'));
@@ -37,10 +49,13 @@ async function call<E>(
   handler: (event: E) => unknown,
   opts: { method?: string; url: string; params?: Record<string, string>; body?: unknown }
 ): Promise<Result> {
-  const init: RequestInit = { method: opts.method ?? 'GET' };
+  const init: RequestInit = {
+    method: opts.method ?? 'GET',
+    headers: { authorization: `Bearer ${ADMIN_TOKEN_FOR_TESTS}` }
+  };
   if (opts.body !== undefined) {
     init.body = JSON.stringify(opts.body);
-    init.headers = { 'content-type': 'application/json' };
+    init.headers = { ...init.headers, 'content-type': 'application/json' };
   }
   const url = new URL(`http://localhost${opts.url}`);
   const event = { request: new Request(url, init), params: opts.params ?? {}, url } as unknown as E;
@@ -73,6 +88,7 @@ describe('POST /api/tasks (JWPK shape)', () => {
   });
 
   it('201 with terminal binding + assignee + room', async () => {
+    const room = createChatRoom({ name: 'JWPK task room', whoCreatedIt: '@you' });
     const r = await call(tasksPOST, {
       method: 'POST',
       url: '/api/tasks',
@@ -81,14 +97,14 @@ describe('POST /api/tasks (JWPK shape)', () => {
         description: 'longform',
         assigned_to: '@claude2',
         assigned_terminal_id: 't_abc',
-        room_id: 'room-xyz'
+        room_id: room.id
       }
     });
     expect(r.status).toBe(201);
     const t = r.body.task as Record<string, unknown>;
     expect(t.assignedTo).toBe('@claude2');
     expect(t.assignedTerminalId).toBe('t_abc');
-    expect(t.roomId).toBe('room-xyz');
+    expect(t.roomId).toBe(room.id);
   });
 
   it('201 with plan binding', async () => {

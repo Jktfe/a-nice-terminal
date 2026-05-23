@@ -27,6 +27,9 @@ import {
   type ListJwpkTasksFilter
 } from '$lib/server/tasksStore';
 import { dispatchPlanEvent } from '$lib/server/planTriggerDispatcher';
+import { requireChatRoomMutationAuth, tryAdminBearer } from '$lib/server/chatRoomAuthGate';
+import { findChatRoomById } from '$lib/server/chatRoomStore';
+import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
 
 const JWPK_QUERY_KEYS = ['status', 'assigned', 'terminal', 'room'];
 
@@ -34,7 +37,11 @@ function hasAnyJwpkQuery(url: URL): boolean {
   return JWPK_QUERY_KEYS.some((k) => url.searchParams.has(k));
 }
 
-export const GET: RequestHandler = async ({ url }) => {
+function requireAdminBearer(request: Request): void {
+  if (!tryAdminBearer(request)) throw error(401, 'Authentication required.');
+}
+
+export const GET: RequestHandler = async ({ request, url }) => {
   if (hasAnyJwpkQuery(url)) {
     const filter: ListJwpkTasksFilter = {};
     const status = url.searchParams.get('status');
@@ -49,9 +56,17 @@ export const GET: RequestHandler = async ({ url }) => {
     const terminal = url.searchParams.get('terminal');
     if (terminal !== null) filter.assignedTerminalId = terminal;
     const room = url.searchParams.get('room');
-    if (room !== null) filter.roomId = room;
+    if (room !== null) {
+      const roomEntity = findChatRoomById(room);
+      if (!roomEntity) throw error(404, 'Room not found.');
+      await requireChatRoomReadAccess(request, roomEntity);
+      filter.roomId = room;
+    } else {
+      requireAdminBearer(request);
+    }
     return json({ tasks: listJwpkTasks(filter) });
   }
+  requireAdminBearer(request);
   const includeDeleted = url.searchParams.get('includeDeleted') === '1';
   return json({ tasks: listTasks({ includeDeleted }) });
 };
@@ -62,6 +77,17 @@ export const POST: RequestHandler = async ({ request }) => {
     throw error(400, 'Send a JSON object body.');
   }
   const b = body as Record<string, unknown>;
+  const roomId =
+    typeof b.room_id === 'string'
+      ? b.room_id
+      : (typeof b.roomId === 'string' ? b.roomId : null);
+  if (roomId !== null) {
+    if (!findChatRoomById(roomId)) throw error(404, 'Room not found.');
+    requireChatRoomMutationAuth(roomId, request, b);
+  } else {
+    requireAdminBearer(request);
+  }
+
   // JWPK shape: `title` present (no `subject`) → use the new tasksStore.
   if (typeof b.title === 'string' && typeof b.subject !== 'string') {
     if (b.title.trim().length === 0) throw error(400, 'title is required.');
@@ -75,7 +101,7 @@ export const POST: RequestHandler = async ({ request }) => {
       assignedTo: typeof b.assigned_to === 'string' ? b.assigned_to : null,
       assignedTerminalId:
         typeof b.assigned_terminal_id === 'string' ? b.assigned_terminal_id : null,
-      roomId: typeof b.room_id === 'string' ? b.room_id : null,
+      roomId,
       planId:
         typeof b.plan_id === 'string'
           ? b.plan_id
