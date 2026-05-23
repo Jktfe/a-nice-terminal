@@ -143,8 +143,21 @@ describe('chatAttachmentStore', () => {
     ).toThrow();
   });
 
-  it('rejects files larger than the slice-1 cap', () => {
-    const bigBase64 = 'A'.repeat(9 * 1024 * 1024);
+  it('stores files above the old slice-1 cap when they are under 40 MB', () => {
+    const sevenMegBase64 = Buffer.alloc(7 * 1024 * 1024).toString('base64');
+    const file = shareFileInRoom({
+      roomId: 'r1',
+      filename: 'seven-meg.bin',
+      mimeType: 'application/octet-stream',
+      contentsBase64: sevenMegBase64,
+      uploadedByHandle: '@you'
+    });
+
+    expect(file.byteSize).toBe(7 * 1024 * 1024);
+  });
+
+  it('rejects files larger than 40 MB', () => {
+    const bigBase64 = Buffer.alloc((40 * 1024 * 1024) + 1).toString('base64');
     expect(() =>
       shareFileInRoom({
         roomId: 'r1',
@@ -153,7 +166,7 @@ describe('chatAttachmentStore', () => {
         contentsBase64: bigBase64,
         uploadedByHandle: '@you'
       })
-    ).toThrow();
+    ).toThrow('max 40 MB');
   });
 
   it('strips path traversal segments from the filename', () => {
