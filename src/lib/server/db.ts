@@ -1317,7 +1317,72 @@ const SCHEMA_DDL_STATEMENTS = [
     set_by          TEXT,
     set_at_ms       INTEGER NOT NULL
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_away_modes_tier ON away_modes (tier, set_at_ms DESC)`
+  `CREATE INDEX IF NOT EXISTS idx_away_modes_tier ON away_modes (tier, set_at_ms DESC)`,
+
+  // Manual canvas v2 (JWPK msg_i538jl6ztt 2026-05-23): interactive
+  // screens canvas with per-element annotations + per-state variants +
+  // central suggestion-capture feed. The "manual_" prefix is to
+  // distinguish from the per-route /api/discover manifest data (manifest
+  // is generated; manual is hand-authored + audit-tracked).
+  `CREATE TABLE IF NOT EXISTS manual_screen_states (
+    screen_id        TEXT NOT NULL,
+    state_slug       TEXT NOT NULL,
+    state_label      TEXT NOT NULL,
+    description      TEXT,
+    screenshot_path  TEXT NOT NULL,
+    viewport_w       INTEGER NOT NULL,
+    viewport_h       INTEGER NOT NULL,
+    sort_order       INTEGER NOT NULL DEFAULT 0,
+    created_at_ms    INTEGER NOT NULL,
+    updated_at_ms    INTEGER NOT NULL,
+    PRIMARY KEY (screen_id, state_slug)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_manual_screen_states_screen ON manual_screen_states (screen_id, sort_order)`,
+
+  // Per-element annotation: bounding box on the screenshot + structured
+  // metadata fields matching JWPK's sketch (Item / CLI / Data sources /
+  // Logic / Intended Actions). JSON columns for the list-shaped fields
+  // keep the schema flat without an extra child table.
+  `CREATE TABLE IF NOT EXISTS manual_element_annotations (
+    screen_id           TEXT NOT NULL,
+    state_slug          TEXT NOT NULL,
+    element_slug        TEXT NOT NULL,
+    item_name           TEXT NOT NULL,
+    bbox_x              INTEGER NOT NULL,
+    bbox_y              INTEGER NOT NULL,
+    bbox_w              INTEGER NOT NULL,
+    bbox_h              INTEGER NOT NULL,
+    cli_verbs_json      TEXT NOT NULL DEFAULT '[]',
+    data_sources_json   TEXT NOT NULL DEFAULT '[]',
+    logic_text          TEXT,
+    intended_actions_json TEXT NOT NULL DEFAULT '[]',
+    tab_order           INTEGER NOT NULL DEFAULT 0,
+    created_at_ms       INTEGER NOT NULL,
+    updated_at_ms       INTEGER NOT NULL,
+    PRIMARY KEY (screen_id, state_slug, element_slug),
+    FOREIGN KEY (screen_id, state_slug) REFERENCES manual_screen_states (screen_id, state_slug) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_manual_element_annotations_state ON manual_element_annotations (screen_id, state_slug, tab_order)`,
+
+  // Central suggestions feed — Add-button writes here. screen_id /
+  // state_slug / element_slug all nullable so a user can capture at any
+  // scope (screen-level, state-level, element-level). Workspace-public
+  // read per JWPK 2026-05-23.
+  `CREATE TABLE IF NOT EXISTS manual_screen_suggestions (
+    id                  TEXT PRIMARY KEY,
+    screen_id           TEXT,
+    state_slug          TEXT,
+    element_slug        TEXT,
+    body                TEXT NOT NULL,
+    captured_by_handle  TEXT NOT NULL,
+    captured_at_ms      INTEGER NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','addressed','dismissed')),
+    addressed_at_ms     INTEGER,
+    addressed_by_handle TEXT,
+    addressed_note      TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_manual_screen_suggestions_feed ON manual_screen_suggestions (status, captured_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_manual_screen_suggestions_screen ON manual_screen_suggestions (screen_id, state_slug, element_slug)`
 ];
 
 function resolveDbFilePath(): string {
@@ -1499,6 +1564,16 @@ export function getIdentityDb(): DatabaseInstance {
     });
   } catch {
     /* import failure (e.g. test env) — swallow */
+  }
+  // Manual canvas v2 seed (JWPK 2026-05-23 slice 1): hand-authored
+  // annotations for the /rooms default state. Idempotent — only writes
+  // when the table is empty. Cycle-safe via dynamic import.
+  try {
+    void import('./manualScreenSeed').then((module) => {
+      try { module.seedManualScreensIfEmpty(); } catch { /* idempotent — swallow */ }
+    });
+  } catch {
+    /* test env — swallow */
   }
   return db;
 }
