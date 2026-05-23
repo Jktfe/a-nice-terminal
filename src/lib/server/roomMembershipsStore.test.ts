@@ -170,3 +170,49 @@ describe('removeMembership', () => {
     expect(removeMembership('r1', '@nope')).toBe(false);
   });
 });
+
+describe('β3 agent-join system message', () => {
+  it('posts a system message on first agent join', async () => {
+    const { createChatRoom } = await import('./chatRoomStore');
+    const { listMessagesInRoom } = await import('./chatMessageStore');
+    const room = createChatRoom({ name: 'join-test-1', whoCreatedIt: '@you' });
+    const tid = makeTerminal('agent-t');
+    addMembership({ room_id: room.id, handle: '@speedyclaude', terminal_id: tid });
+    const msgs = listMessagesInRoom(room.id);
+    const systemMsgs = msgs.filter((m) => m.kind === 'system');
+    expect(systemMsgs).toHaveLength(1);
+    expect(systemMsgs[0].body).toContain('context discipline');
+    expect(systemMsgs[0].body).toContain('system-break');
+    expect(systemMsgs[0].body).toContain('Memory files');
+  });
+
+  it('does NOT post a system message for human handles', async () => {
+    const { createChatRoom } = await import('./chatRoomStore');
+    const { listMessagesInRoom } = await import('./chatMessageStore');
+    const { getIdentityDb } = await import('./db');
+    // Register @human as a human owner so resolveHumanOwnership returns kind='human'
+    const db = getIdentityDb();
+    db.prepare(`INSERT INTO owners (id, primary_handle, created_at_ms) VALUES (?, ?, ?)`).run(
+      'owner-1', '@human-tester', Date.now()
+    );
+    db.prepare(`INSERT INTO owner_handles (handle, owner_id, assigned_at_ms) VALUES (?, ?, ?)`).run(
+      '@human-tester', 'owner-1', Date.now()
+    );
+    const room = createChatRoom({ name: 'join-test-2', whoCreatedIt: '@you' });
+    const tid = makeTerminal('human-t');
+    addMembership({ room_id: room.id, handle: '@human-tester', terminal_id: tid });
+    const msgs = listMessagesInRoom(room.id);
+    expect(msgs.filter((m) => m.kind === 'system')).toHaveLength(0);
+  });
+
+  it('does NOT re-post on second addMembership for same (room, handle)', async () => {
+    const { createChatRoom } = await import('./chatRoomStore');
+    const { listMessagesInRoom } = await import('./chatMessageStore');
+    const room = createChatRoom({ name: 'join-test-3', whoCreatedIt: '@you' });
+    const tid = makeTerminal('agent-t2');
+    addMembership({ room_id: room.id, handle: '@speedycodex', terminal_id: tid });
+    addMembership({ room_id: room.id, handle: '@speedycodex', terminal_id: tid });
+    const msgs = listMessagesInRoom(room.id);
+    expect(msgs.filter((m) => m.kind === 'system')).toHaveLength(1);
+  });
+});
