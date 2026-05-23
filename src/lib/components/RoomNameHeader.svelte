@@ -15,14 +15,18 @@
     startedBy: string;
     lastUpdate: string;
     menu?: Snippet;
+    contractId?: string | null;
   };
 
-  let { roomId, roomName, menu }: Props = $props();
+  let { roomId, roomName, menu, contractId }: Props = $props();
 
   let showRenameForm = $state(false);
 </script>
 
 <section class="room-name-header" aria-labelledby="roomNameHeading">
+  {#if contractId}
+    <span class="contract-badge" title="Bound to contract: {contractId}">📜 {contractId}</span>
+  {/if}
   <div class="title-row">
     <button
       type="button"
@@ -91,4 +95,17 @@
     margin-left: auto;
   }
   .rename-slot { margin-top: 0.55rem; }
+  .contract-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.15rem 0.5rem;
+    background: var(--surface-card);
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 0.4rem;
+  }
 </style>
