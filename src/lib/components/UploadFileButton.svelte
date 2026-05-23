@@ -7,10 +7,9 @@
   via invalidateAll() after a successful upload, so the freshest file
   appears at the top of the list on the next paint.
 
-  Self-contained: owns its own state, reads files with FileReader, strips
-  the "data:<mime>;base64," prefix off the data URL, then POSTs base64 to
-  the M11 backend endpoint with the current asHandle. Soft-fails on every
-  error — never crashes the room page.
+  Self-contained: owns its own state, then delegates the read + browser-session
+  mint + POST flow to composerAttachments so the side panel and composer upload
+  paths stay identical. Soft-fails on every error — never crashes the room page.
 
   Identity: asHandle defaults to "@you", same convention as ChatComposer
   and MessageReactionsBar, until the auth lane wires real handles. The
@@ -19,6 +18,7 @@
 -->
 <script lang="ts">
   import { invalidateAll } from '$app/navigation';
+  import { uploadAttachmentToRoom } from '$lib/composer/composerAttachments';
 
   type UploadState = 'idle' | 'readingFile' | 'uploading' | 'failedToUpload';
 
@@ -46,22 +46,8 @@
     uploadState = 'readingFile';
     lastErrorMessage = '';
     try {
-      const contentsBase64 = await readFileAsBase64(pickedFile);
       uploadState = 'uploading';
-      const response = await fetch(`/api/chat-rooms/${roomId}/attachments`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          filename: pickedFile.name,
-          mimeType: pickedFile.type || 'application/octet-stream',
-          contentsBase64,
-          uploadedByHandle: asHandle
-        })
-      });
-      if (!response.ok) {
-        const failurePayload = await response.json().catch(() => ({ message: response.statusText }));
-        throw new Error(failurePayload.message ?? 'Could not upload the file.');
-      }
+      await uploadAttachmentToRoom({ roomId, file: pickedFile, uploadedByHandle: asHandle });
       uploadState = 'idle';
       inputTarget.value = '';
       await invalidateAll();
@@ -71,27 +57,6 @@
       uploadState = 'failedToUpload';
       inputTarget.value = '';
     }
-  }
-
-  function readFileAsBase64(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result;
-        if (typeof dataUrl !== 'string') {
-          reject(new Error('Could not read file bytes.'));
-          return;
-        }
-        const commaIndex = dataUrl.indexOf(',');
-        if (commaIndex < 0) {
-          reject(new Error('File is not a valid data URL.'));
-          return;
-        }
-        resolve(dataUrl.slice(commaIndex + 1));
-      };
-      reader.onerror = () => reject(reader.error ?? new Error('FileReader error.'));
-      reader.readAsDataURL(file);
-    });
   }
 
   function dismissError() {
