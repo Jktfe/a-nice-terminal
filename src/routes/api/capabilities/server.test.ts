@@ -23,6 +23,7 @@ describe('/api/capabilities native discovery', () => {
         recommendedBaseUrl: 'http://test-host.invalid:6174',
         endpoints: expect.objectContaining({
           capabilities: '/api/capabilities',
+          contracts: '/api/contracts',
           health: '/api/health',
           rooms: '/api/chat-rooms',
           roomEvents: '/api/realtime/{roomId}/events'
