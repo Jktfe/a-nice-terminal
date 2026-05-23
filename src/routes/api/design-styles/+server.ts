@@ -18,7 +18,8 @@ function requireAuth(request: Request): void {
   }
 }
 
-export const GET: RequestHandler = async ({ url }) => {
+export const GET: RequestHandler = async ({ url, request }) => {
+  requireAuth(request);
   const scope = url.searchParams.get('scope') as 'org' | 'user' | 'public' | null;
   const scopeId = url.searchParams.get('scopeId') ?? undefined;
   const kind = url.searchParams.get('kind') as 'palette' | 'font' | 'asset' | 'spacing' | 'shadow' | 'border' | null;
