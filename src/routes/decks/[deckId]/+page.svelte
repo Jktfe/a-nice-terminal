@@ -234,9 +234,24 @@
         return;
       }
       const body = await response.json() as { proposal?: { ref?: string } };
+      // ε trigger: fire process-alternatives in background
+      let altCount = 0;
+      try {
+        const altRes = await fetch(`/api/decks/${encodeURIComponent(deck.id)}/process-alternatives`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        if (altRes.ok) {
+          const altBody = await altRes.json() as { alternativesGenerated?: number };
+          altCount = altBody.alternativesGenerated ?? 0;
+        }
+      } catch { /* best-effort */ }
       feedbackNotice = {
         kind: 'ok',
-        text: 'Alternative track created for agent expansion.',
+        text: altCount > 0
+          ? `Feedback received. ${altCount} alternative slide${altCount === 1 ? '' : 's'} generated.`
+          : 'Feedback received.',
         ref: body.proposal?.ref
       };
       feedbackText = '';
