@@ -306,7 +306,8 @@ export function listMessagesAfterLatestBreak(roomId: string): ChatMessage[] {
 
 function findLastBreakIndex(messagesOldestFirst: ChatMessage[]): number {
   for (let scanIndex = messagesOldestFirst.length - 1; scanIndex >= 0; scanIndex--) {
-    if (messagesOldestFirst[scanIndex].kind === 'system-break') return scanIndex;
+    const message = messagesOldestFirst[scanIndex];
+    if (message.kind === 'system-break' && !message.deletedAtMs) return scanIndex;
   }
   return -1;
 }
@@ -344,6 +345,31 @@ export function softDeleteMessage(input: {
   if (existing.authorHandle !== input.byHandle) return null;
   if (existing.deletedAtMs) return null;
   if (existing.kind === 'system' || existing.kind === 'system-break') return null;
+
+  const nowMs = input.nowMs ?? Date.now();
+  db.prepare(
+    `UPDATE chat_messages SET deleted_at_ms = ?, deleted_by_handle = ? WHERE id = ?`
+  ).run(nowMs, input.byHandle, input.messageId);
+  return getMessageById(input.messageId);
+}
+
+/**
+ * Soft-delete a context-break marker. Breaks are authored as @system, so the
+ * normal author-owned softDeleteMessage path intentionally refuses them.
+ * Route-level auth decides whether the caller may manage breaks in the room.
+ */
+export function softDeleteBreakMessage(input: {
+  roomId: string;
+  messageId: string;
+  byHandle: string;
+  nowMs?: number;
+}): ChatMessage | null {
+  const db = getIdentityDb();
+  const existing = getMessageById(input.messageId);
+  if (!existing) return null;
+  if (existing.roomId !== input.roomId) return null;
+  if (existing.kind !== 'system-break') return null;
+  if (existing.deletedAtMs) return null;
 
   const nowMs = input.nowMs ?? Date.now();
   db.prepare(
