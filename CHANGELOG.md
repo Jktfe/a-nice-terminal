@@ -4,6 +4,140 @@ All notable changes to ANT are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] — 2026-05-23
+
+A full rewrite of the macOS thin-client (`remoteant`) around the **Concept D**
+design — light-mode, native macOS chrome, persistent operations awareness, and
+room-deep focus in the same window. Server-side `a-nice-terminal` is unchanged
+from `0.1.x` except for the minor surfaces noted below; this release is mostly
+about the Mac surface.
+
+### Added — Mac client (`remoteant`)
+
+- **Concept D shell** — `NavigationSplitView` with a 224 w sources sidebar, a
+  340 w Today operations column, and a flexible room column composed via
+  `HStack` in the detail slot (banked architecture pattern: 2-column NavSplitView
+  + HStack-in-detail; 3-column was rejected for fighting `@AppStorage`-driven
+  independent collapse on macOS).
+- **Sources sidebar** — Today / Asks / Rooms / Library / Agents / Vault / Memory
+  with `@AppStorage("sources.selected")` persistence, plus a reorderable
+  **Saved Rooms** section (drag-grip handles + ★ pin toggle + undo on
+  unsave) and an **On this Mac** stub list (Finder · ANT Vault / Calendar · plan
+  steps / Shortcuts).
+- **Today ops column** — three live sections fed by services that mirror
+  `ChatRoomsService`:
+  - **Asks needing you** — `GET /api/asks?status=open`, count agrees with
+    SourcesNav.Asks chip.
+  - **Rooms (warm)** — 24-hour activity window (`RoomSummary.isLive`), live
+    last-message preview.
+  - **Plan progress** — `GET /api/plans?state=active`, name + N-of-M + bar.
+- **Room view (`Slice 4`)** — chat surface lifted from `LegacyAppShellView`
+  into `Antchat/Views/Chat/` (preserves FINDING-3 self-post, fanout, focus
+  mode); composer with Send + `—break—` button + `/break <label>` slash;
+  RoomShelf tab strip with Artefacts (default active), Plan, Interviews,
+  Memories, Attachments, ★ Chair, ★ Validation, Linked rooms, and the
+  Slice-7 first-draft Bring-in-LLM strip in the room header (Claude Desktop /
+  Claude Mobile / ChatGPT / Gemini deep-links).
+- **Native bridges strip** — bottom drawer with 12 chips (Mail · Calendar ·
+  Reminders · Notes · Safari · Chrome · Teams · Zoom · Office · iWork · Files ·
+  + Connect), visible-but-passive in v0.2 (chips render, functional drag-drop
+  ships in v0.3).
+- **Persistent toolbar toggles** — `sidebar.left` + `sidebar.squares.left` SF
+  Symbols on the leading edge of the NSToolbar, state-filled when visible, so
+  no collapsed column is ever a dead end.
+- **Brand mark** — canonical `>_ANT` wordmark (chevron `#0A85F0`, underscore
+  `#1AC270`, `ANT` `--ink-strong`) plus the live `ant-logo.svg` illustration.
+  Mirrors `src/lib/components/AntLogo.svelte` exactly.
+- **Token palette** — `Tokens.swift` mirrors `src/app.css` (`--surface-app` /
+  `--accent` / `--info` / `--ok` / `--purple` / `--warn` / `--line-soft`);
+  no raw hex in `Views/`.
+- **UndoToast** — reusable value-type slide-up toast in
+  `Views/Components/UndoToast.swift`; local `@State` on `AppShellView` for
+  v0.2, scaled up to a shared queue when a second consumer arrives.
+- **Stable Apple Development signing** — `project.yml` Code Signing Identity
+  switched from ad-hoc to `Apple Development` with a stable team. Keychain
+  ACLs now persist across dev rebuilds; "Always Allow" works for real.
+- **Window restore** via `NSWindow.frameAutosaveName`. Window size, position,
+  and column visibility survive relaunch.
+- **Keyboard:** ⌘1 / ⌘2 / ⌘3 toggle sidebar / Today / room shelf · ⌘B alias
+  for sidebar · ⌘K focus search · ⌘⇧4 room screenshot · ⌘⇧B toggle bridges
+  strip. Surfaced via `.commands { }` in the menu bar.
+- **VoiceOver** — labels and hints on every chrome and content element; chat
+  rows announced `.polite` as they arrive; saved-room rows expose
+  position-in-list (`"Room X, saved room N of M"`) plus `Move up` / `Move down`
+  accessibility custom actions.
+- **First-run flow** — Team Login (email + password + licence key) or Invite
+  Token (server URL + room ID + token) per `README.md`.
+
+### Added — invite UX (`Slice 2.5`)
+
+- **Remote-agent invite modal** — invite an agent into the active room from
+  within `remoteant`; binds against the existing `/api/chat-rooms/:id/members`
+  flow.
+
+### Added — server (small surface)
+
+- **Saved-rooms persistence cleanup** — `GET /api/chat-rooms` now silently
+  drops IDs from any stale `savedRooms.order` payload on first load. No
+  client-visible churn; deleted rooms no longer poison the persisted list.
+
+### Changed
+
+- Mac thin-client default window size is now **1440 × 1080**, minimum **1280
+  × 800**. `.windowResizability(.contentSize)` is set on the scene.
+- The legacy `LegacyAppShellView` chat surface is **extracted** rather than
+  rewritten — `ChatStream.swift` / `ChatMessageRow.swift` / `ChatComposer.swift`
+  are mechanical lifts. All seven v0.1.x message kinds (`chat`,
+  `system_break`, `focus_banner`, `agent_status`, `plan_step`, `ask_card`,
+  `deck_slide`) render unchanged.
+- Server-side cost / uptime / substrate-live indicators are **removed from
+  `remoteant` chrome**. Those concerns stay in the server's `/dashboard`;
+  `remoteant` is the thin client and shows only client-relevant state
+  (Connected + notifications + share + profile).
+
+### Deferred to `v0.3`
+
+- Native bridges functional drag-drop wiring (the chips render in v0.2 but
+  drops are no-ops; v0.3 wires `NSItemProvider` receivers + the
+  `Antchat/Views/Shell/RoomShelf/ReviewPanel.swift` queue).
+- Bring-in-LLM full round-trip — Slice 7 first-draft ships the deep-link
+  chips; the auto-return via Share Sheet / MCP / FileProvider + Approve/Reject
+  queue is v0.3.
+- Multi-line composer + paperclip + Continuity Camera + Dictate + router-picker.
+- Break-delete UI — server `DELETE /api/chat-rooms/:id/breaks/:breakId`
+  endpoint must land first.
+- Premium feature wiring — ★ Chair (session tracker) + ★ Validation (claim
+  extraction + %-score) render as locked tabs in v0.2; v0.3 wires the
+  subscription gate + actual feature implementation.
+- Keyboard reorder of saved rooms — pointer drag persists in v0.2; VoiceOver
+  custom actions deferred to v0.3 polish.
+
+### Pricing (unchanged from `0.1.x`)
+
+| SKU | Price | Per |
+|---|---|---|
+| OSS self-host server | £0 | — |
+| `remoteant` (Mac + Windows thin client) | £6/mo | Human |
+| `antios` (iPhone + iPad) | £6/mo | Human |
+| `remoteant + antios` bundle | £10/mo | Human |
+| `antOS native server` (managed) | £10/mo | Instance |
+
+### Install / upgrade
+
+```sh
+# fresh install (macOS)
+brew install jktfe/antchat/ant
+
+# upgrade from v0.1.x
+brew upgrade jktfe/antchat/ant
+```
+
+Existing `v0.1.x` users will be migrated transparently — server-side state is
+unchanged; the Mac shell renders the same data against the new Concept D
+layout.
+
+---
+
 ## [0.1.0] — 2026-05-20
 
 The initial public release of ANT (`a-nice-terminal`).
