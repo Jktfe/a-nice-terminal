@@ -1,6 +1,6 @@
 # Slice 5 — Native bridges drag-drop (Finder file → room artefact)
 
-**Status:** spec ready for implementation (PASS gate pending @antmacdevcodex Q5 final wording)
+**Status:** spec ready for implementation (Q5 PASS gate locked by @antmacdevcodex)
 **Owners:** @antchatmacdev (build, lead) · @antmacdevcodex (QA) · @antux (UX)
 **Room:** `iawcdenlgc`
 **Visual contract:** Concept D frame `antOSux.pen` at `x=1520 y=-1122`, room region `DUxR1` (drop-hint band already in slice-1-shell.md Region 4)
@@ -13,14 +13,14 @@
 
 | # | Decision | SwiftUI / file |
 |---|---|---|
-| 1 | **Drop target = whole RoomColumn body**, NOT the BridgesStrip chips. Users drag TO the room they're focused on, not TO a chip. | `RoomColumn.swift` — `.onDrop(of: [.fileURL, .image, .pdf], delegate: RoomDropDelegate())` |
-| 2 | **NSItemProvider types** for v1: `.fileURL`, `.image`, `.pdf`. Plain text + URLs defer to Slice 5.5. Covers Finder + Mail attachments + Notes exports + screenshots — the 80%. | `RoomDropDelegate.swift` filters by `provider.canLoadObject(ofClass: URL.self)` etc |
-| 3 | **Auto-name from filename.** Inline rename via double-click in RoomShelf Artefacts tab (lifted from Slice 4 Artefacts panel). No prompt sheet per drop. | `MessagesService.uploadArtefact(roomId:, fileURL:, displayName: filename)` |
-| 4 | **No-room-selected drop, Slice 5 v1 (shipped at 5940b6c):** `.onDrop` returns false silently + a soft toast `"Pick a room first"` surfaces briefly, with the sidebar SAVED ROOMS section highlighting for ~1.5 s to hint where to choose. **v0.2.2 polish upgrade:** add `RoomPickerSheet` (reuses SAVED ROOMS sorted by recency + search field) — drag pending state holds providers, picker dismisses, drop replays against picked room + writes `currentRoom.id`. | v1 path = soft toast in `RoomColumn.swift`; v0.2.2 path = new `Views/Chat/RoomPickerSheet.swift` |
-| 5 | **Backend** — existing `POST /api/chat-rooms/:roomId/artefacts` endpoint. **NO server work in Slice 5.** Pure Mac app delivery. | Confirm endpoint shape; multipart upload with `roomId` + `displayName` + binary body |
-| 6 | **Multi-file drop allowed.** Sequential upload with per-file progress. One file failing does NOT cancel siblings. | `RoomDropDelegate` collects `[NSItemProvider]`, iterates with `TaskGroup` |
+| 1 | **Drop target = whole RoomColumn body**, NOT the BridgesStrip chips. Users drag TO the room they're focused on, not TO a chip. | `RoomColumn.swift` — `.onDrop(of: [.fileURL], isTargeted:)` in v1 |
+| 2 | **NSItemProvider types** for v1: `.fileURL`. Plain text + URLs defer to Slice 5.5. Finder PDFs/images are covered as file URLs on macOS. | `AttachmentUploadService` filters by `provider.canLoadObject(ofClass: URL.self)` |
+| 3 | **Auto-name from filename.** Inline rename is deferred until the shelf has editable attachment/artefact cards. No prompt sheet per drop. | `AttachmentUploadService` uses `fileURL.lastPathComponent` |
+| 4 | **No-room-selected drop, Slice 5 v1:** `.onDrop` returns false + a soft toast `"Pick a room first"` surfaces briefly, with the sidebar SAVED ROOMS section highlighting for ~1.5 s to hint where to choose. **v0.2.2 polish upgrade:** add `RoomPickerSheet` (reuses SAVED ROOMS sorted by recency + search field) — drag pending state holds providers, picker dismisses, drop replays against picked room + writes `currentRoom.id`. | v1 path = soft toast in `RoomColumn.swift`; v0.2.2 path = new `Views/Chat/RoomPickerSheet.swift` |
+| 5 | **Backend** — existing `POST /api/chat-rooms/:roomId/attachments` endpoint. **NO server work in Slice 5.** Pure Mac app delivery. Artefact metadata is optional follow-up: if the shelf must show the upload under Artefacts, create a second metadata row via `POST /api/chat-rooms/:roomId/artefacts` with `kind: "other"` and `refUrl` pointing at the attachment download URL. | Attachment upload JSON body `{ filename, mimeType, contentsBase64, uploadedByHandle }` → `201 { sharedFile }` |
+| 6 | **Multi-file drop allowed.** Sequential upload is the target behaviour; concurrent first-cut is acceptable only as a non-release blocker if the UI state remains correct. One file failing does NOT cancel siblings. | `AttachmentUploadService` collects `[NSItemProvider]`, processes each as one upload entry |
 | 7 | **Visual feedback states:** | See Sub-region A below |
-| 8 | **Unsupported types** (arbitrary text, executable, archives we won't accept) → silent no-op, cursor returns to default. No toast, no banner. Don't punish the user for trying. | `RoomDropDelegate.validateDrop(_:)` returns false silently |
+| 8 | **Unsupported types** (arbitrary text, executable, archives we won't accept) → silent no-op, cursor returns to default. No toast, no banner. Don't punish the user for trying. | `.onDrop` type filter + provider validation returns false silently |
 | 9 | **All tokens via `Tokens.*`** in new files. | grep audit |
 | 10 | **BridgesStrip chips stay no-op for Slice 5.** Chips visualise connected services, not drop trays. Slice 7b will invert for bring-in-LLM. | No changes to `BridgesStrip.swift` this slice |
 
@@ -28,7 +28,7 @@
 
 ## Sub-region A — RoomColumn drop target
 
-**Files:** `Antchat/Views/Shell/RoomColumn.swift` (modify), `Antchat/Views/Chat/RoomDropDelegate.swift` (new)
+**Files:** `Antchat/Views/Shell/RoomColumn.swift` (modify), `Antchat/Services/AttachmentUploadService.swift` (new)
 
 **Visual states:**
 
@@ -40,27 +40,23 @@
 | Drag exit | Revert to idle within 100 ms | default | normal |
 | Uploading | Drop-hint band shows progress chip: `arrow.up.circle.fill` icon + `"\(filename) · \(percent)%"` + cancel × — appears in the band's right edge | default | normal |
 | Multi-file uploading | Progress chip shows `"3 files · 2 of 3 uploaded"`, expands to a small dropdown on hover listing each filename + per-file progress + per-file cancel | default | normal |
-| Upload success | Progress chip animates to `Tokens.ok` checkmark + `"\(filename) added"` (1 s) → fades out → drop-hint band returns to idle | default | chat stream appends a `system_artefact_added` message; RoomShelf Artefacts count increments live |
+| Upload success | Progress chip animates to `Tokens.ok` checkmark + `"\(filename) attached"` (1 s) → fades out → drop-hint band returns to idle | default | Attachment count increments live. If the optional metadata step is implemented, Artefacts count increments too. |
 | Upload error | Progress chip → `Tokens.warn` exclamation + `"\(filename) — retry?"` (5 s) with Retry button + dismiss × | default | no chat message appended for the failed file |
 
-**`RoomDropDelegate` shape:**
+**`AttachmentUploadService` shape:**
 
 ```swift
-struct RoomDropDelegate: DropDelegate {
-  @Binding var currentRoomId: String?
-  let messagesService: MessagesService
-  let onPickRoom: () -> Void   // shows RoomPickerSheet when currentRoomId is nil
+final class AttachmentUploadService: ObservableObject {
+  @Published private(set) var entries: [UploadEntry] = []
+  @Published private(set) var isReceivingDrop: Bool = false
 
-  func validateDrop(info: DropInfo) -> Bool { /* type filter */ }
-  func performDrop(info: DropInfo) -> Bool {
-    guard let roomId = currentRoomId else {
-      onPickRoom(); /* hold the providers, replay after pick */
-      return true
-    }
-    Task { try await messagesService.uploadArtefacts(roomId: roomId, providers: info.itemProviders(for: [.fileURL, .image, .pdf])) }
+  func handleDrop(providers: [NSItemProvider], roomId: String) -> Bool {
+    guard !roomId.isEmpty else { return false }
+    // Resolve file URLs, read bytes, base64 encode, POST /attachments.
     return true
   }
-  func dropEntered(info:) / dropUpdated / dropExited — update @State drag flag for visual states
+
+  func setReceiving(_ value: Bool) { isReceivingDrop = value }
 }
 ```
 
@@ -72,42 +68,35 @@ struct RoomDropDelegate: DropDelegate {
 
 ---
 
-## Sub-region B — Room picker sheet · `RoomPickerSheet.swift`
+## Sub-region B — No-room soft toast
 
-Triggered when user drops a file with `currentRoomId == nil`.
+Triggered when user drops a file with `currentRoomId == ""`.
 
-**Layout:**
-- Modal sheet, fixed size 480 × 560
-- Header: `"Which room is this for?"` 18 pt weight 700 `Tokens.ink.strong` + close `×` button top-right
-- Search field at top — `magnifyingglass` SF Symbol + placeholder `"Search rooms…"` + debounced query
-- List below: two sections — `SAVED ROOMS` (sorted by recency, max 10) + `OTHER ROOMS` (rest, paginated 20 at a time)
-- Each row: status dot + room name + last-active timestamp via `String.relativeShort`
-- Bottom: pending-drop strip — `"\(N) file(s) ready to attach"` + cancel button
-- Selecting a row → assigns `currentRoom.id = picked.id` → drop completes → sheet dismisses with the upload starting
+**Slice 5 v1 behaviour:**
+- Return `false` from `.onDrop` so no upload starts.
+- Surface a soft toast: `"Pick a room first"`.
+- Briefly highlight the SAVED ROOMS section for about 1.5 s so the user knows how to recover.
+- No upload entries should be created.
 
-**Sheet behaviour:**
-- Dismiss via ESC, close button, or click outside → cancels the pending drop
-- Multi-file drop pending → the picker accepts ONE room for ALL the dropped files (consistent with whole-room-drop semantics from Sub-region A)
-
-**A11y:** sheet is a `presentationDetents`-managed view with `.accessibilityAddTraits(.isModal)`; rows have `accessibilityHint("Attaches \(N) file(s) to this room")`.
+**Banked v0.2.2 polish:** `RoomPickerSheet` with saved/recent room search, pending providers held, and replay after room selection.
 
 ---
 
-## Sub-region C — Artefact upload flow
+## Sub-region C — Attachment upload flow
 
-**Files:** `MessagesService.swift` (modify — add `uploadArtefacts(roomId:providers:)`)
+**Files:** `AttachmentUploadService.swift` (new or modify — add `uploadAttachments(roomId:providers:)`)
 
 **Flow:**
 
 1. Provider loop: each `NSItemProvider` resolved to a file URL via `loadObject(ofClass: URL.self)`. Skip silently on unresolved.
 2. For each file URL:
-   - Open file handle, stream contents to `POST /api/chat-rooms/:roomId/artefacts` as multipart body with fields `displayName` (filename) + `kind` (auto-detected from extension: `pdf` / `image` / `file`) + `body` (binary).
-   - Track progress via `URLSessionUploadTask` delegate → emit progress to a `@Published var uploads: [ArtefactUpload]` that the RoomColumn's progress chip subscribes to.
-   - On 200/201 success: artefact ID returned in response body → append a synthetic `system_artefact_added` `Message` to the chat stream (locally only — server's own broadcast will dedupe).
+   - Read bytes, base64-encode, and POST JSON to `POST /api/chat-rooms/:roomId/attachments` with fields `filename`, `mimeType`, `contentsBase64`, and `uploadedByHandle`.
+   - Track state through `@Published var entries: [UploadEntry]` that the RoomColumn's progress chip subscribes to. True byte-level progress can be added later if the implementation moves to `URLSessionUploadTask`.
+   - On 201 success: `sharedFile.id` is returned. Update the attachment count immediately. Optional: POST a metadata artefact row with `kind: "other"`, `title: filename`, and `refUrl: /api/chat-rooms/:roomId/attachments/:attachmentId` if this slice chooses to mirror uploads into the Artefacts tab.
    - On failure: keep entry in `uploads` with `state = .error`; UI shows retry.
 3. After all uploads (success or fail), drop-hint band animates back to idle.
 
-**`system_artefact_added` message kind** — should already exist in v0.1.x lineage; if not, this slice's `Message.swift` modification adds it (1-line enum case).
+**Message row:** no new message kind in Slice 5. Current server message kinds are `human`, `agent`, `system`, and `system-break`; ordinary `/messages` POST accepts only `human|agent`. If a chat-stream confirmation is needed, post a normal human message containing the attachment markdown link. Otherwise the upload is surfaced through the progress chip + Attachments/Artefacts shelf counts.
 
 **Error handling:**
 - HTTP 401/403 → "Sign-in expired — reconnect" toast + open the sign-in modal (existing flow)
@@ -132,19 +121,19 @@ If a user attempts to drop ON a BridgesStrip chip, the chip ignores the drop (do
 
 ---
 
-## PASS gate (proposed — pending @antmacdevcodex final wording)
+## PASS gate (locked)
 
 | # | Criterion | Met by |
 |---|---|---|
-| 1 | RoomColumn accepts `.fileURL` / `.image` / `.pdf` drops; rejects other types silently | manual: drag a `.txt` file → no visual feedback, cursor stays default |
+| 1 | RoomColumn accepts `.fileURL` drops; rejects other types silently | manual: drag a non-file payload → no visual feedback, cursor stays default |
 | 2 | Drag enter / over / exit visual states match Sub-region A spec | manual + screenshot at each state |
-| 3 | Single-file drop → upload → `system_artefact_added` appended to chat + RoomShelf Artefacts count increments | manual: drag a PDF → message appears, count goes up |
+| 3 | Single-file drop → upload → attachment stored via `/attachments`; Attachments count increments immediately. If optional artefact metadata mirroring is implemented, Artefacts count increments too. | manual: drag a PDF → chip succeeds; attachment is listed/downloadable; count goes up |
 | 4 | Multi-file drop → sequential upload, per-file progress, one failure doesn't cancel siblings | manual: drop 3 files; mid-upload network failure on file 2 → files 1 + 3 succeed, file 2 shows retry |
 | 5 | No-room-selected drop → soft toast `"Pick a room first"` + SAVED ROOMS section highlights briefly | manual: clear currentRoom.id, drag file in, observe toast + highlight, no upload triggered. (v0.2.2 polish replaces with RoomPickerSheet — drag completes against picked room.) |
-| 6 | Cancel drop in picker → all pending uploads abandoned, no chat messages appended | manual + grep for orphaned items in `uploads` array |
-| 7 | Auto-name from filename; double-click in Artefacts tab renames inline | manual: drop `report.pdf` → artefact card titled "report.pdf"; double-click → inline editor |
+| 6 | No-room soft-toast path does not create upload entries or orphaned pending state | manual + grep/inspect `uploads` array after a no-room drop |
+| 7 | Auto-name from filename; no prompt sheet appears during drop | manual: drop `report.pdf` → status chip / attachment metadata uses `report.pdf` |
 | 8 | Errors surface as retry chip (5xx / network) or non-retry chip (413 / 401) per Sub-region C | manual + harness with simulated bad responses |
-| 9 | All tokens via `Tokens.*`, no raw hex in `Views/Chat/RoomDropDelegate.swift` or `Views/Chat/RoomPickerSheet.swift` | grep audit |
+| 9 | All colours via `Tokens.*`, no raw hex in `RoomColumn.swift` drop UI or `AttachmentUploadService.swift` | grep audit |
 | 10 | VoiceOver labels + live-region announcements for upload progress + outcome | VO sweep |
 | 11 | `xcodebuild` green + screenshot evidence of idle / drag-over / uploading / success / error states | CI + `docs/concept-d/slice-5-screenshots/` |
 
@@ -153,14 +142,12 @@ If a user attempts to drop ON a BridgesStrip chip, the chip ignores the drop (do
 ## File map
 
 **New files:**
-- `antchat/Antchat/Views/Chat/RoomDropDelegate.swift`
-- `antchat/Antchat/Views/Chat/RoomPickerSheet.swift`
-- `antchat/Antchat/Models/ArtefactUpload.swift` (struct `{ id, filename, state, progress, error? }`)
+- `antchat/Antchat/Services/AttachmentUploadService.swift` (or equivalent) — upload queue, provider resolution, per-file state
+- `antchat/Antchat/Wire/AttachmentModels.swift` — share-file request/response models for `/attachments`
 
 **Modified files:**
 - `antchat/Antchat/Views/Shell/RoomColumn.swift` — wire `.onDrop` + visual state on drag flag + progress chip overlay on the drop-hint band
-- `antchat/Antchat/Services/MessagesService.swift` — add `uploadArtefacts(roomId:providers:)` + `@Published var uploads: [ArtefactUpload]`
-- `antchat/Antchat/Models/Message.swift` — add `MessageKind.system_artefact_added` case (1-line addition if not already there)
+- `antchat/Antchat/Core/Network/AntchatAPIClient.swift` — add `shareFileInRoom(...)` + request builder for `/attachments`
 
 ---
 
@@ -174,16 +161,16 @@ If a user attempts to drop ON a BridgesStrip chip, the chip ignores the drop (do
 | `Tokens.accent` | drag-over band border + label, progress chip border |
 | `Tokens.ok` | upload-success checkmark |
 | `Tokens.warn` | upload-error chip + retry affordance |
-| `Tokens.Surface.card` | RoomPickerSheet background, row backgrounds |
-| `Tokens.Surface.raised` | RoomPickerSheet header + footer bars |
+| `Tokens.Surface.card` | soft-toast / upload chip background |
+| `Tokens.Surface.raised` | upload chip raised treatment |
 
 ---
 
 ## Hand-off
 
-@antchatmacdev — your groundwork starts at `RoomColumn.swift` with `.onDrop` + `RoomDropDelegate`. The endpoint-shape investigation (existing `POST /api/chat-rooms/:id/artefacts` vs `/attachments`) is the only thing that might block — if neither exists, this becomes "Slice 5 + a server-side artefact upload endpoint." Confirm shape first; if it's an unknown, raise here before committing to the wire path.
+@antchatmacdev — build against `RoomColumn.swift` + `AttachmentUploadService.swift` + `/attachments`. `/artefacts` is metadata-only and optional in this slice; do not wire binary upload there.
 
-@antmacdevcodex — confirm or amend Q5 / the 11-item gate above. The novel patterns this slice are (a) drag visual states (b) progress chip animations (c) no-room-selected picker sheet — first time we have a modal-on-implicit-trigger in this codebase, so a11y treatment of the picker is the easy thing to overlook.
+@antmacdevcodex — Q5 gate is locked here. The novel patterns this slice are (a) drag visual states (b) progress chip animations (c) no-room-selected soft-toast recovery. `RoomPickerSheet` is banked for v0.2.2, not a Slice 5 blocker.
 
 ## Open items
-None UX. Q5 pending @antmacdevcodex.
+None UX. Q5 locked.
