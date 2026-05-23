@@ -1,20 +1,7 @@
 /**
  * /api/tasks — Lane-D PLANS S1 + JWPK TASKS-SUBSYSTEM (2026-05-16).
- *
- * GET  → list tasks. Two shapes:
- *        - legacy (?includeDeleted=1): returns Lane-D taskStore rows.
- *        - JWPK   (?status=&assigned=&terminal=&room=): returns
- *          tasksStore (JWPK) rows. Any JWPK query param triggers JWPK
- *          mode; with neither query param, returns the legacy list.
- * POST → create a task. Two body shapes:
- *        - legacy (Lane-D): { id, subject, description?, status?,
- *          priority?, planId?, assignedAgent?, evidence?, notes?,
- *          startedAtMs?, endedAtMs? }.
- *        - JWPK: { title, description?, assigned_to?,
- *          assigned_terminal_id?, room_id?, parent_task_id? }.
- *        Shape selected by presence of `title` (JWPK) vs `subject`
- *        (legacy). plan_id is OPTIONAL (JWPK Q1: a task is first-class,
- *        never a child of a plan).
+ * Auth containment (2026-05-23): room-linked ops require room gates;
+ * no-room ops require admin-bearer.
  */
 
 import { json, error } from '@sveltejs/kit';
@@ -28,8 +15,8 @@ import {
 } from '$lib/server/tasksStore';
 import { dispatchPlanEvent } from '$lib/server/planTriggerDispatcher';
 import { requireChatRoomMutationAuth, tryAdminBearer } from '$lib/server/chatRoomAuthGate';
-import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
+import { findChatRoomById } from '$lib/server/chatRoomStore';
 
 const JWPK_QUERY_KEYS = ['status', 'assigned', 'terminal', 'room'];
 
@@ -38,10 +25,12 @@ function hasAnyJwpkQuery(url: URL): boolean {
 }
 
 function requireAdminBearer(request: Request): void {
-  if (!tryAdminBearer(request)) throw error(401, 'Authentication required.');
+  if (!tryAdminBearer(request)) {
+    throw error(401, 'Authentication required.');
+  }
 }
 
-export const GET: RequestHandler = async ({ request, url }) => {
+export const GET: RequestHandler = async ({ url, request }) => {
   if (hasAnyJwpkQuery(url)) {
     const filter: ListJwpkTasksFilter = {};
     const status = url.searchParams.get('status');
@@ -62,12 +51,18 @@ export const GET: RequestHandler = async ({ request, url }) => {
       await requireChatRoomReadAccess(request, roomEntity);
       filter.roomId = room;
     } else {
+      // No room filter — admin-bearer only tonight (containment)
       requireAdminBearer(request);
     }
     return json({ tasks: listJwpkTasks(filter) });
   }
-  requireAdminBearer(request);
   const includeDeleted = url.searchParams.get('includeDeleted') === '1';
+  if (includeDeleted) {
+    requireAdminBearer(request);
+  } else {
+    // Legacy no-room GET — admin-bearer only tonight (containment)
+    requireAdminBearer(request);
+  }
   return json({ tasks: listTasks({ includeDeleted }) });
 };
 
@@ -77,14 +72,17 @@ export const POST: RequestHandler = async ({ request }) => {
     throw error(400, 'Send a JSON object body.');
   }
   const b = body as Record<string, unknown>;
+
+  // Determine room_id from either shape
   const roomId =
-    typeof b.room_id === 'string'
-      ? b.room_id
-      : (typeof b.roomId === 'string' ? b.roomId : null);
-  if (roomId !== null) {
+    typeof b.room_id === 'string' ? b.room_id
+    : (typeof b.roomId === 'string' ? b.roomId : null);
+
+  if (roomId) {
     if (!findChatRoomById(roomId)) throw error(404, 'Room not found.');
-    requireChatRoomMutationAuth(roomId, request, b);
+    requireChatRoomMutationAuth(roomId, request, body);
   } else {
+    // No room_id — admin-bearer only tonight (containment)
     requireAdminBearer(request);
   }
 
@@ -101,7 +99,7 @@ export const POST: RequestHandler = async ({ request }) => {
       assignedTo: typeof b.assigned_to === 'string' ? b.assigned_to : null,
       assignedTerminalId:
         typeof b.assigned_terminal_id === 'string' ? b.assigned_terminal_id : null,
-      roomId,
+      roomId: roomId ?? null,
       planId:
         typeof b.plan_id === 'string'
           ? b.plan_id
@@ -139,11 +137,6 @@ export const POST: RequestHandler = async ({ request }) => {
     startedAtMs: typeof b.startedAtMs === 'number' ? b.startedAtMs : null,
     endedAtMs: typeof b.endedAtMs === 'number' ? b.endedAtMs : null
   });
-  // ANTSCRIPT task.created — wildcard triggers (planId NULL) fire even
-  // for standalone tasks. Recursion-safe: a task.create action that
-  // generates a follow-up task will itself emit task.created, but the
-  // synthetic `auto_…` id prefix + plain-action-config matching gives
-  // operators control over loop prevention via planId targeting.
   dispatchPlanEvent('task.created', {
     planId: created.planId,
     task: {
