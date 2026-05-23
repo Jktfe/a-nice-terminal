@@ -5,6 +5,7 @@ import { upsertArtefactContent, resetChatRoomArtefactContentStoreForTests } from
 import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
 import { resetPolicyStoreForTests } from '$lib/server/policyStore';
 import { ensureJksValidationRulePolicy, JKS_VALIDATION_RULE_SLUG } from '$lib/server/validationPolicyPresets';
+import { listTasks, resetTasksStoreForTests } from '$lib/server/tasksStore';
 
 const ADMIN_TOKEN_FOR_TESTS = 'artefact-validation-route-test-admin-token';
 const ORIGINAL_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
@@ -54,6 +55,7 @@ describe('POST /api/artefacts/:artefactId/validate', () => {
     resetChatRoomArtefactStoreForTests();
     resetChatRoomStoreForTests();
     resetPolicyStoreForTests();
+    resetTasksStoreForTests();
   });
 
   it('applies a policy lens to a markdown artefact and returns claim-level scores', async () => {
@@ -150,6 +152,56 @@ describe('POST /api/artefacts/:artefactId/validate', () => {
       slug: JKS_VALIDATION_RULE_SLUG
     });
     expect(body.score.totalClaims).toBe(1);
+  });
+
+  it('creates idempotent verifier work items when requested', async () => {
+    const room = createChatRoom({ name: 'validation room', whoCreatedIt: '@you' });
+    const artefact = createArtefactInRoom({
+      roomId: room.id,
+      kind: 'doc',
+      title: 'Claims to verify',
+      createdBy: '@speedycodex'
+    });
+    upsertArtefactContent({
+      id: 'claims-doc',
+      artefactId: artefact.id,
+      roomId: room.id,
+      kind: 'doc',
+      contentFormat: 'markdown',
+      contentBody: 'This security launch has 3 material checks.',
+      updatedByHandle: '@speedycodex'
+    });
+    ensureJksValidationRulePolicy({ ownerHandle: '@you', actorKind: 'human' });
+
+    const first = await runPost(eventFor(artefact.id, {
+      policySlug: JKS_VALIDATION_RULE_SLUG,
+      createWork: true
+    }));
+    const second = await runPost(eventFor(artefact.id, {
+      policySlug: JKS_VALIDATION_RULE_SLUG,
+      createWork: true
+    }));
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    const firstBody = await first.json();
+    const secondBody = await second.json();
+    expect(firstBody.validationWork.created).toBe(2);
+    expect(firstBody.validationWork.reused).toBe(0);
+    expect(secondBody.validationWork.created).toBe(0);
+    expect(secondBody.validationWork.reused).toBe(2);
+    expect(firstBody.validationWork.items[0]).toMatchObject({
+      claimId: firstBody.claims[0].id,
+      sourcePointer: firstBody.claims[0].source.pointer,
+      verifierKind: 'agent'
+    });
+
+    const tasks = listTasks({ roomId: room.id });
+    expect(tasks).toHaveLength(2);
+    expect(tasks[0].title).toContain(firstBody.claims[0].id);
+    expect(tasks[0].description).toContain(firstBody.claims[0].text);
+    expect(tasks[0].description).toContain(firstBody.claims[0].source.pointer);
+    expect(tasks.map((task) => task.planId)).toEqual([`validation-${artefact.id}`, `validation-${artefact.id}`]);
   });
 
   it('rejects artefacts without stored markdown content', async () => {
