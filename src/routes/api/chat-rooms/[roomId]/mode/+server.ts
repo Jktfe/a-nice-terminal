@@ -22,6 +22,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { doesChatRoomExist } from '$lib/server/chatRoomStore';
 import { parsePidChainFromBody, resolveServerSideHandle } from '$lib/server/identityGate';
+import { tryAdminBearer } from '$lib/server/chatRoomAuthGate';
 import {
   getCookieValuesFromRequest
 } from '$lib/server/authGate';
@@ -51,14 +52,19 @@ export const GET: RequestHandler = async ({ params }) => {
 };
 
 function resolveHandleFromRequest(roomId: string, request: Request, rawBody: unknown): string | null {
-  // 1. Try pidChain from body (CLI/agent path).
+  // 1. Admin bearer (CLI/automation path).
+  if (tryAdminBearer(request)) {
+    return '@admin';
+  }
+
+  // 2. Try pidChain from body (CLI/agent path).
   const pidChain = parsePidChainFromBody(rawBody);
   if (pidChain.length > 0) {
     const handle = resolveServerSideHandle(roomId, pidChain);
     if (handle) return handle;
   }
 
-  // 2. Try browser-session cookie (web UI path).
+  // 3. Try browser-session cookie (web UI path).
   const cookieSecrets = getCookieValuesFromRequest(request, 'ant_browser_session');
   for (const secret of cookieSecrets) {
     const resolved = resolveBrowserSessionSecret(secret, roomId);

@@ -24,7 +24,7 @@
 
 import { getIdentityDb } from './db';
 
-const HARD_CAP_BASE64_LENGTH = 8 * 1024 * 1024; // ~6 MB binary, generous for slice 1
+const MAX_SHARED_FILE_BYTES = 40 * 1024 * 1024;
 
 export type SharedFile = {
   id: string;
@@ -84,11 +84,12 @@ export function shareFileInRoom(input: {
   if (input.contentsBase64.length === 0) {
     throw new Error('A file with no contents cannot be shared.');
   }
-  if (input.contentsBase64.length > HARD_CAP_BASE64_LENGTH) {
-    throw new Error('That file is too big to share right now (max about 6 MB).');
-  }
   if (!isStrictBase64(input.contentsBase64)) {
     throw new Error('contentsBase64 is not valid base64 (bad characters or padding).');
+  }
+  const byteSize = estimateByteSizeFromBase64(input.contentsBase64);
+  if (byteSize > MAX_SHARED_FILE_BYTES) {
+    throw new Error('That file is too big to share right now (max 40 MB).');
   }
 
   const nowMs = Date.now();
@@ -109,7 +110,7 @@ export function shareFileInRoom(input: {
       trimmedRoomId,
       safeFilename,
       trimmedMimeType,
-      estimateByteSizeFromBase64(input.contentsBase64),
+      byteSize,
       input.contentsBase64,
       trimmedHandle,
       uploadedAt,

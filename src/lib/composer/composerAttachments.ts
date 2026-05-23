@@ -13,7 +13,7 @@ import {
   type EnsureBrowserSessionResult
 } from '$lib/browserSessionClient';
 
-const MAX_FILE_BYTES = 4_500_000;
+const MAX_FILE_BYTES = 40 * 1024 * 1024;
 
 type FetchLike = typeof fetch;
 type EnsureSessionForRoom = (
@@ -64,7 +64,7 @@ export async function uploadAttachmentToRoom(input: {
   ensureSessionForRoom?: EnsureSessionForRoom;
 }): Promise<AttachmentUploadResult> {
   if (input.file.size > MAX_FILE_BYTES) {
-    throw new Error(`File "${input.file.name}" is too big to attach (max ~4.5 MB).`);
+    throw new Error(`File "${input.file.name}" is too big to attach (max 40 MB).`);
   }
 
   const ensureSession = input.ensureSessionForRoom ?? ensureBrowserSessionForRoom;

@@ -98,6 +98,51 @@ describe('buildAttachmentMarkdownLink', () => {
     expect(result.markdownLink).toBe('[📎 notes.txt](/api/chat-rooms/room42/attachments/att1)');
   });
 
+  it('allows files above the old upload cap when they are under 40 MB', async () => {
+    vi.stubGlobal('FileReader', TestFileReader);
+    const file = new File([new Uint8Array(5 * 1024 * 1024)], 'five-meg.bin', {
+      type: 'application/octet-stream'
+    });
+
+    const result = await uploadAttachmentToRoom({
+      roomId: 'room42',
+      file,
+      uploadedByHandle: '@you',
+      ensureSessionForRoom: async () => ({ ok: true, cached: false }),
+      fetcher: async () => new Response(JSON.stringify({
+        sharedFile: {
+          id: 'att-large',
+          filename: 'five-meg.bin',
+          mimeType: 'application/octet-stream',
+        },
+      }), {
+        status: 201,
+        headers: { 'content-type': 'application/json' },
+      }),
+    });
+
+    expect(result.attachmentId).toBe('att-large');
+  });
+
+  it('rejects files larger than 40 MB before minting a browser session', async () => {
+    const ensureSessionForRoom = vi.fn();
+    const fetcher = vi.fn();
+    const file = new File([new Uint8Array((40 * 1024 * 1024) + 1)], 'too-big.bin', {
+      type: 'application/octet-stream'
+    });
+
+    await expect(uploadAttachmentToRoom({
+      roomId: 'room42',
+      file,
+      uploadedByHandle: '@you',
+      ensureSessionForRoom,
+      fetcher,
+    })).rejects.toThrow('max 40 MB');
+
+    expect(ensureSessionForRoom).not.toHaveBeenCalled();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it('does not post the attachment when browser-session minting fails', async () => {
     vi.stubGlobal('FileReader', TestFileReader);
     const fetcher = vi.fn();
