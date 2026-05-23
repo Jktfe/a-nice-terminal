@@ -47,10 +47,24 @@
     viewport_h: number;
   };
 
+  type Suggestion = {
+    id: string;
+    screen_id: string | null;
+    state_slug: string | null;
+    element_slug: string | null;
+    body: string;
+    captured_by_handle: string;
+    captured_at_ms: number;
+    status: 'open' | 'addressed' | 'dismissed';
+  };
+
   let states = $state<ScreenState[]>([]);
   let selectedState = $state<ScreenState | null>(null);
   let annotations = $state<Annotation[]>([]);
   let selectedAnnotation = $state<Annotation | null>(null);
+  let suggestions = $state<Suggestion[]>([]);
+  let suggestionDraft = $state<string>('');
+  let suggestionSaving = $state(false);
   let loading = $state(true);
   let loadError = $state<string | null>(null);
 
@@ -108,6 +122,7 @@
       if (!response.ok) throw new Error(`state fetch ${response.status}`);
       const data = await response.json();
       annotations = data.annotations ?? [];
+      suggestions = data.suggestions ?? [];
     } catch (err) {
       loadError = err instanceof Error ? err.message : String(err);
     }
@@ -421,6 +436,51 @@
     return states.filter((s) => s.screen_id === selectedState!.screen_id);
   }
 
+  // ─── slice 3: Notes capture + suggestions feed ────────────────────
+
+  function suggestionsForSelectedElement(): Suggestion[] {
+    if (!selectedAnnotation) return [];
+    return suggestions
+      .filter((s) => s.element_slug === selectedAnnotation!.element_slug && s.status === 'open')
+      .sort((a, b) => b.captured_at_ms - a.captured_at_ms);
+  }
+
+  async function captureSuggestion() {
+    if (!selectedState || !selectedAnnotation) return;
+    const text = suggestionDraft.trim();
+    if (text.length === 0) return;
+    suggestionSaving = true;
+    try {
+      const response = await fetch('/api/manual/suggestions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          screenId: selectedState.screen_id,
+          stateSlug: selectedState.state_slug,
+          elementSlug: selectedAnnotation.element_slug,
+          body: text
+        })
+      });
+      if (!response.ok) throw new Error(`capture ${response.status}`);
+      const data = await response.json();
+      suggestions = [data.suggestion, ...suggestions];
+      suggestionDraft = '';
+    } catch (err) {
+      saveError = err instanceof Error ? err.message : String(err);
+    } finally {
+      suggestionSaving = false;
+    }
+  }
+
+  function formatTimestamp(ms: number): string {
+    const date = new Date(ms);
+    const today = new Date();
+    const sameDay = date.toDateString() === today.toDateString();
+    return sameDay
+      ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
+
   onMount(loadStates);
 </script>
 
@@ -645,8 +705,46 @@
               </section>
 
               <section class="inspector-section">
-                <h3>Notes</h3>
-                <p class="inspector-empty">Capture lands in slice 3 — Add button coming soon.</p>
+                <h3>Notes <span class="hint">(captured into the suggestions feed)</span></h3>
+                {#if suggestionsForSelectedElement().length === 0}
+                  <p class="inspector-empty">No notes yet — be the first.</p>
+                {:else}
+                  <ul class="suggestions-list">
+                    {#each suggestionsForSelectedElement() as s (s.id)}
+                      <li>
+                        <div class="suggestion-body">{s.body}</div>
+                        <div class="suggestion-meta">
+                          {s.captured_by_handle} · {formatTimestamp(s.captured_at_ms)}
+                        </div>
+                      </li>
+                    {/each}
+                  </ul>
+                {/if}
+                <div class="suggestion-form">
+                  <textarea
+                    class="inspector-textarea"
+                    rows="2"
+                    placeholder="Add a note or question about this element…"
+                    bind:value={suggestionDraft}
+                    onkeydown={(e) => {
+                      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                        e.preventDefault();
+                        captureSuggestion();
+                      }
+                    }}
+                  ></textarea>
+                  <div class="suggestion-form-row">
+                    <span class="suggestion-form-hint">⌘↵ to send · feeds into <a href="/manual/suggestions">/manual/suggestions</a></span>
+                    <button
+                      type="button"
+                      class="suggestion-add-btn"
+                      onclick={captureSuggestion}
+                      disabled={suggestionSaving || suggestionDraft.trim().length === 0}
+                    >
+                      {suggestionSaving ? 'Adding…' : 'Add'}
+                    </button>
+                  </div>
+                </div>
               </section>
             {:else}
               <!-- Author mode: editable form. Each input persists on
@@ -1131,5 +1229,57 @@
   .state-delete-btn:hover {
     background: rgba(220, 38, 38, 0.08);
     border-color: #b91c1c;
+  }
+
+  /* ─── slice 3: Notes capture inside inspector ──────────────────── */
+  .suggestions-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 0.6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .suggestions-list li {
+    background: var(--surface-2, #f1f5f9);
+    border-left: 3px solid var(--accent, #6b21a8);
+    padding: 0.45rem 0.6rem;
+    border-radius: 0 6px 6px 0;
+  }
+  .suggestion-body {
+    font: 500 0.85rem/1.45 ui-sans-serif, system-ui, sans-serif;
+    color: var(--ink-strong, #0f172a);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .suggestion-meta {
+    margin-top: 0.2rem;
+    font: 500 0.72rem/1.2 ui-sans-serif, system-ui, sans-serif;
+    color: var(--ink-muted, #94a3b8);
+  }
+  .suggestion-form { display: flex; flex-direction: column; gap: 0.4rem; }
+  .suggestion-form-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .suggestion-form-hint {
+    font: 500 0.72rem/1.2 ui-sans-serif, system-ui, sans-serif;
+    color: var(--ink-muted, #94a3b8);
+  }
+  .suggestion-form-hint a { color: var(--accent, #6b21a8); }
+  .suggestion-add-btn {
+    background: var(--accent, #6b21a8);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 0.35rem 0.9rem;
+    font: 600 0.8rem/1.2 ui-sans-serif, system-ui, sans-serif;
+    cursor: pointer;
+  }
+  .suggestion-add-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 </style>
