@@ -4,6 +4,7 @@
 -->
 <script lang="ts">
   import type { TaskForRoom } from '$lib/server/taskStore';
+  import ValidationBadge from './ValidationBadge.svelte';
 
   type Props = { tasks: TaskForRoom[] };
   let { tasks }: Props = $props();
@@ -12,6 +13,13 @@
   // this room alone does not have 312 open tasks". Filter out terminal-state
   // tasks (completed/cancelled) so the panel reflects ACTIONABLE work only.
   // Store still has them — just hidden from the room panel.
+    function isValidationTask(t: TaskForRoom): boolean {
+    return t.description?.includes('Validate claim') ?? false;
+  }
+  function extractClaimId(t: TaskForRoom): string | null {
+    const m = t.description?.match(/Validate claim `([^`]+)`/);
+    return m?.[1] ?? null;
+  }
   const TERMINAL_STATUSES = new Set(['completed', 'cancelled']);
   const activeTasks = $derived(tasks.filter((t) => !TERMINAL_STATUSES.has(t.status)));
   const standaloneTasks = $derived(activeTasks.filter((t) => t.planId == null));
@@ -39,6 +47,12 @@
           <div class="task-row">
             <span class="status status-{t.status}"></span>
             <span class="subject">{t.subject}</span>
+            {#if isValidationTask(t)}
+              {@const claimId = extractClaimId(t)}
+              {#if claimId}
+                <ValidationBadge claimAnchor={claimId} compact />
+              {/if}
+            {/if}
             {#if t.assignedAgent}
               <span class="agent">{t.assignedAgent}</span>
             {/if}
@@ -54,6 +68,12 @@
           <div class="task-row">
             <span class="status status-{t.status}"></span>
             <span class="subject">{t.subject}</span>
+            {#if isValidationTask(t)}
+              {@const claimId = extractClaimId(t)}
+              {#if claimId}
+                <ValidationBadge claimAnchor={claimId} compact />
+              {/if}
+            {/if}
             {#if t.assignedAgent}
               <span class="agent">{t.assignedAgent}</span>
             {/if}
