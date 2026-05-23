@@ -23,12 +23,19 @@
   let blockerToAdd = $state('');
   let isMutatingBlockers = $state(false);
   let lastErrorMessage = $state('');
+  let verifierEvidenceDraft = $state('');
+  let verifierScoreRaw = $state('100');
+  let isSubmittingVerifierEvidence = $state(false);
+  let verifierEvidenceMessage = $state('');
 
   $effect(() => {
     if (task) {
       isEditingPriority = false;
       priorityDraftRaw = task.priority === null ? '' : String(task.priority);
       lastErrorMessage = '';
+      verifierEvidenceDraft = '';
+      verifierScoreRaw = '100';
+      verifierEvidenceMessage = '';
       blockerToAdd = '';
     }
   });
@@ -46,6 +53,28 @@
       .replace(/_/g, ' ')
       .replace(/\b\w/g, (letter) => letter.toUpperCase());
   }
+
+  function firstMatch(text: string, pattern: RegExp): string | null {
+    return pattern.exec(text)?.[1]?.trim() ?? null;
+  }
+
+  function parseValidationTask(description: string | null) {
+    if (!description) return null;
+    const claimId = firstMatch(description, /Validate claim `([^`]+)` using lens `([^`]+)`\./);
+    const lensSlug = firstMatch(description, /using lens `([^`]+)`\./);
+    const verifierKind = firstMatch(description, /^Verifier kind:\s*(.+)$/m);
+    const sourcePointer = firstMatch(description, /^Source pointer:\s*(.+)$/m);
+    if (!claimId || !lensSlug || !verifierKind) return null;
+    return { claimId, lensSlug, verifierKind, sourcePointer };
+  }
+
+  const validationTask = $derived(
+    task && task.status === 'completed' ? parseValidationTask(task.description) : null
+  );
+
+  const validationRunEndpoint = $derived(
+    task ? `/api/tasks/${encodeURIComponent(task.id)}/validation-run` : ''
+  );
 
   const availableBlockerCandidates = $derived.by(() => {
     if (!task) return [];
@@ -129,6 +158,46 @@
         causeOfFailure instanceof Error ? causeOfFailure.message : 'Could not remove dependency.';
     } finally {
       isMutatingBlockers = false;
+    }
+  }
+
+  async function submitVerifierEvidence(outcome: 'pass' | 'fail') {
+    if (!task || !validationTask) return;
+    const trimmedScore = verifierScoreRaw.trim();
+    const score = trimmedScore.length === 0 ? undefined : Number(trimmedScore);
+    if (score !== undefined && (!Number.isFinite(score) || score < 0 || score > 100)) {
+      lastErrorMessage = 'Score must be blank or a number from 0 to 100.';
+      return;
+    }
+    isSubmittingVerifierEvidence = true;
+    lastErrorMessage = '';
+    verifierEvidenceMessage = '';
+    try {
+      const response = await fetch(validationRunEndpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          outcome,
+          score,
+          evidence: verifierEvidenceDraft.trim()
+        })
+      });
+      if (!response.ok) {
+        const failure = await response.json().catch(() => ({ message: response.statusText }));
+        throw new Error(failure.message ?? 'Could not submit verifier evidence.');
+      }
+      const body = await response.json().catch(() => ({ reused: false }));
+      verifierEvidenceMessage = body.reused
+        ? 'Verifier evidence updated.'
+        : 'Verifier evidence recorded.';
+      onMutated?.();
+    } catch (causeOfFailure) {
+      lastErrorMessage =
+        causeOfFailure instanceof Error
+          ? causeOfFailure.message
+          : 'Could not submit verifier evidence.';
+    } finally {
+      isSubmittingVerifierEvidence = false;
     }
   }
 </script>
@@ -225,6 +294,57 @@
 
     {#if task.description}
       <section><h3>Description</h3><pre>{task.description}</pre></section>
+    {/if}
+
+    {#if validationTask}
+      <section class="verifier-card" data-validation-run-endpoint={validationRunEndpoint}>
+        <h3>Submit verifier evidence</h3>
+        <dl class="verifier-meta">
+          <div><dt>Claim</dt><dd>{validationTask.claimId}</dd></div>
+          <div><dt>Lens</dt><dd>{validationTask.lensSlug}</dd></div>
+          <div><dt>Verifier</dt><dd>{validationTask.verifierKind}</dd></div>
+          {#if validationTask.sourcePointer}
+            <div><dt>Source</dt><dd>{validationTask.sourcePointer}</dd></div>
+          {/if}
+        </dl>
+        <label class="verifier-field">
+          <span>Evidence</span>
+          <textarea
+            bind:value={verifierEvidenceDraft}
+            rows="3"
+            placeholder="What did you check?"
+            disabled={isSubmittingVerifierEvidence}
+          ></textarea>
+        </label>
+        <label class="verifier-field verifier-score">
+          <span>Score</span>
+          <input
+            type="number"
+            min="0"
+            max="100"
+            step="1"
+            bind:value={verifierScoreRaw}
+            disabled={isSubmittingVerifierEvidence}
+          />
+        </label>
+        <div class="verifier-actions">
+          <button
+            type="button"
+            class="inline-save"
+            onclick={() => void submitVerifierEvidence('pass')}
+            disabled={isSubmittingVerifierEvidence}
+          >Mark pass</button>
+          <button
+            type="button"
+            class="inline-cancel"
+            onclick={() => void submitVerifierEvidence('fail')}
+            disabled={isSubmittingVerifierEvidence}
+          >Mark fail</button>
+        </div>
+        {#if verifierEvidenceMessage}
+          <p class="success" role="status">{verifierEvidenceMessage}</p>
+        {/if}
+      </section>
     {/if}
 
     <section>
@@ -357,6 +477,7 @@
     font: inherit;
   }
   .error { margin: 0; color: var(--accent); font-size: 0.8rem; }
+  .success { margin: 0; color: #15803d; font-size: 0.8rem; font-weight: 700; }
   h3 {
     margin: 0 0 0.35rem; font-size: 0.78rem; text-transform: uppercase;
     letter-spacing: 0.04em; color: var(--ink-soft);
@@ -375,4 +496,59 @@
     font-size: 0.72rem; text-transform: uppercase;
   }
   .evidence a { color: var(--accent); word-break: break-all; }
+  .verifier-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    padding: 0.75rem;
+    border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line-soft));
+    border-radius: 0.65rem;
+    background: color-mix(in srgb, var(--accent) 6%, var(--surface-card));
+  }
+  .verifier-meta {
+    display: grid;
+    gap: 0.25rem;
+  }
+  .verifier-meta div {
+    display: grid;
+    grid-template-columns: 4.5rem minmax(0, 1fr);
+    gap: 0.45rem;
+    align-items: baseline;
+  }
+  .verifier-meta dd {
+    overflow-wrap: anywhere;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.76rem;
+  }
+  .verifier-field {
+    display: grid;
+    gap: 0.25rem;
+    color: var(--ink-soft);
+    font-size: 0.78rem;
+    font-weight: 800;
+  }
+  .verifier-field textarea,
+  .verifier-field input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.45rem 0.55rem;
+    border: 1px solid var(--line-soft);
+    border-radius: 0.45rem;
+    background: var(--bg);
+    color: var(--ink-strong);
+    font: inherit;
+    font-weight: 500;
+  }
+  .verifier-field textarea {
+    resize: vertical;
+    min-height: 4.5rem;
+  }
+  .verifier-score input {
+    max-width: 5.5rem;
+  }
+  .verifier-actions {
+    display: flex;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+  }
 </style>
