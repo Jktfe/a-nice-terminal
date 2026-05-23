@@ -6,6 +6,7 @@ import { GET, POST } from './+server';
 import { resetIdentityDbForTests } from '$lib/server/db';
 import { createChatRoom } from '$lib/server/chatRoomStore';
 import { addRoomMemory } from '$lib/server/roomMemoryStore';
+import { putMemory } from '$lib/server/memoriesStore';
 
 const ADMIN_TOKEN_FOR_TESTS = 'room-memories-route-test-admin-token';
 const ORIGINAL_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
@@ -103,6 +104,31 @@ describe('GET/POST /api/rooms/:roomId/memories', () => {
       title: 'Readable memory',
       body: 'Authorised body',
       linkedRooms: [room.id]
+    });
+  });
+
+  it('includes room-scoped key/value memories in the room memory feed', async () => {
+    const room = createChatRoom({ name: 'memory room', whoCreatedIt: '@you' });
+    putMemory({
+      key: 'room.joint-answer-signoff-protocol.v1',
+      value: 'Presenter chosen, peer signs off, final cites evidence.',
+      scope: 'room',
+      scopeTarget: room.id,
+      byHandle: '@speedycodex'
+    });
+
+    const response = await run(GET, getEventFor(room.id));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.memories).toHaveLength(1);
+    expect(body.memories[0]).toMatchObject({
+      memoryId: 'room.joint-answer-signoff-protocol.v1',
+      title: 'room.joint-answer-signoff-protocol.v1',
+      body: 'Presenter chosen, peer signs off, final cites evidence.',
+      linkedRooms: [room.id],
+      tags: ['key-value-memory'],
+      source: 'key-value'
     });
   });
 
