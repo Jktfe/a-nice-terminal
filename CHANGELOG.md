@@ -4,6 +4,66 @@ All notable changes to ANT are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] — 2026-05-23
+
+A polish release on top of `0.2.1` that fixes the JWPK-flagged dogfood layout
+bug + lands two visible Concept D feature improvements.
+
+### Fixed
+
+- **Room view no longer duplicates the v0.1.x panel stack alongside the new
+  RoomShelf.** The Slice 4 chat lift was bulk-importing
+  `LegacyAppShellView`'s side panels (Participants / Focus mode / Open asks /
+  Documents / Tasks / Artefacts / Screenshots / Linked rooms) into the
+  Concept D `RoomColumn` body, alongside the new RoomShelf tabs in the right
+  rail — producing a duplicated panel mess with the chat buried in the
+  middle. `ChatRoomView` now takes `showsLegacyHeader: Bool` (default `true`
+  for the logged-out / Legacy path); Concept D's `RoomColumn` passes `false`,
+  which suppresses both the duplicate legacy header block and the legacy
+  `RoomContextPanel` side-panel. `RoomColumn.body` end-state is exactly:
+  `VStack { header · dragDropHint · ChatStream · ChatComposer }`. Logged-out
+  users on `LegacyAppShellView` are untouched — the lift principle holds.
+  (antchat `c666097`)
+
+- **Drag-drop hint is no longer obscured.** Falls out of the layout fix
+  above. Drop-hint band paints when a Finder drag enters the room area;
+  the label-prompt sheet (`0.2.1`) fires correctly on release.
+
+### Added — Mac client
+
+- **Label-prompt sheet on file drop.** When a file is dragged from Finder
+  into a room, a modal sheet opens prefilled with the filename as the
+  label. The label is editable per-file (one row per file for multi-file
+  drops, capped at 540 pt sheet height). Save uploads with the chosen
+  labels; Cancel abandons. Filename extension is preserved server-side
+  even if the user wipes it from the label. (antchat `43b14e6`)
+- **User Status picker in the room header.** The Screenshot button (which
+  was always covered by macOS `⌘⇧4` system shortcut anyway) is replaced
+  with a 3-state status menu: **Working** (green dot) · **Away from desk**
+  (warn-amber dot) · **Away from office** (muted-grey dot). Selection
+  persists locally via `@AppStorage("user.status")`. Server sync +
+  cross-room avatar dots + agent-behaviour routing are queued for `0.2.4`
+  (status itself is decoration-only this release). (antchat `4e9ed78`)
+
+### Changed
+
+- **Concept D `RoomColumn` body is now strictly minimal.** No more
+  legacy-panel hand-offs into the middle column. Any surface that used to
+  live there now lives in a dedicated `RoomShelf` tab in the right rail
+  (or is removed entirely — the cost / token meter stays out per the
+  remoteant chrome cleanup).
+
+### Install / upgrade
+
+```sh
+brew upgrade --cask antchat
+```
+
+Existing `0.2.1` users will be migrated transparently. Server-side
+unchanged.
+
+---
+
 ## [0.2.0] — 2026-05-23
 
 A full rewrite of the macOS thin-client (`remoteant`) around the **Concept D**
