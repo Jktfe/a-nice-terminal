@@ -50,7 +50,7 @@
             {#if isValidationTask(t)}
               {@const claimId = extractClaimId(t)}
               {#if claimId}
-                <ValidationBadge claimAnchor={claimId} compact />
+                <ValidationBadge taskId={t.id} compact />
               {/if}
             {/if}
             {#if t.assignedAgent}
@@ -71,7 +71,7 @@
             {#if isValidationTask(t)}
               {@const claimId = extractClaimId(t)}
               {#if claimId}
-                <ValidationBadge claimAnchor={claimId} compact />
+                <ValidationBadge taskId={t.id} compact />
               {/if}
             {/if}
             {#if t.assignedAgent}

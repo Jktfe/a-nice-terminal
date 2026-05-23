@@ -2,7 +2,7 @@
   ValidationBadge — lens-aware status badge for claims/tasks.
   
   Props:
-    claimAnchor: string — the claim ID to look up runs for
+    taskId: string — the validation task ID that scopes the lookup to a room
     compact?: boolean — if true, shows only icon + color dot
 -->
 <script lang="ts">
@@ -16,11 +16,11 @@
   };
 
   type Props = {
-    claimAnchor: string;
+    taskId: string;
     compact?: boolean;
   };
 
-  let { claimAnchor, compact = false }: Props = $props();
+  let { taskId, compact = false }: Props = $props();
 
   let run = $state<ValidationRun | null>(null);
   let loading = $state(true);
@@ -36,7 +36,7 @@
   async function loadRun() {
     loading = true;
     try {
-      const res = await fetch(`/api/validation-runs?claimAnchor=${encodeURIComponent(claimAnchor)}`);
+      const res = await fetch(`/api/validation-runs?taskId=${encodeURIComponent(taskId)}`);
       if (!res.ok) return;
       const data = await res.json() as { runs: ValidationRun[] };
       run = data.runs?.[0] ?? null;

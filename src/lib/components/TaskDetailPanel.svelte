@@ -299,7 +299,7 @@
 
     {#if validationTask}
       <div class="badge-row">
-        <ValidationBadge claimAnchor={validationTask.claimId} />
+        <ValidationBadge taskId={task.id} />
       </div>
       <section class="verifier-card" data-validation-run-endpoint={validationRunEndpoint}>
         <h3>Submit verifier evidence</h3>
