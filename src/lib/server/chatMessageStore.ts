@@ -23,6 +23,7 @@
 
 import { findChatRoomById } from './chatRoomStore';
 import { getIdentityDb } from './db';
+import type { MessageReactionSummary } from './messageReactionStore';
 
 export type ChatMessageKind = 'human' | 'agent' | 'system' | 'system-break';
 
@@ -43,6 +44,7 @@ export type ChatMessage = {
   deletedAtMs?: number | null;
   deletedByHandle?: string | null;
   editedAtMs?: number | null;
+  reactions?: MessageReactionSummary[];
 };
 
 type ChatMessageRow = {

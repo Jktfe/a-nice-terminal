@@ -35,6 +35,12 @@ export type MessageReaction = {
   reactedAt: string;
 };
 
+export type MessageReactionSummary = {
+  emoji: string;
+  count: number;
+  topReactors: string[];
+};
+
 type ReactionRow = {
   message_id: string;
   reactor_handle: string;
@@ -144,6 +150,24 @@ export function listReactionsForMessage(messageId: string): MessageReaction[] {
     )
     .all(messageId) as ReactionRow[];
   return rows.map(rowToReaction);
+}
+
+export function summariseReactionsForMessage(messageId: string): MessageReactionSummary[] {
+  const summariesByEmoji = new Map<string, MessageReactionSummary>();
+  for (const reaction of listReactionsForMessage(messageId)) {
+    const summary = summariesByEmoji.get(reaction.emoji);
+    if (summary) {
+      summary.count += 1;
+      if (summary.topReactors.length < 5) summary.topReactors.push(reaction.reactorHandle);
+      continue;
+    }
+    summariesByEmoji.set(reaction.emoji, {
+      emoji: reaction.emoji,
+      count: 1,
+      topReactors: [reaction.reactorHandle]
+    });
+  }
+  return [...summariesByEmoji.values()];
 }
 
 export function resetMessageReactionStoreForTests(): void {

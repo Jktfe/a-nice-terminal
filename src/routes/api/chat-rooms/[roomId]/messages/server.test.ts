@@ -12,6 +12,10 @@ import {
   postMessage,
   resetChatMessageStoreForTests
 } from '$lib/server/chatMessageStore';
+import {
+  addReactionToMessage,
+  resetMessageReactionStoreForTests
+} from '$lib/server/messageReactionStore';
 import { resetIdentityDbForTests } from '$lib/server/db';
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { addMembership } from '$lib/server/roomMembershipsStore';
@@ -103,6 +107,7 @@ describe('GET /api/chat-rooms/:roomId/messages pagination', () => {
     resetChatMessageStoreForTests();
     resetAntchatAuthTokensForTests();
     resetAskStoreForTests();
+    resetMessageReactionStoreForTests();
   });
 
   it('rejects unauthenticated message reads', async () => {
@@ -183,6 +188,28 @@ describe('GET /api/chat-rooms/:roomId/messages pagination', () => {
     expect(payload.paging.before).toBe(seeded[3].postOrder);
     expect(payload.paging.hasMore).toBe(true);
     expect(payload.paging.nextBefore).toBe(payload.messages[0].postOrder);
+  });
+
+  it('attaches per-emoji reaction summaries to message reads', async () => {
+    const room = createChatRoom({ name: 'reaction-summary-route', whoCreatedIt: '@you' });
+    const first = postMessage({ roomId: room.id, authorHandle: '@you', body: 'first' });
+    const second = postMessage({ roomId: room.id, authorHandle: '@you', body: 'second' });
+    addReactionToMessage({ messageId: first.id, reactorHandle: '@claude', emoji: '👍' });
+    addReactionToMessage({ messageId: first.id, reactorHandle: '@kimi', emoji: '👍' });
+    addReactionToMessage({ messageId: first.id, reactorHandle: '@codex', emoji: '🙌' });
+
+    const { token } = issueToken('you@example.com');
+    const response = await callGet(room.id, '', { authorization: `Bearer ${token}` });
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    const firstPayload = payload.messages.find((message: { id: string }) => message.id === first.id);
+    const secondPayload = payload.messages.find((message: { id: string }) => message.id === second.id);
+    expect(firstPayload.reactions).toEqual([
+      { emoji: '👍', count: 2, topReactors: ['@claude', '@kimi'] },
+      { emoji: '🙌', count: 1, topReactors: ['@codex'] }
+    ]);
+    expect(secondPayload.reactions).toBeUndefined();
   });
 
   it('keeps hard context-break mode server-side even when include_pre_break is requested', async () => {

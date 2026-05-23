@@ -42,6 +42,7 @@ import { hasBareEveryoneMention } from '$lib/chat/mentionRouting';
 import { collectAskCandidatesFromMessage } from '$lib/server/askCandidateStore';
 import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
 import { getContextBreakEnforcement } from '$lib/server/contextBreakSettingsStore';
+import { summariseReactionsForMessage } from '$lib/server/messageReactionStore';
 
 const DEFAULT_MESSAGE_PAGE_SIZE = 100;
 const MAX_MESSAGE_PAGE_SIZE = 200;
@@ -69,7 +70,7 @@ export const GET: RequestHandler = async ({ params, request, url }) => {
     ...(before !== undefined && { beforePostOrder: before })
   });
   return json({
-    messages: page.messages,
+    messages: page.messages.map(withReactionSummaries),
     paging: {
       limit,
       before: before ?? null,
@@ -79,6 +80,12 @@ export const GET: RequestHandler = async ({ params, request, url }) => {
     }
   });
 };
+
+function withReactionSummaries(message: ReturnType<typeof listMessagesPageInRoom>['messages'][number]) {
+  const reactions = summariseReactionsForMessage(message.id);
+  if (reactions.length === 0) return message;
+  return { ...message, reactions };
+}
 
 export const POST: RequestHandler = async ({ params, request }) => {
   const rawBody = await request.json().catch(() => null);
