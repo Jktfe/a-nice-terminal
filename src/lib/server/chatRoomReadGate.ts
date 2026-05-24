@@ -210,25 +210,112 @@ function tryPidChainQuery(request: Request, roomId?: string): ChatRoomReadAccess
   };
 }
 
+/**
+ * Per-resolver timing trace. Enabled by env `ANT_AUTH_GATE_DEBUG=1`.
+ *
+ * Banked in `project_auth_gate_latency_investigation_2026_05_24.md`:
+ * the 3-21s 401 latency on /api/chat-rooms reported in the speed-pact-v0
+ * plan has no obvious cause from static analysis. Likely suspects all
+ * need actual timing data: tryAccountsBearer network call for token-
+ * bearing 401s, slow upstream 200s, cold-DB warmup, busy_timeout=5000
+ * chained reads. This wrapper lets the operator log per-resolver ms
+ * timings without affecting the production hot path — when the env
+ * isn't set, the wrapper is a no-op closure and the resolver order is
+ * unchanged.
+ *
+ * Enable: `ANT_AUTH_GATE_DEBUG=1` in the launchd plist or shell, then
+ * `launchctl kickstart -k gui/$UID/com.ant.server` and reproduce the
+ * slow 401s. Lines land in /tmp/ant-server.log as:
+ *   [auth-gate] tried=admin,local,accounts,roomInvite,browserSession,pidChain
+ *               accountsMs=752 totalMs=812 result=null roomId=orsz2321qb
+ */
+const AUTH_GATE_DEBUG = process.env.ANT_AUTH_GATE_DEBUG === '1';
+
+type AuthGateTrace = {
+  start: number;
+  steps: Array<{ name: string; ms: number; hit: boolean }>;
+};
+
+function startTrace(): AuthGateTrace | null {
+  if (!AUTH_GATE_DEBUG) return null;
+  return { start: performance.now(), steps: [] };
+}
+
+function traceStep(trace: AuthGateTrace | null, name: string, before: number, hit: boolean): void {
+  if (!trace) return;
+  trace.steps.push({ name, ms: Math.round(performance.now() - before), hit });
+}
+
+function endTrace(
+  trace: AuthGateTrace | null,
+  roomId: string | undefined,
+  result: ChatRoomReadAccess | null
+): void {
+  if (!trace) return;
+  const totalMs = Math.round(performance.now() - trace.start);
+  const stepSummary = trace.steps
+    .map((step) => `${step.name}${step.hit ? '*' : ''}=${step.ms}ms`)
+    .join(',');
+  const resultSummary = result === null ? 'null' : result.source ?? 'unknown';
+  // Single-line log so it stays grep-friendly. The `*` marks the resolver
+  // that actually succeeded (if any).
+  process.stderr.write(
+    `[auth-gate] ${stepSummary} totalMs=${totalMs} result=${resultSummary} roomId=${roomId ?? '-'}\n`
+  );
+}
+
 export async function resolveChatRoomReadAccess(
   request: Request,
   roomId?: string
 ): Promise<ChatRoomReadAccess | null> {
-  if (tryAdminBearer(request)) return { isAdminBearer: true, source: 'admin-bearer', handles: [] };
+  const trace = startTrace();
 
+  let before = trace ? performance.now() : 0;
+  if (tryAdminBearer(request)) {
+    traceStep(trace, 'admin', before, true);
+    const result: ChatRoomReadAccess = { isAdminBearer: true, source: 'admin-bearer', handles: [] };
+    endTrace(trace, roomId, result);
+    return result;
+  }
+  traceStep(trace, 'admin', before, false);
+
+  before = trace ? performance.now() : 0;
   const localBearer = tryLocalAntchatBearer(request);
-  if (localBearer) return localBearer;
+  traceStep(trace, 'local', before, localBearer !== null);
+  if (localBearer) {
+    endTrace(trace, roomId, localBearer);
+    return localBearer;
+  }
 
+  before = trace ? performance.now() : 0;
   const accountsBearer = await tryAccountsBearer(request);
-  if (accountsBearer) return accountsBearer;
+  traceStep(trace, 'accounts', before, accountsBearer !== null);
+  if (accountsBearer) {
+    endTrace(trace, roomId, accountsBearer);
+    return accountsBearer;
+  }
 
+  before = trace ? performance.now() : 0;
   const roomInviteBearer = tryRoomInviteBearer(request, roomId);
-  if (roomInviteBearer) return roomInviteBearer;
+  traceStep(trace, 'roomInvite', before, roomInviteBearer !== null);
+  if (roomInviteBearer) {
+    endTrace(trace, roomId, roomInviteBearer);
+    return roomInviteBearer;
+  }
 
+  before = trace ? performance.now() : 0;
   const browserSession = tryBrowserSession(request, roomId);
-  if (browserSession) return browserSession;
+  traceStep(trace, 'browserSession', before, browserSession !== null);
+  if (browserSession) {
+    endTrace(trace, roomId, browserSession);
+    return browserSession;
+  }
 
-  return tryPidChainQuery(request, roomId);
+  before = trace ? performance.now() : 0;
+  const pidChain = tryPidChainQuery(request, roomId);
+  traceStep(trace, 'pidChain', before, pidChain !== null);
+  endTrace(trace, roomId, pidChain);
+  return pidChain;
 }
 
 export function canReadChatRoom(room: ChatRoom, access: ChatRoomReadAccess): boolean {
