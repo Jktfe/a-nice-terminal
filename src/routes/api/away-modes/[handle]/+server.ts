@@ -1,24 +1,51 @@
 /**
- * GET /api/away-modes/:handle — get a user's away mode.
- * PUT /api/away-modes/:handle — set a user's away mode.
+ * GET    /api/away-modes/:handle — get a user's away mode.
+ * PUT    /api/away-modes/:handle — set a user's away mode.
  * DELETE /api/away-modes/:handle — clear a user's away mode.
+ *
+ * Auth shape (per @speedycodex CHANGES REQUESTED 2026-05-24, banked in
+ * orsz2321qb msg_ul0qt6x80m): admin-bearer OR browser-session cookie
+ * where the cookie-resolved handle matches the URL `:handle` param.
+ * Browser-session callers can only get/set/clear their OWN away mode —
+ * no setting someone else's tier.
+ *
+ * Why server-observable persistence: localStorage state was invisible
+ * to agents/server, so the "away from desk vs working" distinction
+ * couldn't change agent behaviour while JWPK was away. Persistence in
+ * the away_modes table → agents read via getAwayMode() → behaviour shift.
  */
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getAwayMode, setAwayMode, clearAwayMode, isAllowedAwayTier } from '$lib/server/awayModeStore';
 import { tryAdminBearer } from '$lib/server/chatRoomAuthGate';
+import { resolveBrowserSessionSecretIgnoringRoom } from '$lib/server/browserSessionStore';
+import { getCookieValuesFromRequest } from '$lib/server/authGate';
 
-function requireAuth(request: Request): void {
-  if (!tryAdminBearer(request)) {
-    throw error(401, 'Authentication required.');
+type Auth = { kind: 'admin' | 'self'; setBy: string } | null;
+
+function resolveAuth(handleParam: string, request: Request): Auth {
+  if (tryAdminBearer(request)) {
+    return { kind: 'admin', setBy: '@admin' };
   }
+  // Browser-session caller: cookie-resolved handle must equal URL :handle param.
+  const cookieSecrets = getCookieValuesFromRequest(request, 'ant_browser_session');
+  for (const secret of cookieSecrets) {
+    const resolved = resolveBrowserSessionSecretIgnoringRoom(secret);
+    if (resolved && resolved.handle === handleParam) {
+      return { kind: 'self', setBy: resolved.handle };
+    }
+  }
+  return null;
 }
 
 export const GET: RequestHandler = async ({ params, request }) => {
-  requireAuth(request);
+  const auth = resolveAuth(params.handle, request);
+  if (!auth) throw error(401, 'Authentication required.');
   const mode = getAwayMode(params.handle);
   if (!mode) {
-    // Return active as default when no record exists
+    // Default to active when no record exists — tells the UI the user
+    // hasn't picked a tier yet so it can fall back to the room-mode
+    // derived guess for visual state.
     return json({
       mode: {
         handle: params.handle,
@@ -35,7 +62,8 @@ export const GET: RequestHandler = async ({ params, request }) => {
 };
 
 export const PUT: RequestHandler = async ({ params, request }) => {
-  requireAuth(request);
+  const auth = resolveAuth(params.handle, request);
+  if (!auth) throw error(401, 'Authentication required.');
   const payload = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     throw error(400, 'JSON body required.');
@@ -59,14 +87,15 @@ export const PUT: RequestHandler = async ({ params, request }) => {
     expectedBackMs: typeof payload.expectedBackMs === 'number' && Number.isFinite(payload.expectedBackMs)
       ? payload.expectedBackMs
       : null,
-    setBy: '@admin'
+    setBy: auth.setBy
   });
 
   return json({ mode });
 };
 
 export const DELETE: RequestHandler = async ({ params, request }) => {
-  requireAuth(request);
+  const auth = resolveAuth(params.handle, request);
+  if (!auth) throw error(401, 'Authentication required.');
   clearAwayMode(params.handle);
   return json({ ok: true });
 };

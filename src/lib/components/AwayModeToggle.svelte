@@ -10,6 +10,14 @@
   flagged by JWPK 2026-05-24 in yz4clwzvbm as not matching the dictation.
   Two tiers share `brainstorm` room mode — the active vs away-desk
   difference is presence/notification posture, not chat semantics.
+
+  Persistence shape (per @speedycodex CHANGES REQUESTED 2026-05-24,
+  orsz2321qb msg_ul0qt6x80m): tier is server-side state in away_modes
+  table, scoped by handle. Toggle takes `currentTier` as a prop from
+  the parent page (which fetched /api/away-modes/${callerHandle}) and
+  on click PUTs the new tier to that endpoint in parallel with the
+  room-mode PUT. Agents read via getAwayMode() so behaviour shifts
+  while JWPK is away — localStorage couldn't do that.
 -->
 <script lang="ts">
   import type { RoomMode } from '$lib/server/roomModesStore';
@@ -18,74 +26,51 @@
   type Props = {
     roomId: string;
     currentMode: RoomMode;
+    currentTier: AwayTier;
+    callerHandle: string;
     onModeChange?: (mode: RoomMode) => void;
+    onTierChange?: (tier: AwayTier) => void;
   };
 
-  let { roomId, currentMode, onModeChange }: Props = $props();
+  let { roomId, currentMode, currentTier, callerHandle, onModeChange, onTierChange }: Props = $props();
 
   // Descriptions taken verbatim from docs/contracts/room-state-away-mode-v1.md
   // (JWPK flagged ad-hoc wording in yz4clwzvbm msg_jj50zw48fr — canonical text
   // lives in the contract, not made up here).
   const STATES: { id: AwayTier; label: string; roomMode: RoomMode; hint: string; description: string }[] = [
-    { id: 'active',      label: 'Working',          roomMode: 'brainstorm', hint: 'Working — present and engaged',     description: 'Shape ideas, challenge assumptions, compare options.' },
+    { id: 'active',      label: 'Working',          roomMode: 'brainstorm', hint: 'Working — present and engaged',          description: 'Shape ideas, challenge assumptions, compare options.' },
     { id: 'away-desk',   label: 'Away from desk',   roomMode: 'brainstorm', hint: 'Away from desk — mobile or short break', description: 'User is mobile or temporarily unavailable.' },
     { id: 'away-office', label: 'Away from office', roomMode: 'heads-down', hint: 'Away from office — several hours away',  description: 'User unavailable for several hours.' }
   ];
 
   let switching = $state(false);
 
-  // Persisted-tier source per @speedycodex CHANGES REQUESTED on 994a6a4:
-  // since `active` and `away-desk` now BOTH map to room mode `brainstorm`,
-  // the toggle can't distinguish them from currentMode alone — without a
-  // separate tier source, clicking Away-from-desk → PUT brainstorm →
-  // reload → snap back to Working. We persist the chosen tier in
-  // localStorage per (room, user-context) so the pill stays selected
-  // across reloads. Server-side cross-device sync via /api/away-modes
-  // is a v2 follow-up — that endpoint needs auth that the deck-share
-  // path doesn't have today.
-  const TIER_STORAGE_KEY = $derived(`antRoomAwayTier:${roomId}`);
-
-  let storedTier = $state<AwayTier | null>(null);
-
-  $effect(() => {
-    if (typeof window === 'undefined') return;
-    const raw = window.localStorage.getItem(TIER_STORAGE_KEY);
-    if (raw === 'active' || raw === 'away-desk' || raw === 'away-office') {
-      storedTier = raw;
-    }
-  });
-
-  function currentTier(): AwayTier {
-    // 1. Honour the explicitly-stored tier if present (the user's chosen state).
-    if (storedTier !== null) return storedTier;
-    // 2. Fall back to a room-mode-derived guess when nothing's been chosen yet.
-    //    Heads-down → away-office (the only tier that maps to heads-down).
-    //    Closed → away-office as best-effort (no away-tier formally maps to closed).
-    //    Brainstorm → active by default.
-    if (currentMode === 'heads-down') return 'away-office';
-    if (currentMode === 'closed') return 'away-office';
-    return 'active';
-  }
-
-  const activeState = $derived(STATES.find(s => s.id === currentTier()) ?? STATES[0]);
+  const activeState = $derived(STATES.find(s => s.id === currentTier) ?? STATES[0]);
 
   async function setState(state: typeof STATES[number]) {
-    if (state.id === currentTier() || switching) return;
+    if (state.id === currentTier || switching) return;
     switching = true;
     try {
-      const response = await fetch(`/api/chat-rooms/${encodeURIComponent(roomId)}/mode`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ mode: state.roomMode, pidChain: [] })
-      });
-      if (response.ok) {
-        // Persist the chosen tier locally so the pill stays selected even
-        // when active + away-desk share the same underlying room mode.
-        if (typeof window !== 'undefined') {
-          window.localStorage.setItem(TIER_STORAGE_KEY, state.id);
-        }
-        storedTier = state.id;
+      // Fan out two PUTs in parallel:
+      // 1. Room mode (per-room state visible to all members).
+      // 2. Away tier (per-user state, observable to agents via getAwayMode).
+      // Both must succeed for the UI to flip — if either fails we keep
+      // the prior tier prop so the parent's invalidate() re-fetches truth.
+      const [modeRes, tierRes] = await Promise.all([
+        fetch(`/api/chat-rooms/${encodeURIComponent(roomId)}/mode`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ mode: state.roomMode, pidChain: [] })
+        }),
+        fetch(`/api/away-modes/${encodeURIComponent(callerHandle)}`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ tier: state.id })
+        })
+      ]);
+      if (modeRes.ok && tierRes.ok) {
         onModeChange?.(state.roomMode);
+        onTierChange?.(state.id);
       }
     } finally {
       switching = false;
@@ -105,9 +90,9 @@
       <button
         type="button"
         class="away-pill"
-        class:active={currentTier() === s.id}
+        class:active={currentTier === s.id}
         class:switching
-        aria-pressed={currentTier() === s.id}
+        aria-pressed={currentTier === s.id}
         title={s.hint}
         onclick={() => setState(s)}
         disabled={switching}
