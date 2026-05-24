@@ -217,7 +217,10 @@
             {/if}
             <button type="button" class="action-btn danger" onclick={() => void stopAgent(agent.handleId)}>stop</button>
           </div>
-          {#if agent.cli === 'codex'}
+          {#if agent.cli === 'codex' || agent.cli === 'pi'}
+            <!-- Pi parity added 2026-05-25 (PR follow-up to #52): pi's
+                 `{type:'prompt', message}` PiRpcCommand wires through the
+                 same handle.sendPrompt() facade, no UI branching needed. -->
             <div class="agent-prompt">
               <label for="prompt-{agent.handleId}" class="prompt-label">Send a prompt</label>
               <textarea
