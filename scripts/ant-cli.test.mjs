@@ -82,6 +82,47 @@ describe('ant-cli', () => {
       const body = JSON.parse(fetchCalls[0].init.body);
       expect(body.name).toBe('a long room');
     });
+
+    // Dogfood finding #2 (2026-05-25): `ant rooms create --name X` was
+    // inconsistent with `ant router start --room --handle`.
+    it('accepts --name flag form for consistency with sibling verbs', async () => {
+      const { runner, fetchCalls } = setupRunner({
+        fetchReplies: [makeJsonResponse({ chatRoom: { id: 'r1', name: 'flag-named' } }, 201)]
+      });
+      const exitCode = await runner.run(['rooms', 'create', '--name', 'flag-named']);
+      expect(exitCode).toBe(0);
+      const body = JSON.parse(fetchCalls[0].init.body);
+      expect(body.name).toBe('flag-named');
+    });
+
+    // Dogfood finding #2: error message includes inline usage so operator
+    // sees actionable syntax even though top-level help still dumps from
+    // the central catch-all.
+    it('error message for missing name includes inline usage hint', async () => {
+      const { runner, writtenErr } = setupRunner();
+      const exitCode = await runner.run(['rooms', 'create']);
+      expect(exitCode).toBe(1);
+      const stderrStr = writtenErr.join('\n');
+      expect(stderrStr).toMatch(/ant rooms create "<NAME>"/);
+      expect(stderrStr).toMatch(/--name "<NAME>"/);
+    });
+
+    // Dogfood finding #3 (2026-05-25): success message gets a next-step
+    // nudge so an operator coming from "open a room → bring in a codex"
+    // doesn't have to grep ant --help for the next move.
+    it('success message includes next-step nudges', async () => {
+      const { runner, writtenOut } = setupRunner({
+        fetchReplies: [makeJsonResponse({ chatRoom: { id: 'r1', name: 'fresh' } }, 201)]
+      });
+      const exitCode = await runner.run(['rooms', 'create', 'fresh']);
+      expect(exitCode).toBe(0);
+      const stdoutStr = writtenOut.join('\n');
+      expect(stdoutStr).toMatch(/Created r1 fresh/);
+      expect(stdoutStr).toMatch(/Next steps:/);
+      expect(stdoutStr).toMatch(/ant agents bring-in --room r1/);
+      expect(stdoutStr).toMatch(/ant rooms invite r1/);
+      expect(stdoutStr).toMatch(/\/rooms\/r1/);
+    });
   });
 
   describe('rooms post', () => {
@@ -306,14 +347,20 @@ describe('rooms create flag stripping', () => {
     expect(body.name).toBe('my room');
   });
 
-  it('strips --name leaked flag and value from room name', async () => {
+  // Dogfood finding #2 (2026-05-25): `--name` is now a supported flag,
+  // not flag-shaped junk to strip. When both positional + --name are
+  // present, the EXPLICIT flag wins — `--name` is the canonical form and
+  // mirrors the rest of the CLI surface (`ant router start --room
+  // --handle`, etc.). The old "strip --name" behaviour was a workaround
+  // because the flag wasn't honoured; the workaround is no longer needed.
+  it('--name wins over positional when both are present (flag is explicit)', async () => {
     const { runner, fetchCalls } = setupRunner({
-      fetchReplies: [makeJsonResponse({ chatRoom: { id: 'r1', name: 'real name' } }, 201)]
+      fetchReplies: [makeJsonResponse({ chatRoom: { id: 'r1', name: 'flag-wins' } }, 201)]
     });
-    const exitCode = await runner.run(['rooms', 'create', 'real', 'name', '--name', 'leaked']);
+    const exitCode = await runner.run(['rooms', 'create', 'real', 'name', '--name', 'flag-wins']);
     expect(exitCode).toBe(0);
     const body = JSON.parse(fetchCalls[0].init.body);
-    expect(body.name).toBe('real name');
+    expect(body.name).toBe('flag-wins');
   });
 });
 

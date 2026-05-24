@@ -127,3 +127,73 @@ describe('ant agents status', () => {
     expect(captured.stdout[0]).toBe('No agents.');
   });
 });
+
+describe('ant agents bring-in', () => {
+  // Dogfood finding #1 (2026-05-25): operators reading `ant --help` had no
+  // verb for spawning a CLI agent. These tests pin the wire-shape so the
+  // verb stays a thin facade over POST /api/chat-rooms/:roomId/cli-agents.
+
+  it('B1: requires --room and fails fast with usage hint when absent', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({}));
+    await expect(
+      handleAgentsVerb('bring-in', ['--cli', 'codex'], runtime, { CliInputError })
+    ).rejects.toThrow(/--room ROOM_ID/);
+    expect(captured.requests).toHaveLength(0);
+  });
+
+  it('B2: defaults --cli to codex and POSTs body without cwd when none given', async () => {
+    const { runtime, captured } = makeRuntime((_n, { init }) => okJson({
+      handleId: 'agent_codex_xyz_1',
+      cli: 'codex', cwd: null, roomId: 'r9', spawnedAtMs: 1, sessionId: null
+    }, 201));
+    await handleAgentsVerb('bring-in', ['--room', 'r9'], runtime, { CliInputError });
+    expect(captured.requests).toHaveLength(1);
+    const req = captured.requests[0];
+    expect(req.url).toBe('http://test.local/api/chat-rooms/r9/cli-agents');
+    expect(req.init.method).toBe('POST');
+    expect(JSON.parse(req.init.body)).toEqual({ cli: 'codex' });
+  });
+
+  it('B3: forwards --cli pi and --cwd to the request body', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({
+      handleId: 'agent_pi_abc_2',
+      cli: 'pi', cwd: '/Users/me/work', roomId: 'r9', spawnedAtMs: 1, sessionId: 'sess-9'
+    }, 201));
+    await handleAgentsVerb('bring-in',
+      ['--room', 'r9', '--cli', 'pi', '--cwd', '/Users/me/work'],
+      runtime, { CliInputError });
+    const body = JSON.parse(captured.requests[0].init.body);
+    expect(body).toEqual({ cli: 'pi', cwd: '/Users/me/work' });
+  });
+
+  it('B4: rejects an invalid --cli kind before fetching', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({}));
+    await expect(
+      handleAgentsVerb('bring-in', ['--room', 'r9', '--cli', 'bogus'], runtime, { CliInputError })
+    ).rejects.toThrow(/codex.*pi/);
+    expect(captured.requests).toHaveLength(0);
+  });
+
+  it('B5: prints next-step nudges referencing the new handleId', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({
+      handleId: 'agent_codex_xyz_1', cli: 'codex', cwd: null,
+      roomId: 'r9', spawnedAtMs: 1, sessionId: 'sess-7'
+    }, 201));
+    await handleAgentsVerb('bring-in', ['--room', 'r9'], runtime, { CliInputError });
+    const stdout = captured.stdout.join('\n');
+    expect(stdout).toMatch(/Brought in codex as agent_codex_xyz_1/);
+    expect(stdout).toMatch(/api\/cli-agents\/agent_codex_xyz_1\/prompt/);
+    expect(stdout).toMatch(/cli-hooks\/sess-7/);
+  });
+
+  it('B6: --json suppresses the human-readable next-step block', async () => {
+    const responseBody = {
+      handleId: 'agent_codex_xyz_1', cli: 'codex', cwd: null,
+      roomId: 'r9', spawnedAtMs: 1, sessionId: null
+    };
+    const { runtime, captured } = makeRuntime(() => okJson(responseBody, 201));
+    await handleAgentsVerb('bring-in', ['--room', 'r9', '--json'], runtime, { CliInputError });
+    expect(captured.stdout).toHaveLength(1);
+    expect(JSON.parse(captured.stdout[0])).toEqual(responseBody);
+  });
+});
