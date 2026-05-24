@@ -51,6 +51,7 @@ function fakeHandle(opts: {
     handleId: opts.handleId,
     cli: opts.cli,
     cwd: null,
+    roomId: null,
     spawnedAtMs: Date.now(),
     getSessionId: () => opts.sessionId ?? null,
     async sendCommand<TResult = unknown>(payload: Record<string, unknown>): Promise<TResult> {
