@@ -154,6 +154,53 @@ describe('roomBookmarks store', () => {
     }
   });
 
+  it('moveByVisibleId prunes stale ids before moving (claudev4 H+E lane diagnosis)', () => {
+    // Repro of the persistence-race tail: stored ids has a 'stale' entry
+    // (room was deleted while bookmarked) interleaved with live ones.
+    // Old move() would have swapped by store-index and skewed; the new
+    // method takes the visible list as truth.
+    clear();
+    roomBookmarks.add('stale');
+    roomBookmarks.add('a');
+    roomBookmarks.add('b');
+    expect(roomBookmarks.ids).toEqual(['stale', 'a', 'b']);
+
+    // User drags b to position 0 in the visible list (only ['a', 'b'] are loaded).
+    roomBookmarks.moveByVisibleId('b', 0, ['a', 'b']);
+    expect(roomBookmarks.ids).toEqual(['b', 'a']);
+
+    clear();
+  });
+
+  it('moveByVisibleId is a no-op when the visible list is empty', () => {
+    clear();
+    roomBookmarks.add('a');
+    roomBookmarks.moveByVisibleId('a', 0, []);
+    expect(roomBookmarks.ids).toEqual(['a']);
+    clear();
+  });
+
+  it('moveByVisibleId is a no-op when fromId is not in the visible set', () => {
+    clear();
+    roomBookmarks.add('a');
+    roomBookmarks.add('b');
+    // 'ghost' is not in visibleIds; method bails without modifying state.
+    roomBookmarks.moveByVisibleId('ghost', 0, ['a', 'b']);
+    expect(roomBookmarks.ids).toEqual(['a', 'b']);
+    clear();
+  });
+
+  it('moveByVisibleId respects bounds on toVisibleIndex', () => {
+    clear();
+    roomBookmarks.add('a');
+    roomBookmarks.add('b');
+    roomBookmarks.add('c');
+    // Out-of-bounds destination is a no-op (matches move() invariant).
+    roomBookmarks.moveByVisibleId('a', 99, ['a', 'b', 'c']);
+    expect(roomBookmarks.ids).toEqual(['a', 'b', 'c']);
+    clear();
+  });
+
   it('init() is safe to call when storage is malformed', () => {
     clear();
     const store = new Map<string, string>([

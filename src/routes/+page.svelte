@@ -130,7 +130,13 @@
     <DashboardSection title="Starred rooms" eyebrow="Pinned" viewAllHref="/rooms">
       <RoomStrip
         rooms={starredRooms}
-        onReorder={(fromIndex, toIndex) => roomBookmarks.move(fromIndex, toIndex)}
+        onReorder={(fromIndex, toIndex) =>
+          roomBookmarks.moveByVisibleId(
+            starredRooms[fromIndex].id,
+            toIndex,
+            starredRooms.map((room) => room.id)
+          )
+        }
         view={dashView}
         gridCols={2}
       />
