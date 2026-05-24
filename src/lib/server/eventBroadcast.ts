@@ -105,11 +105,11 @@ export function subscribeRoomEvents(
     enqueue(bytes: Uint8Array) {
       try {
         const text = decoder.decode(bytes);
-        // Lines look like: "data: {...json...}\n\n". Strip the prefix
-        // and trailing newlines. Heartbeat comments (": heartbeat") are
-        // never broadcast via this path (they're emitted directly by
-        // the SSE route), so we don't need to filter them here.
-        const trimmed = text.replace(/^data:\s*/, '').trim();
+        // Payloads include an SSE id line before the data line:
+        // "id: 12\ndata: {...json...}\n\n". Heartbeat comments are
+        // emitted directly by the SSE route, not through broadcastToRoom.
+        const dataLine = text.split('\n').find((line) => line.startsWith('data:'));
+        const trimmed = dataLine?.replace(/^data:\s*/, '').trim() ?? '';
         if (trimmed.length === 0) return;
         const parsed = JSON.parse(trimmed) as Record<string, unknown>;
         onEvent(parsed);

@@ -401,7 +401,7 @@
     if (focusRef === lastPublishedFocusRef) return;
     lastPublishedFocusRef = focusRef;
     try {
-      const response = await fetch(`/api/decks/${encodeURIComponent(deck.id)}/stage-focus`, {
+      const response = await fetch(`/api/decks/${encodeURIComponent(deck.id)}/stage-focus${deckPasswordQuery}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
