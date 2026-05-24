@@ -29,6 +29,21 @@
   let speakingIndex = $state<number | null>(null);
   let pausedIndex = $state<number | null>(null);
   let voiceNotice = $state('');
+  // Safari blocks HTMLAudioElement and speechSynthesis playback without a
+  // user gesture. We unlock on the first explicit Play / Next / Prev so
+  // that ElevenLabs and browser TTS both work on mobile Safari.
+  let safariAudioUnlocked = false;
+  function unlockSafariAudio(): void {
+    if (safariAudioUnlocked || typeof window === 'undefined') return;
+    safariAudioUnlocked = true;
+    const a = new Audio();
+    void a.play().catch(() => {});
+    if (window.speechSynthesis) {
+      const u = new SpeechSynthesisUtterance('');
+      window.speechSynthesis.speak(u);
+      window.speechSynthesis.cancel();
+    }
+  }
   // Stage Validation UX (JWPK feedback msg_pub8alsnxf 2026-05-24 + screenshot):
   // when toggle ON, render a lens dropdown + visible "Claim N" numbering on
   // each paragraph/bullet in slide content. Click-to-overlay is a follow-up
@@ -397,6 +412,7 @@
   }
 
   async function playCurrentSlide(): Promise<void> {
+    unlockSafariAudio();
     if (!activeSlide) return;
     if (speakingIndex === activeIndex && currentTTSHandle) {
       pauseOrResume();
