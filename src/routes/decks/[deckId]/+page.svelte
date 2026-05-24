@@ -29,6 +29,34 @@
   let speakingIndex = $state<number | null>(null);
   let pausedIndex = $state<number | null>(null);
   let voiceNotice = $state('');
+  // Stage Validation UX (JWPK feedback msg_pub8alsnxf 2026-05-24 + screenshot):
+  // when toggle ON, render a lens dropdown + visible "Claim N" numbering on
+  // each paragraph/bullet in slide content. Click-to-overlay is a follow-up
+  // slice; v1 ships the toggle + lens selection + visual numbering.
+  let showValidation = $state(false);
+  let activeLensId = $state<string | null>(null);
+  let lenses = $state<{ id: string; name: string }[]>([]);
+
+  async function loadLenses(): Promise<void> {
+    if (lenses.length > 0) return;
+    try {
+      // scope=public lets the deck viewer pull lenses without admin bearer
+      // (matches the deck-password presenter access pattern from 2b129fc).
+      const res = await fetch('/api/validation-schemas?scope=public');
+      if (!res.ok) return;
+      const data = await res.json();
+      const schemas: Array<{ id: string; name: string }> = data.schemas ?? [];
+      lenses = schemas.map((s) => ({ id: s.id, name: s.name }));
+      if (activeLensId === null && lenses.length > 0) activeLensId = lenses[0].id;
+    } catch {
+      /* deck still renders without validation */
+    }
+  }
+
+  function toggleValidation(): void {
+    showValidation = !showValidation;
+    if (showValidation) void loadLenses();
+  }
   let voiceSettings = $state<{
     provider: 'elevenlabs' | 'browser' | 'off';
     autoplay: boolean;
@@ -111,6 +139,39 @@
     visibleSlideAlternative ? visibleSlideAlternative.proposedContent : (activeSlide?.content ?? '')
   );
   const renderedBody = $derived(displayedSlideContent ? renderMarkdown(displayedSlideContent) : '');
+
+  // Extract claim candidates from the current slide's markdown body.
+  // v1 heuristic: each non-empty bullet or paragraph is a candidate claim.
+  // The real claim-extractor (validationMarkdownExtractor.ts) operates on
+  // committed artefacts; we mirror its shape here for live deck preview so
+  // the Stage Validation UX can render numbered claims without a server
+  // round-trip per slide.
+  const slideClaims = $derived.by<{ index: number; text: string }[]>(() => {
+    if (!activeSlide) return [];
+    // Use displayedSlideContent so when an alternative slide is being viewed
+    // (visibleSlideAlternative ≠ null), claim extraction reflects THAT
+    // slide's content rather than the original. Keeps validation honest
+    // when the presenter is toggling between original and Version B.
+    const lines = displayedSlideContent.split('\n');
+    const out: { index: number; text: string }[] = [];
+    let inFence = false;
+    let n = 0;
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (line.startsWith('```') || line.startsWith('~~~')) {
+        inFence = !inFence;
+        continue;
+      }
+      if (inFence || line.length === 0) continue;
+      if (/^#{1,6}\s/.test(line)) continue;
+      // Strip bullet/list marker
+      const cleaned = line.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, '').trim();
+      if (cleaned.length === 0) continue;
+      n += 1;
+      out.push({ index: n, text: cleaned });
+    }
+    return out;
+  });
 
   function clampedSet(next: number): void {
     if (slideCount === 0) return;
@@ -443,10 +504,15 @@
     speakingThisSlide={speakingIndex === activeIndex}
     pausedThisSlide={pausedIndex === activeIndex}
     canStopVoice={speakingIndex === activeIndex}
+    {showValidation}
+    {lenses}
+    {activeLensId}
     onToggleInspect={() => (inspectMode = !inspectMode)}
     onPlayPause={playCurrentSlide}
     onStop={stopSpeaking}
     onCopyShareLink={copyShareLink}
+    onToggleValidation={toggleValidation}
+    onLensChange={(lensId) => (activeLensId = lensId)}
   />
 
   {#if shareNotice}
@@ -477,6 +543,26 @@
         </p>
       {/if}
       <div class="slide-body">{@html renderedBody}</div>
+
+      {#if showValidation && slideClaims.length > 0}
+        <aside class="claims-panel" aria-label="Validation claims for this slide">
+          <header class="claims-panel-header">
+            <strong>Claims on this slide</strong>
+            <span class="claims-count">{slideClaims.length}</span>
+            <span class="claims-lens">via {lenses.find((l) => l.id === activeLensId)?.name ?? 'default lens'}</span>
+          </header>
+          <ol class="claims-list">
+            {#each slideClaims as claim}
+              <li class="claim-row">
+                <span class="claim-num">Claim {claim.index}</span>
+                <span class="claim-text">{claim.text}</span>
+                <span class="claim-status" title="No verifier runs yet for this claim under the active lens.">unverified</span>
+              </li>
+            {/each}
+          </ol>
+          <p class="claims-note">Click-to-overlay (per-claim verifier runs) lands in a follow-up slice. v1: visible enumeration + active lens label so the presenter can see what's making claim-shaped statements.</p>
+        </aside>
+      {/if}
     </article>
 
     <nav class="deck-nav" aria-label="Slide navigation">
@@ -661,6 +747,70 @@
     flex: 1;
     color: var(--ink-strong);
     line-height: 1.55;
+  }
+  .claims-panel {
+    margin-top: 1.25rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--line-soft);
+    border-radius: 0.5rem;
+    background: var(--surface-raised);
+  }
+  .claims-panel-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--ink-soft);
+    margin-bottom: 0.5rem;
+  }
+  .claims-panel-header strong { color: var(--ink-strong); }
+  .claims-count {
+    background: var(--accent);
+    color: white;
+    padding: 0.05rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+  .claims-lens { margin-left: auto; font-style: italic; }
+  .claims-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .claim-row {
+    display: flex;
+    gap: 0.65rem;
+    padding: 0.4rem 0;
+    border-bottom: 1px dashed var(--line-soft);
+    align-items: baseline;
+  }
+  .claim-row:last-child { border-bottom: none; }
+  .claim-num {
+    flex: 0 0 5rem;
+    font-weight: 700;
+    color: var(--accent);
+    font-size: 0.82rem;
+  }
+  .claim-text {
+    flex: 1;
+    font-size: 0.88rem;
+    color: var(--ink-strong);
+  }
+  .claim-status {
+    flex: 0 0 auto;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    background: var(--bg);
+    color: var(--ink-soft);
+    border: 1px solid var(--line-soft);
+  }
+  .claims-note {
+    font-size: 0.75rem;
+    color: var(--ink-soft);
+    margin: 0.6rem 0 0 0;
+    font-style: italic;
   }
   .slide-body :global(h1),
   .slide-body :global(h2),
