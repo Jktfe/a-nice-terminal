@@ -218,4 +218,22 @@ export function sortByBookmark<T extends { id: string }>(rooms: T[], bookmarkedI
   return [...bookmarked, ...rest];
 }
 
+/**
+ * Return only visible rooms that are actually bookmarked, in bookmark order.
+ * This is stricter than sortByBookmark(): dashboard "Starred rooms" should
+ * not backfill missing stale bookmark slots with unstarred rooms.
+ */
+export function visibleBookmarkedRooms<T extends { id: string }>(
+  rooms: T[],
+  bookmarkedIds: string[]
+): T[] {
+  const roomsById = new Map(rooms.map((room) => [room.id, room]));
+  const visible: T[] = [];
+  for (const id of bookmarkedIds) {
+    const room = roomsById.get(id);
+    if (room) visible.push(room);
+  }
+  return visible;
+}
+
 export const roomBookmarks = new RoomBookmarksStore();

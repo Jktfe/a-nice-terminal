@@ -8,7 +8,7 @@
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
   import DashboardSection from '$lib/components/DashboardSection.svelte';
   import RoomStrip from '$lib/components/RoomStrip.svelte';
-  import { roomBookmarks, sortByBookmark } from '$lib/stores/roomBookmarks.svelte';
+  import { roomBookmarks, visibleBookmarkedRooms } from '$lib/stores/roomBookmarks.svelte';
   import type { RoomCard } from '$lib/domain/types';
   import type { Ask } from '$lib/server/askStore';
 
@@ -51,9 +51,7 @@
   const allOpenable = $derived(
     data.chatRoomsFromServer.map((room) => ({ ...room, isOpenable: true }))
   );
-  const starredRooms = $derived(
-    sortByBookmark(allOpenable, roomBookmarks.ids).slice(0, roomBookmarks.ids.length)
-  );
+  const starredRooms = $derived(visibleBookmarkedRooms(allOpenable, roomBookmarks.ids));
   const recentRooms = $derived(
     allOpenable.filter((room) => !roomBookmarks.has(room.id)).slice(0, TOP_N)
   );

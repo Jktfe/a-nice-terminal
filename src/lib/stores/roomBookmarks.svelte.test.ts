@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sortByBookmark } from './roomBookmarks.svelte';
+import { sortByBookmark, visibleBookmarkedRooms } from './roomBookmarks.svelte';
 
 describe('roomBookmarks sortByBookmark', () => {
   it('returns empty for empty input', () => {
@@ -36,5 +36,10 @@ describe('roomBookmarks sortByBookmark', () => {
   it('handles no bookmarks', () => {
     const rooms = [{ id: 'a' }, { id: 'b' }];
     expect(sortByBookmark(rooms, [])).toEqual([{ id: 'a' }, { id: 'b' }]);
+  });
+
+  it('returns only visible bookmarked rooms without backfilling stale ids', () => {
+    const rooms = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+    expect(visibleBookmarkedRooms(rooms, ['missing', 'b'])).toEqual([{ id: 'b' }]);
   });
 });
