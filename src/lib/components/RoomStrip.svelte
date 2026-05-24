@@ -33,7 +33,10 @@
     // 'list' (current single-column behaviour byte-identical). When 'grid',
     // cards lay out in gridCols columns at desktop widths; mobile always
     // collapses to one column for readability.
-    view?: 'list' | 'grid';
+    // 'list' = full cards stacked (default), 'grid' = N-column tile layout,
+    // 'compact' = single-line rows for browsing 100+ rooms without scroll
+    // pain (added 2026-05-24, JWPK msg_iozs65ulux scroll slice).
+    view?: 'list' | 'grid' | 'compact';
     gridCols?: number;
   };
 
@@ -247,6 +250,53 @@
     .room-strip[data-view='grid'] {
       grid-template-columns: 1fr;
     }
+  }
+
+  /* Compact density view (JWPK msg_iozs65ulux 2026-05-24 scroll slice):
+     single-line rows for browsing 100+ rooms. Members + summary collapse
+     to ellipses; activity + last-update sit on the same line as the name.
+     Tighter vertical rhythm so ~25 rooms fit in a desktop viewport vs
+     the ~5-6 you get in list view. */
+  .room-strip[data-view='compact'] {
+    gap: 0.2rem;
+  }
+  .room-strip[data-view='compact'] .room-card {
+    padding: 0.35rem 0.7rem;
+    gap: 0.55rem;
+  }
+  .room-strip[data-view='compact'] .card-body {
+    padding: 0;
+  }
+  .room-strip[data-view='compact'] .content {
+    display: grid;
+    grid-template-columns: minmax(8rem, 0.5fr) minmax(0, 1.2fr) minmax(6rem, max-content);
+    gap: 0.7rem;
+    align-items: center;
+    min-width: 0;
+  }
+  .room-strip[data-view='compact'] .content > :global(h3) {
+    margin: 0;
+    font-size: 0.92rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .room-strip[data-view='compact'] .content > :global(.members),
+  .room-strip[data-view='compact'] .content > :global(.last-message-preview) {
+    margin: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 0.78rem;
+  }
+  .room-strip[data-view='compact'] .content > :global(.members) {
+    display: none; /* avatars are noise in compact mode */
+  }
+  .room-strip[data-view='compact'] .content > :global(.card-meta) {
+    margin: 0;
+    font-size: 0.72rem;
+    justify-self: end;
+    text-align: right;
   }
 
   .room-card {
