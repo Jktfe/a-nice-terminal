@@ -6,6 +6,11 @@ import {
   resetChatRoomStoreForTests,
 } from '$lib/server/chatRoomStore';
 import { resetFocusModeStoreForTests } from '$lib/server/focusModeStore';
+import { addMembership } from '$lib/server/roomMembershipsStore';
+import {
+  setAgentContextFill,
+  upsertTerminal,
+} from '$lib/server/terminalsStore';
 import { GET } from './+server';
 
 const PREV_DB_PATH = process.env.ANT_FRESH_DB_PATH;
@@ -95,5 +100,38 @@ describe('GET /api/agents/availability', () => {
       await GET(req('http://x/api/agents/availability?alive=false'))
     ).json();
     expect(audit.agents).toEqual([]);
+  });
+
+  it('returns fresh per-agent context-fill and hides stale readings', async () => {
+    const nowMs = Date.now();
+    const room = createChatRoom({ name: 'context-room', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@codexlead1', agentDisplayName: 'X' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@evolveantclaude', agentDisplayName: 'C' });
+
+    const codexTerminal = upsertTerminal({
+      pid: 44_001,
+      pid_start: 'context-fill-fresh',
+      name: 'context-fill-fresh',
+      ttlSeconds: 60 * 60,
+    });
+    const claudeTerminal = upsertTerminal({
+      pid: 44_002,
+      pid_start: 'context-fill-stale',
+      name: 'context-fill-stale',
+      ttlSeconds: 60 * 60,
+    });
+    addMembership({ room_id: room.id, handle: '@codexlead1', terminal_id: codexTerminal.id });
+    addMembership({ room_id: room.id, handle: '@evolveantclaude', terminal_id: claudeTerminal.id });
+    setAgentContextFill(codexTerminal.id, 0.72, 'codex-test-probe', nowMs - 30_000);
+    setAgentContextFill(claudeTerminal.id, 0.91, 'claude-test-probe', nowMs - 10 * 60 * 1000);
+
+    const res = await GET(req('http://x/api/agents/availability'));
+    const body = await res.json();
+    const byHandle = Object.fromEntries(
+      body.agents.map((agent: { handle: string; contextFill?: unknown }) => [agent.handle, agent])
+    ) as Record<string, { contextFill?: unknown }>;
+
+    expect(byHandle['@codexlead1'].contextFill).toBeCloseTo(0.72);
+    expect(byHandle['@evolveantclaude'].contextFill).toBeNull();
   });
 });
