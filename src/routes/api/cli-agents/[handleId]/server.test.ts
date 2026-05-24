@@ -34,6 +34,7 @@ function mockAgent(handleId: string): Parameters<typeof registerCliAgentForTests
     handleId,
     cli: 'codex',
     cwd: '/tmp',
+    roomId: null,
     spawnedAtMs: Date.now(),
     getSessionId: () => `sess-${handleId}`,
     stop: vi.fn().mockResolvedValue(undefined),

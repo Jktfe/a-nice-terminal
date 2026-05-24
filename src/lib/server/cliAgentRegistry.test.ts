@@ -15,11 +15,12 @@ import {
   type CliAgentKind
 } from './cliAgentRegistry';
 
-function fakeHandle(opts: { cli: CliAgentKind; handleId?: string; spawnedAtMs?: number; sessionId?: string | null }): CliAgentHandle {
+function fakeHandle(opts: { cli: CliAgentKind; handleId?: string; spawnedAtMs?: number; sessionId?: string | null; roomId?: string | null }): CliAgentHandle {
   return {
     handleId: opts.handleId ?? `agent_${opts.cli}_fake_${Date.now()}`,
     cli: opts.cli,
     cwd: null,
+    roomId: opts.roomId ?? null,
     spawnedAtMs: opts.spawnedAtMs ?? Date.now(),
     getSessionId: () => opts.sessionId ?? null,
     async sendCommand<TResult = unknown>(payload: Record<string, unknown>): Promise<TResult> {
