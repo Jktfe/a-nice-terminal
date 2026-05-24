@@ -1,30 +1,57 @@
 <script lang="ts">
+  type LensOption = { id: string; name: string };
+
   let {
     roomId,
     inspectMode,
     speakingThisSlide,
     pausedThisSlide,
     canStopVoice,
+    showValidation,
+    lenses,
+    activeLensId,
     onToggleInspect,
     onPlayPause,
     onStop,
-    onCopyShareLink
+    onCopyShareLink,
+    onToggleValidation,
+    onLensChange
   }: {
     roomId: string;
     inspectMode: boolean;
     speakingThisSlide: boolean;
     pausedThisSlide: boolean;
     canStopVoice: boolean;
+    showValidation: boolean;
+    lenses: LensOption[];
+    activeLensId: string | null;
     onToggleInspect: () => void;
     onPlayPause: () => void;
     onStop: () => void;
     onCopyShareLink: () => void;
+    onToggleValidation: () => void;
+    onLensChange: (lensId: string) => void;
   } = $props();
 </script>
 
 <div class="deck-toolbar" role="toolbar" aria-label="Deck controls">
   <a class="back" href={`/rooms/${encodeURIComponent(roomId)}`}>← Back to room</a>
   <span class="deck-spacer"></span>
+  <button type="button" class="toolbar-btn" onclick={onToggleValidation} aria-pressed={showValidation}>
+    {showValidation ? 'Hide validation' : 'Show validation'}
+  </button>
+  {#if showValidation && lenses.length > 0}
+    <select
+      class="toolbar-btn lens-select"
+      value={activeLensId ?? lenses[0].id}
+      onchange={(e) => onLensChange((e.currentTarget as HTMLSelectElement).value)}
+      aria-label="Validation lens"
+    >
+      {#each lenses as lens}
+        <option value={lens.id}>{lens.name}</option>
+      {/each}
+    </select>
+  {/if}
   <button type="button" class="toolbar-btn" onclick={onToggleInspect} aria-pressed={inspectMode}>
     {inspectMode ? 'Hide JSON' : 'Inspect JSON'}
     <kbd>I</kbd>
@@ -83,5 +110,20 @@
     color: var(--ink-soft);
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.7rem;
+  }
+  .lens-select {
+    appearance: none;
+    -webkit-appearance: none;
+    padding-right: 1.5rem;
+    background-image: linear-gradient(45deg, transparent 50%, var(--ink-soft) 50%), linear-gradient(135deg, var(--ink-soft) 50%, transparent 50%);
+    background-position: calc(100% - 0.85rem) 50%, calc(100% - 0.5rem) 50%;
+    background-size: 0.35rem 0.35rem, 0.35rem 0.35rem;
+    background-repeat: no-repeat;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .lens-select:hover {
+    border-color: var(--accent);
+    color: var(--accent);
   }
 </style>
