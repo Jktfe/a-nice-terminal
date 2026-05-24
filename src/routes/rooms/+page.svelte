@@ -25,7 +25,7 @@
 
   let { data }: Props = $props();
 
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
 
   // Lane D (JWPK msg_hcwpvjwfg8 + msg_xyrlvisazp, 2026-05-19): when the
   // plan page sends operators here with ?attachPlanId=PLAN, show a banner
@@ -104,6 +104,11 @@
   let filterChip = $state<FilterChip>('all');
   let nameFilter = $state('');
   let sortKey = $state<SortKey>('recent');
+  // Reference to the filter input so the `/` keyboard shortcut (added
+  // below) can focus it. Common pattern across productivity tools
+  // (Slack, Linear, GitHub) — power users with 100+ rooms reach for
+  // search via keyboard more often than mouse.
+  let filterInputEl = $state<HTMLInputElement | undefined>();
 
   onMount(() => {
     try {
@@ -119,7 +124,34 @@
     // Need the bookmarks store hydrated so the Starred chip + sort work
     // off the user's actual pinned list, not an empty array.
     roomBookmarks.init();
+
+    // `/` focuses the filter input (skip when the user is already typing
+    // into an input/textarea or has a modifier held). Esc inside the
+    // search input clears it (native HTMLInputElement type="search"
+    // behaviour). Common ergonomic for power users.
+    window.addEventListener('keydown', handleGlobalKeydown);
   });
+
+  onDestroy(() => {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('keydown', handleGlobalKeydown);
+    }
+  });
+
+  function handleGlobalKeydown(event: KeyboardEvent): void {
+    if (event.key !== '/') return;
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    const target = event.target as HTMLElement | null;
+    if (target) {
+      const tag = target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (target.isContentEditable) return;
+    }
+    if (!filterInputEl) return;
+    event.preventDefault();
+    filterInputEl.focus();
+    filterInputEl.select();
+  }
 
   function setView(next: DensityView): void {
     dashboardView = next;
@@ -355,10 +387,11 @@
         </div>
 
         <input
+          bind:this={filterInputEl}
           type="search"
           class="name-filter"
-          placeholder="Filter by name or description…"
-          aria-label="Filter rooms by name or description"
+          placeholder="Filter by name or description… (press / to focus)"
+          aria-label="Filter rooms by name or description. Press / to focus."
           bind:value={nameFilter}
         />
 
