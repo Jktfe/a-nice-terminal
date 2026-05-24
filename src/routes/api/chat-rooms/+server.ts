@@ -2,7 +2,11 @@
  * HTTP endpoints for chat rooms.
  *
  * GET  /api/chat-rooms          → list readable chat rooms, newest first.
- * POST /api/chat-rooms          → create one chat room from { name } and return it.
+ * POST /api/chat-rooms          → create one chat room from
+ *                                 { name, whoCreatedIt?, description? } and
+ *                                 return it. Description is optional; same
+ *                                 trim+cap+null-on-empty contract as the
+ *                                 PATCH /api/chat-rooms/:id/description path.
  *
  * Read auth is fail-closed and server-filtered by room membership.
  */
