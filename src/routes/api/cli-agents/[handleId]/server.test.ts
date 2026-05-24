@@ -37,7 +37,8 @@ function mockAgent(handleId: string): Parameters<typeof registerCliAgentForTests
     spawnedAtMs: Date.now(),
     getSessionId: () => `sess-${handleId}`,
     stop: vi.fn().mockResolvedValue(undefined),
-    sendCommand: vi.fn().mockResolvedValue({ ok: true })
+    sendCommand: vi.fn().mockResolvedValue({ ok: true }),
+    sendPrompt: vi.fn().mockResolvedValue({ threadId: `sess-${handleId}` })
   };
 }
 

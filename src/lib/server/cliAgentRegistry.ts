@@ -30,6 +30,12 @@ export type CliAgentHandle = {
   getSessionId(): string | null;
   /** Send an RPC command. Forwards to the underlying bridge. */
   sendCommand<TResult = unknown>(payload: Record<string, unknown>): Promise<TResult>;
+  /**
+   * Deliver an operator-authored text prompt to the running agent.
+   * For codex this is `thread/start` (lazy, first call) + `turn/start`.
+   * Closes dogfood finding #6 (2026-05-24): no operator-facing input channel.
+   */
+  sendPrompt(text: string): Promise<{ threadId: string | null }>;
   /** Tear down the bridge. Idempotent. */
   stop(): Promise<void>;
 };
@@ -84,6 +90,30 @@ function buildCodexHandle(options: { cwd?: string; binary?: string }): CliAgentH
       const params = payload.params as unknown;
       return bridge.sendRequest(method, params);
     },
+    async sendPrompt(text: string) {
+      // codex protocol (verified against `codex app-server generate-json-schema`,
+      // 2026-05-24): turn/start needs a threadId. thread/start mints one and
+      // returns { thread: { id, ... } }. We lazy-start on first prompt so the
+      // spawn endpoint can stay parameterless.
+      let threadId = bridge.state.currentThreadId;
+      if (!threadId) {
+        const startResult = await bridge.sendRequest<{ thread?: { id?: string } }>(
+          'thread/start',
+          {}
+        );
+        threadId = startResult?.thread?.id ?? null;
+        if (!threadId) throw new Error('codex thread/start did not return a thread id');
+        // The adapter usually sets state.currentThreadId via the `thread/started`
+        // notification; do it eagerly here too so an immediate second
+        // sendPrompt call reuses the same thread without racing the notif.
+        bridge.state.currentThreadId = threadId;
+      }
+      await bridge.sendRequest('turn/start', {
+        threadId,
+        input: [{ type: 'text', text }]
+      });
+      return { threadId };
+    },
     async stop() {
       if (disposed) return;
       disposed = true;
@@ -119,6 +149,13 @@ function buildPiHandle(options: { cwd?: string; sessionDir?: string; binary?: st
         throw new Error('pi commands require a `type` field');
       }
       return bridge.sendCommand(payload as Parameters<PiBridge['sendCommand']>[0]);
+    },
+    async sendPrompt(_text: string) {
+      // pi prompt-delivery not yet supported through this surface. The pi
+      // bridge has its own sendCommand shape (typed messages, not JSON-RPC).
+      // Add a `{type:'userMessage', ...}` variant here when the pi schema
+      // clarifies its prompt verb.
+      throw new Error('pi sendPrompt not yet implemented');
     },
     async stop() {
       if (disposed) return;
