@@ -23,10 +23,15 @@ afterAll(() => {
 type AnyEvent = Parameters<typeof POST>[0];
 type GetEvent = Parameters<typeof GET>[0];
 
-function eventFor(deckId: string, body: unknown, withAuth = true): AnyEvent {
+function eventFor(
+  deckId: string,
+  body: unknown,
+  opts: { withAuth?: boolean; password?: string } = { withAuth: true }
+): AnyEvent {
   const url = new URL(`http://localhost/api/decks/${deckId}/stage-focus`);
+  if (opts.password) url.searchParams.set('password', opts.password);
   const headers: Record<string, string> = { 'content-type': 'application/json' };
-  if (withAuth) headers.authorization = `Bearer ${ADMIN_TOKEN_FOR_TESTS}`;
+  if (opts.withAuth ?? true) headers.authorization = `Bearer ${ADMIN_TOKEN_FOR_TESTS}`;
   const request = new Request(url.toString(), {
     method: 'POST',
     headers,
@@ -133,7 +138,7 @@ describe('POST /api/decks/:deckId/stage-focus', () => {
       slideId: 's1',
       slideIndex: 0,
       slideTitle: 'Opening'
-    }, false));
+    }, { withAuth: false }));
 
     expect(response.status).toBe(401);
     expect(getCurrentFocus(deck.id)).toBeNull();
@@ -166,6 +171,28 @@ describe('POST /api/decks/:deckId/stage-focus', () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.focus).toMatchObject({
+      ref: `stage:${deck.id}:slide:s1`,
+      label: 'Slide 1: Opening'
+    });
+  });
+
+  it('allows a deck-password presenter to publish focus without room auth', async () => {
+    const room = createChatRoom({ name: 'password stage room', whoCreatedIt: '@you' });
+    const deck = createDeck({
+      roomId: room.id,
+      title: 'Password Stage',
+      accessPassword: 'stage-demo',
+      slides: [{ id: 's1', title: 'Opening', content: 'One' }]
+    });
+
+    const response = await runPost(eventFor(deck.id, {
+      slideId: 's1',
+      slideIndex: 0,
+      slideTitle: 'Opening'
+    }, { withAuth: false, password: 'stage-demo' }));
+
+    expect(response.status).toBe(201);
+    expect(getCurrentFocus(deck.id)).toMatchObject({
       ref: `stage:${deck.id}:slide:s1`,
       label: 'Slide 1: Opening'
     });

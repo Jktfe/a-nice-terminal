@@ -51,7 +51,8 @@ describe('eventBroadcast', () => {
     expect(subscriberCountForRoom('room-3')).toBe(1);
     broadcastToRoom('room-3', { type: 'message_added', message: { id: 'msg_x' } });
     expect(events).toHaveLength(1);
-    expect(events[0]).toEqual({ type: 'message_added', message: { id: 'msg_x' } });
+    expect(events[0]).toMatchObject({ type: 'message_added', message: { id: 'msg_x' } });
+    expect(events[0].seq).toBeTypeOf('number');
     unsubscribe();
     expect(subscriberCountForRoom('room-3')).toBe(0);
     broadcastToRoom('room-3', { type: 'message_added', message: { id: 'msg_y' } });

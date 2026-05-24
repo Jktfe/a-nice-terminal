@@ -8,8 +8,9 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getDeck } from '$lib/server/deckStore';
-import { requireChatRoomMutationAuth, tryAdminBearer } from '$lib/server/chatRoomAuthGate';
+import { tryAdminBearer } from '$lib/server/chatRoomAuthGate';
 import { resolveDeckAccess } from '$lib/server/deckAccessGate';
+import { requireStagePresenterAuth } from '$lib/server/stagePresenterAuth';
 import { appendPlanEvent } from '$lib/server/planModeStore';
 import { getCurrentFocus } from '$lib/server/stageStore';
 import { postSystemMessage } from '$lib/server/chatMessageStore';
@@ -43,7 +44,7 @@ export const GET: RequestHandler = ({ params, request, url }) => {
   return json({ deckId: deck.id, focus });
 };
 
-export const POST: RequestHandler = async ({ params, request }) => {
+export const POST: RequestHandler = async ({ params, request, url }) => {
   const deck = getDeck(params.deckId);
   if (!deck) throw error(404, 'Deck not found.');
 
@@ -52,7 +53,13 @@ export const POST: RequestHandler = async ({ params, request }) => {
     throw error(400, 'JSON body required.');
   }
 
-  const auth = requireChatRoomMutationAuth(deck.roomId, request, payload);
+  const auth = requireStagePresenterAuth({
+    roomId: deck.roomId,
+    deckAccessPassword: deck.accessPassword,
+    request,
+    url,
+    rawBody: payload
+  });
   const slideIndex = readSlideIndex(payload.slideIndex, deck.slides.length);
   const slide = deck.slides[slideIndex];
   if (!slide) throw error(400, 'slideIndex is outside the deck.');
@@ -76,7 +83,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
     body: `Current stage focus for deck ${deck.id}.`,
     order: slideIndex,
     author_handle: auth.handle,
-    author_kind: auth.isAdminBearer ? 'system' : 'agent',
+    author_kind: auth.isAdminBearer ? 'system' : (auth.isDeckPassword ? 'human' : 'agent'),
     ts_millis: tsMillis,
     evidence: [
       {
