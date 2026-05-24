@@ -6,16 +6,19 @@ import {
   createBrowserSession,
   resolveBrowserSessionSecret,
   revokeBrowserSessionsForMember,
-  touchBrowserSessionLastSeen
+  touchBrowserSessionLastSeen,
+  resetBrowserSessionStoreForTests
 } from './browserSessionStore';
 
 beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = ':memory:';
   resetIdentityDbForTests();
+  resetBrowserSessionStoreForTests();
 });
 
 afterEach(() => {
   resetIdentityDbForTests();
+  resetBrowserSessionStoreForTests();
   delete process.env.ANT_FRESH_DB_PATH;
 });
 
@@ -158,5 +161,50 @@ describe('resolve/touch/revoke browser sessions', () => {
       .get('mem_bs_revoke') as { revoked_at_ms: number };
     expect(session.revoked_at_ms).toBe(1234);
     expect(membership.revoked_at_ms).toBe(1234);
+  });
+
+  it('touchLastSeen debounce: rapid repeat calls within 30s skip the DB write', () => {
+    // Repro the auth-gate hot-path shape: many authed reads in a tight
+    // window. Without the debounce, every read fires a 2-statement write
+    // transaction (UPDATE browser_sessions + UPDATE terminals). With it,
+    // only the first within each 30s window writes.
+    addActiveMember('room1', '@you');
+    const result = createBrowserSession({ roomId: 'room1', authorHandle: '@you', nowMs: 1_000 });
+    const id = result?.session.id ?? '';
+
+    // First touch at 5_000ms — writes.
+    expect(touchBrowserSessionLastSeen(id, 5_000)).toBe(true);
+    let row = getIdentityDb().prepare(`SELECT last_seen_at_ms FROM browser_sessions WHERE id = ?`)
+      .get(id) as { last_seen_at_ms: number };
+    expect(row.last_seen_at_ms).toBe(5_000);
+
+    // 10s later — well within the 30s debounce window. Returns true
+    // (presumed valid) but DOES NOT update last_seen_at_ms.
+    expect(touchBrowserSessionLastSeen(id, 15_000)).toBe(true);
+    row = getIdentityDb().prepare(`SELECT last_seen_at_ms FROM browser_sessions WHERE id = ?`)
+      .get(id) as { last_seen_at_ms: number };
+    expect(row.last_seen_at_ms).toBe(5_000); // unchanged
+
+    // 31s after the first — past the debounce window. Writes again.
+    expect(touchBrowserSessionLastSeen(id, 36_000)).toBe(true);
+    row = getIdentityDb().prepare(`SELECT last_seen_at_ms FROM browser_sessions WHERE id = ?`)
+      .get(id) as { last_seen_at_ms: number };
+    expect(row.last_seen_at_ms).toBe(36_000);
+  });
+
+  it('touchLastSeen debounce: revoke clears the debounce so a re-issued session writes', () => {
+    addActiveMember('room1', '@you');
+    const result = createBrowserSession({ roomId: 'room1', authorHandle: '@you', browserSessionId: 'bs_touch_revoke' });
+    const id = result?.session.id ?? '';
+
+    expect(touchBrowserSessionLastSeen(id, 5_000)).toBe(true);
+    // Revoke clears the in-memory cache for this session id.
+    expect(revokeBrowserSessionsForMember('room1', '@you', 10_000)).toBe(1);
+    // Re-issue under the same ID via a fresh createBrowserSession. (In
+    // practice a new ID is generated; we simulate the "stale debounce
+    // hit" guard by checking the cache was cleared.) The next touch
+    // attempt should miss the row guard (revoked) and clear cache
+    // again, returning false.
+    expect(touchBrowserSessionLastSeen(id, 15_000)).toBe(false);
   });
 });
