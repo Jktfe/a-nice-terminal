@@ -737,6 +737,14 @@
             <div class="sr-only" aria-live="polite" aria-atomic="true">
               {liveAnnouncement}
             </div>
+            <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+            <!-- role="application" is correct per WAI-ARIA for a
+                 canvas-shape interactive surface (focus is managed
+                 internally by arrow keys + overlay tab-order); svelte-
+                 check's lint rule is conservative and doesn't have a
+                 way to express "role=application means I own focus
+                 management". Suppression scoped to this single element
+                 only. -->
             <div
               class="canvas-image-stage"
               class:author-cursor={mode === 'author'}
