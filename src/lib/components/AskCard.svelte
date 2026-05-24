@@ -15,6 +15,7 @@
     - lastErrorMessage: parent-provided string shown under the card.
 -->
 <script lang="ts">
+  import Explainable from './Explainable.svelte';
   import type { Ask } from '$lib/server/askStore';
 
   type Props = {
@@ -94,6 +95,7 @@
       </div>
     </form>
   {:else}
+    <Explainable explainKey="asks-answer">
     <div class="card-actions">
       <button type="button" class="primary" onclick={onOpenAnswerForm} disabled={isInFlightAsAnswer || isInFlightAsDismiss}>
         Answer
@@ -102,6 +104,7 @@
         {#if isInFlightAsDismiss}Dismissing…{:else}Dismiss{/if}
       </button>
     </div>
+    </Explainable>
   {/if}
 
   {#if lastErrorMessage}

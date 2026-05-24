@@ -36,6 +36,7 @@
   import RoomDetailMemberSheet from '$lib/components/RoomDetailMemberSheet.svelte';
   import RoomDetailMoreMenu from '$lib/components/RoomDetailMoreMenu.svelte';
   import AwayModeToggle from '$lib/components/AwayModeToggle.svelte';
+  import Explainable from '$lib/components/Explainable.svelte';
   import RoomCliAgentsPanel from '$lib/components/RoomCliAgentsPanel.svelte';
     import {
     LEFT_PANE_KEY,
@@ -453,6 +454,7 @@
     {/snippet}
   </RoomNameHeader>
 
+  <Explainable explainKey="room-away">
   <AwayModeToggle
     roomId={roomFromServer.id}
     currentMode={roomMode}
@@ -461,6 +463,7 @@
     onModeChange={(m) => invalidateAll()}
     onTierChange={(t) => (currentAwayTier = t)}
   />
+  </Explainable>
 
   <RoomDetailFocusStrip {focusedMembers} {labelForMember} />
 

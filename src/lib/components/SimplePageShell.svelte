@@ -20,7 +20,19 @@
   let { eyebrow = '', title = '', summary = '', showIntro = true, statusPill, children }: Props = $props();
   let navOpen = $state(false);
 
-  onMount(() => { theme.init(); agentKinds.init(); terminalBookmarks.init(); });
+  onMount(() => {
+    theme.init(); agentKinds.init(); terminalBookmarks.init();
+    window.addEventListener('keydown', handleExplainKey);
+    return () => window.removeEventListener('keydown', handleExplainKey);
+  });
+
+  function handleExplainKey(e: KeyboardEvent) {
+    if (e.key !== '?' || !e.shiftKey) return;
+    const target = e.target as HTMLElement;
+    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target.isContentEditable) return;
+    e.preventDefault();
+    toggleExplainMode();
+  }
 
   // a11y: derive whether each nav link points at the current page so
   // we can stamp aria-current="page" and a visible "active" class. A
@@ -114,7 +126,7 @@
       class:active={getExplainMode()}
       onclick={toggleExplainMode}
       aria-label="Toggle explain mode"
-      title={getExplainMode() ? 'Exit explain mode' : 'Enter explain mode (?)'}
+      title={getExplainMode() ? 'Exit explain mode' : 'Enter explain mode (Shift + ?)'}
     >
       <span class="explain-icon">?</span>
       <span class="nav-label">{getExplainMode() ? 'Done' : 'Explain'}</span>

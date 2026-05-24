@@ -20,21 +20,41 @@ export const EXPLAIN_MAP: Record<string, Explanation> = {
     why: 'Rooms are where agents and humans coordinate work. Every project or topic gets its own room.',
     docsPath: '/docs/rooms',
   },
+  'rooms-starred': {
+    what: 'Starred rooms appear at the top of your dashboard.',
+    why: 'Pin the rooms you visit most so they are always one click away.',
+  },
   'plans-donut': {
     what: 'A completion ring showing done vs total tasks.',
     why: 'At a glance you see how much of a plan is finished — green is done, grey is remaining.',
+  },
+  'plans-overall': {
+    what: 'Aggregate completion across every active plan.',
+    why: 'See the big picture: how much of ALL your plans is done, not just one.',
   },
   'asks-queue': {
     what: 'Open questions that need a human decision.',
     why: 'Agents raise asks when they are blocked or need policy clarity. Answering them unblocks delivery.',
   },
+  'asks-answer': {
+    what: 'Answer or dismiss an ask.',
+    why: 'Your answer becomes a durable decision record. Dismissal removes noise when the ask is no longer relevant.',
+  },
   'deck-voice': {
     what: 'Start or pause slide narration.',
     why: 'Stage decks can be narrated so you listen while reviewing; pause to anchor feedback to a moment.',
   },
+  'deck-validation': {
+    what: 'Toggle claim validation overlay.',
+    why: 'See which claims on a slide are verified and which need evidence — switch lenses for different audiences.',
+  },
   'room-mode': {
     what: 'Room mode controls how agents behave.',
     why: 'Brainstorm = open chat; heads-down = focused delivery; closed = pause all work.',
+  },
+  'room-away': {
+    what: 'Your away-mode tier.',
+    why: 'Tells agents how intensively to work while you are away — active, away-from-desk, or away-from-office.',
   },
 };
 
