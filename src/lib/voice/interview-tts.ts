@@ -51,6 +51,8 @@ export interface TTSSpeakOpts {
   voiceId?: string;
   rate?: number;
   pitch?: number;
+  deckId?: string;
+  deckPassword?: string;
 }
 
 // ── Browser native ─────────────────────────────────────────────────
@@ -165,7 +167,12 @@ export class ElevenLabsTTSProvider implements TTSProvider {
         const res = await fetch('/api/voice/elevenlabs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, voice_id: opts.voiceId }),
+          body: JSON.stringify({
+            text,
+            voice_id: opts.voiceId,
+            deck_id: opts.deckId,
+            deck_password: opts.deckPassword
+          }),
         });
         if (cancelled) {
           resolveUrl(null);
