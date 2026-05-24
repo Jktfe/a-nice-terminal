@@ -23,6 +23,7 @@ import {
   startCliAgent,
   type CliAgentKind
 } from '$lib/server/cliAgentRegistry';
+import { serialiseCliAgent } from '$lib/server/cliAgentSerialise';
 
 function rejectRemoteBridgeBearer(request: Request): void {
   const auth = request.headers.get('authorization') ?? '';
@@ -31,15 +32,7 @@ function rejectRemoteBridgeBearer(request: Request): void {
   }
 }
 
-function serialiseAgent(handle: ReturnType<typeof listCliAgents>[number]) {
-  return {
-    handleId: handle.handleId,
-    cli: handle.cli,
-    cwd: handle.cwd,
-    spawnedAtMs: handle.spawnedAtMs,
-    sessionId: handle.getSessionId()
-  };
-}
+const serialiseAgent = serialiseCliAgent;
 
 export const GET: RequestHandler = () => {
   return json({ agents: listCliAgents().map(serialiseAgent) });
@@ -71,10 +64,15 @@ export const POST: RequestHandler = async ({ request }) => {
   const binary = typeof body.binary === 'string' && body.binary.length > 0
     ? body.binary
     : undefined;
+  // Optional roomId — if present, the handle is tagged for the room-scoped
+  // bring-in listing (dogfood finding #4, 2026-05-24). Doesn't gate spawn.
+  const roomId = typeof body.roomId === 'string' && body.roomId.length > 0
+    ? body.roomId
+    : undefined;
 
   let handle: ReturnType<typeof startCliAgent>;
   try {
-    handle = startCliAgent({ cli: cli as CliAgentKind, cwd, sessionDir, binary });
+    handle = startCliAgent({ cli: cli as CliAgentKind, cwd, sessionDir, binary, roomId });
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause);
     throw error(500, `failed to spawn ${cli}: ${message}`);

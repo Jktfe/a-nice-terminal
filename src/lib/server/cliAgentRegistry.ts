@@ -25,6 +25,14 @@ export type CliAgentHandle = {
   handleId: string;
   cli: CliAgentKind;
   cwd: string | null;
+  /**
+   * Optional room association — set when the handle was spawned via
+   * `POST /api/chat-rooms/:roomId/bring-in-cli-agent` (2026-05-24, closes
+   * dogfood finding #4: bring-in affordance had no per-room scope).
+   * Used by `GET /api/chat-rooms/:roomId/active-cli-agents` to filter
+   * the registry without an extra table.
+   */
+  roomId: string | null;
   spawnedAtMs: number;
   /** Resolved at handshake time (codex thread id, pi session id). */
   getSessionId(): string | null;
@@ -61,7 +69,7 @@ function makeHandleId(cli: CliAgentKind): string {
   return `agent_${cli}_${random}_${Date.now()}`;
 }
 
-function buildCodexHandle(options: { cwd?: string; binary?: string }): CliAgentHandle {
+function buildCodexHandle(options: { cwd?: string; binary?: string; roomId?: string }): CliAgentHandle {
   const { bridge, child } = spawnCodexAppServer({ cwd: options.cwd, binary: options.binary });
   const handleId = makeHandleId('codex');
   const spawnedAtMs = Date.now();
@@ -82,6 +90,7 @@ function buildCodexHandle(options: { cwd?: string; binary?: string }): CliAgentH
     handleId,
     cli: 'codex',
     cwd: options.cwd ?? null,
+    roomId: options.roomId ?? null,
     spawnedAtMs,
     getSessionId: () => bridge.state.currentThreadId,
     async sendCommand(payload) {
@@ -123,7 +132,7 @@ function buildCodexHandle(options: { cwd?: string; binary?: string }): CliAgentH
   };
 }
 
-function buildPiHandle(options: { cwd?: string; sessionDir?: string; binary?: string }): CliAgentHandle {
+function buildPiHandle(options: { cwd?: string; sessionDir?: string; binary?: string; roomId?: string }): CliAgentHandle {
   const { bridge, child } = spawnPiRpc({
     cwd: options.cwd,
     sessionDir: options.sessionDir,
@@ -142,6 +151,7 @@ function buildPiHandle(options: { cwd?: string; sessionDir?: string; binary?: st
     handleId,
     cli: 'pi',
     cwd: options.cwd ?? null,
+    roomId: options.roomId ?? null,
     spawnedAtMs,
     getSessionId: () => bridge.state.currentSessionId,
     async sendCommand(payload) {
@@ -171,12 +181,13 @@ export function startCliAgent(input: {
   cwd?: string;
   sessionDir?: string;
   binary?: string;
+  roomId?: string;
 }): CliAgentHandle {
   let handle: CliAgentHandle;
   if (input.cli === 'codex') {
-    handle = buildCodexHandle({ cwd: input.cwd, binary: input.binary });
+    handle = buildCodexHandle({ cwd: input.cwd, binary: input.binary, roomId: input.roomId });
   } else if (input.cli === 'pi') {
-    handle = buildPiHandle({ cwd: input.cwd, sessionDir: input.sessionDir, binary: input.binary });
+    handle = buildPiHandle({ cwd: input.cwd, sessionDir: input.sessionDir, binary: input.binary, roomId: input.roomId });
   } else {
     throw new Error(`unknown cli kind: ${(input as { cli: string }).cli}`);
   }
@@ -190,6 +201,15 @@ export function getCliAgent(handleId: string): CliAgentHandle | undefined {
 
 export function listCliAgents(): CliAgentHandle[] {
   return Array.from(getRegistry().handles.values()).sort((a, b) => a.spawnedAtMs - b.spawnedAtMs);
+}
+
+/**
+ * List handles spawned via the room-scoped bring-in endpoint
+ * (dogfood finding #4 follow-up, 2026-05-24). Filters the registry by
+ * the optional `roomId` field stored on each handle.
+ */
+export function listCliAgentsForRoom(roomId: string): CliAgentHandle[] {
+  return listCliAgents().filter((h) => h.roomId === roomId);
 }
 
 /**
