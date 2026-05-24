@@ -160,12 +160,15 @@ function buildPiHandle(options: { cwd?: string; sessionDir?: string; binary?: st
       }
       return bridge.sendCommand(payload as Parameters<PiBridge['sendCommand']>[0]);
     },
-    async sendPrompt(_text: string) {
-      // pi prompt-delivery not yet supported through this surface. The pi
-      // bridge has its own sendCommand shape (typed messages, not JSON-RPC).
-      // Add a `{type:'userMessage', ...}` variant here when the pi schema
-      // clarifies its prompt verb.
-      throw new Error('pi sendPrompt not yet implemented');
+    async sendPrompt(text: string) {
+      // pi protocol verified against piLifecycle.ts:47 — `{type:'prompt',
+      // message}` is the canonical PiRpcCommand for delivering a user
+      // prompt. streamingBehavior defaults to undefined (pi's natural
+      // behaviour). Sibling pattern to the codex thread/start+turn/start
+      // shipped in PR #52, but pi doesn't need a separate session-start
+      // call — the bridge maintains currentSessionId implicitly.
+      await bridge.sendCommand({ type: 'prompt', message: text });
+      return { threadId: bridge.state.currentSessionId };
     },
     async stop() {
       if (disposed) return;
