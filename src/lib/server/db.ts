@@ -359,6 +359,12 @@ const SCHEMA_DDL_STATEMENTS = [
   // listChatRooms / loadRoomById / doesChatRoomExist exclude archived rows
   // so the default UI surfaces never see them.
   `ALTER TABLE chat_rooms ADD COLUMN archived_at_ms INTEGER`,
+  // Room description (JWPK 2026-05-24 yz4clwzvbm msg_jj50zw48fr): "optional
+  // description that can be set by a user or agent like changing the room
+  // name". Distinct from `summary` (which is auto-derived from the latest
+  // message); description is user/agent-authored context that survives
+  // chat activity. NULL when unset → UI falls back to the auto-summary.
+  `ALTER TABLE chat_rooms ADD COLUMN description TEXT`,
   // TERMINALS-T2a (2026-05-14, JWPK terminals-redesign): "ANT-view retained
   // forever" scrollback per linkedchat-backend-v3-audit. Lift of v3 run_events
   // shape (db.ts L66-79). FK omitted — terminal_id can be a v3-daemon

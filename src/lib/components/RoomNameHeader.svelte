@@ -8,6 +8,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import RenameRoomHeaderForm from './RenameRoomHeaderForm.svelte';
+  import EditRoomDescriptionForm from './EditRoomDescriptionForm.svelte';
 
   type Props = {
     roomId: string;
@@ -16,9 +17,13 @@
     lastUpdate: string;
     menu?: Snippet;
     contractId?: string | null;
+    /** JWPK 2026-05-24 yz4clwzvbm msg_jj50zw48fr: optional user/agent-authored
+     *  description below the room name, editable like the name itself.
+     *  NULL = unset; the form renders "No description yet." in that case. */
+    description?: string | null;
   };
 
-  let { roomId, roomName, menu, contractId }: Props = $props();
+  let { roomId, roomName, menu, contractId, description = null }: Props = $props();
 
   let showRenameForm = $state(false);
 </script>
@@ -44,6 +49,9 @@
       <RenameRoomHeaderForm {roomId} currentName={roomName} />
     </div>
   {/if}
+  <div class="description-slot">
+    <EditRoomDescriptionForm {roomId} currentDescription={description} />
+  </div>
 </section>
 
 <style>
@@ -95,6 +103,7 @@
     margin-left: auto;
   }
   .rename-slot { margin-top: 0.55rem; }
+  .description-slot { margin-top: 0.25rem; }
   .contract-badge {
     display: inline-flex;
     align-items: center;

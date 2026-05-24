@@ -36,7 +36,11 @@ export type RoomMember = {
 export type ChatRoom = {
   id: string;
   name: string;
+  /** Auto-derived from the latest message — read-only on this type. */
   summary: string;
+  /** User/agent-authored optional description (JWPK 2026-05-24 yz4clwzvbm
+   *  msg_jj50zw48fr). NULL when unset; UI falls back to summary in that case. */
+  description: string | null;
   attentionState: RoomAttentionState;
   lastUpdate: string;
   whenItWasCreated: string;
@@ -65,6 +69,7 @@ type ChatRoomRow = {
   id: string;
   name: string;
   summary: string;
+  description: string | null;
   attention_state: string;
   last_update: string;
   when_it_was_created: string;
@@ -189,6 +194,9 @@ function rowToRoom(row: ChatRoomRow, members: RoomMember[]): ChatRoom {
     id: row.id,
     name: row.name,
     summary: deriveRoomSummary(row.id, row.summary, members.length),
+    description: typeof row.description === 'string' && row.description.length > 0
+      ? row.description
+      : null,
     attentionState: row.attention_state as RoomAttentionState,
     lastUpdate: row.last_update,
     whenItWasCreated: row.when_it_was_created,
@@ -251,7 +259,7 @@ function loadMembersForRoom(roomId: string): RoomMember[] {
 function loadRoomById(roomId: string): ChatRoom | undefined {
   const db = getIdentityDb();
   const row = db
-    .prepare(`SELECT id, name, summary, attention_state, last_update, contract_id,
+    .prepare(`SELECT id, name, summary, description, attention_state, last_update, contract_id,
                      when_it_was_created, who_created_it, creation_order
               FROM chat_rooms
               WHERE id = ? AND deleted_at_ms IS NULL AND archived_at_ms IS NULL`)
@@ -373,7 +381,7 @@ export function listChatRooms(): ChatRoom[] {
   // rooms drop below ANY messaged room. creation_order DESC is the
   // stable tiebreaker among rooms with the same activity score.
   const rows = db
-    .prepare(`SELECT id, name, summary, attention_state, last_update, contract_id,
+    .prepare(`SELECT id, name, summary, description, attention_state, last_update, contract_id,
                      when_it_was_created, who_created_it, creation_order
               FROM chat_rooms
               WHERE deleted_at_ms IS NULL AND archived_at_ms IS NULL
@@ -458,7 +466,7 @@ export function unarchiveChatRoom(roomId: string): boolean {
 
 export function listArchivedChatRooms(): RecoverableChatRoom[] {
   const rows = getIdentityDb()
-    .prepare(`SELECT id, name, summary, attention_state, last_update, contract_id,
+    .prepare(`SELECT id, name, summary, description, attention_state, last_update, contract_id,
                      when_it_was_created, who_created_it, creation_order,
                      archived_at_ms, deleted_at_ms
               FROM chat_rooms
@@ -471,7 +479,7 @@ export function listArchivedChatRooms(): RecoverableChatRoom[] {
 
 export function listDeletedChatRooms(): RecoverableChatRoom[] {
   const rows = getIdentityDb()
-    .prepare(`SELECT id, name, summary, attention_state, last_update, contract_id,
+    .prepare(`SELECT id, name, summary, description, attention_state, last_update, contract_id,
                      when_it_was_created, who_created_it, creation_order,
                      archived_at_ms, deleted_at_ms
               FROM chat_rooms
@@ -697,6 +705,34 @@ export function renameChatRoom(input: {
 export function updateRoomContract(roomId: string, contractId: string | null): void {
   const db = getIdentityDb();
   db.prepare('UPDATE chat_rooms SET contract_id = ? WHERE id = ?').run(contractId ?? null, roomId);
+}
+
+/**
+ * Set a room's user/agent-authored description. Pass null (or empty string)
+ * to clear. Trims whitespace; capped at ROOM_DESCRIPTION_MAX_CHARS to keep
+ * the value renderable in a single line under the room name. Updates
+ * last_update so the rooms list reflects the edit.
+ */
+export const ROOM_DESCRIPTION_MAX_CHARS = 240;
+
+export function updateChatRoomDescription(input: {
+  roomId: string;
+  description: string | null;
+}): ChatRoom {
+  const room = loadRoomById(input.roomId);
+  if (!room) {
+    throw new Error(`No room found with id ${input.roomId}.`);
+  }
+  const trimmed = (input.description ?? '').trim();
+  if (trimmed.length > ROOM_DESCRIPTION_MAX_CHARS) {
+    throw new Error(`Room description cannot exceed ${ROOM_DESCRIPTION_MAX_CHARS} characters.`);
+  }
+  const valueToStore: string | null = trimmed.length === 0 ? null : trimmed;
+  const db = getIdentityDb();
+  const lastUpdate = describeMomentNow();
+  db.prepare(`UPDATE chat_rooms SET description = ?, last_update = ? WHERE id = ?`)
+    .run(valueToStore, lastUpdate, input.roomId);
+  return loadRoomById(input.roomId)!;
 }
 
 export function updateRoomMemberPresentation(input: {
