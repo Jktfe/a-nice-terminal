@@ -1389,6 +1389,26 @@ const SCHEMA_DDL_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_manual_element_annotations_state ON manual_element_annotations (screen_id, state_slug, tab_order)`,
 
+  // Manual canvas v2 slice 6 (JWPK 2026-05-24 audit purpose): append-only
+  // history of every annotation edit. Closes the third of JWPK's three
+  // original purposes (learning/notes-capture/audit). Inserted by the
+  // PATCH /annotations endpoint after each successful upsert. Old/new
+  // values stored as JSON snapshots so the audit view can diff fields
+  // without joining back to the canonical row.
+  `CREATE TABLE IF NOT EXISTS manual_element_annotations_audit (
+    id                  TEXT PRIMARY KEY,
+    screen_id           TEXT NOT NULL,
+    state_slug          TEXT NOT NULL,
+    element_slug        TEXT NOT NULL,
+    edited_by_handle    TEXT NOT NULL,
+    edited_at_ms        INTEGER NOT NULL,
+    action              TEXT NOT NULL CHECK (action IN ('create','update','delete')),
+    before_json         TEXT,
+    after_json          TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_manual_element_annotations_audit_element
+     ON manual_element_annotations_audit (screen_id, state_slug, element_slug, edited_at_ms DESC)`,
+
   // Central suggestions feed — Add-button writes here. screen_id /
   // state_slug / element_slug all nullable so a user can capture at any
   // scope (screen-level, state-level, element-level). Workspace-public

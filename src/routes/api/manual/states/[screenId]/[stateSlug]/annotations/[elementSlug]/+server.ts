@@ -5,7 +5,11 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getIdentityDb } from '$lib/server/db';
-import { upsertAnnotation, listAnnotationsForState } from '$lib/server/manualScreenStore';
+import {
+  upsertAnnotation,
+  listAnnotationsForState,
+  recordAnnotationAudit
+} from '$lib/server/manualScreenStore';
 
 type Bbox = { x: number; y: number; w: number; h: number };
 
@@ -54,18 +58,45 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
     screenId, stateSlug, elementSlug, itemName: itemName.length > 0 ? itemName : 'Untitled element',
     bbox, cliVerbs, dataSources, logicText, intendedActions, tabOrder
   });
+  // Slice 6 audit-log: stamp before/after on every PATCH.
+  recordAnnotationAudit({
+    screenId, stateSlug, elementSlug,
+    editedByHandle: typeof body.editedByHandle === 'string' && body.editedByHandle.length > 0
+      ? body.editedByHandle : '@you',
+    action: 'update',
+    before: current,
+    after: annotation
+  });
   return json({ annotation });
 };
 
-export const DELETE: RequestHandler = async ({ params }) => {
+export const DELETE: RequestHandler = async ({ params, request }) => {
   const screenId = params.screenId ?? '';
   const stateSlug = params.stateSlug ?? '';
   const elementSlug = params.elementSlug ?? '';
   if (!screenId || !stateSlug || !elementSlug) throw error(400, 'screenId, stateSlug, elementSlug required');
 
+  // Snapshot before deletion so the audit row preserves the value.
+  const before = existingAnnotation(screenId, stateSlug, elementSlug);
+
   const result = getIdentityDb()
     .prepare(`DELETE FROM manual_element_annotations WHERE screen_id = ? AND state_slug = ? AND element_slug = ?`)
     .run(screenId, stateSlug, elementSlug);
+
+  if (result.changes > 0 && before) {
+    // Editor handle from query string (?editedByHandle=@x) since DELETE
+    // bodies are not portable. Falls back to @you for parity with
+    // PATCH/POST defaults.
+    const url = new URL(request.url);
+    const editedByHandle = url.searchParams.get('editedByHandle') ?? '@you';
+    recordAnnotationAudit({
+      screenId, stateSlug, elementSlug,
+      editedByHandle,
+      action: 'delete',
+      before,
+      after: null
+    });
+  }
 
   return json({ deleted: result.changes });
 };
