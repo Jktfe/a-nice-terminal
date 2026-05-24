@@ -64,6 +64,14 @@ export type RoomCard = {
   attentionState: RoomAttentionState;
   lastUpdate: string;
   members?: RoomMemberCard[];
+  /** Aggregate plan completion across all plans attached to this room.
+   *  Populated by /api/chat-rooms/plan-progress; null when no plans
+   *  are attached or data hasn't loaded yet. */
+  planProgress?: {
+    total: number;
+    completed: number;
+    pct: number;
+  } | null;
 };
 
 export type AgentCard = {
