@@ -92,21 +92,32 @@
 </script>
 
 {#if formState === 'idle'}
-  <div class="description-row">
-    {#if currentDescription}
+  {#if currentDescription}
+    <div class="description-row">
       <span class="description-text">{currentDescription}</span>
-    {:else}
-      <span class="description-placeholder">No description yet.</span>
-    {/if}
+      <button
+        type="button"
+        class="pencil-button"
+        aria-label="Edit room description"
+        onclick={beginEditing}
+      >
+        ✎
+      </button>
+    </div>
+  {:else}
+    <!-- When no description exists, show a subtle "+ Add description"
+         affordance instead of a "No description yet." placeholder string
+         that adds visual nuisance to every undescribed room. The link
+         opens the editor — same target as the pencil. -->
     <button
       type="button"
-      class="pencil-button"
-      aria-label={currentDescription ? 'Edit room description' : 'Add room description'}
+      class="add-description-link"
+      aria-label="Add room description"
       onclick={beginEditing}
     >
-      ✎
+      + Add description
     </button>
-  </div>
+  {/if}
 {:else}
   <form
     class="description-form"
@@ -158,10 +169,26 @@
     font-size: 0.85rem;
     line-height: 1.3;
   }
-  .description-placeholder {
+  .add-description-link {
+    /* Subtle text-button affordance replacing the "No description yet."
+       placeholder. Reads as a quiet inline action; on hover it gains the
+       accent colour so it's clearly clickable when the operator wants
+       it, but stays out of the way otherwise. */
+    background: transparent;
+    border: none;
+    padding: 0.15rem 0;
+    margin-top: 0.2rem;
     color: var(--ink-muted, #8a7a70);
+    font: inherit;
     font-size: 0.8rem;
-    font-style: italic;
+    cursor: pointer;
+    text-align: left;
+    align-self: flex-start;
+  }
+  .add-description-link:hover,
+  .add-description-link:focus-visible {
+    color: var(--accent);
+    text-decoration: underline;
   }
   .pencil-button {
     background: transparent;
