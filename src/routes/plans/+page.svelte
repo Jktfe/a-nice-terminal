@@ -7,11 +7,31 @@
 -->
 <script lang="ts">
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
+  import { onMount } from 'svelte';
   import PlanDonutCard from '$lib/components/PlanDonutCard.svelte';
   import PlanOverallDonut from '$lib/components/PlanOverallDonut.svelte';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
+
+  // Text filter (mirrors /rooms and /asks, 2026-05-24).
+  let planFilter = $state('');
+  let planFilterInputEl = $state<HTMLInputElement | undefined>();
+
+  function matchesPlanFilter(plan: typeof data.plans[number], needle: string): boolean {
+    if (needle.length === 0) return true;
+    const title = (plan.title ?? plan.planId).toLowerCase();
+    return title.includes(needle);
+  }
+
+  const filteredPlans = $derived.by(() => {
+    const needle = planFilter.trim().toLowerCase();
+    if (needle.length === 0) return data.plans;
+    return data.plans.filter((p) => matchesPlanFilter(p, needle));
+  });
+
+  const isFiltering = $derived(planFilter.trim().length > 0);
+  const hasFilteredResults = $derived(filteredPlans.length > 0);
 
   // JWPK msg_iuspae79e0 2026-05-24: aggregate completion across every
   // active plan + the Unfiled lane. Non-clickable, header-card visual.
@@ -46,6 +66,18 @@
         ? 'Plans you have archived — out of the active queue but recoverable. Unarchive any with `ant plan unarchive <plan_id>`.'
         : "Completion across every active plan. Each card is a plan's done/total task ratio — open one for its Gantt. Standalone tasks live in Unfiled."
   );
+  // '/' keyboard shortcut focuses the filter input (mirrors /rooms + /asks).
+  onMount(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+      const target = e.target as HTMLElement;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target.isContentEditable) return;
+      e.preventDefault();
+      planFilterInputEl?.focus();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  });
 </script>
 
 <svelte:head><title>{eyebrow.split(' · ')[1] ?? 'Plans'} | ANT vNext</title></svelte:head>
@@ -70,9 +102,26 @@
     <a class="subnav-link" href="/plans/triggers">Triggers →</a>
   </nav>
 
-  {#if data.plans.length === 0 && data.unfiled.total === 0}
+  <div class="plan-filter-row">
+    <input
+      bind:this={planFilterInputEl}
+      bind:value={planFilter}
+      type="search"
+      class="plan-filter"
+      placeholder="Filter plans…"
+      aria-label="Filter plans"
+    />
+    {#if isFiltering}
+      <span class="plan-filter-count" aria-live="polite">{filteredPlans.length} of {data.plans.length}</span>
+      <button type="button" class="filter-reset-btn" onclick={() => (planFilter = '')}>Clear</button>
+    {/if}
+  </div>
+
+  {#if filteredPlans.length === 0 && data.unfiled.total === 0}
     <p class="empty">
-      {#if data.showDeleted}
+      {#if isFiltering}
+        No plans match "{planFilter}". <button type="button" class="filter-reset-btn" onclick={() => (planFilter = '')}>Clear filter</button>
+      {:else if data.showDeleted}
         No soft-deleted plans. Delete one with <code>ant plan delete &lt;plan_id&gt;</code>.
       {:else if data.showArchived}
         No archived plans yet. Archive one with <code>ant plan archive &lt;plan_id&gt;</code>.
@@ -83,7 +132,7 @@
     </p>
   {:else}
     <div class="grid" class:dimmed={data.showDeleted}>
-      {#each data.plans as p (p.planId)}
+      {#each filteredPlans as p (p.planId)}
         <PlanDonutCard
           label={p.title ?? p.planId}
           total={p.total}
@@ -139,4 +188,24 @@
     background: var(--surface-raised); color: var(--ink-strong);
     font-family: ui-monospace, monospace; font-size: 0.82rem;
   }
+  .plan-filter-row {
+    display: flex; align-items: center; gap: 0.55rem;
+    margin: 0 0 0.9rem;
+  }
+  .plan-filter {
+    flex: 1; min-width: 0;
+    padding: 0.45rem 0.75rem;
+    border: 1px solid var(--line-soft); border-radius: 0.55rem;
+    background: var(--surface-card); color: var(--ink-strong);
+    font: inherit; font-size: 0.9rem;
+  }
+  .plan-filter::placeholder { color: var(--ink-muted); }
+  .plan-filter:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .plan-filter-count { font-size: 0.82rem; color: var(--ink-soft); }
+  .filter-reset-btn {
+    padding: 0.35rem 0.65rem; border-radius: 0.4rem;
+    border: 1px solid var(--line-soft); background: var(--surface-raised);
+    color: var(--ink-soft); font: inherit; font-size: 0.82rem; cursor: pointer;
+  }
+  .filter-reset-btn:hover { border-color: var(--accent); color: var(--accent); }
 </style>
