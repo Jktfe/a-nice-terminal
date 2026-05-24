@@ -25,6 +25,7 @@ function fakeHandle(opts: { cli: CliAgentKind; handleId?: string; spawnedAtMs?: 
     async sendCommand<TResult = unknown>(payload: Record<string, unknown>): Promise<TResult> {
       return { echoed: payload } as unknown as TResult;
     },
+    async sendPrompt(_text: string) { return { threadId: opts.sessionId ?? null }; },
     async stop() { /* no-op for these registry-shape tests */ }
   };
 }
