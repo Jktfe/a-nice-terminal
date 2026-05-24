@@ -11,7 +11,13 @@
 <script lang="ts">
   import { invalidateAll } from '$app/navigation';
   import { onDestroy, onMount, untrack } from 'svelte';
-  import { subscribeToRoomEvents, type RealtimeRoomHandle } from '$lib/stores/realtimeRoom.svelte';
+  import {
+    subscribeToRoomEvents,
+    subscribeRoomConnectionState,
+    type RealtimeRoomHandle,
+    type RealtimeRoomStore
+  } from '$lib/stores/realtimeRoom.svelte';
+  import RealtimeStatusIndicator from '$lib/components/RealtimeStatusIndicator.svelte';
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
   import ChatComposer from '$lib/components/ChatComposer.svelte';
   import MessageList from '$lib/components/MessageList.svelte';
@@ -272,6 +278,10 @@
   const currentRoomId = $derived(roomFromServer.id);
   let realtime = $state<RealtimeRoomHandle | null>(null);
   let lastEventCount = $state(0);
+  // Slice 4 follow-up consolidation 2026-05-24: connection-state surface
+  // for the RealtimeStatusIndicator pill in the room header. Shares the
+  // same pooled EventSource as `subscribeToRoomEvents` above.
+  let realtimeStatus = $state<RealtimeRoomStore | null>(null);
   const latestRealtimeEvent = $derived(realtime?.lastEvent ?? null);
   $effect(() => {
     // PATCH A: skip invalidateAll on the INITIAL onopen — data was already
@@ -287,7 +297,12 @@
     });
     realtime = handle;
     lastEventCount = 0;
-    return () => handle.close();
+    const statusHandle = subscribeRoomConnectionState(currentRoomId);
+    realtimeStatus = statusHandle;
+    return () => {
+      handle.close();
+      statusHandle.close();
+    };
   });
   // Debounce invalidateAll on SSE event bursts. A flooded room (e.g. many
   // agents posting in parallel) was firing invalidateAll 5-10x/second,
@@ -402,6 +417,11 @@
     contractId={roomFromServer.contractId}
     description={roomFromServer.description}
   >
+    {#snippet status()}
+      {#if realtimeStatus}
+        <RealtimeStatusIndicator store={realtimeStatus} />
+      {/if}
+    {/snippet}
     {#snippet menu()}
       <RoomMenuDropdown summary="More" innerIds={['participants', 'focus', 'asks', 'plans', 'tasks', 'linked-rooms', 'interviews', 'artefacts', 'screenshots', 'memory', 'attachments']}>
     <nav class="discipline-links" aria-label="Room work surfaces">
