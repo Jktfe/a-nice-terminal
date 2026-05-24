@@ -184,11 +184,38 @@ export function resolveBrowserSessionSecretIgnoringRoom(
   };
 }
 
+/**
+ * In-memory debounce for touchBrowserSessionLastSeen. Banked finding
+ * `project_auth_gate_latency_investigation_2026_05_24.md`: the touch
+ * function fires a 2-statement write transaction (UPDATE browser_sessions
+ * + UPDATE terminals) on EVERY authenticated request. Under load that's
+ * a write per read on the hot path.
+ *
+ * Safe to debounce because the TTL is 30 DAYS (DEFAULT_TTL_MS). Skipping
+ * the touch for 30 seconds means the session's expires_at_ms is at most
+ * 30s "stale" relative to the latest activity — invisible relative to a
+ * 30-day TTL. last_seen_at_ms is also a presence-tracking field that
+ * doesn't need second-level precision.
+ *
+ * Cleared in `resetBrowserSessionStoreForTests` so tests see writes
+ * deterministically without the cache absorbing them.
+ */
+const TOUCH_DEBOUNCE_MS = 30_000;
+const recentlyTouchedAtMs = new Map<string, number>();
+
 export function touchBrowserSessionLastSeen(
   sessionId: string,
   nowMs: number = Date.now(),
   ttlMs: number = DEFAULT_TTL_MS
 ): boolean {
+  // Debounce: if we touched this session within the last 30s, skip the
+  // write transaction. Returns true because the session is presumed
+  // valid (we'd have removed the cache entry on revoke/expire).
+  const lastTouchedAtMs = recentlyTouchedAtMs.get(sessionId);
+  if (lastTouchedAtMs !== undefined && nowMs - lastTouchedAtMs < TOUCH_DEBOUNCE_MS) {
+    return true;
+  }
+
   const db = getIdentityDb();
   const tx = db.transaction(() => {
     const row = db.prepare(
@@ -203,7 +230,16 @@ export function touchBrowserSessionLastSeen(
       .run(Math.floor(expiresAtMs / 1000), Math.floor(nowMs / 1000), row.terminal_id);
     return true;
   });
-  return tx();
+  const ok = tx();
+  if (ok) {
+    recentlyTouchedAtMs.set(sessionId, nowMs);
+  } else {
+    // Row was missing (revoked/expired) — clear the cache entry so a
+    // future re-issued session under the same id doesn't pick up a
+    // stale debounce hit.
+    recentlyTouchedAtMs.delete(sessionId);
+  }
+  return ok;
 }
 
 export function revokeBrowserSessionsForMember(
@@ -223,8 +259,20 @@ export function revokeBrowserSessionsForMember(
         .run(revokedAtMs, row.id);
       db.prepare(`UPDATE room_memberships SET revoked_at_ms = ? WHERE id = ?`)
         .run(revokedAtMs, membershipIdFor(row.id));
+      // Drop the in-memory touch cache for revoked sessions so a future
+      // request can't silently keep them "fresh" via the debounce path.
+      recentlyTouchedAtMs.delete(row.id);
     }
     return rows.length;
   });
   return tx();
+}
+
+/**
+ * Reset the in-memory touch-debounce cache. Called by tests that need
+ * deterministic writes from `touchBrowserSessionLastSeen` (the cache
+ * survives DB resets because it's process-level state).
+ */
+export function resetBrowserSessionStoreForTests(): void {
+  recentlyTouchedAtMs.clear();
 }
