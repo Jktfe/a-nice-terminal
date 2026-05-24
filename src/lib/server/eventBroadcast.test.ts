@@ -58,4 +58,71 @@ describe('eventBroadcast', () => {
     broadcastToRoom('room-3', { type: 'message_added', message: { id: 'msg_y' } });
     expect(events).toHaveLength(1); // no new event after unsubscribe
   });
+
+  // server-hang-investigation-2026-05-24.md root-cause fix:
+  // dead-but-not-closed consumers (desiredSize <= 0) leaked unbounded
+  // buffer growth. broadcastToRoom now force-closes them and drops
+  // from the roomSet so subsequent broadcasts don't keep feeding the
+  // leak.
+  it('closes + drops a controller whose desiredSize signals a full buffer (backpressure)', () => {
+    const closes: number[] = [];
+    const enqueues: Uint8Array[] = [];
+    const stalledController = {
+      enqueue: (data: Uint8Array) => { enqueues.push(data); },
+      close: () => { closes.push(1); },
+      desiredSize: 0 // buffer at/past high-water mark
+    } as unknown as ReadableStreamDefaultController<Uint8Array>;
+
+    subscribeToRoom('room-stalled', stalledController);
+    expect(subscriberCountForRoom('room-stalled')).toBe(1);
+
+    broadcastToRoom('room-stalled', { type: 'test' });
+
+    // No enqueue should have fired (buffer was full); controller closed
+    // and dropped from the roomSet.
+    expect(enqueues).toHaveLength(0);
+    expect(closes).toHaveLength(1);
+    expect(subscriberCountForRoom('room-stalled')).toBe(0);
+
+    // A second broadcast must NOT touch the closed controller again.
+    broadcastToRoom('room-stalled', { type: 'test' });
+    expect(closes).toHaveLength(1);
+  });
+
+  it('continues delivering to healthy controllers when a sibling is force-closed for backpressure', () => {
+    const healthyEvents: Uint8Array[] = [];
+    const stalledEnqueues: Uint8Array[] = [];
+
+    const healthyController = {
+      enqueue: (data: Uint8Array) => { healthyEvents.push(data); },
+      close: () => {},
+      desiredSize: 1
+    } as unknown as ReadableStreamDefaultController<Uint8Array>;
+
+    const stalledController = {
+      enqueue: (data: Uint8Array) => { stalledEnqueues.push(data); },
+      close: () => {},
+      desiredSize: -1 // past high-water mark
+    } as unknown as ReadableStreamDefaultController<Uint8Array>;
+
+    subscribeToRoom('room-mixed', healthyController);
+    subscribeToRoom('room-mixed', stalledController);
+    broadcastToRoom('room-mixed', { type: 'test' });
+
+    expect(healthyEvents).toHaveLength(1);
+    expect(stalledEnqueues).toHaveLength(0);
+    expect(subscriberCountForRoom('room-mixed')).toBe(1); // stalled dropped
+  });
+
+  it('still drops controllers whose enqueue throws (e.g. CLOSED state)', () => {
+    const closedController = {
+      enqueue: () => { throw new Error('stream is closed'); },
+      close: () => {},
+      desiredSize: null // typical for a closed controller
+    } as unknown as ReadableStreamDefaultController<Uint8Array>;
+
+    subscribeToRoom('room-closed', closedController);
+    broadcastToRoom('room-closed', { type: 'test' });
+    expect(subscriberCountForRoom('room-closed')).toBe(0);
+  });
 });
