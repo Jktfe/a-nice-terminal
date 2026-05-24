@@ -268,11 +268,23 @@ function loadRoomById(roomId: string): ChatRoom | undefined {
   return rowToRoom(row, loadMembersForRoom(row.id));
 }
 
-export function createChatRoom(input: { name: string; whoCreatedIt: string }): ChatRoom {
+export function createChatRoom(input: {
+  name: string;
+  whoCreatedIt: string;
+  /** Optional user/agent-authored description (a19a496). Capped at
+   *  ROOM_DESCRIPTION_MAX_CHARS and trimmed; null/empty stores NULL. */
+  description?: string | null;
+}): ChatRoom {
   const trimmedName = input.name.trim();
   if (trimmedName.length === 0) {
     throw new Error('A chat room needs a name with at least one character.');
   }
+  // Validate optional description against the same cap as the PATCH path.
+  const trimmedDescription = (input.description ?? '').trim();
+  if (trimmedDescription.length > ROOM_DESCRIPTION_MAX_CHARS) {
+    throw new Error(`Room description cannot exceed ${ROOM_DESCRIPTION_MAX_CHARS} characters.`);
+  }
+  const descriptionToStore: string | null = trimmedDescription.length === 0 ? null : trimmedDescription;
   // creatorKind detection: @you = human (always). Otherwise prefer a
   // terminal_record match. If that misses (race between agent registration
   // and side-room creation, or terminal_records not yet populated), check
@@ -310,10 +322,10 @@ export function createChatRoom(input: { name: string; whoCreatedIt: string }): C
     const creationOrder = nextOrderRow.next;
 
     db.prepare(`INSERT INTO chat_rooms
-      (id, name, summary, attention_state, last_update,
+      (id, name, summary, description, attention_state, last_update,
        when_it_was_created, who_created_it, creation_order)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
-      newRoomId, trimmedName, DEFAULT_SUMMARY, DEFAULT_ATTENTION_STATE,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      newRoomId, trimmedName, DEFAULT_SUMMARY, descriptionToStore, DEFAULT_ATTENTION_STATE,
       lastUpdate, nowIso, input.whoCreatedIt, creationOrder
     );
 
