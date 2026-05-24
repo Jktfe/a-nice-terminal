@@ -21,9 +21,14 @@
      *  description below the room name, editable like the name itself.
      *  NULL = unset; the form renders "No description yet." in that case. */
     description?: string | null;
+    /** Slice 4 follow-up consolidation 2026-05-24: optional status pill
+     *  (typically RealtimeStatusIndicator) rendered inside the title row
+     *  between the h1 and the menu. Page passes it when it has subscribed
+     *  to the realtime connection state. */
+    status?: Snippet;
   };
 
-  let { roomId, roomName, menu, contractId, description = null }: Props = $props();
+  let { roomId, roomName, menu, contractId, description = null, status }: Props = $props();
 
   let showRenameForm = $state(false);
 </script>
@@ -42,6 +47,9 @@
       {showRenameForm ? '×' : '✎'}
     </button>
     <h1 id="roomNameHeading">{roomName}</h1>
+    {#if status}
+      <span class="status-slot">{@render status()}</span>
+    {/if}
     {@render menu?.()}
   </div>
   {#if showRenameForm}
@@ -101,6 +109,16 @@
      'More ▾' lives on the right of the title row. */
   .title-row :global(.room-menu-dropdown) {
     margin-left: auto;
+  }
+  /* Status slot sits between the h1 and the menu — when present it
+     gets pushed to the trailing edge instead so the menu hugs it. */
+  .status-slot {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+  }
+  .title-row :global(.status-slot) + :global(.room-menu-dropdown) {
+    margin-left: 0.5rem;
   }
   .rename-slot { margin-top: 0.55rem; }
   .description-slot { margin-top: 0.25rem; }
