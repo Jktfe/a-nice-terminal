@@ -61,7 +61,7 @@
     }
   }
 
-  async function bringInCodex(): Promise<void> {
+  async function bringIn(cli: 'codex' | 'pi'): Promise<void> {
     spawning = true;
     actionError = '';
     try {
@@ -69,7 +69,7 @@
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          cli: 'codex',
+          cli,
           ...(pendingCwd.trim().length > 0 ? { cwd: pendingCwd.trim() } : {})
         })
       });
@@ -142,7 +142,7 @@
 
 <section class="room-cli-agents" aria-labelledby="bring-in-heading">
   <h3 id="bring-in-heading">Bring in a CLI agent</h3>
-  <p class="hint">Spawn a codex into this room context. Output flows to <code>cli_hook_events</code>; reach the timeline via the agent's session link.</p>
+  <p class="hint">Spawn a codex or pi into this room context. Output flows to <code>cli_hook_events</code>; reach the timeline via the agent's session link.</p>
 
   <div class="bring-in-row">
     <label class="cwd-field">
@@ -154,14 +154,24 @@
         disabled={spawning}
       />
     </label>
-    <button
-      type="button"
-      class="bring-in-btn"
-      disabled={spawning}
-      onclick={() => void bringInCodex()}
-    >
-      {spawning ? 'Spawning…' : 'Bring in codex'}
-    </button>
+    <div class="bring-in-buttons">
+      <button
+        type="button"
+        class="bring-in-btn codex"
+        disabled={spawning}
+        onclick={() => void bringIn('codex')}
+      >
+        {spawning ? 'Spawning…' : 'Bring in codex'}
+      </button>
+      <button
+        type="button"
+        class="bring-in-btn pi"
+        disabled={spawning}
+        onclick={() => void bringIn('pi')}
+      >
+        {spawning ? 'Spawning…' : 'Bring in pi'}
+      </button>
+    </div>
   </div>
 
   {#if actionError}
@@ -188,7 +198,7 @@
               {#if agent.sessionId}<a href="/cli-hooks/{agent.sessionId}">{agent.sessionId.slice(0, 12)} →</a>{:else}<em>resolving…</em>{/if}
             </span>
           </div>
-          {#if agent.cli === 'codex'}
+          {#if agent.cli === 'codex' || agent.cli === 'pi'}
             <div class="agent-prompt">
               <label class="prompt-label" for="room-prompt-{agent.handleId}">Send a prompt</label>
               <textarea
@@ -245,10 +255,13 @@
     padding: 0.4rem 0.55rem; border: 1px solid var(--line-soft, #ccc); border-radius: 0.3rem;
     font-size: 0.85rem; background: var(--bg, white); color: inherit;
   }
+  .bring-in-buttons { display: flex; gap: 0.4rem; }
   .bring-in-btn {
     padding: 0.5rem 0.9rem; font-weight: 700; font-size: 0.85rem; color: white;
-    background: #4a6cf7; border: none; border-radius: 999px; cursor: pointer;
+    border: none; border-radius: 999px; cursor: pointer;
   }
+  .bring-in-btn.codex { background: #4a6cf7; }
+  .bring-in-btn.pi { background: #c44a9b; }
   .bring-in-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .error { color: var(--accent, #c63b3b); margin: 0.5rem 0 0 0; font-size: 0.82rem; }
   .status { margin: 0.8rem 0 0 0; font-size: 0.82rem; color: var(--ink-soft, #777); }
