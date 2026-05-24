@@ -23,6 +23,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
+  import Explainable from './Explainable.svelte';
 
   type Props = { roomId: string };
   let { roomId }: Props = $props();
@@ -45,6 +46,10 @@
   let promptSending = $state<Record<string, boolean>>({});
   let promptStatus = $state<Record<string, string>>({});
   let pollHandle: ReturnType<typeof setInterval> | null = null;
+
+  // Click-to-explain wrapping (Shift+? mode). Static keys map to the
+  // EXPLAIN_MAP entries seeded in src/lib/explainMap.ts.
+
 
   async function refresh(): Promise<void> {
     if (!browser) return;
@@ -141,7 +146,9 @@
 </script>
 
 <section class="room-cli-agents" aria-labelledby="bring-in-heading">
-  <h3 id="bring-in-heading">Bring in a CLI agent</h3>
+  <Explainable explainKey="agents-bring-in-panel">
+    <h3 id="bring-in-heading">Bring in a CLI agent</h3>
+  </Explainable>
   <p class="hint">Spawn a codex or pi into this room context. Output flows to <code>cli_hook_events</code>; reach the timeline via the agent's session link.</p>
 
   <div class="bring-in-row">
@@ -155,22 +162,26 @@
       />
     </label>
     <div class="bring-in-buttons">
-      <button
-        type="button"
-        class="bring-in-btn codex"
-        disabled={spawning}
-        onclick={() => void bringIn('codex')}
-      >
-        {spawning ? 'Spawning…' : 'Bring in codex'}
-      </button>
-      <button
-        type="button"
-        class="bring-in-btn pi"
-        disabled={spawning}
-        onclick={() => void bringIn('pi')}
-      >
-        {spawning ? 'Spawning…' : 'Bring in pi'}
-      </button>
+      <Explainable explainKey="agents-bring-in-codex">
+        <button
+          type="button"
+          class="bring-in-btn codex"
+          disabled={spawning}
+          onclick={() => void bringIn('codex')}
+        >
+          {spawning ? 'Spawning…' : 'Bring in codex'}
+        </button>
+      </Explainable>
+      <Explainable explainKey="agents-bring-in-pi">
+        <button
+          type="button"
+          class="bring-in-btn pi"
+          disabled={spawning}
+          onclick={() => void bringIn('pi')}
+        >
+          {spawning ? 'Spawning…' : 'Bring in pi'}
+        </button>
+      </Explainable>
     </div>
   </div>
 
@@ -195,12 +206,18 @@
             {#if agent.cwd}<span>cwd: <code>{agent.cwd}</code></span>{/if}
             <span>
               session:
-              {#if agent.sessionId}<a href="/cli-hooks/{agent.sessionId}">{agent.sessionId.slice(0, 12)} →</a>{:else}<em>resolving…</em>{/if}
+              {#if agent.sessionId}
+                <Explainable explainKey="agent-session-link">
+                  <a href="/cli-hooks/{agent.sessionId}">{agent.sessionId.slice(0, 12)} →</a>
+                </Explainable>
+              {:else}<em>resolving…</em>{/if}
             </span>
           </div>
           {#if agent.cli === 'codex' || agent.cli === 'pi'}
             <div class="agent-prompt">
-              <label class="prompt-label" for="room-prompt-{agent.handleId}">Send a prompt</label>
+              <Explainable explainKey="agent-prompt-textarea">
+                <label class="prompt-label" for="room-prompt-{agent.handleId}">Send a prompt</label>
+              </Explainable>
               <textarea
                 id="room-prompt-{agent.handleId}"
                 rows="3"
