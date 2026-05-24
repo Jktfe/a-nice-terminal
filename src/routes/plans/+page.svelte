@@ -85,11 +85,13 @@
 
 <SimplePageShell {eyebrow} {title} {summary}>
   {#if !data.showArchived && !data.showDeleted && overallTotal > 0}
+    <Explainable explainKey="plans-overall">
     <PlanOverallDonut
       total={overallTotal}
       completed={overallCompleted}
       planCount={overallPlanCount}
     />
+    </Explainable>
   {/if}
 
   <nav class="subnav" aria-label="Plans secondary nav">

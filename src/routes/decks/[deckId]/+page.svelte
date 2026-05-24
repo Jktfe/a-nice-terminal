@@ -567,6 +567,7 @@
       <div class="slide-body">{@html renderedBody}</div>
 
       {#if showValidation && slideClaims.length > 0}
+        <Explainable explainKey="deck-validation">
         <aside class="claims-panel" aria-label="Validation claims for this slide">
           <header class="claims-panel-header">
             <strong>Claims on this slide</strong>
@@ -584,6 +585,7 @@
           </ol>
           <p class="claims-note">Click-to-overlay (per-claim verifier runs) lands in a follow-up slice. v1: visible enumeration + active lens label so the presenter can see what's making claim-shaped statements.</p>
         </aside>
+        </Explainable>
       {/if}
     </article>
 
