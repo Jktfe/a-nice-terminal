@@ -8,9 +8,26 @@
 <script lang="ts">
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
   import PlanDonutCard from '$lib/components/PlanDonutCard.svelte';
+  import PlanOverallDonut from '$lib/components/PlanOverallDonut.svelte';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
+
+  // JWPK msg_iuspae79e0 2026-05-24: aggregate completion across every
+  // active plan + the Unfiled lane. Non-clickable, header-card visual.
+  // Hidden on the Archived / Deleted views — "yo where are we" doesn't
+  // make sense over rooms that aren't part of the active queue.
+  const overallTotal = $derived(
+    data.plans.reduce((acc, p) => acc + (p.total ?? 0), 0)
+    + (data.unfiled?.total ?? 0)
+  );
+  const overallCompleted = $derived(
+    data.plans.reduce((acc, p) => acc + (p.completed ?? 0), 0)
+    + (data.unfiled?.completed ?? 0)
+  );
+  const overallPlanCount = $derived(
+    data.plans.length + (data.unfiled && data.unfiled.total > 0 ? 1 : 0)
+  );
 
   const eyebrow = $derived(
     data.showDeleted ? 'Plans · Deleted'
@@ -34,6 +51,14 @@
 <svelte:head><title>{eyebrow.split(' · ')[1] ?? 'Plans'} | ANT vNext</title></svelte:head>
 
 <SimplePageShell {eyebrow} {title} {summary}>
+  {#if !data.showArchived && !data.showDeleted && overallTotal > 0}
+    <PlanOverallDonut
+      total={overallTotal}
+      completed={overallCompleted}
+      planCount={overallPlanCount}
+    />
+  {/if}
+
   <nav class="subnav" aria-label="Plans secondary nav">
     <a class="subnav-link" class:active={!data.showArchived && !data.showDeleted} href="/plans">Active</a>
     <a class="subnav-link" class:active={data.showArchived} href="/plans?show=archived">Archived</a>
