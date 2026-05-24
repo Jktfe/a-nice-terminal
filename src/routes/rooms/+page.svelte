@@ -18,6 +18,7 @@
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { roomBookmarks } from '$lib/stores/roomBookmarks.svelte';
+  import Explainable from '$lib/components/Explainable.svelte';
 
   type Props = {
     data: { chatRoomsFromServer: RoomCard[]; serverRoomListFailed: boolean };
@@ -298,7 +299,7 @@
     </aside>
   {/if}
 
-  <CreateChatRoomForm onRoomCreated={refreshRoomListFromServer} />
+  <Explainable explainKey="rooms-create"><CreateChatRoomForm onRoomCreated={refreshRoomListFromServer} /></Explainable>
 
   <section aria-labelledby="yourRoomsHeading">
     <div class="rooms-toolbar">
@@ -386,14 +387,16 @@
           {/each}
         </div>
 
-        <input
-          bind:this={filterInputEl}
-          type="search"
-          class="name-filter"
-          placeholder="Filter by name or description… (press / to focus)"
-          aria-label="Filter rooms by name or description. Press / to focus."
-          bind:value={nameFilter}
-        />
+        <Explainable explainKey="rooms-filter">
+          <input
+            bind:this={filterInputEl}
+            type="search"
+            class="name-filter"
+            placeholder="Filter by name or description… (press / to focus)"
+            aria-label="Filter rooms by name or description. Press / to focus."
+            bind:value={nameFilter}
+          />
+        </Explainable>
 
         <label class="sort-select-wrap">
           <span class="sort-label">Sort</span>

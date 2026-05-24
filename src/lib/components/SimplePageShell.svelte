@@ -7,6 +7,7 @@
   import { agentKinds } from '$lib/stores/agentKinds.svelte';
   import { terminalBookmarks } from '$lib/stores/terminalBookmarks.svelte';
 
+  import { getExplainMode, toggleExplainMode } from '$lib/stores/explainMode.svelte';
   type Props = {
     eyebrow?: string;
     title?: string;
@@ -106,6 +107,17 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5a8 8 0 11-9.5-9.5 7 7 0 009.5 9.5z" fill="currentColor"/></svg>
         <span class="nav-label">Dark</span>
       {/if}
+    </button>
+    <button
+      type="button"
+      class="explain-toggle"
+      class:active={getExplainMode()}
+      onclick={toggleExplainMode}
+      aria-label="Toggle explain mode"
+      title={getExplainMode() ? 'Exit explain mode' : 'Enter explain mode (?)'}
+    >
+      <span class="explain-icon">?</span>
+      <span class="nav-label">{getExplainMode() ? 'Done' : 'Explain'}</span>
     </button>
   </header>
 

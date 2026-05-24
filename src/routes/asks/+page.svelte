@@ -17,6 +17,7 @@
   import { invalidateAll } from '$app/navigation';
   import { onMount, onDestroy } from 'svelte';
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
+  import Explainable from '$lib/components/Explainable.svelte';
   import AskCard from '$lib/components/AskCard.svelte';
   import {
     submitAnswerFor as askActionsAnswer,
@@ -236,6 +237,7 @@
   {:else}
     {#if asksFromServer.length > 0 || recentlyAnsweredFromServer.length > 0}
       <div class="ask-filter-row">
+        <Explainable explainKey="asks-queue">
         <input
           bind:this={askFilterInputEl}
           type="search"
@@ -244,6 +246,7 @@
           aria-label="Filter asks by title or room name. Press / to focus."
           bind:value={askFilter}
         />
+        </Explainable>
         {#if askFilter.trim().length > 0}
           <span class="ask-filter-count" aria-live="polite">
             {filteredOpenAsks.length} open · {filteredAnsweredAsks.length} answered

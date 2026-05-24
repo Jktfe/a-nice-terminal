@@ -15,6 +15,7 @@
   import DeckViewerToolbar from '$lib/components/DeckViewerToolbar.svelte';
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
   import StageFeedbackPanel from '$lib/components/StageFeedbackPanel.svelte';
+  import Explainable from '$lib/components/Explainable.svelte';
   import { renderMarkdown } from '$lib/chat/renderMarkdown';
   import { BrowserTTSProvider, ElevenLabsTTSProvider, type TTSHandle, type TTSProvider } from '$lib/voice/interview-tts';
   import type { PageData } from './$types';
@@ -514,7 +515,7 @@
   title={deck.title}
   summary={`From /rooms/${deck.roomId} · ${slideCount} slide${slideCount === 1 ? '' : 's'}`}
 >
-  <DeckViewerToolbar
+  <Explainable explainKey="deck-voice"><DeckViewerToolbar
     roomId={deck.roomId}
     {inspectMode}
     speakingThisSlide={speakingIndex === activeIndex}
@@ -529,7 +530,7 @@
     onCopyShareLink={copyShareLink}
     onToggleValidation={toggleValidation}
     onLensChange={(lensId) => (activeLensId = lensId)}
-  />
+  /></Explainable>
 
   {#if shareNotice}
     <p class="share-notice" role="status">{shareNotice}</p>

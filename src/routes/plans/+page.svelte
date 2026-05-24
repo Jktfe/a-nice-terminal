@@ -9,6 +9,7 @@
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
   import { onMount } from 'svelte';
   import PlanDonutCard from '$lib/components/PlanDonutCard.svelte';
+  import Explainable from '$lib/components/Explainable.svelte';
   import PlanOverallDonut from '$lib/components/PlanOverallDonut.svelte';
   import type { PageData } from './$types';
 
@@ -133,6 +134,7 @@
   {:else}
     <div class="grid" class:dimmed={data.showDeleted}>
       {#each filteredPlans as p (p.planId)}
+        <Explainable explainKey="plans-donut">
         <PlanDonutCard
           label={p.title ?? p.planId}
           total={p.total}
@@ -142,6 +144,7 @@
           planId={p.planId}
           showHardDelete={data.showArchived || data.showDeleted}
         />
+        </Explainable>
       {/each}
       {#if data.unfiled.total > 0}
         <PlanDonutCard
