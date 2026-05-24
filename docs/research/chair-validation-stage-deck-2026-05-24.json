@@ -1,0 +1,80 @@
+[
+  {
+    "id": "slide-1",
+    "title": "Chair + Validation: What We Are Proving",
+    "content": "One ANT Stage presentation for today:\n\n- Chair as the operating role that keeps rooms moving\n- Chair across local desktop, hosted Remote ANT, and Native\n- Validation as lenses over claims, sources, links, and artefacts\n- Live demo path: Stage feedback -> alternative artefact -> validation",
+    "speakerNotes": "This deck is deliberately one presentation, not a bundle of separate reports. The goal is to show how Chair and validation work together. Chair keeps the work moving without noise. Validation turns claims into inspectable objects. Stage is where the two become visible because feedback arrives during the presentation and the system can respond with alternatives and evidence."
+  },
+  {
+    "id": "slide-2",
+    "title": "Chair Is Not A Digest Panel",
+    "content": "Chair is an agent-role and operating contract.\n\nIt watches rooms, asks, claims, contracts, modes, and delivery lanes.\n\nIt does not own every implementation. It owns momentum, deconfliction, and decision hygiene.",
+    "speakerNotes": "The core correction is that Chair is not a sidebar full of summaries. Chair is an agent role. It can be held by Claude today, by a hosted service in premium Remote ANT, or surfaced through Native. The constant is the responsibility: know the room state, keep claims bounded, turn blockers into asks, and stop silence from becoming drift."
+  },
+  {
+    "id": "slide-3",
+    "title": "What Chair Actually Does",
+    "content": "From this session's lived evidence:\n\n- Triage open asks and close extractor noise\n- Keep a 2-hour digest cadence while the user is away\n- Verify commits with live probes and edge cases\n- Surface blockers as 3 clear logic paths\n- Own failure patterns and bank lessons\n- Enforce mode discipline through the unified AwayModeToggle",
+    "speakerNotes": "Claude's Chair-seat experience gives us the practical list. Ask extraction creates noise after chat-heavy hours. Chair has to filter it. The two-hour digest is not cosmetic; when it was skipped, James saw silence and called it out. Verification means auth probes, live endpoints, and edge cases. Blockers should come as a small logic choice, not a wall of analysis. The room-mode control is now the unified AwayModeToggle: Working maps to brainstorm, away from desk maps to heads-down, and away from office maps to closed, with a visible mode indicator."
+  },
+  {
+    "id": "slide-4",
+    "title": "Chair In Local Desktop ANT",
+    "content": "Today's implementation shape:\n\n- One agent in the room holds the Chair seat\n- Uses room messages, asks, contracts, and CLI/API tools\n- Can verify commits, keep claim maps, and reopen room modes\n- Human override remains immediate because the room is local and visible",
+    "speakerNotes": "Local desktop ANT is the version we are dogfooding now. Chair is a named agent in the same room as the user and other agents. It can read the live room, post asks, verify routes, and coordinate branches. This is powerful but still fragile because it relies on one active agent keeping the discipline. The product work is to make that discipline an actual surface and runtime."
+  },
+  {
+    "id": "slide-5",
+    "title": "Chair In Hosted Remote ANT",
+    "content": "Remote ANT shape:\n\n- Hosted Chair service watches authorised rooms\n- Accounts bearer + room membership define scope\n- Chair API spec can be OSS-visible\n- Chair runtime, policies, and premium contracts stay private/premium\n- Digests, escalations, and ask triage work even when the desktop sleeps",
+    "speakerNotes": "In hosted Remote ANT, Chair stops depending on a terminal staying awake on the user's desk. It becomes a service. The API shape should be documented enough that clients know how to ask for Chair state. The premium moat is the runtime: the policies, contract execution, prioritisation, and multi-room judgement. That split keeps open interoperability without leaking the product's operating brain."
+  },
+  {
+    "id": "slide-6",
+    "title": "Chair In Native",
+    "content": "Native needs to make Chair understandable.\n\n- Show Chair actions in the room shelf\n- Let the user override dismissals, escalations, and handoffs\n- Surface active asks and digest status without spam\n- Make room state obvious: brainstorm, heads-down, closed, away modes\n- Make safety visible for Rox; one-click for Sparky",
+    "speakerNotes": "Native's job is not to reimplement the Chair brain. Native makes Chair trustworthy and usable. Sparky needs a button. Rox needs clarity about who saw what, what Chair changed, and what can be reversed. The room shelf is the natural surface: Chair active here, current ask queue, recent decisions, escalation status, and override controls."
+  },
+  {
+    "id": "slide-7",
+    "title": "Validation Is A Lens, Not One Status",
+    "content": "A claim does not have one universal truth badge.\n\nThe same claim can be:\n- green under a POC lens\n- amber under an FCA lens\n- stale under an investor-update lens\n\nValidation schema is applied over the top. Switching lenses should feel near-instant.",
+    "speakerNotes": "James's lens framing is the key. Validation is plural and user or organisation specific. A proof-of-concept validation may only need two agents to check links and claim shape. FCA validation may require source attribution, caveats, and regulated review. The claim anchor stays the same. The selected lens changes what evidence matters and how the result is displayed."
+  },
+  {
+    "id": "slide-8",
+    "title": "How Validation Works Today",
+    "content": "Current shipped stack:\n\n- validation_schemas: public, user, or org-scoped lenses\n- validation_runs: append-only runs per claim anchor + schema\n- artefact validation: extracts claim anchors from markdown\n- verifier tasks: humans / agents / files / context summaries\n- badges: task and detail panels read validation_runs safely by task room",
+    "speakerNotes": "The current implementation already has the key pieces. Schemas are scoped. Runs are stored per claim anchor and schema. Artefact validation extracts markdown claims, scores them through a policy, and can create verifier work. Validation badges read through task-scoped auth, not bare claim IDs, which prevents cross-room leakage."
+  },
+  {
+    "id": "slide-8b",
+    "title": "Realtime Validation: Live Means Verified Current",
+    "content": "Live status is another validation lens.\n\nSSE finish layer:\nidle -> connecting -> connected -> catching-up -> caught-up\n                    -> disconnected -> unreachable\n\nKey point: connected is not enough. catching-up means the wire is open but the user is not current yet.",
+    "speakerNotes": "Claudev4's cross-room contribution is the validation discipline applied to realtime infrastructure. A green dot is a naive answer. The useful state is caught-up, because that means the consumer knows its last sequence number matches the server's latest sequence. Catching-up is the important primitive: connected but not current. This is the same idea as claim validation. We surface what is verified, not what is assumed."
+  },
+  {
+    "id": "slide-9",
+    "title": "Validation Demo Path",
+    "content": "Demo sequence:\n\n1. Open this deck on ANT Stage\n2. Submit feedback on a claim\n3. Stage creates an alternative artefact + proposal tracks\n4. Run Validate claims on the artefact\n5. See claim anchors, score, verifier gaps, and lens identity\n6. Complete verifier tasks to turn gaps into validation_runs",
+    "speakerNotes": "This is the dogfood path. We do not just talk about validation. We use Stage feedback to generate an alternative artefact, then validate that artefact. At first the score may be low because no verifier runs exist yet. That is correct. It shows the system refusing to pretend that an unchecked claim is verified. The next step is assigning verifier tasks and writing validation runs."
+  },
+  {
+    "id": "slide-10",
+    "title": "Where Chair And Validation Meet",
+    "content": "Chair uses validation to manage trust:\n\n- Which claims are unverified?\n- Which lens is active for this room or audience?\n- Which verifier tasks are blocked?\n- Which downstream slides become stale after feedback?\n- Which decisions need a human ask rather than agent action?",
+    "speakerNotes": "Chair and validation are not separate product lines. Chair uses validation state to decide what matters next. In a pitch deck, if an investor focuses on tax, Chair can route the room toward the prepared tax path and flag which slides need FCA or investor validation. In regulated work, Chair can prevent a decision from being marked done until required checks are passed."
+  },
+  {
+    "id": "slide-11",
+    "title": "Decision Tree vs Active Feedback",
+    "content": "ANT Stage has three presentation modes:\n\n- Plain viewer: watch only\n- Active direction: fast path selection from prepared alternatives\n- Active feedback: generate new assets and alternatives live\n\nChair helps decide when to pick a prepared path and when to ask agents to generate.",
+    "speakerNotes": "This picks up James's correction about speed. Not every change should generate fresh assets. Active direction is about choosing the right pre-prepared story path quickly. Active feedback is for genuine new work: changing design, creating slides, removing claims, or producing a new alternative. Chair is the coordinator that keeps that decision sane during the presentation."
+  },
+  {
+    "id": "slide-12",
+    "title": "What We Need To Build Next",
+    "content": "Next slices:\n\n- Chair console: real ask queue, dedupe, digest state, override controls\n- Native Chair shelf: active here, recent actions, escalation controls\n- Stage mode selector: viewer / active direction / active feedback\n- Validation lens picker on Stage and artefacts\n- Realtime status that distinguishes connected from caught-up\n- Demo-grade prepared path tree for this presentation style",
+    "speakerNotes": "The next work is not vague. Chair needs a control surface. Native needs to show Chair without making it scary or noisy. Stage needs the three modes. Validation needs lens switching in the surfaces where claims are read. Realtime needs to show whether it is actually caught up, not merely connected. And this deck should become a template: prepared paths for direction, live feedback for true changes, and validation visible as a trust layer."
+  }
+]
