@@ -15,6 +15,7 @@
 -->
 <script lang="ts">
   import { invalidateAll } from '$app/navigation';
+  import { onMount, onDestroy } from 'svelte';
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
   import AskCard from '$lib/components/AskCard.svelte';
   import {
@@ -40,6 +41,35 @@
   const recentlyAnsweredFromServer = $derived<Ask[]>(data.recentlyAnsweredFromServer);
   const roomNameByRoomId = $derived<Record<string, string>>(data.roomNameByRoomId);
   const asksFetchFailed = $derived<boolean>(data.asksFetchFailed);
+
+  // Text filter (JWPK rooms-filter follow-up, 2026-05-24): mirrors the
+  // /rooms name-or-description filter. With many cross-room asks, "find
+  // the one about board prep" needs to work via keyboard, not visual
+  // scan. Matches ask.title and the resolved room name case-insensitively
+  // so "board" finds "Board Q4 prep" and any ask in a room called Boardroom.
+  // Per-session state — no localStorage (the queue churns fast).
+  let askFilter = $state('');
+  let askFilterInputEl = $state<HTMLInputElement | undefined>();
+
+  function matchesAskFilter(ask: Ask, needle: string): boolean {
+    if (needle.length === 0) return true;
+    if (ask.title.toLowerCase().includes(needle)) return true;
+    const roomName = resolveRoomNameSafely(ask.roomId).toLowerCase();
+    if (roomName.includes(needle)) return true;
+    return false;
+  }
+
+  const filteredOpenAsks = $derived.by(() => {
+    const needle = askFilter.trim().toLowerCase();
+    if (needle.length === 0) return asksFromServer;
+    return asksFromServer.filter((ask) => matchesAskFilter(ask, needle));
+  });
+
+  const filteredAnsweredAsks = $derived.by(() => {
+    const needle = askFilter.trim().toLowerCase();
+    if (needle.length === 0) return recentlyAnsweredFromServer;
+    return recentlyAnsweredFromServer.filter((ask) => matchesAskFilter(ask, needle));
+  });
 
   // One answer form open at a time; one in-flight verb at a time. Keeps
   // state shape tight and matches the "one task in focus" UX of a queue.
@@ -83,6 +113,34 @@
       if (!pickupByAskId[ask.id]) void loadPickupForAsk(ask.id);
     }
   });
+
+  // "/" keyboard shortcut focuses the filter input (mirrors /rooms d08bc69
+  // /e059268). Same defensive shape: skips when typing into another input/
+  // textarea/select/contentEditable or with any modifier held.
+  onMount(() => {
+    window.addEventListener('keydown', handleGlobalKeydown);
+  });
+
+  onDestroy(() => {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('keydown', handleGlobalKeydown);
+    }
+  });
+
+  function handleGlobalKeydown(event: KeyboardEvent): void {
+    if (event.key !== '/') return;
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    const target = event.target as HTMLElement | null;
+    if (target) {
+      const tag = target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (target.isContentEditable) return;
+    }
+    if (!askFilterInputEl) return;
+    event.preventDefault();
+    askFilterInputEl.focus();
+    askFilterInputEl.select();
+  }
 
   function resolveRoomNameSafely(roomId: string): string {
     return roomNameByRoomId[roomId] ?? roomId;
@@ -168,6 +226,24 @@
       Could not load the asks queue. Try again in a moment.
     </p>
   {:else}
+    {#if asksFromServer.length > 0 || recentlyAnsweredFromServer.length > 0}
+      <div class="ask-filter-row">
+        <input
+          bind:this={askFilterInputEl}
+          type="search"
+          class="ask-filter"
+          placeholder="Filter by title or room… (press / to focus)"
+          aria-label="Filter asks by title or room name. Press / to focus."
+          bind:value={askFilter}
+        />
+        {#if askFilter.trim().length > 0}
+          <span class="ask-filter-count" aria-live="polite">
+            {filteredOpenAsks.length} open · {filteredAnsweredAsks.length} answered
+          </span>
+        {/if}
+      </div>
+    {/if}
+
     {#if asksFromServer.length === 0}
       <div class="empty-celebrate" role="status" aria-label="All open asks resolved">
         <span class="celebrate-icon" aria-hidden="true">✓</span>
@@ -176,9 +252,14 @@
           <span class="celebrate-detail">No open asks right now. New ones appear here automatically when a member opens one from inside a room.</span>
         </div>
       </div>
+    {:else if filteredOpenAsks.length === 0}
+      <p class="empty-nudge" role="status">
+        No open asks match "<strong>{askFilter}</strong>".
+        <button type="button" class="filter-reset-btn" onclick={() => (askFilter = '')}>Clear filter</button>
+      </p>
     {:else}
       <ul class="ask-list" aria-label="Open asks queue">
-        {#each asksFromServer as ask (ask.id)}
+        {#each filteredOpenAsks as ask (ask.id)}
           <li>
             <AskCard
               ask={ask}
@@ -199,11 +280,11 @@
       </ul>
     {/if}
 
-    {#if recentlyAnsweredFromServer.length > 0}
+    {#if filteredAnsweredAsks.length > 0}
       <section class="answered-section" aria-labelledby="recently-answered-heading">
         <h2 id="recently-answered-heading">Recently answered</h2>
         <ul class="answered-list">
-          {#each recentlyAnsweredFromServer as ask (ask.id)}
+          {#each filteredAnsweredAsks as ask (ask.id)}
             {@const pickup = pickupByAskId[ask.id]}
             <li class="answered-card">
               <header class="answered-meta">
@@ -245,6 +326,60 @@
 
 <style>
   .error-message { margin: 0 0 0.75rem; color: var(--accent); }
+
+  /* Ask filter input (mirrors /rooms d08bc69 / e059268 affordance).
+     Type to narrow both Open and Recently-answered lists by title or
+     room name. "/" focuses the input. */
+  .ask-filter-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 0 0 0.85rem;
+  }
+  .ask-filter {
+    flex: 1 1 16rem;
+    padding: 0.55rem 0.85rem;
+    font: inherit;
+    font-size: 0.92rem;
+    border: 1px solid var(--surface-edge);
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--ink-strong);
+  }
+  .ask-filter:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .ask-filter-count {
+    color: var(--ink-muted, #8a7a70);
+    font-size: 0.78rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .empty-nudge {
+    margin: 0 0 1rem;
+    padding: 0.85rem 1rem;
+    border: 1px dashed var(--surface-edge);
+    border-radius: 0.85rem;
+    background: var(--bg);
+    color: var(--ink-strong);
+    line-height: 1.5;
+  }
+  .filter-reset-btn {
+    margin-left: 0.5rem;
+    padding: 0.25rem 0.75rem;
+    background: transparent;
+    border: 1px solid var(--surface-edge);
+    border-radius: 999px;
+    color: var(--ink);
+    font-weight: 700;
+    font-size: 0.78rem;
+    cursor: pointer;
+  }
+  .filter-reset-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
   /* Celebratory empty-state for an empty asks queue: replaces the
      bland "no asks" string with a small green check + reassuring copy
      so the operator gets a positive signal that nothing's waiting. */
