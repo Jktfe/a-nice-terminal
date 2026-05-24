@@ -110,13 +110,56 @@
       if (!response.ok) throw new Error(`states fetch ${response.status}`);
       const data = await response.json();
       states = data.states ?? [];
-      if (states.length > 0) {
-        await selectState(states[0]);
+      if (states.length === 0) return;
+      // Slice 2.5 (manual-canvas-deep-link-contract-2026-05-23): parse
+      // `location.hash` and try to land on the addressed state/element
+      // before falling back to states[0]. Hash format:
+      //   #<screen-id>/<state-slug>/<element-slug>
+      // All three segments optional from the end; missing pieces fall
+      // back to the default selection at that scope.
+      const hashTarget = parseHashTarget();
+      const matchedState = hashTarget
+        ? states.find((s) => s.screen_id === hashTarget.screenId
+            && (hashTarget.stateSlug === null || s.state_slug === hashTarget.stateSlug))
+        : null;
+      const initialState = matchedState ?? states[0];
+      await selectState(initialState);
+      if (hashTarget?.elementSlug) {
+        const target = annotations.find((a) => a.element_slug === hashTarget.elementSlug);
+        if (target) pickAnnotation(target);
       }
     } catch (err) {
       loadError = err instanceof Error ? err.message : String(err);
     } finally {
       loading = false;
+    }
+  }
+
+  function parseHashTarget(): { screenId: string; stateSlug: string | null; elementSlug: string | null } | null {
+    if (typeof window === 'undefined') return null;
+    const raw = window.location.hash.replace(/^#/, '');
+    if (raw.length === 0) return null;
+    const parts = raw.split('/').map((p) => {
+      try { return decodeURIComponent(p); } catch { return p; }
+    }).filter((p) => p.length > 0);
+    if (parts.length === 0) return null;
+    return {
+      screenId: parts[0],
+      stateSlug: parts[1] ?? null,
+      elementSlug: parts[2] ?? null
+    };
+  }
+
+  function updateHashForCurrent(): void {
+    if (typeof window === 'undefined' || !selectedState) return;
+    const segments = [selectedState.screen_id, selectedState.state_slug];
+    if (selectedAnnotation) segments.push(selectedAnnotation.element_slug);
+    const next = '#' + segments.map(encodeURIComponent).join('/');
+    if (window.location.hash !== next) {
+      // history.replaceState instead of pushing — selection clicks
+      // shouldn't bloat history (Back would walk through every overlay
+      // pick). The URL stays current + shareable.
+      window.history.replaceState(null, '', next);
     }
   }
 
@@ -134,6 +177,9 @@
     } catch (err) {
       loadError = err instanceof Error ? err.message : String(err);
     }
+    // Slice 2.5: keep location.hash in sync with the visible selection
+    // so any URL copy-paste reproduces the same view.
+    updateHashForCurrent();
   }
 
   function pickAnnotation(annotation: Annotation) {
@@ -141,11 +187,15 @@
     // a11y: announce the new selection to assistive tech (slice 4).
     const cli = annotation.cli_verbs.length > 0 ? `, ${annotation.cli_verbs.length} CLI verb${annotation.cli_verbs.length === 1 ? '' : 's'}` : '';
     liveAnnouncement = `Selected: ${annotation.item_name}${cli}`;
+    // Slice 2.5: include element in the hash so the deep-link points at
+    // the exact element the user is inspecting.
+    updateHashForCurrent();
   }
 
   function clearSelection() {
     selectedAnnotation = null;
     liveAnnouncement = 'Selection cleared';
+    updateHashForCurrent();
   }
 
   // ─── slice 4: keyboard navigation across overlays ───────────────────
