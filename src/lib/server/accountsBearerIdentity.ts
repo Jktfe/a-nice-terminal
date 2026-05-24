@@ -29,6 +29,25 @@ const DEFAULT_ACCOUNTS_BEARER_TIMEOUT_MS = 750;
 const NEGATIVE_TOKEN_CACHE_MS = 30_000;
 const negativeTokenCache = new Map<string, number>();
 
+/**
+ * In-flight dedup map. When a request arrives with token X and a fetch to
+ * accounts.antonline.dev is already in flight for the same X, we await
+ * the same Promise instead of firing a duplicate fetch.
+ *
+ * Why: a browser tab loading the dashboard fires several /api/* requests
+ * in parallel with the same bearer cookie. Without dedup, each gate call
+ * fires its own 750ms fetch → N× the latency budget for the SAME identity
+ * resolution. The negative cache only kicks in AFTER the first miss
+ * completes, so the in-flight burst doesn't get the benefit. Dedup closes
+ * that gap.
+ *
+ * Static-analysis derived (no trace data yet). Banked in
+ * project_auth_gate_latency_investigation_2026_05_24.md — this is a safe
+ * optimisation even if it's not the root cause: an in-flight Promise can
+ * only resolve once per token, and downstream consumers are read-only.
+ */
+const inFlightResolutions = new Map<string, Promise<AccountsBearerIdentity | null>>();
+
 function accountsBearerTimeoutMs(): number {
   const parsed = Number(process.env.ANT_ACCOUNTS_BEARER_TIMEOUT_MS);
   if (Number.isFinite(parsed) && parsed > 0) return parsed;
@@ -85,12 +104,32 @@ function handlesFromPayload(payload: AccountsMeResponse, fallbackHandle: string)
 export async function resolveAccountsBearerIdentity(
   token: string
 ): Promise<AccountsBearerIdentity | null> {
+  // Negative cache is checked first so we don't even hit the in-flight map
+  // for known-miss tokens. Cheap path returns immediately.
   const cachedMissUntil = negativeTokenCache.get(token);
   if (cachedMissUntil !== undefined) {
     if (cachedMissUntil > Date.now()) return null;
     negativeTokenCache.delete(token);
   }
 
+  // In-flight dedup: if a fetch for this token is already running, await it
+  // instead of firing a parallel one. The Promise resolves once and shares
+  // the result with all callers. Cleared from the map in the finally block.
+  const existing = inFlightResolutions.get(token);
+  if (existing) return existing;
+
+  const resolution = performAccountsBearerLookup(token);
+  inFlightResolutions.set(token, resolution);
+  try {
+    return await resolution;
+  } finally {
+    inFlightResolutions.delete(token);
+  }
+}
+
+async function performAccountsBearerLookup(
+  token: string
+): Promise<AccountsBearerIdentity | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), accountsBearerTimeoutMs());
   let response: Response;
@@ -139,4 +178,5 @@ export async function resolveAccountsBearerIdentity(
 
 export function resetAccountsBearerIdentityCacheForTests(): void {
   negativeTokenCache.clear();
+  inFlightResolutions.clear();
 }
