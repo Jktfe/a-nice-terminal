@@ -107,6 +107,7 @@ export function createRealtimeRoomStore(options: RealtimeRoomStoreOptions): Real
     };
     return { value: idleSnapshot, close: () => {} };
   }
+  const EventSourceImpl: typeof EventSource = EventSourceCtor;
 
   const initialBackoff = options.initialBackoffMs ?? DEFAULT_INITIAL_BACKOFF_MS;
   const maxBackoff = options.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS;
@@ -175,7 +176,7 @@ export function createRealtimeRoomStore(options: RealtimeRoomStoreOptions): Real
     const url = `${base}/api/realtime/${encodeURIComponent(options.roomId)}/events`;
     let source: EventSource;
     try {
-      source = new EventSourceCtor(url);
+      source = new EventSourceImpl(url);
     } catch (cause) {
       snapshot.lastError = cause instanceof Error ? cause.message : String(cause);
       handleConnectionFailure();
