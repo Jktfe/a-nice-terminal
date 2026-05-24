@@ -25,7 +25,13 @@
 
   let { onRoomCreated }: Props = $props();
 
+  // Description cap matches ROOM_DESCRIPTION_MAX_CHARS on the server
+  // (chatRoomStore). Kept here as a UI mirror to drive maxlength + the
+  // small char count below; server is the source of truth.
+  const DESCRIPTION_MAX = 240;
+
   let nameForNewRoom = $state('');
+  let descriptionForNewRoom = $state('');
   let formState = $state<FormState>('emptyComposerWaitingForName');
   let mostRecentlyCreatedName = $state('');
   let lastErrorMessage = $state('');
@@ -48,11 +54,16 @@
 
     formState = 'submittingToServer';
 
+    const trimmedDescription = descriptionForNewRoom.trim();
     try {
       const response = await fetch('/api/chat-rooms', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: trimmedName, whoCreatedIt: '@you' })
+        body: JSON.stringify({
+          name: trimmedName,
+          whoCreatedIt: '@you',
+          ...(trimmedDescription.length > 0 && { description: trimmedDescription })
+        })
       });
 
       if (!response.ok) {
@@ -62,6 +73,7 @@
 
       mostRecentlyCreatedName = trimmedName;
       nameForNewRoom = '';
+      descriptionForNewRoom = '';
       formState = 'justCreatedShowSuccess';
       onRoomCreated?.(trimmedName);
     } catch (causeOfFailure) {
@@ -74,6 +86,7 @@
   async function startAnotherRoom() {
     formState = 'emptyComposerWaitingForName';
     nameForNewRoom = '';
+    descriptionForNewRoom = '';
     lastErrorMessage = '';
     await tick();
     roomNameInput?.focus();
@@ -116,6 +129,23 @@
         oninput={(event) => handleNameInput(event.currentTarget.value)}
         disabled={formState === 'submittingToServer'}
       />
+
+      <label for="roomDescriptionField" class="optional-label">
+        Description <span class="optional-hint">(optional)</span>
+      </label>
+      <textarea
+        id="roomDescriptionField"
+        rows="2"
+        maxlength={DESCRIPTION_MAX}
+        placeholder="What's this room for? Up to {DESCRIPTION_MAX} characters."
+        value={descriptionForNewRoom}
+        oninput={(event) => (descriptionForNewRoom = (event.currentTarget as HTMLTextAreaElement).value)}
+        disabled={formState === 'submittingToServer'}
+      ></textarea>
+      {#if descriptionForNewRoom.length > 0}
+        <span class="char-count" aria-live="polite">{descriptionForNewRoom.length}/{DESCRIPTION_MAX}</span>
+      {/if}
+
       <button
         type="submit"
         class="primary"
@@ -170,9 +200,39 @@
     color: var(--ink-strong);
   }
 
-  input:focus {
+  input:focus,
+  textarea:focus {
     outline: 2px solid var(--accent);
     outline-offset: 1px;
+  }
+
+  textarea {
+    padding: 0.55rem 0.85rem;
+    font: inherit;
+    font-size: 0.92rem;
+    border: 1px solid var(--surface-edge);
+    border-radius: 0.65rem;
+    background: var(--bg);
+    color: var(--ink-strong);
+    resize: vertical;
+    min-height: 2.5rem;
+  }
+
+  .optional-label {
+    margin-top: 0.25rem;
+  }
+  .optional-hint {
+    color: var(--ink-muted, #8a7a70);
+    font-weight: 600;
+    font-size: 0.78rem;
+    margin-left: 0.2rem;
+  }
+
+  .char-count {
+    align-self: flex-end;
+    margin-top: -0.35rem;
+    color: var(--ink-muted, #8a7a70);
+    font-size: 0.72rem;
   }
 
   button.primary {

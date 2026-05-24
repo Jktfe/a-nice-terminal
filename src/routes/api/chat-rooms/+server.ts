@@ -51,8 +51,20 @@ export const POST: RequestHandler = async ({ request }) => {
       ? whoCreatedItCandidate
       : '@you';
 
+  // Optional description (a19a496 follow-up): forwarded to createChatRoom
+  // when set so the new room lands with its description already populated
+  // — saves the create-then-patch round trip from the UI.
+  const descriptionFromBody = (rawBody as { description?: unknown }).description;
+  if (descriptionFromBody !== undefined && descriptionFromBody !== null && typeof descriptionFromBody !== 'string') {
+    throw error(400, 'description must be a string, null, or omitted.');
+  }
+
   try {
-    const newRoom = createChatRoom({ name: nameFromBody, whoCreatedIt });
+    const newRoom = createChatRoom({
+      name: nameFromBody,
+      whoCreatedIt,
+      ...(typeof descriptionFromBody === 'string' && { description: descriptionFromBody })
+    });
     recordParticipation({ globalHandle: whoCreatedIt, roomId: newRoom.id });
     bindRoomHandleToLiveTerminal(newRoom.id, whoCreatedIt);
     return json({ chatRoom: newRoom }, { status: 201 });

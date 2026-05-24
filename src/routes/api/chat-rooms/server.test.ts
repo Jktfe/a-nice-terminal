@@ -179,6 +179,39 @@ describe('POST /api/chat-rooms whoCreatedIt normalisation', () => {
     expect(body.message).toContain('Room name cannot contain CLI flags');
   });
 
+  it('persists optional description from POST body so the new room lands populated', async () => {
+    // Form sends { name, whoCreatedIt, description } in one shot instead of
+    // POST + PATCH /description. The created room should carry the
+    // trimmed description back in the response.
+    const response = await callPost(
+      JSON.stringify({
+        name: 'described-room',
+        whoCreatedIt: '@you',
+        description: '   Quarterly board prep.  '
+      })
+    );
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body.chatRoom.name).toBe('described-room');
+    expect(body.chatRoom.description).toBe('Quarterly board prep.');
+  });
+
+  it('treats empty/whitespace description as null on create', async () => {
+    const response = await callPost(
+      JSON.stringify({ name: 'empty-desc-room', whoCreatedIt: '@you', description: '   ' })
+    );
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body.chatRoom.description).toBeNull();
+  });
+
+  it('rejects non-string non-null description from POST body with 400', async () => {
+    const response = await callPost(
+      JSON.stringify({ name: 'bad-desc', whoCreatedIt: '@you', description: 42 })
+    );
+    expect(response.status).toBe(400);
+  });
+
   it('GET rejects unauthenticated room-list reads', async () => {
     await callPost(JSON.stringify({ name: 'private-room', whoCreatedIt: '@you' }));
 
