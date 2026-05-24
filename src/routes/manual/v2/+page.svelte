@@ -571,6 +571,69 @@
     return states.filter((s) => s.screen_id === selectedState!.screen_id);
   }
 
+  // ─── slice 6: audit log per selected element ──────────────────────
+
+  type AuditEntry = {
+    id: string;
+    edited_by_handle: string;
+    edited_at_ms: number;
+    action: 'create' | 'update' | 'delete';
+    before: Annotation | null;
+    after: Annotation | null;
+  };
+  let auditEntries = $state<AuditEntry[]>([]);
+  let auditExpanded = $state(false);
+  let auditLoadingFor = $state<string | null>(null);
+
+  async function loadAuditForSelected() {
+    if (!selectedState || !selectedAnnotation) {
+      auditEntries = [];
+      return;
+    }
+    const key = `${selectedState.screen_id}/${selectedState.state_slug}/${selectedAnnotation.element_slug}`;
+    auditLoadingFor = key;
+    try {
+      const url = `/api/manual/states/${encodeURIComponent(selectedState.screen_id)}/${encodeURIComponent(selectedState.state_slug)}/annotations/${encodeURIComponent(selectedAnnotation.element_slug)}/audit`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`audit fetch ${response.status}`);
+      const data = await response.json();
+      // Guard against the selection moving while the request was in flight.
+      if (auditLoadingFor === key) {
+        auditEntries = data.audit ?? [];
+      }
+    } catch {
+      // Silent — audit is a polish surface; a 404 on a brand-new element
+      // with no history is not worth a user-facing error.
+      if (auditLoadingFor === key) auditEntries = [];
+    } finally {
+      if (auditLoadingFor === key) auditLoadingFor = null;
+    }
+  }
+
+  // Reload audit history each time the selected element changes; collapse
+  // the section so the user sees the count first + opts in to the detail.
+  $effect(() => {
+    const _selectionKey = selectedAnnotation?.element_slug; // reactive dep
+    void _selectionKey;
+    auditExpanded = false;
+    void loadAuditForSelected();
+  });
+
+  function summariseAuditEntry(entry: AuditEntry): string {
+    if (entry.action === 'create') return 'created';
+    if (entry.action === 'delete') return 'deleted';
+    if (!entry.before || !entry.after) return 'updated';
+    const changed: string[] = [];
+    if (entry.before.item_name !== entry.after.item_name) changed.push('name');
+    if (JSON.stringify(entry.before.bbox) !== JSON.stringify(entry.after.bbox)) changed.push('position');
+    if (JSON.stringify(entry.before.cli_verbs) !== JSON.stringify(entry.after.cli_verbs)) changed.push('CLI');
+    if (JSON.stringify(entry.before.data_sources) !== JSON.stringify(entry.after.data_sources)) changed.push('data');
+    if (entry.before.logic_text !== entry.after.logic_text) changed.push('logic');
+    if (JSON.stringify(entry.before.intended_actions) !== JSON.stringify(entry.after.intended_actions)) changed.push('actions');
+    if (changed.length === 0) return 'touched';
+    return `changed ${changed.join(', ')}`;
+  }
+
   // ─── slice 3: Notes capture + suggestions feed ────────────────────
 
   function suggestionsForSelectedElement(): Suggestion[] {
@@ -912,6 +975,42 @@
                     </button>
                   </div>
                 </div>
+              </section>
+
+              <!-- Slice 6: audit log. Collapsed by default; expand to see
+                   the recent edit history for this element. Closes the
+                   third of JWPK's three original purposes (audit). -->
+              <section class="inspector-section">
+                <button
+                  type="button"
+                  class="audit-toggle"
+                  aria-expanded={auditExpanded}
+                  onclick={() => { auditExpanded = !auditExpanded; }}
+                >
+                  <span>Audit</span>
+                  <span class="hint">
+                    {auditEntries.length === 0
+                      ? 'no edits yet'
+                      : `${auditEntries.length} edit${auditEntries.length === 1 ? '' : 's'}`}
+                  </span>
+                  <span class="audit-chevron" aria-hidden="true">{auditExpanded ? '▾' : '▸'}</span>
+                </button>
+                {#if auditExpanded}
+                  {#if auditEntries.length === 0}
+                    <p class="inspector-empty">No edits recorded yet for this element.</p>
+                  {:else}
+                    <ul class="audit-list">
+                      {#each auditEntries as entry (entry.id)}
+                        <li>
+                          <div class="audit-action audit-action-{entry.action}">{summariseAuditEntry(entry)}</div>
+                          <div class="audit-meta">
+                            {entry.edited_by_handle} · {formatTimestamp(entry.edited_at_ms)}
+                          </div>
+                        </li>
+                      {/each}
+                    </ul>
+                  {/if}
+                {/if}
               </section>
             {:else}
               <!-- Author mode: editable form. Each input persists on
@@ -1477,5 +1576,59 @@
   .suggestion-add-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  /* ─── slice 6: audit log section ─────────────────────────────────── */
+  .audit-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 0;
+    background: transparent;
+    border: none;
+    font: 700 0.72rem/1 ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-muted, #475569);
+    cursor: pointer;
+    margin: 0 0 0.4rem;
+  }
+  .audit-toggle .hint {
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--ink-muted, #94a3b8);
+    margin-left: auto;
+    margin-right: 0.4rem;
+  }
+  .audit-chevron {
+    color: var(--ink-muted, #94a3b8);
+    font-size: 0.85rem;
+  }
+  .audit-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+  .audit-list li {
+    background: var(--surface-2, #f8fafc);
+    border-left: 3px solid var(--line-soft, #d6d6d6);
+    padding: 0.35rem 0.55rem;
+    border-radius: 0 6px 6px 0;
+  }
+  .audit-action {
+    font: 600 0.82rem/1.3 ui-sans-serif, system-ui, sans-serif;
+    color: var(--ink-strong, #0f172a);
+  }
+  .audit-action-create { color: rgb(21, 128, 61); }
+  .audit-action-delete { color: rgb(185, 28, 28); }
+  .audit-meta {
+    margin-top: 0.15rem;
+    font: 500 0.72rem/1.2 ui-sans-serif, system-ui, sans-serif;
+    color: var(--ink-muted, #94a3b8);
   }
 </style>
