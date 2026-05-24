@@ -1,10 +1,11 @@
 /**
- * ant agents — v3-parity agents registry.
+ * ant agents — v3-parity agents registry + CLI-agent bring-in.
  *
  *   ant agents list [--room ROOM_ID] [--json]
  *   ant agents show <handle> [--json]
  *   ant agents set <handle> --room ROOM_ID --color HEX --icon EMOJI --bg-style card|tint|transparent [--json]
  *   ant agents status [--idle] [--in-room] [--model claude|...] [--skill stripe|...] [--room ROOM_ID] [--json]
+ *   ant agents bring-in --room ROOM_ID [--cli codex|pi] [--cwd PATH] [--json]
  */
 
 const BOOLEAN_FLAGS = new Set(['json', 'idle', 'in-room']);
@@ -26,6 +27,9 @@ export async function handleAgentsVerb(action, args, runtime, ctx) {
   }
   if (action === 'status') {
     return statusAgents(flags, runtime, CliInputError);
+  }
+  if (action === 'bring-in' || action === 'bringin') {
+    return bringInAgent(flags, runtime, CliInputError);
   }
   if (!action || action === 'help' || action === '--help') {
     writeUsage(runtime);
@@ -64,6 +68,54 @@ function writeUsage(runtime) {
   runtime.writeOut('  show <handle> [--json]');
   runtime.writeOut('  set <handle> --color HEX --icon EMOJI --bg-style card|tint|transparent [--json]');
   runtime.writeOut('  status [--idle] [--in-room] [--model claude|codex|...] [--skill stripe|...] [--room ROOM_ID] [--json]');
+  runtime.writeOut('  bring-in --room ROOM_ID [--cli codex|pi] [--cwd PATH] [--json]');
+}
+
+/**
+ * `ant agents bring-in --room X` — spawn a CLI-agent (codex by default)
+ * and tag it for the named room. Wraps POST /api/chat-rooms/:roomId/cli-agents
+ * which mints the handle + records the room association in one call.
+ *
+ * Closes dogfood finding #1 (2026-05-25): operators reading `ant --help`
+ * had no CLI verb for "spawn a codex agent" — the affordance lived only
+ * in the /cli-agents web page until PR #53 added the room-scoped endpoint.
+ */
+async function bringInAgent(flags, runtime, CliInputError) {
+  const roomId = flags.room;
+  if (!roomId) {
+    throw new CliInputError(
+      'agents bring-in needs --room ROOM_ID\n  Usage: ant agents bring-in --room <ROOM_ID> [--cli codex|pi] [--cwd <PATH>]'
+    );
+  }
+  const cli = flags.cli ?? 'codex';
+  if (cli !== 'codex' && cli !== 'pi') {
+    throw new CliInputError(`--cli must be "codex" or "pi", got "${cli}"`);
+  }
+  const body = { cli };
+  if (flags.cwd) body.cwd = flags.cwd;
+  const data = await fetchJson(
+    runtime,
+    `/api/chat-rooms/${encodeURIComponent(roomId)}/cli-agents`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body)
+    }
+  );
+  if (flags.json !== undefined) {
+    runtime.writeOut(JSON.stringify(data, null, 2));
+    return 0;
+  }
+  runtime.writeOut(`Brought in ${data.cli} as ${data.handleId} in room ${roomId}`);
+  const roomUrl = `${runtime.serverUrl.replace(/\/$/, '')}/rooms/${roomId}`;
+  runtime.writeOut('');
+  runtime.writeOut('Next steps:');
+  runtime.writeOut(`  Send a prompt:   curl -X POST ${runtime.serverUrl}/api/cli-agents/${data.handleId}/prompt -d '{"text":"..."}' -H 'content-type: application/json'`);
+  runtime.writeOut(`  Open in room:    ${roomUrl}`);
+  if (data.sessionId) {
+    runtime.writeOut(`  View timeline:   ${runtime.serverUrl.replace(/\/$/, '')}/cli-hooks/${data.sessionId}`);
+  }
+  return 0;
 }
 
 async function fetchJson(runtime, path, init = {}) {

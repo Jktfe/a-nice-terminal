@@ -156,12 +156,36 @@ function stripFlags(rawArgs) {
   return positionals;
 }
 
+/**
+ * Extract a single named flag's value (`--name foo` → `'foo'`). Returns
+ * `null` when the flag is absent or value-less. Added 2026-05-25 for
+ * dogfood finding #2: `ant rooms create --name X` was inconsistent with
+ * sibling verbs (`ant router start --room X --handle Y`). Now both
+ * positional and flag form are accepted everywhere this helper is used.
+ */
+function flagValue(rawArgs, name) {
+  for (let i = 0; i < rawArgs.length - 1; i += 1) {
+    if (rawArgs[i] === `--${name}`) {
+      const value = rawArgs[i + 1];
+      if (value !== undefined && !value.startsWith('--')) return value;
+    }
+  }
+  return null;
+}
+
 async function handleRoomsVerb(action, args, runtime) {
   switch (action) {
     case 'list':
       return listRooms(runtime);
-    case 'create':
-      return createRoom(stripFlags(args).join(' '), runtime);
+    case 'create': {
+      // Accept either positional (`ant rooms create "X"`) or flag
+      // (`ant rooms create --name X`). Flag form keeps `ant rooms create`
+      // consistent with `ant router start --room --handle` etc — closes
+      // dogfood finding #2 (2026-05-25).
+      const flagName = flagValue(args, 'name');
+      const positionalName = stripFlags(args).join(' ');
+      return createRoom(flagName ?? positionalName, runtime);
+    }
     case 'members':
       return listMembers(stripFlags(args)[0], runtime);
     case 'invite':
@@ -194,7 +218,14 @@ async function listRooms(runtime) {
 
 async function createRoom(name, runtime) {
   const trimmedName = (name ?? '').trim();
-  if (trimmedName.length === 0) throw new CliInputError('rooms create needs a name');
+  if (trimmedName.length === 0) {
+    // Inline-usage error (dogfood finding #2, 2026-05-25). The general
+    // catch in run() still falls through to printUsage, but the user now
+    // sees actionable rooms-create syntax first.
+    throw new CliInputError(
+      'rooms create needs a name\n  Usage: ant rooms create "<NAME>"\n     or: ant rooms create --name "<NAME>"'
+    );
+  }
   const response = await fetchFromServer(runtime, '/api/chat-rooms', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -202,7 +233,18 @@ async function createRoom(name, runtime) {
   });
   await throwIfNotOk(response);
   const body = await response.json();
-  runtime.writeOut(`Created ${body.chatRoom.id} ${body.chatRoom.name}`);
+  const roomId = body.chatRoom.id;
+  runtime.writeOut(`Created ${roomId} ${body.chatRoom.name}`);
+  // Next-step nudge (dogfood finding #3, 2026-05-25). Operator coming
+  // from the JWPK pitch "open a room → add a terminal → bring in a codex"
+  // has just done step 1; surface the obvious next moves so they don't
+  // have to grep `ant --help` again.
+  const roomUrl = `${runtime.serverUrl.replace(/\/$/, '')}/rooms/${roomId}`;
+  runtime.writeOut('');
+  runtime.writeOut('Next steps:');
+  runtime.writeOut(`  Open in browser:   ${roomUrl}`);
+  runtime.writeOut(`  Bring in a codex:  ant agents bring-in --room ${roomId}`);
+  runtime.writeOut(`  Invite an agent:   ant rooms invite ${roomId} @<handle>`);
   return 0;
 }
 
@@ -390,7 +432,8 @@ Verbs:
   remote admit|redeem|mapping         Remote ANT bridge admission + mapping management.
   router start --room ROOM --handle @h  Route mentions into a local terminal pane.
   remote-room send|status|ack|quarantine  Remote-bridge message ops (admin-bearer).
-  stage focus|current                  Publish/read current deck focus for Stage.`);
+  stage focus|current                  Publish/read current deck focus for Stage.
+  agents list|show|set|status|bring-in  List, configure, or spawn CLI agents (codex/pi).`);
 }
 export { CliInputError, CliNetworkError };
 
