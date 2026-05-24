@@ -55,12 +55,39 @@
     lastSpokenWindow: string;
     capturedAtMs: number;
   };
+  type StageAlternativeOption =
+    | {
+        kind: 'proposal';
+        slideIndex: number;
+        taskId: string;
+        ref: string;
+        label: string;
+        lens: string | null;
+        summary: string | null;
+        createdAtMs: number;
+      }
+    | {
+        kind: 'slide';
+        slideIndex: number;
+        eventId: string;
+        ref: string;
+        label: string;
+        originalTitle: string | null;
+        proposedTitle: string;
+        proposedContent: string;
+        proposedSpeakerNotes: string;
+        rationale: string;
+        createdAtMs: number;
+      };
   let pauseSnapshot = $state<PauseSnapshot | null>(null);
   let feedbackText = $state('');
   let pasteContext = $state('');
   let pauseContextRef = $state('');
   let feedbackSubmitting = $state(false);
   let feedbackNotice = $state<{ kind: 'ok' | 'err'; text: string; ref?: string } | null>(null);
+  let stageAlternatives = $state<StageAlternativeOption[]>([]);
+  let showAlternatives = $state(false);
+  let selectedAlternativeRef = $state('');
   let speakStartMs = 0;
 
   const deck = $derived(data.deck);
@@ -68,12 +95,29 @@
   const slides = $derived(deck.slides ?? []);
   const slideCount = $derived(slides.length);
   const activeSlide = $derived(slides[activeIndex]);
-  const renderedBody = $derived(activeSlide ? renderMarkdown(activeSlide.content) : '');
+  const activeAlternatives = $derived(
+    stageAlternatives.filter((alt) => alt.slideIndex === activeIndex)
+  );
+  const selectedAlternative = $derived(
+    activeAlternatives.find((alt) => alt.ref === selectedAlternativeRef) ?? activeAlternatives[0] ?? null
+  );
+  const visibleSlideAlternative = $derived(
+    showAlternatives && selectedAlternative?.kind === 'slide' ? selectedAlternative : null
+  );
+  const displayedSlideTitle = $derived(
+    visibleSlideAlternative ? visibleSlideAlternative.proposedTitle : (activeSlide?.title ?? '')
+  );
+  const displayedSlideContent = $derived(
+    visibleSlideAlternative ? visibleSlideAlternative.proposedContent : (activeSlide?.content ?? '')
+  );
+  const renderedBody = $derived(displayedSlideContent ? renderMarkdown(displayedSlideContent) : '');
 
   function clampedSet(next: number): void {
     if (slideCount === 0) return;
     const clamped = Math.max(0, Math.min(slideCount - 1, next));
     stopSpeaking();
+    showAlternatives = false;
+    selectedAlternativeRef = '';
     activeIndex = clamped;
     void publishStageFocus(clamped);
     if (voiceSettings.autoplay) void playCurrentSlide();
@@ -128,6 +172,17 @@
       };
     } catch {
       voiceNotice = 'Could not load Stage voice settings.';
+    }
+  }
+
+  async function refreshStageAlternatives(): Promise<void> {
+    try {
+      const response = await fetch(`/api/decks/${encodeURIComponent(deck.id)}/alternatives${deckPasswordQuery}`);
+      if (!response.ok) return;
+      const body = await response.json() as { alternatives?: StageAlternativeOption[] };
+      stageAlternatives = Array.isArray(body.alternatives) ? body.alternatives : [];
+    } catch {
+      // Alternatives are additive. A failed read should not block the deck.
     }
   }
 
@@ -257,6 +312,8 @@
           : 'Feedback received.',
         ref: body.proposal?.ref
       };
+      await refreshStageAlternatives();
+      if (activeAlternatives.length > 0) showAlternatives = true;
       feedbackText = '';
       pasteContext = '';
     } catch {
@@ -362,6 +419,7 @@
   onMount(() => {
     window.addEventListener('keydown', handleKey);
     void publishStageFocus(activeIndex);
+    void refreshStageAlternatives();
     void loadVoiceSettings().then(() => {
       if (voiceSettings.autoplay) void playCurrentSlide();
     });
@@ -410,9 +468,14 @@
   {:else if activeSlide}
     <article class="slide" data-layout={activeSlide.layout ?? 'standard'}>
       <header class="slide-header">
-        <h2 class="slide-title">{activeSlide.title}</h2>
+        <h2 class="slide-title">{displayedSlideTitle}</h2>
         <span class="slide-counter">Slide {activeIndex + 1} of {slideCount}</span>
       </header>
+      {#if visibleSlideAlternative}
+        <p class="alternative-banner">
+          Showing latest alternative · <button type="button" onclick={() => (showAlternatives = false)}>Show original</button>
+        </p>
+      {/if}
       <div class="slide-body">{@html renderedBody}</div>
     </article>
 
@@ -436,7 +499,67 @@
       <button type="button" class="nav-btn" onclick={next} disabled={activeIndex >= slideCount - 1}>
         Next →
       </button>
+      {#if activeAlternatives.length > 0}
+        <button
+          type="button"
+          class="nav-btn alt-nav-btn"
+          aria-expanded={showAlternatives}
+          onclick={() => {
+            showAlternatives = !showAlternatives;
+            selectedAlternativeRef = selectedAlternative?.ref ?? activeAlternatives[0]?.ref ?? '';
+          }}
+        >
+          {showAlternatives ? 'Hide alternatives' : `See alternatives (${activeAlternatives.length})`}
+        </button>
+      {/if}
     </nav>
+
+    {#if showAlternatives && activeAlternatives.length > 0}
+      <section class="alternatives-panel" aria-label="Slide alternatives">
+        <header>
+          <h3>Alternatives for this slide</h3>
+          <div class="alternative-mode">
+            <button type="button" class:active={!visibleSlideAlternative} onclick={() => (showAlternatives = false)}>
+              Original
+            </button>
+            {#if activeAlternatives.some((alt) => alt.kind === 'slide')}
+              <button
+                type="button"
+                class:active={!!visibleSlideAlternative}
+                onclick={() => {
+                  const latestSlide = activeAlternatives.find((alt) => alt.kind === 'slide');
+                  selectedAlternativeRef = latestSlide?.ref ?? selectedAlternativeRef;
+                  showAlternatives = true;
+                }}
+              >
+                Latest slide
+              </button>
+            {/if}
+          </div>
+        </header>
+        <ul>
+          {#each activeAlternatives as alternative (alternative.ref)}
+            <li class:active={alternative.ref === selectedAlternative?.ref}>
+              <button
+                type="button"
+                onclick={() => {
+                  selectedAlternativeRef = alternative.ref;
+                  showAlternatives = true;
+                }}
+              >
+                <span>{alternative.kind === 'proposal' ? (alternative.lens ?? 'Proposal') : 'Slide rewrite'}</span>
+                <strong>{alternative.label}</strong>
+              </button>
+              {#if alternative.kind === 'proposal'}
+                <a href={alternative.ref} target="_blank" rel="noopener">Open track</a>
+              {:else}
+                <p>{alternative.rationale}</p>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
   {/if}
 
   {#if inspectMode && activeSlide}
@@ -515,6 +638,25 @@
     font-weight: 700;
     flex-shrink: 0;
   }
+  .alternative-banner {
+    margin: 0;
+    padding: 0.55rem 0.75rem;
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line-soft));
+    border-radius: 0.65rem;
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface-card));
+    color: var(--ink-soft);
+    font-size: 0.85rem;
+    font-weight: 750;
+  }
+  .alternative-banner button {
+    border: 0;
+    background: transparent;
+    color: var(--accent);
+    font: inherit;
+    font-weight: 850;
+    cursor: pointer;
+    text-decoration: underline;
+  }
   .slide-body {
     flex: 1;
     color: var(--ink-strong);
@@ -562,6 +704,10 @@
   }
   .nav-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
   .nav-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .alt-nav-btn {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--line-soft));
+    color: var(--accent);
+  }
   .slide-dots {
     display: flex;
     gap: 0.35rem;
@@ -582,6 +728,99 @@
   .dot.active {
     background: var(--accent);
     border-color: var(--accent);
+  }
+  .alternatives-panel {
+    margin-top: 1rem;
+    border: 1px solid var(--line-soft);
+    border-radius: 0.85rem;
+    background: var(--surface-card);
+    overflow: hidden;
+  }
+  .alternatives-panel header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.8rem 1rem;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .alternatives-panel h3 {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--ink-strong);
+  }
+  .alternative-mode {
+    display: flex;
+    gap: 0.35rem;
+  }
+  .alternative-mode button {
+    border: 1px solid var(--line-soft);
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--ink-soft);
+    padding: 0.35rem 0.65rem;
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 800;
+    cursor: pointer;
+  }
+  .alternative-mode button.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface-card));
+  }
+  .alternatives-panel ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .alternatives-panel li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.65rem;
+    align-items: center;
+    padding: 0.8rem 1rem;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .alternatives-panel li:last-child { border-bottom: 0; }
+  .alternatives-panel li.active {
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface-card));
+  }
+  .alternatives-panel li > button {
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
+  }
+  .alternatives-panel li span {
+    display: block;
+    color: var(--ink-soft);
+    font-size: 0.72rem;
+    font-weight: 850;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .alternatives-panel li strong {
+    display: block;
+    margin-top: 0.2rem;
+    color: var(--ink-strong);
+    font-size: 0.88rem;
+    line-height: 1.25;
+  }
+  .alternatives-panel a {
+    color: var(--accent);
+    font-size: 0.82rem;
+    font-weight: 850;
+    white-space: nowrap;
+  }
+  .alternatives-panel p {
+    grid-column: 1 / -1;
+    margin: -0.35rem 0 0;
+    color: var(--ink-soft);
+    font-size: 0.82rem;
   }
   .inspector {
     margin-top: 1.25rem;
