@@ -149,8 +149,14 @@
   }
 
   function matchesNameFilter(room: RoomCard, needle: string): boolean {
+    // JWPK 2026-05-24 follow-up: filter input also matches the optional
+    // room description (a19a496) so "find rooms about board meetings"
+    // works as the user expects when descriptions exist. Description is
+    // nullable; name match remains the fallback.
     if (needle.length === 0) return true;
-    return room.name.toLowerCase().includes(needle);
+    if (room.name.toLowerCase().includes(needle)) return true;
+    if (room.description && room.description.toLowerCase().includes(needle)) return true;
+    return false;
   }
 
   function compareAlphabetical(a: RoomCard, b: RoomCard): number {
@@ -351,8 +357,8 @@
         <input
           type="search"
           class="name-filter"
-          placeholder="Filter by name…"
-          aria-label="Filter rooms by name"
+          placeholder="Filter by name or description…"
+          aria-label="Filter rooms by name or description"
           bind:value={nameFilter}
         />
 
