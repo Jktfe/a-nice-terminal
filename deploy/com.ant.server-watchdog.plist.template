@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  ANT server watchdog — runs every 30s, hits /api/health, force-kills
+  ant-server if it stops responding. Band-aid for the event-loop-hang
+  class (see scripts/server-watchdog.sh comment header).
+
+  Install:
+    1. Copy this file to ~/Library/LaunchAgents/com.ant.server-watchdog.plist
+    2. Replace every {{ANT_*}} placeholder with the absolute path for
+       YOUR machine. ANT_WORKING_DIR is the repo root (so the script
+       path resolves to <repo>/scripts/server-watchdog.sh).
+    3. launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ant.server-watchdog.plist
+
+  ANT_WORKING_DIR    e.g. /Users/you/src/a-nice-terminal
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.ant.server-watchdog</string>
+
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>{{ANT_WORKING_DIR}}/scripts/server-watchdog.sh</string>
+	</array>
+
+	<key>StartInterval</key>
+	<integer>30</integer>
+
+	<key>RunAtLoad</key>
+	<true/>
+
+	<key>StandardOutPath</key>
+	<string>/tmp/ant-server-watchdog.log</string>
+	<key>StandardErrorPath</key>
+	<string>/tmp/ant-server-watchdog.log</string>
+
+	<key>ProcessType</key>
+	<string>Background</string>
+</dict>
+</plist>
