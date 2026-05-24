@@ -30,6 +30,7 @@
   import RoomDetailMemberSheet from '$lib/components/RoomDetailMemberSheet.svelte';
   import RoomDetailMoreMenu from '$lib/components/RoomDetailMoreMenu.svelte';
   import AwayModeToggle from '$lib/components/AwayModeToggle.svelte';
+  import RoomModeSwitcher from '$lib/components/RoomModeSwitcher.svelte';
   import {
     LEFT_PANE_KEY,
     RIGHT_PANE_KEY,
@@ -403,6 +404,7 @@
 
   <div class="room-mode-bar">
     <AwayModeToggle roomId={roomFromServer.id} currentMode={roomMode} onModeChange={(m) => invalidateAll()} />
+    <RoomModeSwitcher roomId={roomFromServer.id} mode={roomMode} onModeChange={() => invalidateAll()} />
   </div>
 
   <RoomDetailFocusStrip {focusedMembers} {labelForMember} />
