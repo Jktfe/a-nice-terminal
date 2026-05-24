@@ -42,6 +42,7 @@ export type AgentAvailability = {
   alive: boolean;
   currentRooms: AgentAvailabilityRoom[];
   currentTask: AgentAvailabilityTask | null;
+  contextFill: number | null;
   skills: string[];
 };
 
@@ -64,6 +65,10 @@ export type AvailabilityFilters = {
 // ACTIVE_WINDOW_MS — how recent posted_at must be for a room status of
 // "active" (vs "idle"). Mirrors the 1h convention used by Chair digests.
 const ACTIVE_WINDOW_MS = 60 * 60 * 1000;
+
+// Match the room-local agent-statuses feed: stale context-fill is worse than
+// unknown because it makes a dead or paused agent look current.
+const CONTEXT_FILL_FRESH_WINDOW_MS = 5 * 60 * 1000;
 
 // Model-name inference from handle text. Real handles in the fleet today
 // look like `@evolveantclaude`, `@codexlead1`, `@codexollama4`, `@uxant` —
@@ -117,6 +122,12 @@ type TaskRow = {
   plan_id: string | null;
   title: string;
   subject: string;
+};
+
+type ContextFillRow = {
+  handle: string;
+  agent_context_fill: number | null;
+  agent_context_fill_at_ms: number | null;
 };
 
 function loadMembers(): MemberRow[] {
@@ -193,6 +204,38 @@ function loadCurrentTasks(handles: string[]): Map<string, AgentAvailabilityTask>
   return out;
 }
 
+function loadFreshContextFillByHandle(handles: string[], nowMs: number): Map<string, number> {
+  const out = new Map<string, number>();
+  if (handles.length === 0) return out;
+  const db = getIdentityDb();
+  const placeholders = handles.map(() => '?').join(',');
+  const rows = db
+    .prepare(
+      `SELECT m.handle AS handle,
+              t.agent_context_fill AS agent_context_fill,
+              t.agent_context_fill_at_ms AS agent_context_fill_at_ms
+         FROM room_memberships m
+         JOIN terminals t ON t.id = m.terminal_id
+        WHERE m.handle IN (${placeholders})
+          AND t.agent_context_fill IS NOT NULL
+          AND t.agent_context_fill_at_ms IS NOT NULL
+        ORDER BY t.agent_context_fill_at_ms DESC`
+    )
+    .all(...handles) as ContextFillRow[];
+  for (const row of rows) {
+    if (out.has(row.handle)) continue;
+    if (
+      typeof row.agent_context_fill !== 'number'
+      || typeof row.agent_context_fill_at_ms !== 'number'
+      || nowMs - row.agent_context_fill_at_ms > CONTEXT_FILL_FRESH_WINDOW_MS
+    ) {
+      continue;
+    }
+    out.set(row.handle, row.agent_context_fill);
+  }
+  return out;
+}
+
 function deriveRoomStatus(
   roomId: string,
   handle: string,
@@ -237,6 +280,7 @@ export function listAgentAvailability(
   const handles = [...byHandle.keys()];
   const lastActiveByRoom = loadLastActiveByRoom(handles);
   const tasksByHandle = loadCurrentTasks(handles);
+  const contextFillByHandle = loadFreshContextFillByHandle(handles, nowMs);
 
   const agents: AgentAvailability[] = [];
   for (const handle of handles) {
@@ -263,6 +307,7 @@ export function listAgentAvailability(
       alive: currentRooms.length > 0,
       currentRooms,
       currentTask: tasksByHandle.get(handle) ?? null,
+      contextFill: contextFillByHandle.get(handle) ?? null,
       skills,
     });
   }
