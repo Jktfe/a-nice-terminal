@@ -85,15 +85,37 @@ This is a PUNCH LIST, not a build sequence. Each item names the gap and proposes
 
 **Proposed**: hold until web v0 ships + JWPK ratifies premium-vs-OSS split.
 
+### 6. CLI-agent prompt channel + in-room bring-in — Mac app (antchat) + Windows app (antchat-windows)
+
+**Server side**: `POST /api/cli-agents/:handleId/prompt` body `{text}` (shipped PR #52, ff59ee0) + `POST/GET /api/chat-rooms/:roomId/cli-agents` (shipped PR #53, claudev4/in-room-bring-in-codex). The web room page now exposes a Bring-in-codex button + per-agent textarea that talks to these. Source: `src/lib/components/RoomCliAgentsPanel.svelte` + `src/routes/api/chat-rooms/[roomId]/cli-agents/+server.ts`.
+
+**Mac app gap**: no equivalent surface in `antchat/Antchat/Views/Rooms/`. JWPK's mobile-companion pitch in `project_bring_in_llm_buttons_2026_05_23` explicitly names "Bring in Claude Desktop / Claude Mobile / ChatGPT / Gemini" buttons living on the Mac/iOS clients — the operator-driven prompt channel is the foundation those depend on. Without the Mac surface, the bring-in flow is web-only and the Mac app stays a read-mostly viewer of cli_hook_events.
+
+**Windows app gap**: same shape. `antchat-windows/shared/api-types.ts` would need the `CliAgentHandle` wire-type (+ optional `roomId`) and the room-page Svelte component would need an in-room bring-in panel parallel to `RoomCliAgentsPanel.svelte`.
+
+**Cross-link**: codex JSON-RPC method names verified against `codex app-server generate-json-schema` — banked as [[verify-protocol-methods-against-generator-2026-05-24]]. Any Mac/Windows wrapper should re-verify against the same generator (don't trust the web-side method names blindly; codex versions may diverge).
+
+**Proposed Mac slice** (~80 lines, contained):
+- New `BringInAgentSheet` SwiftUI view bound to a room
+- Two `AntchatAPIClient` methods: `bringInCliAgent(roomId:cli:cwd:)` POST + `listRoomCliAgents(roomId:)` GET + `sendPrompt(handleId:text:)` POST
+- Per-agent card with prompt textarea (mirrors `RoomCliAgentsPanel.svelte` styling)
+- Polls `/api/chat-rooms/:roomId/cli-agents` every 4s on room screen
+- Out of scope (parity with web): codex auto-posting back to chat — multi-piece follow-up everywhere
+
+**Proposed Windows slice** (~120 lines): direct port of `RoomCliAgentsPanel.svelte` since the Windows app is Svelte; the four endpoints are already proxied.
+
+**Reason cross-team ask**: closes dogfood findings #4 + #5 across all clients, not just web. The "operator can bring in a codex from any of their devices and feed it a brief" pitch only works when every entry-point has the affordance.
+
 ---
 
 ## Suggested merge order
 
 1. **Mac app + Windows app `description` field** (gap #1) — lowest risk, highest visible benefit. Mac team to own per `hyz00k0ibh`.
 2. **Mac app + Windows app `AwayMode` wire** (gap #3) — clear behavioural fix; agents can observe away tier across all clients.
-3. **Filter UX parity** (gap #2) — polish; lower urgency.
-4. **Status pill / SSE finish layer** (gap #4) — bigger architectural slice; needs the Mac team's real-time strategy to converge first.
-5. **Click-to-explain Mac parallel** (gap #5) — waits on web v0 + JWPK spec ratification.
+3. **CLI-agent prompt channel + bring-in** (gap #6) — bring-in flow only works from web today; mobile companion pitch needs Mac/Windows parity. Highest *new-capability* leverage of the list.
+4. **Filter UX parity** (gap #2) — polish; lower urgency.
+5. **Status pill / SSE finish layer** (gap #4) — bigger architectural slice; needs the Mac team's real-time strategy to converge first.
+6. **Click-to-explain Mac parallel** (gap #5) — waits on web v0 + JWPK spec ratification.
 
 ## What this audit did NOT cover
 
