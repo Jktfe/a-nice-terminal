@@ -3,11 +3,17 @@
   connection state per the finish-layer contract (Silent heroes
   yz4clwzvbm 2026-05-23 / overnight brief 2026-05-24).
 
-  Consumes a `RealtimeRoomStore` from `$lib/client/realtimeRoomStore.ts`
-  and surfaces:
+  Consolidation 2026-05-24: now imports the RealtimeRoomStore type from
+  the unified pool at `$lib/stores/realtimeRoom.svelte.ts`. Previously
+  lived in `$lib/client/realtimeRoomStore.ts` (parallel store); that
+  file is removed in this consolidation since the pool exposes the same
+  shape via `subscribeRoomConnectionState`, sharing the single
+  EventSource per room with `subscribeToRoomEvents`.
+
+  Surfaces:
     - idle / connecting / connected / catching-up: progress-shaped UX
-    - caught-up: green dot, terse "live" label, auto-fades after 2s
-    - disconnected: amber dot + retry countdown
+    - caught-up: green dot, terse "live" label
+    - disconnected: amber dot + "retrying…"
     - unreachable: red dot + "ANT server unreachable" + manual retry CTA
 
   Drop into any page that wants to show realtime status. Header pill
@@ -15,7 +21,7 @@
   user when everything's working.
 -->
 <script lang="ts">
-  import type { RealtimeRoomStore } from '$lib/client/realtimeRoomStore';
+  import type { RealtimeRoomStore } from '$lib/stores/realtimeRoom.svelte';
 
   type Props = {
     store: RealtimeRoomStore;
