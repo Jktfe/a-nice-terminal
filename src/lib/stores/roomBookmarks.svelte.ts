@@ -122,6 +122,43 @@ class RoomBookmarksStore {
     this.persist();
   }
 
+  /**
+   * Move by visible-list coordinates instead of stored-index. The drag UI
+   * shows only ids that map to currently-loaded rooms; stale ids (rooms
+   * deleted/archived while still bookmarked) sit in the stored list and
+   * SKEW the index-based move(), making a drag that looks like swapping
+   * positions [1] and [0] silently swap stored ids that aren't on screen.
+   *
+   * Diagnosed 2026-05-24 (claudev4's H+E lane on the rooms-reorder
+   * follow-up): even after the hasUserEdited race guard landed for
+   * JWPK msg_ldbou7jkfs, drags could still appear to "do nothing" when
+   * stale ids were interleaved with visible ones. This method takes the
+   * visible-id list as truth: prunes stale ids first, then moves within
+   * the cleaned list.
+   *
+   * @param fromId          The id of the room being dragged.
+   * @param toVisibleIndex  Destination position within the VISIBLE list.
+   * @param visibleIds      Currently-rendered bookmarked rooms, in
+   *                        the order they appear on screen.
+   */
+  moveByVisibleId(fromId: string, toVisibleIndex: number, visibleIds: string[]): void {
+    if (visibleIds.length === 0) return;
+    if (toVisibleIndex < 0 || toVisibleIndex >= visibleIds.length) return;
+    // Prune any stored id that isn't currently visible — those rooms are
+    // gone or not loaded; keeping them in the array creates the index skew.
+    const visibleSet = new Set(visibleIds);
+    const pruned = this.ids.filter((id) => visibleSet.has(id));
+    const fromPos = pruned.indexOf(fromId);
+    if (fromPos === -1) return; // fromId not in the visible+stored intersection
+    if (fromPos === toVisibleIndex) return;
+    this.hasUserEdited = true;
+    const next = [...pruned];
+    const [moved] = next.splice(fromPos, 1);
+    next.splice(toVisibleIndex, 0, moved);
+    this.ids = next;
+    this.persist();
+  }
+
   private persist(): void {
     this.persistLocal();
     void this.persistToServer(this.ids);
