@@ -15,7 +15,23 @@ TAB BAR (bottom):
 │ ANT Cards │   Plans   │   Inbox   │     +     │  Settings │
 │  (Home)   │           │   (asks)  │  (action) │           │
 └───────────┴───────────┴───────────┴───────────┴───────────┘
+
+FLOATING COMPOSE FAB (anchored bottom-right ~16pt margin):
+                                              ╭───╮
+                                              │ ✎ │  ← persistent, present
+                                              ╰───╯     in every tab except
+                                                        Settings; tap/hold/swipe
+                                                        per Compose-* states
 ```
+
+**Lock — tab-bar `+` IS the action centre** (Option A per @antchatmacdev flag #2). Per iOS HIG, FAB-as-action-centre is an Android/Material idiom; iOS expects action-add to live in the tab bar (Twitter, Instagram, X all do this). The persistent compose FAB is a DIFFERENT action surface (feedback into existing rooms, not adding new things to the substrate).
+
+| Surface | Purpose | Trigger |
+|---|---|---|
+| Tab-bar `+` | **Adding NEW things to the substrate** — room, agent, LLM bridge | Tap the 4th tab |
+| Compose FAB (bottom-right) | **Feedback INTO existing rooms** — text / voice / interview / ask | Tap (text), hold (voice), swipe (mode switch) — per Compose-* states in the Room view section |
+
+Two distinct conceptual actions, two distinct surfaces.
 
 | Tab | Default | Purpose | Primary action above fold |
 |---|---|---|---|
@@ -60,8 +76,8 @@ Each row in this table becomes one `CanvasGrid("ScreenName") { ... }` capture. I
 | `Room-Compose-Voice` | `RoomComposeVoiceView` | Hold-to-record voice mode | Release → preview → send | recording / preview / sending / sent / error |
 | `Room-Compose-Interview` | `RoomComposeInterviewView` | Structured Q&A mode | Step through prompts | step-1 / step-N / submitting / done |
 | `Room-Compose-Ask` | `RoomComposeAskView` | File a new ask in this room | Tap "Raise ask" | empty / drafted / submitting / done |
-| `Room-Context-Sheet` | `RoomContextSheetView` | Sheet-up from anywhere — files / memories / artefacts for current room | Tap any item to open | files / memories / artefacts tabs |
-| `Room-Explain` | `RoomExplainView` | Long-press any term → inline grounded Explain panel (premium, Chair-pair) | Read / dismiss | resolving / resolved / no-grounding / locked-premium |
+| `Room-Context-Sheet` | `RoomContextSheetView` | **Dockable bottom handle** (Option B) — persistent ~24 pt strip at the bottom edge of room view with a visible grabber dot. Tap or swipe-up opens the sheet to a half-screen detent (browse); second swipe opens full-screen (deep search). iOS-17 sheet detents (`.medium`, `.large`). Reveals files / memories / artefacts for the current room. | Tap any item to open | docked / half / full / files-tab / memories-tab / artefacts-tab |
+| `Room-Explain` | `RoomExplainView` | Long-press any term → inline grounded Explain panel (premium, Chair-pair). **Slice A scope:** locked-with-warn placeholder only — no Explain wiring until the Chair strategy session lands. | Tap "Unlock with Pro" or dismiss | locked-with-warn (Slice A) / future: resolving / resolved / no-grounding |
 
 **Draft preservation:** every Compose-* state persists on every keystroke. Restore on foreground. Warn on swipe-away if dirty. Three failure modes covered: backgrounding / room-switch / network-drop.
 
