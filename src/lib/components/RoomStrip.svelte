@@ -95,7 +95,14 @@
         {/if}
       </div>
     {/if}
-    <LastMessagePreview summary={room.summary} />
+    {#if room.description}
+      <!-- JWPK 2026-05-24 yz4clwzvbm msg_jj50zw48fr: user/agent-authored
+           description trumps the auto-summary on room cards when set.
+           Falls back to LastMessagePreview when description is null. -->
+      <p class="room-description" title={room.description}>{room.description}</p>
+    {:else}
+      <LastMessagePreview summary={room.summary} />
+    {/if}
     <small class="card-meta">
       <RoomCardActivity roomId={room.id} />
       <span class="card-last-update">{room.lastUpdate}</span>
@@ -363,6 +370,18 @@
   }
 
   /* #134: last-message preview rendered by LastMessagePreview.svelte */
+  .room-description {
+    margin: 0.3rem 0 0;
+    color: var(--ink-soft);
+    font-size: 0.82rem;
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
 
   small {
     display: block;

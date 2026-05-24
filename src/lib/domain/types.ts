@@ -55,7 +55,12 @@ export type RoomMemberCard = {
 export type RoomCard = {
   id: string;
   name: string;
+  /** Auto-derived from the latest message (latest-message preview). */
   summary: string;
+  /** Optional user/agent-authored description (JWPK 2026-05-24
+   *  yz4clwzvbm msg_jj50zw48fr). When set, surfaces shown the room
+   *  card SHOULD prefer this over `summary` for the body text. */
+  description?: string | null;
   attentionState: RoomAttentionState;
   lastUpdate: string;
   members?: RoomMemberCard[];
