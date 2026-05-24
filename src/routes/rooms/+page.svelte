@@ -17,6 +17,7 @@
   import type { RoomCard } from '$lib/domain/types';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
+  import { roomBookmarks } from '$lib/stores/roomBookmarks.svelte';
 
   type Props = {
     data: { chatRoomsFromServer: RoomCard[]; serverRoomListFailed: boolean };
@@ -85,21 +86,42 @@
   // JWPK msg_m3h97n3noq: v3 had a dashboard grid view with rows×cols up
   // to 5×5. Lifted here as a simpler list/grid toggle on /rooms with a
   // 1-4 column stepper. Preference persists per-device via localStorage.
+  //
+  // JWPK msg_iozs65ulux 2026-05-24 + Silent heroes ack: scroll problem for
+  // 100+ rooms. Added: compact density mode + filter chips + name filter
+  // + sort affordance. All three persist independently.
   const VIEW_STORAGE_KEY = 'ant.dashboard.view';
   const COLS_STORAGE_KEY = 'ant.dashboard.gridCols';
-  let dashboardView = $state<'list' | 'grid'>('list');
+  const FILTER_STORAGE_KEY = 'ant.rooms.filter.v1';
+  const SORT_STORAGE_KEY = 'ant.rooms.sort.v1';
+
+  type DensityView = 'list' | 'grid' | 'compact';
+  type FilterChip = 'all' | 'starred' | 'active' | 'quiet';
+  type SortKey = 'recent' | 'alphabetical' | 'starred-first';
+
+  let dashboardView = $state<DensityView>('list');
   let dashboardGridCols = $state(2);
+  let filterChip = $state<FilterChip>('all');
+  let nameFilter = $state('');
+  let sortKey = $state<SortKey>('recent');
 
   onMount(() => {
     try {
       const v = localStorage.getItem(VIEW_STORAGE_KEY);
-      if (v === 'list' || v === 'grid') dashboardView = v;
+      if (v === 'list' || v === 'grid' || v === 'compact') dashboardView = v;
       const c = Number(localStorage.getItem(COLS_STORAGE_KEY));
       if (Number.isFinite(c) && c >= 1 && c <= 4) dashboardGridCols = c;
+      const f = localStorage.getItem(FILTER_STORAGE_KEY);
+      if (f === 'all' || f === 'starred' || f === 'active' || f === 'quiet') filterChip = f;
+      const s = localStorage.getItem(SORT_STORAGE_KEY);
+      if (s === 'recent' || s === 'alphabetical' || s === 'starred-first') sortKey = s;
     } catch { /* private-mode safe */ }
+    // Need the bookmarks store hydrated so the Starred chip + sort work
+    // off the user's actual pinned list, not an empty array.
+    roomBookmarks.init();
   });
 
-  function setView(next: 'list' | 'grid'): void {
+  function setView(next: DensityView): void {
     dashboardView = next;
     try { localStorage.setItem(VIEW_STORAGE_KEY, next); } catch { /* ignore */ }
   }
@@ -110,6 +132,31 @@
     try { localStorage.setItem(COLS_STORAGE_KEY, String(clamped)); } catch { /* ignore */ }
   }
 
+  function setFilterChip(next: FilterChip): void {
+    filterChip = next;
+    try { localStorage.setItem(FILTER_STORAGE_KEY, next); } catch { /* ignore */ }
+  }
+
+  function setSortKey(next: SortKey): void {
+    sortKey = next;
+    try { localStorage.setItem(SORT_STORAGE_KEY, next); } catch { /* ignore */ }
+  }
+
+  function isActiveRoom(room: RoomCard): boolean {
+    return room.attentionState === 'working'
+      || room.attentionState === 'asking'
+      || room.attentionState === 'blocked';
+  }
+
+  function matchesNameFilter(room: RoomCard, needle: string): boolean {
+    if (needle.length === 0) return true;
+    return room.name.toLowerCase().includes(needle);
+  }
+
+  function compareAlphabetical(a: RoomCard, b: RoomCard): number {
+    return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+  }
+
   async function refreshRoomListFromServer() {
     const response = await fetch('/api/chat-rooms');
     if (!response.ok) return;
@@ -117,11 +164,49 @@
     chatRoomsFromServer = body.chatRooms ?? [];
   }
 
-  const yourRooms = $derived(
+  const allYourRooms = $derived(
     chatRoomsFromServer.map((room) => ({ ...room, isOpenable: true }))
   );
 
-  const hasNoRoomsYet = $derived(yourRooms.length === 0);
+  const hasNoRoomsYet = $derived(allYourRooms.length === 0);
+
+  // Filter chip + name filter combine into the visible set. Sort applies
+  // on top. Server-driven order (last_post_order DESC) is preserved as
+  // 'recent' sort default.
+  const filteredYourRooms = $derived.by(() => {
+    const needle = nameFilter.trim().toLowerCase();
+    const filtered = allYourRooms.filter((room) => {
+      if (!matchesNameFilter(room, needle)) return false;
+      if (filterChip === 'all') return true;
+      if (filterChip === 'starred') return roomBookmarks.has(room.id);
+      if (filterChip === 'active') return isActiveRoom(room);
+      if (filterChip === 'quiet') return !isActiveRoom(room);
+      return true;
+    });
+    if (sortKey === 'alphabetical') {
+      return [...filtered].sort(compareAlphabetical);
+    }
+    if (sortKey === 'starred-first') {
+      // Starred rooms float to top in roomBookmarks.ids order; the rest
+      // keep server order (recent first).
+      const isStarred = (r: RoomCard) => roomBookmarks.has(r.id);
+      const bookmarkIndex = new Map(roomBookmarks.ids.map((id, idx) => [id, idx]));
+      return [...filtered].sort((a, b) => {
+        const aStar = isStarred(a), bStar = isStarred(b);
+        if (aStar && !bStar) return -1;
+        if (!aStar && bStar) return 1;
+        if (aStar && bStar) {
+          return (bookmarkIndex.get(a.id) ?? 0) - (bookmarkIndex.get(b.id) ?? 0);
+        }
+        return 0; // both unstarred — keep input order (server recent)
+      });
+    }
+    // 'recent' (default) — leave server order untouched.
+    return filtered;
+  });
+
+  // Aliased for backwards-compat with existing markup blocks.
+  const yourRooms = $derived(filteredYourRooms);
 </script>
 
 <svelte:head>
@@ -211,6 +296,19 @@
             </svg>
             <span class="view-label">Grid</span>
           </button>
+          <button
+            type="button"
+            class="view-toggle-btn"
+            class:active={dashboardView === 'compact'}
+            aria-pressed={dashboardView === 'compact'}
+            onclick={() => setView('compact')}
+            title="Compact view — single-line rows for browsing many rooms"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            </svg>
+            <span class="view-label">Compact</span>
+          </button>
           {#if dashboardView === 'grid'}
             <div class="cols-stepper" role="group" aria-label="Grid columns">
               <button
@@ -233,6 +331,46 @@
         </div>
       {/if}
     </div>
+
+    {#if !hasNoRoomsYet}
+      <div class="rooms-filter-bar">
+        <div class="filter-chips" role="group" aria-label="Filter rooms">
+          {#each (['all', 'starred', 'active', 'quiet'] as const) as chip}
+            <button
+              type="button"
+              class="filter-chip"
+              class:active={filterChip === chip}
+              aria-pressed={filterChip === chip}
+              onclick={() => setFilterChip(chip)}
+            >
+              {chip === 'all' ? 'All' : chip === 'starred' ? '★ Starred' : chip === 'active' ? 'Active' : 'Quiet'}
+            </button>
+          {/each}
+        </div>
+
+        <input
+          type="search"
+          class="name-filter"
+          placeholder="Filter by name…"
+          aria-label="Filter rooms by name"
+          bind:value={nameFilter}
+        />
+
+        <label class="sort-select-wrap">
+          <span class="sort-label">Sort</span>
+          <select
+            class="sort-select"
+            aria-label="Sort rooms"
+            value={sortKey}
+            onchange={(e) => setSortKey((e.currentTarget as HTMLSelectElement).value as SortKey)}
+          >
+            <option value="recent">Most recent activity</option>
+            <option value="alphabetical">Alphabetical</option>
+            <option value="starred-first">Starred first</option>
+          </select>
+        </label>
+      </div>
+    {/if}
     {#if hasNoRoomsYet}
       <p class="empty-nudge" role="note">
         You have not made any rooms yet. Use the form above to start one — fresh rooms appear here at the top.
@@ -253,6 +391,13 @@
           </li>
         {/each}
       </ul>
+    {:else if yourRooms.length === 0}
+      <p class="empty-nudge" role="status">
+        No rooms match the current filter
+        {#if filterChip !== 'all'}<strong>({filterChip})</strong>{/if}
+        {#if nameFilter.trim().length > 0}matching <strong>"{nameFilter}"</strong>{/if}.
+        <button type="button" class="filter-reset-btn" onclick={() => { setFilterChip('all'); nameFilter = ''; }}>Clear filters</button>
+      </p>
     {:else}
       <RoomStrip rooms={yourRooms} view={dashboardView} gridCols={dashboardGridCols} />
     {/if}
@@ -294,6 +439,86 @@
   }
   .rooms-toolbar .section-heading {
     margin: 0;
+  }
+
+  /* Filter bar (slice 2026-05-24 scroll fix) — chip row + name input +
+     sort select. Wraps on narrow viewports without falling apart. */
+  .rooms-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    margin: 0 0 0.75rem;
+    padding: 0.45rem 0.6rem;
+    background: var(--surface-card);
+    border: 1px solid var(--line-soft);
+    border-radius: 0.65rem;
+  }
+  .filter-chips {
+    display: inline-flex;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+  }
+  .filter-chip {
+    background: transparent;
+    border: 1px solid var(--line-soft);
+    border-radius: 999px;
+    padding: 0.22rem 0.7rem;
+    font: 600 0.78rem/1.2 ui-sans-serif, system-ui, sans-serif;
+    color: var(--ink-soft, #475569);
+    cursor: pointer;
+  }
+  .filter-chip:hover {
+    border-color: var(--accent, #6b21a8);
+    color: var(--ink-strong, #0f172a);
+  }
+  .filter-chip.active {
+    background: var(--accent, #6b21a8);
+    color: white;
+    border-color: var(--accent, #6b21a8);
+  }
+  .name-filter {
+    flex: 1 1 12rem;
+    min-width: 8rem;
+    padding: 0.32rem 0.6rem;
+    border: 1px solid var(--line-soft);
+    border-radius: 0.45rem;
+    background: var(--bg, #fff);
+    font: 500 0.85rem/1.3 ui-sans-serif, system-ui, sans-serif;
+    color: var(--ink-strong, #0f172a);
+  }
+  .name-filter:focus {
+    outline: 2px solid var(--accent, #6b21a8);
+    outline-offset: 1px;
+    border-color: transparent;
+  }
+  .sort-select-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font: 600 0.78rem/1.2 ui-sans-serif, system-ui, sans-serif;
+    color: var(--ink-soft, #475569);
+  }
+  .sort-select {
+    padding: 0.25rem 0.4rem;
+    border: 1px solid var(--line-soft);
+    border-radius: 0.4rem;
+    background: var(--bg, #fff);
+    font: 500 0.82rem/1.2 ui-sans-serif, system-ui, sans-serif;
+    color: var(--ink-strong, #0f172a);
+  }
+  .filter-reset-btn {
+    margin-left: 0.5rem;
+    background: transparent;
+    border: 1px solid var(--accent, #6b21a8);
+    color: var(--accent, #6b21a8);
+    border-radius: 999px;
+    padding: 0.15rem 0.7rem;
+    font: 600 0.74rem/1.2 ui-sans-serif, system-ui, sans-serif;
+    cursor: pointer;
+  }
+  .filter-reset-btn:hover {
+    background: rgba(168, 85, 247, 0.08);
   }
   .view-toggle {
     display: inline-flex;
