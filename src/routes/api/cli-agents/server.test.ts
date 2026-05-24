@@ -58,6 +58,9 @@ function fakeHandle(opts: {
       if (opts.commandError) throw new Error(opts.commandError);
       return (opts.commandResult ?? { echoed: payload }) as TResult;
     },
+    async sendPrompt(_text: string) {
+      return { threadId: opts.sessionId ?? null };
+    },
     async stop() {
       stopped = true;
       resetCliAgentRegistryForTests();

@@ -26,6 +26,11 @@
   let actionError = $state('');
   let pendingCli = $state<'codex' | 'pi' | null>(null);
   let pendingCwd = $state('');
+  // Per-agent prompt text + send-in-flight state (dogfood finding #6, 2026-05-24).
+  // Keyed by handleId so each running agent has its own textarea.
+  let promptText = $state<Record<string, string>>({});
+  let promptSending = $state<Record<string, boolean>>({});
+  let promptStatus = $state<Record<string, string>>({});
 
   async function refresh(): Promise<void> {
     if (!browser) return;
@@ -74,6 +79,36 @@
       await refresh();
     } catch (cause) {
       actionError = cause instanceof Error ? cause.message : String(cause);
+    }
+  }
+
+  async function sendPrompt(agent: Agent): Promise<void> {
+    const text = (promptText[agent.handleId] ?? '').trim();
+    if (text.length === 0) return;
+    promptSending[agent.handleId] = true;
+    promptStatus[agent.handleId] = 'sending…';
+    actionError = '';
+    try {
+      const res = await fetch(`/api/cli-agents/${encodeURIComponent(agent.handleId)}/prompt`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        throw new Error(`prompt failed (${res.status}): ${body.slice(0, 200)}`);
+      }
+      const result = (await res.json()) as { threadId?: string };
+      promptText[agent.handleId] = '';
+      promptStatus[agent.handleId] = result.threadId
+        ? `sent → thread ${result.threadId.slice(0, 8)}`
+        : 'sent';
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      promptStatus[agent.handleId] = `error: ${message}`;
+      actionError = message;
+    } finally {
+      promptSending[agent.handleId] = false;
     }
   }
 
@@ -182,6 +217,37 @@
             {/if}
             <button type="button" class="action-btn danger" onclick={() => void stopAgent(agent.handleId)}>stop</button>
           </div>
+          {#if agent.cli === 'codex'}
+            <div class="agent-prompt">
+              <label for="prompt-{agent.handleId}" class="prompt-label">Send a prompt</label>
+              <textarea
+                id="prompt-{agent.handleId}"
+                rows="3"
+                placeholder="Type your brief here (Cmd/Ctrl+Enter to send)…"
+                bind:value={promptText[agent.handleId]}
+                disabled={promptSending[agent.handleId]}
+                onkeydown={(e) => {
+                  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                    e.preventDefault();
+                    void sendPrompt(agent);
+                  }
+                }}
+              ></textarea>
+              <div class="prompt-row">
+                <button
+                  type="button"
+                  class="action-btn prompt-send"
+                  disabled={promptSending[agent.handleId] || !(promptText[agent.handleId] ?? '').trim()}
+                  onclick={() => void sendPrompt(agent)}
+                >
+                  {promptSending[agent.handleId] ? 'Sending…' : 'Send'}
+                </button>
+                {#if promptStatus[agent.handleId]}
+                  <span class="prompt-status">{promptStatus[agent.handleId]}</span>
+                {/if}
+              </div>
+            </div>
+          {/if}
         </li>
       {/each}
     </ul>
@@ -229,4 +295,17 @@
   .action-btn { padding: 0.3rem 0.7rem; font-size: 0.8rem; border: 1px solid var(--line-soft, #ccc); background: var(--bg, white); border-radius: 0.35rem; cursor: pointer; }
   .action-btn:hover:not(:disabled) { border-color: var(--accent, #4a6cf7); }
   .action-btn.danger { color: var(--accent, #c63b3b); border-color: var(--accent, #c63b3b); }
+  /* Prompt channel — codex-only, per-agent (dogfood finding #6, 2026-05-24). */
+  .agent-prompt { margin-top: 0.6rem; padding-top: 0.5rem; border-top: 1px dashed var(--line-soft, #e0e0e0); display: flex; flex-direction: column; gap: 0.35rem; }
+  .prompt-label { font-size: 0.72rem; color: var(--ink-soft, #777); text-transform: uppercase; letter-spacing: 0.04em; }
+  .agent-prompt textarea {
+    width: 100%; resize: vertical; min-height: 3.6rem;
+    padding: 0.45rem 0.6rem; font-family: ui-monospace, monospace; font-size: 0.85rem;
+    border: 1px solid var(--line-soft, #ccc); border-radius: 0.35rem;
+    background: var(--bg, white); color: inherit;
+  }
+  .agent-prompt textarea:focus { outline: 2px solid var(--accent, #4a6cf7); outline-offset: 1px; }
+  .prompt-row { display: flex; gap: 0.6rem; align-items: center; }
+  .prompt-send { font-weight: 700; }
+  .prompt-status { font-size: 0.78rem; color: var(--ink-soft, #777); }
 </style>
