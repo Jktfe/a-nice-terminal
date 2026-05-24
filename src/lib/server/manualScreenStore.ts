@@ -280,3 +280,106 @@ export function createSuggestion(input: CreateSuggestionInput): ManualSuggestion
     .get(id) as SuggestionRow;
   return row;
 }
+
+// ─── slice 6: audit log ─────────────────────────────────────────────
+
+export type ManualAnnotationAudit = {
+  id: string;
+  screen_id: string;
+  state_slug: string;
+  element_slug: string;
+  edited_by_handle: string;
+  edited_at_ms: number;
+  action: 'create' | 'update' | 'delete';
+  // Parsed JSON snapshots — null when N/A (create has no before;
+  // delete has no after).
+  before: ManualElementAnnotation | null;
+  after: ManualElementAnnotation | null;
+};
+
+type AuditRow = {
+  id: string;
+  screen_id: string;
+  state_slug: string;
+  element_slug: string;
+  edited_by_handle: string;
+  edited_at_ms: number;
+  action: 'create' | 'update' | 'delete';
+  before_json: string | null;
+  after_json: string | null;
+};
+
+function parseAuditSnapshot(raw: string | null): ManualElementAnnotation | null {
+  if (raw === null || raw.length === 0) return null;
+  try {
+    const parsed = JSON.parse(raw) as ManualElementAnnotation;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function rowToAudit(row: AuditRow): ManualAnnotationAudit {
+  return {
+    id: row.id,
+    screen_id: row.screen_id,
+    state_slug: row.state_slug,
+    element_slug: row.element_slug,
+    edited_by_handle: row.edited_by_handle,
+    edited_at_ms: row.edited_at_ms,
+    action: row.action,
+    before: parseAuditSnapshot(row.before_json),
+    after: parseAuditSnapshot(row.after_json)
+  };
+}
+
+export type RecordAuditInput = {
+  screenId: string;
+  stateSlug: string;
+  elementSlug: string;
+  editedByHandle: string;
+  action: 'create' | 'update' | 'delete';
+  before: ManualElementAnnotation | null;
+  after: ManualElementAnnotation | null;
+};
+
+export function recordAnnotationAudit(input: RecordAuditInput): void {
+  const id = `aud_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  getIdentityDb().prepare(
+    `INSERT INTO manual_element_annotations_audit
+       (id, screen_id, state_slug, element_slug, edited_by_handle,
+        edited_at_ms, action, before_json, after_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id, input.screenId, input.stateSlug, input.elementSlug,
+    input.editedByHandle, Date.now(), input.action,
+    input.before === null ? null : JSON.stringify(input.before),
+    input.after === null ? null : JSON.stringify(input.after)
+  );
+}
+
+export function listAuditForElement(
+  screenId: string,
+  stateSlug: string,
+  elementSlug: string,
+  limit = 50
+): ManualAnnotationAudit[] {
+  const rows = getIdentityDb()
+    .prepare(
+      `SELECT * FROM manual_element_annotations_audit
+       WHERE screen_id = ? AND state_slug = ? AND element_slug = ?
+       ORDER BY edited_at_ms DESC
+       LIMIT ?`
+    )
+    .all(screenId, stateSlug, elementSlug, limit) as AuditRow[];
+  return rows.map(rowToAudit);
+}
+
+export function findAnnotationByKeys(
+  screenId: string,
+  stateSlug: string,
+  elementSlug: string
+): ManualElementAnnotation | null {
+  return listAnnotationsForState(screenId, stateSlug)
+    .find((a) => a.element_slug === elementSlug) ?? null;
+}

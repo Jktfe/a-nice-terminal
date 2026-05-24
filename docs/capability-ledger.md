@@ -132,6 +132,7 @@ deferred, or rejected with a reason, but it cannot vanish.
 
 | Capability | Source | Status | Owner | Notes |
 |---|---|---|---|---|
+| Manual canvas annotation audit log | JWPK strategic-task slice 6 (manual canvas audit purpose), 2026-05-24 | CHANGE | Claude/Claude (claudev4) | New `manual_element_annotations_audit` table appends a row on every create/update/delete via the existing POST/PATCH/DELETE annotation endpoints. New `GET /api/manual/states/:s/:st/annotations/:el/audit` returns history (limit 50 default, max 200). Inspector gains a collapsed Audit section that summarises each entry (`created` / `deleted` / `changed name, position, CLI…`) with author + timestamp. Closes the third of JWPK's three purposes from the original sketch (learning/notes/audit). |
 | Design-styles primitive | JWPK dictation #1, 2026-05-23 | KEEP | Kimi | Banked styles (palette/font/asset/spacing/shadow/border) scoped to org/user/public. SQLite table + store + REST API. 4/4 store tests pass. |
 | Away-mode tiers | JWPK dictation #8, 2026-05-23 | KEEP | Kimi | Three presence tiers (away-desk/office/phone) + 0-100 intensity dial. SQLite table + store + REST API. 5/5 store tests pass. |
 | Stage presenter auth bridge | JWPK 401 blocker, 2026-05-23 | CHANGE | Codex | `requireStagePresenterAuth` accepts deck password from URL query for pause-context + stage-feedback POSTs. Already shipped in ea1b5c0. |

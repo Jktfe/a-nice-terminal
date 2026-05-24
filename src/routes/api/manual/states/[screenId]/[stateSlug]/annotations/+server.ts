@@ -5,7 +5,12 @@
 
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { upsertAnnotation, getScreenState } from '$lib/server/manualScreenStore';
+import {
+  upsertAnnotation,
+  getScreenState,
+  recordAnnotationAudit,
+  findAnnotationByKeys
+} from '$lib/server/manualScreenStore';
 
 type Bbox = { x: number; y: number; w: number; h: number };
 
@@ -46,9 +51,21 @@ export const POST: RequestHandler = async ({ params, request }) => {
   const logicText = typeof body.logicText === 'string' ? body.logicText : null;
   const tabOrder = typeof body.tabOrder === 'number' ? body.tabOrder : 999;
 
+  const before = findAnnotationByKeys(screenId, stateSlug, elementSlug);
   const annotation = upsertAnnotation({
     screenId, stateSlug, elementSlug, itemName, bbox,
     cliVerbs, dataSources, logicText, intendedActions, tabOrder
+  });
+  // Slice 6 audit-log: stamp this edit. POST is create-or-update — the
+  // action discriminates so the Audit view can render the first-create
+  // entry distinctly from subsequent updates.
+  recordAnnotationAudit({
+    screenId, stateSlug, elementSlug,
+    editedByHandle: typeof body.editedByHandle === 'string' && body.editedByHandle.length > 0
+      ? body.editedByHandle : '@you',
+    action: before === null ? 'create' : 'update',
+    before,
+    after: annotation
   });
   return json({ annotation }, { status: 201 });
 };
