@@ -71,6 +71,14 @@
     return recentlyAnsweredFromServer.filter((ask) => matchesAskFilter(ask, needle));
   });
 
+  // Filter-aware empty-state branching (codex CHANGES REQUESTED on
+  // 5aef74b): the prior shape only checked Open-section emptiness, so a
+  // filter that matched neither Open nor Recently-answered fell through
+  // to the celebratory "All caught up" state when Open started empty.
+  // These derived flags drive a unified no-results state when filtering.
+  const isFiltering = $derived(askFilter.trim().length > 0);
+  const hasFilteredResults = $derived(filteredOpenAsks.length + filteredAnsweredAsks.length > 0);
+
   // One answer form open at a time; one in-flight verb at a time. Keeps
   // state shape tight and matches the "one task in focus" UX of a queue.
   let activeAnswerAskId = $state<string | null>(null);
@@ -244,7 +252,16 @@
       </div>
     {/if}
 
-    {#if asksFromServer.length === 0}
+    {#if isFiltering && !hasFilteredResults}
+      <!-- Unified no-results state: filter eliminates everything across
+           BOTH Open and Recently-answered. Replaces the section-local
+           empty-after-filter rendering so the operator gets one Clear
+           button regardless of which section would have shown results. -->
+      <p class="empty-nudge" role="status">
+        No asks match "<strong>{askFilter}</strong>".
+        <button type="button" class="filter-reset-btn" onclick={() => (askFilter = '')}>Clear filter</button>
+      </p>
+    {:else if !isFiltering && asksFromServer.length === 0}
       <div class="empty-celebrate" role="status" aria-label="All open asks resolved">
         <span class="celebrate-icon" aria-hidden="true">✓</span>
         <div class="celebrate-text">
@@ -252,11 +269,10 @@
           <span class="celebrate-detail">No open asks right now. New ones appear here automatically when a member opens one from inside a room.</span>
         </div>
       </div>
-    {:else if filteredOpenAsks.length === 0}
-      <p class="empty-nudge" role="status">
-        No open asks match "<strong>{askFilter}</strong>".
-        <button type="button" class="filter-reset-btn" onclick={() => (askFilter = '')}>Clear filter</button>
-      </p>
+    {:else if filteredOpenAsks.length === 0 && filteredAnsweredAsks.length > 0}
+      <!-- Filtering matched answered but not open: keep the Open header
+           area quiet (the empty-nudge would be misleading next to a
+           non-empty Recently-answered list). -->
     {:else}
       <ul class="ask-list" aria-label="Open asks queue">
         {#each filteredOpenAsks as ask (ask.id)}
