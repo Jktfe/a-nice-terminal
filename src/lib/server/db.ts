@@ -996,6 +996,15 @@ const SCHEMA_DDL_STATEMENTS = [
     PRIMARY KEY (message_id, reactor_handle, emoji)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_message_reactions_message ON message_reactions (message_id)`,
+  // Drop the legacy chat_message_reactions table. Investigation 2026-05-24:
+  // - 0 references in src/, scripts/, or anywhere in current code
+  // - No DDL anywhere in this codebase that creates it (legacy v3-era artefact)
+  // - Existing rows in the dev DB are 100% orphans (message_id values that
+  //   don't exist in chat_messages — verified via LEFT JOIN)
+  // - All live reactions go through message_reactions (the only table the
+  //   codebase reads/writes)
+  // Drop is idempotent via IF EXISTS; safe on fresh DBs that never had it.
+  `DROP TABLE IF EXISTS chat_message_reactions`,
   // chat_invites + chat_invite_tokens SQLite projection (JWPK msg_71divtsj8r
   // ratified ask_r0v3b4t — invites must persist; was the launch-blocking
   // one because operator-minted invites disappeared on every kickstart).
