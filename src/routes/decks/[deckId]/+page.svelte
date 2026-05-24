@@ -297,7 +297,11 @@
     try {
       const provider = await resolveStageProvider();
       if (!provider) return;
-      const handle = provider.speak(narration, { voiceId: voiceSettings.voiceId });
+      const handle = provider.speak(narration, {
+        voiceId: voiceSettings.voiceId,
+        deckId: deck.id,
+        deckPassword: data.deckPassword ?? undefined
+      });
       currentTTSHandle = handle;
       const indexAtStart = activeIndex;
       speakingIndex = indexAtStart;

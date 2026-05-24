@@ -8,9 +8,15 @@ describe('/decks/[deckId] page source', () => {
     expect(pageSource).toContain("from '$lib/voice/interview-tts'");
     expect(pageSource).toContain('ElevenLabsTTSProvider');
     expect(pageSource).not.toContain('resolvePreferredProvider()');
-    expect(pageSource).toContain('Start voice');
-    expect(pageSource).toContain('Pause');
-    expect(pageSource).toContain('Resume');
+    expect(pageSource).toContain('DeckViewerToolbar');
+    expect(pageSource).toContain('onPlayPause={playCurrentSlide}');
+    expect(pageSource).toContain('speakingThisSlide={speakingIndex === activeIndex}');
+    expect(pageSource).toContain('pausedThisSlide={pausedIndex === activeIndex}');
+  });
+
+  it('passes password-protected deck access through to the Stage voice proxy', () => {
+    expect(pageSource).toContain('deckId: deck.id');
+    expect(pageSource).toContain('deckPassword: data.deckPassword ?? undefined');
   });
 
   it('stops slide narration when the active slide changes', () => {

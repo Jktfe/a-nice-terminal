@@ -17,6 +17,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { resolveBrowserSessionSecretIgnoringRoom } from '$lib/server/browserSessionStore';
+import { getDeck } from '$lib/server/deckStore';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -61,10 +62,23 @@ function readCookie(request: Request, name: string): string | null {
   return null;
 }
 
-function requireBrowserSession(event: RequestEvent): void {
+function hasDeckPasswordAccess(body: { deck_id?: unknown; deck_password?: unknown }): boolean {
+  const deckId = typeof body.deck_id === 'string' ? body.deck_id : '';
+  const deckPassword = typeof body.deck_password === 'string' ? body.deck_password : '';
+  if (!deckId || !deckPassword) return false;
+  const deck = getDeck(deckId);
+  return deck?.accessPassword !== null && deck?.accessPassword === deckPassword;
+}
+
+function requireVoiceAccess(event: RequestEvent, body: { deck_id?: unknown; deck_password?: unknown }): void {
+  if (hasDeckPasswordAccess(body)) return;
   // Gate the proxy behind any valid browser session — stops anonymous
   // abuse of the ELEVENLABS_API_KEY. Room-agnostic: TTS is global so
   // we don't need a room scope, just "is this a logged-in client".
+  //
+  // Stage deck viewers can also pass the deck id + deck password they
+  // already used to open /decks/:id. That keeps mobile/tailnet share links
+  // working without opening the ElevenLabs proxy to anonymous callers.
   const cookie = readCookie(event.request, 'ant_browser_session');
   if (!cookie) throw error(403, 'Browser session required.');
   const resolved = resolveBrowserSessionSecretIgnoringRoom(cookie);
@@ -83,19 +97,18 @@ export function GET() {
 }
 
 export async function POST(event: RequestEvent) {
-  requireBrowserSession(event);
-
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) {
     throw error(503, 'ELEVENLABS_API_KEY not configured on the server');
   }
 
-  let body: { text?: unknown; voice_id?: unknown; model_id?: unknown };
+  let body: { text?: unknown; voice_id?: unknown; model_id?: unknown; deck_id?: unknown; deck_password?: unknown };
   try {
     body = await event.request.json();
   } catch {
     throw error(400, 'invalid JSON body');
   }
+  requireVoiceAccess(event, body);
 
   const text = typeof body.text === 'string' ? body.text.trim() : '';
   if (!text) throw error(400, 'text required');
