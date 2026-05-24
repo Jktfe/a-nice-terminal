@@ -62,6 +62,14 @@
   let selectedState = $state<ScreenState | null>(null);
   let annotations = $state<Annotation[]>([]);
   let selectedAnnotation = $state<Annotation | null>(null);
+
+  // Slice 4 (a11y polish, JWPK strategic-task resume 2026-05-24):
+  // aria-live announcement string — updated when the selected
+  // annotation changes so screen readers narrate the inspector swap.
+  // Arrow-key nav focuses the next/prev overlay by querySelector against
+  // the stage's data-element-slug attribute (cleaner than maintaining a
+  // ref map across reactive updates).
+  let liveAnnouncement = $state('');
   let suggestions = $state<Suggestion[]>([]);
   let suggestionDraft = $state<string>('');
   let suggestionSaving = $state(false);
@@ -130,6 +138,83 @@
 
   function pickAnnotation(annotation: Annotation) {
     selectedAnnotation = annotation;
+    // a11y: announce the new selection to assistive tech (slice 4).
+    const cli = annotation.cli_verbs.length > 0 ? `, ${annotation.cli_verbs.length} CLI verb${annotation.cli_verbs.length === 1 ? '' : 's'}` : '';
+    liveAnnouncement = `Selected: ${annotation.item_name}${cli}`;
+  }
+
+  function clearSelection() {
+    selectedAnnotation = null;
+    liveAnnouncement = 'Selection cleared';
+  }
+
+  // ─── slice 4: keyboard navigation across overlays ───────────────────
+
+  // Reading-order sort: rows top-to-bottom (y-centre comparison with a
+  // tolerance equal to half the larger overlay's height — overlays whose
+  // centres are within that band are treated as the same row), then
+  // left-to-right within a row. Derived at render time rather than
+  // baked into tab_order in the DB so user drags don't have to re-stamp
+  // every neighbour's stored tab_order.
+  function readingOrderCompare(a: Annotation, b: Annotation): number {
+    const aCy = a.bbox.y + a.bbox.h / 2;
+    const bCy = b.bbox.y + b.bbox.h / 2;
+    const tolerance = Math.max(a.bbox.h, b.bbox.h) / 2;
+    if (Math.abs(aCy - bCy) > tolerance) return aCy - bCy;
+    return a.bbox.x - b.bbox.x;
+  }
+
+  const annotationsInReadingOrder = $derived(
+    [...annotations].sort(readingOrderCompare)
+  );
+
+  function focusOverlay(slug: string) {
+    if (!stageEl) return;
+    const el = stageEl.querySelector<HTMLButtonElement>(`button.canvas-region[data-element-slug="${CSS.escape(slug)}"]`);
+    el?.focus();
+  }
+
+  function moveSelectionInReadingOrder(direction: 1 | -1) {
+    const ordered = annotationsInReadingOrder;
+    if (ordered.length === 0) return;
+    const currentSlug = selectedAnnotation?.element_slug ?? null;
+    const currentIdx = currentSlug
+      ? ordered.findIndex((a) => a.element_slug === currentSlug)
+      : -1;
+    let nextIdx: number;
+    if (currentIdx === -1) {
+      // No selection yet — Arrow{Right,Down} starts at first, Arrow{Left,Up} starts at last.
+      nextIdx = direction === 1 ? 0 : ordered.length - 1;
+    } else {
+      nextIdx = (currentIdx + direction + ordered.length) % ordered.length;
+    }
+    const next = ordered[nextIdx];
+    pickAnnotation(next);
+    focusOverlay(next.element_slug);
+  }
+
+  function onOverlayKeydown(event: KeyboardEvent, annotation: Annotation) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      pickAnnotation(annotation);
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      clearSelection();
+      (event.currentTarget as HTMLElement).blur();
+      return;
+    }
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      moveSelectionInReadingOrder(1);
+      return;
+    }
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      moveSelectionInReadingOrder(-1);
+      return;
+    }
   }
 
   // ─── author-mode drag math ─────────────────────────────────────────
@@ -597,14 +682,31 @@
             {/if}
           </div>
           <div class="canvas-image-frame">
+            <!-- Visually-hidden live region (slice 4 a11y). Screen readers
+                 narrate `liveAnnouncement` when selection changes. -->
+            <div class="sr-only" aria-live="polite" aria-atomic="true">
+              {liveAnnouncement}
+            </div>
             <div
               class="canvas-image-stage"
               class:author-cursor={mode === 'author'}
+              role="application"
+              aria-label="Interactive screen overlay canvas. Tab to walk through elements; arrow keys to move between adjacent overlays."
+              tabindex="-1"
               bind:this={stageEl}
               onpointerdown={beginCreateDrag}
               onpointermove={applyDrag}
               onpointerup={endDrag}
               onpointercancel={endDrag}
+              onkeydown={(e) => {
+                // Esc on the stage (when not focused on an overlay) clears
+                // the selection — gives keyboard users a way to "back out"
+                // without tabbing through every overlay.
+                if (e.key === 'Escape' && selectedAnnotation) {
+                  e.preventDefault();
+                  clearSelection();
+                }
+              }}
             >
               <img
                 class="canvas-image"
@@ -612,22 +714,29 @@
                 alt="Screen: {selectedState.screen_id} ({selectedState.state_label})"
                 draggable="false"
               />
-              <!-- Overlay regions positioned in % so the layout scales with the image. -->
+              <!-- Overlay regions in DOM-order (creation order). Tab order
+                   is overridden by the explicit `tabindex` per-button reading
+                   sequence derived in `annotationsInReadingOrder`; keyboard
+                   nav is handled by `onOverlayKeydown` (slice 4 a11y).
+                   We keep DOM order = creation order so the keyed {#each}
+                   doesn't churn on annotation updates. -->
               {#each annotations as annotation (annotation.element_slug)}
                 {@const xPct = (annotation.bbox.x / selectedState.viewport_w) * 100}
                 {@const yPct = (annotation.bbox.y / selectedState.viewport_h) * 100}
                 {@const wPct = (annotation.bbox.w / selectedState.viewport_w) * 100}
                 {@const hPct = (annotation.bbox.h / selectedState.viewport_h) * 100}
+                {@const readingIdx = annotationsInReadingOrder.findIndex((a) => a.element_slug === annotation.element_slug)}
                 <button
                   type="button"
                   class="canvas-region"
                   class:selected={selectedAnnotation?.element_slug === annotation.element_slug}
                   class:author-mode={mode === 'author'}
                   style="left: {xPct}%; top: {yPct}%; width: {wPct}%; height: {hPct}%;"
-                  tabindex="0"
+                  tabindex={readingIdx + 1}
                   aria-label="Select element: {annotation.item_name}"
+                  data-element-slug={annotation.element_slug}
                   onclick={(e) => { if (mode === 'view') pickAnnotation(annotation); else e.preventDefault(); }}
-                  onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickAnnotation(annotation); } }}
+                  onkeydown={(e) => onOverlayKeydown(e, annotation)}
                   onpointerdown={(e) => beginRegionDrag(e, annotation)}
                 >
                   <span class="region-slug">{annotation.item_name}</span>
@@ -819,7 +928,12 @@
             <div class="inspector-empty-state">
               {#if mode === 'view'}
                 <p>Click any element on the screen to inspect it.</p>
-                <p class="inspector-hint">Tab through them with your keyboard, or click directly.</p>
+                <p class="inspector-hint">
+                  Keyboard: <kbd>Tab</kbd> through them in reading order ·
+                  <kbd>Enter</kbd>/<kbd>Space</kbd> to select ·
+                  <kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> to walk between adjacent overlays ·
+                  <kbd>Esc</kbd> to clear selection.
+                </p>
               {:else}
                 <p>Pick an element to edit, or drag-create a new one on an empty area.</p>
               {/if}
@@ -1009,7 +1123,31 @@
     font: 500 0.9rem/1.5 ui-sans-serif, system-ui, sans-serif;
   }
   .inspector-empty-state p { margin: 0 0 0.4rem; }
-  .inspector-hint { font-size: 0.8rem; color: var(--ink-muted, #94a3b8); }
+  .inspector-hint { font-size: 0.8rem; color: var(--ink-muted, #94a3b8); line-height: 1.5; }
+  .inspector-hint kbd {
+    display: inline-block;
+    padding: 1px 5px;
+    margin: 0 1px;
+    border: 1px solid var(--line-soft, #d6d6d6);
+    border-radius: 3px;
+    background: var(--surface-2, #f1f5f9);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.7rem;
+    color: var(--ink-strong, #0f172a);
+  }
+
+  /* Slice 4 a11y — visually hidden live region for screen reader narration. */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
 
   /* ─── author-mode chrome (slice 1.5) ──────────────────────────── */
   .screen-meta-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
