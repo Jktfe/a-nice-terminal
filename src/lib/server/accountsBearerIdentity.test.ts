@@ -64,4 +64,56 @@ describe('resolveAccountsBearerIdentity', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it('dedupes concurrent calls for the same token to a single fetch', async () => {
+    // Resolver fires N parallel calls with the same bearer; without dedup,
+    // each would trigger its own fetch (the negative cache only catches
+    // SERIAL repeats, not parallel ones). The in-flight dedup map ensures
+    // only one fetch lands at accounts.antonline.dev per token in flight.
+    let resolveFetch: ((value: Response) => void) | null = null;
+    const fetchMock = vi.fn(() =>
+      new Promise<Response>((resolveResponse) => {
+        resolveFetch = resolveResponse;
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const calls = [
+      resolveAccountsBearerIdentity('parallel-token'),
+      resolveAccountsBearerIdentity('parallel-token'),
+      resolveAccountsBearerIdentity('parallel-token'),
+      resolveAccountsBearerIdentity('parallel-token')
+    ];
+
+    // Give the microtask queue a chance to flush so each call has registered
+    // with the in-flight map BEFORE we resolve the fetch.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    resolveFetch!(new Response(JSON.stringify({
+      user: { email: 'pal@example.com', handle: '@pal' }
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+
+    const results = await Promise.all(calls);
+    expect(results).toHaveLength(4);
+    for (const result of results) {
+      expect(result).toMatchObject({ email: 'pal@example.com', handle: '@pal' });
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the in-flight map after resolution so a new fetch fires on next call', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      user: { email: 'serial@example.com', handle: '@serial' }
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await resolveAccountsBearerIdentity('serial-token');
+    // Same call after resolution should NOT be deduped against the prior
+    // (resolved) promise — that would be a memory leak. The positive cache
+    // is the external token store; in-flight dedup is only for concurrent
+    // mid-flight requests.
+    await resolveAccountsBearerIdentity('serial-token');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
