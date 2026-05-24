@@ -126,4 +126,25 @@
     border-color: var(--accent);
     color: var(--accent);
   }
+  @media (max-width: 640px) {
+    .deck-toolbar {
+      flex-wrap: wrap;
+      align-items: stretch;
+    }
+    .back {
+      flex: 1 1 100%;
+    }
+    .deck-spacer {
+      display: none;
+    }
+    .toolbar-btn {
+      flex: 1 1 calc(50% - 0.55rem);
+      min-width: 0;
+      white-space: normal;
+    }
+    .lens-select {
+      flex-basis: 100%;
+      width: 100%;
+    }
+  }
 </style>
