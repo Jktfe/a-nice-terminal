@@ -71,8 +71,29 @@ export function broadcastToRoom(roomId: string, event: Record<string, unknown>):
   const bytes = new TextEncoder().encode(payload);
   for (const controller of roomSet) {
     try {
+      // Backpressure guard (per server-hang-investigation-2026-05-24.md):
+      // dead-but-not-closed consumers — slow network, background tab with
+      // paused JS, hung node consumer — leak buffer growth on every enqueue
+      // because Node's ReadableStream silently grows past the high-water
+      // mark instead of throwing. Over time this becomes GC pressure that
+      // stalls the event loop and surfaces as the "server hangs but holds
+      // the port" symptom that JWPK reported on 2026-05-24.
+      //
+      // `desiredSize <= 0` means the consumer's buffer is at or past the
+      // high-water mark. Force-close the controller to break the leak; the
+      // browser EventSource (or node consumer with reconnect) will reconnect
+      // and resume from Last-Event-ID on the next probe. Either way, NO
+      // more bytes get enqueued into a buffer that no one is draining.
+      if (typeof controller.desiredSize === 'number' && controller.desiredSize <= 0) {
+        try { controller.close(); } catch { /* already closed; fine */ }
+        roomSet.delete(controller);
+        continue;
+      }
       controller.enqueue(bytes);
     } catch {
+      // The original close-detection path: enqueue throws when the
+      // controller is already CLOSED (vs full). Retain it for that case
+      // since desiredSize is null on a closed controller.
       roomSet.delete(controller);
     }
   }
