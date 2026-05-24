@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { roomBookmarks, sortByBookmark } from './roomBookmarks.svelte';
+import { roomBookmarks, sortByBookmark, visibleBookmarkedRooms } from './roomBookmarks.svelte';
 
 describe('sortByBookmark', () => {
   it('returns rooms unchanged when nothing is bookmarked', () => {
@@ -33,6 +33,12 @@ describe('sortByBookmark', () => {
     const snapshot = rooms.map((r) => r.id);
     sortByBookmark(rooms, ['c']);
     expect(rooms.map((r) => r.id)).toEqual(snapshot);
+  });
+
+  it('visibleBookmarkedRooms does not backfill stale bookmark slots with unstarred rooms', () => {
+    const rooms = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+    const result = visibleBookmarkedRooms(rooms, ['stale', 'a', 'b']);
+    expect(result.map((r) => r.id)).toEqual(['a', 'b']);
   });
 });
 
