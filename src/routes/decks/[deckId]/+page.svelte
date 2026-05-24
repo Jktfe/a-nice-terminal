@@ -32,7 +32,7 @@
   // Safari blocks HTMLAudioElement and speechSynthesis playback without a
   // user gesture. We unlock on the first explicit Play / Next / Prev so
   // that ElevenLabs and browser TTS both work on mobile Safari.
-  let safariAudioUnlocked = false;
+  let safariAudioUnlocked = $state(false);
   function unlockSafariAudio(): void {
     if (safariAudioUnlocked || typeof window === 'undefined') return;
     safariAudioUnlocked = true;
@@ -537,6 +537,11 @@
 
   {#if voiceNotice}
     <p class="share-notice" role="status">{voiceNotice}</p>
+  {/if}
+  {#if !safariAudioUnlocked}
+    <p class="share-notice unlock-hint" role="status">
+      Tap Start voice, Next, or Prev to enable audio on this browser.
+    </p>
   {/if}
 
   {#if deck.parentDeckId}
