@@ -50,6 +50,7 @@
   import type { TaskForRoom } from '$lib/server/taskStore';
   import type { FocusEntry } from '$lib/server/focusModeStore';
   import type { RoomMode } from '$lib/server/roomModesStore';
+  import type { AwayTier } from '$lib/server/awayModeStore';
 
   type SharedFileMetadata = Omit<SharedFile, 'contentsBase64'>;
 
@@ -171,6 +172,35 @@
     // This must be keyed on room id, not only onMount: SvelteKit can reuse
     // this route component across client-side room navigation.
     void ensureBrowserSessionForRoom({ roomId, authorHandle, force: true });
+  });
+
+  // Away-tier fetch — codex CHANGES REQUESTED 2026-05-24 (orsz2321qb):
+  // tier is server-side per-user state (table away_modes, keyed by handle)
+  // so agents can OBSERVE the tier and shift behaviour. The endpoint reads
+  // the demo-login Path=/ cookie via resolveBrowserSessionSecretIgnoringRoom
+  // and gates: cookie-handle MUST equal :handle URL param. On 401 we keep
+  // the optimistic 'active' default and the room-mode fallback in the
+  // toggle handles the visual state until the user picks a tier.
+  let currentAwayTier = $state<AwayTier>('active');
+  let lastAwayTierFetchKey = $state('');
+  $effect(() => {
+    const handle = callerHandle.trim();
+    if (handle.length === 0) return;
+    if (handle === lastAwayTierFetchKey) return;
+    lastAwayTierFetchKey = handle;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/away-modes/${encodeURIComponent(handle)}`);
+        if (!res.ok) return; // 401 → keep optimistic default
+        const body = await res.json();
+        const tier = body?.mode?.tier as AwayTier | undefined;
+        if (tier === 'active' || tier === 'away-desk' || tier === 'away-office' || tier === 'away-phone') {
+          currentAwayTier = tier;
+        }
+      } catch {
+        /* network — leave default */
+      }
+    })();
   });
 
   onMount(() => {
@@ -401,7 +431,14 @@
     {/snippet}
   </RoomNameHeader>
 
-  <AwayModeToggle roomId={roomFromServer.id} currentMode={roomMode} onModeChange={(m) => invalidateAll()} />
+  <AwayModeToggle
+    roomId={roomFromServer.id}
+    currentMode={roomMode}
+    currentTier={currentAwayTier}
+    callerHandle={callerHandle}
+    onModeChange={(m) => invalidateAll()}
+    onTierChange={(t) => (currentAwayTier = t)}
+  />
 
   <RoomDetailFocusStrip {focusedMembers} {labelForMember} />
 
