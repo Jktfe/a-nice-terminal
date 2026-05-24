@@ -19,6 +19,7 @@
   import RoomDigestPanel from './RoomDigestPanel.svelte';
   import RoomCardActivity from './RoomCardActivity.svelte';
   import LastMessagePreview from './LastMessagePreview.svelte';
+  import RoomPlanProgressBadge from './RoomPlanProgressBadge.svelte';
 
   export type OpenableRoomCard = RoomCard & { isOpenable?: boolean };
 
@@ -81,7 +82,10 @@
 {#snippet body(room: OpenableRoomCard)}
   <div class={`state-dot ${room.attentionState}`} aria-hidden="true"></div>
   <div class="content">
-    <h3>{room.name}</h3>
+    <div class="name-row">
+      <h3>{room.name}</h3>
+      <RoomPlanProgressBadge progress={room.planProgress} />
+    </div>
     {#if room.members && room.members.length > 0}
       <div class="members" aria-label={`${room.members.length} ${room.members.length === 1 ? 'participant' : 'participants'}`}>
         {#each room.members.slice(0, 5) as member, index (member.handle)}
@@ -347,6 +351,13 @@
     color: var(--accent);
   }
 
+  .name-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .name-row h3 { margin: 0; }
   .state-dot {
     width: 0.85rem;
     height: 0.85rem;
