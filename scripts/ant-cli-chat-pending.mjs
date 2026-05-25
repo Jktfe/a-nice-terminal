@@ -19,6 +19,8 @@
  * `handleChatPendingVerb` and calls it from the `chat` action switch.
  */
 
+import { processIdentityChain } from './ant-cli-identity-chain.mjs';
+
 const BOOLEAN_FLAGS = new Set(['json']);
 const BODY_TRUNCATE_LIMIT = 280;
 
@@ -40,6 +42,7 @@ export async function handleChatPendingVerb(args, runtime, ctx) {
     }
     query.set('since', String(parsed));
   }
+  query.set('pidChain', JSON.stringify(processIdentityChain()));
 
   const path = `/api/chat-rooms/messages/pending?${query.toString()}`;
   const payload = await fetchJson(runtime, path);
