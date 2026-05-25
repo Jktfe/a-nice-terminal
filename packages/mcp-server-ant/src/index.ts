@@ -17,12 +17,19 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { AntClient } from './ant-client.js';
+import { installStdinExitGuards, reapOlderSiblingMcpServers } from './lifecycle.js';
 import { registerAntTools } from './tools.js';
 
 const PACKAGE_NAME = '@jktfe/mcp-server-ant';
 const PACKAGE_VERSION = '0.1.0';
 
 async function main(): Promise<void> {
+  installStdinExitGuards();
+  await reapOlderSiblingMcpServers({ stderr: process.stderr }).catch((cause) => {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    process.stderr.write(`${PACKAGE_NAME} sibling cleanup skipped: ${message}\n`);
+  });
+
   const server = new McpServer({
     name: PACKAGE_NAME,
     version: PACKAGE_VERSION
