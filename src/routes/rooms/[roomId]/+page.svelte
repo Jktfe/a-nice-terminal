@@ -92,6 +92,7 @@
     focusedMembers: FocusEntry[];
     roomMode?: RoomMode;
     allRoomLabels?: Record<string, string>;
+    bringInAppAvailable?: boolean;
   };
   type Props = { data: RoomPageData };
 
@@ -133,6 +134,7 @@
       : '/plans'
   );
   const focusedMembers = $derived<FocusEntry[]>(data.focusedMembers ?? []);
+  const bringInAppAvailable = $derived<boolean>(data.bringInAppAvailable ?? false);
   const focusableMembers = $derived(
     roomFromServer.members.filter((member) => member.kind === 'agent')
   );
@@ -417,6 +419,7 @@
     lastUpdate={roomFromServer.lastUpdate}
     contractId={roomFromServer.contractId}
     description={roomFromServer.description}
+    bringInAppAvailable={bringInAppAvailable}
   >
     {#snippet status()}
       {#if realtimeStatus}
