@@ -25,6 +25,8 @@ import { resolveServerSideHandle, type PidChainEntry } from './identityGate';
 import { findHandleForAliasInRoom } from './chatRoomAliasStore';
 import type { ChatRoom } from './chatRoomStore';
 import { expandHandlesToOwnerFamilies } from './agentFamilyStore';
+import { lookupTerminalByPidChain } from './terminalsStore';
+import { deriveHandle, getTerminalRecord } from './terminalRecordsStore';
 
 export type ChatRoomReadAccess = {
   isAdminBearer: boolean;
@@ -198,15 +200,45 @@ function parsePidChainFromQuery(request: Request): PidChainEntry[] {
 }
 
 function tryPidChainQuery(request: Request, roomId?: string): ChatRoomReadAccess | null {
-  if (!roomId) return null;
-  const handle = resolveServerSideHandle(roomId, parsePidChainFromQuery(request));
-  if (!handle) return null;
+  const pidChain = parsePidChainFromQuery(request);
+  if (pidChain.length === 0) return null;
+
+  // Room-scoped path: when we know the room, the room-scoped membership
+  // handle wins (covers aliases + per-room rename).
+  if (roomId) {
+    const handle = resolveServerSideHandle(roomId, pidChain);
+    if (!handle) return null;
+    return {
+      isAdminBearer: false,
+      source: 'pid-chain',
+      handles: expandHandlesToOwnerFamilies([normaliseHandle(handle)]),
+      principalHandles: [normaliseHandle(handle)],
+      resolvedRoomIds: [roomId]
+    };
+  }
+
+  // Room-less path (e.g. GET /api/chat-rooms list): resolve the terminal
+  // from the pidChain, return access keyed on the terminal's primary
+  // handle so the upper layer can filter the list by membership via
+  // canReadChatRoom. Fixes `ant rooms list` 401 surfaced in the first-day
+  // user audit (docs/antchat-first-day-audit-2026-05-25.md): the CLI has
+  // no bearer to pass, and the endpoint had no path through this resolver
+  // because the early `if (!roomId) return null;` short-circuited every
+  // call. Other read paths (chat send, message list) all pass a roomId
+  // so they were unaffected — this is the listing-only gap.
+  const terminal = lookupTerminalByPidChain(pidChain);
+  if (!terminal) return null;
+  // TerminalRow has `name` but not `handle`; fetch the full TerminalRecord
+  // to derive the canonical handle the same way other gate paths do.
+  const record = getTerminalRecord(terminal.id);
+  if (!record) return null;
+  const primaryHandle = deriveHandle(record);
+  if (!primaryHandle) return null;
   return {
     isAdminBearer: false,
     source: 'pid-chain',
-    handles: expandHandlesToOwnerFamilies([normaliseHandle(handle)]),
-    principalHandles: [normaliseHandle(handle)],
-    resolvedRoomIds: [roomId]
+    handles: expandHandlesToOwnerFamilies([normaliseHandle(primaryHandle)]),
+    principalHandles: [normaliseHandle(primaryHandle)]
   };
 }
 
