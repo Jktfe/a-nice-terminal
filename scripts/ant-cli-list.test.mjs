@@ -51,7 +51,9 @@ describe('ant list', () => {
       ]
     }));
     await handleListVerb('chatrooms', [], runtime, { CliInputError });
-    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms');
+    const url = new URL(captured.requests[0].url);
+    expect(`${url.origin}${url.pathname}`).toBe('http://test.local/api/chat-rooms');
+    expect(url.searchParams.get('pidChain')).toBeTruthy();
     expect(captured.stdout).toHaveLength(2);
     expect(captured.stdout[0]).toMatch(/r1\tant-build\tready/);
   });
@@ -59,7 +61,9 @@ describe('ant list', () => {
   it('list chats: alias of chatrooms', async () => {
     const { runtime, captured } = makeRuntime(() => ok({ chatRooms: [{ id: 'r', name: 'n', attentionState: 'ready' }] }));
     await handleListVerb('chats', [], runtime, { CliInputError });
-    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms');
+    const url = new URL(captured.requests[0].url);
+    expect(`${url.origin}${url.pathname}`).toBe('http://test.local/api/chat-rooms');
+    expect(url.searchParams.get('pidChain')).toBeTruthy();
   });
 
   it('--json mode passes the payload through', async () => {

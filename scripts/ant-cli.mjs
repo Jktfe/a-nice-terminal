@@ -207,7 +207,7 @@ async function handleRoomsVerb(action, args, runtime) {
 }
 
 async function listRooms(runtime) {
-  const response = await fetchFromServer(runtime, '/api/chat-rooms');
+  const response = await fetchFromServer(runtime, pathWithPidChain('/api/chat-rooms'));
   await throwIfNotOk(response);
   const body = await response.json();
   for (const room of body.chatRooms ?? []) {
@@ -337,6 +337,12 @@ async function fetchFromServer(runtime, path, init) {
       `Cannot reach server at ${runtime.serverUrl}. Is it running? (${(networkFailure instanceof Error ? networkFailure.message : 'unknown network error')})`
     );
   }
+}
+
+function pathWithPidChain(path) {
+  const url = new URL(path, 'http://ant.local');
+  url.searchParams.set('pidChain', JSON.stringify(processIdentityChain()));
+  return `${url.pathname}${url.search}`;
 }
 
 async function throwIfNotOk(response) {

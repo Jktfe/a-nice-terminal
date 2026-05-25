@@ -9,6 +9,8 @@
  * the server payload through unchanged.
  */
 
+import { processIdentityChain } from './ant-cli-identity-chain.mjs';
+
 const BOOLEAN_FLAGS = new Set(['json', 'include-archived']);
 
 export async function handleListVerb(action, args, runtime, ctx) {
@@ -78,7 +80,7 @@ async function runListTerminals(flags, runtime) {
 }
 
 async function runListChatRooms(flags, runtime) {
-  const response = await runtime.fetchImpl(`${runtime.serverUrl}/api/chat-rooms`);
+  const response = await runtime.fetchImpl(chatRoomsListUrl(runtime));
   if (!response.ok) throw new Error(`could not list chat-rooms: ${response.status}`);
   const payload = await response.json();
   const rooms = payload.chatRooms ?? [];
@@ -95,4 +97,10 @@ async function runListChatRooms(flags, runtime) {
     runtime.writeOut(`${r.id}\t${r.name}\t${r.attentionState ?? '-'}`);
   }
   return 0;
+}
+
+function chatRoomsListUrl(runtime) {
+  const url = new URL('/api/chat-rooms', runtime.serverUrl);
+  url.searchParams.set('pidChain', JSON.stringify(processIdentityChain()));
+  return url.toString();
 }

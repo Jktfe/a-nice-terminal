@@ -12,6 +12,8 @@
  * Used by ant-cli-terminal.mjs and ant-cli-chat.mjs (name-aware shape).
  */
 
+import { processIdentityChain } from './ant-cli-identity-chain.mjs';
+
 export async function resolveTerminalIdentifier(runtime, identifier, ErrorCtor) {
   if (!identifier || typeof identifier !== 'string') {
     throw new ErrorCtor('terminal identifier (id, name, or handle) is required');
@@ -43,7 +45,7 @@ export async function resolveChatRoomIdentifier(runtime, identifier, ErrorCtor) 
     throw new ErrorCtor('chat room identifier (id or name) is required');
   }
   const trimmed = identifier.trim();
-  const response = await runtime.fetchImpl(`${runtime.serverUrl}/api/chat-rooms`);
+  const response = await runtime.fetchImpl(chatRoomsListUrl(runtime));
   if (!response.ok) {
     throw new Error(`could not list chat-rooms: ${response.status}`);
   }
@@ -61,6 +63,12 @@ export async function resolveChatRoomIdentifier(runtime, identifier, ErrorCtor) 
     throw new ErrorCtor(`no chat room matching "${identifier}"`);
   }
   return match;
+}
+
+function chatRoomsListUrl(runtime) {
+  const url = new URL('/api/chat-rooms', runtime.serverUrl);
+  url.searchParams.set('pidChain', JSON.stringify(processIdentityChain()));
+  return url.toString();
 }
 
 /** Helper for runtimes that may not have writeOut/writeErr (defensive). */
