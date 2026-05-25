@@ -5,6 +5,7 @@
 -->
 <script lang="ts">
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
+  import Explainable from '$lib/components/Explainable.svelte';
   import type { DiagnosticsSummary, HealthData } from './+page';
 
   type Props = {
@@ -32,7 +33,8 @@
   {#if !summary}
     <p class="error-nudge">Diagnostics summary unavailable. Check that the server is running.</p>
   {:else}
-    <section class="diag-grid">
+  <Explainable explainKey="diagnostics-content">
+  <section class="diag-grid">
       <div class="diag-card">
         <h2>Process</h2>
         <p>Status: <span class="status-pill" data-state={summary.status}>{summary.status}</span></p>
@@ -95,6 +97,7 @@
         </ul>
       </div>
     </section>
+  </Explainable>
   {/if}
 
   {#if health}

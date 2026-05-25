@@ -13,6 +13,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
+  import Explainable from '$lib/components/Explainable.svelte';
   import type { MessageSearchHit } from '$lib/server/messageSearchStore';
 
   type Props = {
@@ -79,6 +80,7 @@
       <input type="hidden" name="roomId" value={roomIdFromServer} />
     {/if}
     <label for="searchQueryField" class="visually-hidden">Search query</label>
+    <Explainable explainKey="search-input">
     <input
       bind:this={searchInput}
       id="searchQueryField"
@@ -90,6 +92,7 @@
       class="search-input"
     />
     <button type="submit" class="primary">Search</button>
+    </Explainable>
   </form>
 
   {#if roomIdFromServer}
