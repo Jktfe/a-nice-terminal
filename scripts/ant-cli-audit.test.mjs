@@ -35,7 +35,11 @@ describe('ant audit wrappers (M3.1a)', () => {
     const { runtime, captured } = makeRuntime(() => okJson(payload));
     const code = await handleAuditVerb('permissions', ['--room', 'room-a'], runtime, { CliInputError });
     expect(code).toBe(0);
-    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/room-a/audit');
+    // URL now carries pidChain query for the hooks.server.ts gate; assert
+    // pathname + pidChain presence separately so the test isn't fragile.
+    const u0 = new URL(captured.requests[0].url);
+    expect(`${u0.origin}${u0.pathname}`).toBe('http://test.local/api/chat-rooms/room-a/audit');
+    expect(u0.searchParams.get('pidChain')).toBeTruthy();
     expect(captured.stdout[0]).toContain('@first');
     expect(captured.stdout[0]).toContain('first-term');
     expect(captured.stdout[1]).toContain('@second');
@@ -84,6 +88,8 @@ describe('ant audit wrappers (M3.1a)', () => {
     });
     const dispatchCode = await runner.run(['audit', 'permissions', '--room', 'r']);
     expect(dispatchCode).toBe(0);
-    expect(calls[0].url).toBe('http://test.local/api/chat-rooms/r/audit');
+    const u = new URL(calls[0].url);
+    expect(`${u.origin}${u.pathname}`).toBe('http://test.local/api/chat-rooms/r/audit');
+    expect(u.searchParams.get('pidChain')).toBeTruthy();
   });
 });
