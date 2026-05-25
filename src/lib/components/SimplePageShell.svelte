@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Explainable from './Explainable.svelte';
   import type { Snippet } from 'svelte';
   import { onMount } from 'svelte';
   import { page } from '$app/state';
@@ -15,9 +16,10 @@
     showIntro?: boolean;
     statusPill?: Snippet;
     children?: Snippet;
+    explainKey?: string;
   };
 
-  let { eyebrow = '', title = '', summary = '', showIntro = true, statusPill, children }: Props = $props();
+  let { eyebrow = '', title = '', summary = '', showIntro = true, statusPill, children, explainKey }: Props = $props();
   let navOpen = $state(false);
 
   onMount(() => {
@@ -123,14 +125,27 @@
   </header>
 
   {#if showIntro}
-    <section class="intro">
-      {#if statusPill}
-        <div class="intro-status">{@render statusPill()}</div>
-      {/if}
-      <p>{eyebrow}</p>
-      <h1>{title}</h1>
-      <span>{summary}</span>
-    </section>
+    {#if explainKey}
+      <Explainable {explainKey}>
+        <section class="intro">
+          {#if statusPill}
+            <div class="intro-status">{@render statusPill()}</div>
+          {/if}
+          <p>{eyebrow}</p>
+          <h1>{title}</h1>
+          <span>{summary}</span>
+        </section>
+      </Explainable>
+    {:else}
+      <section class="intro">
+        {#if statusPill}
+          <div class="intro-status">{@render statusPill()}</div>
+        {/if}
+        <p>{eyebrow}</p>
+        <h1>{title}</h1>
+        <span>{summary}</span>
+      </section>
+    {/if}
   {/if}
 
   {@render children?.()}
