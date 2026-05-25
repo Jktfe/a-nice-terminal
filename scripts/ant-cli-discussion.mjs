@@ -100,7 +100,13 @@ async function runList(flags, runtime, CliInputError) {
   const room = requireFlag(flags, 'room', CliInputError);
   const status = flags.status ?? 'open';
   if (!ALLOWED_STATUS.includes(status)) throw new CliInputError(`--status must be one of: ${ALLOWED_STATUS.join(', ')}`);
-  const path = `/api/chat-rooms/${encodeURIComponent(room)}/discussions?status=${encodeURIComponent(status)}`;
+  // Room-scoped GET — append pidChain for the hooks.server.ts gate.
+  // Same pattern as ant-cli-chat-pending (24fba92) and PR #61 rooms members.
+  const query = new URLSearchParams({
+    status,
+    pidChain: JSON.stringify(processIdentityChain())
+  });
+  const path = `/api/chat-rooms/${encodeURIComponent(room)}/discussions?${query.toString()}`;
   const payload = await fetchJson(runtime, path);
   if (flags.json !== undefined) { runtime.writeOut(JSON.stringify(payload)); return 0; }
   for (const d of payload.discussions ?? []) {

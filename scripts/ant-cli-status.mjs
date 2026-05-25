@@ -299,8 +299,11 @@ async function runTerminalRich(terminalId, flags, runtime) {
 }
 
 async function runRoom(roomId, rich, flags, runtime) {
-  const queryParam = rich ? '?rich=1' : '';
-  const path = `/api/chat-rooms/${encodeURIComponent(roomId)}/status${queryParam}`;
+  // Room-scoped GET — append pidChain for the hooks.server.ts gate.
+  // Same pattern as ant-cli-chat-pending (24fba92) and PR #61 rooms members.
+  const query = new URLSearchParams({ pidChain: JSON.stringify(processIdentityChain()) });
+  if (rich) query.set('rich', '1');
+  const path = `/api/chat-rooms/${encodeURIComponent(roomId)}/status?${query.toString()}`;
   const payload = await fetchJson(runtime, path);
 
   if (flags.json !== undefined) {
