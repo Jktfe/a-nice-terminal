@@ -431,7 +431,7 @@
     <nav class="discipline-links" aria-label="Room work surfaces">
       <a class="discipline-link" href={`/asks?roomId=${roomFromServer.id}`}>Asks</a>
       <a class="discipline-link" href={primaryRoomPlanHref}>Plan</a>
-      <a class="discipline-link" href="#tasks">Tasks</a>
+      <Explainable explainKey="tasks-section"><a class="discipline-link" href="#tasks">Tasks</a></Explainable>
     </nav>
     <RoomDetailMoreMenu
       room={roomFromServer}
