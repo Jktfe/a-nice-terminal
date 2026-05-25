@@ -250,7 +250,11 @@ async function createRoom(name, runtime) {
 
 async function listMembers(roomId, runtime) {
   if (!roomId) throw new CliInputError('rooms members needs a roomId');
-  const response = await fetchFromServer(runtime, `/api/chat-rooms/${roomId}`);
+  // GET /api/chat-rooms/:roomId hits requireChatRoomReadAccess (server)
+  // which accepts pidChain query. Without the query the CLI 401s for
+  // any caller who isn't admin-bearer — same pattern @speedycodex fixed
+  // for room-list and chat-pending. Per the dual-side auth discipline.
+  const response = await fetchFromServer(runtime, pathWithPidChain(`/api/chat-rooms/${roomId}`));
   await throwIfNotOk(response);
   const body = await response.json();
   for (const member of body.chatRoom.members ?? []) {
@@ -289,13 +293,19 @@ async function postMessage(roomId, body, runtime) {
 async function postBreak(roomId, reason, runtime) {
   if (!roomId) throw new CliInputError('rooms break needs a roomId');
   const trimmedReason = (reason ?? '').trim();
-  const requestBody = trimmedReason.length > 0
-    ? JSON.stringify({ reason: trimmedReason, postedByHandle: '@cli' })
-    : '';
+  // POST /api/chat-rooms/:roomId/breaks hits requireChatRoomMutationAuth
+  // which parses pidChain from the BODY (not query). Without it, non-admin
+  // callers 401 — same shape codex fixed for chat-pending and task PATCH.
+  // Per the dual-side auth discipline (feedback_dual_side_auth_discipline_2026_05_25).
+  const bodyPayload = { pidChain: processIdentityChain() };
+  if (trimmedReason.length > 0) {
+    bodyPayload.reason = trimmedReason;
+    bodyPayload.postedByHandle = '@cli';
+  }
   const response = await fetchFromServer(runtime, `/api/chat-rooms/${roomId}/breaks`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: requestBody
+    body: JSON.stringify(bodyPayload)
   });
   await throwIfNotOk(response);
   const payload = await response.json();
