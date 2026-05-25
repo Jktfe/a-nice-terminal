@@ -44,7 +44,10 @@ describe('ant status wrappers (M3.4a-v1)', () => {
     const { runtime, captured } = makeRuntime(() => okJson(payload));
     const code = await handleStatusVerb('show', ['--room', 'room-a'], runtime, { CliInputError });
     expect(code).toBe(0);
-    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/room-a/status');
+    // URL now carries pidChain query for the hooks.server.ts gate.
+    const u0 = new URL(captured.requests[0].url);
+    expect(`${u0.origin}${u0.pathname}`).toBe('http://test.local/api/chat-rooms/room-a/status');
+    expect(u0.searchParams.get('pidChain')).toBeTruthy();
     expect(captured.stdout[0]).toContain('@first');
     expect(captured.stdout[0]).toContain('verified');
     expect(captured.stdout[1]).toContain('@second');
@@ -127,7 +130,10 @@ describe('ant status wrappers (M3.4a-v1)', () => {
   it('R5: --room --rich sends ?rich=1 query (T3b/T3c route extension pending; current v1 server ignores it harmlessly)', async () => {
     const { runtime, captured } = makeRuntime(() => okJson({ roomId: 'r', members: [] }));
     await handleStatusVerb('show', ['--room', 'r', '--rich'], runtime, { CliInputError });
-    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/r/status?rich=1');
+    const u = new URL(captured.requests[0].url);
+    expect(`${u.origin}${u.pathname}`).toBe('http://test.local/api/chat-rooms/r/status');
+    expect(u.searchParams.get('rich')).toBe('1');
+    expect(u.searchParams.get('pidChain')).toBeTruthy();
   });
 
   it('R5b: --terminal --rich renders since_ms as a DURATION not a unix timestamp (canonical T3a B1 fix)', async () => {
@@ -172,7 +178,9 @@ describe('ant status wrappers (M3.4a-v1)', () => {
     });
     const code = await runner.run(['status', 'show', '--room', 'room-a']);
     expect(code).toBe(0);
-    expect(calls[0].url).toBe('http://test.local/api/chat-rooms/room-a/status');
+    const u = new URL(calls[0].url);
+    expect(`${u.origin}${u.pathname}`).toBe('http://test.local/api/chat-rooms/room-a/status');
+    expect(u.searchParams.get('pidChain')).toBeTruthy();
   });
 
   it('P1: planning resolves current terminal, pushes thinking, and posts the planning notice when --room is supplied', async () => {

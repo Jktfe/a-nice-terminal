@@ -7,6 +7,8 @@
  * No write side. last_activity_at is excluded from v1.
  */
 
+import { processIdentityChain } from './ant-cli-identity-chain.mjs';
+
 const BOOLEAN_FLAGS = new Set(['json']);
 
 export async function handleAuditVerb(action, args, runtime, ctx) {
@@ -52,7 +54,12 @@ async function fetchJson(runtime, path) {
 
 async function runPermissions(flags, runtime, CliInputError) {
   const room = requireFlag(flags, 'room', CliInputError);
-  const path = `/api/chat-rooms/${encodeURIComponent(room)}/audit`;
+  // Room-scoped GET — hooks.server.ts gateChatRoomReadApi requires the
+  // caller to thread pidChain (or admin-bearer). Local fetchJson doesn't
+  // auto-add identity, so the sender appends it explicitly. Same shape
+  // as @speedycodex chat-pending fix (24fba92) and PR #61 rooms members.
+  const query = new URLSearchParams({ pidChain: JSON.stringify(processIdentityChain()) });
+  const path = `/api/chat-rooms/${encodeURIComponent(room)}/audit?${query.toString()}`;
   const payload = await fetchJson(runtime, path);
 
   if (flags.json !== undefined) {

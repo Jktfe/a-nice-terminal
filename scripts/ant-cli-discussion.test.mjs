@@ -65,7 +65,12 @@ describe('ant discussion (M3.4b T4)', () => {
       discussions: [{ id: 'd_1', status: 'open', opened_by: '@a', title: 'first' }]
     }));
     await handleDiscussionVerb('list', ['--room', 'r1'], runtime, { CliInputError });
-    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/r1/discussions?status=open');
+    // URL carries status + pidChain query now; assert separately so the
+    // test isn't fragile to query-param ordering or pidChain serialisation.
+    const u = new URL(captured.requests[0].url);
+    expect(`${u.origin}${u.pathname}`).toBe('http://test.local/api/chat-rooms/r1/discussions');
+    expect(u.searchParams.get('status')).toBe('open');
+    expect(u.searchParams.get('pidChain')).toBeTruthy();
     expect(captured.stdout[0]).toContain('d_1');
     expect(captured.stdout[0]).toContain('first');
   });
