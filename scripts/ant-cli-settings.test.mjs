@@ -89,7 +89,7 @@ describe('ant settings CLI', () => {
   it('addchatroomshortcut: resolves --chat by name then POSTs scope=chatroom', async () => {
     const { runtime, captured } = makeRuntime([
       {
-        match: (url) => url.endsWith('/api/chat-rooms'),
+        match: (url) => new URL(url).pathname === '/api/chat-rooms',
         respond: () => okJson(chatRoomsResponse)
       },
       {

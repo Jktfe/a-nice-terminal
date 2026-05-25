@@ -37,7 +37,8 @@ function setupRunner({ fetchReplies = [], throwOnFetch = null, serverUrl = 'http
     fetchImpl,
     writeOut: (line) => writtenOut.push(line),
     writeErr: (line) => writtenErr.push(line),
-    serverUrl
+    serverUrl,
+    config: {}
   });
 
   return { runner, writtenOut, writtenErr, fetchCalls };
@@ -58,7 +59,9 @@ describe('ant-cli', () => {
       });
       const exitCode = await runner.run(['rooms', 'list']);
       expect(exitCode).toBe(0);
-      expect(fetchCalls[0].url).toBe('http://localhost:4321/api/chat-rooms');
+      const url = new URL(fetchCalls[0].url);
+      expect(`${url.origin}${url.pathname}`).toBe('http://localhost:4321/api/chat-rooms');
+      expect(url.searchParams.get('pidChain')).toBeTruthy();
       expect(writtenOut[0]).toContain('r1');
       expect(writtenOut[0]).toContain('one');
       expect(writtenOut[1]).toContain('r2');
