@@ -96,6 +96,22 @@ describe('ant task list', () => {
     expect(taskCall).toBeDefined();
   });
 
+  it('list --room NAME sends pidChain for the room read gate', async () => {
+    const seen = [];
+    const { runtime } = makeRuntime({
+      '/api/chat-rooms': ok(ROOMS_FIXTURE),
+      '/api/tasks': (n, { url }) => {
+        seen.push(url);
+        return ok({ tasks: [] });
+      }
+    });
+    const code = await handleTaskVerb('list', ['--room', 'antDevTeam'], runtime, { CliInputError });
+    expect(code).toBe(0);
+    const taskUrl = new URL(seen[0]);
+    expect(taskUrl.searchParams.get('room')).toBe('room-zzz');
+    expect(taskUrl.searchParams.get('pidChain')).toBeTruthy();
+  });
+
   it('list --status todo --json emits JSON pass-through', async () => {
     const payload = { tasks: [{ id: 'x', title: 'open', status: 'todo' }] };
     const { runtime, captured } = makeRuntime({ '/api/tasks': ok(payload) });
@@ -155,6 +171,7 @@ describe('ant task create', () => {
     expect(posts[0].assigned_terminal_id).toBe('t_codex2');
     expect(posts[0].assigned_to).toBe('@claude2');
     expect(posts[0].room_id).toBe('room-zzz');
+    expect(Array.isArray(posts[0].pidChain)).toBe(true);
   });
 
   it('--plan includes plan_id for cockpit-linked tasks', async () => {

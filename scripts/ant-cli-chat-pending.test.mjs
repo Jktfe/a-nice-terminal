@@ -38,7 +38,10 @@ describe('handleChatPendingVerb', () => {
     const { runtime, captured } = makeRuntime(() => okJson(payload));
     const code = await handleChatPendingVerb(['--handle', '@me'], runtime, { CliInputError });
     expect(code).toBe(0);
-    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/messages/pending?handle=%40me');
+    const url = new URL(captured.requests[0].url);
+    expect(`${url.origin}${url.pathname}`).toBe('http://test.local/api/chat-rooms/messages/pending');
+    expect(url.searchParams.get('handle')).toBe('@me');
+    expect(url.searchParams.get('pidChain')).toBeTruthy();
     expect(captured.stdout).toHaveLength(2);
     expect(captured.stdout[0]).toContain('@codex');
     expect(captured.stdout[0]).toContain('@me first');

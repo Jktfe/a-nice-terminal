@@ -20,6 +20,7 @@ import {
   resolveChatRoomIdentifier,
   makeStandardSendJson
 } from './ant-cli-shared-resolve.mjs';
+import { processIdentityChain } from './ant-cli-identity-chain.mjs';
 
 const BOOLEAN_FLAGS = new Set(['json']);
 
@@ -89,6 +90,7 @@ async function runList(args, runtime, CliInputError) {
   if (flags.room !== undefined) {
     const room = await resolveChatRoomIdentifier(runtime, flags.room, CliInputError);
     params.set('room', room.id);
+    params.set('pidChain', JSON.stringify(processIdentityChain()));
   }
   if (flags.status !== undefined) params.set('status', flags.status);
   if (flags.assigned !== undefined) params.set('assigned', flags.assigned);
@@ -157,6 +159,7 @@ async function runCreate(args, runtime, CliInputError) {
   if (flags.room !== undefined) {
     const room = await resolveChatRoomIdentifier(runtime, flags.room, CliInputError);
     body.room_id = room.id;
+    body.pidChain = processIdentityChain();
   }
   if (flags.plan !== undefined) {
     body.plan_id = flags.plan;
