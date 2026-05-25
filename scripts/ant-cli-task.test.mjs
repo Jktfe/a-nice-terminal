@@ -217,7 +217,8 @@ describe('ant task done', () => {
     });
     const code = await handleTaskVerb('done', ['abc-123'], runtime, { CliInputError });
     expect(code).toBe(0);
-    expect(patches).toEqual([{ status: 'done' }]);
+    expect(patches[0].status).toBe('done');
+    expect(Array.isArray(patches[0].pidChain)).toBe(true);
     expect(captured.stdout.join(' ')).toMatch(/Marked abc-123 done/);
   });
 });
@@ -248,7 +249,8 @@ describe('ant task assign', () => {
       { CliInputError }
     );
     expect(code).toBe(0);
-    expect(patches).toEqual([{ assigned_to: '@codex2' }]);
+    expect(patches[0].assigned_to).toBe('@codex2');
+    expect(Array.isArray(patches[0].pidChain)).toBe(true);
     expect(captured.stdout.join(' ')).toMatch(/Assigned abc-123 → @codex2/);
   });
 });
