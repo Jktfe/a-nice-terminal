@@ -16,6 +16,7 @@
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
   import StageFeedbackPanel from '$lib/components/StageFeedbackPanel.svelte';
   import Explainable from '$lib/components/Explainable.svelte';
+  import ClaimValidationOverlay from '$lib/components/ClaimValidationOverlay.svelte';
   import { renderMarkdown } from '$lib/chat/renderMarkdown';
   import { BrowserTTSProvider, ElevenLabsTTSProvider, type TTSHandle, type TTSProvider } from '$lib/voice/interview-tts';
   import type { PageData } from './$types';
@@ -50,6 +51,7 @@
   // each paragraph/bullet in slide content. Click-to-overlay is a follow-up
   // slice; v1 ships the toggle + lens selection + visual numbering.
   let showValidation = $state(false);
+  let selectedClaimForOverlay = $state<{index: number; text: string} | null>(null);
   let activeLensId = $state<string | null>(null);
   let lenses = $state<{ id: string; name: string }[]>([]);
 
@@ -577,15 +579,24 @@
           <ol class="claims-list">
             {#each slideClaims as claim}
               <li class="claim-row">
-                <span class="claim-num">Claim {claim.index}</span>
-                <span class="claim-text">{claim.text}</span>
-                <span class="claim-status" title="No verifier runs yet for this claim under the active lens.">unverified</span>
+                <button type="button" class="claim-btn" onclick={() => (selectedClaimForOverlay = {index: claim.index, text: claim.text})} title="Click to view validation runs.">
+                  <span class="claim-num">Claim {claim.index}</span>
+                  <span class="claim-text">{claim.text}</span>
+                  <span class="claim-status">unverified</span>
+                </button>
               </li>
             {/each}
           </ol>
           <p class="claims-note">Click-to-overlay (per-claim verifier runs) lands in a follow-up slice. v1: visible enumeration + active lens label so the presenter can see what's making claim-shaped statements.</p>
         </aside>
         </Explainable>
+        {#if selectedClaimForOverlay}
+          <ClaimValidationOverlay
+            claimIndex={selectedClaimForOverlay.index}
+            claimText={selectedClaimForOverlay.text}
+            onClose={() => (selectedClaimForOverlay = null)}
+          />
+        {/if}
       {/if}
     </article>
 
@@ -810,6 +821,12 @@
     align-items: baseline;
   }
   .claim-row:last-child { border-bottom: none; }
+  .claim-btn {
+    display: flex; align-items: center; gap: 0.6rem; width: 100%;
+    padding: 0.4rem 0; border: none; background: transparent;
+    color: inherit; font: inherit; text-align: left; cursor: pointer;
+  }
+  .claim-btn:hover { background: var(--surface-raised); border-radius: 0.3rem; }
   .claim-num {
     flex: 0 0 5rem;
     font-weight: 700;
