@@ -103,6 +103,13 @@ export function getFeatureFlagsForTier(tier: Tier): Record<string, boolean> {
     // wire it, ux gated on paid tier).
     verification_api: true,
     verification_ux: tier !== 'oss',
+    // Premium "Bring in App" feature (JWPK msg_a0s51ioct6 2026-05-25): one-tap
+    // launchers for Claude Desktop / Claude Mobile / ChatGPT / Codex Desktop /
+    // Gemini with room context. API always present so OSS self-hosters can
+    // wire it; UX gated on paid tier. Spec at
+    // docs/research/bring-in-app-spec-2026-05-25.md.
+    bring_in_app_api: true,
+    bring_in_app_ux: tier !== 'oss',
   };
   return flags;
 }
