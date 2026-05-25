@@ -94,6 +94,7 @@
 <SimplePageShell
   eyebrow={isUniverKind ? `Univer ${kindLabel}` : kindLabel}
   title={artefact.title}
+  explainKey="artefact-view"
   summary={`${kindLabel} from room ${artefact.roomId}${artefact.createdBy ? ` · by ${artefact.createdBy}` : ''}`}
 >
   <div class="toolbar" role="toolbar" aria-label="Artefact controls">
