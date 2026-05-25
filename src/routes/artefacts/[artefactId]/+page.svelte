@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Explainable from '$lib/components/Explainable.svelte';
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
   import type { PageData } from './$types';
 
@@ -108,6 +109,7 @@
   {/if}
 
   {#if canValidate}
+    <Explainable explainKey="artefact-validate">
     <section class="validation-panel" aria-label="Validation lens">
       <div>
         <span class="panel-label">Validation Lens</span>
@@ -154,9 +156,11 @@
         </ol>
       {/if}
     </section>
+    </Explainable>
   {/if}
 
   {#if isUniverKind}
+    <Explainable explainKey="artefact-frame">
     <section class="univer-shell" aria-label="Univer workspace">
       <header>
         <span>{kindLabel}</span>
@@ -170,8 +174,11 @@
         </div>
       {/if}
     </section>
+    </Explainable>
   {:else if canFrame && artefact.refUrl}
+    <Explainable explainKey="artefact-frame">
     <iframe class="generic-frame" title={artefact.title} src={artefact.refUrl}></iframe>
+    </Explainable>
   {:else}
     <div class="empty-state">
       <p>This artefact has no browser-viewable source yet.</p>
@@ -200,81 +207,76 @@
   .summary {
     margin: 0 0 1rem;
     color: var(--ink-soft);
+    font-size: 0.92rem;
   }
   .validation-panel {
     display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 0.7rem 1rem;
-    align-items: start;
-    padding: 0.85rem 1rem;
-    margin: 0 0 1rem;
-    border: 1px solid var(--line-soft);
-    border-radius: 0.5rem;
-    background: var(--surface-card);
+    gap: 0.6rem;
+    margin-bottom: 1.2rem;
+    padding: 0.9rem;
+    border: 1px dashed var(--accent);
+    border-radius: 0.6rem;
+    background: var(--surface-raised);
   }
   .panel-label {
     display: block;
-    margin-bottom: 0.15rem;
-    color: var(--ink-soft);
-    font-size: 0.76rem;
+    font-size: 0.75rem;
     font-weight: 800;
     text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink-muted);
   }
   .validate-button {
+    justify-self: start;
+    padding: 0.35rem 0.8rem;
     border: 1px solid var(--line-soft);
-    border-radius: 0.45rem;
-    background: var(--accent);
-    color: white;
-    padding: 0.55rem 0.8rem;
-    font-weight: 850;
+    border-radius: 0.35rem;
+    background: var(--surface-card);
+    color: var(--ink-strong);
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.82rem;
     cursor: pointer;
   }
-  .secondary-button {
-    border: 1px solid var(--line-soft);
-    border-radius: 0.45rem;
-    background: transparent;
-    color: var(--ink);
-    padding: 0.5rem 0.75rem;
-    font-weight: 850;
-    cursor: pointer;
-  }
-  .secondary-button:disabled {
-    cursor: wait;
-    opacity: 0.72;
-  }
-  .validate-button:disabled {
-    cursor: wait;
-    opacity: 0.72;
-  }
+  .validate-button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .validate-button:disabled { opacity: 0.5; cursor: not-allowed; }
   .validation-error {
-    grid-column: 1 / -1;
     margin: 0;
-    color: #b91c1c;
-    font-weight: 750;
+    color: var(--accent);
+    font-size: 0.82rem;
   }
   .score-row {
-    grid-column: 1 / -1;
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem 1rem;
     align-items: baseline;
-    color: var(--ink-soft);
-    font-weight: 750;
+    gap: 0.5rem;
+    font-size: 0.82rem;
   }
   .score {
-    color: var(--ink);
-    font-size: 1.55rem;
-    font-weight: 900;
+    padding: 0.12rem 0.45rem;
+    border-radius: 0.25rem;
+    background: var(--surface-card);
+    font-weight: 800;
+    font-size: 0.9rem;
   }
   .work-row {
-    grid-column: 1 / -1;
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.65rem 1rem;
     align-items: center;
-    color: var(--ink-soft);
-    font-weight: 750;
+    gap: 0.5rem;
+    font-size: 0.78rem;
   }
+  .secondary-button {
+    padding: 0.25rem 0.6rem;
+    border: 1px solid var(--line-soft);
+    border-radius: 0.3rem;
+    background: var(--surface-card);
+    color: var(--ink-strong);
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.78rem;
+    cursor: pointer;
+  }
+  .secondary-button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .secondary-button:disabled { opacity: 0.5; cursor: not-allowed; }
   .claim-list {
     grid-column: 1 / -1;
     display: grid;

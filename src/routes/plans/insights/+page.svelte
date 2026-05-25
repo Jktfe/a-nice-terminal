@@ -4,6 +4,7 @@
   component owns layout + empty states so this file stays small.
 -->
 <script lang="ts">
+  import Explainable from '$lib/components/Explainable.svelte';
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
   import PlansInsightsDashboard from '$lib/components/PlansInsightsDashboard.svelte';
   import type { PageData } from './$types';
@@ -23,7 +24,9 @@
   {#if !data.insights}
     <p class="empty">Insights endpoint unavailable. Try refreshing.</p>
   {:else}
-    <PlansInsightsDashboard insights={data.insights} />
+    <Explainable explainKey="insights-dashboard">
+      <PlansInsightsDashboard insights={data.insights} />
+    </Explainable>
   {/if}
 </SimplePageShell>
 

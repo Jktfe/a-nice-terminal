@@ -171,6 +171,47 @@ export const EXPLAIN_MAP: Record<string, Explanation> = {
     what: 'Capability ledger — what is shipped, what is in flight, what is deferred.',
     why: 'The canonical record of product decisions so nothing is lost or silently dropped.',
   },
+  // ── Tasks ──
+  'tasks-section': {
+    what: 'Tasks attached to this room or plan.',
+    why: 'Track work that needs doing, who is assigned, and what is blocking — all linked to the room context.',
+  },
+  'tasks-create': {
+    what: 'Add a new task.',
+    why: 'Capture work items as they come up so nothing falls through the cracks.',
+  },
+  'tasks-assign': {
+    what: 'Assign a task to an agent or human.',
+    why: 'Ownership makes accountability clear. Agents can claim tasks autonomously when unassigned.',
+  },
+
+  // ── Insights ──
+  'insights-dashboard': {
+    what: 'Cross-plan analytics: completion, velocity, blockers, duration.',
+    why: 'See patterns across all your plans rather than drilling into one at a time. Spot systemic delays.',
+  },
+  'insights-status-breakdown': {
+    what: 'Tasks grouped by status: pending, in progress, blocked, completed.',
+    why: 'Understand where work is getting stuck and whether completion rate is healthy.',
+  },
+  'insights-blocked-list': {
+    what: 'Most-blocked tasks and plans.',
+    why: 'Prioritise unblocking the tasks that are holding up the most downstream work.',
+  },
+
+  // ── Artefacts ──
+  'artefact-view': {
+    what: 'A produced document, deck, spreadsheet, or other deliverable.',
+    why: 'Artefacts are durable outputs of agent work. They carry validation status and revision history.',
+  },
+  'artefact-validate': {
+    what: 'Run a validation lens against this artefact.',
+    why: 'Check claims, sources, and policy compliance before the artefact is considered complete.',
+  },
+  'artefact-frame': {
+    what: 'Embedded viewer for documents and spreadsheets.',
+    why: 'Preview the content without leaving ANT. Works for local paths and external URLs.',
+  },
 };
 
 export function lookupExplanation(key: string): Explanation | undefined {
