@@ -152,22 +152,29 @@ describe('ant-cli', () => {
   });
 
   describe('rooms break', () => {
-    it('POSTs an empty body when no reason is given', async () => {
+    it('POSTs a body with pidChain only when no reason is given', async () => {
       const { runner, fetchCalls } = setupRunner({
         fetchReplies: [makeJsonResponse({ message: { id: 'b1', body: 'Context break by @cli.' } }, 201)]
       });
       const exitCode = await runner.run(['rooms', 'break', 'r1']);
       expect(exitCode).toBe(0);
-      expect(fetchCalls[0].init.body).toBe('');
+      // The body now carries pidChain so the server mutation gate can
+      // resolve the caller. No reason field when none provided.
+      const body = JSON.parse(fetchCalls[0].init.body);
+      expect(Array.isArray(body.pidChain)).toBe(true);
+      expect(body.pidChain.length).toBeGreaterThan(0);
+      expect(body.reason).toBeUndefined();
     });
 
-    it('POSTs reason in the body when given', async () => {
+    it('POSTs reason + pidChain in the body when given', async () => {
       const { runner, fetchCalls } = setupRunner({
         fetchReplies: [makeJsonResponse({ message: { id: 'b1', body: 'Context break: x.' } }, 201)]
       });
       await runner.run(['rooms', 'break', 'r1', 'sprint', 'change']);
       const body = JSON.parse(fetchCalls[0].init.body);
       expect(body.reason).toBe('sprint change');
+      expect(Array.isArray(body.pidChain)).toBe(true);
+      expect(body.pidChain.length).toBeGreaterThan(0);
     });
   });
 
@@ -227,7 +234,12 @@ describe('ant-cli', () => {
       });
       const exitCode = await runner.run(['rooms', 'members', 'r1']);
       expect(exitCode).toBe(0);
-      expect(fetchCalls[0].url).toBe('http://localhost:4321/api/chat-rooms/r1');
+      // GET goes through pathWithPidChain so the URL carries a pidChain
+      // query param. Assert pathname separately so the test isn't fragile
+      // to changes in how the pidChain is serialised.
+      const url = new URL(fetchCalls[0].url);
+      expect(`${url.origin}${url.pathname}`).toBe('http://localhost:4321/api/chat-rooms/r1');
+      expect(url.searchParams.get('pidChain')).toBeTruthy();
       expect(writtenOut[0]).toContain('@you');
       expect(writtenOut[1]).toContain('@bot');
     });
