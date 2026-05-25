@@ -37,7 +37,6 @@
   import RoomDetailMoreMenu from '$lib/components/RoomDetailMoreMenu.svelte';
   import AwayModeToggle from '$lib/components/AwayModeToggle.svelte';
   import Explainable from '$lib/components/Explainable.svelte';
-  import RoomCliAgentsPanel from '$lib/components/RoomCliAgentsPanel.svelte';
     import {
     LEFT_PANE_KEY,
     RIGHT_PANE_KEY,
@@ -479,9 +478,6 @@
   {#if showDigestPanel}
     <RoomDigestPanel roomId={roomFromServer.id} onClose={() => (showDigestPanel = false)} />
   {/if}
-
-  <RoomCliAgentsPanel roomId={roomFromServer.id} />
-
 
   <MessageList
     messages={liveMessageRoomId === null ? messagesFromServer : liveMessages}
