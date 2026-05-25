@@ -32,6 +32,7 @@
 -->
 <script lang="ts">
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
+  import Explainable from '$lib/components/Explainable.svelte';
   import MemoryHitCard from '$lib/components/MemoryHitCard.svelte';
   import MemoryEditor from '$lib/components/MemoryEditor.svelte';
   import type { RecallHitIncludingAsks } from '$lib/server/memoryRecallStore';

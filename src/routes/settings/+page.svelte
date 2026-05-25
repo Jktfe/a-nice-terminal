@@ -13,6 +13,7 @@
   import { firstCapabilityRows } from '$lib/domain/capabilityLedger';
   import { theme } from '$lib/stores/theme.svelte';
   import { agentKinds } from '$lib/stores/agentKinds.svelte';
+  import Explainable from '$lib/components/Explainable.svelte';
 
   let pendingAgent = $state('');
   function addAgent(): void {

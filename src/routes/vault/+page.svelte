@@ -13,6 +13,7 @@
 <script lang="ts">
   import type { PageData } from './$types';
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
+  import Explainable from '$lib/components/Explainable.svelte';
 
   let { data }: { data: PageData } = $props();
 
@@ -97,13 +98,15 @@
       Could not load the vault. You may need to sign in first via the rooms page.
     </p>
   {:else if data.archives.length === 0}
-    <section class="vault-empty">
+  <Explainable explainKey="vault-content">
+  <section class="vault-empty">
       <h2>Nothing archived yet</h2>
       <p>
         Archive a room (via the room header) or Kill+Archive a terminal (from /terminals)
         and it'll show up here, ready for memory mining.
       </p>
     </section>
+  </Explainable>
   {:else}
     <ul class="vault-list">
       {#each data.archives as archive (archive.roomId)}

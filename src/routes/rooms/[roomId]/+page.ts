@@ -134,6 +134,17 @@ export const load: PageLoad = async ({ fetch, params }) => {
       )
     ]);
 
+  // Bring-in-App (gap #6b, JWPK msg_a0s51ioct6 2026-05-25): read the
+  // `bring_in_app_ux` feature flag once per page load. Soft-fails to
+  // false so the row collapses to the locked-state affordance if the
+  // capabilities endpoint is unreachable — never blocks room load.
+  const capabilitiesResponse = await fetch('/api/capabilities').catch(() => null);
+  let bringInAppAvailable = false;
+  if (capabilitiesResponse?.ok) {
+    const body = (await capabilitiesResponse.json()) as { featureFlags?: Record<string, boolean> };
+    bringInAppAvailable = body.featureFlags?.bring_in_app_ux === true;
+  }
+
   const allRoomLabels: Record<string, string> = {};
   for (const room of allRoomsBody.chatRooms) {
     if (room.id && room.name) allRoomLabels[room.id] = room.name;
@@ -152,6 +163,7 @@ export const load: PageLoad = async ({ fetch, params }) => {
     tasksForRoom: (tasksBody as { tasks: TaskForRoom[] }).tasks,
     focusedMembers: (focusBody as { focusedMembers: FocusEntry[] }).focusedMembers,
     roomMode: roomModeBody.mode,
-    allRoomLabels
+    allRoomLabels,
+    bringInAppAvailable
   };
 };

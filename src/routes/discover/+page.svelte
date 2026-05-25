@@ -5,7 +5,7 @@
     SimplePageShell intro
     Toolbar  ← search input + status filter chips + result counter
     AnchorNavStrip  ← sticky pill nav, one pill per primaryVerb group
-    Grouped sections (one <section id="verb-group-{primaryVerb}"> per group)
+  <section id="verb-group-{primaryVerb}"> per group)
     Page-level empty state when filters yield 0 results
     Footer with generated-at timestamp
 
@@ -19,6 +19,7 @@
 -->
 <script lang="ts">
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
+  import Explainable from '$lib/components/Explainable.svelte';
   import AnchorNavStrip from '$lib/components/AnchorNavStrip.svelte';
   import VerbCard from '$lib/components/VerbCard.svelte';
   import type { DiscoverPageData } from './+page';
@@ -126,7 +127,9 @@
 >
   <nav class="discover-subnav" aria-label="Discover sections">
     <span class="subnav-label">Discover:</span>
-    <a class="subnav-link active" href="/discover" aria-current="page">CLI verbs</a>
+    <Explainable explainKey="discover-visuals">
+  <a class="subnav-link active" href="/discover" aria-current="page">CLI verbs</a>
+  </Explainable>
     <a class="subnav-link" href="/discover/visuals">Visuals</a>
     <a class="subnav-link" href="/discover/vocab">Vocab</a>
     <a class="subnav-link" href="/manual">Screens canvas</a>

@@ -37,7 +37,6 @@
   import RoomDetailMoreMenu from '$lib/components/RoomDetailMoreMenu.svelte';
   import AwayModeToggle from '$lib/components/AwayModeToggle.svelte';
   import Explainable from '$lib/components/Explainable.svelte';
-  import RoomCliAgentsPanel from '$lib/components/RoomCliAgentsPanel.svelte';
     import {
     LEFT_PANE_KEY,
     RIGHT_PANE_KEY,
@@ -93,6 +92,7 @@
     focusedMembers: FocusEntry[];
     roomMode?: RoomMode;
     allRoomLabels?: Record<string, string>;
+    bringInAppAvailable?: boolean;
   };
   type Props = { data: RoomPageData };
 
@@ -134,6 +134,7 @@
       : '/plans'
   );
   const focusedMembers = $derived<FocusEntry[]>(data.focusedMembers ?? []);
+  const bringInAppAvailable = $derived<boolean>(data.bringInAppAvailable ?? false);
   const focusableMembers = $derived(
     roomFromServer.members.filter((member) => member.kind === 'agent')
   );
@@ -418,6 +419,7 @@
     lastUpdate={roomFromServer.lastUpdate}
     contractId={roomFromServer.contractId}
     description={roomFromServer.description}
+    bringInAppAvailable={bringInAppAvailable}
   >
     {#snippet status()}
       {#if realtimeStatus}
@@ -479,9 +481,6 @@
   {#if showDigestPanel}
     <RoomDigestPanel roomId={roomFromServer.id} onClose={() => (showDigestPanel = false)} />
   {/if}
-
-  <RoomCliAgentsPanel roomId={roomFromServer.id} />
-
 
   <MessageList
     messages={liveMessageRoomId === null ? messagesFromServer : liveMessages}

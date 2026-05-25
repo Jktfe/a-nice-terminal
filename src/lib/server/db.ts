@@ -1427,7 +1427,22 @@ const SCHEMA_DDL_STATEMENTS = [
     addressed_note      TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS idx_manual_screen_suggestions_feed ON manual_screen_suggestions (status, captured_at_ms DESC)`,
-  `CREATE INDEX IF NOT EXISTS idx_manual_screen_suggestions_screen ON manual_screen_suggestions (screen_id, state_slug, element_slug)`
+  `CREATE INDEX IF NOT EXISTS idx_manual_screen_suggestions_screen ON manual_screen_suggestions (screen_id, state_slug, element_slug)`,
+  // Premium Bring-in-App audit trail (JWPK msg_a0s51ioct6 2026-05-25 — Q2:
+  // Yes proceed). Records every context payload mint per (operator, room,
+  // target external app) so the launch history surface + future consent
+  // revoke can read it. Append-only; no soft-delete (revoke happens at the
+  // consent layer, not the audit layer).
+  `CREATE TABLE IF NOT EXISTS bring_in_app_launches (
+    id                 TEXT PRIMARY KEY,
+    room_id            TEXT NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
+    target             TEXT NOT NULL CHECK (target IN ('claude-desktop','claude-mobile','chatgpt','codex-desktop','gemini')),
+    operator_handle    TEXT NOT NULL,
+    launched_at_ms     INTEGER NOT NULL,
+    payload_byte_size  INTEGER NOT NULL DEFAULT 0
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_bring_in_app_launches_operator ON bring_in_app_launches (operator_handle, launched_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_bring_in_app_launches_room ON bring_in_app_launches (room_id, launched_at_ms DESC)`
 ];
 
 function resolveDbFilePath(): string {
