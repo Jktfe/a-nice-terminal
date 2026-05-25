@@ -2,6 +2,7 @@
   import type { PageData } from './$types';
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
   import AgentDot from '$lib/components/AgentDot.svelte';
+  import Explainable from '$lib/components/Explainable.svelte';
 
   let { data }: { data: PageData } = $props();
 
@@ -160,6 +161,7 @@
 
 <SimplePageShell eyebrow="Fleet" title="Agents." summary="A living switchboard for your AI fleet. Every card is real-time telemetry." {statusPill}>
   <!-- Top activity strip -->
+  <Explainable explainKey="agents-activity-strip">
   <section class="activity-strip">
     {#each topAgents as agent}
       <button class="activity-chip" onclick={() => toggleAgent(agent.handle)} class:active={selectedHandle === agent.handle}>
@@ -172,12 +174,15 @@
       </button>
     {/each}
   </section>
+  </Explainable>
 
+  <Explainable explainKey="agents-fleet-stats">
   <section class="fleet-stats">
     <div class="stat"><span class="stat-value">{activeCount}</span><span class="stat-label">Active Now</span></div>
     <div class="stat"><span class="stat-value">{agents.length}</span><span class="stat-label">Registered</span></div>
     <div class="stat"><span class="stat-value">{totalRooms}</span><span class="stat-label">Rooms Occupied</span></div>
   </section>
+  </Explainable>
 
   <section class="agent-grid">
     {#each agents as agent, i}
