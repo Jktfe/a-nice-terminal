@@ -1,5 +1,5 @@
 /**
- * Bring-in-App client adapters — web v0.
+ * Bring-in-App client adapters — web v0.5.
  *
  * Spec at docs/research/bring-in-app-spec-2026-05-25.md (ratified by
  * JWPK msg_a0s51ioct6 2026-05-25 — "Q2: Yes"). Server contract shipped
@@ -7,8 +7,8 @@
  * + dispatches to the operator's machine via the platform-appropriate
  * launch protocol.
  *
- * v0 ships Claude Desktop only (Anthropic-first per the spec). Other
- * targets render disabled with "Coming in v0.5" tooltip until their
+ * v0 shipped Claude Desktop only. v0.5 adds ChatGPT (clipboard-only).
+ * Other targets render disabled with "Coming in v1" tooltip until their
  * adapter lands.
  *
  * Launch strategy ladder per spec:
@@ -17,9 +17,6 @@
  *   2. Clipboard   — fallback when URL scheme unavailable; copies the
  *      payload markdown for paste-into-app
  *   3. Share Sheet — Web Share API on supported platforms
- *
- * v0 keeps it simple: try URL scheme via window.location, fall back to
- * clipboard write + nudge toast if URL scheme silently fails.
  */
 
 import type { BringInTarget, RoomContextPayload } from './types';
@@ -35,7 +32,7 @@ export type LaunchOutcome = {
 export type ClientAdapter = {
   target: BringInTarget;
   label: string;
-  /** v0 = available in this slice; v0.5+ = label-only placeholder. */
+  /** v0 / v0.5 = available in this slice; v1+ = label-only placeholder. */
   available: boolean;
   /** Short user-visible reason when `available` is false. */
   unavailableReason?: string;
@@ -44,11 +41,14 @@ export type ClientAdapter = {
 };
 
 /**
- * Build the Claude Desktop opening prompt from a room context payload.
- * Claude Desktop will treat this as the operator's first user-message
- * once the URL scheme drops them into a fresh thread.
+ * Shared prompt builder for all external LLM adapters.
+ * Extracted in v0.5 so Claude Desktop, ChatGPT, and future adapters
+ * share the same room-context shape with per-target sign-off.
  */
-function buildClaudeDesktopPrompt(payload: RoomContextPayload): string {
+function buildExternalLLMPrompt(
+  payload: RoomContextPayload,
+  opts: { trailing?: string } = {}
+): string {
   const sections: string[] = [];
   sections.push(`I'm working in an ANT room called "${payload.roomName}".`);
   if (payload.roomDescription) {
@@ -60,9 +60,12 @@ function buildClaudeDesktopPrompt(payload: RoomContextPayload): string {
   if (payload.recentMessagesMarkdown) {
     sections.push(`Recent conversation:\n${payload.recentMessagesMarkdown}`);
   }
-  sections.push(`Please help me think about this.`);
+  sections.push(opts.trailing ?? `Please help me think about this.`);
   return sections.join('\n\n');
 }
+
+const buildClaudeDesktopPrompt = (payload: RoomContextPayload) =>
+  buildExternalLLMPrompt(payload);
 
 const claudeDesktopAdapter: ClientAdapter = {
   target: 'claude-desktop',
@@ -70,28 +73,16 @@ const claudeDesktopAdapter: ClientAdapter = {
   available: true,
   async launch(payload) {
     const prompt = buildClaudeDesktopPrompt(payload);
-    // Try the URL scheme first. Claude Desktop registers `claude://` —
-    // a fresh thread can be opened with `claude://new?text=<encoded>`.
-    // If the OS can't handle the scheme it silently no-ops; we fall
-    // back to clipboard so the operator can paste manually.
     if (typeof window !== 'undefined' && typeof navigator !== 'undefined') {
-      // Browsers don't expose "can this URL scheme handle?" reliably, so
-      // we kick the navigation AND prepare the clipboard as a safety net.
       try {
         const encoded = encodeURIComponent(prompt);
-        // Use a hidden iframe to attempt the URL scheme without leaving
-        // the room page — leaves the tab intact if the scheme fails.
         const iframe = document.createElement('iframe');
         iframe.style.display = 'none';
         iframe.src = `claude://new?text=${encoded}`;
         document.body.appendChild(iframe);
-        // Always copy to clipboard as a parallel fallback. The operator
-        // gets two paths: the URL scheme tries to open the app; the
-        // clipboard is ready for paste-in if the scheme didn't take.
         if (navigator.clipboard?.writeText) {
           await navigator.clipboard.writeText(prompt);
         }
-        // Schedule cleanup so the iframe doesn't linger.
         setTimeout(() => iframe.remove(), 1000);
         return {
           method: 'url-scheme',
@@ -99,7 +90,6 @@ const claudeDesktopAdapter: ClientAdapter = {
           message: 'Opening Claude Desktop. Prompt also copied to clipboard.'
         };
       } catch (cause) {
-        // URL scheme path failed — clipboard fallback.
         try {
           if (navigator.clipboard?.writeText) {
             await navigator.clipboard.writeText(prompt);
@@ -125,23 +115,59 @@ const claudeDesktopAdapter: ClientAdapter = {
   }
 };
 
+/**
+ * ChatGPT adapter — v0.5.
+ *
+ * OpenAI does not expose a registered URL scheme for ChatGPT Desktop,
+ * so this adapter is clipboard-only. The operator clicks the pill,
+ * the prompt is copied to the clipboard, and they paste into ChatGPT.
+ */
+const chatgptAdapter: ClientAdapter = {
+  target: 'chatgpt',
+  label: 'Bring in ChatGPT',
+  available: true,
+  async launch(payload) {
+    const prompt = buildExternalLLMPrompt(payload, {
+      trailing: 'Could you help me think through this?'
+    });
+    if (typeof window !== 'undefined' && typeof navigator !== 'undefined') {
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(prompt);
+          return {
+            method: 'clipboard',
+            status: 'launched',
+            message: 'Prompt copied to clipboard. Open ChatGPT and paste to start.'
+          };
+        }
+        return {
+          method: 'clipboard',
+          status: 'unavailable',
+          message: 'Clipboard API unavailable in this browser.'
+        };
+      } catch (cause) {
+        return {
+          method: 'clipboard',
+          status: 'unavailable',
+          message: `Clipboard write failed: ${cause instanceof Error ? cause.message : 'unknown'}`
+        };
+      }
+    }
+    return {
+      method: 'clipboard',
+      status: 'unavailable',
+      message: 'Browser environment unavailable.'
+    };
+  }
+};
+
 const claudeMobileAdapter: ClientAdapter = {
   target: 'claude-mobile',
   label: 'Bring in Claude Mobile',
   available: false,
-  unavailableReason: 'iOS adapter ships in v0.5',
+  unavailableReason: 'iOS adapter ships in v1',
   async launch() {
-    return { method: 'url-scheme', status: 'unavailable', message: 'Claude Mobile adapter not in v0.' };
-  }
-};
-
-const chatgptAdapter: ClientAdapter = {
-  target: 'chatgpt',
-  label: 'Bring in ChatGPT',
-  available: false,
-  unavailableReason: 'ChatGPT adapter ships in v0.5',
-  async launch() {
-    return { method: 'url-scheme', status: 'unavailable', message: 'ChatGPT adapter not in v0.' };
+    return { method: 'url-scheme', status: 'unavailable', message: 'Claude Mobile adapter not in v0.5.' };
   }
 };
 
@@ -149,9 +175,9 @@ const codexDesktopAdapter: ClientAdapter = {
   target: 'codex-desktop',
   label: 'Bring in Codex Desktop',
   available: false,
-  unavailableReason: 'Codex Desktop adapter ships in v0.5',
+  unavailableReason: 'Codex Desktop adapter ships in v1',
   async launch() {
-    return { method: 'url-scheme', status: 'unavailable', message: 'Codex Desktop adapter not in v0.' };
+    return { method: 'url-scheme', status: 'unavailable', message: 'Codex Desktop adapter not in v0.5.' };
   }
 };
 
@@ -159,16 +185,16 @@ const geminiAdapter: ClientAdapter = {
   target: 'gemini',
   label: 'Bring in Gemini',
   available: false,
-  unavailableReason: 'Gemini adapter ships in v0.5',
+  unavailableReason: 'Gemini adapter ships in v1',
   async launch() {
-    return { method: 'url-scheme', status: 'unavailable', message: 'Gemini adapter not in v0.' };
+    return { method: 'url-scheme', status: 'unavailable', message: 'Gemini adapter not in v0.5.' };
   }
 };
 
 export const BRING_IN_APP_ADAPTERS: ClientAdapter[] = [
   claudeDesktopAdapter,
-  claudeMobileAdapter,
   chatgptAdapter,
+  claudeMobileAdapter,
   codexDesktopAdapter,
   geminiAdapter
 ];
@@ -179,3 +205,4 @@ export function findAdapter(target: BringInTarget): ClientAdapter | undefined {
 
 // Re-export for tests; not the public API surface for callers.
 export { buildClaudeDesktopPrompt as _buildClaudeDesktopPromptForTests };
+export { buildExternalLLMPrompt as _buildExternalLLMPromptForTests };
