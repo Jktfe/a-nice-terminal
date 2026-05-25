@@ -15,6 +15,7 @@
 -->
 <script lang="ts">
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
+  import Explainable from '$lib/components/Explainable.svelte';
   import ChairBoard from '$lib/components/ChairBoard.svelte';
   import ChairRoomNotesPanel from '$lib/components/ChairRoomNotesPanel.svelte';
   import type { ChairRowDigest } from '$lib/server/chairStore';

@@ -85,37 +85,41 @@ This is a PUNCH LIST, not a build sequence. Each item names the gap and proposes
 
 **Proposed**: hold until web v0 ships + JWPK ratifies premium-vs-OSS split.
 
-### 6. CLI-agent prompt channel + in-room bring-in — Mac app (antchat) + Windows app (antchat-windows)
+### 6. Local CLI bridge (codex/pi process spawner) — Mac/Windows mirror is **NOT a priority slice**
 
-**Server side**: `POST /api/cli-agents/:handleId/prompt` body `{text}` (shipped PR #52, ff59ee0) + `POST/GET /api/chat-rooms/:roomId/cli-agents` (shipped PR #53, claudev4/in-room-bring-in-codex). The web room page now exposes a Bring-in-codex button + per-agent textarea that talks to these. Source: `src/lib/components/RoomCliAgentsPanel.svelte` + `src/routes/api/chat-rooms/[roomId]/cli-agents/+server.ts`.
+**Product call locked 2026-05-25 (orsz2321qb msg_qpcmqnkeko + codex 244155c)**: this is a developer/operator tool, not a premium user-facing surface. Three distinct affordances were getting conflated under the same "Bring in an agent" label:
 
-**Mac app gap**: no equivalent surface in `antchat/Antchat/Views/Rooms/`. JWPK's mobile-companion pitch in `project_bring_in_llm_buttons_2026_05_23` explicitly names "Bring in Claude Desktop / Claude Mobile / ChatGPT / Gemini" buttons living on the Mac/iOS clients — the operator-driven prompt channel is the foundation those depend on. Without the Mac surface, the bring-in flow is web-only and the Mac app stays a read-mostly viewer of cli_hook_events.
+| Affordance | Status | Who it's for |
+|---|---|---|
+| **Remote invite** | Shipped (existing) | Invite an ANT-resident agent ALREADY RUNNING somewhere |
+| **Local CLI bridge** | Shipped on web PRs #52 + #53 + #55; removed from prominent placement at 244155c; awaiting rename + gating before any client mirror | Dev/operator who has `codex`/`pi` binaries installed and wants a quick local pair |
+| **Premium Bring in App** | Banked at `project_bring_in_llm_buttons_2026_05_23`; NOT YET BUILT | One-tap "open Claude Desktop / Claude Mobile / ChatGPT / Codex Desktop / Gemini" with room context + consent + membership |
 
-**Windows app gap**: same shape. `antchat-windows/shared/api-types.ts` would need the `CliAgentHandle` wire-type (+ optional `roomId`) and the room-page Svelte component would need an in-room bring-in panel parallel to `RoomCliAgentsPanel.svelte`.
+**Mac PR closed**: antchat PR #2 (CLI bridge mirror, speedyclaude/cli-agent-bring-in-mirror commit 8407a49) was closed 2026-05-25 because it shipped against the conflated framing. Branch + code preserved; re-opens once the rename + gating contract is settled web-side first.
 
-**Cross-link**: codex JSON-RPC method names verified against `codex app-server generate-json-schema` — banked as [[verify-protocol-methods-against-generator-2026-05-24]]. Any Mac/Windows wrapper should re-verify against the same generator (don't trust the web-side method names blindly; codex versions may diverge).
+**Cross-repo discipline reinforced**: see `feedback_cross_repo_review_per_slice_2026_05_25.md` subrule banked 2026-05-25 — cross-repo mirror is only as good as the source's product framing. Wait for web shape-lock before mirroring.
 
-**Proposed Mac slice** (~80 lines, contained):
-- New `BringInAgentSheet` SwiftUI view bound to a room
-- Two `AntchatAPIClient` methods: `bringInCliAgent(roomId:cli:cwd:)` POST + `listRoomCliAgents(roomId:)` GET + `sendPrompt(handleId:text:)` POST
-- Per-agent card with prompt textarea (mirrors `RoomCliAgentsPanel.svelte` styling)
-- Polls `/api/chat-rooms/:roomId/cli-agents` every 4s on room screen
-- Out of scope (parity with web): codex auto-posting back to chat — multi-piece follow-up everywhere
+**Re-open trigger**: when the web side ships the renamed + gated CLI bridge surface (label TBD, gating likely behind binary-detection or developer-mode toggle), the Mac + Windows mirror slices can re-open with the matching shape. **Not a Mac/Windows priority gap until that lands.**
 
-**Proposed Windows slice** (~120 lines): direct port of `RoomCliAgentsPanel.svelte` since the Windows app is Svelte; the four endpoints are already proxied.
+### 6b. Premium "Bring in App" — separate slice, not yet built anywhere
 
-**Reason cross-team ask**: closes dogfood findings #4 + #5 across all clients, not just web. The "operator can bring in a codex from any of their devices and feed it a brief" pitch only works when every entry-point has the affordance.
+The actual high-leverage cross-repo opportunity from `project_bring_in_llm_buttons_2026_05_23`. One-tap launchers in any client (web/Mac/iOS/Windows) that open Claude Desktop / Claude Mobile / ChatGPT / Codex Desktop / Gemini with the room's context pre-loaded and consent established.
+
+**Not built anywhere yet.** Needs its own spec covering: identity onboarding flow, app-launch protocol per target, room-context payload shape, consent + membership UX, deep-link or Share Sheet integration per platform.
+
+**Backlog**: this is the actual "Bring in an agent" affordance JWPK has been referring to. Spec ratification → web v0 → Mac/iOS/Windows mirrors.
 
 ---
 
 ## Suggested merge order
 
-1. **Mac app + Windows app `description` field** (gap #1) — lowest risk, highest visible benefit. Mac team to own per `hyz00k0ibh`.
-2. **Mac app + Windows app `AwayMode` wire** (gap #3) — clear behavioural fix; agents can observe away tier across all clients.
-3. **CLI-agent prompt channel + bring-in** (gap #6) — bring-in flow only works from web today; mobile companion pitch needs Mac/Windows parity. Highest *new-capability* leverage of the list.
+1. **Mac app + Windows app `description` field** (gap #1) — lowest risk, highest visible benefit. Mac PR #1 + Windows PR #1 open for JWPK pull+test.
+2. **Mac app + Windows app `AwayMode` wire** (gap #3) — clear behavioural fix; agents can observe away tier across all clients. In Mac PR #1.
+3. **Premium "Bring in App"** (gap #6b) — actual high-leverage cross-repo opportunity. Needs spec ratification first, NOT shipped anywhere yet.
 4. **Filter UX parity** (gap #2) — polish; lower urgency.
 5. **Status pill / SSE finish layer** (gap #4) — bigger architectural slice; needs the Mac team's real-time strategy to converge first.
-6. **Click-to-explain Mac parallel** (gap #5) — waits on web v0 + JWPK spec ratification.
+6. **Click-to-explain Mac parallel** (gap #5) — waits on web v0 stabilising (kimi 8a62295 restyle was the v0 lock-in).
+7. **Local CLI bridge Mac/Windows mirror** (gap #6, demoted) — NOT a priority until web ships renamed + gated surface. Mac PR #2 closed pending re-open.
 
 ## What this audit did NOT cover
 

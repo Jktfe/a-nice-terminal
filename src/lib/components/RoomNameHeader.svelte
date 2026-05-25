@@ -9,6 +9,7 @@
   import type { Snippet } from 'svelte';
   import RenameRoomHeaderForm from './RenameRoomHeaderForm.svelte';
   import EditRoomDescriptionForm from './EditRoomDescriptionForm.svelte';
+  import BringInAppRow from './BringInAppRow.svelte';
 
   type Props = {
     roomId: string;
@@ -26,9 +27,15 @@
      *  between the h1 and the menu. Page passes it when it has subscribed
      *  to the realtime connection state. */
     status?: Snippet;
+    /** Bring-in-App row (gap #6b, JWPK msg_a0s51ioct6 2026-05-25).
+     *  When `bringInAppAvailable` is true, renders one-tap launchers for
+     *  external apps with this room's context pre-loaded. Server contract
+     *  shipped at c80f351; this is the v0 client surface. Gated by the
+     *  `bring_in_app_ux` feature flag from the page loader. */
+    bringInAppAvailable?: boolean;
   };
 
-  let { roomId, roomName, menu, contractId, description = null, status }: Props = $props();
+  let { roomId, roomName, menu, contractId, description = null, status, bringInAppAvailable = false }: Props = $props();
 
   let showRenameForm = $state(false);
 </script>
@@ -59,6 +66,9 @@
   {/if}
   <div class="description-slot">
     <EditRoomDescriptionForm {roomId} currentDescription={description} />
+  </div>
+  <div class="bring-in-slot">
+    <BringInAppRow {roomId} available={bringInAppAvailable} />
   </div>
 </section>
 
@@ -122,6 +132,7 @@
   }
   .rename-slot { margin-top: 0.55rem; }
   .description-slot { margin-top: 0.25rem; }
+  .bring-in-slot { margin-top: 0.35rem; }
   .contract-badge {
     display: inline-flex;
     align-items: center;
