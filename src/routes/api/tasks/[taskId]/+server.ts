@@ -18,10 +18,48 @@ import {
   planCompletion
 } from '$lib/server/taskStore';
 import {
+  getTask as getJwpkTask,
   updateTask as updateJwpkTask,
   isJwpkTaskStatus
 } from '$lib/server/tasksStore';
 import { dispatchPlanEvent } from '$lib/server/planTriggerDispatcher';
+import { requireChatRoomMutationAuth, tryAdminBearer } from '$lib/server/chatRoomAuthGate';
+import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
+import { findChatRoomById } from '$lib/server/chatRoomStore';
+
+function requireAdminBearer(request: Request): void {
+  if (!tryAdminBearer(request)) {
+    throw error(401, 'Authentication required.');
+  }
+}
+
+async function requireTaskReadAuth(request: Request, taskId: string): Promise<void> {
+  const task = getJwpkTask(taskId);
+  if (task?.roomId) {
+    const room = findChatRoomById(task.roomId);
+    if (room) {
+      await requireChatRoomReadAccess(request, room);
+      return;
+    }
+  }
+  requireAdminBearer(request);
+}
+
+function requireTaskMutationAuth(
+  request: Request,
+  rawBody: Record<string, unknown> | null,
+  taskId: string
+): void {
+  const task = getJwpkTask(taskId);
+  if (task?.roomId) {
+    const room = findChatRoomById(task.roomId);
+    if (room) {
+      requireChatRoomMutationAuth(room.id, request, rawBody);
+      return;
+    }
+  }
+  requireAdminBearer(request);
+}
 
 // JWPK PATCH detector: body that uses the JWPK shape (title/assigned_to/
 // JWPK-enum status). Distinct from legacy fields (subject, assignedAgent,
@@ -35,9 +73,10 @@ function isJwpkPatchBody(b: Record<string, unknown>): boolean {
   return false;
 }
 
-export const GET: RequestHandler = async ({ params }) => {
+export const GET: RequestHandler = async ({ params, request }) => {
   const task = getTask(params.taskId);
   if (!task) throw error(404, 'Task not found.');
+  await requireTaskReadAuth(request, params.taskId);
   return json({ task });
 };
 
@@ -45,6 +84,13 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
   const before = getTask(params.taskId);
   if (!before) throw error(404, 'Task not found.');
   const body = await request.json().catch(() => null);
+  requireTaskMutationAuth(
+    request,
+    body && typeof body === 'object' && !Array.isArray(body)
+      ? body as Record<string, unknown>
+      : null,
+    params.taskId
+  );
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw error(400, 'Send a JSON object body.');
   }
@@ -141,8 +187,9 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
   return json({ task: updated });
 };
 
-export const DELETE: RequestHandler = async ({ params }) => {
+export const DELETE: RequestHandler = async ({ params, request }) => {
   if (!getTask(params.taskId)) throw error(404, 'Task not found.');
+  requireTaskMutationAuth(request, null, params.taskId);
   deleteTask(params.taskId);
   return json({ ok: true });
 };

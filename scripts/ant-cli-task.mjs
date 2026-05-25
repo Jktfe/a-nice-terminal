@@ -183,7 +183,7 @@ async function runDone(args, runtime, CliInputError) {
   const result = await sendJson(
     `/api/tasks/${encodeURIComponent(taskId)}`,
     'PATCH',
-    { status: 'done' }
+    { status: 'done', pidChain: processIdentityChain() }
   );
   if (flags.json !== undefined) {
     runtime.writeOut(JSON.stringify(result));
@@ -205,7 +205,7 @@ async function runAssign(args, runtime, CliInputError) {
   const result = await sendJson(
     `/api/tasks/${encodeURIComponent(taskId)}`,
     'PATCH',
-    { assigned_to: flags.to }
+    { assigned_to: flags.to, pidChain: processIdentityChain() }
   );
   if (flags.json !== undefined) {
     runtime.writeOut(JSON.stringify(result));
