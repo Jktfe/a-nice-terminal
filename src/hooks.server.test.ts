@@ -76,4 +76,25 @@ describe('hooks.server — boot poller on first request', () => {
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('ok');
   });
+
+  it('lets the seeded Univer demo artefact load without a browser login', async () => {
+    process.env.ANT_DEMO_EMAIL = 'demo@example.com';
+    process.env.ANT_DEMO_PASSWORD = 'secret';
+    const res = await handle({
+      event: pageEvent('/artefacts/univer_demo_5892abff'),
+      resolve: passResolve
+    });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('ok');
+  });
+
+  it('keeps ordinary artefact pages behind the demo login gate', async () => {
+    process.env.ANT_DEMO_EMAIL = 'demo@example.com';
+    process.env.ANT_DEMO_PASSWORD = 'secret';
+
+    await expect(handle({
+      event: pageEvent('/artefacts/private-artefact'),
+      resolve: passResolve
+    })).rejects.toMatchObject({ status: 303 });
+  });
 });

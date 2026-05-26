@@ -73,6 +73,11 @@ function isGateBypassPath(pathname: string): boolean {
   // or ?password=. If the global demo-login gate catches /decks first,
   // password links can never reach their own access gate.
   if (pathname.startsWith('/decks/')) return true;
+  // Emergency Univer dogfood demo (JWPK msg_w62h4zdl9z 2026-05-26):
+  // the seeded demo artefact must be reachable from a clean browser while
+  // we show the runtime. Keep this scoped to generated demo ids; ordinary
+  // artefacts remain behind the login gate.
+  if (pathname.startsWith('/artefacts/univer_demo_')) return true;
   if (pathname.startsWith('/_app/')) return true;
   if (pathname === '/favicon.ico') return true;
   // /mcp/* routes are the share-URL onboarding surface (JWPK msg_7i2h8klrtp);
