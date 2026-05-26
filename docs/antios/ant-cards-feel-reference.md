@@ -25,21 +25,55 @@
 
 ---
 
-## State vocabulary (lock — owned by @codexuxant)
+## State vocabulary (lock — owned by @codexuxant + @antux, amended per JWPK walkthrough 2026-05-26)
 
 These are the named states the ANT Cards SwiftUI surface must implement. Each becomes a `CanvasGrid` capture so the static stills lock the visual anchors; the motion between them is the prototype's job.
 
 | State | Description | When it appears |
 |---|---|---|
-| `stack-idle` | The deck at rest. All cards visible at slight diagonal tilt, subtle parallax + occasional shimmer. | Default cold-launch view. |
+| `stack-idle` | The deck at rest. All cards visible at slight diagonal tilt, subtle parallax + occasional shimmer. **Starred rooms render first, then unstarred by recency.** | Default cold-launch view. |
 | `activity-pulse` | A card in the deck pulses gently — a soft glow + colour wash — when an agent posts new work in that room. | Live, while user is on the surface and a new event arrives. |
-| `card-lift` | User taps a card. Spring physics raise the card forward; others compress back. ~400ms. | On tap, before the lifted state. |
-| `room-card-expanded` | The lifted card reveals its content: hero number + 3 agent avatars + activity timeline. Settled state. | After `card-lift` completes. |
+| `scrub-peek` | User runs a thumb/finger across the deck (`DragGesture(minimumDistance: 0)`). The card under the finger pops forward; previous card returns to base. Continuous tracking, no minimum drag distance. | During finger drag across the deck. |
+| `card-lifted-on-scrub` | Sub-state of `scrub-peek` when card is fully revealed. Hero content visible (room name + status dot + hero number + 3 agents + timeline) without committing. | While finger rests on a card mid-scrub. |
+| `card-pinned` **(NEW — two-tap safety gate)** | **First tap** on a lifted card, OR finger lifts off screen mid-scrub. Lifted card STAYS up — full content visible without finger held. Accent-coloured 2pt ring/border signals "tap again to enter." | After first commit tap, before second commit tap. |
+| `spin-into-room` | **Second tap** on a pinned card. `rotation3DEffect` Y-axis (~360°, perspective 0.6, tilt toward viewer) paired with `matchedGeometryEffect` linking card → Room view header. Card visually BECOMES the room. Single continuous animation, not three glued. | Only on second deliberate tap. |
+| `room-card-expanded` | The lifted/pinned card reveals its content: hero number + 3 agent avatars + activity timeline. | After `card-lifted-on-scrub` or `card-pinned`. |
 | `timeline-unfurl` | The horizontally-scrollable activity timeline animates open on the lifted card. ~200ms. | Once the card is settled in `room-card-expanded`. |
 | `agent-highlights` | Per-agent rows in the lifted card with one-line "what they did" captions; subtle staggered fade-in. | While the lifted card is open. |
 | `problem-solved-marker` | A discrete celebratory beat when a problem-solved event lands — a brief gold flare + haptic. | When the API surfaces an ask-resolved or plan-step-completed event for the lifted room. |
 
 **Codex / antux can add or sharpen any state here — this is the lock document.**
+
+---
+
+## Deck interaction contract (locked per JWPK msg_5qf6cx572b + msg_anqm8uy5xm)
+
+ANT Cards behaves like a physical deck, not a static list:
+
+- **Ordering:** starred rooms render first, then active/progressing rooms, then quieter rooms. Sort within each group: recency desc.
+- **Star affordance:** every card shows its star in the **top-right corner**. Active starred rooms use the filled state `★` `Tokens.accent`; unstarred use a quiet outline `☆` `Tokens.ink.muted` opacity 0.6. Tap toggles. Same data as Slice 2's SAVED ROOMS — unified.
+- **Scrub:** running a thumb or finger across the deck previews cards (`DragGesture(minimumDistance: 0)`). The card under the finger pops forward without navigation.
+- **Pause:** stopping on a card holds it in the lifted state and reveals the room summary/progress/agent highlights.
+- **First-tap commit:** first deliberate tap **pins** the lifted card — it stays lifted without finger held; accent ring signals "ready to enter."
+- **Second-tap commit:** tapping the **pinned** card triggers `spin-into-room` — card spins INTO the screen via `matchedGeometryEffect` and becomes the Room view header.
+- **Dismiss pinned:** tap outside the card OR scrub-away (drag finger onto another card → that becomes the new pinned).
+- **Safety rule:** **scrub alone NEVER navigates. First tap pins, second tap navigates.** Cost of accidental navigation > cost of one extra tap.
+
+This contract replaces any plain "tap a card in a list" interpretation.
+
+---
+
+## Card opacity table (locked per JWPK msg_anqm8uy5xm)
+
+Apple Wallet idiom — cards look like **physical objects, not glass**. Current rendering at ~50% alpha is the "I can't tell which is real" bug — fix.
+
+| Layer | Alpha | Behaviour |
+|---|---|---|
+| **Front card** (lifted or pinned) | **95%** | Nearly solid; only a hint of card-behind visible as edge |
+| **Cards behind front** (middle of stack) | **88%** | Slight transparency to communicate "another card", not "watermark" |
+| **Tilted cards far back** (deck depth, ~3+ layers down) | **80%** | Visible but quieter |
+
+Apply to the card-surface fill alpha only — text and status dots remain at 100% opacity for legibility.
 
 ---
 
