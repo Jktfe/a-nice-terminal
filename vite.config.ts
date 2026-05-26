@@ -1,10 +1,16 @@
 import { sveltekit } from '@sveltejs/kit/vite';
+import { realpathSync } from 'node:fs';
 import { defineConfig } from 'vite';
+
+const nodeModulesRealPath = realpathSync('node_modules');
 
 export default defineConfig({
   plugins: [sveltekit()],
   server: {
     host: '0.0.0.0',
+    fs: {
+      allow: [process.cwd(), nodeModulesRealPath]
+    },
     allowedHosts: [
       'localhost',
       '127.0.0.1',
