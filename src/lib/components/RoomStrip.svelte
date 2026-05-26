@@ -160,7 +160,20 @@
       }}
     >
       {#if room.isOpenable}
-        <a class="card-body card-body-link" href={`/rooms/${room.id}`}>
+        <!--
+          `draggable="false"` is required because the outer card div sets
+          `draggable={isReorderable}` for reorder gestures. Without it the
+          browser routes ⌘-click / middle-click into the drag-start
+          gesture instead of the link's open-in-new-tab — JWPK msg_5umkyxrxr4
+          2026-05-26 reported having to right-click to open rooms in a
+          new tab. Explicitly opting the link out of drag fixes the
+          gesture conflict without breaking the parent's reorder UX.
+        -->
+        <a
+          class="card-body card-body-link"
+          href={`/rooms/${room.id}`}
+          draggable="false"
+        >
           {@render body(room)}
         </a>
       {:else}
