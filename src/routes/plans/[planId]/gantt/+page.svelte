@@ -281,7 +281,7 @@
 <SimplePageShell
   eyebrow="Plans · Gantt"
   title={data.planTitle ?? data.planId}
-  summary="Timeline of every task in this plan. Bar position = task start/end; colour = status; ‎mouse-over for details. Drag a bar to reschedule — saves automatically to the task's startedAtMs/endedAtMs."
+  summary="Timeline of every task in this plan. Bar width = tracked actual duration (created → updated timestamps), NOT predicted time. Colour = status. Drag a bar to reschedule — saves automatically."
 >
   <nav class="gantt-subnav" aria-label="Plan secondary nav">
     <a class="subnav-link" href={`/plans/${encodeURIComponent(data.planId)}`}>← Dashboard</a>
