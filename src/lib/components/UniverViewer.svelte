@@ -18,6 +18,11 @@
   is opened — no "blank white square" failure mode.
 -->
 <script lang="ts">
+  import '@univerjs/design/lib/index.css';
+  import '@univerjs/ui/lib/index.css';
+  import '@univerjs/docs-ui/lib/index.css';
+  import '@univerjs/sheets-ui/lib/index.css';
+  import '@univerjs/slides-ui/lib/index.css';
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
 
@@ -116,14 +121,20 @@
       { UniverUIPlugin },
       { default: UniverUIDesignEnUS },
       { default: UniverUIEnUS },
-      { default: UniverSheetsEnUS }
+      { default: UniverDocsUIEnUS },
+      { default: UniverSheetsEnUS },
+      { default: UniverSheetsUIEnUS },
+      { default: UniverSlidesUIEnUS }
     ] = await Promise.all([
       import('@univerjs/core'),
       import('@univerjs/engine-render'),
       import('@univerjs/ui'),
       import('@univerjs/design/locale/en-US'),
       import('@univerjs/ui/locale/en-US'),
-      import('@univerjs/sheets/locale/en-US')
+      import('@univerjs/docs-ui/locale/en-US'),
+      import('@univerjs/sheets/locale/en-US'),
+      import('@univerjs/sheets-ui/locale/en-US'),
+      import('@univerjs/slides-ui/locale/en-US')
     ]);
 
     const univer = new Univer({
@@ -132,7 +143,10 @@
         [LocaleType.EN_US]: {
           ...UniverUIDesignEnUS,
           ...UniverUIEnUS,
-          ...UniverSheetsEnUS
+          ...UniverDocsUIEnUS,
+          ...UniverSheetsEnUS,
+          ...UniverSheetsUIEnUS,
+          ...UniverSlidesUIEnUS
         }
       },
       logLevel: LogLevel.WARN
@@ -147,15 +161,21 @@
     let unit: SnapshotUnit | null = null;
     if (kind === 'deck') {
       const { UniverSlidesPlugin } = await import('@univerjs/slides');
+      const { UniverSlidesUIPlugin } = await import('@univerjs/slides-ui');
       univer.registerPlugin(UniverSlidesPlugin);
+      univer.registerPlugin(UniverSlidesUIPlugin);
       unit = univer.createUnit(UniverInstanceType.UNIVER_SLIDE, snapshot as Partial<unknown>) as SnapshotUnit;
     } else if (kind === 'doc') {
       const { UniverDocsPlugin } = await import('@univerjs/docs');
+      const { UniverDocsUIPlugin } = await import('@univerjs/docs-ui');
       univer.registerPlugin(UniverDocsPlugin);
+      univer.registerPlugin(UniverDocsUIPlugin);
       unit = univer.createUnit(UniverInstanceType.UNIVER_DOC, snapshot as Partial<unknown>) as SnapshotUnit;
     } else {
       const { UniverSheetsPlugin } = await import('@univerjs/sheets');
+      const { UniverSheetsUIPlugin } = await import('@univerjs/sheets-ui');
       univer.registerPlugin(UniverSheetsPlugin);
+      univer.registerPlugin(UniverSheetsUIPlugin);
       unit = univer.createUnit(UniverInstanceType.UNIVER_SHEET, snapshot as Partial<unknown>) as SnapshotUnit;
     }
 
