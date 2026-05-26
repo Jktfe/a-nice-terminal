@@ -154,10 +154,15 @@
     univer.registerPlugin(UniverRenderEnginePlugin);
     univer.registerPlugin(UniverUIPlugin, { container: host });
 
-    // Only register the plugin we actually need — the other Univer
-    // plugins each bring their own dependency injection so loading
-    // unused ones just inflates the boot.
+    // Slides and sheets both depend on the docs editor service for
+    // rich-text editing. Register the docs editor layer once up front
+    // so deck/sheet UI plugins do not fail at runtime.
     const snapshot = deserialiseSnapshot();
+    const { UniverDocsPlugin } = await import('@univerjs/docs');
+    const { UniverDocsUIPlugin } = await import('@univerjs/docs-ui');
+    univer.registerPlugin(UniverDocsPlugin);
+    univer.registerPlugin(UniverDocsUIPlugin);
+
     let unit: SnapshotUnit | null = null;
     if (kind === 'deck') {
       const { UniverSlidesPlugin } = await import('@univerjs/slides');
@@ -166,10 +171,6 @@
       univer.registerPlugin(UniverSlidesUIPlugin);
       unit = univer.createUnit(UniverInstanceType.UNIVER_SLIDE, snapshot as Partial<unknown>) as SnapshotUnit;
     } else if (kind === 'doc') {
-      const { UniverDocsPlugin } = await import('@univerjs/docs');
-      const { UniverDocsUIPlugin } = await import('@univerjs/docs-ui');
-      univer.registerPlugin(UniverDocsPlugin);
-      univer.registerPlugin(UniverDocsUIPlugin);
       unit = univer.createUnit(UniverInstanceType.UNIVER_DOC, snapshot as Partial<unknown>) as SnapshotUnit;
     } else {
       const { UniverSheetsPlugin } = await import('@univerjs/sheets');
