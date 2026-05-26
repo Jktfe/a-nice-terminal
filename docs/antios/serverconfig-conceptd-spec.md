@@ -160,9 +160,24 @@ Discrete affordance below "Get one →":
 ```swift
 ScrollView {  // safe for keyboard-up scrolling
     VStack(spacing: 24) {
-        // Brand block
+        // Brand block — REAL ANT illustration, NOT a placeholder letter
         VStack(spacing: 12) {
-            AntBrandMark(size: 60)
+            // The illustrated ant — asset already in ANT/Assets.xcassets/ANTlogo.imageset/
+            Image("ANTlogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 60, height: 60)
+                .accessibilityLabel("ANT logo")
+
+            // The wordmark — chevron + underscore + ANT, all three coloured per brand spec
+            HStack(spacing: 2) {
+                Text(">").foregroundStyle(Tokens.info)        // #0A85F0
+                Text("_").foregroundStyle(Tokens.ok)          // #1AC270
+                Text("ANT").foregroundStyle(Tokens.ink.strong)  // adaptive ink
+            }
+            .font(.system(size: 24, weight: .heavy, design: .rounded))
+            .accessibilityLabel("antOS")
+
             Text("Welcome to ANT")
                 .font(.system(size: 28, weight: .heavy))
                 .foregroundStyle(Tokens.ink.strong)
