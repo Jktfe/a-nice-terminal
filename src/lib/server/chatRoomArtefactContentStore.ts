@@ -6,7 +6,8 @@
  *
  * content_format is forward-compatible: 'markdown' is what we serve via
  * GET right now (renderMarkdown → HTML, iframed by /artefacts/[id]);
- * 'univer-json' becomes the format once a Univer client viewer ships.
+ * 'univer-json' is rendered by the room artefact read endpoints so the
+ * canonical room artefact can be opened without a separate export step.
  */
 
 import { getIdentityDb } from './db';
