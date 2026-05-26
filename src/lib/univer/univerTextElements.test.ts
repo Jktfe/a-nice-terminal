@@ -35,6 +35,20 @@ const snapshot = {
             id: 'claim',
             type: 2,
             richText: { text: 'The launch has 4 validation checks.', fs: 24 }
+          },
+          canonical: {
+            id: 'canonical',
+            type: 2,
+            richText: {
+              rich: {
+                id: 'canonical-doc',
+                body: {
+                  dataStream: 'Canonical Univer text is editable.\r\n',
+                  textRuns: [{ st: 0, ed: 34, ts: { fs: 24 } }],
+                  paragraphs: [{ startIndex: 34 }]
+                }
+              }
+            }
           }
         }
       }
@@ -56,6 +70,12 @@ describe('univer text element helpers', () => {
         pageTitle: 'Validation',
         elementId: 'claim',
         text: 'The launch has 4 validation checks.'
+      },
+      {
+        pageId: 'slide-2',
+        pageTitle: 'Validation',
+        elementId: 'canonical',
+        text: 'Canonical Univer text is editable.'
       }
     ]);
   });
@@ -71,9 +91,25 @@ describe('univer text element helpers', () => {
     expect(listUniverTextElements(snapshot)[0].text).toBe('ANT can edit shared decks.');
   });
 
+  it('updates canonical rich body text and keeps paragraph indexes aligned', () => {
+    const updated = updateUniverTextElement(snapshot, {
+      pageId: 'slide-2',
+      elementId: 'canonical',
+      text: 'Canonical rich body updated.'
+    }) as typeof snapshot;
+    const element = updated.body.pages['slide-2'].pageElements.canonical;
+    const richBody = element.richText.rich.body;
+
+    expect(listUniverTextElements(updated).at(-1)?.text).toBe('Canonical rich body updated.');
+    expect(richBody.dataStream).toBe('Canonical rich body updated.\r\n');
+    expect(richBody.textRuns[0].ed).toBe('Canonical rich body updated.'.length);
+    expect(richBody.paragraphs[0].startIndex).toBe('Canonical rich body updated.'.length);
+  });
+
   it('converts text-bearing snapshots to plain text for validation claims', () => {
     expect(univerSnapshotToPlainText(snapshot)).toContain('ANT can edit shared decks.');
     expect(univerSnapshotToPlainText(snapshot)).toContain('The launch has 4 validation checks.');
+    expect(univerSnapshotToPlainText(snapshot)).toContain('Canonical Univer text is editable.');
     expect(univerSnapshotToPlainText(snapshot)).not.toContain('shapeType');
   });
 });

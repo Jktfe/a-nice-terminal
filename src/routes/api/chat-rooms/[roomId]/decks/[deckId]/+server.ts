@@ -27,13 +27,17 @@ import { renderUniverJsonHtml } from '$lib/server/univerJsonRenderer';
 const SLIDE_SEPARATOR_RE = /^\s*-{3,}\s*$/m;
 const UNIVER_DEMO_ARTEFACT_PREFIX = 'univer_demo_';
 const UNIVER_DEMO_CONTENT_PREFIX = 'univer_demo_content_';
+const UNIVER_CANONICAL_DEMO_ARTEFACT_PREFIX = 'univer-demo-';
+const UNIVER_CANONICAL_DEMO_CONTENT_PREFIX = 'univer-';
 
 function isSeededUniverDemoDeckWrite(deckId: string, payload: { artefactId?: unknown; contentFormat?: unknown }): boolean {
+  const artefactId = typeof payload.artefactId === 'string' ? payload.artefactId : '';
   return (
-    deckId.startsWith(UNIVER_DEMO_CONTENT_PREFIX) &&
-    typeof payload.artefactId === 'string' &&
-    payload.artefactId.startsWith(UNIVER_DEMO_ARTEFACT_PREFIX) &&
-    payload.contentFormat === 'univer-json'
+    payload.contentFormat === 'univer-json' &&
+    (
+      (deckId.startsWith(UNIVER_DEMO_CONTENT_PREFIX) && artefactId.startsWith(UNIVER_DEMO_ARTEFACT_PREFIX)) ||
+      (deckId.startsWith(UNIVER_CANONICAL_DEMO_CONTENT_PREFIX) && artefactId.startsWith(UNIVER_CANONICAL_DEMO_ARTEFACT_PREFIX))
+    )
   );
 }
 

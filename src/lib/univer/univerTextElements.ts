@@ -28,7 +28,34 @@ function pagesFromSnapshot(snapshot: unknown): { pageOrder: string[]; pages: Rec
 
 function textFromElement(element: unknown): string | null {
   if (!isObject(element) || element.type !== 2 || !isObject(element.richText)) return null;
-  return typeof element.richText.text === 'string' ? element.richText.text : null;
+  if (typeof element.richText.text === 'string') return element.richText.text;
+  if (
+    isObject(element.richText.rich) &&
+    isObject(element.richText.rich.body) &&
+    typeof element.richText.rich.body.dataStream === 'string'
+  ) {
+    return element.richText.rich.body.dataStream.replace(/\r?\n$/, '');
+  }
+  return null;
+}
+
+function updateRichBodyText(richBody: JsonObject, text: string): void {
+  const dataStream = `${text}\r\n`;
+  richBody.dataStream = dataStream;
+  const textLength = text.length;
+  if (Array.isArray(richBody.textRuns)) {
+    const firstRun = richBody.textRuns[0];
+    if (isObject(firstRun)) {
+      firstRun.st = 0;
+      firstRun.ed = textLength;
+    }
+  }
+  if (Array.isArray(richBody.paragraphs)) {
+    const firstParagraph = richBody.paragraphs[0];
+    if (isObject(firstParagraph)) {
+      firstParagraph.startIndex = textLength;
+    }
+  }
 }
 
 export function listUniverTextElements(snapshot: unknown): UniverTextElement[] {
@@ -59,7 +86,11 @@ export function updateUniverTextElement(
   if (!isObject(page) || !isObject(page.pageElements)) return next;
   const element = page.pageElements[input.elementId];
   if (!isObject(element) || element.type !== 2 || !isObject(element.richText)) return next;
-  element.richText.text = input.text;
+  if (typeof element.richText.text === 'string') {
+    element.richText.text = input.text;
+  } else if (isObject(element.richText.rich) && isObject(element.richText.rich.body)) {
+    updateRichBodyText(element.richText.rich.body, input.text);
+  }
   return next;
 }
 
