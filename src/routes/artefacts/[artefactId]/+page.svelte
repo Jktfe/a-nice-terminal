@@ -1,6 +1,7 @@
 <script lang="ts">
   import Explainable from '$lib/components/Explainable.svelte';
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
+  import UniverViewer from '$lib/components/UniverViewer.svelte';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
@@ -58,6 +59,15 @@
   const isUniverKind = $derived(['spreadsheet', 'doc', 'deck'].includes(artefact.kind));
   const canValidate = $derived(['doc', 'deck'].includes(artefact.kind));
   const kindLabel = $derived(artefact.kind === 'doc' ? 'Document' : artefact.kind === 'deck' ? 'Slides' : artefact.kind === 'spreadsheet' ? 'Spreadsheet' : 'Artefact');
+  // F-Univer slice: when the artefact has a univer-json body, render
+  // it via the Univer canvas instead of falling back to the iframe
+  // placeholder. The content row is optional — a freshly-created deck
+  // / doc / sheet seeds an empty snapshot in the viewer until first
+  // save.
+  const shouldRenderUniver = $derived(
+    isUniverKind && (data.content?.contentFormat === 'univer-json' || data.content === null)
+  );
+  let viewerError = $state('');
   let validationLoading = $state(false);
   let workLoading = $state(false);
   let validationError = $state('');
@@ -160,12 +170,32 @@
     </Explainable>
   {/if}
 
-  {#if isUniverKind}
+  {#if shouldRenderUniver}
     <Explainable explainKey="artefact-frame">
     <section class="univer-shell" aria-label="Univer workspace">
       <header>
         <span>{kindLabel}</span>
-        <strong>Viewer shell</strong>
+        <strong>Univer canvas</strong>
+      </header>
+      {#if viewerError}
+        <p class="viewer-error" role="alert">Viewer error: {viewerError}</p>
+      {/if}
+      <UniverViewer
+        kind={artefact.kind as 'deck' | 'doc' | 'spreadsheet'}
+        artefactId={artefact.id}
+        roomId={artefact.roomId}
+        contentBody={data.content?.contentBody ?? null}
+        contentFormat={data.content?.contentFormat ?? null}
+        onError={(message) => { viewerError = message; }}
+      />
+    </section>
+    </Explainable>
+  {:else if isUniverKind}
+    <Explainable explainKey="artefact-frame">
+    <section class="univer-shell" aria-label="Univer workspace">
+      <header>
+        <span>{kindLabel}</span>
+        <strong>Legacy iframe shell</strong>
       </header>
       {#if canFrame && artefact.refUrl}
         <iframe title={artefact.title} src={artefact.refUrl}></iframe>
@@ -340,6 +370,14 @@
     min-height: 68vh;
     border: 0;
     background: white;
+  }
+  .viewer-error {
+    margin: 0.5rem 0.9rem;
+    padding: 0.45rem 0.75rem;
+    color: var(--warn, #c92020);
+    background: color-mix(in srgb, var(--warn, #c92020) 8%, transparent);
+    border-radius: 0.4rem;
+    font-size: 0.85rem;
   }
   .generic-frame {
     border: 1px solid var(--line-soft);
