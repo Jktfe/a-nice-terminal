@@ -74,6 +74,22 @@ describe('renderMarkdown', () => {
     expect(result).not.toContain('onerror');
   });
 
+  it('renders markdown images for Stage decks and manual screenshots', () => {
+    const result = renderMarkdown('![Rooms list](/manual/rooms-index.png "Rooms")');
+    expect(result).toContain('<img');
+    expect(result).toContain('src="/manual/rooms-index.png"');
+    expect(result).toContain('alt="Rooms list"');
+    expect(result).toContain('title="Rooms"');
+    expect(result).toContain('loading="lazy"');
+    expect(result).toContain('decoding="async"');
+  });
+
+  it('strips unsafe image protocols completely', () => {
+    const result = renderMarkdown('![bad](javascript:alert(1))');
+    expect(result).not.toContain('<img');
+    expect(result).not.toContain('javascript:');
+  });
+
   // JWPK 2026-05-18 in ANT artefacts room: CLI-sent messages contain
   // literal `\n` because shells don't interpret \n inside double-quoted
   // strings. The renderer now unescapes \n / \t / \r before marked sees

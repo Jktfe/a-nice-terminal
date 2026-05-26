@@ -19,7 +19,7 @@ const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
     'ul', 'ol', 'li', 'blockquote',
     'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
     'table', 'thead', 'tbody', 'tr', 'th', 'td',
-    'span', 'div'
+    'span', 'div', 'img'
   ],
   allowedAttributes: {
     a: ['href', 'name', 'target', 'rel'],
@@ -27,10 +27,20 @@ const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
     pre: ['class'],
     span: ['class'],
     div: ['class'],
+    img: ['src', 'alt', 'title', 'width', 'height', 'loading', 'decoding'],
     th: ['align'],
     td: ['align']
   },
   allowedSchemes: ['http', 'https', 'mailto'],
+  allowedSchemesByTag: {
+    img: ['http', 'https']
+  },
+  allowedSchemesAppliedToAttributes: ['href', 'src'],
+  allowProtocolRelative: false,
+  allowedIframeHostnames: [],
+  // Allow repo-local static assets such as `/manual/rooms-index.png` in
+  // Stage decks without allowing protocol-relative or javascript URLs.
+  allowedScriptHostnames: [],
   // HTML5 void elements, not XHTML — emit `<br>` not `<br />`. Matches
   // the markup marked produces directly and keeps chat-message tests
   // that grep for `<br>` working.
@@ -39,7 +49,24 @@ const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   // Force noopener+noreferrer on external links so a rogue rel attribute
   // can't open a tabnabbing path.
   transformTags: {
-    a: sanitizeHtml.simpleTransform('a', { rel: 'noopener noreferrer' })
+    a: sanitizeHtml.simpleTransform('a', { rel: 'noopener noreferrer' }),
+    img: (tagName, attribs) => {
+      const src = attribs.src ?? '';
+      if (!src.startsWith('/') && !src.startsWith('http://') && !src.startsWith('https://')) {
+        return { tagName, attribs: { ...attribs, src: '' } };
+      }
+      return {
+        tagName,
+        attribs: {
+          ...attribs,
+          loading: attribs.loading ?? 'lazy',
+          decoding: attribs.decoding ?? 'async'
+        }
+      };
+    }
+  },
+  exclusiveFilter: (frame) => {
+    return frame.tag === 'img' && !frame.attribs.src;
   }
 };
 
