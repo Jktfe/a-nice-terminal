@@ -145,6 +145,7 @@
           href={`/plans/${encodeURIComponent(p.planId)}`}
           planId={p.planId}
           showHardDelete={data.showArchived || data.showDeleted}
+          showLifecycleActions={!data.showArchived && !data.showDeleted}
         />
         </Explainable>
       {/each}
