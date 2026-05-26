@@ -874,6 +874,17 @@
     padding: 0;
     background: transparent;
   }
+  .slide-body :global(img) {
+    display: block;
+    max-width: min(100%, 960px);
+    max-height: 54vh;
+    margin: 1rem auto;
+    border: 1px solid var(--line-soft);
+    border-radius: 0.85rem;
+    background: var(--surface-card);
+    box-shadow: 0 18px 42px rgb(0 0 0 / 8%);
+    object-fit: contain;
+  }
   .slide-body :global(ul),
   .slide-body :global(ol) { padding-left: 1.4rem; }
   .deck-nav {
