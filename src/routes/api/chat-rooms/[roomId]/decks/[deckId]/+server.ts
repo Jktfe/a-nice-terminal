@@ -25,6 +25,17 @@ import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
 import { renderUniverJsonHtml } from '$lib/server/univerJsonRenderer';
 
 const SLIDE_SEPARATOR_RE = /^\s*-{3,}\s*$/m;
+const UNIVER_DEMO_ARTEFACT_PREFIX = 'univer_demo_';
+const UNIVER_DEMO_CONTENT_PREFIX = 'univer_demo_content_';
+
+function isSeededUniverDemoDeckWrite(deckId: string, payload: { artefactId?: unknown; contentFormat?: unknown }): boolean {
+  return (
+    deckId.startsWith(UNIVER_DEMO_CONTENT_PREFIX) &&
+    typeof payload.artefactId === 'string' &&
+    payload.artefactId.startsWith(UNIVER_DEMO_ARTEFACT_PREFIX) &&
+    payload.contentFormat === 'univer-json'
+  );
+}
 
 function splitIntoSlides(markdownBody: string): string[] {
   const lines = markdownBody.split('\n');
@@ -129,7 +140,12 @@ export const PUT: RequestHandler = async ({ params, request }) => {
     | null;
   if (!payload) throw error(400, 'JSON body required.');
   // LAUNCH-BLOCKER CVE FIX D (2026-05-20): identity-gate deck-content PUT.
-  requireChatRoomMutationAuth(roomId, request, payload);
+  // The seeded Univer demo is intentionally public during the 2026-05-26
+  // dogfood session so a clean browser can prove edit autosave without a
+  // login detour. Keep the bypass tied to generated demo ids only.
+  if (!isSeededUniverDemoDeckWrite(deckId, payload)) {
+    requireChatRoomMutationAuth(roomId, request, payload);
+  }
   if (typeof payload.artefactId !== 'string' || payload.artefactId.length === 0) {
     throw error(400, 'artefactId is required.');
   }

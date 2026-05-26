@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { GET } from './+server';
+import { GET, PUT } from './+server';
 import { createArtefactInRoom, resetChatRoomArtefactStoreForTests } from '$lib/server/chatRoomArtefactStore';
 import { resetChatRoomArtefactContentStoreForTests, upsertArtefactContent } from '$lib/server/chatRoomArtefactContentStore';
 import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
 
 type AnyEvent = Parameters<typeof GET>[0];
 
-function eventFor(roomId: string, deckId: string): AnyEvent {
+function eventFor(roomId: string, deckId: string, init?: RequestInit): AnyEvent {
   const url = new URL(`http://localhost/api/chat-rooms/${roomId}/decks/${deckId}`);
   return {
-    request: new Request(url.toString()),
+    request: new Request(url.toString(), init),
     params: { roomId, deckId },
     url
   } as unknown as AnyEvent;
@@ -18,6 +18,19 @@ function eventFor(roomId: string, deckId: string): AnyEvent {
 async function runGet(event: AnyEvent): Promise<Response> {
   try {
     return (await GET(event)) as Response;
+  } catch (thrownByHandler) {
+    if (thrownByHandler instanceof Response) return thrownByHandler;
+    const httpFailure = thrownByHandler as { status?: number; body?: { message?: string } };
+    if (typeof httpFailure?.status === 'number') {
+      return new Response(JSON.stringify(httpFailure.body ?? {}), { status: httpFailure.status });
+    }
+    throw thrownByHandler;
+  }
+}
+
+async function runPut(event: AnyEvent): Promise<Response> {
+  try {
+    return (await PUT(event as Parameters<typeof PUT>[0])) as Response;
   } catch (thrownByHandler) {
     if (thrownByHandler instanceof Response) return thrownByHandler;
     const httpFailure = thrownByHandler as { status?: number; body?: { message?: string } };
@@ -76,5 +89,55 @@ describe('GET /api/chat-rooms/:roomId/decks/:deckId', () => {
     expect(html).toContain('&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;');
     expect(html).not.toContain('<script>alert("x")</script>');
     expect(html).not.toContain('not yet implemented');
+  });
+
+  it('lets the seeded Univer demo deck autosave without room auth', async () => {
+    const room = createChatRoom({ name: 'speed matters', whoCreatedIt: '@you' });
+    const artefact = createArtefactInRoom({
+      id: 'univer_demo_5892abff',
+      roomId: room.id,
+      kind: 'deck',
+      title: 'Univer Demo Deck',
+      refUrl: `/api/chat-rooms/${room.id}/decks/univer_demo_content_2f3cbf38`,
+      createdBy: '@speedycodex'
+    });
+
+    const response = await runPut(eventFor(room.id, 'univer_demo_content_2f3cbf38', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        artefactId: artefact.id,
+        contentFormat: 'univer-json',
+        contentBody: '{"id":"demo-deck"}'
+      })
+    }));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.id).toBe('univer_demo_content_2f3cbf38');
+    expect(body.contentBody).toBe('{"id":"demo-deck"}');
+  });
+
+  it('still rejects anonymous autosave for ordinary decks', async () => {
+    const room = createChatRoom({ name: 'private deck room', whoCreatedIt: '@you' });
+    const artefact = createArtefactInRoom({
+      roomId: room.id,
+      kind: 'deck',
+      title: 'Private Deck',
+      refUrl: `/api/chat-rooms/${room.id}/decks/private-deck`,
+      createdBy: '@speedycodex'
+    });
+
+    const response = await runPut(eventFor(room.id, 'private-deck', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        artefactId: artefact.id,
+        contentFormat: 'univer-json',
+        contentBody: '{"id":"private-deck"}'
+      })
+    }));
+
+    expect(response.status).toBe(401);
   });
 });
