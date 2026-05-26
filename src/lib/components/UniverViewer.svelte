@@ -125,7 +125,7 @@
       logLevel: LogLevel.WARN
     });
     univer.registerPlugin(UniverRenderEnginePlugin);
-    univer.registerPlugin(UniverUIPlugin, { container: host, header: false, toolbar: false });
+    univer.registerPlugin(UniverUIPlugin, { container: host });
 
     // Only register the plugin we actually need — the other Univer
     // plugins each bring their own dependency injection so loading
