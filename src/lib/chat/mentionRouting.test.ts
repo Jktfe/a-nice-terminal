@@ -30,6 +30,12 @@ describe('listBareMentionHandles', () => {
   it('does not match embedded or longer tokens', () => {
     expect(listBareMentionHandles('mail@example.com hello@codex @codexish')).toEqual(['@codexish']);
   });
+
+  it('ignores @mentions inside double quotes (JWPK msg_5xglxgebc6)', () => {
+    expect(listBareMentionHandles('"@codex said this" but @svelte did that')).toEqual(['@svelte']);
+    expect(listBareMentionHandles('"@everyone" is just a quote')).toEqual([]);
+    expect(listBareMentionHandles('no quotes here @codex')).toEqual(['@codex']);
+  });
 });
 
 describe('hasBracketedMention', () => {

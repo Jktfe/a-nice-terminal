@@ -22,13 +22,35 @@ export type ResponderWithStatus = {
   handle: string;
 };
 
+export type ResponderPickerOpts = {
+  /** Handles that have explicitly passed on this message — skip them. */
+  passHandles?: Set<string>;
+  /** handle → claimed_at_ms for active working claims. Claims older than
+   *  autoPassWorkingMs are treated as passed (no-response timeout). */
+  workingHandles?: Map<string, number>;
+  /** How long a working claim can sit without response before it is
+   *  treated as a pass. Default: 30 000 ms. */
+  autoPassWorkingMs?: number;
+};
+
 export function pickNextResponder(
   responders: ResponderWithStatus[],
-  senderHandle: string | null
+  senderHandle: string | null,
+  opts: ResponderPickerOpts = {}
 ): ResponderWithStatus | null {
+  const passSet = opts.passHandles ?? new Set<string>();
+  const workingMap = opts.workingHandles ?? new Map<string, number>();
+  const autoPassMs = opts.autoPassWorkingMs ?? 30_000;
+  const nowMs = Date.now();
+
   for (const responder of responders) {
     if (responder.handle === senderHandle) continue;
     if (responder.pane_status !== 'verified') continue;
+    if (passSet.has(responder.handle)) continue;
+    const workingAtMs = workingMap.get(responder.handle);
+    if (workingAtMs !== undefined && nowMs - workingAtMs > autoPassMs) {
+      continue; // auto-pass: working claim with no response within window
+    }
     return responder;
   }
   return null;

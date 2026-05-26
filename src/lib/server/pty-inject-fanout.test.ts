@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resetIdentityDbForTests } from './db';
+import { resetIdentityDbForTests, getIdentityDb } from './db';
 import { upsertTerminal, updatePaneTarget, markPaneVerified } from './terminalsStore';
 import { addMembership } from './roomMembershipsStore';
 import { resetChatRoomStoreForTests, createChatRoom, inviteAgentToRoom } from './chatRoomStore';
@@ -536,32 +536,45 @@ describe('fanoutMessageToRoomTerminals — heads-down routing (M3.b.5 JWPK-C)', 
     addMembership({ room_id: room.id, handle: '@r1', terminal_id: t2.id });
     addMembership({ room_id: room.id, handle: '@r2', terminal_id: t3.id });
     setRoomMode({ roomId: room.id, mode: 'heads-down', set_by: '@admin' });
+    setSpawnImplForTests(() => ({
+      pid: 1,
+      stdout: Buffer.from('│ > ready prompt'),
+      stderr: Buffer.alloc(0),
+      status: 0,
+      signal: null,
+      output: []
+    } as any));
     return { room, t1, t2, t3 };
   }
 
-  it('does not use the responder picker for unmentioned messages', () => {
+  it('routes unmentioned heads-down message to first verified responder', () => {
     const { room, t2, t3 } = setupHdRoomWithTwoResponders();
     setResponders({ roomId: room.id, terminalIds: [t2.id, t3.id], set_by: '@admin' });
     markPaneVerified(t2.id);
     markPaneVerified(t3.id);
+    const sysBefore = listMessagesInRoom(room.id).filter((m) => m.kind === 'system').length;
     const message = postMessage({ roomId: room.id, authorHandle: '@sender', body: 'hi', kind: 'human' });
     fanoutMessageToRoomTerminals(room.id, message);
-    expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t2.id}`)).toBe(0);
+    // First verified responder (t2 / @r1) gets the message
+    expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t2.id}`)).toBe(1);
     expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t3.id}`)).toBe(0);
-    expect(listMessagesInRoom(room.id).filter((m) => m.kind === 'system').length).toBe(0);
+    expect(listMessagesInRoom(room.id).filter((m) => m.kind === 'system').length).toBe(sysBefore);
   });
 
   it('bare @handle in heads-down targets only that member', () => {
     const { room, t2, t3 } = setupHdRoomWithTwoResponders();
+    const sysBefore = listMessagesInRoom(room.id).filter((m) => m.kind === 'system').length;
+    // No responders configured; targetedHandles from @r1 keeps normal routing
     const message = postMessage({ roomId: room.id, authorHandle: '@sender', body: '@r1 please check', kind: 'human' });
     fanoutMessageToRoomTerminals(room.id, message);
     expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t2.id}`)).toBe(1);
     expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t3.id}`)).toBe(0);
-    expect(listMessagesInRoom(room.id).filter((m) => m.kind === 'system').length).toBe(0);
+    expect(listMessagesInRoom(room.id).filter((m) => m.kind === 'system').length).toBe(sysBefore);
   });
 
   it('forceBroadcastToAll enqueues every member except sender', () => {
     const { room, t2, t3 } = setupHdRoomWithTwoResponders();
+    const sysBefore = listMessagesInRoom(room.id).filter((m) => m.kind === 'system').length;
     const message = postMessage({
       roomId: room.id,
       authorHandle: '@sender',
@@ -572,14 +585,15 @@ describe('fanoutMessageToRoomTerminals — heads-down routing (M3.b.5 JWPK-C)', 
 
     expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t2.id}`)).toBe(1);
     expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t3.id}`)).toBe(1);
-    expect(listMessagesInRoom(room.id).filter((m) => m.kind === 'system').length).toBe(0);
+    expect(listMessagesInRoom(room.id).filter((m) => m.kind === 'system').length).toBe(sysBefore);
   });
 
-  it('bracketed [@everyone] in heads-down does not inject', () => {
+  it('bracketed [@everyone] in heads-down routes via responder picker', () => {
     const { room, t2, t3 } = setupHdRoomWithTwoResponders();
     setResponders({ roomId: room.id, terminalIds: [t2.id, t3.id], set_by: '@admin' });
     markPaneVerified(t2.id);
     markPaneVerified(t3.id);
+    const sysBefore = listMessagesInRoom(room.id).filter((m) => m.kind === 'system').length;
     const message = postMessage({
       roomId: room.id,
       authorHandle: '@sender',
@@ -587,9 +601,11 @@ describe('fanoutMessageToRoomTerminals — heads-down routing (M3.b.5 JWPK-C)', 
       kind: 'human'
     });
     fanoutMessageToRoomTerminals(room.id, message);
-    expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t2.id}`)).toBe(0);
+    // Bracketed mention is informational; responder picker still routes
+    // to the first verified non-sender responder.
+    expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t2.id}`)).toBe(1);
     expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t3.id}`)).toBe(0);
-    expect(listMessagesInRoom(room.id).filter((m) => m.kind === 'system').length).toBe(0);
+    expect(listMessagesInRoom(room.id).filter((m) => m.kind === 'system').length).toBe(sysBefore);
   });
 
   it('bare @everyone in heads-down broadcasts to all members', () => {
@@ -597,6 +613,7 @@ describe('fanoutMessageToRoomTerminals — heads-down routing (M3.b.5 JWPK-C)', 
     setResponders({ roomId: room.id, terminalIds: [t2.id, t3.id], set_by: '@admin' });
     markPaneVerified(t2.id);
     markPaneVerified(t3.id);
+    const sysBefore = listMessagesInRoom(room.id).filter((m) => m.kind === 'system').length;
     const message = postMessage({
       roomId: room.id,
       authorHandle: '@sender',
@@ -606,7 +623,88 @@ describe('fanoutMessageToRoomTerminals — heads-down routing (M3.b.5 JWPK-C)', 
     fanoutMessageToRoomTerminals(room.id, message);
     expect(getFanoutQueueForTests().pendingCountForTests(room.id + "::" + t2.id)).toBe(1);
     expect(getFanoutQueueForTests().pendingCountForTests(room.id + "::" + t3.id)).toBe(1);
-    expect(listMessagesInRoom(room.id).filter((m) => m.kind === 'system').length).toBe(0);
+    expect(listMessagesInRoom(room.id).filter((m) => m.kind === 'system').length).toBe(sysBefore);
+  });
+
+  // Regression tests for responder routing race safety (JWPK msg_ktbgn99ft1)
+  it('agent-unmentioned in heads-down does NOT auto-route to responders', () => {
+    const { room, t2, t3 } = setupHdRoomWithTwoResponders();
+    setResponders({ roomId: room.id, terminalIds: [t2.id, t3.id], set_by: '@admin' });
+    markPaneVerified(t2.id);
+    markPaneVerified(t3.id);
+    const message = postMessage({ roomId: room.id, authorHandle: '@sender', body: 'agent says hi', kind: 'agent' });
+    fanoutMessageToRoomTerminals(room.id, message);
+    // Agent-unmentioned bypasses responder picker entirely
+    expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t2.id}`)).toBe(0);
+    expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t3.id}`)).toBe(0);
+  });
+
+  it('duplicate re-fanout of same message only enqueues once', () => {
+    const { room, t2, t3 } = setupHdRoomWithTwoResponders();
+    setResponders({ roomId: room.id, terminalIds: [t2.id, t3.id], set_by: '@admin' });
+    markPaneVerified(t2.id);
+    markPaneVerified(t3.id);
+    const message = postMessage({ roomId: room.id, authorHandle: '@sender', body: 'hi', kind: 'human' });
+    fanoutMessageToRoomTerminals(room.id, message);
+    const firstCount = getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t2.id}`);
+    // Re-fanout the same message
+    fanoutMessageToRoomTerminals(room.id, message);
+    const secondCount = getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t2.id}`);
+    expect(secondCount).toBe(firstCount); // no duplicate enqueue
+  });
+
+  it('timed-out working responder is excluded from fallback', () => {
+    const { room, t2, t3 } = setupHdRoomWithTwoResponders();
+    setResponders({ roomId: room.id, terminalIds: [t2.id, t3.id], set_by: '@admin' });
+    markPaneVerified(t2.id);
+    markPaneVerified(t3.id);
+    const message = postMessage({ roomId: room.id, authorHandle: '@sender', body: 'hi', kind: 'human' });
+    // Simulate a working claim on t2 that is >30s old
+    createClaim({
+      entity_kind: 'message',
+      entity_id: message.id,
+      claim_kind: 'working',
+      claimed_by_handle: '@r1',
+      ttl_ms: 60_000
+    });
+    // Manually backdate the claim to simulate timeout
+    const db = getIdentityDb();
+    db.prepare(`UPDATE entity_claims SET claimed_at_ms = claimed_at_ms - 35000 WHERE entity_id = ? AND claim_kind = 'working' AND claimed_by_handle = '@r1'`).run(message.id);
+    fanoutMessageToRoomTerminals(room.id, message);
+    // t2 is timed out, t3 is first eligible → t3 gets it
+    expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t2.id}`)).toBe(0);
+    expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t3.id}`)).toBe(1);
+  });
+
+  it('fallback only targets verified responders, not all room members', () => {
+    const room = createChatRoom({ name: 'hd-fallback', whoCreatedIt: '@test' });
+    const t1 = upsertTerminal({ pid: 1, pid_start: 'p1', name: 'sender-term' });
+    const t2 = upsertTerminal({ pid: 2, pid_start: 'p2', name: 'r1-term' });
+    const t3 = upsertTerminal({ pid: 3, pid_start: 'p3', name: 'r2-term' });
+    const t4 = upsertTerminal({ pid: 4, pid_start: 'p4', name: 'non-responder' });
+    updatePaneTarget(t2.id, '%r1', 'claude_code');
+    updatePaneTarget(t3.id, '%r2', 'claude_code');
+    updatePaneTarget(t4.id, '%nr', 'claude_code');
+    addMembership({ room_id: room.id, handle: '@sender', terminal_id: t1.id });
+    addMembership({ room_id: room.id, handle: '@r1', terminal_id: t2.id });
+    addMembership({ room_id: room.id, handle: '@r2', terminal_id: t3.id });
+    addMembership({ room_id: room.id, handle: '@nr', terminal_id: t4.id });
+    setRoomMode({ roomId: room.id, mode: 'heads-down', set_by: '@admin' });
+    setResponders({ roomId: room.id, terminalIds: [t2.id, t3.id], set_by: '@admin' });
+    markPaneVerified(t2.id);
+    markPaneVerified(t3.id);
+    markPaneVerified(t4.id);
+    const message = postMessage({ roomId: room.id, authorHandle: '@sender', body: 'hi', kind: 'human' });
+    // @r1 passed AND @r2 stale (unverified) → picker returns null, fallback reached
+    createClaim({ entity_kind: 'message', entity_id: message.id, claim_kind: 'pass', claimed_by_handle: '@r1' });
+    // Mark t3 pane stale so it is not verified
+    const db = getIdentityDb();
+    db.prepare(`UPDATE terminals SET pane_status = 'stale' WHERE id = ?`).run(t3.id);
+    fanoutMessageToRoomTerminals(room.id, message);
+    // t1 sender, t2 passed, t3 stale/unverified, t4 non-responder → no one gets it
+    expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t2.id}`)).toBe(0);
+    expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t3.id}`)).toBe(0);
+    expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t4.id}`)).toBe(0);
   });
 });
 
