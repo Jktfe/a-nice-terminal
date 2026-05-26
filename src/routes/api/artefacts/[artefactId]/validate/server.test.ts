@@ -325,6 +325,103 @@ describe('POST /api/artefacts/:artefactId/validate', () => {
     expect(tasks.map((task) => task.assignedTo)).toEqual(['@speedycodex', '@speedykimi']);
   });
 
+  it('extracts validation claims from univer-json deck text elements', async () => {
+    const room = createChatRoom({ name: 'univer validation room', whoCreatedIt: '@you' });
+    const artefact = createArtefactInRoom({
+      roomId: room.id,
+      kind: 'deck',
+      title: 'Editable deck',
+      createdBy: '@speedycodex'
+    });
+    upsertArtefactContent({
+      id: 'editable-deck-content',
+      artefactId: artefact.id,
+      roomId: room.id,
+      kind: 'deck',
+      contentFormat: 'univer-json',
+      contentBody: JSON.stringify({
+        id: 'deck-test',
+        title: 'Editable deck',
+        body: {
+          pageOrder: ['slide-1'],
+          pages: {
+            'slide-1': {
+              id: 'slide-1',
+              title: 'Claims',
+              pageElements: {
+                claim: {
+                  id: 'claim',
+                  type: 2,
+                  richText: { text: 'The Univer deck has 4 validation checks.' }
+                }
+              }
+            }
+          }
+        }
+      }),
+      updatedByHandle: '@speedycodex'
+    });
+    ensureJksValidationRulePolicy({ ownerHandle: '@you', actorKind: 'human' });
+
+    const response = await runPost(eventFor(artefact.id, { policySlug: JKS_VALIDATION_RULE_SLUG }));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.claims).toHaveLength(1);
+    expect(body.claims[0]).toMatchObject({
+      text: 'The Univer deck has 4 validation checks.',
+      source: {
+        tool: 'deck',
+        pointer: `artefact:${artefact.id}#L1`
+      }
+    });
+    expect(body.score.totalClaims).toBe(1);
+  });
+
+  it('allows the seeded Univer demo artefact to validate without a browser session', async () => {
+    const room = createChatRoom({ name: 'demo room', whoCreatedIt: '@you' });
+    const artefact = createArtefactInRoom({
+      id: 'univer_demo_5892abff',
+      roomId: room.id,
+      kind: 'deck',
+      title: 'Demo deck',
+      createdBy: '@speedycodex'
+    });
+    upsertArtefactContent({
+      id: 'univer_demo_content_2f3cbf38',
+      artefactId: artefact.id,
+      roomId: room.id,
+      kind: 'deck',
+      contentFormat: 'univer-json',
+      contentBody: JSON.stringify({
+        body: {
+          pageOrder: ['slide-1'],
+          pages: {
+            'slide-1': {
+              id: 'slide-1',
+              title: 'Demo',
+              pageElements: {
+                claim: {
+                  id: 'claim',
+                  type: 2,
+                  richText: { text: 'The public Univer demo has 4 validation checks.' }
+                }
+              }
+            }
+          }
+        }
+      }),
+      updatedByHandle: '@speedycodex'
+    });
+    ensureJksValidationRulePolicy({ ownerHandle: '@you', actorKind: 'human' });
+
+    const response = await runPost(eventFor(artefact.id, {}, false));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.claims[0].text).toBe('The public Univer demo has 4 validation checks.');
+  });
+
   it('rejects artefacts without stored markdown content', async () => {
     const room = createChatRoom({ name: 'validation room', whoCreatedIt: '@you' });
     const artefact = createArtefactInRoom({

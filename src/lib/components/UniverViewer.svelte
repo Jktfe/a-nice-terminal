@@ -25,6 +25,11 @@
   import '@univerjs/slides-ui/lib/index.css';
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
+  import {
+    listUniverTextElements,
+    updateUniverTextElement,
+    type UniverTextElement
+  } from '$lib/univer/univerTextElements';
 
   type Kind = 'deck' | 'doc' | 'spreadsheet';
 
@@ -44,6 +49,10 @@
   let bootError = $state('');
   let saveStatus = $state<'idle' | 'saving' | 'saved' | 'error' | 'unsupported'>('idle');
   let lastSavedAt = $state<number | null>(null);
+  let snapshotJson = $state('');
+  let snapshotSourceKey = $state('');
+  let selectedTextKey = $state('');
+  let quickEditText = $state('');
   let univerInstance: { dispose: () => void } | null = null;
   let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let saveAbortController: AbortController | null = null;
@@ -58,6 +67,14 @@
   };
 
   const canPersist = $derived(kind === 'deck' || kind === 'doc');
+  const textElements = $derived.by(() => {
+    if (!snapshotJson || contentFormat !== 'univer-json') return [] as UniverTextElement[];
+    try {
+      return listUniverTextElements(JSON.parse(snapshotJson));
+    } catch {
+      return [] as UniverTextElement[];
+    }
+  });
 
   // The empty snapshots are deliberately minimal — Univer fills in
   // sensible defaults for omitted keys, but we have to at least name
@@ -97,11 +114,11 @@
   }
 
   function deserialiseSnapshot(): unknown {
-    if (!contentBody || contentFormat !== 'univer-json') {
+    if (!snapshotJson || contentFormat !== 'univer-json') {
       return emptySnapshotForKind(kind);
     }
     try {
-      return JSON.parse(contentBody);
+      return JSON.parse(snapshotJson);
     } catch (cause) {
       const msg = cause instanceof Error ? cause.message : 'malformed univer-json';
       bootError = `Stored snapshot is malformed: ${msg}. Showing empty canvas instead.`;
@@ -165,8 +182,20 @@
 
     let unit: SnapshotUnit | null = null;
     if (kind === 'deck') {
+      // Per Univer v0.22.1 examples/src/slides/main.ts canonical order:
+      // engine-formula + drawing MUST register BEFORE slides + slides-ui.
+      // Slide page elements ARE drawings under the hood; the
+      // SlideEditingRenderController mounts a Docs editor over the
+      // selected drawing's transform. Without UniverDrawingPlugin the
+      // element renders but the editor overlay can't attach — text
+      // looks editable in theory, click does nothing in practice.
+      // JWPK msg_4o6wcp0dkj feedback symptom matches exactly.
+      const { UniverFormulaEnginePlugin } = await import('@univerjs/engine-formula');
+      const { UniverDrawingPlugin } = await import('@univerjs/drawing');
       const { UniverSlidesPlugin } = await import('@univerjs/slides');
       const { UniverSlidesUIPlugin } = await import('@univerjs/slides-ui');
+      univer.registerPlugin(UniverFormulaEnginePlugin);
+      univer.registerPlugin(UniverDrawingPlugin);
       univer.registerPlugin(UniverSlidesPlugin);
       univer.registerPlugin(UniverSlidesUIPlugin);
       unit = univer.createUnit(UniverInstanceType.UNIVER_SLIDE, snapshot as Partial<unknown>) as SnapshotUnit;
@@ -193,6 +222,14 @@
         univer.dispose();
       }
     };
+  }
+
+  async function remountUniver(): Promise<void> {
+    if (!browser || !containerEl || !mounted) return;
+    try { univerInstance?.dispose(); } catch { /* dispose best-effort */ }
+    univerInstance = null;
+    containerEl.replaceChildren();
+    univerInstance = await bootUniver(containerEl);
   }
 
   // Debounced save: every 1.2s of inactivity after an edit, PUT the
@@ -238,6 +275,58 @@
     }
   }
 
+  function textKey(element: UniverTextElement): string {
+    return `${element.pageId}::${element.elementId}`;
+  }
+
+  function selectedTextElement(): UniverTextElement | null {
+    return textElements.find((element) => textKey(element) === selectedTextKey) ?? textElements[0] ?? null;
+  }
+
+  function selectTextElement(key: string): void {
+    selectedTextKey = key;
+    quickEditText = selectedTextElement()?.text ?? '';
+  }
+
+  async function saveQuickTextEdit(): Promise<void> {
+    const selected = selectedTextElement();
+    if (!selected || !snapshotJson) return;
+    let snapshot: unknown;
+    try {
+      snapshot = JSON.parse(snapshotJson);
+    } catch (cause) {
+      const msg = cause instanceof Error ? cause.message : 'malformed univer-json';
+      bootError = `Stored snapshot is malformed: ${msg}.`;
+      onError?.(bootError);
+      return;
+    }
+    const updated = updateUniverTextElement(snapshot, {
+      pageId: selected.pageId,
+      elementId: selected.elementId,
+      text: quickEditText
+    });
+    const nextSnapshotJson = JSON.stringify(updated);
+    snapshotJson = nextSnapshotJson;
+    await persistSnapshot(nextSnapshotJson);
+    await remountUniver();
+  }
+
+  $effect(() => {
+    const nextSourceKey = `${artefactId}:${contentId}:${contentBody ?? ''}`;
+    if (nextSourceKey !== snapshotSourceKey) {
+      snapshotJson = contentBody ?? '';
+      snapshotSourceKey = nextSourceKey;
+      selectedTextKey = '';
+      quickEditText = '';
+    }
+  });
+
+  $effect(() => {
+    if (selectedTextKey || textElements.length === 0) return;
+    selectedTextKey = textKey(textElements[0]);
+    quickEditText = textElements[0].text;
+  });
+
   onMount(() => {
     if (!browser || !containerEl) return;
     mounted = true;
@@ -281,6 +370,29 @@
       Editing preview only — spreadsheet persistence is not wired yet
     {/if}
   </div>
+  {#if canPersist && textElements.length > 0}
+    <form class="quick-text-editor" onsubmit={(event) => { event.preventDefault(); void saveQuickTextEdit(); }}>
+      <label>
+        <span>Text quick edit</span>
+        <select
+          value={selectedTextKey}
+          onchange={(event) => selectTextElement(event.currentTarget.value)}
+        >
+          {#each textElements as element}
+            <option value={textKey(element)}>
+              {element.pageTitle} · {element.text.slice(0, 46)}
+            </option>
+          {/each}
+        </select>
+      </label>
+      <textarea
+        rows="2"
+        bind:value={quickEditText}
+        aria-label="Selected slide text"
+      ></textarea>
+      <button type="submit" disabled={saveStatus === 'saving'}>Save text</button>
+    </form>
+  {/if}
 </div>
 
 <style>
@@ -315,5 +427,54 @@
     background: color-mix(in srgb, var(--warn, #c92020) 8%, transparent);
     border-radius: 0.4rem;
     font-size: 0.85rem;
+  }
+  .quick-text-editor {
+    display: grid;
+    grid-template-columns: minmax(14rem, 0.9fr) minmax(16rem, 1.6fr) auto;
+    gap: 0.55rem;
+    align-items: end;
+    padding: 0.65rem 0.7rem;
+    background: var(--surface-card);
+    border-top: 1px solid var(--line-soft);
+  }
+  .quick-text-editor label {
+    display: grid;
+    gap: 0.25rem;
+    font-size: 0.76rem;
+    font-weight: 800;
+    color: var(--ink-soft);
+  }
+  .quick-text-editor select,
+  .quick-text-editor textarea {
+    width: 100%;
+    border: 1px solid var(--line-soft);
+    border-radius: 0.45rem;
+    padding: 0.45rem 0.55rem;
+    font: inherit;
+    color: var(--ink);
+    background: var(--surface-raised);
+  }
+  .quick-text-editor textarea {
+    resize: vertical;
+    min-height: 2.5rem;
+  }
+  .quick-text-editor button {
+    border: 1px solid var(--accent);
+    border-radius: 0.45rem;
+    padding: 0.52rem 0.8rem;
+    font-weight: 850;
+    color: var(--accent-ink, #fff);
+    background: var(--accent);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .quick-text-editor button:disabled {
+    cursor: wait;
+    opacity: 0.65;
+  }
+  @media (max-width: 760px) {
+    .quick-text-editor {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

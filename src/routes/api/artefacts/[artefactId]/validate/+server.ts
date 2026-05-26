@@ -20,6 +20,7 @@ import {
   JKS_VALIDATION_RULE_SLUG
 } from '$lib/server/validationPolicyPresets';
 import { extractMarkdownValidationClaimPointers } from '$lib/server/validationMarkdownExtractor';
+import { univerSnapshotToPlainText } from '$lib/univer/univerTextElements';
 import { scoreValidationClaims, type ValidationVerifierKind } from '$lib/server/validationScoring';
 import {
   planValidationOrchestration,
@@ -43,6 +44,35 @@ type ValidationLens = {
   description: string | null;
   policy: PolicyBody;
 };
+
+type StoredArtefact = NonNullable<ReturnType<typeof getArtefact>>;
+type StoredArtefactContent = NonNullable<ReturnType<typeof getArtefactContentByArtefactId>>;
+
+function isPublicUniverDemoValidation(input: {
+  artefact: StoredArtefact;
+  content: StoredArtefactContent;
+  policySlug: string;
+  createWork: unknown;
+}): boolean {
+  return (
+    input.artefact.id.startsWith('univer_demo_') &&
+    input.content.id.startsWith('univer_demo_content_') &&
+    input.content.contentFormat === 'univer-json' &&
+    input.content.kind === 'deck' &&
+    input.policySlug === JKS_VALIDATION_RULE_SLUG &&
+    input.createWork !== true
+  );
+}
+
+function publicDemoAccess(roomId: string): ChatRoomReadAccess {
+  return {
+    isAdminBearer: false,
+    source: 'room-invite-bearer',
+    handles: ['@you'],
+    principalHandles: ['@you'],
+    resolvedRoomIds: [roomId]
+  };
+}
 
 function readablePolicy(policy: Policy, access: ChatRoomReadAccess): ValidationLens {
   if (policy.deletedAtMs !== null) throw error(404, 'Validation lens not found.');
@@ -149,26 +179,40 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
   const room = findChatRoomById(artefact.roomId);
   if (!room) throw error(404, 'Room not found.');
-  const access = await requireChatRoomReadAccess(request, room);
 
   const payload = (await request.json().catch(() => ({}))) as ValidateArtefactPayload;
   const policySlug = typeof payload.policySlug === 'string' && payload.policySlug.trim().length > 0
     ? payload.policySlug.trim()
     : JKS_VALIDATION_RULE_SLUG;
-  const lens = resolveValidationLens(policySlug, access);
 
   const content = getArtefactContentByArtefactId(artefact.id);
   if (!content) throw error(404, 'Artefact has no stored body to validate.');
   if (content.roomId !== artefact.roomId) throw error(404, 'Artefact content is not in this room.');
-  if (content.contentFormat !== 'markdown') {
-    throw error(400, 'Only markdown artefacts can be validated in this slice.');
-  }
   if (content.kind !== 'doc' && content.kind !== 'deck') {
     throw error(400, 'Only doc and deck artefacts can be validated in this slice.');
   }
 
+  const access = isPublicUniverDemoValidation({
+    artefact,
+    content,
+    policySlug,
+    createWork: payload.createWork
+  })
+    ? publicDemoAccess(artefact.roomId)
+    : await requireChatRoomReadAccess(request, room);
+  const lens = resolveValidationLens(policySlug, access);
+
+  let validationText = content.contentBody;
+  if (content.contentFormat === 'univer-json') {
+    try {
+      validationText = univerSnapshotToPlainText(JSON.parse(content.contentBody));
+    } catch {
+      throw error(400, 'Univer JSON artefact body is malformed.');
+    }
+  }
+
   const extractedClaims = extractMarkdownValidationClaimPointers({
-    markdown: content.contentBody,
+    markdown: validationText,
     sourcePointer: `artefact:${artefact.id}`,
     url: `/artefacts/${artefact.id}`
   }).map((claim) => ({
