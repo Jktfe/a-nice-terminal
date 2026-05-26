@@ -57,7 +57,16 @@
       : false
   );
   const isUniverKind = $derived(['spreadsheet', 'doc', 'deck'].includes(artefact.kind));
-  const canValidate = $derived(['doc', 'deck'].includes(artefact.kind));
+  // Validation panel only renders for markdown-format doc/deck artefacts.
+  // The /api/artefacts/:id/validate endpoint extracts claims via the
+  // markdown extractor (validationMarkdownExtractor) and 400s on
+  // univer-json — so showing "Validate claims" on a univer-json deck is
+  // a dead-end UX. Per-block tagging for univer-json is the follow-up
+  // slice; hide the panel here until then. JWPK msg_hm8f6dhk7x.
+  const canValidate = $derived(
+    ['doc', 'deck'].includes(artefact.kind) &&
+    (data.content === null || data.content.contentFormat === 'markdown')
+  );
   const kindLabel = $derived(artefact.kind === 'doc' ? 'Document' : artefact.kind === 'deck' ? 'Slides' : artefact.kind === 'spreadsheet' ? 'Spreadsheet' : 'Artefact');
   // F-Univer slice: when the artefact has a univer-json body, render
   // it via the Univer canvas instead of falling back to the iframe
