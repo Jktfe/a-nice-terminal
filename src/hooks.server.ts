@@ -146,7 +146,22 @@ async function gateChatRoomReadApi(event: Parameters<Handle>[0]['event']): Promi
   if (!pathname.startsWith(prefix)) return;
   if (pathname === '/api/chat-rooms/messages/pending') return;
   const roomId = pathname.slice(prefix.length).split('/')[0];
-  if (!roomId || roomId === 'messages' || roomId === 'recovery') return;
+  // Sibling endpoints under /api/chat-rooms/ that are NOT keyed by a
+  // roomId. Each needs an explicit skip here or the gate treats the
+  // first path segment as a roomId, calls findChatRoomById('<endpoint
+  // name>') → null → 404, AND the error pipeline costs ~1.5s vs the
+  // happy-path's <2ms. JWPK msg_5umkyxrxr4 2026-05-26 flagged that /rooms
+  // felt slow on load — root cause was the page loader fanning out to
+  // /api/chat-rooms/plan-progress in parallel with /api/chat-rooms, and
+  // the 404 dominated perceived load time.
+  if (
+    !roomId ||
+    roomId === 'messages' ||
+    roomId === 'recovery' ||
+    roomId === 'plan-progress'
+  ) {
+    return;
+  }
 
   const room = findChatRoomById(roomId);
   if (!room) throw error(404, 'Room not found.');
