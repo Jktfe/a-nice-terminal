@@ -18,6 +18,7 @@ export type AddressedKind = 'reply' | 'mention' | null;
 type MessageLite = {
   authorHandle: string;
   body: string;
+  deletedAtMs?: number | null;
 };
 
 type ParentLite = {
@@ -35,12 +36,20 @@ export function resolveAddressedKind(
   if (typeof asHandle !== 'string' || asHandle.length === 0 || asHandle === '@you') {
     return null;
   }
+  // Deleted messages render as tombstones — nothing for the viewer to
+  // act on, so no badge (gemini-code-assist review on PR #69).
+  if (message.deletedAtMs != null) return null;
   // Own messages never badge — the operator doesn't need to be told
   // their own message is addressed to them.
   if (asHandle === message.authorHandle) return null;
   // Reply takes precedence over mention when both fire (operator's
   // own message was the parent + the reply also @-tags them).
   if (parentMessage && parentMessage.authorHandle === asHandle) return 'reply';
-  if (listBareMentionHandles(message.body).includes(asHandle)) return 'mention';
+  // Cheap-predicate-first (gemini-code-assist review): most message
+  // bodies have no '@' at all; skip the regex when there's no chance
+  // of a mention.
+  if (message.body.includes('@') && listBareMentionHandles(message.body).includes(asHandle)) {
+    return 'mention';
+  }
   return null;
 }

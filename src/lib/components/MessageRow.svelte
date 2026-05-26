@@ -231,9 +231,18 @@
      in-line chip that surfaces "this message is addressed to YOU"
      so replies + mentions don't get lost in feed scroll. Sits between
      header + reply-preview indicator. Accent-tinted so it reads as
-     personal-to-the-viewer rather than chrome. */
+     personal-to-the-viewer rather than chrome.
+     Only override border-left-color (not the shorthand) so the
+     is-reply rule above keeps its width + style — gemini-code-assist
+     review on PR #69. */
   .message-row.is-addressed-to-viewer {
-    border-left: 2px solid var(--accent, #4a6cf7);
+    border-left-color: var(--accent, #4a6cf7);
+  }
+  /* Ensure non-reply addressed rows still get a visible accent stripe
+     by setting a base border on every message-row when addressed. */
+  .message-row.is-addressed-to-viewer:not(.is-reply) {
+    border-left-style: solid;
+    border-left-width: 2px;
   }
   .addressed-badge {
     display: inline-flex;

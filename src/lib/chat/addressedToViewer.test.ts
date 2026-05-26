@@ -92,4 +92,20 @@ describe('resolveAddressedKind', () => {
       ''
     )).toBe(null);
   });
+
+  it('A11: returns null when the message has been tombstoned (deletedAtMs set)', () => {
+    // Gemini-code-assist follow-up: a deleted message replying to me
+    // renders as a tombstone — nothing for me to act on, so the badge
+    // would be noise. Reply guard + mention guard both elide.
+    expect(resolveAddressedKind(
+      { authorHandle: OTHER, body: 'sorry @claudev4', deletedAtMs: Date.now() },
+      { authorHandle: ME },
+      ME
+    )).toBe(null);
+    expect(resolveAddressedKind(
+      { authorHandle: OTHER, body: 'hey @claudev4 check this', deletedAtMs: Date.now() },
+      null,
+      ME
+    )).toBe(null);
+  });
 });
