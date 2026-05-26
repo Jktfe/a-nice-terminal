@@ -118,6 +118,33 @@ describe('GET /api/chat-rooms/:roomId/decks/:deckId', () => {
     expect(body.contentBody).toBe('{"id":"demo-deck"}');
   });
 
+  it('lets the canonical-shape Univer demo deck autosave without room auth', async () => {
+    const room = createChatRoom({ name: 'speed matters', whoCreatedIt: '@you' });
+    const artefact = createArtefactInRoom({
+      id: 'univer-demo-test-deck-2297',
+      roomId: room.id,
+      kind: 'deck',
+      title: 'Canonical Univer Demo Deck',
+      refUrl: `/api/chat-rooms/${room.id}/decks/univer-univer-demo-test-deck-2297`,
+      createdBy: '@speedyclaude'
+    });
+
+    const response = await runPut(eventFor(room.id, 'univer-univer-demo-test-deck-2297', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        artefactId: artefact.id,
+        contentFormat: 'univer-json',
+        contentBody: '{"id":"canonical-demo-deck"}'
+      })
+    }));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.id).toBe('univer-univer-demo-test-deck-2297');
+    expect(body.contentBody).toBe('{"id":"canonical-demo-deck"}');
+  });
+
   it('still rejects anonymous autosave for ordinary decks', async () => {
     const room = createChatRoom({ name: 'private deck room', whoCreatedIt: '@you' });
     const artefact = createArtefactInRoom({
