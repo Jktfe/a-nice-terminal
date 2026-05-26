@@ -107,18 +107,6 @@ describe('POST /api/auth/login for Mac antchat', () => {
     });
   });
 
-  it('accepts the common NEW-MOD dev licence typo for allowlisted emails', async () => {
-    const response = await capture(() => loginPost(eventForPost('http://localhost/api/auth/login', {
-      email: 'test@example.com',
-      password: 'correct-password',
-      license: 'NEW-MOD-ANT-DEV-test@example.com'
-    })));
-
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.user.email).toBe('test@example.com');
-  });
-
   it('rejects wrong passwords without leaking whether the user exists', async () => {
     const response = await capture(() => loginPost(eventForPost('http://localhost/api/auth/login', {
       email: 'test@example.com',

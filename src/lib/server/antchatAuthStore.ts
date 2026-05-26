@@ -138,15 +138,12 @@ export function emailAllowedByLicence(email: string): boolean {
 
 /**
  * Validate the literal `NEW-MODEL-ANT-DEV-<email>` licence-code shape.
- * Also accepts the common `NEW-MOD-ANT-DEV-<email>` mobile typo.
  * Returns the email parsed out (lowercased) if the format matches AND
  * the email is allowlisted, else null.
  */
 export function parseAndValidateLicenceKey(licenseKey: string): string | null {
-  const prefixes = ['NEW-MODEL-ANT-DEV-', 'NEW-MOD-ANT-DEV-'];
-  const upperKey = licenseKey.toUpperCase();
-  const prefix = prefixes.find((candidate) => upperKey.startsWith(candidate));
-  if (!prefix) return null;
+  const prefix = 'NEW-MODEL-ANT-DEV-';
+  if (!licenseKey.toUpperCase().startsWith(prefix)) return null;
   const email = licenseKey.slice(prefix.length).trim();
   if (email.length === 0) return null;
   if (!emailAllowedByLicence(email)) return null;
