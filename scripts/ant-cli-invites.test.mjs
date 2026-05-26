@@ -36,10 +36,17 @@ function failure(status, bodyText) {
 
 beforeEach(() => {
   delete process.env.ANT_ADMIN_TOKEN;
+  // F slice: redeem + join-url now auto-register the calling pane when
+  // $TMUX_PANE is set. Scrub it from the test env so the existing
+  // assertions (which expect ONLY the tab-separated success line on
+  // stdout) keep passing — the auto-register path is exercised in
+  // ant-cli-redeem-autoregister.test.mjs against the pure helper.
+  delete process.env.TMUX_PANE;
 });
 
 afterEach(() => {
   delete process.env.ANT_ADMIN_TOKEN;
+  delete process.env.TMUX_PANE;
 });
 
 function assertNoSecretsInOutput(captured, ...secretValues) {
@@ -239,6 +246,52 @@ describe('ant invite CLI verbs', () => {
     }));
     await handleInviteVerb('redeem', ['--room', 'room/with/slash', '--token', TOKEN_SECRET], runtime, { CliInputError });
     expect(captured.posts[0].url).toContain('room%2Fwith%2Fslash/join-with-token');
+  });
+
+  it('F1 integration: redeem with $TMUX_PANE set fires register + add-membership + prints bound line', async () => {
+    process.env.TMUX_PANE = '%5';
+    // Three POSTs expected in order: join-with-token, identity/register, sessions/add.
+    let postCount = 0;
+    const { runtime, captured } = makeRuntime((url) => {
+      postCount += 1;
+      if (postCount === 1) {
+        return okJson({
+          room: { id: '0mcytty7ng', name: 'Test room', members: [{ handle: '@jsCC' }] },
+          member: { handle: '@jsCC' },
+          identity: { tokenId: 'tok_1', kind: 'cli' }
+        });
+      }
+      if (postCount === 2) return okJson({ terminal_id: 'term_abc', name: 'redeem-jsCC-tty7ng' });
+      return okJson({ terminal_id: 'term_abc', room_id: '0mcytty7ng', handle: '@jsCC' });
+    });
+    const code = await handleInviteVerb('redeem', ['--room', '0mcytty7ng', '--token', TOKEN_SECRET], runtime, { CliInputError });
+    expect(code).toBe(0);
+    expect(captured.posts).toHaveLength(3);
+    expect(captured.posts[1].url).toContain('/api/identity/register');
+    expect(captured.posts[2].url).toContain('/api/sessions/add');
+    // Tab-separated machine line still first (back-compat with script consumers).
+    expect(captured.stdout[0]).toBe('@jsCC\tTest room\t0mcytty7ng');
+    // Human-readable bind line second.
+    expect(captured.stdout[1]).toContain('Bound terminal redeem-jsCC-tty7ng');
+    expect(captured.stdout[1]).toContain('@jsCC');
+    assertNoSecretsInStdoutOrStderr(captured, TOKEN_SECRET);
+  });
+
+  it('F2 integration: --no-register skips auto-register, prints hint, still exits 0', async () => {
+    process.env.TMUX_PANE = '%5';
+    const { runtime, captured } = makeRuntime(() => okJson({
+      room: { id: 'room-a', name: 'X', members: [{ handle: '@x' }] },
+      member: { handle: '@x' },
+      identity: { tokenId: 'tok_1', kind: 'cli' }
+    }));
+    const code = await handleInviteVerb('redeem',
+      ['--room', 'room-a', '--token', TOKEN_SECRET, '--no-register'],
+      runtime, { CliInputError });
+    expect(code).toBe(0);
+    // Only the join-with-token call fires — no register, no add-membership.
+    expect(captured.posts).toHaveLength(1);
+    expect(captured.stdout[1]).toContain('--no-register');
+    expect(captured.stdout[1]).toContain('ant register');
   });
 
   // R8/R9 revoke tests moved to scripts/ant-cli-invites-revoke.test.mjs to
