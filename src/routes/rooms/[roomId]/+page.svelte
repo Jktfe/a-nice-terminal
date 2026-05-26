@@ -93,6 +93,13 @@
     roomMode?: RoomMode;
     allRoomLabels?: Record<string, string>;
     bringInAppAvailable?: boolean;
+    responders?: {
+      id: number;
+      terminal_id: string;
+      order_index: number;
+      handle: string;
+      pane_status: 'unknown' | 'verified' | 'stale';
+    }[];
   };
   type Props = { data: RoomPageData };
 
@@ -135,6 +142,7 @@
   );
   const focusedMembers = $derived<FocusEntry[]>(data.focusedMembers ?? []);
   const bringInAppAvailable = $derived<boolean>(data.bringInAppAvailable ?? false);
+  const responders = $derived(data.responders ?? []);
   const focusableMembers = $derived(
     roomFromServer.members.filter((member) => member.kind === 'agent')
   );
@@ -427,7 +435,7 @@
       {/if}
     {/snippet}
     {#snippet menu()}
-      <RoomMenuDropdown summary="More" innerIds={['participants', 'focus', 'asks', 'plans', 'tasks', 'linked-rooms', 'interviews', 'artefacts', 'screenshots', 'memory', 'attachments']}>
+      <RoomMenuDropdown summary="More" innerIds={['participants', 'responders', 'focus', 'asks', 'plans', 'tasks', 'linked-rooms', 'interviews', 'artefacts', 'screenshots', 'memory', 'attachments']}>
     <nav class="discipline-links" aria-label="Room work surfaces">
       <a class="discipline-link" href={`/asks?roomId=${roomFromServer.id}`}>Asks</a>
       <a class="discipline-link" href={primaryRoomPlanHref}>Plan</a>
@@ -445,6 +453,7 @@
       {callerHandle}
       {pinnedSectionIds}
       {labelForMember}
+      {responders}
       onMemberPicked={openMemberSheet}
       onInviteRequested={focusInviteForm}
       onAgentInvited={refreshFromServer}
@@ -526,6 +535,7 @@
       {pinnedSectionIds}
       {rightPaneCollapsed}
       {labelForMember}
+      {responders}
       onMemberPicked={openMemberSheet}
       onInviteRequested={focusInviteForm}
       onAgentInvited={refreshFromServer}

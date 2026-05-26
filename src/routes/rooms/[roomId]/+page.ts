@@ -13,6 +13,15 @@ import type { RoomMode } from '$lib/server/roomModesStore';
 type SharedFileMetadata = Omit<SharedFile, 'contentsBase64'>;
 type AsksFetchResult = { asks: Ask[]; asksFetchFailed: boolean };
 type RoomModeFetchResult = { mode: RoomMode };
+type ResponderFetchResult = {
+  responders: {
+    id: number;
+    terminal_id: string;
+    order_index: number;
+    handle: string;
+    pane_status: 'unknown' | 'verified' | 'stale';
+  }[];
+};
 type MessagesFetchResult = {
   messages: ChatMessage[];
   paging?: {
@@ -37,7 +46,7 @@ export const load: PageLoad = async ({ fetch, params }) => {
   // POST entirely. onMount runs in the browser on every fresh room view
   // and on every route remount.
 
-  const [messagesBody, aliasesBody, agentEventsBody, attachmentsBody, asksBody, plansBody, tasksBody, focusBody, roomModeBody, allRoomsBody] =
+  const [messagesBody, aliasesBody, agentEventsBody, attachmentsBody, asksBody, plansBody, tasksBody, focusBody, roomModeBody, respondersBody, allRoomsBody] =
     await Promise.all([
       // Emergency cap: 10 messages until we virtualise the message list.
       // Larger limits compound with markdown rendering + per-row
@@ -120,6 +129,12 @@ export const load: PageLoad = async ({ fetch, params }) => {
             ? ((await response.json()) as RoomModeFetchResult)
             : { mode: 'brainstorm' as RoomMode }
       ),
+      fetch(`/api/chat-rooms/${encodeURIComponent(params.roomId)}/responders`).then(
+        async (response) =>
+          response.ok
+            ? ((await response.json()) as ResponderFetchResult)
+            : { responders: [] }
+      ),
       // RoomQuickNav left-rail label source. SSR-loaded as part of this
       // page's existing Promise.all so the rail can render starred-room
       // names directly from data props — no client-side fetch, no
@@ -163,6 +178,7 @@ export const load: PageLoad = async ({ fetch, params }) => {
     tasksForRoom: (tasksBody as { tasks: TaskForRoom[] }).tasks,
     focusedMembers: (focusBody as { focusedMembers: FocusEntry[] }).focusedMembers,
     roomMode: roomModeBody.mode,
+    responders: (respondersBody as ResponderFetchResult).responders,
     allRoomLabels,
     bringInAppAvailable
   };
