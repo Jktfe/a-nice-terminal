@@ -6,8 +6,10 @@
  *   ant invite list   --room R [--admin-token T]
  *   ant invite exchange --invite-id ID --password P --kind cli [--handle H]
  *   ant invite redeem  --room ROOM_ID --token TOKEN_SECRET
+ *                       [--name N] [--agent-kind K] [--pane P] [--no-register]
  *   ant invite revoke  --invite-id ID [--admin-token T]
  *   ant invite join-url <url> --password P --handle @H [--print-token]
+ *                       [--name N] [--agent-kind K] [--pane P] [--no-register]
  *
  * Admin tasks (create + list + revoke) require an admin bearer, supplied
  * via --admin-token flag or ANT_ADMIN_TOKEN env. CLI-side check happens
@@ -19,10 +21,17 @@
  * join-url with --print-token) and nowhere else. The admin-token value
  * and the password value are NEVER echoed to stdout or stderr, including
  * in error paths (see redactSensitive).
+ *
+ * F slice (NMT feedback msg_sd5f3sw30s, 2026-05-26): redeem + join-url
+ * auto-register the calling tmux pane against the joined handle so
+ * PTY-inject delivers without a separate `ant register` call. See
+ * ant-cli-redeem-autoregister.mjs for the helper + reasoning.
  */
 
+import { attemptAutoRegister, formatAutoRegisterOutcome } from './ant-cli-redeem-autoregister.mjs';
+
 const ALLOWED_KINDS = new Set(['cli', 'mcp', 'web']);
-const BOOLEAN_FLAGS = new Set(['print-token']);
+const BOOLEAN_FLAGS = new Set(['print-token', 'no-register']);
 
 // Verbs that accept positional arguments. parseFlags collects bare
 // tokens into _positionals for these verbs instead of throwing on the
@@ -222,7 +231,20 @@ async function runRedeem(flags, runtime, CliInputError) {
     return 1;
   }
   const parsed = await response.json();
+  // Tab-separated machine-readable line preserved for script consumers.
   runtime.writeOut(`${parsed.member.handle}\t${parsed.room.name}\t${parsed.room.id}`);
+
+  // F slice — auto-register the calling pane so PTY-inject can deliver.
+  // Failure is best-effort: never changes the redeem exit code.
+  const outcome = await attemptAutoRegister({
+    handle: parsed.member.handle,
+    roomId: parsed.room.id,
+    baseUrl: runtime.serverUrl,
+    runtime,
+    flags,
+    envTmuxPane: process.env.TMUX_PANE
+  });
+  runtime.writeOut(formatAutoRegisterOutcome(outcome, parsed.member.handle, parsed.room.id));
   return 0;
 }
 
@@ -322,6 +344,20 @@ async function runJoinUrl(flags, runtime, CliInputError) {
   if (printToken) {
     runtime.writeOut(tokenSecret);
   }
+
+  // F slice — auto-register the calling pane against the joined handle.
+  // Note we target `baseUrl` (the share-URL's home server), not
+  // runtime.serverUrl, because the membership lives on baseUrl. Best-effort:
+  // never changes the redeem exit code.
+  const outcome = await attemptAutoRegister({
+    handle: redeemBody.member.handle,
+    roomId: redeemBody.room.id,
+    baseUrl,
+    runtime,
+    flags,
+    envTmuxPane: process.env.TMUX_PANE
+  });
+  runtime.writeOut(formatAutoRegisterOutcome(outcome, redeemBody.member.handle, redeemBody.room.id));
   return 0;
 }
 
