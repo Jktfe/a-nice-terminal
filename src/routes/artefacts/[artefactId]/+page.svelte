@@ -57,15 +57,20 @@
       : false
   );
   const isUniverKind = $derived(['spreadsheet', 'doc', 'deck'].includes(artefact.kind));
-  // Validation panel only renders for markdown-format doc/deck artefacts.
-  // The /api/artefacts/:id/validate endpoint extracts claims via the
-  // markdown extractor (validationMarkdownExtractor) and 400s on
-  // univer-json — so showing "Validate claims" on a univer-json deck is
-  // a dead-end UX. Per-block tagging for univer-json is the follow-up
-  // slice; hide the panel here until then. JWPK msg_hm8f6dhk7x.
+  // Validation panel renders for all doc/deck artefacts. For markdown
+  // we surface the live "Validate claims" button (hits the markdown
+  // extractor). For univer-json we keep the panel header + lens label
+  // visible but swap the action button for a "coming soon" hint —
+  // per-block tagging is the load-bearing follow-on per the 2026-05-17
+  // banked thesis. JWPK wanted the verification concept visible even
+  // when the action isn't wired yet (msg_ygr92bayjv).
+  const hasArtefactKindForValidation = $derived(['doc', 'deck'].includes(artefact.kind));
   const canValidate = $derived(
-    ['doc', 'deck'].includes(artefact.kind) &&
+    hasArtefactKindForValidation &&
     (data.content === null || data.content.contentFormat === 'markdown')
+  );
+  const showValidationComingSoon = $derived(
+    hasArtefactKindForValidation && data.content?.contentFormat === 'univer-json'
   );
   const kindLabel = $derived(artefact.kind === 'doc' ? 'Document' : artefact.kind === 'deck' ? 'Slides' : artefact.kind === 'spreadsheet' ? 'Spreadsheet' : 'Artefact');
   // F-Univer slice: when the artefact has a univer-json body, render
@@ -177,6 +182,20 @@
       {/if}
     </section>
     </Explainable>
+  {:else if showValidationComingSoon}
+    <Explainable explainKey="artefact-validate">
+    <section class="validation-panel validation-panel-pending" aria-label="Validation lens (coming soon)">
+      <div>
+        <span class="panel-label">Validation Lens</span>
+        <strong>JK's Validation Rule</strong>
+      </div>
+      <p class="validation-coming-soon">
+        Per-block validation (kind · policy · verification state) for univer-json artefacts arrives with the next slice.
+        Markdown decks/docs get live claim extraction today; univer-json gets per-block tagging next.
+        <br /><small>Per the 2026-05-17 thesis: Univer is commodity rendering; ANT's value is the verification layer on top.</small>
+      </p>
+    </section>
+    </Explainable>
   {/if}
 
   {#if shouldRenderUniver}
@@ -260,6 +279,25 @@
     border: 1px dashed var(--accent);
     border-radius: 0.6rem;
     background: var(--surface-raised);
+  }
+  /* Univer-json variant: same shell, softer border so it reads as
+     "informational" rather than "actionable". The text takes the user
+     through why the action button isn't here yet. */
+  .validation-panel-pending {
+    border-style: dotted;
+    border-color: var(--ink-muted);
+  }
+  .validation-coming-soon {
+    margin: 0;
+    color: var(--ink-soft);
+    font-size: 0.92rem;
+    line-height: 1.5;
+  }
+  .validation-coming-soon small {
+    display: block;
+    margin-top: 0.4rem;
+    color: var(--ink-muted);
+    font-size: 0.8rem;
   }
   .panel-label {
     display: block;
