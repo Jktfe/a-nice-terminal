@@ -20,6 +20,7 @@
   import RoomTasksPanel from './RoomTasksPanel.svelte';
   import ScreenshotsRoomPanel from './ScreenshotsRoomPanel.svelte';
   import UploadFileButton from './UploadFileButton.svelte';
+  import RoomRespondersPanel from './RoomRespondersPanel.svelte';
   import type { Ask } from '$lib/server/askStore';
   import type { RoomAliasEntry } from '$lib/server/chatRoomAliasStore';
   import type { ChatRoom, RoomMember } from '$lib/server/chatRoomStore';
@@ -59,6 +60,13 @@
     onOpenFocusModal: () => void;
     onOpenBreakModal: () => void;
     onOpenDigestPanel: () => void;
+    responders?: {
+      id: number;
+      terminal_id: string;
+      order_index: number;
+      handle: string;
+      pane_status: 'unknown' | 'verified' | 'stale';
+    }[];
   };
 
   let {
@@ -78,7 +86,8 @@
     onAgentInvited,
     onOpenFocusModal,
     onOpenBreakModal,
-    onOpenDigestPanel
+    onOpenDigestPanel,
+    responders = []
   }: Props = $props();
 </script>
 
@@ -92,6 +101,17 @@
     {onMemberPicked}
     {onInviteRequested}
     {onAgentInvited}
+  />
+</CollapsibleSection>
+{/if}
+
+{#if !pinnedSectionIds.has('responders')}
+<CollapsibleSection id="responders" title="Responders" count={responders.length} pinRoomId={room.id}>
+  <RoomRespondersPanel
+    roomId={room.id}
+    members={room.members}
+    {responders}
+    callerHandle={callerHandle}
   />
 </CollapsibleSection>
 {/if}

@@ -33,7 +33,9 @@ import { hasBareEveryoneMention, hasBracketedMention, listBareMentionHandles } f
 import { listReadersForMessage, markMessageRead } from './messageReadReceiptStore';
 import { broadcastToRoom } from './eventBroadcast';
 import { findHandleForAliasInRoom } from './chatRoomAliasStore';
-import { getActiveWorkingClaim } from './entityClaimStore';
+import { getActiveWorkingClaim, listActiveClaimsForEntity } from './entityClaimStore';
+import { listRespondersForRoom } from './roomRespondersStore';
+import { pickNextResponder, type ResponderWithStatus } from './responderPicker';
 import { openAskInRoom, AskTargetNotHumanError, AskerNotInInboxError } from './askStore';
 import type { ChatRoom } from './chatRoomStore';
 import { inboxRoomIdFor } from './humanInboxRoomStore';
@@ -45,6 +47,15 @@ import { inboxRoomIdFor } from './humanInboxRoomStore';
 const askedForMessage = new Set<string>();
 function askedKey(roomId: string, askee: string, messageId: string): string {
   return `${roomId}::${askee}::${messageId}`;
+}
+
+// Duplicate responder-routing guard (JWPK msg_ktbgn99ft1):
+// A single (roomId, messageId, handle) triple should only be enqueued once
+// per fanout session. This prevents double-delivery if the same message is
+// re-fanned (e.g., retry or duplicate event).
+const routedForMessage = new Set<string>();
+function routedKey(roomId: string, messageId: string, handle: string): string {
+  return `${roomId}::${messageId}::${handle}`;
 }
 
 function autoOpenAsksForHumanMentions(
@@ -244,7 +255,12 @@ function isBrowserTerminalSource(source: string | null | undefined): boolean {
 
 function activeClaimAllowsRecipient(message: ChatMessage, recipientHandle: string): boolean {
   const activeWorkingClaim = getActiveWorkingClaim('message', message.id);
-  return !activeWorkingClaim || activeWorkingClaim.claimed_by_handle === recipientHandle;
+  if (!activeWorkingClaim) return true;
+  // JWPK msg_le6o84ipu1: working claim with no response after 30s is
+  // treated as passed so the message can route to the next responder.
+  const AUTO_PASS_MS = 30_000;
+  if (Date.now() - activeWorkingClaim.claimed_at_ms > AUTO_PASS_MS) return true;
+  return activeWorkingClaim.claimed_by_handle === recipientHandle;
 }
 
 function emitStaleSystemMessage(roomId: string, handle: string, reason: string): void {
@@ -284,10 +300,72 @@ export function fanoutMessageToRoomTerminals(
   // on (room × askee × messageId) via a small in-process Set so a
   // double-fanout of the same message doesn't double-file the ask.
   autoOpenAsksForHumanMentions(room, message, targetedHandles);
-  const broadcastToAll =
+  let broadcastToAll =
     options.forceBroadcastToAll === true ||
     hasBareEveryoneMention(message.body) ||
     (isOperatorBroadcastAuthor(message.authorHandle) && targetedHandles.size === 0);
+  // Heads-down responder routing (JWPK msg_eshm5ekuh8):
+  // Try ordered responder list first. If a verified non-sender
+  // responder exists, route only to them. If all pass/unavailable,
+  // fall back to broadcast-to-all so someone can claim it.
+  if (
+    mode === 'heads-down' &&
+    !broadcastToAll &&
+    targetedHandles.size === 0 &&
+    message.kind === 'human'
+  ) {
+    const responderRows = listRespondersForRoom(roomId);
+    if (responderRows.length > 0) {
+      const responderMemberships = listMembershipsForRoom(roomId);
+      const handleByTerminal = new Map(responderMemberships.map((m) => [m.terminal_id, m.handle]));
+      const respondersWithStatus: ResponderWithStatus[] = responderRows.map((row) => {
+        const terminal = getTerminalById(row.terminal_id);
+        return {
+          terminal_id: row.terminal_id,
+          order_index: row.order_index,
+          pane_status: terminal?.pane_status ?? 'unknown',
+          handle: handleByTerminal.get(row.terminal_id) ?? ''
+        };
+      });
+      // Build pass + working maps from active claims on this message.
+      const claims = listActiveClaimsForEntity('message', message.id);
+      const passHandles = new Set(
+        claims.filter((c) => c.claim_kind === 'pass').map((c) => c.claimed_by_handle)
+      );
+      const workingMap = new Map(
+        claims
+          .filter((c) => c.claim_kind === 'working')
+          .map((c) => [c.claimed_by_handle, c.claimed_at_ms] as const)
+      );
+      const timedOutHandles = new Set<string>();
+      for (const r of respondersWithStatus) {
+        const workingAtMs = workingMap.get(r.handle);
+        if (workingAtMs !== undefined && Date.now() - workingAtMs > 30_000) {
+          timedOutHandles.add(r.handle);
+        }
+      }
+      const picked = pickNextResponder(respondersWithStatus, message.authorHandle, {
+        passHandles,
+        workingHandles: workingMap,
+        autoPassWorkingMs: 30_000
+      });
+      if (picked) {
+        targetedHandles.add(picked.handle);
+      } else {
+        // Fallback: route to verified responders who have NOT passed AND not timed out.
+        for (const r of respondersWithStatus) {
+          if (r.handle === message.authorHandle) continue;
+          if (r.pane_status !== 'verified') continue;
+          if (passHandles.has(r.handle)) continue;
+          if (timedOutHandles.has(r.handle)) continue;
+          targetedHandles.add(r.handle);
+        }
+      }
+    } else {
+      broadcastToAll = true;
+    }
+  }
+
   if (
     mode === 'heads-down' &&
     !broadcastToAll &&
@@ -349,6 +427,9 @@ export function fanoutMessageToRoomTerminals(
       /* meta JSON malformed → fail-open (respond as if no filter); the
          operator setting an invalid filter shouldn't silently break delivery */
     }
+    const rk = routedKey(room.id, message.id, membership.handle);
+    if (routedForMessage.has(rk)) continue;
+    routedForMessage.add(rk);
     queue.enqueue(queueKeyFor(room.id, terminal.id), {
       roomId: room.id,
       roomName: room.name,
@@ -378,6 +459,9 @@ export function fanoutMessageToRoomTerminals(
     if (!broadcastToAll && targetedHandles.size === 0 && containsInformationalMention) continue;
     if (targetedHandles.size > 0 && !broadcastToAll && !targetedHandles.has(linkedHandle)) continue;
     if (!activeClaimAllowsRecipient(message, linkedHandle)) continue;
+    const rk = routedKey(room.id, message.id, linkedHandle);
+    if (routedForMessage.has(rk)) continue;
+    routedForMessage.add(rk);
     queue.enqueue(queueKeyFor(room.id, terminal.id), {
       roomId: room.id,
       roomName: room.name,
@@ -451,6 +535,7 @@ export function resetNoResponderRateLimitForTests(): void {
 
 export function resetFanoutQueueForTests(): void {
   queue.resetForTests();
+  routedForMessage.clear();
 }
 
 export function getFanoutQueueForTests() {

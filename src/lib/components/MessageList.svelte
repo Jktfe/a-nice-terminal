@@ -11,6 +11,7 @@
   import type { EntityClaim } from '$lib/server/entityClaimStore';
   import { groupMessagesByThread } from '$lib/chat/groupMessagesByThread';
   import { countDirectRepliesByParent } from '$lib/chat/countDirectRepliesByParent';
+  import { countMessagesBelow } from '$lib/chat/newMessagesBelowCount';
   import MessageRow from './MessageRow.svelte';
 
   type Props = {
@@ -173,6 +174,28 @@
     listElement.scrollTo({ top: listElement.scrollHeight, behavior: 'smooth' });
   }
 
+  // New-messages-below counter (NMT feedback #B from @mark, 2026-05-26).
+  // Sticky-scroll behaviour is already shipped via `shouldFollowBottom` +
+  // `isNearBottom` — this slice adds the count of messages that have
+  // arrived since the viewer was last at the bottom. Surfaces in the
+  // jump-to-bottom button as "↓ N new" Zoom-style pill when > 0.
+  //
+  // Tracking strategy: when `shouldFollowBottom` is true (user is at
+  // bottom), snapshot the newest message id. When `shouldFollowBottom`
+  // flips false (user scrolled up), the snapshot is frozen and the
+  // count derives from messages after that snapshot. The snapshot
+  // re-captures whenever the user returns to the bottom, naturally
+  // resetting the counter.
+  let lastSeenMessageIdAtBottom = $state<string | null>(null);
+  $effect(() => {
+    if (shouldFollowBottom) {
+      lastSeenMessageIdAtBottom = newestMessageId || null;
+    }
+  });
+  const newMessagesBelowCount = $derived(
+    countMessagesBelow(messages, lastSeenMessageIdAtBottom, shouldFollowBottom)
+  );
+
   // Track the previous newest-id so the unread-dispatch fires only on
   // an actual newest-message change (not on prop-init or list-length
   // tweaks like read-receipts). Persists across re-renders without a
@@ -262,11 +285,18 @@
     <button
       type="button"
       class="jump-to-bottom"
-      aria-label="Jump to latest message"
-      title="Jump to latest"
+      class:has-new={newMessagesBelowCount > 0}
+      aria-label={newMessagesBelowCount > 0
+        ? `${newMessagesBelowCount} new message${newMessagesBelowCount === 1 ? '' : 's'} below — jump to latest`
+        : 'Jump to latest message'}
+      title={newMessagesBelowCount > 0 ? `${newMessagesBelowCount} new` : 'Jump to latest'}
       onclick={() => { shouldFollowBottom = true; void scrollToBottom(); }}
     >
-      ↓ Latest
+      {#if newMessagesBelowCount > 0}
+        ↓ {newMessagesBelowCount} new
+      {:else}
+        ↓ Latest
+      {/if}
     </button>
   {/if}
 </div>
@@ -364,5 +394,22 @@
   }
   .jump-to-bottom:hover {
     filter: brightness(1.05);
+  }
+  /* NMT feedback #B (2026-05-26 @mark): when there are unread messages
+     below, the button reads "↓ N new" and gets a stronger pill
+     treatment so it stands out from the always-on "↓ Latest" idle
+     state. Slight pulse cues the eye on new arrival. */
+  .jump-to-bottom.has-new {
+    padding: 0.55rem 1.05rem;
+    font-size: 0.9rem;
+    box-shadow: 0 8px 22px rgba(20, 18, 14, 0.24);
+    animation: jump-to-bottom-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes jump-to-bottom-pulse {
+    0%, 100% { box-shadow: 0 8px 22px rgba(20, 18, 14, 0.24); }
+    50% { box-shadow: 0 10px 26px color-mix(in srgb, var(--accent) 35%, transparent), 0 8px 22px rgba(20, 18, 14, 0.24); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .jump-to-bottom.has-new { animation: none; }
   }
 </style>

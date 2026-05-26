@@ -21,6 +21,7 @@
   import MessageRowReply from './MessageRowReply.svelte';
   import MessageRowActions from './MessageRowActions.svelte';
   import { renderMarkdown } from '$lib/chat/renderMarkdown';
+  import { resolveAddressedKind, type AddressedKind } from '$lib/chat/addressedToViewer';
 
   type Props = {
     message: ChatMessage;
@@ -94,6 +95,14 @@
     message.kind === 'system' && message.body.startsWith('Open ask answered by ')
   );
 
+  // Reply-badge-for-recipient (New Model Team feedback #2a, 2026-05-26,
+  // hs9jv51zrh msg_3fipvqu8m9 from @james via @newmodelteambot). Pure
+  // derivation lives in $lib/chat/addressedToViewer.ts so the 5-case
+  // truth table is unit-testable without mounting a component.
+  const addressedToViewer = $derived<AddressedKind>(
+    resolveAddressedKind(message, parentMessage ?? null, asHandle)
+  );
+
   function describeDeletedAt(ms: number | null | undefined): string {
     if (!ms) return '';
     try { return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
@@ -124,7 +133,9 @@
     class="message-row"
     class:is-agent={message.kind === 'agent'}
     class:is-reply={Boolean(message.parentMessageId)}
+    class:is-addressed-to-viewer={addressedToViewer !== null}
     data-background-style={displayBackgroundStyle}
+    data-addressed-kind={addressedToViewer ?? ''}
     style:--speaker-color={displayColor}
   >
     <MessageRowHeader
@@ -142,6 +153,15 @@
       {asHandle}
       bind:deleteError
     />
+    {#if addressedToViewer === 'reply'}
+      <span class="addressed-badge addressed-reply" aria-label="This message is a reply to your message">
+        ↳ Reply to you
+      </span>
+    {:else if addressedToViewer === 'mention'}
+      <span class="addressed-badge addressed-mention" aria-label="You are mentioned in this message">
+        @ Mentioned you
+      </span>
+    {/if}
     {#if message.parentMessageId}
       <MessageRowReply {parentMessage} />
     {/if}
@@ -206,6 +226,46 @@
     margin-left: 1.5rem;
     border-left: 2px solid var(--surface-edge);
     padding-left: 1rem;
+  }
+  /* Reply-badge-for-recipient (NMT feedback #2a, 2026-05-26): an
+     in-line chip that surfaces "this message is addressed to YOU"
+     so replies + mentions don't get lost in feed scroll. Sits between
+     header + reply-preview indicator. Accent-tinted so it reads as
+     personal-to-the-viewer rather than chrome.
+     Only override border-left-color (not the shorthand) so the
+     is-reply rule above keeps its width + style — gemini-code-assist
+     review on PR #69. */
+  .message-row.is-addressed-to-viewer {
+    border-left-color: var(--accent, #4a6cf7);
+  }
+  /* Ensure non-reply addressed rows still get a visible accent stripe
+     by setting a base border on every message-row when addressed. */
+  .message-row.is-addressed-to-viewer:not(.is-reply) {
+    border-left-style: solid;
+    border-left-width: 2px;
+  }
+  .addressed-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    margin: 0.25rem 0 0.1rem;
+    padding: 0.12rem 0.5rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1.4;
+    border-radius: 999px;
+    width: fit-content;
+    letter-spacing: 0.02em;
+  }
+  .addressed-reply {
+    color: var(--accent, #4a6cf7);
+    background: color-mix(in srgb, var(--accent, #4a6cf7) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent, #4a6cf7) 30%, transparent);
+  }
+  .addressed-mention {
+    color: var(--ok, #2c8a4d);
+    background: color-mix(in srgb, var(--ok, #2c8a4d) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--ok, #2c8a4d) 30%, transparent);
   }
   /* #74 tombstone replaces the body when deletedAtMs is set. */
   .message-tombstone {
