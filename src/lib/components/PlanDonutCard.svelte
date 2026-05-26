@@ -20,13 +20,27 @@
      *  Wired on /plans?show=archived + /plans?show=deleted views only —
      *  JWPK msg_mpdr8q9p43 + coordinator msg_s225thcwia spec. */
     showHardDelete?: boolean;
+    /**
+     * Show the per-card lifecycle chooser (Archive · Permanently delete ·
+     * Cancel) on active plans — JWPK msg_zcsmyfk7e2 (2026-05-26). Active
+     * plans need a delete that asks WHICH (archive=recoverable vs hard).
+     * Wired on /plans default view only. Archived/deleted views keep the
+     * existing showHardDelete arm→commit shape.
+     */
+    showLifecycleActions?: boolean;
   };
-  let { label, total, completed, pct, href, planId, showHardDelete = false }: Props = $props();
+  let { label, total, completed, pct, href, planId, showHardDelete = false, showLifecycleActions = false }: Props = $props();
 
   type DeleteState = 'idle' | 'armed' | 'committing' | 'error';
   let deleteState = $state<DeleteState>('idle');
   let errorMessage = $state('');
   let disarmTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // ─── Lifecycle chooser (active plans, JWPK 2026-05-26) ───────────
+  type LifecycleState = 'idle' | 'chooser' | 'committing' | 'error';
+  let lifecycleState = $state<LifecycleState>('idle');
+  let lifecycleErrorMessage = $state('');
+  let lifecycleCommittingLabel = $state('');
 
   function clearDisarmTimer() {
     if (disarmTimer !== null) {
@@ -87,6 +101,47 @@
     clearDisarmTimer();
     deleteState = 'idle';
     errorMessage = '';
+  }
+
+  function openLifecycleChooser() {
+    lifecycleState = 'chooser';
+    lifecycleErrorMessage = '';
+  }
+
+  function cancelLifecycle() {
+    lifecycleState = 'idle';
+    lifecycleErrorMessage = '';
+    lifecycleCommittingLabel = '';
+  }
+
+  async function commitLifecycleAction(action: 'archive' | 'hard-delete') {
+    if (!planId) return;
+    lifecycleCommittingLabel = action === 'archive' ? 'Archiving' : 'Deleting';
+    lifecycleState = 'committing';
+    lifecycleErrorMessage = '';
+    try {
+      const response = await fetch(`/api/plans/${encodeURIComponent(planId)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action })
+      });
+      if (!response.ok) {
+        const failure = await response.json().catch(() => ({ message: response.statusText }));
+        if (response.status === 404) {
+          lifecycleErrorMessage = 'Plan not found.';
+        } else if (response.status === 401 || response.status === 403) {
+          lifecycleErrorMessage = 'Not authorised.';
+        } else {
+          lifecycleErrorMessage = failure.message ?? `${action} failed (${response.status}).`;
+        }
+        lifecycleState = 'error';
+        return;
+      }
+      await invalidateAll();
+    } catch (cause) {
+      lifecycleErrorMessage = cause instanceof Error ? cause.message : `${action} failed.`;
+      lifecycleState = 'error';
+    }
   }
 
   const R = 26;
@@ -165,15 +220,61 @@
   {/if}
 {/snippet}
 
+{#snippet lifecycleAffordance()}
+  {#if showLifecycleActions && planId}
+    <div class="lifecycle-bar" data-lifecycle-state={lifecycleState}>
+      {#if lifecycleState === 'idle'}
+        <button
+          type="button"
+          class="lifecycle-trigger"
+          onclick={(e) => { e.preventDefault(); e.stopPropagation(); openLifecycleChooser(); }}
+          aria-label={`Delete or archive plan "${label}"`}
+          title="Archive or permanently delete this plan"
+        >Delete…</button>
+      {:else if lifecycleState === 'chooser'}
+        <span class="lifecycle-prompt">Archive or delete?</span>
+        <button
+          type="button"
+          class="lifecycle-archive"
+          onclick={(e) => { e.preventDefault(); e.stopPropagation(); void commitLifecycleAction('archive'); }}
+          title="Move to archive — recoverable via /plans?show=archived"
+        >Archive</button>
+        <button
+          type="button"
+          class="lifecycle-hard"
+          onclick={(e) => { e.preventDefault(); e.stopPropagation(); void commitLifecycleAction('hard-delete'); }}
+          title="Permanently delete — cannot be undone"
+        >Permanently delete</button>
+        <button
+          type="button"
+          class="lifecycle-cancel"
+          onclick={(e) => { e.preventDefault(); e.stopPropagation(); cancelLifecycle(); }}
+        >Cancel</button>
+      {:else if lifecycleState === 'committing'}
+        <span class="lifecycle-status" aria-live="polite">{lifecycleCommittingLabel}…</span>
+      {:else if lifecycleState === 'error'}
+        <span class="lifecycle-error" role="alert" title={lifecycleErrorMessage}>{lifecycleErrorMessage}</span>
+        <button
+          type="button"
+          class="lifecycle-cancel"
+          onclick={(e) => { e.preventDefault(); e.stopPropagation(); cancelLifecycle(); }}
+        >Dismiss</button>
+      {/if}
+    </div>
+  {/if}
+{/snippet}
+
 {#if href}
   <div class="card-wrap" data-plan={label}>
     <a class="card" {href}>{@render body()}</a>
     {@render deleteAffordance()}
+    {@render lifecycleAffordance()}
   </div>
 {:else}
   <div class="card-wrap" data-plan={label}>
     <div class="card static">{@render body()}</div>
     {@render deleteAffordance()}
+    {@render lifecycleAffordance()}
   </div>
 {/if}
 
@@ -276,6 +377,84 @@
     font-style: italic;
   }
   .hard-delete-error {
+    color: var(--warn, #c92020);
+    font-weight: 700;
+    max-width: 22rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Lifecycle chooser (JWPK msg_zcsmyfk7e2 2026-05-26) — active-plan
+     affordance offering Archive vs Permanent delete. Same bar slot as
+     hard-delete-bar; idle state is a quiet button, chooser state inlines
+     three labelled choices so an operator can pick destructive-vs-soft
+     without a separate modal. */
+  .lifecycle-bar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.4rem;
+    padding: 0.2rem 0.4rem;
+    font-size: 0.78rem;
+    flex-wrap: wrap;
+  }
+  .lifecycle-trigger {
+    padding: 0.25rem 0.65rem;
+    border-radius: 999px;
+    border: 1px solid var(--line-soft);
+    background: transparent;
+    color: var(--ink-soft);
+    font-weight: 700;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+  }
+  .lifecycle-trigger:hover {
+    color: var(--ink-strong);
+    border-color: var(--accent);
+    background: var(--surface-raised);
+  }
+  .lifecycle-prompt {
+    color: var(--ink-soft);
+    font-weight: 700;
+    margin-right: 0.2rem;
+  }
+  .lifecycle-archive {
+    padding: 0.3rem 0.75rem;
+    border-radius: 999px;
+    border: 1px solid var(--info, #3a72c9);
+    background: transparent;
+    color: var(--info, #3a72c9);
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .lifecycle-archive:hover {
+    background: color-mix(in srgb, var(--info, #3a72c9) 10%, transparent);
+  }
+  .lifecycle-hard {
+    padding: 0.3rem 0.75rem;
+    border-radius: 999px;
+    border: 1px solid var(--warn, #c92020);
+    background: var(--warn, #c92020);
+    color: white;
+    font-weight: 800;
+    cursor: pointer;
+  }
+  .lifecycle-cancel {
+    padding: 0.25rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid var(--line-soft);
+    background: var(--surface-card);
+    color: var(--ink-strong);
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .lifecycle-status {
+    color: var(--ink-soft);
+    font-weight: 700;
+    font-style: italic;
+  }
+  .lifecycle-error {
     color: var(--warn, #c92020);
     font-weight: 700;
     max-width: 22rem;
