@@ -184,6 +184,7 @@
         kind={artefact.kind as 'deck' | 'doc' | 'spreadsheet'}
         artefactId={artefact.id}
         roomId={artefact.roomId}
+        contentId={data.content?.id ?? null}
         contentBody={data.content?.contentBody ?? null}
         contentFormat={data.content?.contentFormat ?? null}
         onError={(message) => { viewerError = message; }}

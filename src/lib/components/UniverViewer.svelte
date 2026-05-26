@@ -27,12 +27,19 @@
     kind: Kind;
     artefactId: string;
     roomId: string;
+    /**
+     * The chat_room_artefact_content row id, when one already exists.
+     * Null when this artefact has no body row yet — in that case the
+     * save path derives a stable id (`univer-${artefactId}`) so the
+     * upsert lands consistently on first save.
+     */
+    contentId: string | null;
     contentBody: string | null;
     contentFormat: string | null;
     onError?: (message: string) => void;
   };
 
-  let { kind, artefactId, roomId, contentBody, contentFormat, onError }: Props = $props();
+  let { kind, artefactId, roomId, contentId, contentBody, contentFormat, onError }: Props = $props();
 
   let containerEl: HTMLDivElement | undefined = $state();
   let bootError = $state('');
@@ -150,17 +157,35 @@
 
   async function persistSnapshot(snapshotJson: string): Promise<void> {
     if (!browser) return;
+    // Only deck + doc are wired server-side right now (codex's PR #73 +
+    // the existing markdown PUT). Spreadsheets fall back to "no save"
+    // until a sheets endpoint lands — the canvas still renders + edits
+    // locally for the kind=spreadsheet case, but persistence is a no-op.
+    if (kind !== 'deck' && kind !== 'doc') return;
     saveStatus = 'saving';
     try {
-      const endpoint = kind === 'deck'
-        ? `/api/chat-rooms/${encodeURIComponent(roomId)}/decks/${encodeURIComponent(artefactId)}`
-        : `/api/chat-rooms/${encodeURIComponent(roomId)}/docs/${encodeURIComponent(artefactId)}`;
+      // The endpoint's :deckId / :docId path param is the
+      // chat_room_artefact_content.id (the body row), NOT the
+      // chat_room_artefacts.id (the artefact). When no body row exists
+      // yet we derive a stable id from the artefactId so the upsert
+      // lands consistently on first save + subsequent saves hit the
+      // SAME row instead of piling new ones.
+      const resolvedContentId = contentId ?? `univer-${artefactId}`;
+      const segment = kind === 'deck' ? 'decks' : 'docs';
+      const endpoint = `/api/chat-rooms/${encodeURIComponent(roomId)}/${segment}/${encodeURIComponent(resolvedContentId)}`;
       const res = await fetch(endpoint, {
-        method: 'PATCH',
+        method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ contentFormat: 'univer-json', contentBody: snapshotJson })
+        body: JSON.stringify({
+          artefactId,
+          contentFormat: 'univer-json',
+          contentBody: snapshotJson
+        })
       });
-      if (!res.ok) throw new Error(`save ${res.status}`);
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`save ${res.status}${text ? `: ${text.slice(0, 120)}` : ''}`);
+      }
       saveStatus = 'saved';
       lastSavedAt = Date.now();
     } catch (cause) {
