@@ -174,7 +174,7 @@ describe('lookupRoomToken — dual-shape config compatibility', () => {
     expect(captured.calls[0].init?.headers?.authorization).toBeUndefined();
   });
 
-  it('falls back to pidChain when default_handle points at a missing byHandle entry', async () => {
+  it('falls back to first byHandle entry when default_handle points at a missing entry', async () => {
     const { runtime, captured } = makeRuntimeWithConfig(
       {
         [ROOM_ID]: {
