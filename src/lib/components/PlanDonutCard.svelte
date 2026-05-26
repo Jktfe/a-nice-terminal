@@ -37,10 +37,22 @@
   let disarmTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ─── Lifecycle chooser (active plans, JWPK 2026-05-26) ───────────
-  type LifecycleState = 'idle' | 'chooser' | 'committing' | 'error';
+  // Hard-delete arm step (gemini-code-assist follow-up on PR #66) —
+  // clicking "Permanently delete" in the chooser arms a second confirm
+  // rather than committing immediately, so a misclick on the chooser
+  // cannot destroy data. Archive stays one-click since it is recoverable.
+  type LifecycleState = 'idle' | 'chooser' | 'armed-hard' | 'committing' | 'error';
   let lifecycleState = $state<LifecycleState>('idle');
   let lifecycleErrorMessage = $state('');
   let lifecycleCommittingLabel = $state('');
+  let lifecycleDisarmTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function clearLifecycleDisarmTimer() {
+    if (lifecycleDisarmTimer !== null) {
+      clearTimeout(lifecycleDisarmTimer);
+      lifecycleDisarmTimer = null;
+    }
+  }
 
   function clearDisarmTimer() {
     if (disarmTimer !== null) {
@@ -109,13 +121,26 @@
   }
 
   function cancelLifecycle() {
+    clearLifecycleDisarmTimer();
     lifecycleState = 'idle';
     lifecycleErrorMessage = '';
     lifecycleCommittingLabel = '';
   }
 
+  function armHardDelete() {
+    lifecycleState = 'armed-hard';
+    clearLifecycleDisarmTimer();
+    // 5s arm window — matches the existing hard-delete arm timeout on
+    // archived-plan views so muscle memory transfers across the
+    // /plans default + archived views.
+    lifecycleDisarmTimer = setTimeout(() => {
+      if (lifecycleState === 'armed-hard') lifecycleState = 'chooser';
+    }, 5_000);
+  }
+
   async function commitLifecycleAction(action: 'archive' | 'hard-delete') {
     if (!planId) return;
+    clearLifecycleDisarmTimer();
     lifecycleCommittingLabel = action === 'archive' ? 'Archiving' : 'Deleting';
     lifecycleState = 'committing';
     lifecycleErrorMessage = '';
@@ -242,9 +267,22 @@
         <button
           type="button"
           class="lifecycle-hard"
-          onclick={(e) => { e.preventDefault(); e.stopPropagation(); void commitLifecycleAction('hard-delete'); }}
-          title="Permanently delete — cannot be undone"
+          onclick={(e) => { e.preventDefault(); e.stopPropagation(); armHardDelete(); }}
+          title="Permanently delete — opens a confirm step"
         >Permanently delete</button>
+        <button
+          type="button"
+          class="lifecycle-cancel"
+          onclick={(e) => { e.preventDefault(); e.stopPropagation(); cancelLifecycle(); }}
+        >Cancel</button>
+      {:else if lifecycleState === 'armed-hard'}
+        <button
+          type="button"
+          class="lifecycle-hard-commit"
+          onclick={(e) => { e.preventDefault(); e.stopPropagation(); void commitLifecycleAction('hard-delete'); }}
+          title="Click again to permanently delete (auto-cancels in 5s)"
+          aria-label={`Confirm permanent delete of plan "${label}"`}
+        >Click again to permanently delete</button>
         <button
           type="button"
           class="lifecycle-cancel"
@@ -435,10 +473,31 @@
     padding: 0.3rem 0.75rem;
     border-radius: 999px;
     border: 1px solid var(--warn, #c92020);
+    background: transparent;
+    color: var(--warn, #c92020);
+    font-weight: 800;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+  }
+  .lifecycle-hard:hover {
+    background: color-mix(in srgb, var(--warn, #c92020) 10%, transparent);
+  }
+  .lifecycle-hard-commit {
+    padding: 0.3rem 0.8rem;
+    border-radius: 999px;
+    border: 1px solid var(--warn, #c92020);
     background: var(--warn, #c92020);
     color: white;
     font-weight: 800;
     cursor: pointer;
+    animation: lifecycle-hard-pulse 1.1s ease-in-out infinite;
+  }
+  @keyframes lifecycle-hard-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--warn, #c92020) 30%, transparent); }
+    50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--warn, #c92020) 0%, transparent); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .lifecycle-hard-commit { animation: none; }
   }
   .lifecycle-cancel {
     padding: 0.25rem 0.6rem;
@@ -448,6 +507,11 @@
     color: var(--ink-strong);
     font-weight: 700;
     cursor: pointer;
+    transition: border-color 0.12s, background 0.12s;
+  }
+  .lifecycle-cancel:hover {
+    border-color: var(--accent);
+    background: var(--surface-raised);
   }
   .lifecycle-status {
     color: var(--ink-soft);
