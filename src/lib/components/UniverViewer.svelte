@@ -113,15 +113,28 @@
     const [
       { Univer, LocaleType, LogLevel, UniverInstanceType, ICommandService },
       { UniverRenderEnginePlugin },
-      { UniverUIPlugin }
+      { UniverUIPlugin },
+      { default: UniverUIDesignEnUS },
+      { default: UniverUIEnUS },
+      { default: UniverSheetsEnUS }
     ] = await Promise.all([
       import('@univerjs/core'),
       import('@univerjs/engine-render'),
-      import('@univerjs/ui')
+      import('@univerjs/ui'),
+      import('@univerjs/design/locale/en-US'),
+      import('@univerjs/ui/locale/en-US'),
+      import('@univerjs/sheets/locale/en-US')
     ]);
 
     const univer = new Univer({
       locale: LocaleType.EN_US,
+      locales: {
+        [LocaleType.EN_US]: {
+          ...UniverUIDesignEnUS,
+          ...UniverUIEnUS,
+          ...UniverSheetsEnUS
+        }
+      },
       logLevel: LogLevel.WARN
     });
     univer.registerPlugin(UniverRenderEnginePlugin);
