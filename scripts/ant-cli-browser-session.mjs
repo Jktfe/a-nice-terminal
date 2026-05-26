@@ -60,14 +60,42 @@ export async function mintAntCliBrowserSessionCookie(runtime, roomId, explicitHa
 //
 // Falls back to the existing pidChain-in-URL + cookie-mint path when
 // no token is in config (CLI sessions that never redeemed an invite).
+// Dual-shape lookup (xenoCC bug report 2026-05-26):
+//
+//   Flat shape (post-0.1.7 invite exchange writes):
+//     tokens[roomId] = { token: '<secret>', server_url?: '...', ... }
+//
+//   Legacy nested shape (pre-0.1.7 invite exchange writes):
+//     tokens[roomId] = { default_handle: '@x',
+//                        byHandle: { '@x': { token: '<secret>', ... } } }
+//
+// If we only check the flat shape, an older config with the nested
+// shape returns null here, the bearer path is skipped, and the router
+// falls back to pidChain-in-URL — which hits the gateway URL-length
+// 502 we fixed for the bearer path in ant 0.1.9. Reproducer: drop the
+// flat `token` field from a tokens[roomId] entry that still has
+// byHandle and watch the router 502-storm.
 function lookupRoomToken(runtime, roomId) {
   if (typeof roomId !== 'string' || roomId.length === 0) return null;
   const tokens = runtime.config?.tokens;
   if (!tokens || typeof tokens !== 'object') return null;
   const entry = tokens[roomId];
   if (!entry || typeof entry !== 'object') return null;
-  const token = entry.token;
-  return typeof token === 'string' && token.length > 0 ? token : null;
+  // Flat shape first — current writers use this.
+  if (typeof entry.token === 'string' && entry.token.length > 0) return entry.token;
+  // Legacy nested shape — prefer default_handle when set, else any
+  // handle (single-handle is the common case for older configs).
+  const byHandle = entry.byHandle;
+  if (byHandle && typeof byHandle === 'object') {
+    const defaultHandle = typeof entry.default_handle === 'string' ? entry.default_handle : null;
+    const candidate = (defaultHandle && byHandle[defaultHandle]) ?? Object.values(byHandle)[0];
+    if (candidate && typeof candidate === 'object'
+        && typeof candidate.token === 'string'
+        && candidate.token.length > 0) {
+      return candidate.token;
+    }
+  }
+  return null;
 }
 
 export async function fetchRoomJsonWithBrowserSessionFallback(

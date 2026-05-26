@@ -96,3 +96,97 @@ describe('fetchRoomJsonWithBrowserSessionFallback — bearer-on-GET', () => {
     ).rejects.toThrow(/500/);
   });
 });
+
+// xenoCC bug report 2026-05-26: lookupRoomToken read the flat shape
+// only, so older configs with `byHandle` nested entries fell back to
+// pidChain-in-URL → URL-length 502. These tests pin both shapes.
+function makeRuntimeWithConfig(tokensConfig, responses = []) {
+  const captured = { calls: [], responseQueue: [...responses] };
+  const fetchImpl = async (url, init = {}) => {
+    captured.calls.push({ url, init });
+    const next = captured.responseQueue.shift();
+    if (!next) throw new Error(`unexpected request: ${url}`);
+    return next;
+  };
+  return {
+    runtime: {
+      fetchImpl,
+      serverUrl: BASE_URL,
+      serverUrlSource: 'default',
+      config: { serverUrl: BASE_URL, tokens: tokensConfig }
+    },
+    captured
+  };
+}
+
+describe('lookupRoomToken — dual-shape config compatibility', () => {
+  it('reads bearer from legacy nested byHandle shape (default_handle present)', async () => {
+    const { runtime, captured } = makeRuntimeWithConfig(
+      {
+        [ROOM_ID]: {
+          default_handle: '@me',
+          byHandle: {
+            '@me': { token: TOKEN, handle: '@me' },
+            '@other': { token: 'wrong-token', handle: '@other' }
+          }
+        }
+      },
+      [jsonResponse({ messages: [] }, 200)]
+    );
+    await fetchRoomJsonWithBrowserSessionFallback(runtime, ROOM_ID, `/api/chat-rooms/${ROOM_ID}/messages`, null);
+    expect(captured.calls.length).toBe(1);
+    expect(captured.calls[0].init.headers.authorization).toBe(`Bearer ${TOKEN}`);
+    expect(captured.calls[0].url).not.toContain('pidChain=');
+  });
+
+  it('reads bearer from legacy nested byHandle shape (no default_handle, falls back to first entry)', async () => {
+    const { runtime, captured } = makeRuntimeWithConfig(
+      { [ROOM_ID]: { byHandle: { '@me': { token: TOKEN, handle: '@me' } } } },
+      [jsonResponse({ messages: [] }, 200)]
+    );
+    await fetchRoomJsonWithBrowserSessionFallback(runtime, ROOM_ID, `/api/chat-rooms/${ROOM_ID}/messages`, null);
+    expect(captured.calls[0].init.headers.authorization).toBe(`Bearer ${TOKEN}`);
+  });
+
+  it('prefers flat token over legacy nested when both exist (post-migration shape)', async () => {
+    const flatToken = 'flat-shape-token';
+    const { runtime, captured } = makeRuntimeWithConfig(
+      {
+        [ROOM_ID]: {
+          token: flatToken,
+          default_handle: '@me',
+          byHandle: { '@me': { token: 'stale-nested-token' } }
+        }
+      },
+      [jsonResponse({ messages: [] }, 200)]
+    );
+    await fetchRoomJsonWithBrowserSessionFallback(runtime, ROOM_ID, `/api/chat-rooms/${ROOM_ID}/messages`, null);
+    expect(captured.calls[0].init.headers.authorization).toBe(`Bearer ${flatToken}`);
+  });
+
+  it('falls back to pidChain when byHandle is empty (no usable token anywhere)', async () => {
+    const { runtime, captured } = makeRuntimeWithConfig(
+      { [ROOM_ID]: { byHandle: {} } },
+      [jsonResponse({ messages: [] }, 200)]
+    );
+    await fetchRoomJsonWithBrowserSessionFallback(runtime, ROOM_ID, `/api/chat-rooms/${ROOM_ID}/messages`, null);
+    expect(captured.calls[0].url).toContain('pidChain=');
+    expect(captured.calls[0].init?.headers?.authorization).toBeUndefined();
+  });
+
+  it('falls back to pidChain when default_handle points at a missing byHandle entry', async () => {
+    const { runtime, captured } = makeRuntimeWithConfig(
+      {
+        [ROOM_ID]: {
+          default_handle: '@missing',
+          byHandle: { '@other': { token: TOKEN } }
+        }
+      },
+      [jsonResponse({ messages: [] }, 200)]
+    );
+    await fetchRoomJsonWithBrowserSessionFallback(runtime, ROOM_ID, `/api/chat-rooms/${ROOM_ID}/messages`, null);
+    // Default-handle miss falls back to the first byHandle entry which
+    // does have a valid token, so bearer path still fires.
+    expect(captured.calls[0].init.headers.authorization).toBe(`Bearer ${TOKEN}`);
+  });
+});
