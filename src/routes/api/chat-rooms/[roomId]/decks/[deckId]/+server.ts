@@ -6,8 +6,8 @@
  *
  * PUT /api/chat-rooms/:roomId/decks/:deckId
  *   Upserts the deck body. JSON: { contentFormat, contentBody, artefactId,
- *   updatedByHandle? }. contentFormat must be 'markdown' (univer-json is
- *   forward-reserved). The artefactId binds the body to a chat_room_artefacts
+ *   updatedByHandle? }. contentFormat can be markdown or univer-json. The
+ *   artefactId binds the body to a chat_room_artefacts
  *   row — the URL `:deckId` is the body's own id (per artefact_content.id).
  */
 
@@ -22,6 +22,7 @@ import {
 } from '$lib/server/chatRoomArtefactContentStore';
 import { renderMarkdown } from '$lib/chat/renderMarkdown';
 import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
+import { renderUniverJsonHtml } from '$lib/server/univerJsonRenderer';
 
 const SLIDE_SEPARATOR_RE = /^\s*-{3,}\s*$/m;
 
@@ -111,7 +112,9 @@ export const GET: RequestHandler = ({ params }) => {
   const artefact = getArtefact(content.artefactId);
   const title = artefact?.title ?? 'Deck';
   if (content.contentFormat === 'univer-json') {
-    throw error(501, 'Univer-rendered decks not yet implemented in the read endpoint.');
+    return new Response(renderUniverJsonHtml({ title, kind: 'deck', contentBody: content.contentBody }), {
+      headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' }
+    });
   }
   return new Response(renderDeckHtml(title, content.contentBody), {
     headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' }
