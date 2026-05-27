@@ -52,7 +52,15 @@ export const GET: RequestHandler = async ({ params, request, url }) => {
   if (!room) {
     throw error(404, 'Room not found.');
   }
-  await requireChatRoomReadAccess(request, room);
+  const access = await requireChatRoomReadAccess(request, room);
+  // The viewer's resolved handle FAMILY (multiple aliases for one user)
+  // is passed to `summariseReactionsForMessage` so `viewerHasReacted` is
+  // true whenever any of the viewer's aliases reacted — not just the
+  // primary. This matters because requireChatRoomReadAccess expands one
+  // bearer into a family (e.g. `@jamesK`/`@you`/`@james`) and a reaction
+  // recorded under any of them belongs to the same viewer.
+  // Homebrew msg_znoxuoppy8 2026-05-27.
+  const viewerHandles = access.handles;
   const limit = parseLimit(url.searchParams.get('limit'));
   const before = parseBefore(url.searchParams.get('before'));
   // Server-side context-break boundary (JWPK msg_ef2p1p75j9, 2026-05-23):
@@ -70,7 +78,7 @@ export const GET: RequestHandler = async ({ params, request, url }) => {
     ...(before !== undefined && { beforePostOrder: before })
   });
   return json({
-    messages: page.messages.map(withReactionSummaries),
+    messages: page.messages.map((message) => withReactionSummaries(message, viewerHandles)),
     paging: {
       limit,
       before: before ?? null,
@@ -81,8 +89,11 @@ export const GET: RequestHandler = async ({ params, request, url }) => {
   });
 };
 
-function withReactionSummaries(message: ReturnType<typeof listMessagesPageInRoom>['messages'][number]) {
-  const reactions = summariseReactionsForMessage(message.id);
+function withReactionSummaries(
+  message: ReturnType<typeof listMessagesPageInRoom>['messages'][number],
+  viewerHandles: readonly string[]
+) {
+  const reactions = summariseReactionsForMessage(message.id, viewerHandles);
   if (reactions.length === 0) return message;
   return { ...message, reactions };
 }

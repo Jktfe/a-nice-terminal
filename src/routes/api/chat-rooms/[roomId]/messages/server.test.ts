@@ -205,11 +205,37 @@ describe('GET /api/chat-rooms/:roomId/messages pagination', () => {
     const payload = await response.json();
     const firstPayload = payload.messages.find((message: { id: string }) => message.id === first.id);
     const secondPayload = payload.messages.find((message: { id: string }) => message.id === second.id);
+    // @you is the viewer (issued token), and never reacted, so viewerHasReacted
+    // is false for both emojis. M1 native-app reactions toggle UX depends on
+    // this field — see homebrew msg_znoxuoppy8 2026-05-27.
     expect(firstPayload.reactions).toEqual([
-      { emoji: '👍', count: 2, topReactors: ['@claude', '@kimi'] },
-      { emoji: '🙌', count: 1, topReactors: ['@codex'] }
+      { emoji: '👍', count: 2, topReactors: ['@claude', '@kimi'], viewerHasReacted: false },
+      { emoji: '🙌', count: 1, topReactors: ['@codex'], viewerHasReacted: false }
     ]);
     expect(secondPayload.reactions).toBeUndefined();
+  });
+
+  it('sets viewerHasReacted=true when the viewer reacted but is outside the truncated topReactors', async () => {
+    // Regression coverage for the M1 toggle bug homebrew flagged
+    // (msg_znoxuoppy8): topReactors caps at 5, so a viewer whose reaction
+    // arrived 6th+ would have been classified as "not reacted" by clients
+    // inferring from topReactors. Server-truth `viewerHasReacted` fixes it.
+    const room = createChatRoom({ name: 'viewer-outside-topreactors', whoCreatedIt: '@you' });
+    const message = postMessage({ roomId: room.id, authorHandle: '@you', body: 'busy emoji' });
+    for (const handle of ['@a', '@b', '@c', '@d', '@e']) {
+      addReactionToMessage({ messageId: message.id, reactorHandle: handle, emoji: '👍' });
+    }
+    addReactionToMessage({ messageId: message.id, reactorHandle: '@you', emoji: '👍' });
+
+    const { token } = issueToken('you@example.com');
+    const response = await callGet(room.id, '', { authorization: `Bearer ${token}` });
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    const messagePayload = payload.messages.find((m: { id: string }) => m.id === message.id);
+    const thumb = messagePayload.reactions.find((r: { emoji: string }) => r.emoji === '👍');
+    expect(thumb.count).toBe(6);
+    expect(thumb.topReactors).not.toContain('@you');
+    expect(thumb.viewerHasReacted).toBe(true);
   });
 
   it('keeps hard context-break mode server-side even when include_pre_break is requested', async () => {

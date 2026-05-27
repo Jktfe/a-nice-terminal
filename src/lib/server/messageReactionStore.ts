@@ -39,6 +39,18 @@ export type MessageReactionSummary = {
   emoji: string;
   count: number;
   topReactors: string[];
+  /**
+   * True when `viewerHandle` (passed to `summariseReactionsForMessage`) has
+   * a reaction recorded for this emoji on this message. Always present;
+   * defaults to `false` when no viewer handle is supplied (e.g. legacy
+   * call-sites or admin-bearer reads).
+   *
+   * Why: `topReactors` is truncated at 5; clients that infer viewer-reacted
+   * from that list miss the case where the viewer reacted but isn't in the
+   * top-N. M1 reactions UX needs reliable toggle semantics — homebrew flag
+   * 2026-05-27 msg_znoxuoppy8.
+   */
+  viewerHasReacted: boolean;
 };
 
 type ReactionRow = {
@@ -152,19 +164,31 @@ export function listReactionsForMessage(messageId: string): MessageReaction[] {
   return rows.map(rowToReaction);
 }
 
-export function summariseReactionsForMessage(messageId: string): MessageReactionSummary[] {
+export function summariseReactionsForMessage(
+  messageId: string,
+  viewerHandles?: readonly string[]
+): MessageReactionSummary[] {
+  // A single viewer can have multiple aliases (family handles) — e.g. one
+  // user might react as `@jamesK` or `@you` interchangeably. The endpoint
+  // passes the full resolved handle family from `requireChatRoomReadAccess`,
+  // and we mark viewerHasReacted true if any reaction is by any of them.
+  const viewerHandleSet =
+    viewerHandles && viewerHandles.length > 0 ? new Set(viewerHandles) : null;
   const summariesByEmoji = new Map<string, MessageReactionSummary>();
   for (const reaction of listReactionsForMessage(messageId)) {
+    const isViewerReaction = viewerHandleSet !== null && viewerHandleSet.has(reaction.reactorHandle);
     const summary = summariesByEmoji.get(reaction.emoji);
     if (summary) {
       summary.count += 1;
       if (summary.topReactors.length < 5) summary.topReactors.push(reaction.reactorHandle);
+      if (isViewerReaction) summary.viewerHasReacted = true;
       continue;
     }
     summariesByEmoji.set(reaction.emoji, {
       emoji: reaction.emoji,
       count: 1,
-      topReactors: [reaction.reactorHandle]
+      topReactors: [reaction.reactorHandle],
+      viewerHasReacted: isViewerReaction
     });
   }
   return [...summariesByEmoji.values()];
