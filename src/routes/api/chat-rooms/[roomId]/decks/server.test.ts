@@ -106,6 +106,52 @@ describe("/api/chat-rooms/:roomId/decks", () => {
     expect(body.decks[0].accessPassword).toBeUndefined();
   });
 
+  it("POST can create an Animotion-backed deck by slug", async () => {
+    const room = createChatRoom({ name: "decks-test", whoCreatedIt: "test" });
+    const postRes = await runHandler(POST, eventFor("POST", room.id, "", {
+      title: "Animotion pitch",
+      animotionSlug: "state-of-play-2026-05-27"
+    }));
+
+    expect(postRes.status).toBe(201);
+    const created = await postRes.json();
+    expect(created.theme).toBe("animotion:state-of-play-2026-05-27");
+    expect(created.slides).toEqual([]);
+  });
+
+  it("POST still supports Open-Slide slugs for compatibility", async () => {
+    const room = createChatRoom({ name: "decks-test", whoCreatedIt: "test" });
+    const postRes = await runHandler(POST, eventFor("POST", room.id, "", {
+      title: "Legacy Open-Slide pitch",
+      openSlideSlug: "legacy-board-pack"
+    }));
+
+    expect(postRes.status).toBe(201);
+    const created = await postRes.json();
+    expect(created.theme).toBe("open-slide:legacy-board-pack");
+  });
+
+  it("POST rejects unsafe external deck slugs", async () => {
+    const room = createChatRoom({ name: "decks-test", whoCreatedIt: "test" });
+    const postRes = await runHandler(POST, eventFor("POST", room.id, "", {
+      title: "Unsafe",
+      animotionSlug: "../secrets"
+    }));
+
+    expect(postRes.status).toBe(400);
+  });
+
+  it("POST rejects competing external deck substrate slugs", async () => {
+    const room = createChatRoom({ name: "decks-test", whoCreatedIt: "test" });
+    const postRes = await runHandler(POST, eventFor("POST", room.id, "", {
+      title: "Too many sources",
+      animotionSlug: "state-of-play-2026-05-27",
+      openSlideSlug: "legacy-board-pack"
+    }));
+
+    expect(postRes.status).toBe(400);
+  });
+
   it("POST rejects missing title", async () => {
     const room = createChatRoom({ name: "decks-test", whoCreatedIt: "test" });
     const res = await runHandler(POST, eventFor("POST", room.id, "", { slides: [] }));

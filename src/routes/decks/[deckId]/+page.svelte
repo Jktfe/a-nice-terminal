@@ -18,6 +18,7 @@
   import Explainable from '$lib/components/Explainable.svelte';
   import ClaimValidationOverlay from '$lib/components/ClaimValidationOverlay.svelte';
   import { renderMarkdown } from '$lib/chat/renderMarkdown';
+  import { externalDeckSourceFromTheme } from '$lib/externalDeckSubstrate';
   import { BrowserTTSProvider, ElevenLabsTTSProvider, type TTSHandle, type TTSProvider } from '$lib/voice/interview-tts';
   import type { PageData } from './$types';
 
@@ -137,6 +138,7 @@
   let speakStartMs = 0;
 
   const deck = $derived(data.deck);
+  const externalDeckSource = $derived(externalDeckSourceFromTheme(deck.theme));
   const deckPasswordQuery = $derived(data.deckPassword ? `?password=${encodeURIComponent(data.deckPassword)}` : '');
   const slides = $derived(deck.slides ?? []);
   const slideCount = $derived(slides.length);
@@ -515,7 +517,7 @@
 <SimplePageShell
   eyebrow="Deck"
   title={deck.title}
-  summary={`From /rooms/${deck.roomId} · ${slideCount} slide${slideCount === 1 ? '' : 's'}`}
+  summary={externalDeckSource ? `From /rooms/${deck.roomId} · ${externalDeckSource.label} deck ${externalDeckSource.path}` : `From /rooms/${deck.roomId} · ${slideCount} slide${slideCount === 1 ? '' : 's'}`}
 >
   <Explainable explainKey="deck-voice"><DeckViewerToolbar
     roomId={deck.roomId}
@@ -553,7 +555,18 @@
     </p>
   {/if}
 
-  {#if slideCount === 0}
+  {#if externalDeckSource}
+    <section class="external-deck-stage" aria-label={`${externalDeckSource.label} deck`}>
+      <header>
+        <span>{externalDeckSource.label} source</span>
+        <a href={externalDeckSource.path} target="_blank" rel="noreferrer">Open full deck</a>
+      </header>
+      <iframe
+        title={`${deck.title} ${externalDeckSource.label} deck`}
+        src={externalDeckSource.path}
+      ></iframe>
+    </section>
+  {:else if slideCount === 0}
     <p class="empty-deck">This deck has no slides yet.</p>
   {:else if activeSlide}
     <article class="slide" data-layout={activeSlide.layout ?? 'standard'}>
@@ -728,6 +741,39 @@
     padding: 2rem 1rem;
     text-align: center;
     color: var(--ink-soft);
+  }
+  .external-deck-stage {
+    display: grid;
+    grid-template-rows: auto minmax(32rem, 74vh);
+    border: 1px solid var(--line-soft);
+    border-radius: 1rem;
+    background: var(--surface-card);
+    box-shadow: 0 14px 36px rgb(0 0 0 / 5%);
+    overflow: hidden;
+  }
+  .external-deck-stage header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.7rem 0.95rem;
+    border-bottom: 1px solid var(--line-soft);
+    color: var(--ink-soft);
+    font-size: 0.82rem;
+    font-weight: 850;
+  }
+  .external-deck-stage a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .external-deck-stage a:hover {
+    text-decoration: underline;
+  }
+  .external-deck-stage iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: white;
   }
   .slide {
     border: 1px solid var(--line-soft);

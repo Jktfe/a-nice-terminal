@@ -56,6 +56,7 @@ function bootPollerOnce(): void {
 //   - /api/health (operational liveness probe — gating it would break
 //     external uptime monitors)
 //   - /decks/* (shareable deck route; deckAccessGate enforces room/password)
+//   - /d/* (built-deck iframe payload used by shareable /decks/*)
 //   - SvelteKit-internal /_app/* JS/CSS chunks (must be reachable so
 //     /login itself can render)
 //   - favicon.ico and similar static assets
@@ -73,6 +74,10 @@ function isGateBypassPath(pathname: string): boolean {
   // or ?password=. If the global demo-login gate catches /decks first,
   // password links can never reach their own access gate.
   if (pathname.startsWith('/decks/')) return true;
+  // Built deck payloads are loaded inside the shareable deck page iframe.
+  // Keep this narrow to the static deck slug route; the parent /decks page
+  // still controls who can discover a deck URL in the first place.
+  if (pathname.startsWith('/d/')) return true;
   // Emergency Univer dogfood demo (JWPK msg_w62h4zdl9z 2026-05-26):
   // the seeded demo artefact must be reachable from a clean browser while
   // we show the runtime. Keep this scoped to generated demo ids; ordinary

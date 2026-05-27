@@ -77,6 +77,17 @@ describe('hooks.server — boot poller on first request', () => {
     expect(await res.text()).toBe('ok');
   });
 
+  it('lets built deck iframe payloads load inside shareable deck pages', async () => {
+    process.env.ANT_DEMO_EMAIL = 'demo@example.com';
+    process.env.ANT_DEMO_PASSWORD = 'secret';
+    const res = await handle({
+      event: pageEvent('/d/ant-animotion-demo'),
+      resolve: passResolve
+    });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('ok');
+  });
+
   it('lets the seeded Univer demo artefact load without a browser login', async () => {
     process.env.ANT_DEMO_EMAIL = 'demo@example.com';
     process.env.ANT_DEMO_PASSWORD = 'secret';

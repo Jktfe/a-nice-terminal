@@ -51,6 +51,7 @@
     "vitest": "^3.0.0"
   },
   "dependencies": {
+    "@animotion/core": "^1.4.0",
     "@svar-ui/svelte-gantt": "^2.6.2",
     "@univerjs/core": "^0.22.1",
     "@univerjs/design": "^0.22.1",
