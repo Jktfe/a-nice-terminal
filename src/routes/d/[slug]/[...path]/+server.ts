@@ -11,20 +11,14 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { readFile } from 'node:fs/promises';
-import { delimiter, join, resolve, extname } from 'node:path';
-import { homedir } from 'node:os';
+import { join, resolve, extname } from 'node:path';
+import { deckRootsResolved } from '$lib/server/deckSettingsStore';
 
 const SLUG_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
 function deckRoots(): string[] {
-  const configured = process.env.ANT_BUILT_DECKS_ROOTS
-    ?.split(delimiter)
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0) ?? [];
-  return [
-    ...configured,
-    join(homedir(), 'CascadeProjects', 'ANT-Decks'),
-    join(homedir(), 'CascadeProjects', 'ANT-Open-Slide')
-  ];
+  // Same merged resolution as the sibling /d/[slug] entry route.
+  // See deckSettingsStore.deckRootsResolved for the layer order.
+  return deckRootsResolved();
 }
 
 const CONTENT_TYPES: Record<string, string> = {

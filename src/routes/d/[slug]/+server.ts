@@ -18,8 +18,8 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { readFile } from 'node:fs/promises';
-import { delimiter, join } from 'node:path';
-import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { deckRootsResolved } from '$lib/server/deckSettingsStore';
 
 const SLUG_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
 const BUILT_DECK_BROWSER_POLYFILLS = `<script>
@@ -33,15 +33,12 @@ if (globalThis.crypto && !globalThis.crypto.randomUUID) {
 </script>`;
 
 function deckRoots(): string[] {
-  const configured = process.env.ANT_BUILT_DECKS_ROOTS
-    ?.split(delimiter)
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0) ?? [];
-  return [
-    ...configured,
-    join(homedir(), 'CascadeProjects', 'ANT-Decks'),
-    join(homedir(), 'CascadeProjects', 'ANT-Open-Slide')
-  ];
+  // Resolution merges ANT_BUILT_DECKS_ROOTS env var → ~/.ant/deck-settings.json
+  // → legacy fallbacks. Centralised in deckSettingsStore so the
+  // /api/deck-settings endpoint + the Settings panel share the same
+  // resolver — operators can edit roots from the in-app UI without
+  // touching their shell rc.
+  return deckRootsResolved();
 }
 
 function assertSafeSlug(slug: string): void {
