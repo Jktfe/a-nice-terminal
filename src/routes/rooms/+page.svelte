@@ -80,9 +80,23 @@
 
   // Init-from-prop so the first SSR HTML already renders the right section
   // (with or without the empty-state nudge). Refreshing after a new room
-  // is created assigns the array directly, no $effect copy needed.
+  // is created assigns the array directly.
   // svelte-ignore state_referenced_locally
   let chatRoomsFromServer = $state<RoomCard[]>(data.chatRoomsFromServer);
+
+  // JWPK msg_wdp0pvjgmo (2026-05-27 antV4): delete looked like it "did
+  // nothing" and archive only reflected "after refresh." Root cause:
+  // RoomStrip calls invalidateAll() on success, which updates the
+  // `data` prop's chatRoomsFromServer, but the local `$state` above was
+  // initialised from `data` ONCE and never resynced. Both archive +
+  // delete were succeeding server-side; the UI never re-rendered.
+  // This $effect mirrors prop changes into local state so invalidateAll
+  // surfaces immediately. The manual refreshRoomListFromServer path
+  // below still works — both end up assigning the same shape; whichever
+  // runs last wins, and invalidateAll is canonical.
+  $effect(() => {
+    chatRoomsFromServer = data.chatRoomsFromServer;
+  });
 
   // JWPK msg_m3h97n3noq: v3 had a dashboard grid view with rows×cols up
   // to 5×5. Lifted here as a simpler list/grid toggle on /rooms with a
