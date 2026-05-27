@@ -132,6 +132,24 @@ describe('POST + GET /api/asks', () => {
     expect(getBody.asks[0].id).toBe(postBody.ask.id);
   });
 
+  it('POST preserves targetHandle so human inbox asks stay addressable', async () => {
+    const room = createChatRoom({ name: 'targeted-asks-room', whoCreatedIt: '@you' });
+    const postResponse = await callPost({
+      body: JSON.stringify({
+        roomId: room.id,
+        openedByHandle: '@you',
+        targetHandle: '@you',
+        title: 'can you decide?',
+        body: 'need a human decision'
+      })
+    });
+
+    expect(postResponse.status).toBe(201);
+    const postBody = await postResponse.json();
+    expect(postBody.ask.targetHandle).toBe('@you');
+    expect(listAllOpenAsks()[0]?.targetHandle).toBe('@you');
+  });
+
   it('GET with ?roomId scopes the list to that room', async () => {
     const roomA = createChatRoom({ name: 'A', whoCreatedIt: '@you' });
     const roomB = createChatRoom({ name: 'B', whoCreatedIt: '@you' });

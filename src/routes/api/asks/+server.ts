@@ -209,12 +209,15 @@ export const POST: RequestHandler = async ({ request }) => {
   const openedByDisplayNameRaw = bodyAsObject.openedByDisplayName;
   const openedByDisplayName =
     typeof openedByDisplayNameRaw === 'string' ? openedByDisplayNameRaw : undefined;
+  const targetHandleRaw = bodyAsObject.targetHandle;
+  const targetHandle = typeof targetHandleRaw === 'string' ? targetHandleRaw : undefined;
 
   try {
     const ask = openAskInRoom({
       roomId: room.id,
       openedByHandle: handleWithAtSign,
       openedByDisplayName,
+      targetHandle,
       title: titleRaw,
       body: bodyTextRaw
     });

@@ -880,7 +880,7 @@ const SCHEMA_DDL_STATEMENTS = [
     opened_by_display_name TEXT,
     title           TEXT NOT NULL,
     body            TEXT NOT NULL,
-    status          TEXT NOT NULL CHECK (status IN ('open','answered','dismissed')) DEFAULT 'open',
+    status          TEXT NOT NULL CHECK (status IN ('open','answered','dismissed','merged','deferred')) DEFAULT 'open',
     opened_at_ms    INTEGER NOT NULL,
     answer          TEXT,
     answered_by_handle TEXT,
@@ -1475,25 +1475,34 @@ function applySchemaMigrations(db: DatabaseInstance): void {
       if (!message.includes('duplicate column name')) throw cause;
     }
   }
-  extendAsksStatusCheckToIncludeMerged(db);
+  extendAsksStatusCheckForActiveStatuses(db);
 }
 
 /**
  * Asks-as-pill (JWPK 2026-05-22): the `status` CHECK on `asks` only
- * permitted ('open','answered','dismissed'). SQLite doesn't allow
- * modifying a CHECK constraint via ALTER TABLE, so we rebuild the table
- * via the standard `_new` + copy + drop + rename dance — but only when
- * the live schema is missing the new value. Idempotent: skipped on a
- * fresh DB (the asks table comes back with the extended CHECK from the
- * main DDL the moment we update it), and skipped after a successful
- * rebuild.
+ * permitted ('open','answered','dismissed') on older DBs. SQLite doesn't
+ * allow modifying a CHECK constraint via ALTER TABLE, so we rebuild the
+ * table via the standard `_new` + copy + drop + rename dance — but only
+ * when the live schema is missing an active status value.
  */
-function extendAsksStatusCheckToIncludeMerged(db: DatabaseInstance): void {
+function extendAsksStatusCheckForActiveStatuses(db: DatabaseInstance): void {
   const existingSchema = db
     .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'asks'`)
     .get() as { sql: string | null } | undefined;
   if (!existingSchema || !existingSchema.sql) return;
-  if (existingSchema.sql.includes("'merged'")) return;
+  const existingColumns = new Set(
+    (db.prepare(`PRAGMA table_info(asks)`).all() as Array<{ name: string }>).map((column) => column.name)
+  );
+  const requiredColumns = ['target_handle', 'merged_into_ask_id', 'merged_at_ms', 'merged_by_handle'];
+  const hasRequiredStatuses =
+    existingSchema.sql.includes("'merged'") && existingSchema.sql.includes("'deferred'");
+  const hasRequiredColumns = requiredColumns.every((columnName) => existingColumns.has(columnName));
+  if (hasRequiredStatuses && hasRequiredColumns) return;
+
+  const targetHandleSelect = existingColumns.has('target_handle') ? 'target_handle' : 'NULL';
+  const mergedIntoAskIdSelect = existingColumns.has('merged_into_ask_id') ? 'merged_into_ask_id' : 'NULL';
+  const mergedAtMsSelect = existingColumns.has('merged_at_ms') ? 'merged_at_ms' : 'NULL';
+  const mergedByHandleSelect = existingColumns.has('merged_by_handle') ? 'merged_by_handle' : 'NULL';
 
   const rebuild = db.transaction(() => {
     db.prepare(`CREATE TABLE asks_new (
@@ -1503,7 +1512,7 @@ function extendAsksStatusCheckToIncludeMerged(db: DatabaseInstance): void {
       opened_by_display_name TEXT,
       title           TEXT NOT NULL,
       body            TEXT NOT NULL,
-      status          TEXT NOT NULL CHECK (status IN ('open','answered','dismissed','merged')) DEFAULT 'open',
+      status          TEXT NOT NULL CHECK (status IN ('open','answered','dismissed','merged','deferred')) DEFAULT 'open',
       opened_at_ms    INTEGER NOT NULL,
       answer          TEXT,
       answered_by_handle TEXT,
@@ -1520,11 +1529,13 @@ function extendAsksStatusCheckToIncludeMerged(db: DatabaseInstance): void {
     db.prepare(`INSERT INTO asks_new (
       id, room_id, opened_by_handle, opened_by_display_name, title, body, status,
       opened_at_ms, answer, answered_by_handle, answered_by_display_name, answered_at_ms,
-      dismissed_by_handle, dismissed_by_display_name, dismissed_at_ms, target_handle
+      dismissed_by_handle, dismissed_by_display_name, dismissed_at_ms, target_handle,
+      merged_into_ask_id, merged_at_ms, merged_by_handle
     ) SELECT
       id, room_id, opened_by_handle, opened_by_display_name, title, body, status,
       opened_at_ms, answer, answered_by_handle, answered_by_display_name, answered_at_ms,
-      dismissed_by_handle, dismissed_by_display_name, dismissed_at_ms, target_handle
+      dismissed_by_handle, dismissed_by_display_name, dismissed_at_ms, ${targetHandleSelect},
+      ${mergedIntoAskIdSelect}, ${mergedAtMsSelect}, ${mergedByHandleSelect}
     FROM asks`).run();
     db.prepare(`DROP TABLE asks`).run();
     db.prepare(`ALTER TABLE asks_new RENAME TO asks`).run();
