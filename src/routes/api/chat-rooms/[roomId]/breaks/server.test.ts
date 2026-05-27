@@ -123,6 +123,23 @@ describe('POST /api/chat-rooms/:roomId/breaks', () => {
     expect(messages[0].body).toContain('switching tracks');
   });
 
+  it('attributes admin-authored breaks to @admin instead of trusting postedByHandle', async () => {
+    const room = createChatRoom({ name: 'spoofed-break', whoCreatedIt: '@you' });
+    const response = await callBreaksPost({
+      roomId: room.id,
+      body: JSON.stringify({
+        reason: 'FlowDeck chat stream delete probe',
+        postedByHandle: '@jamesK'
+      })
+    });
+
+    expect(response.status).toBe(201);
+    const messages = listMessagesInRoom(room.id);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].body).toContain('Context break by @admin');
+    expect(messages[0].body).not.toContain('@jamesK');
+  });
+
   it('returns 201 and uses defaults when given an empty body', async () => {
     const room = createChatRoom({ name: 'empty-body', whoCreatedIt: '@you' });
     const response = await callBreaksPost({ roomId: room.id, body: '' });

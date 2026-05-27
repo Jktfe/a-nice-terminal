@@ -19,6 +19,7 @@ import {
 } from '$lib/server/chatRoomArtefactContentStore';
 import { renderMarkdown } from '$lib/chat/renderMarkdown';
 import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
+import { renderUniverJsonHtml } from '$lib/server/univerJsonRenderer';
 
 function escapeHtml(raw: string): string {
   return raw
@@ -79,7 +80,9 @@ export const GET: RequestHandler = ({ params }) => {
   const artefact = getArtefact(content.artefactId);
   const title = artefact?.title ?? 'Document';
   if (content.contentFormat === 'univer-json') {
-    throw error(501, 'Univer-rendered docs not yet implemented in the read endpoint.');
+    return new Response(renderUniverJsonHtml({ title, kind: 'doc', contentBody: content.contentBody }), {
+      headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' }
+    });
   }
   return new Response(renderDocHtml(title, content.contentBody), {
     headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' }

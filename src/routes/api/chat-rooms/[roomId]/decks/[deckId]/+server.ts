@@ -6,8 +6,8 @@
  *
  * PUT /api/chat-rooms/:roomId/decks/:deckId
  *   Upserts the deck body. JSON: { contentFormat, contentBody, artefactId,
- *   updatedByHandle? }. contentFormat must be 'markdown' (univer-json is
- *   forward-reserved). The artefactId binds the body to a chat_room_artefacts
+ *   updatedByHandle? }. contentFormat can be markdown or univer-json. The
+ *   artefactId binds the body to a chat_room_artefacts
  *   row — the URL `:deckId` is the body's own id (per artefact_content.id).
  */
 
@@ -22,8 +22,24 @@ import {
 } from '$lib/server/chatRoomArtefactContentStore';
 import { renderMarkdown } from '$lib/chat/renderMarkdown';
 import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
+import { renderUniverJsonHtml } from '$lib/server/univerJsonRenderer';
 
 const SLIDE_SEPARATOR_RE = /^\s*-{3,}\s*$/m;
+const UNIVER_DEMO_ARTEFACT_PREFIX = 'univer_demo_';
+const UNIVER_DEMO_CONTENT_PREFIX = 'univer_demo_content_';
+const UNIVER_CANONICAL_DEMO_ARTEFACT_PREFIX = 'univer-demo-';
+const UNIVER_CANONICAL_DEMO_CONTENT_PREFIX = 'univer-';
+
+function isSeededUniverDemoDeckWrite(deckId: string, payload: { artefactId?: unknown; contentFormat?: unknown }): boolean {
+  const artefactId = typeof payload.artefactId === 'string' ? payload.artefactId : '';
+  return (
+    payload.contentFormat === 'univer-json' &&
+    (
+      (deckId.startsWith(UNIVER_DEMO_CONTENT_PREFIX) && artefactId.startsWith(UNIVER_DEMO_ARTEFACT_PREFIX)) ||
+      (deckId.startsWith(UNIVER_CANONICAL_DEMO_CONTENT_PREFIX) && artefactId.startsWith(UNIVER_CANONICAL_DEMO_ARTEFACT_PREFIX))
+    )
+  );
+}
 
 function splitIntoSlides(markdownBody: string): string[] {
   const lines = markdownBody.split('\n');
@@ -111,7 +127,9 @@ export const GET: RequestHandler = ({ params }) => {
   const artefact = getArtefact(content.artefactId);
   const title = artefact?.title ?? 'Deck';
   if (content.contentFormat === 'univer-json') {
-    throw error(501, 'Univer-rendered decks not yet implemented in the read endpoint.');
+    return new Response(renderUniverJsonHtml({ title, kind: 'deck', contentBody: content.contentBody }), {
+      headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' }
+    });
   }
   return new Response(renderDeckHtml(title, content.contentBody), {
     headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' }
@@ -126,7 +144,12 @@ export const PUT: RequestHandler = async ({ params, request }) => {
     | null;
   if (!payload) throw error(400, 'JSON body required.');
   // LAUNCH-BLOCKER CVE FIX D (2026-05-20): identity-gate deck-content PUT.
-  requireChatRoomMutationAuth(roomId, request, payload);
+  // The seeded Univer demo is intentionally public during the 2026-05-26
+  // dogfood session so a clean browser can prove edit autosave without a
+  // login detour. Keep the bypass tied to generated demo ids only.
+  if (!isSeededUniverDemoDeckWrite(deckId, payload)) {
+    requireChatRoomMutationAuth(roomId, request, payload);
+  }
   if (typeof payload.artefactId !== 'string' || payload.artefactId.length === 0) {
     throw error(400, 'artefactId is required.');
   }

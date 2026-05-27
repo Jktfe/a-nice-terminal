@@ -23,22 +23,16 @@ export const POST: RequestHandler = async ({ params, request }) => {
   // LAUNCH-BLOCKER CVE FIX D (2026-05-20): identity-gate breaks POST.
   // Without this any unauthenticated caller could post a context break,
   // truncating every agent's visible history in the room.
-  requireChatRoomMutationAuth(params.roomId, request, bodyAsObject);
+  const auth = requireChatRoomMutationAuth(params.roomId, request, bodyAsObject);
 
   const reasonField = bodyAsObject.reason;
   const reason = typeof reasonField === 'string' ? reasonField : undefined;
-
-  const postedByHandleField = bodyAsObject.postedByHandle;
-  const postedByHandle =
-    typeof postedByHandleField === 'string' && postedByHandleField.length > 0
-      ? postedByHandleField
-      : '@you';
 
   try {
     const newBreak = postBreakMessage({
       roomId: params.roomId,
       reason,
-      postedByHandle
+      postedByHandle: auth.handle
     });
     return json({ message: newBreak }, { status: 201 });
   } catch (causeOfFailure) {
