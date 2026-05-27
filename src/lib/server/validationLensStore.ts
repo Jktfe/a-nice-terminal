@@ -163,6 +163,35 @@ export function listValidationRunsForSchema(schemaId: string): ValidationRun[] {
   return rows.map(rowFromRun);
 }
 
+/**
+ * List validation runs whose claim_anchor sits under any of the supplied
+ * artefact ids (i.e. claim_anchor LIKE 'artefact:<id>%'). Used by the
+ * per-room validation-summary endpoint (V3 contract) to aggregate runs
+ * across every artefact in a room without re-extracting claims per call.
+ *
+ * `sinceMs` optionally restricts to runs whose started_at_ms is at or
+ * after that timestamp — typical use: last 7 days.
+ *
+ * Returns runs ordered by started_at_ms DESC (newest first).
+ */
+export function listValidationRunsForArtefacts(
+  artefactIds: readonly string[],
+  sinceMs?: number
+): ValidationRun[] {
+  if (artefactIds.length === 0) return [];
+  const db = getIdentityDb();
+  const likeClauses = artefactIds.map(() => `claim_anchor LIKE ?`).join(' OR ');
+  const params: unknown[] = artefactIds.map((id) => `artefact:${id}%`);
+  let sql = `SELECT * FROM validation_runs WHERE (${likeClauses})`;
+  if (sinceMs !== undefined) {
+    sql += ` AND started_at_ms >= ?`;
+    params.push(sinceMs);
+  }
+  sql += ` ORDER BY started_at_ms DESC`;
+  const rows = db.prepare(sql).all(...params) as Array<Record<string, unknown>>;
+  return rows.map(rowFromRun);
+}
+
 // ─── Seed data ───
 
 export function seedValidationSchemas(): void {
