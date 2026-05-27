@@ -2,9 +2,10 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   createTerminalRecord, getTerminalRecord, updateTerminalRecord, listTerminalRecords, deleteTerminalRecord,
   parseAllowlist, serializeAllowlist, listKnownHandles, listAllPickableHandles, deriveHandle,
-  findTerminalRecordByHandle
+  findTerminalRecordByHandle, listLiveTerminalRecords
 } from './terminalRecordsStore';
 import { getIdentityDb } from './db';
+import { createChatRoom, archiveChatRoom, softDeleteChatRoom } from './chatRoomStore';
 
 describe('terminalRecordsStore — agent_kind round-trip (T2b autodetect-wiring)', () => {
   beforeEach(() => {
@@ -166,5 +167,62 @@ describe('terminalRecordsStore — agent_kind round-trip (T2b autodetect-wiring)
     createTerminalRecord({ sessionId: 't_v_4', name: 'Anything', handle: '@x' });
     expect(findTerminalRecordByHandle('')).toBeNull();
     expect(findTerminalRecordByHandle('   ')).toBeNull();
+  });
+
+  // JWPK msg_oqks7iixre 2026-05-27 antV4: the "Invite an agent" picker was
+  // offering agents whose linked chat was archived. Filtered set must
+  // drop those without dropping bare-pane records (no linked room).
+  describe('listLiveTerminalRecords + picker-handles archive filter', () => {
+    beforeEach(() => {
+      try { getIdentityDb().prepare(`DELETE FROM chat_rooms`).run(); } catch { /* schema not applied */ }
+    });
+
+    it('AR1: drops a terminal whose linked chat is archived', () => {
+      const room = createChatRoom({ name: 'archive-me', whoCreatedIt: '@you' });
+      createTerminalRecord({ sessionId: 't_ar_1', name: 'live-agent', handle: '@live', linkedChatRoomId: room.id });
+      createTerminalRecord({ sessionId: 't_ar_2', name: 'dead-agent', handle: '@dead', linkedChatRoomId: room.id });
+      archiveChatRoom(room.id);
+      // Both terminals point at the now-archived room → both excluded.
+      const live = listLiveTerminalRecords();
+      expect(live.find((r) => r.session_id === 't_ar_1')).toBeUndefined();
+      expect(live.find((r) => r.session_id === 't_ar_2')).toBeUndefined();
+      const handles = listAllPickableHandles();
+      expect(handles).not.toContain('@live');
+      expect(handles).not.toContain('@dead');
+    });
+
+    it('AR2: drops a terminal whose linked chat is soft-deleted', () => {
+      const room = createChatRoom({ name: 'delete-me', whoCreatedIt: '@you' });
+      createTerminalRecord({ sessionId: 't_ar_3', name: 'orphan-agent', handle: '@orphan', linkedChatRoomId: room.id });
+      softDeleteChatRoom(room.id);
+      expect(listLiveTerminalRecords().find((r) => r.session_id === 't_ar_3')).toBeUndefined();
+      expect(listAllPickableHandles()).not.toContain('@orphan');
+    });
+
+    it('AR3: keeps a terminal whose linked chat is live (not archived/deleted)', () => {
+      const room = createChatRoom({ name: 'live-room', whoCreatedIt: '@you' });
+      createTerminalRecord({ sessionId: 't_ar_4', name: 'alive-agent', handle: '@alive', linkedChatRoomId: room.id });
+      expect(listLiveTerminalRecords().find((r) => r.session_id === 't_ar_4')).toBeDefined();
+      expect(listAllPickableHandles()).toContain('@alive');
+    });
+
+    it('AR4: keeps bare-pane terminals (linked_chat_room_id IS NULL)', () => {
+      // Operator may have a tmux pane registered with no linked chat —
+      // these should still be invitable.
+      createTerminalRecord({ sessionId: 't_ar_5', name: 'bare-pane', handle: '@bare', linkedChatRoomId: null });
+      expect(listLiveTerminalRecords().find((r) => r.session_id === 't_ar_5')).toBeDefined();
+      expect(listAllPickableHandles()).toContain('@bare');
+    });
+
+    it('AR5: listKnownHandles also filters archived/deleted linked rooms', () => {
+      const liveRoom = createChatRoom({ name: 'live', whoCreatedIt: '@you' });
+      const archivedRoom = createChatRoom({ name: 'archived', whoCreatedIt: '@you' });
+      createTerminalRecord({ sessionId: 't_ar_6', name: 'a', handle: '@live-h', linkedChatRoomId: liveRoom.id });
+      createTerminalRecord({ sessionId: 't_ar_7', name: 'b', handle: '@dead-h', linkedChatRoomId: archivedRoom.id });
+      archiveChatRoom(archivedRoom.id);
+      const handles = listKnownHandles();
+      expect(handles).toContain('@live-h');
+      expect(handles).not.toContain('@dead-h');
+    });
   });
 });

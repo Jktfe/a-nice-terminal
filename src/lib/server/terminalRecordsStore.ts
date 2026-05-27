@@ -166,6 +166,31 @@ export function listTerminalRecords(): TerminalRecord[] {
   return db.prepare(`SELECT * FROM terminal_records ORDER BY created_at_ms DESC`).all() as TerminalRecord[];
 }
 
+/**
+ * Live terminals only — drops any record whose `linked_chat_room_id`
+ * points at a chat_rooms row that is archived (archived_at_ms IS NOT
+ * NULL) or soft-deleted (deleted_at_ms IS NOT NULL). Bare-pane records
+ * with `linked_chat_room_id IS NULL` are KEPT (they never had a linked
+ * room to archive).
+ *
+ * JWPK msg_oqks7iixre 2026-05-27 antV4: the "Invite an agent" picker on
+ * the room right-rail was offering agents whose linked chat had been
+ * archived via `ant kill --mode archive`. The agent stays in
+ * terminal_records (intentional — history preserved), but the picker
+ * should not surface them as live invite candidates.
+ */
+export function listLiveTerminalRecords(): TerminalRecord[] {
+  const db = getIdentityDb();
+  return db.prepare(`
+    SELECT tr.*
+    FROM terminal_records tr
+    LEFT JOIN chat_rooms cr ON tr.linked_chat_room_id = cr.id
+    WHERE tr.linked_chat_room_id IS NULL
+       OR (cr.archived_at_ms IS NULL AND cr.deleted_at_ms IS NULL)
+    ORDER BY tr.created_at_ms DESC
+  `).all() as TerminalRecord[];
+}
+
 export function deleteTerminalRecord(sessionId: string): void {
   const db = getIdentityDb();
   db.prepare(`DELETE FROM terminal_records WHERE session_id = ?`).run(sessionId);
@@ -174,12 +199,19 @@ export function deleteTerminalRecord(sessionId: string): void {
 
 // T2-IDENTITY-REGISTER-S7 (2026-05-14): distinct non-null handles for the
 // allowed-posters picker. Sorted for stable UI ordering.
+// 2026-05-27 (JWPK msg_oqks7iixre): joined against chat_rooms so handles
+// whose linked room is archived/deleted are excluded — same shape as
+// listLiveTerminalRecords. Bare-pane terminals (no linked room) stay in.
 export function listKnownHandles(): string[] {
   const db = getIdentityDb();
   const rows = db.prepare(
-    `SELECT DISTINCT handle FROM terminal_records
-      WHERE handle IS NOT NULL AND handle != ''
-      ORDER BY handle ASC`
+    `SELECT DISTINCT tr.handle
+       FROM terminal_records tr
+       LEFT JOIN chat_rooms cr ON tr.linked_chat_room_id = cr.id
+      WHERE tr.handle IS NOT NULL AND tr.handle != ''
+        AND (tr.linked_chat_room_id IS NULL
+             OR (cr.archived_at_ms IS NULL AND cr.deleted_at_ms IS NULL))
+      ORDER BY tr.handle ASC`
   ).all() as { handle: string }[];
   return rows.map((r) => r.handle);
 }
@@ -199,11 +231,14 @@ export function deriveHandle(record: Pick<TerminalRecord, 'handle' | 'name'>): s
   return `@${slugForHandle(record.name)}`;
 }
 
-// PICKER-SAME-SET: union of explicit + derived handles across ALL
-// terminal_records. Sorted, deduped — feeds the picker so it sees every
-// ANT terminal not just the few with explicit handles.
+// PICKER-SAME-SET: union of explicit + derived handles across all
+// LIVE terminal_records (linked chat not archived/deleted). Sorted,
+// deduped — feeds the picker so it sees every live ANT terminal but
+// NOT terminals whose linked room has been archived/deleted. JWPK
+// msg_oqks7iixre 2026-05-27: dead-room agents were showing up as
+// invitable.
 export function listAllPickableHandles(): string[] {
-  const all = listTerminalRecords();
+  const all = listLiveTerminalRecords();
   const set = new Set<string>();
   for (const r of all) set.add(deriveHandle(r));
   return [...set].sort();
