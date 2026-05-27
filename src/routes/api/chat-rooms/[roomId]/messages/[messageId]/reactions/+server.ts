@@ -38,6 +38,7 @@ import {
 import { collectAskCandidateFromReaction } from '$lib/server/askCandidateStore';
 import { fanoutReactionToAuthor } from '$lib/server/pty-inject-fanout';
 import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
+import { broadcastToRoom } from '$lib/server/eventBroadcast';
 
 export const GET: RequestHandler = ({ params }) => {
   const { room, message } = locateRoomAndMessage(
@@ -79,6 +80,19 @@ export const POST: RequestHandler = async ({ params, request }) => {
     } catch {
       /* fanout is best-effort */
     }
+    // SSE fanout for native apps' reaction reconcile (eiw05zdurz contract
+    // 2026-05-27, msg_v37be5ruo9 from @homebrewclaude). Best-effort —
+    // POST already succeeded; the SSE emit is decorative for clients
+    // that lost their stream or polling fallback.
+    try {
+      broadcastToRoom(params.roomId, {
+        type: 'reaction_added',
+        messageId: params.messageId,
+        reaction
+      });
+    } catch {
+      /* SSE broadcast is best-effort */
+    }
     return json({ reaction }, { status: 201 });
   } catch (causeOfFailure) {
     const failureMessage =
@@ -98,6 +112,21 @@ export const DELETE: RequestHandler = async ({ params, request }) => {
     reactorHandle: handleWithAtSign,
     emoji
   });
+  // SSE fanout sibling to the POST broadcast above. Only emit when we
+  // actually removed something (avoid noisy events for already-absent
+  // reactions). Best-effort; the DELETE response is the source of truth.
+  if (wasReactionThere) {
+    try {
+      broadcastToRoom(params.roomId, {
+        type: 'reaction_removed',
+        messageId: params.messageId,
+        reactorHandle: handleWithAtSign,
+        emoji
+      });
+    } catch {
+      /* SSE broadcast is best-effort */
+    }
+  }
   return json({ wasReactionThere });
 };
 
