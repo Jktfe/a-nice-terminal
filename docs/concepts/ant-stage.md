@@ -91,6 +91,104 @@ Stage is the **explicit in-app exception** to the broader "artefacts open in nat
 - **antios-iOS**: in-app WebKit view, native AVPlayer for audio so background-playback + Now-Playing controls work
 - **antOS (full Mac native, future)**: native rendering of the shell including the embedded deck
 
+## CLI commands
+
+Stage presentations are managed via the `ant decks` and `ant stage` verb families. (Note: `ant decks` is for Stage presentations specifically — for a normal deck artefact in a browser, use `ant artefact add --kind deck --ref-url /d/<slug>` instead.)
+
+### Create a Stage presentation
+
+```sh
+ant decks add --room <ROOM_ID> --title "<TITLE>" \
+              [--animotion-slug <SLUG> | --open-slide-slug <SLUG>] \
+              [--theme animotion:<slug> | open-slide:<slug>] \
+              [--slides-json <JSON>] \
+              [--password <PWD>] \
+              [--json]
+```
+
+- `--animotion-slug` / `--open-slide-slug` reference an external deck source under `ANT_BUILT_DECKS_ROOTS` (e.g. `~/CascadeProjects/ANT-Decks/<slug>/dist/`). The Stage shell embeds the built deck via the `/d/<slug>` proxy.
+- `--theme` carries the substrate identifier; if not supplied, derived from the slug flags above.
+- `--slides-json` is an alternative path that inlines slide metadata directly (used by tools that don't have an external deck root).
+- `--password` makes the deck password-gated for the room.
+- `--json` prints machine-parseable output.
+
+### List Stage presentations in a room
+
+```sh
+ant decks list --room <ROOM_ID> [--json]
+```
+
+### Update or remove
+
+```sh
+ant decks update --room <ROOM_ID> --id <DECK_ID> \
+                 [--title <TEXT>] \
+                 [--slides-json <JSON>] \
+                 [--theme <TEXT>] \
+                 [--password <PWD>] \
+                 [--json]
+
+ant decks remove --room <ROOM_ID> --id <DECK_ID> [--json]
+```
+
+### Drive presentation focus during a live session
+
+```sh
+# Set presenter focus to a specific slide (broadcasts to all clients viewing this deck)
+ant stage focus <DECK_ID> --slide-index <N> [--slide-id <ID>] [--plan <PLAN_ID>] [--json]
+
+# Read the current focus state for a deck
+ant stage current <DECK_ID> [--json]
+```
+
+`ant stage focus` is what powers presenter-following and live-iteration handoffs — when the presenter advances, the shell publishes focus, other connected clients (audience screens, remote viewers, agent observers) follow.
+
+### Common workflow: "Present a Stage presentation"
+
+```sh
+# 1. Author your deck externally (Animotion / Open-Slide / etc.) — produces a built deck
+#    at <ANT_BUILT_DECKS_ROOTS>/<slug>/dist/index.html
+ant deck build  # if using ANT's deck CLI
+
+# 2. Create a Stage wrapper around the built deck in a room
+ant decks add --room <ROOM_ID> --title "Q3 board review" --animotion-slug q3-board-review
+
+# 3. Verify it lists
+ant decks list --room <ROOM_ID>
+
+# 4. During presentation, focus slides as you advance (or let the Stage shell drive automatically)
+ant stage focus <DECK_ID> --slide-index 0
+ant stage focus <DECK_ID> --slide-index 1
+# ...
+
+# 5. Read focus state from another terminal if you're following along remotely
+ant stage current <DECK_ID>
+```
+
+### Related artefact CLI (for normal decks, NOT Stage presentations)
+
+```sh
+# Add a normal deck artefact to a room (renders in native browser via /d/<slug>, NOT in-app)
+ant artefact add --room <ROOM_ID> --kind deck --ref-url /d/<slug> --title "<TITLE>"
+
+# Build a deck (any deck substrate) into <root>/<slug>/dist/
+ant deck build --slug <slug>
+
+# List built decks under configured roots
+ant deck list
+
+# Set a per-room deck-root override (per-project deck folder)
+ant deck root-set --room <ROOM_ID> --path <PATH>
+
+# Publish a built deck to Cloudflare Pages
+ant deck publish <slug> --to cloudflare [--project-name <NAME>]
+
+# Export a built deck to PPTX
+ant deck export <slug> --as pptx [--out <PATH>]
+```
+
+The distinction matters: `ant decks` (plural) = Stage presentations with shell affordances; `ant deck` (singular) + `ant artefact add --kind deck` = raw deck artefacts rendered in browser.
+
 ## Why this matters
 
 Most presenters want passive playback. ANT Stage adds the agent context layer on top of any existing deck format — so you don't choose between "decks I can edit in my familiar tool" and "decks with intelligence baked in". You get both.
