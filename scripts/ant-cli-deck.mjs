@@ -1,56 +1,25 @@
 /**
- * ant deck — single-deck filesystem ops (singular, vs the plural
- * `ant decks` which is DB-backed Stage presentation rows).
+ * ant deck — normal built-deck filesystem ops.
  *
- * Decks live OUTSIDE this repo. Configured via ANT_BUILT_DECKS_ROOTS
- * (delimiter-separated list of folders — `:` on macOS/Linux). JWPK
- * default: /Users/jamesking/New Model Dropbox/James King/ANTdecks
+ * Singular `deck` is for normal deck artefacts served at `/d/:slug`.
+ * Plural `decks` is for ANT Stage presentation rows served at `/decks/:id`.
  *
- * Layout — pnpm workspace at the root, one workspace member per deck:
+ * Deck folders live outside this repo under ANT_BUILT_DECKS_ROOTS, for example:
+ * /Users/jamesking/New Model Dropbox/James King/ANTdecks/state-of-play
  *
- *   <ROOT>/
- *     package.json                          (workspace declaration)
- *     pnpm-workspace.yaml                   (members: ["*"])
- *     node_modules/                         (hoisted; shared by all decks)
- *     <slug>/                               (one deck)
- *       package.json                        (member, deps via workspace)
- *       src/slides/100/slide.svelte         (Animotion convention)
- *       vite.config.ts
- *       svelte.config.js
- *       dist/                               (build output; served at /d/<slug>)
- *
- * Verbs:
- *   ant deck root-init [--root R]    Idempotent. Sets up pnpm workspace + first install.
- *   ant deck create --slug X --title T [--root R]
- *                                    Scaffolds a new deck under root. Triggers root-init
- *                                    on first run if root is empty.
- *   ant deck build <slug> [--root R] Runs `pnpm --filter ./<slug> build`. Output to
- *                                    <root>/<slug>/dist/ — served at /d/<slug>.
- *   ant deck list [--root R]         Lists deck slugs in configured roots.
- *
- * The /d/<slug> route (src/routes/d/[slug]/+server.ts) serves the built
- * dist/index.html with asset path rewriting. `ant artefact add --kind
- * deck --ref-url /d/<slug>` adds the deck as a room artefact. Stage
- * presentations link via theme=animotion:<slug> (see ant decks plural).
- *
- * Safety: slug must match the same pattern the server route enforces —
- * [a-zA-Z0-9][a-zA-Z0-9_.-]* — to prevent path traversal. Validated
- * CLI-side BEFORE any filesystem op.
+ * A build command runs inside the deck folder. It does not install dependencies
+ * or scaffold source; deck authors can choose their own package manager and
+ * project shape as long as `npm run build` produces `dist/index.html`.
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { homedir } from 'node:os';
 
 const SLUG_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
 const BOOLEAN_FLAGS = new Set(['json']);
 
-/**
- * Resolve the list of configured deck roots, in resolution order.
- * ANT_BUILT_DECKS_ROOTS wins; falls back to the v3 legacy locations
- * (matches the server's /d/<slug> resolver in src/routes/d/[slug]).
- */
 export function deckRootsFromEnv(env = process.env, home = homedir()) {
   const configured = (env.ANT_BUILT_DECKS_ROOTS ?? '')
     .split(delimiter)
@@ -61,17 +30,6 @@ export function deckRootsFromEnv(env = process.env, home = homedir()) {
     join(home, 'CascadeProjects', 'ANT-Decks'),
     join(home, 'CascadeProjects', 'ANT-Open-Slide')
   ];
-}
-
-/**
- * Pick the canonical root for a write op (create / root-init). Uses
- * the first explicit root if provided via --root, else the first
- * configured root, else the first fallback. Verbatim for spaces.
- */
-export function pickWriteRoot(flagsRoot, env = process.env, home = homedir()) {
-  if (typeof flagsRoot === 'string' && flagsRoot.length > 0) return flagsRoot;
-  const roots = deckRootsFromEnv(env, home);
-  return roots[0];
 }
 
 export function isSafeSlug(value) {
@@ -110,195 +68,89 @@ function parseFlags(rawArgs, CliInputError) {
 }
 
 function writeUsage(runtime) {
-  runtime.writeOut('ant deck <root-init|create|build|list> [flags]');
-  runtime.writeOut('  root-init [--root R]                One-time pnpm workspace setup + install. Idempotent.');
-  runtime.writeOut('  create --slug X --title T [--root R] Scaffolds a new deck folder. Calls root-init implicitly if needed.');
-  runtime.writeOut('  build <slug> [--root R]              Runs `pnpm --filter ./<slug> build`. Output → /d/<slug>.');
-  runtime.writeOut('  list [--root R] [--json]             Lists deck slugs across all configured roots.');
+  runtime.writeOut('ant deck <build|list|export> [flags]');
+  runtime.writeOut('  build <slug> [--root R]                Runs npm run build in <root>/<slug>; output must be dist/index.html.');
+  runtime.writeOut('  list [--root R] [--json]               Lists deck slugs across configured roots.');
+  runtime.writeOut('  export <slug> --as pptx [--root R]     Best-effort .pptx export. Reads dist/index.html; writes <root>/<slug>/<slug>.pptx.');
+  runtime.writeOut('Normal deck artefact: ant artefact add --room ROOM_ID --kind deck --title "..." --ref-url /d/SLUG');
 }
 
-/**
- * Idempotent root-init: writes pnpm-workspace.yaml + root package.json
- * + .npmrc if missing, then runs `pnpm install`. Safe to call repeatedly.
- */
-async function runRootInit(flags, runtime, CliInputError) {
-  const root = pickWriteRoot(flags.root, runtime.env ?? process.env, runtime.home ?? homedir());
-  if (!root) throw new CliInputError('No deck root configured. Set ANT_BUILT_DECKS_ROOTS or pass --root <path>.');
-
-  if (!existsSync(root)) mkdirSync(root, { recursive: true });
-
-  const workspaceYaml = join(root, 'pnpm-workspace.yaml');
-  if (!existsSync(workspaceYaml)) {
-    writeFileSync(workspaceYaml, 'packages:\n  - "*"\n', 'utf8');
-    runtime.writeOut(`Wrote ${workspaceYaml}`);
-  }
-
-  const rootPackageJson = join(root, 'package.json');
-  if (!existsSync(rootPackageJson)) {
-    writeFileSync(rootPackageJson, JSON.stringify({
-      name: 'ant-decks-root',
-      private: true,
-      version: '0.0.0',
-      description: 'ANT decks workspace root (set up by `ant deck root-init`).'
-    }, null, 2) + '\n', 'utf8');
-    runtime.writeOut(`Wrote ${rootPackageJson}`);
-  }
-
-  const npmrc = join(root, '.npmrc');
-  if (!existsSync(npmrc)) {
-    // Hoist the deck deps so individual deck folders don't each get
-    // their own node_modules. Same node_modules at root serves all.
-    writeFileSync(npmrc, 'hoist-pattern[]=*\nshamefully-hoist=true\n', 'utf8');
-    runtime.writeOut(`Wrote ${npmrc}`);
-  }
-
-  // First-time install. Skip if node_modules exists — caller will pick
-  // it up on first deck build instead.
-  const rootNodeModules = join(root, 'node_modules');
-  if (!existsSync(rootNodeModules)) {
-    runtime.writeOut(`Running pnpm install at ${root} ...`);
-    const exit = await runProcess('pnpm', ['install'], root, runtime);
-    if (exit !== 0) {
-      runtime.writeErr(`pnpm install failed (exit ${exit}).`);
-      return 1;
-    }
-  }
-  runtime.writeOut('Deck root ready.');
-  return 0;
+function rootsForRead(flags, runtime) {
+  if (flags.root) return [flags.root];
+  return deckRootsFromEnv(runtime.env ?? process.env, runtime.home ?? homedir());
 }
 
-/**
- * Scaffold a new deck under the chosen root. Writes minimum-viable
- * Animotion deck shape:
- *   <root>/<slug>/package.json (workspace member, depends on @animotion/core)
- *   <root>/<slug>/src/slides/100/slide.svelte (first slide stub)
- *   <root>/<slug>/svelte.config.js
- *   <root>/<slug>/vite.config.ts
- *   <root>/<slug>/index.html
- */
-async function runCreate(flags, runtime, CliInputError) {
-  const slug = flags.slug;
-  const title = flags.title;
-  if (!slug) throw new CliInputError('--slug is required.');
-  if (!isSafeSlug(slug)) throw new CliInputError(`Invalid slug "${slug}". Must match [a-zA-Z0-9][a-zA-Z0-9_.-]*`);
-  if (!title) throw new CliInputError('--title is required.');
-
-  const root = pickWriteRoot(flags.root, runtime.env ?? process.env, runtime.home ?? homedir());
-  if (!root) throw new CliInputError('No deck root configured. Set ANT_BUILT_DECKS_ROOTS or pass --root <path>.');
-
-  // Implicit root-init when the root has no workspace declaration yet.
-  if (!existsSync(join(root, 'pnpm-workspace.yaml'))) {
-    runtime.writeOut(`Root ${root} not initialised — running root-init first ...`);
-    const initExit = await runRootInit({ root }, runtime, CliInputError);
-    if (initExit !== 0) return initExit;
+function findDeckDir(slug, flags, runtime) {
+  for (const root of rootsForRead(flags, runtime)) {
+    const deckDir = join(root, slug);
+    if (existsSync(deckDir)) return { root, deckDir };
   }
-
-  const deckDir = join(root, slug);
-  if (existsSync(deckDir)) {
-    runtime.writeErr(`Deck already exists at ${deckDir}. Use a different --slug or delete the folder.`);
-    return 1;
-  }
-
-  // Build the scaffold. Kept deliberately minimal — operator can
-  // extend with the full Animotion `npm create @animotion@latest`
-  // output if they want more bells. We just need the files that make
-  // `pnpm --filter ./<slug> build` succeed.
-  mkdirSync(join(deckDir, 'src', 'slides', '100'), { recursive: true });
-
-  writeFileSync(join(deckDir, 'package.json'), JSON.stringify({
-    name: `ant-deck-${slug}`,
-    private: true,
-    version: '0.0.0',
-    description: title,
-    type: 'module',
-    scripts: { build: 'vite build', dev: 'vite dev', preview: 'vite preview' },
-    dependencies: { '@animotion/core': '^1.7.0', svelte: '^5.0.0' },
-    devDependencies: {
-      '@sveltejs/adapter-static': '^3.0.0',
-      '@sveltejs/kit': '^2.0.0',
-      '@sveltejs/vite-plugin-svelte': '^4.0.0',
-      vite: '^6.0.0'
-    }
-  }, null, 2) + '\n', 'utf8');
-
-  writeFileSync(join(deckDir, 'src', 'slides', '100', 'slide.svelte'),
-    `<script lang="ts">\n  import { Slide } from '@animotion/core';\n</script>\n\n<Slide>\n  <h1>${escapeHtml(title)}</h1>\n  <p>Edit me at \`${slug}/src/slides/100/slide.svelte\`.</p>\n</Slide>\n`,
-    'utf8');
-
-  writeFileSync(join(deckDir, 'svelte.config.js'),
-    `import adapter from '@sveltejs/adapter-static';\nimport { vitePreprocess } from '@sveltejs/vite-plugin-svelte';\n\nexport default {\n  preprocess: vitePreprocess(),\n  kit: { adapter: adapter({ pages: 'dist', assets: 'dist', fallback: undefined, precompress: false, strict: true }) }\n};\n`,
-    'utf8');
-
-  writeFileSync(join(deckDir, 'vite.config.ts'),
-    `import { sveltekit } from '@sveltejs/kit/vite';\nimport { defineConfig } from 'vite';\n\nexport default defineConfig({ plugins: [sveltekit()] });\n`,
-    'utf8');
-
-  writeFileSync(join(deckDir, '.gitignore'),
-    `node_modules\n.svelte-kit\ndist\nbuild\n`,
-    'utf8');
-
-  runtime.writeOut(`Created deck "${title}" at ${deckDir}.`);
-  runtime.writeOut(`Next: edit slides under ${deckDir}/src/slides/, then \`ant deck build ${slug}\`.`);
-  return 0;
+  return null;
 }
 
-/**
- * Build a single deck. Uses pnpm --filter so deps are resolved from
- * the workspace's hoisted node_modules at the root.
- */
 async function runBuild(flags, runtime, CliInputError) {
   const slug = flags._positionals?.[0];
-  if (!slug) throw new CliInputError('build requires a slug: `ant deck build <slug>`');
+  if (!slug) throw new CliInputError('build requires a slug: ant deck build <slug>');
   if (!isSafeSlug(slug)) throw new CliInputError(`Invalid slug "${slug}".`);
 
-  const root = pickWriteRoot(flags.root, runtime.env ?? process.env, runtime.home ?? homedir());
-  if (!root) throw new CliInputError('No deck root configured.');
-
-  const deckDir = join(root, slug);
-  if (!existsSync(deckDir)) {
-    runtime.writeErr(`Deck not found at ${deckDir}.`);
+  const found = findDeckDir(slug, flags, runtime);
+  if (!found) {
+    runtime.writeErr(`Deck not found: ${slug}. Check ANT_BUILT_DECKS_ROOTS or pass --root <path>.`);
     return 1;
   }
 
-  runtime.writeOut(`Building ${slug} in ${root} ...`);
-  const exit = await runProcess('pnpm', ['--filter', `./${slug}`, 'build'], root, runtime);
+  const packageJson = join(found.deckDir, 'package.json');
+  if (!existsSync(packageJson)) {
+    runtime.writeErr(`Deck has no package.json: ${found.deckDir}`);
+    return 1;
+  }
+
+  runtime.writeOut(`Building ${slug} at ${found.deckDir} ...`);
+  const exit = await runProcess('npm', ['run', 'build'], found.deckDir, runtime);
   if (exit !== 0) {
-    runtime.writeErr(`Build failed (exit ${exit}).`);
+    runtime.writeErr(`Build failed (exit ${exit}). If dependencies are missing, initialise this deck folder once with its chosen package manager.`);
     return 1;
   }
-  runtime.writeOut(`Built: ${join(deckDir, 'dist', 'index.html')}`);
+
+  const builtIndex = join(found.deckDir, 'dist', 'index.html');
+  if (!existsSync(builtIndex)) {
+    runtime.writeErr(`Build completed but ${builtIndex} was not found.`);
+    return 1;
+  }
+
+  runtime.writeOut(`Built: ${builtIndex}`);
   runtime.writeOut(`Served at /d/${slug}`);
+  runtime.writeOut(`Add to room: ant artefact add --room ROOM_ID --kind deck --title "Deck title" --ref-url /d/${slug}`);
   return 0;
 }
 
-/**
- * Scan configured roots, return slugs that look like valid decks
- * (slug matches pattern + has a src/slides directory).
- */
 function runList(flags, runtime) {
-  const env = runtime.env ?? process.env;
-  const home = runtime.home ?? homedir();
-  const roots = flags.root ? [flags.root] : deckRootsFromEnv(env, home);
   const found = [];
-  for (const root of roots) {
+  for (const root of rootsForRead(flags, runtime)) {
     if (!existsSync(root)) continue;
     let entries;
-    try { entries = readdirSync(root); } catch { continue; }
+    try {
+      entries = readdirSync(root);
+    } catch {
+      continue;
+    }
     for (const entry of entries) {
       if (!isSafeSlug(entry)) continue;
-      const entryPath = join(root, entry);
-      let isDeck = false;
+      const deckDir = join(root, entry);
       try {
-        isDeck = statSync(entryPath).isDirectory()
-          && existsSync(join(entryPath, 'package.json'))
-          && existsSync(join(entryPath, 'src', 'slides'));
-      } catch { /* skip unreadable */ }
-      if (isDeck) {
-        const hasBuild = existsSync(join(entryPath, 'dist', 'index.html'));
-        found.push({ slug: entry, root, built: hasBuild });
+        if (!statSync(deckDir).isDirectory()) continue;
+      } catch {
+        continue;
       }
+      if (!existsSync(join(deckDir, 'package.json'))) continue;
+      found.push({
+        slug: entry,
+        root,
+        built: existsSync(join(deckDir, 'dist', 'index.html'))
+      });
     }
   }
+
   if (flags.json === 'true') {
     runtime.writeOut(JSON.stringify(found));
     return 0;
@@ -313,10 +165,6 @@ function runList(flags, runtime) {
   return 0;
 }
 
-/**
- * Spawn a child process, stream stdout/stderr to the runtime writers.
- * Returns the exit code.
- */
 function runProcess(command, args, cwd, runtime) {
   return new Promise((resolve) => {
     const child = spawn(command, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -330,23 +178,40 @@ function runProcess(command, args, cwd, runtime) {
   });
 }
 
-function escapeHtml(raw) {
-  return raw
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+async function runExport(flags, runtime, CliInputError) {
+  const slug = flags._positionals?.[0];
+  if (!slug) throw new CliInputError('export requires a slug: ant deck export <slug> --as pptx');
+  if (!isSafeSlug(slug)) throw new CliInputError(`Invalid slug "${slug}".`);
+  const format = flags.as;
+  if (format !== 'pptx') {
+    throw new CliInputError('export only supports --as pptx today.');
+  }
+  const found = findDeckDir(slug, flags, runtime);
+  if (!found) {
+    runtime.writeErr(`Deck not found: ${slug}. Check ANT_BUILT_DECKS_ROOTS or pass --root <path>.`);
+    return 1;
+  }
+  // Lazy-import the helper so the CLI doesn't load pptxgenjs (~3MB)
+  // for verbs that don't need it.
+  const { exportDeckToPptx } = await import('./ant-cli-deck-export.mjs');
+  try {
+    const result = await exportDeckToPptx({ deckDir: found.deckDir, slug });
+    runtime.writeOut(`Exported ${result.slideCount} slides to: ${result.outputPath}`);
+    runtime.writeOut(`Add to room: ant artefact add --room ROOM_ID --kind other --title "${slug} (.pptx)" --ref-url file://${result.outputPath}`);
+    return 0;
+  } catch (cause) {
+    runtime.writeErr(`Export failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+    return 1;
+  }
 }
 
 export async function handleDeckVerb(action, args, runtime, ctx) {
   const { CliInputError } = ctx;
   const flags = parseFlags(args, CliInputError);
   switch (action) {
-    case 'root-init': return runRootInit(flags, runtime, CliInputError);
-    case 'create':    return runCreate(flags, runtime, CliInputError);
-    case 'build':     return runBuild(flags, runtime, CliInputError);
-    case 'list':      return runList(flags, runtime);
+    case 'build': return runBuild(flags, runtime, CliInputError);
+    case 'list': return runList(flags, runtime);
+    case 'export': return runExport(flags, runtime, CliInputError);
     case undefined:
     case 'help':
     case '--help':
