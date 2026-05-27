@@ -1,14 +1,18 @@
 # Deck Substrate: Animotion Primary
 
-ANT Stage decks are room-scoped ANT records backed by an external built deck
-folder.
+ANT supports two related deck surfaces:
+
+- A normal deck artefact is a room shelf pointer to a built deck at `/d/:slug`.
+- An ANT Stage presentation is a room-scoped Stage record at `/decks/:deckId`
+  that wraps a deck with presenter mode, voice/talking, live feedback,
+  real-time alternative generation, and validation overlays.
 
 ## Boundaries
 
-- ANT stores the deck metadata in the room: title, room id, password, slides
-  JSON, and `theme`.
-- Animotion is the primary live deck substrate. A deck row points to it with
-  `theme=animotion:<slug>`.
+- ANT stores Stage presentation metadata in the room: title, room id,
+  password, slides JSON, and `theme`.
+- Animotion is the primary live deck substrate. A Stage presentation row points
+  to it with `theme=animotion:<slug>`.
 - Open-Slide remains a compatibility substrate with
   `theme=open-slide:<slug>`.
 - Built deck folders live outside this repository. They may live in Dropbox,
@@ -25,6 +29,8 @@ folder.
 
 ## Operator Flow
 
+### Normal Deck Artefact
+
 1. Choose an external deck root. JWPK's preferred local root is:
 
    ```sh
@@ -36,13 +42,39 @@ folder.
 2. Build the deck into an external folder such as
    `/Users/jamesking/New Model Dropbox/James King/ANTdecks/state-of-play/dist`.
 
-3. Create the room-scoped Stage deck:
+3. Add the built deck to the room artefacts shelf:
+
+   ```sh
+   ant artefact add --room ROOM_ID --kind deck --title "State of Play" --ref-url /d/state-of-play --summary "Built Animotion deck"
+   ```
+
+4. Confirm it is visible:
+
+   ```sh
+   ant artefact list --room ROOM_ID
+   ```
+
+### ANT Stage Presentation
+
+Use this only when the deck needs Stage behaviour: presenter shell, talking,
+live feedback, generated alternatives, validation overlays, and audience-led
+iteration.
+
+1. Build the deck into the external root as above.
+
+2. Create the room-scoped Stage presentation:
 
    ```sh
    ant decks add --room ROOM_ID --title "State of Play" --animotion-slug state-of-play --password stage-demo
    ```
 
-4. Open the Stage deck at `/decks/:deckId?password=stage-demo`.
+3. Open the Stage presentation at `/decks/:deckId?password=stage-demo`.
+
+4. Optionally add the Stage presentation itself to artefacts:
+
+   ```sh
+   ant artefact add --room ROOM_ID --kind deck --title "State of Play Stage" --ref-url "/decks/DECK_ID?password=stage-demo" --summary "ANT Stage presentation with live feedback and alternatives"
+   ```
 
 The `/d/:slug` route is a static proxy for built deck output. It rewrites
 absolute SvelteKit bundle paths so Svelte/Animotion decks can run under the

@@ -1,5 +1,10 @@
 /**
- * ant decks — Room-scoped slide deck CRUD (Task #126).
+ * ant decks — Room-scoped ANT Stage presentation CRUD (Task #126).
+ *
+ * This is NOT the generic "add a deck file to the room" command. Plain deck
+ * artefacts point at `/d/:slug` via `ant artefact add --kind deck`. This
+ * command creates the Stage wrapper: presenter shell, voice, live feedback,
+ * generated alternatives, validation overlays, and other real-time behaviour.
  *
  *   ant decks list --room ROOM_ID [--json]
  *   ant decks add --room ROOM_ID --title TITLE [--slides-json JSON] [--theme TEXT] [--animotion-slug SLUG] [--open-slide-slug SLUG] [--json]
@@ -59,6 +64,7 @@ function parseFlags(rawArgs, CliInputError) {
 }
 
 function writeUsage(runtime) {
+  runtime.writeOut('Stage presentations only. For a normal deck artefact, use: ant artefact add --kind deck --ref-url /d/SLUG');
   runtime.writeOut('ant decks list --room ROOM_ID [--json]');
   runtime.writeOut('ant decks add --room ROOM_ID --title TITLE [--slides-json JSON] [--theme TEXT] [--animotion-slug SLUG] [--open-slide-slug SLUG] [--password TEXT] [--json]');
   runtime.writeOut('ant decks update --room ROOM_ID --id DECK_ID [--title TEXT] [--slides-json JSON] [--theme TEXT] [--password TEXT] [--json]');
