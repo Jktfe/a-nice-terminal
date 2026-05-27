@@ -22,6 +22,7 @@
   type SettingsPayload = {
     envRoots: string[];
     fileRoots: string[];
+    roomOverrides: Record<string, string>;
     resolved: string[];
   };
 
@@ -156,6 +157,21 @@
     <button type="button" class="add-btn" onclick={addRow}>+ Add another folder</button>
   </div>
 
+  {#if payload && Object.keys(payload.roomOverrides ?? {}).length > 0}
+    <div class="room-overrides-block">
+      <span class="label">Per-room overrides (set via <code>ant deck root-set --room R --path P</code>)</span>
+      <ul class="path-list overrides">
+        {#each Object.entries(payload.roomOverrides) as [roomId, rootPath]}
+          <li>
+            <code class="room-id">{roomId}</code>
+            <span class="arrow">→</span>
+            <code>{rootPath}</code>
+          </li>
+        {/each}
+      </ul>
+    </div>
+  {/if}
+
   {#if payload}
     <div class="resolved-block">
       <span class="label">Effective resolution order</span>
@@ -234,6 +250,18 @@
   .path-list.env code {
     background: color-mix(in srgb, var(--accent, #4a6cf7) 8%, transparent);
   }
+  .room-overrides-block { display: flex; flex-direction: column; gap: 0.4rem; }
+  .path-list.overrides li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    align-items: center;
+  }
+  .room-id {
+    background: color-mix(in srgb, var(--ok, #2c8a4d) 12%, transparent);
+    color: var(--ink-strong);
+  }
+  .arrow { color: var(--ink-muted); font-weight: 700; }
   .editable-row {
     display: flex;
     gap: 0.45rem;

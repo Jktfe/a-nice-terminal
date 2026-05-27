@@ -25,28 +25,46 @@ export type DeckSettings = {
    * time — the resolver gracefully skips non-existent entries.
    */
   decksRoots: string[];
+  /**
+   * Optional per-room override: when an operator runs
+   *   `ant deck create --room R --slug X`
+   * with `R` in this map, the deck folder is created under the
+   * mapped path instead of the first configured root. Empty map
+   * (or absent) = no per-room behaviour, all decks land in the
+   * first configured root by default.
+   */
+  roomOverrides?: Record<string, string>;
 };
 
-const EMPTY: DeckSettings = { decksRoots: [] };
+const EMPTY: DeckSettings = { decksRoots: [], roomOverrides: {} };
 
 function defaultSettingsPath(): string {
   return join(homedir(), '.ant', 'deck-settings.json');
 }
 
 function safeReadFile(path: string): DeckSettings {
-  if (!existsSync(path)) return { ...EMPTY };
+  if (!existsSync(path)) return { decksRoots: [], roomOverrides: {} };
   try {
     const raw = readFileSync(path, 'utf8');
     const parsed = JSON.parse(raw) as Partial<DeckSettings>;
-    if (!parsed || typeof parsed !== 'object') return { ...EMPTY };
+    if (!parsed || typeof parsed !== 'object') return { decksRoots: [], roomOverrides: {} };
     const roots = Array.isArray(parsed.decksRoots)
       ? parsed.decksRoots.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
       : [];
-    return { decksRoots: roots };
+    const overridesRaw = parsed.roomOverrides;
+    const overrides: Record<string, string> = {};
+    if (overridesRaw && typeof overridesRaw === 'object') {
+      for (const [roomId, value] of Object.entries(overridesRaw)) {
+        if (typeof roomId !== 'string' || roomId.length === 0) continue;
+        if (typeof value !== 'string' || value.length === 0) continue;
+        overrides[roomId] = value;
+      }
+    }
+    return { decksRoots: roots, roomOverrides: overrides };
   } catch {
     // Malformed JSON is treated as empty rather than throwing — never
     // strand the operator on a corrupt file. Caller can re-write to fix.
-    return { ...EMPTY };
+    return { decksRoots: [], roomOverrides: {} };
   }
 }
 
@@ -55,7 +73,7 @@ export function readDeckSettings(filePath: string = defaultSettingsPath()): Deck
 }
 
 export function writeDeckSettings(
-  input: { decksRoots: unknown },
+  input: { decksRoots: unknown; roomOverrides?: unknown },
   filePath: string = defaultSettingsPath()
 ): DeckSettings {
   if (!Array.isArray(input.decksRoots)) {
@@ -65,11 +83,35 @@ export function writeDeckSettings(
     .filter((entry): entry is string => typeof entry === 'string')
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
+  // Preserve any existing roomOverrides if the caller didn't pass them
+  // (the Settings UI write path edits decksRoots only; per-room map
+  // is edited via `ant deck root-set` and shouldn't be wiped).
+  const existing = readDeckSettings(filePath).roomOverrides ?? {};
+  let overrides: Record<string, string> = existing;
+  if (input.roomOverrides !== undefined) {
+    if (input.roomOverrides === null || typeof input.roomOverrides !== 'object' || Array.isArray(input.roomOverrides)) {
+      throw new Error('roomOverrides must be an object of { roomId: rootPath }.');
+    }
+    overrides = {};
+    for (const [roomId, value] of Object.entries(input.roomOverrides as Record<string, unknown>)) {
+      if (typeof roomId !== 'string' || roomId.length === 0) continue;
+      if (typeof value !== 'string' || value.length === 0) continue;
+      overrides[roomId] = value;
+    }
+  }
   const dir = dirname(filePath);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  const next: DeckSettings = { decksRoots: normalised };
+  const next: DeckSettings = { decksRoots: normalised, roomOverrides: overrides };
   writeFileSync(filePath, JSON.stringify(next, null, 2) + '\n', 'utf8');
   return next;
+}
+
+/**
+ * Read the per-room override map only (without touching decksRoots).
+ * Convenience for callers that just need the room→root mapping.
+ */
+export function readRoomOverrides(filePath: string = defaultSettingsPath()): Record<string, string> {
+  return readDeckSettings(filePath).roomOverrides ?? {};
 }
 
 /**
