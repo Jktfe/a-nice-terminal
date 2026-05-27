@@ -1300,6 +1300,19 @@ const SCHEMA_DDL_STATEMENTS = [
   `ALTER TABLE validation_schemas ADD COLUMN scope_id TEXT NOT NULL DEFAULT 'global'`,
   `CREATE INDEX IF NOT EXISTS idx_validation_schemas_kind ON validation_schemas (lens_kind)`,
   `CREATE INDEX IF NOT EXISTS idx_validation_schemas_scope ON validation_schemas (scope, scope_id, lens_kind)`,
+  `CREATE TABLE IF NOT EXISTS validation_schema_audit (
+    id              TEXT PRIMARY KEY,
+    schema_id       TEXT NOT NULL REFERENCES validation_schemas(id) ON DELETE CASCADE,
+    actor_handle    TEXT NOT NULL,
+    actor_kind      TEXT NOT NULL CHECK (actor_kind IN ('human','agent')),
+    action          TEXT NOT NULL CHECK (action IN ('create','update','archive')),
+    before_json     TEXT,
+    after_json      TEXT,
+    reason          TEXT,
+    created_at_ms   INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_validation_schema_audit_schema ON validation_schema_audit (schema_id, created_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_validation_schema_audit_actor ON validation_schema_audit (actor_handle, created_at_ms DESC)`,
   `CREATE TABLE IF NOT EXISTS validation_runs (
     id                TEXT PRIMARY KEY,
     schema_id         TEXT NOT NULL REFERENCES validation_schemas(id) ON DELETE CASCADE,

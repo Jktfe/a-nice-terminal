@@ -7,7 +7,9 @@
  * Tables: validation_schemas, validation_runs (defined in db.ts).
  */
 
+import { randomUUID } from 'node:crypto';
 import { getIdentityDb } from './db';
+import type { PolicyActorKind } from './policyStore';
 
 export type ValidationSchema = {
   id: string;
@@ -51,6 +53,20 @@ export type ValidationRun = {
   startedAtMs: number;
   completedAtMs: number | null;
   runBy: string | null;
+};
+
+export type ValidationSchemaAuditAction = 'create' | 'update' | 'archive';
+
+export type ValidationSchemaAuditEntry = {
+  id: string;
+  schemaId: string;
+  actorHandle: string;
+  actorKind: PolicyActorKind;
+  action: ValidationSchemaAuditAction;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  reason: string | null;
+  createdAtMs: number;
 };
 
 export function createValidationSchema(
@@ -114,9 +130,119 @@ export function getValidationSchema(id: string): ValidationSchema | null {
   return row ? rowFromSchema(row) : null;
 }
 
+export function updateValidationSchema(input: {
+  id: string;
+  name?: string;
+  description?: string | null;
+  lensKind?: ValidationSchema['lensKind'];
+  scope?: ValidationSchemaScope;
+  scopeId?: string;
+  rulesJson?: string;
+  actorHandle: string;
+  actorKind: PolicyActorKind;
+  reason?: string | null;
+  nowMs?: number;
+}): ValidationSchema | null {
+  const existing = getValidationSchema(input.id);
+  if (!existing || existing.archivedAtMs !== null) return null;
+  const db = getIdentityDb();
+  const now = input.nowMs ?? Date.now();
+  const next = {
+    name: input.name !== undefined ? input.name.trim() : existing.name,
+    description: input.description !== undefined ? input.description : existing.description,
+    lensKind: input.lensKind ?? existing.lensKind,
+    scope: input.scope ?? existing.scope,
+    scopeId: input.scopeId ?? existing.scopeId,
+    rulesJson: input.rulesJson ?? existing.rulesJson
+  };
+  const txn = db.transaction(() => {
+    db.prepare(
+      `UPDATE validation_schemas
+         SET name = ?, description = ?, lens_kind = ?, scope = ?, scope_id = ?, rules_json = ?, updated_at_ms = ?
+       WHERE id = ?`
+    ).run(next.name, next.description, next.lensKind, next.scope, next.scopeId, next.rulesJson, now, existing.id);
+    recordValidationSchemaAudit({
+      schemaId: existing.id,
+      actorHandle: input.actorHandle,
+      actorKind: input.actorKind,
+      action: 'update',
+      before: schemaAuditBody(existing),
+      after: { id: existing.id, ...next },
+      reason: input.reason ?? null,
+      nowMs: now
+    });
+  });
+  txn();
+  return getValidationSchema(existing.id);
+}
+
 export function archiveValidationSchema(id: string): void {
   const db = getIdentityDb();
   db.prepare('UPDATE validation_schemas SET archived_at_ms = ?, updated_at_ms = ? WHERE id = ?').run(Date.now(), Date.now(), id);
+}
+
+export function archiveValidationSchemaWithAudit(input: {
+  id: string;
+  actorHandle: string;
+  actorKind: PolicyActorKind;
+  reason?: string | null;
+  nowMs?: number;
+}): boolean {
+  const existing = getValidationSchema(input.id);
+  if (!existing || existing.archivedAtMs !== null) return false;
+  const db = getIdentityDb();
+  const now = input.nowMs ?? Date.now();
+  const txn = db.transaction(() => {
+    db.prepare('UPDATE validation_schemas SET archived_at_ms = ?, updated_at_ms = ? WHERE id = ?').run(now, now, input.id);
+    recordValidationSchemaAudit({
+      schemaId: input.id,
+      actorHandle: input.actorHandle,
+      actorKind: input.actorKind,
+      action: 'archive',
+      before: schemaAuditBody(existing),
+      after: null,
+      reason: input.reason ?? null,
+      nowMs: now
+    });
+  });
+  txn();
+  return true;
+}
+
+export function recordValidationSchemaAudit(input: {
+  schemaId: string;
+  actorHandle: string;
+  actorKind: PolicyActorKind;
+  action: ValidationSchemaAuditAction;
+  before?: Record<string, unknown> | null;
+  after?: Record<string, unknown> | null;
+  reason?: string | null;
+  nowMs?: number;
+}): void {
+  const db = getIdentityDb();
+  db.prepare(
+    `INSERT INTO validation_schema_audit
+       (id, schema_id, actor_handle, actor_kind, action, before_json, after_json, reason, created_at_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    randomUUID(),
+    input.schemaId,
+    input.actorHandle,
+    input.actorKind,
+    input.action,
+    input.before === undefined || input.before === null ? null : JSON.stringify(input.before),
+    input.after === undefined || input.after === null ? null : JSON.stringify(input.after),
+    input.reason ?? null,
+    input.nowMs ?? Date.now()
+  );
+}
+
+export function listValidationSchemaAuditForSchema(schemaId: string): ValidationSchemaAuditEntry[] {
+  const db = getIdentityDb();
+  const rows = db.prepare(
+    `SELECT * FROM validation_schema_audit WHERE schema_id = ? ORDER BY created_at_ms DESC, rowid DESC`
+  ).all(schemaId) as Array<Record<string, unknown>>;
+  return rows.map(rowFromSchemaAudit);
 }
 
 export function createValidationRun(
@@ -223,6 +349,41 @@ function rowFromSchema(row: Record<string, unknown>): ValidationSchema {
     createdAtMs: Number(row.created_at_ms),
     updatedAtMs: Number(row.updated_at_ms),
     archivedAtMs: row.archived_at_ms == null ? null : Number(row.archived_at_ms),
+  };
+}
+
+function schemaAuditBody(schema: ValidationSchema): Record<string, unknown> {
+  return {
+    id: schema.id,
+    name: schema.name,
+    description: schema.description,
+    lensKind: schema.lensKind,
+    scope: schema.scope,
+    scopeId: schema.scopeId,
+    rulesJson: schema.rulesJson
+  };
+}
+
+function parseAuditJson(raw: unknown): Record<string, unknown> | null {
+  if (raw == null) return null;
+  try {
+    const parsed = JSON.parse(String(raw)) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+  } catch { /* malformed audit json */ }
+  return null;
+}
+
+function rowFromSchemaAudit(row: Record<string, unknown>): ValidationSchemaAuditEntry {
+  return {
+    id: String(row.id),
+    schemaId: String(row.schema_id),
+    actorHandle: String(row.actor_handle),
+    actorKind: String(row.actor_kind) as PolicyActorKind,
+    action: String(row.action) as ValidationSchemaAuditAction,
+    before: parseAuditJson(row.before_json),
+    after: parseAuditJson(row.after_json),
+    reason: row.reason == null ? null : String(row.reason),
+    createdAtMs: Number(row.created_at_ms)
   };
 }
 
