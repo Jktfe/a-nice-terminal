@@ -443,6 +443,8 @@ Verbs:
   delivery verify --terminal ID       Show delivery state (verified/stale/unknown) + reason.
   audit permissions --room ROOM_ID    Audit identity proofs for every room member.
   docs generate --from-cli            Generate manifest-derived markdown.
+  deck build|list                     Build/list normal deck artefacts served at /d/SLUG.
+  decks list|add|update|remove         Manage ANT Stage presentations served at /decks/ID.
   linkedchat list|allow|deny          Manage terminal-scoped linked-chat permissions.
   fingerprint detect <terminal-id>    Detect agent kind via 5-source cascade.
   mcp list|grant|revoke               Manage MCP adapter grants (admin-bearer).

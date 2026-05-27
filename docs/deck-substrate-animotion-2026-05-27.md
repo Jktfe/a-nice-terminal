@@ -45,6 +45,7 @@ ANT supports two related deck surfaces:
 3. Add the built deck to the room artefacts shelf:
 
    ```sh
+   ant deck build state-of-play
    ant artefact add --room ROOM_ID --kind deck --title "State of Play" --ref-url /d/state-of-play --summary "Built Animotion deck"
    ```
 
