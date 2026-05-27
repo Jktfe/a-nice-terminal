@@ -19,6 +19,7 @@ import {
 } from "$lib/server/deckStore";
 import { serializeDeckForApi } from "$lib/server/deckApi";
 import { requireChatRoomMutationAuth } from "$lib/server/chatRoomAuthGate";
+import { deckThemeForSubstrate } from "$lib/externalDeckSubstrate";
 
 export const GET: RequestHandler = ({ params }) => {
   if (!findChatRoomById(params.roomId)) throw error(404, "Room not found.");
@@ -28,7 +29,7 @@ export const GET: RequestHandler = ({ params }) => {
 export const POST: RequestHandler = async ({ params, request }) => {
   if (!findChatRoomById(params.roomId)) throw error(404, "Room not found.");
   const payload = (await request.json().catch(() => null)) as
-    | { title?: unknown; slides?: unknown; theme?: unknown; createdBy?: unknown; accessPassword?: unknown; parentDeckId?: unknown }
+    | { title?: unknown; slides?: unknown; theme?: unknown; animotionSlug?: unknown; openSlideSlug?: unknown; createdBy?: unknown; accessPassword?: unknown; parentDeckId?: unknown }
     | null;
   if (!payload) throw error(400, "JSON body required.");
 
@@ -50,12 +51,33 @@ export const POST: RequestHandler = async ({ params, request }) => {
   }
   const createdBy = requestedCreatedBy ?? auth.handle;
 
+  let theme = typeof payload.theme === "string" ? payload.theme : null;
+  if (payload.animotionSlug !== undefined && payload.openSlideSlug !== undefined) {
+    throw error(400, "Provide only one deck substrate slug.");
+  }
+  if (payload.animotionSlug !== undefined) {
+    if (typeof payload.animotionSlug !== "string") throw error(400, "animotionSlug must be a string.");
+    try {
+      theme = deckThemeForSubstrate('animotion', payload.animotionSlug);
+    } catch {
+      throw error(400, "animotionSlug is invalid.");
+    }
+  }
+  if (payload.openSlideSlug !== undefined) {
+    if (typeof payload.openSlideSlug !== "string") throw error(400, "openSlideSlug must be a string.");
+    try {
+      theme = deckThemeForSubstrate('open-slide', payload.openSlideSlug);
+    } catch {
+      throw error(400, "openSlideSlug is invalid.");
+    }
+  }
+
   const slides = Array.isArray(payload.slides) ? payload.slides : undefined;
   const deck = createDeck({
     roomId: params.roomId,
     title: payload.title,
     slides,
-    theme: typeof payload.theme === "string" ? payload.theme : null,
+    theme,
     createdBy,
     accessPassword: typeof payload.accessPassword === "string" ? payload.accessPassword : null,
     parentDeckId: typeof payload.parentDeckId === "string" ? payload.parentDeckId : null

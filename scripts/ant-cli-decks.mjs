@@ -2,7 +2,7 @@
  * ant decks — Room-scoped slide deck CRUD (Task #126).
  *
  *   ant decks list --room ROOM_ID [--json]
- *   ant decks add --room ROOM_ID --title TITLE [--slides-json JSON] [--theme TEXT] [--json]
+ *   ant decks add --room ROOM_ID --title TITLE [--slides-json JSON] [--theme TEXT] [--animotion-slug SLUG] [--open-slide-slug SLUG] [--json]
  *   ant decks update --room ROOM_ID --id DECK_ID [--title TEXT] [--slides-json JSON] [--theme TEXT] [--json]
  *   ant decks remove --room ROOM_ID --id DECK_ID [--json]
  *
@@ -60,7 +60,7 @@ function parseFlags(rawArgs, CliInputError) {
 
 function writeUsage(runtime) {
   runtime.writeOut('ant decks list --room ROOM_ID [--json]');
-  runtime.writeOut('ant decks add --room ROOM_ID --title TITLE [--slides-json JSON] [--theme TEXT] [--password TEXT] [--json]');
+  runtime.writeOut('ant decks add --room ROOM_ID --title TITLE [--slides-json JSON] [--theme TEXT] [--animotion-slug SLUG] [--open-slide-slug SLUG] [--password TEXT] [--json]');
   runtime.writeOut('ant decks update --room ROOM_ID --id DECK_ID [--title TEXT] [--slides-json JSON] [--theme TEXT] [--password TEXT] [--json]');
   runtime.writeOut('ant decks remove --room ROOM_ID --id DECK_ID [--json]');
 }
@@ -100,6 +100,9 @@ async function runAdd(flags, runtime, CliInputError) {
   if (!roomId) throw new CliInputError('--room is required for decks add.');
   const title = flags.title;
   if (!title) throw new CliInputError('--title is required for decks add.');
+  if (flags['animotion-slug'] !== undefined && flags['open-slide-slug'] !== undefined) {
+    throw new CliInputError('choose either --animotion-slug or --open-slide-slug, not both.');
+  }
 
   let slides = [];
   if (flags['slides-json']) {
@@ -110,18 +113,26 @@ async function runAdd(flags, runtime, CliInputError) {
     }
   }
 
+  const body = {
+    title,
+    slides,
+    theme: flags.theme ?? 'default',
+    createdBy: runtime.handle ?? null,
+    accessPassword: flags.password ?? null,
+    pidChain: processIdentityChain()
+  };
+  if (flags['animotion-slug'] !== undefined) {
+    body.animotionSlug = flags['animotion-slug'];
+  }
+  if (flags['open-slide-slug'] !== undefined) {
+    body.openSlideSlug = flags['open-slide-slug'];
+  }
+
   const url = `${runtime.serverUrl}/api/chat-rooms/${encodeURIComponent(roomId)}/decks`;
   const response = await runtime.fetchImpl(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      title,
-      slides,
-      theme: flags.theme ?? 'default',
-      createdBy: runtime.handle ?? null,
-      accessPassword: flags.password ?? null,
-      pidChain: processIdentityChain()
-    })
+    body: JSON.stringify(body)
   });
   if (!response.ok) {
     const bodyText = await response.text().catch(() => '');

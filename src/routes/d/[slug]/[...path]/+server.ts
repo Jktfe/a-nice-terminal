@@ -1,5 +1,5 @@
 /**
- * /d/[slug]/[...path] — serves any file from the open-slide deck's
+ * /d/[slug]/[...path] — serves any file from the external deck's
  * built dist/ directory. Pairs with /d/[slug]/+server.ts (which rewrote
  * /assets/... references to /d/<slug>/assets/...).
  *
@@ -11,11 +11,21 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { readFile } from 'node:fs/promises';
-import { join, resolve, extname } from 'node:path';
+import { delimiter, join, resolve, extname } from 'node:path';
 import { homedir } from 'node:os';
 
 const SLUG_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
-const DECKS_ROOT = join(homedir(), 'CascadeProjects', 'ANT-Open-Slide');
+function deckRoots(): string[] {
+  const configured = process.env.ANT_BUILT_DECKS_ROOTS
+    ?.split(delimiter)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0) ?? [];
+  return [
+    ...configured,
+    join(homedir(), 'CascadeProjects', 'ANT-Decks'),
+    join(homedir(), 'CascadeProjects', 'ANT-Open-Slide')
+  ];
+}
 
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -39,19 +49,22 @@ const CONTENT_TYPES: Record<string, string> = {
 export const GET: RequestHandler = async ({ params }) => {
   if (!SLUG_PATTERN.test(params.slug)) throw error(400, 'Invalid deck slug.');
 
-  // Resolve under the deck's dist/ root and verify no escape.
-  const deckRoot = resolve(DECKS_ROOT, params.slug, 'dist');
-  const candidate = resolve(deckRoot, params.path);
-  if (!candidate.startsWith(deckRoot + '/') && candidate !== deckRoot) {
-    throw error(400, 'Path traversal blocked.');
+  let candidate = '';
+  let bytes: Uint8Array | null = null;
+  for (const root of deckRoots()) {
+    const deckRoot = resolve(root, params.slug, 'dist');
+    candidate = resolve(deckRoot, params.path);
+    if (!candidate.startsWith(deckRoot + '/') && candidate !== deckRoot) {
+      throw error(400, 'Path traversal blocked.');
+    }
+    try {
+      bytes = await readFile(candidate);
+      break;
+    } catch {
+      bytes = null;
+    }
   }
-
-  let bytes: Uint8Array;
-  try {
-    bytes = await readFile(candidate);
-  } catch {
-    throw error(404, 'Asset not found.');
-  }
+  if (!bytes) throw error(404, 'Asset not found.');
 
   const ext = extname(candidate).toLowerCase();
   const contentType = CONTENT_TYPES[ext] ?? 'application/octet-stream';

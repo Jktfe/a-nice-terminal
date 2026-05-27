@@ -67,13 +67,11 @@
     (data.content === null || data.content.contentFormat === 'markdown' || data.content.contentFormat === 'univer-json')
   );
   const kindLabel = $derived(artefact.kind === 'doc' ? 'Document' : artefact.kind === 'deck' ? 'Slides' : artefact.kind === 'spreadsheet' ? 'Spreadsheet' : 'Artefact');
-  // F-Univer slice: when the artefact has a univer-json body, render
-  // it via the Univer canvas instead of falling back to the iframe
-  // placeholder. The content row is optional — a freshly-created deck
-  // / doc / sheet seeds an empty snapshot in the viewer until first
-  // save.
+  // Univer is explicit now: only artefacts with a stored univer-json body
+  // mount the canvas. Empty deck artefacts fall back to their refUrl so
+  // Open-Slide can be the default deck path again.
   const shouldRenderUniver = $derived(
-    isUniverKind && (data.content?.contentFormat === 'univer-json' || data.content === null)
+    isUniverKind && data.content?.contentFormat === 'univer-json'
   );
   let viewerError = $state('');
   let validationLoading = $state(false);
@@ -110,7 +108,7 @@
 <svelte:head><title>{artefact.title} | Artefact | ANT</title></svelte:head>
 
 <SimplePageShell
-  eyebrow={isUniverKind ? `Univer ${kindLabel}` : kindLabel}
+  eyebrow={shouldRenderUniver ? `Univer ${kindLabel}` : kindLabel}
   title={artefact.title}
   explainKey="artefact-view"
   summary={`${kindLabel} from room ${artefact.roomId}${artefact.createdBy ? ` · by ${artefact.createdBy}` : ''}`}

@@ -30,4 +30,10 @@ describe('/decks/[deckId] page source', () => {
     expect(pageSource).toContain('narration');
     expect(pageSource).toContain('getNarrationForSlide');
   });
+
+  it('wraps external deck substrates in the Stage viewer when the deck theme carries a source slug', () => {
+    expect(pageSource).toContain("from '$lib/externalDeckSubstrate'");
+    expect(pageSource).toContain('externalDeckSourceFromTheme(deck.theme)');
+    expect(pageSource).toContain('src={externalDeckSource.path}');
+  });
 });
