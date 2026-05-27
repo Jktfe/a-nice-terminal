@@ -88,7 +88,18 @@ function orgHandlesForEmail(email: string, primaryHandle: string): string[] {
   return handles;
 }
 
-function handlesForEmail(email: string): string[] {
+/**
+ * Resolve the full handle family for a bearer email. Includes the primary
+ * handle + any org-mapped historical handles (e.g. redacted@example.com →
+ * [@jamesK, @you, @james]) + agent family expansion for alias-bound
+ * terminals.
+ *
+ * Exported so SSE-reducer clients (antchat / antios reactions M1) can
+ * fetch the same family the server uses to gate reads and match incoming
+ * `reactorHandle` deltas against the viewer. See homebrew + antios
+ * eiw05zdurz msg_s21fibyq79 + msg_wv1pzydu8b 2026-05-27.
+ */
+export function handlesForEmail(email: string): string[] {
   const user = antchatUserShapeForEmail(email);
   return expandHandlesToOwnerFamilies(orgHandlesForEmail(user.email, user.handle));
 }

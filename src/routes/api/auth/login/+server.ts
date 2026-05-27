@@ -26,6 +26,7 @@ import {
   issueToken,
   userShapeForEmail
 } from '$lib/server/antchatAuthStore';
+import { handlesForEmail } from '$lib/server/chatRoomReadGate';
 
 export const POST: RequestHandler = async ({ request }) => {
   let body: unknown;
@@ -85,9 +86,14 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   const { token, expiresAtMs } = issueToken(email);
+  // handleFamily mirrors the server's auth gate alias set — see
+  // /api/auth/me + eiw05zdurz 2026-05-27 msg_s21fibyq79.
   return json({
     token,
-    user: userShapeForEmail(email),
+    user: {
+      ...userShapeForEmail(email),
+      handleFamily: handlesForEmail(email)
+    },
     expiresAt: expiresAtMs
   });
 };
