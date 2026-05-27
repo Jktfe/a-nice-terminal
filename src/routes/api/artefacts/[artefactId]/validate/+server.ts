@@ -27,11 +27,27 @@ import {
   type ValidationParticipant
 } from '$lib/server/validationOrchestrator';
 import { createValidationWorkItems } from '$lib/server/validationWorkItems';
-import { listValidationRunsForClaim, type ValidationRun } from '$lib/server/validationLensStore';
+import {
+  getValidationSchema,
+  listValidationRunsForClaim,
+  type ValidationRun,
+  type ValidationSchema
+} from '$lib/server/validationLensStore';
+import { rulesJsonToPolicyBody } from '$lib/server/lensRulesBridge';
 import type { ValidationClaimCheck, ValidationClaimPointer } from '$lib/server/validationScoring';
 
 type ValidateArtefactPayload = {
   policySlug?: unknown;
+  /**
+   * V2 lens schema id. When supplied, the executable PolicyBody is
+   * derived from the schema's stored `rules_json` via the lens-rules
+   * bridge instead of looking up a hand-authored policy by slug. Mutually
+   * exclusive with `policySlug` — sending both is a 400.
+   *
+   * Wired 2026-05-27 after @speedycodex shipped 8a8611d (CRUD + audit)
+   * and unblocked this layer in orsz msg_cf99778tsw.
+   */
+  lensSchemaId?: unknown;
   participants?: unknown;
   createWork?: unknown;
   maxWorkItems?: unknown;
@@ -96,6 +112,41 @@ function resolveValidationLens(slug: string, access: ChatRoomReadAccess): Valida
     };
   }
   throw error(404, 'Validation lens not found.');
+}
+
+function isLensSchemaVisibleTo(schema: ValidationSchema, access: ChatRoomReadAccess): boolean {
+  if (access.isAdminBearer) return true;
+  if (schema.scope === 'public') return true;
+  if (schema.scope === 'user') {
+    return (
+      access.handles.includes(schema.scopeId) ||
+      (access.principalHandles?.includes(schema.scopeId) ?? false)
+    );
+  }
+  // 'org' scope visibility — the caller-side org membership isn't surfaced
+  // on ChatRoomReadAccess yet, so non-admin org-scoped schemas resolve as
+  // not-visible until that signal lands. Public + user + admin cover the
+  // demand for V2; org lenses are an explicit follow-up.
+  return false;
+}
+
+function resolveValidationLensFromSchemaId(
+  lensSchemaId: string,
+  access: ChatRoomReadAccess
+): ValidationLens {
+  const schema = getValidationSchema(lensSchemaId);
+  if (!schema) throw error(404, 'Validation lens not found.');
+  if (schema.archivedAtMs !== null) throw error(404, 'Validation lens has been archived.');
+  if (!isLensSchemaVisibleTo(schema, access)) throw error(404, 'Validation lens not found.');
+  const policy = rulesJsonToPolicyBody(schema.rulesJson);
+  if (policy === null) throw error(400, 'Validation lens rules_json is malformed.');
+  return {
+    id: schema.id,
+    slug: schema.id,
+    name: schema.name,
+    description: schema.description,
+    policy
+  };
 }
 
 function parseParticipant(value: unknown): ValidationParticipant | null {
@@ -181,9 +232,20 @@ export const POST: RequestHandler = async ({ params, request }) => {
   if (!room) throw error(404, 'Room not found.');
 
   const payload = (await request.json().catch(() => ({}))) as ValidateArtefactPayload;
-  const policySlug = typeof payload.policySlug === 'string' && payload.policySlug.trim().length > 0
-    ? payload.policySlug.trim()
-    : JKS_VALIDATION_RULE_SLUG;
+  const rawPolicySlug =
+    typeof payload.policySlug === 'string' && payload.policySlug.trim().length > 0
+      ? payload.policySlug.trim()
+      : null;
+  const rawLensSchemaId =
+    typeof payload.lensSchemaId === 'string' && payload.lensSchemaId.trim().length > 0
+      ? payload.lensSchemaId.trim()
+      : null;
+  if (rawPolicySlug !== null && rawLensSchemaId !== null) {
+    throw error(400, 'Send either policySlug or lensSchemaId, not both.');
+  }
+  // Slug used for the public-univer-demo gate retains backwards compatibility:
+  // demo path only fires for policy-slug requests, never for lens-schema-id.
+  const policySlug = rawPolicySlug ?? JKS_VALIDATION_RULE_SLUG;
 
   const content = getArtefactContentByArtefactId(artefact.id);
   if (!content) throw error(404, 'Artefact has no stored body to validate.');
@@ -192,15 +254,20 @@ export const POST: RequestHandler = async ({ params, request }) => {
     throw error(400, 'Only doc and deck artefacts can be validated in this slice.');
   }
 
-  const access = isPublicUniverDemoValidation({
-    artefact,
-    content,
-    policySlug,
-    createWork: payload.createWork
-  })
-    ? publicDemoAccess(artefact.roomId)
-    : await requireChatRoomReadAccess(request, room);
-  const lens = resolveValidationLens(policySlug, access);
+  const access =
+    rawLensSchemaId === null &&
+    isPublicUniverDemoValidation({
+      artefact,
+      content,
+      policySlug,
+      createWork: payload.createWork
+    })
+      ? publicDemoAccess(artefact.roomId)
+      : await requireChatRoomReadAccess(request, room);
+  const lens =
+    rawLensSchemaId !== null
+      ? resolveValidationLensFromSchemaId(rawLensSchemaId, access)
+      : resolveValidationLens(policySlug, access);
 
   let validationText = content.contentBody;
   if (content.contentFormat === 'univer-json') {
