@@ -22,6 +22,16 @@ import { delimiter, join } from 'node:path';
 import { homedir } from 'node:os';
 
 const SLUG_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
+const BUILT_DECK_BROWSER_POLYFILLS = `<script>
+if (globalThis.crypto && !globalThis.crypto.randomUUID) {
+  globalThis.crypto.randomUUID = function () {
+    return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, function (c) {
+      return (Number(c) ^ Math.random() * 16 >> Number(c) / 4).toString(16);
+    });
+  };
+}
+</script>`;
+
 function deckRoots(): string[] {
   const configured = process.env.ANT_BUILT_DECKS_ROOTS
     ?.split(delimiter)
@@ -58,8 +68,11 @@ export const GET: RequestHandler = async ({ params }) => {
         .replace(/url\(\/assets\//g, `url(/d/${params.slug}/assets/`)
         .replace(/url\(\/_app\//g, `url(/d/${params.slug}/_app/`)
         .replace(/base:\s*""/g, `base: "/d/${params.slug}"`);
+      const html = rewritten.includes('</head>')
+        ? rewritten.replace('</head>', `${BUILT_DECK_BROWSER_POLYFILLS}</head>`)
+        : `${BUILT_DECK_BROWSER_POLYFILLS}${rewritten}`;
 
-      return new Response(rewritten, {
+      return new Response(html, {
         status: 200,
         headers: {
           'content-type': 'text/html; charset=utf-8',
