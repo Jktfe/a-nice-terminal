@@ -45,11 +45,13 @@ The premium verification UI should make four things obvious:
 3. Which claims pass or fail the lens.
 4. What work is needed to close missing verifier slots.
 
-V1 uses existing backend primitives:
+V1 uses existing backend primitives, with one explicit contract gap:
 
-- `GET /api/validation-schemas?scope=public` for lens choices.
-- `POST /api/artefacts/:artefactId/validate` for claim extraction, score, and orchestration.
+- `GET /api/validation-schemas?scope=public` lists the Stage-facing lens taxonomy.
+- `POST /api/artefacts/:artefactId/validate` executes validation by `policySlug`.
 - `POST /api/artefacts/:artefactId/validate` with `createWork: true` for verifier task creation.
+
+The schema list and executable policy store are currently separate. Step 2 must add a small adapter so the UI never sends a schema id where the server expects a policy slug.
 
 ## Implementation Steps
 
@@ -64,10 +66,11 @@ V1 uses existing backend primitives:
 
 ### Step 2: Verification controls
 
-- Fetch visible validation lenses on demand.
-- Add a lens selector.
+- Fetch visible validation schemas on demand.
+- Resolve each selectable item to an executable policy slug, or mark it as display-only until a policy exists.
+- Add a lens selector only for executable policies.
 - Send selected `policySlug` to the validation endpoint.
-- Keep the built-in JK validation rule as fallback when no lens list is available.
+- Keep the built-in JK validation rule as the executable fallback.
 - Show score, claim list, and missing verifier slots in the right rail.
 - Keep `Create verifier work` wired to the existing `createWork` path.
 
