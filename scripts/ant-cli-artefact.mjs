@@ -16,6 +16,8 @@
  *   ant artefact add --room <roomId> --kind <kind> --title "..."
  *                    --ref-url file:///path [--summary "..."]
  *     One of: html | deck | spreadsheet | doc | mockup | other.
+ *     For a normal built deck, use --kind deck --ref-url /d/<slug>.
+ *     For an ANT Stage presentation, point at /decks/<deckId>?password=...
  *
  *   ant artefact list --room <roomId> [--json]
  *
@@ -65,6 +67,8 @@ function writeUsage(runtime) {
   runtime.writeOut('ant artefact <add|list|remove>');
   runtime.writeOut('  artefact add    --room <id> --kind <html|deck|spreadsheet|doc|mockup|other>');
   runtime.writeOut('                  --title "..." --ref-url <url-or-path> [--summary "..."]');
+  runtime.writeOut('                  normal deck: --kind deck --ref-url /d/SLUG');
+  runtime.writeOut('                  Stage presentation: --kind deck --ref-url /decks/DECK_ID?password=...');
   runtime.writeOut('  artefact list   --room <id> [--json]');
   runtime.writeOut('  artefact remove --room <id> <artefactId>');
 }
