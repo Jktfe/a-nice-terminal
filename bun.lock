@@ -9,8 +9,11 @@
         "@univerjs/core": "^0.22.1",
         "@univerjs/design": "^0.22.1",
         "@univerjs/docs": "^0.22.1",
+        "@univerjs/docs-ui": "^0.22.1",
         "@univerjs/sheets": "^0.22.1",
+        "@univerjs/sheets-ui": "^0.22.1",
         "@univerjs/slides": "^0.22.1",
+        "@univerjs/slides-ui": "^0.22.1",
         "@univerjs/ui": "^0.22.1",
         "@xterm/addon-fit": "^0.11.0",
         "@xterm/xterm": "^6.0.0",
@@ -395,6 +398,10 @@
 
     "@univerjs/docs": ["@univerjs/docs@0.22.1", "", { "dependencies": { "@univerjs/core": "0.22.1", "@univerjs/engine-render": "0.22.1" }, "peerDependencies": { "rxjs": ">=7.0.0" } }, "sha512-Z5+lcX8ilqLYwpxSAxptkOP4U3KL2rO16kANjbQ2VKf4FvXQ9QyLRtQ/n98sEZd2e43cm1ZzUWrmoDhooNwuRA=="],
 
+    "@univerjs/docs-ui": ["@univerjs/docs-ui@0.22.1", "", { "dependencies": { "@univerjs/core": "0.22.1", "@univerjs/design": "0.22.1", "@univerjs/docs": "0.22.1", "@univerjs/drawing": "0.22.1", "@univerjs/engine-render": "0.22.1", "@univerjs/icons": "^1.1.1", "@univerjs/ui": "0.22.1" }, "peerDependencies": { "react": "^16.9.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc", "rxjs": ">=7.0.0" } }, "sha512-ng4oy62zOPBQZpZdze5cWCJWGajbQcXVCyzzI7S0sNdnoGiPxDmNbVn3eDvSpWpdxFMN66eIyF4tS0OnAGuqLQ=="],
+
+    "@univerjs/drawing": ["@univerjs/drawing@0.22.1", "", { "dependencies": { "@univerjs/core": "0.22.1", "ot-json1": "^1.0.2" }, "peerDependencies": { "rxjs": ">=7.0.0" } }, "sha512-SVZ639GNxEYxH7vcwjTw9fAcMmA1GEisN0mEpqGFMfCQ/3lRAMa0fbwwn/s1IioXND1dGLkqvvzdEq9TC5YAEQ=="],
+
     "@univerjs/engine-formula": ["@univerjs/engine-formula@0.22.1", "", { "dependencies": { "@flatten-js/interval-tree": "1.1.3", "@univerjs/core": "0.22.1", "@univerjs/rpc": "0.22.1", "decimal.js": "^10.6.0" }, "peerDependencies": { "rxjs": ">=7.0.0" } }, "sha512-9dr+xs1KQu8wWuNXohlPhG1XyX8xubTETsYMn+fhGt2NA6aeDfKnrazU+OQX2BQIOG51ReGZW0GDKFsvm+f/UA=="],
 
     "@univerjs/engine-render": ["@univerjs/engine-render@0.22.1", "", { "dependencies": { "@floating-ui/dom": "^1.7.4", "@floating-ui/utils": "^0.2.10", "@univerjs/core": "0.22.1", "cjk-regex": "^3.4.0", "franc-min": "^6.2.0", "opentype.js": "^2.0.0" }, "peerDependencies": { "rxjs": ">=7.0.0" } }, "sha512-W0ewLmNxtwg6QjFZlby9CIcKTsB+cuxT9DmiRnV99aEgwUy+Ujme4bQ6LqA30TJGiX411LUM1n/sEHsYzYbx5g=="],
@@ -407,7 +414,13 @@
 
     "@univerjs/sheets": ["@univerjs/sheets@0.22.1", "", { "dependencies": { "@univerjs/core": "0.22.1", "@univerjs/engine-formula": "0.22.1", "@univerjs/engine-render": "0.22.1", "@univerjs/protocol": "0.22.1", "@univerjs/rpc": "0.22.1" }, "peerDependencies": { "rxjs": ">=7.0.0" } }, "sha512-nwSnTxWHQ4l3XvuwbaMbrq6r5r0524UfXtZ0IVmhs1V/O2cHm2q+/51/MKyqdTPiE6vr3OFhueC81tQVODsxww=="],
 
+    "@univerjs/sheets-ui": ["@univerjs/sheets-ui@0.22.1", "", { "dependencies": { "@univerjs/core": "0.22.1", "@univerjs/design": "0.22.1", "@univerjs/docs": "0.22.1", "@univerjs/docs-ui": "0.22.1", "@univerjs/engine-formula": "0.22.1", "@univerjs/engine-render": "0.22.1", "@univerjs/icons": "^1.1.1", "@univerjs/protocol": "0.22.1", "@univerjs/sheets": "0.22.1", "@univerjs/telemetry": "0.22.1", "@univerjs/ui": "0.22.1" }, "peerDependencies": { "react": "^16.9.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc", "rxjs": ">=7.0.0" } }, "sha512-AWlYZ2p8uiBcP+mb1AaQeo2LjYAUqqhlLYd/1xLuwLA1hhywiNlPyxMoRIKKk++fxRCtl9S6HnrNzzWEA+QIZw=="],
+
     "@univerjs/slides": ["@univerjs/slides@0.22.1", "", { "dependencies": { "@univerjs/core": "0.22.1", "@univerjs/engine-render": "0.22.1" }, "peerDependencies": { "rxjs": ">=7.0.0" } }, "sha512-K1jTrc4zQ8Pkzj3hLa6KQ3YBQH4moHYZQTuHKaLgy9eLdXwtOItGaQaLDLxq14anpWzRI8GlE8OhCE1NBdxpWA=="],
+
+    "@univerjs/slides-ui": ["@univerjs/slides-ui@0.22.1", "", { "dependencies": { "@univerjs/core": "0.22.1", "@univerjs/design": "0.22.1", "@univerjs/docs": "0.22.1", "@univerjs/docs-ui": "0.22.1", "@univerjs/drawing": "0.22.1", "@univerjs/engine-render": "0.22.1", "@univerjs/icons": "^1.1.1", "@univerjs/slides": "0.22.1", "@univerjs/ui": "0.22.1" }, "peerDependencies": { "react": "^16.9.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc", "rxjs": ">=7.0.0" } }, "sha512-FQSltOy+r94jUhDRG6loDlcBEZbMY2cE6WqltVcXWa8+zMkkFBIBp4s1hy+vhdrShY4M5PwpT2N89zD42DE9lg=="],
+
+    "@univerjs/telemetry": ["@univerjs/telemetry@0.22.1", "", { "dependencies": { "@univerjs/core": "0.22.1" } }, "sha512-+hDHxNsHCR9vIP5YLf2A2UimdJieO2fKX6grQeVt7S3VlpBVrBfr/PN3ZSrpMXlPjtvmRan6dWCLkyNGDO21aA=="],
 
     "@univerjs/themes": ["@univerjs/themes@0.22.1", "", {}, "sha512-aNKlhA1p+KtStCBonMw1vVvwY+szsCeNjfHrPio2Z33OWE+JVRx6TjyT5WfNDQ9gMIW/YQ383aHAskW31/sxXA=="],
 
