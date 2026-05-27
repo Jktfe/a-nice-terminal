@@ -5,7 +5,8 @@ import { join, delimiter } from 'node:path';
 import {
   readDeckSettings,
   writeDeckSettings,
-  deckRootsResolved
+  deckRootsResolved,
+  readRoomOverrides
 } from './deckSettingsStore';
 
 let scratchDir = '';
@@ -50,7 +51,7 @@ describe('writeDeckSettings', () => {
     expect(existsSync(nested)).toBe(false);
     writeDeckSettings({ decksRoots: ['/x/y'] }, nested);
     expect(existsSync(nested)).toBe(true);
-    expect(JSON.parse(readFileSync(nested, 'utf8'))).toEqual({ decksRoots: ['/x/y'] });
+    expect(JSON.parse(readFileSync(nested, 'utf8'))).toEqual({ decksRoots: ['/x/y'], roomOverrides: {} });
   });
 
   it('trims whitespace + drops empty entries', () => {
@@ -73,6 +74,60 @@ describe('writeDeckSettings', () => {
   it('round-trips empty roots cleanly', () => {
     writeDeckSettings({ decksRoots: [] }, settingsFile);
     expect(readDeckSettings(settingsFile).decksRoots).toEqual([]);
+  });
+});
+
+describe('roomOverrides', () => {
+  it('round-trips a room→root map cleanly', () => {
+    writeDeckSettings({
+      decksRoots: ['/global/default'],
+      roomOverrides: {
+        'room-xeno': '/Users/jamesking/Dropbox/XenomorphBoard',
+        'room-internal': '/Users/jamesking/Dropbox/InternalDecks'
+      }
+    }, settingsFile);
+    const overrides = readRoomOverrides(settingsFile);
+    expect(overrides['room-xeno']).toBe('/Users/jamesking/Dropbox/XenomorphBoard');
+    expect(overrides['room-internal']).toBe('/Users/jamesking/Dropbox/InternalDecks');
+  });
+
+  it('preserves existing roomOverrides when caller updates decksRoots without specifying overrides', () => {
+    writeDeckSettings({
+      decksRoots: ['/r1'],
+      roomOverrides: { 'r1': '/path1' }
+    }, settingsFile);
+    // Settings UI write path doesn't pass roomOverrides — must preserve.
+    writeDeckSettings({ decksRoots: ['/r1', '/r2'] }, settingsFile);
+    expect(readRoomOverrides(settingsFile)).toEqual({ 'r1': '/path1' });
+  });
+
+  it('explicit empty roomOverrides clears the map', () => {
+    writeDeckSettings({ decksRoots: [], roomOverrides: { 'r1': '/p1' } }, settingsFile);
+    writeDeckSettings({ decksRoots: [], roomOverrides: {} }, settingsFile);
+    expect(readRoomOverrides(settingsFile)).toEqual({});
+  });
+
+  it('rejects non-object roomOverrides', () => {
+    expect(() => writeDeckSettings(
+      { decksRoots: [], roomOverrides: 'oops' as unknown as Record<string, string> },
+      settingsFile
+    )).toThrow(/must be an object/);
+    expect(() => writeDeckSettings(
+      { decksRoots: [], roomOverrides: ['array'] as unknown as Record<string, string> },
+      settingsFile
+    )).toThrow(/must be an object/);
+  });
+
+  it('filters out empty room ids + empty paths', () => {
+    writeDeckSettings({
+      decksRoots: [],
+      roomOverrides: { '': '/path', 'good': '', 'also-good': '/real-path' }
+    }, settingsFile);
+    expect(readRoomOverrides(settingsFile)).toEqual({ 'also-good': '/real-path' });
+  });
+
+  it('returns empty object when file absent', () => {
+    expect(readRoomOverrides(settingsFile)).toEqual({});
   });
 });
 

@@ -32,9 +32,11 @@ function envLayer(): string[] {
 }
 
 function payload() {
+  const settings = readDeckSettings();
   return {
     envRoots: envLayer(),
-    fileRoots: readDeckSettings().decksRoots,
+    fileRoots: settings.decksRoots,
+    roomOverrides: settings.roomOverrides ?? {},
     resolved: deckRootsResolved()
   };
 }
@@ -47,13 +49,19 @@ export const GET: RequestHandler = async ({ request }) => {
 export const PUT: RequestHandler = async ({ request }) => {
   if (!tryAdminBearer(request)) throw error(401, 'admin bearer required');
   const body = (await request.json().catch(() => null)) as
-    | { decksRoots?: unknown }
+    | { decksRoots?: unknown; roomOverrides?: unknown }
     | null;
   if (!body || !Array.isArray(body.decksRoots)) {
-    throw error(400, 'Body must be {"decksRoots": [string, ...]}');
+    throw error(400, 'Body must be {"decksRoots": [string, ...]} (roomOverrides optional)');
   }
   try {
-    writeDeckSettings({ decksRoots: body.decksRoots });
+    // Pass roomOverrides through only when explicitly set (undefined =
+    // preserve existing per the store contract).
+    if (body.roomOverrides !== undefined) {
+      writeDeckSettings({ decksRoots: body.decksRoots, roomOverrides: body.roomOverrides });
+    } else {
+      writeDeckSettings({ decksRoots: body.decksRoots });
+    }
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : 'write failed';
     throw error(400, message);
