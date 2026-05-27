@@ -76,5 +76,6 @@ describe('/d/:slug', () => {
     expect(html).toContain('href="/d/animotion-demo/_app/immutable/app.css"');
     expect(html).toContain('import("/d/animotion-demo/_app/immutable/start.js")');
     expect(html).toContain('base: "/d/animotion-demo"');
+    expect(html).toContain('crypto.randomUUID');
   });
 });
