@@ -185,6 +185,7 @@
       <MessageRowActions
         roomId={message.roomId}
         messageId={message.id}
+        body={message.body}
         {viewerIsAgent}
         {claims}
         {asHandle}
