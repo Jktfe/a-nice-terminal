@@ -1442,7 +1442,26 @@ const SCHEMA_DDL_STATEMENTS = [
     payload_byte_size  INTEGER NOT NULL DEFAULT 0
   )`,
   `CREATE INDEX IF NOT EXISTS idx_bring_in_app_launches_operator ON bring_in_app_launches (operator_handle, launched_at_ms DESC)`,
-  `CREATE INDEX IF NOT EXISTS idx_bring_in_app_launches_room ON bring_in_app_launches (room_id, launched_at_ms DESC)`
+  `CREATE INDEX IF NOT EXISTS idx_bring_in_app_launches_room ON bring_in_app_launches (room_id, launched_at_ms DESC)`,
+  // ANT apps shared contract 2026-05-27 (eiw05zdurz msg_z0r3ys9xd5): per-viewer room
+  // preferences that drive native-app sidebar ordering. pinned floats above the
+  // priorityScore sort; muted zeroes the score; archived hides from default queries.
+  // Multi-device persistent so a user muting on iPhone stays muted on Mac.
+  //
+  // Deliberately NOT a FOREIGN KEY against chat_rooms.id: pref rows are
+  // UI-state, no orphan harm if a room is hard-deleted (queries scope by
+  // handle and would skip orphans anyway). Avoiding FK keeps test setup
+  // light + makes the table robust to room-id renames if those ever happen.
+  `CREATE TABLE IF NOT EXISTS room_member_preferences (
+    room_id       TEXT NOT NULL,
+    handle        TEXT NOT NULL,
+    muted         INTEGER NOT NULL DEFAULT 0,
+    pinned        INTEGER NOT NULL DEFAULT 0,
+    archived      INTEGER NOT NULL DEFAULT 0,
+    updated_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (room_id, handle)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_room_member_preferences_handle ON room_member_preferences (handle)`
 ];
 
 function resolveDbFilePath(): string {
