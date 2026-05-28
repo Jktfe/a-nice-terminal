@@ -31,7 +31,11 @@ describe('GET /api/plans/evidence', () => {
     const body = await res.json();
     expect(body.evidence).toEqual([]);
     expect(body.stats).toEqual({
-      byKind: { run_event: 0, task: 0, url: 0, file: 0, chat_message: 0 },
+      byKind: {
+        run_event: 0, task: 0, url: 0, file: 0, chat_message: 0,
+        proposal: 0, stage_focus: 0, stage_pause_context: 0,
+        stage_feedback: 0, stage_alternative: 0
+      },
       total: 0,
       withLabel: 0
     });
@@ -81,11 +85,9 @@ describe('GET /api/plans/evidence', () => {
     expect(body.stats.total).toBe(3);
     expect(body.stats.withLabel).toBe(2);
     expect(body.stats.byKind).toEqual({
-      run_event: 0,
-      task: 0,
-      url: 2,
-      file: 1,
-      chat_message: 0
+      run_event: 0, task: 0, url: 2, file: 1, chat_message: 0,
+      proposal: 0, stage_focus: 0, stage_pause_context: 0,
+      stage_feedback: 0, stage_alternative: 0
     });
   });
 

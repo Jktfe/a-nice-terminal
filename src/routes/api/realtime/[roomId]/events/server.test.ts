@@ -12,7 +12,8 @@ vi.mock('\$lib/server/chatRoomStore', () => ({
 
 vi.mock('\$lib/server/eventBroadcast', () => ({
   subscribeToRoom: vi.fn().mockReturnValue(() => {}),
-  unsubscribeFromRoom: vi.fn()
+  unsubscribeFromRoom: vi.fn(),
+  currentSeqForRoom: vi.fn().mockReturnValue(0)
 }));
 
 const PREV_DB_PATH = process.env.ANT_FRESH_DB_PATH;

@@ -107,8 +107,8 @@ const callPost = (roomId: string, body?: string, headers: Record<string, string>
   runHandler(POST, eventFor('POST', roomId, body, '', headers));
 const callGet = (roomId: string, headers: Record<string, string> = {}) =>
   runHandler(GET, eventFor('GET', roomId, undefined, '', headers));
-const callDelete = (roomId: string, query?: string) =>
-  runHandler(DELETE, eventFor('DELETE', roomId, undefined, query ?? ''));
+const callDelete = (roomId: string, query?: string, headers: Record<string, string> = {}) =>
+  runHandler(DELETE, eventFor('DELETE', roomId, undefined, query ?? '', headers));
 
 describe('/api/chat-rooms/:roomId/members', () => {
   beforeEach(() => {
@@ -161,9 +161,11 @@ describe('/api/chat-rooms/:roomId/members', () => {
     it('returns 201, appends the agent, and emits a system message', async () => {
       const room = createChatRoom({ name: 'invite', whoCreatedIt: '@you' });
       const terminalId = seedTerminalForHandle('@evolveantcodex');
+      const { token } = issueToken('redacted@example.com');
       const response = await callPost(
         room.id,
-        JSON.stringify({ agentHandle: '@evolveantcodex' })
+        JSON.stringify({ agentHandle: '@evolveantcodex' }),
+        { authorization: `Bearer ${token}` }
       );
       expect(response.status).toBe(201);
       const updated = findChatRoomById(room.id);
@@ -178,10 +180,12 @@ describe('/api/chat-rooms/:roomId/members', () => {
       const terminalId = seedTerminalForHandle('@evolveantcodex');
       inviteAgentToRoom({ roomId: room.id, agentHandle: '@evolveantcodex' });
       expect(getTerminalIdByHandle(room.id, '@evolveantcodex')).toBeNull();
+      const { token } = issueToken('redacted@example.com');
 
       const response = await callPost(
         room.id,
-        JSON.stringify({ agentHandle: '@evolveantcodex' })
+        JSON.stringify({ agentHandle: '@evolveantcodex' }),
+        { authorization: `Bearer ${token}` }
       );
 
       expect(response.status).toBe(200);
@@ -271,10 +275,12 @@ describe('/api/chat-rooms/:roomId/members', () => {
       inviteAgentToRoom({ roomId: room.id, agentHandle: '@evolveantcodex' });
       const terminalId = seedTerminalForHandle('@evolveantcodex');
       addMembership({ room_id: room.id, handle: '@evolveantcodex', terminal_id: terminalId });
+      const { token } = issueToken('redacted@example.com');
 
       const response = await callDelete(
         room.id,
-        '?globalHandle=' + encodeURIComponent('@evolveantcodex')
+        '?globalHandle=' + encodeURIComponent('@evolveantcodex'),
+        { authorization: `Bearer ${token}` }
       );
       expect(response.status).toBe(204);
 
@@ -290,10 +296,12 @@ describe('/api/chat-rooms/:roomId/members', () => {
       const room = createChatRoom({ name: 'remove-with-alias', whoCreatedIt: '@you' });
       inviteAgentToRoom({ roomId: room.id, agentHandle: '@evolveantcodex' });
       setRoomAlias({ roomId: room.id, globalHandle: '@evolveantcodex', newAlias: '@cdx' });
+      const { token } = issueToken('redacted@example.com');
 
       const response = await callDelete(
         room.id,
-        '?globalHandle=' + encodeURIComponent('@evolveantcodex')
+        '?globalHandle=' + encodeURIComponent('@evolveantcodex'),
+        { authorization: `Bearer ${token}` }
       );
       expect(response.status).toBe(204);
       expect(findAliasForHandleInRoom(room.id, '@evolveantcodex')).toBeUndefined();
@@ -302,8 +310,9 @@ describe('/api/chat-rooms/:roomId/members', () => {
     it('normalises a bare handle without @ prefix', async () => {
       const room = createChatRoom({ name: 'remove-bare', whoCreatedIt: '@you' });
       inviteAgentToRoom({ roomId: room.id, agentHandle: '@codex' });
+      const { token } = issueToken('redacted@example.com');
 
-      const response = await callDelete(room.id, '?globalHandle=codex');
+      const response = await callDelete(room.id, '?globalHandle=codex', { authorization: `Bearer ${token}` });
       expect(response.status).toBe(204);
     });
 
@@ -323,18 +332,22 @@ describe('/api/chat-rooms/:roomId/members', () => {
 
     it('returns 404 for a handle that is not a member of the room', async () => {
       const room = createChatRoom({ name: 'nonmember', whoCreatedIt: '@you' });
+      const { token } = issueToken('redacted@example.com');
       const response = await callDelete(
         room.id,
-        '?globalHandle=' + encodeURIComponent('@typo')
+        '?globalHandle=' + encodeURIComponent('@typo'),
+        { authorization: `Bearer ${token}` }
       );
       expect(response.status).toBe(404);
     });
 
     it('returns 409 with reason creator when trying to remove the room creator', async () => {
       const room = createChatRoom({ name: 'creator-block', whoCreatedIt: '@you' });
+      const { token } = issueToken('redacted@example.com');
       const response = await callDelete(
         room.id,
-        '?globalHandle=' + encodeURIComponent('@you')
+        '?globalHandle=' + encodeURIComponent('@you'),
+        { authorization: `Bearer ${token}` }
       );
       expect(response.status).toBe(409);
       const body = (await response.json()) as { reason: string };
@@ -348,10 +361,12 @@ describe('/api/chat-rooms/:roomId/members', () => {
       const room = createChatRoom({ name: 'last-human-endpoint', whoCreatedIt: '@you' });
       inviteAgentToRoom({ roomId: room.id, agentHandle: '@codex' });
       __overrideRoomCreatorForTests(room.id, '@codex');
+      const { token } = issueToken('redacted@example.com');
 
       const response = await callDelete(
         room.id,
-        '?globalHandle=' + encodeURIComponent('@you')
+        '?globalHandle=' + encodeURIComponent('@you'),
+        { authorization: `Bearer ${token}` }
       );
       expect(response.status).toBe(409);
       const body = (await response.json()) as { reason: string };
