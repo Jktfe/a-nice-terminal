@@ -64,7 +64,7 @@ describe('ant invite join-url', () => {
     });
     const rc = await handleInviteVerb(
       'join-url',
-      [SHARE_URL, '--password', 'hello', '--handle', '@markcd'],
+      [SHARE_URL, '--password', 'hello', '--handle', '@markcd', '--no-register'],
       runtime,
       { CliInputError }
     );
@@ -81,7 +81,7 @@ describe('ant invite join-url', () => {
     expect(captured.posts[1].url).toBe(
       `${SHARE_HOST}/api/chat-rooms/i6eslnpy9/join-with-token`
     );
-    expect(JSON.parse(captured.posts[1].init.body)).toEqual({ tokenSecret: 'tok_abc' });
+    expect(JSON.parse(captured.posts[1].init.body)).toMatchObject({ tokenSecret: 'tok_abc' });
     expect(captured.stdout[0]).toBe(`@markcd\tNorman K Funding\ti6eslnpy9\t${SHARE_HOST}`);
   });
 
@@ -153,12 +153,13 @@ describe('ant invite join-url', () => {
     });
     const rc = await handleInviteVerb(
       'join-url',
-      [SHARE_URL, '--password', 'hello', '--handle', '@h', '--print-token'],
+      [SHARE_URL, '--password', 'hello', '--handle', '@h', '--print-token', '--no-register'],
       runtime,
       { CliInputError }
     );
     expect(rc).toBe(0);
-    expect(captured.stdout).toHaveLength(2);
+    // stdout = [handle-line, token (because --print-token), auto-register-skipped]
+    expect(captured.stdout).toHaveLength(3);
     expect(captured.stdout[1]).toBe('tok_xyz');
   });
 
@@ -172,11 +173,12 @@ describe('ant invite join-url', () => {
     });
     await handleInviteVerb(
       'join-url',
-      [SHARE_URL, '--password', 'hello', '--handle', '@h'],
+      [SHARE_URL, '--password', 'hello', '--handle', '@h', '--no-register'],
       runtime,
       { CliInputError }
     );
-    expect(captured.stdout).toHaveLength(1);
+    // stdout = [handle-line, auto-register-skipped] (no token because no --print-token)
+    expect(captured.stdout).toHaveLength(2);
     expect(captured.stdout.join('\n')).not.toMatch(/tok_xyz/);
   });
 });
