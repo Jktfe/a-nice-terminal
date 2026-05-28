@@ -1,25 +1,37 @@
 /**
- * createVerificationLensSkill — Phase B2 substrate scaffold.
+ * createVerificationLensSkill — Phase B2 substrate (post-2026-05-28-reframe).
  *
- * Entry function for the /create-verification-lens skill. Takes a
- * SkillInput (validated requirements + scope + author identity),
- * constructs the LLM prompt per docs/specs/create-verification-lens-
- * prompt-template.md, calls the model via the injected callModel
- * function, then parses + validates the response against the
- * substrate contract from B1 (docs/specs/create-verification-lens-
- * skill.md).
+ * **Architecture (corrected per JWPK eiw05zdurz msg_pgp1n75ufb +
+ * msg_o1e307juug, banked at
+ * memory-pack/mem_feedback_ant_does_not_pick_models_2026_05_28.md):**
  *
- * The actual model invocation (model selection, API key wiring, cost
- * tracking, retry logic) lives in B3. This module ships the
- * substrate-shaped pieces:
- *   - typed input/output/refusal shapes
- *   - prompt construction (system + user messages)
- *   - response parser with structured refusal on each invariant
- *     failure
- *   - skill entry function accepting an injected callModel
+ * ANT does NOT call LLM models. Skills are TASK DEFINITIONS that
+ * agents execute (using whatever model their terminal runs) OR that
+ * users execute via interactive page surfaces. Both paths post results
+ * to typed ANT endpoints (POST /api/verification/lenses + .../tag-rows
+ * for lens authoring; POST /api/scopes/[id]/tagging-runs for tagging;
+ * POST /api/scopes/[id]/verification-runs for verdicts).
  *
- * Caller wires their own callModel implementation (Anthropic SDK,
- * Bedrock, etc) and passes it as a parameter. Tests use a stub.
+ * This module ships the typed shapes + the response parser as a
+ * **shared helper** both paths can use:
+ *
+ *  - **Agents** executing the create-verification-lens skill read the
+ *    prompt template (docs/specs/create-verification-lens-prompt-
+ *    template.md), use it on their own model, and produce a JSON
+ *    output. They can call parseSkillResponse() on their own output
+ *    to validate before submitting via the typed endpoints.
+ *
+ *  - **Interactive pages** (M10 Mac, D3 iOS, /verification/lenses/new
+ *    fallback) construct the same SkillSuccessOutput shape from form
+ *    inputs and submit via the same endpoints. parseSkillResponse()
+ *    serves as a server-side validator if pages submit a raw JSON
+ *    body instead of decomposing into per-endpoint calls.
+ *
+ * **What was removed (Slice 12 cleanup)**: the
+ * runCreateVerificationLensSkill(input, callModel) orchestrator
+ * function. It modelled ANT-as-LLM-caller which is the wrong
+ * abstraction. No replacement function needed — agents and pages
+ * compose substrate endpoints directly.
  */
 
 import { listSourceSets } from './sourceSetsStore';
@@ -436,80 +448,4 @@ export function parseSkillResponse(
     source_set_bindings: parsedBindings,
     suggested_source_sets: parsedSuggested
   };
-}
-
-// ───────────────────────── entry ─────────────────────────
-
-/**
- * Run the create-verification-lens skill end-to-end. The substrate
- * does:
- *
- *   1. Validate input (length + character class).
- *   2. Fetch the scope-filtered tags catalog + available source-sets
- *      from the substrate stores.
- *   3. Build system + user messages per the prompt template.
- *   4. Call the injected callModel with both messages.
- *   5. Parse + validate the response into a typed SkillOutput.
- *
- * The caller wires the actual model call (Anthropic SDK, Bedrock,
- * etc) via the callModel parameter. Tests inject a stub. The
- * skill_invocations audit row is written by the API endpoint that
- * wraps this function — B3 ships that endpoint with cost cap +
- * org-admin gate.
- */
-export async function runCreateVerificationLensSkill(
-  input: SkillInput,
-  callModel: CallModel
-): Promise<SkillOutput> {
-  const inputFailure = validateInput(input);
-  if (inputFailure) return inputFailure;
-
-  // Q1 (ratified a): active + org-scope tags, system+global union org+scopeId
-  const systemTags = listTaxonomy({
-    provenance: 'system',
-    scopeId: 'global',
-    lifecycleStates: ['active'],
-    latestVersionOnly: true
-  });
-  const orgTags = listTaxonomy({
-    provenance: 'org' as TagProvenance,
-    scopeId: input.scope_id,
-    lifecycleStates: ['active'],
-    latestVersionOnly: true
-  });
-  const tagsCatalog = [...systemTags, ...orgTags];
-
-  // Available source-sets for the scope (existing only; missing get
-  // surfaced in suggested_source_sets per Q2 ratification)
-  const availableSourceSets = listSourceSets({
-    ownerOrg: input.scope_id,
-    lifecycleStates: ['active']
-  });
-  const availableSourceSetIds = new Set(availableSourceSets.map((s) => s.id));
-
-  // If the org has zero source-sets AND the framework hint suggests
-  // external sources will be needed, return early with the explicit
-  // refusal (don't burn a model call to produce something the caller
-  // will need to re-bind anyway).
-  if (availableSourceSets.length === 0 && input.framework_hint
-      && /fca|sec|esma|mifid|gdpr/i.test(input.framework_hint)) {
-    return refusal(
-      'no_source_sets_available',
-      `framework_hint "${input.framework_hint}" suggests this lens needs an external source-set, but no source-sets exist for scope ${input.scope_id}.`,
-      `Run \`ant source-set create --scope ${input.scope_id}\` to add the source-set this framework expects, then re-run the skill.`
-    );
-  }
-
-  const userMessage = buildUserMessage(input, tagsCatalog, availableSourceSets);
-  let raw: string;
-  try {
-    raw = await callModel({ systemMessage: SYSTEM_MESSAGE, userMessage });
-  } catch (cause) {
-    return refusal(
-      'parse_error',
-      `callModel failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-      'Check model wiring + retry.'
-    );
-  }
-  return parseSkillResponse(raw, tagsCatalog, availableSourceSetIds);
 }

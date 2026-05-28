@@ -1,11 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   buildUserMessage,
   parseSkillResponse,
-  runCreateVerificationLensSkill,
   SYSTEM_MESSAGE
 } from './createVerificationLensSkill';
-import type { CallModel, SkillInput, SkillOutput } from './createVerificationLensSkill';
+import type { SkillInput } from './createVerificationLensSkill';
 import { createTag, listTaxonomy, resetVerificationTaxonomyStoreForTests } from './verificationTaxonomyStore';
 import { createSourceSet, resetSourceSetsStoreForTests } from './sourceSetsStore';
 import { getIdentityDb } from './db';
@@ -56,70 +55,9 @@ afterEach(() => {
 
 // ───────────────────────── input validation ─────────────────────────
 
-describe('input validation', () => {
-  it('refuses requirements shorter than 50 chars', async () => {
-    const stub: CallModel = vi.fn();
-    const out = await runCreateVerificationLensSkill(
-      { ...SAMPLE_INPUT, requirements: 'too short' }, stub);
-    expect(out.kind).toBe('refusal');
-    if (out.kind === 'refusal') expect(out.error_kind).toBe('requirements_too_vague');
-    expect(stub).not.toHaveBeenCalled();
-  });
-
-  it('refuses lens_name with HTML-injection chars', async () => {
-    const stub: CallModel = vi.fn();
-    const out = await runCreateVerificationLensSkill(
-      { ...SAMPLE_INPUT, lens_name: 'bad<script>' }, stub);
-    expect(out.kind).toBe('refusal');
-    if (out.kind === 'refusal') expect(out.error_kind).toBe('invalid_lens');
-    expect(stub).not.toHaveBeenCalled();
-  });
-
-  it('refuses oversized framework_hint', async () => {
-    const stub: CallModel = vi.fn();
-    const out = await runCreateVerificationLensSkill(
-      { ...SAMPLE_INPUT, framework_hint: 'x'.repeat(100) }, stub);
-    expect(out.kind).toBe('refusal');
-  });
-});
 
 // ───────────────────────── ratified-spec compliance ─────────────────────────
 
-describe('Q2 ratified: refuses early when framework needs sources but org has none', () => {
-  it('FCA framework_hint + zero source-sets → no_source_sets_available without model call', async () => {
-    seedSystemTagSet();
-    const stub: CallModel = vi.fn();
-    const out = await runCreateVerificationLensSkill(
-      { ...SAMPLE_INPUT, framework_hint: 'FCA' }, stub);
-    expect(out.kind).toBe('refusal');
-    if (out.kind === 'refusal') expect(out.error_kind).toBe('no_source_sets_available');
-    // No model call burned on a known-no-go input
-    expect(stub).not.toHaveBeenCalled();
-  });
-
-  it('internal framework hint + zero source-sets → still calls model (only regulated frameworks short-circuit)', async () => {
-    seedSystemTagSet();
-    const fakeOutput = JSON.stringify({
-      kind: 'lens',
-      lens: {
-        name: 'Internal QC',
-        description: 'Quality control lens',
-        lens_kind: 'custom',
-        minimum_pass_record_age_ms: null,
-        re_verification_on_content_change: false,
-        out_of_scope_tags_json: '[]'
-      },
-      tag_rows: [],
-      source_set_bindings: [],
-      suggested_source_sets: []
-    });
-    const stub: CallModel = vi.fn().mockResolvedValue(fakeOutput);
-    const out = await runCreateVerificationLensSkill(
-      { ...SAMPLE_INPUT, framework_hint: 'internal' }, stub);
-    expect(out.kind).toBe('lens');
-    expect(stub).toHaveBeenCalledOnce();
-  });
-});
 
 // ───────────────────────── parser ─────────────────────────
 
@@ -305,58 +243,3 @@ describe('prompt construction', () => {
 
 // ───────────────────────── end-to-end with stub model ─────────────────────────
 
-describe('runCreateVerificationLensSkill — end to end', () => {
-  it('routes through the stub callModel and returns parsed output', async () => {
-    seedSystemTagSet();
-    createSourceSet({
-      name: 'Acme primary sources', ownerOrg: 'acme', createdBy: '@admin'
-    });
-    const fakeOutput: SkillOutput = {
-      kind: 'lens',
-      lens: {
-        name: 'Acme investor lens',
-        description: 'Verifies investor letter claims',
-        lens_kind: 'investment_memo',
-        minimum_pass_record_age_ms: null,
-        re_verification_on_content_change: true,
-        out_of_scope_tags_json: '[]'
-      },
-      tag_rows: [{
-        tag_id: 'claim.factual',
-        tag_version: null,
-        expectation: 'required',
-        min_verifier_count: 2,
-        verifier_mix: ['@human-reviewer', '@agent-verifier'],
-        dispute_policy: 'unanimous',
-        weight: 1.0,
-        notes: 'every factual claim needs source'
-      }],
-      source_set_bindings: [],
-      suggested_source_sets: []
-    };
-    const stub: CallModel = vi.fn().mockResolvedValue(JSON.stringify(fakeOutput));
-    const out = await runCreateVerificationLensSkill(
-      { ...SAMPLE_INPUT, framework_hint: 'internal' }, stub);
-    expect(out.kind).toBe('lens');
-    if (out.kind === 'lens') {
-      expect(out.lens.name).toBe('Acme investor lens');
-      expect(out.tag_rows).toHaveLength(1);
-    }
-    // Verify stub was called with the right shape
-    const call = (stub as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(call.systemMessage).toContain('out_of_substrate_scope');
-    expect(call.userMessage).toContain(SAMPLE_INPUT.requirements);
-  });
-
-  it('surfaces callModel errors as parse_error refusal (substrate stays honest)', async () => {
-    seedSystemTagSet();
-    const stub: CallModel = vi.fn().mockRejectedValue(new Error('network down'));
-    const out = await runCreateVerificationLensSkill(
-      { ...SAMPLE_INPUT, framework_hint: 'internal' }, stub);
-    expect(out.kind).toBe('refusal');
-    if (out.kind === 'refusal') {
-      expect(out.error_kind).toBe('parse_error');
-      expect(out.reason).toContain('network down');
-    }
-  });
-});
