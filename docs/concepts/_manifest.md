@@ -26,6 +26,8 @@ Each concept doc in this directory is:
 |---|---|---|
 | `_manifest.md` | This file — pack manifest + default-attach rules | shipped this commit |
 | `ant-stage.md` | ANT Stage = shell wrapping any deck + 5 agent-aware capabilities | shipped `5b6a602` + CLI added `7501fc1` |
+| `ant-chair.md` | Chair two-primitive split: ANT Chair (user proxy, 1/person) + Room Chair (operator, 1/room) | shipped 2026-05-28 |
+| `ant-verification.md` | Verification substrate: tags + source-sets + anchors + applications + overrides + lenses + lens-tag-rows + verdicts + V3 contract + Phase C/D consumer surface | shipped 2026-05-28 (Phase A substrate complete) |
 
 ### Planned (multi-session, task #31 tracks)
 
@@ -37,8 +39,6 @@ Each concept doc in this directory is:
 | `ant-mentions.md` | @-mention routing — explicit handles vs bare-everyone vs at-only | HIGH |
 | `ant-break.md` | System breaks — context-break semantics, server-side enforcement | MEDIUM |
 | `ant-plans.md` | Plans + tasks — split, gantt view, kickoff/done verbs | MEDIUM |
-| `ant-chair.md` | Chair as agent-kind — ANT Chair (user proxy, 1/person) + Room Chair (operator, 1/room) | MEDIUM (the two-primitive split is currently invisible in repo) |
-| `ant-verification.md` | Validation lens + scoring + V3 endpoint + premium gate + Trust chip | MEDIUM (substantial concept, touches V3+lens-bridge+lensSchemaId+ValidationBadge) |
 | `ant-click-to-explain.md` | Inline-context-from-room-memory premium feature | LOW |
 | `ant-bridge.md` | Local MCP+CLI bridge architecture (remoteant unified sidecar, direction C) | LOW (still in design — @speedycodex's P2 design doc not yet ratified) |
 | `ant-memory-and-attach.md` | Memory primitive — user vault + search + attach-to-room | LOW (feature not yet built; @ec2 may take the search-on-noun sixth-discipline angle) |
