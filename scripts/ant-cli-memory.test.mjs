@@ -8,6 +8,9 @@
 
 import { describe, expect, it } from 'vitest';
 import { handleMemoryVerb } from './ant-cli-memory.mjs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 class CliInputError extends Error {}
 
@@ -17,6 +20,7 @@ function makeRuntime(fetchHandler) {
     runtime: {
       fetchImpl: fetchHandler,
       serverUrl: 'http://test.local',
+      config: {},
       writeOut: (line) => captured.stdout.push(line),
       writeErr: (line) => captured.stderr.push(line)
     },
@@ -32,6 +36,95 @@ function makeJsonResponse(body, status = 200) {
 }
 
 describe('ant memory CLI', () => {
+  it('memory vault set/get/clear persists the default memory pack root', async () => {
+    const originalHome = process.env.HOME;
+    const tmpHome = mkdtempSync(join(tmpdir(), 'ant-memory-home-'));
+    process.env.HOME = tmpHome;
+    try {
+      const { runtime, captured } = makeRuntime(async () => makeJsonResponse({}));
+
+      expect(await handleMemoryVerb('vault', ['set', '--path', '/pack/root'], runtime, { CliInputError })).toBe(0);
+      expect(await handleMemoryVerb('vault', ['get'], runtime, { CliInputError })).toBe(0);
+      expect(captured.stdout.join('\n')).toContain('/pack/root');
+      expect(readFileSync(join(tmpHome, '.ant', 'memory-vault.json'), 'utf-8')).toContain('/pack/root');
+
+      expect(await handleMemoryVerb('vault', ['clear'], runtime, { CliInputError })).toBe(0);
+      expect(readFileSync(join(tmpHome, '.ant', 'memory-vault.json'), 'utf-8')).toContain('null');
+    } finally {
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+      if (existsSync(tmpHome)) rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
+
+  it('memory recall searches a Markdown memory pack by local text', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ant-memory-pack-'));
+    writeFileSync(join(dir, 'mem_stage.md'), `---\nmemory_id: mem_stage\nlinked_rooms: []\n---\n# ANT Stage\n\nStage decks and validation overlays.\n`, 'utf-8');
+    const { runtime, captured } = makeRuntime(async () => makeJsonResponse({}));
+
+    const code = await handleMemoryVerb('recall', ['--MEM-LOCATION', dir, '--search', 'validation'], runtime, { CliInputError });
+
+    expect(code).toBe(0);
+    expect(captured.stdout.join('\n')).toContain('mem_stage');
+    expect(captured.stdout.join('\n')).toContain('ANT Stage');
+  });
+
+  it('memory recall uses runtime.config.memoryPackRoot when --MEM-LOCATION is omitted', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ant-memory-pack-'));
+    writeFileSync(join(dir, 'mem_stage.md'), `---\nmemory_id: mem_stage\nlinked_rooms: []\n---\n# ANT Stage\n\nStage decks and validation overlays.\n`, 'utf-8');
+    const { runtime, captured } = makeRuntime(async () => makeJsonResponse({}));
+    runtime.config = { memoryPackRoot: dir };
+
+    const code = await handleMemoryVerb('recall', ['--search', 'validation'], runtime, { CliInputError });
+
+    expect(code).toBe(0);
+    expect(captured.stdout.join('\n')).toContain('mem_stage');
+  });
+
+  it('memory add attaches an existing Markdown memory to a room by memID', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ant-memory-pack-'));
+    const filePath = join(dir, 'mem_core.md');
+    writeFileSync(filePath, `---\nmemory_id: mem_core\nlinked_rooms: []\n---\n# Core Memory\n\nBody.\n`, 'utf-8');
+    const { runtime, captured } = makeRuntime(async () => makeJsonResponse({}));
+
+    const code = await handleMemoryVerb('add', ['--MEM-LOCATION', dir, '--roomID', 'room-a', '--memID', 'mem_core'], runtime, { CliInputError });
+
+    expect(code).toBe(0);
+    expect(readFileSync(filePath, 'utf-8')).toContain("linked_rooms: ['room-a']");
+    expect(captured.stdout[0]).toContain('Attached mem_core to room-a');
+  });
+
+  it('memory add --all-rooms attaches an existing Markdown memory to every server room', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ant-memory-pack-'));
+    const filePath = join(dir, 'mem_core.md');
+    writeFileSync(filePath, `---\nmemory_id: mem_core\nlinked_rooms: []\n---\n# Core Memory\n\nBody.\n`, 'utf-8');
+    const seen = [];
+    const { runtime } = makeRuntime(async (url) => {
+      seen.push(url);
+      return makeJsonResponse({ chatRooms: [{ id: 'room-a' }, { id: 'room-b' }] });
+    });
+
+    const code = await handleMemoryVerb('add', ['--MEM-LOCATION', dir, '--all-rooms', '--memID', 'mem_core'], runtime, { CliInputError });
+
+    expect(code).toBe(0);
+    expect(seen[0]).toContain('http://test.local/api/chat-rooms?pidChain=');
+    expect(readFileSync(filePath, 'utf-8')).toContain("linked_rooms: ['room-a', 'room-b']");
+  });
+
+  it('memory remove detaches an existing Markdown memory from a room by memID', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ant-memory-pack-'));
+    const filePath = join(dir, 'mem_core.md');
+    writeFileSync(filePath, `---\nmemory_id: mem_core\nlinked_rooms: ['room-a', 'room-b']\n---\n# Core Memory\n\nBody.\n`, 'utf-8');
+    const { runtime } = makeRuntime(async () => makeJsonResponse({}));
+
+    const code = await handleMemoryVerb('remove', ['--MEM-LOCATION', dir, '--roomID', 'room-a', '--memID', 'mem_core'], runtime, { CliInputError });
+
+    expect(code).toBe(0);
+    const updated = readFileSync(filePath, 'utf-8');
+    expect(updated).not.toContain('room-a');
+    expect(updated).toContain("linked_rooms: ['room-b']");
+  });
+
   it('memory get fetches /api/memories/key/<key> and prints a line', async () => {
     const seen = [];
     const { runtime, captured } = makeRuntime(async (url) => {
