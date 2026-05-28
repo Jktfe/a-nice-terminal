@@ -164,6 +164,26 @@ describe('ant chat tail', () => {
 });
 
 describe('ant chat state wrappers', () => {
+  it('S1: send reads a shell-safe message body from --stdin', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ message: { id: 'msg-stdin', authorHandle: '@codex' } }, 201));
+    runtime.fs = {
+      readFileSync: (path) => {
+        expect(path).toBe(0);
+        return 'literal `ticks` and trailing @\n';
+      }
+    };
+
+    await handleChatVerb('send', ['room-a', '--stdin'], runtime, { CliInputError });
+
+    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/room-a/messages');
+    expect(captured.requests[0].init.method).toBe('POST');
+    expect(bodyAt(captured)).toMatchObject({
+      body: 'literal `ticks` and trailing @\n',
+      pidChain: expect.any(Array)
+    });
+    expect(captured.stdout.join('\n')).toContain('msg-stdin');
+  });
+
   it('C1: break POSTs a context break with reason and pidChain', async () => {
     const { runtime, captured } = makeRuntime(() => okJson({ message: { id: 'break-1', body: 'Context break.' } }, 201));
 
@@ -250,5 +270,77 @@ describe('ant chat state wrappers', () => {
     expect(captured.requests[0].init.method).toBe('PATCH');
     expect(bodyAt(captured)).toMatchObject({ decision: 'Use postgres', pidChain: expect.any(Array) });
     expect(captured.stdout.join('\n')).toContain('closed with decision');
+  });
+});
+
+describe('ant chat send — message body input modes', () => {
+  function makeSendRuntime(messageResponse, fsStub) {
+    const captured = { requests: [], stdout: [], stderr: [] };
+    const fetchImpl = async (url, init = {}) => {
+      captured.requests.push({ url, init });
+      return { ok: true, status: 200, json: async () => messageResponse, text: async () => JSON.stringify(messageResponse) };
+    };
+    return {
+      runtime: {
+        fetchImpl,
+        serverUrl: 'http://test.local',
+        writeOut: (line) => captured.stdout.push(line),
+        writeErr: (line) => captured.stderr.push(line),
+        fs: fsStub
+      },
+      captured
+    };
+  }
+  const ok = { message: { id: 'msg-x', authorHandle: '@test' } };
+
+  it('B1: --msg "..." posts the body verbatim (legacy shape still works)', async () => {
+    const { runtime, captured } = makeSendRuntime(ok);
+    await handleChatVerb('send', ['--room', 'room-a', '--msg', 'hello literal'], runtime, { CliInputError });
+    expect(bodyAt(captured).body).toBe('hello literal');
+  });
+
+  it('B2: --msg-file reads body from disk; content with backticks/$/!/@ comes through untouched', async () => {
+    const trickyBody = 'reply with `whoami` and $PATH and ! marks plus trailing @';
+    const fsStub = { readFileSync: (p, enc) => {
+      if (p !== '/tmp/msg.txt' || enc !== 'utf8') throw new Error('unexpected read');
+      return trickyBody;
+    }};
+    const { runtime, captured } = makeSendRuntime(ok, fsStub);
+    await handleChatVerb('send', ['--room', 'room-a', '--msg-file', '/tmp/msg.txt'], runtime, { CliInputError });
+    expect(bodyAt(captured).body).toBe(trickyBody);
+  });
+
+  it('B3: --msg-stdin reads body from fd 0; content arrives intact', async () => {
+    const stdinBody = 'multi\nline\nbody with `backticks` and trailing @';
+    const fsStub = { readFileSync: (fd, enc) => {
+      if (fd !== 0 || enc !== 'utf8') throw new Error('unexpected stdin read');
+      return stdinBody;
+    }};
+    const { runtime, captured } = makeSendRuntime(ok, fsStub);
+    await handleChatVerb('send', ['--room', 'room-a', '--msg-stdin'], runtime, { CliInputError });
+    expect(bodyAt(captured).body).toBe(stdinBody);
+  });
+
+  it('B4: rejects when no body source is supplied', async () => {
+    const { runtime } = makeSendRuntime(ok);
+    await expect(
+      handleChatVerb('send', ['--room', 'room-a'], runtime, { CliInputError })
+    ).rejects.toThrow(/missing message body/);
+  });
+
+  it('B5: rejects when two body sources are supplied (no silent precedence)', async () => {
+    const fsStub = { readFileSync: () => 'from file' };
+    const { runtime } = makeSendRuntime(ok, fsStub);
+    await expect(
+      handleChatVerb('send', ['--room', 'room-a', '--msg', 'argv', '--msg-file', '/tmp/x.txt'], runtime, { CliInputError })
+    ).rejects.toThrow(/multiple message body sources/);
+  });
+
+  it('B6: --msg-file path that cannot be read surfaces a useful error', async () => {
+    const fsStub = { readFileSync: () => { throw new Error('ENOENT'); }};
+    const { runtime } = makeSendRuntime(ok, fsStub);
+    await expect(
+      handleChatVerb('send', ['--room', 'room-a', '--msg-file', '/tmp/missing.txt'], runtime, { CliInputError })
+    ).rejects.toThrow(/--msg-file .* could not be read: ENOENT/);
   });
 });

@@ -19,6 +19,7 @@
  * here silently drops instructions.
  */
 
+import { readFileSync } from 'node:fs';
 import { processIdentityChain } from './ant-cli-identity-chain.mjs';
 import {
   resolveChatRoomIdentifier,
@@ -29,7 +30,7 @@ import { handleChatPendingVerb } from './ant-cli-chat-pending.mjs';
 import { fetchRoomJsonWithBrowserSessionFallback } from './ant-cli-browser-session.mjs';
 
 const ALLOWED_KIND_TAGS = new Set(['human', 'agent', 'system', 'system-break']);
-const BOOLEAN_FLAGS = new Set(['once', 'json', 'clear']);
+const BOOLEAN_FLAGS = new Set(['once', 'json', 'clear', 'msg-stdin', 'stdin']);
 // Known top-level action verbs for `ant chat <action>`. Anything else
 // in the first slot is treated as a chat identifier (name or id) per
 // the JWPK 2026-05-16 verb spec: `ant chat <chatname> send <msg>`.
@@ -218,8 +219,15 @@ async function runShowChat(chatIdentifier, args, runtime, CliInputError) {
 
 async function runNameAwarePost(chatIdentifier, args, runtime, CliInputError, parentMessageId) {
   const { flags, positionals } = parsePositionalsAndFlags(args, CliInputError);
-  const body = (flags.msg ?? flags.body ?? positionals.join(' ')).trim();
-  if (!body) throw new CliInputError('post needs a message (positional or --msg)');
+  // Try the same three input modes as `ant chat send`: --msg / --msg-file / --msg-stdin,
+  // falling back to positionals (legacy `chat <name> send <msg...>` shape).
+  let body;
+  try {
+    body = resolveMessageBody(flags, runtime, CliInputError);
+  } catch {
+    body = (flags.msg ?? flags.body ?? positionals.join(' ')).trim();
+  }
+  if (!body) throw new CliInputError('post needs a message (positional or --msg / --msg-file / --msg-stdin)');
   const room = await resolveChatRoomIdentifier(runtime, chatIdentifier, CliInputError);
   const payload = { body, pidChain: processIdentityChain() };
   if (parentMessageId) payload.parentMessageId = parentMessageId;
@@ -267,10 +275,7 @@ async function runNameAwareRename(chatIdentifier, args, runtime, CliInputError) 
  */
 async function runSend(flags, runtime, CliInputError) {
   const room = requireFlag(flags, 'room', CliInputError);
-  const body = flags.msg ?? flags.body;
-  if (typeof body !== 'string' || body.length === 0) {
-    throw new CliInputError('missing required --msg "..." (or --body)');
-  }
+  const body = resolveMessageBody(flags, runtime, CliInputError);
   const payload = { body, pidChain: processIdentityChain() };
   if (flags.handle) payload.authorHandle = flags.handle;
   if (flags.kind) {
@@ -390,6 +395,68 @@ async function sendJsonWithCookie(runtime, path, method, body, cookieValue, base
   return response.json();
 }
 
+/**
+ * Resolve the message body from one of three mutually-exclusive sources:
+ *
+ *   --msg "..."          — body on the argv (legacy shape; still works for
+ *                          short literal text without backticks/$/!)
+ *   --msg-file <path>    — body read from a file. No shell parsing of
+ *                          content. Use this for any message containing
+ *                          backticks (command substitution), `$` (variable
+ *                          expansion), `!` (zsh history), or trailing `@`.
+ *   --stdin              — body read from process stdin. Pairs naturally
+ *                          with a heredoc: `ant chat send R --stdin <<'EOF'`.
+ *   --msg-stdin          — legacy alias for --stdin.
+ *                          with a heredoc: `ant chat send R --msg-stdin <<'EOF'`.
+ *
+ * `--body` remains as a legacy alias for `--msg`. Exactly one of the four
+ * inputs must be provided; supplying two raises CliInputError so callers
+ * never silently get the wrong precedence.
+ */
+function resolveMessageBody(flags, runtime, CliInputError) {
+  const sources = [];
+  if (typeof flags.msg === 'string' && flags.msg.length > 0) sources.push('--msg');
+  if (typeof flags.body === 'string' && flags.body.length > 0) sources.push('--body');
+  if (typeof flags['msg-file'] === 'string' && flags['msg-file'].length > 0) sources.push('--msg-file');
+  if (flags.stdin !== undefined) sources.push('--stdin');
+  if (flags['msg-stdin'] !== undefined) sources.push('--msg-stdin');
+
+  if (sources.length === 0) {
+    throw new CliInputError(
+      'missing message body — supply one of: --msg "..." | --msg-file <path> | --stdin'
+    );
+  }
+  if (sources.length > 1) {
+    throw new CliInputError(
+      `multiple message body sources supplied (${sources.join(', ')}); pick exactly one`
+    );
+  }
+
+  if (sources[0] === '--msg-file') {
+    const path = flags['msg-file'];
+    const fsReader = runtime.fs?.readFileSync ?? readFileSync;
+    try { return fsReader(path, 'utf8'); }
+    catch (cause) {
+      const reason = cause instanceof Error ? cause.message : String(cause);
+      throw new CliInputError(`--msg-file ${path} could not be read: ${reason}`);
+    }
+  }
+
+  if (sources[0] === '--stdin' || sources[0] === '--msg-stdin') {
+    // Synchronous stdin read. The CLI is one-shot; stdin is fully buffered
+    // by the time runSend is reached (parent waits on the heredoc fd before
+    // exec). readFileSync(0, ...) reads fd 0 (stdin) and works portably.
+    const fsReader = runtime.fs?.readFileSync ?? readFileSync;
+    try { return fsReader(0, 'utf8'); }
+    catch (cause) {
+      const reason = cause instanceof Error ? cause.message : String(cause);
+      throw new CliInputError(`--msg-stdin failed to read body from stdin: ${reason}`);
+    }
+  }
+
+  return flags.msg ?? flags.body;
+}
+
 function parseFlags(rawArgs, CliInputError) {
   const collected = {};
   let cursor = 0;
@@ -414,7 +481,7 @@ function parseFlags(rawArgs, CliInputError) {
 
 function writeUsage(runtime) {
   runtime.writeOut('ant chat <send|tail|break|read|typing|draft|focus|unfocus|decide> [flags]');
-  runtime.writeOut('  send <roomId> --msg TEXT [--handle @h] [--kind human|agent|system]');
+  runtime.writeOut('  send <roomId> (--msg TEXT | --msg-file PATH | --stdin) [--handle @h] [--kind human|agent|system]');
   runtime.writeOut('  tail --room ROOM_ID [--since-order N] [--poll-ms 2000] [--once]');
   runtime.writeOut('  break --room ROOM_ID [--reason TEXT] [--handle @you]');
   runtime.writeOut('  read --room ROOM_ID --message MESSAGE_ID [--handle @you] [--json]');
