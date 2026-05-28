@@ -13,6 +13,9 @@
   import KillConfirmModal from '$lib/components/KillConfirmModal.svelte';
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
   import TerminalCard from '$lib/components/TerminalCard.svelte';
+  import UsageStrip from '$lib/components/UsageStrip.svelte';
+  import UsageBadge from '$lib/components/UsageBadge.svelte';
+  import type { UsagePayload } from '$lib/usage/types';
   import { modelKinds } from '$lib/stores/modelKinds.svelte';
 
   type TerminalRecord = {
@@ -35,6 +38,11 @@
 
   let terminals = $state<TerminalRecord[]>([]);
   let tmuxSessions = $state<TmuxPane[]>([]);
+  // Single shared UsagePayload pulled once at the page level so the
+  // strip + every UsageBadge work off the same snapshot — avoids N
+  // parallel /api/usage calls (one per terminal card). Refreshed every
+  // 30 s to match the proxy cache TTL.
+  let pageUsage = $state<UsagePayload | null>(null);
   let activeId = $state<string | null>(null);
   let activeName = $state<string>('');
   let creating = $state(false);
@@ -252,6 +260,16 @@
     return groups;
   });
 
+  async function refreshUsage(): Promise<void> {
+    try {
+      const response = await fetch('/api/usage', { headers: { accept: 'application/json' } });
+      if (!response.ok) return;
+      pageUsage = (await response.json()) as UsagePayload;
+    } catch {
+      // Strip handles the empty / error case visually.
+    }
+  }
+
   async function patchTerminalModel(record: TerminalRecord, nextModel: string): Promise<void> {
     const trimmed = nextModel.trim();
     const payload = trimmed.length === 0 ? null : trimmed;
@@ -275,12 +293,18 @@
     }
   }
 
-  onMount(() => { void loadTerminals(); });
+  onMount(() => {
+    void loadTerminals();
+    void refreshUsage();
+    const usageHandle = setInterval(() => void refreshUsage(), 30_000);
+    return () => clearInterval(usageHandle);
+  });
 </script>
 
 <svelte:head><title>Terminals | ANT vNext</title></svelte:head>
 
 <SimplePageShell eyebrow="Terminals" title="Terminals." summary="Two-tier: tmux panes without a handle on top; handle-bearing ANT terminals below.">
+  <UsageStrip />
   <section class="terminal-controls">
     <button type="button" class="primary" onclick={openSpawnModal} disabled={creating}>
       {creating ? 'Working…' : '+ New ANT terminal'}
@@ -307,6 +331,7 @@
                         title={`${record.sessionId} • ${record.createdBy ?? ''}`}
                         onclick={() => attach(record)}
                       >{chipLabel(record)}</button>
+                      <UsageBadge agentKind={record.agentKind ?? null} usage={pageUsage} />
                       <select
                         class="model-picker"
                         aria-label={`Model for ${chipLabel(record)}`}
@@ -460,6 +485,7 @@
   .model-picker { font-size: 0.7rem; padding: 0.15rem 0.3rem; border: 1px solid var(--line-soft); border-radius: 0.35rem; background: var(--surface-card); color: var(--ink-soft); font-family: ui-monospace, monospace; }
   .model-picker:focus { outline: 2px solid var(--accent); outline-offset: 1px; color: var(--ink-strong); }
   .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .chip-with-badge { display: inline-flex; align-items: center; gap: 0.3rem; }
   .chip { padding: 0.35rem 0.65rem; border: 1px solid var(--line-soft); border-radius: 999px; background: var(--surface-card); color: var(--ink-strong); font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; }
   .chip.active { border-color: var(--accent); color: var(--accent); font-weight: 700; }
   .chip.dead { opacity: 0.55; cursor: default; }
