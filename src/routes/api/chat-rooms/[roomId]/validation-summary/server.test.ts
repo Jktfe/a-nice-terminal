@@ -290,4 +290,101 @@ describe('GET /api/chat-rooms/:roomId/validation-summary', () => {
     const response = await runGet(eventFor(room.id, false));
     expect(response.status).toBe(401);
   });
+
+  // A10 (Slice 8 / 2026-05-28) — append-only refactor: new terminal
+  // verdict statuses (dispute / insufficient_evidence / retag_required)
+  // are recorded as raw rows in verification_observations. The payload
+  // shape is unchanged (locked 9 fields) but criticalGaps and trustState
+  // derivation must surface the new statuses meaningfully.
+
+  it('A10: surfaces dispute verdicts as criticalGaps with kind=disputed-verdict + excludes from score', async () => {
+    const room = createChatRoom({ name: 'a10-dispute', whoCreatedIt: '@you' });
+    const artefact = createArtefactInRoom({
+      roomId: room.id, kind: 'doc', title: 'd', refUrl: '/x', createdBy: '@you'
+    });
+    ensureSchema('lens-a10-disp');
+    // One passed run (score 80) + one dispute (no score)
+    createValidationRun({
+      id: 'a10-pass', schemaId: 'lens-a10-disp',
+      claimAnchor: `artefact:${artefact.id}:c-pass`,
+      claimText: 'claim that passed', status: 'pending',
+      score: null, resultJson: null, runBy: '@you'
+    });
+    completeValidationRun('a10-pass', 'passed', 80);
+    // Write a dispute row directly (status enum supports it post-A8 rebuild)
+    getIdentityDb().prepare(
+      `INSERT INTO verification_observations (
+        id, lens_id, claim_anchor, claim_text, status, score, result_json,
+        started_at_ms, completed_at_ms, run_by, dispute_reason, verifier_handle, verifier_kind
+      ) VALUES (?, ?, ?, ?, 'dispute', NULL, NULL, ?, ?, '@v', 'verifiers disagree', '@v', 'human')`
+    ).run('a10-disp', 'lens-a10-disp', `artefact:${artefact.id}:c-disp`,
+      'disputed claim text', Date.now(), Date.now());
+
+    const body = await (await runGet(eventFor(room.id))).json();
+    // overallTrustScore reflects only the scored row (80 → 0.8)
+    expect(body.overallTrustScore).toBeCloseTo(0.8, 5);
+    // Dispute appears in criticalGaps with the dedicated kind
+    const dispute = body.criticalGaps.find(
+      (g: { kind: string }) => g.kind === 'disputed-verdict'
+    );
+    expect(dispute).toBeTruthy();
+    expect(dispute.claimAnchor).toBe(`artefact:${artefact.id}:c-disp`);
+  });
+
+  it('A10: retag_required verdicts surface in criticalGaps with kind=retag-required', async () => {
+    const room = createChatRoom({ name: 'a10-retag', whoCreatedIt: '@you' });
+    const artefact = createArtefactInRoom({
+      roomId: room.id, kind: 'doc', title: 'd', refUrl: '/x', createdBy: '@you'
+    });
+    ensureSchema('lens-a10-rt');
+    getIdentityDb().prepare(
+      `INSERT INTO verification_observations (
+        id, lens_id, claim_anchor, claim_text, status, score, result_json,
+        started_at_ms, completed_at_ms, run_by, verifier_handle, verifier_kind
+      ) VALUES (?, ?, ?, ?, 'retag_required', NULL, NULL, ?, ?, '@a', '@a', 'agent')`
+    ).run('a10-rt', 'lens-a10-rt', `artefact:${artefact.id}:c-rt`,
+      'claim needing retag', Date.now(), Date.now());
+    const body = await (await runGet(eventFor(room.id))).json();
+    const retag = body.criticalGaps.find(
+      (g: { kind: string }) => g.kind === 'retag-required'
+    );
+    expect(retag).toBeTruthy();
+  });
+
+  it('A10: insufficient_evidence verdicts inflate trustState pending signal (do NOT become criticalGaps)', async () => {
+    const room = createChatRoom({ name: 'a10-ie', whoCreatedIt: '@you' });
+    const artefact = createArtefactInRoom({
+      roomId: room.id, kind: 'doc', title: 'd', refUrl: '/x', createdBy: '@you'
+    });
+    ensureSchema('lens-a10-ie');
+    getIdentityDb().prepare(
+      `INSERT INTO verification_observations (
+        id, lens_id, claim_anchor, claim_text, status, score, result_json,
+        started_at_ms, completed_at_ms, run_by, verifier_handle, verifier_kind
+      ) VALUES (?, ?, ?, ?, 'insufficient_evidence', NULL, NULL, ?, ?, '@a', '@a', 'agent')`
+    ).run('a10-ie', 'lens-a10-ie', `artefact:${artefact.id}:c-ie`,
+      'claim with not enough evidence', Date.now(), Date.now());
+    const body = await (await runGet(eventFor(room.id))).json();
+    // Not a critical gap (different signal than failure/dispute/retag)
+    expect(body.criticalGaps.find((g: { kind: string }) => g.kind === 'failed-validation')).toBeUndefined();
+    // Contributes to pending signal — with no other completed runs the
+    // server-derived trustState is 'pending' rather than 'unknown'.
+    expect(body.trustState).toBe('pending');
+  });
+
+  it('A10: payload shape is exactly the locked 9 fields (no new fields, no removed fields)', async () => {
+    const room = createChatRoom({ name: 'a10-shape', whoCreatedIt: '@you' });
+    const body = await (await runGet(eventFor(room.id))).json();
+    expect(Object.keys(body).sort()).toEqual([
+      'criticalGaps',
+      'defaultLensId',
+      'evidenceFormUrl',
+      'overallTrustScore',
+      'pendingTaskCount',
+      'recentRunCount',
+      'sheetUrl',
+      'trustState',
+      'validationUxEnabled'
+    ]);
+  });
 });

@@ -164,6 +164,13 @@ const SCHEMA_DDL_STATEMENTS = [
   `ALTER TABLE terminals ADD COLUMN agent_context_fill REAL`,
   `ALTER TABLE terminals ADD COLUMN agent_context_fill_source TEXT`,
   `ALTER TABLE terminals ADD COLUMN agent_context_fill_at_ms INTEGER`,
+  // Per-terminal model flag (JWPK msg_fespxsi2lu + msg_05lh00n3wg antV4
+  // 2026-05-28). Free-form string so settings can manage its own list
+  // (mirrors agentKinds localStorage pattern). NULL = unspecified; UI
+  // collects "unspecified" into its own subheading per CLI group. The
+  // string is the user's tag, not a canonical model id — purely aesthetic
+  // grouping ("Kimi running in codex" vs "codex running in codex").
+  `ALTER TABLE terminals ADD COLUMN model TEXT`,
   `CREATE TABLE IF NOT EXISTS chat_agent_status_events (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     terminal_id     TEXT NOT NULL REFERENCES terminals(id) ON DELETE CASCADE,
@@ -1342,20 +1349,41 @@ const SCHEMA_DDL_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_verification_lens_audit_lens ON verification_lens_audit (lens_id, created_at_ms DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_verification_lens_audit_actor ON verification_lens_audit (actor_handle, created_at_ms DESC)`,
+  // verification_observations (Slice 6 / Phase A8 2026-05-28): append-only
+  // event log. Each row is an immutable observation; corrections happen
+  // by writing a NEW row that links to the prior via
+  // parent_observation_id. The effective verdict per (lens_id,
+  // claim_anchor) is computed by walking the chain newest-first.
+  //
+  // Status enum extended per ratified spec to include 'dispute',
+  // 'insufficient_evidence', 'retag_required' verdicts. Existing values
+  // ('pending', 'running', 'passed', 'failed', 'waived') preserved for
+  // backward compat with rows written by the pre-refactor UPDATE path
+  // (validationLensStore.completeValidationRun); new code SHOULD use the
+  // append-only verdict path (verificationVerdictsStore).
+  //
+  // The fresh-DB CREATE TABLE includes the new columns. Pre-existing
+  // databases get the columns + extended status enum via
+  // rebuildVerificationObservationsForAppendOnly (in applySchemaMigrations).
   `CREATE TABLE IF NOT EXISTS verification_observations (
-    id                TEXT PRIMARY KEY,
-    lens_id           TEXT NOT NULL REFERENCES verification_lenses(id) ON DELETE CASCADE,
-    claim_anchor      TEXT NOT NULL,
-    claim_text        TEXT NOT NULL,
-    status            TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','passed','failed','waived')),
-    score             INTEGER,
-    result_json       TEXT,
-    started_at_ms     INTEGER NOT NULL,
-    completed_at_ms   INTEGER,
-    run_by            TEXT
+    id                     TEXT PRIMARY KEY,
+    lens_id                TEXT NOT NULL REFERENCES verification_lenses(id) ON DELETE CASCADE,
+    claim_anchor           TEXT NOT NULL,
+    claim_text             TEXT NOT NULL,
+    status                 TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','passed','failed','waived','dispute','insufficient_evidence','retag_required')),
+    score                  INTEGER,
+    result_json            TEXT,
+    started_at_ms          INTEGER NOT NULL,
+    completed_at_ms        INTEGER,
+    run_by                 TEXT,
+    parent_observation_id  TEXT REFERENCES verification_observations(id) ON DELETE SET NULL,
+    verifier_handle        TEXT,
+    verifier_kind          TEXT CHECK (verifier_kind IN ('human','agent','system','automated')),
+    dispute_reason         TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS idx_verification_observations_lens ON verification_observations (lens_id, claim_anchor)`,
   `CREATE INDEX IF NOT EXISTS idx_verification_observations_claim ON verification_observations (claim_anchor, completed_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_verification_observations_parent ON verification_observations (parent_observation_id) WHERE parent_observation_id IS NOT NULL`,
   // V2-LENS-TAG-ROWS (2026-05-28, Slice 5 / Phase A7): replaces the
   // rules_json blob with first-class per-tag rows. Each row binds a
   // (lens, tag, expectation) tuple: the lens passes when this tag is
@@ -1797,6 +1825,63 @@ function applySchemaMigrations(db: DatabaseInstance): void {
   }
   extendAsksStatusCheckForActiveStatuses(db);
   extendArtefactKindCheckForStage(db);
+  rebuildVerificationObservationsForAppendOnly(db);
+}
+
+/**
+ * Slice 6 / Phase A8 migration (2026-05-28): rebuild
+ * verification_observations to support the append-only verdict log shape:
+ *   - Extend status enum with 'dispute', 'insufficient_evidence',
+ *     'retag_required' verdicts.
+ *   - Add parent_observation_id (chain link for corrections).
+ *   - Add verifier_handle + verifier_kind (audit-of-flagger discipline).
+ *   - Add dispute_reason (required when status='dispute').
+ *
+ * SQLite doesn't allow modifying CHECK constraints, so we rebuild the
+ * table via the standard `_new + copy + drop + rename` dance. Skips
+ * when the live schema already has the new columns (idempotent).
+ */
+function rebuildVerificationObservationsForAppendOnly(db: DatabaseInstance): void {
+  const existingSchema = db
+    .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='verification_observations'`)
+    .get() as { sql: string | null } | undefined;
+  if (!existingSchema || !existingSchema.sql) return;
+  // Already rebuilt? Detect via presence of one of the new columns.
+  if (existingSchema.sql.includes('parent_observation_id')) return;
+
+  const rebuild = db.transaction(() => {
+    db.prepare(`DROP INDEX IF EXISTS idx_verification_observations_lens`).run();
+    db.prepare(`DROP INDEX IF EXISTS idx_verification_observations_claim`).run();
+    db.prepare(`CREATE TABLE verification_observations_new (
+      id                     TEXT PRIMARY KEY,
+      lens_id                TEXT NOT NULL REFERENCES verification_lenses(id) ON DELETE CASCADE,
+      claim_anchor           TEXT NOT NULL,
+      claim_text             TEXT NOT NULL,
+      status                 TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','passed','failed','waived','dispute','insufficient_evidence','retag_required')),
+      score                  INTEGER,
+      result_json            TEXT,
+      started_at_ms          INTEGER NOT NULL,
+      completed_at_ms        INTEGER,
+      run_by                 TEXT,
+      parent_observation_id  TEXT REFERENCES verification_observations_new(id) ON DELETE SET NULL,
+      verifier_handle        TEXT,
+      verifier_kind          TEXT CHECK (verifier_kind IN ('human','agent','system','automated')),
+      dispute_reason         TEXT
+    )`).run();
+    db.prepare(`INSERT INTO verification_observations_new (
+      id, lens_id, claim_anchor, claim_text, status, score, result_json,
+      started_at_ms, completed_at_ms, run_by
+    ) SELECT
+      id, lens_id, claim_anchor, claim_text, status, score, result_json,
+      started_at_ms, completed_at_ms, run_by
+    FROM verification_observations`).run();
+    db.prepare(`DROP TABLE verification_observations`).run();
+    db.prepare(`ALTER TABLE verification_observations_new RENAME TO verification_observations`).run();
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_verification_observations_lens ON verification_observations (lens_id, claim_anchor)`).run();
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_verification_observations_claim ON verification_observations (claim_anchor, completed_at_ms DESC)`).run();
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_verification_observations_parent ON verification_observations (parent_observation_id) WHERE parent_observation_id IS NOT NULL`).run();
+  });
+  rebuild();
 }
 
 /**

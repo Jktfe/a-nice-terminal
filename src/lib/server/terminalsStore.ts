@@ -47,6 +47,11 @@ export type TerminalRow = {
   agent_context_fill?: number | null;
   agent_context_fill_source?: string | null;
   agent_context_fill_at_ms?: number | null;
+  // Per-terminal model flag (JWPK msg_fespxsi2lu antV4 2026-05-28).
+  // Free-form string set by the user via the /terminals dropdown. NULL
+  // means unspecified — readers should fold those into an "unspecified"
+  // subgroup so existing rows keep rendering without a forced migration.
+  model?: string | null;
 };
 
 export type RegisterTerminalInput = {
@@ -306,6 +311,45 @@ export function updatePaneTarget(
      WHERE id = ?`
   ).run(pane, agentKind, currentUnixSeconds(), terminalId);
   if (info.changes > 0) projectAntRegistryFileBestEffort();
+  return info.changes > 0;
+}
+
+/**
+ * Look up the model flag for every supplied terminal id in one query.
+ * Returns a Map keyed by id; missing ids simply don't appear in the
+ * result (so callers default to null/"unspecified"). Used by the
+ * /api/terminals GET handler to avoid N round-trips.
+ */
+export function listTerminalModelsByIds(ids: readonly string[]): Map<string, string | null> {
+  const result = new Map<string, string | null>();
+  if (ids.length === 0) return result;
+  const db = getIdentityDb();
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = db
+    .prepare(`SELECT id, model FROM terminals WHERE id IN (${placeholders})`)
+    .all(...ids) as Array<{ id: string; model: string | null }>;
+  for (const row of rows) result.set(row.id, row.model ?? null);
+  return result;
+}
+
+/**
+ * Set (or clear) the per-terminal model flag. JWPK msg_fespxsi2lu antV4
+ * 2026-05-28. Passing null clears the flag back to "unspecified". The
+ * input is treated as opaque — settings owns the canonical list, and
+ * grouping logic on /terminals folds NULL into its own subgroup.
+ *
+ * Returns true when a row was updated, false when the terminalId
+ * didn't match any row (so the PATCH endpoint can 404 cleanly).
+ */
+export function setTerminalModel(terminalId: string, model: string | null): boolean {
+  const db = getIdentityDb();
+  const trimmed = typeof model === 'string' ? model.trim() : null;
+  const value = trimmed && trimmed.length > 0 ? trimmed : null;
+  const info = db.prepare(
+    `UPDATE terminals
+     SET model = ?, updated_at = ?
+     WHERE id = ?`
+  ).run(value, currentUnixSeconds(), terminalId);
   return info.changes > 0;
 }
 

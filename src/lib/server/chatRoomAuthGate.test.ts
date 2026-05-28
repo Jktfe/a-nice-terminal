@@ -154,4 +154,68 @@ describe('requireChatRoomMutationAuth', () => {
       expect(httpFailure.status).toBe(401);
     }
   });
+
+  // JWPK msg_athx11bshr antV4 2026-05-28: /rooms delete/archive silently
+  // failed because the browser session cookie was minted in a different
+  // room than the one being acted on. Step 3b adds an
+  // ignore-room-scope-but-verify-membership fallback.
+  describe('step 3b: cross-room cookie + membership fallback', () => {
+    it('AC1: cookie minted for room A allows action on room B when caller is a member of B', () => {
+      // Setup: caller has membership in BOTH rooms but their browser
+      // session was minted bound to roomA. Without step 3b, an action
+      // on roomB would 401. With step 3b, the cookie resolves to the
+      // identity ignoring scope + membership-check in roomB passes.
+      const roomA = createChatRoom({ name: 'minted-here', whoCreatedIt: '@you' });
+      const roomB = createChatRoom({ name: 'acting-here', whoCreatedIt: '@you' });
+      const terminal = upsertTerminal({
+        pid: 991_002,
+        pid_start: 'auth-gate-cross-room-test',
+        name: 'auth-gate-cross-room-test',
+        ttlSeconds: 60 * 60
+      });
+      addMembership({ room_id: roomA.id, handle: '@you', terminal_id: terminal.id });
+      addMembership({ room_id: roomB.id, handle: '@you', terminal_id: terminal.id });
+      const session = createBrowserSession({ roomId: roomA.id, authorHandle: '@you' });
+      if (!session) throw new Error('createBrowserSession returned null');
+      const { request, rawBody } = makeRequest({
+        headers: { cookie: `ant_browser_session=${session.browserSessionSecret}` }
+      });
+      // Acting on roomB (NOT roomA where the cookie was minted):
+      const result = requireChatRoomMutationAuth(roomB.id, request, rawBody);
+      expect(result.handle).toBe('@you');
+      expect(result.isAdminBearer).toBe(false);
+    });
+
+    it('AC2: cookie minted for room A does NOT allow action on room B when caller is NOT a member of B', () => {
+      // Security boundary preserved: the fallback only relaxes the
+      // cookie scope, not the membership requirement.
+      // Using @stranger (non-@you handle) because createChatRoom
+      // auto-adds @you as a member of every non-@you-created room
+      // (Task #138). The @stranger handle is not auto-added anywhere.
+      const roomA = createChatRoom({ name: 'minted-here', whoCreatedIt: '@stranger' });
+      const roomB = createChatRoom({ name: 'no-membership-here', whoCreatedIt: '@another-stranger' });
+      const terminal = upsertTerminal({
+        pid: 991_003,
+        pid_start: 'auth-gate-no-member-test',
+        name: 'auth-gate-no-member-test',
+        ttlSeconds: 60 * 60
+      });
+      addMembership({ room_id: roomA.id, handle: '@stranger', terminal_id: terminal.id });
+      // No membership added for @stranger in roomB; @stranger is not
+      // the creator of roomB so the Task-#138 @you auto-add does not
+      // affect them either.
+      const session = createBrowserSession({ roomId: roomA.id, authorHandle: '@stranger' });
+      if (!session) throw new Error('createBrowserSession returned null');
+      const { request, rawBody } = makeRequest({
+        headers: { cookie: `ant_browser_session=${session.browserSessionSecret}` }
+      });
+      try {
+        requireChatRoomMutationAuth(roomB.id, request, rawBody);
+        throw new Error('should have thrown');
+      } catch (failure) {
+        const httpFailure = failure as { status?: number };
+        expect(httpFailure.status).toBe(401);
+      }
+    });
+  });
 });

@@ -52,9 +52,14 @@
   type PendingAction = { id: string; name: string; action: 'archive' | 'delete' };
   let pending = $state<PendingAction | null>(null);
   let digestRoomId = $state<string | null>(null);
+  // Error feedback — surfaces non-ok DELETE/archive responses so the
+  // user sees what went wrong (JWPK msg_athx11bshr 2026-05-28: "I click
+  // delete and nothing seems to happen"). Cleared on next openConfirm.
+  let actionError = $state<{ id: string; message: string } | null>(null);
 
   function openConfirm(room: OpenableRoomCard, action: PendingAction['action']) {
     pending = { id: room.id, name: room.name, action };
+    actionError = null;
   }
 
   function closeConfirm() {
@@ -68,12 +73,33 @@
       ? `/api/chat-rooms/${target.id}`
       : `/api/chat-rooms/${target.id}/archive`;
     const method = target.action === 'delete' ? 'DELETE' : 'POST';
-    const resp = await fetch(url, { method });
-    if (resp.ok) {
-      if (target.action === 'delete') {
-        roomBookmarks.remove(target.id);
+    try {
+      const resp = await fetch(url, { method });
+      if (resp.ok) {
+        if (target.action === 'delete') {
+          roomBookmarks.remove(target.id);
+        }
+        await invalidateAll();
+        actionError = null;
+      } else {
+        // Surface the server's message inline on the card so the user
+        // sees the cause. Common case is 401 when the browser session
+        // cookie was minted in a different room than the one being
+        // acted on — the server-side step-3b fallback added 2026-05-28
+        // should now succeed for any member-of-room caller; if the user
+        // still sees a 401 here, they are not actually a member.
+        let message = `${target.action === 'delete' ? 'Delete' : 'Archive'} failed (${resp.status}).`;
+        try {
+          const body = await resp.json();
+          if (body && typeof body.message === 'string') message = body.message;
+        } catch {
+          /* ignore body parse errors — keep the generic message */
+        }
+        actionError = { id: target.id, message };
       }
-      await invalidateAll();
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : 'Network error.';
+      actionError = { id: target.id, message };
     }
     pending = null;
   }
@@ -227,6 +253,12 @@
           </svg>
         </button>
       </div>
+      {#if actionError && actionError.id === room.id}
+        <p class="action-error" role="alert">
+          {actionError.message}
+          <button type="button" class="action-error-dismiss" onclick={() => (actionError = null)} aria-label="Dismiss error">×</button>
+        </p>
+      {/if}
     </article>
   {/each}
 </section>
@@ -526,5 +558,35 @@
   .action-btn.delete:hover {
     color: var(--warn, #c92020);
     border-color: var(--warn, #c92020);
+  }
+  /* JWPK msg_athx11bshr 2026-05-28: surface delete/archive failures
+     instead of silently dismissing the confirm dialog. Inline on the
+     card so the user sees which room and what the server said. */
+  .action-error {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0.4rem 0.6rem;
+    padding: 0.35rem 0.55rem;
+    font-size: 0.78rem;
+    color: var(--warn, #c92020);
+    background: color-mix(in srgb, var(--warn, #c92020) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warn, #c92020) 30%, transparent);
+    border-radius: 0.4rem;
+  }
+  .action-error-dismiss {
+    margin-left: auto;
+    width: 1.2rem;
+    height: 1.2rem;
+    border: none;
+    background: transparent;
+    color: var(--warn, #c92020);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 0.2rem;
+  }
+  .action-error-dismiss:hover {
+    background: color-mix(in srgb, var(--warn, #c92020) 18%, transparent);
   }
 </style>
