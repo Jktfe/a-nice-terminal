@@ -30,6 +30,7 @@
 
 import { attemptAutoRegister, formatAutoRegisterOutcome } from './ant-cli-redeem-autoregister.mjs';
 import { processIdentityChain } from './ant-cli-identity-chain.mjs';
+import { persistRoomTokenToConfig } from './ant-cli-config-write.mjs';
 
 const ALLOWED_KINDS = new Set(['cli', 'mcp', 'web']);
 const BOOLEAN_FLAGS = new Set(['print-token', 'no-register']);
@@ -241,6 +242,22 @@ async function runRedeem(flags, runtime, CliInputError) {
   // Tab-separated machine-readable line preserved for script consumers.
   runtime.writeOut(`${parsed.member.handle}\t${parsed.room.name}\t${parsed.room.id}`);
 
+  // 0.1.11 (xenoCC quickpaste 8729, 2026-05-28): persist the freshly-
+  // minted tokenSecret into ~/.ant/config.json so the router's
+  // bearer-on-GET path actually has a current token to send. Without
+  // this, every subsequent router/tail call falls through to the
+  // pidChain URL — fatal on Windows MSYS2 where the subprocess
+  // pidChain dies at the bash root.
+  const persistResult = persistRoomTokenToConfig({
+    roomId: parsed.room.id,
+    tokenSecret,
+    handle: parsed.member.handle,
+    serverUrl: runtime.serverUrl
+  });
+  if (!persistResult.ok) {
+    runtime.writeErr(`Warning: redeem succeeded but could not persist token to config: ${persistResult.error}`);
+  }
+
   // F slice — auto-register the calling pane so PTY-inject can deliver.
   // Failure is best-effort: never changes the redeem exit code.
   const outcome = await attemptAutoRegister({
@@ -351,6 +368,22 @@ async function runJoinUrl(flags, runtime, CliInputError) {
   runtime.writeOut(`${redeemBody.member.handle}\t${redeemBody.room.name}\t${redeemBody.room.id}\t${baseUrl}`);
   if (printToken) {
     runtime.writeOut(tokenSecret);
+  }
+
+  // 0.1.11 (xenoCC quickpaste 8729, 2026-05-28): persist the freshly-
+  // minted tokenSecret into ~/.ant/config.json. See the runRedeem
+  // comment block for the full rationale. server_url here is the
+  // share-URL's home server (baseUrl), not runtime.serverUrl, because
+  // future bearer calls against this room have to target the home
+  // server that minted the token.
+  const persistResultJoinUrl = persistRoomTokenToConfig({
+    roomId: redeemBody.room.id,
+    tokenSecret,
+    handle: redeemBody.member.handle,
+    serverUrl: baseUrl
+  });
+  if (!persistResultJoinUrl.ok) {
+    runtime.writeErr(`Warning: join-url redeem succeeded but could not persist token to config: ${persistResultJoinUrl.error}`);
   }
 
   // F slice — auto-register the calling pane against the joined handle.
