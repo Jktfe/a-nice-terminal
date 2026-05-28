@@ -1745,7 +1745,23 @@ const SCHEMA_DDL_STATEMENTS = [
     updated_at_ms INTEGER NOT NULL,
     PRIMARY KEY (room_id, handle)
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_room_member_preferences_handle ON room_member_preferences (handle)`
+  `CREATE INDEX IF NOT EXISTS idx_room_member_preferences_handle ON room_member_preferences (handle)`,
+  // Open-usage daemon snapshots (JWPK msg_300r0u8dlx + msg_4rbn05cztw antV4
+  // 2026-05-28). Every successful usageSnapshotPoller tick appends one row
+  // carrying the full UsagePayload as JSON so we can later draw trend lines
+  // per provider. Append-only; pruning happens via operationalRetention.
+  //
+  // payload_json is the serialised UsagePayload from $lib/usage/types so
+  // both the proxy response and any downstream chart can deserialise with
+  // the same type. Deliberately NOT broken out per provider: one tick =
+  // one snapshot keeps the trend timestamps aligned across providers and
+  // avoids fan-out writes when 5 providers all sample at the same instant.
+  `CREATE TABLE IF NOT EXISTS usage_snapshots (
+    id            TEXT PRIMARY KEY,
+    captured_at_ms INTEGER NOT NULL,
+    payload_json  TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_usage_snapshots_captured_at ON usage_snapshots (captured_at_ms DESC)`
 ];
 
 function resolveDbFilePath(): string {

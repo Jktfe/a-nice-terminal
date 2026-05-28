@@ -13,6 +13,9 @@
   import KillConfirmModal from '$lib/components/KillConfirmModal.svelte';
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
   import TerminalCard from '$lib/components/TerminalCard.svelte';
+  import UsageStrip from '$lib/components/UsageStrip.svelte';
+  import UsageBadge from '$lib/components/UsageBadge.svelte';
+  import type { UsagePayload } from '$lib/usage/types';
 
   type TerminalRecord = {
     sessionId: string;
@@ -33,6 +36,11 @@
 
   let terminals = $state<TerminalRecord[]>([]);
   let tmuxSessions = $state<TmuxPane[]>([]);
+  // Single shared UsagePayload pulled once at the page level so the
+  // strip + every UsageBadge work off the same snapshot — avoids N
+  // parallel /api/usage calls (one per terminal card). Refreshed every
+  // 30 s to match the proxy cache TTL.
+  let pageUsage = $state<UsagePayload | null>(null);
   let activeId = $state<string | null>(null);
   let activeName = $state<string>('');
   let creating = $state(false);
@@ -210,12 +218,28 @@
     return groups;
   });
 
-  onMount(() => { void loadTerminals(); });
+  async function refreshUsage(): Promise<void> {
+    try {
+      const response = await fetch('/api/usage', { headers: { accept: 'application/json' } });
+      if (!response.ok) return;
+      pageUsage = (await response.json()) as UsagePayload;
+    } catch {
+      // Strip handles the empty / error case visually.
+    }
+  }
+
+  onMount(() => {
+    void loadTerminals();
+    void refreshUsage();
+    const usageHandle = setInterval(() => void refreshUsage(), 30_000);
+    return () => clearInterval(usageHandle);
+  });
 </script>
 
 <svelte:head><title>Terminals | ANT vNext</title></svelte:head>
 
 <SimplePageShell eyebrow="Terminals" title="Terminals." summary="Two-tier: tmux panes without a handle on top; handle-bearing ANT terminals below.">
+  <UsageStrip />
   <section class="terminal-controls">
     <button type="button" class="primary" onclick={openSpawnModal} disabled={creating}>
       {creating ? 'Working…' : '+ New ANT terminal'}
@@ -231,13 +255,16 @@
             <h4 class="group-heading">{group.label}</h4>
             <div class="chips">
               {#each group.records as record (record.sessionId)}
-              <button
-                type="button"
-                class="chip ant-chip"
-                class:active={activeId === record.sessionId}
+              <span class="chip-with-badge">
+                <button
+                  type="button"
+                  class="chip ant-chip"
+                  class:active={activeId === record.sessionId}
                   title={`${record.sessionId} • ${record.createdBy ?? ''}`}
                   onclick={() => attach(record)}
                 >{chipLabel(record)}</button>
+                <UsageBadge agentKind={record.agentKind ?? null} usage={pageUsage} />
+              </span>
               {/each}
             </div>
           </div>
@@ -368,6 +395,7 @@
   .group { display: grid; gap: 0.25rem; margin-top: 0.45rem; }
   .group-heading { margin: 0; font-size: 0.78rem; color: var(--ink-soft); font-weight: 600; font-family: ui-monospace, monospace; }
   .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .chip-with-badge { display: inline-flex; align-items: center; gap: 0.3rem; }
   .chip { padding: 0.35rem 0.65rem; border: 1px solid var(--line-soft); border-radius: 999px; background: var(--surface-card); color: var(--ink-strong); font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; }
   .chip.active { border-color: var(--accent); color: var(--accent); font-weight: 700; }
   .chip.dead { opacity: 0.55; cursor: default; }
