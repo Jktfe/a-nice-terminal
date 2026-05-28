@@ -433,6 +433,27 @@ export function doesChatRoomExist(roomId: string): boolean {
 }
 
 /**
+ * Membership predicate (JWPK msg_athx11bshr 2026-05-28 antV4): /rooms
+ * delete/archive failed silently when the user's browser session was
+ * room-scoped to a DIFFERENT room than the one being acted on.
+ * `requireChatRoomMutationAuth` needs a fallback path that resolves
+ * the cookie to an identity (ignoring room scope) and then verifies
+ * the resolved handle is actually a member of the target room. This
+ * predicate is the membership check. Handles get normalised with the
+ * `@` prefix so callers can pass either form.
+ */
+export function isHandleMemberOfRoom(roomId: string, handle: string): boolean {
+  if (!roomId || !handle) return false;
+  const normalised = handle.startsWith('@') ? handle : `@${handle}`;
+  const db = getIdentityDb();
+  const row = db
+    .prepare(`SELECT 1 AS present FROM chat_room_members
+              WHERE room_id = ? AND handle = ?`)
+    .get(roomId, normalised) as { present: number } | undefined;
+  return row !== undefined;
+}
+
+/**
  * Soft-delete a chat room: sets chat_rooms.deleted_at_ms so listChatRooms,
  * loadRoomById, doesChatRoomExist all treat it as gone, but screenshots FK
  * CASCADE never fires and files + index rows survive (JWPK Q-E delta-2).
