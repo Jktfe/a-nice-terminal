@@ -403,7 +403,7 @@ describe('fanoutMessageToRoomTerminals — mention-targeted routing', () => {
     expect(calls.some((c) => c.args[0] === 'paste-buffer')).toBe(true);
     const loadCall = calls.find((c) => c.args[0] === 'load-buffer');
     expect(loadCall?.input).toContain('linked hello');
-    expect(loadCall?.input).toContain(`ant chat send ${room.id} --msg`);
+    expect(loadCall?.input).toContain(`ant chat reply ${message.id} --stdin`);
     expect(listReadersForMessage(message.id).map((r) => r.readerHandle)).toEqual(['@linked-record']);
   });
 

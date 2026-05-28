@@ -248,8 +248,8 @@ function renderBodyWithClosedMarker(m: EnvelopeMessage): string {
   return `[Discussion closed, summary: "${summary}"] ${m.body}`;
 }
 
-function replyInstruction(roomId: string): string {
-  return `\n\n[ANT reply instruction: respond in the linked room with: ant chat send ${roomId} --msg "your reply"]`;
+function replyInstruction(messageId: string): string {
+  return `\n\n[ANT reply instruction: respond with: ant chat reply ${messageId} --stdin]`;
 }
 
 function renderMessageWithReplyContext(m: EnvelopeMessage): string {
@@ -262,13 +262,13 @@ export function formatEnvelope(input: EnvelopeInput): string {
   const singleRoom = extras.length === 0 || isSingleRoomBatch(head, extras);
   if (extras.length === 0) {
     const header = `[ANT room ${head.roomName} id=${head.roomId} msg=${head.messageId}${discTag(head)}${replyToTag(head)}]`;
-    return `${header} ${renderMessageWithReplyContext(head)}${replyInstruction(head.roomId)}`;
+    return `${header} ${renderMessageWithReplyContext(head)}${replyInstruction(head.messageId)}`;
   }
   if (singleRoom) {
     const lastMessageId = extras[extras.length - 1].messageId;
     const header = `[ANT room ${head.roomName} id=${head.roomId} msg=${lastMessageId}]`;
     const all = [renderMessageWithReplyContext(head), ...extras.map(renderMessageWithReplyContext)].join(', ');
-    return `${header} ${extras.length + 1} messages: ${all}${replyInstruction(head.roomId)}`;
+    return `${header} ${extras.length + 1} messages: ${all}${replyInstruction(lastMessageId)}`;
   }
   const lastMessageId = extras[extras.length - 1].messageId;
   const header = `[ANT cross-room msg=${lastMessageId}]`;
@@ -276,7 +276,7 @@ export function formatEnvelope(input: EnvelopeInput): string {
     `[room ${head.roomName} id=${head.roomId}] ${renderMessageWithReplyContext(head)}`,
     ...extras.map((m) => `[room ${m.roomName} id=${m.roomId}] ${renderMessageWithReplyContext(m)}`)
   ].join(', ');
-  return `${header} ${extras.length + 1} messages: ${all}\n\n[ANT reply instruction: respond in the relevant room with: ant chat send ROOM_ID --msg "your reply"]`;
+  return `${header} ${extras.length + 1} messages: ${all}\n\n[ANT reply instruction: respond to the relevant message with: ant chat reply MESSAGE_ID --stdin]`;
 }
 
 function staleMarkerKeyFor(roomId: string, handle: string): string {
