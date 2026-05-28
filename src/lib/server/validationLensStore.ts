@@ -2,9 +2,9 @@
  * validationLensStore — per-user validation schemas + runs.
  *
  * A lens is a named validation schema (POC, FCA, investment-memo, etc).
- * validation_runs tracks per-claim-anchor evaluations against a lens.
+ * verification_observations tracks per-claim-anchor evaluations against a lens.
  *
- * Tables: validation_schemas, validation_runs (defined in db.ts).
+ * Tables: verification_lenses, verification_observations (defined in db.ts).
  */
 
 import { randomUUID } from 'node:crypto';
@@ -77,7 +77,7 @@ export function createValidationSchema(
   const scope = schema.scope ?? 'public';
   const scopeId = schema.scopeId ?? 'global';
   db.prepare(
-    `INSERT INTO validation_schemas
+    `INSERT INTO verification_lenses
        (id, name, description, lens_kind, scope, scope_id, rules_json, created_by, created_at_ms, updated_at_ms, archived_at_ms)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
@@ -119,14 +119,14 @@ export function listValidationSchemas(options: boolean | ListValidationSchemasOp
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   const rows = db.prepare(
-    `SELECT * FROM validation_schemas ${where} ORDER BY created_at_ms DESC`
+    `SELECT * FROM verification_lenses ${where} ORDER BY created_at_ms DESC`
   ).all(...params) as Array<Record<string, unknown>>;
   return rows.map(rowFromSchema);
 }
 
 export function getValidationSchema(id: string): ValidationSchema | null {
   const db = getIdentityDb();
-  const row = db.prepare('SELECT * FROM validation_schemas WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+  const row = db.prepare('SELECT * FROM verification_lenses WHERE id = ?').get(id) as Record<string, unknown> | undefined;
   return row ? rowFromSchema(row) : null;
 }
 
@@ -157,7 +157,7 @@ export function updateValidationSchema(input: {
   };
   const txn = db.transaction(() => {
     db.prepare(
-      `UPDATE validation_schemas
+      `UPDATE verification_lenses
          SET name = ?, description = ?, lens_kind = ?, scope = ?, scope_id = ?, rules_json = ?, updated_at_ms = ?
        WHERE id = ?`
     ).run(next.name, next.description, next.lensKind, next.scope, next.scopeId, next.rulesJson, now, existing.id);
@@ -178,7 +178,7 @@ export function updateValidationSchema(input: {
 
 export function archiveValidationSchema(id: string): void {
   const db = getIdentityDb();
-  db.prepare('UPDATE validation_schemas SET archived_at_ms = ?, updated_at_ms = ? WHERE id = ?').run(Date.now(), Date.now(), id);
+  db.prepare('UPDATE verification_lenses SET archived_at_ms = ?, updated_at_ms = ? WHERE id = ?').run(Date.now(), Date.now(), id);
 }
 
 export function archiveValidationSchemaWithAudit(input: {
@@ -193,7 +193,7 @@ export function archiveValidationSchemaWithAudit(input: {
   const db = getIdentityDb();
   const now = input.nowMs ?? Date.now();
   const txn = db.transaction(() => {
-    db.prepare('UPDATE validation_schemas SET archived_at_ms = ?, updated_at_ms = ? WHERE id = ?').run(now, now, input.id);
+    db.prepare('UPDATE verification_lenses SET archived_at_ms = ?, updated_at_ms = ? WHERE id = ?').run(now, now, input.id);
     recordValidationSchemaAudit({
       schemaId: input.id,
       actorHandle: input.actorHandle,
@@ -221,8 +221,8 @@ export function recordValidationSchemaAudit(input: {
 }): void {
   const db = getIdentityDb();
   db.prepare(
-    `INSERT INTO validation_schema_audit
-       (id, schema_id, actor_handle, actor_kind, action, before_json, after_json, reason, created_at_ms)
+    `INSERT INTO verification_lens_audit
+       (id, lens_id, actor_handle, actor_kind, action, before_json, after_json, reason, created_at_ms)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     randomUUID(),
@@ -240,7 +240,7 @@ export function recordValidationSchemaAudit(input: {
 export function listValidationSchemaAuditForSchema(schemaId: string): ValidationSchemaAuditEntry[] {
   const db = getIdentityDb();
   const rows = db.prepare(
-    `SELECT * FROM validation_schema_audit WHERE schema_id = ? ORDER BY created_at_ms DESC, rowid DESC`
+    `SELECT * FROM verification_lens_audit WHERE lens_id = ? ORDER BY created_at_ms DESC, rowid DESC`
   ).all(schemaId) as Array<Record<string, unknown>>;
   return rows.map(rowFromSchemaAudit);
 }
@@ -251,8 +251,8 @@ export function createValidationRun(
   const db = getIdentityDb();
   const now = Date.now();
   db.prepare(
-    `INSERT INTO validation_runs
-       (id, schema_id, claim_anchor, claim_text, status, score, result_json, started_at_ms, completed_at_ms, run_by)
+    `INSERT INTO verification_observations
+       (id, lens_id, claim_anchor, claim_text, status, score, result_json, started_at_ms, completed_at_ms, run_by)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     run.id, run.schemaId, run.claimAnchor, run.claimText,
@@ -269,14 +269,14 @@ export function completeValidationRun(
 ): void {
   const db = getIdentityDb();
   db.prepare(
-    `UPDATE validation_runs SET status = ?, score = ?, result_json = ?, completed_at_ms = ? WHERE id = ?`
+    `UPDATE verification_observations SET status = ?, score = ?, result_json = ?, completed_at_ms = ? WHERE id = ?`
   ).run(status, score ?? null, resultJson ?? null, Date.now(), id);
 }
 
 export function listValidationRunsForClaim(claimAnchor: string): ValidationRun[] {
   const db = getIdentityDb();
   const rows = db.prepare(
-    `SELECT * FROM validation_runs WHERE claim_anchor = ? ORDER BY completed_at_ms DESC`
+    `SELECT * FROM verification_observations WHERE claim_anchor = ? ORDER BY completed_at_ms DESC`
   ).all(claimAnchor) as Array<Record<string, unknown>>;
   return rows.map(rowFromRun);
 }
@@ -284,7 +284,7 @@ export function listValidationRunsForClaim(claimAnchor: string): ValidationRun[]
 export function listValidationRunsForSchema(schemaId: string): ValidationRun[] {
   const db = getIdentityDb();
   const rows = db.prepare(
-    `SELECT * FROM validation_runs WHERE schema_id = ? ORDER BY started_at_ms DESC`
+    `SELECT * FROM verification_observations WHERE lens_id = ? ORDER BY started_at_ms DESC`
   ).all(schemaId) as Array<Record<string, unknown>>;
   return rows.map(rowFromRun);
 }
@@ -308,7 +308,7 @@ export function listValidationRunsForArtefacts(
   const db = getIdentityDb();
   const likeClauses = artefactIds.map(() => `claim_anchor LIKE ?`).join(' OR ');
   const params: unknown[] = artefactIds.map((id) => `artefact:${id}%`);
-  let sql = `SELECT * FROM validation_runs WHERE (${likeClauses})`;
+  let sql = `SELECT * FROM verification_observations WHERE (${likeClauses})`;
   if (sinceMs !== undefined) {
     sql += ` AND started_at_ms >= ?`;
     params.push(sinceMs);
@@ -376,7 +376,7 @@ function parseAuditJson(raw: unknown): Record<string, unknown> | null {
 function rowFromSchemaAudit(row: Record<string, unknown>): ValidationSchemaAuditEntry {
   return {
     id: String(row.id),
-    schemaId: String(row.schema_id),
+    schemaId: String(row.lens_id),
     actorHandle: String(row.actor_handle),
     actorKind: String(row.actor_kind) as PolicyActorKind,
     action: String(row.action) as ValidationSchemaAuditAction,
@@ -390,7 +390,7 @@ function rowFromSchemaAudit(row: Record<string, unknown>): ValidationSchemaAudit
 function rowFromRun(row: Record<string, unknown>): ValidationRun {
   return {
     id: String(row.id),
-    schemaId: String(row.schema_id),
+    schemaId: String(row.lens_id),
     claimAnchor: String(row.claim_anchor),
     claimText: String(row.claim_text),
     status: String(row.status) as ValidationRun['status'],

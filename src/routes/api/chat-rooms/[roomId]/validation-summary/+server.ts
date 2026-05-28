@@ -10,7 +10,7 @@
  * Response shape:
  *   {
  *     defaultLensId: string | null,        // V5 territory — null for now
- *     recentRunCount: number,              // validation_runs in last 7d
+ *     recentRunCount: number,              // verification_observations in last 7d
  *     pendingTaskCount: number,            // validation verifier tasks pending
  *     overallTrustScore: number | null,    // 0-1 raw, tooltip/sorting only
  *     trustState: 'passed' | 'failed' | 'pending' | 'stale' | 'unknown',
@@ -42,9 +42,11 @@ import { CURRENT_TIER, getFeatureFlagsForTier } from '$lib/server/featureGates';
 
 type TrustState = 'passed' | 'failed' | 'pending' | 'stale' | 'unknown';
 
+type CriticalGapKind = 'failed-validation' | 'disputed-verdict' | 'retag-required';
+
 type CriticalGap = {
   claimAnchor: string;
-  kind: 'failed-validation';
+  kind: CriticalGapKind;
   reason: string;
 };
 
@@ -95,8 +97,18 @@ export const GET: RequestHandler = async ({ params, request }) => {
   );
   const pendingTaskCount = pendingValidationTasks.length;
 
+  // A10 (Slice 8 / 2026-05-28): the append-only refactor introduced
+  // three new terminal statuses (`dispute`, `insufficient_evidence`,
+  // `retag_required`). We score them under the same trust model as
+  // the legacy statuses + surface them in criticalGaps where they
+  // signal user-actionable concerns:
+  //   - dispute             → counts as a critical gap (verifiers
+  //                           disagree); trust score excludes the row
+  //   - insufficient_evidence → pending-shaped (no signal yet)
+  //   - retag_required      → critical gap (tag staleness blocks the
+  //                           lens); trust score excludes the row
   const completedRunsWithScore = recentRuns.filter(
-    (r) => r.completedAtMs !== null && r.score !== null
+    (r) => r.completedAtMs !== null && r.score !== null && (r.status === 'passed' || r.status === 'failed' || r.status === 'waived')
   );
   const overallTrustScore = computeOverallTrustScore(completedRunsWithScore);
 
@@ -105,19 +117,25 @@ export const GET: RequestHandler = async ({ params, request }) => {
     .filter((ms): ms is number => ms !== null)
     .reduce<number | null>((max, ms) => (max === null || ms > max ? ms : max), null);
 
+  // Pending/in-flight statuses contribute to "pending" trustState
+  // signal alongside the explicit pendingTaskCount from the Tasks API.
+  const inFlightCount = recentRuns.filter(
+    (r) => r.status === 'pending' || r.status === 'running' || r.status === 'insufficient_evidence' || r.status === 'retag_required'
+  ).length;
+
   const trustState = deriveTrustState({
-    pendingCount: pendingTaskCount,
+    pendingCount: pendingTaskCount + inFlightCount,
     overallTrustScore,
     lastCompletedAtMs,
     nowMs
   });
 
   const criticalGaps = recentRuns
-    .filter((r) => r.status === 'failed')
+    .filter((r) => r.status === 'failed' || r.status === 'dispute' || r.status === 'retag_required')
     .slice(0, MAX_CRITICAL_GAPS)
     .map((r) => ({
       claimAnchor: r.claimAnchor,
-      kind: 'failed-validation' as const,
+      kind: criticalGapKindFor(r.status),
       reason:
         r.claimText.length > CRITICAL_GAP_TEXT_CHAR_LIMIT
           ? `${r.claimText.slice(0, CRITICAL_GAP_TEXT_CHAR_LIMIT)}…`
@@ -155,6 +173,12 @@ function computeOverallTrustScore(runs: Array<{ score: number | null }>): number
   const sum = runs.reduce((acc, r) => acc + (r.score ?? 0), 0);
   // Stored scores are 0-100; the contract returns 0-1 raw.
   return sum / runs.length / 100;
+}
+
+function criticalGapKindFor(status: string): CriticalGapKind {
+  if (status === 'dispute') return 'disputed-verdict';
+  if (status === 'retag_required') return 'retag-required';
+  return 'failed-validation';
 }
 
 function deriveTrustState(input: {

@@ -15,8 +15,8 @@ describe('validationLensStore', () => {
   const db = getIdentityDb();
 
   beforeEach(() => {
-    db.prepare('DELETE FROM validation_runs').run();
-    db.prepare('DELETE FROM validation_schemas').run();
+    db.prepare('DELETE FROM verification_observations').run();
+    db.prepare('DELETE FROM verification_lenses').run();
   });
 
   describe('create + list', () => {

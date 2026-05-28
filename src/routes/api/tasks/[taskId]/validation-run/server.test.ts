@@ -66,8 +66,8 @@ describe('POST /api/tasks/:taskId/validation-run', () => {
     resetChatRoomStoreForTests();
     resetTasksStoreForTests();
     const db = getIdentityDb();
-    db.prepare('DELETE FROM validation_runs').run();
-    db.prepare('DELETE FROM validation_schemas').run();
+    db.prepare('DELETE FROM verification_observations').run();
+    db.prepare('DELETE FROM verification_lenses').run();
   });
 
   it('records a validation run from a completed verifier task', async () => {

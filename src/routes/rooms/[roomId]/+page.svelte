@@ -36,8 +36,9 @@
   import RoomDetailMemberSheet from '$lib/components/RoomDetailMemberSheet.svelte';
   import RoomDetailMoreMenu from '$lib/components/RoomDetailMoreMenu.svelte';
   import AwayModeToggle from '$lib/components/AwayModeToggle.svelte';
+  import RoomModeSwitcher from '$lib/components/RoomModeSwitcher.svelte';
   import Explainable from '$lib/components/Explainable.svelte';
-    import {
+  import {
     LEFT_PANE_KEY,
     RIGHT_PANE_KEY,
     focusInviteForm,
@@ -464,6 +465,14 @@
       </RoomMenuDropdown>
     {/snippet}
   </RoomNameHeader>
+
+  <Explainable explainKey="room-mode">
+    <RoomModeSwitcher
+      roomId={roomFromServer.id}
+      mode={roomMode}
+      onModeChange={() => invalidateAll()}
+    />
+  </Explainable>
 
   <Explainable explainKey="room-away">
   <AwayModeToggle

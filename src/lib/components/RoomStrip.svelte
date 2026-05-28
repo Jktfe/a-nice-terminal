@@ -111,6 +111,7 @@
     <div class="name-row">
       <h3>{room.name}</h3>
       <RoomPlanProgressBadge progress={room.planProgress} />
+      <RoomCardActivity roomId={room.id} />
     </div>
     {#if room.members && room.members.length > 0}
       <div class="members" aria-label={`${room.members.length} ${room.members.length === 1 ? 'participant' : 'participants'}`}>
@@ -137,7 +138,6 @@
       <LastMessagePreview summary={room.summary} />
     {/if}
     <small class="card-meta">
-      <RoomCardActivity roomId={room.id} />
       <span class="card-last-update">{room.lastUpdate}</span>
     </small>
   </div>
