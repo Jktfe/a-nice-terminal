@@ -524,7 +524,7 @@ export function fanoutReactionToAuthor(
   const envelope =
     `[ANT room ${room.name} id=${room.id} reaction-on=${message.id}] ${reactorHandle} reacted with ${emoji}\n` +
     `  ↳ your message: "${preview}"\n\n` +
-    `[ANT reply instruction: respond in the linked room with: ant chat send ${room.id} --msg "your reply"]`;
+    `[ANT reply instruction: respond with: ant chat reply ${message.id} --stdin]`;
   injectToTerminal(terminal, envelope, room.id, message.authorHandle, emitStaleSystemMessage);
   touchLastPtyByteAt(terminal.id);
 }
