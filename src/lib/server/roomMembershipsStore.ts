@@ -180,8 +180,13 @@ export function listChatRoomsForTerminal(terminalId: string): ChatRoomForTermina
                 AND cr.deleted_at_ms IS NULL
                 AND cr.archived_at_ms IS NULL
                 AND cr.id NOT IN (
+                  -- Pane-binding supersession (JWPK 2026-05-27): only
+                  -- LIVE terminal_records count as "this room is
+                  -- linked." Stale pane-bindings should not hide a
+                  -- room from the standalone list.
                   SELECT linked_chat_room_id FROM terminal_records
                   WHERE linked_chat_room_id IS NOT NULL
+                    AND superseded_at_ms IS NULL
                 )
               ORDER BY cr.creation_order DESC`)
     .all(terminalId) as { id: string; name: string; chair: string | null; handle: string }[];

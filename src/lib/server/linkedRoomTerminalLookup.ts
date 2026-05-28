@@ -42,22 +42,32 @@ function rowToTerminal(r: LinkedRow): TerminalRow {
 
 export function listLinkedTerminalRowsForRoom(roomId: string): TerminalRow[] {
   const db = getIdentityDb();
+  // Pane-binding supersession filter (JWPK msg_wlvguvfvqu/msg_8390722mjh
+  // 2026-05-27): a tmux pane recycled across agents must NOT deliver
+  // the prior agent's room subscriptions. `superseded_at_ms IS NULL`
+  // excludes terminal_records whose pane was claimed by a later row.
+  // This is the primary leak surface — Vera (codex --yolo spawn) was
+  // PTY-injected with a xenoChat message because the prior @xenocc
+  // record on her pane was still being walked here.
   const rows = db.prepare(
     `SELECT session_id, tmux_target_pane, agent_kind
        FROM terminal_records
       WHERE linked_chat_room_id = ?
-        AND tmux_target_pane IS NOT NULL`
+        AND tmux_target_pane IS NOT NULL
+        AND superseded_at_ms IS NULL`
   ).all(roomId) as LinkedRow[];
   return rows.map(rowToTerminal);
 }
 
 export function getLinkedTerminalRowBySessionId(sessionId: string): TerminalRow | null {
   const db = getIdentityDb();
+  // Supersession filter — see listLinkedTerminalRowsForRoom comment.
   const row = db.prepare(
     `SELECT session_id, tmux_target_pane, agent_kind
        FROM terminal_records
       WHERE session_id = ?
-        AND tmux_target_pane IS NOT NULL`
+        AND tmux_target_pane IS NOT NULL
+        AND superseded_at_ms IS NULL`
   ).get(sessionId) as LinkedRow | undefined;
   return row ? rowToTerminal(row) : null;
 }
@@ -70,6 +80,11 @@ export function getLinkedTerminalRowBySessionId(sessionId: string): TerminalRow 
  *
  * NOTE: direct lookup-by-id (findChatRoomById, terminal Chat-view fetch)
  * remains unaffected — this is for *listing* surfaces only.
+ *
+ * 2026-05-27 supersession filter: superseded terminal_records do not
+ * count toward "is linked." If the only records pointing at a room are
+ * stale pane-bindings from prior agents, the room behaves as a
+ * stand-alone room (listed) until a new agent re-registers.
  */
 export function isLinkedChatRoom(roomId: string): boolean {
   if (!roomId) return false;
@@ -78,6 +93,7 @@ export function isLinkedChatRoom(roomId: string): boolean {
     .prepare(
       `SELECT 1 AS present FROM terminal_records
         WHERE linked_chat_room_id = ?
+          AND superseded_at_ms IS NULL
         LIMIT 1`
     )
     .get(roomId) as { present: number } | undefined;

@@ -10,6 +10,7 @@ function rec(partial: Partial<TerminalRecord>): TerminalRecord {
     linked_chat_room_id: null,
     created_by: null, allowlist: null, handle: null,
     created_at_ms: 0, updated_at_ms: 0,
+    superseded_at_ms: null,
     ...partial
   };
 }
