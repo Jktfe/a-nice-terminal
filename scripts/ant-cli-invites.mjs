@@ -29,6 +29,7 @@
  */
 
 import { attemptAutoRegister, formatAutoRegisterOutcome } from './ant-cli-redeem-autoregister.mjs';
+import { processIdentityChain } from './ant-cli-identity-chain.mjs';
 
 const ALLOWED_KINDS = new Set(['cli', 'mcp', 'web']);
 const BOOLEAN_FLAGS = new Set(['print-token', 'no-register']);
@@ -221,10 +222,16 @@ async function runExchange(flags, runtime, CliInputError) {
 async function runRedeem(flags, runtime, CliInputError) {
   const room = requireFlag(flags, 'room', CliInputError);
   const tokenSecret = requireFlag(flags, 'token', CliInputError);
+  // Point 2 fix (Xeno windows-cli-auth-wedge follow-up #2, 2026-05-28):
+  // send the caller's pidChain so the server-side binder can re-bind
+  // room_memberships to THIS shell's live terminal, not the first
+  // record matching the handle (which is often a stale one left by a
+  // previous broken-walker register or a different machine entirely).
+  const pidChain = processIdentityChain();
   const response = await runtime.fetchImpl(`${runtime.serverUrl}/api/chat-rooms/${encodeURIComponent(room)}/join-with-token`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ tokenSecret })
+    body: JSON.stringify({ tokenSecret, pidChain })
   });
   if (!response.ok) {
     runtime.writeErr(`Redeem failed (${response.status}): ${await readErrorMessage(response, [tokenSecret])}`);
@@ -323,12 +330,13 @@ async function runJoinUrl(flags, runtime, CliInputError) {
     return 1;
   }
 
+  const joinUrlPidChain = processIdentityChain();
   const redeemResponse = await runtime.fetchImpl(
     `${baseUrl}/api/chat-rooms/${encodeURIComponent(parsed.roomId)}/join-with-token`,
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ tokenSecret })
+      body: JSON.stringify({ tokenSecret, pidChain: joinUrlPidChain })
     }
   );
   if (!redeemResponse.ok) {
