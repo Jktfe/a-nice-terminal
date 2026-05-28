@@ -189,6 +189,80 @@ ant deck export <slug> --as pptx [--out <PATH>]
 
 The distinction matters: `ant decks` (plural) = Stage presentations with shell affordances; `ant deck` (singular) + `ant artefact add --kind deck` = raw deck artefacts rendered in browser.
 
+## Substrate boundaries (locked u5f11vr4rc msg_9c5wle311d 2026-05-27)
+
+Three architectural questions that recur when building on top of Stage. Each has a canonical answer that downstream features must respect.
+
+### 1. Stage source of truth = external for v1+v2, import-on-demand later
+
+`/decks/:deckId` owns shell + session metadata. **Deck source stays external.**
+
+| Layer | Owns | Lives where |
+|---|---|---|
+| Stage shell | Narration text, voice config, audio cache pointer, validation lens binding, path manifest, attached memories, live-session state, click-to-explain anchors | `chat_room_decks` row + `/api/decks/:deckId/stage-config` |
+| External deck source | Slide source (Animotion / Slidev / Open-Slide / etc.), build output (dist/), assets | `ANT_BUILT_DECKS_ROOTS` filesystem (default `~/CascadeProjects/ANT-Decks`); referenced by slug |
+
+**Why external by default**: ANT plugs into existing tools, doesn't replace them. Authors use familiar deck-authoring tools (Animotion CLI, Slidev, etc.) — ANT is the agent-context layer on top. Multiple Stage presentations can wrap the same underlying deck (e.g. board-version + investor-version with different lens overlays).
+
+**Future "import-on-demand"**: a `snapshot-to-Stage` capability for operators who need a frozen, portable revision (regulatory compliance). Creates a durable deck revision under the Stage that decouples from upstream changes. Optional verb, not default.
+
+**Implication for downstream features**: never inline slide content into `chat_room_decks.slides_json` as the authoring source-of-truth. Reference the external slug; the `theme: <substrate>:<slug>` column carries the binding.
+
+### 2. Attached-memory grounding = attached-only by default, propose-attach for cross-scope
+
+When a Stage agent (click-to-explain, narration generator, alternative-path proposer) needs to ground an answer in memory, the **default scope is**:
+
+- ✅ Room artefacts (already room-scoped)
+- ✅ Memories explicitly attached to this room via the future `ant memory attach --to-room` flow
+
+NOT grounded by default:
+
+- ❌ The user's private memories (NEVER cross the user boundary)
+- ❌ Org memories unless explicitly attached (even within org)
+- ❌ Public memories unless explicitly attached or proposed
+
+**Cross-scope path**: when an agent would benefit from a non-attached memory (e.g. a `concept_l9.md` from the public bank that defines an acronym in the slide), the agent **proposes attach** — surfaces an action card "I found a concept doc that might explain this — attach to room?" rather than silently grounding.
+
+**Why this boundary**: attach = explicit consent. Without it, click-to-explain that pulls from arbitrary public/org memories leaks unrelated context into rooms whose participants didn't opt in.
+
+**Implication for downstream features**: when designing new Stage agent behaviours, define the memory-scope query explicitly. Don't reach across the user/org boundary without going through the propose-attach UX.
+
+### 3. Mutation durability = session overlay + durable session record + explicit promotion
+
+Stage mutations during a live presentation (alternative-path proposals, version-B narration tracks, dynamic re-routing) are NOT applied directly to the base deck.
+
+Three-layer model:
+
+| Layer | Mutable? | Persisted? | Who modifies |
+|---|---|---|---|
+| **Base deck** (external slide source) | Immutable from Stage POV | Yes (external filesystem) | Explicit author action via deck tool / `ant deck build` |
+| **Stage shell state** (narration / voice / lens / path manifest / attached memories) | Yes — operator setup | Yes (`chat_room_decks` row) | Operator config — NOT live session events |
+| **Session overlays** (path changes, version-B proposals, alt narration tracks during a live session) | Yes — live presentation | Ephemeral overlays + durable session record (NOT base deck) | Stage agents + presenter mid-flight |
+
+**Session record (durable, immutable, append-only event log)** captures per-presentation:
+- Base deck revision at session start
+- Shell state at session start
+- Every overlay applied (mutation UUID + kind + payload + proposed-by + proposed-at + accepted/rejected + accepted-at)
+- What the audience actually saw
+
+**Mutation IDs from day one**: every alternative or path change gets a UUID at proposal time, even when purely session-scoped. UUIDs aren't expensive; not having them means losing replay-ability later.
+
+**Explicit promotion**: operator can review a session record afterwards, pick which mutations worked, and run an explicit `promote-to-deck-revision` action that updates the base deck. Promotion is auditable; nothing creeps in automatically.
+
+**Why this matters for regulated contexts**: the session record IS the regulatory artefact. Regulators may ask "what content was actually shown to Wells Fargo on 2026-06-12?" — the base deck is "approved content"; the session record shows what was actually rendered on that specific date with that specific audience. Critical for FRTB and other compliance work.
+
+**Substrate (when built)**:
+- `stage_session_records(id, deck_id, started_at_ms, ended_at_ms, base_deck_revision, started_by_handle, room_id)`
+- `stage_session_mutations(id, session_id, mutation_id, kind, payload_json, proposed_by_handle, proposed_at_ms, accepted, accepted_at_ms)`
+
+Both immutable after write; the promote-to-base action reads these + writes a new deck revision externally.
+
+**Implication for downstream features**: live-iteration agents (path-mutation proposers, version-B narration generators) write into the session-overlay layer, not the base deck. Read the session record for replay / audit. Promotion is an explicit operator step — never silent.
+
+---
+
+These three substrate boundaries lock together: session records reference deck revisions; mutations can promote to deck revisions OR stay session-only; attached memories form the grounding scope mutations operate against. None of the three is cheaply reversible later, so respect them when designing new Stage features.
+
 ## Why this matters
 
 Most presenters want passive playback. ANT Stage adds the agent context layer on top of any existing deck format — so you don't choose between "decks I can edit in my familiar tool" and "decks with intelligence baked in". You get both.
