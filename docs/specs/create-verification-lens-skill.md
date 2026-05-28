@@ -1,6 +1,6 @@
-# `/create-verification-lens` Skill Spec — Phase B1 (DRAFT)
+# `/create-verification-lens` Skill Spec — Phase B1 (RATIFIED)
 
-**Status**: SCAFFOLD — sections marked `<JWPK-RATIFY>` are placeholders awaiting JWPK input on prompt shape (per @homebrewclaude orsz/eiw05zdurz coordination 2026-05-28). All non-prompt sections concrete.
+**Status**: RATIFIED. JWPK eiw05zdurz msg_s1q1otis70 2026-05-28 picked Q1=a, Q2=b, Q3=a (recommendations accepted). All sections concrete; B2 prompt template can start.
 
 **Owner**: @speedyclaude (Phase A substrate implementer)
 **Consumer surface**: Mac antchat M10 (Lens designer) + iOS antios D3 (Author wizard) + web `/verification/lenses/new` (fallback).
@@ -188,61 +188,78 @@ fast dedup of identical-input calls.
 
 ---
 
-## Prompt template — `<JWPK-RATIFY>`
+## Prompt template — RATIFIED behaviours
 
-This is the part that requires JWPK input. The skill needs an LLM
-prompt that:
+JWPK eiw05zdurz msg_s1q1otis70 2026-05-28: Q1=a, Q2=b, Q3=a. The three
+structural rules below are LOCKED; B2 prompt template implements
+against them.
 
-1. Reads the `requirements` + `framework_hint` + the current `tags`
-   catalog (filtered to scope_id).
-2. Decides which tags to bind, with what expectations + dispute
-   policies.
-3. Surfaces source-set requirements (if any).
-4. Generates a human-readable description.
-5. Refuses gracefully on out-of-scope inputs (e.g. "verify this code
-   compiles" — that's a different system).
+The skill's LLM prompt reads `requirements` + `framework_hint` + a
+filtered tags catalog, then decides which tags to bind with what
+expectations + dispute policies + which source-sets are needed,
+generates a human-readable description, and refuses gracefully on
+out-of-scope inputs.
 
-**Three structural questions for JWPK before drafting the actual text**:
+### Q1 — Tags-catalog presentation (LOCKED: a)
 
-### Q1. Tags-catalog presentation in the prompt
+The LLM sees **only the active `ant.*` system tags + this org's
+`org.<scopeId>.*` tags**. Deprecated/superseded/withdrawn tags are
+filtered out. The `framework_hint` (FCA / SEC / ESMA / etc) biases
+the LLM's choices via prompt framing but does NOT further restrict
+the catalog.
 
-When the LLM sees the available tags catalog, does it see:
-- (a) Just the active `ant.*` system tags + this org's `org.<scopeId>.*` tags?
-- (b) All available tags including deprecated (so it knows "don't use these")?
-- (c) A curated subset based on `framework_hint`?
+Implementation: `listTaxonomy({ provenance: 'system', scope_id: 'global', lifecycleStates: ['active'] })` UNION `listTaxonomy({ provenance: 'org', scope_id: input.scope_id, lifecycleStates: ['active'] })`. Result serialised as `{ id, name, description, category, protocolResolver, isRelational, familyRoot }` per tag (drop version, lifecycle, audit fields).
 
-Recommend (a) — keeps prompt size bounded, deprecated tags shouldn't be on new lenses anyway, framework_hint biases the LLM's choices without restricting them.
+### Q2 — Source-set creation surface (LOCKED: b)
 
-### Q2. Source-set creation surface
+When the skill identifies a needed source-set that doesn't exist, it
+**surfaces the proposal in `suggested_source_sets`** and ships the
+lens without that binding. The caller separately reviews the
+proposals + creates the source-set via `ant source-set create` if
+they accept; then re-binds via a follow-up `POST /api/verification/lenses/[id]/tag-rows`.
 
-When the skill identifies a needed source-set that doesn't exist (e.g.
-"FCA primary handbook domains" for a financial promotions lens) does the
-skill:
-- (a) Refuse to ship the lens until the source-set exists (caller
-  must run `ant source-set create` first)?
-- (b) Surface the proposal in `suggested_source_sets` + ship the lens
-  without that binding (caller can add it later)?
-- (c) Auto-create the source-set as `proposed` lifecycle (org-admin
-  approves to activate)?
+Implementation:
+- Skill resolves `bound_source_set_ids` from input against
+  `listSourceSets({ ownerOrg: input.scope_id })`. Existing matches bind.
+- For each missing source-set the lens needs, skill writes a
+  `suggested_source_sets[i]` entry with `proposed_name`,
+  `proposed_members[]` (with rationale per member), and a
+  `bind_to_lens_tag_row` hint so the caller can wire it after
+  creation.
+- Skill NEVER auto-creates source-sets. Caller agency preserved
+  (source-set governance is consequential — multi-approver model).
 
-Recommend (b) — ships the most lens possible from one skill call, the
-caller separately reviews source-set proposals (they're consequential
-governance — auto-creating felt wrong even in `proposed` state).
+### Q3 — Refusal behaviour for out-of-scope inputs (LOCKED: a)
 
-### Q3. Refusal behaviour for out-of-scope inputs
+When `requirements` is clearly out of substrate scope (code linting,
+image moderation, sentiment analysis, free-form open-web
+fact-checking without a source-set), the skill **refuses with an
+explicit `error_kind`** rather than shipping a near-empty or
+closest-fit lens.
 
-When `requirements` is clearly out of substrate scope (asks for code
-linting, image moderation, etc.), the skill:
-- (a) Refuses + returns an `error_kind` field explaining the substrate
-  scope?
-- (b) Ships a near-empty lens with a single `out-of-scope` row marking
-  the whole input as out-of-scope?
-- (c) Ships the closest-fit lens it can build + flags low confidence
-  in the description?
+Refusal shape:
 
-Recommend (a) — substrate is for claim verification + source attribution;
-out-of-scope refusal preserves the substrate's contract. Returning
-an empty lens silently is a footgun.
+```typescript
+interface SkillRefusal {
+  kind: 'refusal';
+  error_kind:
+    | 'out_of_substrate_scope'    // not claim verification + source attribution
+    | 'no_source_sets_available'  // needs sources but org has none
+    | 'org_admin_required'        // caller is not org-admin for scope_id
+    | 'cost_cap_exceeded'         // monthly invocation cap hit
+    | 'requirements_too_vague';   // can't determine concrete tag bindings
+  reason: string;                  // 1-2 sentences for the human
+  suggested_action: string;        // e.g. "Run `ant source-set create` first"
+  // For 'out_of_substrate_scope' specifically, the skill SHOULD also
+  // surface what substrate IS for — see ant-verification.md boundaries section.
+  substrate_scope_hint?: string;
+}
+```
+
+Substrate is for claim verification + source attribution.
+Out-of-scope refusal preserves the contract. Empty-lens-with-out-
+of-scope-row was rejected (silent footgun); closest-fit-low-confidence
+was rejected (substrate stays honest about its limits).
 
 ---
 
@@ -309,15 +326,14 @@ Out of scope for B1 (will land separately):
 
 ---
 
-## Open questions summary (for JWPK)
+## Ratified decisions (resolved 2026-05-28)
 
-| Q | Question | Recommended | Awaiting |
-|---|----------|-------------|----------|
-| Q1 | Tags catalog presentation | (a) active + org-scope only | ratify |
-| Q2 | Source-set creation surface | (b) suggest + caller-reviews | ratify |
-| Q3 | Out-of-scope refusal | (a) explicit refusal with error_kind | ratify |
+| Q | Question | Picked | Status |
+|---|----------|--------|--------|
+| Q1 | Tags catalog presentation | (a) active + org-scope only | LOCKED via JWPK eiw05zdurz msg_s1q1otis70 |
+| Q2 | Source-set creation surface | (b) suggest + caller-reviews | LOCKED via JWPK eiw05zdurz msg_s1q1otis70 |
+| Q3 | Out-of-scope refusal | (a) explicit refusal with error_kind | LOCKED via JWPK eiw05zdurz msg_s1q1otis70 |
 
-Each Q ratification produces a 1-2 line addition to this spec. When
-all three land, B2 (prompt template) can start. Spec stays this
-canonical doc — no in-room iteration per the banked rule
-[[feedback-spec-freeze-should-be-a-doc-not-iterated-messages-2026-05-27]].
+All three behaviours folded into the "Prompt template — RATIFIED
+behaviours" section above. B2 prompt template implementation starts
+next slice.
