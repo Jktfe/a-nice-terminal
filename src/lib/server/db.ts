@@ -164,6 +164,13 @@ const SCHEMA_DDL_STATEMENTS = [
   `ALTER TABLE terminals ADD COLUMN agent_context_fill REAL`,
   `ALTER TABLE terminals ADD COLUMN agent_context_fill_source TEXT`,
   `ALTER TABLE terminals ADD COLUMN agent_context_fill_at_ms INTEGER`,
+  // Per-terminal model flag (JWPK msg_fespxsi2lu + msg_05lh00n3wg antV4
+  // 2026-05-28). Free-form string so settings can manage its own list
+  // (mirrors agentKinds localStorage pattern). NULL = unspecified; UI
+  // collects "unspecified" into its own subheading per CLI group. The
+  // string is the user's tag, not a canonical model id — purely aesthetic
+  // grouping ("Kimi running in codex" vs "codex running in codex").
+  `ALTER TABLE terminals ADD COLUMN model TEXT`,
   `CREATE TABLE IF NOT EXISTS chat_agent_status_events (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     terminal_id     TEXT NOT NULL REFERENCES terminals(id) ON DELETE CASCADE,
