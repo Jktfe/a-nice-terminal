@@ -735,7 +735,7 @@ const SCHEMA_DDL_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS chat_room_artefacts (
     id              TEXT PRIMARY KEY,
     room_id         TEXT NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
-    kind            TEXT NOT NULL CHECK (kind IN ('html','deck','spreadsheet','doc','mockup','other')),
+    kind            TEXT NOT NULL CHECK (kind IN ('html','deck','stage','spreadsheet','doc','mockup','other')),
     title           TEXT NOT NULL,
     ref_url         TEXT,
     summary         TEXT,
@@ -1339,6 +1339,56 @@ const SCHEMA_DDL_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_validation_runs_schema ON validation_runs (schema_id, claim_anchor)`,
   `CREATE INDEX IF NOT EXISTS idx_validation_runs_claim ON validation_runs (claim_anchor, completed_at_ms DESC)`,
+  // VERIFICATION-V2 (2026-05-28): taxonomy-first verification per JWPK
+  // 17-question ratification at eiw05zdurz. Tag definitions are versioned
+  // governance objects (NOT prompt fragments); lifecycle is create →
+  // active → deprecated → superseded → withdrawn (never hard-delete —
+  // would invalidate historical verifications). System defaults under
+  // `ant.*` namespace; org extensions under `org.<orgId>.*`. Relational
+  // tag families (e.g. `source.supports-claim.<claimID>`) carry
+  // is_relational=1 + family_root pointing at the root id.
+  // See deck d5024535-a495-45ea-9e4f-ba11bb197ab8 slide 10 for substrate
+  // plan; this is Slice 1.
+  `CREATE TABLE IF NOT EXISTS verification_taxonomy (
+    id                      TEXT NOT NULL,
+    version                 INTEGER NOT NULL,
+    name                    TEXT NOT NULL,
+    description             TEXT NOT NULL,
+    category                TEXT NOT NULL,
+    provenance              TEXT NOT NULL CHECK (provenance IN ('system','org','user')),
+    scope_id                TEXT NOT NULL DEFAULT 'global',
+    protocol_resolver_json  TEXT NOT NULL DEFAULT '{}',
+    lifecycle_state         TEXT NOT NULL CHECK (lifecycle_state IN ('proposed','active','deprecated','superseded','withdrawn')),
+    superseded_by_id        TEXT,
+    is_human_editable       INTEGER NOT NULL DEFAULT 1,
+    is_relational           INTEGER NOT NULL DEFAULT 0,
+    family_root             TEXT,
+    created_by              TEXT NOT NULL,
+    created_at_ms           INTEGER NOT NULL,
+    PRIMARY KEY (id, version)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_verification_taxonomy_category ON verification_taxonomy (category, lifecycle_state)`,
+  `CREATE INDEX IF NOT EXISTS idx_verification_taxonomy_provenance ON verification_taxonomy (provenance, scope_id, lifecycle_state)`,
+  `CREATE INDEX IF NOT EXISTS idx_verification_taxonomy_family ON verification_taxonomy (family_root) WHERE family_root IS NOT NULL`,
+  // Audit log for tag-definition lifecycle events AND per-tag-application
+  // human edits (classification_override, flag_ignorable). audit-of-flagger
+  // is VITAL per JWPK msg requesting human-edit governance — every event
+  // captures actor_handle + actor_kind + reason. Append-only; never amend.
+  `CREATE TABLE IF NOT EXISTS tag_lifecycle_events (
+    id                  TEXT PRIMARY KEY,
+    tag_id              TEXT NOT NULL,
+    tag_version         INTEGER,
+    event_kind          TEXT NOT NULL CHECK (event_kind IN ('create','edit','deprecate','restore','supersede','classification_override','flag_ignorable')),
+    actor_handle        TEXT NOT NULL,
+    actor_kind          TEXT NOT NULL CHECK (actor_kind IN ('human','agent','system')),
+    reason              TEXT,
+    before_json         TEXT,
+    after_json          TEXT,
+    references_event_id TEXT,
+    created_at_ms       INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_tag_lifecycle_events_tag ON tag_lifecycle_events (tag_id, created_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_tag_lifecycle_events_actor ON tag_lifecycle_events (actor_handle, created_at_ms DESC)`,
   // DESIGN-STYLES (2026-05-23): banked styles for decks, UI surfaces, and org branding.
   // Styles are scoped to org or user, shareable, and referenced by id.
   `CREATE TABLE IF NOT EXISTS design_styles (
@@ -1520,6 +1570,42 @@ function applySchemaMigrations(db: DatabaseInstance): void {
     }
   }
   extendAsksStatusCheckForActiveStatuses(db);
+  extendArtefactKindCheckForStage(db);
+}
+
+/**
+ * ANT Stage is distinct from normal built decks. Older DBs have a CHECK
+ * constraint on chat_room_artefacts.kind that does not include 'stage', so
+ * rebuild the small metadata table once when the live schema is missing it.
+ */
+function extendArtefactKindCheckForStage(db: DatabaseInstance): void {
+  const existingSchema = db
+    .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'chat_room_artefacts'`)
+    .get() as { sql: string | null } | undefined;
+  if (!existingSchema || !existingSchema.sql || existingSchema.sql.includes("'stage'")) return;
+
+  const rebuild = db.transaction(() => {
+    db.prepare(`CREATE TABLE chat_room_artefacts_new (
+      id              TEXT PRIMARY KEY,
+      room_id         TEXT NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
+      kind            TEXT NOT NULL CHECK (kind IN ('html','deck','stage','spreadsheet','doc','mockup','other')),
+      title           TEXT NOT NULL,
+      ref_url         TEXT,
+      summary         TEXT,
+      created_by      TEXT,
+      created_at_ms   INTEGER NOT NULL,
+      deleted_at_ms   INTEGER
+    )`).run();
+    db.prepare(`INSERT INTO chat_room_artefacts_new (
+      id, room_id, kind, title, ref_url, summary, created_by, created_at_ms, deleted_at_ms
+    ) SELECT
+      id, room_id, kind, title, ref_url, summary, created_by, created_at_ms, deleted_at_ms
+    FROM chat_room_artefacts`).run();
+    db.prepare(`DROP TABLE chat_room_artefacts`).run();
+    db.prepare(`ALTER TABLE chat_room_artefacts_new RENAME TO chat_room_artefacts`).run();
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_chat_room_artefacts_room_kind ON chat_room_artefacts (room_id, kind, created_at_ms DESC)`).run();
+  });
+  rebuild();
 }
 
 /**
