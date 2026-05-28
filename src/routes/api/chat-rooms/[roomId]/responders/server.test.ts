@@ -10,6 +10,7 @@ import {
 import { resetIdentityDbForTests } from '$lib/server/db';
 import { upsertTerminal, markPaneVerified } from '$lib/server/terminalsStore';
 import { addMembership } from '$lib/server/roomMembershipsStore';
+import { createBrowserSession } from '$lib/server/browserSessionStore';
 
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
@@ -31,10 +32,11 @@ afterEach(() => {
 type Verb = 'GET' | 'PUT' | 'POST' | 'PATCH' | 'DELETE';
 const HANDLERS = { GET, PUT, POST, PATCH, DELETE };
 
-async function call(verb: Verb, roomId: string, body?: object): Promise<Response> {
+async function call(verb: Verb, roomId: string, body?: object, headers: Record<string, string> = {}): Promise<Response> {
   const url = `http://localhost/api/chat-rooms/${roomId}/responders`;
   const init: RequestInit = { method: verb };
-  if (body) { init.headers = { 'content-type': 'application/json' }; init.body = JSON.stringify(body); }
+  if (body) { init.headers = { 'content-type': 'application/json', ...headers }; init.body = JSON.stringify(body); }
+  else if (Object.keys(headers).length > 0) { init.headers = headers; }
   const request = new Request(url, init);
   const event = { request, params: { roomId }, url: new URL(url) } as unknown as Parameters<typeof GET>[0];
   try {
@@ -82,14 +84,14 @@ describe('PUT — replace-all', () => {
     const second = payload.responders.find((r: { handle: string }) => r.handle === '@b');
     expect(second.pane_status).toBe('verified');
   });
-  it('403 when caller is not a member', async () => {
+  it('401 when pidChain does not resolve to an identity', async () => {
     const { roomId } = setupRoomWithMembers(['@a']);
     const response = await call('PUT', roomId, { handles: ['@a'], pidChain: [{ pid: 9999, pid_start: 'fake' }] });
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(401);
   });
-  it('400 on missing pidChain / unknown handle / duplicate handle', async () => {
+  it('401 on missing identity and 400 on unknown handle / duplicate handle', async () => {
     const { roomId, pidChain } = setupRoomWithMembers(['@a']);
-    expect((await call('PUT', roomId, { handles: ['@a'] })).status).toBe(400);
+    expect((await call('PUT', roomId, { handles: ['@a'] })).status).toBe(401);
     expect((await call('PUT', roomId, { handles: ['@unknown'], pidChain })).status).toBe(400);
     expect((await call('PUT', roomId, { handles: ['@a', '@a'], pidChain })).status).toBe(400);
   });
@@ -102,6 +104,22 @@ describe('POST — insert', () => {
     const payload = await (await call('POST', roomId, { handle: '@b', pidChain })).json();
     expect(payload.responders.map((r: { handle: string }) => r.handle)).toEqual(['@a', '@b']);
   });
+  it('accepts a browser-session room member without pidChain', async () => {
+    const { roomId, pidChain } = setupRoomWithMembers(['@a', '@b']);
+    await call('PUT', roomId, { handles: ['@a'], pidChain });
+    const session = createBrowserSession({ roomId, authorHandle: '@caller' });
+    if (!session) throw new Error('createBrowserSession returned null');
+
+    const payload = await (await call(
+      'POST',
+      roomId,
+      { handle: '@b' },
+      { cookie: 'ant_browser_session=' + session.browserSessionSecret }
+    )).json();
+
+    expect(payload.responders.map((r: { handle: string }) => r.handle)).toEqual(['@a', '@b']);
+  });
+
   it('inserts at position when `at` given', async () => {
     const { roomId, pidChain } = setupRoomWithMembers(['@a', '@b', '@c']);
     await call('PUT', roomId, { handles: ['@a', '@b'], pidChain });
@@ -137,9 +155,9 @@ describe('DELETE — remove', () => {
     await call('PUT', roomId, { handles: [], pidChain });
     expect((await call('DELETE', roomId, { handle: '@a', pidChain })).status).toBe(404);
   });
-  it('403 when caller is not a member (all 4 write verbs share gate)', async () => {
+  it('401 when delete pidChain does not resolve to an identity', async () => {
     const { roomId } = setupRoomWithMembers(['@a']);
     const response = await call('DELETE', roomId, { handle: '@a', pidChain: [{ pid: 9, pid_start: 'fake' }] });
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(401);
   });
 });
