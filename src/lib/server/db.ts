@@ -1450,6 +1450,82 @@ const SCHEMA_DDL_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_source_set_audit_set ON source_set_audit (set_id, created_at_ms DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_source_set_audit_actor ON source_set_audit (actor_handle, created_at_ms DESC)`,
+  // V2-TAGGING-ANCHORS (2026-05-28, Slice 3 / Phase A3): content-type-
+  // agnostic anchor primitive. Tag applications bind to anchors (not
+  // raw byte offsets) so the substrate doesn't need to know how each
+  // content type addresses its fragments. Adapters (univer-block,
+  // markdown-offset, pdf-region, image-region, audio-timestamp) live
+  // outside the substrate; the table just stores opaque anchor_data_json.
+  //
+  // content_hash is what makes verification replayable on content change.
+  // If the underlying artefact's hash diverges from the anchor's hash,
+  // any lens with re_verification_on_content_change=true triggers a
+  // re-run of the affected applications.
+  `CREATE TABLE IF NOT EXISTS tagging_anchors (
+    id                TEXT PRIMARY KEY,
+    content_kind      TEXT NOT NULL CHECK (content_kind IN ('univer-block','markdown-offset','pdf-region','image-region','audio-timestamp','message-range','file-checksum')),
+    content_id        TEXT NOT NULL,
+    content_hash      TEXT NOT NULL,
+    anchor_data_json  TEXT NOT NULL,
+    created_by        TEXT NOT NULL,
+    created_at_ms     INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_tagging_anchors_content ON tagging_anchors (content_id, content_kind)`,
+  `CREATE INDEX IF NOT EXISTS idx_tagging_anchors_hash ON tagging_anchors (content_hash)`,
+  // V2-TAG-APPLICATIONS (2026-05-28, Slice 3 / Phase A4): immutable
+  // record of "tag X was applied to anchor Y by Z at time T". One row
+  // per (tag, anchor, applicator); re-applying the same tag is allowed
+  // but creates a new application row (multiple agents can co-tag a
+  // fragment with the same tag — the dispute policy resolves
+  // disagreement).
+  //
+  // tag_version captures WHICH version of the tag was applied, so
+  // historical applications resolve against their original definition
+  // even after the tag is edited. This is the load-bearing reason
+  // verificationTaxonomyStore retains old versions instead of mutating.
+  //
+  // For relational tags (e.g. source.supports-claim.<claimId>),
+  // target_claim_id carries the claim being supported/refuted. tag_id
+  // stores the parameterised form (source.supports-claim.claim-123)
+  // while family_root in the taxonomy stores just 'source.supports-
+  // claim' — readers reconstruct the relationship from both.
+  //
+  // tagging_run_id groups applications written in a single `ant tags
+  // apply` invocation so the UI can render "Agent X ran tagging at T
+  // and produced N applications" without scanning ms timestamps.
+  `CREATE TABLE IF NOT EXISTS tag_applications (
+    id                TEXT PRIMARY KEY,
+    tag_id            TEXT NOT NULL,
+    tag_version       INTEGER NOT NULL,
+    target_anchor_id  TEXT NOT NULL REFERENCES tagging_anchors(id) ON DELETE RESTRICT,
+    target_claim_id   TEXT,
+    applicator_handle TEXT NOT NULL,
+    applicator_kind   TEXT NOT NULL CHECK (applicator_kind IN ('human','agent','system')),
+    applied_reason    TEXT,
+    tagging_run_id    TEXT NOT NULL,
+    applied_at_ms     INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_tag_applications_anchor ON tag_applications (target_anchor_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_tag_applications_tag ON tag_applications (tag_id, applied_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_tag_applications_run ON tag_applications (tagging_run_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_tag_applications_claim ON tag_applications (target_claim_id) WHERE target_claim_id IS NOT NULL`,
+  // tagging_runs is the grouping primitive: every `ant tags apply`
+  // invocation creates one row, then writes N tag_applications that
+  // share tagging_run_id. The UI lists runs (latest-first) and drills
+  // into the applications produced by each.
+  `CREATE TABLE IF NOT EXISTS tagging_runs (
+    id              TEXT PRIMARY KEY,
+    scope_id        TEXT NOT NULL,
+    scope_kind      TEXT NOT NULL CHECK (scope_kind IN ('artefact','message','file','document','room')),
+    initiator_handle TEXT NOT NULL,
+    initiator_kind  TEXT NOT NULL CHECK (initiator_kind IN ('human','agent','system')),
+    run_reason      TEXT,
+    started_at_ms   INTEGER NOT NULL,
+    completed_at_ms INTEGER,
+    application_count INTEGER NOT NULL DEFAULT 0
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_tagging_runs_scope ON tagging_runs (scope_id, started_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_tagging_runs_initiator ON tagging_runs (initiator_handle, started_at_ms DESC)`,
   // DESIGN-STYLES (2026-05-23): banked styles for decks, UI surfaces, and org branding.
   // Styles are scoped to org or user, shareable, and referenced by id.
   `CREATE TABLE IF NOT EXISTS design_styles (
