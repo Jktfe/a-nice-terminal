@@ -1814,6 +1814,15 @@ function ensureParentDirectoryExists(dbFile: string): void {
 
 function applySchemaMigrations(db: DatabaseInstance): void {
   renameLegacyValidationTables(db);
+  // The verification_observations rebuild must run BEFORE the static
+  // SCHEMA_DDL_STATEMENTS loop — that loop includes a CREATE INDEX on
+  // parent_observation_id which only exists AFTER the rebuild. Without
+  // this ordering, any server restart against a pre-Phase-A8 DB throws
+  // SqliteError("no such column: parent_observation_id") and every API
+  // route 500s because getIdentityDb() never completes init. (Found
+  // 2026-05-28 during live deploy of PR #82 — the V2-server slice that
+  // introduced the rebuild left the static index ordered before it.)
+  rebuildVerificationObservationsForAppendOnly(db);
   for (const ddlStatement of SCHEMA_DDL_STATEMENTS) {
     try {
       db.prepare(ddlStatement).run();
@@ -1825,7 +1834,6 @@ function applySchemaMigrations(db: DatabaseInstance): void {
   }
   extendAsksStatusCheckForActiveStatuses(db);
   extendArtefactKindCheckForStage(db);
-  rebuildVerificationObservationsForAppendOnly(db);
 }
 
 /**
