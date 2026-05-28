@@ -2,7 +2,7 @@
  * ant artefact — reference-an-artefact CLI (2026-05-22).
  *
  * Artefacts are POINTERS to first-class objects living in a room — HTML
- * files, decks, spreadsheets, docs, mockups. The file/object stays where
+ * files, decks, ANT Stage presentations, spreadsheets, docs, mockups. The file/object stays where
  * it lives; the room gets a card with title + refUrl + summary so
  * members can see + click through.
  *
@@ -15,9 +15,9 @@
  * Verbs:
  *   ant artefact add --room <roomId> --kind <kind> --title "..."
  *                    --ref-url file:///path [--summary "..."]
- *     One of: html | deck | spreadsheet | doc | mockup | other.
+ *     One of: html | deck | stage | spreadsheet | doc | mockup | other.
  *     For a normal built deck, use --kind deck --ref-url /d/<slug>.
- *     For an ANT Stage presentation, point at /decks/<deckId>?password=...
+ *     For an ANT Stage presentation, use --kind stage --ref-url /decks/<deckId>?password=...
  *
  *   ant artefact list --room <roomId> [--json]
  *
@@ -35,7 +35,7 @@ import { processIdentityChain } from './ant-cli-identity-chain.mjs';
 // `ant chat send` pattern (also literal-id only).
 
 const BOOLEAN_FLAGS = new Set(['json']);
-const VALID_KINDS = new Set(['html', 'deck', 'spreadsheet', 'doc', 'mockup', 'other']);
+const VALID_KINDS = new Set(['html', 'deck', 'stage', 'spreadsheet', 'doc', 'mockup', 'other']);
 
 function parseFlags(rawArgs, CliInputError) {
   const flags = {};
@@ -65,10 +65,10 @@ function parseFlags(rawArgs, CliInputError) {
 
 function writeUsage(runtime) {
   runtime.writeOut('ant artefact <add|list|remove>');
-  runtime.writeOut('  artefact add    --room <id> --kind <html|deck|spreadsheet|doc|mockup|other>');
+  runtime.writeOut('  artefact add    --room <id> --kind <html|deck|stage|spreadsheet|doc|mockup|other>');
   runtime.writeOut('                  --title "..." --ref-url <url-or-path> [--summary "..."]');
   runtime.writeOut('                  normal deck: --kind deck --ref-url /d/SLUG');
-  runtime.writeOut('                  Stage presentation: --kind deck --ref-url /decks/DECK_ID?password=...');
+  runtime.writeOut('                  Stage presentation: --kind stage --ref-url /decks/DECK_ID?password=...');
   runtime.writeOut('  artefact list   --room <id> [--json]');
   runtime.writeOut('  artefact remove --room <id> <artefactId>');
 }

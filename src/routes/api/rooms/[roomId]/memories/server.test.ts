@@ -177,6 +177,40 @@ This must not leak.
     });
   });
 
+  it('includes universal configured memory-pack files even without linked_rooms', async () => {
+    const room = createChatRoom({ name: 'memory room', whoCreatedIt: '@you' });
+    writeFileSync(join(memoryPackDir, 'README.md'), `---
+memory_id: README
+created_at: 2026-05-28T10:00:00.000Z
+default_room_policy: universal
+tags: ['memory-pack']
+---
+# ANT memory pack
+
+Read this before acting in any ANT room.
+`, 'utf-8');
+    mkdirSync(join(memoryPackDir, 'core'), { recursive: true });
+    writeFileSync(join(memoryPackDir, 'core', 'mem_core.md'), `---
+memory_id: mem_core
+created_at: 2026-05-28T10:01:00.000Z
+type: core
+---
+# Core ANT memory
+
+This applies to every room.
+`, 'utf-8');
+
+    const response = await run(GET, getEventFor(room.id));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.memories.map((memory: { memoryId: string }) => memory.memoryId)).toEqual([
+      'mem_core',
+      'README'
+    ]);
+    expect(body.memories.every((memory: { source: string }) => memory.source === 'memory-pack')).toBe(true);
+  });
+
   it('rejects unauthenticated writes without creating a vault file', async () => {
     const room = createChatRoom({ name: 'memory room', whoCreatedIt: '@you' });
     expect(memoryFileCount()).toBe(0);

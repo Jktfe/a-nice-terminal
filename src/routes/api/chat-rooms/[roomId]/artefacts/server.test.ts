@@ -89,6 +89,26 @@ describe('/api/chat-rooms/:roomId/artefacts', () => {
     expect(listBody.artefacts[0].id).toBe(created.id);
   });
 
+  it('POST creates an ANT Stage artefact as a distinct kind', async () => {
+    const room = createChatRoom({ name: 'r', whoCreatedIt: '@you' });
+    const create = await runHandler(
+      POST,
+      eventFor('POST', room.id, '', {
+        kind: 'stage',
+        title: 'Board Stage presentation',
+        refUrl: '/decks/stage-123?password=stage-demo'
+      })
+    );
+
+    expect(create.status).toBe(201);
+    const created = await create.json();
+    expect(created).toMatchObject({
+      kind: 'stage',
+      title: 'Board Stage presentation',
+      refUrl: '/decks/stage-123?password=stage-demo'
+    });
+  });
+
   it('POST 400s for an unknown kind', async () => {
     const room = createChatRoom({ name: 'r', whoCreatedIt: '@you' });
     const response = await runHandler(
