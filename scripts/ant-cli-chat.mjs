@@ -35,7 +35,7 @@ const BOOLEAN_FLAGS = new Set(['once', 'json', 'clear', 'msg-stdin', 'stdin']);
 // in the first slot is treated as a chat identifier (name or id) per
 // the JWPK 2026-05-16 verb spec: `ant chat <chatname> send <msg>`.
 const KNOWN_CHAT_ACTIONS = new Set([
-  'send', 'post', 'tail', 'break', 'read', 'typing', 'draft', 'pending',
+  'send', 'post', 'reply', 'tail', 'break', 'read', 'typing', 'draft', 'pending',
   'focus', 'unfocus', 'decide',
   'help', '--help'
 ]);
@@ -69,11 +69,11 @@ export async function handleChatVerb(action, args, runtime, ctx) {
     return handleNameAwareChatVerb(action, args, runtime, CliInputError);
   }
 
-  // `chat send`/`post`/`focus`/`unfocus`/`decide` accept the room id as
-  // a positional. parseFlags rejects bare positional args by default, so
+  // `chat send`/`post`/`reply`/`focus`/`unfocus`/`decide` accept one
+  // positional before flags. parseFlags rejects bare positional args by default, so
   // we peel before parsing.
   let positionalRoomId;
-  const PEEL_POSITIONAL_ACTIONS = new Set(['send', 'post', 'focus', 'unfocus', 'decide']);
+  const PEEL_POSITIONAL_ACTIONS = new Set(['send', 'post', 'reply', 'focus', 'unfocus', 'decide']);
   if (PEEL_POSITIONAL_ACTIONS.has(action) && args.length > 0 && !args[0].startsWith('--')) {
     positionalRoomId = args[0];
     args = args.slice(1);
@@ -99,6 +99,7 @@ export async function handleChatVerb(action, args, runtime, ctx) {
   switch (action) {
     case 'send':
     case 'post': return runSend(flags, runtime, CliInputError);
+    case 'reply': return runReply(flags, runtime, CliInputError);
     case 'pending': return handleChatPendingVerb(args, runtime, { CliInputError });
     case 'focus': return runFocus(flags, runtime, CliInputError);
     case 'unfocus': return runUnfocus(flags, runtime, CliInputError);
@@ -325,6 +326,39 @@ async function runSend(flags, runtime, CliInputError) {
   return 0;
 }
 
+async function runReply(flags, runtime, CliInputError) {
+  const parentMessageId = requireFlag(flags, 'room', CliInputError);
+  const body = resolveMessageBody(flags, runtime, CliInputError);
+  const lookup = await getJson(runtime, `/api/chat-rooms/messages/${encodeURIComponent(parentMessageId)}`);
+  const parent = lookup?.message;
+  if (!parent || typeof parent.roomId !== 'string' || parent.roomId.length === 0) {
+    throw new CliInputError(`Could not resolve parent message ${parentMessageId} to a room.`);
+  }
+  const payload = { body, parentMessageId, pidChain: processIdentityChain() };
+  if (flags.handle) payload.authorHandle = flags.handle;
+  if (flags.kind) {
+    if (!ALLOWED_KIND_TAGS.has(flags.kind)) {
+      throw new CliInputError(`--kind must be one of ${[...ALLOWED_KIND_TAGS].join(', ')}`);
+    }
+    payload.kind = flags.kind;
+  }
+  const roomServerUrl = resolveRoomServerUrl(runtime, parent.roomId);
+  const result = await sendJson(
+    runtime,
+    `/api/chat-rooms/${encodeURIComponent(parent.roomId)}/messages`,
+    'POST',
+    payload,
+    roomServerUrl
+  );
+  if (flags.json !== undefined) {
+    runtime.writeOut(JSON.stringify(result));
+  } else {
+    const m = result?.message;
+    runtime.writeOut(`Replied ${m?.id ?? '?'} as ${m?.authorHandle ?? '?'} into ${parent.roomId}.`);
+  }
+  return 0;
+}
+
 /**
  * Mint a browser_session cookie for (room, handle) via POST /browser-session.
  * Returns the raw `ant_browser_session=...` cookie value (just the
@@ -480,8 +514,9 @@ function parseFlags(rawArgs, CliInputError) {
 }
 
 function writeUsage(runtime) {
-  runtime.writeOut('ant chat <send|tail|break|read|typing|draft|focus|unfocus|decide> [flags]');
+  runtime.writeOut('ant chat <send|reply|tail|break|read|typing|draft|focus|unfocus|decide> [flags]');
   runtime.writeOut('  send <roomId> (--msg TEXT | --msg-file PATH | --stdin) [--handle @h] [--kind human|agent|system]');
+  runtime.writeOut('  reply <messageId> (--msg TEXT | --msg-file PATH | --stdin) [--handle @h] [--kind human|agent]');
   runtime.writeOut('  tail --room ROOM_ID [--since-order N] [--poll-ms 2000] [--once]');
   runtime.writeOut('  break --room ROOM_ID [--reason TEXT] [--handle @you]');
   runtime.writeOut('  read --room ROOM_ID --message MESSAGE_ID [--handle @you] [--json]');
@@ -523,6 +558,18 @@ function resolveBaseUrlForPath(runtime, path, baseUrl) {
   return runtime.serverUrl;
 }
 
+async function getJson(runtime, path, baseUrl) {
+  const base = resolveBaseUrlForPath(runtime, path, baseUrl);
+  const response = await runtime.fetchImpl(`${base}${path}`, {
+    method: 'GET',
+    headers: { 'content-type': 'application/json' }
+  });
+  if (!response.ok) {
+    const bodyText = await response.text().catch(() => '');
+    throw new Error(`GET ${path} returned ${response.status}: ${bodyText.slice(0, 200)}`);
+  }
+  return response.json();
+}
 async function sendJson(runtime, path, method, body, baseUrl) {
   const base = resolveBaseUrlForPath(runtime, path, baseUrl);
   const response = await runtime.fetchImpl(`${base}${path}`, {

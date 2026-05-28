@@ -184,6 +184,38 @@ describe('ant chat state wrappers', () => {
     expect(captured.stdout.join('\n')).toContain('msg-stdin');
   });
 
+  it('S2: reply derives the target room from the parent message id', async () => {
+    const { runtime, captured } = makeRuntime((callIndex, { url }) => {
+      if (url === 'http://test.local/api/chat-rooms/messages/msg_parent') {
+        return okJson({ message: { id: 'msg_parent', roomId: 'room-a', authorHandle: '@you', body: 'Question?' } });
+      }
+      if (url === 'http://test.local/api/chat-rooms/room-a/messages') {
+        return okJson({ message: { id: 'msg_reply', authorHandle: '@codex' } }, 201);
+      }
+      return failure(404, 'unexpected path');
+    });
+    runtime.fs = {
+      readFileSync: (path) => {
+        expect(path).toBe(0);
+        return 'Answer body from a safe heredoc.\n';
+      }
+    };
+
+    await handleChatVerb('reply', ['msg_parent', '--stdin', '--handle', '@codex'], runtime, { CliInputError });
+
+    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/messages/msg_parent');
+    expect(captured.requests[0].init.method).toBe('GET');
+    expect(captured.requests[1].url).toBe('http://test.local/api/chat-rooms/room-a/messages');
+    expect(captured.requests[1].init.method).toBe('POST');
+    expect(bodyAt(captured, 1)).toMatchObject({
+      body: 'Answer body from a safe heredoc.\n',
+      parentMessageId: 'msg_parent',
+      authorHandle: '@codex',
+      pidChain: expect.any(Array)
+    });
+    expect(captured.stdout.join('\n')).toContain('Replied msg_reply as @codex into room-a.');
+  });
+
   it('C1: break POSTs a context break with reason and pidChain', async () => {
     const { runtime, captured } = makeRuntime(() => okJson({ message: { id: 'break-1', body: 'Context break.' } }, 201));
 
