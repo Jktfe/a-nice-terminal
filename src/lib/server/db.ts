@@ -1389,6 +1389,67 @@ const SCHEMA_DDL_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_tag_lifecycle_events_tag ON tag_lifecycle_events (tag_id, created_at_ms DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_tag_lifecycle_events_actor ON tag_lifecycle_events (actor_handle, created_at_ms DESC)`,
+  // V2-SOURCE-SETS (2026-05-28, Slice 2 / homebrew's Phase A6): per-org
+  // governed source-set registries that back the source.reputable
+  // verification protocol. No ANT-shipped defaults — orgs build their
+  // own via the lens-creation skill (Slice 4) when they need regulatory-
+  // grounded sets. JWPK ratification at the apps coordination thread;
+  // deck d5024535-a495-45ea-9e4f-ba11bb197ab8 slide 5.
+  //
+  // source_sets defines the registry; source_set_members carries the
+  // actual sources (add/remove audited via the removed_* columns plus
+  // source_set_audit for governance events).
+  `CREATE TABLE IF NOT EXISTS source_sets (
+    id                  TEXT PRIMARY KEY,
+    name                TEXT NOT NULL,
+    description         TEXT,
+    owner_org           TEXT NOT NULL,
+    scope_kind          TEXT NOT NULL CHECK (scope_kind IN ('org-wide','lens-specific')),
+    bound_lens_id       TEXT,
+    approvers_json      TEXT NOT NULL DEFAULT '[]',
+    review_cadence_ms   INTEGER,
+    lifecycle_state     TEXT NOT NULL CHECK (lifecycle_state IN ('proposed','active','deprecated','withdrawn')),
+    created_by          TEXT NOT NULL,
+    created_at_ms       INTEGER NOT NULL,
+    updated_at_ms       INTEGER NOT NULL,
+    last_reviewed_at_ms INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_source_sets_owner ON source_sets (owner_org, lifecycle_state)`,
+  `CREATE INDEX IF NOT EXISTS idx_source_sets_bound_lens ON source_sets (bound_lens_id) WHERE bound_lens_id IS NOT NULL`,
+  // Members of each source set. member_kind discriminates between the
+  // seven source types from deck slide 5. Add/remove are audited via the
+  // removed_* columns; current membership is rows where removed_at_ms IS NULL.
+  `CREATE TABLE IF NOT EXISTS source_set_members (
+    id                TEXT PRIMARY KEY,
+    set_id            TEXT NOT NULL REFERENCES source_sets(id) ON DELETE CASCADE,
+    member_kind       TEXT NOT NULL CHECK (member_kind IN ('domain','url','repo','file_collection','named_person','database','named_document_set')),
+    member_value      TEXT NOT NULL,
+    label             TEXT,
+    added_by          TEXT NOT NULL,
+    added_reason      TEXT,
+    added_at_ms       INTEGER NOT NULL,
+    removed_by        TEXT,
+    removed_reason    TEXT,
+    removed_at_ms     INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_source_set_members_set ON source_set_members (set_id, removed_at_ms)`,
+  `CREATE INDEX IF NOT EXISTS idx_source_set_members_lookup ON source_set_members (member_kind, member_value, removed_at_ms)`,
+  // Append-only audit log for source-set governance — approver changes,
+  // lifecycle transitions, review checkpoints, member add/remove. Mirrors
+  // tag_lifecycle_events shape so the same audit UX renders both.
+  `CREATE TABLE IF NOT EXISTS source_set_audit (
+    id              TEXT PRIMARY KEY,
+    set_id          TEXT NOT NULL REFERENCES source_sets(id) ON DELETE CASCADE,
+    event_kind      TEXT NOT NULL CHECK (event_kind IN ('create','rename','add_approver','remove_approver','deprecate','restore','review_checkpoint','add_member','remove_member')),
+    actor_handle    TEXT NOT NULL,
+    actor_kind      TEXT NOT NULL CHECK (actor_kind IN ('human','agent','system')),
+    reason          TEXT,
+    before_json     TEXT,
+    after_json      TEXT,
+    created_at_ms   INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_source_set_audit_set ON source_set_audit (set_id, created_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_source_set_audit_actor ON source_set_audit (actor_handle, created_at_ms DESC)`,
   // DESIGN-STYLES (2026-05-23): banked styles for decks, UI surfaces, and org branding.
   // Styles are scoped to org or user, shareable, and referenced by id.
   `CREATE TABLE IF NOT EXISTS design_styles (
