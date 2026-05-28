@@ -6,6 +6,7 @@
   import AntLogo from './AntLogo.svelte';
   import { theme } from '$lib/stores/theme.svelte';
   import { agentKinds } from '$lib/stores/agentKinds.svelte';
+  import { modelKinds } from '$lib/stores/modelKinds.svelte';
   import { terminalBookmarks } from '$lib/stores/terminalBookmarks.svelte';
 
   import { toggleExplainMode } from '$lib/stores/explainMode.svelte';
@@ -23,7 +24,7 @@
   let navOpen = $state(false);
 
   onMount(() => {
-    theme.init(); agentKinds.init(); terminalBookmarks.init();
+    theme.init(); agentKinds.init(); modelKinds.init(); terminalBookmarks.init();
     window.addEventListener('keydown', handleExplainKey);
     return () => window.removeEventListener('keydown', handleExplainKey);
   });
