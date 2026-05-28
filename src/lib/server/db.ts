@@ -1526,6 +1526,38 @@ const SCHEMA_DDL_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_tagging_runs_scope ON tagging_runs (scope_id, started_at_ms DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_tagging_runs_initiator ON tagging_runs (initiator_handle, started_at_ms DESC)`,
+  // V2-TAG-APPLICATION-OVERRIDES (2026-05-28, Slice 4 / Phase A5):
+  // per-application overrides for classification class or flag-as-
+  // ignorable. Append-only — each override is a new row, never a
+  // mutation. Effective state is computed by walking the override
+  // chain newest-first.
+  //
+  // Three override_kind values:
+  //   - 'classification' — change the protocol class for this specific
+  //     application (e.g. demote 'consensus-required' to 'heuristic'
+  //     when context warrants). new_protocol_class is required.
+  //   - 'flag_ignorable' — mark this application as ignorable (e.g.
+  //     "this is a joke claim, not a real one"). The verification
+  //     readers skip ignorable applications.
+  //   - 'withdraw' — withdraw a previous override on the same
+  //     application, reverting to whatever the prior override was
+  //     (or original if none).
+  //
+  // reason is REQUIRED per JWPK ratification — audit-of-flagger is
+  // VITAL. There is no soft-delete; mistakes are corrected by adding
+  // a withdraw override (which is itself audited).
+  `CREATE TABLE IF NOT EXISTS tag_application_overrides (
+    id                    TEXT PRIMARY KEY,
+    tag_application_id    TEXT NOT NULL REFERENCES tag_applications(id) ON DELETE RESTRICT,
+    override_kind         TEXT NOT NULL CHECK (override_kind IN ('classification','flag_ignorable','withdraw')),
+    new_protocol_class    TEXT,
+    handler_handle        TEXT NOT NULL,
+    handler_kind          TEXT NOT NULL CHECK (handler_kind IN ('human','agent','system')),
+    reason                TEXT NOT NULL,
+    created_at_ms         INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_tag_app_overrides_app ON tag_application_overrides (tag_application_id, created_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_tag_app_overrides_handler ON tag_application_overrides (handler_handle, created_at_ms DESC)`,
   // DESIGN-STYLES (2026-05-23): banked styles for decks, UI surfaces, and org branding.
   // Styles are scoped to org or user, shareable, and referenced by id.
   `CREATE TABLE IF NOT EXISTS design_styles (
