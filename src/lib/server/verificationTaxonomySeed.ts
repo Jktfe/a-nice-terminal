@@ -15,7 +15,8 @@ import {
   getLatestTagVersion,
   type CreateTagInput,
   type ProtocolResolver,
-  type TagDefinition
+  type TagDefinition,
+  type VerificationProtocolClass
 } from './verificationTaxonomyStore';
 
 const SYSTEM_AUTHOR = '@system';
@@ -27,8 +28,8 @@ function staticProtocol(
 }
 
 function conditional(
-  rules: Array<{ when: string; protocol: ProtocolResolver extends { kind: 'static'; protocol: infer P } ? P : never }>,
-  fallback: 'deterministic' | 'heuristic' | 'judgement-required' | 'consensus-required'
+  rules: Array<{ when: string; protocol: VerificationProtocolClass }>,
+  fallback: VerificationProtocolClass
 ): ProtocolResolver {
   return { kind: 'conditional', rules, default: fallback };
 }
