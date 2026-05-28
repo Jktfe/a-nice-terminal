@@ -445,6 +445,7 @@ Verbs:
   docs generate --from-cli            Generate manifest-derived markdown.
   deck build|list                     Build/list normal deck artefacts served at /d/SLUG.
   decks list|add|update|remove         Manage ANT Stage presentations served at /decks/ID.
+  artefact add|list|remove             Add/list room artefact pointers, including deck and stage.
   linkedchat list|allow|deny          Manage terminal-scoped linked-chat permissions.
   fingerprint detect <terminal-id>    Detect agent kind via 5-source cascade.
   mcp list|grant|revoke               Manage MCP adapter grants (admin-bearer).

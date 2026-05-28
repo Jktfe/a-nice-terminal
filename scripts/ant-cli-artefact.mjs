@@ -76,7 +76,7 @@ function writeUsage(runtime) {
 async function runAdd(args, runtime, CliInputError) {
   const { flags } = parseFlags(args, CliInputError);
   if (!flags.room) throw new CliInputError('artefact add needs --room <id>');
-  if (!flags.kind) throw new CliInputError('artefact add needs --kind <html|deck|spreadsheet|doc|mockup|other>');
+  if (!flags.kind) throw new CliInputError('artefact add needs --kind <html|deck|stage|spreadsheet|doc|mockup|other>');
   if (!VALID_KINDS.has(flags.kind)) {
     throw new CliInputError(`--kind must be one of: ${[...VALID_KINDS].join(', ')}`);
   }
