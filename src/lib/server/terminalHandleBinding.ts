@@ -4,6 +4,8 @@ import {
   adoptExternalProcessForTerminal,
   autoRegisterTerminalForSpawnedSession,
   getTerminalById,
+  lookupTerminalByPidChain,
+  type PidChainEntry,
   type TerminalRow
 } from './terminalsStore';
 
@@ -34,7 +36,11 @@ function isExistingTerminalStillLive(terminal: TerminalRow): boolean {
   return true;
 }
 
-export function bindRoomHandleToLiveTerminal(roomId: string, rawHandle: string): string | null {
+export function bindRoomHandleToLiveTerminal(
+  roomId: string,
+  rawHandle: string,
+  callerPidChain: PidChainEntry[] = []
+): string | null {
   const handle = normalizeHandle(rawHandle);
   if (roomId.trim().length === 0 || handle.length === 0) return null;
 
@@ -46,6 +52,22 @@ export function bindRoomHandleToLiveTerminal(roomId: string, rawHandle: string):
     isExistingTerminalStillLive(existingTerminal)
   ) {
     return existingTerminal.id;
+  }
+
+  // Point 2 fix (Xeno windows-cli-auth-wedge follow-up #2, 2026-05-28):
+  // when the existing binding fails liveness, prefer the caller's actual
+  // pidChain-resolved terminal over the legacy handle→record lookup.
+  // findTerminalRecordByHandle picks the FIRST record matching the
+  // handle, which is often the SAME stale row that just failed liveness
+  // — leaving the user wedged even after a fresh `ant register` cycle.
+  // lookupTerminalByPidChain walks the caller's own process tree to find
+  // the genuinely-live terminal_records row that THIS shell registered.
+  if (callerPidChain.length > 0) {
+    const liveTerminal = lookupTerminalByPidChain(callerPidChain);
+    if (liveTerminal && isExistingTerminalStillLive(liveTerminal)) {
+      addMembership({ room_id: roomId, handle, terminal_id: liveTerminal.id });
+      return liveTerminal.id;
+    }
   }
 
   const record = findTerminalRecordByHandle(handle);
