@@ -1407,6 +1407,35 @@ const SCHEMA_DDL_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_lens_tag_rows_lens ON lens_tag_rows (lens_id)`,
   `CREATE INDEX IF NOT EXISTS idx_lens_tag_rows_tag ON lens_tag_rows (tag_id)`,
+  // V2-SKILL-INVOCATIONS (2026-05-28, Slice 11 / Phase B3 audit substrate):
+  // Append-only log of every skill invocation. Records caller identity,
+  // input requirements (raw + hash for dedup), full output JSON, and
+  // either the output lens id (on success) or error_kind (on refusal).
+  // model_used + cost_estimate_usd populated when the LLM call wiring
+  // lands (B3 LLM piece still needs JWPK model+cost ratify).
+  //
+  // Raw input_json + output_json are admin-bearer-only via the audit
+  // endpoint (B3 follow-up); requirements_hash lets the audit UI dedup
+  // identical-input calls without exposing the raw text.
+  `CREATE TABLE IF NOT EXISTS skill_invocations (
+    id                       TEXT PRIMARY KEY,
+    skill_id                 TEXT NOT NULL,
+    invoker_handle           TEXT NOT NULL,
+    invoker_kind             TEXT NOT NULL CHECK (invoker_kind IN ('human','agent','system')),
+    scope_id                 TEXT NOT NULL,
+    input_requirements_hash  TEXT NOT NULL,
+    input_json               TEXT NOT NULL,
+    output_json              TEXT NOT NULL,
+    output_lens_id           TEXT REFERENCES verification_lenses(id) ON DELETE SET NULL,
+    error_kind               TEXT,
+    model_used               TEXT,
+    cost_estimate_usd        REAL,
+    invoked_at_ms            INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_skill_invocations_scope ON skill_invocations (scope_id, invoked_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_skill_invocations_invoker ON skill_invocations (invoker_handle, invoked_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_skill_invocations_output_lens ON skill_invocations (output_lens_id) WHERE output_lens_id IS NOT NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_skill_invocations_skill ON skill_invocations (skill_id, invoked_at_ms DESC)`,
   // VERIFICATION-V2 (2026-05-28): taxonomy-first verification per JWPK
   // 17-question ratification at eiw05zdurz. Tag definitions are versioned
   // governance objects (NOT prompt fragments); lifecycle is create →
