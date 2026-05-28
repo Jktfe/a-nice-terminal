@@ -417,8 +417,8 @@ export const manifestData: CliManifestVerb[] = [
 
   // === chat (name-aware + send/reply/pending) — SHIPPED 2026-05-16 ===
   av('chat-send', 'chat', 'send',
-    'chat send <roomId> (--msg "..." | --msg-file PATH | --stdin) [--handle @h] [--kind K] [--parent-message ID] [--json]',
-    'Post a message into a room. Principal verb for sending; `rooms post` is the internal route name. pidChain is appended automatically so the server resolves the caller. Use --stdin or --msg-file for bodies containing backticks/$/!/trailing-@ that the shell would otherwise expand.',
+    'chat send <roomId> (--msg "..." | --msg-file PATH | --stdin) [--handle @h] [--kind K] [--parent-message ID] [--broadcast-ok] [--json]',
+    'Post a broadcast message into a room. Principal verb for sending; `rooms post` is the internal route name. pidChain is appended automatically so the server resolves the caller. Use --stdin or --msg-file for bodies containing backticks/$/!/trailing-@ that the shell would otherwise expand. If the body contains an ANT message id, prefer `ant chat reply <messageId>` or pass --broadcast-ok for an intentional broadcast.',
     [f('room', 'string', 'Room ID (required; first positional accepted).'),
      f('msg', 'string', 'Message body on argv (--body alias accepted).'),
      f('msg-file', 'string', 'Path to a file whose contents form the body. No shell parsing of content.'),
@@ -427,6 +427,7 @@ export const manifestData: CliManifestVerb[] = [
      f('handle', 'string', 'Override author handle (default: PID-chain resolved).'),
      f('kind', 'enum', 'Message kind.', { constraint: 'human|agent|system|system-break' }),
      f('parent-message', 'string', 'Reply parent message id.'),
+     f('broadcast-ok', 'boolean', 'Allow an intentional broadcast that references an ANT message id.'),
      f('json', 'boolean', 'Emit JSON instead of human text.')],
     `ant chat send ${ROOM_ID_EX} --stdin <<'EOF'\nmessage body\nEOF`,
     'scripts/ant-cli-chat.mjs:62-64,229-258'),

@@ -30,7 +30,7 @@ import { handleChatPendingVerb } from './ant-cli-chat-pending.mjs';
 import { fetchRoomJsonWithBrowserSessionFallback } from './ant-cli-browser-session.mjs';
 
 const ALLOWED_KIND_TAGS = new Set(['human', 'agent', 'system', 'system-break']);
-const BOOLEAN_FLAGS = new Set(['once', 'json', 'clear', 'msg-stdin', 'stdin']);
+const BOOLEAN_FLAGS = new Set(['once', 'json', 'clear', 'msg-stdin', 'stdin', 'broadcast-ok']);
 // Known top-level action verbs for `ant chat <action>`. Anything else
 // in the first slot is treated as a chat identifier (name or id) per
 // the JWPK 2026-05-16 verb spec: `ant chat <chatname> send <msg>`.
@@ -277,6 +277,7 @@ async function runNameAwareRename(chatIdentifier, args, runtime, CliInputError) 
 async function runSend(flags, runtime, CliInputError) {
   const room = requireFlag(flags, 'room', CliInputError);
   const body = resolveMessageBody(flags, runtime, CliInputError);
+  assertSendIntentIsSafe(body, flags, CliInputError);
   const payload = { body, pidChain: processIdentityChain() };
   if (flags.handle) payload.authorHandle = flags.handle;
   if (flags.kind) {
@@ -324,6 +325,18 @@ async function runSend(flags, runtime, CliInputError) {
     runtime.writeOut(`Posted ${m?.id ?? '?'} as ${m?.authorHandle ?? '?'} into ${room}.`);
   }
   return 0;
+}
+
+function assertSendIntentIsSafe(body, flags, CliInputError) {
+  if (flags['parent-message'] !== undefined || flags['broadcast-ok'] !== undefined) return;
+  if (!looksReplyShaped(body)) return;
+  throw new CliInputError(
+    'message looks like a reply-shaped broadcast; use `ant chat reply <messageId> --stdin`, pass --parent-message, or add --broadcast-ok for an intentional broadcast'
+  );
+}
+
+function looksReplyShaped(body) {
+  return /\breply-to=msg_[a-z0-9_\-]+\b/i.test(body) || /\bmsg_[a-z0-9_\-]+\b/i.test(body);
 }
 
 async function runReply(flags, runtime, CliInputError) {
@@ -515,7 +528,7 @@ function parseFlags(rawArgs, CliInputError) {
 
 function writeUsage(runtime) {
   runtime.writeOut('ant chat <send|reply|tail|break|read|typing|draft|focus|unfocus|decide> [flags]');
-  runtime.writeOut('  send <roomId> (--msg TEXT | --msg-file PATH | --stdin) [--handle @h] [--kind human|agent|system]');
+  runtime.writeOut('  send <roomId> (--msg TEXT | --msg-file PATH | --stdin) [--handle @h] [--kind human|agent|system] [--broadcast-ok]');
   runtime.writeOut('  reply <messageId> (--msg TEXT | --msg-file PATH | --stdin) [--handle @h] [--kind human|agent]');
   runtime.writeOut('  tail --room ROOM_ID [--since-order N] [--poll-ms 2000] [--once]');
   runtime.writeOut('  break --room ROOM_ID [--reason TEXT] [--handle @you]');
