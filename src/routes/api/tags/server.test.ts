@@ -5,10 +5,28 @@
  * single-tag GET. Admin-bearer gate + body validation paths covered.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { error } from '@sveltejs/kit';
+
+const featureGateState = vi.hoisted(() => ({ verificationAuthorEnabled: true }));
+
+vi.mock('$lib/server/featureGates', () => ({
+  CURRENT_TIER: 'native',
+  getFeatureFlagsForTier: () => ({
+    verification_api: true,
+    verification_ux: true,
+    verification_author: featureGateState.verificationAuthorEnabled
+  }),
+  requireVerificationAuthorTier: () => {
+    if (!featureGateState.verificationAuthorEnabled) {
+      throw error(403, 'Verification authoring requires premium tier.');
+    }
+  }
+}));
+
 import { POST as tagsPost, GET as tagsGet } from './+server';
 import { GET as tagGet } from './[tagId]/+server';
 import { POST as tagDeprecate } from './[tagId]/deprecate/+server';
@@ -52,6 +70,7 @@ beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'ant-tags-route-'));
   process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
   process.env.ANT_ADMIN_BEARER = TEST_ADMIN;
+  featureGateState.verificationAuthorEnabled = true;
   resetIdentityDbForTests();
   resetVerificationTaxonomyStoreForTests();
 });
@@ -117,6 +136,13 @@ describe('/api/tags POST', () => {
     const response = await runHandler(tagsPost as unknown as AnyHandler,
       authedPost('/api/tags', incomplete));
     expect(response.status).toBe(400);
+  });
+
+  it('T5b: blocks OSS tier with 403 even when admin-bearer is valid (F2 author gate)', async () => {
+    featureGateState.verificationAuthorEnabled = false;
+    const response = await runHandler(tagsPost as unknown as AnyHandler,
+      authedPost('/api/tags', SAMPLE_TAG));
+    expect(response.status).toBe(403);
   });
 });
 
@@ -213,6 +239,22 @@ describe('/api/tags/[tagId]/deprecate POST', () => {
         { actor_handle: '@admin', actor_kind: 'human' },
         { tagId: 'no-such' }));
     expect(response.status).toBe(404);
+  });
+
+  it('T11b: blocks OSS tier with 403 even when admin-bearer is valid (F2 author gate)', async () => {
+    createTag({
+      id: 'org.deny', name: 'D', description: 'd', category: 'claim',
+      provenance: 'org', scopeId: 'acme',
+      protocolResolver: { kind: 'static', protocol: 'heuristic' },
+      isRelational: false, familyRoot: null, isHumanEditable: true,
+      createdBy: '@admin'
+    });
+    featureGateState.verificationAuthorEnabled = false;
+    const response = await runHandler(tagDeprecate as unknown as AnyHandler,
+      authedPost('/api/tags/org.deny/deprecate',
+        { actor_handle: '@admin', actor_kind: 'human' },
+        { tagId: 'org.deny' }));
+    expect(response.status).toBe(403);
   });
 
   it('T12: supersedes when replacement_tag_id provided', async () => {

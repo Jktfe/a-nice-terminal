@@ -28,6 +28,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { editTag } from '$lib/server/verificationTaxonomyStore';
 import type { ProtocolResolver, TagActorKind } from '$lib/server/verificationTaxonomyStore';
+import { requireVerificationAuthorTier } from '$lib/server/featureGates';
 
 const VALID_ACTOR = new Set<TagActorKind>(['human', 'agent', 'system']);
 
@@ -44,6 +45,7 @@ function requireAdminBearer(request: Request): void {
 
 export const PUT: RequestHandler = async ({ request, params }) => {
   requireAdminBearer(request);
+  requireVerificationAuthorTier();
   const tagId = params.tagId;
   if (!tagId) throw error(400, 'tagId required');
 

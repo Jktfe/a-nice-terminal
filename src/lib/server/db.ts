@@ -1655,6 +1655,45 @@ const SCHEMA_DDL_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_tag_app_overrides_app ON tag_application_overrides (tag_application_id, created_at_ms DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_tag_app_overrides_handler ON tag_application_overrides (handler_handle, created_at_ms DESC)`,
+
+  // ORGS (2026-05-28): F1 license-time namespace provisioning substrate.
+  // Buying a license on antonline.dev registers the org's namespace
+  // (org.<orgId>.*) so org-scoped tags / source-sets / lenses can be
+  // created. The license-holder becomes the initial org-admin.
+  //
+  // Append-only semantics — orgs are archived (archived_at_ms set), not
+  // hard-deleted, so historical verifications + tag applications keep
+  // resolving against their owning namespace. Tier is mutable so a
+  // license upgrade flips oss → premium → enterprise without losing the
+  // namespace registration.
+  `CREATE TABLE IF NOT EXISTS orgs (
+    id                TEXT PRIMARY KEY,
+    display_name      TEXT NOT NULL,
+    namespace_prefix  TEXT NOT NULL UNIQUE,
+    tier              TEXT NOT NULL CHECK (tier IN ('oss','premium','enterprise')) DEFAULT 'oss',
+    created_by        TEXT NOT NULL,
+    created_at_ms     INTEGER NOT NULL,
+    archived_at_ms    INTEGER
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_orgs_namespace ON orgs (namespace_prefix)`,
+  `CREATE INDEX IF NOT EXISTS idx_orgs_tier ON orgs (tier, created_at_ms DESC)`,
+
+  // ORG_ADMINS (2026-05-28): org-admin role assignments. Soft-delete via
+  // revoked_at_ms so the audit trail of who-held-admin-when survives.
+  // The partial UNIQUE index keeps (org_id, handle) unique among ACTIVE
+  // rows while permitting re-grant after revocation.
+  `CREATE TABLE IF NOT EXISTS org_admins (
+    id                TEXT PRIMARY KEY,
+    org_id            TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+    handle            TEXT NOT NULL,
+    assigned_by       TEXT NOT NULL,
+    assigned_at_ms    INTEGER NOT NULL,
+    revoked_at_ms     INTEGER,
+    revoked_by        TEXT
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_org_admins_active ON org_admins (org_id, handle) WHERE revoked_at_ms IS NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_org_admins_handle ON org_admins (handle, revoked_at_ms)`,
+
   // DESIGN-STYLES (2026-05-23): banked styles for decks, UI surfaces, and org branding.
   // Styles are scoped to org or user, shareable, and referenced by id.
   `CREATE TABLE IF NOT EXISTS design_styles (

@@ -26,6 +26,7 @@ import type {
   LensTagDisputePolicy,
   LensTagExpectation
 } from '$lib/server/lensTagRowsStore';
+import { requireVerificationAuthorTier } from '$lib/server/featureGates';
 
 const VALID_EXPECTATION = new Set<LensTagExpectation>([
   'required', 'forbidden', 'consensus-required', 'heuristic-allowed', 'out-of-scope'
@@ -54,6 +55,7 @@ export const GET: RequestHandler = async ({ params }) => {
 
 export const POST: RequestHandler = async ({ request, params }) => {
   requireAdminBearer(request);
+  requireVerificationAuthorTier();
   const lensId = params.lensId;
   if (!lensId) throw error(400, 'lensId required');
 

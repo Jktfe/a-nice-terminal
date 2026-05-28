@@ -27,6 +27,7 @@ import {
   createTag,
   listTaxonomy
 } from '$lib/server/verificationTaxonomyStore';
+import { requireVerificationAuthorTier } from '$lib/server/featureGates';
 import type {
   ProtocolResolver,
   TagActorKind,
@@ -69,6 +70,7 @@ export const GET: RequestHandler = async ({ url }) => {
 
 export const POST: RequestHandler = async ({ request }) => {
   requireAdminBearer(request);
+  requireVerificationAuthorTier();
 
   let body: Record<string, unknown>;
   try { body = await request.json(); }

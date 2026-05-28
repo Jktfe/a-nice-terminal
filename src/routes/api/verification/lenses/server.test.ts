@@ -2,24 +2,35 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { error } from '@sveltejs/kit';
 import { resetIdentityDbForTests, getIdentityDb } from '$lib/server/db';
 import { createBrowserSession } from '$lib/server/browserSessionStore';
 import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
 import { getValidationSchema, listValidationSchemaAuditForSchema } from '$lib/server/validationLensStore';
-import { GET, POST } from './+server';
-import { GET as GET_ONE, PATCH, DELETE } from './[lensId]/+server';
-import { GET as GET_AUDIT } from './[lensId]/audit/+server';
 
-const featureGateState = vi.hoisted(() => ({ verificationUxEnabled: true }));
+const featureGateState = vi.hoisted(() => ({
+  verificationUxEnabled: true,
+  verificationAuthorEnabled: true
+}));
 
 vi.mock('$lib/server/featureGates', () => ({
   CURRENT_TIER: 'native',
   getFeatureFlagsForTier: () => ({
     verification_ux: featureGateState.verificationUxEnabled,
     verification_api: true,
+    verification_author: featureGateState.verificationAuthorEnabled,
     policy_controls: true
-  })
+  }),
+  requireVerificationAuthorTier: () => {
+    if (!featureGateState.verificationAuthorEnabled) {
+      throw error(403, 'Verification authoring requires premium tier.');
+    }
+  }
 }));
+
+import { GET, POST } from './+server';
+import { GET as GET_ONE, PATCH, DELETE } from './[lensId]/+server';
+import { GET as GET_AUDIT } from './[lensId]/audit/+server';
 
 const PREV_DB_PATH = process.env.ANT_FRESH_DB_PATH;
 let tmpDir = '';
@@ -54,6 +65,7 @@ beforeEach(() => {
   resetIdentityDbForTests();
   resetChatRoomStoreForTests();
   featureGateState.verificationUxEnabled = true;
+  featureGateState.verificationAuthorEnabled = true;
   actorCounter = 0;
 });
 
