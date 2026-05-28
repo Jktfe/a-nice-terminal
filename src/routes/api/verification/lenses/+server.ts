@@ -1,7 +1,7 @@
 /**
  * /api/verification/lenses — premium app-facing lens CRUD.
  *
- * This route stores the V2 lens authoring shape in validation_schemas.rules_json.
+ * This route stores the V2 lens authoring shape in verification_lenses.rules_json.
  * Claude's lensRulesBridge lowers that shape to executable PolicyBody for the
  * current scorer/orchestrator while native apps consume the richer V2 contract.
  */

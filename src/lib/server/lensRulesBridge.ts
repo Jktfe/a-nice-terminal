@@ -1,5 +1,5 @@
 /**
- * lensRulesBridge — bridge from `validation_schemas.rules_json` (v2
+ * lensRulesBridge — bridge from `verification_lenses.rules_json` (v2
  * authoring shape) to the executable `PolicyBody` consumed by
  * `scoreValidationClaims` + `planValidationOrchestration`.
  *
@@ -180,7 +180,7 @@ function parseBlock(raw: unknown): LensBlock | null {
 }
 
 /**
- * Parse the JSON string stored in `validation_schemas.rules_json` into
+ * Parse the JSON string stored in `verification_lenses.rules_json` into
  * a structured `LensRules`. Returns `null` only when the JSON itself is
  * malformed. Legacy `[]`, empty objects, or non-object payloads
  * resolve to an empty rules set (`{}`) — no requirements anywhere.

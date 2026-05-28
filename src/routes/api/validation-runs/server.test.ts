@@ -146,8 +146,8 @@ describe('GET /api/validation-runs', () => {
     db.prepare('DELETE FROM browser_sessions').run();
     db.prepare('DELETE FROM room_memberships').run();
     db.prepare("DELETE FROM terminals WHERE source = 'browser-session' OR name LIKE 'validation-runs-auth-%'").run();
-    db.prepare('DELETE FROM validation_runs').run();
-    db.prepare('DELETE FROM validation_schemas').run();
+    db.prepare('DELETE FROM verification_observations').run();
+    db.prepare('DELETE FROM verification_lenses').run();
   });
 
   it('rejects unauthenticated callers before returning validation evidence', async () => {

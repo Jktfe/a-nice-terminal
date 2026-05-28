@@ -10,7 +10,7 @@
  * Response shape:
  *   {
  *     defaultLensId: string | null,        // V5 territory — null for now
- *     recentRunCount: number,              // validation_runs in last 7d
+ *     recentRunCount: number,              // verification_observations in last 7d
  *     pendingTaskCount: number,            // validation verifier tasks pending
  *     overallTrustScore: number | null,    // 0-1 raw, tooltip/sorting only
  *     trustState: 'passed' | 'failed' | 'pending' | 'stale' | 'unknown',
