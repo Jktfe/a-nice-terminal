@@ -16,6 +16,8 @@ import {
   listCliHookEventsForSession
 } from '$lib/server/cliHookEventsStore';
 import { resetIdentityDbForTests } from '$lib/server/db';
+import { getAgentStatus } from '$lib/server/agentStatusStore';
+import { upsertTerminal } from '$lib/server/terminalsStore';
 
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
@@ -183,6 +185,34 @@ describe('/api/cli-hook POST', () => {
       )
     );
     expect(response.status).toBe(201);
+  });
+
+  it('uses ant_session_id to update the ANT terminal pill while preserving the CLI hook session timeline', async () => {
+    const terminal = upsertTerminal({
+      pid: 1234,
+      pid_start: 'Mon May 25 10:00:00 2026',
+      name: 'status-target',
+      source: 'test',
+      ttlSeconds: 3600
+    });
+
+    const response = await runHandler(
+      cliHookPost as unknown as AnyHandler,
+      postBody('/api/cli-hook?source=claude-code', {
+        session_id: 'claude-own-session-uuid',
+        ant_session_id: terminal.id,
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Bash'
+      })
+    );
+
+    expect(response.status).toBe(201);
+    expect(listCliHookEventsForSession('claude-own-session-uuid')).toHaveLength(1);
+    expect(getAgentStatus(terminal.id)).toMatchObject({
+      terminal_id: terminal.id,
+      agent_status: 'working',
+      agent_status_source: 'hook'
+    });
   });
 });
 

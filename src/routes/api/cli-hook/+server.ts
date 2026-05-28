@@ -72,6 +72,12 @@ function extractEffortLevel(payload: Record<string, unknown>): string | null {
   return null;
 }
 
+function resolveStatusTerminalId(body: Record<string, unknown>, fallbackSessionId: string): string {
+  return asNonBlankString(body.ant_session_id)
+    ?? asNonBlankString(body.terminal_id)
+    ?? fallbackSessionId;
+}
+
 export const POST: RequestHandler = async ({ request, url }) => {
   rejectRemoteBridgeBearer(request);
 
@@ -121,14 +127,15 @@ export const POST: RequestHandler = async ({ request, url }) => {
   // actually differs (no-op writes pollute the audit log).
   try {
     const nextStatus = mapHookEventToAgentStatus(hookEventName);
-    if (nextStatus && getTerminalById(sessionId)) {
-      const current = getAgentStatus(sessionId);
+    const statusTerminalId = resolveStatusTerminalId(body, sessionId);
+    if (nextStatus && getTerminalById(statusTerminalId)) {
+      const current = getAgentStatus(statusTerminalId);
       if (!current || current.agent_status !== nextStatus) {
         setAgentStatus({
-          terminalId: sessionId,
+          terminalId: statusTerminalId,
           newStatus: nextStatus,
           source: 'hook',
-          evidence: { hookEventName, sourceCli }
+          evidence: { hookEventName, sourceCli, hookSessionId: sessionId }
         });
       }
     }
