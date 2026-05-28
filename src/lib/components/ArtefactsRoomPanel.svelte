@@ -1,12 +1,12 @@
 <!--
   ArtefactsRoomPanel — Task #91/#98 UI half.
 
-  Sectioned list of room artefacts (HTML / decks / spreadsheets / docs /
+  Sectioned list of room artefacts (HTML / decks / Stage / spreadsheets / docs /
   mockups / other), with a compact add form for each section. Backed by
   /api/chat-rooms/:roomId/artefacts (GET/POST/DELETE) — shipped 5ac765c.
 -->
 <script lang="ts">
-  type ArtefactKind = 'html' | 'deck' | 'spreadsheet' | 'doc' | 'mockup' | 'other';
+  type ArtefactKind = 'html' | 'deck' | 'stage' | 'spreadsheet' | 'doc' | 'mockup' | 'other';
 
   type RoomArtefact = {
     id: string;
@@ -33,6 +33,7 @@
   const KIND_LABELS: Record<ArtefactKind, string> = {
     html: 'HTML',
     deck: 'Decks',
+    stage: 'ANT Stage',
     spreadsheet: 'Sheets',
     doc: 'Docs',
     mockup: 'Mockups',
@@ -42,6 +43,7 @@
   const KIND_GLYPH: Record<ArtefactKind, string> = {
     html: '🌐',
     deck: '🎞️',
+    stage: '🎙️',
     spreadsheet: '📊',
     doc: '📝',
     mockup: '🎨',

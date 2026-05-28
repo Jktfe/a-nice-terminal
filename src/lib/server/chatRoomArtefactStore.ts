@@ -16,6 +16,7 @@ import { getIdentityDb } from './db';
 export const ARTEFACT_KINDS = [
   'html',
   'deck',
+  'stage',
   'spreadsheet',
   'doc',
   'mockup',

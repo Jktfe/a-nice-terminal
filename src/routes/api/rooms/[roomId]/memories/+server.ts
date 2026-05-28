@@ -46,6 +46,16 @@ function parseFrontmatterValue(frontmatter: string, field: string): string | nul
   return match?.[1]?.trim() ?? null;
 }
 
+function memoryAppliesToRoom(frontmatter: string, linkedRooms: string[], roomId: string): boolean {
+  if (linkedRooms.includes(roomId)) return true;
+  const defaultRoomPolicy = parseFrontmatterValue(frontmatter, 'default_room_policy');
+  if (defaultRoomPolicy === 'universal') return true;
+  const scope = parseFrontmatterValue(frontmatter, 'scope');
+  if (scope === 'universal') return true;
+  const type = parseFrontmatterValue(frontmatter, 'type');
+  return type === 'core';
+}
+
 function walkMarkdownFiles(root: string): string[] {
   if (!existsSync(root)) return [];
   const out: string[] = [];
@@ -66,7 +76,7 @@ function memoryPackFileToResponse(filePath: string, roomId: string): RoomMemoryR
   const frontmatter = frontmatterMatch[1];
   const bodyWithTitle = frontmatterMatch[2].trim();
   const linkedRooms = parseFrontmatterArray(frontmatter, 'linked_rooms');
-  if (!linkedRooms.includes(roomId)) return null;
+  if (!memoryAppliesToRoom(frontmatter, linkedRooms, roomId)) return null;
 
   const memoryId = parseFrontmatterValue(frontmatter, 'memory_id') ?? filePath.split('/').pop()?.replace(/\.md$/, '') ?? 'memory';
   const title = bodyWithTitle.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? memoryId;
