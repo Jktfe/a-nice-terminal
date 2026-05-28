@@ -19,19 +19,41 @@ import { randomUUID } from 'node:crypto';
 import { getIdentityDb } from './db';
 import { postSystemMessage } from './chatMessageStore';
 import { resolveHumanOwnership } from './consentGate';
+import { resolveMemoryVaultPath } from './memoryVaultSettingsStore';
 
 // β3 (JWPK msg_fuvbzkd4wx 2026-05-23): on first agent join into a room, post
 // a one-time system message stating the context-break + memory rules. Skips
 // human handles (who already know the rules) and skips on existing-row
 // re-bind (the message is per-(room, agent) first-time only).
-const AGENT_JOIN_PREAMBLE_BODY = [
-  '**Agent join — context discipline for this room** (one-time system notice).',
-  '',
-  '1. `kind=system-break` messages are a HARD backwards-scan boundary. Don\'t read older context unless explicitly asked.',
-  '2. Memory files (`room-memories/<memoryID>.md`) are room-only by default — only pull if linked from recent room posts or @you asks.',
-  '',
-  'Use the ask primitive for real decisions. Tight ACKs for coordination. Surface obstacles as 2-4 logic-shape paths, never bulk-dump.',
-].join('\n');
+//
+// 2026-05-28 update (JWPK orsz msg_szk0m5cwqn): the memory-pack path was
+// previously hardcoded in the repo. Now resolved at emission time via
+// `resolveMemoryVaultPath()` — env var `ANT_MEMORY_VAULT_PATH` or
+// `~/.ant/memory-vault.json` settings file. Nothing about the path lives
+// in this repo file. Unset case: the preamble prompts the agent to set
+// the path before continuing.
+export function buildAgentJoinPreamble(vaultPath: string | null): string {
+  const lines = [
+    '**Agent join — context discipline for this room** (one-time system notice).',
+    '',
+    '1. `kind=system-break` messages are a HARD backwards-scan boundary. Don\'t read older context unless explicitly asked.'
+  ];
+  if (vaultPath !== null) {
+    lines.push(
+      `2. Read the configured memory pack README at \`${vaultPath}/README.md\` before acting. Use \`ant memory recall --search "<topic>"\` to load only the memories relevant to this room/task; the CLI resolves the memory-pack root from config/env.`
+    );
+  } else {
+    lines.push(
+      '2. Read the configured memory pack README before acting. If `ant memory recall --search "<topic>"` says no memory pack is configured, set it with `ant memory vault set --path <PATH>` or `ANT_MEMORY_VAULT_PATH` and retry.'
+    );
+  }
+  lines.push(
+    '3. Room-linked memories are shared operating context. Attach relevant memIDs to the room; do not duplicate the memory text into chat unless needed for a decision.',
+    '',
+    'Use the ask primitive for real decisions. Tight ACKs for coordination. Surface obstacles as 2-4 logic-shape paths, never bulk-dump.'
+  );
+  return lines.join('\n');
+}
 
 export type RoomMembershipRow = {
   id: string;
@@ -103,7 +125,12 @@ export function addMembership(input: AddMembershipInput): RoomMembershipRow {
 function maybePostAgentJoinPreamble(roomId: string, handle: string): void {
   const ownership = resolveHumanOwnership(handle);
   if (ownership.kind !== 'agent') return;
-  postSystemMessage({ roomId, body: AGENT_JOIN_PREAMBLE_BODY });
+  // Resolve vault path at emission time so the preamble carries the
+  // actual location, not a placeholder — JWPK orsz msg_szk0m5cwqn.
+  // Env var wins; falls back to ~/.ant/memory-vault.json; null when
+  // unset (preamble shows the set-it instruction).
+  const vaultPath = resolveMemoryVaultPath();
+  postSystemMessage({ roomId, body: buildAgentJoinPreamble(vaultPath) });
 }
 
 export function getRoomScopedHandle(roomId: string, terminalId: string): string | null {
