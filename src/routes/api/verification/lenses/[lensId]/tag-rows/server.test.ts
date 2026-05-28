@@ -3,10 +3,28 @@
  * Covers POST (create row) + GET (list) + DELETE (per-row removal).
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { error } from '@sveltejs/kit';
+
+const featureGateState = vi.hoisted(() => ({ verificationAuthorEnabled: true }));
+
+vi.mock('$lib/server/featureGates', () => ({
+  CURRENT_TIER: 'native',
+  getFeatureFlagsForTier: () => ({
+    verification_api: true,
+    verification_ux: true,
+    verification_author: featureGateState.verificationAuthorEnabled
+  }),
+  requireVerificationAuthorTier: () => {
+    if (!featureGateState.verificationAuthorEnabled) {
+      throw error(403, 'Verification authoring requires premium tier.');
+    }
+  }
+}));
+
 import { POST, GET } from './+server';
 import { DELETE as deleteRow, GET as getRow } from './[rowId]/+server';
 import { resetLensTagRowsStoreForTests } from '$lib/server/lensTagRowsStore';
@@ -57,6 +75,7 @@ beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'ant-lens-tag-rows-'));
   process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
   process.env.ANT_ADMIN_BEARER = TEST_ADMIN;
+  featureGateState.verificationAuthorEnabled = true;
   resetIdentityDbForTests();
   resetLensTagRowsStoreForTests();
 });
@@ -144,6 +163,16 @@ describe('POST /api/verification/lenses/[lensId]/tag-rows', () => {
     const response = await runHandler(POST as unknown as AnyHandler, event);
     expect(response.status).toBe(401);
   });
+
+  it('LTR6b: blocks OSS tier with 403 even when admin-bearer is valid (F2 author gate)', async () => {
+    const lens = freshLens('lens-r6b');
+    featureGateState.verificationAuthorEnabled = false;
+    const response = await runHandler(POST as unknown as AnyHandler,
+      authed('POST', `/api/verification/lenses/${lens.id}/tag-rows`, {
+        tag_id: 'x', expectation: 'required', author_handle: '@a'
+      }, { lensId: lens.id }));
+    expect(response.status).toBe(403);
+  });
 });
 
 describe('GET /api/verification/lenses/[lensId]/tag-rows', () => {
@@ -200,5 +229,19 @@ describe('DELETE /api/verification/lenses/[lensId]/tag-rows/[rowId]', () => {
       authed('DELETE', `/api/verification/lenses/${lens.id}/tag-rows/ltr-nope`,
         undefined, { lensId: lens.id, rowId: 'ltr-nope' }));
     expect(response.status).toBe(404);
+  });
+
+  it('LTR11: blocks OSS tier with 403 even when admin-bearer is valid (F2 author gate)', async () => {
+    const lens = freshLens('lens-del-oss');
+    const created = await runHandler(POST as unknown as AnyHandler,
+      authed('POST', `/api/verification/lenses/${lens.id}/tag-rows`, {
+        tag_id: 't', expectation: 'required', author_handle: '@a'
+      }, { lensId: lens.id }));
+    const { row } = await created.json();
+    featureGateState.verificationAuthorEnabled = false;
+    const response = await runHandler(deleteRow as unknown as AnyHandler,
+      authed('DELETE', `/api/verification/lenses/${lens.id}/tag-rows/${row.id}`,
+        undefined, { lensId: lens.id, rowId: row.id }));
+    expect(response.status).toBe(403);
   });
 });

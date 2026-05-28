@@ -8,7 +8,7 @@
 
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { CURRENT_TIER, getFeatureFlagsForTier } from '$lib/server/featureGates';
+import { requireVerificationAuthorTier } from '$lib/server/featureGates';
 import {
   createValidationSchema,
   listValidationSchemas,
@@ -42,8 +42,7 @@ export const GET: RequestHandler = ({ request }) => {
 };
 
 export const POST: RequestHandler = async ({ request }) => {
-  const flags = getFeatureFlagsForTier(CURRENT_TIER);
-  if (!flags.verification_ux) throw error(402, 'Lens authoring is a premium feature.');
+  requireVerificationAuthorTier();
 
   const rawBody = await request.json().catch(() => null) as CreateLensPayload | null;
   if (!rawBody || typeof rawBody !== 'object') throw error(400, 'JSON body required.');

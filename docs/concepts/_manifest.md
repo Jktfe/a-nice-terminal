@@ -27,7 +27,16 @@ Each concept doc in this directory is:
 | `_manifest.md` | This file — pack manifest + default-attach rules | shipped this commit |
 | `ant-stage.md` | ANT Stage = shell wrapping any deck + 5 agent-aware capabilities | shipped `5b6a602` + CLI added `7501fc1` |
 | `ant-chair.md` | Chair two-primitive split: ANT Chair (user proxy, 1/person) + Room Chair (operator, 1/room) | shipped 2026-05-28 |
-| `ant-verification.md` | Verification substrate: tags + source-sets + anchors + applications + overrides + lenses + lens-tag-rows + verdicts + V3 contract + Phase C/D consumer surface | shipped 2026-05-28 (Phase A substrate complete) |
+| `ant-verification.md` | Verification substrate: tags + source-sets + anchors + applications + overrides + lenses + lens-tag-rows + verdicts + V3 contract + Phase C/D consumer surface | shipped 2026-05-28 (Phase A + B substrate complete) |
+
+### G1 — Verification research consolidation (2026-05-28)
+
+Phase G1 of plan `ant-verification-2026-05-28` consolidated the three input research drafts into a single canonical doc in the user vault:
+
+- **Vault location**: `~/CascadeProjects/ObsidiANT/memory-pack/research/verification-classification-system-canonical-2026-05-28.md`
+- **Absorbs**: drafts from @speedyclaude (vault), @homebrewclaude (antchat repo), @antioscodex (antios repo). Each input draft retains a SUPERSEDED header pointing at the canonical version.
+- **Pairs with**: `docs/concepts/ant-verification.md` (concept overview, shipped) and `docs/specs/create-verification-lens-skill.md` (skill spec, shipped).
+- **Read order for verification work**: concept doc → canonical research doc → capability ledger (substrate slices) → skill spec → substrate source files.
 
 ### Planned (multi-session, task #31 tracks)
 

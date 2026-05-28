@@ -14,6 +14,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { deleteLensTagRow, getLensTagRow } from '$lib/server/lensTagRowsStore';
+import { requireVerificationAuthorTier } from '$lib/server/featureGates';
 
 function requireAdminBearer(request: Request): void {
   const auth = request.headers.get('authorization') ?? '';
@@ -28,6 +29,7 @@ function requireAdminBearer(request: Request): void {
 
 export const DELETE: RequestHandler = async ({ request, params }) => {
   requireAdminBearer(request);
+  requireVerificationAuthorTier();
   const lensId = params.lensId;
   const rowId = params.rowId;
   if (!lensId || !rowId) throw error(400, 'lensId + rowId required');

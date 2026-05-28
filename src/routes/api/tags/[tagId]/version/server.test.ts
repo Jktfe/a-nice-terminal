@@ -1,7 +1,25 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { error } from '@sveltejs/kit';
+
+const featureGateState = vi.hoisted(() => ({ verificationAuthorEnabled: true }));
+
+vi.mock('$lib/server/featureGates', () => ({
+  CURRENT_TIER: 'native',
+  getFeatureFlagsForTier: () => ({
+    verification_api: true,
+    verification_ux: true,
+    verification_author: featureGateState.verificationAuthorEnabled
+  }),
+  requireVerificationAuthorTier: () => {
+    if (!featureGateState.verificationAuthorEnabled) {
+      throw error(403, 'Verification authoring requires premium tier.');
+    }
+  }
+}));
+
 import { PUT } from './+server';
 import { createTag, resetVerificationTaxonomyStoreForTests } from '$lib/server/verificationTaxonomyStore';
 import { resetIdentityDbForTests } from '$lib/server/db';
@@ -42,6 +60,7 @@ beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'ant-tag-version-route-'));
   process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
   process.env.ANT_ADMIN_TOKEN = TEST_ADMIN;
+  featureGateState.verificationAuthorEnabled = true;
   resetIdentityDbForTests();
   resetVerificationTaxonomyStoreForTests();
 });
@@ -122,5 +141,17 @@ describe('PUT /api/tags/[tagId]/version', () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.tag.protocolResolver.protocol).toBe('consensus-required');
+  });
+
+  it('TV6: blocks OSS tier with 403 even when admin-bearer is valid (F2 author gate)', async () => {
+    seedTag();
+    featureGateState.verificationAuthorEnabled = false;
+    const response = await runHandler(PUT as unknown as AnyHandler,
+      authedPut('org.x', {
+        description: 'denied',
+        actor_handle: '@admin',
+        actor_kind: 'human'
+      }));
+    expect(response.status).toBe(403);
   });
 });

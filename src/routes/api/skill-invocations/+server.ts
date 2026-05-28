@@ -43,6 +43,7 @@ import {
   recordSkillInvocation
 } from '$lib/server/skillInvocationsStore';
 import type { InvokerKind } from '$lib/server/skillInvocationsStore';
+import { requireVerificationAuthorTier } from '$lib/server/featureGates';
 
 const VALID_INVOKER_KIND = new Set<InvokerKind>(['human', 'agent', 'system']);
 
@@ -59,6 +60,7 @@ function requireAdminBearer(request: Request): void {
 
 export const POST: RequestHandler = async ({ request }) => {
   requireAdminBearer(request);
+  requireVerificationAuthorTier();
 
   let body: Record<string, unknown>;
   try { body = await request.json(); }

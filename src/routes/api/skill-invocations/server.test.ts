@@ -1,7 +1,25 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { error } from '@sveltejs/kit';
+
+const featureGateState = vi.hoisted(() => ({ verificationAuthorEnabled: true }));
+
+vi.mock('$lib/server/featureGates', () => ({
+  CURRENT_TIER: 'native',
+  getFeatureFlagsForTier: () => ({
+    verification_api: true,
+    verification_ux: true,
+    verification_author: featureGateState.verificationAuthorEnabled
+  }),
+  requireVerificationAuthorTier: () => {
+    if (!featureGateState.verificationAuthorEnabled) {
+      throw error(403, 'Verification authoring requires premium tier.');
+    }
+  }
+}));
+
 import { POST, GET } from './+server';
 import { resetSkillInvocationsStoreForTests } from '$lib/server/skillInvocationsStore';
 import { resetIdentityDbForTests, getIdentityDb } from '$lib/server/db';
@@ -43,6 +61,7 @@ beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'ant-skill-inv-route-'));
   process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
   process.env.ANT_ADMIN_TOKEN = TEST_ADMIN;
+  featureGateState.verificationAuthorEnabled = true;
   resetIdentityDbForTests();
   resetSkillInvocationsStoreForTests();
 });
@@ -101,6 +120,12 @@ describe('POST /api/skill-invocations', () => {
     const body = await response.json();
     expect(body.invocation.outputLensId).toBeNull();
     expect(body.invocation.errorKind).toBe('out_of_substrate_scope');
+  });
+
+  it('SI4b: blocks OSS tier with 403 even when admin-bearer is valid (F2 author gate)', async () => {
+    featureGateState.verificationAuthorEnabled = false;
+    const response = await runHandler(POST as unknown as AnyHandler, authedPost(SAMPLE_BODY));
+    expect(response.status).toBe(403);
   });
 
   it('SI5: records success with output_lens_id when lens exists (FK constraint)', async () => {
