@@ -1,10 +1,41 @@
 <script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
   import type { PageData } from './$types';
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
   import AgentDot from '$lib/components/AgentDot.svelte';
   import Explainable from '$lib/components/Explainable.svelte';
+  import UsageStrip from '$lib/components/UsageStrip.svelte';
+  import UsageBadge from '$lib/components/UsageBadge.svelte';
+  import type { UsagePayload } from '$lib/usage/types';
 
   let { data }: { data: PageData } = $props();
+
+  // Shared UsagePayload pulled at the page level so the strip + every
+  // per-card UsageBadge work off one snapshot (avoids N parallel
+  // /api/usage fetches). Refreshes every 30 s to match the proxy
+  // cache TTL. Handles are used as the agentKind for the loose
+  // substring match — e.g. "@claudev4" → claude, "@speedycodex" → codex.
+  let pageUsage = $state<UsagePayload | null>(null);
+  let usagePollHandle: ReturnType<typeof setInterval> | null = null;
+
+  async function refreshUsage(): Promise<void> {
+    try {
+      const response = await fetch('/api/usage', { headers: { accept: 'application/json' } });
+      if (!response.ok) return;
+      pageUsage = (await response.json()) as UsagePayload;
+    } catch {
+      // Strip handles the empty / error case.
+    }
+  }
+
+  onMount(() => {
+    void refreshUsage();
+    usagePollHandle = setInterval(() => void refreshUsage(), 30_000);
+  });
+
+  onDestroy(() => {
+    if (usagePollHandle !== null) clearInterval(usagePollHandle);
+  });
 
   const agents = $derived(data.agents ?? []);
   let selectedHandle = $state<string | null>(null);
@@ -160,6 +191,7 @@
 {/snippet}
 
 <SimplePageShell eyebrow="Fleet" title="Agents." summary="A living switchboard for your AI fleet. Every card is real-time telemetry." {statusPill}>
+  <UsageStrip />
   <!-- Top activity strip -->
   <Explainable explainKey="agents-activity-strip">
   <section class="activity-strip">
@@ -206,6 +238,7 @@
             {#if agent.streakDays && agent.streakDays > 0}
               <span class="streak-badge">🔥 {agent.streakDays}d</span>
             {/if}
+            <UsageBadge agentKind={agent.handle} usage={pageUsage} />
             <span class="reaction-badge">👍 {agent.stats.positiveReactions ?? 0}</span>
           </div>
 
