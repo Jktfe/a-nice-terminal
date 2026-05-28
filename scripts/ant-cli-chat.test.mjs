@@ -368,6 +368,37 @@ describe('ant chat send — message body input modes', () => {
     ).rejects.toThrow(/multiple message body sources/);
   });
 
+  it('B6a: rejects obvious reply-shaped broadcasts before fetch', async () => {
+    const { runtime, captured } = makeSendRuntime(ok);
+
+    await expect(
+      handleChatVerb('send', ['--room', 'room-a', '--msg', 'reply-to=msg_parent I agree'], runtime, { CliInputError })
+    ).rejects.toThrow(/looks like a reply/);
+
+    expect(captured.requests).toHaveLength(0);
+  });
+
+  it('B6b: --broadcast-ok allows an intentional message-id broadcast', async () => {
+    const { runtime, captured } = makeSendRuntime(ok);
+
+    await handleChatVerb('send', ['--room', 'room-a', '--msg', 'Status for msg_parent is done', '--broadcast-ok'], runtime, { CliInputError });
+
+    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/room-a/messages');
+    expect(bodyAt(captured)).toMatchObject({ body: 'Status for msg_parent is done' });
+  });
+
+  it('B6c: --parent-message allows explicit reply posts through send', async () => {
+    const { runtime, captured } = makeSendRuntime(ok);
+
+    await handleChatVerb('send', ['--room', 'room-a', '--msg', 'reply-to=msg_parent I agree', '--parent-message', 'msg_parent'], runtime, { CliInputError });
+
+    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/room-a/messages');
+    expect(bodyAt(captured)).toMatchObject({
+      body: 'reply-to=msg_parent I agree',
+      parentMessageId: 'msg_parent'
+    });
+  });
+
   it('B6: --msg-file path that cannot be read surfaces a useful error', async () => {
     const fsStub = { readFileSync: () => { throw new Error('ENOENT'); }};
     const { runtime } = makeSendRuntime(ok, fsStub);
