@@ -437,6 +437,18 @@ const SCHEMA_DDL_STATEMENTS = [
   // no UNIQUE constraint v1 (collisions surface as picker UX). Eventually
   // identity-register flow auto-populates from `ant register --handle @x`.
   `ALTER TABLE terminal_records ADD COLUMN handle TEXT`,
+  // Pane-binding supersession (JWPK msg_wlvguvfvqu / msg_8390722mjh 2026-05-27).
+  // When a new terminal_record claims a tmux_target_pane that was already
+  // owned by a different terminal_record, the prior record's
+  // superseded_at_ms is set. Fanout / picker / inbox / fleet readers all
+  // filter on `superseded_at_ms IS NULL` so a recycled tmux pane does
+  // not deliver the prior agent's room subscriptions to whoever spawns
+  // next. Cleanup readers (linkedRoomAgentGuffPurge) still see
+  // superseded rows so orphan cleanup paths keep working. Audit-style
+  // listTerminalRecords stays unfiltered to preserve history. See
+  // docs/research/pane-binding-supersession-scope-2026-05-27.md.
+  `ALTER TABLE terminal_records ADD COLUMN superseded_at_ms INTEGER`,
+  `CREATE INDEX IF NOT EXISTS idx_terminal_records_superseded ON terminal_records (superseded_at_ms)`,
   // Lane-D PLANS S1 (2026-05-15, canonical RQO32-gated decision-doc
   // docs/lane-d-plans-design-2026-05-15.md). First-class PERSISTED task
   // entity. JWPK Q1: tasks are INDEPENDENT of plans — plan_id is an
