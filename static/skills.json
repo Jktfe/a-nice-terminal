@@ -19,6 +19,10 @@
     {
       "name": "task-lifecycle",
       "description": "Compact ANT task lifecycle primer for creating, assigning, reviewing, and closing plan-linked tasks with real provenance."
+    },
+    {
+      "name": "create-verification-lens",
+      "description": "Translate plain-English requirements into a concrete verification lens spec. Agent reads protocol from docs/specs/, produces a SkillSuccessOutput JSON, posts via POST /api/verification/lenses + POST .../tag-rows. Protocol available at /api/skills/create-verification-lens/protocol."
     }
   ]
 }
