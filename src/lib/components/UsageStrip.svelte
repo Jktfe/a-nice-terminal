@@ -120,8 +120,9 @@
   <div class="usage-strip usage-strip-empty" role="status">
     <span class="usage-strip-empty-dot" aria-hidden="true"></span>
     <span class="usage-strip-empty-text">
-      Open-usage daemon not detected at <code>127.0.0.1:6736</code> — install the
-      <strong>open-usage</strong> CLI to surface per-provider session quotas + spend trends here.
+      Open-usage daemon not detected at <code>127.0.0.1:6736</code> — required for per-provider
+      session quotas + spend trends here. Install at
+      <a href="https://www.openusage.ai/" target="_blank" rel="noopener noreferrer">openusage.ai</a>.
     </span>
   </div>
 {:else}
@@ -210,6 +211,13 @@
     padding: 0 0.25rem;
     border-radius: 0.25rem;
     font-size: 0.7rem;
+  }
+  .usage-strip-empty-text a {
+    color: rgb(59 130 246);
+    text-decoration: underline;
+  }
+  .usage-strip-empty-text a:hover {
+    color: rgb(37 99 235);
   }
   .usage-pill {
     flex: 0 0 auto;
