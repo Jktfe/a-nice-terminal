@@ -82,8 +82,8 @@ describe('GET /api/chat-rooms/:roomId/validation-summary', () => {
     resetTasksStoreForTests();
     resetAntchatAuthTokensForTests();
     const db = getIdentityDb();
-    db.prepare('DELETE FROM validation_runs').run();
-    db.prepare('DELETE FROM validation_schemas').run();
+    db.prepare('DELETE FROM verification_observations').run();
+    db.prepare('DELETE FROM verification_lenses').run();
   });
 
   it('returns the full V3 contract shape with default-empty values for an unvalidated room', async () => {
@@ -213,7 +213,7 @@ describe('GET /api/chat-rooms/:roomId/validation-summary', () => {
     const tenDaysAgo = Date.now() - 10 * 24 * 60 * 60 * 1000;
     const db = getIdentityDb();
     db.prepare(
-      `UPDATE validation_runs SET status = 'passed', score = 95, started_at_ms = ?, completed_at_ms = ? WHERE id = 'run-stale'`
+      `UPDATE verification_observations SET status = 'passed', score = 95, started_at_ms = ?, completed_at_ms = ? WHERE id = 'run-stale'`
     ).run(tenDaysAgo, tenDaysAgo);
 
     const body = await (await runGet(eventFor(room.id))).json();

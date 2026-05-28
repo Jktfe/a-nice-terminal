@@ -64,8 +64,8 @@ describe('POST /api/artefacts/:artefactId/validate', () => {
     resetPolicyStoreForTests();
     resetTasksStoreForTests();
     const db = getIdentityDb();
-    db.prepare('DELETE FROM validation_runs').run();
-    db.prepare('DELETE FROM validation_schemas').run();
+    db.prepare('DELETE FROM verification_observations').run();
+    db.prepare('DELETE FROM verification_lenses').run();
   });
 
   it('applies a policy lens to a markdown artefact and returns claim-level scores', async () => {

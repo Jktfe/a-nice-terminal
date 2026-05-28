@@ -1292,10 +1292,24 @@ const SCHEMA_DDL_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_aliases_room_handle ON chat_room_aliases (room_id, global_handle)`,
   `CREATE INDEX IF NOT EXISTS idx_aliases_room_set_at ON chat_room_aliases (room_id, set_at_ms DESC)`,
-  // VALIDATION-LENS (2026-05-23): per-user validation schemas + runs.
-  // A lens is a named validation schema (POC, FCA, investment-memo, etc).
-  // validation_runs tracks per-claim-anchor evaluations against a lens.
-  `CREATE TABLE IF NOT EXISTS validation_schemas (
+  // VERIFICATION-LENS (originally VALIDATION-LENS 2026-05-23, renamed
+  // 2026-05-28 per Slice 5 A7 ratification): per-user verification
+  // lenses + observations. A lens is a named verification schema (POC,
+  // FCA, investment-memo, etc). Originally `validation_schemas`/
+  // `validation_runs`; renamed to `verification_lenses`/
+  // `verification_observations` to align with the V2 substrate vocabulary.
+  // The rename migration runs in renameLegacyValidationTables() before
+  // these DDL statements execute.
+  //
+  // New columns added 2026-05-28:
+  //   - minimum_pass_record_age_ms (temporal rule: don't accept a pass
+  //     verdict until the source record is older than N ms — guards
+  //     against just-published-then-edited claims)
+  //   - re_verification_on_content_change (1 = trigger re-run when
+  //     anchor content_hash drifts)
+  //   - out_of_scope_tags_json (tags that, when applied to a fragment,
+  //     exclude the fragment from this lens entirely)
+  `CREATE TABLE IF NOT EXISTS verification_lenses (
     id              TEXT PRIMARY KEY,
     name            TEXT NOT NULL,
     description     TEXT,
@@ -1308,13 +1322,16 @@ const SCHEMA_DDL_STATEMENTS = [
     updated_at_ms   INTEGER NOT NULL,
     archived_at_ms  INTEGER
   )`,
-  `ALTER TABLE validation_schemas ADD COLUMN scope TEXT NOT NULL DEFAULT 'public' CHECK (scope IN ('org','user','public'))`,
-  `ALTER TABLE validation_schemas ADD COLUMN scope_id TEXT NOT NULL DEFAULT 'global'`,
-  `CREATE INDEX IF NOT EXISTS idx_validation_schemas_kind ON validation_schemas (lens_kind)`,
-  `CREATE INDEX IF NOT EXISTS idx_validation_schemas_scope ON validation_schemas (scope, scope_id, lens_kind)`,
-  `CREATE TABLE IF NOT EXISTS validation_schema_audit (
+  `ALTER TABLE verification_lenses ADD COLUMN scope TEXT NOT NULL DEFAULT 'public' CHECK (scope IN ('org','user','public'))`,
+  `ALTER TABLE verification_lenses ADD COLUMN scope_id TEXT NOT NULL DEFAULT 'global'`,
+  `ALTER TABLE verification_lenses ADD COLUMN minimum_pass_record_age_ms INTEGER`,
+  `ALTER TABLE verification_lenses ADD COLUMN re_verification_on_content_change INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE verification_lenses ADD COLUMN out_of_scope_tags_json TEXT NOT NULL DEFAULT '[]'`,
+  `CREATE INDEX IF NOT EXISTS idx_verification_lenses_kind ON verification_lenses (lens_kind)`,
+  `CREATE INDEX IF NOT EXISTS idx_verification_lenses_scope ON verification_lenses (scope, scope_id, lens_kind)`,
+  `CREATE TABLE IF NOT EXISTS verification_lens_audit (
     id              TEXT PRIMARY KEY,
-    schema_id       TEXT NOT NULL REFERENCES validation_schemas(id) ON DELETE CASCADE,
+    lens_id         TEXT NOT NULL REFERENCES verification_lenses(id) ON DELETE CASCADE,
     actor_handle    TEXT NOT NULL,
     actor_kind      TEXT NOT NULL CHECK (actor_kind IN ('human','agent')),
     action          TEXT NOT NULL CHECK (action IN ('create','update','archive')),
@@ -1323,11 +1340,11 @@ const SCHEMA_DDL_STATEMENTS = [
     reason          TEXT,
     created_at_ms   INTEGER NOT NULL
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_validation_schema_audit_schema ON validation_schema_audit (schema_id, created_at_ms DESC)`,
-  `CREATE INDEX IF NOT EXISTS idx_validation_schema_audit_actor ON validation_schema_audit (actor_handle, created_at_ms DESC)`,
-  `CREATE TABLE IF NOT EXISTS validation_runs (
+  `CREATE INDEX IF NOT EXISTS idx_verification_lens_audit_lens ON verification_lens_audit (lens_id, created_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_verification_lens_audit_actor ON verification_lens_audit (actor_handle, created_at_ms DESC)`,
+  `CREATE TABLE IF NOT EXISTS verification_observations (
     id                TEXT PRIMARY KEY,
-    schema_id         TEXT NOT NULL REFERENCES validation_schemas(id) ON DELETE CASCADE,
+    lens_id           TEXT NOT NULL REFERENCES verification_lenses(id) ON DELETE CASCADE,
     claim_anchor      TEXT NOT NULL,
     claim_text        TEXT NOT NULL,
     status            TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','passed','failed','waived')),
@@ -1337,8 +1354,31 @@ const SCHEMA_DDL_STATEMENTS = [
     completed_at_ms   INTEGER,
     run_by            TEXT
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_validation_runs_schema ON validation_runs (schema_id, claim_anchor)`,
-  `CREATE INDEX IF NOT EXISTS idx_validation_runs_claim ON validation_runs (claim_anchor, completed_at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_verification_observations_lens ON verification_observations (lens_id, claim_anchor)`,
+  `CREATE INDEX IF NOT EXISTS idx_verification_observations_claim ON verification_observations (claim_anchor, completed_at_ms DESC)`,
+  // V2-LENS-TAG-ROWS (2026-05-28, Slice 5 / Phase A7): replaces the
+  // rules_json blob with first-class per-tag rows. Each row binds a
+  // (lens, tag, expectation) tuple: the lens passes when this tag is
+  // applied (expectation='required') OR fails when this tag is applied
+  // (expectation='forbidden') OR a verifier mix must converge
+  // (expectation='consensus-required'). dispute_policy defines how
+  // disagreement between applications resolves.
+  `CREATE TABLE IF NOT EXISTS lens_tag_rows (
+    id                  TEXT PRIMARY KEY,
+    lens_id             TEXT NOT NULL REFERENCES verification_lenses(id) ON DELETE CASCADE,
+    tag_id              TEXT NOT NULL,
+    tag_version         INTEGER,
+    expectation         TEXT NOT NULL CHECK (expectation IN ('required','forbidden','consensus-required','heuristic-allowed','out-of-scope')),
+    min_verifier_count  INTEGER NOT NULL DEFAULT 1,
+    verifier_mix_json   TEXT NOT NULL DEFAULT '[]',
+    dispute_policy      TEXT NOT NULL DEFAULT 'majority' CHECK (dispute_policy IN ('majority','unanimous','any-pass','any-fail','escalate')),
+    weight              REAL NOT NULL DEFAULT 1.0,
+    notes               TEXT,
+    created_by          TEXT NOT NULL,
+    created_at_ms       INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_lens_tag_rows_lens ON lens_tag_rows (lens_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_lens_tag_rows_tag ON lens_tag_rows (tag_id)`,
   // VERIFICATION-V2 (2026-05-28): taxonomy-first verification per JWPK
   // 17-question ratification at eiw05zdurz. Tag definitions are versioned
   // governance objects (NOT prompt fragments); lifecycle is create →
@@ -1729,6 +1769,7 @@ function ensureParentDirectoryExists(dbFile: string): void {
 }
 
 function applySchemaMigrations(db: DatabaseInstance): void {
+  renameLegacyValidationTables(db);
   for (const ddlStatement of SCHEMA_DDL_STATEMENTS) {
     try {
       db.prepare(ddlStatement).run();
@@ -1740,6 +1781,74 @@ function applySchemaMigrations(db: DatabaseInstance): void {
   }
   extendAsksStatusCheckForActiveStatuses(db);
   extendArtefactKindCheckForStage(db);
+}
+
+/**
+ * Slice 5 / Phase A7 migration: rename the legacy validation_* tables
+ * to verification_* names. Idempotent — only runs when the old tables
+ * still exist. SQLite's ALTER TABLE RENAME TO updates referencing FKs
+ * automatically since 3.25, but the validation_schema_audit and
+ * validation_runs tables also have FK references to validation_schemas
+ * that we rename in the same transaction so they all land coherently.
+ *
+ * After this runs, the SCHEMA_DDL_STATEMENTS CREATE TABLE IF NOT EXISTS
+ * verification_lenses (etc) will see the renamed tables already present
+ * and skip.
+ */
+function renameLegacyValidationTables(db: DatabaseInstance): void {
+  const hasLegacy = db
+    .prepare(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='validation_schemas'`
+    )
+    .get();
+  if (!hasLegacy) return;
+
+  const hasNew = db
+    .prepare(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='verification_lenses'`
+    )
+    .get();
+  if (hasNew) {
+    // Both names exist somehow — bail loudly rather than corrupt either.
+    throw new Error(
+      'renameLegacyValidationTables: both validation_schemas and verification_lenses exist; manual reconciliation required'
+    );
+  }
+
+  const inTxn = db.transaction(() => {
+    // Drop the old indexes that name the old tables; SQLite refuses
+    // duplicate index names so the new CREATE INDEX statements below
+    // would conflict if we left these in place.
+    db.prepare(`DROP INDEX IF EXISTS idx_validation_schemas_kind`).run();
+    db.prepare(`DROP INDEX IF EXISTS idx_validation_schemas_scope`).run();
+    db.prepare(`DROP INDEX IF EXISTS idx_validation_schema_audit_schema`).run();
+    db.prepare(`DROP INDEX IF EXISTS idx_validation_schema_audit_actor`).run();
+    db.prepare(`DROP INDEX IF EXISTS idx_validation_runs_schema`).run();
+    db.prepare(`DROP INDEX IF EXISTS idx_validation_runs_claim`).run();
+    db.prepare(`ALTER TABLE validation_schemas RENAME TO verification_lenses`).run();
+    // validation_schema_audit's FK to validation_schemas auto-updates,
+    // but the column is still named schema_id; rename it to lens_id to
+    // match the new vocabulary.
+    const hasAudit = db
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name='validation_schema_audit'`
+      )
+      .get();
+    if (hasAudit) {
+      db.prepare(`ALTER TABLE validation_schema_audit RENAME TO verification_lens_audit`).run();
+      db.prepare(`ALTER TABLE verification_lens_audit RENAME COLUMN schema_id TO lens_id`).run();
+    }
+    const hasRuns = db
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name='validation_runs'`
+      )
+      .get();
+    if (hasRuns) {
+      db.prepare(`ALTER TABLE validation_runs RENAME TO verification_observations`).run();
+      db.prepare(`ALTER TABLE verification_observations RENAME COLUMN schema_id TO lens_id`).run();
+    }
+  });
+  inTxn();
 }
 
 /**
