@@ -18,6 +18,7 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { bindTokenToRoomMembership } from '$lib/server/chatMembershipBinding';
+import { parsePidChainFromBody } from '$lib/server/identityGate';
 
 async function parseRequiredJsonBody(request: Request): Promise<Record<string, unknown>> {
   const text = await request.text();
@@ -49,12 +50,20 @@ export const POST: RequestHandler = async ({ params, request }) => {
   }
   const body = await parseRequiredJsonBody(request);
   const tokenSecret = requireString(body, 'tokenSecret');
+  // Point 2 fix (Xeno windows-cli-auth-wedge follow-up #2, 2026-05-28):
+  // CLI sends its pidChain on the redeem so the server-side binder can
+  // re-bind room_memberships to THIS caller's live terminal, not the
+  // first record matching the handle (which is often the stale one).
+  // pidChain is OPTIONAL — existing clients (browser join-with-token,
+  // older CLI binaries) keep working unchanged. Malformed values are
+  // silently coerced to an empty chain by parsePidChainFromBody.
+  const callerPidChain = parsePidChainFromBody(body);
   let result;
   // Exact-string match — tightened from substring includes() so future drift in
   // chatMembershipBinding's throw message is caught instead of silently passing.
   const NO_HANDLE_THROW_MESSAGE = 'token has no handle — admin must mint with --handle';
   try {
-    result = bindTokenToRoomMembership({ tokenSecret, roomId });
+    result = bindTokenToRoomMembership({ tokenSecret, roomId, callerPidChain });
   } catch (failure) {
     if (failure instanceof Error && failure.message === NO_HANDLE_THROW_MESSAGE) {
       throw error(400, 'token has no handle');
