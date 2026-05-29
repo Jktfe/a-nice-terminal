@@ -454,6 +454,38 @@ export function getLiveTerminalByName(name: string): TerminalRow | null {
   return row ?? null;
 }
 
+/**
+ * Lifecycle conflict check (Phase A2). Returns the live terminal that
+ * currently owns the supplied (pid, pid_start) tuple, or null when no
+ * live row matches. Used by Phase A2's register rule (b): a (pid,
+ * pid_start) pair can only be bound to one live terminal at a time —
+ * if the caller's leaf PID already belongs to a different live row,
+ * the new register attempt is rejected with a 409 + recovery hint.
+ *
+ * Match semantics:
+ *   - exact equality on pid (positive integer; values <= 0 short-circuit
+ *     to null so callers never trigger a query on garbage input);
+ *   - exact equality on pid_start when supplied;
+ *   - pid_start IS NULL matches a stored NULL (parity with the
+ *     wildcard behaviour in lookupTerminalByPidChain — caller couldn't
+ *     read lstart on the leaf and the row is therefore promiscuous).
+ *
+ * Archived/deleted rows with the same (pid, pid_start) are excluded so
+ * a recycled PID can be re-claimed once its prior owner is archived.
+ */
+export function getLiveTerminalByPid(pid: number, pidStart: string | null): TerminalRow | null {
+  if (!Number.isFinite(pid) || pid <= 0) return null;
+  const db = getIdentityDb();
+  const row = db.prepare(
+    `SELECT * FROM terminals
+       WHERE pid = ?
+         AND ((pid_start IS NULL AND ? IS NULL) OR pid_start = ?)
+         AND status = 'live'
+       ORDER BY updated_at DESC LIMIT 1`
+  ).get(pid, pidStart, pidStart) as TerminalRow | undefined;
+  return row ?? null;
+}
+
 export function markPaneVerified(terminalId: string): boolean {
   const db = getIdentityDb();
   const info = db.prepare(
