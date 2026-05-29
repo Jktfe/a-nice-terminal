@@ -7,7 +7,7 @@ import { createChatRoom, inviteAgentToRoom, resetChatRoomStoreForTests } from '$
 import { resetIdentityDbForTests } from '$lib/server/db';
 import { setAgentStatus } from '$lib/server/agentStatusStore';
 import { addMembership } from '$lib/server/roomMembershipsStore';
-import { upsertTerminal } from '$lib/server/terminalsStore';
+import { setTerminalStatus, upsertTerminal } from '$lib/server/terminalsStore';
 
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
@@ -68,5 +68,36 @@ describe('GET /api/chat-rooms/:roomId/agent-statuses', () => {
       expect(row.uptimeMs).toBeGreaterThanOrEqual(0);
     }
     expect(row.contextFill).toBeNull();
+    // Phase C2 (0.1.13): lifecycle status surfaces on the projection. A
+    // fresh terminal defaults to 'live' (db.ts NOT NULL DEFAULT).
+    expect(row.lifecycleStatus).toBe('live');
+  });
+
+  it('surfaces lifecycleStatus="archived" for archived bound terminals', async () => {
+    const room = createChatRoom({ name: 'lifecycle-archived', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@agent' });
+    const terminal = upsertTerminal({ pid: 1002, pid_start: 'p2', name: 'agent-term-2' });
+    addMembership({ room_id: room.id, handle: '@agent', terminal_id: terminal.id });
+    setTerminalStatus(terminal.id, 'archived');
+
+    const response = await callGet(room.id);
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.statuses).toHaveLength(1);
+    expect(payload.statuses[0].lifecycleStatus).toBe('archived');
+  });
+
+  it('surfaces lifecycleStatus=null when no terminal is bound', async () => {
+    // Membership-less agent: no addMembership() call. The LEFT JOIN
+    // returns no terminal row, so the projection should hold lifecycle
+    // status as null rather than dropping the entry.
+    const room = createChatRoom({ name: 'lifecycle-unbound', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@agent' });
+
+    const response = await callGet(room.id);
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.statuses).toHaveLength(1);
+    expect(payload.statuses[0].lifecycleStatus).toBeNull();
   });
 });
