@@ -22,11 +22,12 @@
  * startPoller — calling twice returns the same controller without
  * spinning a second interval. Clean shutdown via controller.stop().
  */
-import { listAllTerminals, type TerminalRow } from './terminalsStore';
+import { listAllTerminals, setTerminalStatus, type TerminalRow } from './terminalsStore';
 import { getAgentStatus, setAgentStatus } from './agentStatusStore';
 import { deriveStateFromFingerprint, decideAgentStatus } from './fingerprintHasher';
 import { detectFingerprint, applyFingerprintWriteBack } from './fingerprintDetector';
 import { defaultTmuxCaptureFn, type CaptureFn } from './tmuxCapture';
+import { verifyPaneTargetState } from './pty-inject-bridge';
 import { getIdentityDb } from './db';
 export { defaultTmuxCaptureFn };
 export type { CaptureFn };
@@ -103,6 +104,17 @@ export function classifyIfUnknown(terminal: TerminalRow, captureFn?: CaptureFn):
 }
 
 async function pollOneTerminal(terminal: TerminalRow, captureFn: CaptureFn): Promise<void> {
+  // Phase A3 (JWPK A Team msg_7uvr35x0xr 2026-05-29): per-terminal pane-gone
+  // → archived. When the tmux pane is gone (capture-pane exits non-zero),
+  // verifyPaneTargetState marks the pane stale; we flip lifecycle status to
+  // archived and skip the fingerprint sample entirely (the pane bytes are
+  // already gone — no useful signal to derive).
+  if (terminal.tmux_target_pane) {
+    if (verifyPaneTargetState(terminal) === 'stale') {
+      setTerminalStatus(terminal.id, 'archived');
+      return;
+    }
+  }
   const captureText = captureFn(terminal);
   if (captureText === null) return;
   const nowMs = Date.now();
@@ -150,6 +162,25 @@ export function startPoller(input: StartPollerInput = {}): PollerController {
     const terminals = listAllTerminals().filter(isPollableTerminal).slice(0, maxTerminals);
     for (const terminal of terminals) {
       try { await pollOneTerminal(terminal, captureFn); } catch { /* per-terminal failure does not block other terminals */ }
+    }
+    // Phase A3 (JWPK A Team msg_7uvr35x0xr 2026-05-29): heartbeat sweep for
+    // the rows isPollableTerminal SKIPS — remote terminals and terminals
+    // without a tmux_target_pane never get sampled by the fingerprint path,
+    // so without this pass they'd never archive on their own.
+    // 5-min threshold per JWPK design Q3 default A. We use the larger of
+    // last_message_sent_at_ms and last_pty_byte_at_ms as "last seen".
+    // Skip rows that have never been touched (latest=0) — they're either
+    // freshly spawned with no traffic yet, or have no fanout history.
+    const remoteOrPaneless = listAllTerminals().filter(
+      (t) => t.agent_kind === 'remote' || !t.tmux_target_pane
+    );
+    const archiveThresholdMs = Date.now() - 5 * 60 * 1000;
+    for (const t of remoteOrPaneless) {
+      if (t.status === 'archived' || t.status === 'deleted') continue;
+      const latest = Math.max(t.last_message_sent_at_ms ?? 0, t.last_pty_byte_at_ms ?? 0);
+      if (latest > 0 && latest < archiveThresholdMs) {
+        try { setTerminalStatus(t.id, 'archived'); } catch { /* per-terminal failure does not block sweep */ }
+      }
     }
   };
 
