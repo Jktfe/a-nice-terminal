@@ -1442,7 +1442,47 @@ const SCHEMA_DDL_STATEMENTS = [
     payload_byte_size  INTEGER NOT NULL DEFAULT 0
   )`,
   `CREATE INDEX IF NOT EXISTS idx_bring_in_app_launches_operator ON bring_in_app_launches (operator_handle, launched_at_ms DESC)`,
-  `CREATE INDEX IF NOT EXISTS idx_bring_in_app_launches_room ON bring_in_app_launches (room_id, launched_at_ms DESC)`
+  `CREATE INDEX IF NOT EXISTS idx_bring_in_app_launches_room ON bring_in_app_launches (room_id, launched_at_ms DESC)`,
+
+  // v0.2 PR-C super-admin reclaim primitive (spec: docs/concepts/ant-v02-
+  // identity-and-recovery.md §Recovery Layer + §TigerResearch Recovery
+  // Flow). The recovery primitive itself — replaces today's 4-hour SQL
+  // forensic with a gated 2-line CLI invocation.
+  //
+  // v0.2 stand-ins (deferred to follow-up PRs per the canonical spec):
+  //   - `agent_id` here refers to terminal_records.session_id (the v0.2
+  //     "agents" identity table doesn't ship until later in v0.2).
+  //   - `old_runtime_id` / `new_runtime_id` refer to terminals.id (today's
+  //     ephemeral runtime row).
+  //   - `new_runtime_challenge` is an opaque token until ed25519 signed
+  //     challenges land. The column exists today so the migration is
+  //     forward-compatible.
+  //   - Multi-key (agent_trust_keys), --all-stale fleet reclaim, and the
+  //     UI surface ship in subsequent PRs.
+  `CREATE TABLE IF NOT EXISTS reclaim_requests (
+    request_id              TEXT PRIMARY KEY,
+    agent_id                TEXT NOT NULL,
+    old_runtime_id          TEXT,
+    new_runtime_id          TEXT NOT NULL,
+    new_runtime_challenge   TEXT NOT NULL,
+    requested_by_agent_id   TEXT NOT NULL,
+    requested_at_ms         INTEGER NOT NULL,
+    approved_by_agent_id    TEXT,
+    approved_at_ms          INTEGER,
+    executed_at_ms          INTEGER,
+    status                  TEXT NOT NULL CHECK (status IN ('pending','approved','executed','rejected','expired')),
+    rejected_reason         TEXT,
+    expires_at_ms           INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_reclaim_requests_agent ON reclaim_requests (agent_id, status)`,
+  `CREATE INDEX IF NOT EXISTS idx_reclaim_requests_expires ON reclaim_requests (expires_at_ms) WHERE status='pending'`,
+
+  // v0.2 PR-C also needs terminals.status (lifecycle) for the archive-on-
+  // execute step. main has this column from the 0.1.13 lifecycle work but
+  // dev forked before that landed. Adding the same idempotent ALTER here
+  // so PR-C works on dev today; the duplicate-column-tolerant migration
+  // runner harmlessly skips it once dev catches up to main.
+  `ALTER TABLE terminals ADD COLUMN status TEXT NOT NULL DEFAULT 'live' CHECK (status IN ('live','archived','deleted'))`
 ];
 
 function resolveDbFilePath(): string {
