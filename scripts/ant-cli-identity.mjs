@@ -16,11 +16,12 @@
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { handleIdentityKeysVerb, isIdentityKeysVerb } from './ant-cli-identity-keys.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LIVE_SCRIPT = join(__dirname, 'ant-identity-live.mjs');
 
-const KNOWN_VERBS = new Set(['register', 'enroll-2fa', 'grant']);
+const KNOWN_LIVE_VERBS = new Set(['register', 'enroll-2fa', 'grant']);
 
 function printIdentityUsage(runtime) {
   runtime.writeOut('ant identity — consent-gated impersonation enrolment');
@@ -33,14 +34,31 @@ function printIdentityUsage(runtime) {
   runtime.writeOut('                          --duration 30m');
   runtime.writeOut('                          --uses 5');
   runtime.writeOut('                          [--code 482915 | --recovery-code XXXX-XXXX]');
+  runtime.writeOut('');
+  runtime.writeOut('Multi-device key management (substrate v0.2 Part 4):');
+  runtime.writeOut('  ant identity attest-device --new-device LABEL --identity-id ID --attester-key KEY_ID');
+  runtime.writeOut('                             --private-key-file PATH [--new-private-key-file PATH]');
+  runtime.writeOut('  ant identity revoke-device --device LABEL --identity-id ID --attester-key KEY_ID');
+  runtime.writeOut('  ant identity recover       --org-admin HANDLE --reason TEXT --identity-id ID');
+  runtime.writeOut('  ant identity approve-recovery GRANT_ID');
+  runtime.writeOut('  ant identity recover-from-paper-key --mnemonic "<24 words>" --identity-id ID');
+  runtime.writeOut('  ant identity list-keys --identity HANDLE');
 }
 
-export async function handleIdentityVerb(secondaryVerb, rest, runtime, { CliInputError } = {}) {
+export async function handleIdentityVerb(secondaryVerb, rest, runtime, ctx = {}) {
+  const { CliInputError } = ctx;
   if (!secondaryVerb || secondaryVerb === 'help' || secondaryVerb === '--help') {
     printIdentityUsage(runtime);
     return 0;
   }
-  if (!KNOWN_VERBS.has(secondaryVerb)) {
+  // Substrate v0.2 Part 4 sub-verbs handled in-process (no spawn). These
+  // talk to /api/identity/attest-* + identity_keys store via fetch — same
+  // shape as other in-process verbs like `ant identity grant` future will
+  // be. Live spawn-out path is kept for the legacy enrolment verbs only.
+  if (isIdentityKeysVerb(secondaryVerb)) {
+    return handleIdentityKeysVerb(secondaryVerb, rest, runtime, { CliInputError });
+  }
+  if (!KNOWN_LIVE_VERBS.has(secondaryVerb)) {
     if (CliInputError) throw new CliInputError(`Unknown identity verb: ${secondaryVerb}`);
     runtime.writeErr(`Unknown identity verb: ${secondaryVerb}`);
     printIdentityUsage(runtime);
