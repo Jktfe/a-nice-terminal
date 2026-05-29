@@ -1886,6 +1886,95 @@ const SCHEMA_DDL_STATEMENTS = [
     payload_json  TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_usage_snapshots_captured_at ON usage_snapshots (captured_at_ms DESC)`,
+  // Substrate v0.2 Part 4 — identity_keys multi-device + recovery (2026-05-29).
+  // Spec: /tmp/ant-identity-keys-multi-device-canvas-2026-05-29.md.
+  //
+  // Four new tables (additive — existing terminals / terminal_records /
+  // room_memberships unchanged). identities is the durable subject;
+  // identity_keys are the device-scoped cryptographic credentials that
+  // come and go; identity_attestations is the append-only proof log for
+  // every mint/revoke; recovery_grants is the pending-approval queue for
+  // Tier 2 (org-admin attests) and Tier 3 (paper-key / multi-admin).
+  //
+  // The Stage B permissions layer (separate slice) consumes these tables
+  // for cryptographic auth (signed-nonce challenge against an active key)
+  // instead of the legacy pidChain walk. paper_key_hash is set on
+  // identity-creation as the always-available Tier 3 fallback so no
+  // identity ever has < 2 active recovery routes.
+  `CREATE TABLE IF NOT EXISTS identities (
+    identity_id        TEXT PRIMARY KEY,
+    kind               TEXT NOT NULL CHECK (kind IN ('human','agent','bot','system')),
+    display_name       TEXT NOT NULL,
+    canonical_handle   TEXT NOT NULL,
+    owner_identity_id  TEXT REFERENCES identities(identity_id),
+    org_id             TEXT,
+    paper_key_hash     TEXT,
+    created_at_ms      INTEGER NOT NULL,
+    revoked_at_ms      INTEGER
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_identities_handle ON identities(canonical_handle) WHERE revoked_at_ms IS NULL`,
+  `CREATE TABLE IF NOT EXISTS identity_keys (
+    key_id              TEXT PRIMARY KEY,
+    identity_id         TEXT NOT NULL REFERENCES identities(identity_id),
+    device_label        TEXT NOT NULL,
+    public_key          TEXT NOT NULL,
+    key_kind            TEXT NOT NULL CHECK (key_kind IN ('device','paper','escrow')),
+    created_at_ms       INTEGER NOT NULL,
+    attested_by_key_id  TEXT REFERENCES identity_keys(key_id),
+    revoked_at_ms       INTEGER,
+    revoke_reason       TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_identity_keys_active ON identity_keys(identity_id) WHERE revoked_at_ms IS NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_identity_keys_public_key ON identity_keys(public_key)`,
+  `CREATE TABLE IF NOT EXISTS identity_attestations (
+    attestation_id      TEXT PRIMARY KEY,
+    identity_id         TEXT NOT NULL REFERENCES identities(identity_id),
+    new_key_id          TEXT REFERENCES identity_keys(key_id),
+    revoked_key_id      TEXT REFERENCES identity_keys(key_id),
+    attester_key_id     TEXT NOT NULL REFERENCES identity_keys(key_id),
+    attester_kind       TEXT NOT NULL CHECK (attester_kind IN ('self','org-admin','paper-key','multi-admin')),
+    signature           TEXT NOT NULL,
+    canonical_payload   TEXT NOT NULL,
+    reason              TEXT,
+    created_at_ms       INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_identity_attestations_identity ON identity_attestations(identity_id, created_at_ms)`,
+  `CREATE TABLE IF NOT EXISTS recovery_grants (
+    grant_id                     TEXT PRIMARY KEY,
+    requester_identity_id        TEXT NOT NULL REFERENCES identities(identity_id),
+    requested_at_ms              INTEGER NOT NULL,
+    reason                       TEXT NOT NULL,
+    target_approver_identity_id  TEXT REFERENCES identities(identity_id),
+    paper_key_hash               TEXT,
+    status                       TEXT NOT NULL CHECK (status IN ('pending','approved','denied','expired')),
+    decided_at_ms                INTEGER,
+    decided_by_identity_id       TEXT REFERENCES identities(identity_id),
+    resulting_attestation_id     TEXT REFERENCES identity_attestations(attestation_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_recovery_grants_pending ON recovery_grants(status, requested_at_ms)`,
+  // device_revocations view — convenience projection for admin queries of
+  // "what device key was revoked, when, why, by whom". Derivable from
+  // identity_keys + identity_attestations so no base table cost. Joined
+  // through the attestation_id with attester_kind to surface the
+  // recovery-tier classification in one place.
+  `CREATE VIEW IF NOT EXISTS device_revocations AS
+    SELECT
+      k.key_id            AS key_id,
+      k.identity_id       AS identity_id,
+      k.device_label      AS device_label,
+      k.public_key        AS public_key,
+      k.key_kind          AS key_kind,
+      k.revoked_at_ms     AS revoked_at_ms,
+      k.revoke_reason     AS revoke_reason,
+      a.attestation_id    AS revoke_attestation_id,
+      a.attester_key_id   AS attester_key_id,
+      a.attester_kind     AS attester_kind,
+      a.reason            AS attestation_reason,
+      a.created_at_ms     AS attestation_created_at_ms
+    FROM identity_keys k
+    LEFT JOIN identity_attestations a
+      ON a.revoked_key_id = k.key_id
+    WHERE k.revoked_at_ms IS NOT NULL`
   // Stage A — restructured 403 PermissionDenied payload (plan milestone
   // p3-stage-a-403-payload of ant-substrate-v0.2-2026-05-29, ratified PR
   // shape 2026-05-29). `grants_shim` is the minimal forward-compatible
