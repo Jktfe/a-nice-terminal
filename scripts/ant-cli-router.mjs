@@ -164,7 +164,15 @@ async function runStartSse(options, flags, ctx) {
       if (runOnce) resolveOnFirstMessage();
       return;
     }
+    // injectMessage can throw (e.g. wezterm not on PATH); without a
+    // .catch this becomes an unhandled rejection (Node 25+ crashes the
+    // process). Surface via writeErr and still resolve the --once
+    // promise so the caller doesn't hang on a permanently-pending await.
     void injectMessage(roomId, message, runtime, sendTextImpl, sleepImpl).then(() => {
+      if (runOnce) resolveOnFirstMessage();
+    }).catch((cause) => {
+      const errMessage = cause instanceof Error ? cause.message : String(cause);
+      runtime.writeErr(`Router inject failed: ${errMessage}`);
       if (runOnce) resolveOnFirstMessage();
     });
   };

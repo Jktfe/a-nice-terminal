@@ -62,6 +62,18 @@ describe('parseSseBlock', () => {
     expect(parsed).not.toBeNull();
     expect(parsed?.data).toBeNull();
   });
+
+  it('parses CRLF-terminated lines (HTTP proxy / spec-allowed)', () => {
+    // gemini-code-assist flagged that proxies sometimes rewrite LF to
+    // CRLF; we must not let the `\r` end up in the parsed field value.
+    const block = 'id: 42\r\ndata: {"x":1}';
+    const parsed = parseSseBlock(block);
+    expect(parsed).toMatchObject({
+      id: '42',
+      eventType: 'message',
+      data: { x: 1 }
+    });
+  });
 });
 
 describe('startSseSubscriber', () => {
@@ -220,6 +232,47 @@ describe('startSseSubscriber', () => {
     expect(errors[0]).toMatchObject({ msg: 'connect refused', attempt: 1 });
     // Second fetch happened because of reconnect.
     expect(fetchImpl.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('drains a stream with CRLF block delimiters (HTTP proxy / spec-allowed)', async () => {
+    // Build a chunk that uses CRLF line endings AND CRLFCRLF block
+    // delimiters, matching what some HTTP proxies emit. Both blocks
+    // must still dispatch via onEvent.
+    const text =
+      'id: 1\r\ndata: {"type":"connected","latest_seq":1}\r\n\r\n' +
+      'id: 2\r\ndata: {"type":"message_added","message":{"id":"m2"},"seq":2}\r\n\r\n';
+    const bytes = new TextEncoder().encode(text);
+    const events = [];
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      body: {
+        getReader() {
+          let sent = false;
+          return {
+            async read() {
+              if (sent) return { value: undefined, done: true };
+              sent = true;
+              return { value: bytes, done: false };
+            }
+          };
+        }
+      }
+    }));
+    controller = startSseSubscriber({
+      runtime: makeRuntime(fetchImpl),
+      roomId: 'r_test',
+      onEvent: (event) => events.push(event),
+      sleepImpl: async () => undefined
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    controller.stop();
+    expect(events.length).toBeGreaterThanOrEqual(2);
+    expect(events.find((e) => e.data?.type === 'connected')).toBeDefined();
+    expect(events.find((e) => e.data?.type === 'message_added')).toBeDefined();
+    // And the id field must not carry a trailing \r.
+    expect(events[0].id).toBe('1');
+    expect(events[1].id).toBe('2');
   });
 
   it('stop() halts the loop and aborts any in-flight fetch', async () => {
