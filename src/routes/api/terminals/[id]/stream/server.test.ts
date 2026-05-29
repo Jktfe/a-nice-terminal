@@ -3,7 +3,8 @@ import { resetIdentityDbForTests } from '\$lib/server/db';
 import { GET } from './+server';
 
 vi.mock('\$lib/server/ptyClient', () => ({
-  subscribeOutput: vi.fn().mockReturnValue(() => {})
+  subscribeOutput: vi.fn().mockReturnValue(() => {}),
+  subscribeReset: vi.fn().mockReturnValue(() => {})
 }));
 
 vi.mock('\$lib/server/tmuxPaneSnapshot', () => ({

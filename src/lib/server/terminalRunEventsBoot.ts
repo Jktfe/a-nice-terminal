@@ -8,7 +8,7 @@
  * Buffer + 8KB overflow handled by registry per design Q4.
  */
 
-import { subscribeOutput } from './ptyClient';
+import { subscribeOutput, subscribeReset } from './ptyClient';
 import { appendTerminalRunEvent } from './terminalRunEventsStore';
 import { dispatchClassify } from './classifierRegistry';
 import { broadcastTerminalEvent } from './terminalEventBroadcast';
@@ -70,6 +70,15 @@ export function ensureRunEventsPersistenceBooted(): void {
   // V4-BLOCKER-C (2026-05-15): one-shot purge of stale kind=agent rows the
   // rolled-back T2-RETURN-ROUTING injected into linked chat rooms.
   ensureLinkedRoomGuffPurgedOnce();
+  // On a .out truncation/rotation the live byte stream resumes from the new
+  // file's end. Any half-line we were stitching for interactive-prompt
+  // detection belonged to the old file — drop it so a stale fragment can't
+  // glue onto post-reset bytes and synthesise a phantom prompt. ANT-view
+  // message/thinking history is unaffected: it's sourced from the agent's
+  // JSONL transcript tail, not this PTY classification path.
+  subscribeReset((sessionId) => {
+    interactiveBuffers.delete(sessionId);
+  });
   subscribeOutput((sessionId, data) => {
     try {
       // Resolve agent_kind ONCE per chunk; both Layer B classifier dispatch
