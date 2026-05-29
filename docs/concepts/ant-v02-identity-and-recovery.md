@@ -177,4 +177,59 @@ Each test case is dated, links to the incident msg_id, and asserts the failing b
 
 ---
 
+## Addendum (2026-05-29 23:35 BST) — User-Scoped Room Preferences
+
+Per JWPK msg_mechnlg9hi 2026-05-29: starred rooms, room ordering, and right-hand-panel pin choices need to **persist per user** across sessions / devices / restarts. Today these live in browser localStorage only — lost on every fresh login or device-switch. v0.2 lifts them to the substrate.
+
+### `user_room_preferences` table
+
+One row per (user_agent × room) capturing per-room UI state. Lazy creation — row only exists if the user has set at least one preference for that room (avoids 115×N empty rows).
+
+| Column | Type | Note |
+|---|---|---|
+| `preference_id` | `TEXT PRIMARY KEY` | ULID |
+| `user_agent_id` | `TEXT NOT NULL REFERENCES agents(agent_id)` | Whose preference (always the human user, never an agent — agents inherit no UI prefs) |
+| `room_id` | `TEXT NOT NULL REFERENCES rooms(room_id)` | Scoped per room |
+| `starred` | `INTEGER NOT NULL DEFAULT 0 CHECK (starred IN (0,1))` | The ⭐ badge state |
+| `sort_order` | `REAL` | User-defined manual order. NULL = use the default sort (most-recent-activity first). Floats so insertions between rows don't require reindexing. |
+| `last_read_at_ms` | `INTEGER` | When the user last opened this room — drives unread badge + recency sort |
+| `notification_pref` | `TEXT CHECK (notification_pref IN ('all','mentions','muted'))` | Per-room override of agent-level default |
+| `pinned_at_ms` | `INTEGER` | Used by the right-hand panel pin (see below) — NULL = not pinned |
+| `created_at_ms` | `INTEGER NOT NULL` | |
+| `updated_at_ms` | `INTEGER NOT NULL` | |
+| **UNIQUE INDEX** | `(user_agent_id, room_id)` | Strict 1:1; second insertion → constraint violation, prevents drift |
+
+### `user_panel_pins` table
+
+The right-hand panel holds pinned items — could be rooms, plans, agents, memories, decks, artefacts. Pin set is per-user, not per-room. Separate table because the pinned thing is heterogeneous (no single FK target).
+
+| Column | Type | Note |
+|---|---|---|
+| `pin_id` | `TEXT PRIMARY KEY` | ULID |
+| `user_agent_id` | `TEXT NOT NULL REFERENCES agents(agent_id)` | Whose panel |
+| `entity_kind` | `TEXT NOT NULL CHECK (entity_kind IN ('room','plan','agent','memory','deck','artefact'))` | What's pinned |
+| `entity_id` | `TEXT NOT NULL` | PK of the pinned thing |
+| `display_order` | `REAL NOT NULL` | Panel order (float gaps prevent reindex churn) |
+| `pinned_at_ms` | `INTEGER NOT NULL` | |
+| `unpinned_at_ms` | `INTEGER` | Soft unpin so history survives; UI filters WHERE unpinned_at_ms IS NULL |
+| `metadata_json` | `TEXT` | Per-entity-kind extras (e.g. expanded/collapsed state for plans) |
+| **UNIQUE INDEX** | `(user_agent_id, entity_kind, entity_id) WHERE unpinned_at_ms IS NULL` | One active pin per (user × entity) |
+
+### Why two tables, not one
+
+- **`user_room_preferences`** is room-bounded — starred / order / unread state all only make sense in a room context, and the (user, room) cardinality keeps the join hot-path narrow.
+- **`user_panel_pins`** is cross-entity — a user might pin a plan, a memory, and a room all at once. Storing those in `user_room_preferences` would force a half-null nightmare (entity_kind + entity_id columns mostly unused on room rows).
+
+### Migration / archive behaviour
+
+- Pure additive on top of v0.2 schema — no impact on existing migration flow.
+- Archive-and-ditch: no preference data to carry forward (JWPK starts fresh on cut-over, re-stars rooms as he encounters them; mechanical 5-minute restoration of the ~10 rooms he uses daily).
+- Audit: every UPDATE on `starred` / `pinned_at_ms` / `sort_order` writes an `audit_events` row `kind='user_preference.changed'`. Cheap; useful when investigating "where did my pin go".
+
+### Open question
+
+Should the right-hand panel surface a `display_label` override per pin (e.g. "📋 Roadmap" instead of the plan's actual name)? Today no; if added later, it lives on `user_panel_pins.metadata_json` rather than as a column — same shape as how room display_name can be overridden via membership.room_alias.
+
+---
+
 This document is canonical for v0.2 design. Next-week's PRs reference this doc by section. Memory entries link via `[[ant-v02-identity-and-recovery]]`.
