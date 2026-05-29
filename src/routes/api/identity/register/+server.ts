@@ -14,6 +14,11 @@ import {
 } from '$lib/server/terminalsStore';
 import { isValidClientAgentKind, AGENT_KINDS_CLIENT_INPUT } from '$lib/server/agentKindEnum';
 import { classifyIfUnknown } from '$lib/server/agentStatusPoller';
+import {
+  appendHandleAlias,
+  getTerminalRecord,
+  updateTerminalRecord
+} from '$lib/server/terminalRecordsStore';
 
 const VALID_AGENT_KINDS_LIST = Array.from(AGENT_KINDS_CLIENT_INPUT).join(', ');
 
@@ -25,6 +30,7 @@ type IdentityRegisterBody = {
   meta?: unknown;
   pane?: unknown;
   agent_kind?: unknown;
+  handle?: unknown;
 };
 
 function parsePidsList(rawPids: unknown): { pid: number; pid_start: string | null }[] {
@@ -73,6 +79,15 @@ export const POST: RequestHandler = async ({ request }) => {
     if (!isValidClientAgentKind(agentKindRaw)) throw error(400, `agent_kind must be one of: ${VALID_AGENT_KINDS_LIST}`);
     agentKindValue = agentKindRaw;
   }
+  // Lifecycle Phase B (JWPK A Team msg_7uvr35x0xr 2026-05-29 Q4 default
+  // "new=primary so chat send works under the current name"). Optional
+  // top-level `handle` field — when re-register hits an EXISTING
+  // terminal_records row and the supplied handle differs from the stored
+  // one, append the OLD handle to handle_aliases BEFORE overwriting with
+  // the new handle. Empty / whitespace-only handles are ignored.
+  const handleRaw = rawBody.handle;
+  const handleValue =
+    typeof handleRaw === 'string' && handleRaw.trim().length > 0 ? handleRaw.trim() : null;
   // M3.2b: pre-read for INSERT-new probe + path-B kind preservation on re-register.
   const trimmedName = nameRaw.trim();
   const existing = getTerminalByName(trimmedName);
@@ -111,6 +126,22 @@ export const POST: RequestHandler = async ({ request }) => {
   const updateKindValue = agentKindValue !== null
     ? agentKindValue : (existed ? (existing?.agent_kind ?? null) : null);
   if (paneValue) updatePaneTarget(terminal.id, paneValue, updateKindValue);
+  // Phase B handle morph: only acts when the caller supplied a non-empty
+  // handle AND a terminal_records row exists for this session_id. The
+  // register endpoint never CREATES terminal_records — that's POST
+  // /api/terminals' job — so a session without a record is a no-op here.
+  if (handleValue) {
+    const record = getTerminalRecord(terminal.id);
+    if (record) {
+      const existingHandle = record.handle ?? '';
+      if (existingHandle.length > 0 && existingHandle !== handleValue) {
+        appendHandleAlias(terminal.id, existingHandle);
+      }
+      if (existingHandle !== handleValue) {
+        updateTerminalRecord(terminal.id, { handle: handleValue });
+      }
+    }
+  }
   // Response kind starts at updateKindValue (preserved); re-fetch only when classify ran.
   let classifiedAgentKind: string | null = updateKindValue;
   if (!existed && agentKindValue === null && paneValue !== null) {
