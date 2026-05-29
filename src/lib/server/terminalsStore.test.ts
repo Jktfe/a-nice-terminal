@@ -74,23 +74,28 @@ describe('getTerminalById / getTerminalByName', () => {
 });
 
 describe('lookupTerminalByPidChain', () => {
+  // 2026-05-29: pid_start is now ISO-normalised at every boundary so
+  // these strings must be parseable lstart-shaped values rather than
+  // arbitrary tokens. Unparseable strings collapse to null at the
+  // normaliser boundary (correct behaviour — see test below) which
+  // would defeat the assertions these tests are guarding.
   it('matches by (pid, pid_start) tuple', () => {
-    upsertTerminal({ pid: 4242, pid_start: 'fixed-start', name: 'chain-target' });
+    upsertTerminal({ pid: 4242, pid_start: 'Fri 29 May 11:11:24 2026', name: 'chain-target' });
     const found = lookupTerminalByPidChain([
-      { pid: 9999, pid_start: 'wrong' },
-      { pid: 4242, pid_start: 'fixed-start' }
+      { pid: 9999, pid_start: 'Fri 29 May 09:00:00 2026' },
+      { pid: 4242, pid_start: 'Fri 29 May 11:11:24 2026' }
     ]);
     expect(found?.name).toBe('chain-target');
   });
 
   it('returns null when no chain entry matches', () => {
-    upsertTerminal({ pid: 100, pid_start: 'startA', name: 'only-startA' });
-    const result = lookupTerminalByPidChain([{ pid: 100, pid_start: 'startB' }]);
+    upsertTerminal({ pid: 100, pid_start: 'Fri 29 May 10:00:00 2026', name: 'only-startA' });
+    const result = lookupTerminalByPidChain([{ pid: 100, pid_start: 'Fri 29 May 11:00:00 2026' }]);
     expect(result).toBeNull();
   });
 
   it('null chain pid_start does NOT match a non-null row pid_start (PID-reuse guard)', () => {
-    upsertTerminal({ pid: 555, pid_start: 'specific', name: 'strict-null-test' });
+    upsertTerminal({ pid: 555, pid_start: 'Fri 29 May 11:11:24 2026', name: 'strict-null-test' });
     const result = lookupTerminalByPidChain([{ pid: 555, pid_start: null }]);
     expect(result).toBeNull();
   });
@@ -103,6 +108,24 @@ describe('lookupTerminalByPidChain', () => {
 
   it('returns null for empty chain', () => {
     expect(lookupTerminalByPidChain([])).toBeNull();
+  });
+
+  // 2026-05-29 regression: pid_start is now ISO-normalised at every
+  // boundary, so the same wall-clock moment expressed in different
+  // locale forms must resolve to the SAME row. Before the fix, en_GB
+  // ("Fri 29 May ...") and en_US ("Thu May 29 ...") strings caused
+  // pidChain lookup to silently fail — the 4-hour silence forensic
+  // across 19 agents.
+  it('matches across locale formats (day-month vs month-day) via ISO normalisation', () => {
+    upsertTerminal({
+      pid: 7777,
+      pid_start: 'Fri 29 May 11:11:24 2026',
+      name: 'locale-regression'
+    });
+    const found = lookupTerminalByPidChain([
+      { pid: 7777, pid_start: 'Thu May 29 11:11:24 2026' }
+    ]);
+    expect(found?.name).toBe('locale-regression');
   });
 });
 
