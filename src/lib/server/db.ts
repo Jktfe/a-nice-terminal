@@ -1885,7 +1885,50 @@ const SCHEMA_DDL_STATEMENTS = [
     captured_at_ms INTEGER NOT NULL,
     payload_json  TEXT NOT NULL
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_usage_snapshots_captured_at ON usage_snapshots (captured_at_ms DESC)`
+  `CREATE INDEX IF NOT EXISTS idx_usage_snapshots_captured_at ON usage_snapshots (captured_at_ms DESC)`,
+  // PR-C super-admin reclaim primitive (substrate v0.2 plan, 2026-05-29).
+  //
+  // Tonight's identity-surgery sprint surfaced a class of recovery operations
+  // (membership rebinding, stale terminal cleanup, dual-bind resolution) that
+  // required raw sqlite3 UPDATE statements against fresh-ant.db with no audit
+  // trail. reclaim_requests is the named primitive that replaces that ad-hoc
+  // forensic with a signed, audited, CLI-driven path.
+  //
+  // signed_payload: canonical JSON of the request (captured at create time so
+  // the audit chain survives schema drift on subsequent reads).
+  //
+  // signature: NULL in Stage A (admin-bearer only); populated when Part 4
+  // identity_keys / trust_pubkey lifts ship and reclaim signing becomes
+  // mandatory. Future tightening lands without a schema change.
+  //
+  // target_kind dispatch in reclaimRequestsStore.executeReclaim:
+  //   - terminal:   flip terminals.status -> 'archived', soft-revoke any
+  //                 room_memberships pointing at it.
+  //   - membership: soft-revoke a specific room_memberships row.
+  //   - identity:   NO-OP until v0.2 identities table lives.
+  //   - session:    NO-OP until v0.2 sessions table lives.
+  //
+  // resulting_actions_json captures the actions taken (or simulated under
+  // dryRun) so the audit log is queryable post-hoc.
+  `CREATE TABLE IF NOT EXISTS reclaim_requests (
+    reclaim_id              TEXT PRIMARY KEY,
+    requester_handle        TEXT NOT NULL,
+    target_kind             TEXT NOT NULL CHECK (target_kind IN ('terminal','membership','identity','session')),
+    target_id               TEXT NOT NULL,
+    reason                  TEXT NOT NULL,
+    diagnostic_json         TEXT,
+    status                  TEXT NOT NULL CHECK (status IN ('pending','approved','executed','denied','expired')) DEFAULT 'pending',
+    created_at_ms           INTEGER NOT NULL,
+    approved_at_ms          INTEGER,
+    approved_by_handle      TEXT,
+    executed_at_ms          INTEGER,
+    executed_by_handle      TEXT,
+    resulting_actions_json  TEXT,
+    signed_payload          TEXT NOT NULL,
+    signature               TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_reclaim_requests_pending ON reclaim_requests(status, created_at_ms) WHERE status = 'pending'`,
+  `CREATE INDEX IF NOT EXISTS idx_reclaim_requests_target ON reclaim_requests(target_kind, target_id)`
 ];
 
 function resolveDbFilePath(): string {
