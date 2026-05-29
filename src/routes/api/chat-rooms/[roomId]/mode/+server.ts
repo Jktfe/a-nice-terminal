@@ -20,9 +20,11 @@
  */
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { doesChatRoomExist } from '$lib/server/chatRoomStore';
+import { doesChatRoomExist, findChatRoomById } from '$lib/server/chatRoomStore';
 import { parsePidChainFromBody, resolveServerSideHandle } from '$lib/server/identityGate';
 import { tryAdminBearer } from '$lib/server/chatRoomAuthGate';
+import { buildPermissionDeniedPayload } from '$lib/server/permissionDeniedPayload';
+import { resolveApproversFor } from '$lib/server/permissionApproverResolver';
 import {
   getCookieValuesFromRequest
 } from '$lib/server/authGate';
@@ -90,7 +92,27 @@ export const PUT: RequestHandler = async ({ params, request }) => {
 
   const handle = resolveHandleFromRequest(params.roomId, request, rawBody);
   if (!handle) {
-    throw error(403, 'Authentication required — must be a room member.');
+    // Stage A 403 PermissionDenied payload (plan milestone
+    // p3-stage-a-403-payload). reason='no_membership' — caller's identity
+    // resolved (or didn't), but the resolved handle isn't a member of the
+    // room and so cannot change room mode. Approve via room_owner.
+    const room = findChatRoomById(params.roomId);
+    throw error(
+      403,
+      buildPermissionDeniedPayload({
+        action: 'room.set_mode',
+        target_kind: 'room',
+        target_id: params.roomId,
+        target_display_name: room?.name,
+        reason: 'no_membership',
+        grantee_handle: '@you',
+        approvers: resolveApproversFor({
+          targetKind: 'room',
+          targetId: params.roomId
+        }),
+        message: 'Authentication required — must be a room member.'
+      })
+    );
   }
 
   const stored = setRoomMode({
