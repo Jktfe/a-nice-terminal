@@ -4,7 +4,7 @@ import {
   parseAllowlist, serializeAllowlist, listKnownHandles, listAllPickableHandles, deriveHandle,
   findTerminalRecordByHandle, listLiveTerminalRecords
 } from './terminalRecordsStore';
-import { getIdentityDb } from './db';
+import { getIdentityDb, resetIdentityDbForTests } from './db';
 import { createChatRoom, archiveChatRoom, softDeleteChatRoom } from './chatRoomStore';
 import { listLinkedTerminalRowsForRoom, getLinkedTerminalRowBySessionId, isLinkedChatRoom } from './linkedRoomTerminalLookup';
 
@@ -300,6 +300,85 @@ describe('terminalRecordsStore — agent_kind round-trip (T2b autodetect-wiring)
       // we passed explicit null. Both rows should remain unsuperseded.
       expect(getTerminalRecord('t_ps_18')?.superseded_at_ms).toBeNull();
       expect(getTerminalRecord('t_ps_19')?.superseded_at_ms).toBeNull();
+    });
+  });
+
+  // Phase C3 (JWPK A Team msg_emnmgs1y9t 2026-05-29 — screenshot showing
+  // invite picker still listing dead handles after 0.1.13 deploy). Confirms
+  // listLiveTerminalRecords, listKnownHandles, and listAllPickableHandles
+  // all drop terminal_records whose backing terminal has been flipped to
+  // archived/deleted, AND preserve rows that have no matching terminals
+  // row at all (pre-A1 + remote-bridge).
+  describe('Phase C3 — picker queries filter on terminals.status', () => {
+    beforeEach(() => {
+      process.env.ANT_FRESH_DB_PATH = ':memory:';
+      resetIdentityDbForTests();
+    });
+
+    it('C3a: listLiveTerminalRecords includes rows whose terminals row is status=live', async () => {
+      const { upsertTerminal } = await import('./terminalsStore');
+      const live = upsertTerminal({ pid: 1, pid_start: 'p', name: 'live-record' });
+      createTerminalRecord({ sessionId: live.id, name: 'live-record', handle: '@alive' });
+      const rows = listLiveTerminalRecords();
+      expect(rows.map((r) => r.session_id)).toContain(live.id);
+    });
+
+    it('C3b: listLiveTerminalRecords drops rows whose terminals row is archived', async () => {
+      const { upsertTerminal, setTerminalStatus } = await import('./terminalsStore');
+      const t = upsertTerminal({ pid: 2, pid_start: 'p', name: 'archived-record' });
+      createTerminalRecord({ sessionId: t.id, name: 'archived-record', handle: '@archived' });
+      setTerminalStatus(t.id, 'archived');
+      const rows = listLiveTerminalRecords();
+      expect(rows.map((r) => r.session_id)).not.toContain(t.id);
+    });
+
+    it('C3c: listLiveTerminalRecords drops rows whose terminals row is deleted', async () => {
+      const { upsertTerminal, setTerminalStatus } = await import('./terminalsStore');
+      const t = upsertTerminal({ pid: 3, pid_start: 'p', name: 'deleted-record' });
+      createTerminalRecord({ sessionId: t.id, name: 'deleted-record', handle: '@gone' });
+      setTerminalStatus(t.id, 'deleted');
+      const rows = listLiveTerminalRecords();
+      expect(rows.map((r) => r.session_id)).not.toContain(t.id);
+    });
+
+    it('C3d: listLiveTerminalRecords PRESERVES rows whose terminals row does not exist (pre-A1 / remote bridge)', () => {
+      // create a terminal_records row whose session_id has NO matching
+      // terminals row — same shape as pre-A1 historical rows + remote
+      // bridges that only exist in terminal_records.
+      createTerminalRecord({ sessionId: 't_orphan_record', name: 'orphan', handle: '@orphan' });
+      const rows = listLiveTerminalRecords();
+      expect(rows.map((r) => r.session_id)).toContain('t_orphan_record');
+    });
+
+    it('C3e: listKnownHandles drops archived', async () => {
+      const { upsertTerminal, setTerminalStatus } = await import('./terminalsStore');
+      const live = upsertTerminal({ pid: 4, pid_start: 'p', name: 'h-live' });
+      const archived = upsertTerminal({ pid: 5, pid_start: 'p', name: 'h-archived' });
+      createTerminalRecord({ sessionId: live.id, name: 'h-live', handle: '@h-live' });
+      createTerminalRecord({ sessionId: archived.id, name: 'h-archived', handle: '@h-archived' });
+      setTerminalStatus(archived.id, 'archived');
+      const handles = listKnownHandles();
+      expect(handles).toContain('@h-live');
+      expect(handles).not.toContain('@h-archived');
+    });
+
+    it('C3f: listAllPickableHandles drops archived (inherits from listLiveTerminalRecords)', async () => {
+      const { upsertTerminal, setTerminalStatus } = await import('./terminalsStore');
+      const live = upsertTerminal({ pid: 6, pid_start: 'p', name: 'p-live' });
+      const archived = upsertTerminal({ pid: 7, pid_start: 'p', name: 'p-archived' });
+      createTerminalRecord({ sessionId: live.id, name: 'p-live', handle: '@p-live' });
+      createTerminalRecord({ sessionId: archived.id, name: 'p-archived', handle: '@p-archived' });
+      setTerminalStatus(archived.id, 'archived');
+      const handles = listAllPickableHandles();
+      expect(handles).toContain('@p-live');
+      expect(handles).not.toContain('@p-archived');
+    });
+
+    it('C3g: listAllPickableHandles preserves orphan rows (no terminals row) via derived handle', () => {
+      createTerminalRecord({ sessionId: 't_orphan_2', name: 'orphan-pick', handle: null });
+      const handles = listAllPickableHandles();
+      // deriveHandle falls back to slug of name when handle is null.
+      expect(handles).toContain('@orphan-pick');
     });
   });
 });
