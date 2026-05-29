@@ -98,7 +98,10 @@ export function parseSseBlock(blockText) {
   let eventType = 'message';
   const dataLines = [];
   let sawData = false;
-  for (const line of blockText.split('\n')) {
+  // SSE spec allows lines to end with LF, CR, or CRLF. HTTP proxies
+  // sometimes rewrite line endings, so split on `\r?\n` to keep the
+  // `\r` out of the parsed field value.
+  for (const line of blockText.split(/\r?\n/)) {
     if (line.length === 0) continue;
     if (line.startsWith(':')) continue; // comment / heartbeat
     const colonIndex = line.indexOf(':');
@@ -135,8 +138,11 @@ async function drainEventStream(response, onEvent, getLastEventId, setLastEventI
     const { value, done } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
-    // SSE block separator is `\n\n`. Keep the unterminated tail for
-    // the next chunk.
+    // SSE block separator may be LF-LF or CRLF-CRLF (or any mix). HTTP
+    // proxies sometimes rewrite line endings, so normalise to LF-LF
+    // before searching for the block boundary. Keeping the unterminated
+    // tail in `buffer` carries any partial CR into the next chunk.
+    buffer = buffer.replace(/\r\n/g, '\n');
     let separatorIndex = buffer.indexOf('\n\n');
     while (separatorIndex !== -1) {
       const block = buffer.slice(0, separatorIndex);
