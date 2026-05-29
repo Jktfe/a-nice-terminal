@@ -2097,6 +2097,341 @@ const SCHEMA_DDL_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_grants_shim_lookup ON grants_shim (grantee_handle, action, target_id, revoked_at_ms)`
 ];
 
+// =====================================================================
+// v0.2 schema (additive — see docs/concepts/ant-v02-identity-and-recovery.md)
+// =====================================================================
+//
+// Tables prefixed with `v02_` so they live ALONGSIDE the existing schema
+// during the migration period. A subsequent cut-over PR will flip server
+// code to read from these tables; after cut-over, the legacy tables get
+// dropped and the `v02_` prefix gets stripped.
+//
+// JWPK ratified archive-and-ditch (msg_jnh0l9idnb 2026-05-29): we are NOT
+// shipping a data backfill — these tables start empty.
+//
+// FK references to out-of-scope entities (orgs, cli_providers, tools) are
+// intentionally TEXT columns WITHOUT REFERENCES clauses. The spec mentions
+// these as future targets but they are explicitly out-of-scope for v0.2
+// per docs/concepts/ant-v02-identity-and-recovery.md ("Messages, plans,
+// tasks, memories, artefacts are explicitly OUT OF SCOPE"). When those
+// tables ship, the FK constraints can be added via a follow-up ALTER.
+//
+// Structural invariants enforced via SQLite constraints (not app code):
+//   1. UNIQUE INDEX (agent_id) WHERE status='live' on v02_runtimes
+//      → an agent has at most ONE live runtime. Dual-bind = constraint
+//        violation, not silent fanout drift.
+//   2. UNIQUE INDEX (agent_id, room_id) WHERE left_at_ms IS NULL on
+//      v02_memberships → one active membership per room.
+//   3. v02_memberships explicitly has NO fanout_target_runtime_id column
+//      → fanout target derived at send time from
+//        agents.current_runtime_id; no cache that can go stale.
+//
+// On v02_reclaim_requests vs PR #100's `reclaim_requests`: PR #100 (open
+// against dev as of 2026-05-29) introduces a non-prefixed
+// `reclaim_requests` table for the immediate super-admin reclaim CLI.
+// This file ships the v02-prefixed sibling as part of the canonical v0.2
+// table set so cut-over can treat all 11 tables uniformly. The two tables
+// are independent: PR #100's row count is preserved at cut-over by code,
+// not by schema rename.
+const V02_SCHEMA_DDL_STATEMENTS = [
+  // -- Identity Layer -------------------------------------------------
+  // agents — DURABLE identity. 'TigerResearch' lives here from creation
+  // to deletion. Every membership/audit/message FK points here, not to a
+  // runtime. primary_trust_key_id is NULLABLE because an agent can exist
+  // briefly between row creation and first key registration; production
+  // code should require a primary key before flipping status='live' (this
+  // is application-level, not a DB constraint, so a partial agent under
+  // construction is representable). owner_org is TEXT (no FK) per the
+  // out-of-scope note above.
+  `CREATE TABLE IF NOT EXISTS v02_agents (
+    agent_id              TEXT PRIMARY KEY,
+    display_name          TEXT NOT NULL,
+    primary_handle        TEXT NOT NULL,
+    primary_trust_key_id  TEXT REFERENCES v02_agent_trust_keys(key_id),
+    status                TEXT NOT NULL DEFAULT 'live'
+                            CHECK (status IN ('live','archived','deleted')),
+    owner_org             TEXT,
+    current_runtime_id    TEXT REFERENCES v02_runtimes(runtime_id),
+    created_at_ms         INTEGER NOT NULL,
+    reclaim_count         INTEGER NOT NULL DEFAULT 0
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_v02_agents_primary_handle
+     ON v02_agents (primary_handle)`,
+  `CREATE INDEX IF NOT EXISTS idx_v02_agents_owner_org
+     ON v02_agents (owner_org)`,
+
+  // agent_trust_keys — multi-key per agent. Lose laptop → other keys
+  // still sign. Passkey integration via iCloud/Google/1Password.
+  `CREATE TABLE IF NOT EXISTS v02_agent_trust_keys (
+    key_id                TEXT PRIMARY KEY,
+    agent_id              TEXT NOT NULL REFERENCES v02_agents(agent_id),
+    pubkey                TEXT NOT NULL,
+    key_kind              TEXT NOT NULL
+                            CHECK (key_kind IN ('device','recovery','hardware','passkey')),
+    device_label          TEXT,
+    added_at_ms           INTEGER NOT NULL,
+    added_via             TEXT
+                            CHECK (added_via IN ('first-registration','same-account-pairing','super-admin-rotation','passkey-sync','self-rotate')),
+    last_used_at_ms       INTEGER,
+    revoked_at_ms         INTEGER,
+    revoked_reason        TEXT
+                            CHECK (revoked_reason IN ('user-rotation','lost-device','suspected-compromise','super-admin-override','expired','superseded')),
+    revoked_by_agent_id   TEXT REFERENCES v02_agents(agent_id),
+    is_primary            INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0,1)),
+    passkey_sync_origin   TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_v02_agent_trust_keys_agent_active
+     ON v02_agent_trust_keys (agent_id) WHERE revoked_at_ms IS NULL`,
+
+  // runtimes — EPHEMERAL pane binding. pid_start_iso is ISO 8601 UTC
+  // (NEVER raw `ps -o lstart` output — today's silence root cause was
+  // locale-dependent string compare on the legacy `pid_start` column).
+  // cli_provider_id is TEXT (no FK) per out-of-scope note.
+  //
+  // The UNIQUE INDEX below is THE structural fix for the dual-bind bug:
+  // an agent has at most ONE live runtime. Attempting to insert a
+  // second runtime with status='live' for the same agent_id raises
+  // SQLITE_CONSTRAINT_UNIQUE instead of silently fanning out to two
+  // panes.
+  `CREATE TABLE IF NOT EXISTS v02_runtimes (
+    runtime_id                  TEXT PRIMARY KEY,
+    agent_id                    TEXT NOT NULL REFERENCES v02_agents(agent_id),
+    host                        TEXT NOT NULL,
+    tmux_pane                   TEXT,
+    pid                         INTEGER NOT NULL,
+    pid_start_iso               TEXT NOT NULL,
+    cli_provider_id             TEXT,
+    status                      TEXT NOT NULL DEFAULT 'live'
+                                  CHECK (status IN ('live','stale','archived','reclaimed')),
+    started_at_ms               INTEGER NOT NULL,
+    last_heartbeat_ms           INTEGER,
+    ended_at_ms                 INTEGER,
+    reclaimed_by_runtime_id     TEXT REFERENCES v02_runtimes(runtime_id),
+    register_challenge_proof    TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_v02_runtimes_agent_live
+     ON v02_runtimes (agent_id) WHERE status='live'`,
+  `CREATE INDEX IF NOT EXISTS idx_v02_runtimes_agent
+     ON v02_runtimes (agent_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_v02_runtimes_status_heartbeat
+     ON v02_runtimes (status, last_heartbeat_ms)`,
+
+  // -- Room Layer -----------------------------------------------------
+  // rooms — persistent coordination space. Independent of any hardware
+  // change. owner_org TEXT (no FK).
+  `CREATE TABLE IF NOT EXISTS v02_rooms (
+    room_id             TEXT PRIMARY KEY,
+    display_name        TEXT NOT NULL,
+    owner_org           TEXT,
+    owner_agent_id      TEXT REFERENCES v02_agents(agent_id),
+    visibility          TEXT NOT NULL CHECK (visibility IN ('private','org','public')),
+    entry_policy_json   TEXT,
+    created_at_ms       INTEGER NOT NULL,
+    archived_at_ms      INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_v02_rooms_owner_org ON v02_rooms (owner_org)`,
+  `CREATE INDEX IF NOT EXISTS idx_v02_rooms_visibility ON v02_rooms (visibility)`,
+
+  // memberships — SINGLE table. NO roster/fanout split. NO
+  // fanout_target_runtime_id column. Fanout target is DERIVED at send
+  // time from agents.current_runtime_id, never cached. This is the
+  // structural fix for the bug that recurred 4× on 2026-05-29.
+  //
+  // UNIQUE INDEX (agent_id, room_id) WHERE left_at_ms IS NULL: an agent
+  // has at most ONE active membership per room. Historical rows
+  // (left_at_ms IS NOT NULL) are preserved for audit and do not
+  // participate in the uniqueness check.
+  `CREATE TABLE IF NOT EXISTS v02_memberships (
+    membership_id           TEXT PRIMARY KEY,
+    agent_id                TEXT NOT NULL REFERENCES v02_agents(agent_id),
+    room_id                 TEXT NOT NULL REFERENCES v02_rooms(room_id),
+    role                    TEXT NOT NULL DEFAULT 'member'
+                              CHECK (role IN ('owner','member','chair','observer','bot')),
+    room_alias              TEXT,
+    joined_at_ms            INTEGER NOT NULL,
+    left_at_ms              INTEGER,
+    last_read_post_order    INTEGER
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_v02_memberships_agent_room_active
+     ON v02_memberships (agent_id, room_id) WHERE left_at_ms IS NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_v02_memberships_room
+     ON v02_memberships (room_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_v02_memberships_agent
+     ON v02_memberships (agent_id)`,
+
+  // -- Access Layer ---------------------------------------------------
+  // tool_grants — issued capability rows. tool_slug is open-ended TEXT
+  // (the tools catalog is out of scope this PR; can be added as an FK
+  // when the catalog table ships).
+  `CREATE TABLE IF NOT EXISTS v02_tool_grants (
+    grant_id                TEXT PRIMARY KEY,
+    subject_kind            TEXT NOT NULL CHECK (subject_kind IN ('agent','org','room','everyone')),
+    subject_id              TEXT,
+    tool_slug               TEXT NOT NULL,
+    room_id                 TEXT REFERENCES v02_rooms(room_id),
+    permission              TEXT NOT NULL CHECK (permission IN ('use','admin','read')),
+    granted_by_agent_id     TEXT NOT NULL REFERENCES v02_agents(agent_id),
+    granted_at_ms           INTEGER NOT NULL,
+    expires_at_ms           INTEGER,
+    revoked_at_ms           INTEGER,
+    revoked_by_agent_id     TEXT REFERENCES v02_agents(agent_id),
+    source_request_id       TEXT REFERENCES v02_permission_requests(request_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_v02_tool_grants_lookup
+     ON v02_tool_grants (subject_kind, subject_id, tool_slug, room_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_v02_tool_grants_active
+     ON v02_tool_grants (tool_slug, revoked_at_ms)`,
+
+  // permission_requests — modal-popping primitive. decision_scope
+  // defaults to 'once' per @speedyc refinement (avoid over-broad grant
+  // creep). target_approver_agent_id is required at creation —
+  // multi-approver routing creates multiple rows (any one approves).
+  `CREATE TABLE IF NOT EXISTS v02_permission_requests (
+    request_id                  TEXT PRIMARY KEY,
+    requesting_agent_id         TEXT NOT NULL REFERENCES v02_agents(agent_id),
+    requesting_runtime_id       TEXT REFERENCES v02_runtimes(runtime_id),
+    tool_slug                   TEXT NOT NULL,
+    room_id                     TEXT REFERENCES v02_rooms(room_id),
+    permission                  TEXT NOT NULL CHECK (permission IN ('use','admin','read')),
+    target_approver_agent_id    TEXT NOT NULL REFERENCES v02_agents(agent_id),
+    target_approver_role        TEXT NOT NULL
+                                  CHECK (target_approver_role IN ('room-owner','org-super-admin','agent-owner','specific-user')),
+    reason_md                   TEXT,
+    action_context_json         TEXT,
+    auto_retry_on_approve       INTEGER NOT NULL DEFAULT 1 CHECK (auto_retry_on_approve IN (0,1)),
+    status                      TEXT NOT NULL DEFAULT 'pending'
+                                  CHECK (status IN ('pending','approved','denied','expired','superseded')),
+    decided_at_ms               INTEGER,
+    decided_by_agent_id         TEXT REFERENCES v02_agents(agent_id),
+    decision_scope              TEXT DEFAULT 'once'
+                                  CHECK (decision_scope IN ('once','always','always-for-room','always-for-org')),
+    denial_reason               TEXT,
+    created_at_ms               INTEGER NOT NULL,
+    expires_at_ms               INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_v02_permission_requests_approver
+     ON v02_permission_requests (target_approver_agent_id, status)`,
+  `CREATE INDEX IF NOT EXISTS idx_v02_permission_requests_requester
+     ON v02_permission_requests (requesting_agent_id, status)`,
+  `CREATE INDEX IF NOT EXISTS idx_v02_permission_requests_expiry
+     ON v02_permission_requests (status, expires_at_ms)`,
+
+  // pending_actions — TTL'd payload queue. 1-to-1 with permission
+  // request via UNIQUE constraint on request_id. Per-kind TTL set by
+  // application code at insert time (post 60s / task 5min / plan 10min
+  // / mcp 10min).
+  `CREATE TABLE IF NOT EXISTS v02_pending_actions (
+    action_id           TEXT PRIMARY KEY,
+    request_id          TEXT NOT NULL UNIQUE REFERENCES v02_permission_requests(request_id),
+    action_kind         TEXT NOT NULL,
+    payload_json        TEXT NOT NULL,
+    payload_size_bytes  INTEGER,
+    captured_at_ms      INTEGER NOT NULL,
+    expires_at_ms       INTEGER NOT NULL,
+    replayed_at_ms      INTEGER,
+    replay_result       TEXT CHECK (replay_result IN ('success','failed','skipped-stale','skipped-denied','skipped-request-expired')),
+    replay_error        TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_v02_pending_actions_expiry
+     ON v02_pending_actions (expires_at_ms) WHERE replayed_at_ms IS NULL`,
+
+  // -- Recovery Layer -------------------------------------------------
+  // reclaim_requests — runtime swap primitive. Same primitive serves
+  // laptop-to-mini reclaim, fleet auto-reclaim on server restart, and
+  // peer-driven brew-upgrade reclaim.
+  //
+  // Note vs PR #100: PR #100 introduces a non-prefixed `reclaim_requests`
+  // table for immediate use. This v02_-prefixed table is the canonical
+  // v0.2 form. Both tables can coexist during the migration window; the
+  // cut-over PR will reconcile by reading from v02_reclaim_requests.
+  `CREATE TABLE IF NOT EXISTS v02_reclaim_requests (
+    request_id                  TEXT PRIMARY KEY,
+    agent_id                    TEXT NOT NULL REFERENCES v02_agents(agent_id),
+    old_runtime_id              TEXT REFERENCES v02_runtimes(runtime_id),
+    new_runtime_id              TEXT NOT NULL REFERENCES v02_runtimes(runtime_id),
+    new_runtime_challenge       TEXT NOT NULL,
+    requested_by_agent_id       TEXT NOT NULL REFERENCES v02_agents(agent_id),
+    requested_at_ms             INTEGER NOT NULL,
+    approved_by_agent_id        TEXT REFERENCES v02_agents(agent_id),
+    approved_at_ms              INTEGER,
+    executed_at_ms              INTEGER,
+    status                      TEXT NOT NULL
+                                  CHECK (status IN ('pending','approved','executed','rejected','expired')),
+    rejected_reason             TEXT,
+    expires_at_ms               INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_v02_reclaim_requests_agent
+     ON v02_reclaim_requests (agent_id, status)`,
+  `CREATE INDEX IF NOT EXISTS idx_v02_reclaim_requests_status_expiry
+     ON v02_reclaim_requests (status, expires_at_ms)`,
+
+  // key_rotation_requests — emergency identity recovery. Super-admin
+  // override path for total key loss. 24h reversal window so a takeover
+  // attempt can be undone if the original owner still has any active
+  // key.
+  `CREATE TABLE IF NOT EXISTS v02_key_rotation_requests (
+    rotation_id                     TEXT PRIMARY KEY,
+    agent_id                        TEXT NOT NULL REFERENCES v02_agents(agent_id),
+    requesting_agent_id             TEXT NOT NULL REFERENCES v02_agents(agent_id),
+    requested_via                   TEXT NOT NULL
+                                      CHECK (requested_via IN ('user-recovery-flow','super-admin-emergency','compromise-response')),
+    new_pubkey                      TEXT NOT NULL,
+    new_device_label                TEXT NOT NULL,
+    requesting_2fa_token            TEXT NOT NULL,
+    super_admin_approval_signature  TEXT,
+    super_admin_2fa_token           TEXT,
+    revocation_window_until_ms      INTEGER NOT NULL,
+    reverted_at_ms                  INTEGER,
+    reverted_by_agent_id            TEXT REFERENCES v02_agents(agent_id),
+    status                          TEXT NOT NULL
+                                      CHECK (status IN ('pending','approved','executed','reverted','expired')),
+    created_at_ms                   INTEGER NOT NULL,
+    executed_at_ms                  INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_v02_key_rotation_requests_agent
+     ON v02_key_rotation_requests (agent_id, status)`,
+  `CREATE INDEX IF NOT EXISTS idx_v02_key_rotation_requests_window
+     ON v02_key_rotation_requests (status, revocation_window_until_ms)`,
+
+  // -- Forensic Layer -------------------------------------------------
+  // audit_events — APPEND-ONLY single typed event log. Replaces every
+  // *_audit / *_history / *_status_events table. Forensic = ONE query
+  // (WHERE entity_id=? ORDER BY at_ms), not a 12-way UNION.
+  //
+  // entity_kind CHECK covers ALL 11 v0.2 entity types (the 11 tables
+  // in this migration) PLUS 'system' for non-entity events (cron sweeps,
+  // boot-time housekeeping, etc.). Adding a new entity kind requires a
+  // CHECK-constraint rebuild — kept tight on purpose so a typo can't
+  // silently classify a row.
+  `CREATE TABLE IF NOT EXISTS v02_audit_events (
+    audit_id            TEXT PRIMARY KEY,
+    at_ms               INTEGER NOT NULL,
+    kind                TEXT NOT NULL,
+    entity_kind         TEXT NOT NULL
+                          CHECK (entity_kind IN (
+                            'agent','agent_trust_key','runtime','room','membership',
+                            'tool_grant','permission_request','pending_action',
+                            'reclaim_request','key_rotation_request','system'
+                          )),
+    entity_id           TEXT NOT NULL,
+    actor_agent_id      TEXT REFERENCES v02_agents(agent_id),
+    actor_runtime_id    TEXT REFERENCES v02_runtimes(runtime_id),
+    before_json         TEXT,
+    after_json          TEXT,
+    request_id          TEXT,
+    ip_hash             TEXT,
+    challenge_proof     TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_v02_audit_events_entity
+     ON v02_audit_events (entity_id, at_ms)`,
+  `CREATE INDEX IF NOT EXISTS idx_v02_audit_events_kind_time
+     ON v02_audit_events (kind, at_ms DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_v02_audit_events_request
+     ON v02_audit_events (request_id) WHERE request_id IS NOT NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_v02_audit_events_actor_time
+     ON v02_audit_events (actor_agent_id, at_ms DESC) WHERE actor_agent_id IS NOT NULL`
+];
+
 function resolveDbFilePath(): string {
   const explicit = process.env.ANT_FRESH_DB_PATH;
   if (explicit && explicit.length > 0) return explicit;
@@ -2139,6 +2474,17 @@ function applySchemaMigrations(db: DatabaseInstance): void {
   }
   extendAsksStatusCheckForActiveStatuses(db);
   extendArtefactKindCheckForStage(db);
+  // v0.2 additive migration — see V02_SCHEMA_DDL_STATEMENTS comment block.
+  // Runs after legacy schema so v02_ tables can reference legacy tables in
+  // future cut-over slices if needed. Same duplicate-column tolerance.
+  for (const ddlStatement of V02_SCHEMA_DDL_STATEMENTS) {
+    try {
+      db.prepare(ddlStatement).run();
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      if (!message.includes('duplicate column name')) throw cause;
+    }
+  }
 }
 
 /**
