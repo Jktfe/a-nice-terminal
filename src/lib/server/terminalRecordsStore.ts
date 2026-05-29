@@ -305,6 +305,69 @@ export function listAllPickableHandles(): string[] {
   return [...set].sort();
 }
 
+/**
+ * Lifecycle Phase A1 (JWPK A Team msg_w7sfmc4hpp + msg_7uvr35x0xr
+ * 2026-05-29). Append a handle to the handle_aliases JSON array on the
+ * terminal_records row for `sessionId`. Used by Phase B when
+ * `ant register` changes the handle on an existing terminal: the prior
+ * handle is appended here so it can be surfaced as a "previously known
+ * as @x" hint in pickers / audit / mention resolution.
+ *
+ * JSON shape on disk: `["@old1", "@old2"]`. NULL becomes `["@new"]` on
+ * first append. Idempotent — appending a handle already in the array
+ * is a no-op and still returns true. The alias is normalised to start
+ * with `@` (mirroring roomMembershipsStore.normalizeHandle).
+ *
+ * Returns true when the row exists (even when the alias was already
+ * present — the caller doesn't care). Returns false when sessionId
+ * doesn't match any terminal_records row.
+ */
+export function appendHandleAlias(sessionId: string, alias: string): boolean {
+  const trimmed = alias.trim();
+  if (trimmed.length === 0) return false;
+  const normalised = trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
+  const db = getIdentityDb();
+  const row = db
+    .prepare(`SELECT handle_aliases FROM terminal_records WHERE session_id = ?`)
+    .get(sessionId) as { handle_aliases: string | null } | undefined;
+  if (!row) return false;
+  const existing = parseHandleAliasesRaw(row.handle_aliases);
+  if (existing.includes(normalised)) return true;
+  const next = [...existing, normalised];
+  db.prepare(
+    `UPDATE terminal_records SET handle_aliases = ?, updated_at_ms = ?
+      WHERE session_id = ?`
+  ).run(JSON.stringify(next), Date.now(), sessionId);
+  return true;
+}
+
+/**
+ * Lifecycle Phase A1 (JWPK A Team msg_w7sfmc4hpp + msg_7uvr35x0xr
+ * 2026-05-29). Read the handle_aliases array for a session. Returns
+ * an empty array when no aliases (NULL column) or the row doesn't
+ * exist or the stored JSON is malformed — callers never need to
+ * handle a null/undefined return.
+ */
+export function getHandleAliases(sessionId: string): string[] {
+  const db = getIdentityDb();
+  const row = db
+    .prepare(`SELECT handle_aliases FROM terminal_records WHERE session_id = ?`)
+    .get(sessionId) as { handle_aliases: string | null } | undefined;
+  if (!row) return [];
+  return parseHandleAliasesRaw(row.handle_aliases);
+}
+
+function parseHandleAliasesRaw(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((h): h is string => typeof h === 'string');
+  } catch {
+    return [];
+  }
+}
+
 // INVITE-VALIDATE (2026-05-15, JWPK): room invites must resolve to a real
 // terminal — without this, the chat-rooms members POST accepts free-form
 // strings and creates "ghost" participants (e.g. @manual-test-bot) that
