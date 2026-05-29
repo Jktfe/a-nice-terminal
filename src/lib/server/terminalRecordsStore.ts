@@ -237,15 +237,26 @@ export function listTerminalRecords(): TerminalRecord[] {
  * History surfaces should call `listTerminalRecords()` directly to see
  * superseded + archived-linked rows.
  */
+// Phase C3 (JWPK A Team msg_emnmgs1y9t 2026-05-29 — screenshot showing
+// invite picker still listing dead handles after 0.1.13 deploy).
+// LEFT JOIN to terminals so rows whose backing terminal has been flipped
+// to 'archived' or 'deleted' by the lifecycle poller (Phase A3) drop out
+// of every picker that derives from this set. The NULL-tolerant predicate
+// `(t.status IS NULL OR t.status = 'live')` preserves rows that lack a
+// matching terminals row entirely — pre-A1 historical rows + remote
+// bridges that only exist in terminal_records. Without that fallback the
+// migration to lifecycle-gated picker would silently delete those.
 export function listLiveTerminalRecords(): TerminalRecord[] {
   const db = getIdentityDb();
   return db.prepare(`
     SELECT tr.*
       FROM terminal_records tr
       LEFT JOIN chat_rooms cr ON tr.linked_chat_room_id = cr.id
+      LEFT JOIN terminals  t  ON tr.session_id = t.id
      WHERE tr.superseded_at_ms IS NULL
        AND (tr.linked_chat_room_id IS NULL
             OR (cr.archived_at_ms IS NULL AND cr.deleted_at_ms IS NULL))
+       AND (t.status IS NULL OR t.status = 'live')
      ORDER BY tr.created_at_ms DESC
   `).all() as TerminalRecord[];
 }
@@ -263,16 +274,23 @@ export function deleteTerminalRecord(sessionId: string): void {
 // excluded, plus filtered on `superseded_at_ms IS NULL` so handles from
 // terminal_records that lost their pane to a later claim are excluded.
 // Bare-pane terminals (no linked room) stay in if not superseded.
+// Phase C3 (JWPK A Team msg_emnmgs1y9t 2026-05-29): same lifecycle filter
+// as listLiveTerminalRecords — drop handles whose backing terminal is
+// archived/deleted, preserve rows with no matching terminals row via the
+// NULL-tolerant predicate. See listLiveTerminalRecords for the full
+// rationale.
 export function listKnownHandles(): string[] {
   const db = getIdentityDb();
   const rows = db.prepare(
     `SELECT DISTINCT tr.handle
        FROM terminal_records tr
        LEFT JOIN chat_rooms cr ON tr.linked_chat_room_id = cr.id
+       LEFT JOIN terminals  t  ON tr.session_id = t.id
       WHERE tr.handle IS NOT NULL AND tr.handle != ''
         AND tr.superseded_at_ms IS NULL
         AND (tr.linked_chat_room_id IS NULL
              OR (cr.archived_at_ms IS NULL AND cr.deleted_at_ms IS NULL))
+        AND (t.status IS NULL OR t.status = 'live')
       ORDER BY tr.handle ASC`
   ).all() as { handle: string }[];
   return rows.map((r) => r.handle);
