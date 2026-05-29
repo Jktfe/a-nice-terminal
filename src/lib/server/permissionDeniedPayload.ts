@@ -129,11 +129,37 @@ export function humanizeReason(reason: PermissionDeniedReason): string {
 }
 
 /**
+ * Strict charset gates for fields interpolated into approve_command.
+ * The string is intended for copy-paste into a shell; a malicious value
+ * containing shell metacharacters (`;`, `|`, `$()`, backticks, etc.)
+ * would turn a helpful suggestion into a command-injection vector
+ * against the human who pastes it. Any field that fails the allowlist
+ * returns a generic fallback that does not embed user input.
+ */
+const SAFE_HANDLE_RE = /^@?[A-Za-z0-9_.-]+$/;
+const SAFE_ACTION_RE = /^[a-z0-9._-]+$/;
+const SAFE_TARGET_ID_RE = /^[A-Za-z0-9_.-]+$/;
+
+function isShellSafeForApproveCommand(input: BuildPermissionDeniedInput): boolean {
+  if (!SAFE_HANDLE_RE.test(input.grantee_handle)) return false;
+  if (!SAFE_ACTION_RE.test(input.action)) return false;
+  if (input.target_kind !== 'system' && !SAFE_TARGET_ID_RE.test(input.target_id)) return false;
+  return true;
+}
+
+/**
  * Compose the default approve_command. Stage A keeps this simple — one
  * positional grantee, one action verb, one --<target_kind> <id> flag.
  * Stage B may add --once / scope / --request-id arguments.
+ *
+ * Security: any field that fails the strict charset returns a generic
+ * fallback string that does not embed user input. Safe to copy-paste
+ * regardless of where grantee/action/target_id came from.
  */
 function defaultApproveCommand(input: BuildPermissionDeniedInput): string {
+  if (!isShellSafeForApproveCommand(input)) {
+    return 'Contact your room owner or org admin to grant this permission manually.';
+  }
   // system grants don't carry a flag — the approve command is implicit.
   if (input.target_kind === 'system') {
     return `ant grant ${input.grantee_handle} ${input.action}`;

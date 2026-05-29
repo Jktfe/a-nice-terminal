@@ -17,11 +17,19 @@
  *     -> 401 when caller identity cannot be resolved.
  *     -> 400 on malformed body.
  *
- * Auth model (Stage A): admin-bearer OR pidChain that resolves to any
- * registered terminal. Stage B will add an approver gate that checks
- * the caller has owner / org_admin rights on the target. For Stage A
- * we trust the CLI surface — the `ant grant` UX is for the room owner
- * to delegate manually, not a programmatic surface yet.
+ * Auth model (Stage A — hardened 2026-05-29 after security review):
+ * Two gates layered:
+ *   1. Authentication — admin-bearer OR pidChain → terminal lookup; 401
+ *      when neither resolves.
+ *   2. Authorization — admin-bearer bypasses; otherwise the resolved
+ *      caller handle must appear in resolveApproversFor({targetKind,
+ *      targetId}). Room owner can grant on their own room, plan owner
+ *      on their own plan, etc. 403 with structured permission_denied
+ *      payload otherwise. System-scoped grants are admin-bearer only.
+ *
+ * Stage B will replace the approver gate with the full permission_requests
+ * + signed-nonce attestation flow (Part 4 trust_pubkey work); the gate
+ * shape stays the same so existing tests survive the cut-over.
  */
 
 import { json, error } from '@sveltejs/kit';
@@ -31,7 +39,12 @@ import {
   revokePermission,
   type GrantScope
 } from '$lib/server/grantsShimStore';
-import type { PermissionTargetKind } from '$lib/server/permissionDeniedPayload';
+import {
+  buildPermissionDeniedPayload,
+  type PermissionDeniedReason,
+  type PermissionTargetKind
+} from '$lib/server/permissionDeniedPayload';
+import { resolveApproversFor } from '$lib/server/permissionApproverResolver';
 import { tryAdminBearer, ADMIN_BEARER_HANDLE } from '$lib/server/chatRoomAuthGate';
 import { parsePidChainFromBody } from '$lib/server/identityGate';
 import { lookupTerminalByPidChain } from '$lib/server/terminalsStore';
@@ -122,6 +135,66 @@ function validateBody(body: GrantBody): {
   };
 }
 
+/**
+ * Approver gate (Stage A — security fix 2026-05-29):
+ *
+ * Authentication alone is insufficient — any authenticated caller could
+ * otherwise grant any permission on any target (HIGH privilege escalation
+ * flagged by security review on initial Stage A ship). The fix: after
+ * resolving the caller, verify they're in the approver set for the target
+ * (room owner / plan owner / task assignee+owner / org admin / admin-bearer
+ * for system). Reuses resolveApproversFor() — same primitive that builds
+ * the 403 payload, so the contract is symmetric: the handles we surface
+ * to a denied caller are the same handles we accept as approvers here.
+ */
+function requireApproverForTarget(
+  callerHandle: string,
+  granteeHandle: string,
+  action: string,
+  targetKind: PermissionTargetKind,
+  targetId: string
+): void {
+  // Admin-bearer bypasses the approver check (matches the rest of the
+  // substrate's emergency-recovery model — admin-bearer is the break-
+  // glass primitive).
+  if (callerHandle === ADMIN_BEARER_HANDLE) return;
+
+  // System grants are admin-bearer only by design; non-admin callers
+  // hit this branch via resolveApproversFor returning [].
+  if (targetKind === 'system') {
+    throw error(403, buildPermissionDeniedPayload({
+      action: 'grant.issue',
+      target_kind: 'system',
+      target_id: targetId,
+      reason: 'not_org_admin' satisfies PermissionDeniedReason,
+      grantee_handle: granteeHandle,
+      approvers: [],
+      message: 'System-scoped grants require admin-bearer.'
+    }));
+  }
+
+  const approvers = resolveApproversFor({ targetKind, targetId });
+  const isApprover = approvers.some((a) => a.handle === callerHandle);
+  if (isApprover) return;
+
+  // Pick the most-fitting reason for the rejection so the CLI renderer
+  // surfaces a useful hint to the caller (who can in turn ask the right
+  // person to grant THEM approver rights, recursively).
+  const reason: PermissionDeniedReason =
+    targetKind === 'room' ? 'not_room_owner'
+    : targetKind === 'org' ? 'not_org_admin'
+    : 'no_grant';
+
+  throw error(403, buildPermissionDeniedPayload({
+    action: `grant.issue.${action}`,
+    target_kind: targetKind,
+    target_id: targetId,
+    reason,
+    grantee_handle: granteeHandle,
+    approvers
+  }));
+}
+
 export const POST: RequestHandler = async ({ request }) => {
   let rawBody: GrantBody;
   try {
@@ -131,6 +204,13 @@ export const POST: RequestHandler = async ({ request }) => {
   }
   const validated = validateBody(rawBody);
   const grantedByHandle = resolveCallerHandle(request, rawBody);
+  requireApproverForTarget(
+    grantedByHandle,
+    validated.granteeHandle,
+    validated.action,
+    validated.targetKind,
+    validated.targetId
+  );
   const grant = grantPermission({
     granteeHandle: validated.granteeHandle,
     action: validated.action,
@@ -152,8 +232,16 @@ export const DELETE: RequestHandler = async ({ request }) => {
     throw error(400, 'JSON body required');
   }
   const validated = validateBody(rawBody);
-  // Authentication check (same as POST). Throws 401 on no caller.
-  resolveCallerHandle(request, rawBody);
+  const callerHandle = resolveCallerHandle(request, rawBody);
+  // Same approver gate as POST — only an authorised approver (or admin-
+  // bearer) can revoke a grant on the target.
+  requireApproverForTarget(
+    callerHandle,
+    validated.granteeHandle,
+    validated.action,
+    validated.targetKind,
+    validated.targetId
+  );
   const revokedCount = revokePermission({
     granteeHandle: validated.granteeHandle,
     action: validated.action,

