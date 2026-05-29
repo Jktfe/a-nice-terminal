@@ -10,7 +10,8 @@ import {
   getTerminalById,
   getTerminalByName,
   getLiveTerminalByName,
-  getLiveTerminalByPid
+  getLiveTerminalByPid,
+  getLiveTerminalsByHandle
 } from '$lib/server/terminalsStore';
 import { isValidClientAgentKind, AGENT_KINDS_CLIENT_INPUT } from '$lib/server/agentKindEnum';
 import { classifyIfUnknown } from '$lib/server/agentStatusPoller';
@@ -20,6 +21,10 @@ import {
   getTerminalRecord,
   updateTerminalRecord
 } from '$lib/server/terminalRecordsStore';
+import {
+  autoRebindMembershipsFromStaleTerminal,
+  isCandidateStale
+} from '$lib/server/roomMembershipsStore';
 
 const VALID_AGENT_KINDS_LIST = Array.from(AGENT_KINDS_CLIENT_INPUT).join(', ');
 
@@ -146,6 +151,37 @@ export const POST: RequestHandler = async ({ request }) => {
       }
       if (existingHandle !== handleValue) {
         updateTerminalRecord(terminal.id, { handle: handleValue });
+      }
+    }
+  }
+  // PR-B v0.2 (JWPK enterprise-concern #5 — @speedyc dual-bind 2026-05-29).
+  // After the new registration completes, sweep any OTHER live terminals
+  // that own this handle. When a stale candidate is found, atomically
+  // re-point its room_memberships to this fresh terminal, archive the old
+  // row, and supersede its terminal_records row. Safe-by-construction:
+  // isCandidateStale never fires on a live row (heartbeat freshness gate)
+  // so an active old session won't have memberships stolen from under it.
+  if (handleValue) {
+    const nowMs = Date.now();
+    const liveCandidates = getLiveTerminalsByHandle(handleValue);
+    for (const candidate of liveCandidates) {
+      if (candidate.id === terminal.id) continue;
+      if (!isCandidateStale(candidate, nowMs)) continue;
+      const { reboundCount, affectedRoomIds } = autoRebindMembershipsFromStaleTerminal({
+        handle: handleValue,
+        oldTerminalId: candidate.id,
+        newTerminalId: terminal.id,
+        nowMs
+      });
+      if (reboundCount > 0) {
+        // Structured log line — forensic trail for the rebind. JWPK rule
+        // (msg_5xjtox2059): any operational decision invisible to the
+        // operator is a bug, so the rebind has to leave an audit thread.
+        // eslint-disable-next-line no-console
+        console.log(
+          `[auto-rebind] handle=${handleValue} old=${candidate.id} new=${terminal.id} ` +
+            `rooms=${affectedRoomIds.join(',')} count=${reboundCount}`
+        );
       }
     }
   }
