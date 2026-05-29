@@ -368,21 +368,12 @@ export function createChatRoom(input: {
   });
 
   txn();
-  // Per-human inbox: provision the creator's inbox (if human) + recompute
-  // edges so any pre-existing agents in the room come into the inbox.
-  // The @you membership added above also triggers a recompute through the
-  // same hook, so @you's inbox is provisioned the first time @you appears
-  // anywhere in the system.
-  if (creatorKind === 'human') ensureHumanInboxRoom(input.whoCreatedIt);
-  if (input.whoCreatedIt !== '@you') ensureHumanInboxRoom('@you');
-  recomputeInboxEdgesForRoomMembershipChange(newRoomId, input.whoCreatedIt);
-  if (input.whoCreatedIt !== '@you') {
-    recomputeInboxEdgesForRoomMembershipChange(newRoomId, '@you');
-  }
   // M9c dual-write: mirror creator + @you memberships into v02 substrate
   // so v02_memberships reflects the same roster as chat_room_members.
   // Best-effort — the shim swallows errors so legacy room creation is
-  // unaffected.
+  // unaffected. Run BEFORE ensureHumanInboxRoom so that the agent rows
+  // capture the creator's display_name + role first (the inbox-edge
+  // recompute auto-creates agents with handle-as-display-name when racing).
   v02EnsureRoomExists(newRoomId);
   v02MirrorAddMembership({
     roomId: newRoomId,
@@ -397,6 +388,17 @@ export function createChatRoom(input: {
       displayName: '@you',
       role: 'member'
     });
+  }
+  // Per-human inbox: provision the creator's inbox (if human) + recompute
+  // edges so any pre-existing agents in the room come into the inbox.
+  // The @you membership added above also triggers a recompute through the
+  // same hook, so @you's inbox is provisioned the first time @you appears
+  // anywhere in the system.
+  if (creatorKind === 'human') ensureHumanInboxRoom(input.whoCreatedIt);
+  if (input.whoCreatedIt !== '@you') ensureHumanInboxRoom('@you');
+  recomputeInboxEdgesForRoomMembershipChange(newRoomId, input.whoCreatedIt);
+  if (input.whoCreatedIt !== '@you') {
+    recomputeInboxEdgesForRoomMembershipChange(newRoomId, '@you');
   }
   return loadRoomById(newRoomId)!;
 }
@@ -596,14 +598,17 @@ export function inviteAgentToRoom(input: {
   });
 
   txn();
-  recomputeInboxEdgesForRoomMembershipChange(input.roomId, handleWithAtSign);
-  // M9c dual-write: mirror the agent membership into v02_memberships.
+  // M9c dual-write: mirror the agent membership into v02_memberships
+  // BEFORE the inbox-edge recompute so the agent's display_name is
+  // captured here (the inbox-edge mirror passes the handle as fallback
+  // display_name and would otherwise win the auto-create race).
   v02MirrorAddMembership({
     roomId: input.roomId,
     handle: handleWithAtSign,
     displayName,
     role: 'member'
   });
+  recomputeInboxEdgesForRoomMembershipChange(input.roomId, handleWithAtSign);
   return loadRoomById(input.roomId)!;
 }
 
@@ -654,15 +659,17 @@ export function inviteHumanToRoom(input: {
   });
 
   txn();
-  ensureHumanInboxRoom(handleWithAtSign);
-  recomputeInboxEdgesForRoomMembershipChange(input.roomId, handleWithAtSign);
-  // M9c dual-write: mirror the human membership into v02_memberships.
+  // M9c dual-write: mirror the human membership into v02_memberships
+  // BEFORE the inbox-edge recompute so the human's display_name is
+  // captured here.
   v02MirrorAddMembership({
     roomId: input.roomId,
     handle: handleWithAtSign,
     displayName,
     role: 'member'
   });
+  ensureHumanInboxRoom(handleWithAtSign);
+  recomputeInboxEdgesForRoomMembershipChange(input.roomId, handleWithAtSign);
   return loadRoomById(input.roomId)!;
 }
 
