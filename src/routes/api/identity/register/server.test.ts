@@ -5,13 +5,20 @@ import { join } from 'node:path';
 import { POST } from './+server';
 import { resetIdentityDbForTests } from '$lib/server/db';
 import { getTerminalByName } from '$lib/server/terminalsStore';
+import {
+  createTerminalRecord,
+  getHandleAliases,
+  getTerminalRecord
+} from '$lib/server/terminalRecordsStore';
 
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
+const previousMemoryVaultPath = process.env.ANT_MEMORY_VAULT_PATH;
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'ant-route-register-'));
   process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
+  process.env.ANT_MEMORY_VAULT_PATH = '/tmp/ant-memory-pack-test';
   resetIdentityDbForTests();
 });
 
@@ -20,6 +27,8 @@ afterEach(() => {
   rmSync(tmpDir, { recursive: true, force: true });
   if (previousEnvValue === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = previousEnvValue;
+  if (previousMemoryVaultPath === undefined) delete process.env.ANT_MEMORY_VAULT_PATH;
+  else process.env.ANT_MEMORY_VAULT_PATH = previousMemoryVaultPath;
 });
 
 function eventForPost(body?: string) {
@@ -165,5 +174,84 @@ describe('POST /api/identity/register', () => {
       name: 'isolation-test', pids: [{ pid: 99999, pid_start: 's' }], pane: '%1'
     }));
     expect(response.status).toBe(201);
+  });
+
+  // Lifecycle Phase B (JWPK A Team msg_7uvr35x0xr 2026-05-29 Q4 default).
+  // The register endpoint does NOT create terminal_records rows itself —
+  // that's POST /api/terminals' job. So these tests seed a record keyed
+  // by the same session_id as the registered terminal, then re-register
+  // with a different handle and assert the alias trail.
+  describe('Phase B — handle_aliases on handle change', () => {
+    async function registerAndSeed(name: string, handle: string | null): Promise<string> {
+      const response = await callPost(JSON.stringify({
+        name, pids: [{ pid: 1, pid_start: 's' }], handle: handle ?? undefined
+      }));
+      expect(response.status).toBe(201);
+      const { terminal_id } = await response.json();
+      // Seed a terminal_records row keyed by the same session_id so the
+      // register endpoint sees an "existing terminal_records row" on the
+      // next call. (Production flow: POST /api/terminals does this.)
+      // Skip if already seeded (re-register paths call this twice).
+      if (!getTerminalRecord(terminal_id)) {
+        createTerminalRecord({ sessionId: terminal_id, name, handle });
+      }
+      return terminal_id;
+    }
+
+    it('first register with handle @claudev4 — handle_aliases is empty (no prior)', async () => {
+      const sessionId = await registerAndSeed('phase-b-first', '@claudev4');
+      expect(getHandleAliases(sessionId)).toEqual([]);
+      expect(getTerminalRecord(sessionId)?.handle).toBe('@claudev4');
+    });
+
+    it('re-register with @claudev5 — new becomes primary, @claudev4 in aliases', async () => {
+      const sessionId = await registerAndSeed('phase-b-morph', '@claudev4');
+      const second = await callPost(JSON.stringify({
+        name: 'phase-b-morph', pids: [{ pid: 1, pid_start: 's' }], handle: '@claudev5'
+      }));
+      expect(second.status).toBe(201);
+      expect(getTerminalRecord(sessionId)?.handle).toBe('@claudev5');
+      expect(getHandleAliases(sessionId)).toEqual(['@claudev4']);
+    });
+
+    it('re-register again with @claudev6 — aliases is [@claudev4, @claudev5] (append, not replace)', async () => {
+      const sessionId = await registerAndSeed('phase-b-chain', '@claudev4');
+      await callPost(JSON.stringify({
+        name: 'phase-b-chain', pids: [{ pid: 1, pid_start: 's' }], handle: '@claudev5'
+      }));
+      const third = await callPost(JSON.stringify({
+        name: 'phase-b-chain', pids: [{ pid: 1, pid_start: 's' }], handle: '@claudev6'
+      }));
+      expect(third.status).toBe(201);
+      expect(getTerminalRecord(sessionId)?.handle).toBe('@claudev6');
+      expect(getHandleAliases(sessionId)).toEqual(['@claudev4', '@claudev5']);
+    });
+
+    it('re-register with the SAME handle — aliases unchanged (no dup-append)', async () => {
+      const sessionId = await registerAndSeed('phase-b-noop', '@claudev6');
+      // First handle change to seed an alias entry.
+      await callPost(JSON.stringify({
+        name: 'phase-b-noop', pids: [{ pid: 1, pid_start: 's' }], handle: '@claudev7'
+      }));
+      expect(getHandleAliases(sessionId)).toEqual(['@claudev6']);
+      // Re-register with the SAME @claudev7 — no append.
+      const noop = await callPost(JSON.stringify({
+        name: 'phase-b-noop', pids: [{ pid: 1, pid_start: 's' }], handle: '@claudev7'
+      }));
+      expect(noop.status).toBe(201);
+      expect(getHandleAliases(sessionId)).toEqual(['@claudev6']);
+      expect(getTerminalRecord(sessionId)?.handle).toBe('@claudev7');
+    });
+
+    it('re-register with no handle field — handle stays, no alias appended', async () => {
+      const sessionId = await registerAndSeed('phase-b-omit', '@claudev4');
+      const response = await callPost(JSON.stringify({
+        name: 'phase-b-omit', pids: [{ pid: 1, pid_start: 's' }]
+        // no handle field
+      }));
+      expect(response.status).toBe(201);
+      expect(getTerminalRecord(sessionId)?.handle).toBe('@claudev4');
+      expect(getHandleAliases(sessionId)).toEqual([]);
+    });
   });
 });
