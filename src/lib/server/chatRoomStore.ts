@@ -20,6 +20,11 @@ import { getIdentityDb } from './db';
 import { findTerminalRecordByHandle } from './terminalRecordsStore';
 import { recomputeInboxEdgesForRoomMembershipChange } from './humanInboxMembership';
 import { ensureHumanInboxRoom } from './humanInboxRoomStore';
+import {
+  mirrorAddMembership as v02MirrorAddMembership,
+  mirrorRemoveMembership as v02MirrorRemoveMembership,
+  ensureV02RoomExists as v02EnsureRoomExists
+} from './v02ChatRoomBridge';
 
 export type ParticipantBackgroundStyle = 'card' | 'tint' | 'transparent';
 
@@ -374,6 +379,25 @@ export function createChatRoom(input: {
   if (input.whoCreatedIt !== '@you') {
     recomputeInboxEdgesForRoomMembershipChange(newRoomId, '@you');
   }
+  // M9c dual-write: mirror creator + @you memberships into v02 substrate
+  // so v02_memberships reflects the same roster as chat_room_members.
+  // Best-effort — the shim swallows errors so legacy room creation is
+  // unaffected.
+  v02EnsureRoomExists(newRoomId);
+  v02MirrorAddMembership({
+    roomId: newRoomId,
+    handle: input.whoCreatedIt,
+    displayName: input.whoCreatedIt,
+    role: 'owner'
+  });
+  if (input.whoCreatedIt !== '@you') {
+    v02MirrorAddMembership({
+      roomId: newRoomId,
+      handle: '@you',
+      displayName: '@you',
+      role: 'member'
+    });
+  }
   return loadRoomById(newRoomId)!;
 }
 
@@ -573,6 +597,13 @@ export function inviteAgentToRoom(input: {
 
   txn();
   recomputeInboxEdgesForRoomMembershipChange(input.roomId, handleWithAtSign);
+  // M9c dual-write: mirror the agent membership into v02_memberships.
+  v02MirrorAddMembership({
+    roomId: input.roomId,
+    handle: handleWithAtSign,
+    displayName,
+    role: 'member'
+  });
   return loadRoomById(input.roomId)!;
 }
 
@@ -625,6 +656,13 @@ export function inviteHumanToRoom(input: {
   txn();
   ensureHumanInboxRoom(handleWithAtSign);
   recomputeInboxEdgesForRoomMembershipChange(input.roomId, handleWithAtSign);
+  // M9c dual-write: mirror the human membership into v02_memberships.
+  v02MirrorAddMembership({
+    roomId: input.roomId,
+    handle: handleWithAtSign,
+    displayName,
+    role: 'member'
+  });
   return loadRoomById(input.roomId)!;
 }
 
@@ -707,6 +745,9 @@ export function removeMemberFromRoom(input: {
   // this room, the inbox membership is dropped (JWPK 2026-05-22 auto-
   // remove correction).
   recomputeInboxEdgesForRoomMembershipChange(input.roomId, input.globalHandle);
+  // M9c dual-write: soft-leave the v02_memberships row so the v0.2
+  // substrate reflects the removal. Best-effort.
+  v02MirrorRemoveMembership(input.roomId, input.globalHandle);
 
   return loadRoomById(input.roomId)!;
 }
