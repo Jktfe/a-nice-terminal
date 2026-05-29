@@ -52,6 +52,13 @@ export type TerminalRow = {
   // means unspecified — readers should fold those into an "unspecified"
   // subgroup so existing rows keep rendering without a forced migration.
   model?: string | null;
+  // Lifecycle status (JWPK A Team msg_w7sfmc4hpp + msg_8m9xsw8d62
+  // 2026-05-29). Source of truth for "can this terminal be bound by
+  // room_memberships right now". See db.ts comment for the contract.
+  status?: 'live' | 'archived' | 'deleted';
+  // Last working directory tracked by PROMPT_COMMAND hook on the
+  // shell side. Lets a recovered shell `cd $last_path` after re-bind.
+  last_path?: string | null;
 };
 
 export type RegisterTerminalInput = {
@@ -351,6 +358,100 @@ export function setTerminalModel(terminalId: string, model: string | null): bool
      WHERE id = ?`
   ).run(value, currentUnixSeconds(), terminalId);
   return info.changes > 0;
+}
+
+/**
+ * Lifecycle: flip a terminal's status. JWPK A Team msg_w7sfmc4hpp
+ * + msg_7uvr35x0xr 2026-05-29 (Phase A1). Used by:
+ *
+ * - agentStatusPoller (Phase A3) when it detects the tmux pane is
+ *   gone, flipping `live` → `archived` so the handle becomes free
+ *   for re-bind without manual operator action.
+ * - operator commands `ant terminal archive` / `ant terminal delete`
+ *   (Phase C UX).
+ * - the upcoming `ant register` rule (Phase A2) that rejects new
+ *   sessions on a name already in use by a `live` terminal — checked
+ *   via getLiveTerminalsByHandle / getLiveTerminalByName below.
+ *
+ * Returns true when a row was updated. Idempotent — flipping to the
+ * current status still returns true for an existing row so the poller
+ * can fire on every tick without branching on prior state. Returns
+ * false only when terminalId doesn't match any row.
+ */
+export function setTerminalStatus(
+  terminalId: string,
+  status: 'live' | 'archived' | 'deleted'
+): boolean {
+  const db = getIdentityDb();
+  const info = db.prepare(
+    `UPDATE terminals
+     SET status = ?, updated_at = ?
+     WHERE id = ?`
+  ).run(status, currentUnixSeconds(), terminalId);
+  return info.changes > 0;
+}
+
+/**
+ * Update terminals.last_path (Phase A1). Called by the upcoming
+ * POST /api/terminals/:id/path endpoint (Phase C) when the shell-side
+ * PROMPT_COMMAND hook fires. Lets a recovered shell `cd $last_path`
+ * automatically when the same handle is re-bound.
+ *
+ * Empty / whitespace-only input normalises to NULL (clears the field),
+ * mirroring setTerminalModel's normalisation. Explicit null also clears.
+ * Returns true when a row was updated, false on unknown terminalId.
+ */
+export function setTerminalLastPath(terminalId: string, path: string | null): boolean {
+  const db = getIdentityDb();
+  const trimmed = typeof path === 'string' ? path.trim() : null;
+  const value = trimmed && trimmed.length > 0 ? trimmed : null;
+  const info = db.prepare(
+    `UPDATE terminals
+     SET last_path = ?, updated_at = ?
+     WHERE id = ?`
+  ).run(value, currentUnixSeconds(), terminalId);
+  return info.changes > 0;
+}
+
+/**
+ * Lifecycle conflict check (Phase A1, Phase A2 consumer). List all
+ * terminals with status='live' that are bound to a given handle via
+ * room_memberships (revoked_at_ms IS NULL). Used by Phase A2's
+ * register rule (b): "no live terminal already owns this handle".
+ *
+ * Handle is normalised — `claudev4` and `@claudev4` resolve the same
+ * set. Returns an empty array when no live binding exists for the
+ * handle. Orphan terminals (no room_memberships row) are excluded.
+ */
+export function getLiveTerminalsByHandle(handle: string): TerminalRow[] {
+  const trimmed = handle.trim();
+  if (trimmed.length === 0) return [];
+  const normalised = trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
+  const db = getIdentityDb();
+  return db.prepare(
+    `SELECT DISTINCT t.*
+       FROM terminals t
+       INNER JOIN room_memberships rm ON rm.terminal_id = t.id
+      WHERE rm.handle = ?
+        AND rm.revoked_at_ms IS NULL
+        AND t.status = 'live'
+      ORDER BY t.updated_at DESC`
+  ).all(normalised) as TerminalRow[];
+}
+
+/**
+ * Lifecycle conflict check (Phase A1, Phase A2 consumer). Returns the
+ * live terminal with this exact name, or null when none. Used by
+ * Phase A2's register rule (a): "no conflicting live session" with the
+ * same name. Archived/deleted rows with the same name are excluded so
+ * a name can be reused once its prior owner is archived.
+ */
+export function getLiveTerminalByName(name: string): TerminalRow | null {
+  const db = getIdentityDb();
+  const row = db.prepare(
+    `SELECT * FROM terminals WHERE name = ? AND status = 'live'`
+  ).get(name) as TerminalRow | undefined;
+  return row ?? null;
 }
 
 export function markPaneVerified(terminalId: string): boolean {

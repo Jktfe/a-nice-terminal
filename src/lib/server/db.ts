@@ -171,6 +171,26 @@ const SCHEMA_DDL_STATEMENTS = [
   // string is the user's tag, not a canonical model id — purely aesthetic
   // grouping ("Kimi running in codex" vs "codex running in codex").
   `ALTER TABLE terminals ADD COLUMN model TEXT`,
+  // Terminal lifecycle status (JWPK A Team msg_w7sfmc4hpp + msg_8m9xsw8d62
+  // 2026-05-29). Source of truth for "is this terminal usable for routing
+  // right now". Distinct from pane_status (verified/stale/unknown — last
+  // tmux-pane verification result) and from agent_status (idle/thinking/
+  // working — agent activity). Lifecycle answers "is this terminal a
+  // candidate for room_memberships binding": live = yes; archived = PID
+  // gone, handle free for re-bind; deleted = explicit operator removal,
+  // do not re-bind.
+  //
+  // The invites pane reads status='archived' as "free, recoverable"
+  // handles — recovered shells take the binding back via `ant register
+  // --handle @x` without the manual add-membership dance. agentStatusPoller
+  // auto-flips status from 'live' to 'archived' when (local) tmux pane is
+  // gone OR (remote) last_heartbeat_at_ms is past the staleness threshold.
+  `ALTER TABLE terminals ADD COLUMN status TEXT NOT NULL DEFAULT 'live' CHECK (status IN ('live','archived','deleted'))`,
+  // Last working directory the shell was in. Updated by a PROMPT_COMMAND
+  // hook that POSTs to /api/terminals/:id/path on PWD change; allows a
+  // recovered shell to `cd $last_path` automatically when the same
+  // handle is re-bound. NULL until the first hook fire.
+  `ALTER TABLE terminals ADD COLUMN last_path TEXT`,
   `CREATE TABLE IF NOT EXISTS chat_agent_status_events (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     terminal_id     TEXT NOT NULL REFERENCES terminals(id) ON DELETE CASCADE,
@@ -456,6 +476,14 @@ const SCHEMA_DDL_STATEMENTS = [
   // docs/research/pane-binding-supersession-scope-2026-05-27.md.
   `ALTER TABLE terminal_records ADD COLUMN superseded_at_ms INTEGER`,
   `CREATE INDEX IF NOT EXISTS idx_terminal_records_superseded ON terminal_records (superseded_at_ms)`,
+  // Lifecycle Phase A1 handle_aliases (JWPK A Team msg_w7sfmc4hpp +
+  // msg_7uvr35x0xr 2026-05-29). JSON array of previous handles the
+  // same terminal_record has been registered under. Preserves history
+  // when a shell morphs its handle mid-session (e.g. @claudev4 ->
+  // @claudev5). NULL when no aliases yet. Written by Phase B's
+  // `ant register` handle-change path via appendHandleAlias();
+  // Phase A1 ships the column + helpers only.
+  `ALTER TABLE terminal_records ADD COLUMN handle_aliases TEXT`,
   // Lane-D PLANS S1 (2026-05-15, canonical RQO32-gated decision-doc
   // docs/lane-d-plans-design-2026-05-15.md). First-class PERSISTED task
   // entity. JWPK Q1: tasks are INDEPENDENT of plans — plan_id is an
