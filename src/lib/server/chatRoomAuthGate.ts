@@ -45,7 +45,9 @@ import {
 } from './browserSessionStore';
 import { getCookieValuesFromRequest } from './authGate';
 import { resolveHumanOwnership } from './consentGate';
-import { isHandleMemberOfRoom } from './chatRoomStore';
+import { isHandleMemberOfRoom, findChatRoomById } from './chatRoomStore';
+import { buildPermissionDeniedPayload } from './permissionDeniedPayload';
+import { resolveApproversFor } from './permissionApproverResolver';
 
 /** Sentinel handle attributed to admin-bearer callers. Mirrors the
  *  CLI/automation convention used by other admin-gated routes. */
@@ -149,7 +151,25 @@ export function requireChatRoomMutationAuth(
     if (declaredHandle && declaredHandle !== ADMIN_BEARER_HANDLE) {
       const ownership = resolveHumanOwnership(declaredHandle);
       if (ownership.kind === 'human') {
-        throw error(403, 'admin_cannot_impersonate_human');
+        // Stage A: wrap with the structured permission_denied payload while
+        // preserving the legacy `message: 'admin_cannot_impersonate_human'`
+        // field so the existing audit-of-impersonation tests + alerting
+        // continue to match on the sentinel string. New consumers read the
+        // permission_denied block; old consumers keep working.
+        const room = findChatRoomById(roomId);
+        throw error(
+          403,
+          buildPermissionDeniedPayload({
+            action: 'chat.impersonate_human',
+            target_kind: 'room',
+            target_id: roomId,
+            target_display_name: room?.name,
+            reason: 'human_consent_required',
+            grantee_handle: declaredHandle,
+            approvers: resolveApproversFor({ targetKind: 'room', targetId: roomId }),
+            message: 'admin_cannot_impersonate_human'
+          })
+        );
       }
     }
     return { handle: ADMIN_BEARER_HANDLE, isAdminBearer: true };
