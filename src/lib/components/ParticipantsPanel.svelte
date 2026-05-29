@@ -29,6 +29,11 @@
     // itself when both are null so the row stays the same shape pre-data.
     uptimeMs?: number | null;
     contextFill?: number | null;
+    // Phase C2 of 0.1.13 — terminals.status surfaced by /agent-statuses.
+    // 'archived' renders a muted treatment + a Reclaim button next to the
+    // member name; null/undefined (no terminal bound) falls through to the
+    // existing live treatment.
+    lifecycleStatus?: 'live' | 'archived' | 'deleted' | null;
   };
 
   type Props = {
@@ -117,6 +122,31 @@
     if (status === 'unknown') return 'unknown';
     return status;
   }
+
+  // Phase C2 (0.1.13) — flip an archived terminal back to live for this
+  // room+handle pair. Server enforces caller identity + that the caller's
+  // own pidChain resolves to a live terminal (re-pointing the membership
+  // if the caller is on a freshly-rebuilt terminal). Best-effort UX: any
+  // error refreshes the panel so the user sees the post-state truth.
+  let reclaiming = $state<Set<string>>(new Set());
+  async function reclaimHandle(handle: string) {
+    if (!roomId || reclaiming.has(handle)) return;
+    reclaiming = new Set([...reclaiming, handle]);
+    try {
+      await fetch(
+        `/api/chat-rooms/${encodeURIComponent(roomId)}/members/${encodeURIComponent(handle)}/reclaim`,
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }
+      );
+    } catch {
+      /* network errors are swallowed; the refresh below will surface the
+         current ground truth either way. */
+    } finally {
+      const next = new Set(reclaiming);
+      next.delete(handle);
+      reclaiming = next;
+      void refreshStatuses();
+    }
+  }
 </script>
 
 <section class="participants-panel" aria-labelledby="participantsHeading">
@@ -137,37 +167,56 @@
         {@const aliasForRow = findAliasFor(member.handle)}
         {@const memberStatus = statusForMember(member)}
         {@const statusForRow = statusByHandle.get(member.handle)}
+        {@const isArchived = statusForRow?.lifecycleStatus === 'archived'}
         <li>
-          <button
-            type="button"
+          <div
             class={`member-row member-status-${memberStatus}`}
+            class:archived={isArchived}
             style:--member-color={member.displayColor}
             data-background-style={member.displayBackgroundStyle}
             data-member-handle={member.handle}
-            onclick={() => onMemberPicked?.(member)}
-            aria-label={`Open detail for ${aliasForRow ?? member.handle}`}
           >
-            <span class="member-icon" aria-hidden="true">
-              <MemberIcon icon={member.displayIcon} fallbackText={member.displayName} size="sm" />
-            </span>
-            <span class="member-handle">{aliasForRow ?? member.displayName}</span>
-            {#if aliasForRow}
-              <span class="alias-badge">alias</span>
-            {/if}
-            <AgentContextChip
-              uptimeMs={statusForRow?.uptimeMs ?? null}
-              contextFill={statusForRow?.contextFill ?? null}
-            />
-            <span class="member-state">
-              {#if isFocused(member.handle)}
-                <span class="member-state-dot focus-dot" aria-hidden="true"></span>
-                <span class="focus-label">focused</span>
-              {:else}
-                <span class="member-state-dot" aria-hidden="true"></span>
-                <span>{labelForStatus(memberStatus)}</span>
+            <button
+              type="button"
+              class="member-row-main"
+              onclick={() => onMemberPicked?.(member)}
+              aria-label={`Open detail for ${aliasForRow ?? member.handle}`}
+            >
+              <span class="member-icon" aria-hidden="true">
+                <MemberIcon icon={member.displayIcon} fallbackText={member.displayName} size="sm" />
+              </span>
+              <span class="member-handle">{aliasForRow ?? member.displayName}</span>
+              {#if aliasForRow}
+                <span class="alias-badge">alias</span>
               {/if}
-            </span>
-          </button>
+              <AgentContextChip
+                uptimeMs={statusForRow?.uptimeMs ?? null}
+                contextFill={statusForRow?.contextFill ?? null}
+              />
+              <span class="member-state">
+                {#if isArchived}
+                  <span class="archived-pill" aria-hidden="true">📦 archived</span>
+                {:else if isFocused(member.handle)}
+                  <span class="member-state-dot focus-dot" aria-hidden="true"></span>
+                  <span class="focus-label">focused</span>
+                {:else}
+                  <span class="member-state-dot" aria-hidden="true"></span>
+                  <span>{labelForStatus(memberStatus)}</span>
+                {/if}
+              </span>
+            </button>
+            {#if isArchived}
+              <button
+                type="button"
+                class="reclaim-btn"
+                onclick={() => reclaimHandle(member.handle)}
+                disabled={reclaiming.has(member.handle)}
+                aria-label={`Reclaim ${aliasForRow ?? member.handle} (flip terminal back to live)`}
+              >
+                {reclaiming.has(member.handle) ? 'Reclaiming…' : 'Reclaim'}
+              </button>
+            {/if}
+          </div>
         </li>
       {/each}
     </ul>
@@ -223,16 +272,59 @@
     width: 100%;
     display: flex;
     align-items: center;
-    gap: 0.55rem;
+    gap: 0.4rem;
     padding: 0.55rem 0.7rem;
     background: var(--bg);
     border: 1px solid transparent;
     border-left: 3px solid var(--member-color);
     border-radius: 0.55rem;
-    cursor: pointer;
     text-align: left;
     color: var(--ink-strong);
     font: inherit;
+  }
+  .member-row.archived {
+    opacity: 0.7;
+    background: color-mix(in srgb, var(--ink-soft) 6%, var(--bg));
+  }
+  .member-row-main {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    color: inherit;
+    font: inherit;
+  }
+  .archived-pill {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--ink-soft);
+    background: color-mix(in srgb, var(--ink-soft) 12%, transparent);
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    letter-spacing: 0.02em;
+  }
+  .reclaim-btn {
+    flex: 0 0 auto;
+    padding: 0.3rem 0.65rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: white;
+    background: var(--accent);
+    border: none;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .reclaim-btn:hover:not(:disabled) {
+    filter: brightness(1.05);
+  }
+  .reclaim-btn:disabled {
+    opacity: 0.6;
+    cursor: progress;
   }
   .member-row[data-background-style='transparent'] {
     background: transparent;
@@ -241,8 +333,11 @@
     background: color-mix(in srgb, var(--member-color) 9%, var(--bg));
   }
   .member-row:hover,
-  .member-row:focus-visible {
+  .member-row:focus-within {
     border-color: var(--accent);
+    outline: none;
+  }
+  .member-row-main:focus-visible {
     outline: none;
   }
   .member-icon {

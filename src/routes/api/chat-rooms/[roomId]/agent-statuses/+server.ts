@@ -32,6 +32,11 @@ type StatusRow = {
    *  last written. Reader applies a 5-minute freshness policy. */
   agent_context_fill: number | null;
   agent_context_fill_at_ms: number | null;
+  /** terminals.status (Phase A1 / 0.1.13). NULL when no terminal is
+   *  bound to the membership (synthetic / unbound member). Surfaced
+   *  so the participants pane can render an "archived" pill + Reclaim
+   *  button (Phase C2). */
+  lifecycle_status: 'live' | 'archived' | 'deleted' | null;
 };
 
 /** Stale-data window for context-fill. Probe should rewrite at least
@@ -60,7 +65,8 @@ export const GET: RequestHandler = ({ params }) => {
               t.agent_status_at_ms AS agent_status_at_ms,
               t.created_at AS created_at,
               t.agent_context_fill AS agent_context_fill,
-              t.agent_context_fill_at_ms AS agent_context_fill_at_ms
+              t.agent_context_fill_at_ms AS agent_context_fill_at_ms,
+              t.status AS lifecycle_status
          FROM room_memberships m
          LEFT JOIN terminals t ON t.id = m.terminal_id
         WHERE m.room_id = ? AND m.handle IN (${placeholders})`
@@ -106,7 +112,12 @@ export const GET: RequestHandler = ({ params }) => {
       status: row ? effective.agent_status : 'unknown',
       statusAtMs: row ? effective.agent_status_at_ms : null,
       uptimeMs,
-      contextFill
+      contextFill,
+      // Phase C2 (0.1.13): surface terminals.status so the participants
+      // pane can render an archived treatment + Reclaim button. NULL when
+      // there's no terminal bound (membership without terminal_id), so
+      // readers should fold NULL into the same path as 'live'.
+      lifecycleStatus: row?.lifecycle_status ?? null
     };
   });
 
