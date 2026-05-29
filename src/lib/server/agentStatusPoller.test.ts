@@ -7,10 +7,30 @@ import { resetIdentityDbForTests, getIdentityDb } from './db';
 import { upsertTerminal } from './terminalsStore';
 import { getAgentStatus, listEventsForTerminal } from './agentStatusStore';
 import { startPoller, defaultTmuxCaptureFn, _testResetPoller } from './agentStatusPoller';
+import { setSpawnImplForTests, resetBridgeStateForTests } from './pty-inject-bridge';
 import type { TerminalRow } from './terminalsStore';
 
 const PREV_POLL_MS = process.env.ANT_AGENT_STATUS_POLL_MS;
 const PREV_MAX_TERMINALS = process.env.ANT_AGENT_STATUS_MAX_TERMINALS_PER_TICK;
+
+// Phase A3 added a verifyPaneTargetState gate before the fingerprint
+// sample in pollOneTerminal. Without a stub, the test sandbox calls real
+// tmux against fake panes (e.g. `%1`), and behaviour depends on the local
+// tmux session state — fragile. Default every test to a "verified" stub
+// so pre-existing assertions about captureFn invocation still hold. Phase
+// A3 tests that need a 'stale' outcome override this via stubTmuxStatus.
+const VERIFIED_CAPTURE_BYTES = Buffer.from('banner\n│ > ready\n', 'utf8');
+function defaultVerifiedSpawn() {
+  return {
+    status: 0,
+    stdout: VERIFIED_CAPTURE_BYTES,
+    stderr: Buffer.alloc(0),
+    pid: 0,
+    output: [],
+    signal: null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any;
+}
 
 beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = ':memory:';
@@ -18,10 +38,13 @@ beforeEach(() => {
   delete process.env.ANT_AGENT_STATUS_MAX_TERMINALS_PER_TICK;
   resetIdentityDbForTests();
   _testResetPoller();
+  // See VERIFIED_CAPTURE_BYTES comment above for why this defaults here.
+  setSpawnImplForTests(defaultVerifiedSpawn);
 });
 afterEach(() => {
   _testResetPoller();
   resetIdentityDbForTests();
+  resetBridgeStateForTests();
   delete process.env.ANT_FRESH_DB_PATH;
   if (PREV_POLL_MS === undefined) delete process.env.ANT_AGENT_STATUS_POLL_MS;
   else process.env.ANT_AGENT_STATUS_POLL_MS = PREV_POLL_MS;
@@ -120,6 +143,9 @@ describe('agentStatusPoller — runOnce per-terminal', () => {
   });
 
   it('B1: polls agent_kind terminals WITH tmux_target_pane', async () => {
+    // Phase A3 added a verifyPaneTargetState gate before captureFn. The
+    // shared beforeEach stubs tmux to return verified, so captureFn still
+    // runs against this terminal as before.
     const tid = makeAgentTerminal('t-with-pane', 'claude_code', '%42');
     let captured: string | null = null;
     const c = startPoller({ captureFn: (term) => { captured = term.tmux_target_pane; return '⏺ Awaiting input'; }, intervalMs: 5000 });
@@ -243,5 +269,139 @@ describe('agentStatusPoller — M3.2c classifyIfUnknown integration', () => {
     await c.runOnce(); c.stop();
     const yMeta = (getIdentityDb().prepare(`SELECT meta FROM terminals WHERE id = ?`).get(tY.id) as { meta: string }).meta;
     expect(JSON.parse(yMeta).fingerprint_confidence).toBe('medium');
+  });
+});
+
+// Phase A3 (JWPK A Team msg_7uvr35x0xr 2026-05-29): flip terminal status
+// to archived on pane-gone (verifyPaneTargetState === 'stale') + on remote/
+// paneless heartbeat staleness (last_message_sent_at_ms / last_pty_byte_at_ms
+// both older than 5 min). pty-inject-bridge.runScrubbedTmux honours
+// setSpawnImplForTests, so we inject a stubbed spawnSync that controls
+// the tmux capture-pane exit status — non-zero → 'stale'.
+function stubTmuxStatus(status: number, stdout = ''): void {
+  setSpawnImplForTests(() => ({
+    status,
+    stdout: Buffer.from(stdout, 'utf8'),
+    stderr: Buffer.alloc(0),
+    pid: 0,
+    output: [],
+    signal: null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any));
+}
+
+function readStatus(terminalId: string): string {
+  const row = getIdentityDb().prepare(`SELECT status FROM terminals WHERE id = ?`).get(terminalId) as { status: string };
+  return row.status;
+}
+
+describe('agentStatusPoller — Phase A3: pane-gone → archived', () => {
+  it('local terminal with pane: verifyPaneTargetState stale flips status live → archived and returns early', async () => {
+    const tid = makeAgentTerminal('t-stale');
+    expect(readStatus(tid)).toBe('live');
+    stubTmuxStatus(1); // capture-pane fails → 'stale'
+    let captureFnCalls = 0;
+    const c = startPoller({
+      captureFn: () => { captureFnCalls += 1; return 'whatever'; },
+      intervalMs: 5000
+    });
+    await c.runOnce();
+    c.stop();
+    expect(readStatus(tid)).toBe('archived');
+    // Early return: captureFn (fingerprint sample) should NOT have been
+    // invoked for this terminal after the stale outcome.
+    expect(captureFnCalls).toBe(0);
+    // No agent_status event written either (pollOneTerminal returned before
+    // the cascade ran).
+    expect(listEventsForTerminal(tid).length).toBe(0);
+  });
+
+  it('local terminal with pane: verifyPaneTargetState verified leaves status live and continues to fingerprint sample', async () => {
+    const tid = makeAgentTerminal('t-verified');
+    // Stub a successful capture WITH a claude_code ready-state indicator
+    // so verifyPaneTargetState returns 'verified' (matchReadyStateFor
+    // claude_code requires '│ >' or '❯' and no 'esc to interrupt').
+    stubTmuxStatus(0, 'banner\n│ > ready\n');
+    let captureFnCalls = 0;
+    const c = startPoller({
+      captureFn: () => { captureFnCalls += 1; return 'capture v1'; },
+      intervalMs: 5000
+    });
+    await c.runOnce();
+    c.stop();
+    expect(readStatus(tid)).toBe('live');
+    expect(captureFnCalls).toBe(1); // continued past the pane check
+  });
+
+  it('idempotent: running pollOnce twice on a stale terminal still results in archived (no exception, no churn)', async () => {
+    const tid = makeAgentTerminal('t-stale-twice');
+    stubTmuxStatus(1);
+    const c = startPoller({ captureFn: () => null, intervalMs: 5000 });
+    await c.runOnce();
+    expect(readStatus(tid)).toBe('archived');
+    // Second tick — terminal is now archived. The heartbeat sweep guard
+    // (status === 'archived' continue) and isPollableTerminal both keep
+    // this row out of the pane-check path on the second tick, so we just
+    // assert no throw + status stays archived.
+    await expect(c.runOnce()).resolves.toBeUndefined();
+    c.stop();
+    expect(readStatus(tid)).toBe('archived');
+  });
+});
+
+describe('agentStatusPoller — Phase A3: remote/paneless heartbeat sweep', () => {
+  it('remote terminal: both heartbeats older than 5 min → status flips to archived', async () => {
+    const tid = makeAgentTerminal('t-remote-stale', 'remote', null);
+    const sixMinAgo = Date.now() - 6 * 60 * 1000;
+    getIdentityDb().prepare(
+      `UPDATE terminals SET last_message_sent_at_ms = ?, last_pty_byte_at_ms = ? WHERE id = ?`
+    ).run(sixMinAgo, sixMinAgo, tid);
+    const c = startPoller({ captureFn: () => null, intervalMs: 5000 });
+    await c.runOnce();
+    c.stop();
+    expect(readStatus(tid)).toBe('archived');
+  });
+
+  it('remote terminal: at least one heartbeat within 5 min → status stays live', async () => {
+    const tid = makeAgentTerminal('t-remote-fresh', 'remote', null);
+    const sixMinAgo = Date.now() - 6 * 60 * 1000;
+    const oneMinAgo = Date.now() - 60 * 1000;
+    // last_pty_byte_at_ms is fresh; last_message_sent_at_ms is stale.
+    // Max() picks the fresh one → above threshold → stays live.
+    getIdentityDb().prepare(
+      `UPDATE terminals SET last_message_sent_at_ms = ?, last_pty_byte_at_ms = ? WHERE id = ?`
+    ).run(sixMinAgo, oneMinAgo, tid);
+    const c = startPoller({ captureFn: () => null, intervalMs: 5000 });
+    await c.runOnce();
+    c.stop();
+    expect(readStatus(tid)).toBe('live');
+  });
+
+  it('remote terminal already archived: sweep is a no-op (does not re-flip / does not throw)', async () => {
+    const tid = makeAgentTerminal('t-already-archived', 'remote', null);
+    const sixMinAgo = Date.now() - 6 * 60 * 1000;
+    getIdentityDb().prepare(
+      `UPDATE terminals SET last_message_sent_at_ms = ?, last_pty_byte_at_ms = ?, status = 'archived' WHERE id = ?`
+    ).run(sixMinAgo, sixMinAgo, tid);
+    const beforeUpdate = (getIdentityDb().prepare(`SELECT updated_at FROM terminals WHERE id = ?`).get(tid) as { updated_at: number }).updated_at;
+    // Wait 1+ second so a sneaky write would bump updated_at observably.
+    await new Promise((r) => setTimeout(r, 1100));
+    const c = startPoller({ captureFn: () => null, intervalMs: 5000 });
+    await c.runOnce();
+    c.stop();
+    expect(readStatus(tid)).toBe('archived');
+    const afterUpdate = (getIdentityDb().prepare(`SELECT updated_at FROM terminals WHERE id = ?`).get(tid) as { updated_at: number }).updated_at;
+    expect(afterUpdate).toBe(beforeUpdate); // no churn
+  });
+
+  it('remote terminal with no heartbeat history (latest = 0) → status stays live', async () => {
+    // Fresh remote terminal with no traffic yet. Sweep MUST NOT archive
+    // it on the first tick — that would kill a just-spawned bridge before
+    // it gets a chance to send anything.
+    const tid = makeAgentTerminal('t-remote-fresh-spawn', 'remote', null);
+    const c = startPoller({ captureFn: () => null, intervalMs: 5000 });
+    await c.runOnce();
+    c.stop();
+    expect(readStatus(tid)).toBe('live');
   });
 });
