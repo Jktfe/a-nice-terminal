@@ -38,13 +38,50 @@ import { platform } from 'node:os';
 const MAX_CHAIN_DEPTH = 32;
 const IS_WINDOWS = platform() === 'win32';
 
+/**
+ * Belt-and-braces ISO 8601 normaliser — JS-equivalent of
+ * src/lib/server/pidStartNormaliser.ts (kept inline because this is a
+ * .mjs file with no .ts import path; the server runs the canonical
+ * version on its side).
+ *
+ * Contract:
+ *   - null / empty / non-string → null
+ *   - already-ISO (contains 'T') → trimmed verbatim (preserves
+ *     sub-second + timezone offset that re-parsing would discard)
+ *   - POSIX locale string → new Date(...).toISOString()
+ *   - unparseable garbage → null (never throws)
+ *
+ * Why client-side too: the server normalises on receive, but doing it
+ * here ALSO means the chain we send over the wire is already canonical,
+ * so logs and any older-server fallback path see the same string. Closes
+ * the bug at every layer instead of just the database boundary.
+ */
+// See src/lib/server/pidStartNormaliser.ts for the canonical version
+// and the "Thu" false-match note.
+const ISO_8601_PREFIX = /^\d{4}-\d{2}-\d{2}T/;
+
+function normalisePidStartToIso8601(raw) {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+  if (ISO_8601_PREFIX.test(trimmed)) return trimmed;
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
 // ─── POSIX (darwin / linux / MSYS2-with-real-ps) ─────────────────────
 
 function readProcessStartTimePosix(pid) {
   try {
-    return execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], { stdio: 'pipe' })
+    const raw = execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], { stdio: 'pipe' })
       .toString()
       .trim();
+    // Normalise the locale lstart string (e.g. "Fri 29 May 11:11:24 2026" or
+    // "Thu May 29 11:11:24 2026") to ISO 8601 BEFORE returning, so the wire
+    // format is canonical regardless of which locale the caller's shell is in.
+    return normalisePidStartToIso8601(raw);
   } catch {
     return null;
   }
@@ -103,13 +140,22 @@ function readWindowsProcessRecord(pid) {
 function readProcessStartTimeWindows(pid) {
   const record = readWindowsProcessRecord(pid);
   if (!record) return null;
-  if (typeof record.startTime === 'string') return record.startTime;
-  // Some PowerShell builds emit { value: "ISO", DisplayHint: ... } when
-  // serialising DateTime. Flatten if so.
-  if (record.startTime && typeof record.startTime === 'object' && typeof record.startTime.value === 'string') {
-    return record.startTime.value;
+  let candidate = null;
+  if (typeof record.startTime === 'string') {
+    candidate = record.startTime;
+  } else if (
+    record.startTime &&
+    typeof record.startTime === 'object' &&
+    typeof record.startTime.value === 'string'
+  ) {
+    // Some PowerShell builds emit { value: "ISO", DisplayHint: ... } when
+    // serialising DateTime. Flatten if so.
+    candidate = record.startTime.value;
   }
-  return null;
+  // PowerShell .ToString('o') already emits ISO 8601 so this is a defensive
+  // pass — if a future PS edition changes format we'll still emit ISO (or
+  // null) instead of letting locale strings escape via the Windows branch.
+  return normalisePidStartToIso8601(candidate);
 }
 
 function readParentPidWindows(pid) {

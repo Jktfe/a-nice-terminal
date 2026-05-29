@@ -26,7 +26,11 @@ describe('bindRoomHandleToLiveTerminal — liveness check', () => {
   it('returns existing terminal id when the binding is live', () => {
     const live = upsertTerminal({
       pid: 1000,
-      pid_start: 'iso-2026-05-22T12:00:00',
+      // 2026-05-29 ISO normalisation: fixture strings must be parseable
+      // ISO 8601 (or a parseable lstart) — the `'iso-...'` prefix in the
+      // legacy fixture matches neither branch of the normaliser and
+      // collapses to null, faking the broken-walker signature.
+      pid_start: '2026-05-22T12:00:00.000Z',
       name: 'live-terminal'
     });
     addMembership({ room_id: ROOM_ID, handle: HANDLE, terminal_id: live.id });
@@ -45,7 +49,7 @@ describe('bindRoomHandleToLiveTerminal — liveness check', () => {
     // Fresh terminal_record from a working-walker re-register
     const fresh = upsertTerminal({
       pid: 2000,
-      pid_start: 'iso-2026-05-22T13:00:00',
+      pid_start: '2026-05-22T13:00:00.000Z',
       name: 'fresh-terminal'
     });
     createTerminalRecord({ sessionId: fresh.id, name: 'fresh-terminal', handle: HANDLE });
@@ -60,7 +64,7 @@ describe('bindRoomHandleToLiveTerminal — liveness check', () => {
   it('re-binds when the existing terminal has expired (expires_at past now)', () => {
     const expired = upsertTerminal({
       pid: 1000,
-      pid_start: 'iso-2026-05-21T12:00:00',
+      pid_start: '2026-05-21T12:00:00.000Z',
       name: 'expired-terminal',
       ttlSeconds: 60
     });
@@ -74,7 +78,7 @@ describe('bindRoomHandleToLiveTerminal — liveness check', () => {
 
     const fresh = upsertTerminal({
       pid: 2000,
-      pid_start: 'iso-2026-05-22T13:00:00',
+      pid_start: '2026-05-22T13:00:00.000Z',
       name: 'fresh-terminal'
     });
     createTerminalRecord({ sessionId: fresh.id, name: 'fresh-terminal', handle: HANDLE });
