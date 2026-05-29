@@ -7,14 +7,35 @@ vi.mock('node:child_process', () => ({
 }));
 
 describe('pidStart', () => {
-  it('returns trimmed lstart string', () => {
+  it('returns ISO 8601 form of trimmed lstart string', () => {
+    // 2026-05-29 normalisation: pidStart now returns ISO so server-side
+    // exact-string-equality works across locales / OSes / shells.
     vi.mocked(execFileSync).mockReturnValue(Buffer.from('Mon Jan 1 00:00:00 2024\n'));
-    expect(pidStart(123)).toBe('Mon Jan 1 00:00:00 2024');
+    const out = pidStart(123);
+    expect(out).not.toBeNull();
+    expect(out).toMatch(/^2024-01-01T/);
+    expect(out.endsWith('Z')).toBe(true);
+  });
+
+  it('returns the SAME ISO output for day-month vs month-day locale strings', () => {
+    // Regression for the 2026-05-29 4-hour silence forensic across 19 agents.
+    vi.mocked(execFileSync).mockReturnValueOnce(Buffer.from('Fri 29 May 11:11:24 2026\n'));
+    const a = pidStart(123);
+    vi.mocked(execFileSync).mockReturnValueOnce(Buffer.from('Thu May 29 11:11:24 2026\n'));
+    const b = pidStart(123);
+    expect(a).not.toBeNull();
+    expect(b).not.toBeNull();
+    expect(a).toBe(b);
   });
 
   it('returns null on error', () => {
     vi.mocked(execFileSync).mockImplementation(() => { throw new Error('ENOENT'); });
     expect(pidStart(999)).toBeNull();
+  });
+
+  it('returns null on unparseable garbage (no throw)', () => {
+    vi.mocked(execFileSync).mockReturnValue(Buffer.from('not a date\n'));
+    expect(pidStart(123)).toBeNull();
   });
 });
 
@@ -38,16 +59,21 @@ describe('parentPid', () => {
 describe('processIdentityChain', () => {
   it('walks chain to root', () => {
     const ppidMap = { 100: 2, 2: 1 };
-    const startMap = { 100: 'ts-a', 2: 'ts-b' };
+    // 2026-05-29 normalisation: pid_start is now ISO 8601 so we feed
+    // parseable lstart strings; the chain assertion checks the ISO output.
+    const startMap = { 100: 'Fri 29 May 11:11:24 2026', 2: 'Fri 29 May 11:11:20 2026' };
     vi.mocked(execFileSync).mockImplementation((_cmd, args) => {
       const pid = args[3];
       if (args[1] === 'ppid=') return Buffer.from(`${ppidMap[pid] ?? 1}\n`);
-      return Buffer.from(`${startMap[pid] ?? 'ts'}\n`);
+      return Buffer.from(`${startMap[pid] ?? 'Fri 29 May 11:11:00 2026'}\n`);
     });
     const chain = processIdentityChain(100, 10);
     expect(chain.length).toBe(2);
-    expect(chain[0]).toEqual({ pid: 100, pid_start: 'ts-a' });
-    expect(chain[1]).toEqual({ pid: 2, pid_start: 'ts-b' });
+    expect(chain[0].pid).toBe(100);
+    expect(chain[0].pid_start).toMatch(/^2026-05-29T/);
+    expect(chain[0].pid_start.endsWith('Z')).toBe(true);
+    expect(chain[1].pid).toBe(2);
+    expect(chain[1].pid_start).toMatch(/^2026-05-29T/);
   });
 
   it('stops at pid 1', () => {

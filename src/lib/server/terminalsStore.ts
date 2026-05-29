@@ -19,6 +19,7 @@ import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { getIdentityDb } from './db';
 import { projectAntRegistryFileBestEffort } from './antRegistryFile';
+import { normalisePidStartToIso8601 } from './pidStartNormaliser';
 import type { TerminalRecord } from './terminalRecordsStore';
 
 export type TerminalRow = {
@@ -134,11 +135,16 @@ export function autoRegisterTerminalForSpawnedSession(input: {
 
   let pidStart: string | null = null;
   try {
-    pidStart = execFileSync(
+    const rawLstart = execFileSync(
       'ps',
       ['-o', 'lstart=', '-p', String(panePid)],
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
     ).trim() || null;
+    // Normalise to ISO 8601 so the row is comparable against any caller
+    // regardless of locale (en_GB / en_US emit different lstart strings
+    // for the same wall-clock moment — caused the 2026-05-29 4h silence
+    // forensic). See src/lib/server/pidStartNormaliser.ts for contract.
+    pidStart = normalisePidStartToIso8601(rawLstart);
   } catch {
     // ps failed (process died?). Leaving pid_start null is acceptable —
     // lookupTerminalByPidChain treats null as a wildcard match.
@@ -182,6 +188,11 @@ export function adoptExternalProcessForTerminal(input: {
   const db = getIdentityDb();
   const now = currentUnixSeconds();
   const expiresAt = now + clampTtlSeconds(input.ttlSeconds);
+  // ISO 8601 normalisation — see pidStartNormaliser.ts. Caller may
+  // hand us either a locale lstart string or already-ISO Windows
+  // CreationDate; we store ISO either way so READ-side comparison
+  // can stay format-agnostic.
+  const pidStart = normalisePidStartToIso8601(input.pidStart);
   const metaJson = JSON.stringify({
     origin: 'adopt',
     reason: input.reason ?? null,
@@ -207,7 +218,7 @@ export function adoptExternalProcessForTerminal(input: {
       updated_at = excluded.updated_at`).run(
     input.record.session_id,
     input.pid,
-    input.pidStart,
+    pidStart,
     input.record.name,
     input.record.tmux_target_pane,
     input.record.agent_kind,
@@ -230,6 +241,10 @@ export function upsertTerminal(input: RegisterTerminalInput): TerminalRow {
   const expiresAt = now + ttl;
   const sourceLabel = input.source ?? 'cli-register';
   const metaJson = JSON.stringify(input.meta ?? {});
+  // ISO 8601 normalisation at the boundary — see pidStartNormaliser.ts.
+  // We do this ONCE here so both the UPDATE-existing and INSERT-new
+  // branches store the same canonical form regardless of caller locale.
+  const pidStart = normalisePidStartToIso8601(input.pid_start);
 
   const existingByName = db
     .prepare(`SELECT id FROM terminals WHERE name = ?`)
@@ -239,7 +254,7 @@ export function upsertTerminal(input: RegisterTerminalInput): TerminalRow {
     db.prepare(`UPDATE terminals SET
       pid = ?, pid_start = ?, source = ?, expires_at = ?, meta = ?, updated_at = ?
       WHERE id = ?`).run(
-      input.pid, input.pid_start, sourceLabel, expiresAt, metaJson, now, existingByName.id
+      input.pid, pidStart, sourceLabel, expiresAt, metaJson, now, existingByName.id
     );
     projectAntRegistryFileBestEffort();
     return getTerminalById(existingByName.id) as TerminalRow;
@@ -249,7 +264,7 @@ export function upsertTerminal(input: RegisterTerminalInput): TerminalRow {
   db.prepare(`INSERT INTO terminals
     (id, pid, pid_start, name, source, expires_at, meta, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-    newId, input.pid, input.pid_start, input.name, sourceLabel, expiresAt, metaJson, now, now
+    newId, input.pid, pidStart, input.name, sourceLabel, expiresAt, metaJson, now, now
   );
   projectAntRegistryFileBestEffort();
   return getTerminalById(newId) as TerminalRow;
@@ -278,7 +293,13 @@ export function lookupTerminalByPidChain(pidChain: PidChainEntry[]): TerminalRow
      ORDER BY updated_at DESC LIMIT 1`
   );
   for (const entry of pidChain) {
-    const row = findMostRecent.get(entry.pid, entry.pid_start, now) as TerminalRow | undefined;
+    // ISO 8601 normalisation at the boundary — see pidStartNormaliser.ts.
+    // Writers already stored ISO; comparing the caller's locale-string
+    // would silently miss. Belt-and-braces — the CLI already normalises
+    // before sending the chain over the wire, but a non-CLI caller (older
+    // client, internal-test, future agent) might not.
+    const normalisedPidStart = normalisePidStartToIso8601(entry.pid_start);
+    const row = findMostRecent.get(entry.pid, normalisedPidStart, now) as TerminalRow | undefined;
     if (row) return row;
   }
   return null;
@@ -476,13 +497,17 @@ export function getLiveTerminalByName(name: string): TerminalRow | null {
 export function getLiveTerminalByPid(pid: number, pidStart: string | null): TerminalRow | null {
   if (!Number.isFinite(pid) || pid <= 0) return null;
   const db = getIdentityDb();
+  // ISO 8601 normalisation at the boundary — see pidStartNormaliser.ts.
+  // The DB stores ISO via the writer-side normaliser; comparing a
+  // locale string from a different caller would silently miss.
+  const normalisedPidStart = normalisePidStartToIso8601(pidStart);
   const row = db.prepare(
     `SELECT * FROM terminals
        WHERE pid = ?
          AND ((pid_start IS NULL AND ? IS NULL) OR pid_start = ?)
          AND status = 'live'
        ORDER BY updated_at DESC LIMIT 1`
-  ).get(pid, pidStart, pidStart) as TerminalRow | undefined;
+  ).get(pid, normalisedPidStart, normalisedPidStart) as TerminalRow | undefined;
   return row ?? null;
 }
 

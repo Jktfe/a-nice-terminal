@@ -15,6 +15,7 @@ import {
 } from '$lib/server/terminalsStore';
 import { isValidClientAgentKind, AGENT_KINDS_CLIENT_INPUT } from '$lib/server/agentKindEnum';
 import { classifyIfUnknown } from '$lib/server/agentStatusPoller';
+import { normalisePidStartToIso8601 } from '$lib/server/pidStartNormaliser';
 import {
   appendHandleAlias,
   getTerminalRecord,
@@ -52,7 +53,13 @@ function parsePidsList(rawPids: unknown): { pid: number; pid_start: string | nul
     if (!Number.isFinite(pidNumber) || pidNumber <= 0) {
       throw error(400, `pids[${idx}].pid must be a positive number.`);
     }
-    const pidStart = typeof pidStartRaw === 'string' ? pidStartRaw : null;
+    // ISO 8601 normalisation at the boundary — see pidStartNormaliser.ts.
+    // Client-supplied pid_start may be a POSIX locale lstart string or
+    // already-ISO Windows CreationDate. Normalise here so every downstream
+    // read of `leafPid.pid_start` (live-name conflict / pid-conflict / upsert)
+    // sees the same canonical form.
+    const pidStartRawString = typeof pidStartRaw === 'string' ? pidStartRaw : null;
+    const pidStart = normalisePidStartToIso8601(pidStartRawString);
     return { pid: pidNumber, pid_start: pidStart };
   });
 }
