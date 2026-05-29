@@ -4,7 +4,14 @@
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { upsertTerminal, updatePaneTarget, getTerminalById, getTerminalByName } from '$lib/server/terminalsStore';
+import {
+  upsertTerminal,
+  updatePaneTarget,
+  getTerminalById,
+  getTerminalByName,
+  getLiveTerminalByName,
+  getLiveTerminalByPid
+} from '$lib/server/terminalsStore';
 import { isValidClientAgentKind, AGENT_KINDS_CLIENT_INPUT } from '$lib/server/agentKindEnum';
 import { classifyIfUnknown } from '$lib/server/agentStatusPoller';
 
@@ -70,6 +77,35 @@ export const POST: RequestHandler = async ({ request }) => {
   const trimmedName = nameRaw.trim();
   const existing = getTerminalByName(trimmedName);
   const existed = existing !== null;
+  // Phase A2 (JWPK A Team msg_7uvr35x0xr 2026-05-29, design Q2 default B —
+  // helpful error w/ exact recovery command). Two 409 rejections layered
+  // over the existing upsert path:
+  //   (a) live-name conflict — the name is already owned by a *live*
+  //       terminal whose (pid, pid_start) differs from the caller's. A
+  //       same-(pid,pid_start) re-register stays idempotent (covered by
+  //       M3.2b path-B test); only a foreign PID grabbing a still-live
+  //       name is rejected. Archived/deleted rows free the name (the
+  //       getLiveTerminalByName helper excludes non-live status).
+  //   (b) pid-in-use — the caller's leaf (pid, pid_start) is currently
+  //       bound to a different live terminal. Rejected unless the
+  //       conflicting row IS the same row we'd upsert (i.e. existing).
+  const liveNameConflict = getLiveTerminalByName(trimmedName);
+  if (
+    liveNameConflict !== null &&
+    (liveNameConflict.pid !== leafPid.pid || liveNameConflict.pid_start !== leafPid.pid_start)
+  ) {
+    throw error(
+      409,
+      `Name '${trimmedName}' is already live on terminal ${liveNameConflict.id}. Reclaim with --handle <existing-handle> or pick a different --name.`
+    );
+  }
+  const pidConflict = getLiveTerminalByPid(leafPid.pid, leafPid.pid_start);
+  if (pidConflict && pidConflict.id !== (existing?.id ?? null)) {
+    throw error(
+      409,
+      `PID ${leafPid.pid} (start=${leafPid.pid_start}) is already bound to live terminal '${pidConflict.name}'. Archive it first or use a different shell.`
+    );
+  }
   const terminal = upsertTerminal({ pid: leafPid.pid, pid_start: leafPid.pid_start,
     name: trimmedName, ttlSeconds, source, meta });
   const updateKindValue = agentKindValue !== null

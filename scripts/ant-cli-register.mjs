@@ -144,7 +144,13 @@ async function runRegister(flags, runtime, CliInputError) {
     source: 'cli-register',
     meta: { handle: handle ?? null, cwd: runtime.cwd ?? process.cwd() }
   };
-  if (flags.pane) registerBody.pane = flags.pane;
+  // Phase A2 (JWPK A Team msg_7uvr35x0xr 2026-05-29, design Q1 default A):
+  // when --pane isn't explicit, auto-detect from caller env. tmux exports
+  // TMUX_PANE (e.g. "%42"); wezterm exports WEZTERM_PANE. Tests can inject
+  // via runtime.envTmuxPane so the assertion stays deterministic without
+  // mutating process.env.
+  const detectedPane = flags.pane ?? runtime.envTmuxPane ?? process.env.TMUX_PANE ?? process.env.WEZTERM_PANE ?? null;
+  if (detectedPane) registerBody.pane = detectedPane;
   if (flags['agent-kind']) registerBody.agent_kind = flags['agent-kind'];
 
   const primaryResp = await postJson(runtime, `${runtime.serverUrl}/api/identity/register`, registerBody);
