@@ -1975,6 +1975,28 @@ const SCHEMA_DDL_STATEMENTS = [
     LEFT JOIN identity_attestations a
       ON a.revoked_key_id = k.key_id
     WHERE k.revoked_at_ms IS NOT NULL`
+  // Stage A — restructured 403 PermissionDenied payload (plan milestone
+  // p3-stage-a-403-payload of ant-substrate-v0.2-2026-05-29, ratified PR
+  // shape 2026-05-29). `grants_shim` is the minimal forward-compatible
+  // shim that the new `ant grant` CLI writes to + the 403 builder
+  // consults for `no_grant` decisions. Stage B replaces this with the
+  // full v0.2 `grants` + `permission_requests` + `pending_actions`
+  // tables, but the row shape is identical here so a migration script
+  // can copy rows forward without backfill. scope='once' is the Stage B
+  // default that this Stage A shim accepts but does not consume — the
+  // ant-cli-grant verb sets it explicitly to track operator intent.
+  `CREATE TABLE IF NOT EXISTS grants_shim (
+    grant_id          TEXT PRIMARY KEY,
+    grantee_handle    TEXT NOT NULL,
+    action            TEXT NOT NULL,
+    target_kind       TEXT NOT NULL,
+    target_id         TEXT NOT NULL,
+    granted_by_handle TEXT NOT NULL,
+    granted_at_ms     INTEGER NOT NULL,
+    revoked_at_ms     INTEGER,
+    scope             TEXT NOT NULL DEFAULT 'once'
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_grants_shim_lookup ON grants_shim (grantee_handle, action, target_id, revoked_at_ms)`
 ];
 
 function resolveDbFilePath(): string {

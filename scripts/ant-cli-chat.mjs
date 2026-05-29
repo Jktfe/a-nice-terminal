@@ -28,6 +28,7 @@ import {
 } from './ant-cli-shared-resolve.mjs';
 import { handleChatPendingVerb } from './ant-cli-chat-pending.mjs';
 import { fetchRoomJsonWithBrowserSessionFallback } from './ant-cli-browser-session.mjs';
+import { renderPermissionDeniedIfPresent } from './ant-cli-permission-denied.mjs';
 
 const ALLOWED_KIND_TAGS = new Set(['human', 'agent', 'system', 'system-break']);
 const BOOLEAN_FLAGS = new Set(['once', 'json', 'clear', 'msg-stdin', 'stdin', 'broadcast-ok']);
@@ -436,6 +437,11 @@ async function sendJsonWithCookie(runtime, path, method, body, cookieValue, base
     body: JSON.stringify(body)
   });
   if (!response.ok) {
+    // Stage A 403 PermissionDenied: render structured block on stderr
+    // if present before falling back to the generic Error surface.
+    if (response.status === 403) {
+      await renderPermissionDeniedIfPresent(response, runtime);
+    }
     const bodyText = await response.text().catch(() => '');
     throw new Error(`${method} ${path} (retry-with-cookie) returned ${response.status}: ${bodyText.slice(0, 200)}`);
   }
@@ -591,6 +597,15 @@ async function sendJson(runtime, path, method, body, baseUrl) {
     body: JSON.stringify(body)
   });
   if (!response.ok) {
+    // Stage A 403 PermissionDenied: when the server returns a structured
+    // permission_denied block, render the 4-6 line UX-friendly response
+    // to stderr BEFORE we throw the generic Error. The auto-mint
+    // fallback path inspects the thrown error's message to decide
+    // whether to retry, so the message MUST still contain the response
+    // body text for the identity-wedge match.
+    if (response.status === 403) {
+      await renderPermissionDeniedIfPresent(response, runtime);
+    }
     const bodyText = await response.text().catch(() => '');
     throw new Error(`${method} ${path} returned ${response.status}: ${bodyText.slice(0, 200)}`);
   }

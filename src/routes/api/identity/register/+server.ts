@@ -10,15 +10,21 @@ import {
   getTerminalById,
   getTerminalByName,
   getLiveTerminalByName,
-  getLiveTerminalByPid
+  getLiveTerminalByPid,
+  getLiveTerminalsByHandle
 } from '$lib/server/terminalsStore';
 import { isValidClientAgentKind, AGENT_KINDS_CLIENT_INPUT } from '$lib/server/agentKindEnum';
 import { classifyIfUnknown } from '$lib/server/agentStatusPoller';
+import { normalisePidStartToIso8601 } from '$lib/server/pidStartNormaliser';
 import {
   appendHandleAlias,
   getTerminalRecord,
   updateTerminalRecord
 } from '$lib/server/terminalRecordsStore';
+import {
+  autoRebindMembershipsFromStaleTerminal,
+  isCandidateStale
+} from '$lib/server/roomMembershipsStore';
 
 const VALID_AGENT_KINDS_LIST = Array.from(AGENT_KINDS_CLIENT_INPUT).join(', ');
 
@@ -47,7 +53,13 @@ function parsePidsList(rawPids: unknown): { pid: number; pid_start: string | nul
     if (!Number.isFinite(pidNumber) || pidNumber <= 0) {
       throw error(400, `pids[${idx}].pid must be a positive number.`);
     }
-    const pidStart = typeof pidStartRaw === 'string' ? pidStartRaw : null;
+    // ISO 8601 normalisation at the boundary — see pidStartNormaliser.ts.
+    // Client-supplied pid_start may be a POSIX locale lstart string or
+    // already-ISO Windows CreationDate. Normalise here so every downstream
+    // read of `leafPid.pid_start` (live-name conflict / pid-conflict / upsert)
+    // sees the same canonical form.
+    const pidStartRawString = typeof pidStartRaw === 'string' ? pidStartRaw : null;
+    const pidStart = normalisePidStartToIso8601(pidStartRawString);
     return { pid: pidNumber, pid_start: pidStart };
   });
 }
@@ -139,6 +151,37 @@ export const POST: RequestHandler = async ({ request }) => {
       }
       if (existingHandle !== handleValue) {
         updateTerminalRecord(terminal.id, { handle: handleValue });
+      }
+    }
+  }
+  // PR-B v0.2 (JWPK enterprise-concern #5 — @speedyc dual-bind 2026-05-29).
+  // After the new registration completes, sweep any OTHER live terminals
+  // that own this handle. When a stale candidate is found, atomically
+  // re-point its room_memberships to this fresh terminal, archive the old
+  // row, and supersede its terminal_records row. Safe-by-construction:
+  // isCandidateStale never fires on a live row (heartbeat freshness gate)
+  // so an active old session won't have memberships stolen from under it.
+  if (handleValue) {
+    const nowMs = Date.now();
+    const liveCandidates = getLiveTerminalsByHandle(handleValue);
+    for (const candidate of liveCandidates) {
+      if (candidate.id === terminal.id) continue;
+      if (!isCandidateStale(candidate, nowMs)) continue;
+      const { reboundCount, affectedRoomIds } = autoRebindMembershipsFromStaleTerminal({
+        handle: handleValue,
+        oldTerminalId: candidate.id,
+        newTerminalId: terminal.id,
+        nowMs
+      });
+      if (reboundCount > 0) {
+        // Structured log line — forensic trail for the rebind. JWPK rule
+        // (msg_5xjtox2059): any operational decision invisible to the
+        // operator is a bug, so the rebind has to leave an audit thread.
+        // eslint-disable-next-line no-console
+        console.log(
+          `[auto-rebind] handle=${handleValue} old=${candidate.id} new=${terminal.id} ` +
+            `rooms=${affectedRoomIds.join(',')} count=${reboundCount}`
+        );
       }
     }
   }

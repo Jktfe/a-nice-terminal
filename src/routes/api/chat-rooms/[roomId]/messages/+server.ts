@@ -43,6 +43,8 @@ import { collectAskCandidatesFromMessage } from '$lib/server/askCandidateStore';
 import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
 import { getContextBreakEnforcement } from '$lib/server/contextBreakSettingsStore';
 import { summariseReactionsForMessage } from '$lib/server/messageReactionStore';
+import { buildPermissionDeniedPayload } from '$lib/server/permissionDeniedPayload';
+import { resolveApproversFor } from '$lib/server/permissionApproverResolver';
 
 const DEFAULT_MESSAGE_PAGE_SIZE = 100;
 const MAX_MESSAGE_PAGE_SIZE = 200;
@@ -151,7 +153,27 @@ export const POST: RequestHandler = async ({ params, request }) => {
         // request — an agent without a terminal is trying to write as a human.
         // Deny fail-closed; downstream surfaces should establish a terminal
         // identity (cookie or pidChain → terminal) before retrying.
-        throw error(403, 'human_impersonation_no_terminal');
+        //
+        // Stage A: wrap with structured payload while preserving the legacy
+        // message string for the existing audit/test assertions on
+        // 'human_impersonation_no_terminal'.
+        const room = findChatRoomById(params.roomId);
+        throw error(
+          403,
+          buildPermissionDeniedPayload({
+            action: 'chat.impersonate_human',
+            target_kind: 'room',
+            target_id: params.roomId,
+            target_display_name: room?.name,
+            reason: 'human_consent_required',
+            grantee_handle: authorHandle,
+            approvers: resolveApproversFor({
+              targetKind: 'room',
+              targetId: params.roomId
+            }),
+            message: 'human_impersonation_no_terminal'
+          })
+        );
       }
       const gateResult = gateAndConsumeForWrite({
         ownerId: ownership.ownerId,
@@ -504,7 +526,28 @@ async function resolveMessageAuthorHandle(
 
 function rejectMessageIdentity(roomId: string, reason: string): never {
   console.warn(`[identity-gate] messages-post rejected room=${roomId} reason=${reason}`);
-  throw error(403, reason === 'server-resolved identity required.' ? AUTH_DEPRECATION_HINT_BODY : reason);
+  // Stage A 403 PermissionDenied payload (plan milestone
+  // p3-stage-a-403-payload). The legacy free-form `reason` argument
+  // is preserved as payload.message (or AUTH_DEPRECATION_HINT_BODY when
+  // the historical sentinel matched) so existing CLI fallback paths +
+  // smoke tests that match on the wedge-hint string keep working; new
+  // consumers read the structured permission_denied block.
+  const room = findChatRoomById(roomId);
+  const legacyMessage =
+    reason === 'server-resolved identity required.' ? AUTH_DEPRECATION_HINT_BODY : reason;
+  throw error(
+    403,
+    buildPermissionDeniedPayload({
+      action: 'chat.post',
+      target_kind: 'room',
+      target_id: roomId,
+      target_display_name: room?.name,
+      reason: 'identity_unresolved',
+      grantee_handle: '@you',
+      approvers: resolveApproversFor({ targetKind: 'room', targetId: roomId }),
+      message: legacyMessage
+    })
+  );
 }
 
 // M30 slice 2 parent validation: throws 400/404 BEFORE any postMessage
