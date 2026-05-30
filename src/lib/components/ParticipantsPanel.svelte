@@ -205,7 +205,17 @@
                 {/if}
               </span>
             </button>
-            {#if isArchived}
+            {#if isArchived && canManageMembers}
+              <!--
+                Reclaim button is gated on canManageMembers per the 2026-05-30
+                security review HIGH finding — rebinding a membership to the
+                caller's terminal is account-takeover-shaped. Non-admin viewers
+                can still self-reclaim their OWN previously-held handles via
+                `ant reclaim` CLI which goes through the same server gate
+                (admin-bearer / room-owner / self-reclaim-alias). The UI keeps
+                the permission surface narrow; the CLI keeps the power-user
+                path. The server validates regardless of UI state.
+              -->
               <button
                 type="button"
                 class="reclaim-btn"
