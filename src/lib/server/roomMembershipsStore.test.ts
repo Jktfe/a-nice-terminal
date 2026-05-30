@@ -11,7 +11,9 @@ import {
   listMembershipsForRoom,
   listAllMembershipsForRoomIncludingRevoked,
   listMembershipsForTerminal,
-  removeMembership
+  removeMembership,
+  INVALID_MEMBERSHIP_HANDLE_ERROR_PREFIX,
+  INVALID_MEMBERSHIP_HANDLE_ERROR_TAG
 } from './roomMembershipsStore';
 import { getIdentityDb } from './db';
 
@@ -74,6 +76,84 @@ describe('addMembership', () => {
     const a = addMembership({ room_id: 'roomA', handle: '@x', terminal_id: tid });
     const b = addMembership({ room_id: 'roomB', handle: '@x', terminal_id: tid });
     expect(a.id).not.toBe(b.id);
+  });
+});
+
+/**
+ * Sec-iter6 Fix #3 (2026-05-30) — choke-point validation tests.
+ *
+ * The store layer rejects authority-signalling handles (`@admin`,
+ * `@chair`, `@system`, etc.) before any DB write so a future writer that
+ * forgets the API-edge auth check cannot bypass the iter-5 exploit fix.
+ * The list intentionally does NOT cover all `data/reserved-handles.json`
+ * entries — `@you` is a legitimate operator-marker in `room_memberships`
+ * (e.g. the browser-session synthetic-terminal flow at
+ * `/api/chat-rooms/:roomId/browser-session/+server.ts:243`), and blocking
+ * it would break the server-operator UX.
+ */
+describe('sec-iter6 Fix #3 — addMembership authority-handle choke-point', () => {
+  it('rejects @admin with INVALID_MEMBERSHIP_HANDLE_ERROR_PREFIX', () => {
+    const tid = makeTerminal('t1');
+    expect(() => addMembership({ room_id: 'r-x', handle: '@admin', terminal_id: tid }))
+      .toThrowError(/^\[INVALID_MEMBERSHIP_HANDLE\] /);
+    expect(listMembershipsForRoom('r-x')).toEqual([]);
+  });
+
+  it('rejects each authority handle in the forbidden list (case-insensitive)', () => {
+    const tid = makeTerminal('t1');
+    const forbidden = [
+      '@admin', '@Admin', '@ADMIN',
+      '@antadmin',
+      '@chair',
+      '@antchair',
+      '@system',
+      '@ant'
+    ];
+    for (const h of forbidden) {
+      expect(() => addMembership({ room_id: 'r-x', handle: h, terminal_id: tid }))
+        .toThrowError(new RegExp(`^\\${INVALID_MEMBERSHIP_HANDLE_ERROR_TAG} `));
+    }
+    expect(listMembershipsForRoom('r-x')).toEqual([]);
+  });
+
+  it('rejects authority handles without leading @ (canonicalised then matched)', () => {
+    const tid = makeTerminal('t1');
+    expect(() => addMembership({ room_id: 'r-x', handle: 'admin', terminal_id: tid }))
+      .toThrowError(new RegExp(`^\\${INVALID_MEMBERSHIP_HANDLE_ERROR_TAG} `));
+  });
+
+  it('accepts @you (operator marker — used by browser-session synthetic terminal)', () => {
+    const tid = makeTerminal('t1');
+    const m = addMembership({ room_id: 'r-ok', handle: '@you', terminal_id: tid });
+    expect(m.handle).toBe('@you');
+  });
+
+  it('accepts other broadcast/marker reserved handles (out-of-scope for membership choke-point)', () => {
+    const tid = makeTerminal('t1');
+    // `@me`/`@here`/etc. are blocked at terminal_records registration
+    // (sec-iter1 Fix #3) but NOT at the membership layer — they're not
+    // authority signals, only `@admin`-class handles are.
+    expect(() => addMembership({ room_id: 'r-ok', handle: '@me', terminal_id: tid })).not.toThrow();
+    expect(() => addMembership({ room_id: 'r-ok2', handle: '@here', terminal_id: tid })).not.toThrow();
+    expect(() => addMembership({ room_id: 'r-ok3', handle: '@everyone', terminal_id: tid })).not.toThrow();
+  });
+
+  it('accepts normal handles', () => {
+    const tid = makeTerminal('t1');
+    expect(() => addMembership({ room_id: 'r-ok', handle: '@speedyc', terminal_id: tid })).not.toThrow();
+    expect(() => addMembership({ room_id: 'r-ok2', handle: '@jwpk', terminal_id: tid })).not.toThrow();
+  });
+
+  it('error message includes the canonical handle for operator debugging', () => {
+    const tid = makeTerminal('t1');
+    try {
+      addMembership({ room_id: 'r-x', handle: 'admin', terminal_id: tid });
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect((err as Error).message).toContain(INVALID_MEMBERSHIP_HANDLE_ERROR_PREFIX);
+      expect((err as Error).message).toContain('@admin');
+      expect((err as Error).message).toContain('authority-signalling');
+    }
   });
 });
 
