@@ -31,6 +31,7 @@ import {
 import { createChatRoom } from '$lib/server/chatRoomStore';
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { addMembership } from '$lib/server/roomMembershipsStore';
+import { createTerminalRecord } from '$lib/server/terminalRecordsStore';
 
 let tmpDir: string;
 const previousDbEnv = process.env.ANT_FRESH_DB_PATH;
@@ -68,6 +69,16 @@ function seedTerminal(handle: string, pid: number, roomId: string) {
     pid_start: `2026-05-29T20:00:0${pid % 10}.000Z`,
     name: `term-${pid}`,
     ttlSeconds: 60 * 60
+  });
+  // sec-iter1 Fix #1: caller-handle resolution now reads
+  // terminal_records.handle (authoritative) rather than per-room
+  // memberships[0].handle. Tests must seed BOTH the legacy membership
+  // row (for the existing approver-list shape) AND the terminal_records
+  // row (so the new gate resolves the caller's declared handle).
+  createTerminalRecord({
+    sessionId: terminal.id,
+    name: `term-${pid}`,
+    handle
   });
   addMembership({ room_id: roomId, handle, terminal_id: terminal.id });
   return { terminal, pidChainEntry: { pid, pid_start: `2026-05-29T20:00:0${pid % 10}.000Z` } };
@@ -276,6 +287,125 @@ describe('POST /api/permission-requests/[requestId]/approve', () => {
     });
     const response = await runHandler(POST as AnyHandler, event);
     expect(response.status).toBe(403);
+  });
+
+  // sec-iter1 Fix #1 attack-scenario tests — privilege escalation via
+  // memberships[0].handle. These cover the exact attack vector the fix
+  // closes: an attacker registers a terminal under a handle different
+  // from the victim's, then is invited into a room WHERE THEIR PER-ROOM
+  // HANDLE happens to be the victim's. Pre-fix, memberships[0].handle
+  // returned the victim's handle and the gate succeeded. Post-fix the
+  // gate reads terminal_records.handle (the attacker's declared
+  // identity), which is NOT the victim's, so it 403s.
+  describe('sec-iter1 Fix #1: privilege escalation via memberships[0]', () => {
+    it('rejects the attack: caller pidChain resolves to a terminal whose terminal_records.handle is NOT the victim, even if their per-room membership row uses the victim handle', async () => {
+      const room = createChatRoom({ name: 'esc-room', whoCreatedIt: '@jwpk' });
+      const created = createPermissionRequest({
+        requesterHandle: '@speedyc',
+        action: 'chat.post',
+        targetKind: 'room',
+        targetId: room.id,
+        approvers: [{ handle: '@jwpk', role: 'room_owner', preferred: true }]
+      });
+      // Attacker's terminal has its OWN declared identity in
+      // terminal_records (@attacker) but somehow has a membership row
+      // bound to @jwpk in another room (simulating the pre-fix attack
+      // path). Pre-fix this would make memberships[0].handle == '@jwpk'
+      // and let them approve. Post-fix the gate reads
+      // terminal_records.handle == '@attacker' and 403s.
+      const attackerTerminal = upsertTerminal({
+        pid: 80050,
+        pid_start: '2026-05-30T00:00:00.000Z',
+        name: 'attacker-pane',
+        ttlSeconds: 60 * 60
+      });
+      createTerminalRecord({
+        sessionId: attackerTerminal.id,
+        name: 'attacker-pane',
+        handle: '@attacker'
+      });
+      // Plant the malicious membership row under the victim handle.
+      const otherRoom = createChatRoom({ name: 'innocent-room', whoCreatedIt: '@otherowner' });
+      addMembership({
+        room_id: otherRoom.id,
+        handle: '@jwpk',
+        terminal_id: attackerTerminal.id
+      });
+
+      const event = eventFor(created.request.requestId, {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          pidChain: [{ pid: 80050, pid_start: '2026-05-30T00:00:00.000Z' }]
+        })
+      });
+      const response = await runHandler(POST as AnyHandler, event);
+      expect(response.status).toBe(403);
+      const body = (await response.json()) as {
+        permission_denied?: { reason?: string };
+      };
+      expect(body.permission_denied?.reason).toBe('not_room_owner');
+    });
+
+    it('fail-closes (401) when caller terminal has NO terminal_records row', async () => {
+      const room = createChatRoom({ name: 'no-record', whoCreatedIt: '@jwpk' });
+      const created = createPermissionRequest({
+        requesterHandle: '@speedyc',
+        action: 'chat.post',
+        targetKind: 'room',
+        targetId: room.id,
+        approvers: [{ handle: '@jwpk', role: 'room_owner', preferred: true }]
+      });
+      const terminal = upsertTerminal({
+        pid: 80060,
+        pid_start: '2026-05-30T00:00:01.000Z',
+        name: 'no-record-term',
+        ttlSeconds: 60 * 60
+      });
+      // No terminal_records row created — fail-closed.
+      addMembership({ room_id: room.id, handle: '@jwpk', terminal_id: terminal.id });
+
+      const event = eventFor(created.request.requestId, {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          pidChain: [{ pid: 80060, pid_start: '2026-05-30T00:00:01.000Z' }]
+        })
+      });
+      const response = await runHandler(POST as AnyHandler, event);
+      expect(response.status).toBe(401);
+    });
+
+    it('fail-closes (401) when terminal_records.handle is NULL', async () => {
+      const room = createChatRoom({ name: 'null-handle', whoCreatedIt: '@jwpk' });
+      const created = createPermissionRequest({
+        requesterHandle: '@speedyc',
+        action: 'chat.post',
+        targetKind: 'room',
+        targetId: room.id,
+        approvers: [{ handle: '@jwpk', role: 'room_owner', preferred: true }]
+      });
+      const terminal = upsertTerminal({
+        pid: 80070,
+        pid_start: '2026-05-30T00:00:02.000Z',
+        name: 'null-handle-term',
+        ttlSeconds: 60 * 60
+      });
+      // Record exists but handle is NULL (e.g. pre-handle-pick terminal).
+      createTerminalRecord({
+        sessionId: terminal.id,
+        name: 'null-handle-term',
+        handle: null
+      });
+      addMembership({ room_id: room.id, handle: '@jwpk', terminal_id: terminal.id });
+
+      const event = eventFor(created.request.requestId, {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          pidChain: [{ pid: 80070, pid_start: '2026-05-30T00:00:02.000Z' }]
+        })
+      });
+      const response = await runHandler(POST as AnyHandler, event);
+      expect(response.status).toBe(401);
+    });
   });
 
   it('happy path honours decisionScope=always-for-room on the grant', async () => {

@@ -39,10 +39,12 @@ import {
 } from '$lib/server/permissionRequestsStore';
 import { resolveApproversFor } from '$lib/server/permissionApproverResolver';
 import type { PermissionTargetKind } from '$lib/server/permissionDeniedPayload';
-import { tryAdminBearer, ADMIN_BEARER_HANDLE } from '$lib/server/chatRoomAuthGate';
-import { parsePidChainFromBody } from '$lib/server/identityGate';
-import { lookupTerminalByPidChain, type PidChainEntry } from '$lib/server/terminalsStore';
-import { listMembershipsForTerminal } from '$lib/server/roomMembershipsStore';
+import { ADMIN_BEARER_HANDLE } from '$lib/server/chatRoomAuthGate';
+import { type PidChainEntry } from '$lib/server/terminalsStore';
+import {
+  resolveAuthoritativeCallerHandle,
+  resolveAuthoritativeCallerHandleFromPidChain
+} from '$lib/server/permissionCallerIdentity';
 
 const VALID_TARGET_KINDS: ReadonlyArray<PermissionTargetKind> = [
   'room',
@@ -63,16 +65,16 @@ type PostBody = {
   pendingAction?: unknown;
 };
 
+/**
+ * Sec-iter1 Fix #1 (2026-05-30 enterprise security pass): caller-handle
+ * resolution now reads the authoritative terminal_records.handle
+ * (1:1, UNIQUE per Fix #2) instead of the attacker-controllable
+ * `memberships[0].handle`. This endpoint binds requester_handle to the
+ * resolved caller — without the fix, an attacker could file
+ * permission_requests "from" the victim.
+ */
 function resolveCallerHandle(request: Request, rawBody: unknown): string {
-  if (tryAdminBearer(request)) return ADMIN_BEARER_HANDLE;
-  const pidChain = parsePidChainFromBody(rawBody);
-  const terminal = lookupTerminalByPidChain(pidChain);
-  if (!terminal) {
-    throw error(401, 'Authentication required.');
-  }
-  const memberships = listMembershipsForTerminal(terminal.id);
-  if (memberships.length > 0) return memberships[0].handle;
-  return `@${terminal.name}`;
+  return resolveAuthoritativeCallerHandle(request, rawBody);
 }
 
 type ValidatedBody = {
@@ -191,15 +193,15 @@ function parsePidChainFromQuery(url: URL): PidChainEntry[] {
   }
 }
 
+/**
+ * Sec-iter1 Fix #1 (2026-05-30 enterprise security pass): same fix as
+ * the POST variant — read terminal_records.handle as the authoritative
+ * caller identity for the listing surface. Without this fix, an
+ * attacker could enumerate the victim's pending permission_requests.
+ */
 function resolveCallerHandleForGet(request: Request, url: URL): string | null {
-  if (tryAdminBearer(request)) return ADMIN_BEARER_HANDLE;
   const pidChain = parsePidChainFromQuery(url);
-  if (pidChain.length === 0) return null;
-  const terminal = lookupTerminalByPidChain(pidChain);
-  if (!terminal) return null;
-  const memberships = listMembershipsForTerminal(terminal.id);
-  if (memberships.length > 0) return memberships[0].handle;
-  return `@${terminal.name}`;
+  return resolveAuthoritativeCallerHandleFromPidChain(request, pidChain);
 }
 
 export const GET: RequestHandler = async ({ request, url }) => {
