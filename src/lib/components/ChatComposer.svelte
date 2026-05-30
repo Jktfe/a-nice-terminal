@@ -97,7 +97,6 @@
   let mentionTrigger = $state<MentionTrigger | null>(null);
   let mentionActiveIndex = $state(0);
   let textareaRef = $state<HTMLTextAreaElement | null>(null);
-  let priorCollaboratorHandles = $state<string[]>([]);
   let isDropTargetHovered = $state(false);
   let uploadsInFlight = $state<string[]>([]);
   // Composer attachment chips: small previews of every attached file
@@ -140,20 +139,12 @@
     attachedChips = [];
   }
 
-  $effect(() => {
-    fetch(`/api/prior-collaborators?excludeRoomId=${encodeURIComponent(roomId)}`)
-      .then((response) => (response.ok ? response.json() : { handles: [] }))
-      .then((body: { handles?: string[] }) => { priorCollaboratorHandles = body.handles ?? []; })
-      .catch(() => { priorCollaboratorHandles = []; });
-  });
-
   const mentionOptions = $derived(
     mentionTrigger
       ? rankMentionOptions(
           membersInRoom,
           aliasesInRoom,
-          mentionTrigger.partialTyped,
-          priorCollaboratorHandles
+          mentionTrigger.partialTyped
         )
       : []
   );

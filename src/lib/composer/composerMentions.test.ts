@@ -106,48 +106,11 @@ describe('rankMentionOptions', () => {
     expect(options).toHaveLength(0);
   });
 
-  it('ranks prior collaborators after aliases and current members', () => {
-    const options = rankMentionOptions(
-      sampleMembers,
-      sampleAliases,
-      'e',
-      ['@elsie', '@evolveantglm']
-    );
-    const kinds = options.map((option) => option.optionKind);
-    expect(kinds.indexOf('alias')).toBeLessThan(kinds.indexOf('global'));
-    expect(kinds.indexOf('global')).toBeLessThan(kinds.indexOf('prior'));
-  });
-
-  it('omits a prior collaborator who is already a current member', () => {
-    const options = rankMentionOptions(
-      sampleMembers,
-      [],
-      'james',
-      ['@james']
-    );
-    const priorOptions = options.filter((option) => option.optionKind === 'prior');
-    expect(priorOptions).toHaveLength(0);
-  });
-
-  it('omits a prior collaborator who is already an alias target', () => {
-    const options = rankMentionOptions(
-      sampleMembers,
-      sampleAliases,
-      'evolveantcodex',
-      ['@evolveantcodex']
-    );
-    const priorOptions = options.filter((option) => option.optionKind === 'prior');
-    expect(priorOptions).toHaveLength(0);
-  });
-
-  it('matches prior collaborators case-insensitively', () => {
-    const options = rankMentionOptions(
-      sampleMembers,
-      [],
-      'ELS',
-      ['@elsie']
-    );
-    expect(options.some((option) => option.handleToInsert === '@elsie')).toBe(true);
+  it('only surfaces members of the current room (no cross-room handles)', () => {
+    const options = rankMentionOptions(sampleMembers, sampleAliases, 'e');
+    const handles = options.map((option) => option.handleToInsert);
+    expect(handles).not.toContain('@elsie');
+    expect(handles).not.toContain('@evolveantglm');
   });
 
   it('surfaces @everyone as a top broadcast option when the partial is empty', () => {
