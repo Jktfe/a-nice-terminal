@@ -26,6 +26,7 @@ import { getIdentityDb } from '$lib/server/db';
 import { lookupTerminalByPidChain, type PidChainEntry } from '$lib/server/terminalsStore';
 import { normalisePidStartToIso8601 } from '$lib/server/pidStartNormaliser';
 import { resolveV02ByPidChain } from '$lib/server/v02RegisterBootstrap';
+import { getAgentById } from '$lib/server/v02AgentsStore';
 
 type WhoamiBody = { pids?: unknown };
 
@@ -85,13 +86,6 @@ export const POST: RequestHandler = async ({ request }) => {
     return json({ status: 'no-terminal' }, { status: 404 });
   }
 
-  const handleRow = db.prepare(
-    `SELECT handle FROM terminal_records
-      WHERE session_id = ? AND superseded_at_ms IS NULL
-      ORDER BY created_at_ms DESC LIMIT 1`
-  ).get(terminal.id) as { handle: string | null } | undefined;
-  const handle = handleRow?.handle ?? null;
-
   let v02AgentId: string | null = null;
   let v02RuntimeId: string | null = null;
   try {
@@ -102,6 +96,28 @@ export const POST: RequestHandler = async ({ request }) => {
     }
   } catch {
     // Legacy path stays authoritative — v0.2 sidecar is best-effort.
+  }
+
+  // Handle resolution. Post-cut-over (M9b/M9c) the canonical source is
+  // agents.primary_handle, not terminal_records.handle (which is empty
+  // for all rows currently — discovered during live smoke after PR #124
+  // landed). Try v0.2 first, fall back to terminal_records for any
+  // pre-cut-over rows that still have it populated.
+  let handle: string | null = null;
+  if (v02AgentId) {
+    const agent = getAgentById(v02AgentId);
+    if (agent?.primary_handle) handle = agent.primary_handle;
+  }
+  if (!handle) {
+    const handleRow = db
+      .prepare(
+        `SELECT handle FROM terminal_records
+          WHERE session_id = ? AND superseded_at_ms IS NULL
+          ORDER BY created_at_ms DESC LIMIT 1`
+      )
+      .get(terminal.id) as { handle: string | null } | undefined;
+    const legacy = handleRow?.handle;
+    if (legacy && legacy.length > 0) handle = legacy;
   }
 
   if (!handle) {

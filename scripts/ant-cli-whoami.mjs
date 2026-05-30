@@ -45,8 +45,10 @@ function formatHumanLine(payload) {
   return parts.join('   ');
 }
 
-export async function handleWhoamiVerb({ args, fetchImpl, writeOut, writeErr, serverUrl }) {
-  const flags = parseFlags(args);
+export async function handleWhoamiVerb(action, args, runtime) {
+  const { fetchImpl, writeOut, writeErr, serverUrl } = runtime;
+  const fullArgs = action !== undefined ? [action, ...args] : args;
+  const flags = parseFlags(fullArgs);
   const chain = processIdentityChain();
   if (chain.length === 0) {
     writeErr('ant whoami: could not walk PID chain (no entries from processIdentityChain).');
