@@ -22,7 +22,9 @@ import {
   listActiveKeys,
   listAllKeysForIdentity,
   listAttestationsForIdentity,
+  lookupActiveIdentityByPublicKey,
   lookupIdentityByPublicKey,
+  lookupIdentityByPublicKeyIncludingRevoked,
   mintIdentityKey,
   requestRecovery,
   resetChallengeStoreForTests,
@@ -207,6 +209,65 @@ describe('identityKeysStore — lookupIdentityByPublicKey', () => {
   it('returns null when the public key was never seen', () => {
     const stranger = generateEd25519KeyPair();
     expect(lookupIdentityByPublicKey(stranger.publicKey)).toBeNull();
+  });
+});
+
+// sec-iter1 Fix #4 (2026-05-30 enterprise security pass): the
+// rename + add `lookupActiveIdentityByPublicKey`. Cover the
+// revoked-key behaviour explicitly so auth-gate callers can't slip in
+// a revoked-key auth path.
+describe('identityKeysStore — Fix #4 active vs forensic key lookup', () => {
+  function revokeSelfAttested(identityId: string, key: { keyId: string }, kp: { publicKey: string; privateKey: string }) {
+    const canonical = `revoke|${identityId}|${key.keyId}`;
+    const signature = signCanonicalPayload(canonical, kp.privateKey, kp.publicKey);
+    revokeIdentityKey({
+      keyId: key.keyId,
+      attesterKeyId: key.keyId,
+      attesterKind: 'self',
+      signature,
+      canonicalPayload: canonical,
+      reason: 'rotation'
+    });
+  }
+
+  it('lookupIdentityByPublicKeyIncludingRevoked returns identity even after key revocation', () => {
+    const ident = createIdentity({ kind: 'agent', displayName: 'F1', canonicalHandle: '@f1' });
+    const bootstrap = makeAttesterFor(ident.identityId, 'desktop');
+    revokeSelfAttested(ident.identityId, bootstrap.key, bootstrap.keypair);
+    const looked = lookupIdentityByPublicKeyIncludingRevoked(bootstrap.keypair.publicKey);
+    expect(looked?.identityId).toBe(ident.identityId);
+  });
+
+  it('lookupActiveIdentityByPublicKey returns NULL when the key is revoked', () => {
+    const ident = createIdentity({ kind: 'agent', displayName: 'F2', canonicalHandle: '@f2' });
+    const bootstrap = makeAttesterFor(ident.identityId, 'desktop');
+    revokeSelfAttested(ident.identityId, bootstrap.key, bootstrap.keypair);
+    const looked = lookupActiveIdentityByPublicKey(bootstrap.keypair.publicKey);
+    expect(looked).toBeNull();
+  });
+
+  it('lookupActiveIdentityByPublicKey returns the identity when the key is NOT revoked', () => {
+    const ident = createIdentity({ kind: 'agent', displayName: 'F3', canonicalHandle: '@f3' });
+    const bootstrap = makeAttesterFor(ident.identityId, 'desktop');
+    const looked = lookupActiveIdentityByPublicKey(bootstrap.keypair.publicKey);
+    expect(looked?.identityId).toBe(ident.identityId);
+  });
+
+  it('lookupActiveIdentityByPublicKey returns NULL for an unknown public key', () => {
+    const stranger = generateEd25519KeyPair();
+    expect(lookupActiveIdentityByPublicKey(stranger.publicKey)).toBeNull();
+  });
+
+  it('deprecated lookupIdentityByPublicKey delegates to the includingRevoked variant for back-compat', () => {
+    const ident = createIdentity({ kind: 'agent', displayName: 'F4', canonicalHandle: '@f4' });
+    const bootstrap = makeAttesterFor(ident.identityId, 'desktop');
+    revokeSelfAttested(ident.identityId, bootstrap.key, bootstrap.keypair);
+    // Old name still returns the identity — back-compat. New callers
+    // should switch to lookupActiveIdentityByPublicKey if they're an
+    // auth gate.
+    expect(lookupIdentityByPublicKey(bootstrap.keypair.publicKey)?.identityId).toBe(
+      ident.identityId
+    );
   });
 });
 

@@ -41,6 +41,7 @@ import { getIdentityDb } from './db';
 import * as v02Agents from './v02AgentsStore';
 import * as v02Memberships from './v02MembershipsStore';
 import type { V02MembershipRole, V02MemberKind } from './v02MembershipsStore';
+import { getIdentityByHandle } from './identityKeysStore';
 
 /**
  * INSERT OR IGNORE a v02_rooms row keyed by roomId. Lookup display_name
@@ -106,15 +107,39 @@ export function ensureV02AgentForHandle(handle: string, displayName?: string | n
   const existing = v02Agents.getLiveAgentByHandle(normalised);
   if (existing) return existing.agent_id;
 
+  // sec-iter1 Fix #5 (2026-05-30 enterprise security pass). Today
+  // chat-room mirror writes can auto-create a v02_agents row for any
+  // handle, no attestation required. The row is functionally harmless
+  // because `primary_trust_key_id` is unused in fanout/auth gates as
+  // of this PR — but Stage B + any future "ant attest" flow will
+  // promote `primary_trust_key_id` to a load-bearing field, at which
+  // point this auto-create path becomes exploitable (attacker
+  // pre-creates an agents row for a victim handle + then races to
+  // attest a key before the victim does).
+  //
+  // Defence-in-depth: when no `identity_keys` row exists for the
+  // handle (via `getIdentityByHandle`), the auto-created agents row
+  // is tagged as a 'stub' via a `via: 'v02-chatroom-bridge-stub'`
+  // audit-event marker AND `primary_trust_key_id` is left explicitly
+  // NULL. The agents.kind / agents.status column is left as-is
+  // because the schema doesn't have a stub-marker column — the
+  // audit_event provenance string IS the marker. A Stage B sweep
+  // (filter audit_events WHERE kind='agent.created.via_bridge_stub'
+  // AND agents.primary_trust_key_id IS NULL) can then require
+  // explicit attestation before promoting the stub.
+  const identity = getIdentityByHandle(normalised);
+  const isStub = identity === null;
+
   const created = v02Agents.createAgent({
     display_name: displayName?.trim() && displayName.trim().length > 0
       ? displayName.trim()
       : normalised,
     primary_handle: normalised,
+    primary_trust_key_id: null,
     owner_org: null
   });
   appendAuditEvent({
-    kind: 'agent.created',
+    kind: isStub ? 'agent.created.via_bridge_stub' : 'agent.created',
     entity_kind: 'agent',
     entity_id: created.agent_id,
     actor_agent_id: created.agent_id,
@@ -122,7 +147,15 @@ export function ensureV02AgentForHandle(handle: string, displayName?: string | n
     after_json: {
       display_name: created.display_name,
       primary_handle: created.primary_handle,
-      via: 'v02-chatroom-bridge'
+      // Provenance string distinguishes stub auto-creates from real
+      // creations so Stage B sweep tooling can find them. The
+      // `is_stub` boolean is the canonical machine-readable flag.
+      via: isStub ? 'v02-chatroom-bridge-stub' : 'v02-chatroom-bridge',
+      is_stub: isStub,
+      // When a known identity DOES exist, surface its identity_id so
+      // operators reviewing the audit can confirm the auto-create
+      // landed against the right canonical identity row.
+      identity_id: identity?.identityId ?? null
     }
   });
   return created.agent_id;
