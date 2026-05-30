@@ -202,6 +202,202 @@ describe('v02MembershipsStore.listFanoutTargetsForRoom (DERIVED, not cached)', (
   });
 });
 
+describe('v02MembershipsStore — M9d display columns', () => {
+  it('addMembership persists display_color / display_icon / display_background_style / member_kind', () => {
+    const room = createRoom('r-1');
+    const agent = createAgent('@x');
+    const m = v02Memberships.addMembership({
+      agent_id: agent.agent_id,
+      room_id: room,
+      display_color: '#FF00AA',
+      display_icon: 'X',
+      display_background_style: 'tint',
+      member_kind: 'agent'
+    });
+    expect(m.display_color).toBe('#FF00AA');
+    expect(m.display_icon).toBe('X');
+    expect(m.display_background_style).toBe('tint');
+    expect(m.member_kind).toBe('agent');
+  });
+
+  it('addMembership leaves display fields NULL when omitted (legacy fallback)', () => {
+    const room = createRoom('r-1');
+    const agent = createAgent('@x');
+    const m = v02Memberships.addMembership({ agent_id: agent.agent_id, room_id: room });
+    expect(m.display_color).toBe(null);
+    expect(m.display_icon).toBe(null);
+    expect(m.display_background_style).toBe(null);
+    expect(m.member_kind).toBe(null);
+  });
+
+  it('addMembership re-add updates display fields when supplied; leaves untouched when undefined', () => {
+    const room = createRoom('r-1');
+    const agent = createAgent('@x');
+    v02Memberships.addMembership({
+      agent_id: agent.agent_id,
+      room_id: room,
+      display_color: '#111111'
+    });
+    // Re-add with no display fields — existing colour preserved.
+    const second = v02Memberships.addMembership({
+      agent_id: agent.agent_id,
+      room_id: room,
+      role: 'chair'
+    });
+    expect(second.display_color).toBe('#111111');
+    expect(second.role).toBe('chair');
+    // Re-add with new colour — colour updates.
+    const third = v02Memberships.addMembership({
+      agent_id: agent.agent_id,
+      room_id: room,
+      display_color: '#222222'
+    });
+    expect(third.display_color).toBe('#222222');
+  });
+
+  it('updateMembershipPresentation patches active row in place', () => {
+    const room = createRoom('r-1');
+    const agent = createAgent('@x');
+    v02Memberships.addMembership({ agent_id: agent.agent_id, room_id: room });
+    const flipped = v02Memberships.updateMembershipPresentation({
+      agent_id: agent.agent_id,
+      room_id: room,
+      display_color: '#333',
+      display_icon: 'J',
+      display_background_style: 'card'
+    });
+    expect(flipped).toBe(true);
+    const row = v02Memberships.getActiveMembership(room, agent.agent_id);
+    expect(row?.display_color).toBe('#333');
+    expect(row?.display_icon).toBe('J');
+    expect(row?.display_background_style).toBe('card');
+  });
+
+  it('updateMembershipPresentation returns false when no active membership exists', () => {
+    const room = createRoom('r-1');
+    const result = v02Memberships.updateMembershipPresentation({
+      agent_id: 'no-such-agent',
+      room_id: room,
+      display_color: '#000'
+    });
+    expect(result).toBe(false);
+  });
+
+  it('member_kind CHECK constraint rejects garbage values', () => {
+    const room = createRoom('r-1');
+    const agent = createAgent('@x');
+    const db = getIdentityDb();
+    expect(() =>
+      db.prepare(
+        `INSERT INTO memberships
+           (membership_id, agent_id, room_id, role, joined_at_ms, member_kind)
+         VALUES (?, ?, ?, 'member', ?, 'robot')`
+      ).run('m-bogus', agent.agent_id, room, Date.now())
+    ).toThrow();
+  });
+});
+
+describe('v02MembershipsStore.listRoomMembersHydrated', () => {
+  it('returns members in joined_at_ms ascending order with handle + display_name from agents', () => {
+    const room = createRoom('r-1');
+    const a = createAgent('@codex4');
+    const b = createAgent('@cv4');
+    v02Memberships.addMembership({
+      agent_id: a.agent_id,
+      room_id: room,
+      display_color: '#AAA',
+      display_icon: 'C',
+      display_background_style: 'transparent',
+      member_kind: 'agent'
+    });
+    v02Memberships.addMembership({
+      agent_id: b.agent_id,
+      room_id: room,
+      member_kind: 'agent'
+    });
+    const members = v02Memberships.listRoomMembersHydrated(room);
+    expect(members.length).toBe(2);
+    expect(members[0].handle).toBe('@codex4');
+    expect(members[0].agent_display_name).toBe('@codex4');
+    expect(members[0].display_color).toBe('#AAA');
+    expect(members[0].display_icon).toBe('C');
+    expect(members[0].display_background_style).toBe('transparent');
+    expect(members[0].member_kind).toBe('agent');
+    expect(typeof members[0].joined_at_iso).toBe('string');
+    expect(members[0].joined_at_iso).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(members[1].handle).toBe('@cv4');
+  });
+
+  it('per-room alias takes precedence over primary_handle in the handle column', () => {
+    const room = createRoom('r-1');
+    const a = createAgent('@cv4');
+    v02Memberships.addMembership({
+      agent_id: a.agent_id,
+      room_id: room,
+      room_alias: '@chair'
+    });
+    const members = v02Memberships.listRoomMembersHydrated(room);
+    expect(members[0].handle).toBe('@chair');
+    expect(members[0].room_alias).toBe('@chair');
+  });
+
+  it('excludes historical (left_at_ms NOT NULL) rows', () => {
+    const room = createRoom('r-1');
+    const a = createAgent('@a');
+    const b = createAgent('@b');
+    v02Memberships.addMembership({ agent_id: a.agent_id, room_id: room });
+    v02Memberships.addMembership({ agent_id: b.agent_id, room_id: room });
+    v02Memberships.removeMembership(b.agent_id, room);
+    const members = v02Memberships.listRoomMembersHydrated(room);
+    expect(members.length).toBe(1);
+    expect(members[0].handle).toBe('@a');
+  });
+
+  it('returns empty array for an unknown room', () => {
+    expect(v02Memberships.listRoomMembersHydrated('no-such-room')).toEqual([]);
+  });
+});
+
+describe('v02MembershipsStore.isHandleActiveMemberOfRoom', () => {
+  it('returns true for an active member by primary_handle', () => {
+    const room = createRoom('r-1');
+    const a = createAgent('@x');
+    v02Memberships.addMembership({ agent_id: a.agent_id, room_id: room });
+    expect(v02Memberships.isHandleActiveMemberOfRoom(room, '@x')).toBe(true);
+  });
+
+  it('returns true for an active member by room_alias', () => {
+    const room = createRoom('r-1');
+    const a = createAgent('@cv4');
+    v02Memberships.addMembership({
+      agent_id: a.agent_id,
+      room_id: room,
+      room_alias: '@chair'
+    });
+    expect(v02Memberships.isHandleActiveMemberOfRoom(room, '@chair')).toBe(true);
+  });
+
+  it('returns false for an unknown handle', () => {
+    const room = createRoom('r-1');
+    expect(v02Memberships.isHandleActiveMemberOfRoom(room, '@ghost')).toBe(false);
+  });
+
+  it('returns false after the member is soft-removed', () => {
+    const room = createRoom('r-1');
+    const a = createAgent('@x');
+    v02Memberships.addMembership({ agent_id: a.agent_id, room_id: room });
+    v02Memberships.removeMembership(a.agent_id, room);
+    expect(v02Memberships.isHandleActiveMemberOfRoom(room, '@x')).toBe(false);
+  });
+
+  it('normalises a missing leading @', () => {
+    const room = createRoom('r-1');
+    const a = createAgent('@x');
+    v02Memberships.addMembership({ agent_id: a.agent_id, room_id: room });
+    expect(v02Memberships.isHandleActiveMemberOfRoom(room, 'x')).toBe(true);
+  });
+});
+
 describe('v02MembershipsStore.getActiveMembershipByHandle', () => {
   it('resolves via primary_handle when no alias is set', () => {
     const room = createRoom('r-1');
