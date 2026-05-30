@@ -36,6 +36,8 @@ import {
 } from '$lib/server/roomMembershipsStore';
 import { bootstrapV02Identity, normaliseV02Handle } from '$lib/server/v02RegisterBootstrap';
 import { getLiveAgentByHandle } from '$lib/server/v02AgentsStore';
+import { validateHandleForRegistration } from '$lib/server/handleValidation';
+import { findActiveTerminalRecordByHandle } from '$lib/server/terminalRecordsStore';
 
 const VALID_AGENT_KINDS_LIST = Array.from(AGENT_KINDS_CLIENT_INPUT).join(', ');
 
@@ -120,8 +122,18 @@ export const POST: RequestHandler = async ({ request }) => {
   // one, append the OLD handle to handle_aliases BEFORE overwriting with
   // the new handle. Empty / whitespace-only handles are ignored.
   const handleRaw = rawBody.handle;
-  const handleValue =
-    typeof handleRaw === 'string' && handleRaw.trim().length > 0 ? handleRaw.trim() : null;
+  let handleValue: string | null = null;
+  if (typeof handleRaw === 'string' && handleRaw.trim().length > 0) {
+    // Fix #3 (sec-iter1 2026-05-30): M13 reserved-handle enforcement +
+    // canonical character/length checks. The validator returns a
+    // canonical leading-`@` form so downstream stores never have to
+    // re-normalise.
+    const validation = validateHandleForRegistration(handleRaw);
+    if (!validation.ok) {
+      throw error(400, validation.message);
+    }
+    handleValue = validation.canonicalHandle;
+  }
   // M3.2b: pre-read for INSERT-new probe + path-B kind preservation on re-register.
   const trimmedName = nameRaw.trim();
   const existing = getTerminalByName(trimmedName);
@@ -167,6 +179,40 @@ export const POST: RequestHandler = async ({ request }) => {
       409,
       `PID ${leafPid.pid} (start=${leafPid.pid_start}) is already bound to live terminal '${pidConflict.name}'. Archive it first or use a different shell.`
     );
+  }
+  // Fix #2 (sec-iter1 2026-05-30): handle uniqueness across
+  // terminal_records — reject if another ACTIVE terminal_record already
+  // claims this handle AND its backing terminal is still alive.
+  // Prevents the @you-spam / impersonation class where an attacker
+  // registers under a victim's handle. The DB-level UNIQUE INDEX
+  // `terminal_records_handle_unique` is the structural backstop; this
+  // 409 returns a friendlier error before the INSERT throws
+  // SQLITE_CONSTRAINT.
+  //
+  // Exemptions (must defer to existing recovery paths):
+  //   - same session_id as the row we'd upsert (idempotent re-register);
+  //   - known v0.2 agent for this handle (reclaim path);
+  //   - claimant's backing terminal is stale per isCandidateStale —
+  //     the PR-B auto-rebind block below handles it by superseding the
+  //     prior row + moving memberships. Without this exemption the
+  //     legitimate "shell restart under same handle" flow 409s.
+  if (handleValue) {
+    const claimedBy = findActiveTerminalRecordByHandle(handleValue);
+    if (
+      claimedBy &&
+      claimedBy.session_id !== (existing?.id ?? null) &&
+      !knownV02Agent
+    ) {
+      const claimantTerminal = getTerminalById(claimedBy.session_id);
+      const claimantIsStale =
+        !claimantTerminal || isCandidateStale(claimantTerminal, Date.now());
+      if (!claimantIsStale) {
+        throw error(
+          409,
+          `Handle '${handleValue}' is already claimed by terminal '${claimedBy.name}' (session ${claimedBy.session_id}). Pick a different --handle or reclaim with --handle <your-existing-handle>.`
+        );
+      }
+    }
   }
   const terminal = upsertTerminal({ pid: leafPid.pid, pid_start: leafPid.pid_start,
     name: trimmedName, ttlSeconds, source, meta });

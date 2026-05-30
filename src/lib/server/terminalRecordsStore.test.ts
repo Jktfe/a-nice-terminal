@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   createTerminalRecord, getTerminalRecord, updateTerminalRecord, listTerminalRecords, deleteTerminalRecord,
   parseAllowlist, serializeAllowlist, listKnownHandles, listAllPickableHandles, deriveHandle,
-  findTerminalRecordByHandle, listLiveTerminalRecords
+  findTerminalRecordByHandle, listLiveTerminalRecords,
+  findActiveTerminalRecordByHandle
 } from './terminalRecordsStore';
 import { getIdentityDb, resetIdentityDbForTests } from './db';
 import { createChatRoom, archiveChatRoom, softDeleteChatRoom } from './chatRoomStore';
@@ -105,8 +106,21 @@ describe('terminalRecordsStore — agent_kind round-trip (T2b autodetect-wiring)
   });
 
   it('listKnownHandles returns distinct sorted non-null handles', () => {
+    // sec-iter1 Fix #2 (2026-05-30): the partial UNIQUE INDEX
+    // `terminal_records_handle_unique` now structurally prevents two
+    // active rows from sharing a handle. The pre-fix version of this
+    // test inserted two rows with `@bob` to exercise the DISTINCT
+    // collapse in `listKnownHandles`; that's now a SQLITE_CONSTRAINT.
+    // We keep coverage of the DISTINCT clause by superseding the
+    // older `@bob` row before inserting the second one — i.e. the
+    // shape that listKnownHandles would have seen in practice anyway
+    // (one active + one superseded).
     createTerminalRecord({ sessionId: 't_h_14', name: 'h-14', handle: '@bob' });
     createTerminalRecord({ sessionId: 't_h_15', name: 'h-15', handle: '@alice' });
+    // Supersede the older @bob before re-claiming the handle.
+    getIdentityDb()
+      .prepare(`UPDATE terminal_records SET superseded_at_ms = ? WHERE session_id = ?`)
+      .run(Date.now() - 1000, 't_h_14');
     createTerminalRecord({ sessionId: 't_h_16', name: 'h-16', handle: '@bob' });
     createTerminalRecord({ sessionId: 't_h_17', name: 'h-17' }); // null handle
     const handles = listKnownHandles();
@@ -168,6 +182,33 @@ describe('terminalRecordsStore — agent_kind round-trip (T2b autodetect-wiring)
     createTerminalRecord({ sessionId: 't_v_4', name: 'Anything', handle: '@x' });
     expect(findTerminalRecordByHandle('')).toBeNull();
     expect(findTerminalRecordByHandle('   ')).toBeNull();
+  });
+
+  // sec-iter1 Fix #2 (2026-05-30 enterprise security pass): the
+  // authoritative "who owns this handle right now" gate.
+  it('findActiveTerminalRecordByHandle returns the row with that handle (normalised)', () => {
+    createTerminalRecord({ sessionId: 't_active_1', name: 'pane-A', handle: '@owner1' });
+    expect(findActiveTerminalRecordByHandle('@owner1')?.session_id).toBe('t_active_1');
+    expect(findActiveTerminalRecordByHandle('owner1')?.session_id).toBe('t_active_1');
+  });
+
+  it('findActiveTerminalRecordByHandle ignores superseded rows (returns the latest active)', () => {
+    createTerminalRecord({ sessionId: 't_active_2a', name: 'pane-old', handle: '@owner2' });
+    // Mark older row superseded.
+    getIdentityDb()
+      .prepare(`UPDATE terminal_records SET superseded_at_ms = ? WHERE session_id = ?`)
+      .run(Date.now() - 1000, 't_active_2a');
+    createTerminalRecord({ sessionId: 't_active_2b', name: 'pane-new', handle: '@owner2' });
+    expect(findActiveTerminalRecordByHandle('@owner2')?.session_id).toBe('t_active_2b');
+  });
+
+  it('findActiveTerminalRecordByHandle returns null for unknown handle', () => {
+    expect(findActiveTerminalRecordByHandle('@nobody-ever')).toBeNull();
+  });
+
+  it('findActiveTerminalRecordByHandle returns null for empty input', () => {
+    expect(findActiveTerminalRecordByHandle('')).toBeNull();
+    expect(findActiveTerminalRecordByHandle('   ')).toBeNull();
   });
 
   // JWPK msg_wlvguvfvqu / msg_8390722mjh antV4 2026-05-27: pane-binding
