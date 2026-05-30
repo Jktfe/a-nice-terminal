@@ -19,9 +19,9 @@ import {
   getPendingActionForRequest,
   getPermissionRequest
 } from '$lib/server/permissionRequestsStore';
-import { tryAdminBearer, ADMIN_BEARER_HANDLE } from '$lib/server/chatRoomAuthGate';
-import { lookupTerminalByPidChain, type PidChainEntry } from '$lib/server/terminalsStore';
-import { listMembershipsForTerminal } from '$lib/server/roomMembershipsStore';
+import { ADMIN_BEARER_HANDLE } from '$lib/server/chatRoomAuthGate';
+import { type PidChainEntry } from '$lib/server/terminalsStore';
+import { resolveAuthoritativeCallerHandleFromPidChain } from '$lib/server/permissionCallerIdentity';
 
 function parsePidChainFromQuery(url: URL): PidChainEntry[] {
   const raw = url.searchParams.get('pidChain');
@@ -40,15 +40,16 @@ function parsePidChainFromQuery(url: URL): PidChainEntry[] {
   }
 }
 
+/**
+ * Sec-iter1 Fix #1 (2026-05-30 enterprise security pass): same fix as
+ * the approve/deny gates — read terminal_records.handle as the
+ * authoritative caller identity. Without this fix, the auth check
+ * below ("isRequester || isApprover || isAdmin") would accept any
+ * caller whose per-room membership row used the victim's handle.
+ */
 function resolveCallerHandle(request: Request, url: URL): string | null {
-  if (tryAdminBearer(request)) return ADMIN_BEARER_HANDLE;
   const pidChain = parsePidChainFromQuery(url);
-  if (pidChain.length === 0) return null;
-  const terminal = lookupTerminalByPidChain(pidChain);
-  if (!terminal) return null;
-  const memberships = listMembershipsForTerminal(terminal.id);
-  if (memberships.length > 0) return memberships[0].handle;
-  return `@${terminal.name}`;
+  return resolveAuthoritativeCallerHandleFromPidChain(request, pidChain);
 }
 
 export const GET: RequestHandler = async ({ request, params, url }) => {

@@ -22,6 +22,7 @@ import { resetGrantsShimForTests } from '$lib/server/grantsShimStore';
 import { createChatRoom } from '$lib/server/chatRoomStore';
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { addMembership } from '$lib/server/roomMembershipsStore';
+import { createTerminalRecord } from '$lib/server/terminalRecordsStore';
 
 let tmpDir: string;
 const previousDbEnv = process.env.ANT_FRESH_DB_PATH;
@@ -57,6 +58,14 @@ function seedTerminal(handle: string, pid: number, roomId: string) {
     pid_start: `2026-05-29T20:00:0${pid % 10}.000Z`,
     name: `term-${pid}`,
     ttlSeconds: 60 * 60
+  });
+  // sec-iter1 Fix #1: caller-handle resolution reads
+  // terminal_records.handle (authoritative). Tests must seed both the
+  // legacy membership row AND the terminal_records row.
+  createTerminalRecord({
+    sessionId: terminal.id,
+    name: `term-${pid}`,
+    handle
   });
   addMembership({ room_id: roomId, handle, terminal_id: terminal.id });
   return {

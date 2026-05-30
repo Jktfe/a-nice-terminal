@@ -25,7 +25,7 @@ import {
   findAliasForHandleInRoom,
   resetChatRoomAliasStoreForTests
 } from '$lib/server/chatRoomAliasStore';
-import { resetIdentityDbForTests } from '$lib/server/db';
+import { getIdentityDb, resetIdentityDbForTests } from '$lib/server/db';
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { addMembership, getTerminalIdByHandle } from '$lib/server/roomMembershipsStore';
 import { createTerminalRecord } from '$lib/server/terminalRecordsStore';
@@ -63,6 +63,20 @@ function seedTerminalForHandle(handle: string): string {
     name: `identity-${handle.replace(/^@/, '')}-seed-${n}`,
     ttlSeconds: 60 * 60
   });
+  // sec-iter1 Fix #2 (2026-05-30): the partial UNIQUE INDEX
+  // `terminal_records_handle_unique` rejects a second active row with
+  // the same handle. The members test file shares a DB across tests
+  // (no per-test mkdtempSync) so when the same handle is seeded in
+  // back-to-back tests we must first supersede any prior live row
+  // before claiming the handle on the new session_id. Supersession
+  // (not deletion) preserves audit history.
+  const db = getIdentityDb();
+  db.prepare(
+    `UPDATE terminal_records
+        SET superseded_at_ms = ?
+      WHERE handle = ?
+        AND superseded_at_ms IS NULL`
+  ).run(Date.now() - 1, handle);
   createTerminalRecord({
     sessionId: terminal.id,
     name: `${handle.replace(/^@/, '')}-seed-${n}`,

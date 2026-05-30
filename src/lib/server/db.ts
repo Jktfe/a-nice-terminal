@@ -484,6 +484,21 @@ const SCHEMA_DDL_STATEMENTS = [
   // `ant register` handle-change path via appendHandleAlias();
   // Phase A1 ships the column + helpers only.
   `ALTER TABLE terminal_records ADD COLUMN handle_aliases TEXT`,
+  // Fix #2 of sec-iter1 (2026-05-30 enterprise security pass). Root-cause
+  // structural fix for the privilege-escalation surface that Fix #1
+  // closes at the approver gate: terminal_records.handle must be UNIQUE
+  // across active rows so an attacker can never register a second terminal
+  // claiming the victim's handle. Partial index excludes NULL/empty
+  // handles (some terminals don't pick a handle until later) and
+  // superseded rows (pane-recycled rows that no longer authoritatively
+  // own their handle). Pre-existing duplicate handles must be cleaned up
+  // with `scripts/migrate-dedup-handles.mjs` before the index is
+  // created — without that, this statement throws SQLITE_CONSTRAINT and
+  // server boot aborts. Operators with potential duplicates must run
+  // the migration once before the schema migration runs.
+  `CREATE UNIQUE INDEX IF NOT EXISTS terminal_records_handle_unique
+     ON terminal_records(handle)
+     WHERE handle IS NOT NULL AND handle != '' AND superseded_at_ms IS NULL`,
   // Lane-D PLANS S1 (2026-05-15, canonical RQO32-gated decision-doc
   // docs/lane-d-plans-design-2026-05-15.md). First-class PERSISTED task
   // entity. JWPK Q1: tasks are INDEPENDENT of plans — plan_id is an

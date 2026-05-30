@@ -22,6 +22,7 @@ import { resetGrantsShimForTests } from '$lib/server/grantsShimStore';
 import { createChatRoom } from '$lib/server/chatRoomStore';
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { addMembership } from '$lib/server/roomMembershipsStore';
+import { createTerminalRecord } from '$lib/server/terminalRecordsStore';
 
 let tmpDir: string;
 const previousDbEnv = process.env.ANT_FRESH_DB_PATH;
@@ -59,6 +60,16 @@ function seedTerminal(handle: string, pid: number, roomId: string) {
     pid_start: `2026-05-29T20:00:0${pid % 10}.000Z`,
     name: `term-${pid}`,
     ttlSeconds: 60 * 60
+  });
+  // sec-iter1 Fix #1: caller-handle resolution now reads
+  // terminal_records.handle (authoritative) rather than per-room
+  // memberships[0].handle. Tests must seed BOTH the legacy membership
+  // row (for the existing approver-list shape) AND the terminal_records
+  // row (so the new gate resolves the caller's declared handle).
+  createTerminalRecord({
+    sessionId: terminal.id,
+    name: `term-${pid}`,
+    handle
   });
   addMembership({ room_id: roomId, handle, terminal_id: terminal.id });
   return { terminal, pidChainEntry: { pid, pid_start: `2026-05-29T20:00:0${pid % 10}.000Z` } };
@@ -204,6 +215,78 @@ describe('POST /api/permission-requests/[requestId]/deny', () => {
       })
     );
     expect(response.status).toBe(409);
+  });
+
+  // sec-iter1 Fix #1 attack-scenario tests for the deny gate (mirror
+  // of the approve test cases). Same attack surface, same fix.
+  describe('sec-iter1 Fix #1: privilege escalation via memberships[0]', () => {
+    it('rejects the attack via deny path: caller per-room membership row reuses victim handle but terminal_records.handle is attacker handle', async () => {
+      const room = createChatRoom({ name: 'esc-deny', whoCreatedIt: '@jwpk' });
+      const created = createPermissionRequest({
+        requesterHandle: '@speedyc',
+        action: 'chat.post',
+        targetKind: 'room',
+        targetId: room.id,
+        approvers: [{ handle: '@jwpk', role: 'room_owner', preferred: true }]
+      });
+      const attackerTerminal = upsertTerminal({
+        pid: 90050,
+        pid_start: '2026-05-30T00:00:00.000Z',
+        name: 'attacker-deny-pane',
+        ttlSeconds: 60 * 60
+      });
+      createTerminalRecord({
+        sessionId: attackerTerminal.id,
+        name: 'attacker-deny-pane',
+        handle: '@attacker'
+      });
+      const otherRoom = createChatRoom({ name: 'noise', whoCreatedIt: '@otherowner' });
+      addMembership({
+        room_id: otherRoom.id,
+        handle: '@jwpk',
+        terminal_id: attackerTerminal.id
+      });
+
+      const event = eventFor(created.request.requestId, {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          pidChain: [{ pid: 90050, pid_start: '2026-05-30T00:00:00.000Z' }]
+        })
+      });
+      const response = await runHandler(POST as AnyHandler, event);
+      expect(response.status).toBe(403);
+      const body = (await response.json()) as {
+        permission_denied?: { reason?: string };
+      };
+      expect(body.permission_denied?.reason).toBe('not_room_owner');
+    });
+
+    it('fail-closes (401) when caller terminal has no terminal_records row', async () => {
+      const room = createChatRoom({ name: 'deny-no-record', whoCreatedIt: '@jwpk' });
+      const created = createPermissionRequest({
+        requesterHandle: '@speedyc',
+        action: 'chat.post',
+        targetKind: 'room',
+        targetId: room.id,
+        approvers: [{ handle: '@jwpk', role: 'room_owner', preferred: true }]
+      });
+      const terminal = upsertTerminal({
+        pid: 90060,
+        pid_start: '2026-05-30T00:00:01.000Z',
+        name: 'deny-no-record',
+        ttlSeconds: 60 * 60
+      });
+      addMembership({ room_id: room.id, handle: '@jwpk', terminal_id: terminal.id });
+
+      const event = eventFor(created.request.requestId, {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          pidChain: [{ pid: 90060, pid_start: '2026-05-30T00:00:01.000Z' }]
+        })
+      });
+      const response = await runHandler(POST as AnyHandler, event);
+      expect(response.status).toBe(401);
+    });
   });
 
   it('rejects non-string reason (400)', async () => {
