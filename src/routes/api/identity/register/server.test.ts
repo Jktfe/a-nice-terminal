@@ -197,21 +197,27 @@ describe('POST /api/identity/register', () => {
   //   (b) PID-in-use under a different live name → 409;
   //   (c) same (name, pid, pid_start) re-register stays idempotent;
   //   (d) name that exists but is archived can be reused.
-  it('Phase A2 (a): 409 when name is already live with a different PID', async () => {
+  // Phase A2 (a) was the 2026-05-29 stop-gap to reject silent dual-binds
+  // before the v0.2 reclaim primitive existed. With v0.2 in place (JWPK
+  // ratified design call msg_undyx0gkd3 2026-05-30) the same scenario
+  // auto-reclaims via bootstrapV02Identity instead of 409-erroring — every
+  // register creates a v02_agents row keyed by handle, so the second
+  // register finds a known agent and the reclaim path runs. Phase A2 (a)
+  // remains active for the case where there is NO prior v0.2 agent for
+  // the derived handle (covered by a separate test below if added).
+  it('Phase A2 (a) DEFERS to v0.2 reclaim when same name re-registers with different PID', async () => {
     const first = await callPost(JSON.stringify({
       name: 'conflict-live', pids: [{ pid: 1111, pid_start: 's-orig' }]
     }));
     expect(first.status).toBe(201);
+    const firstPayload = await first.json();
     const second = await callPost(JSON.stringify({
       name: 'conflict-live', pids: [{ pid: 2222, pid_start: 's-new' }]
     }));
-    expect(second.status).toBe(409);
-    const payload = await second.json().catch(() => ({}));
-    const msg = String(payload?.message ?? '');
-    expect(msg).toContain("Name 'conflict-live' is already live");
-    expect(msg).toMatch(/Reclaim with --handle/);
-    const stored = getTerminalByName('conflict-live');
-    expect(stored?.pid).toBe(1111);
+    expect(second.status).toBe(201);
+    const secondPayload = await second.json();
+    expect(secondPayload.v02_agent_id).toBe(firstPayload.v02_agent_id);
+    expect(secondPayload.v02_runtime_id).not.toBe(firstPayload.v02_runtime_id);
   });
 
   it('Phase A2 (b): 409 when PID is already bound to a different live terminal', async () => {

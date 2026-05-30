@@ -78,11 +78,12 @@ export type V02BootstrapResult = {
  * "use name fallback" (caller responsibility — this just enforces the
  * leading-@ invariant).
  */
-function normaliseHandle(raw: string): string {
+export function normaliseV02Handle(raw: string): string {
   const trimmed = raw.trim();
   if (trimmed.length === 0) return trimmed;
   return trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
 }
+const normaliseHandle = normaliseV02Handle;
 
 /**
  * Convert a raw `ps -o lstart=` string (e.g. "Tue May 13 00:00:00 2026")

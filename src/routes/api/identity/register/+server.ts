@@ -34,7 +34,8 @@ import {
   autoRebindMembershipsFromStaleTerminal,
   isCandidateStale
 } from '$lib/server/roomMembershipsStore';
-import { bootstrapV02Identity } from '$lib/server/v02RegisterBootstrap';
+import { bootstrapV02Identity, normaliseV02Handle } from '$lib/server/v02RegisterBootstrap';
+import { getLiveAgentByHandle } from '$lib/server/v02AgentsStore';
 
 const VALID_AGENT_KINDS_LIST = Array.from(AGENT_KINDS_CLIENT_INPUT).join(', ');
 
@@ -137,10 +138,23 @@ export const POST: RequestHandler = async ({ request }) => {
   //   (b) pid-in-use — the caller's leaf (pid, pid_start) is currently
   //       bound to a different live terminal. Rejected unless the
   //       conflicting row IS the same row we'd upsert (i.e. existing).
+  // v0.2 reclaim takes precedence over Phase A2 rule (a) when the caller
+  // is a known v0.2 agent. JWPK ratified design call (msg_undyx0gkd3
+  // 2026-05-30): re-register with a different PID under the same handle
+  // is the "shell restart / brew upgrade / laptop→mini" recovery story —
+  // it auto-reclaims via bootstrapV02Identity rather than 409-erroring.
+  // Phase A2 rule (a) still fires for genuinely-new callers (no prior v0.2
+  // agent for the derived handle) so silent dual-binds remain rejected.
+  const v02HandleForGate = handleValue
+    ? normaliseV02Handle(handleValue)
+    : normaliseV02Handle(trimmedName);
+  const knownV02Agent =
+    v02HandleForGate.length > 0 ? getLiveAgentByHandle(v02HandleForGate) : null;
   const liveNameConflict = getLiveTerminalByName(trimmedName);
   if (
     liveNameConflict !== null &&
-    (liveNameConflict.pid !== leafPid.pid || liveNameConflict.pid_start !== leafPid.pid_start)
+    (liveNameConflict.pid !== leafPid.pid || liveNameConflict.pid_start !== leafPid.pid_start) &&
+    !knownV02Agent
   ) {
     throw error(
       409,
