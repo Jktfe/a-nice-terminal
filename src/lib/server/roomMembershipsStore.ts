@@ -22,6 +22,95 @@ import { resolveHumanOwnership } from './consentGate';
 import { resolveMemoryVaultPath } from './memoryVaultSettingsStore';
 import type { TerminalRow } from './terminalsStore';
 
+/**
+ * Sec-iter6 Fix #3 (2026-05-30): tag prefix for `Error.message` thrown by
+ * `addMembership` when the handle parameter is an AUTHORITY-signalling
+ * reserved handle (e.g. `@admin`, `@chair`, `@system`).
+ *
+ * Choke-point validation lives at the store layer so EVERY writer of
+ * `room_memberships.handle` runs the same forbidden-authority-handle
+ * check — same shape as sec-iter2 Fix #1 for `terminal_records.handle`.
+ * Closes the structural backstop for the HIGH-severity exploit chain
+ * found in sec-iter5 review: an attacker who POSTed `/api/sessions/add
+ * { handle: '@admin', ... }` could (pre-iter6 Fix #1) silently rebind any
+ * existing `@admin` membership row to their terminal, then forge messages
+ * attributed to `@admin` AND have `/api/grants` resolve their caller-
+ * identity as `@admin` via the membership[0].handle lookup. Even with
+ * the auth-gate at the API edge, this choke-point prevents any future
+ * writer from accidentally landing an authority-signal handle in
+ * `room_memberships`.
+ *
+ * NOTE: unlike sec-iter2's `terminal_records.handle` choke-point — which
+ * runs the full {@link validateHandleForRegistration} — this membership
+ * choke-point uses a TIGHTER list. The full reserved-handles file blocks
+ * legitimate broadcast/marker handles like `@you` (the server-operator
+ * marker), `@everyone`, `@here` that DO appear as membership rows in
+ * production paths (e.g. the browser-session synthetic-terminal flow at
+ * `/api/chat-rooms/:roomId/browser-session/+server.ts:243` writes the
+ * caller's `@you` membership). Blocking those would break the
+ * server-operator UX. Authority-signalling handles (`@admin`, `@chair`,
+ * `@antchair`, `@antadmin`, `@system`, `@ant`) NEVER legitimately appear
+ * as a membership handle and ARE blocked here.
+ *
+ * Callers that want to translate the throw into a 400 should match on
+ * `INVALID_MEMBERSHIP_HANDLE_ERROR_PREFIX` (or `..._TAG`) at the start of
+ * the message; everything past the prefix is the human-readable reason.
+ */
+export const INVALID_MEMBERSHIP_HANDLE_ERROR_TAG = '[INVALID_MEMBERSHIP_HANDLE]';
+export const INVALID_MEMBERSHIP_HANDLE_ERROR_PREFIX = `${INVALID_MEMBERSHIP_HANDLE_ERROR_TAG} `;
+
+/**
+ * Authority-signalling handles that NEVER legitimately appear as a
+ * `room_memberships.handle` value. Blocking them at the choke-point
+ * closes the iter-5 HIGH: an attacker landing an `@admin` (or similar)
+ * row could be resolved as `@admin` by any membership-derived caller-
+ * identity lookup downstream (e.g. the legacy `/api/grants`
+ * `memberships[0].handle` derivation that this PR's Fix #2 also closes).
+ *
+ * Lowercase-canonical for case-insensitive match; the check normalises
+ * the supplied handle to leading-`@` lowercased before lookup. Mirrors
+ * the strictest authority-signal subset of `data/reserved-handles.json`
+ * (intentionally narrower than the full list — see header docstring for
+ * the `@you` carve-out rationale).
+ */
+const FORBIDDEN_MEMBERSHIP_HANDLES_LOWER = new Set([
+  '@admin',
+  '@antadmin',
+  '@chair',
+  '@antchair',
+  '@system',
+  '@ant'
+]);
+
+/**
+ * Sec-iter6 Fix #3 (2026-05-30): single choke-point for forbidden-
+ * authority-handle rejection at the `room_memberships` writer layer.
+ * Called at the top of `addMembership` so EVERY writer of
+ * `room_memberships.handle` rejects authority handles — defence in depth
+ * for the API-layer auth-gate added in this same iter at
+ * `/api/sessions/add`.
+ *
+ * Throws an `Error` tagged with `INVALID_MEMBERSHIP_HANDLE_ERROR_TAG`
+ * when the handle is on the forbidden authority list. The error message
+ * is `[INVALID_MEMBERSHIP_HANDLE] <reason>` so an API layer can translate
+ * cleanly to a 400 with a precise message.
+ *
+ * Empty/blank handles slip past — they're separately validated at the
+ * API edge (sessions/add throws 400 for empty); this choke-point guards
+ * only the authority-spoof surface.
+ */
+function assertMembershipHandleValidOrThrow(handle: string): void {
+  if (typeof handle !== 'string') return; // defensive — type system blocks
+  const trimmed = handle.trim();
+  if (trimmed.length === 0) return;
+  const canonical = trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
+  if (FORBIDDEN_MEMBERSHIP_HANDLES_LOWER.has(canonical.toLowerCase())) {
+    throw new Error(
+      `${INVALID_MEMBERSHIP_HANDLE_ERROR_PREFIX}handle '${canonical}' is an authority-signalling handle and cannot be assigned to a room membership.`
+    );
+  }
+}
+
 // β3 (JWPK msg_fuvbzkd4wx 2026-05-23): on first agent join into a room, post
 // a one-time system message stating the context-break + memory rules. Skips
 // human handles (who already know the rules) and skips on existing-row
@@ -81,6 +170,13 @@ function normalizeHandle(rawHandle: string): string {
 }
 
 export function addMembership(input: AddMembershipInput): RoomMembershipRow {
+  // Sec-iter6 Fix #3 (2026-05-30): choke-point validation. Reject reserved
+  // handles (`@admin`, `@system`, etc.) + invalid charsets / lengths
+  // BEFORE any DB write. Defence in depth for the auth-gate at the API
+  // edge — even if a future writer skips the API-layer check, this throws
+  // before a reserved-handle row can land in `room_memberships`.
+  assertMembershipHandleValidOrThrow(input.handle);
+
   const db = getIdentityDb();
   const handle = normalizeHandle(input.handle);
   const now = currentUnixSeconds();
