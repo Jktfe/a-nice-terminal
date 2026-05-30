@@ -547,12 +547,21 @@ export function getIdentityKeyById(keyId: string): IdentityKey | null {
 }
 
 /**
- * Lookup an identity by one of its public keys. Returns the active identity
- * even if the key itself has been revoked — callers must check listActiveKeys
- * to confirm the key is usable for fresh auth. (Used by Stage B auth gate
- * when verifying a signed-nonce challenge.)
+ * Lookup an identity by one of its public keys, INCLUDING when the
+ * matched key has been revoked. Returns the active identity even if
+ * the key itself has been revoked — callers must check listActiveKeys
+ * to confirm the key is usable for fresh auth. (Used by forensic /
+ * audit / historical-attribution tooling that wants to attribute past
+ * actions back to their signing identity regardless of key lifecycle.)
+ *
+ * Renamed in sec-iter1 Fix #4 (2026-05-30 enterprise security pass) —
+ * the old name `lookupIdentityByPublicKey` led callers to assume the
+ * key was still usable; the new explicit name + the
+ * `lookupActiveIdentityByPublicKey` companion helper below force
+ * auth-relevant call-sites to be explicit about whether a revoked key
+ * is acceptable.
  */
-export function lookupIdentityByPublicKey(publicKey: string): Identity | null {
+export function lookupIdentityByPublicKeyIncludingRevoked(publicKey: string): Identity | null {
   const db = getIdentityDb();
   const keyRow = db
     .prepare<[string], IdentityKeyRow>(`SELECT * FROM identity_keys WHERE public_key = ? LIMIT 1`)
@@ -560,6 +569,50 @@ export function lookupIdentityByPublicKey(publicKey: string): Identity | null {
   if (!keyRow) return null;
   const identityRow = db
     .prepare<[string], IdentityRow>(`SELECT * FROM identities WHERE identity_id = ?`)
+    .get(keyRow.identity_id);
+  return identityRow ? rowToIdentity(identityRow) : null;
+}
+
+/**
+ * Back-compat alias for the historical name. New code should call
+ * either `lookupIdentityByPublicKeyIncludingRevoked` (forensic /
+ * audit) or `lookupActiveIdentityByPublicKey` (auth gate) — DO NOT
+ * call this alias in new code; it exists only to avoid breaking
+ * out-of-tree callers during the sec-iter1 cut-over.
+ *
+ * @deprecated Use `lookupActiveIdentityByPublicKey` for auth checks
+ *             or `lookupIdentityByPublicKeyIncludingRevoked` for
+ *             audit/forensic lookups.
+ */
+export function lookupIdentityByPublicKey(publicKey: string): Identity | null {
+  return lookupIdentityByPublicKeyIncludingRevoked(publicKey);
+}
+
+/**
+ * sec-iter1 Fix #4 (2026-05-30 enterprise security pass): the
+ * auth-relevant companion to {@link lookupIdentityByPublicKeyIncludingRevoked}.
+ * Returns `null` when the matched key has been revoked, so callers
+ * cannot accidentally authenticate against a revoked key. Use this in
+ * any code path where the presence of the key constitutes proof of
+ * authority (signed-nonce challenge, attestation verification, etc.).
+ *
+ * Also returns null when the matched key's parent identity has itself
+ * been revoked (defense in depth — a key whose identity is revoked
+ * should never re-authenticate even if the key column's
+ * `revoked_at_ms` is still NULL).
+ */
+export function lookupActiveIdentityByPublicKey(publicKey: string): Identity | null {
+  const db = getIdentityDb();
+  const keyRow = db
+    .prepare<[string], IdentityKeyRow>(
+      `SELECT * FROM identity_keys WHERE public_key = ? AND revoked_at_ms IS NULL LIMIT 1`
+    )
+    .get(publicKey);
+  if (!keyRow) return null;
+  const identityRow = db
+    .prepare<[string], IdentityRow>(
+      `SELECT * FROM identities WHERE identity_id = ? AND revoked_at_ms IS NULL`
+    )
     .get(keyRow.identity_id);
   return identityRow ? rowToIdentity(identityRow) : null;
 }

@@ -39,10 +39,8 @@ import {
   type PermissionDeniedReason,
   type PermissionTargetKind
 } from '$lib/server/permissionDeniedPayload';
-import { tryAdminBearer, ADMIN_BEARER_HANDLE } from '$lib/server/chatRoomAuthGate';
-import { parsePidChainFromBody } from '$lib/server/identityGate';
-import { lookupTerminalByPidChain } from '$lib/server/terminalsStore';
-import { listMembershipsForTerminal } from '$lib/server/roomMembershipsStore';
+import { ADMIN_BEARER_HANDLE } from '$lib/server/chatRoomAuthGate';
+import { resolveAuthoritativeCallerHandle } from '$lib/server/permissionCallerIdentity';
 import type { GrantScope } from '$lib/server/grantsShimStore';
 
 const VALID_SCOPES: ReadonlyArray<GrantScope> = [
@@ -56,14 +54,18 @@ type Body = {
   pidChain?: unknown;
 };
 
+/**
+ * Sec-iter1 Fix #1 (2026-05-30 enterprise security pass): caller-handle
+ * resolution delegates to permissionCallerIdentity.ts which reads the
+ * AUTHORITATIVE terminal_records.handle (1:1 with terminal_id, UNIQUE
+ * across active rows per Fix #2). The prior implementation read
+ * `memberships[0].handle` — that surface lets an attacker register a
+ * terminal, get invited into ANY older room as the victim's handle,
+ * then approve/deny the victim's pending requests. The new helper
+ * fail-closes when the caller has no declared handle.
+ */
 function resolveCallerHandle(request: Request, rawBody: unknown): string {
-  if (tryAdminBearer(request)) return ADMIN_BEARER_HANDLE;
-  const pidChain = parsePidChainFromBody(rawBody);
-  const terminal = lookupTerminalByPidChain(pidChain);
-  if (!terminal) throw error(401, 'Authentication required.');
-  const memberships = listMembershipsForTerminal(terminal.id);
-  if (memberships.length > 0) return memberships[0].handle;
-  return `@${terminal.name}`;
+  return resolveAuthoritativeCallerHandle(request, rawBody);
 }
 
 function requireApproverFor(

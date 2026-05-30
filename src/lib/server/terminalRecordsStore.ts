@@ -401,3 +401,35 @@ export function findTerminalRecordByHandle(handle: string): TerminalRecord | nul
   }
   return null;
 }
+
+/**
+ * Fix #2 of sec-iter1 (2026-05-30 enterprise security pass). Returns the
+ * first ACTIVE terminal_record whose `handle` column matches the
+ * supplied (normalised) handle. Used by the register endpoint to reject
+ * cross-terminal handle collisions BEFORE the DB UNIQUE constraint
+ * fires.
+ *
+ * "Active" = not superseded (pane-binding supersession) AND the row's
+ * stored handle exactly matches (no derived-from-name fallback — that
+ * would block names that slug to the same handle).
+ *
+ * Distinct from {@link findTerminalRecordByHandle} which uses
+ * `deriveHandle` (alias-friendly invite check). This one is the
+ * authoritative "who currently owns this handle" gate.
+ */
+export function findActiveTerminalRecordByHandle(handle: string): TerminalRecord | null {
+  const trimmed = handle.trim();
+  if (trimmed.length === 0) return null;
+  const normalised = trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
+  const db = getIdentityDb();
+  const row = db
+    .prepare(
+      `SELECT * FROM terminal_records
+        WHERE handle = ?
+          AND superseded_at_ms IS NULL
+        ORDER BY created_at_ms DESC
+        LIMIT 1`
+    )
+    .get(normalised) as TerminalRecord | undefined;
+  return row ?? null;
+}

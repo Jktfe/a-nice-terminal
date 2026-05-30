@@ -413,8 +413,15 @@ describe('POST /api/identity/register', () => {
       expect(oldRecord?.superseded_at_ms).not.toBeNull();
     });
 
-    it('does NOT move memberships when old terminal heartbeat is fresh', async () => {
-      // Stage: old terminal bound with heartbeat 30 seconds ago (alive).
+    it('rejects with 409 when old terminal heartbeat is fresh (sec-iter1 Fix #2)', async () => {
+      // Pre sec-iter1: register returned 201 but did NOT move memberships
+      // — the new terminal silently shared the handle with the fresh
+      // owner, which is exactly the privilege-escalation surface Fix #2
+      // closes. Post sec-iter1: when the existing claimant is still
+      // ALIVE (fresh heartbeat) and is not the v0.2 reclaim caller, the
+      // new register attempt is rejected with 409 + recovery hint. The
+      // auto-rebind path still works when the prior owner is stale (see
+      // the previous test).
       const thirtySecondsAgo = Date.now() - 30 * 1000;
       const { oldTerminalId, roomIds } = seedOldTerminalForHandle({
         handle: '@alivec',
@@ -427,8 +434,9 @@ describe('POST /api/identity/register', () => {
         pids: [{ pid: 4444, pid_start: 'pst-new' }],
         handle: '@alivec'
       }));
-      expect(response.status).toBe(201);
-      // All 3 memberships UNTOUCHED — still bound to the old terminal.
+      expect(response.status).toBe(409);
+      // Memberships still bound to the original owner (no side effects
+      // from the rejected request).
       for (const roomId of roomIds) {
         const rows = listMembershipsForRoom(roomId);
         const alivec = rows.find((r) => r.handle === '@alivec');
@@ -547,14 +555,20 @@ describe('POST /api/identity/register', () => {
     });
 
     it('respects an explicit handle override', async () => {
+      // Fix #3 of sec-iter1 (2026-05-30): `@you` is on the reserved list
+      // and the register endpoint rejects it with a 400. The override
+      // semantics still hold for any non-reserved handle; switched the
+      // test handle to `@james-pane` so we keep coverage of the
+      // explicit-handle-respected behaviour without colliding with the
+      // reserved-list enforcement under test elsewhere.
       const response = await callPost(JSON.stringify({
         name: 'James Pane',
-        handle: '@you',
+        handle: '@james-pane',
         pids: [{ pid: 100, pid_start: null }]
       }));
       const payload = await response.json();
       const agent = v02Agents.getAgentById(payload.v02_agent_id);
-      expect(agent?.primary_handle).toBe('@you');
+      expect(agent?.primary_handle).toBe('@james-pane');
       expect(agent?.display_name).toBe('James Pane');
     });
 
@@ -647,6 +661,120 @@ describe('POST /api/identity/register', () => {
       // creates a runtime row in the audit trail, and the live pointer
       // moves to the freshest.
       expect(secondPayload.v02_runtime_id).toBeTruthy();
+    });
+  });
+
+  // sec-iter1 Fix #2 (handle uniqueness root cause) + Fix #3 (M13
+  // reserved-list enforcement). Cover the new 400 + 409 surfaces.
+  describe('sec-iter1: handle validation + uniqueness', () => {
+    it('rejects reserved handle with 400', async () => {
+      // `@you` is in the reserved list. Validator returns 400 before
+      // any side-effects so no terminal row is created.
+      const response = await callPost(JSON.stringify({
+        name: 'reserved-name',
+        handle: '@you',
+        pids: [{ pid: 100, pid_start: 's' }]
+      }));
+      expect(response.status).toBe(400);
+      expect(getTerminalByName('reserved-name')).toBeNull();
+    });
+
+    it('rejects reserved handle case-insensitively', async () => {
+      const response = await callPost(JSON.stringify({
+        name: 'reserved-mixed-case',
+        handle: '@Admin',
+        pids: [{ pid: 101, pid_start: 's' }]
+      }));
+      expect(response.status).toBe(400);
+    });
+
+    it('rejects handle containing spaces with 400', async () => {
+      const response = await callPost(JSON.stringify({
+        name: 'space-name',
+        handle: '@bad name',
+        pids: [{ pid: 102, pid_start: 's' }]
+      }));
+      expect(response.status).toBe(400);
+    });
+
+    it('rejects 65-char handle with 400 (too long)', async () => {
+      const long = '@' + 'a'.repeat(65);
+      const response = await callPost(JSON.stringify({
+        name: 'too-long',
+        handle: long,
+        pids: [{ pid: 103, pid_start: 's' }]
+      }));
+      expect(response.status).toBe(400);
+    });
+
+    it('accepts a valid non-reserved handle', async () => {
+      const response = await callPost(JSON.stringify({
+        name: 'valid-handle',
+        handle: '@speedyc',
+        pids: [{ pid: 104, pid_start: 's' }]
+      }));
+      expect(response.status).toBe(201);
+    });
+
+    it('rejects with 409 when handle is already claimed by a different LIVE terminal', async () => {
+      // Set up an existing terminal that owns the handle with a FRESH
+      // heartbeat so the auto-rebind exemption does NOT apply.
+      const setup = upsertTerminal({
+        pid: 7001,
+        pid_start: 'pst-fresh',
+        name: 'fresh-owner'
+      });
+      createTerminalRecord({
+        sessionId: setup.id,
+        name: 'fresh-owner',
+        handle: '@uniq-owner'
+      });
+      const nowMs = Date.now();
+      const db = getIdentityDb();
+      db.prepare(
+        `UPDATE terminals SET last_message_sent_at_ms = ?, last_pty_byte_at_ms = ? WHERE id = ?`
+      ).run(nowMs, nowMs, setup.id);
+
+      // Attacker tries to register a new terminal claiming the same
+      // handle — fresh owner means auto-rebind defers; uniqueness check
+      // fires.
+      const response = await callPost(JSON.stringify({
+        name: 'attacker-pane',
+        handle: '@uniq-owner',
+        pids: [{ pid: 7002, pid_start: 'pst-attacker' }]
+      }));
+      expect(response.status).toBe(409);
+      const body = await response.json();
+      expect(JSON.stringify(body)).toMatch(/already claimed/i);
+    });
+
+    it('still allows auto-rebind when the existing claimant is STALE', async () => {
+      // Same shape as the 409 test BUT the existing claimant's
+      // heartbeat is 10 min in the past — auto-rebind exemption fires
+      // and the new register succeeds (covered also by the PR-B tests;
+      // this asserts our Fix #2 didn't break that path).
+      const setup = upsertTerminal({
+        pid: 7100,
+        pid_start: 'pst-stale',
+        name: 'stale-owner'
+      });
+      createTerminalRecord({
+        sessionId: setup.id,
+        name: 'stale-owner',
+        handle: '@stale-rebind'
+      });
+      const tenMinAgo = Date.now() - 10 * 60 * 1000;
+      const db = getIdentityDb();
+      db.prepare(
+        `UPDATE terminals SET last_message_sent_at_ms = ?, last_pty_byte_at_ms = ? WHERE id = ?`
+      ).run(tenMinAgo, tenMinAgo, setup.id);
+
+      const response = await callPost(JSON.stringify({
+        name: 'fresh-rebinder',
+        handle: '@stale-rebind',
+        pids: [{ pid: 7101, pid_start: 'pst-new' }]
+      }));
+      expect(response.status).toBe(201);
     });
   });
 });
