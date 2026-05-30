@@ -9,6 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getIdentityDb, resetIdentityDbForTests } from './db';
+import { seedSiblingFkTargets } from './v02TestFixtures';
 import * as v02Agents from './v02AgentsStore';
 
 let tmpDir: string;
@@ -20,6 +21,8 @@ beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
   process.env.ANT_MEMORY_VAULT_PATH = '/tmp/ant-memory-pack-test';
   resetIdentityDbForTests();
+  // Option D collapse — seed PR #99/#105/#106 FK target tables.
+  seedSiblingFkTargets(getIdentityDb());
 });
 
 afterEach(() => {
@@ -84,12 +87,12 @@ describe('v02AgentsStore.getAgentByHandle / getLiveAgentByHandle', () => {
     // millisecond clock on fast machines — production code wouldn't
     // notice; this test pins the relative ordering).
     const db = getIdentityDb();
-    db.prepare(`UPDATE v02_agents SET created_at_ms = ? WHERE agent_id = ?`).run(
+    db.prepare(`UPDATE agents SET created_at_ms = ? WHERE agent_id = ?`).run(
       Date.now() + 1000,
       first.agent_id
     );
     const second = v02Agents.createAgent({ display_name: 'second', primary_handle: '@dup' });
-    db.prepare(`UPDATE v02_agents SET created_at_ms = ? WHERE agent_id = ?`).run(
+    db.prepare(`UPDATE agents SET created_at_ms = ? WHERE agent_id = ?`).run(
       Date.now() + 2000,
       second.agent_id
     );
@@ -133,14 +136,14 @@ describe('v02AgentsStore.setCurrentRuntimeId + incrementReclaimCount', () => {
   it('updates the runtime pointer (fanout structural invariant)', () => {
     const row = v02Agents.createAgent({ display_name: 'X', primary_handle: '@x' });
     // No FK enforcement here on a bare write — we test the pointer write
-    // semantics; integration with v02_runtimes is tested in
+    // semantics; integration with runtimes is tested in
     // v02RuntimesStore.test.ts where we go through registerRuntime() which
     // satisfies the FK.
     expect(row.current_runtime_id).toBe(null);
     // Insert a runtime first so the FK is happy.
     const db = getIdentityDb();
     db.prepare(
-      `INSERT INTO v02_runtimes
+      `INSERT INTO runtimes
          (runtime_id, agent_id, host, pid, pid_start_iso, status,
           started_at_ms, register_challenge_proof)
        VALUES ('rt-x', ?, 'host-1', 1, '2026-05-29T00:00:00Z', 'live', ?, 'proof')`

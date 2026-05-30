@@ -2,7 +2,7 @@
  * v02MembershipsStore — single agent×room membership table for v0.2.
  *
  * Schema (see ./db.ts V02_SCHEMA_DDL_STATEMENTS):
- *   v02_memberships(membership_id, agent_id, room_id, role, room_alias?,
+ *   memberships(membership_id, agent_id, room_id, role, room_alias?,
  *                   joined_at_ms, left_at_ms?, last_read_post_order?)
  *
  * Replaces TWO legacy tables: `room_memberships` (pidChain-resolved
@@ -12,8 +12,8 @@
  *
  * Structural invariant (v0.2 spec §Three Structural Invariants #2):
  *
- *   UNIQUE INDEX uq_v02_memberships_agent_room_active
- *     ON v02_memberships (agent_id, room_id) WHERE left_at_ms IS NULL
+ *   UNIQUE INDEX uq_memberships_agent_room_active
+ *     ON memberships (agent_id, room_id) WHERE left_at_ms IS NULL
  *
  * One active membership per (agent × room). Roster duplication is a
  * constraint violation, not silent drift. Historical rows (left_at_ms IS
@@ -21,7 +21,7 @@
  * uniqueness check.
  *
  * Crucially this table has NO fanout_target_runtime_id column — fanout
- * target is DERIVED at send time from v02_agents.current_runtime_id.
+ * target is DERIVED at send time from agents.current_runtime_id.
  * This is THE structural fix for the cached-fanout drift bug that
  * recurred 4× on 2026-05-29. See v0.2 spec §Three Structural
  * Invariants #3.
@@ -72,7 +72,7 @@ export function addMembership(input: AddMembershipInput): V02MembershipRow {
 
   const existing = db
     .prepare(
-      `SELECT * FROM v02_memberships
+      `SELECT * FROM memberships
         WHERE agent_id = ? AND room_id = ? AND left_at_ms IS NULL
         LIMIT 1`
     )
@@ -81,7 +81,7 @@ export function addMembership(input: AddMembershipInput): V02MembershipRow {
   if (existing) {
     if (existing.role !== role || existing.room_alias !== room_alias) {
       db.prepare(
-        `UPDATE v02_memberships
+        `UPDATE memberships
             SET role = ?, room_alias = ?
           WHERE membership_id = ?`
       ).run(role, room_alias, existing.membership_id);
@@ -91,7 +91,7 @@ export function addMembership(input: AddMembershipInput): V02MembershipRow {
 
   const membership_id = randomUUID();
   db.prepare(
-    `INSERT INTO v02_memberships
+    `INSERT INTO memberships
        (membership_id, agent_id, room_id, role, room_alias, joined_at_ms,
         left_at_ms, last_read_post_order)
      VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)`
@@ -102,7 +102,7 @@ export function addMembership(input: AddMembershipInput): V02MembershipRow {
 export function getMembershipById(membership_id: string): V02MembershipRow | null {
   const db = getIdentityDb();
   const row = db
-    .prepare(`SELECT * FROM v02_memberships WHERE membership_id = ?`)
+    .prepare(`SELECT * FROM memberships WHERE membership_id = ?`)
     .get(membership_id) as V02MembershipRow | undefined;
   return row ?? null;
 }
@@ -116,7 +116,7 @@ export function removeMembership(agent_id: string, room_id: string): boolean {
   const now_ms = Date.now();
   const info = db
     .prepare(
-      `UPDATE v02_memberships
+      `UPDATE memberships
           SET left_at_ms = ?
         WHERE agent_id = ? AND room_id = ? AND left_at_ms IS NULL`
     )
@@ -132,7 +132,7 @@ export function listActiveMembershipsForRoom(room_id: string): V02MembershipRow[
   const db = getIdentityDb();
   return db
     .prepare(
-      `SELECT * FROM v02_memberships
+      `SELECT * FROM memberships
         WHERE room_id = ? AND left_at_ms IS NULL
         ORDER BY joined_at_ms ASC`
     )
@@ -148,7 +148,7 @@ export function listAllMembershipsForRoomIncludingHistorical(
   const db = getIdentityDb();
   return db
     .prepare(
-      `SELECT * FROM v02_memberships
+      `SELECT * FROM memberships
         WHERE room_id = ?
         ORDER BY joined_at_ms ASC`
     )
@@ -159,7 +159,7 @@ export function listActiveMembershipsForAgent(agent_id: string): V02MembershipRo
   const db = getIdentityDb();
   return db
     .prepare(
-      `SELECT * FROM v02_memberships
+      `SELECT * FROM memberships
         WHERE agent_id = ? AND left_at_ms IS NULL
         ORDER BY joined_at_ms ASC`
     )
@@ -177,7 +177,7 @@ export function getActiveMembership(
   const db = getIdentityDb();
   const row = db
     .prepare(
-      `SELECT * FROM v02_memberships
+      `SELECT * FROM memberships
         WHERE room_id = ? AND agent_id = ? AND left_at_ms IS NULL
         LIMIT 1`
     )
@@ -197,7 +197,7 @@ export function setLastReadPostOrder(
   const db = getIdentityDb();
   const info = db
     .prepare(
-      `UPDATE v02_memberships
+      `UPDATE memberships
           SET last_read_post_order = ?
         WHERE membership_id = ?
           AND (last_read_post_order IS NULL OR last_read_post_order < ?)`
@@ -228,8 +228,8 @@ export function listFanoutTargetsForRoom(
       `SELECT m.agent_id    AS agent_id,
               a.current_runtime_id AS runtime_id,
               m.room_alias  AS room_alias
-         FROM v02_memberships m
-         JOIN v02_agents a ON a.agent_id = m.agent_id
+         FROM memberships m
+         JOIN agents a ON a.agent_id = m.agent_id
         WHERE m.room_id = ?
           AND m.left_at_ms IS NULL
           AND a.status = 'live'
@@ -243,8 +243,8 @@ export function listFanoutTargetsForRoom(
 }
 
 /**
- * Resolve a handle within a room context. Walks v02_agents.primary_handle
- * (canonical) + v02_memberships.room_alias (per-room override). Used by
+ * Resolve a handle within a room context. Walks agents.primary_handle
+ * (canonical) + memberships.room_alias (per-room override). Used by
  * the auth gate + the @-mention parser.
  *
  * Returns the active membership row whose agent.primary_handle OR
@@ -266,7 +266,7 @@ export function getActiveMembershipByHandle(
   // 1. Per-room alias takes precedence (it's a deliberate user choice).
   const aliasRow = db
     .prepare(
-      `SELECT * FROM v02_memberships
+      `SELECT * FROM memberships
         WHERE room_id = ? AND room_alias = ? AND left_at_ms IS NULL
         LIMIT 1`
     )

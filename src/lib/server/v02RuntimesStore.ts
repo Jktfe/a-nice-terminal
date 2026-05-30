@@ -2,7 +2,7 @@
  * v02RuntimesStore — ephemeral pane/shell binding entity for v0.2.
  *
  * Schema (see ./db.ts V02_SCHEMA_DDL_STATEMENTS):
- *   v02_runtimes(runtime_id, agent_id, host, tmux_pane?, pid,
+ *   runtimes(runtime_id, agent_id, host, tmux_pane?, pid,
  *                pid_start_iso, cli_provider_id?, status,
  *                started_at_ms, last_heartbeat_ms?, ended_at_ms?,
  *                reclaimed_by_runtime_id?, register_challenge_proof)
@@ -10,8 +10,8 @@
  * Replaces the LEGACY `terminals` table for ephemeral pane state. The
  * crucial structural difference:
  *
- *   UNIQUE INDEX uq_v02_runtimes_agent_live
- *     ON v02_runtimes (agent_id) WHERE status='live'
+ *   UNIQUE INDEX uq_runtimes_agent_live
+ *     ON runtimes (agent_id) WHERE status='live'
  *
  * An agent can have AT MOST ONE live runtime. Attempting to insert a
  * second live runtime for the same agent_id raises SQLITE_CONSTRAINT
@@ -77,7 +77,7 @@ export function registerRuntime(input: RegisterRuntimeInput): V02RuntimeRow {
   const runtime_id = randomUUID();
   const now_ms = Date.now();
   db.prepare(
-    `INSERT INTO v02_runtimes
+    `INSERT INTO runtimes
        (runtime_id, agent_id, host, tmux_pane, pid, pid_start_iso,
         cli_provider_id, status, started_at_ms, last_heartbeat_ms,
         ended_at_ms, reclaimed_by_runtime_id, register_challenge_proof)
@@ -102,7 +102,7 @@ export function registerRuntime(input: RegisterRuntimeInput): V02RuntimeRow {
 export function getRuntimeById(runtime_id: string): V02RuntimeRow | null {
   const db = getIdentityDb();
   const row = db
-    .prepare(`SELECT * FROM v02_runtimes WHERE runtime_id = ?`)
+    .prepare(`SELECT * FROM runtimes WHERE runtime_id = ?`)
     .get(runtime_id) as V02RuntimeRow | undefined;
   return row ?? null;
 }
@@ -116,7 +116,7 @@ export function getLiveRuntimeForAgent(agent_id: string): V02RuntimeRow | null {
   const db = getIdentityDb();
   const row = db
     .prepare(
-      `SELECT * FROM v02_runtimes
+      `SELECT * FROM runtimes
         WHERE agent_id = ? AND status = 'live'
         LIMIT 1`
     )
@@ -128,7 +128,7 @@ export function listRuntimesForAgent(agent_id: string): V02RuntimeRow[] {
   const db = getIdentityDb();
   return db
     .prepare(
-      `SELECT * FROM v02_runtimes
+      `SELECT * FROM runtimes
         WHERE agent_id = ?
         ORDER BY started_at_ms DESC`
     )
@@ -138,14 +138,14 @@ export function listRuntimesForAgent(agent_id: string): V02RuntimeRow[] {
 export function listAllRuntimes(): V02RuntimeRow[] {
   const db = getIdentityDb();
   return db
-    .prepare(`SELECT * FROM v02_runtimes ORDER BY started_at_ms DESC`)
+    .prepare(`SELECT * FROM runtimes ORDER BY started_at_ms DESC`)
     .all() as V02RuntimeRow[];
 }
 
 export function listLiveRuntimes(): V02RuntimeRow[] {
   const db = getIdentityDb();
   return db
-    .prepare(`SELECT * FROM v02_runtimes WHERE status = 'live' ORDER BY started_at_ms DESC`)
+    .prepare(`SELECT * FROM runtimes WHERE status = 'live' ORDER BY started_at_ms DESC`)
     .all() as V02RuntimeRow[];
 }
 
@@ -167,7 +167,7 @@ export function lookupRuntimeByPidChain(
   if (pidChain.length === 0) return null;
   const db = getIdentityDb();
   const stmt = db.prepare(
-    `SELECT * FROM v02_runtimes
+    `SELECT * FROM runtimes
       WHERE pid = ? AND (? IS NULL OR pid_start_iso = ?)
         AND status = 'live'
       ORDER BY started_at_ms DESC
@@ -186,7 +186,7 @@ export function lookupRuntimeByPidChain(
  * Set a runtime's status. Idempotent.
  *
  * When flipping FROM 'live' TO any non-live state, ALSO clears
- * v02_agents.current_runtime_id if it pointed at this runtime — keeps
+ * agents.current_runtime_id if it pointed at this runtime — keeps
  * the fanout invariant tight (no pointer at a non-live runtime). Use
  * {@link reclaimRuntime} for the atomic swap path instead when there's a
  * replacement runtime to point to.
@@ -202,7 +202,7 @@ export function setRuntimeStatus(
   const ended_at_ms = status === 'live' ? null : now_ms;
   const info = db
     .prepare(
-      `UPDATE v02_runtimes
+      `UPDATE runtimes
           SET status = ?, ended_at_ms = COALESCE(ended_at_ms, ?)
         WHERE runtime_id = ?`
     )
@@ -220,7 +220,7 @@ export function setRuntimeStatus(
 
 /**
  * Atomic swap: flip the old runtime to 'reclaimed' + register a NEW live
- * runtime + flip v02_agents.current_runtime_id pointer in one transaction.
+ * runtime + flip agents.current_runtime_id pointer in one transaction.
  * Used by the super-admin reclaim flow + auto-rebind on register-with-
  * existing-agent.
  *
@@ -244,13 +244,13 @@ export function reclaimRuntime(input: {
     // the UNIQUE-WHERE-LIVE index doesn't reject the insert.
     const now_ms = Date.now();
     db.prepare(
-      `UPDATE v02_runtimes
+      `UPDATE runtimes
           SET status = 'reclaimed', ended_at_ms = ?
         WHERE runtime_id = ?`
     ).run(now_ms, input.old_runtime_id);
     const new_runtime_id = randomUUID();
     db.prepare(
-      `INSERT INTO v02_runtimes
+      `INSERT INTO runtimes
          (runtime_id, agent_id, host, tmux_pane, pid, pid_start_iso,
           cli_provider_id, status, started_at_ms, last_heartbeat_ms,
           ended_at_ms, reclaimed_by_runtime_id, register_challenge_proof)
@@ -269,7 +269,7 @@ export function reclaimRuntime(input: {
     );
     // Back-link the old runtime to point at the new (audit trail).
     db.prepare(
-      `UPDATE v02_runtimes SET reclaimed_by_runtime_id = ? WHERE runtime_id = ?`
+      `UPDATE runtimes SET reclaimed_by_runtime_id = ? WHERE runtime_id = ?`
     ).run(new_runtime_id, input.old_runtime_id);
     // Flip agents pointer + bump reclaim_count.
     v02Agents.setCurrentRuntimeId(input.new_runtime_input.agent_id, new_runtime_id);
@@ -290,7 +290,7 @@ export function touchHeartbeat(
 ): boolean {
   const db = getIdentityDb();
   const info = db
-    .prepare(`UPDATE v02_runtimes SET last_heartbeat_ms = ? WHERE runtime_id = ?`)
+    .prepare(`UPDATE runtimes SET last_heartbeat_ms = ? WHERE runtime_id = ?`)
     .run(now_ms, runtime_id);
   return info.changes > 0;
 }
@@ -306,7 +306,7 @@ export function sweepStaleRuntimes(stale_after_ms: number = 5 * 60 * 1000): numb
   const threshold = Date.now() - stale_after_ms;
   const rows = db
     .prepare(
-      `SELECT runtime_id FROM v02_runtimes
+      `SELECT runtime_id FROM runtimes
         WHERE status = 'live'
           AND last_heartbeat_ms IS NOT NULL
           AND last_heartbeat_ms < ?`

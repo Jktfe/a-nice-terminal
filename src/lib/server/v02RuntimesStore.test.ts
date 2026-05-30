@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resetIdentityDbForTests } from './db';
+import { getIdentityDb, resetIdentityDbForTests } from './db';
+import { seedSiblingFkTargets } from './v02TestFixtures';
 import * as v02Agents from './v02AgentsStore';
 import * as v02Runtimes from './v02RuntimesStore';
 
@@ -19,6 +20,8 @@ beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
   process.env.ANT_MEMORY_VAULT_PATH = '/tmp/ant-memory-pack-test';
   resetIdentityDbForTests();
+  // Option D collapse — seed PR #99/#105/#106 FK target tables.
+  seedSiblingFkTargets(getIdentityDb());
 });
 
 afterEach(() => {

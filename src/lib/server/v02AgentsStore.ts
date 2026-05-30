@@ -2,18 +2,18 @@
  * v02AgentsStore — the durable agent identity entity for v0.2.
  *
  * Schema (see ./db.ts V02_SCHEMA_DDL_STATEMENTS):
- *   v02_agents(agent_id, display_name, primary_handle, primary_trust_key_id?,
+ *   agents(agent_id, display_name, primary_handle, primary_trust_key_id?,
  *              status, owner_org?, current_runtime_id?, created_at_ms,
  *              reclaim_count)
  *
  * Replaces the LEGACY `terminal_records` table for the durable-identity
  * concern. terminal_records conflated identity-shape data (handle, name,
  * linked_chat_room_id) with runtime-shape data (allowlist, handle_aliases);
- * v0.2 splits these into v02_agents (identity) + v02_runtimes (ephemeral
+ * v0.2 splits these into agents (identity) + runtimes (ephemeral
  * pane binding).
  *
  * Identity-key state lives in PR #99's `identities` + `identity_keys`
- * tables — this store treats `v02_agents.primary_trust_key_id` as an
+ * tables — this store treats `agents.primary_trust_key_id` as an
  * opaque FK into `identity_keys(key_id)`. Use `identityKeysStore.ts` to
  * mint / revoke / verify keys.
  *
@@ -63,7 +63,7 @@ function normalizeHandle(rawHandle: string): string {
 /**
  * Create a v0.2 agent. Returns the inserted row.
  *
- * Mirrors the legacy `createTerminalRecord` shape but writes to v02_agents
+ * Mirrors the legacy `createTerminalRecord` shape but writes to agents
  * instead. handle is normalised to lead with '@'.
  *
  * Note: primary_trust_key_id may be NULL at creation — production flow is
@@ -76,7 +76,7 @@ export function createAgent(input: CreateAgentInput): V02AgentRow {
   const now_ms = Date.now();
   const primary_handle = normalizeHandle(input.primary_handle);
   db.prepare(
-    `INSERT INTO v02_agents
+    `INSERT INTO agents
        (agent_id, display_name, primary_handle, primary_trust_key_id,
         status, owner_org, current_runtime_id, created_at_ms, reclaim_count)
      VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 0)`
@@ -95,7 +95,7 @@ export function createAgent(input: CreateAgentInput): V02AgentRow {
 export function getAgentById(agent_id: string): V02AgentRow | null {
   const db = getIdentityDb();
   const row = db
-    .prepare(`SELECT * FROM v02_agents WHERE agent_id = ?`)
+    .prepare(`SELECT * FROM agents WHERE agent_id = ?`)
     .get(agent_id) as V02AgentRow | undefined;
   return row ?? null;
 }
@@ -113,7 +113,7 @@ export function getAgentByHandle(handle: string): V02AgentRow | null {
   const normalised = normalizeHandle(handle);
   const row = db
     .prepare(
-      `SELECT * FROM v02_agents
+      `SELECT * FROM agents
         WHERE primary_handle = ?
         ORDER BY created_at_ms DESC
         LIMIT 1`
@@ -131,7 +131,7 @@ export function getLiveAgentByHandle(handle: string): V02AgentRow | null {
   const normalised = normalizeHandle(handle);
   const row = db
     .prepare(
-      `SELECT * FROM v02_agents
+      `SELECT * FROM agents
         WHERE primary_handle = ? AND status = 'live'
         ORDER BY created_at_ms DESC
         LIMIT 1`
@@ -143,14 +143,14 @@ export function getLiveAgentByHandle(handle: string): V02AgentRow | null {
 export function listAgents(): V02AgentRow[] {
   const db = getIdentityDb();
   return db
-    .prepare(`SELECT * FROM v02_agents ORDER BY created_at_ms DESC`)
+    .prepare(`SELECT * FROM agents ORDER BY created_at_ms DESC`)
     .all() as V02AgentRow[];
 }
 
 export function listLiveAgents(): V02AgentRow[] {
   const db = getIdentityDb();
   return db
-    .prepare(`SELECT * FROM v02_agents WHERE status = 'live' ORDER BY created_at_ms DESC`)
+    .prepare(`SELECT * FROM agents WHERE status = 'live' ORDER BY created_at_ms DESC`)
     .all() as V02AgentRow[];
 }
 
@@ -166,13 +166,13 @@ export function listLiveAgents(): V02AgentRow[] {
 export function setAgentStatus(agent_id: string, status: V02AgentStatus): boolean {
   const db = getIdentityDb();
   const info = db
-    .prepare(`UPDATE v02_agents SET status = ? WHERE agent_id = ?`)
+    .prepare(`UPDATE agents SET status = ? WHERE agent_id = ?`)
     .run(status, agent_id);
   return info.changes > 0;
 }
 
 /**
- * Update v02_agents.current_runtime_id pointer. THE fanout-target write
+ * Update agents.current_runtime_id pointer. THE fanout-target write
  * path. Called by the runtime lifecycle code on register / reclaim /
  * runtime-archive transitions.
  *
@@ -188,7 +188,7 @@ export function setCurrentRuntimeId(
 ): boolean {
   const db = getIdentityDb();
   const info = db
-    .prepare(`UPDATE v02_agents SET current_runtime_id = ? WHERE agent_id = ?`)
+    .prepare(`UPDATE agents SET current_runtime_id = ? WHERE agent_id = ?`)
     .run(runtime_id, agent_id);
   return info.changes > 0;
 }
@@ -201,17 +201,17 @@ export function setCurrentRuntimeId(
 export function incrementReclaimCount(agent_id: string): number {
   const db = getIdentityDb();
   const info = db
-    .prepare(`UPDATE v02_agents SET reclaim_count = reclaim_count + 1 WHERE agent_id = ?`)
+    .prepare(`UPDATE agents SET reclaim_count = reclaim_count + 1 WHERE agent_id = ?`)
     .run(agent_id);
   if (info.changes === 0) return 0;
   const row = db
-    .prepare(`SELECT reclaim_count FROM v02_agents WHERE agent_id = ?`)
+    .prepare(`SELECT reclaim_count FROM agents WHERE agent_id = ?`)
     .get(agent_id) as { reclaim_count: number } | undefined;
   return row?.reclaim_count ?? 0;
 }
 
 /**
- * Update primary_trust_key_id pointer at the v02_agents layer. The actual
+ * Update primary_trust_key_id pointer at the agents layer. The actual
  * key minting / revocation lives in identityKeysStore (PR #99).
  *
  * Set to NULL when revoking the last primary key without a replacement —
@@ -224,7 +224,7 @@ export function setPrimaryTrustKeyId(
   const db = getIdentityDb();
   const info = db
     .prepare(
-      `UPDATE v02_agents SET primary_trust_key_id = ? WHERE agent_id = ?`
+      `UPDATE agents SET primary_trust_key_id = ? WHERE agent_id = ?`
     )
     .run(identity_key_id, agent_id);
   return info.changes > 0;

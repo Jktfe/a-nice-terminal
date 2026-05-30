@@ -7,6 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getIdentityDb, resetIdentityDbForTests } from './db';
+import { seedSiblingFkTargets } from './v02TestFixtures';
 import * as v02Agents from './v02AgentsStore';
 import * as v02Runtimes from './v02RuntimesStore';
 import * as v02Memberships from './v02MembershipsStore';
@@ -20,6 +21,8 @@ beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
   process.env.ANT_MEMORY_VAULT_PATH = '/tmp/ant-memory-pack-test';
   resetIdentityDbForTests();
+  // Option D collapse — seed PR #99/#105/#106 FK target tables.
+  seedSiblingFkTargets(getIdentityDb());
 });
 
 afterEach(() => {
@@ -35,7 +38,7 @@ function createRoom(room_id: string, display_name: string = room_id) {
   const db = getIdentityDb();
   const now_ms = Date.now();
   db.prepare(
-    `INSERT INTO v02_rooms (room_id, display_name, visibility, created_at_ms)
+    `INSERT INTO rooms (room_id, display_name, visibility, created_at_ms)
      VALUES (?, ?, 'private', ?)`
   ).run(room_id, display_name, now_ms);
   return room_id;
@@ -97,7 +100,7 @@ describe('v02MembershipsStore — UNIQUE-WHERE-LIVE structural invariant', () =>
     const db = getIdentityDb();
     expect(() =>
       db.prepare(
-        `INSERT INTO v02_memberships
+        `INSERT INTO memberships
            (membership_id, agent_id, room_id, role, joined_at_ms)
          VALUES (?, ?, ?, 'member', ?)`
       ).run('m-dup', agent.agent_id, room, Date.now())
