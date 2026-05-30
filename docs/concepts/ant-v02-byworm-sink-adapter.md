@@ -1,8 +1,8 @@
 ---
-title: ANT v0.2 — BYOWORM Sink Adapter (M1.1 contract + M1.2 S3 Object Lock impl + M1.3 dispatcher skeleton)
+title: ANT v0.2 — BYOWORM Sink Adapter (M1.1 contract + M1.2 S3 Object Lock impl + M1.3 dispatcher skeleton + M2.1 amendment envelope contract)
 date: 2026-05-30
 authors: ["@enterprisec"]
-status: draft — M1.1 + M1.2 + M1.3 (single-sink, single-batch) landed; multi-sink fanout + persistent watermark + retry-with-backoff pending
+status: draft — M1.1 + M1.2 + M1.3 + M2.1 landed; M1.4 (multi-sink fanout / persistent watermark / retry-with-backoff) + M2.2 (crypto-shred encryption + key destruction) pending
 plan: antos-enterprise-control-plane-2026-05-27 §M1
 companion: ant-v02-identity-and-recovery.md (audit_events table source)
 ---
@@ -137,8 +137,10 @@ For a customer (or partner) implementing this contract for their destination:
 |---|---|---|---|
 | M1.1 contract + reference adapter | landed (PR #125 fb731d6) | @enterprisec | Type-level + no-op + tests + this doc |
 | M1.2 S3 Object Lock backend | landed (PR #127 2f57c6c, stacked on #125) | @enterprisec | AWS SDK v3, compliance mode mapping, date-partitioned keys, AWS error → SinkError mapping |
-| M1.3 audit dispatcher (skeleton) | this PR (stacked on PR #127) | @enterprisec | Pure envelope builder + dispatch loop with chain context; single-sink, in-memory chain state, caller drives retries |
+| M1.3 audit dispatcher (skeleton) | landed (PR #128, stacked on #127) | @enterprisec | Pure envelope builder + dispatch loop with chain context; single-sink, in-memory chain state, caller drives retries |
 | M1.4 multi-sink fanout + persistent watermark | planned | TBD | sink_watermarks table; parallel writes to N sinks per dispatch; retry-with-backoff inside dispatcher |
+| **M2.1 amendment envelope contract** | **this PR (stacked on PR #128)** | @enterprisec | AmendmentKind enum (shredded / corrected / voided / classified) + AmendmentReason type + buildAmendmentEvent helper + predicates (isAmendmentEnvelope / getAmendmentTargetEnvelopeId / getAmendmentKind / getAmendmentReason). DAG-shaped: an envelope can be amended by multiple amendments, and amendments themselves can be amended |
+| M2.2 crypto-shred (encryption + key destruction) | planned | @enterprisec | Encrypt event.before_json/after_json at write time; destroy per-envelope key on shred amendment; original WORM record stays as ciphertext (Object Lock satisfied) but unrecoverable (GDPR Art 17 satisfied) |
 | M7.2 SIEM destination adapters | planned (depends on M1.1) | @2ec | Splunk HEC / Datadog Logs / Elastic — implementations of this contract |
 
 ## Acceptance criteria
