@@ -71,7 +71,7 @@ describe('chatRoomStore.createChatRoom dual-writes to v02_memberships', () => {
   it('also writes a v02_rooms row keyed by the legacy chat_rooms.id', () => {
     const room = createChatRoom({ name: 'm9c-test-3', whoCreatedIt: '@you' });
     const v02Room = getIdentityDb()
-      .prepare(`SELECT room_id, display_name FROM v02_rooms WHERE room_id = ?`)
+      .prepare(`SELECT room_id, display_name FROM rooms WHERE room_id = ?`)
       .get(room.id) as { room_id: string; display_name: string } | undefined;
     expect(v02Room).toBeDefined();
     expect(v02Room?.display_name).toBe('m9c-test-3');

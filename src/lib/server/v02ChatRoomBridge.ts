@@ -56,7 +56,7 @@ import type { V02MembershipRole } from './v02MembershipsStore';
 export function ensureV02RoomExists(roomId: string): string {
   const db = getIdentityDb();
   const existing = db
-    .prepare(`SELECT room_id FROM v02_rooms WHERE room_id = ? LIMIT 1`)
+    .prepare(`SELECT room_id FROM rooms WHERE room_id = ? LIMIT 1`)
     .get(roomId) as { room_id: string } | undefined;
   if (existing) return existing.room_id;
 
@@ -71,13 +71,13 @@ export function ensureV02RoomExists(roomId: string): string {
 
   try {
     db.prepare(
-      `INSERT INTO v02_rooms (room_id, display_name, visibility, created_at_ms)
+      `INSERT INTO rooms (room_id, display_name, visibility, created_at_ms)
        VALUES (?, ?, 'private', ?)`
     ).run(roomId, displayName, now_ms);
   } catch (err) {
     // UNIQUE / race — re-probe.
     const probe = db
-      .prepare(`SELECT room_id FROM v02_rooms WHERE room_id = ? LIMIT 1`)
+      .prepare(`SELECT room_id FROM rooms WHERE room_id = ? LIMIT 1`)
       .get(roomId) as { room_id: string } | undefined;
     if (probe) return probe.room_id;
     throw err;
@@ -235,7 +235,7 @@ function appendAuditEvent(input: {
   try {
     const db = getIdentityDb();
     db.prepare(
-      `INSERT INTO v02_audit_events
+      `INSERT INTO audit_events
          (audit_id, at_ms, kind, entity_kind, entity_id,
           actor_agent_id, actor_runtime_id, before_json, after_json,
           request_id, ip_hash, challenge_proof)
