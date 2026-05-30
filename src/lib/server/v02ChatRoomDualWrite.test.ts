@@ -16,6 +16,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getIdentityDb, resetIdentityDbForTests } from './db';
+import { seedSiblingFkTargets } from './v02TestFixtures';
 import {
   createChatRoom,
   inviteAgentToRoom,
@@ -36,6 +37,8 @@ beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
   process.env.ANT_MEMORY_VAULT_PATH = '/tmp/ant-memory-pack-test-dualwrite';
   resetIdentityDbForTests();
+  // Option D collapse — seed PR #99/#105/#106 FK target tables.
+  seedSiblingFkTargets(getIdentityDb());
 });
 
 afterEach(() => {
@@ -71,7 +74,7 @@ describe('chatRoomStore.createChatRoom dual-writes to v02_memberships', () => {
   it('also writes a v02_rooms row keyed by the legacy chat_rooms.id', () => {
     const room = createChatRoom({ name: 'm9c-test-3', whoCreatedIt: '@you' });
     const v02Room = getIdentityDb()
-      .prepare(`SELECT room_id, display_name FROM v02_rooms WHERE room_id = ?`)
+      .prepare(`SELECT room_id, display_name FROM rooms WHERE room_id = ?`)
       .get(room.id) as { room_id: string; display_name: string } | undefined;
     expect(v02Room).toBeDefined();
     expect(v02Room?.display_name).toBe('m9c-test-3');

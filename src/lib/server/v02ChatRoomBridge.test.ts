@@ -10,6 +10,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getIdentityDb, resetIdentityDbForTests } from './db';
+import { seedSiblingFkTargets } from './v02TestFixtures';
 import * as v02Agents from './v02AgentsStore';
 import * as v02Memberships from './v02MembershipsStore';
 import {
@@ -29,6 +30,8 @@ beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
   process.env.ANT_MEMORY_VAULT_PATH = '/tmp/ant-memory-pack-test-bridge';
   resetIdentityDbForTests();
+  // Option D collapse — seed PR #99/#105/#106 FK target tables.
+  seedSiblingFkTargets(getIdentityDb());
 });
 
 afterEach(() => {
@@ -55,7 +58,7 @@ describe('ensureV02RoomExists', () => {
     const room_id = ensureV02RoomExists('room-1');
     expect(room_id).toBe('room-1');
     const row = getIdentityDb()
-      .prepare(`SELECT * FROM v02_rooms WHERE room_id = ?`)
+      .prepare(`SELECT * FROM rooms WHERE room_id = ?`)
       .get('room-1') as { room_id: string; display_name: string } | undefined;
     expect(row).toBeDefined();
     expect(row?.display_name).toBe('My Cool Room');
@@ -66,7 +69,7 @@ describe('ensureV02RoomExists', () => {
     ensureV02RoomExists('room-2');
     ensureV02RoomExists('room-2');
     const count = (getIdentityDb()
-      .prepare(`SELECT COUNT(*) AS c FROM v02_rooms WHERE room_id = ?`)
+      .prepare(`SELECT COUNT(*) AS c FROM rooms WHERE room_id = ?`)
       .get('room-2') as { c: number }).c;
     expect(count).toBe(1);
   });
@@ -75,7 +78,7 @@ describe('ensureV02RoomExists', () => {
     const room_id = ensureV02RoomExists('orphan-room');
     expect(room_id).toBe('orphan-room');
     const row = getIdentityDb()
-      .prepare(`SELECT display_name FROM v02_rooms WHERE room_id = ?`)
+      .prepare(`SELECT display_name FROM rooms WHERE room_id = ?`)
       .get('orphan-room') as { display_name: string } | undefined;
     expect(row?.display_name).toBe('orphan-room');
   });
@@ -150,7 +153,7 @@ describe('mirrorAddMembership', () => {
     mirrorAddMembership({ roomId: 'audit-room', handle: '@audit-agent' });
     const auditRow = getIdentityDb()
       .prepare(
-        `SELECT kind, entity_kind FROM v02_audit_events
+        `SELECT kind, entity_kind FROM audit_events
           WHERE kind = 'membership.joined'
           ORDER BY at_ms DESC LIMIT 1`
       )
@@ -194,7 +197,7 @@ describe('mirrorRemoveMembership', () => {
     mirrorRemoveMembership('audit-remove', '@bye');
     const auditRow = getIdentityDb()
       .prepare(
-        `SELECT kind FROM v02_audit_events
+        `SELECT kind FROM audit_events
           WHERE kind = 'membership.left'
           ORDER BY at_ms DESC LIMIT 1`
       )
