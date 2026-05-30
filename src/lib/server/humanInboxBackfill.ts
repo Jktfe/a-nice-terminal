@@ -14,6 +14,10 @@
 import { getIdentityDb } from './db';
 import { ensureHumanInboxRoom } from './humanInboxRoomStore';
 import { recomputeInboxEdge } from './humanInboxMembership';
+import {
+  listDistinctHumanHandles as v02ListDistinctHumanHandles,
+  listSharedRoomHumanAgentPairs as v02ListSharedRoomHumanAgentPairs
+} from './v02MembershipsStore';
 
 export type BackfillResult = {
   humansSeeded: number;
@@ -25,19 +29,38 @@ export function backfillHumanInboxes(): BackfillResult {
   // 1. Collect every distinct HUMAN handle that's ever been a chat-room
   //    member. (Inbox owners are humans by definition.) @you is included
   //    automatically by Task #138's auto-add-to-every-room.
-  const humanHandles = (db.prepare(
+  //
+  // M9d cut-over phase 3: read v0.2 memberships rather than
+  // chat_room_members. Both surfaces are dual-written so the result
+  // is identical, but the v0.2 read is the new source of truth.
+  // Pre-M9d rows with NULL member_kind are missed by the v0.2 query;
+  // the legacy chat_room_members union below catches them during the
+  // cut-over window so no humans get dropped.
+  const v02Humans = v02ListDistinctHumanHandles();
+  const legacyHumans = (db.prepare(
     `SELECT DISTINCT handle FROM chat_room_members
      WHERE kind = 'human' AND room_id NOT LIKE '__inbox_%'`
   ).all() as Array<{ handle: string }>).map((row) => row.handle);
+  const humanHandles = Array.from(new Set([...v02Humans, ...legacyHumans]));
 
   for (const handle of humanHandles) ensureHumanInboxRoom(handle);
 
   // 2. Pair every human against every agent they have shared context
   //    with — either via shared room (path-a) or terminal-ownership
   //    (path-b). The OR is built by UNION; recompute deduplicates.
-  const pairs = db.prepare(
+  //
+  // M9d cut-over phase 3: path-a now reads v0.2 memberships. Path-b
+  // is unchanged (terminal_records is not a chat_room_members
+  // surface). Legacy chat_room_members fallback included so rows
+  // pre-dating member_kind ALTER aren't dropped — dedup happens in
+  // the recomputeInboxEdge call below.
+  const pathAv02 = v02ListSharedRoomHumanAgentPairs();
+  const pathALegacyAndB = db.prepare(
     `SELECT DISTINCT human, agent FROM (
-       -- Path (a): pairs from a shared non-inbox room
+       -- Path (a): legacy chat_room_members fallback (catches rows
+       -- pre-dating the memberships.member_kind ALTER). Once the
+       -- week-2 cleanup PR drops chat_room_members, this UNION arm
+       -- disappears.
        SELECT h.handle AS human, a.handle AS agent
        FROM chat_room_members h
        JOIN chat_room_members a ON h.room_id = a.room_id
@@ -55,6 +78,17 @@ export function backfillHumanInboxes(): BackfillResult {
          AND superseded_at_ms IS NULL
      )`
   ).all() as Array<{ human: string; agent: string }>;
+  // Dedup the (human, agent) keys across the two sources before
+  // recomputing — recomputeInboxEdge is idempotent but repeated calls
+  // inflate the edgesEvaluated count.
+  const seen = new Set<string>();
+  const pairs: Array<{ human: string; agent: string }> = [];
+  for (const pair of [...pathAv02, ...pathALegacyAndB]) {
+    const key = `${pair.human}${pair.agent}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    pairs.push(pair);
+  }
 
   for (const { human, agent } of pairs) recomputeInboxEdge(human, agent);
 

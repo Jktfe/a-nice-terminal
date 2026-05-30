@@ -289,11 +289,12 @@ describe('v0.2 invariant — memberships has NO fanout_target_runtime_id', () =>
     expect(colNames).not.toContain('cached_runtime_id');
   });
 
-  it('memberships exposes only the documented v0.2 columns', () => {
+  it('memberships exposes the documented v0.2 columns', () => {
     const db = getIdentityDb();
     const cols = db.prepare(`PRAGMA table_info(memberships)`).all() as { name: string }[];
     const colNames = new Set(cols.map((c) => c.name));
-    const expected = [
+    // Core v0.2 spec columns.
+    const coreExpected = [
       'membership_id',
       'agent_id',
       'room_id',
@@ -303,10 +304,20 @@ describe('v0.2 invariant — memberships has NO fanout_target_runtime_id', () =>
       'left_at_ms',
       'last_read_post_order'
     ];
-    for (const name of expected) {
+    // M9d cut-over columns mirrored from chat_room_members so the
+    // v0.2 read path can reproduce the legacy chat-room rendering.
+    // All nullable, no NOT NULL invariant violations.
+    const m9dCutoverColumns = [
+      'display_color',
+      'display_icon',
+      'display_background_style',
+      'member_kind',
+      'room_display_name'
+    ];
+    for (const name of [...coreExpected, ...m9dCutoverColumns]) {
       expect(colNames.has(name), `missing column ${name}`).toBe(true);
     }
-    expect(cols.length).toBe(expected.length);
+    expect(cols.length).toBe(coreExpected.length + m9dCutoverColumns.length);
   });
 });
 
