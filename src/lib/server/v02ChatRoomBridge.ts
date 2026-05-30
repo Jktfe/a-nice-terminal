@@ -154,6 +154,10 @@ export function mirrorAddMembership(input: {
   displayIcon?: string | null;
   displayBackgroundStyle?: string | null;
   memberKind?: V02MemberKind | null;
+  // M9d: per-room display name override mirrored from the legacy
+  // chat_room_members.display_name column. NULL = inherit
+  // agents.display_name (read path falls back via COALESCE).
+  roomDisplayName?: string | null;
 }): string | null {
   try {
     ensureV02RoomExists(input.roomId);
@@ -166,7 +170,8 @@ export function mirrorAddMembership(input: {
       display_color: input.displayColor,
       display_icon: input.displayIcon,
       display_background_style: input.displayBackgroundStyle,
-      member_kind: input.memberKind
+      member_kind: input.memberKind,
+      room_display_name: input.roomDisplayName
     });
     appendAuditEvent({
       kind: 'membership.joined',
@@ -197,6 +202,7 @@ export function mirrorAddMembership(input: {
 export function mirrorUpdateMemberPresentation(input: {
   roomId: string;
   handle: string;
+  roomDisplayName?: string | null;
   displayColor?: string | null;
   displayIcon?: string | null;
   displayBackgroundStyle?: string | null;
@@ -207,6 +213,7 @@ export function mirrorUpdateMemberPresentation(input: {
     return v02Memberships.updateMembershipPresentation({
       agent_id: agent.agent_id,
       room_id: input.roomId,
+      room_display_name: input.roomDisplayName,
       display_color: input.displayColor,
       display_icon: input.displayIcon,
       display_background_style: input.displayBackgroundStyle

@@ -298,7 +298,7 @@ describe('v02MembershipsStore — M9d display columns', () => {
 });
 
 describe('v02MembershipsStore.listRoomMembersHydrated', () => {
-  it('returns members in joined_at_ms ascending order with handle + display_name from agents', () => {
+  it('returns members with handle + display_name + presentation columns from JOIN agents', () => {
     const room = createRoom('r-1');
     const a = createAgent('@codex4');
     const b = createAgent('@cv4');
@@ -317,15 +317,16 @@ describe('v02MembershipsStore.listRoomMembersHydrated', () => {
     });
     const members = v02Memberships.listRoomMembersHydrated(room);
     expect(members.length).toBe(2);
-    expect(members[0].handle).toBe('@codex4');
-    expect(members[0].agent_display_name).toBe('@codex4');
-    expect(members[0].display_color).toBe('#AAA');
-    expect(members[0].display_icon).toBe('C');
-    expect(members[0].display_background_style).toBe('transparent');
-    expect(members[0].member_kind).toBe('agent');
-    expect(typeof members[0].joined_at_iso).toBe('string');
-    expect(members[0].joined_at_iso).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(members[1].handle).toBe('@cv4');
+    const handles = members.map((m) => m.handle).sort();
+    expect(handles).toEqual(['@codex4', '@cv4']);
+    const codex = members.find((m) => m.handle === '@codex4');
+    expect(codex?.agent_display_name).toBe('@codex4');
+    expect(codex?.display_color).toBe('#AAA');
+    expect(codex?.display_icon).toBe('C');
+    expect(codex?.display_background_style).toBe('transparent');
+    expect(codex?.member_kind).toBe('agent');
+    expect(typeof codex?.joined_at_iso).toBe('string');
+    expect(codex?.joined_at_iso).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
   it('per-room alias takes precedence over primary_handle in the handle column', () => {

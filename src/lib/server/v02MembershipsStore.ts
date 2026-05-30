@@ -51,6 +51,10 @@ export type V02MembershipRow = {
   display_icon: string | null;
   display_background_style: string | null;
   member_kind: V02MemberKind | null;
+  // Per-room display-name override. NULL = inherit agents.display_name
+  // (the legacy `chat_room_members.display_name` defaults to the
+  // handle, which equals agents.primary_handle — same effective value).
+  room_display_name: string | null;
 };
 
 export type AddMembershipInput = {
@@ -65,6 +69,7 @@ export type AddMembershipInput = {
   display_icon?: string | null;
   display_background_style?: string | null;
   member_kind?: V02MemberKind | null;
+  room_display_name?: string | null;
 };
 
 function normalizeAlias(rawAlias: string | null | undefined): string | null {
@@ -88,6 +93,7 @@ export function addMembership(input: AddMembershipInput): V02MembershipRow {
   const display_icon = input.display_icon ?? null;
   const display_background_style = input.display_background_style ?? null;
   const member_kind = input.member_kind ?? null;
+  const room_display_name = input.room_display_name ?? null;
   const now_ms = Date.now();
 
   const existing = db
@@ -110,7 +116,9 @@ export function addMembership(input: AddMembershipInput): V02MembershipRow {
       (input.display_icon !== undefined && existing.display_icon !== display_icon) ||
       (input.display_background_style !== undefined &&
         existing.display_background_style !== display_background_style) ||
-      (input.member_kind !== undefined && existing.member_kind !== member_kind);
+      (input.member_kind !== undefined && existing.member_kind !== member_kind) ||
+      (input.room_display_name !== undefined &&
+        existing.room_display_name !== room_display_name);
     if (shouldUpdate) {
       db.prepare(
         `UPDATE memberships
@@ -119,7 +127,8 @@ export function addMembership(input: AddMembershipInput): V02MembershipRow {
                 display_color = COALESCE(?, display_color),
                 display_icon = COALESCE(?, display_icon),
                 display_background_style = COALESCE(?, display_background_style),
-                member_kind = COALESCE(?, member_kind)
+                member_kind = COALESCE(?, member_kind),
+                room_display_name = COALESCE(?, room_display_name)
           WHERE membership_id = ?`
       ).run(
         role,
@@ -128,6 +137,7 @@ export function addMembership(input: AddMembershipInput): V02MembershipRow {
         input.display_icon === undefined ? null : display_icon,
         input.display_background_style === undefined ? null : display_background_style,
         input.member_kind === undefined ? null : member_kind,
+        input.room_display_name === undefined ? null : room_display_name,
         existing.membership_id
       );
     }
@@ -139,8 +149,9 @@ export function addMembership(input: AddMembershipInput): V02MembershipRow {
     `INSERT INTO memberships
        (membership_id, agent_id, room_id, role, room_alias, joined_at_ms,
         left_at_ms, last_read_post_order,
-        display_color, display_icon, display_background_style, member_kind)
-     VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)`
+        display_color, display_icon, display_background_style, member_kind,
+        room_display_name)
+     VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)`
   ).run(
     membership_id,
     input.agent_id,
@@ -151,7 +162,8 @@ export function addMembership(input: AddMembershipInput): V02MembershipRow {
     display_color,
     display_icon,
     display_background_style,
-    member_kind
+    member_kind,
+    room_display_name
   );
   return getMembershipById(membership_id) as V02MembershipRow;
 }
@@ -167,7 +179,7 @@ export function addMembership(input: AddMembershipInput): V02MembershipRow {
 export function updateMembershipPresentation(input: {
   agent_id: string;
   room_id: string;
-  display_name?: never; // intentionally not on memberships — agent.display_name owns it
+  room_display_name?: string | null;
   display_color?: string | null;
   display_icon?: string | null;
   display_background_style?: string | null;
@@ -175,6 +187,10 @@ export function updateMembershipPresentation(input: {
   const db = getIdentityDb();
   const sets: string[] = [];
   const params: unknown[] = [];
+  if (input.room_display_name !== undefined) {
+    sets.push('room_display_name = ?');
+    params.push(input.room_display_name);
+  }
   if (input.display_color !== undefined) {
     sets.push('display_color = ?');
     params.push(input.display_color);
@@ -400,10 +416,18 @@ export type V02RoomMemberRow = {
   membership_id: string;
   agent_id: string;
   room_id: string;
+  /** Resolved handle for the read path. Per-room `room_alias` overrides
+   *  agents.primary_handle when set. */
   handle: string;
+  /** Effective display name for the read path. Per-room override
+   *  (`room_display_name`) overrides agents.display_name when set. */
+  display_name: string;
+  /** Raw agent display_name, surfaced separately for callers that want
+   *  the canonical agent label without the per-room override. */
   agent_display_name: string;
   role: V02MembershipRole;
   room_alias: string | null;
+  room_display_name: string | null;
   display_color: string | null;
   display_icon: string | null;
   display_background_style: string | null;
@@ -420,9 +444,11 @@ export function listRoomMembersHydrated(room_id: string): V02RoomMemberRow[] {
               m.agent_id                AS agent_id,
               m.room_id                 AS room_id,
               COALESCE(m.room_alias, a.primary_handle) AS handle,
+              COALESCE(m.room_display_name, a.display_name) AS display_name,
               a.display_name            AS agent_display_name,
               m.role                    AS role,
               m.room_alias              AS room_alias,
+              m.room_display_name       AS room_display_name,
               m.display_color           AS display_color,
               m.display_icon            AS display_icon,
               m.display_background_style AS display_background_style,
