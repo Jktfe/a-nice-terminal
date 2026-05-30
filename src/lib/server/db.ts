@@ -1928,7 +1928,7 @@ const SCHEMA_DDL_STATEMENTS = [
     signature               TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS idx_reclaim_requests_pending ON reclaim_requests(status, created_at_ms) WHERE status = 'pending'`,
-  `CREATE INDEX IF NOT EXISTS idx_reclaim_requests_target ON reclaim_requests(target_kind, target_id)`
+  `CREATE INDEX IF NOT EXISTS idx_reclaim_requests_target ON reclaim_requests(target_kind, target_id)`,
   // Substrate v0.2 Part 4 — identity_keys multi-device + recovery (2026-05-29).
   // Spec: /tmp/ant-identity-keys-multi-device-canvas-2026-05-29.md.
   //
@@ -2017,7 +2017,7 @@ const SCHEMA_DDL_STATEMENTS = [
     FROM identity_keys k
     LEFT JOIN identity_attestations a
       ON a.revoked_key_id = k.key_id
-    WHERE k.revoked_at_ms IS NOT NULL`
+    WHERE k.revoked_at_ms IS NOT NULL`,
   // Stage A — restructured 403 PermissionDenied payload (plan milestone
   // p3-stage-a-403-payload of ant-substrate-v0.2-2026-05-29, ratified PR
   // shape 2026-05-29). `grants_shim` is the minimal forward-compatible
@@ -2093,7 +2093,7 @@ const SCHEMA_DDL_STATEMENTS = [
     replay_status TEXT CHECK (replay_status IN ('pending','ready_for_replay','replayed_by_caller','expired','denied'))
   )`,
   `CREATE INDEX IF NOT EXISTS idx_pending_actions_expiry ON pending_actions(expires_at_ms) WHERE replayed_at_ms IS NULL`,
-  `CREATE INDEX IF NOT EXISTS idx_pending_actions_request ON pending_actions(request_id)`
+  `CREATE INDEX IF NOT EXISTS idx_pending_actions_request ON pending_actions(request_id)`,
   `CREATE INDEX IF NOT EXISTS idx_grants_shim_lookup ON grants_shim (grantee_handle, action, target_id, revoked_at_ms)`
 ];
 
