@@ -276,3 +276,24 @@ export function revokeBrowserSessionsForMember(
 export function resetBrowserSessionStoreForTests(): void {
   recentlyTouchedAtMs.clear();
 }
+
+/**
+ * Revoke a browser session by its secret cookie value. Used by the cookie-
+ * based /api/auth/logout flow (JWPK msg 2026-05-30 — "deliver the log out
+ * now"). Soft-revoke via revoked_at_ms; physical row preserved for audit.
+ * Returns true if a row was actually revoked, false if the secret didn't
+ * match an active session.
+ */
+export function revokeBrowserSessionBySecret(
+  browserSessionSecret: string,
+  nowMs: number = Date.now()
+): boolean {
+  const db = getIdentityDb();
+  const info = db.prepare(
+    `UPDATE browser_sessions
+        SET revoked_at_ms = ?
+      WHERE secret_hash = ?
+        AND revoked_at_ms IS NULL`
+  ).run(nowMs, hashToken(browserSessionSecret));
+  return info.changes > 0;
+}
