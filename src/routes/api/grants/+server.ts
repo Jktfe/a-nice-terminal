@@ -50,6 +50,27 @@ import { parsePidChainFromBody } from '$lib/server/identityGate';
 import { lookupTerminalByPidChain } from '$lib/server/terminalsStore';
 import { listMembershipsForTerminal } from '$lib/server/roomMembershipsStore';
 
+/**
+ * Sec-iter2 Fix #3 (2026-05-30): typed caller identity. The pre-iter2
+ * grants endpoint used a bare string + `callerHandle === ADMIN_BEARER_HANDLE`
+ * — that string-equality made the entire admin short-circuit spoofable
+ * by ANY surface that could land the literal '@admin' into a handle the
+ * gate then trusts. The new shape derives `isAdminBearer` SOLELY from a
+ * proven admin-bearer token; the handle is purely display/audit.
+ *
+ * NOTE: unlike the permission-requests endpoints which now read the
+ * authoritative terminal_records.handle (sec-iter1 Fix #1), this
+ * endpoint still derives the audit handle from
+ * `listMembershipsForTerminal(...)[0]` for back-compat with the Stage A
+ * grant attribution model. The authoritative-handle migration here is
+ * tracked separately; sec-iter2 Fix #3 only removes the string-eq
+ * admin-spoof surface.
+ */
+type GrantsCallerIdentity = {
+  handle: string;
+  isAdminBearer: boolean;
+};
+
 const VALID_TARGET_KINDS: ReadonlyArray<PermissionTargetKind> = [
   'room',
   'plan',
@@ -73,9 +94,14 @@ type GrantBody = {
   pidChain?: unknown;
 };
 
-function resolveCallerHandle(request: Request, rawBody: unknown): string {
+function resolveCallerIdentity(request: Request, rawBody: unknown): GrantsCallerIdentity {
+  // Sec-iter2 Fix #3 (2026-05-30): admin-bearer flag derives SOLELY from
+  // the constant-time token check. The returned `handle` is the audit
+  // display value (ADMIN_BEARER_HANDLE for admin-bearer callers); the
+  // approver gate below uses `isAdminBearer` for authority, never the
+  // string.
   if (tryAdminBearer(request)) {
-    return ADMIN_BEARER_HANDLE;
+    return { handle: ADMIN_BEARER_HANDLE, isAdminBearer: true };
   }
   const pidChain = parsePidChainFromBody(rawBody);
   const terminal = lookupTerminalByPidChain(pidChain);
@@ -87,10 +113,12 @@ function resolveCallerHandle(request: Request, rawBody: unknown): string {
   // attributed to the human/agent who owns the registered terminal
   // (Stage A approximation; Stage B threads explicit identity).
   const memberships = listMembershipsForTerminal(terminal.id);
-  if (memberships.length > 0) return memberships[0].handle;
+  if (memberships.length > 0) {
+    return { handle: memberships[0].handle, isAdminBearer: false };
+  }
   // Fall back to the terminal name so the audit trail at least
   // identifies WHICH terminal issued the grant.
-  return `@${terminal.name}`;
+  return { handle: `@${terminal.name}`, isAdminBearer: false };
 }
 
 function validateBody(body: GrantBody): {
@@ -148,16 +176,18 @@ function validateBody(body: GrantBody): {
  * to a denied caller are the same handles we accept as approvers here.
  */
 function requireApproverForTarget(
-  callerHandle: string,
+  caller: GrantsCallerIdentity,
   granteeHandle: string,
   action: string,
   targetKind: PermissionTargetKind,
   targetId: string
 ): void {
+  // Sec-iter2 Fix #3: admin-bearer short-circuit reads the typed
+  // discriminator, never a string-eq to the admin sentinel handle.
   // Admin-bearer bypasses the approver check (matches the rest of the
   // substrate's emergency-recovery model — admin-bearer is the break-
   // glass primitive).
-  if (callerHandle === ADMIN_BEARER_HANDLE) return;
+  if (caller.isAdminBearer) return;
 
   // System grants are admin-bearer only by design; non-admin callers
   // hit this branch via resolveApproversFor returning [].
@@ -174,7 +204,7 @@ function requireApproverForTarget(
   }
 
   const approvers = resolveApproversFor({ targetKind, targetId });
-  const isApprover = approvers.some((a) => a.handle === callerHandle);
+  const isApprover = approvers.some((a) => a.handle === caller.handle);
   if (isApprover) return;
 
   // Pick the most-fitting reason for the rejection so the CLI renderer
@@ -203,9 +233,9 @@ export const POST: RequestHandler = async ({ request }) => {
     throw error(400, 'JSON body required');
   }
   const validated = validateBody(rawBody);
-  const grantedByHandle = resolveCallerHandle(request, rawBody);
+  const caller = resolveCallerIdentity(request, rawBody);
   requireApproverForTarget(
-    grantedByHandle,
+    caller,
     validated.granteeHandle,
     validated.action,
     validated.targetKind,
@@ -216,7 +246,7 @@ export const POST: RequestHandler = async ({ request }) => {
     action: validated.action,
     targetKind: validated.targetKind,
     targetId: validated.targetId,
-    grantedByHandle,
+    grantedByHandle: caller.handle,
     scope: validated.scope
   });
   return json({ grant }, { status: 201 });
@@ -232,11 +262,11 @@ export const DELETE: RequestHandler = async ({ request }) => {
     throw error(400, 'JSON body required');
   }
   const validated = validateBody(rawBody);
-  const callerHandle = resolveCallerHandle(request, rawBody);
+  const caller = resolveCallerIdentity(request, rawBody);
   // Same approver gate as POST — only an authorised approver (or admin-
   // bearer) can revoke a grant on the target.
   requireApproverForTarget(
-    callerHandle,
+    caller,
     validated.granteeHandle,
     validated.action,
     validated.targetKind,

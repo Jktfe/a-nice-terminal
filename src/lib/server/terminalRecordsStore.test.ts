@@ -295,14 +295,20 @@ describe('terminalRecordsStore — agent_kind round-trip (T2b autodetect-wiring)
     });
 
     it('PS6: listAllPickableHandles + listKnownHandles exclude superseded handles', () => {
+      // Sec-iter2 Fix #1 (2026-05-30): `@here` was previously used as the
+      // "live" handle in this test, but `@here` is on the reserved list
+      // (`data/reserved-handles.json`) and is now rejected at the
+      // choke-point validator. Swapped to `@still-here` (valid, not
+      // reserved) — the test still asserts the same invariant (superseded
+      // handle dropped, live handle visible).
       createTerminalRecord({ sessionId: 't_ps_11', name: 'a', tmuxTargetPane: 'pane-%5', handle: '@gone' });
-      createTerminalRecord({ sessionId: 't_ps_12', name: 'b', tmuxTargetPane: 'pane-%5', handle: '@here' });
+      createTerminalRecord({ sessionId: 't_ps_12', name: 'b', tmuxTargetPane: 'pane-%5', handle: '@still-here' });
       const picker = listAllPickableHandles();
       expect(picker).not.toContain('@gone');
-      expect(picker).toContain('@here');
+      expect(picker).toContain('@still-here');
       const known = listKnownHandles();
       expect(known).not.toContain('@gone');
-      expect(known).toContain('@here');
+      expect(known).toContain('@still-here');
     });
 
     it('PS7: listTerminalRecords (audit-shape) still returns superseded rows for history', () => {
@@ -420,6 +426,104 @@ describe('terminalRecordsStore — agent_kind round-trip (T2b autodetect-wiring)
       const handles = listAllPickableHandles();
       // deriveHandle falls back to slug of name when handle is null.
       expect(handles).toContain('@orphan-pick');
+    });
+  });
+
+  /**
+   * Sec-iter2 Fix #1 (2026-05-30 enterprise security pass): choke-point
+   * handle validation on the store layer. Without these, an attacker
+   * could POST /api/terminals { handle: '@admin' } (which had NO API-
+   * layer validation) and the row would persist with `@admin`. The
+   * approver gate's `resolveAuthoritativeCallerHandle` then returned
+   * '@admin', which `requireApproverFor` short-circuited on string
+   * equality with `ADMIN_BEARER_HANDLE`. Full admin escalation. The
+   * store-layer assertion makes the bypass structurally impossible
+   * even if a future writer forgets to validate at the API edge.
+   */
+  describe('sec-iter2 Fix #1: choke-point handle validation', () => {
+    it('createTerminalRecord rejects @admin with [INVALID_HANDLE] tag', () => {
+      expect(() =>
+        createTerminalRecord({ sessionId: 't_attack_1', name: 'attacker', handle: '@admin' })
+      ).toThrow(/\[INVALID_HANDLE\]/);
+      // Row must NOT have been persisted. (Verifies the throw fires
+      // BEFORE the INSERT — the exact ordering required to close the
+      // exploit chain in the iter2 review.)
+      expect(getTerminalRecord('t_attack_1')).toBeNull();
+    });
+
+    it('createTerminalRecord rejects every reserved handle case-insensitively', () => {
+      const reserved = ['@admin', '@ADMIN', '@Admin', '@you', '@everyone', '@system', '@chair'];
+      for (const handle of reserved) {
+        expect(
+          () => createTerminalRecord({ sessionId: `t_r_${handle.slice(1)}`, name: 'r', handle })
+        ).toThrow(/\[INVALID_HANDLE\]/);
+      }
+    });
+
+    it('createTerminalRecord rejects invalid-character handles', () => {
+      expect(() =>
+        createTerminalRecord({ sessionId: 't_bad_1', name: 'bad', handle: '@bad space' })
+      ).toThrow(/\[INVALID_HANDLE\]/);
+      expect(() =>
+        createTerminalRecord({ sessionId: 't_bad_2', name: 'bad', handle: '@.lead' })
+      ).toThrow(/\[INVALID_HANDLE\]/);
+    });
+
+    it('createTerminalRecord allows null/undefined/empty handle (column is nullable)', () => {
+      expect(() =>
+        createTerminalRecord({ sessionId: 't_null_1', name: 'no-handle', handle: null })
+      ).not.toThrow();
+      expect(() =>
+        createTerminalRecord({ sessionId: 't_null_2', name: 'no-handle-2' })
+      ).not.toThrow();
+      // Empty string trims to nothing → treated as null (column allows it).
+      expect(() =>
+        createTerminalRecord({ sessionId: 't_null_3', name: 'no-handle-3', handle: '' })
+      ).not.toThrow();
+    });
+
+    it('createTerminalRecord accepts valid non-reserved handles unchanged', () => {
+      const rec = createTerminalRecord({
+        sessionId: 't_ok_1',
+        name: 'ok',
+        handle: '@alice-1'
+      });
+      expect(rec.handle).toBe('@alice-1');
+    });
+
+    it('updateTerminalRecord rejects @admin even when the existing row had a legitimate handle', () => {
+      createTerminalRecord({ sessionId: 't_patch_1', name: 'patch', handle: '@worker' });
+      expect(() =>
+        updateTerminalRecord('t_patch_1', { handle: '@admin' })
+      ).toThrow(/\[INVALID_HANDLE\]/);
+      // Existing handle must NOT have been overwritten.
+      expect(getTerminalRecord('t_patch_1')?.handle).toBe('@worker');
+    });
+
+    it('updateTerminalRecord rejects @admin on a row whose handle was previously NULL (the second exploit path)', () => {
+      createTerminalRecord({ sessionId: 't_patch_2', name: 'patch-null', handle: null });
+      expect(() =>
+        updateTerminalRecord('t_patch_2', { handle: '@admin' })
+      ).toThrow(/\[INVALID_HANDLE\]/);
+      expect(getTerminalRecord('t_patch_2')?.handle).toBeNull();
+    });
+
+    it('updateTerminalRecord allows setting handle to null (explicit clear)', () => {
+      createTerminalRecord({ sessionId: 't_patch_3', name: 'patch-clear', handle: '@alice-2' });
+      const cleared = updateTerminalRecord('t_patch_3', { handle: null });
+      expect(cleared?.handle).toBeNull();
+    });
+
+    it('updateTerminalRecord does not validate when handle is not present in the patch', () => {
+      // Sec-iter2 invariant: patch.handle === undefined is the "leave it
+      // alone" signal. The validator must NOT see undefined as an
+      // attempted write and must NOT throw on an unrelated name update.
+      createTerminalRecord({ sessionId: 't_patch_4', name: 'before', handle: '@alice-3' });
+      expect(() =>
+        updateTerminalRecord('t_patch_4', { name: 'after' })
+      ).not.toThrow();
+      expect(getTerminalRecord('t_patch_4')?.handle).toBe('@alice-3');
+      expect(getTerminalRecord('t_patch_4')?.name).toBe('after');
     });
   });
 });

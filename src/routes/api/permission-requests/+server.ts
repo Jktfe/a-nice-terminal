@@ -39,11 +39,11 @@ import {
 } from '$lib/server/permissionRequestsStore';
 import { resolveApproversFor } from '$lib/server/permissionApproverResolver';
 import type { PermissionTargetKind } from '$lib/server/permissionDeniedPayload';
-import { ADMIN_BEARER_HANDLE } from '$lib/server/chatRoomAuthGate';
 import { type PidChainEntry } from '$lib/server/terminalsStore';
 import {
-  resolveAuthoritativeCallerHandle,
-  resolveAuthoritativeCallerHandleFromPidChain
+  resolveAuthoritativeCallerIdentity,
+  resolveAuthoritativeCallerIdentityFromPidChain,
+  type AuthoritativeCallerIdentity
 } from '$lib/server/permissionCallerIdentity';
 
 const VALID_TARGET_KINDS: ReadonlyArray<PermissionTargetKind> = [
@@ -66,15 +66,17 @@ type PostBody = {
 };
 
 /**
- * Sec-iter1 Fix #1 (2026-05-30 enterprise security pass): caller-handle
- * resolution now reads the authoritative terminal_records.handle
- * (1:1, UNIQUE per Fix #2) instead of the attacker-controllable
- * `memberships[0].handle`. This endpoint binds requester_handle to the
- * resolved caller — without the fix, an attacker could file
- * permission_requests "from" the victim.
+ * Sec-iter1 Fix #1 (2026-05-30): caller-handle resolution reads the
+ * authoritative terminal_records.handle (1:1, UNIQUE per Fix #2). This
+ * endpoint binds requester_handle to the resolved caller — without the
+ * fix, an attacker could file permission_requests "from" the victim.
+ *
+ * Sec-iter2 Fix #3 (2026-05-30): returns the typed identity discriminated
+ * by `isAdminBearer` so the GET branch + any future admin-grade logic
+ * here doesn't string-compare the handle to `ADMIN_BEARER_HANDLE`.
  */
-function resolveCallerHandle(request: Request, rawBody: unknown): string {
-  return resolveAuthoritativeCallerHandle(request, rawBody);
+function resolveCallerIdentity(request: Request, rawBody: unknown): AuthoritativeCallerIdentity {
+  return resolveAuthoritativeCallerIdentity(request, rawBody);
 }
 
 type ValidatedBody = {
@@ -194,44 +196,42 @@ function parsePidChainFromQuery(url: URL): PidChainEntry[] {
 }
 
 /**
- * Sec-iter1 Fix #1 (2026-05-30 enterprise security pass): same fix as
- * the POST variant — read terminal_records.handle as the authoritative
- * caller identity for the listing surface. Without this fix, an
- * attacker could enumerate the victim's pending permission_requests.
+ * Sec-iter1 Fix #1 (2026-05-30): same authoritative-handle resolution
+ * for the listing surface.
+ *
+ * Sec-iter2 Fix #3 (2026-05-30): returns the typed identity so the
+ * admin branch below reads `isAdminBearer` instead of string-comparing
+ * the handle to `ADMIN_BEARER_HANDLE`.
  */
-function resolveCallerHandleForGet(request: Request, url: URL): string | null {
+function resolveCallerIdentityForGet(request: Request, url: URL): AuthoritativeCallerIdentity | null {
   const pidChain = parsePidChainFromQuery(url);
-  return resolveAuthoritativeCallerHandleFromPidChain(request, pidChain);
+  return resolveAuthoritativeCallerIdentityFromPidChain(request, pidChain);
 }
 
 export const GET: RequestHandler = async ({ request, url }) => {
-  const callerHandle = resolveCallerHandleForGet(request, url);
-  if (!callerHandle) throw error(401, 'Authentication required.');
+  const caller = resolveCallerIdentityForGet(request, url);
+  if (!caller) throw error(401, 'Authentication required.');
   const asApprover = url.searchParams.get('asApprover') === '1';
   if (asApprover) {
+    // Sec-iter2 Fix #3: read the typed admin discriminator instead of
+    // string-comparing `caller.handle` to `ADMIN_BEARER_HANDLE`.
     // Admin sees every pending request (operator broadcast view);
     // non-admin sees only their own snapshot-approver rows.
-    if (callerHandle === ADMIN_BEARER_HANDLE) {
+    if (caller.isAdminBearer) {
       // Empty handle would not match any snapshot — to surface the
       // global inbox we re-use listPendingForApprover by iterating
-      // every approver in turn would be O(n*m). Instead, fetch the
-      // requester-side helper with a synthetic admin filter: the
-      // admin-bearer can read ALL pending requests via the
-      // requester-side helper unchanged because admin owns no rows;
-      // so fall back to listing via requester for every row would
-      // be incorrect. The simpler primitive is: admin gets
-      // approver-style listing using a wildcard match by reading
-      // pending requests directly. For Stage B substrate we keep
-      // the API narrow — admin-bearer asApprover=1 returns the
-      // requester-side view of the synthetic '@admin' handle, which
-      // will be empty unless admin themself requested. Operators
-      // who need the global inbox should hit the per-target listing
-      // via /api/chat-rooms/[id]/permission-requests (future slice).
-      return json({ requests: listPendingForApprover(callerHandle) });
+      // every approver in turn would be O(n*m). For Stage B substrate
+      // we keep the API narrow — admin-bearer asApprover=1 returns
+      // the requester-side view of the synthetic '@admin' handle,
+      // which will be empty unless admin themself requested.
+      // Operators who need the global inbox should hit the per-target
+      // listing via /api/chat-rooms/[id]/permission-requests (future
+      // slice).
+      return json({ requests: listPendingForApprover(caller.handle) });
     }
-    return json({ requests: listPendingForApprover(callerHandle) });
+    return json({ requests: listPendingForApprover(caller.handle) });
   }
-  return json({ requests: listPendingForRequester(callerHandle) });
+  return json({ requests: listPendingForRequester(caller.handle) });
 };
 
 export const POST: RequestHandler = async ({ request }) => {
@@ -241,7 +241,7 @@ export const POST: RequestHandler = async ({ request }) => {
   } catch {
     throw error(400, 'JSON body required');
   }
-  const requesterHandle = resolveCallerHandle(request, rawBody);
+  const requesterHandle = resolveCallerIdentity(request, rawBody).handle;
   const validated = validateBody(rawBody);
   // Snapshot the approver list at request-creation time. This matches
   // Stage A's contract: the approvers shown to the denied caller are the

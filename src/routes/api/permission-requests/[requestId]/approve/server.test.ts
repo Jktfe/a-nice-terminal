@@ -408,6 +408,82 @@ describe('POST /api/permission-requests/[requestId]/approve', () => {
     });
   });
 
+  /**
+   * Sec-iter2 Fix #3 (2026-05-30): structural fix — admin authority no
+   * longer derives from string-equality between caller.handle and
+   * ADMIN_BEARER_HANDLE. Even if an attacker bypassed every other gate
+   * and somehow planted a terminal_records row with handle='@admin',
+   * the approver gate now consults `caller.isAdminBearer` (set ONLY by
+   * a proven admin-bearer token) and 403s the request.
+   *
+   * Fix #1 + Fix #2 close the known planting paths (POST + PATCH);
+   * Fix #3 closes the ENTIRE CLASS of "any future writer that lands
+   * '@admin' into a handle column spoofs admin". We plant the row via
+   * raw SQL to simulate a hypothetical future bypass and assert the
+   * gate still rejects.
+   */
+  describe('sec-iter2 Fix #3: typed isAdminBearer discriminator (structural)', () => {
+    it('terminal_records.handle=@admin (planted via raw SQL, simulating a future-writer bypass) does NOT spoof admin authority', async () => {
+      const { getIdentityDb } = await import('$lib/server/db');
+      const room = createChatRoom({ name: 'iter2-room', whoCreatedIt: '@jwpk' });
+      const created = createPermissionRequest({
+        requesterHandle: '@speedyc',
+        action: 'chat.post',
+        targetKind: 'room',
+        targetId: room.id,
+        approvers: [{ handle: '@jwpk', role: 'room_owner', preferred: true }]
+      });
+      const terminal = upsertTerminal({
+        pid: 80080,
+        pid_start: '2026-05-30T00:00:03.000Z',
+        name: 'spoofer-pane',
+        ttlSeconds: 60 * 60
+      });
+      // Plant the @admin handle via raw SQL — the public API (Fix #1)
+      // would reject this. This simulates a hypothetical future writer
+      // that forgot the choke-point and proves Fix #3 still rejects.
+      const now = Date.now();
+      getIdentityDb().prepare(
+        `INSERT INTO terminal_records (session_id, name, auto_forward_chat, tmux_target_pane, handle, created_at_ms, updated_at_ms)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(terminal.id, 'spoofer-pane', 1, `${terminal.id}:0.0`, '@admin', now, now);
+
+      const event = eventFor(created.request.requestId, {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          pidChain: [{ pid: 80080, pid_start: '2026-05-30T00:00:03.000Z' }]
+        })
+      });
+      const response = await runHandler(POST as AnyHandler, event);
+      // Pre-Fix#3 this would be 200 (admin short-circuit on
+      // string-eq). Post-Fix#3 the gate reads `isAdminBearer` which
+      // is FALSE for this caller (no admin-bearer token), so it falls
+      // through to the approver check and 403s.
+      expect(response.status).toBe(403);
+    });
+
+    it('admin-bearer token STILL bypasses (control case — Fix #3 must not break the legitimate admin path)', async () => {
+      const room = createChatRoom({ name: 'iter2-control', whoCreatedIt: '@jwpk' });
+      const created = createPermissionRequest({
+        requesterHandle: '@speedyc',
+        action: 'chat.post',
+        targetKind: 'room',
+        targetId: room.id,
+        approvers: [{ handle: '@jwpk', role: 'room_owner', preferred: true }]
+      });
+      // No pidChain, no fancy terminal setup — just the admin bearer.
+      const event = eventFor(created.request.requestId, {
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${TEST_ADMIN}`
+        },
+        body: JSON.stringify({})
+      });
+      const response = await runHandler(POST as AnyHandler, event);
+      expect(response.status).toBe(200);
+    });
+  });
+
   it('happy path honours decisionScope=always-for-room on the grant', async () => {
     const room = createChatRoom({ name: 'scoped-grant', whoCreatedIt: '@jwpk' });
     const created = createPermissionRequest({
