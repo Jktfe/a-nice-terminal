@@ -2,7 +2,7 @@ import { error } from '@sveltejs/kit';
 import { randomUUID } from 'node:crypto';
 import { slugifyPolicyName } from './policyStore';
 import { resolvePolicyActor, type ResolvedPolicyActor } from './policyActor';
-import { tryAdminBearer } from './chatRoomAuthGate';
+import { tryAdminBearer, ADMIN_BEARER_HANDLE } from './chatRoomAuthGate';
 import {
   getValidationSchema,
   type ValidationSchema,
@@ -16,14 +16,49 @@ const SCOPES = ['public', 'user', 'org'] as const;
 const MODES = ['all', 'any', 'none'] as const;
 const REQUIREMENT_KINDS = ['agent', 'person', 'source', 'file', 'filesystem', 'website', 'context_summary'] as const;
 
-export function resolveLensActor(request: Request, body: unknown): ResolvedPolicyActor | null {
-  if (tryAdminBearer(request)) return { handle: '@admin', kind: 'human' };
-  return resolvePolicyActor(request, body);
+/**
+ * Sec-iter3 Fix (2026-05-30): typed admin-bearer discriminator for the
+ * verification lens API surface. Mirrors the iter-2 reshape on
+ * permissionCallerIdentity (AuthoritativeCallerIdentity.isAdminBearer).
+ *
+ * Pre-iter3 the lens authority checks short-circuited via
+ * `actor.handle === '@admin'`. The reviewer's iter-4 trace confirmed
+ * that surface was NOT exploitable today — the only path that can land
+ * '@admin' into `actor.handle` is `tryAdminBearer` (constant-time
+ * ANT_ADMIN_TOKEN match), and iter-1 + iter-2 closed the writers that
+ * could plant '@admin' as a victim handle on browser_sessions or
+ * terminal_records.handle. But the SHAPE of the check (string-eq vs a
+ * typed flag) is the same class of bug iter-2 closed elsewhere — so a
+ * future writer that opens a new path to '@admin' as a caller-handle
+ * value would immediately re-open this surface.
+ *
+ * The fix: route the admin signal through a dedicated boolean
+ * (`isAdminBearer`) derived SOLELY from `tryAdminBearer`. The `handle`
+ * field is purely display / audit — `@admin` appears in audit rows for
+ * admin-bearer mutations, but `actor.handle === '@admin'` is now
+ * forbidden as an authority signal. Callers must read
+ * `actor.isAdminBearer` for short-circuits.
+ */
+export type ResolvedLensActor = ResolvedPolicyActor & {
+  /** TRUE iff the request carried a valid ANT_ADMIN_TOKEN Bearer header.
+   *  This is the ONLY signal that may bypass scope/owner checks in the
+   *  lens API. String-comparing `handle` to the admin sentinel is the
+   *  iter-3 bypass surface and is now forbidden. */
+  isAdminBearer: boolean;
+};
+
+export function resolveLensActor(request: Request, body: unknown): ResolvedLensActor | null {
+  if (tryAdminBearer(request)) {
+    return { handle: ADMIN_BEARER_HANDLE, kind: 'human', isAdminBearer: true };
+  }
+  const actor = resolvePolicyActor(request, body);
+  if (!actor) return null;
+  return { ...actor, isAdminBearer: false };
 }
 
-export function visibilityForActor(actor: ResolvedPolicyActor | null): ValidationSchemaVisibility {
+export function visibilityForActor(actor: ResolvedLensActor | null): ValidationSchemaVisibility {
   if (!actor) return { isAdmin: false, handles: [] };
-  if (actor.handle === '@admin') return { isAdmin: true };
+  if (actor.isAdminBearer) return { isAdmin: true };
   return { isAdmin: false, handles: [actor.handle] };
 }
 
@@ -44,7 +79,7 @@ export function parseScope(value: unknown): ValidationSchemaScope {
     : 'user';
 }
 
-export function scopeIdFor(scope: ValidationSchemaScope, actor: ResolvedPolicyActor, rawScopeId: unknown): string {
+export function scopeIdFor(scope: ValidationSchemaScope, actor: ResolvedLensActor, rawScopeId: unknown): string {
   if (scope === 'public') return 'global';
   if (scope === 'user') return actor.handle;
   if (typeof rawScopeId === 'string' && rawScopeId.trim().length > 0) return rawScopeId.trim();
@@ -75,26 +110,26 @@ export function lensResponse(schema: ValidationSchema) {
   };
 }
 
-export function requireReadableLens(id: string, actor: ResolvedPolicyActor | null): ValidationSchema {
+export function requireReadableLens(id: string, actor: ResolvedLensActor | null): ValidationSchema {
   const schema = getValidationSchema(id);
   if (!schema || schema.archivedAtMs !== null) throw error(404, 'Lens not found.');
-  if (actor?.handle === '@admin') return schema;
+  if (actor?.isAdminBearer === true) return schema;
   if (schema.scope === 'public') return schema;
   if (schema.scope === 'user' && actor && schema.scopeId === actor.handle) return schema;
   throw error(403, 'Lens is not visible to this caller.');
 }
 
-export function requireWritableLens(id: string, actor: ResolvedPolicyActor): ValidationSchema {
+export function requireWritableLens(id: string, actor: ResolvedLensActor): ValidationSchema {
   const schema = requireReadableLens(id, actor);
-  if (actor.handle === '@admin') return schema;
+  if (actor.isAdminBearer === true) return schema;
   if (schema.scope === 'user' && schema.scopeId === actor.handle) return schema;
   throw error(403, 'Only the lens owner can edit this lens.');
 }
 
-export function requireAuditReadableLens(id: string, actor: ResolvedPolicyActor | null): ValidationSchema {
+export function requireAuditReadableLens(id: string, actor: ResolvedLensActor | null): ValidationSchema {
   const schema = getValidationSchema(id);
   if (!schema) throw error(404, 'Lens not found.');
-  if (actor?.handle === '@admin') return schema;
+  if (actor?.isAdminBearer === true) return schema;
   if (schema.scope === 'public' && schema.archivedAtMs === null) return schema;
   if (schema.scope === 'user' && actor && schema.scopeId === actor.handle) return schema;
   throw error(schema.archivedAtMs === null ? 403 : 404, 'Lens audit is not visible to this caller.');
