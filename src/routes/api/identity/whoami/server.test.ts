@@ -6,6 +6,7 @@ import { POST } from './+server';
 import { resetIdentityDbForTests } from '$lib/server/db';
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { createTerminalRecord } from '$lib/server/terminalRecordsStore';
+import { bootstrapV02Identity } from '$lib/server/v02RegisterBootstrap';
 
 let tmpDir: string;
 const previousEnv = process.env.ANT_FRESH_DB_PATH;
@@ -102,6 +103,36 @@ describe('POST /api/identity/whoami', () => {
     expect(response.status).toBe(200);
     const payload = await response.json();
     expect(payload.handle).toBe('@ancestor');
+  });
+
+  it('falls back to v0.2 agents.primary_handle when terminal_records.handle is empty (post-cut-over reality)', async () => {
+    const isoNow = new Date().toISOString();
+    // Legacy half — terminals row + terminal_records row with EMPTY handle
+    // (the exact state discovered in fresh-ant.db live smoke after PR #124).
+    const terminal = upsertTerminal({ pid: 800, pid_start: isoNow, name: 't-v02-bound' });
+    createTerminalRecord({ sessionId: terminal.id, name: 't-v02-bound', handle: '' });
+    // v0.2 half — agent + runtime linked to that legacy terminal_id.
+    const bootstrap = bootstrapV02Identity({
+      name: 't-v02-bound',
+      pid: 800,
+      pid_start: isoNow,
+      legacy_terminal_id: terminal.id,
+      handle: '@v02-resolved'
+    });
+    const response = await callPost(JSON.stringify({ pids: [{ pid: 800, pid_start: isoNow }] }));
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.handle).toBe('@v02-resolved');
+    expect(payload.v02AgentId).toBe(bootstrap.agent_id);
+  });
+
+  it('treats empty-string terminal_records.handle as missing (not bound)', async () => {
+    const terminal = upsertTerminal({ pid: 900, pid_start: 'pstart', name: 't-empty-handle' });
+    createTerminalRecord({ sessionId: terminal.id, name: 't-empty-handle', handle: '' });
+    const response = await callPost(JSON.stringify({ pids: [{ pid: 900, pid_start: 'pstart' }] }));
+    expect(response.status).toBe(422);
+    const payload = await response.json();
+    expect(payload.status).toBe('registered-no-handle');
   });
 
   it('rejects empty body with 400', async () => {
