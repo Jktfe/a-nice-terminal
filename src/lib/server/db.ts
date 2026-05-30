@@ -2039,6 +2039,61 @@ const SCHEMA_DDL_STATEMENTS = [
     revoked_at_ms     INTEGER,
     scope             TEXT NOT NULL DEFAULT 'once'
   )`,
+  `CREATE INDEX IF NOT EXISTS idx_grants_shim_lookup ON grants_shim (grantee_handle, action, target_id, revoked_at_ms)`,
+  // Stage B foundation — permission_requests + pending_actions (plan
+  // milestone p3-stage-b-permission-requests of
+  // ant-substrate-v0.2-2026-05-29). When an agent hits a 403 the substrate
+  // creates a permission_requests row + parks the original action in
+  // pending_actions with a 5-minute TTL; when an approver clicks Grant the
+  // substrate writes a grants_shim row + flips replay_status to
+  // 'ready_for_replay' so the original CLI caller can retry seamlessly.
+  // Modal routing (push to approver devices) ships when antos/antchat
+  // apps wire up; this is the substrate-only primitive layer.
+  //
+  // Why CLI-driven replay (not server-side internal fetch):
+  // The endpoint just signals readiness — the original CLI caller polls
+  // GET /api/permission-requests/[id] until status='approved' and retries
+  // the original action with the new grant in place. Simpler, easier to
+  // debug, no infinite-replay-loop risk if the original endpoint also
+  // 403s for a different reason. The status enum reflects this:
+  //   pending          — request open, waiting for approver decision
+  //   ready_for_replay — approved + grant written, CLI should retry now
+  //   replayed_by_caller — CLI confirmed it retried (audit signal)
+  //   expired          — TTL elapsed without approver decision
+  //   denied           — approver explicitly denied; CLI should not retry
+  `CREATE TABLE IF NOT EXISTS permission_requests (
+    request_id            TEXT PRIMARY KEY,
+    requester_handle      TEXT NOT NULL,
+    action                TEXT NOT NULL,
+    target_kind           TEXT NOT NULL CHECK (target_kind IN ('room','plan','task','org','system')),
+    target_id             TEXT NOT NULL,
+    reason                TEXT,
+    approver_handles_json TEXT NOT NULL DEFAULT '[]',
+    status                TEXT NOT NULL CHECK (status IN ('pending','approved','denied','expired','superseded')) DEFAULT 'pending',
+    created_at_ms         INTEGER NOT NULL,
+    decided_at_ms         INTEGER,
+    decided_by_handle     TEXT,
+    decision_scope        TEXT CHECK (decision_scope IN ('once','always-for-room','always-for-agent')) DEFAULT 'once',
+    resulting_grant_id    TEXT,
+    pending_action_id     TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_permission_requests_pending ON permission_requests(status, created_at_ms) WHERE status = 'pending'`,
+  `CREATE INDEX IF NOT EXISTS idx_permission_requests_approver ON permission_requests(target_kind, target_id, status)`,
+  `CREATE INDEX IF NOT EXISTS idx_permission_requests_requester ON permission_requests(requester_handle, status, created_at_ms DESC)`,
+  `CREATE TABLE IF NOT EXISTS pending_actions (
+    action_id     TEXT PRIMARY KEY,
+    request_id    TEXT NOT NULL REFERENCES permission_requests(request_id),
+    http_method   TEXT NOT NULL,
+    http_path     TEXT NOT NULL,
+    payload_json  TEXT NOT NULL,
+    headers_json  TEXT,
+    created_at_ms INTEGER NOT NULL,
+    expires_at_ms INTEGER NOT NULL,
+    replayed_at_ms INTEGER,
+    replay_status TEXT CHECK (replay_status IN ('pending','ready_for_replay','replayed_by_caller','expired','denied'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_pending_actions_expiry ON pending_actions(expires_at_ms) WHERE replayed_at_ms IS NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_pending_actions_request ON pending_actions(request_id)`
   `CREATE INDEX IF NOT EXISTS idx_grants_shim_lookup ON grants_shim (grantee_handle, action, target_id, revoked_at_ms)`
 ];
 
