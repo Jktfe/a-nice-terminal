@@ -19,9 +19,11 @@ import {
   getPendingActionForRequest,
   getPermissionRequest
 } from '$lib/server/permissionRequestsStore';
-import { ADMIN_BEARER_HANDLE } from '$lib/server/chatRoomAuthGate';
 import { type PidChainEntry } from '$lib/server/terminalsStore';
-import { resolveAuthoritativeCallerHandleFromPidChain } from '$lib/server/permissionCallerIdentity';
+import {
+  resolveAuthoritativeCallerIdentityFromPidChain,
+  type AuthoritativeCallerIdentity
+} from '$lib/server/permissionCallerIdentity';
 
 function parsePidChainFromQuery(url: URL): PidChainEntry[] {
   const raw = url.searchParams.get('pidChain');
@@ -41,15 +43,17 @@ function parsePidChainFromQuery(url: URL): PidChainEntry[] {
 }
 
 /**
- * Sec-iter1 Fix #1 (2026-05-30 enterprise security pass): same fix as
- * the approve/deny gates — read terminal_records.handle as the
- * authoritative caller identity. Without this fix, the auth check
- * below ("isRequester || isApprover || isAdmin") would accept any
- * caller whose per-room membership row used the victim's handle.
+ * Sec-iter1 Fix #1 (2026-05-30): read terminal_records.handle as the
+ * authoritative caller identity.
+ *
+ * Sec-iter2 Fix #3 (2026-05-30): returns the typed identity. The auth
+ * check below ("isRequester || isApprover || isAdmin") now reads
+ * `caller.isAdminBearer` instead of string-comparing the handle to
+ * `ADMIN_BEARER_HANDLE` — that string-eq was the iter2 bypass surface.
  */
-function resolveCallerHandle(request: Request, url: URL): string | null {
+function resolveCallerIdentity(request: Request, url: URL): AuthoritativeCallerIdentity | null {
   const pidChain = parsePidChainFromQuery(url);
-  return resolveAuthoritativeCallerHandleFromPidChain(request, pidChain);
+  return resolveAuthoritativeCallerIdentityFromPidChain(request, pidChain);
 }
 
 export const GET: RequestHandler = async ({ request, params, url }) => {
@@ -57,16 +61,18 @@ export const GET: RequestHandler = async ({ request, params, url }) => {
   if (!requestId || typeof requestId !== 'string') {
     throw error(400, 'requestId required in path');
   }
-  const callerHandle = resolveCallerHandle(request, url);
-  if (!callerHandle) throw error(401, 'Authentication required.');
+  const caller = resolveCallerIdentity(request, url);
+  if (!caller) throw error(401, 'Authentication required.');
 
   const record = getPermissionRequest(requestId);
   if (!record) throw error(404, 'permission_request not found');
 
   // Allow: admin-bearer / requester / approver-snapshot member.
-  const isRequester = record.requesterHandle === callerHandle;
-  const isApprover = record.approverHandles.some((a) => a.handle === callerHandle);
-  const isAdmin = callerHandle === ADMIN_BEARER_HANDLE;
+  // Sec-iter2 Fix #3: admin signal is the typed `isAdminBearer` boolean,
+  // never a string-compare to the admin sentinel handle.
+  const isRequester = record.requesterHandle === caller.handle;
+  const isApprover = record.approverHandles.some((a) => a.handle === caller.handle);
+  const isAdmin = caller.isAdminBearer;
   if (!isRequester && !isApprover && !isAdmin) {
     throw error(403, 'Not a party to this permission_request.');
   }
