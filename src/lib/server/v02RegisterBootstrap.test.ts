@@ -149,7 +149,7 @@ describe('bootstrapV02Identity', () => {
     const db = getIdentityDb();
     const rows = db
       .prepare(
-        `SELECT kind, entity_kind, entity_id FROM v02_audit_events
+        `SELECT kind, entity_kind, entity_id FROM audit_events
           WHERE entity_id = ? OR entity_id = ?
           ORDER BY at_ms ASC`
       )
@@ -177,7 +177,7 @@ describe('bootstrapV02Identity', () => {
     });
     const db = getIdentityDb();
     const createdCount = db
-      .prepare(`SELECT COUNT(*) AS c FROM v02_audit_events WHERE kind = 'agent.created'`)
+      .prepare(`SELECT COUNT(*) AS c FROM audit_events WHERE kind = 'agent.created'`)
       .get() as { c: number };
     expect(createdCount.c).toBe(1);
   });

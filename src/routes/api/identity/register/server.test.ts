@@ -588,7 +588,7 @@ describe('POST /api/identity/register', () => {
       const db = getIdentityDb();
       const rows = db
         .prepare(
-          `SELECT kind, entity_kind, entity_id FROM v02_audit_events
+          `SELECT kind, entity_kind, entity_id FROM audit_events
             WHERE entity_id IN (?, ?) ORDER BY at_ms ASC`
         )
         .all(payload.v02_agent_id, payload.v02_runtime_id) as {

@@ -133,7 +133,7 @@ function appendAuditEvent(input: {
   try {
     const db = getIdentityDb();
     db.prepare(
-      `INSERT INTO v02_audit_events
+      `INSERT INTO audit_events
          (audit_id, at_ms, kind, entity_kind, entity_id,
           actor_agent_id, actor_runtime_id, before_json, after_json,
           request_id, ip_hash, challenge_proof)
