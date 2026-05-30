@@ -1928,7 +1928,7 @@ const SCHEMA_DDL_STATEMENTS = [
     signature               TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS idx_reclaim_requests_pending ON reclaim_requests(status, created_at_ms) WHERE status = 'pending'`,
-  `CREATE INDEX IF NOT EXISTS idx_reclaim_requests_target ON reclaim_requests(target_kind, target_id)`
+  `CREATE INDEX IF NOT EXISTS idx_reclaim_requests_target ON reclaim_requests(target_kind, target_id)`,
   // Substrate v0.2 Part 4 — identity_keys multi-device + recovery (2026-05-29).
   // Spec: /tmp/ant-identity-keys-multi-device-canvas-2026-05-29.md.
   //
@@ -2017,7 +2017,7 @@ const SCHEMA_DDL_STATEMENTS = [
     FROM identity_keys k
     LEFT JOIN identity_attestations a
       ON a.revoked_key_id = k.key_id
-    WHERE k.revoked_at_ms IS NOT NULL`
+    WHERE k.revoked_at_ms IS NOT NULL`,
   // Stage A — restructured 403 PermissionDenied payload (plan milestone
   // p3-stage-a-403-payload of ant-substrate-v0.2-2026-05-29, ratified PR
   // shape 2026-05-29). `grants_shim` is the minimal forward-compatible
@@ -2093,8 +2093,53 @@ const SCHEMA_DDL_STATEMENTS = [
     replay_status TEXT CHECK (replay_status IN ('pending','ready_for_replay','replayed_by_caller','expired','denied'))
   )`,
   `CREATE INDEX IF NOT EXISTS idx_pending_actions_expiry ON pending_actions(expires_at_ms) WHERE replayed_at_ms IS NULL`,
-  `CREATE INDEX IF NOT EXISTS idx_pending_actions_request ON pending_actions(request_id)`
-  `CREATE INDEX IF NOT EXISTS idx_grants_shim_lookup ON grants_shim (grantee_handle, action, target_id, revoked_at_ms)`
+  `CREATE INDEX IF NOT EXISTS idx_pending_actions_request ON pending_actions(request_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_grants_shim_lookup_v2 ON grants_shim (grantee_handle, action, target_id, revoked_at_ms)`,
+  // PR-D — tools catalog migration (plan milestone pr-d-tools-catalog of
+  // ant-substrate-v0.2-2026-05-29). Closes the "nifty leak" case JWPK
+  // surfaced msg_mjh7rgi3wa + msg_6gq9zczigb (2026-05-30 ~01:00 BST):
+  // skills load from filesystem globs, MCPs from per-client config, CLI
+  // verbs from hardcoded dispatch tables — "what skills does this agent
+  // have access to?" had no single answer. Deleting a SKILL.md left
+  // agents still referencing it because the catalog was the filesystem,
+  // not a queryable surface. tools_catalog is the canonical row source
+  // for skills/MCPs/cli-verbs/hooks/plugins/bridges; tool_grants_v02 is
+  // the per-agent grant table. The `_v02` suffix is intentional — it
+  // coexists with caller_grants (2026-05-19 slice) and grants_shim
+  // (PR #98 Stage A); v0.2 cut-over will consolidate, but that's a
+  // planned milestone, not this PR. Additive only.
+  `CREATE TABLE IF NOT EXISTS tools_catalog (
+    tool_id        TEXT PRIMARY KEY,
+    tool_slug      TEXT NOT NULL,
+    kind           TEXT NOT NULL CHECK (kind IN ('skill','mcp','cli-verb','hook','plugin','bridge')),
+    name           TEXT NOT NULL,
+    description    TEXT,
+    version        TEXT,
+    source_path    TEXT,
+    owner_org      TEXT,
+    min_tier       TEXT CHECK (min_tier IN ('oss','premium','internal')) DEFAULT 'oss',
+    added_at_ms    INTEGER NOT NULL,
+    deprecated_at_ms INTEGER,
+    retired_at_ms  INTEGER,
+    metadata_json  TEXT
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_tools_catalog_slug_active ON tools_catalog(tool_slug) WHERE retired_at_ms IS NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_tools_catalog_kind ON tools_catalog(kind) WHERE retired_at_ms IS NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_tools_catalog_org ON tools_catalog(owner_org) WHERE retired_at_ms IS NULL`,
+  `CREATE TABLE IF NOT EXISTS tool_grants_v02 (
+    grant_id           TEXT PRIMARY KEY,
+    grantee_handle     TEXT NOT NULL,
+    tool_id            TEXT NOT NULL REFERENCES tools_catalog(tool_id),
+    scope_kind         TEXT NOT NULL CHECK (scope_kind IN ('global','org','room','session')),
+    scope_id           TEXT,
+    granted_by_handle  TEXT NOT NULL,
+    granted_at_ms      INTEGER NOT NULL,
+    revoked_at_ms      INTEGER,
+    expires_at_ms      INTEGER,
+    reason             TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_tool_grants_v02_lookup ON tool_grants_v02(grantee_handle, tool_id, scope_kind, scope_id, revoked_at_ms)`,
+  `CREATE INDEX IF NOT EXISTS idx_tool_grants_v02_tool ON tool_grants_v02(tool_id, revoked_at_ms)`
 ];
 
 function resolveDbFilePath(): string {
