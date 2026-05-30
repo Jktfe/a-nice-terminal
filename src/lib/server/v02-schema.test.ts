@@ -43,6 +43,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getIdentityDb, resetIdentityDbForTests } from './db';
+import { seedSiblingFkTargets } from './v02TestFixtures';
 
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
