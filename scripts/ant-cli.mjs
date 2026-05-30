@@ -50,6 +50,7 @@ import { handleStageVerb } from './ant-cli-stage.mjs';
 import { handleStatusVerb } from './ant-cli-status.mjs';
 import { handleTaskVerb } from './ant-cli-task.mjs';
 import { handleTerminalVerb } from './ant-cli-terminal.mjs';
+import { handleToolsVerb } from './ant-cli-tools.mjs';
 import { handleTunnelVerb } from './ant-cli-tunnel.mjs';
 import { handleVoiceVerb } from './ant-cli-voice.mjs';
 import { fetchRoomJsonWithBrowserSessionFallback } from './ant-cli-browser-session.mjs';
@@ -64,7 +65,7 @@ const ENV_SERVER_URL = process.env.ANT_SERVER_URL?.trim();
 const DISPATCH = {
   plan: handlePlanVerb, ask: handleAskVerb, artefact: handleArtefactVerb, attach: handleAttachVerb, invite: handleInviteVerb, chat: handleChatVerb, room: handleRoomVerb,
   reaction: handleReactionVerb, reclaim: handleReclaimVerb, handle: handleHandleVerb, status: handleStatusVerb, delivery: handleDeliveryVerb, audit: handleAuditVerb, docs: handleDocsVerb,
-  deck: handleDeckVerb, decks: handleDecksVerb, stage: handleStageVerb, remote: handleRemoteVerb, 'remote-room': handleRemoteRoomVerb, discussion: handleDiscussionVerb, linkedchat: handleLinkedchatVerb, fingerprint: handleFingerprintVerb, mcp: handleMcpVerb, chair: handleChairVerb, interview: handleInterviewVerb, screenshot: handleScreenshotVerb, hooks: handleHooksVerb, new: handleNewVerb, list: handleListVerb, terminal: handleTerminalVerb, settings: handleSettingsVerb, flag: handleFlagVerb, grant: handleGrantVerb, request: handleRequestVerb, task: handleTaskVerb, memory: handleMemoryVerb, sessions: handleSessionsVerb, voice: handleVoiceVerb, tunnel: handleTunnelVerb, pairing: handlePairingVerb, agents: handleAgentsVerb, share: handleShareVerb, identity: handleIdentityVerb, register: handleRegisterVerb, add: handleAddVerb, resolve: handleResolveVerb, router: handleRouterVerb
+  deck: handleDeckVerb, decks: handleDecksVerb, stage: handleStageVerb, remote: handleRemoteVerb, 'remote-room': handleRemoteRoomVerb, discussion: handleDiscussionVerb, linkedchat: handleLinkedchatVerb, fingerprint: handleFingerprintVerb, mcp: handleMcpVerb, chair: handleChairVerb, interview: handleInterviewVerb, screenshot: handleScreenshotVerb, hooks: handleHooksVerb, new: handleNewVerb, list: handleListVerb, terminal: handleTerminalVerb, tools: handleToolsVerb, settings: handleSettingsVerb, flag: handleFlagVerb, grant: handleGrantVerb, request: handleRequestVerb, task: handleTaskVerb, memory: handleMemoryVerb, sessions: handleSessionsVerb, voice: handleVoiceVerb, tunnel: handleTunnelVerb, pairing: handlePairingVerb, agents: handleAgentsVerb, share: handleShareVerb, identity: handleIdentityVerb, register: handleRegisterVerb, add: handleAddVerb, resolve: handleResolveVerb, router: handleRouterVerb
 };
 
 export function makeCliRunner({ fetchImpl, writeOut, writeErr, serverUrl, serverUrlSource: suppliedServerUrlSource, config } = {}) {

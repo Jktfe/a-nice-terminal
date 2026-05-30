@@ -78,6 +78,8 @@ describe('ant audit wrappers (M3.1a)', () => {
     const helpCode = await handleAuditVerb('help', [], runtime, { CliInputError });
     expect(helpCode).toBe(0);
     expect(captured.stdout.join('\n')).toContain('ant audit permissions');
+    expect(captured.stdout.join('\n')).toContain('ant audit tools');
+    expect(captured.stdout.join('\n')).toContain('ant audit orphans');
 
     const calls = [];
     const runner = makeCliRunner({
@@ -91,5 +93,206 @@ describe('ant audit wrappers (M3.1a)', () => {
     const u = new URL(calls[0].url);
     expect(`${u.origin}${u.pathname}`).toBe('http://test.local/api/chat-rooms/r/audit');
     expect(u.searchParams.get('pidChain')).toBeTruthy();
+  });
+});
+
+describe('ant audit tools (PR-D)', () => {
+  it('GETs /api/tools/audit?audit=tools and renders one row per tool', async () => {
+    const payload = {
+      tools: [
+        {
+          toolSlug: 'graphify',
+          kind: 'skill',
+          version: '0.3.1',
+          ownerOrg: 'nmvc',
+          minTier: 'oss',
+          grantCount: 3,
+          deprecatedAtMs: null,
+          retiredAtMs: null
+        },
+        {
+          toolSlug: 'nifty',
+          kind: 'skill',
+          version: null,
+          ownerOrg: null,
+          minTier: 'oss',
+          grantCount: 0,
+          deprecatedAtMs: null,
+          retiredAtMs: 1
+        }
+      ]
+    };
+    const { runtime, captured } = makeRuntime(() => okJson(payload));
+    const code = await handleAuditVerb('tools', ['--include-retired'], runtime, { CliInputError });
+    expect(code).toBe(0);
+    const u = new URL(captured.requests[0].url);
+    expect(u.searchParams.get('audit')).toBe('tools');
+    expect(u.searchParams.get('includeRetired')).toBe('1');
+    expect(captured.stdout.find((l) => l.includes('graphify'))).toContain('active');
+    expect(captured.stdout.find((l) => l.includes('nifty'))).toContain('retired');
+  });
+
+  it('forwards --org as owner_org', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ tools: [] }));
+    await handleAuditVerb('tools', ['--org', 'orgA'], runtime, { CliInputError });
+    const u = new URL(captured.requests[0].url);
+    expect(u.searchParams.get('owner_org')).toBe('orgA');
+  });
+
+  it('prints "(no tools)" when empty', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ tools: [] }));
+    await handleAuditVerb('tools', [], runtime, { CliInputError });
+    expect(captured.stdout.join('\n')).toContain('no tools');
+  });
+});
+
+describe('ant audit grants (PR-D)', () => {
+  it('GETs with --agent --tool --scope filters', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ grants: [] }));
+    await handleAuditVerb(
+      'grants',
+      ['--agent', '@speedyc', '--tool', 'graphify', '--scope', 'room'],
+      runtime,
+      { CliInputError }
+    );
+    const u = new URL(captured.requests[0].url);
+    expect(u.searchParams.get('agent')).toBe('@speedyc');
+    expect(u.searchParams.get('tool')).toBe('graphify');
+    expect(u.searchParams.get('scope_kind')).toBe('room');
+  });
+
+  it('renders one row per grant', async () => {
+    const payload = {
+      grants: [
+        {
+          grantId: 'tg_1',
+          granteeHandle: '@speedyc',
+          toolSlug: 'graphify',
+          scopeKind: 'global',
+          scopeId: null,
+          grantedByHandle: '@jwpk',
+          grantedAtMs: 1_700_000_000_000,
+          expiresAtMs: null,
+          reason: null
+        }
+      ]
+    };
+    const { runtime, captured } = makeRuntime(() => okJson(payload));
+    await handleAuditVerb('grants', [], runtime, { CliInputError });
+    expect(captured.stdout.join('\n')).toContain('@speedyc');
+    expect(captured.stdout.join('\n')).toContain('graphify');
+    expect(captured.stdout.join('\n')).toContain('tg_1');
+  });
+
+  it('prints "(no grants)" when empty', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ grants: [] }));
+    await handleAuditVerb('grants', [], runtime, { CliInputError });
+    expect(captured.stdout.join('\n')).toContain('no grants');
+  });
+});
+
+describe('ant audit revocations (PR-D)', () => {
+  it('parses --since 7d into since_ms', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ revocations: [] }));
+    await handleAuditVerb('revocations', ['--since', '7d'], runtime, { CliInputError });
+    const u = new URL(captured.requests[0].url);
+    expect(u.searchParams.get('since_ms')).toBe(String(7 * 86_400_000));
+  });
+
+  it('parses --since 24h', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ revocations: [] }));
+    await handleAuditVerb('revocations', ['--since', '24h'], runtime, { CliInputError });
+    const u = new URL(captured.requests[0].url);
+    expect(u.searchParams.get('since_ms')).toBe(String(24 * 3_600_000));
+  });
+
+  it('rejects malformed --since', async () => {
+    const { runtime } = makeRuntime(() => okJson({}));
+    await expect(
+      handleAuditVerb('revocations', ['--since', 'forever'], runtime, { CliInputError })
+    ).rejects.toThrow(/--since/);
+  });
+
+  it('defaults to last 7 days when --since omitted', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ revocations: [] }));
+    await handleAuditVerb('revocations', [], runtime, { CliInputError });
+    const u = new URL(captured.requests[0].url);
+    expect(u.searchParams.get('since_ms')).toBe(String(7 * 86_400_000));
+  });
+
+  it('renders revocation rows', async () => {
+    const payload = {
+      revocations: [
+        {
+          grantId: 'tg_x',
+          granteeHandle: '@x',
+          toolSlug: 'nifty',
+          scopeKind: 'global',
+          scopeId: null,
+          grantedAtMs: 1_700_000_000_000,
+          revokedAtMs: 1_700_500_000_000
+        }
+      ]
+    };
+    const { runtime, captured } = makeRuntime(() => okJson(payload));
+    await handleAuditVerb('revocations', ['--since', '30d'], runtime, { CliInputError });
+    expect(captured.stdout.join('\n')).toContain('nifty');
+    expect(captured.stdout.join('\n')).toContain('tg_x');
+  });
+
+  it('prints "(no revocations in last 7d)" when empty', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ revocations: [] }));
+    await handleAuditVerb('revocations', [], runtime, { CliInputError });
+    expect(captured.stdout.join('\n')).toContain('no revocations');
+  });
+});
+
+describe('ant audit orphans (PR-D)', () => {
+  it('renders two sections: orphan grants + orphan tools', async () => {
+    const payload = {
+      orphanGrants: [
+        {
+          grantId: 'tg_o',
+          granteeHandle: '@x',
+          toolSlug: 'nifty',
+          grantedByHandle: '@admin'
+        }
+      ],
+      orphanTools: [
+        {
+          toolSlug: 'unused',
+          kind: 'skill',
+          version: null,
+          ownerOrg: null,
+          addedAtMs: 1_700_000_000_000
+        }
+      ]
+    };
+    const { runtime, captured } = makeRuntime(() => okJson(payload));
+    const code = await handleAuditVerb('orphans', [], runtime, { CliInputError });
+    expect(code).toBe(0);
+    const all = captured.stdout.join('\n');
+    expect(all).toContain('Orphan grants');
+    expect(all).toContain('@x');
+    expect(all).toContain('nifty');
+    expect(all).toContain('Orphan tools');
+    expect(all).toContain('unused');
+  });
+
+  it('renders "(none)" for an empty section', async () => {
+    const { runtime, captured } = makeRuntime(() =>
+      okJson({ orphanGrants: [], orphanTools: [] })
+    );
+    await handleAuditVerb('orphans', [], runtime, { CliInputError });
+    const all = captured.stdout.join('\n');
+    // Two (none) lines, one per section.
+    expect(all.match(/\(none\)/g)?.length).toBe(2);
+  });
+
+  it('--json passes payload through unchanged', async () => {
+    const payload = { orphanGrants: [], orphanTools: [{ toolSlug: 'x' }] };
+    const { runtime, captured } = makeRuntime(() => okJson(payload));
+    await handleAuditVerb('orphans', ['--json'], runtime, { CliInputError });
+    expect(JSON.parse(captured.stdout[0])).toEqual(payload);
   });
 });
