@@ -26,6 +26,10 @@
 
 import { randomUUID } from 'node:crypto';
 import { getIdentityDb } from './db';
+import {
+  mirrorAddMembership as v02MirrorAddMembership,
+  ensureV02RoomExists as v02EnsureRoomExists
+} from './v02ChatRoomBridge';
 
 const INBOX_ID_PREFIX = '__inbox_';
 const INBOX_ID_SUFFIX = '__';
@@ -122,5 +126,16 @@ export function ensureHumanInboxRoom(humanHandle: string): string {
     }
   });
   txn();
+  // M9c dual-write: mirror the inbox room + the human owner membership
+  // into v02 substrate. Outside the legacy transaction because the bridge
+  // helpers swallow errors and we don't want a v02 failure to roll back
+  // the legacy inbox provisioning.
+  v02EnsureRoomExists(roomId);
+  v02MirrorAddMembership({
+    roomId,
+    handle: withAt,
+    displayName: withAt,
+    role: 'owner'
+  });
   return roomId;
 }
