@@ -502,6 +502,19 @@ export function resetChatRoomStoreForTests(): void {
   const db = getIdentityDb();
   db.prepare('DELETE FROM chat_room_members').run();
   db.prepare('DELETE FROM chat_rooms').run();
+  // M9d cut-over phase 3: reset the v0.2 sidecar tables alongside the
+  // legacy ones so tests that depend on a clean v0.2 substrate (the
+  // humanInbox + chat-room test suites) see consistent state. Without
+  // this, leftover v0.2 memberships from a prior test fool the new
+  // v0.2 read paths into thinking inbox edges already exist.
+  // memberships referenced by agents/rooms FK target order — delete
+  // children first.
+  db.prepare('DELETE FROM memberships').run();
+  db.prepare('DELETE FROM rooms').run();
+  // agents stays — register/identity tests own its lifecycle and we
+  // don't want to wipe global identity state. The bridge auto-create
+  // path handles re-use of existing agent rows; leftover @you /
+  // @codex agents are intentionally reusable across tests.
 }
 
 export function findChatRoomById(id: string): ChatRoom | undefined {
@@ -815,15 +828,20 @@ export function removeMemberFromRoom(input: {
     );
   });
   txn();
+  // M9c dual-write + M9d ordering fix: soft-leave the v0.2
+  // memberships row BEFORE the inbox-edge recompute. The recompute
+  // reads v0.2 to decide whether each (human, agent) pair still
+  // shares a room — if the v0.2 row is still active when recompute
+  // runs, the helper sees a phantom shared room and refuses to drop
+  // the inbox edge. Order must match the legacy chat_room_members
+  // DELETE (which fired inside the txn above).
+  v02MirrorRemoveMembership(input.roomId, input.globalHandle);
   // After the delete, recompute every inbox edge involving the removed
   // handle. The helper walks the REMAINING members to find pairings — so
   // if the removed agent had no other shared rooms with each human in
   // this room, the inbox membership is dropped (JWPK 2026-05-22 auto-
   // remove correction).
   recomputeInboxEdgesForRoomMembershipChange(input.roomId, input.globalHandle);
-  // M9c dual-write: soft-leave the v02_memberships row so the v0.2
-  // substrate reflects the removal. Best-effort.
-  v02MirrorRemoveMembership(input.roomId, input.globalHandle);
 
   return loadRoomById(input.roomId)!;
 }

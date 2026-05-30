@@ -67,10 +67,20 @@ export function isInboxRoomId(roomId: string): boolean {
  */
 export function listInboxOwnersWhereHandleIsMember(handle: string): string[] {
   const db = getIdentityDb();
+  // M9d cut-over phase 3: read v0.2 memberships scoped to inbox rooms
+  // (`room_id LIKE '__inbox_%'`). Both surfaces dual-written via the
+  // bridge so the result is identical; v0.2 is the new source of
+  // truth. The handle may match a per-room alias (room_alias column)
+  // or the agent's canonical primary_handle — both are checked via
+  // the JOIN below.
   const rows = db.prepare(
-    `SELECT room_id FROM chat_room_members
-     WHERE handle = ? AND room_id LIKE '__inbox_%'`
-  ).all(handle) as Array<{ room_id: string }>;
+    `SELECT DISTINCT m.room_id AS room_id
+       FROM memberships m
+       JOIN agents a ON a.agent_id = m.agent_id
+      WHERE (m.room_alias = ? OR a.primary_handle = ?)
+        AND m.left_at_ms IS NULL
+        AND m.room_id LIKE '__inbox_%'`
+  ).all(handle, handle) as Array<{ room_id: string }>;
   const owners: string[] = [];
   for (const row of rows) {
     // __inbox_<slug>__ → @<slug>. Slugs lowercase, no @; reconstruct
@@ -126,16 +136,23 @@ export function ensureHumanInboxRoom(humanHandle: string): string {
     }
   });
   txn();
-  // M9c dual-write: mirror the inbox room + the human owner membership
-  // into v02 substrate. Outside the legacy transaction because the bridge
-  // helpers swallow errors and we don't want a v02 failure to roll back
-  // the legacy inbox provisioning.
+  // M9c dual-write + M9d presentation thread-through: mirror the
+  // inbox room + the human owner membership into v0.2 substrate so
+  // the v0.2 read path reproduces the same self-membership row.
+  // Outside the legacy transaction because the bridge helpers swallow
+  // errors and we don't want a v02 failure to roll back the legacy
+  // inbox provisioning.
   v02EnsureRoomExists(roomId);
   v02MirrorAddMembership({
     roomId,
     handle: withAt,
     displayName: withAt,
-    role: 'owner'
+    role: 'owner',
+    memberKind: 'human',
+    roomDisplayName: withAt,
+    displayColor: '#DC2626',
+    displayIcon: withAt.slice(1, 2).toUpperCase() || '?',
+    displayBackgroundStyle: 'card'
   });
   return roomId;
 }

@@ -438,6 +438,12 @@ export type V02RoomMemberRow = {
 
 export function listRoomMembersHydrated(room_id: string): V02RoomMemberRow[] {
   const db = getIdentityDb();
+  // ORDER BY joined_at_ms ASC matches the legacy chat_room_members
+  // `ORDER BY joined_at ASC` ordering. membership_id ASC is the
+  // stable tiebreaker for same-millisecond inserts (the legacy table
+  // implicitly fell back to ROWID order which mirrors insertion
+  // order — UUIDs aren't monotonic but they're stable enough for
+  // test determinism and don't reorder across runs).
   const rows = db
     .prepare(
       `SELECT m.membership_id           AS membership_id,
@@ -453,18 +459,22 @@ export function listRoomMembersHydrated(room_id: string): V02RoomMemberRow[] {
               m.display_icon            AS display_icon,
               m.display_background_style AS display_background_style,
               m.member_kind             AS member_kind,
-              m.joined_at_ms            AS joined_at_ms
+              m.joined_at_ms            AS joined_at_ms,
+              m.rowid                   AS _rowid
          FROM memberships m
          JOIN agents a ON a.agent_id = m.agent_id
         WHERE m.room_id = ?
           AND m.left_at_ms IS NULL
-        ORDER BY m.joined_at_ms ASC`
+        ORDER BY m.joined_at_ms ASC, m.rowid ASC`
     )
-    .all(room_id) as Array<Omit<V02RoomMemberRow, 'joined_at_iso'>>;
-  return rows.map((row) => ({
-    ...row,
-    joined_at_iso: new Date(row.joined_at_ms).toISOString()
-  }));
+    .all(room_id) as Array<Omit<V02RoomMemberRow, 'joined_at_iso'> & { _rowid: number }>;
+  return rows.map(({ _rowid, ...row }) => {
+    void _rowid;
+    return {
+      ...row,
+      joined_at_iso: new Date(row.joined_at_ms).toISOString()
+    };
+  });
 }
 
 /**
@@ -480,4 +490,117 @@ export function listRoomMembersHydrated(room_id: string): V02RoomMemberRow[] {
  */
 export function isHandleActiveMemberOfRoom(room_id: string, handle: string): boolean {
   return getActiveMembershipByHandle(room_id, handle) !== null;
+}
+
+/**
+ * M9d: humanInboxMembership.sharedContextExists replacement.
+ *
+ * Returns true when both `handleA` and `handleB` have an active
+ * membership in the same non-inbox room (`__inbox_%` prefix excluded
+ * to match the legacy query). Inbox rooms are excluded so a stale
+ * inbox membership cannot vouch for itself.
+ *
+ * Resolves each handle via `agents.primary_handle` (the standard
+ * agent-layer lookup); legacy SQL keyed on `chat_room_members.handle`
+ * directly, but v0.2 keys on `agent_id`.
+ */
+export function shareActiveNonInboxRoom(handleA: string, handleB: string): boolean {
+  const db = getIdentityDb();
+  const agentA = v02Agents.getLiveAgentByHandle(handleA);
+  if (!agentA) return false;
+  const agentB = v02Agents.getLiveAgentByHandle(handleB);
+  if (!agentB) return false;
+  const row = db
+    .prepare(
+      `SELECT 1 AS present
+         FROM memberships ma
+         JOIN memberships mb ON ma.room_id = mb.room_id
+        WHERE ma.agent_id = ? AND mb.agent_id = ?
+          AND ma.left_at_ms IS NULL AND mb.left_at_ms IS NULL
+          AND ma.room_id NOT LIKE '__inbox_%'
+        LIMIT 1`
+    )
+    .get(agentA.agent_id, agentB.agent_id) as { present: number } | undefined;
+  return row !== undefined;
+}
+
+/**
+ * M9d: humanInboxMembership.recomputeInboxEdgesForRoomMembershipChange
+ * helper. Returns the (handle, member_kind) tuples for every active
+ * member of `room_id`, hydrated from memberships JOIN agents. Used by
+ * the inbox-edge recompute to find the OTHER side of each (human,
+ * agent) pair without scanning chat_room_members.
+ *
+ * Replaces `SELECT handle, kind FROM chat_room_members WHERE
+ * room_id = ?` with v0.2-native data. member_kind on the row owns
+ * 'human'/'agent'; rows pre-dating the column resolve to null and
+ * the caller falls back to the legacy heuristic.
+ */
+export function listActiveMemberHandlesForRoom(
+  room_id: string
+): Array<{ handle: string; member_kind: V02MemberKind | null }> {
+  const db = getIdentityDb();
+  return db
+    .prepare(
+      `SELECT COALESCE(m.room_alias, a.primary_handle) AS handle,
+              m.member_kind AS member_kind
+         FROM memberships m
+         JOIN agents a ON a.agent_id = m.agent_id
+        WHERE m.room_id = ? AND m.left_at_ms IS NULL`
+    )
+    .all(room_id) as Array<{ handle: string; member_kind: V02MemberKind | null }>;
+}
+
+/**
+ * M9d: humanInboxBackfill replacement — list every distinct human
+ * handle that has ever been an active member of a non-inbox room.
+ * Resolved by JOIN to agents.primary_handle; member_kind='human'
+ * filter matches the legacy chat_room_members.kind='human' filter.
+ *
+ * Note: rows pre-dating the member_kind ALTER carry NULL — the
+ * backfill caller treats NULL as unknown and falls back to legacy
+ * data for safety.
+ */
+export function listDistinctHumanHandles(): string[] {
+  const db = getIdentityDb();
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT COALESCE(m.room_alias, a.primary_handle) AS handle
+         FROM memberships m
+         JOIN agents a ON a.agent_id = m.agent_id
+        WHERE m.left_at_ms IS NULL
+          AND m.member_kind = 'human'
+          AND m.room_id NOT LIKE '__inbox_%'`
+    )
+    .all() as Array<{ handle: string }>;
+  return rows.map((row) => row.handle);
+}
+
+/**
+ * M9d: humanInboxBackfill pairs helper. Returns every distinct
+ * (human, agent) pair that share at least one non-inbox room.
+ * Resolved via memberships JOIN memberships JOIN agents (×2).
+ *
+ * Mirrors the legacy `path (a)` half of the backfill UNION; the
+ * `path (b)` half (terminal_records.created_by) is unchanged because
+ * terminal_records is not a chat_room_members surface.
+ */
+export function listSharedRoomHumanAgentPairs(): Array<{ human: string; agent: string }> {
+  const db = getIdentityDb();
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT
+              COALESCE(mh.room_alias, ah.primary_handle) AS human,
+              COALESCE(ma.room_alias, aa.primary_handle) AS agent
+         FROM memberships mh
+         JOIN memberships ma ON mh.room_id = ma.room_id
+         JOIN agents ah ON ah.agent_id = mh.agent_id
+         JOIN agents aa ON aa.agent_id = ma.agent_id
+        WHERE mh.left_at_ms IS NULL AND ma.left_at_ms IS NULL
+          AND mh.member_kind = 'human'
+          AND ma.member_kind = 'agent'
+          AND mh.room_id NOT LIKE '__inbox_%'`
+    )
+    .all() as Array<{ human: string; agent: string }>;
+  return rows;
 }

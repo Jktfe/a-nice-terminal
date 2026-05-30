@@ -28,25 +28,41 @@ import {
   mirrorAddMembership as v02MirrorAddMembership,
   mirrorRemoveMembership as v02MirrorRemoveMembership
 } from './v02ChatRoomBridge';
+import {
+  shareActiveNonInboxRoom as v02ShareActiveNonInboxRoom,
+  isHandleActiveMemberOfRoom as v02IsHandleActiveMemberOfRoom,
+  listActiveMemberHandlesForRoom as v02ListActiveMemberHandlesForRoom
+} from './v02MembershipsStore';
 
 /** True when either path (a) or path (b) holds for this (human, agent). */
 function sharedContextExists(humanHandle: string, agentHandle: string): boolean {
   const db = getIdentityDb();
-  // Path (a): any non-inbox room both are members of.
-  const sharedRoom = db.prepare(
+  // M9d cut-over phase 3: path (a) reads v0.2 memberships (both
+  // handles must have an active membership in the same non-inbox
+  // room). Bridge auto-create guarantees a v0.2 row mirrors every
+  // legacy chat_room_members write FOR NEW ROWS — but a legacy
+  // chat_room_members row inserted by direct SQL (e.g. pre-cut-over
+  // data + the humanInboxBackfill test fixture) won't have a v0.2
+  // mirror until backfill runs. Fall through to a legacy
+  // chat_room_members read so cut-over-window state is honoured.
+  // Once chat_room_members is dropped (week-2 cleanup PR), the
+  // fallback arm goes away with it.
+  if (v02ShareActiveNonInboxRoom(humanHandle, agentHandle)) return true;
+  const legacyShared = db.prepare(
     `SELECT 1 FROM chat_room_members a
      JOIN chat_room_members b ON a.room_id = b.room_id
      WHERE a.handle = ? AND b.handle = ?
        AND a.room_id NOT LIKE '__inbox_%'
      LIMIT 1`
   ).get(humanHandle, agentHandle);
-  if (sharedRoom) return true;
+  if (legacyShared) return true;
   // Path (b): any LIVE terminal_records row where the agent inhabits a
   // terminal the human created. Pane-binding supersession filter
   // (JWPK msg_wlvguvfvqu 2026-05-27): a recycled-pane terminal_record
   // does NOT extend inbox membership to its prior occupant — that
   // would let a previous agent retain inbox visibility after a new
-  // agent took over the pane.
+  // agent took over the pane. terminal_records is NOT a
+  // chat_room_members surface so this query is unchanged.
   const ownedTerminal = db.prepare(
     `SELECT 1 FROM terminal_records
      WHERE handle = ? AND created_by = ?
@@ -70,9 +86,10 @@ export function recomputeInboxEdge(humanHandle: string, agentHandle: string): vo
   const db = getIdentityDb();
   const shouldBeMember = sharedContextExists(humanHandle, agentHandle);
 
-  const existing = db.prepare(
-    `SELECT 1 FROM chat_room_members WHERE room_id = ? AND handle = ?`
-  ).get(inboxRoomId, agentHandle);
+  // M9d cut-over phase 3: presence probe now reads v0.2 memberships.
+  // Legacy DELETE/INSERT below still touch chat_room_members for
+  // rollback safety (dual-write); the bridge mirrors them into v0.2.
+  const existing = v02IsHandleActiveMemberOfRoom(inboxRoomId, agentHandle);
 
   if (shouldBeMember && !existing) {
     const nowIso = new Date().toISOString();
@@ -83,18 +100,30 @@ export function recomputeInboxEdge(humanHandle: string, agentHandle: string): vo
       randomUUID(), inboxRoomId, agentHandle, agentHandle, '#0891B2',
       agentHandle.slice(1, 2).toUpperCase() || '?', 'transparent', nowIso
     );
-    // M9c dual-write: mirror inbox-edge add into v02_memberships.
+    // M9c dual-write: mirror inbox-edge add into v0.2 memberships.
+    // M9d enrichment: pass member_kind='agent' (inbox edges are always
+    // agent rows — humans get added via the per-human inbox seed) +
+    // matching display state so the v0.2 row is the source of truth
+    // for read paths going forward.
     v02MirrorAddMembership({
       roomId: inboxRoomId,
       handle: agentHandle,
-      displayName: agentHandle
+      displayName: agentHandle,
+      memberKind: 'agent',
+      roomDisplayName: agentHandle,
+      displayColor: '#0891B2',
+      displayIcon: agentHandle.slice(1, 2).toUpperCase() || '?',
+      displayBackgroundStyle: 'transparent'
     });
   } else if (!shouldBeMember && existing) {
+    // M9d ordering fix: mirror the v0.2 soft-leave BEFORE the legacy
+    // DELETE so any subsequent v0.2 read in the same chain (e.g. a
+    // sibling recompute on the same agent) sees the post-removal
+    // state rather than a phantom active row.
+    v02MirrorRemoveMembership(inboxRoomId, agentHandle);
     db.prepare(
       `DELETE FROM chat_room_members WHERE room_id = ? AND handle = ?`
     ).run(inboxRoomId, agentHandle);
-    // M9c dual-write: mirror inbox-edge soft-leave into v02_memberships.
-    v02MirrorRemoveMembership(inboxRoomId, agentHandle);
   }
 }
 
@@ -115,25 +144,54 @@ export function recomputeInboxEdgesForRoomMembershipChange(
   changedHandle: string
 ): void {
   if (isInboxRoomId(roomId)) return;
+  // M9d cut-over phase 3: read changed-handle kind + other-member
+  // roster from v0.2 memberships. member_kind on memberships replaces
+  // chat_room_members.kind; the SQL falls back to a NULL row when
+  // the changed handle has no remaining memberships (delete-then-
+  // recompute path), preserving the legacy "try both directions"
+  // behaviour.
   const db = getIdentityDb();
-  const changedKind = db.prepare(
-    `SELECT kind FROM chat_room_members WHERE handle = ? LIMIT 1`
-  ).get(changedHandle) as { kind: 'human' | 'agent' } | undefined;
-  // If the changed handle has no remaining membership rows we can't infer
-  // kind from chat_room_members — fall back to "try both directions".
-  const otherMembers = db.prepare(
-    `SELECT handle, kind FROM chat_room_members WHERE room_id = ?`
-  ).all(roomId) as Array<{ handle: string; kind: 'human' | 'agent' }>;
+  const changedKindRow = db.prepare(
+    `SELECT m.member_kind AS kind
+       FROM memberships m
+       JOIN agents a ON a.agent_id = m.agent_id
+      WHERE (m.room_alias = ? OR a.primary_handle = ?)
+        AND m.member_kind IS NOT NULL
+      ORDER BY m.left_at_ms IS NULL DESC, m.joined_at_ms DESC
+      LIMIT 1`
+  ).get(changedHandle, changedHandle) as { kind: 'human' | 'agent' | null } | undefined;
+  const changedKind: 'human' | 'agent' | undefined =
+    changedKindRow?.kind === 'human' || changedKindRow?.kind === 'agent'
+      ? changedKindRow.kind
+      : undefined;
+  const otherMembers = v02ListActiveMemberHandlesForRoom(roomId);
   for (const other of otherMembers) {
     if (other.handle === changedHandle) continue;
+    if (other.member_kind === null) {
+      // Legacy row pre-dating member_kind ALTER — fall back to the
+      // legacy chat_room_members kind lookup so we don't lose an
+      // edge during the cut-over window.
+      const legacyKind = db.prepare(
+        `SELECT kind FROM chat_room_members WHERE handle = ? AND room_id = ? LIMIT 1`
+      ).get(other.handle, roomId) as { kind: 'human' | 'agent' } | undefined;
+      if (!legacyKind) continue;
+      if (changedKind === 'human' && legacyKind.kind === 'agent') {
+        recomputeInboxEdge(changedHandle, other.handle);
+      } else if (changedKind === 'agent' && legacyKind.kind === 'human') {
+        recomputeInboxEdge(other.handle, changedHandle);
+      } else if (!changedKind && legacyKind.kind === 'human') {
+        recomputeInboxEdge(other.handle, changedHandle);
+      }
+      continue;
+    }
     // Pair (human, agent) ordered.
-    if (changedKind?.kind === 'human' && other.kind === 'agent') {
+    if (changedKind === 'human' && other.member_kind === 'agent') {
       recomputeInboxEdge(changedHandle, other.handle);
-    } else if (changedKind?.kind === 'agent' && other.kind === 'human') {
+    } else if (changedKind === 'agent' && other.member_kind === 'human') {
       recomputeInboxEdge(other.handle, changedHandle);
     } else if (!changedKind) {
       // Unknown kind — try the pairing where one is human, one agent.
-      if (other.kind === 'human') {
+      if (other.member_kind === 'human') {
         recomputeInboxEdge(other.handle, changedHandle);
       } else {
         // Both unknown / both agents → not an inbox edge, skip.
