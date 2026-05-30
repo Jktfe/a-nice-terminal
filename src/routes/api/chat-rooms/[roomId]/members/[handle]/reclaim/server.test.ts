@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { POST } from './+server';
+import { POST, _evaluateReclaimAuth } from './+server';
 import {
   createChatRoom,
   inviteAgentToRoom,
@@ -15,6 +15,12 @@ import {
   setTerminalStatus,
   upsertTerminal
 } from '$lib/server/terminalsStore';
+import {
+  appendHandleAlias,
+  createTerminalRecord
+} from '$lib/server/terminalRecordsStore';
+import { createBrowserSession } from '$lib/server/browserSessionStore';
+import { listMessagesInRoom } from '$lib/server/chatMessageStore';
 
 // Phase C2 tests use admin-bearer for the read-gate (mirrors the other
 // chat-room route tests). Test cases that need to exercise the
@@ -211,5 +217,221 @@ describe('POST /api/chat-rooms/:roomId/members/:handle/reclaim', () => {
     // Old terminal remains archived — reclaim doesn't touch it on a
     // re-point because the membership no longer points at it.
     expect(getTerminalById(oldTerm.id)?.status).toBe('archived');
+  });
+});
+
+// =====================================================================
+// Authorization-gate tests (2026-05-30 security review HIGH finding).
+// These exercise the non-admin paths — admin-bearer tests above already
+// cover the "admin bypass" leg.
+// =====================================================================
+
+describe('POST /api/chat-rooms/:roomId/members/:handle/reclaim — auth gate', () => {
+  it('records authReason="admin-bearer" on the admin-bypass path', async () => {
+    const room = createChatRoom({ name: 'reclaim-admin-reason', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@agent' });
+    const term = upsertTerminal({
+      pid: 800_100,
+      pid_start: 'reclaim-admin-reason',
+      name: 'reclaim-admin-reason-term'
+    });
+    addMembership({ room_id: room.id, handle: '@agent', terminal_id: term.id });
+    setTerminalStatus(term.id, 'archived');
+
+    const res = await run(makeEvent(room.id, '@agent'));
+    expect(res.status).toBe(200);
+    expect(res.body.authReason).toBe('admin-bearer');
+  });
+
+  it('rejects non-admin non-owner without alias history with 403 + structured payload', async () => {
+    // The HIGH finding. Non-admin caller in a room they read-can access
+    // attempts to reclaim someone else's archived handle. Server must
+    // reject with 403 carrying the Stage A permission_denied block, NOT
+    // silently rebind.
+    const room = createChatRoom({ name: 'reclaim-attacker', whoCreatedIt: '@jwpk' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@victim' });
+
+    // Victim's terminal — bound, then archived (e.g. via Phase A3 sweep).
+    const victimTerm = upsertTerminal({
+      pid: 800_200,
+      pid_start: 'reclaim-attacker-victim',
+      name: 'reclaim-attacker-victim-term'
+    });
+    addMembership({ room_id: room.id, handle: '@victim', terminal_id: victimTerm.id });
+    setTerminalStatus(victimTerm.id, 'archived');
+
+    // Attacker is in the room as a separate member with a separate live
+    // terminal. They have no admin-bearer (we'll authenticate via
+    // browser-session) and no alias history for @victim.
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@attacker' });
+    const attackerTerm = upsertTerminal({
+      pid: 800_201,
+      pid_start: 'reclaim-attacker-shell',
+      name: 'reclaim-attacker-shell-term'
+    });
+    addMembership({ room_id: room.id, handle: '@attacker', terminal_id: attackerTerm.id });
+    const session = createBrowserSession({ roomId: room.id, authorHandle: '@attacker' });
+    expect(session).not.toBeNull();
+    const cookie = `ant_browser_session=${session!.browserSessionSecret}`;
+
+    const encodedHandle = encodeURIComponent('@victim');
+    const url = new URL(
+      `http://localhost/api/chat-rooms/${room.id}/members/${encodedHandle}/reclaim`
+    );
+    const event = {
+      request: new Request(url.toString(), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', cookie },
+        body: JSON.stringify({
+          pidChain: [{ pid: attackerTerm.pid, pid_start: attackerTerm.pid_start }]
+        })
+      }),
+      params: { roomId: room.id, handle: encodedHandle },
+      url
+    } as unknown as AnyEvent;
+
+    const res = await run(event);
+    expect(res.status).toBe(403);
+    expect((res.body as { permission_denied?: { reason: string } }).permission_denied?.reason).toBe(
+      'not_room_owner'
+    );
+
+    // Critical: the membership row must NOT have been re-pointed.
+    const stillBound = getTerminalById(victimTerm.id);
+    expect(stillBound).not.toBeNull();
+    // victimTerm stays archived; attackerTerm stays as-is. Status
+    // unchanged on either side.
+    expect(stillBound?.status).toBe('archived');
+  });
+
+  it('allows the self-reclaim-alias path when caller terminal records the target handle in handle_aliases', async () => {
+    // The "I previously held this handle, now I want it back" path.
+    // Non-admin, non-owner, but the caller's terminal record carries
+    // the target handle in its alias list (e.g. they renamed away and
+    // now want it back).
+    const room = createChatRoom({ name: 'reclaim-self-alias', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@oldname' });
+
+    const oldTerm = upsertTerminal({
+      pid: 800_300,
+      pid_start: 'reclaim-self-old',
+      name: 'reclaim-self-old-term'
+    });
+    addMembership({ room_id: room.id, handle: '@oldname', terminal_id: oldTerm.id });
+    setTerminalStatus(oldTerm.id, 'archived');
+
+    // Caller's new terminal — different from the bound one — with a
+    // terminal_record listing @oldname as a previously-held alias.
+    const newTerm = upsertTerminal({
+      pid: 800_301,
+      pid_start: 'reclaim-self-new',
+      name: 'reclaim-self-new-term'
+    });
+    createTerminalRecord({
+      sessionId: newTerm.id,
+      name: 'reclaim-self-new-record',
+      handle: '@newname'
+    });
+    appendHandleAlias(newTerm.id, '@oldname');
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@newname' });
+    addMembership({ room_id: room.id, handle: '@newname', terminal_id: newTerm.id });
+    const session = createBrowserSession({ roomId: room.id, authorHandle: '@newname' });
+    expect(session).not.toBeNull();
+    const cookie = `ant_browser_session=${session!.browserSessionSecret}`;
+
+    const encodedHandle = encodeURIComponent('@oldname');
+    const url = new URL(
+      `http://localhost/api/chat-rooms/${room.id}/members/${encodedHandle}/reclaim`
+    );
+    const event = {
+      request: new Request(url.toString(), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', cookie },
+        body: JSON.stringify({
+          pidChain: [{ pid: newTerm.pid, pid_start: newTerm.pid_start }]
+        })
+      }),
+      params: { roomId: room.id, handle: encodedHandle },
+      url
+    } as unknown as AnyEvent;
+
+    const res = await run(event);
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.repointed).toBe(true);
+    expect(res.body.authReason).toBe('self-reclaim-alias');
+    expect(res.body.terminalId).toBe(newTerm.id);
+  });
+
+  it('posts a system message in the room on every successful reclaim', async () => {
+    const room = createChatRoom({ name: 'reclaim-audit', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@agent' });
+    const term = upsertTerminal({
+      pid: 800_400,
+      pid_start: 'reclaim-audit',
+      name: 'reclaim-audit-term'
+    });
+    addMembership({ room_id: room.id, handle: '@agent', terminal_id: term.id });
+    setTerminalStatus(term.id, 'archived');
+
+    const before = listMessagesInRoom(room.id).filter((m) => m.kind === 'system').length;
+    const res = await run(makeEvent(room.id, '@agent'));
+    expect(res.status).toBe(200);
+
+    const systemMessages = listMessagesInRoom(room.id).filter((m) => m.kind === 'system');
+    expect(systemMessages.length).toBeGreaterThan(before);
+    const last = systemMessages[systemMessages.length - 1];
+    expect(last.body).toContain('reclaimed @agent');
+    expect(last.body).toContain('auth=admin-bearer');
+  });
+});
+
+// =====================================================================
+// Pure-function tests for _evaluateReclaimAuth. The route's
+// authorisation logic should be easy to inspect in isolation.
+// =====================================================================
+
+describe('_evaluateReclaimAuth', () => {
+  it('returns admin-bearer when access.isAdminBearer is true', () => {
+    const outcome = _evaluateReclaimAuth({
+      access: { isAdminBearer: true, handles: [] },
+      roomOwnerHandle: '@owner',
+      callerTerminal: null,
+      targetHandle: '@anyone'
+    });
+    expect(outcome.allowed).toBe(true);
+    if (outcome.allowed) expect(outcome.reason).toBe('admin-bearer');
+  });
+
+  it('returns room-owner when access.handles covers the room owner', () => {
+    const outcome = _evaluateReclaimAuth({
+      access: { isAdminBearer: false, handles: ['@owner'] },
+      roomOwnerHandle: '@owner',
+      callerTerminal: null,
+      targetHandle: '@anyone'
+    });
+    expect(outcome.allowed).toBe(true);
+    if (outcome.allowed) expect(outcome.reason).toBe('room-owner');
+  });
+
+  it('returns disallowed when caller is in the room but neither admin nor owner nor alias', async () => {
+    const term = upsertTerminal({
+      pid: 800_500,
+      pid_start: 'eval-disallow',
+      name: 'eval-disallow-term'
+    });
+    createTerminalRecord({
+      sessionId: term.id,
+      name: 'eval-disallow-record',
+      handle: '@other'
+    });
+    // No alias for @victim.
+    const outcome = _evaluateReclaimAuth({
+      access: { isAdminBearer: false, handles: ['@other'] },
+      roomOwnerHandle: '@owner',
+      callerTerminal: term,
+      targetHandle: '@victim'
+    });
+    expect(outcome.allowed).toBe(false);
   });
 });
