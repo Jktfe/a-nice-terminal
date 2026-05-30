@@ -40,10 +40,14 @@ import {
 import { parsePidChainFromBody, resolveServerSideHandle } from './identityGate';
 import {
   resolveBrowserSessionSecret,
+  resolveBrowserSessionSecretIgnoringRoom,
   touchBrowserSessionLastSeen
 } from './browserSessionStore';
 import { getCookieValuesFromRequest } from './authGate';
 import { resolveHumanOwnership } from './consentGate';
+import { isHandleMemberOfRoom, findChatRoomById } from './chatRoomStore';
+import { buildPermissionDeniedPayload } from './permissionDeniedPayload';
+import { resolveApproversFor } from './permissionApproverResolver';
 
 /** Sentinel handle attributed to admin-bearer callers. Mirrors the
  *  CLI/automation convention used by other admin-gated routes. */
@@ -147,7 +151,25 @@ export function requireChatRoomMutationAuth(
     if (declaredHandle && declaredHandle !== ADMIN_BEARER_HANDLE) {
       const ownership = resolveHumanOwnership(declaredHandle);
       if (ownership.kind === 'human') {
-        throw error(403, 'admin_cannot_impersonate_human');
+        // Stage A: wrap with the structured permission_denied payload while
+        // preserving the legacy `message: 'admin_cannot_impersonate_human'`
+        // field so the existing audit-of-impersonation tests + alerting
+        // continue to match on the sentinel string. New consumers read the
+        // permission_denied block; old consumers keep working.
+        const room = findChatRoomById(roomId);
+        throw error(
+          403,
+          buildPermissionDeniedPayload({
+            action: 'chat.impersonate_human',
+            target_kind: 'room',
+            target_id: roomId,
+            target_display_name: room?.name,
+            reason: 'human_consent_required',
+            grantee_handle: declaredHandle,
+            approvers: resolveApproversFor({ targetKind: 'room', targetId: roomId }),
+            message: 'admin_cannot_impersonate_human'
+          })
+        );
       }
     }
     return { handle: ADMIN_BEARER_HANDLE, isAdminBearer: true };
@@ -162,6 +184,23 @@ export function requireChatRoomMutationAuth(
   for (const cookieSecret of cookieSecrets) {
     const resolved = resolveBrowserSessionSecret(cookieSecret, roomId);
     if (resolved) {
+      touchBrowserSessionLastSeen(resolved.session_id);
+      return { handle: resolved.handle, isAdminBearer: false };
+    }
+  }
+  // Step 3b: browser-session cookie ignoring room scope + membership
+  // check. JWPK msg_athx11bshr 2026-05-28 antV4: /rooms delete/archive
+  // failed silently because browser sessions are minted scoped to ONE
+  // room (resolveBrowserSessionSecret enforces session.room_id ===
+  // roomId), but the rooms-list page lets users act on any room they
+  // are a member of. Without this fallback, deleting a room from
+  // /rooms returned 401 with no UI feedback. The membership check
+  // preserves the security model — you can still only act on rooms
+  // where you have a chat_room_members row — but the cookie no longer
+  // has to be bound to that specific room first.
+  for (const cookieSecret of cookieSecrets) {
+    const resolved = resolveBrowserSessionSecretIgnoringRoom(cookieSecret);
+    if (resolved && isHandleMemberOfRoom(roomId, resolved.handle)) {
       touchBrowserSessionLastSeen(resolved.session_id);
       return { handle: resolved.handle, isAdminBearer: false };
     }

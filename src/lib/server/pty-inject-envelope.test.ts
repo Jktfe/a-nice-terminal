@@ -7,7 +7,7 @@ import { resetIdentityDbForTests } from './db';
 import { createDiscussion, closeOrReCloseDiscussion } from './chatDiscussionStore';
 
 describe('formatEnvelope', () => {
-  const reply = '\n\n[ANT reply instruction: respond in the linked room with: ant chat send r1 --msg "your reply"]';
+  const reply = '\n\n[ANT reply instruction: respond with: ant chat reply m1 --stdin]';
 
   it('renders single-message envelope', () => {
     const out = formatEnvelope({
@@ -29,7 +29,7 @@ describe('formatEnvelope', () => {
     expect(out).toContain('@a: first');
     expect(out).toContain('@b: second');
     expect(out).toContain('@c: third');
-    expect(out).toContain('ant chat send r1 --msg "your reply"');
+    expect(out).toContain('ant chat reply m3 --stdin');
   });
 
   it('renders cross-room batched envelope with per-message room labels', () => {
@@ -44,7 +44,7 @@ describe('formatEnvelope', () => {
     expect(out).toContain('[room ant-evolve id=r2]');
     expect(out).toContain('@a: from-build');
     expect(out).toContain('@b: from-evolve');
-    expect(out).toContain('ant chat send ROOM_ID --msg "your reply"');
+    expect(out).toContain('ant chat reply MESSAGE_ID --stdin');
   });
 
   it('reply-parent context (JWPK msg_wcq5fwlhg7 2026-05-19): tags header + inline excerpt', () => {
@@ -132,7 +132,7 @@ describe('formatEnvelope — M3.4b discussion_id tag + closed-marker', () => {
     expect(out).toContain('[ANT room ant-build id=r1 msg=m1] @a: hi');
     expect(out).not.toContain('disc=');
     expect(out).not.toContain('Discussion closed');
-    expect(out).toContain('ant chat send r1 --msg "your reply"');
+    expect(out).toContain('ant chat reply m1 --stdin');
   });
 
   it('present discussion_id (open) → disc=id tag in header, no marker on body', () => {

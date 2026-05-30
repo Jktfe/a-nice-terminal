@@ -47,4 +47,41 @@ describe('ant decks', () => {
     expect(JSON.parse(url.searchParams.get('pidChain'))).toEqual([{ pid: 77, pid_start: 'deck-reader' }]);
     expect(JSON.parse(captured.stdout[0])[0]).toMatchObject({ id: 'deck-1', title: 'Stage Deck' });
   });
+
+  it('add sends animotionSlug so agents can create Animotion-backed Stage decks', async () => {
+    vi.spyOn(identityChain, 'processIdentityChain').mockReturnValue([{ pid: 88, pid_start: 'deck-author' }]);
+    const { runtime, captured } = makeRuntime(() => okJson({
+      id: 'deck-animotion',
+      title: 'Animotion pitch',
+      theme: 'animotion:state-of-play-2026-05-27',
+      slides: []
+    }, 201));
+
+    const code = await handleDecksVerb('add', [
+      '--room', 'room-1',
+      '--title', 'Animotion pitch',
+      '--animotion-slug', 'state-of-play-2026-05-27',
+      '--json'
+    ], runtime, { CliInputError });
+
+    expect(code).toBe(0);
+    const requestBody = JSON.parse(captured.requests[0].init.body);
+    expect(requestBody.animotionSlug).toBe('state-of-play-2026-05-27');
+    expect(requestBody.pidChain).toEqual([{ pid: 88, pid_start: 'deck-author' }]);
+    expect(JSON.parse(captured.stdout[0])).toMatchObject({
+      id: 'deck-animotion',
+      theme: 'animotion:state-of-play-2026-05-27'
+    });
+  });
+
+  it('add rejects competing external deck substrate flags', async () => {
+    const { runtime } = makeRuntime(() => okJson({}));
+
+    await expect(handleDecksVerb('add', [
+      '--room', 'room-1',
+      '--title', 'Ambiguous',
+      '--animotion-slug', 'state-of-play',
+      '--open-slide-slug', 'legacy-pack'
+    ], runtime, { CliInputError })).rejects.toThrow('choose either --animotion-slug or --open-slide-slug');
+  });
 });

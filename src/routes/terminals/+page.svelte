@@ -13,12 +13,17 @@
   import KillConfirmModal from '$lib/components/KillConfirmModal.svelte';
   import SimplePageShell from '$lib/components/SimplePageShell.svelte';
   import TerminalCard from '$lib/components/TerminalCard.svelte';
+  import UsageStrip from '$lib/components/UsageStrip.svelte';
+  import UsageBadge from '$lib/components/UsageBadge.svelte';
+  import type { UsagePayload } from '$lib/usage/types';
+  import { modelKinds } from '$lib/stores/modelKinds.svelte';
 
   type TerminalRecord = {
     sessionId: string;
     name: string;
     handle?: string | null;
     agentKind?: string | null;
+    model?: string | null;
     autoForwardRoomId: string | null;
     autoForwardChat: number;
     createdBy?: string;
@@ -33,6 +38,11 @@
 
   let terminals = $state<TerminalRecord[]>([]);
   let tmuxSessions = $state<TmuxPane[]>([]);
+  // Single shared UsagePayload pulled once at the page level so the
+  // strip + every UsageBadge work off the same snapshot — avoids N
+  // parallel /api/usage calls (one per terminal card). Refreshed every
+  // 30 s to match the proxy cache TTL.
+  let pageUsage = $state<UsagePayload | null>(null);
   let activeId = $state<string | null>(null);
   let activeName = $state<string>('');
   let creating = $state(false);
@@ -185,7 +195,37 @@
 
   // Group ANT terminals by agentKind sub-headings per JWPK THREAD 1.
   // Ungrouped (null/empty) section appears last.
-  type Group = { kind: string; label: string; records: TerminalRecord[] };
+  //
+  // JWPK msg_fespxsi2lu antV4 2026-05-28: now also nested by model
+  // within each CLI heading. "Kimi running in codex" vs "codex running
+  // in codex" should be visually distinct. Each Group carries a list
+  // of ModelSubgroups; unspecified models fold into one "unspecified"
+  // subgroup that always renders last.
+  type ModelSubgroup = { model: string; label: string; records: TerminalRecord[] };
+  type Group = { kind: string; label: string; subgroups: ModelSubgroup[] };
+
+  function buildModelSubgroups(records: TerminalRecord[]): ModelSubgroup[] {
+    const byModel = new Map<string, TerminalRecord[]>();
+    for (const r of records) {
+      const key = (r.model ?? '').trim();
+      const arr = byModel.get(key) ?? [];
+      arr.push(r);
+      byModel.set(key, arr);
+    }
+    const subgroups: ModelSubgroup[] = [];
+    // Named models first (sorted) so the order is stable across loads.
+    const named = [...byModel.keys()].filter((k) => k.length > 0).sort();
+    for (const model of named) {
+      const recs = byModel.get(model);
+      if (recs && recs.length > 0) subgroups.push({ model, label: model, records: recs });
+    }
+    const unspecified = byModel.get('') ?? [];
+    if (unspecified.length > 0) {
+      subgroups.push({ model: '', label: 'unspecified', records: unspecified });
+    }
+    return subgroups;
+  }
+
   const groupedTerminals = $derived.by<Group[]>(() => {
     const byKind = new Map<string, TerminalRecord[]>();
     for (const r of liveTerminals) {
@@ -198,48 +238,119 @@
     const groups: Group[] = [];
     for (const k of known) {
       const records = byKind.get(k);
-      if (records && records.length > 0) groups.push({ kind: k, label: k, records });
+      if (records && records.length > 0) {
+        groups.push({ kind: k, label: k, subgroups: buildModelSubgroups(records) });
+      }
     }
     for (const [k, records] of byKind) {
       if (known.includes(k)) continue;
       if (k === '') continue;
-      if (records.length > 0) groups.push({ kind: k, label: k, records });
+      if (records.length > 0) {
+        groups.push({ kind: k, label: k, subgroups: buildModelSubgroups(records) });
+      }
     }
     const ungrouped = byKind.get('') ?? [];
-    if (ungrouped.length > 0) groups.push({ kind: '', label: 'no agent (raw PTY)', records: ungrouped });
+    if (ungrouped.length > 0) {
+      groups.push({
+        kind: '',
+        label: 'no agent (raw PTY)',
+        subgroups: buildModelSubgroups(ungrouped)
+      });
+    }
     return groups;
   });
 
-  onMount(() => { void loadTerminals(); });
+  async function refreshUsage(): Promise<void> {
+    try {
+      const response = await fetch('/api/usage', { headers: { accept: 'application/json' } });
+      if (!response.ok) return;
+      pageUsage = (await response.json()) as UsagePayload;
+    } catch {
+      // Strip handles the empty / error case visually.
+    }
+  }
+
+  async function patchTerminalModel(record: TerminalRecord, nextModel: string): Promise<void> {
+    const trimmed = nextModel.trim();
+    const payload = trimmed.length === 0 ? null : trimmed;
+    // Optimistic update so the dropdown change feels immediate; on
+    // server error the next loadTerminals() reconciles.
+    record.model = payload;
+    terminals = [...terminals];
+    try {
+      const response = await fetch(`/api/terminals/${encodeURIComponent(record.sessionId)}/model`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model: payload })
+      });
+      if (!response.ok) {
+        lastError = `Saving model failed (${response.status}).`;
+        await loadTerminals();
+      }
+    } catch (cause) {
+      lastError = `Saving model failed: ${cause instanceof Error ? cause.message : String(cause)}`;
+      await loadTerminals();
+    }
+  }
+
+  onMount(() => {
+    void loadTerminals();
+    void refreshUsage();
+    const usageHandle = setInterval(() => void refreshUsage(), 30_000);
+    return () => clearInterval(usageHandle);
+  });
 </script>
 
 <svelte:head><title>Terminals | ANT vNext</title></svelte:head>
 
 <SimplePageShell eyebrow="Terminals" title="Terminals." summary="Two-tier: tmux panes without a handle on top; handle-bearing ANT terminals below.">
+  <UsageStrip />
   <section class="terminal-controls">
     <button type="button" class="primary" onclick={openSpawnModal} disabled={creating}>
       {creating ? 'Working…' : '+ New ANT terminal'}
     </button>
 
     <section class="tier tier-primary" aria-label="ANT terminals">
-      <h3 class="tier-heading">ANT terminals <span class="muted">— grouped by agent kind</span></h3>
+      <h3 class="tier-heading">ANT terminals <span class="muted">— grouped by CLI then model</span></h3>
       {#if liveTerminals.length === 0}
         <p class="tier-empty">No ANT terminals yet — click "+ New ANT terminal" above to create one, or attach an existing tmux pane below.</p>
       {:else}
         {#each groupedTerminals as group (group.kind || 'none')}
           <div class="group">
             <h4 class="group-heading">{group.label}</h4>
-            <div class="chips">
-              {#each group.records as record (record.sessionId)}
-              <button
-                type="button"
-                class="chip ant-chip"
-                class:active={activeId === record.sessionId}
-                  title={`${record.sessionId} • ${record.createdBy ?? ''}`}
-                  onclick={() => attach(record)}
-                >{chipLabel(record)}</button>
-              {/each}
-            </div>
+            {#each group.subgroups as subgroup (subgroup.model || 'unspecified')}
+              <div class="model-subgroup">
+                <h5 class="model-subheading"><span class="model-marker">●</span>{subgroup.label}</h5>
+                <div class="chips">
+                  {#each subgroup.records as record (record.sessionId)}
+                    <span class="chip-with-model">
+                      <button
+                        type="button"
+                        class="chip ant-chip"
+                        class:active={activeId === record.sessionId}
+                        title={`${record.sessionId} • ${record.createdBy ?? ''}`}
+                        onclick={() => attach(record)}
+                      >{chipLabel(record)}</button>
+                      <UsageBadge agentKind={record.agentKind ?? null} usage={pageUsage} />
+                      <select
+                        class="model-picker"
+                        aria-label={`Model for ${chipLabel(record)}`}
+                        value={record.model ?? ''}
+                        onchange={(e) => patchTerminalModel(record, (e.currentTarget as HTMLSelectElement).value)}
+                      >
+                        <option value="">— model —</option>
+                        {#each modelKinds.enabled as model (model)}
+                          <option value={model}>{model}</option>
+                        {/each}
+                        {#if record.model && !modelKinds.enabled.includes(record.model)}
+                          <option value={record.model}>{record.model} (custom)</option>
+                        {/if}
+                      </select>
+                    </span>
+                  {/each}
+                </div>
+              </div>
+            {/each}
           </div>
         {/each}
       {/if}
@@ -367,7 +478,14 @@
   .tier-secondary .tier-heading { font-size: 0.78rem; font-weight: 600; color: var(--ink-soft); }
   .group { display: grid; gap: 0.25rem; margin-top: 0.45rem; }
   .group-heading { margin: 0; font-size: 0.78rem; color: var(--ink-soft); font-weight: 600; font-family: ui-monospace, monospace; }
+  .model-subgroup { display: grid; gap: 0.2rem; margin-left: 0.6rem; padding-left: 0.5rem; border-left: 1px solid var(--surface-edge); }
+  .model-subheading { margin: 0.2rem 0 0.1rem 0; font-size: 0.7rem; color: var(--ink-soft); font-weight: 500; font-family: ui-monospace, monospace; display: inline-flex; align-items: center; gap: 0.3rem; }
+  .model-marker { color: var(--accent); opacity: 0.7; }
+  .chip-with-model { display: inline-flex; align-items: center; gap: 0.25rem; }
+  .model-picker { font-size: 0.7rem; padding: 0.15rem 0.3rem; border: 1px solid var(--line-soft); border-radius: 0.35rem; background: var(--surface-card); color: var(--ink-soft); font-family: ui-monospace, monospace; }
+  .model-picker:focus { outline: 2px solid var(--accent); outline-offset: 1px; color: var(--ink-strong); }
   .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .chip-with-badge { display: inline-flex; align-items: center; gap: 0.3rem; }
   .chip { padding: 0.35rem 0.65rem; border: 1px solid var(--line-soft); border-radius: 999px; background: var(--surface-card); color: var(--ink-strong); font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; }
   .chip.active { border-color: var(--accent); color: var(--accent); font-weight: 700; }
   .chip.dead { opacity: 0.55; cursor: default; }

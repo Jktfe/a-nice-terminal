@@ -4,14 +4,17 @@ import { createTask, getTask, _resetTaskStoreForTests } from '\$lib/server/taskS
 import { GET, PATCH, DELETE } from './+server';
 
 const PREV_DB_PATH = process.env.ANT_FRESH_DB_PATH;
+const PREV_ADMIN = process.env.ANT_ADMIN_TOKEN;
+const TEST_ADMIN_TOKEN = 'tasks-test-admin-token';
 
 type AnyHandler = (event: unknown) => unknown;
 
 function eventFor(taskId: string, method: 'GET' | 'PATCH' | 'DELETE', body?: unknown) {
   const url = new URL(`http://localhost/api/tasks/${taskId}`);
-  const init: RequestInit = { method };
+  const headers: Record<string, string> = { authorization: `Bearer ${TEST_ADMIN_TOKEN}` };
+  const init: RequestInit = { method, headers };
   if (body !== undefined) {
-    init.headers = { 'content-type': 'application/json' };
+    headers['content-type'] = 'application/json';
     init.body = JSON.stringify(body);
   }
   return {
@@ -36,6 +39,7 @@ async function run(handler: AnyHandler, event: unknown): Promise<Response> {
 
 beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = ':memory:';
+  process.env.ANT_ADMIN_TOKEN = TEST_ADMIN_TOKEN;
   resetIdentityDbForTests();
   _resetTaskStoreForTests();
 });
@@ -45,6 +49,8 @@ afterEach(() => {
   resetIdentityDbForTests();
   if (PREV_DB_PATH === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = PREV_DB_PATH;
+  if (PREV_ADMIN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = PREV_ADMIN;
 });
 
 describe('/api/tasks/:taskId', () => {

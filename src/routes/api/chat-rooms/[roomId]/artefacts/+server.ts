@@ -45,7 +45,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
   const auth = requireChatRoomMutationAuth(params.roomId, request, payload);
 
   if (!isKnownArtefactKind(payload.kind)) {
-    throw error(400, `kind must be one of html|deck|spreadsheet|doc|mockup|other.`);
+    throw error(400, `kind must be one of html|deck|stage|spreadsheet|doc|mockup|other.`);
   }
   if (typeof payload.title !== 'string' || payload.title.trim().length === 0) {
     throw error(400, 'title is required.');

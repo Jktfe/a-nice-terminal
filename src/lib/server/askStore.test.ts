@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   answerAsk,
+  deferAsk,
   dismissAsk,
   findAskById,
+  hasResponseRequiredAsksForHandle,
   listAllOpenAsks,
   listOpenAsksInRoom,
   openAskInRoom,
@@ -331,29 +333,41 @@ describe('askStore', () => {
       ).toThrow();
     });
 
-    it('answered and dismissed asks drop out of listOpenAsksInRoom and listAllOpenAsks', () => {
+    it('answered and dismissed asks drop out while deferred asks stay visible and response-required', () => {
+      resetChatRoomStoreForTests();
+      const room = createChatRoom({ name: 'ask-defer-active', whoCreatedIt: '@you' });
+      inviteAgentToRoom({ roomId: room.id, agentHandle: '@asker' });
       const openOne = openAskInRoom({
-        roomId: 'r1',
+        roomId: room.id,
         openedByHandle: '@asker',
         title: 'still open',
         body: 'b'
       });
       const willAnswer = openAskInRoom({
-        roomId: 'r1',
+        roomId: room.id,
         openedByHandle: '@asker',
         title: 'will answer',
         body: 'b'
       });
       const willDismiss = openAskInRoom({
-        roomId: 'r2',
+        roomId: room.id,
         openedByHandle: '@asker',
         title: 'will dismiss',
         body: 'b'
       });
+      const willDefer = openAskInRoom({
+        roomId: room.id,
+        openedByHandle: '@asker',
+        targetHandle: '@you',
+        title: 'will defer',
+        body: 'b'
+      });
       answerAsk({ askId: willAnswer.id, answeredByHandle: '@bob', answer: 'x' });
       dismissAsk({ askId: willDismiss.id, dismissedByHandle: '@bob' });
-      expect(listOpenAsksInRoom('r1').map((ask) => ask.id)).toEqual([openOne.id]);
-      expect(listAllOpenAsks().map((ask) => ask.id)).toEqual([openOne.id]);
+      deferAsk({ askId: willDefer.id, deferredByHandle: '@you' });
+      expect(listOpenAsksInRoom(room.id).map((ask) => ask.id)).toEqual([openOne.id, willDefer.id]);
+      expect(listAllOpenAsks().map((ask) => ask.id)).toEqual([openOne.id, willDefer.id]);
+      expect(hasResponseRequiredAsksForHandle('@you')).toBe(true);
     });
   });
 

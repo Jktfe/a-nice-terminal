@@ -15,6 +15,8 @@
     createdAt: string;
     linkedRooms: string[];
     tags: string[];
+    source?: 'file' | 'key-value' | 'memory-pack';
+    href?: string;
   };
 
   type Props = { roomId: string };
@@ -124,6 +126,9 @@
           {#if expandedId === mem.memoryId}
             <div class="memory-body">
               <p class="meta">{new Date(mem.createdAt).toLocaleString()} · {mem.tags.join(', ') || 'no tags'}</p>
+              {#if mem.href}
+                <a class="open-link" href={mem.href}>Open memory</a>
+              {/if}
               <pre class="body-text">{mem.body}</pre>
             </div>
           {/if}
@@ -269,6 +274,18 @@
     margin: 0 0 0.3rem;
     font-size: 0.75rem;
     color: var(--ink-soft);
+  }
+  .open-link {
+    display: inline-flex;
+    margin-bottom: 0.45rem;
+    color: var(--accent);
+    font-size: 0.8rem;
+    font-weight: 650;
+    text-decoration: none;
+  }
+  .open-link:hover,
+  .open-link:focus-visible {
+    text-decoration: underline;
   }
   .body-text {
     margin: 0;

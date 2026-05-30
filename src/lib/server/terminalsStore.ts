@@ -19,6 +19,7 @@ import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { getIdentityDb } from './db';
 import { projectAntRegistryFileBestEffort } from './antRegistryFile';
+import { normalisePidStartToIso8601 } from './pidStartNormaliser';
 import type { TerminalRecord } from './terminalRecordsStore';
 
 export type TerminalRow = {
@@ -47,6 +48,18 @@ export type TerminalRow = {
   agent_context_fill?: number | null;
   agent_context_fill_source?: string | null;
   agent_context_fill_at_ms?: number | null;
+  // Per-terminal model flag (JWPK msg_fespxsi2lu antV4 2026-05-28).
+  // Free-form string set by the user via the /terminals dropdown. NULL
+  // means unspecified — readers should fold those into an "unspecified"
+  // subgroup so existing rows keep rendering without a forced migration.
+  model?: string | null;
+  // Lifecycle status (JWPK A Team msg_w7sfmc4hpp + msg_8m9xsw8d62
+  // 2026-05-29). Source of truth for "can this terminal be bound by
+  // room_memberships right now". See db.ts comment for the contract.
+  status?: 'live' | 'archived' | 'deleted';
+  // Last working directory tracked by PROMPT_COMMAND hook on the
+  // shell side. Lets a recovered shell `cd $last_path` after re-bind.
+  last_path?: string | null;
 };
 
 export type RegisterTerminalInput = {
@@ -122,11 +135,16 @@ export function autoRegisterTerminalForSpawnedSession(input: {
 
   let pidStart: string | null = null;
   try {
-    pidStart = execFileSync(
+    const rawLstart = execFileSync(
       'ps',
       ['-o', 'lstart=', '-p', String(panePid)],
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
     ).trim() || null;
+    // Normalise to ISO 8601 so the row is comparable against any caller
+    // regardless of locale (en_GB / en_US emit different lstart strings
+    // for the same wall-clock moment — caused the 2026-05-29 4h silence
+    // forensic). See src/lib/server/pidStartNormaliser.ts for contract.
+    pidStart = normalisePidStartToIso8601(rawLstart);
   } catch {
     // ps failed (process died?). Leaving pid_start null is acceptable —
     // lookupTerminalByPidChain treats null as a wildcard match.
@@ -170,6 +188,11 @@ export function adoptExternalProcessForTerminal(input: {
   const db = getIdentityDb();
   const now = currentUnixSeconds();
   const expiresAt = now + clampTtlSeconds(input.ttlSeconds);
+  // ISO 8601 normalisation — see pidStartNormaliser.ts. Caller may
+  // hand us either a locale lstart string or already-ISO Windows
+  // CreationDate; we store ISO either way so READ-side comparison
+  // can stay format-agnostic.
+  const pidStart = normalisePidStartToIso8601(input.pidStart);
   const metaJson = JSON.stringify({
     origin: 'adopt',
     reason: input.reason ?? null,
@@ -195,7 +218,7 @@ export function adoptExternalProcessForTerminal(input: {
       updated_at = excluded.updated_at`).run(
     input.record.session_id,
     input.pid,
-    input.pidStart,
+    pidStart,
     input.record.name,
     input.record.tmux_target_pane,
     input.record.agent_kind,
@@ -218,6 +241,10 @@ export function upsertTerminal(input: RegisterTerminalInput): TerminalRow {
   const expiresAt = now + ttl;
   const sourceLabel = input.source ?? 'cli-register';
   const metaJson = JSON.stringify(input.meta ?? {});
+  // ISO 8601 normalisation at the boundary — see pidStartNormaliser.ts.
+  // We do this ONCE here so both the UPDATE-existing and INSERT-new
+  // branches store the same canonical form regardless of caller locale.
+  const pidStart = normalisePidStartToIso8601(input.pid_start);
 
   const existingByName = db
     .prepare(`SELECT id FROM terminals WHERE name = ?`)
@@ -227,7 +254,7 @@ export function upsertTerminal(input: RegisterTerminalInput): TerminalRow {
     db.prepare(`UPDATE terminals SET
       pid = ?, pid_start = ?, source = ?, expires_at = ?, meta = ?, updated_at = ?
       WHERE id = ?`).run(
-      input.pid, input.pid_start, sourceLabel, expiresAt, metaJson, now, existingByName.id
+      input.pid, pidStart, sourceLabel, expiresAt, metaJson, now, existingByName.id
     );
     projectAntRegistryFileBestEffort();
     return getTerminalById(existingByName.id) as TerminalRow;
@@ -237,7 +264,7 @@ export function upsertTerminal(input: RegisterTerminalInput): TerminalRow {
   db.prepare(`INSERT INTO terminals
     (id, pid, pid_start, name, source, expires_at, meta, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-    newId, input.pid, input.pid_start, input.name, sourceLabel, expiresAt, metaJson, now, now
+    newId, input.pid, pidStart, input.name, sourceLabel, expiresAt, metaJson, now, now
   );
   projectAntRegistryFileBestEffort();
   return getTerminalById(newId) as TerminalRow;
@@ -266,7 +293,13 @@ export function lookupTerminalByPidChain(pidChain: PidChainEntry[]): TerminalRow
      ORDER BY updated_at DESC LIMIT 1`
   );
   for (const entry of pidChain) {
-    const row = findMostRecent.get(entry.pid, entry.pid_start, now) as TerminalRow | undefined;
+    // ISO 8601 normalisation at the boundary — see pidStartNormaliser.ts.
+    // Writers already stored ISO; comparing the caller's locale-string
+    // would silently miss. Belt-and-braces — the CLI already normalises
+    // before sending the chain over the wire, but a non-CLI caller (older
+    // client, internal-test, future agent) might not.
+    const normalisedPidStart = normalisePidStartToIso8601(entry.pid_start);
+    const row = findMostRecent.get(entry.pid, normalisedPidStart, now) as TerminalRow | undefined;
     if (row) return row;
   }
   return null;
@@ -307,6 +340,175 @@ export function updatePaneTarget(
   ).run(pane, agentKind, currentUnixSeconds(), terminalId);
   if (info.changes > 0) projectAntRegistryFileBestEffort();
   return info.changes > 0;
+}
+
+/**
+ * Look up the model flag for every supplied terminal id in one query.
+ * Returns a Map keyed by id; missing ids simply don't appear in the
+ * result (so callers default to null/"unspecified"). Used by the
+ * /api/terminals GET handler to avoid N round-trips.
+ */
+export function listTerminalModelsByIds(ids: readonly string[]): Map<string, string | null> {
+  const result = new Map<string, string | null>();
+  if (ids.length === 0) return result;
+  const db = getIdentityDb();
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = db
+    .prepare(`SELECT id, model FROM terminals WHERE id IN (${placeholders})`)
+    .all(...ids) as Array<{ id: string; model: string | null }>;
+  for (const row of rows) result.set(row.id, row.model ?? null);
+  return result;
+}
+
+/**
+ * Set (or clear) the per-terminal model flag. JWPK msg_fespxsi2lu antV4
+ * 2026-05-28. Passing null clears the flag back to "unspecified". The
+ * input is treated as opaque — settings owns the canonical list, and
+ * grouping logic on /terminals folds NULL into its own subgroup.
+ *
+ * Returns true when a row was updated, false when the terminalId
+ * didn't match any row (so the PATCH endpoint can 404 cleanly).
+ */
+export function setTerminalModel(terminalId: string, model: string | null): boolean {
+  const db = getIdentityDb();
+  const trimmed = typeof model === 'string' ? model.trim() : null;
+  const value = trimmed && trimmed.length > 0 ? trimmed : null;
+  const info = db.prepare(
+    `UPDATE terminals
+     SET model = ?, updated_at = ?
+     WHERE id = ?`
+  ).run(value, currentUnixSeconds(), terminalId);
+  return info.changes > 0;
+}
+
+/**
+ * Lifecycle: flip a terminal's status. JWPK A Team msg_w7sfmc4hpp
+ * + msg_7uvr35x0xr 2026-05-29 (Phase A1). Used by:
+ *
+ * - agentStatusPoller (Phase A3) when it detects the tmux pane is
+ *   gone, flipping `live` → `archived` so the handle becomes free
+ *   for re-bind without manual operator action.
+ * - operator commands `ant terminal archive` / `ant terminal delete`
+ *   (Phase C UX).
+ * - the upcoming `ant register` rule (Phase A2) that rejects new
+ *   sessions on a name already in use by a `live` terminal — checked
+ *   via getLiveTerminalsByHandle / getLiveTerminalByName below.
+ *
+ * Returns true when a row was updated. Idempotent — flipping to the
+ * current status still returns true for an existing row so the poller
+ * can fire on every tick without branching on prior state. Returns
+ * false only when terminalId doesn't match any row.
+ */
+export function setTerminalStatus(
+  terminalId: string,
+  status: 'live' | 'archived' | 'deleted'
+): boolean {
+  const db = getIdentityDb();
+  const info = db.prepare(
+    `UPDATE terminals
+     SET status = ?, updated_at = ?
+     WHERE id = ?`
+  ).run(status, currentUnixSeconds(), terminalId);
+  return info.changes > 0;
+}
+
+/**
+ * Update terminals.last_path (Phase A1). Called by the upcoming
+ * POST /api/terminals/:id/path endpoint (Phase C) when the shell-side
+ * PROMPT_COMMAND hook fires. Lets a recovered shell `cd $last_path`
+ * automatically when the same handle is re-bound.
+ *
+ * Empty / whitespace-only input normalises to NULL (clears the field),
+ * mirroring setTerminalModel's normalisation. Explicit null also clears.
+ * Returns true when a row was updated, false on unknown terminalId.
+ */
+export function setTerminalLastPath(terminalId: string, path: string | null): boolean {
+  const db = getIdentityDb();
+  const trimmed = typeof path === 'string' ? path.trim() : null;
+  const value = trimmed && trimmed.length > 0 ? trimmed : null;
+  const info = db.prepare(
+    `UPDATE terminals
+     SET last_path = ?, updated_at = ?
+     WHERE id = ?`
+  ).run(value, currentUnixSeconds(), terminalId);
+  return info.changes > 0;
+}
+
+/**
+ * Lifecycle conflict check (Phase A1, Phase A2 consumer). List all
+ * terminals with status='live' that are bound to a given handle via
+ * room_memberships (revoked_at_ms IS NULL). Used by Phase A2's
+ * register rule (b): "no live terminal already owns this handle".
+ *
+ * Handle is normalised — `claudev4` and `@claudev4` resolve the same
+ * set. Returns an empty array when no live binding exists for the
+ * handle. Orphan terminals (no room_memberships row) are excluded.
+ */
+export function getLiveTerminalsByHandle(handle: string): TerminalRow[] {
+  const trimmed = handle.trim();
+  if (trimmed.length === 0) return [];
+  const normalised = trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
+  const db = getIdentityDb();
+  return db.prepare(
+    `SELECT DISTINCT t.*
+       FROM terminals t
+       INNER JOIN room_memberships rm ON rm.terminal_id = t.id
+      WHERE rm.handle = ?
+        AND rm.revoked_at_ms IS NULL
+        AND t.status = 'live'
+      ORDER BY t.updated_at DESC`
+  ).all(normalised) as TerminalRow[];
+}
+
+/**
+ * Lifecycle conflict check (Phase A1, Phase A2 consumer). Returns the
+ * live terminal with this exact name, or null when none. Used by
+ * Phase A2's register rule (a): "no conflicting live session" with the
+ * same name. Archived/deleted rows with the same name are excluded so
+ * a name can be reused once its prior owner is archived.
+ */
+export function getLiveTerminalByName(name: string): TerminalRow | null {
+  const db = getIdentityDb();
+  const row = db.prepare(
+    `SELECT * FROM terminals WHERE name = ? AND status = 'live'`
+  ).get(name) as TerminalRow | undefined;
+  return row ?? null;
+}
+
+/**
+ * Lifecycle conflict check (Phase A2). Returns the live terminal that
+ * currently owns the supplied (pid, pid_start) tuple, or null when no
+ * live row matches. Used by Phase A2's register rule (b): a (pid,
+ * pid_start) pair can only be bound to one live terminal at a time —
+ * if the caller's leaf PID already belongs to a different live row,
+ * the new register attempt is rejected with a 409 + recovery hint.
+ *
+ * Match semantics:
+ *   - exact equality on pid (positive integer; values <= 0 short-circuit
+ *     to null so callers never trigger a query on garbage input);
+ *   - exact equality on pid_start when supplied;
+ *   - pid_start IS NULL matches a stored NULL (parity with the
+ *     wildcard behaviour in lookupTerminalByPidChain — caller couldn't
+ *     read lstart on the leaf and the row is therefore promiscuous).
+ *
+ * Archived/deleted rows with the same (pid, pid_start) are excluded so
+ * a recycled PID can be re-claimed once its prior owner is archived.
+ */
+export function getLiveTerminalByPid(pid: number, pidStart: string | null): TerminalRow | null {
+  if (!Number.isFinite(pid) || pid <= 0) return null;
+  const db = getIdentityDb();
+  // ISO 8601 normalisation at the boundary — see pidStartNormaliser.ts.
+  // The DB stores ISO via the writer-side normaliser; comparing a
+  // locale string from a different caller would silently miss.
+  const normalisedPidStart = normalisePidStartToIso8601(pidStart);
+  const row = db.prepare(
+    `SELECT * FROM terminals
+       WHERE pid = ?
+         AND ((pid_start IS NULL AND ? IS NULL) OR pid_start = ?)
+         AND status = 'live'
+       ORDER BY updated_at DESC LIMIT 1`
+  ).get(pid, normalisedPidStart, normalisedPidStart) as TerminalRow | undefined;
+  return row ?? null;
 }
 
 export function markPaneVerified(terminalId: string): boolean {

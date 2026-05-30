@@ -103,7 +103,12 @@ describe('POST /api/auth/login for Mac antchat', () => {
       id: 'test@example.com',
       email: 'test@example.com',
       displayName: 'Test',
-      handle: '@test'
+      handle: '@test',
+      // handleFamily added eiw05zdurz 2026-05-27 msg_s21fibyq79 — SSE
+      // reducer clients match incoming reactor handles against the full
+      // family. For a fresh @test user with no org mapping or terminal
+      // aliases, family is just the primary handle.
+      handleFamily: ['@test']
     });
   });
 

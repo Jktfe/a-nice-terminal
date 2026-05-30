@@ -11,9 +11,11 @@
   import SettingsTabs from '$lib/components/SettingsTabs.svelte';
   import QuickShortcutsBar from '$lib/components/QuickShortcutsBar.svelte';
   import CliVersionCard from '$lib/components/CliVersionCard.svelte';
+  import DeckRootsCard from '$lib/components/DeckRootsCard.svelte';
   import { firstCapabilityRows } from '$lib/domain/capabilityLedger';
   import { theme } from '$lib/stores/theme.svelte';
   import { agentKinds } from '$lib/stores/agentKinds.svelte';
+  import { modelKinds } from '$lib/stores/modelKinds.svelte';
   import Explainable from '$lib/components/Explainable.svelte';
 
   let pendingAgent = $state('');
@@ -21,6 +23,13 @@
     if (pendingAgent.trim().length === 0) return;
     agentKinds.add(pendingAgent.trim());
     pendingAgent = '';
+  }
+
+  let pendingModel = $state('');
+  function addModel(): void {
+    if (pendingModel.trim().length === 0) return;
+    modelKinds.add(pendingModel.trim());
+    pendingModel = '';
   }
 
   type SkillEntry = { name: string; description: string };
@@ -230,6 +239,22 @@
       <button type="submit" class="btn">Add</button>
       <button type="button" class="btn-secondary" onclick={() => agentKinds.reset()}>Reset to defaults</button>
     </form>
+
+    <h3 class="sub-heading">Available models</h3>
+    <p class="stub-note">Labels shown in the per-terminal model dropdown on <code>/terminals</code>. Used purely for grouping ("Kimi running in Codex" vs "Codex running in Codex") — free-form, your own tagging.</p>
+    <div class="agent-pills">
+      {#each modelKinds.enabled as model (model)}
+        <span class="agent-pill">
+          {model}
+          <button type="button" class="pill-remove" onclick={() => modelKinds.remove(model)} aria-label={`Remove ${model}`}>×</button>
+        </span>
+      {/each}
+    </div>
+    <form class="agent-add" onsubmit={(e) => { e.preventDefault(); addModel(); }}>
+      <input type="text" bind:value={pendingModel} placeholder="e.g. kimi-k2" aria-label="New model label" />
+      <button type="submit" class="btn">Add</button>
+      <button type="button" class="btn-secondary" onclick={() => modelKinds.reset()}>Reset to defaults</button>
+    </form>
   </section>
 
   <section id="skills" class="settings-section">
@@ -257,6 +282,7 @@
   <section id="system" class="settings-section">
     <h2>System</h2>
     <CliVersionCard />
+    <DeckRootsCard />
     <p class="stub-note system-stub">Server status + certs widget lands in the server-status slice (claude2 NAV-POLISH followup).</p>
   </section>
 

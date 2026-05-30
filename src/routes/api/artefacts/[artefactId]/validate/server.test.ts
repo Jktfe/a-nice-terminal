@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import { POST } from './+server';
 import { createArtefactInRoom, resetChatRoomArtefactStoreForTests } from '$lib/server/chatRoomArtefactStore';
 import { upsertArtefactContent, resetChatRoomArtefactContentStoreForTests } from '$lib/server/chatRoomArtefactContentStore';
@@ -63,8 +64,8 @@ describe('POST /api/artefacts/:artefactId/validate', () => {
     resetPolicyStoreForTests();
     resetTasksStoreForTests();
     const db = getIdentityDb();
-    db.prepare('DELETE FROM validation_runs').run();
-    db.prepare('DELETE FROM validation_schemas').run();
+    db.prepare('DELETE FROM verification_observations').run();
+    db.prepare('DELETE FROM verification_lenses').run();
   });
 
   it('applies a policy lens to a markdown artefact and returns claim-level scores', async () => {
@@ -436,5 +437,134 @@ describe('POST /api/artefacts/:artefactId/validate', () => {
     const response = await runPost(eventFor(artefact.id, { policySlug: JKS_VALIDATION_RULE_SLUG }));
 
     expect(response.status).toBe(404);
+  });
+
+  it('resolves a lensSchemaId against the V2 lens designer schema via the bridge', async () => {
+    // Wired 2026-05-27 after @speedycodex shipped 8a8611d (lens CRUD + audit).
+    // The endpoint now resolves a V2-shape rules_json through the bridge
+    // instead of requiring a hand-authored policy slug.
+    const room = createChatRoom({ name: 'lens-schema-id', whoCreatedIt: '@you' });
+    const artefact = createArtefactInRoom({
+      roomId: room.id,
+      kind: 'doc',
+      title: 'Validated via lens schema',
+      refUrl: `/api/chat-rooms/${room.id}/docs/lens-doc`,
+      createdBy: '@you'
+    });
+    upsertArtefactContent({
+      id: 'lens-doc',
+      artefactId: artefact.id,
+      roomId: room.id,
+      kind: 'doc',
+      contentFormat: 'markdown',
+      contentBody: 'A material claim about quarterly performance.',
+      updatedByHandle: '@you'
+    });
+
+    const lensSchemaId = `lens-${randomUUID()}`;
+    createValidationSchema({
+      id: lensSchemaId,
+      name: 'Test V2 lens',
+      description: 'For artefact-validation lensSchemaId path',
+      lensKind: 'custom',
+      scope: 'public',
+      scopeId: 'global',
+      rulesJson: JSON.stringify({
+        version: 2,
+        blocks: {
+          claim_material: {
+            mode: 'all',
+            requirements: [{ kind: 'agent', count: 2 }, { kind: 'person', count: 1 }]
+          }
+        },
+        fallback: { mode: 'any', requirements: [{ kind: 'agent', count: 1 }] }
+      }),
+      createdBy: '@you',
+      archivedAtMs: null
+    });
+
+    const response = await runPost(eventFor(artefact.id, { lensSchemaId }));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.lens.id).toBe(lensSchemaId);
+    expect(body.lens.name).toBe('Test V2 lens');
+  });
+
+  it('rejects when policySlug and lensSchemaId are both supplied', async () => {
+    const room = createChatRoom({ name: 'both-supplied', whoCreatedIt: '@you' });
+    const artefact = createArtefactInRoom({
+      roomId: room.id,
+      kind: 'doc',
+      title: 'doc',
+      refUrl: '/x',
+      createdBy: '@you'
+    });
+
+    const response = await runPost(
+      eventFor(artefact.id, {
+        policySlug: JKS_VALIDATION_RULE_SLUG,
+        lensSchemaId: 'lens-doesnt-matter'
+      })
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it('returns 404 when lensSchemaId references an unknown schema', async () => {
+    const room = createChatRoom({ name: 'missing-lens', whoCreatedIt: '@you' });
+    const artefact = createArtefactInRoom({
+      roomId: room.id,
+      kind: 'doc',
+      title: 'doc',
+      refUrl: '/x',
+      createdBy: '@you'
+    });
+    upsertArtefactContent({
+      id: 'missing-lens-doc',
+      artefactId: artefact.id,
+      roomId: room.id,
+      kind: 'doc',
+      contentFormat: 'markdown',
+      contentBody: 'claim',
+      updatedByHandle: '@you'
+    });
+
+    const response = await runPost(eventFor(artefact.id, { lensSchemaId: 'lens-nope' }));
+    expect(response.status).toBe(404);
+  });
+
+  it('returns 400 when lensSchemaId resolves to a schema with malformed rules_json', async () => {
+    const room = createChatRoom({ name: 'malformed-rules', whoCreatedIt: '@you' });
+    const artefact = createArtefactInRoom({
+      roomId: room.id,
+      kind: 'doc',
+      title: 'doc',
+      refUrl: '/x',
+      createdBy: '@you'
+    });
+    upsertArtefactContent({
+      id: 'malformed-doc',
+      artefactId: artefact.id,
+      roomId: room.id,
+      kind: 'doc',
+      contentFormat: 'markdown',
+      contentBody: 'claim',
+      updatedByHandle: '@you'
+    });
+
+    const lensSchemaId = `lens-${randomUUID()}`;
+    createValidationSchema({
+      id: lensSchemaId,
+      name: 'Malformed lens',
+      description: null,
+      lensKind: 'custom',
+      scope: 'public',
+      scopeId: 'global',
+      rulesJson: 'not json',
+      createdBy: '@you',
+      archivedAtMs: null
+    });
+
+    const response = await runPost(eventFor(artefact.id, { lensSchemaId }));
+    expect(response.status).toBe(400);
   });
 });

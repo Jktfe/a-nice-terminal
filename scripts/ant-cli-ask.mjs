@@ -15,12 +15,16 @@
  *     Closes an ask with no answer. Silent in-chat. Useful when the agent
  *     that opened the ask notices the human already replied inline.
  *
+ *   ant ask defer <askId>
+ *     Marks an ask deferred. It stays visible and still counts as
+ *     response-required.
+ *
  *   ant ask merge <sourceAskId> --into <intoAskId>
  *     Premium chair-style roll-up. Source flips to 'merged'; askee's pill
  *     stays lit because the merged-into ask still owes a response.
  *
  *   ant ask list [--for @<handle>] [--json]
- *     Lists open + merged asks. With --for, scopes to asks targeting that
+ *     Lists open + deferred + merged asks. With --for, scopes to asks targeting that
  *     handle (i.e. "what's in my inbox").
  *
  * 9-year-old-readable. Stay under 260 lines.
@@ -58,10 +62,11 @@ function parseFlags(rawArgs, CliInputError) {
 }
 
 function writeUsage(runtime) {
-  runtime.writeOut('ant ask <open|answer|dismiss|merge|list>');
+  runtime.writeOut('ant ask <open|answer|dismiss|defer|merge|list>');
   runtime.writeOut('  ask open    --to @<human> --in <roomId> "body" [--title TXT]');
   runtime.writeOut('  ask answer  <askId> --body "answer"');
   runtime.writeOut('  ask dismiss <askId>');
+  runtime.writeOut('  ask defer   <askId>');
   runtime.writeOut('  ask merge   <sourceId> --into <intoId>');
   runtime.writeOut('  ask list    [--for @handle] [--json]');
 }
@@ -124,6 +129,18 @@ async function runDismiss(args, runtime, CliInputError) {
   return 0;
 }
 
+async function runDefer(args, runtime, CliInputError) {
+  const { positionals } = parseFlags(args, CliInputError);
+  const askId = positionals[0];
+  if (!askId) throw new CliInputError('ask defer needs an askId');
+  const sendJson = makeStandardSendJson(runtime);
+  const result = await sendJson(`/api/asks/${encodeURIComponent(askId)}/defer`, 'POST', {
+    deferredByHandle: callerHandle(runtime)
+  });
+  runtime.writeOut(`deferred ${result?.ask?.id ?? askId}`);
+  return 0;
+}
+
 async function runMerge(args, runtime, CliInputError) {
   const { flags, positionals } = parseFlags(args, CliInputError);
   const sourceId = positionals[0];
@@ -146,7 +163,9 @@ async function runList(args, runtime, CliInputError) {
   // slice 4 (2026-05-22). Without this the route returns 401.
   const pidChain = encodeURIComponent(JSON.stringify(processIdentityChain()));
   const result = await sendJson(`/api/asks?pidChain=${pidChain}`, 'GET');
-  let asks = (result?.asks ?? []).filter((ask) => ask.status === 'open' || ask.status === 'merged');
+  let asks = (result?.asks ?? []).filter((ask) =>
+    ask.status === 'open' || ask.status === 'deferred' || ask.status === 'merged'
+  );
   if (flags.for) {
     const handle = ensureAtHandle(flags.for);
     asks = asks.filter((ask) => ask.targetHandle === handle);
@@ -176,6 +195,7 @@ export async function handleAskVerb(action, args, runtime, ctx) {
     case 'open':    return runOpen(args, runtime, CliInputError);
     case 'answer':  return runAnswer(args, runtime, CliInputError);
     case 'dismiss': return runDismiss(args, runtime, CliInputError);
+    case 'defer':   return runDefer(args, runtime, CliInputError);
     case 'merge':   return runMerge(args, runtime, CliInputError);
     case 'list':    return runList(args, runtime, CliInputError);
     default:

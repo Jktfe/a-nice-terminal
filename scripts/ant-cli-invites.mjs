@@ -29,6 +29,8 @@
  */
 
 import { attemptAutoRegister, formatAutoRegisterOutcome } from './ant-cli-redeem-autoregister.mjs';
+import { processIdentityChain } from './ant-cli-identity-chain.mjs';
+import { persistRoomTokenToConfig } from './ant-cli-config-write.mjs';
 
 const ALLOWED_KINDS = new Set(['cli', 'mcp', 'web']);
 const BOOLEAN_FLAGS = new Set(['print-token', 'no-register']);
@@ -221,10 +223,16 @@ async function runExchange(flags, runtime, CliInputError) {
 async function runRedeem(flags, runtime, CliInputError) {
   const room = requireFlag(flags, 'room', CliInputError);
   const tokenSecret = requireFlag(flags, 'token', CliInputError);
+  // Point 2 fix (Xeno windows-cli-auth-wedge follow-up #2, 2026-05-28):
+  // send the caller's pidChain so the server-side binder can re-bind
+  // room_memberships to THIS shell's live terminal, not the first
+  // record matching the handle (which is often a stale one left by a
+  // previous broken-walker register or a different machine entirely).
+  const pidChain = processIdentityChain();
   const response = await runtime.fetchImpl(`${runtime.serverUrl}/api/chat-rooms/${encodeURIComponent(room)}/join-with-token`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ tokenSecret })
+    body: JSON.stringify({ tokenSecret, pidChain })
   });
   if (!response.ok) {
     runtime.writeErr(`Redeem failed (${response.status}): ${await readErrorMessage(response, [tokenSecret])}`);
@@ -233,6 +241,22 @@ async function runRedeem(flags, runtime, CliInputError) {
   const parsed = await response.json();
   // Tab-separated machine-readable line preserved for script consumers.
   runtime.writeOut(`${parsed.member.handle}\t${parsed.room.name}\t${parsed.room.id}`);
+
+  // 0.1.11 (xenoCC quickpaste 8729, 2026-05-28): persist the freshly-
+  // minted tokenSecret into ~/.ant/config.json so the router's
+  // bearer-on-GET path actually has a current token to send. Without
+  // this, every subsequent router/tail call falls through to the
+  // pidChain URL — fatal on Windows MSYS2 where the subprocess
+  // pidChain dies at the bash root.
+  const persistResult = persistRoomTokenToConfig({
+    roomId: parsed.room.id,
+    tokenSecret,
+    handle: parsed.member.handle,
+    serverUrl: runtime.serverUrl
+  });
+  if (!persistResult.ok) {
+    runtime.writeErr(`Warning: redeem succeeded but could not persist token to config: ${persistResult.error}`);
+  }
 
   // F slice — auto-register the calling pane so PTY-inject can deliver.
   // Failure is best-effort: never changes the redeem exit code.
@@ -323,12 +347,13 @@ async function runJoinUrl(flags, runtime, CliInputError) {
     return 1;
   }
 
+  const joinUrlPidChain = processIdentityChain();
   const redeemResponse = await runtime.fetchImpl(
     `${baseUrl}/api/chat-rooms/${encodeURIComponent(parsed.roomId)}/join-with-token`,
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ tokenSecret })
+      body: JSON.stringify({ tokenSecret, pidChain: joinUrlPidChain })
     }
   );
   if (!redeemResponse.ok) {
@@ -343,6 +368,22 @@ async function runJoinUrl(flags, runtime, CliInputError) {
   runtime.writeOut(`${redeemBody.member.handle}\t${redeemBody.room.name}\t${redeemBody.room.id}\t${baseUrl}`);
   if (printToken) {
     runtime.writeOut(tokenSecret);
+  }
+
+  // 0.1.11 (xenoCC quickpaste 8729, 2026-05-28): persist the freshly-
+  // minted tokenSecret into ~/.ant/config.json. See the runRedeem
+  // comment block for the full rationale. server_url here is the
+  // share-URL's home server (baseUrl), not runtime.serverUrl, because
+  // future bearer calls against this room have to target the home
+  // server that minted the token.
+  const persistResultJoinUrl = persistRoomTokenToConfig({
+    roomId: redeemBody.room.id,
+    tokenSecret,
+    handle: redeemBody.member.handle,
+    serverUrl: baseUrl
+  });
+  if (!persistResultJoinUrl.ok) {
+    runtime.writeErr(`Warning: join-url redeem succeeded but could not persist token to config: ${persistResultJoinUrl.error}`);
   }
 
   // F slice — auto-register the calling pane against the joined handle.

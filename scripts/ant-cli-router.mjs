@@ -10,6 +10,7 @@
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fetchRoomJsonWithBrowserSessionFallback } from './ant-cli-browser-session.mjs';
+import { startSseSubscriber } from './ant-cli-realtime-sse.mjs';
 
 const BOOLEAN_FLAGS = new Set(['once']);
 const POLL_MS_DEFAULT = 2000;
@@ -82,14 +83,31 @@ async function runStart(flags, runtime, ctx) {
   if (terminal !== 'wezterm') {
     throw new CliInputError('only --terminal wezterm is supported today');
   }
+  // 0.1.12 (JWPK Tauri msg_oiu700bmel 2026-05-29): default to SSE
+  // push so the router is push-driven, not polling. --mode poll keeps
+  // the legacy loop available as a fallback. ANT_ROUTER_MODE env
+  // override lets a packaged install pin the mode without flag changes.
+  const mode = flags.mode ?? process.env.ANT_ROUTER_MODE ?? 'sse';
+  if (mode !== 'sse' && mode !== 'poll') {
+    throw new CliInputError(`--mode must be sse | poll (got "${mode}")`);
+  }
   const pollMs = clampPollMs(flags['poll-ms'] ?? POLL_MS_DEFAULT);
   const runOnce = flags.once !== undefined;
   const seenIds = new Set();
   const spawnImpl = ctx.spawnImpl ?? spawn;
   const sleepImpl = ctx.sleepImpl ?? sleep;
   const sendTextImpl = ctx.sendTextImpl ?? ((text) => sendWezTermText(text, paneId, spawnImpl));
+  const sseSubscriberImpl = ctx.sseSubscriberImpl ?? startSseSubscriber;
 
-  log(runtime, `router starting: room=${roomId} handle=${ownHandle} pane=${paneId}`);
+  log(runtime, `router starting: room=${roomId} handle=${ownHandle} pane=${paneId} mode=${mode}`);
+
+  if (mode === 'sse') {
+    return runStartSse(
+      { roomId, ownHandle, runOnce, seenIds, runtime, sendTextImpl, sleepImpl, sseSubscriberImpl },
+      flags,
+      ctx
+    );
+  }
 
   let firstMessages;
   try {
@@ -117,6 +135,65 @@ async function runStart(flags, runtime, ctx) {
     await routeFreshMessages(roomId, pollMessages, lastSeenOrder, ownHandle, seenIds, runtime, sendTextImpl, sleepImpl);
     lastSeenOrder = advanceLastSeen(pollMessages, lastSeenOrder);
   }
+}
+
+/**
+ * SSE driver: open a long-lived stream, dispatch each message_added
+ * event through the same routeFreshMessages → injectMessage path the
+ * polling loop uses. Reconnects with exponential backoff (handled by
+ * startSseSubscriber) so server restarts / Tailscale flaps recover
+ * automatically without a manual restart.
+ *
+ * --once on SSE waits for ONE message_added event then exits — useful
+ * for smoke tests + the existing test contract.
+ */
+async function runStartSse(options, flags, ctx) {
+  const { roomId, ownHandle, runOnce, seenIds, runtime, sendTextImpl, sleepImpl, sseSubscriberImpl } = options;
+  let resolveOnFirstMessage;
+  const firstMessagePromise = new Promise((resolve) => { resolveOnFirstMessage = resolve; });
+  let subscriber = null;
+  const dispatch = (event) => {
+    if (!event || !event.data || typeof event.data !== 'object') return;
+    if (event.data.type !== 'message_added') return;
+    const message = event.data.message;
+    if (!message || typeof message !== 'object') return;
+    const id = String(message.id ?? message.messageId ?? message.postOrder ?? event.id ?? '');
+    if (id && seenIds.has(id)) return;
+    if (id) rememberSeenId(seenIds, id);
+    if (!shouldRouteMessage(message, ownHandle)) {
+      if (runOnce) resolveOnFirstMessage();
+      return;
+    }
+    // injectMessage can throw (e.g. wezterm not on PATH); without a
+    // .catch this becomes an unhandled rejection (Node 25+ crashes the
+    // process). Surface via writeErr and still resolve the --once
+    // promise so the caller doesn't hang on a permanently-pending await.
+    void injectMessage(roomId, message, runtime, sendTextImpl, sleepImpl).then(() => {
+      if (runOnce) resolveOnFirstMessage();
+    }).catch((cause) => {
+      const errMessage = cause instanceof Error ? cause.message : String(cause);
+      runtime.writeErr(`Router inject failed: ${errMessage}`);
+      if (runOnce) resolveOnFirstMessage();
+    });
+  };
+  const onError = (cause, attempt) => {
+    runtime.writeErr(`Router SSE reconnect attempt ${attempt}: ${cause.message}`);
+  };
+  subscriber = sseSubscriberImpl({
+    runtime,
+    roomId,
+    onEvent: dispatch,
+    onError,
+    sleepImpl
+  });
+  if (runOnce) {
+    await firstMessagePromise;
+    subscriber.stop();
+    return 0;
+  }
+  // Long-running: park forever. Caller terminates the process to stop.
+  await new Promise(() => { /* never resolves */ });
+  return 0;
 }
 
 async function routeFreshMessages(roomId, messages, sinceOrder, ownHandle, seenIds, runtime, sendTextImpl, sleepImpl) {
@@ -225,6 +302,8 @@ function log(runtime, message) {
 
 function writeUsage(runtime) {
   runtime.writeOut('ant router <start> [flags]');
-  runtime.writeOut('  start --room ROOM_ID --handle @agent [--pane-id N] [--poll-ms 2000]');
+  runtime.writeOut('  start --room ROOM_ID --handle @agent [--mode sse|poll] [--pane-id N] [--poll-ms 2000]');
   runtime.writeOut('  Routes @handle and @everyone room messages into a local WezTerm pane.');
+  runtime.writeOut('  --mode sse (default): server-sent events long-poll, push delivery.');
+  runtime.writeOut('  --mode poll:          legacy GET /messages on --poll-ms interval.');
 }

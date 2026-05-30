@@ -28,6 +28,8 @@ import {
   CannotRemoveRoomMemberError
 } from '$lib/server/chatRoomStore';
 import { removeRoomAlias } from '$lib/server/chatRoomAliasStore';
+import { buildPermissionDeniedPayload } from '$lib/server/permissionDeniedPayload';
+import { resolveApproversFor } from '$lib/server/permissionApproverResolver';
 import { postSystemMessage } from '$lib/server/chatMessageStore';
 import { recordParticipation } from '$lib/server/chatRoomParticipationHistoryStore';
 import { resolveCallerIdentityOrDeprecate, buildStaleBrowserCookieClearHeader } from '$lib/server/authGate';
@@ -95,7 +97,27 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
     const orgMembers = await listOrgMembersForInviteRequest(request);
     const teammate = findAccountsOrgMemberByHandle(orgMembers.members, humanHandle);
-    if (!teammate) throw error(403, 'target handle is not in your organisation.');
+    if (!teammate) {
+      // Stage A 403 PermissionDenied payload — wrap with structured
+      // approver hint while preserving the legacy message string so
+      // existing tests + audit log filters keep matching.
+      throw error(
+        403,
+        buildPermissionDeniedPayload({
+          action: 'room.invite_human',
+          target_kind: 'room',
+          target_id: params.roomId,
+          target_display_name: room.name,
+          reason: 'not_org_admin',
+          grantee_handle: humanHandle,
+          approvers: resolveApproversFor({
+            targetKind: 'room',
+            targetId: params.roomId
+          }),
+          message: 'target handle is not in your organisation.'
+        })
+      );
+    }
 
     const normalisedHumanHandle = normaliseToAtHandle(teammate.handle);
     const existingMember = room.members.find(

@@ -44,10 +44,15 @@ export function backfillHumanInboxes(): BackfillResult {
        WHERE h.kind = 'human' AND a.kind = 'agent'
          AND h.room_id NOT LIKE '__inbox_%'
        UNION
-       -- Path (b): pairs from terminal ownership
+       -- Path (b): pairs from terminal ownership. Pane-binding
+       -- supersession filter (JWPK 2026-05-27): superseded rows do
+       -- NOT contribute backfill edges — the prior agent on a
+       -- recycled pane should not retain inbox membership through
+       -- a stale record.
        SELECT created_by AS human, handle AS agent
        FROM terminal_records
        WHERE created_by IS NOT NULL AND handle IS NOT NULL
+         AND superseded_at_ms IS NULL
      )`
   ).all() as Array<{ human: string; agent: string }>;
 

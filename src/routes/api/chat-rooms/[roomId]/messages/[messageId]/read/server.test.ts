@@ -142,8 +142,12 @@ describe('POST + GET /api/chat-rooms/:roomId/messages/:messageId/read', () => {
     const controller = {
       enqueue(chunk: Uint8Array) {
         const text = decoder.decode(chunk);
-        const match = /^data: (.*)\n\n$/.exec(text);
-        if (match) emitted.push(JSON.parse(match[1]));
+        for (const line of text.split('\n')) {
+          if (line.startsWith('data: ')) {
+            try { emitted.push(JSON.parse(line.slice(6))); }
+            catch { /* not JSON; skip */ }
+          }
+        }
       }
     } as ReadableStreamDefaultController<Uint8Array>;
     subscribeToRoom(room.id, controller);
@@ -155,7 +159,7 @@ describe('POST + GET /api/chat-rooms/:roomId/messages/:messageId/read', () => {
         body: JSON.stringify(verifiedReader(room.id, '@kimi'))
       });
       expect(postResponse.status).toBe(201);
-      expect(emitted).toContainEqual({
+      expect(emitted).toContainEqual(expect.objectContaining({
         type: 'message_read',
         roomId: room.id,
         messageId: message.id,
@@ -163,7 +167,7 @@ describe('POST + GET /api/chat-rooms/:roomId/messages/:messageId/read', () => {
         readers: expect.arrayContaining([
           expect.objectContaining({ messageId: message.id, readerHandle: '@kimi' })
         ])
-      });
+      }));
     } finally {
       unsubscribeFromRoom(room.id, controller);
     }

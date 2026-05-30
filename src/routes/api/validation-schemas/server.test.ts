@@ -37,8 +37,8 @@ function createScopedSchema(input: {
 beforeEach(() => {
   process.env.ANT_ADMIN_TOKEN = 'admin-secret';
   const db = getIdentityDb();
-  db.prepare('DELETE FROM validation_runs').run();
-  db.prepare('DELETE FROM validation_schemas').run();
+  db.prepare('DELETE FROM verification_observations').run();
+  db.prepare('DELETE FROM verification_lenses').run();
 });
 
 afterEach(() => {

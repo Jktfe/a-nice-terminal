@@ -17,8 +17,10 @@
  */
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { doesChatRoomExist } from '$lib/server/chatRoomStore';
-import { parsePidChainFromBody, resolveServerSideHandle } from '$lib/server/identityGate';
+import { doesChatRoomExist, findChatRoomById } from '$lib/server/chatRoomStore';
+import { buildPermissionDeniedPayload } from '$lib/server/permissionDeniedPayload';
+import { resolveApproversFor } from '$lib/server/permissionApproverResolver';
+import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
 import { getTerminalIdByHandle } from '$lib/server/roomMembershipsStore';
 import { getTerminalById } from '$lib/server/terminalsStore';
 import { listMembershipsForRoom } from '$lib/server/roomMembershipsStore';
@@ -52,13 +54,30 @@ function enrich(roomId: string): EnrichedResponder[] {
 
 async function requireMemberHandle(
   roomId: string,
+  request: Request,
   rawBody: unknown
 ): Promise<string> {
-  const pidChain = parsePidChainFromBody(rawBody);
-  if (pidChain.length === 0) throw error(400, 'pidChain is required for responder writes.');
-  const handle = resolveServerSideHandle(roomId, pidChain);
-  if (!handle) throw error(403, 'Caller is not a registered member of this room.');
-  return handle;
+  const auth = requireChatRoomMutationAuth(roomId, request, rawBody);
+  if (!auth.isAdminBearer && !getTerminalIdByHandle(roomId, auth.handle)) {
+    // Stage A 403 PermissionDenied payload — caller authenticated but
+    // their resolved handle isn't a member of this room. Approve via
+    // room_owner so the agent's human can run `ant grant`.
+    const room = findChatRoomById(roomId);
+    throw error(
+      403,
+      buildPermissionDeniedPayload({
+        action: 'room.set_responders',
+        target_kind: 'room',
+        target_id: roomId,
+        target_display_name: room?.name,
+        reason: 'no_membership',
+        grantee_handle: auth.handle,
+        approvers: resolveApproversFor({ targetKind: 'room', targetId: roomId }),
+        message: 'Caller is not a registered member of this room.'
+      })
+    );
+  }
+  return auth.handle;
 }
 
 function resolveHandleToTerminal(roomId: string, handle: string): string {
@@ -81,7 +100,7 @@ export const GET: RequestHandler = async ({ params }) => {
 export const PUT: RequestHandler = async ({ params, request }) => {
   if (!doesChatRoomExist(params.roomId)) throw error(404, 'Room not found.');
   const rawBody = await readJsonBody(request);
-  const setBy = await requireMemberHandle(params.roomId, rawBody);
+  const setBy = await requireMemberHandle(params.roomId, request, rawBody);
   const handles = rawBody.handles;
   if (!Array.isArray(handles)) throw error(400, 'handles must be an array.');
   if (handles.some((h) => typeof h !== 'string')) throw error(400, 'each handle must be a string.');
@@ -95,7 +114,7 @@ export const PUT: RequestHandler = async ({ params, request }) => {
 export const POST: RequestHandler = async ({ params, request }) => {
   if (!doesChatRoomExist(params.roomId)) throw error(404, 'Room not found.');
   const rawBody = await readJsonBody(request);
-  const setBy = await requireMemberHandle(params.roomId, rawBody);
+  const setBy = await requireMemberHandle(params.roomId, request, rawBody);
   const handle = rawBody.handle;
   if (typeof handle !== 'string') throw error(400, 'handle is required.');
   const terminalId = resolveHandleToTerminal(params.roomId, handle);
@@ -111,7 +130,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 export const PATCH: RequestHandler = async ({ params, request }) => {
   if (!doesChatRoomExist(params.roomId)) throw error(404, 'Room not found.');
   const rawBody = await readJsonBody(request);
-  const setBy = await requireMemberHandle(params.roomId, rawBody);
+  const setBy = await requireMemberHandle(params.roomId, request, rawBody);
   const handle = rawBody.handle;
   const to = rawBody.to;
   if (typeof handle !== 'string') throw error(400, 'handle is required.');
@@ -127,7 +146,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 export const DELETE: RequestHandler = async ({ params, request }) => {
   if (!doesChatRoomExist(params.roomId)) throw error(404, 'Room not found.');
   const rawBody = await readJsonBody(request);
-  await requireMemberHandle(params.roomId, rawBody);
+  await requireMemberHandle(params.roomId, request, rawBody);
   const handle = rawBody.handle;
   if (typeof handle !== 'string') throw error(400, 'handle is required.');
   const terminalId = resolveHandleToTerminal(params.roomId, handle);

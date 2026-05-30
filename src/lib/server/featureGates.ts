@@ -6,6 +6,8 @@
  * This is Gate 1 (discovery only). Gate 2 (enforcement) is deferred.
  */
 
+import { error } from '@sveltejs/kit';
+
 export type Tier = 'oss' | 'native' | 'enterprise';
 
 function getEnvTier(): Tier {
@@ -103,6 +105,11 @@ export function getFeatureFlagsForTier(tier: Tier): Record<string, boolean> {
     // wire it, ux gated on paid tier).
     verification_api: true,
     verification_ux: tier !== 'oss',
+    // F2 (2026-05-28): server-authoritative author gate. OSS tier supports
+    // Browse / Apply / Run-Lens / Audit; Author actions (create/edit/
+    // deprecate tags, create/edit lenses, execute skills) require premium.
+    // Distinct from verification_ux which gates Trust-chip rendering.
+    verification_author: tier !== 'oss',
     // Premium "Bring in App" feature (JWPK msg_a0s51ioct6 2026-05-25): one-tap
     // launchers for Claude Desktop / Claude Mobile / ChatGPT / Codex Desktop /
     // Gemini with room context. API always present so OSS self-hosters can
@@ -151,6 +158,21 @@ export function getMigrationCompatibility() {
     deprecatedFeatures: [] as string[],
     breakingChanges: [] as string[],
   };
+}
+
+/**
+ * F2 gate: throws 403 if the current tier does not include verification-author
+ * privileges. Independent of admin-bearer (admin-bearer = who; tier = what).
+ * Call AFTER the admin-bearer check in Author endpoints.
+ */
+export function requireVerificationAuthorTier(): void {
+  const flags = getFeatureFlagsForTier(CURRENT_TIER);
+  if (!flags.verification_author) {
+    throw error(
+      403,
+      'Verification authoring requires premium tier. OSS tier supports Browse / Apply / Run-Lens / Audit; upgrade to Author tags + lenses.'
+    );
+  }
 }
 
 export function getBranding(): {

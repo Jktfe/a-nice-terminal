@@ -127,10 +127,10 @@ describe('PUT /api/chat-rooms/:roomId/mode — rejection paths', () => {
     expect(response.status).toBe(400);
   });
 
-  it('400 when pidChain is missing', async () => {
+  it('403 when pidChain is missing (no identity resolves)', async () => {
     const { roomId } = setupRoomWithMember();
     const response = await callPut(roomId, { mode: 'closed' });
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(403);
   });
 
   it('403 when pidChain does not resolve to a member of this room', async () => {

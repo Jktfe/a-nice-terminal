@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { handleRegisterVerb, handleAddVerb, handleResolveVerb, chooseRegisterPidChain } from './ant-cli-register.mjs';
 
 class CliInputError extends Error {}
@@ -21,7 +21,7 @@ function failResponse(status, message) {
   };
 }
 
-function makeRuntime(responseQueue) {
+function makeRuntime(responseQueue, runtimeOverrides = {}) {
   const captured = { calls: [], stdout: [], stderr: [] };
   const fetchImpl = async (url, init) => {
     captured.calls.push({ url, init });
@@ -34,7 +34,12 @@ function makeRuntime(responseQueue) {
       fetchImpl,
       serverUrl: 'http://fresh.test',
       writeOut: (line) => captured.stdout.push(line),
-      writeErr: (line) => captured.stderr.push(line)
+      writeErr: (line) => captured.stderr.push(line),
+      // Phase A2: tests can inject the env-detected pane without
+      // mutating process.env. Default null falls through to the real
+      // env vars (kept undefined for tests that exercise that path).
+      envTmuxPane: undefined,
+      ...runtimeOverrides
     },
     captured
   };
@@ -92,6 +97,88 @@ describe('handleRegisterVerb', () => {
     expect(captured.calls.length).toBe(2);
     expect(captured.calls[1].url).toContain(':6458');
     expect(captured.stderr.some((s) => s.includes('v3 mirror'))).toBe(true);
+  });
+
+  // Phase A2 (JWPK A Team msg_7uvr35x0xr 2026-05-29, design Q1 default A):
+  // auto-detect pane from TMUX_PANE / WEZTERM_PANE env. Explicit --pane wins.
+  describe('Phase A2 auto-pane detection', () => {
+    const RESERVED_ENV = ['TMUX_PANE', 'WEZTERM_PANE'];
+    const savedEnv = {};
+
+    beforeEach(() => {
+      for (const key of RESERVED_ENV) {
+        savedEnv[key] = process.env[key];
+        delete process.env[key];
+      }
+    });
+
+    afterEach(() => {
+      for (const key of RESERVED_ENV) {
+        if (savedEnv[key] === undefined) delete process.env[key];
+        else process.env[key] = savedEnv[key];
+      }
+    });
+
+    it('(a) injects pane from runtime.envTmuxPane when --pane is unset', async () => {
+      const { runtime, captured } = makeRuntime(
+        [okJson({ terminal_id: 't_inj', name: 'N', expires_at: 1 })],
+        { envTmuxPane: '%42' }
+      );
+      const code = await handleRegisterVerb('--handle', ['@x', '--name', 'N'], runtime, { CliInputError });
+      expect(code).toBe(0);
+      const body = JSON.parse(captured.calls[0].init.body);
+      expect(body.pane).toBe('%42');
+    });
+
+    it('(b) falls back to process.env.TMUX_PANE when runtime.envTmuxPane unset', async () => {
+      process.env.TMUX_PANE = '%17';
+      const { runtime, captured } = makeRuntime([
+        okJson({ terminal_id: 't_proc', name: 'N', expires_at: 1 })
+      ]);
+      const code = await handleRegisterVerb('--handle', ['@x', '--name', 'N'], runtime, { CliInputError });
+      expect(code).toBe(0);
+      const body = JSON.parse(captured.calls[0].init.body);
+      expect(body.pane).toBe('%17');
+    });
+
+    it('(c) falls back to process.env.WEZTERM_PANE when no tmux pane', async () => {
+      process.env.WEZTERM_PANE = '7';
+      const { runtime, captured } = makeRuntime([
+        okJson({ terminal_id: 't_wez', name: 'N', expires_at: 1 })
+      ]);
+      const code = await handleRegisterVerb('--handle', ['@x', '--name', 'N'], runtime, { CliInputError });
+      expect(code).toBe(0);
+      const body = JSON.parse(captured.calls[0].init.body);
+      expect(body.pane).toBe('7');
+    });
+
+    it('(d) explicit --pane wins over every env source', async () => {
+      process.env.TMUX_PANE = '%17';
+      process.env.WEZTERM_PANE = '7';
+      const { runtime, captured } = makeRuntime(
+        [okJson({ terminal_id: 't_wins', name: 'N', expires_at: 1 })],
+        { envTmuxPane: '%42' }
+      );
+      const code = await handleRegisterVerb(
+        '--handle',
+        ['@x', '--name', 'N', '--pane', '%99'],
+        runtime,
+        { CliInputError }
+      );
+      expect(code).toBe(0);
+      const body = JSON.parse(captured.calls[0].init.body);
+      expect(body.pane).toBe('%99');
+    });
+
+    it('omits pane when nothing detected (no runtime field, no env, no --pane)', async () => {
+      const { runtime, captured } = makeRuntime([
+        okJson({ terminal_id: 't_none', name: 'N', expires_at: 1 })
+      ]);
+      const code = await handleRegisterVerb('--handle', ['@x', '--name', 'N'], runtime, { CliInputError });
+      expect(code).toBe(0);
+      const body = JSON.parse(captured.calls[0].init.body);
+      expect(body.pane).toBeUndefined();
+    });
   });
 });
 

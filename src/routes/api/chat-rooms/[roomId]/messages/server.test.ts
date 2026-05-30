@@ -205,11 +205,37 @@ describe('GET /api/chat-rooms/:roomId/messages pagination', () => {
     const payload = await response.json();
     const firstPayload = payload.messages.find((message: { id: string }) => message.id === first.id);
     const secondPayload = payload.messages.find((message: { id: string }) => message.id === second.id);
+    // @you is the viewer (issued token), and never reacted, so viewerHasReacted
+    // is false for both emojis. M1 native-app reactions toggle UX depends on
+    // this field — see homebrew msg_znoxuoppy8 2026-05-27.
     expect(firstPayload.reactions).toEqual([
-      { emoji: '👍', count: 2, topReactors: ['@claude', '@kimi'] },
-      { emoji: '🙌', count: 1, topReactors: ['@codex'] }
+      { emoji: '👍', count: 2, topReactors: ['@claude', '@kimi'], viewerHasReacted: false },
+      { emoji: '🙌', count: 1, topReactors: ['@codex'], viewerHasReacted: false }
     ]);
     expect(secondPayload.reactions).toBeUndefined();
+  });
+
+  it('sets viewerHasReacted=true when the viewer reacted but is outside the truncated topReactors', async () => {
+    // Regression coverage for the M1 toggle bug homebrew flagged
+    // (msg_znoxuoppy8): topReactors caps at 5, so a viewer whose reaction
+    // arrived 6th+ would have been classified as "not reacted" by clients
+    // inferring from topReactors. Server-truth `viewerHasReacted` fixes it.
+    const room = createChatRoom({ name: 'viewer-outside-topreactors', whoCreatedIt: '@you' });
+    const message = postMessage({ roomId: room.id, authorHandle: '@you', body: 'busy emoji' });
+    for (const handle of ['@a', '@b', '@c', '@d', '@e']) {
+      addReactionToMessage({ messageId: message.id, reactorHandle: handle, emoji: '👍' });
+    }
+    addReactionToMessage({ messageId: message.id, reactorHandle: '@you', emoji: '👍' });
+
+    const { token } = issueToken('you@example.com');
+    const response = await callGet(room.id, '', { authorization: `Bearer ${token}` });
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    const messagePayload = payload.messages.find((m: { id: string }) => m.id === message.id);
+    const thumb = messagePayload.reactions.find((r: { emoji: string }) => r.emoji === '👍');
+    expect(thumb.count).toBe(6);
+    expect(thumb.topReactors).not.toContain('@you');
+    expect(thumb.viewerHasReacted).toBe(true);
   });
 
   it('keeps hard context-break mode server-side even when include_pre_break is requested', async () => {
@@ -287,10 +313,13 @@ describe('POST /api/chat-rooms/:roomId/messages with M30 slice 2 parentMessageId
       authorHandle: '@you',
       body: 'lives in A'
     });
+    // Materialise caller (auto-joins + may emit system preamble) BEFORE
+    // capturing baseline so the test isolates the POST's effect.
+    const caller = verifiedCaller(roomB.id);
     const beforeCount = listMessagesInRoom(roomB.id).length;
     const response = await callPost({
       roomId: roomB.id,
-      body: JSON.stringify({ body: 'attempt', parentMessageId: parentInOther.id, ...verifiedCaller(roomB.id) })
+      body: JSON.stringify({ body: 'attempt', parentMessageId: parentInOther.id, ...caller })
     });
     expect(response.status).toBe(404);
     const afterCount = listMessagesInRoom(roomB.id).length;
@@ -299,10 +328,11 @@ describe('POST /api/chat-rooms/:roomId/messages with M30 slice 2 parentMessageId
 
   it('POST with nonexistent parentMessageId returns 404 and does NOT create a message', async () => {
     const room = createChatRoom({ name: 'r3', whoCreatedIt: '@you' });
+    const caller = verifiedCaller(room.id);
     const beforeCount = listMessagesInRoom(room.id).length;
     const response = await callPost({
       roomId: room.id,
-      body: JSON.stringify({ body: 'attempt', parentMessageId: 'msg_nope', ...verifiedCaller(room.id) })
+      body: JSON.stringify({ body: 'attempt', parentMessageId: 'msg_nope', ...caller })
     });
     expect(response.status).toBe(404);
     const afterCount = listMessagesInRoom(room.id).length;
@@ -311,10 +341,11 @@ describe('POST /api/chat-rooms/:roomId/messages with M30 slice 2 parentMessageId
 
   it('POST with non-string parentMessageId returns 400 and does NOT create a message', async () => {
     const room = createChatRoom({ name: 'r4', whoCreatedIt: '@you' });
+    const caller = verifiedCaller(room.id);
     const beforeCount = listMessagesInRoom(room.id).length;
     const response = await callPost({
       roomId: room.id,
-      body: JSON.stringify({ body: 'attempt', parentMessageId: 42, ...verifiedCaller(room.id) })
+      body: JSON.stringify({ body: 'attempt', parentMessageId: 42, ...caller })
     });
     expect(response.status).toBe(400);
     expect(listMessagesInRoom(room.id).length).toBe(beforeCount);
@@ -322,10 +353,11 @@ describe('POST /api/chat-rooms/:roomId/messages with M30 slice 2 parentMessageId
 
   it('POST with empty-string parentMessageId returns 400 and does NOT create a message', async () => {
     const room = createChatRoom({ name: 'r5', whoCreatedIt: '@you' });
+    const caller = verifiedCaller(room.id);
     const beforeCount = listMessagesInRoom(room.id).length;
     const response = await callPost({
       roomId: room.id,
-      body: JSON.stringify({ body: 'attempt', parentMessageId: '', ...verifiedCaller(room.id) })
+      body: JSON.stringify({ body: 'attempt', parentMessageId: '', ...caller })
     });
     expect(response.status).toBe(400);
     expect(listMessagesInRoom(room.id).length).toBe(beforeCount);
@@ -333,10 +365,11 @@ describe('POST /api/chat-rooms/:roomId/messages with M30 slice 2 parentMessageId
 
   it('POST with whitespace-only parentMessageId returns 400 and does NOT create a message', async () => {
     const room = createChatRoom({ name: 'r6', whoCreatedIt: '@you' });
+    const caller = verifiedCaller(room.id);
     const beforeCount = listMessagesInRoom(room.id).length;
     const response = await callPost({
       roomId: room.id,
-      body: JSON.stringify({ body: 'attempt', parentMessageId: '   ', ...verifiedCaller(room.id) })
+      body: JSON.stringify({ body: 'attempt', parentMessageId: '   ', ...caller })
     });
     expect(response.status).toBe(400);
     expect(listMessagesInRoom(room.id).length).toBe(beforeCount);
@@ -498,6 +531,7 @@ describe('POST /api/chat-rooms/:roomId/messages IDENTITY-GATE-POSTS (transition 
     const room = createChatRoom({ name: 'rg3', whoCreatedIt: '@you' });
     const terminal = upsertTerminal({ pid: 6666, pid_start: 'lstart-c', name: 'evolveantclaude-pane' });
     addMembership({ room_id: room.id, handle: '@evolveantclaude', terminal_id: terminal.id });
+    const beforeCount = listMessagesInRoom(room.id).length;
 
     const response = await callPost({
       roomId: room.id,
@@ -508,7 +542,7 @@ describe('POST /api/chat-rooms/:roomId/messages IDENTITY-GATE-POSTS (transition 
       })
     });
     expect(response.status).toBe(403);
-    expect(listMessagesInRoom(room.id)).toHaveLength(0);
+    expect(listMessagesInRoom(room.id)).toHaveLength(beforeCount);
   });
 
   it('no pidChain at all: rejects instead of storing client authorHandle verbatim', async () => {
@@ -614,13 +648,14 @@ describe('M3.6a-v0 T3: browser-session identity mixed mode', () => {
 
   it('browser session cookie with mismatched authorHandle returns 403 and writes no message', async () => {
     const { room, session } = seedBrowserSession();
+    const beforeCount = listMessagesInRoom(room.id).length;
     const response = await callPost({
       roomId: room.id,
       cookie: `ant_browser_session=${session.browserSessionSecret}`,
       body: JSON.stringify({ body: 'spoof', authorHandle: '@someone-else' })
     });
     expect(response.status).toBe(403);
-    expect(listMessagesInRoom(room.id)).toHaveLength(0);
+    expect(listMessagesInRoom(room.id)).toHaveLength(beforeCount);
   });
 
   it('GAP-24/#113: invalid browser session cookie falls through to pidChain but rejects without identity', async () => {
@@ -709,13 +744,14 @@ describe('POST /api/chat-rooms/:roomId/messages M3.4a-v2 T3d touchpoint integrat
     const room = createChatRoom({ name: 'r-unmapped', whoCreatedIt: '@you' });
     const terminal = upsertTerminal({ pid: 8002, pid_start: 'tp2', name: 'unrelated' });
     addMembership({ room_id: room.id, handle: '@actual-member', terminal_id: terminal.id });
+    const beforeCount = listMessagesInRoom(room.id).length;
 
     const response = await callPost({
       roomId: room.id,
       body: JSON.stringify({ body: 'msg from unmapped name', authorHandle: '@unrelated-name' })
     });
     expect(response.status).toBe(403);
-    expect(listMessagesInRoom(room.id)).toHaveLength(0);
+    expect(listMessagesInRoom(room.id)).toHaveLength(beforeCount);
 
     const after = getTerminalById(terminal.id);
     expect(after?.last_message_sent_at_ms ?? null).toBeNull();

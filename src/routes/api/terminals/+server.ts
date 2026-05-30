@@ -21,7 +21,10 @@ import {
   deriveHandle
 } from '$lib/server/terminalRecordsStore';
 import { createChatRoom, findChatRoomById } from '$lib/server/chatRoomStore';
-import { autoRegisterTerminalForSpawnedSession } from '$lib/server/terminalsStore';
+import {
+  autoRegisterTerminalForSpawnedSession,
+  listTerminalModelsByIds
+} from '$lib/server/terminalsStore';
 
 function makeSessionId(): string {
   return 't_' + Math.random().toString(36).slice(2, 12);
@@ -30,12 +33,18 @@ function makeSessionId(): string {
 export const GET: RequestHandler = async () => {
   const aliveSessionIds = await listTerminals();
   const aliveSet = new Set(aliveSessionIds);
-  const records = listTerminalRecords().map((r) => ({
+  const rawRecords = listTerminalRecords();
+  // Batched lookup of the per-terminal model flag (JWPK msg_fespxsi2lu
+  // antV4 2026-05-28). Fold null/missing into null so the UI can render
+  // an "unspecified" subgroup cleanly.
+  const modelById = listTerminalModelsByIds(rawRecords.map((r) => r.session_id));
+  const records = rawRecords.map((r) => ({
     sessionId: r.session_id,
     name: r.name,
     autoForwardRoomId: r.auto_forward_room_id,
     autoForwardChat: r.auto_forward_chat,
     agentKind: r.agent_kind,
+    model: modelById.get(r.session_id) ?? null,
     tmuxTargetPane: r.tmux_target_pane,
     linkedChatRoomId: r.linked_chat_room_id,
     createdBy: r.created_by,

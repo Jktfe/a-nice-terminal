@@ -37,11 +37,16 @@ function sharedContextExists(humanHandle: string, agentHandle: string): boolean 
      LIMIT 1`
   ).get(humanHandle, agentHandle);
   if (sharedRoom) return true;
-  // Path (b): any terminal_records row where the agent inhabits a
-  // terminal the human created.
+  // Path (b): any LIVE terminal_records row where the agent inhabits a
+  // terminal the human created. Pane-binding supersession filter
+  // (JWPK msg_wlvguvfvqu 2026-05-27): a recycled-pane terminal_record
+  // does NOT extend inbox membership to its prior occupant — that
+  // would let a previous agent retain inbox visibility after a new
+  // agent took over the pane.
   const ownedTerminal = db.prepare(
     `SELECT 1 FROM terminal_records
      WHERE handle = ? AND created_by = ?
+       AND superseded_at_ms IS NULL
      LIMIT 1`
   ).get(agentHandle, humanHandle);
   return !!ownedTerminal;

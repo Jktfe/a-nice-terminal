@@ -17,10 +17,12 @@ import { getIdentityDb } from './db';
 
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
+const previousMemoryVaultPath = process.env.ANT_MEMORY_VAULT_PATH;
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'ant-memberships-'));
   process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
+  process.env.ANT_MEMORY_VAULT_PATH = '/tmp/ant-memory-pack-test';
   resetIdentityDbForTests();
 });
 
@@ -29,6 +31,8 @@ afterEach(() => {
   rmSync(tmpDir, { recursive: true, force: true });
   if (previousEnvValue === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = previousEnvValue;
+  if (previousMemoryVaultPath === undefined) delete process.env.ANT_MEMORY_VAULT_PATH;
+  else process.env.ANT_MEMORY_VAULT_PATH = previousMemoryVaultPath;
 });
 
 function makeTerminal(name: string): string {
@@ -183,7 +187,10 @@ describe('β3 agent-join system message', () => {
     expect(systemMsgs).toHaveLength(1);
     expect(systemMsgs[0].body).toContain('context discipline');
     expect(systemMsgs[0].body).toContain('system-break');
-    expect(systemMsgs[0].body).toContain('Memory files');
+    expect(systemMsgs[0].body).toContain('configured memory pack');
+    expect(systemMsgs[0].body).toContain('/tmp/ant-memory-pack-test/README.md');
+    expect(systemMsgs[0].body).toContain('ant memory recall');
+    expect(systemMsgs[0].body).not.toContain('/Users/jamesking');
   });
 
   it('does NOT post a system message for human handles', async () => {

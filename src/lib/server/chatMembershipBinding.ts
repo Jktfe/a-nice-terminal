@@ -20,6 +20,7 @@ import {
   type RoomMember
 } from './chatRoomStore';
 import { bindRoomHandleToLiveTerminal } from './terminalHandleBinding';
+import type { PidChainEntry } from './terminalsStore';
 
 export type BindResult = {
   room: ChatRoom;
@@ -39,6 +40,11 @@ function findMemberByHandle(room: ChatRoom, handle: string): RoomMember | undefi
 export function bindTokenToRoomMembership(input: {
   tokenSecret: string;
   roomId: string;
+  // Point 2 fix (Xeno windows-cli-auth-wedge follow-up #2, 2026-05-28):
+  // when the redeem call carries a pidChain, thread it through to
+  // bindRoomHandleToLiveTerminal so the resolver picks the CALLER's
+  // own live terminal over any stale handle→record match.
+  callerPidChain?: PidChainEntry[];
 }): BindResult | null {
   const identity = verifyToken(input.tokenSecret, input.roomId);
   if (!identity) return null;
@@ -48,6 +54,7 @@ export function bindTokenToRoomMembership(input: {
   const room = findChatRoomById(input.roomId);
   if (!room) return null;
   const normalisedHandle = normaliseHandle(identity.handle);
+  const callerPidChain = input.callerPidChain ?? [];
   const existing = findMemberByHandle(room, normalisedHandle);
   if (existing) {
     // Side-rooms fanout bug fix (2026-05-20): even when the chat_room_members
@@ -55,7 +62,7 @@ export function bindTokenToRoomMembership(input: {
     // reads to find the live PTY) may be missing or bound to a stale
     // browser-session synthetic terminal. Re-bind so subsequent messages
     // route to the live terminal record's pane.
-    bindRoomHandleToLiveTerminal(input.roomId, normalisedHandle);
+    bindRoomHandleToLiveTerminal(input.roomId, normalisedHandle, callerPidChain);
     return { room, member: existing, identity };
   }
   const updatedRoom = inviteAgentToRoom({
@@ -67,7 +74,7 @@ export function bindTokenToRoomMembership(input: {
   // fanoutMessageToRoomTerminals silently skips this member because the
   // membership lookup returns no terminal_id. Bind the live terminal here
   // so message delivery works from the first message onward.
-  bindRoomHandleToLiveTerminal(input.roomId, normalisedHandle);
+  bindRoomHandleToLiveTerminal(input.roomId, normalisedHandle, callerPidChain);
   const justJoined = findMemberByHandle(updatedRoom, normalisedHandle);
   if (!justJoined) {
     throw new Error('inviteAgentToRoom did not surface the new member');

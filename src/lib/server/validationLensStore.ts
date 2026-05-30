@@ -2,12 +2,14 @@
  * validationLensStore — per-user validation schemas + runs.
  *
  * A lens is a named validation schema (POC, FCA, investment-memo, etc).
- * validation_runs tracks per-claim-anchor evaluations against a lens.
+ * verification_observations tracks per-claim-anchor evaluations against a lens.
  *
- * Tables: validation_schemas, validation_runs (defined in db.ts).
+ * Tables: verification_lenses, verification_observations (defined in db.ts).
  */
 
+import { randomUUID } from 'node:crypto';
 import { getIdentityDb } from './db';
+import type { PolicyActorKind } from './policyStore';
 
 export type ValidationSchema = {
   id: string;
@@ -53,6 +55,20 @@ export type ValidationRun = {
   runBy: string | null;
 };
 
+export type ValidationSchemaAuditAction = 'create' | 'update' | 'archive';
+
+export type ValidationSchemaAuditEntry = {
+  id: string;
+  schemaId: string;
+  actorHandle: string;
+  actorKind: PolicyActorKind;
+  action: ValidationSchemaAuditAction;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  reason: string | null;
+  createdAtMs: number;
+};
+
 export function createValidationSchema(
   schema: CreateValidationSchemaInput
 ): ValidationSchema {
@@ -61,7 +77,7 @@ export function createValidationSchema(
   const scope = schema.scope ?? 'public';
   const scopeId = schema.scopeId ?? 'global';
   db.prepare(
-    `INSERT INTO validation_schemas
+    `INSERT INTO verification_lenses
        (id, name, description, lens_kind, scope, scope_id, rules_json, created_by, created_at_ms, updated_at_ms, archived_at_ms)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
@@ -103,20 +119,130 @@ export function listValidationSchemas(options: boolean | ListValidationSchemasOp
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   const rows = db.prepare(
-    `SELECT * FROM validation_schemas ${where} ORDER BY created_at_ms DESC`
+    `SELECT * FROM verification_lenses ${where} ORDER BY created_at_ms DESC`
   ).all(...params) as Array<Record<string, unknown>>;
   return rows.map(rowFromSchema);
 }
 
 export function getValidationSchema(id: string): ValidationSchema | null {
   const db = getIdentityDb();
-  const row = db.prepare('SELECT * FROM validation_schemas WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+  const row = db.prepare('SELECT * FROM verification_lenses WHERE id = ?').get(id) as Record<string, unknown> | undefined;
   return row ? rowFromSchema(row) : null;
+}
+
+export function updateValidationSchema(input: {
+  id: string;
+  name?: string;
+  description?: string | null;
+  lensKind?: ValidationSchema['lensKind'];
+  scope?: ValidationSchemaScope;
+  scopeId?: string;
+  rulesJson?: string;
+  actorHandle: string;
+  actorKind: PolicyActorKind;
+  reason?: string | null;
+  nowMs?: number;
+}): ValidationSchema | null {
+  const existing = getValidationSchema(input.id);
+  if (!existing || existing.archivedAtMs !== null) return null;
+  const db = getIdentityDb();
+  const now = input.nowMs ?? Date.now();
+  const next = {
+    name: input.name !== undefined ? input.name.trim() : existing.name,
+    description: input.description !== undefined ? input.description : existing.description,
+    lensKind: input.lensKind ?? existing.lensKind,
+    scope: input.scope ?? existing.scope,
+    scopeId: input.scopeId ?? existing.scopeId,
+    rulesJson: input.rulesJson ?? existing.rulesJson
+  };
+  const txn = db.transaction(() => {
+    db.prepare(
+      `UPDATE verification_lenses
+         SET name = ?, description = ?, lens_kind = ?, scope = ?, scope_id = ?, rules_json = ?, updated_at_ms = ?
+       WHERE id = ?`
+    ).run(next.name, next.description, next.lensKind, next.scope, next.scopeId, next.rulesJson, now, existing.id);
+    recordValidationSchemaAudit({
+      schemaId: existing.id,
+      actorHandle: input.actorHandle,
+      actorKind: input.actorKind,
+      action: 'update',
+      before: schemaAuditBody(existing),
+      after: { id: existing.id, ...next },
+      reason: input.reason ?? null,
+      nowMs: now
+    });
+  });
+  txn();
+  return getValidationSchema(existing.id);
 }
 
 export function archiveValidationSchema(id: string): void {
   const db = getIdentityDb();
-  db.prepare('UPDATE validation_schemas SET archived_at_ms = ?, updated_at_ms = ? WHERE id = ?').run(Date.now(), Date.now(), id);
+  db.prepare('UPDATE verification_lenses SET archived_at_ms = ?, updated_at_ms = ? WHERE id = ?').run(Date.now(), Date.now(), id);
+}
+
+export function archiveValidationSchemaWithAudit(input: {
+  id: string;
+  actorHandle: string;
+  actorKind: PolicyActorKind;
+  reason?: string | null;
+  nowMs?: number;
+}): boolean {
+  const existing = getValidationSchema(input.id);
+  if (!existing || existing.archivedAtMs !== null) return false;
+  const db = getIdentityDb();
+  const now = input.nowMs ?? Date.now();
+  const txn = db.transaction(() => {
+    db.prepare('UPDATE verification_lenses SET archived_at_ms = ?, updated_at_ms = ? WHERE id = ?').run(now, now, input.id);
+    recordValidationSchemaAudit({
+      schemaId: input.id,
+      actorHandle: input.actorHandle,
+      actorKind: input.actorKind,
+      action: 'archive',
+      before: schemaAuditBody(existing),
+      after: null,
+      reason: input.reason ?? null,
+      nowMs: now
+    });
+  });
+  txn();
+  return true;
+}
+
+export function recordValidationSchemaAudit(input: {
+  schemaId: string;
+  actorHandle: string;
+  actorKind: PolicyActorKind;
+  action: ValidationSchemaAuditAction;
+  before?: Record<string, unknown> | null;
+  after?: Record<string, unknown> | null;
+  reason?: string | null;
+  nowMs?: number;
+}): void {
+  const db = getIdentityDb();
+  db.prepare(
+    `INSERT INTO verification_lens_audit
+       (id, lens_id, actor_handle, actor_kind, action, before_json, after_json, reason, created_at_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    randomUUID(),
+    input.schemaId,
+    input.actorHandle,
+    input.actorKind,
+    input.action,
+    input.before === undefined || input.before === null ? null : JSON.stringify(input.before),
+    input.after === undefined || input.after === null ? null : JSON.stringify(input.after),
+    input.reason ?? null,
+    input.nowMs ?? Date.now()
+  );
+}
+
+export function listValidationSchemaAuditForSchema(schemaId: string): ValidationSchemaAuditEntry[] {
+  const db = getIdentityDb();
+  const rows = db.prepare(
+    `SELECT * FROM verification_lens_audit WHERE lens_id = ? ORDER BY created_at_ms DESC, rowid DESC`
+  ).all(schemaId) as Array<Record<string, unknown>>;
+  return rows.map(rowFromSchemaAudit);
 }
 
 export function createValidationRun(
@@ -125,8 +251,8 @@ export function createValidationRun(
   const db = getIdentityDb();
   const now = Date.now();
   db.prepare(
-    `INSERT INTO validation_runs
-       (id, schema_id, claim_anchor, claim_text, status, score, result_json, started_at_ms, completed_at_ms, run_by)
+    `INSERT INTO verification_observations
+       (id, lens_id, claim_anchor, claim_text, status, score, result_json, started_at_ms, completed_at_ms, run_by)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     run.id, run.schemaId, run.claimAnchor, run.claimText,
@@ -143,14 +269,14 @@ export function completeValidationRun(
 ): void {
   const db = getIdentityDb();
   db.prepare(
-    `UPDATE validation_runs SET status = ?, score = ?, result_json = ?, completed_at_ms = ? WHERE id = ?`
+    `UPDATE verification_observations SET status = ?, score = ?, result_json = ?, completed_at_ms = ? WHERE id = ?`
   ).run(status, score ?? null, resultJson ?? null, Date.now(), id);
 }
 
 export function listValidationRunsForClaim(claimAnchor: string): ValidationRun[] {
   const db = getIdentityDb();
   const rows = db.prepare(
-    `SELECT * FROM validation_runs WHERE claim_anchor = ? ORDER BY completed_at_ms DESC`
+    `SELECT * FROM verification_observations WHERE claim_anchor = ? ORDER BY completed_at_ms DESC`
   ).all(claimAnchor) as Array<Record<string, unknown>>;
   return rows.map(rowFromRun);
 }
@@ -158,8 +284,37 @@ export function listValidationRunsForClaim(claimAnchor: string): ValidationRun[]
 export function listValidationRunsForSchema(schemaId: string): ValidationRun[] {
   const db = getIdentityDb();
   const rows = db.prepare(
-    `SELECT * FROM validation_runs WHERE schema_id = ? ORDER BY started_at_ms DESC`
+    `SELECT * FROM verification_observations WHERE lens_id = ? ORDER BY started_at_ms DESC`
   ).all(schemaId) as Array<Record<string, unknown>>;
+  return rows.map(rowFromRun);
+}
+
+/**
+ * List validation runs whose claim_anchor sits under any of the supplied
+ * artefact ids (i.e. claim_anchor LIKE 'artefact:<id>%'). Used by the
+ * per-room validation-summary endpoint (V3 contract) to aggregate runs
+ * across every artefact in a room without re-extracting claims per call.
+ *
+ * `sinceMs` optionally restricts to runs whose started_at_ms is at or
+ * after that timestamp — typical use: last 7 days.
+ *
+ * Returns runs ordered by started_at_ms DESC (newest first).
+ */
+export function listValidationRunsForArtefacts(
+  artefactIds: readonly string[],
+  sinceMs?: number
+): ValidationRun[] {
+  if (artefactIds.length === 0) return [];
+  const db = getIdentityDb();
+  const likeClauses = artefactIds.map(() => `claim_anchor LIKE ?`).join(' OR ');
+  const params: unknown[] = artefactIds.map((id) => `artefact:${id}%`);
+  let sql = `SELECT * FROM verification_observations WHERE (${likeClauses})`;
+  if (sinceMs !== undefined) {
+    sql += ` AND started_at_ms >= ?`;
+    params.push(sinceMs);
+  }
+  sql += ` ORDER BY started_at_ms DESC`;
+  const rows = db.prepare(sql).all(...params) as Array<Record<string, unknown>>;
   return rows.map(rowFromRun);
 }
 
@@ -197,10 +352,45 @@ function rowFromSchema(row: Record<string, unknown>): ValidationSchema {
   };
 }
 
+function schemaAuditBody(schema: ValidationSchema): Record<string, unknown> {
+  return {
+    id: schema.id,
+    name: schema.name,
+    description: schema.description,
+    lensKind: schema.lensKind,
+    scope: schema.scope,
+    scopeId: schema.scopeId,
+    rulesJson: schema.rulesJson
+  };
+}
+
+function parseAuditJson(raw: unknown): Record<string, unknown> | null {
+  if (raw == null) return null;
+  try {
+    const parsed = JSON.parse(String(raw)) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+  } catch { /* malformed audit json */ }
+  return null;
+}
+
+function rowFromSchemaAudit(row: Record<string, unknown>): ValidationSchemaAuditEntry {
+  return {
+    id: String(row.id),
+    schemaId: String(row.lens_id),
+    actorHandle: String(row.actor_handle),
+    actorKind: String(row.actor_kind) as PolicyActorKind,
+    action: String(row.action) as ValidationSchemaAuditAction,
+    before: parseAuditJson(row.before_json),
+    after: parseAuditJson(row.after_json),
+    reason: row.reason == null ? null : String(row.reason),
+    createdAtMs: Number(row.created_at_ms)
+  };
+}
+
 function rowFromRun(row: Record<string, unknown>): ValidationRun {
   return {
     id: String(row.id),
-    schemaId: String(row.schema_id),
+    schemaId: String(row.lens_id),
     claimAnchor: String(row.claim_anchor),
     claimText: String(row.claim_text),
     status: String(row.status) as ValidationRun['status'],

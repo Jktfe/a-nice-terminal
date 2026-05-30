@@ -2,9 +2,11 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   createTerminalRecord, getTerminalRecord, updateTerminalRecord, listTerminalRecords, deleteTerminalRecord,
   parseAllowlist, serializeAllowlist, listKnownHandles, listAllPickableHandles, deriveHandle,
-  findTerminalRecordByHandle
+  findTerminalRecordByHandle, listLiveTerminalRecords
 } from './terminalRecordsStore';
-import { getIdentityDb } from './db';
+import { getIdentityDb, resetIdentityDbForTests } from './db';
+import { createChatRoom, archiveChatRoom, softDeleteChatRoom } from './chatRoomStore';
+import { listLinkedTerminalRowsForRoom, getLinkedTerminalRowBySessionId, isLinkedChatRoom } from './linkedRoomTerminalLookup';
 
 describe('terminalRecordsStore — agent_kind round-trip (T2b autodetect-wiring)', () => {
   beforeEach(() => {
@@ -166,5 +168,217 @@ describe('terminalRecordsStore — agent_kind round-trip (T2b autodetect-wiring)
     createTerminalRecord({ sessionId: 't_v_4', name: 'Anything', handle: '@x' });
     expect(findTerminalRecordByHandle('')).toBeNull();
     expect(findTerminalRecordByHandle('   ')).toBeNull();
+  });
+
+  // JWPK msg_wlvguvfvqu / msg_8390722mjh antV4 2026-05-27: pane-binding
+  // supersession. A recycled tmux pane must NOT deliver the prior
+  // agent's room subscriptions. Vera (codex --yolo) spawned in the
+  // same pane as @xenocc and saw a xenoChat message before having any
+  // membership. Insert/update supersession + reader filters fix it.
+  describe('pane-binding supersession', () => {
+    beforeEach(() => {
+      try { getIdentityDb().prepare(`DELETE FROM chat_rooms`).run(); } catch { /* schema not applied */ }
+    });
+
+    it('PS1: inserting a new record on a pane supersedes the prior record on that pane', () => {
+      const room = createChatRoom({ name: 'xenoChat', whoCreatedIt: '@you' });
+      createTerminalRecord({
+        sessionId: 't_ps_1', name: 'prior-agent',
+        tmuxTargetPane: 'pane-%5', linkedChatRoomId: room.id, handle: '@xenocc'
+      });
+      // Vera spawns in the same pane:
+      createTerminalRecord({
+        sessionId: 't_ps_2', name: 'new-agent',
+        tmuxTargetPane: 'pane-%5', handle: '@vera'
+      });
+      const prior = getTerminalRecord('t_ps_1');
+      const newer = getTerminalRecord('t_ps_2');
+      expect(prior?.superseded_at_ms).not.toBeNull();
+      expect(newer?.superseded_at_ms).toBeNull();
+    });
+
+    it('PS2: superseded records do NOT appear in listLinkedTerminalRowsForRoom (the primary leak surface)', () => {
+      const room = createChatRoom({ name: 'xenoChat', whoCreatedIt: '@you' });
+      createTerminalRecord({
+        sessionId: 't_ps_3', name: 'prior', tmuxTargetPane: 'pane-%5',
+        linkedChatRoomId: room.id, handle: '@xenocc'
+      });
+      // Pre-supersession: prior shows up.
+      expect(listLinkedTerminalRowsForRoom(room.id).map((r) => r.id)).toContain('t_ps_3');
+      // Vera claims the pane:
+      createTerminalRecord({
+        sessionId: 't_ps_4', name: 'vera', tmuxTargetPane: 'pane-%5', handle: '@vera'
+      });
+      // Post-supersession: prior is GONE from the linked-room walker.
+      const linked = listLinkedTerminalRowsForRoom(room.id).map((r) => r.id);
+      expect(linked).not.toContain('t_ps_3');
+    });
+
+    it('PS3: superseded records also drop from getLinkedTerminalRowBySessionId', () => {
+      createTerminalRecord({
+        sessionId: 't_ps_5', name: 'prior', tmuxTargetPane: 'pane-%5', handle: '@xenocc'
+      });
+      expect(getLinkedTerminalRowBySessionId('t_ps_5')).not.toBeNull();
+      createTerminalRecord({
+        sessionId: 't_ps_6', name: 'next', tmuxTargetPane: 'pane-%5', handle: '@vera'
+      });
+      expect(getLinkedTerminalRowBySessionId('t_ps_5')).toBeNull();
+      expect(getLinkedTerminalRowBySessionId('t_ps_6')).not.toBeNull();
+    });
+
+    it('PS4: isLinkedChatRoom returns false when only superseded records point at the room', () => {
+      const room = createChatRoom({ name: 'orphaned', whoCreatedIt: '@you' });
+      createTerminalRecord({
+        sessionId: 't_ps_7', name: 'a', tmuxTargetPane: 'pane-%5',
+        linkedChatRoomId: room.id, handle: '@a'
+      });
+      expect(isLinkedChatRoom(room.id)).toBe(true);
+      // Same pane claimed by another agent with a DIFFERENT linked room:
+      const room2 = createChatRoom({ name: 'fresh', whoCreatedIt: '@you' });
+      createTerminalRecord({
+        sessionId: 't_ps_8', name: 'b', tmuxTargetPane: 'pane-%5',
+        linkedChatRoomId: room2.id, handle: '@b'
+      });
+      // Original room now has only a superseded record → no longer "linked".
+      expect(isLinkedChatRoom(room.id)).toBe(false);
+      // New room IS linked via the live record.
+      expect(isLinkedChatRoom(room2.id)).toBe(true);
+    });
+
+    it('PS5: listLiveTerminalRecords excludes superseded rows (picker fix)', () => {
+      createTerminalRecord({ sessionId: 't_ps_9', name: 'a', tmuxTargetPane: 'pane-%5', handle: '@a' });
+      createTerminalRecord({ sessionId: 't_ps_10', name: 'b', tmuxTargetPane: 'pane-%5', handle: '@b' });
+      const live = listLiveTerminalRecords();
+      expect(live.find((r) => r.session_id === 't_ps_9')).toBeUndefined();
+      expect(live.find((r) => r.session_id === 't_ps_10')).toBeDefined();
+    });
+
+    it('PS6: listAllPickableHandles + listKnownHandles exclude superseded handles', () => {
+      createTerminalRecord({ sessionId: 't_ps_11', name: 'a', tmuxTargetPane: 'pane-%5', handle: '@gone' });
+      createTerminalRecord({ sessionId: 't_ps_12', name: 'b', tmuxTargetPane: 'pane-%5', handle: '@here' });
+      const picker = listAllPickableHandles();
+      expect(picker).not.toContain('@gone');
+      expect(picker).toContain('@here');
+      const known = listKnownHandles();
+      expect(known).not.toContain('@gone');
+      expect(known).toContain('@here');
+    });
+
+    it('PS7: listTerminalRecords (audit-shape) still returns superseded rows for history', () => {
+      createTerminalRecord({ sessionId: 't_ps_13', name: 'a', tmuxTargetPane: 'pane-%5', handle: '@a' });
+      createTerminalRecord({ sessionId: 't_ps_14', name: 'b', tmuxTargetPane: 'pane-%5', handle: '@b' });
+      const all = listTerminalRecords();
+      const ids = all.map((r) => r.session_id);
+      expect(ids).toContain('t_ps_13'); // superseded but visible to audit
+      expect(ids).toContain('t_ps_14');
+    });
+
+    it('PS8: re-registering the SAME session on its own pane does not self-supersede', () => {
+      createTerminalRecord({ sessionId: 't_ps_15', name: 'a', tmuxTargetPane: 'pane-%5', handle: '@a' });
+      // Update the same record (e.g. handle rename) — pane unchanged.
+      updateTerminalRecord('t_ps_15', { handle: '@a-renamed' });
+      const record = getTerminalRecord('t_ps_15');
+      expect(record?.superseded_at_ms).toBeNull();
+      expect(record?.handle).toBe('@a-renamed');
+    });
+
+    it('PS9: updateTerminalRecord moving to a NEW pane supersedes whoever was there', () => {
+      createTerminalRecord({ sessionId: 't_ps_16', name: 'occupant', tmuxTargetPane: 'pane-target', handle: '@occupant' });
+      createTerminalRecord({ sessionId: 't_ps_17', name: 'mover', tmuxTargetPane: 'pane-original', handle: '@mover' });
+      // Mover moves to pane-target → occupant gets superseded.
+      updateTerminalRecord('t_ps_17', { tmuxTargetPane: 'pane-target' });
+      const occupant = getTerminalRecord('t_ps_16');
+      const mover = getTerminalRecord('t_ps_17');
+      expect(occupant?.superseded_at_ms).not.toBeNull();
+      expect(mover?.superseded_at_ms).toBeNull();
+    });
+
+    it('PS10: NULL tmux_target_pane records do NOT supersede each other (no pane to share)', () => {
+      createTerminalRecord({ sessionId: 't_ps_18', name: 'a', tmuxTargetPane: null, handle: '@a' });
+      createTerminalRecord({ sessionId: 't_ps_19', name: 'b', tmuxTargetPane: null, handle: '@b' });
+      // Note: T1a default kicks in if tmuxTargetPane is undefined, but
+      // we passed explicit null. Both rows should remain unsuperseded.
+      expect(getTerminalRecord('t_ps_18')?.superseded_at_ms).toBeNull();
+      expect(getTerminalRecord('t_ps_19')?.superseded_at_ms).toBeNull();
+    });
+  });
+
+  // Phase C3 (JWPK A Team msg_emnmgs1y9t 2026-05-29 — screenshot showing
+  // invite picker still listing dead handles after 0.1.13 deploy). Confirms
+  // listLiveTerminalRecords, listKnownHandles, and listAllPickableHandles
+  // all drop terminal_records whose backing terminal has been flipped to
+  // archived/deleted, AND preserve rows that have no matching terminals
+  // row at all (pre-A1 + remote-bridge).
+  describe('Phase C3 — picker queries filter on terminals.status', () => {
+    beforeEach(() => {
+      process.env.ANT_FRESH_DB_PATH = ':memory:';
+      resetIdentityDbForTests();
+    });
+
+    it('C3a: listLiveTerminalRecords includes rows whose terminals row is status=live', async () => {
+      const { upsertTerminal } = await import('./terminalsStore');
+      const live = upsertTerminal({ pid: 1, pid_start: 'p', name: 'live-record' });
+      createTerminalRecord({ sessionId: live.id, name: 'live-record', handle: '@alive' });
+      const rows = listLiveTerminalRecords();
+      expect(rows.map((r) => r.session_id)).toContain(live.id);
+    });
+
+    it('C3b: listLiveTerminalRecords drops rows whose terminals row is archived', async () => {
+      const { upsertTerminal, setTerminalStatus } = await import('./terminalsStore');
+      const t = upsertTerminal({ pid: 2, pid_start: 'p', name: 'archived-record' });
+      createTerminalRecord({ sessionId: t.id, name: 'archived-record', handle: '@archived' });
+      setTerminalStatus(t.id, 'archived');
+      const rows = listLiveTerminalRecords();
+      expect(rows.map((r) => r.session_id)).not.toContain(t.id);
+    });
+
+    it('C3c: listLiveTerminalRecords drops rows whose terminals row is deleted', async () => {
+      const { upsertTerminal, setTerminalStatus } = await import('./terminalsStore');
+      const t = upsertTerminal({ pid: 3, pid_start: 'p', name: 'deleted-record' });
+      createTerminalRecord({ sessionId: t.id, name: 'deleted-record', handle: '@gone' });
+      setTerminalStatus(t.id, 'deleted');
+      const rows = listLiveTerminalRecords();
+      expect(rows.map((r) => r.session_id)).not.toContain(t.id);
+    });
+
+    it('C3d: listLiveTerminalRecords PRESERVES rows whose terminals row does not exist (pre-A1 / remote bridge)', () => {
+      // create a terminal_records row whose session_id has NO matching
+      // terminals row — same shape as pre-A1 historical rows + remote
+      // bridges that only exist in terminal_records.
+      createTerminalRecord({ sessionId: 't_orphan_record', name: 'orphan', handle: '@orphan' });
+      const rows = listLiveTerminalRecords();
+      expect(rows.map((r) => r.session_id)).toContain('t_orphan_record');
+    });
+
+    it('C3e: listKnownHandles drops archived', async () => {
+      const { upsertTerminal, setTerminalStatus } = await import('./terminalsStore');
+      const live = upsertTerminal({ pid: 4, pid_start: 'p', name: 'h-live' });
+      const archived = upsertTerminal({ pid: 5, pid_start: 'p', name: 'h-archived' });
+      createTerminalRecord({ sessionId: live.id, name: 'h-live', handle: '@h-live' });
+      createTerminalRecord({ sessionId: archived.id, name: 'h-archived', handle: '@h-archived' });
+      setTerminalStatus(archived.id, 'archived');
+      const handles = listKnownHandles();
+      expect(handles).toContain('@h-live');
+      expect(handles).not.toContain('@h-archived');
+    });
+
+    it('C3f: listAllPickableHandles drops archived (inherits from listLiveTerminalRecords)', async () => {
+      const { upsertTerminal, setTerminalStatus } = await import('./terminalsStore');
+      const live = upsertTerminal({ pid: 6, pid_start: 'p', name: 'p-live' });
+      const archived = upsertTerminal({ pid: 7, pid_start: 'p', name: 'p-archived' });
+      createTerminalRecord({ sessionId: live.id, name: 'p-live', handle: '@p-live' });
+      createTerminalRecord({ sessionId: archived.id, name: 'p-archived', handle: '@p-archived' });
+      setTerminalStatus(archived.id, 'archived');
+      const handles = listAllPickableHandles();
+      expect(handles).toContain('@p-live');
+      expect(handles).not.toContain('@p-archived');
+    });
+
+    it('C3g: listAllPickableHandles preserves orphan rows (no terminals row) via derived handle', () => {
+      createTerminalRecord({ sessionId: 't_orphan_2', name: 'orphan-pick', handle: null });
+      const handles = listAllPickableHandles();
+      // deriveHandle falls back to slug of name when handle is null.
+      expect(handles).toContain('@orphan-pick');
+    });
   });
 });

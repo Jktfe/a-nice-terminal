@@ -50,6 +50,8 @@
     };
   };
 
+  type DeckFrameMode = 'fit' | 'widescreen' | 'classic';
+
   const artefact = $derived(data.artefact);
   const canFrame = $derived(
     artefact.refUrl
@@ -67,15 +69,19 @@
     (data.content === null || data.content.contentFormat === 'markdown' || data.content.contentFormat === 'univer-json')
   );
   const kindLabel = $derived(artefact.kind === 'doc' ? 'Document' : artefact.kind === 'deck' ? 'Slides' : artefact.kind === 'spreadsheet' ? 'Spreadsheet' : 'Artefact');
-  // F-Univer slice: when the artefact has a univer-json body, render
-  // it via the Univer canvas instead of falling back to the iframe
-  // placeholder. The content row is optional — a freshly-created deck
-  // / doc / sheet seeds an empty snapshot in the viewer until first
-  // save.
+  // Univer is explicit now: only artefacts with a stored univer-json body
+  // mount the canvas. Empty deck artefacts fall back to their refUrl so
+  // Open-Slide can be the default deck path again.
   const shouldRenderUniver = $derived(
-    isUniverKind && (data.content?.contentFormat === 'univer-json' || data.content === null)
+    isUniverKind && data.content?.contentFormat === 'univer-json'
+  );
+  const isDeckReviewArtefact = $derived(
+    artefact.kind === 'deck' && !shouldRenderUniver && canFrame && !!artefact.refUrl
   );
   let viewerError = $state('');
+  let deckFrameMode = $state<DeckFrameMode>('widescreen');
+  let deckReviewNote = $state('');
+  let noteCopyStatus = $state('');
   let validationLoading = $state(false);
   let workLoading = $state(false);
   let validationError = $state('');
@@ -105,12 +111,30 @@
       workLoading = false;
     }
   }
+
+  async function copyReviewNote() {
+    if (!deckReviewNote.trim()) return;
+    const note = [
+      `Deck review: ${artefact.title}`,
+      `Source: ${artefact.refUrl ?? 'No source'}`,
+      `Frame: ${deckFrameMode}`,
+      '',
+      deckReviewNote.trim()
+    ].join('\n');
+    try {
+      await navigator.clipboard.writeText(note);
+      noteCopyStatus = 'Copied';
+    } catch {
+      noteCopyStatus = 'Copy unavailable';
+    }
+    setTimeout(() => (noteCopyStatus = ''), 2200);
+  }
 </script>
 
 <svelte:head><title>{artefact.title} | Artefact | ANT</title></svelte:head>
 
 <SimplePageShell
-  eyebrow={isUniverKind ? `Univer ${kindLabel}` : kindLabel}
+  eyebrow={shouldRenderUniver ? `Univer ${kindLabel}` : kindLabel}
   title={artefact.title}
   explainKey="artefact-view"
   summary={`${kindLabel} from room ${artefact.roomId}${artefact.createdBy ? ` · by ${artefact.createdBy}` : ''}`}
@@ -178,7 +202,48 @@
     </Explainable>
   {/if}
 
-  {#if shouldRenderUniver}
+  {#if isDeckReviewArtefact && artefact.refUrl}
+    <Explainable explainKey="artefact-frame">
+    <section class="deck-review-shell" aria-label="Deck review workspace">
+      <div class="deck-review-main">
+        <header class="deck-review-toolbar">
+          <div>
+            <span class="panel-label">Deck frame</span>
+            <strong>{artefact.refUrl}</strong>
+          </div>
+          <div class="frame-mode" role="group" aria-label="Frame size">
+            <button type="button" class:active={deckFrameMode === 'fit'} onclick={() => (deckFrameMode = 'fit')}>Fit</button>
+            <button type="button" class:active={deckFrameMode === 'widescreen'} onclick={() => (deckFrameMode = 'widescreen')}>16:9</button>
+            <button type="button" class:active={deckFrameMode === 'classic'} onclick={() => (deckFrameMode = 'classic')}>4:3</button>
+          </div>
+        </header>
+        <div class="deck-frame-shell" data-frame={deckFrameMode}>
+          <div class="deck-frame-inner">
+            <iframe title={artefact.title} src={artefact.refUrl}></iframe>
+          </div>
+        </div>
+      </div>
+      <aside class="deck-review-rail" aria-label="Deck review notes">
+        <header>
+          <span class="panel-label">Review notes</span>
+          <strong>Capture while viewing</strong>
+        </header>
+        <textarea
+          bind:value={deckReviewNote}
+          rows="10"
+          placeholder="Red-lines, claims, follow-up questions, or slide numbers."
+          aria-label="Deck review notes"
+        ></textarea>
+        <div class="note-actions">
+          <button class="secondary-button" type="button" onclick={copyReviewNote} disabled={!deckReviewNote.trim()}>
+            Copy note
+          </button>
+          {#if noteCopyStatus}<span>{noteCopyStatus}</span>{/if}
+        </div>
+      </aside>
+    </section>
+    </Explainable>
+  {:else if shouldRenderUniver}
     <Explainable explainKey="artefact-frame">
     <section class="univer-shell" aria-label="Univer workspace">
       <header>
@@ -358,6 +423,121 @@
     background: #fee2e2;
     color: #991b1b;
   }
+  .deck-review-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem);
+    gap: 1rem;
+    align-items: start;
+    margin-bottom: 1.2rem;
+  }
+  .deck-review-main,
+  .deck-review-rail {
+    border: 1px solid var(--line-soft);
+    border-radius: 0.85rem;
+    background: var(--surface-card);
+    box-shadow: 0 12px 28px rgb(0 0 0 / 4%);
+    overflow: hidden;
+  }
+  .deck-review-toolbar,
+  .deck-review-rail header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 0.9rem;
+    border-bottom: 1px solid var(--line-soft);
+    color: var(--ink-soft);
+    font-size: 0.84rem;
+  }
+  .deck-review-toolbar strong,
+  .deck-review-rail strong {
+    color: var(--ink-strong);
+    overflow-wrap: anywhere;
+  }
+  .frame-mode {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    justify-content: flex-end;
+  }
+  .frame-mode button {
+    min-width: 3.2rem;
+    padding: 0.32rem 0.55rem;
+    border: 1px solid var(--line-soft);
+    border-radius: 0.35rem;
+    background: var(--surface-raised);
+    color: var(--ink-soft);
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 800;
+    cursor: pointer;
+  }
+  .frame-mode button:hover,
+  .frame-mode button.active {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .deck-frame-shell {
+    display: grid;
+    place-items: center;
+    padding: 0.75rem;
+    background: color-mix(in srgb, var(--surface-raised) 80%, #ffffff);
+  }
+  .deck-frame-inner {
+    width: 100%;
+    max-width: 100%;
+    border: 1px solid var(--line-soft);
+    border-radius: 0.5rem;
+    background: white;
+    overflow: hidden;
+  }
+  .deck-frame-shell[data-frame='fit'] .deck-frame-inner {
+    height: min(74vh, 54rem);
+    min-height: 28rem;
+  }
+  .deck-frame-shell[data-frame='widescreen'] .deck-frame-inner {
+    aspect-ratio: 16 / 9;
+  }
+  .deck-frame-shell[data-frame='classic'] .deck-frame-inner {
+    aspect-ratio: 4 / 3;
+    max-width: min(100%, 60rem);
+  }
+  .deck-frame-inner iframe {
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    border: 0;
+    background: white;
+  }
+  .deck-review-rail {
+    display: grid;
+    gap: 0.75rem;
+    padding-bottom: 0.9rem;
+  }
+  .deck-review-rail textarea {
+    width: calc(100% - 1.8rem);
+    min-height: 14rem;
+    margin: 0 0.9rem;
+    resize: vertical;
+    border: 1px solid var(--line-soft);
+    border-radius: 0.5rem;
+    padding: 0.7rem;
+    background: var(--surface-raised);
+    color: var(--ink-strong);
+    font: inherit;
+    line-height: 1.45;
+  }
+  .deck-review-rail textarea:focus {
+    outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    outline-offset: 2px;
+  }
+  .note-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0 0.9rem;
+    color: var(--ink-soft);
+    font-size: 0.8rem;
+  }
   .univer-shell {
     min-height: 68vh;
     border: 1px solid var(--line-soft);
@@ -406,5 +586,20 @@
     display: block;
     max-width: 100%;
     overflow-wrap: anywhere;
+  }
+  @media (max-width: 900px) {
+    .deck-review-shell {
+      grid-template-columns: 1fr;
+    }
+    .deck-review-toolbar {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .frame-mode {
+      justify-content: flex-start;
+    }
+    .deck-frame-shell[data-frame='fit'] .deck-frame-inner {
+      min-height: 22rem;
+    }
   }
 </style>

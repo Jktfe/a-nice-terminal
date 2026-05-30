@@ -16,10 +16,10 @@ import { inboxRoomIdFor } from './humanInboxRoomStore';
 // merged-into ask will answer it (typically with another question rolled up
 // by the Chair premium feature). Only 'answered' and 'dismissed' release
 // the pill.
-export type AskStatus = 'open' | 'answered' | 'dismissed' | 'merged';
+export type AskStatus = 'open' | 'answered' | 'dismissed' | 'merged' | 'deferred';
 
 /** Statuses that keep the askee's response-required pill alive. */
-export const RESPONSE_REQUIRED_STATUSES: readonly AskStatus[] = ['open', 'merged'];
+export const RESPONSE_REQUIRED_STATUSES: readonly AskStatus[] = ['open', 'merged', 'deferred'];
 
 export type Ask = {
   id: string;
@@ -125,7 +125,11 @@ export function findAskById(askId: string): Ask | undefined {
 }
 
 export function listOpenAsksInRoom(roomId: string): Ask[] {
-  return listOrdered("room_id = ? AND status = 'open'", 'opened_at_ms ASC, rowid ASC', [roomId]);
+  return listOrdered(
+    "room_id = ? AND status IN ('open','deferred')",
+    'opened_at_ms ASC, rowid ASC',
+    [roomId]
+  );
 }
 
 export function listRecentlyAnsweredAsksInRoom(roomId: string, limit = 20): Ask[] {
@@ -137,7 +141,7 @@ export function listRecentlyAnsweredAsksInRoom(roomId: string, limit = 20): Ask[
 }
 
 export function listAllOpenAsks(): Ask[] {
-  return listOrdered("status = 'open'", 'opened_at_ms ASC, rowid ASC');
+  return listOrdered("status IN ('open','deferred')", 'opened_at_ms ASC, rowid ASC');
 }
 
 export function listAllRecentlyAnsweredAsks(limit = 20): Ask[] {
@@ -211,7 +215,7 @@ export function mergeAsks(input: {
 
 export function listResponseRequiredAsksForHandle(targetHandle: string): Ask[] {
   return listOrdered(
-    "target_handle = ? AND status IN ('open','merged')",
+    "target_handle = ? AND status IN ('open','merged','deferred')",
     'opened_at_ms ASC, rowid ASC',
     [targetHandle]
   );
@@ -225,7 +229,7 @@ export function listResponseRequiredAsksForHandle(targetHandle: string): Ask[] {
 export function hasResponseRequiredAsksForHandle(targetHandle: string): boolean {
   const row = getIdentityDb().prepare(
     `SELECT 1 FROM asks
-     WHERE target_handle = ? AND status IN ('open','merged')
+     WHERE target_handle = ? AND status IN ('open','merged','deferred')
      LIMIT 1`
   ).get(targetHandle) as { 1: number } | undefined;
   return row !== undefined;
@@ -393,6 +397,23 @@ export function dismissAsk(input: {
     `UPDATE asks SET status = 'dismissed', dismissed_by_handle = ?,
      dismissed_by_display_name = ?, dismissed_at_ms = ? WHERE id = ?`
   ).run(trimmedHandle, input.dismissedByDisplayName ?? trimmedHandle, nowMs, input.askId);
+
+  return findAskById(input.askId)!;
+}
+
+export function deferAsk(input: {
+  askId: string;
+  deferredByHandle: string;
+}): Ask {
+  const trimmedHandle = input.deferredByHandle.trim();
+  if (trimmedHandle.length === 0) throw new Error('A deferredByHandle is required to defer an ask.');
+  const ask = findAskById(input.askId);
+  if (!ask) throw new Error(`Ask ${input.askId} not found.`);
+  if (ask.status !== 'open') throw new Error(`Ask ${input.askId} is already ${ask.status}.`);
+
+  getIdentityDb().prepare(
+    `UPDATE asks SET status = 'deferred' WHERE id = ?`
+  ).run(input.askId);
 
   return findAskById(input.askId)!;
 }

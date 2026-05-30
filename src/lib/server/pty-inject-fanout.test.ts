@@ -338,8 +338,16 @@ describe('fanoutMessageToRoomTerminals — mention-targeted routing', () => {
     const controller = {
       enqueue(chunk: Uint8Array) {
         const text = decoder.decode(chunk);
-        const match = /^data: (.*)\n\n$/.exec(text);
-        if (match) emitted.push(JSON.parse(match[1]));
+        // SSE payload shape is "id: <seq>\ndata: <json>\n\n" (the
+        // id: prefix was added later for browser EventSource
+        // auto-reconnect via Last-Event-ID). Extract the data: line
+        // anywhere in the chunk.
+        for (const line of text.split('\n')) {
+          if (line.startsWith('data: ')) {
+            try { emitted.push(JSON.parse(line.slice(6))); }
+            catch { /* not JSON; skip */ }
+          }
+        }
       }
     } as ReadableStreamDefaultController<Uint8Array>;
     subscribeToRoom(room.id, controller);
@@ -350,7 +358,7 @@ describe('fanoutMessageToRoomTerminals — mention-targeted routing', () => {
       getFanoutQueueForTests().immediateFlush(`${room.id}::${recipient.id}`);
 
       expect(listReadersForMessage(message.id).map((r) => r.readerHandle)).toEqual(['@recip']);
-      expect(emitted).toContainEqual({
+      expect(emitted).toContainEqual(expect.objectContaining({
         type: 'message_read',
         roomId: room.id,
         messageId: message.id,
@@ -358,7 +366,7 @@ describe('fanoutMessageToRoomTerminals — mention-targeted routing', () => {
         readers: expect.arrayContaining([
           expect.objectContaining({ messageId: message.id, readerHandle: '@recip' })
         ])
-      });
+      }));
     } finally {
       unsubscribeFromRoom(room.id, controller);
     }
@@ -403,7 +411,7 @@ describe('fanoutMessageToRoomTerminals — mention-targeted routing', () => {
     expect(calls.some((c) => c.args[0] === 'paste-buffer')).toBe(true);
     const loadCall = calls.find((c) => c.args[0] === 'load-buffer');
     expect(loadCall?.input).toContain('linked hello');
-    expect(loadCall?.input).toContain(`ant chat send ${room.id} --msg`);
+    expect(loadCall?.input).toContain(`ant chat reply ${message.id} --stdin`);
     expect(listReadersForMessage(message.id).map((r) => r.readerHandle)).toEqual(['@linked-record']);
   });
 

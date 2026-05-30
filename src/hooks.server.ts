@@ -9,6 +9,7 @@ import { startPoller } from '$lib/server/agentStatusPoller';
 import { ensureRunEventsPersistenceBooted } from '$lib/server/terminalRunEventsBoot';
 import { ensureOperationalRetentionSweepBooted } from '$lib/server/operationalRetention';
 import { ensureCronJobTickerBooted } from '$lib/server/cronJobTicker';
+import { ensureUsageSnapshotPollerBooted } from '$lib/server/usageSnapshotPoller';
 import { projectAntRegistryFileBestEffort } from '$lib/server/antRegistryFile';
 import { resolveBrowserSessionSecretIgnoringRoom } from '$lib/server/browserSessionStore';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
@@ -41,6 +42,12 @@ function bootPollerOnce(): void {
   // next_fire_at_ms is in the past. Boot-once via globalThis flag so
   // dev HMR / multiple imports don't double-subscribe.
   ensureCronJobTickerBooted();
+  // Open-usage snapshot poller (JWPK msg_4rbn05cztw antV4 2026-05-28):
+  // captures one usage_snapshots row every 12 h so the /terminals
+  // trend chart has data points. First tick fires ~5 s after boot so
+  // a brand-new install gets at least one point before the 12 h window
+  // elapses. Soft-fails when the daemon at :6736 is unreachable.
+  ensureUsageSnapshotPollerBooted();
   slot[POLLER_BOOTED_KEY] = Date.now();
 }
 
@@ -56,6 +63,7 @@ function bootPollerOnce(): void {
 //   - /api/health (operational liveness probe — gating it would break
 //     external uptime monitors)
 //   - /decks/* (shareable deck route; deckAccessGate enforces room/password)
+//   - /d/* (built-deck iframe payload used by shareable /decks/*)
 //   - SvelteKit-internal /_app/* JS/CSS chunks (must be reachable so
 //     /login itself can render)
 //   - favicon.ico and similar static assets
@@ -73,6 +81,10 @@ function isGateBypassPath(pathname: string): boolean {
   // or ?password=. If the global demo-login gate catches /decks first,
   // password links can never reach their own access gate.
   if (pathname.startsWith('/decks/')) return true;
+  // Built deck payloads are loaded inside the shareable deck page iframe.
+  // Keep this narrow to the static deck slug route; the parent /decks page
+  // still controls who can discover a deck URL in the first place.
+  if (pathname.startsWith('/d/')) return true;
   // Emergency Univer dogfood demo (JWPK msg_w62h4zdl9z 2026-05-26):
   // the seeded demo artefact must be reachable from a clean browser while
   // we show the runtime. Keep this scoped to generated demo ids; ordinary
