@@ -8,7 +8,7 @@ companion to: ant-v02-identity-and-recovery.md (spec) + ant-v02-cutover-plan.md 
 
 # Post-Cut-Over Runbook
 
-When the v0.2 schema PR + cut-over PR are both merged and the server has restarted onto the new tables, the OLD agents (@cv4, @codex4, @speedyc, etc.) have NO `v02_agents` row yet — they exist only in the now-read-only legacy tables. JWPK needs a clean step-by-step to re-instate the team in v0.2 world.
+When the v0.2 schema PR + cut-over PR are both merged and the server has restarted onto the new tables, the OLD agents (@cv4, @codex4, @speedyc, etc.) have NO `agents` row yet — they exist only in the now-read-only legacy tables. JWPK needs a clean step-by-step to re-instate the team in v0.2 world.
 
 This runbook is the script. Read it on cut-over evening.
 
@@ -25,7 +25,7 @@ This runbook is the script. Read it on cut-over evening.
    ```
    Verify `ok` output. This is the third backup of the push (after pre-archive and during PR-A); keep all three for the 30-day audit window.
 
-2. **Confirm regression corpus passes on the v02_ schema** (the cut-over PR should already gate on this in CI, but verify locally):
+2. **Confirm regression corpus passes on the v0.2 schema** (the cut-over PR should already gate on this in CI, but verify locally):
    ```bash
    cd /Users/jamesking/CascadeProjects/a-nice-terminal
    bun x vitest run scripts/v0.2-regression.test.ts
@@ -39,13 +39,13 @@ This runbook is the script. Read it on cut-over evening.
 
 ## §1 Execute the cut-over
 
-Follow `docs/concepts/ant-v02-cutover-plan.md` §4 (cut-over execution sequence). This runbook picks up at the moment the server has restarted and is reading from `v02_` tables.
+Follow `docs/concepts/ant-v02-cutover-plan.md` §4 (cut-over execution sequence). This runbook picks up at the moment the server has restarted and is reading from v0.2 canonical tables.
 
 ---
 
 ## §2 First-agent bootstrap (JWPK)
 
-JWPK creates the first `v02_agents` row + first super-admin agent identity (himself).
+JWPK creates the first `agents` row + first super-admin agent identity (himself).
 
 ```bash
 # From any tmux pane JWPK owns:
@@ -54,15 +54,15 @@ ant agents create --name "James" --handle "@you" --kind human --super-admin
 ```
 
 The first agent registration auto-creates:
-- A `v02_agents` row with `current_runtime_id=NULL` until the next register
-- A `v02_agent_trust_keys` row (key_kind='device') with the new device's signing key
-- A `v02_audit_events` row `kind='agent.created'`
+- A `agents` row with `current_runtime_id=NULL` until the next register
+- A `identity_keys` (from PR #99 substrate) row (key_kind='device') with the new device's signing key
+- A `audit_events` row `kind='agent.created'`
 - The role of `super-admin` on the (auto-created) `org` row
 
 JWPK then runs `ant register` from his actual shell to bind the agent to a runtime:
 ```bash
 ant register --agent "@you" --name "james-tigerresearch"
-# Creates v02_runtimes row, sets agents.current_runtime_id, signs challenge
+# Creates runtimes row, sets agents.current_runtime_id, signs challenge
 ```
 
 ---
@@ -75,7 +75,7 @@ For each of @cv4, @codex4, @speedyc, repeat the create+register sequence. JWPK i
 ```bash
 # In @cv4's pane:
 ant agents create --name "cv4" --handle "@cv4" --kind claude --owner-org <jwpk's org>
-ant register --agent "@cv4" --name "cv4"  # binds current pane as v02_runtimes row
+ant register --agent "@cv4" --name "cv4"  # binds current pane as runtimes row
 ```
 
 **@codex4** (Codex on JWPK's adjacent pane):
@@ -103,7 +103,7 @@ ant agents list  # expect 4 rows: @you, @cv4, @codex4, @speedyc (all status='liv
 
 The v4.1 room (`qexiaw2xpg`) is the canonical workroom carried forward from the pre-cut-over world. Two options for how it surfaces in v0.2:
 
-**Option A — Migrate the room ID** (cleaner): create a fresh `v02_rooms` row for v4.1 with the same `room_id`. All 4 agents (@you, @cv4, @codex4, @speedyc) join via `v02_memberships`. Message history is empty (clean slate) but the room *name* and *id* are preserved.
+**Option A — Migrate the room ID** (cleaner): create a fresh `rooms` row for v4.1 with the same `room_id`. All 4 agents (@you, @cv4, @codex4, @speedyc) join via `memberships`. Message history is empty (clean slate) but the room *name* and *id* are preserved.
 
 ```bash
 ant rooms create --id qexiaw2xpg --name "v4.1" --owner "@you" --visibility private
@@ -133,7 +133,7 @@ Smoke test the full identity + fanout loop on the new schema:
 
 5. JWPK runs:
    ```bash
-   sqlite3 ~/.ant/fresh-ant.db "SELECT kind, entity_kind, COUNT(*) FROM v02_audit_events GROUP BY kind, entity_kind ORDER BY kind;"
+   sqlite3 ~/.ant/fresh-ant.db "SELECT kind, entity_kind, COUNT(*) FROM audit_events GROUP BY kind, entity_kind ORDER BY kind;"
    ```
    Expect: rows for `agent.created`, `runtime.registered`, `membership.joined`, `message.posted` covering the bootstrap sequence.
 
@@ -176,10 +176,8 @@ Once the team has worked for ~24h on v0.2 without incident:
    ```
    Applies to every schema-touching PR going forward.
 
-2. **Drop the `v02_` prefix** (cosmetic but worth doing before week 2):
-   - Rename `v02_agents` → `agents`, `v02_runtimes` → `runtimes`, etc.
-   - The OLD `terminals` / `terminal_records` tables get renamed `legacy_terminals` etc. (or dropped entirely if 30-day audit window has elapsed)
-   - One PR. Touches every store + endpoint that references `v02_`. Mechanical.
+2. **(DONE via Option D collapse, 2026-05-29)** ~~Drop the `v02_` prefix~~ — landed before cut-over. Tables already unprefixed (`agents`, `runtimes`, etc.). Store filenames + function names retain the `v02` prefix during burn-in for grepability; a tiny cosmetic follow-up PR can drop those if desired after the 30-day window.
+   - The OLD `terminals` / `terminal_records` tables stay in place — they get optionally renamed `legacy_terminals` etc. in the §7.3 decommission step or just DROP TABLE'd after 30 days.
 
 3. **Decommission old stores**:
    - After 30 days post-cut-over (so archived rooms retain SQL queryability for that window), DROP TABLE on the old `terminals`, `terminal_records`, `room_memberships`, `chat_room_members`
@@ -193,10 +191,10 @@ Once the team has worked for ~24h on v0.2 without incident:
 
 | If this happens | Response |
 |---|---|
-| Agent registers but `current_runtime_id` stays NULL | Check `v02_agent_trust_keys` — agent has no key. JWPK can run `ant agents add-key --agent <handle> --key-kind device --pubkey <derived from pane>` to backfill. |
+| Agent registers but `current_runtime_id` stays NULL | Check `identity_keys` (from PR #99 substrate) — agent has no key. JWPK can run `ant agents add-key --agent <handle> --key-kind device --pubkey <derived from pane>` to backfill. |
 | Fanout drops a message between agents | Verify `agents.current_runtime_id` is non-null for the recipient. If null, the agent is in the recoverable state — `ant admin reclaim` or fresh `ant register` re-anchors. |
 | Permission modal pops for an action the agent SHOULD have | Expected v0.2 behaviour — approve once or always. Each first-action surfaces a request because there are no pre-seeded grants. After 24h of normal use, the tool_grants table has bedded in. |
-| Old chat message links (e.g. msg_xxx in archived rooms) don't resolve | Expected — message IDs from the pre-cut-over world live in `chat_messages` not `v02_messages`. Query the archive directly. |
+| Old chat message links (e.g. msg_xxx in archived rooms) don't resolve | Expected — message IDs from the pre-cut-over world live in `chat_messages` not `messages`. Query the archive directly. |
 | Cut-over PR merge breaks an agent's pane mid-flight | Backup snapshot restores in ~30s (see Rollback plan in cut-over plan doc). Agent reports state to JWPK after restore; JWPK reclaims them on either side. |
 
 ---

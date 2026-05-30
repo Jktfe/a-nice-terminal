@@ -6,6 +6,11 @@ import { POST } from './+server';
 import { resetIdentityDbForTests } from '$lib/server/db';
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { addMembership } from '$lib/server/roomMembershipsStore';
+import {
+  bootstrapV02Identity,
+  pidStartToIso
+} from '$lib/server/v02RegisterBootstrap';
+import * as v02Runtimes from '$lib/server/v02RuntimesStore';
 
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
@@ -94,5 +99,114 @@ describe('POST /api/identity/resolve', () => {
     }));
     const payload = await response.json();
     expect(payload.name).toBe('ancestor-match');
+  });
+
+  // -- M9b cut-over phase 1: surface v0.2 identity fields ---------------
+  describe('M9b v0.2 sidecar', () => {
+    it('returns v02_agent_id + v02_runtime_id when a live v0.2 runtime matches the chain', async () => {
+      const isoNow = new Date().toISOString();
+      const bootstrap = bootstrapV02Identity({
+        name: 'v02-resolve',
+        pid: 4242,
+        pid_start: isoNow,
+        legacy_terminal_id: 'legacy-resolve-1'
+      });
+      const response = await callPost(JSON.stringify({
+        pids: [{ pid: 4242, pid_start: isoNow }]
+      }));
+      const payload = await response.json();
+      expect(payload.v02_agent_id).toBe(bootstrap.agent_id);
+      expect(payload.v02_runtime_id).toBe(bootstrap.runtime_id);
+    });
+
+    it('returns null v0.2 fields when only the legacy row exists (no v0.2 bootstrap ran)', async () => {
+      upsertTerminal({ pid: 600, pid_start: 'pp', name: 'legacy-only' });
+      const response = await callPost(JSON.stringify({
+        pids: [{ pid: 600, pid_start: 'pp' }]
+      }));
+      const payload = await response.json();
+      expect(payload.terminal_id).toBeTruthy();
+      expect(payload.v02_agent_id).toBeNull();
+      expect(payload.v02_runtime_id).toBeNull();
+    });
+
+    it('regression case #2: shadow runtimes (status=reclaimed) do NOT resolve via the v0.2 sidecar', async () => {
+      const isoNow = new Date().toISOString();
+      const first = bootstrapV02Identity({
+        name: 'shadow-test',
+        pid: 7,
+        pid_start: isoNow,
+        legacy_terminal_id: 'legacy-shadow-A'
+      });
+      // Second register reclaims the first (different PID), but the OLD
+      // pid+pid_start in v0.2 stays as a 'reclaimed' row in the audit
+      // history. The structural fix: status='live' filter on
+      // lookupRuntimeByPidChain MUST exclude reclaimed rows.
+      const second = bootstrapV02Identity({
+        name: 'shadow-test',
+        pid: 8,
+        pid_start: isoNow,
+        legacy_terminal_id: 'legacy-shadow-B'
+      });
+      const response = await callPost(JSON.stringify({
+        pids: [{ pid: 7, pid_start: isoNow }]
+      }));
+      const payload = await response.json();
+      // pid=7 in v0.2 is 'reclaimed' — sidecar must return null.
+      expect(payload.v02_runtime_id).toBeNull();
+      // Sanity: live one still resolves.
+      const liveResponse = await callPost(JSON.stringify({
+        pids: [{ pid: 8, pid_start: isoNow }]
+      }));
+      const livePayload = await liveResponse.json();
+      expect(livePayload.v02_runtime_id).toBe(second.runtime_id);
+      // Confirm the reclaimed row is in fact reclaimed (sanity).
+      expect(v02Runtimes.getRuntimeById(first.runtime_id)?.status).toBe('reclaimed');
+    });
+
+    it('returns v0.2 fields even when the legacy lookup misses (terminal_id is null but v02 hit)', async () => {
+      // This case arises when the v0.2 cut-over has begun on a clean DB:
+      // legacy terminals row was never created (because the new flow
+      // skips it once M9d ships), but v02_runtimes was. M9b's dual-write
+      // means in practice both land together, but we still want the
+      // resolve endpoint to surface a v0.2 hit even when the legacy lookup
+      // misses, so post-M9d callers don't need to wait for M9d for their
+      // resolve to start working.
+      const isoNow = new Date().toISOString();
+      const bootstrap = bootstrapV02Identity({
+        name: 'v02-only-resolve',
+        pid: 11111,
+        pid_start: isoNow,
+        legacy_terminal_id: 'synthetic-not-in-legacy'
+      });
+      const response = await callPost(JSON.stringify({
+        pids: [{ pid: 11111, pid_start: isoNow }]
+      }));
+      const payload = await response.json();
+      expect(payload.terminal_id).toBeNull();
+      expect(payload.v02_agent_id).toBe(bootstrap.agent_id);
+      expect(payload.v02_runtime_id).toBe(bootstrap.runtime_id);
+    });
+
+    it('pid_start_iso ISO normalisation lets a raw lstart string resolve a v0.2 runtime registered with the same lstart string', async () => {
+      // The bootstrap normalises whatever pid_start it receives into
+      // pid_start_iso. resolve() applies the same normalisation, so the
+      // same raw lstart string in the resolve body should produce a hit.
+      const rawLstart = 'Tue May 13 00:00:00 2026';
+      const bootstrap = bootstrapV02Identity({
+        name: 'iso-roundtrip',
+        pid: 222,
+        pid_start: rawLstart,
+        legacy_terminal_id: 'legacy-iso'
+      });
+      const response = await callPost(JSON.stringify({
+        pids: [{ pid: 222, pid_start: rawLstart }]
+      }));
+      const payload = await response.json();
+      expect(payload.v02_runtime_id).toBe(bootstrap.runtime_id);
+      // Sanity: the stored row holds the ISO form.
+      const runtime = v02Runtimes.getRuntimeById(bootstrap.runtime_id);
+      expect(runtime?.pid_start_iso).toBe(pidStartToIso(rawLstart));
+    });
   });
 });
