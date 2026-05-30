@@ -2303,31 +2303,6 @@ const V02_SCHEMA_DDL_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_memberships_agent
      ON memberships (agent_id)`,
 
-  // M9d cut-over: per-room presentation columns mirrored from the
-  // legacy chat_room_members table (display_color / display_icon /
-  // display_background_style / member_kind + room_display_name).
-  // All nullable — pre-M9d rows resolve missing values via the agent
-  // default-colour / icon helpers and fall back to agents.display_name
-  // when room_display_name is NULL (mirrors chat_room_members.display_*
-  // fallback behaviour exactly).
-  // member_kind tracks 'human' vs 'agent' so the read path reproduces
-  // the same kind label without re-deriving from terminal_records on
-  // every load.
-  // room_display_name preserves per-room display-name overrides
-  // (chatRoomStore.updateRoomMemberPresentation). NULL = inherit
-  // agents.display_name.
-  // Ratified by JWPK msg_xlw33qkds8 2026-05-30 (verification interface
-  // verification swarm — "kick the swarm off and let's get this
-  // finished"). See docs/concepts/ant-v02-identity-and-recovery.md.
-  // Tolerated by the duplicate-column-name catch in
-  // applySchemaMigrations so re-running on an existing DB is safe.
-  `ALTER TABLE memberships ADD COLUMN display_color TEXT`,
-  `ALTER TABLE memberships ADD COLUMN display_icon TEXT`,
-  `ALTER TABLE memberships ADD COLUMN display_background_style TEXT`,
-  `ALTER TABLE memberships ADD COLUMN member_kind TEXT
-     CHECK (member_kind IS NULL OR member_kind IN ('human','agent'))`,
-  `ALTER TABLE memberships ADD COLUMN room_display_name TEXT`,
-
   // -- Access Layer ---------------------------------------------------
   // tool_grants — issued capability rows. tool_slug is open-ended TEXT
   // (the tools catalog is out of scope this PR; can be added as an FK

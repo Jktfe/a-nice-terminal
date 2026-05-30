@@ -40,7 +40,7 @@ import { randomUUID } from 'node:crypto';
 import { getIdentityDb } from './db';
 import * as v02Agents from './v02AgentsStore';
 import * as v02Memberships from './v02MembershipsStore';
-import type { V02MembershipRole, V02MemberKind } from './v02MembershipsStore';
+import type { V02MembershipRole } from './v02MembershipsStore';
 
 /**
  * INSERT OR IGNORE a v02_rooms row keyed by roomId. Lookup display_name
@@ -144,20 +144,6 @@ export function mirrorAddMembership(input: {
   handle: string;
   displayName?: string | null;
   role?: V02MembershipRole;
-  // M9d: per-room presentation columns mirrored from the legacy
-  // chat_room_members write. Optional — when omitted the v0.2 row
-  // stores NULL and the read path falls back to the
-  // defaultParticipantColor / Icon / BackgroundStyle helpers (same
-  // behaviour as chat_room_members rows that pre-date the
-  // 2026-05-23 display_* ALTERs).
-  displayColor?: string | null;
-  displayIcon?: string | null;
-  displayBackgroundStyle?: string | null;
-  memberKind?: V02MemberKind | null;
-  // M9d: per-room display name override mirrored from the legacy
-  // chat_room_members.display_name column. NULL = inherit
-  // agents.display_name (read path falls back via COALESCE).
-  roomDisplayName?: string | null;
 }): string | null {
   try {
     ensureV02RoomExists(input.roomId);
@@ -166,12 +152,7 @@ export function mirrorAddMembership(input: {
       agent_id,
       room_id: input.roomId,
       role: input.role ?? 'member',
-      room_alias: null,
-      display_color: input.displayColor,
-      display_icon: input.displayIcon,
-      display_background_style: input.displayBackgroundStyle,
-      member_kind: input.memberKind,
-      room_display_name: input.roomDisplayName
+      room_alias: null
     });
     appendAuditEvent({
       kind: 'membership.joined',
@@ -190,38 +171,6 @@ export function mirrorAddMembership(input: {
     // eslint-disable-next-line no-console
     console.error('[v02-bridge] mirrorAddMembership failed (legacy unaffected):', err);
     return null;
-  }
-}
-
-/**
- * M9d: mirror chatRoomStore.updateRoomMemberPresentation into
- * v02_memberships so the v0.2 read path stays in lockstep with the
- * legacy table for per-room colour / icon / background overrides.
- * Best-effort; never throws.
- */
-export function mirrorUpdateMemberPresentation(input: {
-  roomId: string;
-  handle: string;
-  roomDisplayName?: string | null;
-  displayColor?: string | null;
-  displayIcon?: string | null;
-  displayBackgroundStyle?: string | null;
-}): boolean {
-  try {
-    const agent = v02Agents.getLiveAgentByHandle(input.handle);
-    if (!agent) return false;
-    return v02Memberships.updateMembershipPresentation({
-      agent_id: agent.agent_id,
-      room_id: input.roomId,
-      room_display_name: input.roomDisplayName,
-      display_color: input.displayColor,
-      display_icon: input.displayIcon,
-      display_background_style: input.displayBackgroundStyle
-    });
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error('[v02-bridge] mirrorUpdateMemberPresentation failed (legacy unaffected):', err);
-    return false;
   }
 }
 
