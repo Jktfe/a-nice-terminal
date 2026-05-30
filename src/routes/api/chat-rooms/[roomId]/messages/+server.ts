@@ -27,6 +27,7 @@ import { parsePidChainFromBody, resolveServerSideHandle } from '$lib/server/iden
 import { findActiveGrantForCaller } from '$lib/server/callerGrantsStore';
 import { getRoomMode } from '$lib/server/roomModesStore';
 import { getTerminalIdByHandle, addMembership } from '$lib/server/roomMembershipsStore';
+import { mirrorAddMembership } from '$lib/server/v02ChatRoomBridge';
 import { lookupTerminalByPidChain, touchLastMessageSentAt } from '$lib/server/terminalsStore';
 import { resolveBrowserSessionSecret, touchBrowserSessionLastSeen, createBrowserSession } from '$lib/server/browserSessionStore';
 import { upsertTerminal } from '$lib/server/terminalsStore';
@@ -203,6 +204,12 @@ export const POST: RequestHandler = async ({ params, request }) => {
           room_id: params.roomId,
           handle: authorHandle,
           terminal_id: terminalForAutoJoin.id
+        });
+        // M9c dual-write: mirror the auto-join into v02_memberships so the
+        // v0.2 substrate reflects the same auto-add. Best-effort.
+        mirrorAddMembership({
+          roomId: params.roomId,
+          handle: authorHandle
         });
       } catch {
         /* auto-add is best-effort; the post still proceeds. addMembership is
