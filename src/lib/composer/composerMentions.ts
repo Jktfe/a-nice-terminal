@@ -22,7 +22,7 @@ export type MentionOption = {
   handleToInsert: string;
   displayLabel: string;
   contextHint: string;
-  optionKind: 'alias' | 'global' | 'prior' | 'broadcast';
+  optionKind: 'alias' | 'global' | 'broadcast';
 };
 
 const EVERYONE_OPTION: MentionOption = {
@@ -61,8 +61,7 @@ export function detectMentionTrigger(body: string, cursorIndex: number): Mention
 export function rankMentionOptions(
   membersInRoom: RoomMember[],
   aliasEntries: RoomAliasEntry[],
-  partialTyped: string,
-  priorCollaborators: string[] = []
+  partialTyped: string
 ): MentionOption[] {
   const needleLower = partialTyped.toLowerCase();
 
@@ -87,24 +86,9 @@ export function rankMentionOptions(
       optionKind: 'global'
     }));
 
-  const handlesAlreadySurfaced = new Set([
-    ...aliasEntries.map((entry) => entry.globalHandle),
-    ...membersInRoom.map((member) => member.handle)
-  ]);
-
-  const priorOptions: MentionOption[] = priorCollaborators
-    .filter((handle) => handle.toLowerCase().includes(needleLower))
-    .filter((handle) => !handlesAlreadySurfaced.has(handle))
-    .map((handle) => ({
-      handleToInsert: handle,
-      displayLabel: handle,
-      contextHint: 'prior collaborator',
-      optionKind: 'prior'
-    }));
-
   const broadcastOptions: MentionOption[] = 'everyone'.includes(needleLower) ? [EVERYONE_OPTION] : [];
 
-  return [...broadcastOptions, ...aliasOptions, ...globalOptions, ...priorOptions];
+  return [...broadcastOptions, ...aliasOptions, ...globalOptions];
 }
 
 export function decideMentionKeyAction(
