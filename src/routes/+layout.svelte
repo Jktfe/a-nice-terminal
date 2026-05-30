@@ -4,6 +4,7 @@
   import KeyboardShortcutsOverlay from '$lib/components/KeyboardShortcutsOverlay.svelte';
   import QuickNavShortcuts from '$lib/components/QuickNavShortcuts.svelte';
   import TabTitleUnread from '$lib/components/TabTitleUnread.svelte';
+  import LogoutButton from '$lib/components/LogoutButton.svelte';
 
   let { children } = $props();
 </script>
@@ -14,3 +15,4 @@
 <KeyboardShortcutsOverlay />
 <QuickNavShortcuts />
 <TabTitleUnread />
+<LogoutButton />
