@@ -308,4 +308,47 @@ describe('POST /api/permission-requests/[requestId]/deny', () => {
     const response = await runHandler(POST as AnyHandler, event);
     expect(response.status).toBe(400);
   });
+
+  /**
+   * Sec-iter2 Fix #3 (2026-05-30): same structural fix as approve —
+   * admin-spoofing via a planted '@admin' handle no longer succeeds
+   * because the gate reads `caller.isAdminBearer` (proven token) and
+   * not a string-eq to ADMIN_BEARER_HANDLE.
+   */
+  describe('sec-iter2 Fix #3: typed isAdminBearer discriminator (structural)', () => {
+    it('planted @admin handle does NOT bypass the deny gate', async () => {
+      const { getIdentityDb } = await import('$lib/server/db');
+      const room = createChatRoom({ name: 'iter2-deny', whoCreatedIt: '@jwpk' });
+      const created = createPermissionRequest({
+        requesterHandle: '@speedyc',
+        action: 'chat.post',
+        targetKind: 'room',
+        targetId: room.id,
+        approvers: [{ handle: '@jwpk', role: 'room_owner', preferred: true }]
+      });
+      const terminal = upsertTerminal({
+        pid: 70080,
+        pid_start: '2026-05-30T01:00:00.000Z',
+        name: 'deny-spoof',
+        ttlSeconds: 60 * 60
+      });
+      // Plant @admin via raw SQL (the public API rejects this; the test
+      // simulates a hypothetical future writer that forgot the
+      // choke-point validation).
+      const now = Date.now();
+      getIdentityDb().prepare(
+        `INSERT INTO terminal_records (session_id, name, auto_forward_chat, tmux_target_pane, handle, created_at_ms, updated_at_ms)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(terminal.id, 'deny-spoof', 1, `${terminal.id}:0.0`, '@admin', now, now);
+
+      const event = eventFor(created.request.requestId, {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          pidChain: [{ pid: 70080, pid_start: '2026-05-30T01:00:00.000Z' }]
+        })
+      });
+      const response = await runHandler(POST as AnyHandler, event);
+      expect(response.status).toBe(403);
+    });
+  });
 });

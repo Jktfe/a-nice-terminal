@@ -39,8 +39,8 @@ import {
   type PermissionDeniedReason,
   type PermissionTargetKind
 } from '$lib/server/permissionDeniedPayload';
-import { ADMIN_BEARER_HANDLE } from '$lib/server/chatRoomAuthGate';
-import { resolveAuthoritativeCallerHandle } from '$lib/server/permissionCallerIdentity';
+import { resolveAuthoritativeCallerIdentity } from '$lib/server/permissionCallerIdentity';
+import type { AuthoritativeCallerIdentity } from '$lib/server/permissionCallerIdentity';
 import type { GrantScope } from '$lib/server/grantsShimStore';
 
 const VALID_SCOPES: ReadonlyArray<GrantScope> = [
@@ -55,27 +55,33 @@ type Body = {
 };
 
 /**
- * Sec-iter1 Fix #1 (2026-05-30 enterprise security pass): caller-handle
- * resolution delegates to permissionCallerIdentity.ts which reads the
- * AUTHORITATIVE terminal_records.handle (1:1 with terminal_id, UNIQUE
- * across active rows per Fix #2). The prior implementation read
- * `memberships[0].handle` — that surface lets an attacker register a
- * terminal, get invited into ANY older room as the victim's handle,
- * then approve/deny the victim's pending requests. The new helper
- * fail-closes when the caller has no declared handle.
+ * Sec-iter1 Fix #1 (2026-05-30): delegate caller-handle resolution to
+ * permissionCallerIdentity.ts (terminal_records.handle, UNIQUE across
+ * active rows per sec-iter1 Fix #2). Fail-closed when the caller has
+ * no declared handle.
+ *
+ * Sec-iter2 Fix #3 (2026-05-30): the helper now returns the typed
+ * AuthoritativeCallerIdentity discriminated by `isAdminBearer`. The
+ * approver gate below reads `isAdminBearer` rather than string-comparing
+ * the handle to `ADMIN_BEARER_HANDLE` — that string-eq is the iter2
+ * bypass surface (any code path that lands the literal '@admin' into
+ * terminal_records.handle wins admin via the gate). The new shape makes
+ * admin-grade authority depend SOLELY on a proven admin-bearer token.
  */
-function resolveCallerHandle(request: Request, rawBody: unknown): string {
-  return resolveAuthoritativeCallerHandle(request, rawBody);
+function resolveCallerIdentity(request: Request, rawBody: unknown): AuthoritativeCallerIdentity {
+  return resolveAuthoritativeCallerIdentity(request, rawBody);
 }
 
 function requireApproverFor(
-  callerHandle: string,
+  caller: AuthoritativeCallerIdentity,
   targetKind: PermissionTargetKind,
   targetId: string,
   action: string,
   requesterHandle: string
 ): void {
-  if (callerHandle === ADMIN_BEARER_HANDLE) return;
+  // Sec-iter2 Fix #3: admin short-circuit reads the typed discriminator,
+  // never the handle string. No string-eq to ADMIN_BEARER_HANDLE here.
+  if (caller.isAdminBearer) return;
   if (targetKind === 'system') {
     throw error(403, buildPermissionDeniedPayload({
       action: 'permission_request.approve',
@@ -88,7 +94,7 @@ function requireApproverFor(
     }));
   }
   const approvers = resolveApproversFor({ targetKind, targetId });
-  if (approvers.some((a) => a.handle === callerHandle)) return;
+  if (approvers.some((a) => a.handle === caller.handle)) return;
   const reason: PermissionDeniedReason =
     targetKind === 'room' ? 'not_room_owner'
     : targetKind === 'org' ? 'not_org_admin'
@@ -126,7 +132,7 @@ export const POST: RequestHandler = async ({ request, params }) => {
   }
   // Resolve caller BEFORE the existence check so 401 wins over 404 on
   // unauthenticated probes (do not leak which request IDs exist).
-  const callerHandle = resolveCallerHandle(request, rawBody);
+  const caller = resolveCallerIdentity(request, rawBody);
 
   const existing = getPermissionRequest(requestId);
   if (!existing) throw error(404, 'permission_request not found');
@@ -135,7 +141,7 @@ export const POST: RequestHandler = async ({ request, params }) => {
   }
 
   requireApproverFor(
-    callerHandle,
+    caller,
     existing.targetKind,
     existing.targetId,
     existing.action,
@@ -144,7 +150,7 @@ export const POST: RequestHandler = async ({ request, params }) => {
 
   const result = approveRequest({
     requestId,
-    decidedByHandle: callerHandle,
+    decidedByHandle: caller.handle,
     decisionScope
   });
 
