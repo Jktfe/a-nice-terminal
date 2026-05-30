@@ -6,8 +6,8 @@
  * via URL with ?password= query parameter.
  */
 
-import { getIdentityDb } from './db';
 import { resolveBrowserSessionSecretIgnoringRoom } from './browserSessionStore';
+import { isHandleActiveMemberOfRoom as v02IsHandleActiveMemberOfRoom } from './v02MembershipsStore';
 
 function getCookieValue(request: Request, name: string): string | null {
   const cookieHeader = request.headers.get('cookie');
@@ -24,11 +24,12 @@ function getCookieValue(request: Request, name: string): string | null {
   return null;
 }
 
+// M9d cut-over phase 3: deck access gate reads membership from v0.2
+// memberships rather than chat_room_members. Both surfaces are
+// dual-written via v02ChatRoomBridge so the result is identical, and
+// v0.2 is the new source of truth.
 function isHandleMemberOfRoom(roomId: string, handle: string): boolean {
-  const row = getIdentityDb()
-    .prepare('SELECT 1 AS present FROM chat_room_members WHERE room_id = ? AND handle = ?')
-    .get(roomId, handle) as { present: number } | undefined;
-  return Boolean(row);
+  return v02IsHandleActiveMemberOfRoom(roomId, handle);
 }
 
 export function resolveDeckAccess(args: {
