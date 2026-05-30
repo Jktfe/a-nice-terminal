@@ -8,6 +8,7 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getTerminalRecord, updateTerminalRecord, parseAllowlist, deriveHandle } from '$lib/server/terminalRecordsStore';
+import { validateHandleForRegistration } from '$lib/server/handleValidation';
 import { listTerminals } from '$lib/server/ptyClient';
 
 export const GET: RequestHandler = async ({ params }) => {
@@ -51,8 +52,27 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
     );
   }
   // S7: handle is settable on PATCH (back-compat for records created pre-S7).
-  if (raw.handle === null) patch.handle = null;
-  else if (typeof raw.handle === 'string') patch.handle = raw.handle.trim() || null;
+  // Sec-iter2 Fix #2 (2026-05-30): validate non-null handle patches before
+  // the store write. Closes the PATCH-side attack path: an attacker could
+  // PATCH any existing terminal (e.g. one with NULL handle they spawned
+  // themselves) to handle='@admin' and gain admin via the approver gate's
+  // resolveAuthoritativeCallerHandle. The store-layer choke-point (Fix #1)
+  // catches this even if we forget here; the API-layer validation gives
+  // the operator a precise 400 reason rather than the store's tagged 500.
+  if (raw.handle === null) {
+    patch.handle = null;
+  } else if (typeof raw.handle === 'string') {
+    const trimmed = raw.handle.trim();
+    if (trimmed.length === 0) {
+      patch.handle = null;
+    } else {
+      const validation = validateHandleForRegistration(trimmed);
+      if (!validation.ok) {
+        throw error(400, validation.message);
+      }
+      patch.handle = trimmed;
+    }
+  }
   const updated = updateTerminalRecord(sessionId, patch);
   if (!updated) throw error(404, 'terminal not found');
   return json({
