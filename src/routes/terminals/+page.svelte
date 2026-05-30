@@ -485,7 +485,6 @@
   .model-picker { font-size: 0.7rem; padding: 0.15rem 0.3rem; border: 1px solid var(--line-soft); border-radius: 0.35rem; background: var(--surface-card); color: var(--ink-soft); font-family: ui-monospace, monospace; }
   .model-picker:focus { outline: 2px solid var(--accent); outline-offset: 1px; color: var(--ink-strong); }
   .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-  .chip-with-badge { display: inline-flex; align-items: center; gap: 0.3rem; }
   .chip { padding: 0.35rem 0.65rem; border: 1px solid var(--line-soft); border-radius: 999px; background: var(--surface-card); color: var(--ink-strong); font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; }
   .chip.active { border-color: var(--accent); color: var(--accent); font-weight: 700; }
   .chip.dead { opacity: 0.55; cursor: default; }

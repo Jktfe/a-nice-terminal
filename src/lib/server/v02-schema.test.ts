@@ -49,44 +49,10 @@ let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
 const previousMemoryVaultPath = process.env.ANT_MEMORY_VAULT_PATH;
 
-/**
- * Sibling Option D substrate PRs (#99 identity_keys, #105 permission_requests,
- * #106 reclaim_requests) own their own DDL in SCHEMA_DDL_STATEMENTS. This
- * isolated test branch doesn't carry those PRs' diffs, but our v0.2 owned
- * tables (agents, tool_grants) reference them via FK. Seed the minimal
- * skeletons here so the FK targets exist; production migration runs the
- * sibling PRs' real DDL first.
- *
- * Once PR #99/#105/#106 land on dev and PR #103 rebases on dev, this
- * fixture becomes a no-op (CREATE TABLE IF NOT EXISTS is idempotent).
- */
-function seedSiblingFkTargets(db: import('better-sqlite3').Database): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS identities (
-      identity_id        TEXT PRIMARY KEY,
-      kind               TEXT NOT NULL,
-      display_name       TEXT NOT NULL,
-      canonical_handle   TEXT NOT NULL,
-      created_at_ms      INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS identity_keys (
-      key_id        TEXT PRIMARY KEY,
-      identity_id   TEXT NOT NULL REFERENCES identities(identity_id),
-      device_label  TEXT NOT NULL,
-      public_key    TEXT NOT NULL,
-      key_kind      TEXT NOT NULL,
-      created_at_ms INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS permission_requests (
-      request_id   TEXT PRIMARY KEY,
-      created_at_ms INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS reclaim_requests (
-      request_id   TEXT PRIMARY KEY,
-      created_at_ms INTEGER NOT NULL
-    );
-  `);
-}
+// seedSiblingFkTargets now lives in v02TestFixtures.ts — see the import above.
+// The previous inline copy here was a transient duplicate left over from the
+// pre-merge era when PR #99 / #105 / #106 hadn't landed yet; those PRs are
+// now on main so the canonical fixture is the single source of truth.
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'ant-v02-schema-'));

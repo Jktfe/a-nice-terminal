@@ -47,7 +47,10 @@ export type ValidationRun = {
   schemaId: string;
   claimAnchor: string;
   claimText: string;
-  status: 'pending' | 'running' | 'passed' | 'failed' | 'waived';
+  // Status union widened 2026-05-30 sweep to match validation-summary
+  // consumer expectations (insufficient_evidence + retag_required + dispute
+  // surface when observations land without proof or under contest).
+  status: 'pending' | 'running' | 'passed' | 'failed' | 'waived' | 'insufficient_evidence' | 'retag_required' | 'dispute';
   score: number | null;
   resultJson: string | null;
   startedAtMs: number;
