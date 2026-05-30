@@ -17,7 +17,9 @@
  */
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { doesChatRoomExist } from '$lib/server/chatRoomStore';
+import { doesChatRoomExist, findChatRoomById } from '$lib/server/chatRoomStore';
+import { buildPermissionDeniedPayload } from '$lib/server/permissionDeniedPayload';
+import { resolveApproversFor } from '$lib/server/permissionApproverResolver';
 import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
 import { getTerminalIdByHandle } from '$lib/server/roomMembershipsStore';
 import { getTerminalById } from '$lib/server/terminalsStore';
@@ -57,7 +59,23 @@ async function requireMemberHandle(
 ): Promise<string> {
   const auth = requireChatRoomMutationAuth(roomId, request, rawBody);
   if (!auth.isAdminBearer && !getTerminalIdByHandle(roomId, auth.handle)) {
-    throw error(403, 'Caller is not a registered member of this room.');
+    // Stage A 403 PermissionDenied payload — caller authenticated but
+    // their resolved handle isn't a member of this room. Approve via
+    // room_owner so the agent's human can run `ant grant`.
+    const room = findChatRoomById(roomId);
+    throw error(
+      403,
+      buildPermissionDeniedPayload({
+        action: 'room.set_responders',
+        target_kind: 'room',
+        target_id: roomId,
+        target_display_name: room?.name,
+        reason: 'no_membership',
+        grantee_handle: auth.handle,
+        approvers: resolveApproversFor({ targetKind: 'room', targetId: roomId }),
+        message: 'Caller is not a registered member of this room.'
+      })
+    );
   }
   return auth.handle;
 }

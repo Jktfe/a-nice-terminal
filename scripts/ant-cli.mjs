@@ -22,6 +22,7 @@ import { handleDiscussionVerb } from './ant-cli-discussion.mjs';
 import { handleDocsVerb } from './ant-cli-docs.mjs';
 import { handleFingerprintVerb } from './ant-cli-fingerprint.mjs';
 import { handleFlagVerb } from './ant-cli-flag.mjs';
+import { handleGrantVerb } from './ant-cli-grant-verb.mjs';
 import { handleHandleVerb } from './ant-cli-handle.mjs';
 import { handleHooksVerb } from './ant-cli-hooks.mjs';
 import { handleIdentityVerb } from './ant-cli-identity.mjs';
@@ -51,6 +52,7 @@ import { handleTerminalVerb } from './ant-cli-terminal.mjs';
 import { handleTunnelVerb } from './ant-cli-tunnel.mjs';
 import { handleVoiceVerb } from './ant-cli-voice.mjs';
 import { fetchRoomJsonWithBrowserSessionFallback } from './ant-cli-browser-session.mjs';
+import { renderPermissionDeniedIfPresent } from './ant-cli-permission-denied.mjs';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -61,7 +63,7 @@ const ENV_SERVER_URL = process.env.ANT_SERVER_URL?.trim();
 const DISPATCH = {
   plan: handlePlanVerb, ask: handleAskVerb, artefact: handleArtefactVerb, attach: handleAttachVerb, invite: handleInviteVerb, chat: handleChatVerb, room: handleRoomVerb,
   reaction: handleReactionVerb, reclaim: handleReclaimVerb, handle: handleHandleVerb, status: handleStatusVerb, delivery: handleDeliveryVerb, audit: handleAuditVerb, docs: handleDocsVerb,
-  deck: handleDeckVerb, decks: handleDecksVerb, stage: handleStageVerb, remote: handleRemoteVerb, 'remote-room': handleRemoteRoomVerb, discussion: handleDiscussionVerb, linkedchat: handleLinkedchatVerb, fingerprint: handleFingerprintVerb, mcp: handleMcpVerb, chair: handleChairVerb, interview: handleInterviewVerb, screenshot: handleScreenshotVerb, hooks: handleHooksVerb, new: handleNewVerb, list: handleListVerb, terminal: handleTerminalVerb, settings: handleSettingsVerb, flag: handleFlagVerb, task: handleTaskVerb, memory: handleMemoryVerb, sessions: handleSessionsVerb, voice: handleVoiceVerb, tunnel: handleTunnelVerb, pairing: handlePairingVerb, agents: handleAgentsVerb, share: handleShareVerb, identity: handleIdentityVerb, register: handleRegisterVerb, add: handleAddVerb, resolve: handleResolveVerb, router: handleRouterVerb
+  deck: handleDeckVerb, decks: handleDecksVerb, stage: handleStageVerb, remote: handleRemoteVerb, 'remote-room': handleRemoteRoomVerb, discussion: handleDiscussionVerb, linkedchat: handleLinkedchatVerb, fingerprint: handleFingerprintVerb, mcp: handleMcpVerb, chair: handleChairVerb, interview: handleInterviewVerb, screenshot: handleScreenshotVerb, hooks: handleHooksVerb, new: handleNewVerb, list: handleListVerb, terminal: handleTerminalVerb, settings: handleSettingsVerb, flag: handleFlagVerb, grant: handleGrantVerb, task: handleTaskVerb, memory: handleMemoryVerb, sessions: handleSessionsVerb, voice: handleVoiceVerb, tunnel: handleTunnelVerb, pairing: handlePairingVerb, agents: handleAgentsVerb, share: handleShareVerb, identity: handleIdentityVerb, register: handleRegisterVerb, add: handleAddVerb, resolve: handleResolveVerb, router: handleRouterVerb
 };
 
 export function makeCliRunner({ fetchImpl, writeOut, writeErr, serverUrl, serverUrlSource: suppliedServerUrlSource, config } = {}) {
@@ -210,7 +212,7 @@ async function handleRoomsVerb(action, args, runtime) {
 
 async function listRooms(runtime) {
   const response = await fetchFromServer(runtime, pathWithPidChain('/api/chat-rooms'));
-  await throwIfNotOk(response);
+  await throwIfNotOk(response, runtime);
   const body = await response.json();
   for (const room of body.chatRooms ?? []) {
     runtime.writeOut(`${room.id}\t${room.name}\t(${room.members.length} members)`);
@@ -233,7 +235,7 @@ async function createRoom(name, runtime) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ name: trimmedName, whoCreatedIt: '@you' })
   });
-  await throwIfNotOk(response);
+  await throwIfNotOk(response, runtime);
   const body = await response.json();
   const roomId = body.chatRoom.id;
   runtime.writeOut(`Created ${roomId} ${body.chatRoom.name}`);
@@ -257,7 +259,7 @@ async function listMembers(roomId, runtime) {
   // any caller who isn't admin-bearer — same pattern @speedycodex fixed
   // for room-list and chat-pending. Per the dual-side auth discipline.
   const response = await fetchFromServer(runtime, pathWithPidChain(`/api/chat-rooms/${roomId}`));
-  await throwIfNotOk(response);
+  await throwIfNotOk(response, runtime);
   const body = await response.json();
   for (const member of body.chatRoom.members ?? []) {
     runtime.writeOut(`${member.handle}\t${member.kind}\t(joined ${member.joinedAt})`);
@@ -274,7 +276,7 @@ async function inviteAgent(roomId, agentHandle, runtime) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ agentHandle })
   });
-  await throwIfNotOk(response);
+  await throwIfNotOk(response, runtime);
   runtime.writeOut(`Invited ${agentHandle} to ${roomId}`);
   return 0;
 }
@@ -286,7 +288,7 @@ async function postMessage(roomId, body, runtime) {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ body, pidChain: processIdentityChain() })
   });
-  await throwIfNotOk(response);
+  await throwIfNotOk(response, runtime);
   const stored = (await response.json()).message;
   runtime.writeOut(`Posted ${stored.id}${stored.authorHandle ? ' as ' + stored.authorHandle : ''}`);
   return 0;
@@ -309,7 +311,7 @@ async function postBreak(roomId, reason, runtime) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(bodyPayload)
   });
-  await throwIfNotOk(response);
+  await throwIfNotOk(response, runtime);
   const payload = await response.json();
   runtime.writeOut(`Break posted in ${roomId}: ${payload.message.body}`);
   return 0;
@@ -357,8 +359,17 @@ function pathWithPidChain(path) {
   return `${url.pathname}${url.search}`;
 }
 
-async function throwIfNotOk(response) {
+async function throwIfNotOk(response, runtime) {
   if (response.ok) return;
+  // Stage A 403 PermissionDenied: when the server returns a structured
+  // permission_denied block AND we have a runtime to write to, render
+  // the 4-6 line UX-friendly response on stderr BEFORE we throw the
+  // generic CliNetworkError. The exception still carries the body
+  // message so non-permission_denied 403s + 401s land via the legacy
+  // wedge-hint path in formatCallFailure.
+  if (response.status === 403 && runtime !== undefined) {
+    await renderPermissionDeniedIfPresent(response, runtime);
+  }
   const errorBodyMessage = await readErrorBodyMessage(response);
   const composed = errorBodyMessage
     ? `${response.status} ${response.statusText}: ${errorBodyMessage}`
@@ -450,6 +461,8 @@ Verbs:
   linkedchat list|allow|deny          Manage terminal-scoped linked-chat permissions.
   fingerprint detect <terminal-id>    Detect agent kind via 5-source cascade.
   mcp list|grant|revoke               Manage MCP adapter grants (admin-bearer).
+  grant <handle> <action> --room|--plan|--task|--org|--system ID [scope] [--revoke]
+                                      Stage A permission grant (grants_shim).
   remote admit|redeem|mapping         Remote ANT bridge admission + mapping management.
   router start --room ROOM --handle @h  Route mentions into a local terminal pane.
   remote-room send|status|ack|quarantine  Remote-bridge message ops (admin-bearer).
