@@ -45,31 +45,38 @@ import {
   type PermissionTargetKind
 } from '$lib/server/permissionDeniedPayload';
 import { resolveApproversFor } from '$lib/server/permissionApproverResolver';
-import { tryAdminBearer, ADMIN_BEARER_HANDLE } from '$lib/server/chatRoomAuthGate';
-import { parsePidChainFromBody } from '$lib/server/identityGate';
-import { lookupTerminalByPidChain } from '$lib/server/terminalsStore';
-import { listMembershipsForTerminal } from '$lib/server/roomMembershipsStore';
+import {
+  resolveAuthoritativeCallerIdentity,
+  type AuthoritativeCallerIdentity
+} from '$lib/server/permissionCallerIdentity';
 
 /**
- * Sec-iter2 Fix #3 (2026-05-30): typed caller identity. The pre-iter2
- * grants endpoint used a bare string + `callerHandle === ADMIN_BEARER_HANDLE`
- * — that string-equality made the entire admin short-circuit spoofable
- * by ANY surface that could land the literal '@admin' into a handle the
- * gate then trusts. The new shape derives `isAdminBearer` SOLELY from a
- * proven admin-bearer token; the handle is purely display/audit.
+ * Sec-iter6 Fix #2 (2026-05-30): grants caller-identity migrated to
+ * `resolveAuthoritativeCallerIdentity` from `permissionCallerIdentity.ts`.
+ * Closes the last piece of the iter-5 HIGH exploit chain:
  *
- * NOTE: unlike the permission-requests endpoints which now read the
- * authoritative terminal_records.handle (sec-iter1 Fix #1), this
- * endpoint still derives the audit handle from
- * `listMembershipsForTerminal(...)[0]` for back-compat with the Stage A
- * grant attribution model. The authoritative-handle migration here is
- * tracked separately; sec-iter2 Fix #3 only removes the string-eq
- * admin-spoof surface.
+ * Pre-iter6 this endpoint used a local `resolveCallerIdentity` that
+ * derived the caller's handle from `listMembershipsForTerminal(...)[0]`
+ * — the SAME attacker-controllable surface that sec-iter1 Fix #1 closed
+ * for `/api/permission-requests`. An attacker who landed a `(roomX,
+ * @victim)` membership row on their own terminal (the iter-5 chain step
+ * that Fix #1 + Fix #3 now block at the wire AND structurally) could
+ * then call `/api/grants` and have caller-identity resolve to `@victim`,
+ * passing the approver-set gate for any target where `@victim` was an
+ * approver.
+ *
+ * Iter-2 Fix #3 noted this gap explicitly: "the authoritative-handle
+ * migration here is tracked separately; sec-iter2 Fix #3 only removes
+ * the string-eq admin-spoof surface." Iter-6 Fix #2 closes the tracked
+ * gap.
+ *
+ * The local `GrantsCallerIdentity` type is removed in favour of the
+ * typed `AuthoritativeCallerIdentity` discriminator (which carries the
+ * same `{ handle, isAdminBearer }` shape). Authority decisions read
+ * `caller.isAdminBearer`; the approver-set membership check reads
+ * `caller.handle` (now from UNIQUE-indexed terminal_records.handle, not
+ * the attacker-controllable memberships[0]).
  */
-type GrantsCallerIdentity = {
-  handle: string;
-  isAdminBearer: boolean;
-};
 
 const VALID_TARGET_KINDS: ReadonlyArray<PermissionTargetKind> = [
   'room',
@@ -94,31 +101,29 @@ type GrantBody = {
   pidChain?: unknown;
 };
 
-function resolveCallerIdentity(request: Request, rawBody: unknown): GrantsCallerIdentity {
-  // Sec-iter2 Fix #3 (2026-05-30): admin-bearer flag derives SOLELY from
-  // the constant-time token check. The returned `handle` is the audit
-  // display value (ADMIN_BEARER_HANDLE for admin-bearer callers); the
-  // approver gate below uses `isAdminBearer` for authority, never the
-  // string.
-  if (tryAdminBearer(request)) {
-    return { handle: ADMIN_BEARER_HANDLE, isAdminBearer: true };
-  }
-  const pidChain = parsePidChainFromBody(rawBody);
-  const terminal = lookupTerminalByPidChain(pidChain);
-  if (!terminal) {
-    throw error(401, 'Authentication required.');
-  }
-  // Derive a representative handle for granted_by_handle. Prefer the
-  // first membership row tied to this terminal — the grant action is
-  // attributed to the human/agent who owns the registered terminal
-  // (Stage A approximation; Stage B threads explicit identity).
-  const memberships = listMembershipsForTerminal(terminal.id);
-  if (memberships.length > 0) {
-    return { handle: memberships[0].handle, isAdminBearer: false };
-  }
-  // Fall back to the terminal name so the audit trail at least
-  // identifies WHICH terminal issued the grant.
-  return { handle: `@${terminal.name}`, isAdminBearer: false };
+/**
+ * Sec-iter6 Fix #2 (2026-05-30): caller-identity now delegates to the
+ * shared `resolveAuthoritativeCallerIdentity` helper. Behaviour change
+ * from the old local `resolveCallerIdentity`:
+ *
+ *   - admin-bearer: SAME (typed `isAdminBearer: true`, handle is
+ *     `ADMIN_BEARER_HANDLE` audit display).
+ *   - non-admin: handle now comes from `terminal_records.handle` (the
+ *     AUTHORITATIVE binding sec-iter1 Fix #2 UNIQUE-indexed) instead of
+ *     `memberships[0].handle` (the attacker-controllable per-room
+ *     binding). Terminals with NULL/empty handle 401 with the same
+ *     "run ant register --handle @<your-handle>" recovery hint as
+ *     /api/permission-requests endpoints.
+ *
+ * Fail-closed: the old fallback that returned `@<terminal.name>` for
+ * terminals with no membership row is removed — that path was the
+ * fallback the old derivation used, but it was also a fallback the
+ * grant attribution audit trail wrote without verifying the terminal
+ * was actually authorised. Forcing explicit handle registration before
+ * issuing grants is the correct contract.
+ */
+function resolveCallerIdentity(request: Request, rawBody: unknown): AuthoritativeCallerIdentity {
+  return resolveAuthoritativeCallerIdentity(request, rawBody);
 }
 
 function validateBody(body: GrantBody): {
@@ -176,7 +181,7 @@ function validateBody(body: GrantBody): {
  * to a denied caller are the same handles we accept as approvers here.
  */
 function requireApproverForTarget(
-  caller: GrantsCallerIdentity,
+  caller: AuthoritativeCallerIdentity,
   granteeHandle: string,
   action: string,
   targetKind: PermissionTargetKind,
