@@ -2139,7 +2139,7 @@ const SCHEMA_DDL_STATEMENTS = [
     reason             TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS idx_tool_grants_v02_lookup ON tool_grants_v02(grantee_handle, tool_id, scope_kind, scope_id, revoked_at_ms)`,
-  `CREATE INDEX IF NOT EXISTS idx_tool_grants_v02_tool ON tool_grants_v02(tool_id, revoked_at_ms)`
+  `CREATE INDEX IF NOT EXISTS idx_tool_grants_v02_tool ON tool_grants_v02(tool_id, revoked_at_ms)`,
   `CREATE INDEX IF NOT EXISTS idx_grants_shim_lookup ON grants_shim (grantee_handle, action, target_id, revoked_at_ms)`
 ];
 
