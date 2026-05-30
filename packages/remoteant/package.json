@@ -1,0 +1,18 @@
+{
+  "name": "@jktfe/remoteant",
+  "version": "0.1.0",
+  "description": "Personal MCP gateway — local stdio adapter for antchat-mac",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "bin": {
+    "remoteant": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "bun build --target=node --outdir=dist src/cli.ts",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^1.6.0",
+    "@types/node": "^20.12.0"
+  }
+}

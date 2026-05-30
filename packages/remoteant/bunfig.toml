@@ -1,0 +1,4 @@
+[build]
+target = "node"
+format = "esm"
+outdir = "dist"
