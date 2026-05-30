@@ -173,8 +173,17 @@
       );
       eventSource.onmessage = (ev) => {
         try {
-          const parsed = JSON.parse(ev.data) as { data?: string; cwd?: string | null };
+          const parsed = JSON.parse(ev.data) as { data?: string; cwd?: string | null; reset?: boolean };
           if (typeof parsed.cwd === 'string' && parsed.cwd.length > 0) onCwdDetected?.(parsed.cwd);
+          // reset:true means the server-side .out file was truncated/rotated
+          // (e.g. post-restart) and what we're holding is now stale. Drop the
+          // queued writes and clear the screen before painting the fresh
+          // scrollback seed; the live tail then resumes cleanly from here.
+          if (parsed.reset === true && term) {
+            writeQueue = [];
+            if (writeFlushTimer !== null) { clearTimeout(writeFlushTimer); writeFlushTimer = null; }
+            term.reset();
+          }
           if (typeof parsed.data === 'string') {
             const detected = detectCwd(parsed.data);
             if (detected !== null) onCwdDetected?.(detected);

@@ -3,8 +3,17 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { POST } from './+server';
-import { resetIdentityDbForTests } from '$lib/server/db';
-import { getTerminalByName, setTerminalStatus } from '$lib/server/terminalsStore';
+import { getIdentityDb, resetIdentityDbForTests } from '$lib/server/db';
+import {
+  getTerminalById,
+  getTerminalByName,
+  setTerminalStatus,
+  upsertTerminal
+} from '$lib/server/terminalsStore';
+import {
+  addMembership,
+  listMembershipsForRoom
+} from '$lib/server/roomMembershipsStore';
 import {
   createTerminalRecord,
   getHandleAliases,
@@ -322,6 +331,172 @@ describe('POST /api/identity/register', () => {
       expect(response.status).toBe(201);
       expect(getTerminalRecord(sessionId)?.handle).toBe('@claudev4');
       expect(getHandleAliases(sessionId)).toEqual([]);
+    });
+  });
+
+  // PR-B v0.2 (JWPK enterprise-concern #5 — @speedyc dual-bind 2026-05-29).
+  // Auto-rebind: when a fresh `ant register` lands a NEW terminal_record
+  // for an existing handle whose old terminal binding is stale, the
+  // endpoint moves every room_memberships row from old → new terminal_id,
+  // archives the old terminal, and supersedes the old terminal_records
+  // row. NEVER fires when the old terminal is genuinely alive.
+  describe('PR-B v0.2 — auto-rebind on register when stale binding exists', () => {
+    function seedOldTerminalForHandle(input: {
+      handle: string;
+      name: string;
+      pid: number;
+      heartbeatMs: number | null;
+    }): { oldTerminalId: string; roomIds: string[] } {
+      const old = upsertTerminal({
+        pid: input.pid,
+        pid_start: 'pst-old',
+        name: input.name
+      });
+      createTerminalRecord({
+        sessionId: old.id,
+        name: input.name,
+        handle: input.handle
+      });
+      // Backdate (or freshen) the heartbeat via direct DB write — the
+      // terminalsStore helpers only stamp "now", so for stale-test cases
+      // we need to set last_message_sent_at_ms to a fixed past value.
+      if (input.heartbeatMs !== null) {
+        const db = getIdentityDb();
+        db.prepare(
+          `UPDATE terminals SET last_message_sent_at_ms = ?, last_pty_byte_at_ms = ?
+            WHERE id = ?`
+        ).run(input.heartbeatMs, input.heartbeatMs, old.id);
+      }
+      const roomIds = ['room-rebind-A', 'room-rebind-B', 'room-rebind-C'];
+      for (const roomId of roomIds) {
+        addMembership({ room_id: roomId, handle: input.handle, terminal_id: old.id });
+      }
+      return { oldTerminalId: old.id, roomIds };
+    }
+
+    it('moves room_memberships from stale old terminal → fresh new terminal', async () => {
+      // Stage: old terminal bound to @speedyc with heartbeat 10min ago.
+      const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
+      const { oldTerminalId, roomIds } = seedOldTerminalForHandle({
+        handle: '@speedyc',
+        name: 'speedyclaude-freshstart',
+        pid: 1111,
+        heartbeatMs: tenMinutesAgo
+      });
+      // Fresh register — new name, new PID, SAME handle.
+      const response = await callPost(JSON.stringify({
+        name: 'SpeedyC',
+        pids: [{ pid: 2222, pid_start: 'pst-new' }],
+        handle: '@speedyc'
+      }));
+      expect(response.status).toBe(201);
+      const { terminal_id: newTerminalId } = await response.json();
+      expect(newTerminalId).not.toBe(oldTerminalId);
+      // All 3 memberships re-pointed to the new terminal.
+      for (const roomId of roomIds) {
+        const rows = listMembershipsForRoom(roomId);
+        const speedyc = rows.find((r) => r.handle === '@speedyc');
+        expect(speedyc?.terminal_id).toBe(newTerminalId);
+      }
+      // Old terminal flipped to archived.
+      expect(getTerminalById(oldTerminalId)?.status).toBe('archived');
+      // Old terminal_records row marked superseded.
+      const oldRecord = getTerminalRecord(oldTerminalId);
+      expect(oldRecord?.superseded_at_ms).not.toBeNull();
+    });
+
+    it('does NOT move memberships when old terminal heartbeat is fresh', async () => {
+      // Stage: old terminal bound with heartbeat 30 seconds ago (alive).
+      const thirtySecondsAgo = Date.now() - 30 * 1000;
+      const { oldTerminalId, roomIds } = seedOldTerminalForHandle({
+        handle: '@alivec',
+        name: 'alivec-original',
+        pid: 3333,
+        heartbeatMs: thirtySecondsAgo
+      });
+      const response = await callPost(JSON.stringify({
+        name: 'AliveC-rebind-attempt',
+        pids: [{ pid: 4444, pid_start: 'pst-new' }],
+        handle: '@alivec'
+      }));
+      expect(response.status).toBe(201);
+      // All 3 memberships UNTOUCHED — still bound to the old terminal.
+      for (const roomId of roomIds) {
+        const rows = listMembershipsForRoom(roomId);
+        const alivec = rows.find((r) => r.handle === '@alivec');
+        expect(alivec?.terminal_id).toBe(oldTerminalId);
+      }
+      // Old terminal still live, not archived.
+      expect(getTerminalById(oldTerminalId)?.status).toBe('live');
+      // Old terminal_records row NOT superseded.
+      expect(getTerminalRecord(oldTerminalId)?.superseded_at_ms).toBeNull();
+    });
+
+    it('rebinds when old terminal has never emitted a heartbeat (latest=0)', async () => {
+      // A terminal seeded by the daemon spawn path but never touched by
+      // the agent. heartbeatMs = null leaves last_message_sent_at_ms = NULL.
+      const { oldTerminalId, roomIds } = seedOldTerminalForHandle({
+        handle: '@dormant',
+        name: 'dormant-original',
+        pid: 5555,
+        heartbeatMs: null
+      });
+      const response = await callPost(JSON.stringify({
+        name: 'DormantC-fresh',
+        pids: [{ pid: 6666, pid_start: 'pst-new' }],
+        handle: '@dormant'
+      }));
+      expect(response.status).toBe(201);
+      const { terminal_id: newTerminalId } = await response.json();
+      // Memberships re-pointed.
+      for (const roomId of roomIds) {
+        const rows = listMembershipsForRoom(roomId);
+        expect(rows.find((r) => r.handle === '@dormant')?.terminal_id).toBe(newTerminalId);
+      }
+      expect(getTerminalById(oldTerminalId)?.status).toBe('archived');
+    });
+
+    it('no-op when there is no prior terminal binding for the handle', async () => {
+      // Pure first-time register — no existing rows for @brandnew.
+      const response = await callPost(JSON.stringify({
+        name: 'BrandNew',
+        pids: [{ pid: 7777, pid_start: 'pst-new' }],
+        handle: '@brandnew'
+      }));
+      expect(response.status).toBe(201);
+      const { terminal_id } = await response.json();
+      // Sanity: the new terminal is the only live one for @brandnew.
+      // No assertions on archive/supersede — there's nothing to archive.
+      expect(getTerminalById(terminal_id)?.status).toBe('live');
+    });
+
+    it('skips self when caller and existing live binding are the same terminal_id', async () => {
+      // Same name + same PID re-register: upsertTerminal returns the
+      // existing terminal_id, so the auto-rebind loop sees itself in
+      // liveCandidates and must skip rather than try to steal from itself.
+      const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
+      const { oldTerminalId, roomIds } = seedOldTerminalForHandle({
+        handle: '@selfc',
+        name: 'selfc-original',
+        pid: 8888,
+        heartbeatMs: tenMinutesAgo
+      });
+      const response = await callPost(JSON.stringify({
+        name: 'selfc-original',
+        pids: [{ pid: 8888, pid_start: 'pst-old' }],
+        handle: '@selfc'
+      }));
+      expect(response.status).toBe(201);
+      const { terminal_id } = await response.json();
+      // Idempotent re-register — same terminal_id, memberships still
+      // point at it, terminal still live (auto-rebind skipped self).
+      expect(terminal_id).toBe(oldTerminalId);
+      for (const roomId of roomIds) {
+        const rows = listMembershipsForRoom(roomId);
+        expect(rows.find((r) => r.handle === '@selfc')?.terminal_id).toBe(oldTerminalId);
+      }
+      expect(getTerminalById(oldTerminalId)?.status).toBe('live');
+      expect(getTerminalRecord(oldTerminalId)?.superseded_at_ms).toBeNull();
     });
   });
 });

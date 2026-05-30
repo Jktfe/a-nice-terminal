@@ -7,7 +7,7 @@
 
 import type { RequestHandler } from './$types';
 import { error } from '@sveltejs/kit';
-import { subscribeOutput } from '$lib/server/ptyClient';
+import { subscribeOutput, subscribeReset } from '$lib/server/ptyClient';
 import {
   capturePaneScrollback,
   tmuxPaneCurrentPath,
@@ -21,6 +21,7 @@ export const GET: RequestHandler = ({ params }) => {
   if (sessionId.length === 0) throw error(400, 'sessionId required.');
 
   let unsubscribe: (() => void) | null = null;
+  let unsubscribeReset: (() => void) | null = null;
   let heartbeat: ReturnType<typeof setInterval> | null = null;
   const encoder = new TextEncoder();
 
@@ -33,13 +34,33 @@ export const GET: RequestHandler = ({ params }) => {
       if (scrollback.length > 0 || cwd) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ data: scrollback, cwd })}\n\n`));
       }
+      const teardown = () => {
+        unsubscribe?.();
+        unsubscribeReset?.();
+        if (heartbeat) clearInterval(heartbeat);
+      };
       unsubscribe = subscribeOutput((sid, data) => {
         if (sid !== sessionId) return;
         try {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ data })}\n\n`));
         } catch {
-          unsubscribe?.();
-          if (heartbeat) clearInterval(heartbeat);
+          teardown();
+        }
+      });
+      // On truncation/rotation the live offset reset means the client's xterm
+      // now holds stale bytes from the old file. Re-capture the CURRENT pane
+      // (what you'd see if you attached now) and push it with reset:true so
+      // the client clears before repainting — the live tail resumes from the
+      // new file's end, so no bytes are double-printed.
+      unsubscribeReset = subscribeReset((sid) => {
+        if (sid !== sessionId) return;
+        try {
+          const freshTarget = tmuxTargetForSession(sessionId);
+          const freshScrollback = capturePaneScrollback(freshTarget);
+          const freshCwd = tmuxPaneCurrentPath(freshTarget);
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ data: freshScrollback, cwd: freshCwd, reset: true })}\n\n`));
+        } catch {
+          teardown();
         }
       });
       heartbeat = setInterval(() => {
@@ -49,6 +70,7 @@ export const GET: RequestHandler = ({ params }) => {
     },
     cancel() {
       unsubscribe?.();
+      unsubscribeReset?.();
       if (heartbeat) clearInterval(heartbeat);
     }
   });
