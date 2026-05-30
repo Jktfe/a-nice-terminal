@@ -128,3 +128,116 @@ describe('/api/terminals POST SPAWN-LOCALITY-GATE', () => {
     expect(response.status).not.toBe(403);
   });
 });
+
+/**
+ * Sec-iter2 Fix #2 (2026-05-30 enterprise security pass): API-layer
+ * handle validation on POST /api/terminals. Closes the HIGH-severity
+ * bypass where an attacker could POST { handle: '@admin' } and have the
+ * terminal_records row persisted with handle='@admin', then exploit
+ * the approver gate's resolveAuthoritativeCallerHandle to gain admin.
+ *
+ * Both layers must reject the attempt:
+ *   - API layer: 400 with the validator `message` so the operator sees
+ *     a precise reason (e.g. "handle '@admin' is reserved").
+ *   - Store layer (Fix #1): tagged Error throw as defense in depth so
+ *     even a future writer that forgets the API-side check still fails
+ *     closed.
+ *
+ * The tests below cover the API-layer behaviour; the store-layer
+ * behaviour is covered in terminalRecordsStore.test.ts.
+ */
+describe('/api/terminals POST sec-iter2 Fix #2: API-layer handle validation', () => {
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'ant-terminals-iter2-'));
+    process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
+    resetIdentityDbForTests();
+  });
+
+  afterEach(() => {
+    resetIdentityDbForTests();
+    rmSync(tmpDir, { recursive: true, force: true });
+    if (previousEnvValue === undefined) delete process.env.ANT_FRESH_DB_PATH;
+    else process.env.ANT_FRESH_DB_PATH = previousEnvValue;
+  });
+
+  it('rejects { handle: "@admin" } with 400 (the exact iter2-review exploit)', async () => {
+    const response = await runHandler(
+      terminalsPost as unknown as AnyHandler,
+      eventFor('POST', '/api/terminals', {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId: 't_attack', handle: '@admin' })
+      })
+    );
+    expect(response.status).toBe(400);
+    const body = await response.json().catch(() => ({}));
+    // The message must NOT be 201 ("created") and must reference the
+    // reason structure from handleValidation.ts.
+    expect(typeof body.message === 'string' || typeof body === 'string').toBe(true);
+  });
+
+  it('rejects every other reserved handle (case-insensitive)', async () => {
+    for (const handle of ['@ADMIN', '@you', '@system', '@chair']) {
+      const response = await runHandler(
+        terminalsPost as unknown as AnyHandler,
+        eventFor('POST', '/api/terminals', {
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ sessionId: `t_r_${handle.slice(1)}`, handle })
+        })
+      );
+      expect(response.status).toBe(400);
+    }
+  });
+
+  it('rejects handles with invalid characters with 400', async () => {
+    const response = await runHandler(
+      terminalsPost as unknown as AnyHandler,
+      eventFor('POST', '/api/terminals', {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId: 't_bad', handle: '@bad space!' })
+      })
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it('rejects handles that are too short with 400', async () => {
+    const response = await runHandler(
+      terminalsPost as unknown as AnyHandler,
+      eventFor('POST', '/api/terminals', {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId: 't_short', handle: '@' })
+      })
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it('does NOT reject when handle field is omitted (handle remains NULL)', async () => {
+    // The 500 we expect here is from the mocked spawnTerminal returning
+    // alive: false — the handle gate is the prior check and passes when
+    // no handle is supplied. Any status other than 400 means we cleared
+    // the validation gate (the gate is the only source of 400 in this
+    // codepath for a body without handle).
+    const response = await runHandler(
+      terminalsPost as unknown as AnyHandler,
+      eventFor('POST', '/api/terminals', {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId: 't_no_handle' })
+      })
+    );
+    expect(response.status).not.toBe(400);
+  });
+
+  it('accepts a valid non-reserved handle (validation passes)', async () => {
+    const response = await runHandler(
+      terminalsPost as unknown as AnyHandler,
+      eventFor('POST', '/api/terminals', {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId: 't_ok', handle: '@alice-test' })
+      })
+    );
+    // The mocked spawn returns alive=false so the request falls through
+    // to a 500 from the spawn assertion — that's a pass-through of the
+    // validation gate. Any status other than 400 (the only validation
+    // failure code) means the gate accepted the handle.
+    expect(response.status).not.toBe(400);
+  });
+});

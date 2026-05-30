@@ -20,6 +20,7 @@ import {
   parseAllowlist,
   deriveHandle
 } from '$lib/server/terminalRecordsStore';
+import { validateHandleForRegistration } from '$lib/server/handleValidation';
 import { createChatRoom, findChatRoomById } from '$lib/server/chatRoomStore';
 import {
   autoRegisterTerminalForSpawnedSession,
@@ -108,6 +109,19 @@ export const POST: RequestHandler = async ({ request }) => {
   const handle = typeof raw?.handle === 'string' && (raw.handle as string).trim().length > 0
     ? (raw.handle as string).trim()
     : undefined;
+  // Sec-iter2 Fix #2 (2026-05-30): validate the handle BEFORE any side
+  // effect (spawn / DB write). Closes the bypass where an attacker
+  // posted { handle: '@admin' } and got a terminal_records row that
+  // the approver gate would later trust. The store-layer choke-point
+  // (Fix #1) catches this even if we forget here; the API-layer
+  // validation is the UX layer — operators get a precise 400 with the
+  // validator's `reason` string rather than a 500 from the store throw.
+  if (handle !== undefined) {
+    const validation = validateHandleForRegistration(handle);
+    if (!validation.ok) {
+      throw error(400, validation.message);
+    }
+  }
 
   const result = await spawnTerminal(sessionId, { cwd, cols, rows });
   if (!result.alive) throw error(500, `daemon failed to spawn ${sessionId}`);

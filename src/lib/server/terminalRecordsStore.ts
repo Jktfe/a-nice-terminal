@@ -10,6 +10,54 @@
 import { getIdentityDb } from './db';
 import { projectAntRegistryFileBestEffort } from './antRegistryFile';
 import { recomputeInboxEdgesForTerminalOwnershipChange } from './humanInboxMembership';
+import { validateHandleForRegistration } from './handleValidation';
+
+/**
+ * Tag prefix used for `Error.message` thrown by `createTerminalRecord` /
+ * `updateTerminalRecord` when the handle parameter fails the reserved-
+ * list / character / length checks in {@link validateHandleForRegistration}.
+ *
+ * Sec-iter2 Fix #1 (2026-05-30): the choke-point validation lives at the
+ * store layer so EVERY writer to `terminal_records.handle` runs through
+ * the same reserved-list check — closing the HIGH-severity
+ * `POST /api/terminals { handle: "@admin" }` bypass found in sec-iter2
+ * review. The API layer (`/api/terminals` POST + `/api/terminals/[id]`
+ * PATCH) ALSO validates earlier so well-behaved callers see a 400 with
+ * a structured reason (`Fix #2`); the store throw is the structural
+ * backstop for any future writer that forgets to validate at the edge.
+ *
+ * Callers that want to translate the throw into a 400 should match on
+ * `INVALID_HANDLE_ERROR_PREFIX` (or `INVALID_HANDLE_ERROR_TAG`) at the
+ * start of the message; everything past the prefix is the
+ * human-readable validator reason from `handleValidation.ts`.
+ */
+export const INVALID_HANDLE_ERROR_TAG = '[INVALID_HANDLE]';
+export const INVALID_HANDLE_ERROR_PREFIX = `${INVALID_HANDLE_ERROR_TAG} `;
+
+/**
+ * Sec-iter2 Fix #1 (2026-05-30): single choke-point for handle validation.
+ * Called by `createTerminalRecord` + `updateTerminalRecord` so EVERY
+ * writer of `terminal_records.handle` runs the same reserved-list /
+ * character / length checks — defence in depth for the API-layer
+ * validation in `/api/terminals` POST + `/api/terminals/[id]` PATCH.
+ *
+ * Throws an `Error` tagged with `INVALID_HANDLE_ERROR_TAG` when the
+ * handle fails validation. The error message is `[INVALID_HANDLE] <reason>`
+ * so the API layer can translate to a 400 with a precise message.
+ *
+ * No-op on `null`, `undefined`, or empty-string-after-trim — the
+ * `handle` column is nullable and explicit NULL writes are valid (e.g.
+ * the dedup migration sets handle=NULL on duplicates).
+ */
+function assertHandleValidOrThrow(handle: string | null | undefined): void {
+  if (handle === null || handle === undefined) return;
+  if (typeof handle !== 'string') return; // type system should prevent this; defensive
+  if (handle.trim().length === 0) return;
+  const result = validateHandleForRegistration(handle);
+  if (!result.ok) {
+    throw new Error(`${INVALID_HANDLE_ERROR_PREFIX}${result.message}`);
+  }
+}
 
 export type TerminalRecord = {
   session_id: string;
@@ -121,6 +169,11 @@ function supersedePriorRecordsForPane(
 }
 
 export function createTerminalRecord(input: CreateInput): TerminalRecord {
+  // Sec-iter2 Fix #1 (2026-05-30): choke-point validation. Run BEFORE
+  // any DB write so an attempted `@admin` create raises a tagged Error
+  // instead of persisting a privileged-handle row that the approver
+  // gate would then trust via `permissionCallerIdentity`.
+  assertHandleValidOrThrow(input.handle ?? null);
   const db = getIdentityDb();
   const now = Date.now();
   const name = input.name && input.name.trim().length > 0 ? input.name.trim() : nextDefaultName();
@@ -168,6 +221,15 @@ export function getTerminalRecord(sessionId: string): TerminalRecord | null {
 }
 
 export function updateTerminalRecord(sessionId: string, patch: TerminalRecordPatch): TerminalRecord | null {
+  // Sec-iter2 Fix #1 (2026-05-30): choke-point validation on the patch
+  // path. PATCH /api/terminals/[id] is the second attack surface — an
+  // attacker could PATCH any existing terminal whose handle is NULL to
+  // `@admin` and gain admin via the approver gate. Validate BEFORE the
+  // existing-row lookup so the throw shape matches the create path
+  // regardless of whether the sessionId exists.
+  if (patch.handle !== undefined) {
+    assertHandleValidOrThrow(patch.handle);
+  }
   const db = getIdentityDb();
   const existing = getTerminalRecord(sessionId);
   if (!existing) return null;
