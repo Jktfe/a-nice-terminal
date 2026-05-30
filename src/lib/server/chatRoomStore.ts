@@ -651,7 +651,12 @@ export function inviteAgentToRoom(input: {
   const displayName = input.agentDisplayName?.trim() || handleWithAtSign;
 
   const txn = db.transaction(() => {
-    db.prepare(`INSERT INTO chat_room_members
+    // M9d cut-over compat: pre-existing legacy chat_room_members rows
+    // (from before the v0.2 cut-over) trip the UNIQUE constraint when
+    // v02IsHandleActiveMemberOfRoom returns false (v0.2 hasn't been
+    // backfilled yet). OR IGNORE makes the legacy write idempotent;
+    // the v02 mirror below still backfills the v0.2 side.
+    db.prepare(`INSERT OR IGNORE INTO chat_room_members
       (id, room_id, handle, display_name, display_color, display_icon, display_background_style, joined_at, kind)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'agent')`).run(
       randomUUID(),
@@ -717,7 +722,10 @@ export function inviteHumanToRoom(input: {
   const displayName = input.humanDisplayName?.trim() || handleWithAtSign;
 
   const txn = db.transaction(() => {
-    db.prepare(`INSERT INTO chat_room_members
+    // M9d cut-over compat (same as inviteAgentToRoom above): pre-existing
+    // legacy rows from before the v0.2 cut-over trip UNIQUE; v02 mirror
+    // below backfills the v0.2 side. OR IGNORE makes legacy idempotent.
+    db.prepare(`INSERT OR IGNORE INTO chat_room_members
       (id, room_id, handle, display_name, display_color, display_icon, display_background_style, joined_at, kind)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'human')`).run(
       randomUUID(),
