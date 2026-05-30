@@ -36,12 +36,12 @@
  * extraction) + §2.3 (chat-rooms surface inventory).
  */
 
-import { randomUUID } from 'node:crypto';
 import { getIdentityDb } from './db';
 import * as v02Agents from './v02AgentsStore';
 import * as v02Memberships from './v02MembershipsStore';
 import type { V02MembershipRole, V02MemberKind } from './v02MembershipsStore';
 import { getIdentityByHandle } from './identityKeysStore';
+import { appendAuditEvent as appendAuditEventCanonical } from './auditEventsStore';
 
 /**
  * INSERT OR IGNORE a v02_rooms row keyed by roomId. Lookup display_name
@@ -304,9 +304,10 @@ export function resolveV02AgentIdForHandle(handle: string): string | null {
 
 /**
  * Append a single audit event. Best-effort: never throws (audit writes
- * must not break the chat-room hot paths). Mirrors the helper in
- * v02RegisterBootstrap so the same kind taxonomy + entity model lands on
- * both surfaces.
+ * must not break the chat-room hot paths). Delegates to the shared
+ * auditEventsStore (M7.1 PATH 3) so the same kind taxonomy + entity
+ * model is enforced across every writer of the canonical
+ * `audit_events` table.
  */
 function appendAuditEvent(input: {
   kind: string;
@@ -317,23 +318,14 @@ function appendAuditEvent(input: {
   after_json: Record<string, unknown> | null;
 }): void {
   try {
-    const db = getIdentityDb();
-    db.prepare(
-      `INSERT INTO audit_events
-         (audit_id, at_ms, kind, entity_kind, entity_id,
-          actor_agent_id, actor_runtime_id, before_json, after_json,
-          request_id, ip_hash, challenge_proof)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL, NULL)`
-    ).run(
-      randomUUID(),
-      Date.now(),
-      input.kind,
-      input.entity_kind,
-      input.entity_id,
-      input.actor_agent_id,
-      input.actor_runtime_id,
-      input.after_json ? JSON.stringify(input.after_json) : null
-    );
+    appendAuditEventCanonical({
+      kind: input.kind,
+      entityKind: input.entity_kind,
+      entityId: input.entity_id,
+      actorAgentId: input.actor_agent_id,
+      actorRuntimeId: input.actor_runtime_id,
+      after: input.after_json
+    });
   } catch {
     // Audit write failed — swallow. Investigate if this fires in production.
   }

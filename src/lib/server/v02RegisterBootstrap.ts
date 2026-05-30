@@ -31,10 +31,9 @@
  * doesn't require an extra step.
  */
 
-import { randomUUID } from 'node:crypto';
-import { getIdentityDb } from './db';
 import * as v02Agents from './v02AgentsStore';
 import * as v02Runtimes from './v02RuntimesStore';
+import { appendAuditEvent as appendAuditEventCanonical } from './auditEventsStore';
 
 export type V02BootstrapInput = {
   /** The legacy `name` field — used as display_name + as fallback handle. */
@@ -119,9 +118,9 @@ export function pidStartToIso(raw: string | null, fallbackMs?: number): string {
 
 /**
  * Append a single audit event. Best-effort: never throws (audit writes
- * must not break the register/resolve hot paths). v0.2 audit_events
- * schema is in src/lib/server/db.ts §audit_events — see also the spec
- * doc §audit_events for the kind taxonomy.
+ * must not break the register/resolve hot paths). Delegates to the
+ * shared `auditEventsStore` (M7.1 PATH 3) so the kind taxonomy +
+ * entity model lives in one place.
  */
 function appendAuditEvent(input: {
   kind: string;
@@ -132,23 +131,14 @@ function appendAuditEvent(input: {
   after_json: Record<string, unknown> | null;
 }): void {
   try {
-    const db = getIdentityDb();
-    db.prepare(
-      `INSERT INTO audit_events
-         (audit_id, at_ms, kind, entity_kind, entity_id,
-          actor_agent_id, actor_runtime_id, before_json, after_json,
-          request_id, ip_hash, challenge_proof)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL, NULL)`
-    ).run(
-      randomUUID(),
-      Date.now(),
-      input.kind,
-      input.entity_kind,
-      input.entity_id,
-      input.actor_agent_id,
-      input.actor_runtime_id,
-      input.after_json ? JSON.stringify(input.after_json) : null
-    );
+    appendAuditEventCanonical({
+      kind: input.kind,
+      entityKind: input.entity_kind,
+      entityId: input.entity_id,
+      actorAgentId: input.actor_agent_id,
+      actorRuntimeId: input.actor_runtime_id,
+      after: input.after_json
+    });
   } catch {
     // Audit write failed — swallow. The cut-over PR cannot break the
     // register hot path because the audit table has a CHECK or FK
