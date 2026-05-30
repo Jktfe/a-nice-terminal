@@ -24,10 +24,6 @@
 import { randomUUID } from 'node:crypto';
 import { getIdentityDb } from './db';
 import { ensureHumanInboxRoom, inboxRoomIdFor, isInboxRoomId } from './humanInboxRoomStore';
-import {
-  mirrorAddMembership as v02MirrorAddMembership,
-  mirrorRemoveMembership as v02MirrorRemoveMembership
-} from './v02ChatRoomBridge';
 
 /** True when either path (a) or path (b) holds for this (human, agent). */
 function sharedContextExists(humanHandle: string, agentHandle: string): boolean {
@@ -83,18 +79,10 @@ export function recomputeInboxEdge(humanHandle: string, agentHandle: string): vo
       randomUUID(), inboxRoomId, agentHandle, agentHandle, '#0891B2',
       agentHandle.slice(1, 2).toUpperCase() || '?', 'transparent', nowIso
     );
-    // M9c dual-write: mirror inbox-edge add into v02_memberships.
-    v02MirrorAddMembership({
-      roomId: inboxRoomId,
-      handle: agentHandle,
-      displayName: agentHandle
-    });
   } else if (!shouldBeMember && existing) {
     db.prepare(
       `DELETE FROM chat_room_members WHERE room_id = ? AND handle = ?`
     ).run(inboxRoomId, agentHandle);
-    // M9c dual-write: mirror inbox-edge soft-leave into v02_memberships.
-    v02MirrorRemoveMembership(inboxRoomId, agentHandle);
   }
 }
 

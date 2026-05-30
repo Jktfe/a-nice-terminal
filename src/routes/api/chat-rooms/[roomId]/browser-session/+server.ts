@@ -2,7 +2,6 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { ensureAgentMemberInRoom, findChatRoomById } from '$lib/server/chatRoomStore';
 import { addMembership, getTerminalIdByHandle } from '$lib/server/roomMembershipsStore';
-import { mirrorAddMembership } from '$lib/server/v02ChatRoomBridge';
 import { lookupTerminalByPidChain, upsertTerminal } from '$lib/server/terminalsStore';
 import { createBrowserSession } from '$lib/server/browserSessionStore';
 import { getRoomMode } from '$lib/server/roomModesStore';
@@ -241,9 +240,6 @@ export const POST: RequestHandler = async ({ params, request, url }) => {
       meta: { kind: 'browser-default', roomId, authorHandle }
     });
     addMembership({ room_id: roomId, handle: authorHandle, terminal_id: syntheticTerminal.id });
-    // M9c dual-write: mirror the synthetic browser-session membership
-    // into v02_memberships so the v0.2 substrate reflects the join.
-    mirrorAddMembership({ roomId, handle: authorHandle });
   }
   if (ownership.kind === 'agent') {
     ensureAgentMemberInRoom({ roomId, agentHandle: authorHandle });
