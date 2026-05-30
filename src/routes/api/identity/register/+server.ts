@@ -1,6 +1,15 @@
 // POST /api/identity/register — register a terminal entity.
 // Idempotent on `name` (UNIQUE). Stores leaf PID; ancestor lookup walks
 // caller-side. TTL clamped 60s..24h in terminalsStore.
+//
+// v0.2 CUT-OVER PHASE 1 (M9b, 2026-05-30): this endpoint now DUAL-WRITES
+// to the legacy terminals + terminal_records tables AND to the v0.2
+// v02_agents + v02_runtimes + v02_audit_events tables. Both surfaces
+// stay populated until M9c (chat-rooms endpoints) + M9d (peripheral
+// endpoints) flip, then a follow-up PR drops the dual-write. The v0.2
+// bootstrap is a best-effort sidecar: if it throws, the legacy 201 path
+// is still returned so existing flows are never harder than today. See
+// docs/concepts/ant-v02-cutover-plan.md §1 + §2.1.
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
@@ -25,6 +34,8 @@ import {
   autoRebindMembershipsFromStaleTerminal,
   isCandidateStale
 } from '$lib/server/roomMembershipsStore';
+import { bootstrapV02Identity, normaliseV02Handle } from '$lib/server/v02RegisterBootstrap';
+import { getLiveAgentByHandle } from '$lib/server/v02AgentsStore';
 
 const VALID_AGENT_KINDS_LIST = Array.from(AGENT_KINDS_CLIENT_INPUT).join(', ');
 
@@ -36,6 +47,12 @@ type IdentityRegisterBody = {
   meta?: unknown;
   pane?: unknown;
   agent_kind?: unknown;
+  /**
+   * Optional explicit handle override. When omitted the v0.2 bootstrap
+   * derives the handle as `@<name>`. Matches the field accepted by
+   * main's Phase B handle-aliasing path (see PR #89) so callers can
+   * supply either form during the cut-over window.
+   */
   handle?: unknown;
 };
 
@@ -81,7 +98,12 @@ export const POST: RequestHandler = async ({ request }) => {
   const sourceRaw = rawBody.source;
   const source = typeof sourceRaw === 'string' && sourceRaw.length > 0 ? sourceRaw : undefined;
   const metaRaw = rawBody.meta;
-  const meta = metaRaw && typeof metaRaw === 'object' ? (metaRaw as Record<string, unknown>) : undefined;
+  const metaInput = metaRaw && typeof metaRaw === 'object' ? (metaRaw as Record<string, unknown>) : undefined;
+  // Tag the legacy meta with `v0.2_bridged: true` so M9c/M9d code can
+  // distinguish rows written by the cut-over dual-write from rows
+  // written before the cut-over PR landed. Stripped off once M9d ships
+  // and the dual-write is removed.
+  const meta: Record<string, unknown> = { ...(metaInput ?? {}), 'v0.2_bridged': true };
   // M3.2d B1: validate agent_kind BEFORE upsert so invalid never writes a row.
   const paneRaw = rawBody.pane;
   const agentKindRaw = rawBody.agent_kind;
@@ -116,10 +138,23 @@ export const POST: RequestHandler = async ({ request }) => {
   //   (b) pid-in-use — the caller's leaf (pid, pid_start) is currently
   //       bound to a different live terminal. Rejected unless the
   //       conflicting row IS the same row we'd upsert (i.e. existing).
+  // v0.2 reclaim takes precedence over Phase A2 rule (a) when the caller
+  // is a known v0.2 agent. JWPK ratified design call (msg_undyx0gkd3
+  // 2026-05-30): re-register with a different PID under the same handle
+  // is the "shell restart / brew upgrade / laptop→mini" recovery story —
+  // it auto-reclaims via bootstrapV02Identity rather than 409-erroring.
+  // Phase A2 rule (a) still fires for genuinely-new callers (no prior v0.2
+  // agent for the derived handle) so silent dual-binds remain rejected.
+  const v02HandleForGate = handleValue
+    ? normaliseV02Handle(handleValue)
+    : normaliseV02Handle(trimmedName);
+  const knownV02Agent =
+    v02HandleForGate.length > 0 ? getLiveAgentByHandle(v02HandleForGate) : null;
   const liveNameConflict = getLiveTerminalByName(trimmedName);
   if (
     liveNameConflict !== null &&
-    (liveNameConflict.pid !== leafPid.pid || liveNameConflict.pid_start !== leafPid.pid_start)
+    (liveNameConflict.pid !== leafPid.pid || liveNameConflict.pid_start !== leafPid.pid_start) &&
+    !knownV02Agent
   ) {
     throw error(
       409,
@@ -197,7 +232,40 @@ export const POST: RequestHandler = async ({ request }) => {
       }
     } catch { /* best-effort: classify failure never blocks 201 */ }
   }
+
+  // v0.2 dual-write sidecar (M9b). Auto-creates the v02_agents row if
+  // the handle has never been seen, atomically reclaims any existing
+  // live runtime, and writes audit events for both transitions. Failures
+  // are swallowed so the legacy 201 path is unconditional — the
+  // structural invariants we want are SQLite-enforced (partial unique
+  // index, FK chain), so a thrown-here failure means the schema PR
+  // didn't ship, which the cut-over plan §4 step a covers explicitly.
+  let v02AgentId: string | null = null;
+  let v02RuntimeId: string | null = null;
+  try {
+    const bootstrap = bootstrapV02Identity({
+      name: trimmedName,
+      handle: handleValue,
+      pid: leafPid.pid,
+      pid_start: leafPid.pid_start,
+      tmux_pane: paneValue,
+      cli_provider_id: classifiedAgentKind,
+      legacy_terminal_id: terminal.id
+    });
+    v02AgentId = bootstrap.agent_id;
+    v02RuntimeId = bootstrap.runtime_id;
+  } catch (err) {
+    // Sidecar failure must NOT block the legacy 201. Log to stderr so
+    // operators see it during cut-over; the runbook covers diagnosis.
+    // eslint-disable-next-line no-console
+    console.error('[v02-bootstrap] register sidecar failed (legacy 201 unaffected):', err);
+  }
+
   return json({ terminal_id: terminal.id, name: terminal.name,
     expires_at: terminal.expires_at, tmux_target_pane: paneValue,
-    agent_kind: classifiedAgentKind }, { status: 201 });
+    agent_kind: classifiedAgentKind,
+    // v0.2 surface — clients that don't yet consume these can ignore them.
+    // The legacy fields above remain the contract until M9d ships.
+    v02_agent_id: v02AgentId, v02_runtime_id: v02RuntimeId
+  }, { status: 201 });
 };
