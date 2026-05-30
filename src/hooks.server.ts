@@ -9,6 +9,7 @@ import { startPoller } from '$lib/server/agentStatusPoller';
 import { ensureRunEventsPersistenceBooted } from '$lib/server/terminalRunEventsBoot';
 import { ensureOperationalRetentionSweepBooted } from '$lib/server/operationalRetention';
 import { ensureCronJobTickerBooted } from '$lib/server/cronJobTicker';
+import { ensurePermissionRequestsSweepBooted } from '$lib/server/permissionRequestsSweepBoot';
 import { ensureUsageSnapshotPollerBooted } from '$lib/server/usageSnapshotPoller';
 import { projectAntRegistryFileBestEffort } from '$lib/server/antRegistryFile';
 import { resolveBrowserSessionSecretIgnoringRoom } from '$lib/server/browserSessionStore';
@@ -48,6 +49,11 @@ function bootPollerOnce(): void {
   // a brand-new install gets at least one point before the 12 h window
   // elapses. Soft-fails when the daemon at :6736 is unreachable.
   ensureUsageSnapshotPollerBooted();
+  // Stage B permission_requests TTL sweep (60s cadence). Flips expired
+  // pending_actions + their parent requests so the CLI poller sees
+  // 'expired' instead of waiting forever on an approver who never
+  // showed up. Cheap indexed UPDATE; safe to run aggressively.
+  ensurePermissionRequestsSweepBooted();
   slot[POLLER_BOOTED_KEY] = Date.now();
 }
 
