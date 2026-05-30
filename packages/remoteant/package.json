@@ -8,8 +8,9 @@
     "remoteant": "dist/cli.js"
   },
   "scripts": {
-    "build": "bun build --target=node --outdir=dist src/cli.ts",
-    "test": "vitest run"
+    "build": "bun build src/cli.ts --target=node --outfile dist/cli.js --define '__BUILD_GIT_SHA__=\\\"'$(git rev-parse --short HEAD)'\\\"'",
+    "build:dev": "bun build src/cli.ts --target=node --outfile dist/cli.js --define '__BUILD_GIT_SHA__=\\\"dev\\\"'",
+    "test": "../../node_modules/.bin/vitest run --config vitest.config.ts"
   },
   "devDependencies": {
     "vitest": "^1.6.0",
