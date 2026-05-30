@@ -37,10 +37,6 @@ import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
 import { findTerminalRecordByHandle } from '$lib/server/terminalRecordsStore';
 import { addMembership, removeMembership } from '$lib/server/roomMembershipsStore';
 import {
-  mirrorAddMembership,
-  mirrorRemoveMembership
-} from '$lib/server/v02ChatRoomBridge';
-import {
   findAccountsOrgMemberByHandle,
   listAccountsOrgMembersForRequest,
   listLocalLicensedOrgMembers
@@ -136,14 +132,6 @@ export const POST: RequestHandler = async ({ params, request }) => {
       humanHandle: normalisedHumanHandle,
       humanDisplayName: teammate.displayName
     });
-    // M9c dual-write: mirror the human invite into v02_memberships so the
-    // v0.2 substrate reflects the same roster. Best-effort; legacy 200
-    // response shape is preserved on mirror failure.
-    mirrorAddMembership({
-      roomId: params.roomId,
-      handle: normalisedHumanHandle,
-      displayName: teammate.displayName ?? normalisedHumanHandle
-    });
     postSystemMessage({
       roomId: params.roomId,
       body: `${normalisedHumanHandle} joined this room.`
@@ -195,12 +183,6 @@ export const POST: RequestHandler = async ({ params, request }) => {
         handle: normalisedAgentHandle,
         terminal_id: terminalRecord.session_id
       });
-      // M9c dual-write: mirror the agent rebind into v02_memberships.
-      mirrorAddMembership({
-        roomId: params.roomId,
-        handle: normalisedAgentHandle,
-        displayName: agentDisplayName ?? normalisedAgentHandle
-      });
       const headers: Record<string, string> = {};
       if (auth.kind === 'legacy') headers[auth.warningHeader.name] = auth.warningHeader.value;
       if (auth.clearStaleBrowserCookie) headers['set-cookie'] = buildStaleBrowserCookieClearHeader(params.roomId);
@@ -216,12 +198,6 @@ export const POST: RequestHandler = async ({ params, request }) => {
       room_id: params.roomId,
       handle: normalisedAgentHandle,
       terminal_id: terminalRecord.session_id
-    });
-    // M9c dual-write: mirror the new agent member into v02_memberships.
-    mirrorAddMembership({
-      roomId: params.roomId,
-      handle: normalisedAgentHandle,
-      displayName: agentDisplayName ?? normalisedAgentHandle
     });
     const newMember = updatedRoom.members[updatedRoom.members.length - 1];
     postSystemMessage({
@@ -286,9 +262,6 @@ export const DELETE: RequestHandler = async ({ params, url, request }) => {
 
   removeRoomAlias({ roomId: params.roomId, globalHandle });
   removeMembership(params.roomId, globalHandle);
-  // M9c dual-write: soft-leave the v02_memberships row so the v0.2
-  // substrate reflects the removal. Best-effort; legacy 204 path preserved.
-  mirrorRemoveMembership(params.roomId, globalHandle);
   postSystemMessage({
     roomId: params.roomId,
     body: `${globalHandle} was removed from this room.`
