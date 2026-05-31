@@ -37,7 +37,7 @@
   }
   .principle::before { content:'◆'; }
 
-  .panel { margin-top:2.5rem; }
+  .panel { margin-top:2.5rem; overflow-x:auto; }
   .panel-title {
     font-family:var(--font-mono); font-size:11px; letter-spacing:0.18em;
     text-transform:uppercase; color:var(--ink-200); margin-bottom:1.25rem;
@@ -45,7 +45,9 @@
   }
   .panel-title::after { content:''; flex:1; height:1px; background:rgba(255,255,255,0.06); }
 
-  .canvas { position:relative; width:100%; max-width:1080px; margin:0 auto; }
+  /* Fixed width == SVG viewBox width so absolute nodes + preserveAspectRatio="none"
+     wires stay in lock-step; .panel scrolls horizontally on narrow viewports. */
+  .canvas { position:relative; margin:0 auto; }
   .node {
     position:absolute; background:var(--ink-800);
     border:1px solid rgba(255,255,255,0.08); border-radius:var(--radius-card);
@@ -139,7 +141,7 @@
 <!-- ============================ PANEL A ============================ -->
 <div class="panel">
   <div class="panel-title">Panel A · Optional chairs over a chairless substrate · ask routing</div>
-  <div class="canvas" style="height:660px;">
+  <div class="canvas" style="height:660px; width:1080px;">
     <svg class="wires" viewBox="0 0 1080 660" preserveAspectRatio="none">
       <defs>
         <marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#565E7A"/></marker>
@@ -250,7 +252,7 @@
   <div class="teams">
 
     <div>
-      <div class="canvas" style="height:300px; max-width:300px;">
+      <div class="canvas" style="height:300px; width:300px;">
         <svg class="wires" viewBox="0 0 300 300" preserveAspectRatio="none">
           <defs><marker id="ah2" markerWidth="9" markerHeight="9" refX="4" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#565E7A"/></marker></defs>
           <path d="M150,80 L80,180" stroke="#565E7A" stroke-width="1.5" marker-start="url(#ah2)" marker-end="url(#ah2)"/>
@@ -265,7 +267,7 @@
     </div>
 
     <div>
-      <div class="canvas" style="height:520px;">
+      <div class="canvas" style="height:520px; width:720px;">
         <svg class="wires" viewBox="0 0 720 520" preserveAspectRatio="none">
           <defs><marker id="ah3" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#565E7A"/></marker></defs>
           <path d="M360,52 L150,110" stroke="#565E7A" stroke-width="1.4" marker-end="url(#ah3)"/>
