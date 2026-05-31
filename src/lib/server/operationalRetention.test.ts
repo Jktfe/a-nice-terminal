@@ -194,4 +194,33 @@ describe('operationalRetention', () => {
     expect(result.terminalRunEventsDeleted).toBe(10);
   });
 
+  it('prunes superseded/orphaned terminal_records older than the cutoff, keeps the rest', () => {
+    const db = getIdentityDb();
+    const nowMs = 1_000_000_000_000;
+    const dayMs = 24 * 60 * 60 * 1000;
+    const old = nowMs - 40 * dayMs;   // older than a 30d retention
+    const recent = nowMs - 1 * dayMs; // within retention
+    // A live terminal so "has backing terminal" cases are real.
+    db.prepare(
+      `INSERT INTO terminals (id, pid, pid_start, name, source, meta, created_at, updated_at)
+       VALUES ('term-live', 1, 'x', 'live-term', 'cli-register', '{}', 1, 1)`
+    ).run();
+    const ins = (sid: string, name: string, superseded: number | null, updated: number) =>
+      db.prepare(
+        `INSERT INTO terminal_records (session_id, name, auto_forward_chat, created_at_ms, updated_at_ms, superseded_at_ms)
+         VALUES (?, ?, 1, ?, ?, ?)`
+      ).run(sid, name, updated, updated, superseded);
+    ins('term-live', 'live-rec', null, recent);          // live + not superseded → KEEP
+    ins('gone-1', '[A] old-superseded', old, old);        // superseded + old → PRUNE
+    ins('gone-2', 'orphan-old', null, old);               // orphaned + old → PRUNE
+    ins('keep-1', '[A] new-superseded', recent, recent);  // superseded + recent → KEEP
+    ins('keep-2', 'orphan-recent', null, recent);         // orphaned + recent → KEEP
+
+    const res = pruneOperationalHistory({ nowMs, retentionDays: 30, trigger: 'manual' });
+    expect(res.terminalRecordsDeleted).toBe(2);
+
+    const names = (db.prepare(`SELECT name FROM terminal_records ORDER BY name`).all() as { name: string }[]).map((r) => r.name);
+    expect(names).toEqual(['[A] new-superseded', 'live-rec', 'orphan-recent']);
+  });
+
 });
