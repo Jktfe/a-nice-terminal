@@ -2808,6 +2808,18 @@ export function getIdentityDb(): DatabaseInstance {
     /* swallow — listChatRooms ORDER BY's COALESCE fallback covers NULL rows */
   }
   globalSlot[DB_GLOBAL_KEY] = db;
+  // Archived-name tag backfill (spec 2026-05-31): tag any legacy archived
+  // terminals whose name is still untagged so their base name frees up in the
+  // UNIQUE index. Idempotent + cheap (one SELECT when nothing to do). Cycle-safe
+  // via dynamic import; runs AFTER the handle is cached so the re-entrant
+  // getIdentityDb() inside setTerminalStatus returns the same instance.
+  try {
+    void import('./terminalsStore').then((module) => {
+      try { module.backfillArchivedTerminalTags(); } catch { /* idempotent — swallow */ }
+    });
+  } catch {
+    /* import failure (e.g. test env) — swallow */
+  }
   // Per-human inbox backfill (asks-as-pill JWPK 2026-05-22): seed inbox
   // rooms + memberships for existing humans on first call. Best-effort —
   // a backfill failure must NEVER block the DB handle return; the live

@@ -666,3 +666,27 @@ export function setAgentContextFill(
     return false;
   }
 }
+
+/**
+ * One-shot, idempotent backfill (spec 2026-05-31): tag every already-archived
+ * terminal whose name is still untagged, so legacy squatters free their base
+ * name immediately rather than only on the next archive. Reuses the
+ * setTerminalStatus chokepoint per row (which also vacates the matching
+ * terminal_records name + assigns the next free per-base sequence). Returns the
+ * number of rows tagged. Re-running is a no-op (no archived+untagged rows
+ * remain), so it is safe to call on every boot. Already-tagged archives are
+ * skipped.
+ */
+export function backfillArchivedTerminalTags(): number {
+  const db = getIdentityDb();
+  const rows = db.prepare(
+    `SELECT id, name FROM terminals WHERE status = 'archived'`
+  ).all() as Array<{ id: string; name: string }>;
+  let tagged = 0;
+  for (const row of rows) {
+    if (isTagged(row.name)) continue;
+    setTerminalStatus(row.id, 'archived');
+    tagged++;
+  }
+  return tagged;
+}
