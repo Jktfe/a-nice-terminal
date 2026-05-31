@@ -313,18 +313,37 @@ export function listAllTerminals(): TerminalRow[] {
 
 export function deleteTerminalById(id: string): boolean {
   const db = getIdentityDb();
-  const info = db.prepare(`DELETE FROM terminals WHERE id = ?`).run(id);
-  if (info.changes > 0) projectAntRegistryFileBestEffort();
-  return info.changes > 0;
+  const deleteBoth = db.transaction((): number => {
+    const info = db.prepare(`DELETE FROM terminals WHERE id = ?`).run(id);
+    // terminal_records has no FK to terminals — delete the matching record
+    // (session_id === terminals.id) so a hard-delete never orphans it. A
+    // record without a terminals row (or vice-versa) just deletes 0 here.
+    db.prepare(`DELETE FROM terminal_records WHERE session_id = ?`).run(id);
+    return info.changes;
+  });
+  const changes = deleteBoth();
+  if (changes > 0) projectAntRegistryFileBestEffort();
+  return changes > 0;
 }
 
 export function sweepExpiredTerminals(): number {
   const db = getIdentityDb();
-  const info = db
-    .prepare(`DELETE FROM terminals WHERE expires_at IS NOT NULL AND expires_at <= ?`)
-    .run(currentUnixSeconds());
-  if (info.changes > 0) projectAntRegistryFileBestEffort();
-  return info.changes;
+  const now = currentUnixSeconds();
+  const sweep = db.transaction((): number => {
+    // Delete the matching terminal_records FIRST (no FK to cascade), then the
+    // expired terminals themselves — same expiry predicate for both.
+    db.prepare(
+      `DELETE FROM terminal_records WHERE session_id IN
+         (SELECT id FROM terminals WHERE expires_at IS NOT NULL AND expires_at <= ?)`
+    ).run(now);
+    const info = db.prepare(
+      `DELETE FROM terminals WHERE expires_at IS NOT NULL AND expires_at <= ?`
+    ).run(now);
+    return info.changes;
+  });
+  const changes = sweep();
+  if (changes > 0) projectAntRegistryFileBestEffort();
+  return changes;
 }
 
 export function updatePaneTarget(
