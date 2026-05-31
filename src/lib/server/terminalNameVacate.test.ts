@@ -81,4 +81,18 @@ describe('setTerminalStatus archives by vacating the name', () => {
   it('returns false for an unknown terminalId', () => {
     expect(setTerminalStatus('nope', 'archived')).toBe(false);
   });
+
+  it('restores terminal_records.name on revive when the base is free', () => {
+    const t = makeTerminal('terminal3');
+    createTerminalRecord({ sessionId: t.id, name: 'terminal3' });
+    setTerminalStatus(t.id, 'archived');
+    setTerminalStatus(t.id, 'live');
+    expect(getTerminalRecord(t.id)?.name).toBe('terminal3');
+  });
+
+  it('does not rename on delete', () => {
+    const t = makeTerminal('terminal3');
+    setTerminalStatus(t.id, 'deleted');
+    expect(getTerminalById(t.id)?.name).toBe('terminal3');
+  });
 });

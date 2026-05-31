@@ -414,6 +414,10 @@ export function setTerminalStatus(
     let nextName = row.name;
     if (status === 'archived' && !isTagged(row.name)) {
       const base = baseName(row.name);
+      // Find the next free [A…] slot for this base. The loop + per-attempt
+      // offset is a UNIQUE-collision backstop; inside this single SQLite
+      // transaction no concurrent writer can grab a slot mid-loop, so attempt 0
+      // normally wins. The offset only matters if that invariant ever breaks.
       for (let attempt = 0; attempt < 50; attempt++) {
         const siblings = db
           .prepare(`SELECT name FROM terminals WHERE name LIKE '[A%] ' || ?`)
@@ -424,6 +428,14 @@ export function setTerminalStatus(
           .prepare(`SELECT 1 FROM terminals WHERE name = ?`)
           .get(candidate);
         if (!clash) { nextName = candidate; break; }
+      }
+      if (nextName === row.name) {
+        // Exhausted all attempts: archive proceeds but the base name was NOT
+        // freed in the UNIQUE index. Structurally impossible within one
+        // transaction — surface it loudly if the assumption ever breaks.
+        console.error(
+          `[setTerminalStatus] archive name-vacate exhausted for id=${terminalId} name=${JSON.stringify(row.name)} — base name not freed`
+        );
       }
     } else if (status === 'live' && isTagged(row.name)) {
       const base = baseName(row.name);
