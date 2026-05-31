@@ -2,6 +2,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { getIdentityDb } from './db';
+import { baseName } from './terminalNameTag';
+import { resolveMemoryVaultPath } from './memoryVaultSettingsStore';
 
 export type AntRegistryProjectionResult = {
   path: string;
@@ -73,6 +75,34 @@ export function buildAntRegistryMarkdown(nowMs = Date.now()): string {
     }
   }
 
+  // Recoverable archived terminals (spec 2026-05-31). Read directly from
+  // `terminals` so this works as a cold-start reference even when the
+  // server/daemon is down — open this file in Obsidian and run the command.
+  const archived = getIdentityDb().prepare(
+    `SELECT t.id, t.name, t.updated_at, tr.handle
+       FROM terminals t
+       LEFT JOIN terminal_records tr ON tr.session_id = t.id
+      WHERE t.status = 'archived' AND t.name LIKE '[A%] %'
+      ORDER BY t.updated_at DESC`
+  ).all() as Array<{ id: string; name: string; updated_at: number; handle: string | null }>;
+  if (archived.length > 0) {
+    lines.push('');
+    lines.push('## Recoverable archived terminals');
+    lines.push('');
+    lines.push('| Base name | Tag | Handle | Last seen | Recover |');
+    lines.push('|---|---|---|---|---|');
+    for (const row of archived) {
+      const base = baseName(row.name);
+      lines.push(`| ${[
+        md(base),
+        md(row.name),
+        md(row.handle ?? ''),
+        md(new Date((row.updated_at || 0) * 1000).toISOString()),
+        md(`\`ant register --name ${base} --revive ${row.id}\``)
+      ].join(' | ')} |`);
+    }
+  }
+
   lines.push('');
   lines.push('<!-- This file is a projected mirror. ANT database state is canonical. -->');
   return lines.join('\n');
@@ -117,8 +147,20 @@ export function projectAntRegistryFile(options: { force?: boolean } = {}): AntRe
     return { path, rows: 0, skipped: true };
   }
   const content = buildAntRegistryMarkdown();
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, content, 'utf8');
+  const targets = [path];
+  const vault = resolveMemoryVaultPath();
+  if (vault && vault.trim().length > 0) {
+    targets.push(join(vault.trim(), 'ant-registry.md'));
+  }
+  for (const target of targets) {
+    try {
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, content, 'utf8');
+    } catch {
+      // Independent best-effort per target — one failing must not skip the
+      // other, and neither may block terminal routing.
+    }
+  }
   const rows = content.split('\n').filter((line) => line.startsWith('| ') && !line.includes('---')).length - 1;
   return { path, rows: Math.max(0, rows), skipped: false };
 }
