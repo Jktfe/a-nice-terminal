@@ -86,8 +86,10 @@ describe('setTerminalStatus archives by vacating the name', () => {
     const t = makeTerminal('terminal3');
     createTerminalRecord({ sessionId: t.id, name: 'terminal3' });
     setTerminalStatus(t.id, 'archived');
+    expect(getTerminalRecord(t.id)?.superseded_at_ms).not.toBeNull();
     setTerminalStatus(t.id, 'live');
     expect(getTerminalRecord(t.id)?.name).toBe('terminal3');
+    expect(getTerminalRecord(t.id)?.superseded_at_ms).toBeNull();
   });
 
   it('does not rename on delete', () => {

@@ -461,8 +461,11 @@ export function setTerminalStatus(
             `UPDATE terminal_records SET name = ?, superseded_at_ms = ?, updated_at_ms = ? WHERE session_id = ?`
           ).run(nextName, nowMs, nowMs, terminalId);
         } else {
+          // Revive: restore the base name AND un-supersede the record so
+          // handle resolution / room fanout / membership picker (all of which
+          // filter `superseded_at_ms IS NULL`) see the revived terminal again.
           db.prepare(
-            `UPDATE terminal_records SET name = ?, updated_at_ms = ? WHERE session_id = ?`
+            `UPDATE terminal_records SET name = ?, superseded_at_ms = NULL, updated_at_ms = ? WHERE session_id = ?`
           ).run(nextName, nowMs, terminalId);
         }
       }
