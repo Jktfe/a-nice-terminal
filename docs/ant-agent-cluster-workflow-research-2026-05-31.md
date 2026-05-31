@@ -1,132 +1,111 @@
-# ANT Agent Cluster Workflow — recreation, UI-TARS / tiny-router research, and improvement backlog — 2026-05-31
+# ANT coordination & routing — cluster-pattern recreation, UI-TARS / tiny-router research, and improvement backlog — 2026-05-31
 
 Author: @claude (branch `claude/ant-ui-automation-research-WEMa0`)
 Status: research + design sketch (no production code changed)
 Artifact: [`agents-pitch/agent-cluster-workflow-dark.html`](../agents-pitch/agent-cluster-workflow-dark.html)
+Canonical reference: [`docs/concepts/ant-chair.md`](./concepts/ant-chair.md)
 
-## Why
+## Why (and a correction)
 
 Two reference diagrams were circulated — Adrian Murray's **"AI Agent Cluster Workflow"**
-(a Co-CTO orchestrator/gatekeeper sitting above App agents and Framework agents, with a
-"Pattern Identified?" routing gate and a "Handoff Protocol: Accomplished / Pending /
-Blockers") and a second **"Agent Teams / Dynamic Workflows"** panel (a peer agent triad,
-plus an orchestrator that fans out N tasks → implementer → verifiers → fixer → returns
-when done).
+(a Co-CTO orchestrator/gatekeeper above App agents and Framework agents, with a routing
+gate and a Handoff Protocol) and an **"Agent Teams / Dynamic Workflows"** panel (a peer
+triad, plus an orchestrator that fans out N tasks → implementer → verifiers → fixer →
+returns).
 
-This doc does three things:
+A first pass mapped the Co-CTO onto a single, **mandatory** ANT "Chair." That was wrong on
+the big picture, and this revision fixes it. Two corrections drive everything below:
 
-1. **Recreates** those diagrams in the context of how **ANT** (`a-nice-terminal`) already
-   works, using ANT's real vocabulary.
-2. **Researches** [`bytedance/UI-TARS-desktop`](https://github.com/bytedance/UI-TARS-desktop)
-   and [`UdaraJay/tiny-router`](https://github.com/UdaraJay/tiny-router).
-3. Proposes **concrete improvements** to ANT, written up as an **actionable backlog** in
-   ANT's own plan / task / ask vocabulary.
+1. **A Chair must never be required.** ANT's coordination is **substrate-first**: rooms,
+   asks, @-mentions, tasks and the Cross-Agent Inbox carry the work, and peer agents resolve
+   each other's asks with **zero chairs present**. A chair is an *overlay*, never a
+   dependency. The single-mandatory-orchestrator shape in the reference image is precisely
+   the pattern ANT avoids.
+2. **"Chair" is two distinct primitives, not one** (canonical:
+   [`docs/concepts/ant-chair.md`](./concepts/ant-chair.md)):
+   - **Room Chair** — an *optional* in-room operator. Max 1/room, sits in the room as a
+     member with `role:'chair'`, has **verbs** (move validation along, attach
+     plans/artefacts, merge/dismiss asks, facilitate), owner-of-the-terminal pays.
+     `ant chair invite / handoff / dismiss / audit`. `ant chair dismiss` returns a room to
+     the no-chair state — proof the substrate runs chairless.
+   - **ANT Chair** — an *optional* **user-focused** proxy. Max 1/user, lives **outside**
+     rooms (top-level pane), has **speech**: it **routes, manages and disambiguates the
+     user's tasks across all their rooms**, seeks out an agent that can answer
+     autonomously, and presents cleaned-up **options with context** as plain-English
+     decision cards. User's wallet pays; premium/opt-in.
 
-The pattern maps onto ANT unusually cleanly because ANT already ships most of the moving
-parts: **rooms** (not sessions) are the unit of context; there are **plans, tasks, and
-asks**; memory is **durable and DB-backed** ("14-day flow", context held ~25–35%); there
-is a **Cross-Agent Inbox**, **PTY-inject + transcript capture**, an **MCP gateway**, and an
-already-shipped **Chair** plug-in — an always-on cheap-model agent that watches every room,
-produces a per-room digest, and supports `ant chair enable/disable/handoff/board`
-(see [`docs/m4-4-chair-handoff-design-2026-05-14.md`](./m4-4-chair-handoff-design-2026-05-14.md)).
+The bulk of the cluster-workflow "facilitation / validation / handoff" learning belongs to
+the **Room Chair**. The parts the first pass *missed* — **routing** and the **user
+interface** — are the heart of the **ANT Chair**, and are where this revision adds depth.
 
-One important constraint flows from that same Chair design doc: **model routing is a
-deliberately deferred lane** (`ant-no-model-router-no-chairman`). The tiny-router research
-below is relevant — but it must be framed as *signal routing* (triage, retention,
-follow-up detection), **not** as a model-selection chairman. That framing is load-bearing
-in the recommendations.
+## 1 · Recreation — the cluster, re-grounded on ANT
 
-## 1 · Recreation — the cluster mapped onto ANT
+ANT does not have a portfolio gatekeeper. The corrected mapping:
 
 | Reference concept | ANT equivalent |
 |---|---|
-| **Co-CTO Agent** — portfolio orchestrator & gatekeeper | **Chair** (always-on cheap-model per-room watcher/digest + `chair handoff`); extended here to a **Portfolio Chair** spanning rooms |
-| **App Agents** — product feature devs, restricted from the shared framework | **Room agents** owning deliverables (reports, decks, sheets); cannot edit the shared vault directly |
-| **Framework Agents** — shared-component maintainers, changes need approval | **Vault agents** — Obsidian skill + template pool maintainers; changes gated by the Chair |
-| **"Pattern Identified?"** decision diamond / Pattern Extraction | **Routing/classification gate** (today: auto-classify-on-create + capability negotiation) — a candidate home for a tiny-router-style signal classifier |
-| **Handoff Protocol** — Accomplished / Pending / Blockers (context preservation) | **`ant chair handoff`** + durable room memory; **Blockers → asks** raised into the **Cross-Agent Inbox**, resolved by an idle agent |
-| **Agent Teams** (peer claude↔claude↔claude triad) | Peer **room agents** of different kinds (claude / codex / gemini / ollama / copilot / qwen) cross-checking each other |
-| **Dynamic Workflows** (kick off N tasks → implementer → verifiers → fixer → return) | **Plan → task fan-out** over PTY terminals; cross-verification; a **fixer** loop; results return to the **Chair digest** rather than a lossy session |
+| Single mandatory Co-CTO orchestrator | **Rejected.** Coordination is the substrate — rooms, asks, @-mentions, tasks, Inbox — and runs with **no chair** |
+| App Agents / Framework Agents / peer triad | **Peer room agents** (claude/codex/gemini/ollama/…) resolving each other's asks in-room |
+| Facilitation / validation / "ripple" / handoff | **Room Chair** — *optional* in-room operator with verbs (`ant chair invite/handoff/dismiss/audit`) |
+| Routing gate + "present options" + escalate-to-human | **ANT Chair** — *optional* user proxy: triages the cross-room asks queue, auto-routes what an agent can answer, surfaces the rest as decision cards |
+| Handoff Protocol — Accomplished / Pending / Blockers | **Substrate, not a chair**: durable room memory (Accomplished), persistent tasks + asks (Pending), ask-candidate routing then escalation (Blockers) |
+| Dynamic-workflow orchestrator fanning out N tasks | **`ant plan start` → tasks** over the PTY daemon — a substrate primitive, no chair required |
 
-### Panel A — cluster topology & the routing gate
+### Panel A — optional chairs over a chairless substrate
 
 ```mermaid
 flowchart TB
-  subgraph Portfolio[Portfolio level]
-    Chair["Chair — strategic orchestrator & gatekeeper<br/>always-on cheap model · watches every room<br/>digests · ripple analysis · approves promotions<br/>ant chair enable / handoff / board"]
+  subgraph Room["Room · substrate (works with NO chair)"]
+    Peers["Peer agents — @claude · @codex · @ollama<br/>resolve each other's asks in-room"]
+    Asks["Asks queue / Cross-Agent Inbox<br/>@-mention fanout + ask-candidate matching"]
+    Peers --> Asks
   end
 
-  subgraph Product[Product level]
-    Room["Room Agents — deliverable owners<br/>reports · decks · sheets<br/>identify reusable patterns<br/>⚠ cannot edit the shared vault directly"]
-  end
+  RoomChair["Room Chair — OPTIONAL · max 1/room<br/>in-room operator · has verbs<br/>ant chair invite / handoff / dismiss / audit"]
+  ANTChair["ANT Chair — OPTIONAL · max 1/user<br/>user proxy outside rooms · has speech<br/>routes · disambiguates · seeks an answerer"]
+  Triage{"Triage:<br/>can an agent answer it?"}
+  Candidate["Auto-route → capable agent<br/>(resolved without bothering you)"]
+  Card["Decision card → you<br/>2–4 buttons · Yes/No · or FYI alert"]
 
-  subgraph Shared[Shared level]
-    Vault["Vault Agents — Obsidian skill + template pool<br/>build room-agnostic shared skills<br/>implement approved extractions<br/>⚠ changes require Chair approval"]
-  end
-
-  Gate{"Pattern<br/>identified?"}
-
-  Chair -- "strategic direction & approved changes" --> Room
-  Room  -- "request promotion / flag breaking change" --> Chair
-  Chair -- "assign implementation" --> Vault
-  Vault -- "new shared component (ripples to all rooms)" --> Chair
-  Room  --> Gate
-  Gate  -- "pattern extraction → vault promotion" --> Vault
-  Gate  -. "validate & approve" .-> Chair
+  RoomChair -. "optional overlay" .-> Room
+  Asks --> Triage
+  ANTChair -. "reads asks across all your rooms (passive)" .-> Triage
+  Triage -- "yes · actionability=act" --> Candidate
+  Triage -- "no · actionability=review" --> Card
 ```
 
-**Handoff Protocol (context preservation)** — in ANT this is not a convention an agent has
-to remember, it is substrate behaviour:
-
-- ✅ **Accomplished** → written to durable room memory + the Chair digest.
-- ⏳ **Pending** → next in queue; survives the session, so it is not lost when a context
-  window fills (the "14-day flow" pillar).
-- 🚧 **Blockers** → raised as **asks** into the Cross-Agent Inbox; an idle agent with the
-  right access resolves them autonomously.
-- `ant chair handoff <room> --to @handle` re-seats the chair with full context intact.
-
-### Panel B — agent teams & dynamic workflows
+### Panel B — dynamic workflows (no chair required)
 
 ```mermaid
 flowchart TB
-  Plan["Chair · plan — fans out N tasks (N can be 100s)"]
-  Plan --> I1["impl · task 1"]
-  Plan --> I2["impl · task 2"]
-  Plan --> IN["impl · task N"]
+  Plan["ant plan start → tasks — fans out N tasks (N can be 100s)<br/>substrate primitive · no chair needed"]
+  Plan --> I1["impl · task 1"] & I2["impl · task 2"] & IN["impl · task N"]
   I1 --> V1a["verify"] & V1b["verify"]
   I2 --> V2a["verify"] & V2b["verify"]
   IN --> VNa["verify"] & VNb["verify"]
   V1a & V1b --> F1["fix"]
   V2a & V2b --> F2["fix"]
   VNa & VNb --> FN["fix"]
-  F1 & F2 & FN --> Done["return → Chair digest<br/>results land in durable room memory"]
+  F1 & F2 & FN --> Done["return → durable room memory<br/>a Room Chair MAY summarise — optional"]
 ```
 
-The peer-triad ("Agent Teams") view is simply several room agents of different kinds in one
-room cross-checking each other; the fan-out ("Dynamic Workflows") view is an ANT **plan**
-expanding into **tasks** dispatched over the PTY daemon, with verify/fix as room-peer roles
-and a single return path into the Chair digest. The styled two-panel version lives in
+The styled two-panel version lives in
 [`agents-pitch/agent-cluster-workflow-dark.html`](../agents-pitch/agent-cluster-workflow-dark.html).
 
 ## 2 · Research
 
 ### 2.1 `bytedance/UI-TARS-desktop`
 
-A native **GUI Agent** stack (part of "TARS\*", alongside Agent TARS). TypeScript Turbo /
-pnpm monorepo; built on the UI-TARS vision-language model + Seed-VL series. Operates a
-computer/browser from natural language via a perception → understanding → action loop
-(screenshot → VLM → mouse/keyboard), with Local, Remote, and Browser operator modes and a
-hybrid GUI + DOM browser strategy. Takeaways relevant to ANT:
+Native GUI Agent stack (TypeScript Turbo/pnpm monorepo; UI-TARS + Seed-VL models). Drives a
+computer/browser from natural language via perception → understanding → action. Two ideas
+matter for ANT:
 
-- **Event Stream Protocol / Agent Event Stream** — a typed event stream carries the agent's
-  real-time state, tool calls, intermediate results, and final answers. External UIs
-  *subscribe* to it (the Web UI is developed independently and talks to the server purely
-  over this protocol), and v0.3.0 ships an **Event Stream Viewer** for data-flow tracking
-  and debugging. Context engineering is built *from* this stream.
-- **GUI / Browser Operator agent** — vision-grounded computer use, optionally fused with
-  DOM control.
-- **MCP server mounting** — the kernel is built on MCP and can mount MCP servers to reach
-  real-world tools.
+- **Event Stream Protocol / Agent Event Stream** — a *typed* event stream (agent state, tool
+  calls, intermediate results, final answers) that external UIs **subscribe** to (the Web UI
+  is built independently and talks to the server purely over this protocol); ships an **Event
+  Stream Viewer** for debug/replay; context engineering is built *from* the stream.
+- **GUI / Browser Operator agent** — a vision+DOM computer-use agent that can complete real
+  GUI tasks; mounts real-world tools via **MCP**.
 
 Sources: <https://github.com/bytedance/UI-TARS-desktop>,
 <https://agent-tars.com/blog/2025-06-25-introducing-agent-tars-beta>,
@@ -134,119 +113,163 @@ Sources: <https://github.com/bytedance/UI-TARS-desktop>,
 
 ### 2.2 `UdaraJay/tiny-router`
 
-A compact, experimental **multi-head text classifier** for short, domain-neutral routing
-decisions. Python / HuggingFace Transformers, default encoder `microsoft/deberta-v3-small`
-(lighter encoders supported), **ONNX-exportable with quantization** (edge/local intent).
-Given the current message + optional interaction history it emits four calibrated heads:
+A compact **multi-head text classifier** for short, domain-neutral routing (Python /
+Transformers, `deberta-v3-small`, **ONNX-exportable + quantizable** → local/edge). Given a
+message + optional history it emits four calibrated heads:
 
-| Head | Values | Use |
+| Head | Values | What it decides |
 |---|---|---|
-| `relation_to_previous` | new · follow_up · correction · confirmation · cancellation · closure | update existing state instead of treating every message as fresh |
-| `actionability` | none · review · act | **the first routing gate** — skip / escalate to human / auto-execute |
-| `retention` | ephemeral · useful · remember | manage what enters durable memory / the context window |
-| `urgency` | low · medium · high | queue prioritisation |
+| `relation_to_previous` | new · follow_up · correction · confirmation · cancellation · closure | update existing state vs treat as a fresh request |
+| `actionability` | none · review · act | **the first routing gate** — drop / surface to human / auto-execute |
+| `retention` | ephemeral · useful · remember | what is worth keeping |
+| `urgency` | low · medium · high | queue / inbox ordering |
 
-Later heads receive a learned summary of earlier heads (e.g. `correction → act`).
-Post-hoc temperature scaling calibrates the confidences.
-
-Sources: <https://github.com/UdaraJay/tiny-router>,
+Later heads receive a learned summary of earlier ones (e.g. `correction → act`); confidences
+are temperature-calibrated. Sources: <https://github.com/UdaraJay/tiny-router>,
 <https://raw.githubusercontent.com/UdaraJay/tiny-router/main/README.md>.
 
-## 3 · Improvement recommendations for ANT
+## 3 · Routing — what exists, and how to improve it
 
-Each is tied to a finding above and respects ANT's existing architecture.
+**Today (code-grounded):**
 
-1. **Typed Agent Event Stream** *(from UI-TARS)* — today ANT captures terminal transcripts
-   as text (PTY tail). UI-TARS's lesson is that a *typed* event stream (state · tool call ·
-   intermediate result · final answer) is a better substrate: the operator UI, the
-   Cross-Agent Inbox, and the Chair digest all become *subscribers* rather than transcript
-   scrapers, and you get replay + an Event Stream Viewer + richer evidence cards for free.
-   This deepens, rather than replaces, the existing transcript capture.
+- `src/lib/server/pty-inject-fanout.ts` — outbound @-mention fanout (user/agent → terminal
+  paste), handle-based.
+- `src/lib/server/terminalReplyRouter.ts` — inbound agent stdout → linked chat room
+  (debounce + noise-filter), closing the loop.
+- `src/lib/server/askCandidateStore.ts` + `availabilityDigestStore.ts` +
+  `agentVisibilityStore.ts` + `handleBindings.ts` — the seed of "who *could* answer this
+  ask?" (candidate agents + availability/visibility).
 
-2. **`operator` agent kind — GUI / Browser operator** *(from UI-TARS)* — ANT agents are
-   CLI/PTY today. A UI-TARS-style vision+DOM computer-use agent kind, mounted through the
-   existing **MCP gateway**, would let a room agent do real GUI work (fill web forms, build
-   a deck, verify a live web page) — a natural fit for ANT's deliverable-centric framing.
-   Extend the agent-kind model in `src/lib/stores/agentKinds.svelte.ts` (and its mirror
-   `modelKinds.svelte.ts`).
+So routing today is **handle / mention / availability** based. There is **no semantic
+classifier** deciding whether an ask needs a human, how urgent it is, or whether it's a
+follow-up to something already open.
 
-3. **Local signal-router for triage & retention** *(from tiny-router)* — a compact,
-   locally-run (ONNX) multi-head classifier feeding three substrate decisions ANT already
-   makes implicitly:
-   - **Inbox triage** — `urgency` + `actionability` gate which asks auto-resolve vs
-     escalate to a human, turning the Cross-Agent Inbox from a flat queue into a
-     prioritised one.
-   - **Memory retention policy** — the `retention` head (ephemeral / useful / remember)
-     decides what is written into durable 14-day memory, directly serving the "context held
-     ~25–35%" pillar.
-   - **Message routing** — `relation_to_previous` (new vs follow_up vs correction) lets an
-     agent *update existing state* instead of spawning a fresh task.
-   Running locally fits ANT's "local for routine sweeps, reserve cloud for deep judgment"
-   cost-tier philosophy. **Critical framing:** scope this strictly as a *signal / triage*
-   router, **NOT** model selection — explicitly honouring the deferred
-   `ant-no-model-router-no-chairman` decision recorded in the Chair design contract.
+**Improvement — an ANT Chair triage router (from tiny-router).** A compact, **locally-run**
+(ONNX) multi-head classifier becomes the ANT Chair's triage engine. The four heads map
+almost one-to-one onto decisions ANT already makes implicitly:
 
-4. **Portfolio Chair + ripple analysis** *(synthesis of the reference pattern)* — extend the
-   per-room Chair into a cross-room orchestrator that performs the reference image's "ripple
-   analysis" when a shared vault template/skill changes, and that gates promotion of a room
-   pattern into the shared pool. This is the missing edge between the per-room Chair ANT
-   ships today and the portfolio-level Co-CTO in the diagram.
+- `actionability` → **the gate**: `none` = FYI/drop; `review` = needs a user decision card;
+  `act` = auto-route to a capable agent via `askCandidateStore` *before* bothering the user.
+- `urgency` → orders the cross-room Inbox and drives the badge priority.
+- `relation_to_previous` → **collapse** `follow_up` / `correction` / `confirmation` /
+  `cancellation` into the **existing** decision thread instead of spawning a new card —
+  "update existing state, don't treat every message as fresh." This directly kills duplicate
+  decision cards, the worst inbox-noise failure mode.
+- `retention` → what enters the user's decision log / durable memory (supports the "context
+  held ~25–35%" pillar).
 
-## 4 · Actionable backlog (ANT plan / task / ask vocabulary)
+Pair the classifier's `act` verdict with a **capability+availability score** over
+`askCandidateStore` / `availabilityDigestStore` so an ask routes to the *best idle* agent
+automatically, and only escalates to the user when no agent can answer. Running locally fits
+ANT's "local for routine sweeps, reserve cloud for deep judgment" cost philosophy.
 
-Design-contract stubs, ready for an ANT agent to pick up. Each names a proposed CLI surface,
-scope IN/OUT, and the source files it would touch. These are *proposals*, not commitments.
+> **Hard line (respecting `ant-no-model-router-no-chairman`):** this routes **asks and
+> signals**, deciding *who/whether* — it does **not** pick which LLM answers. Model selection
+> stays out of scope per the deferral recorded in
+> [`docs/m4-4-chair-handoff-design-2026-05-14.md`](./m4-4-chair-handoff-design-2026-05-14.md).
 
-### DC-1 · `ant events` — typed agent event stream + Event Stream Viewer
-- **Surface:** `ant events tail <room>`, `ant events viewer`; server emits typed events
-  (`agent.state`, `tool.call`, `tool.result`, `message.final`).
-- **IN:** typed event schema; subscriber API for UI / Inbox / Chair digest; replay.
-- **OUT:** removing existing transcript capture (this wraps and enriches it, not replaces).
-- **Touches:** PTY daemon + transcript capture layer; operator UI event consumers.
-- **As an ANT plan:** one plan → tasks for schema, emitter, subscriber API, viewer page.
+## 4 · User interface — what exists, and how to improve it
 
-### DC-2 · `operator` agent kind via the MCP gateway
-- **Surface:** new agent kind `operator` selectable alongside claude/codex/gemini/…; backed
-  by a UI-TARS-style vision+DOM MCP server mounted on the gateway.
-- **IN:** agent-kind registration; MCP mount; capability advertisement; evidence capture
-  (screenshots already supported via `ant screenshot`).
-- **OUT:** shipping/maintaining the VLM itself — mount an external operator, don't host it.
+**Today (code-grounded):** the surfaces are scaffolded but thin —
+`src/lib/components/DecisionCard.svelte`, `AskCard.svelte`, `InteractiveAsksPanel.svelte`
+(ANT Chair side); `ChairBoard.svelte`, `ChairRow.svelte`, `ChairRoomNotesPanel.svelte`
+(Room Chair side); `AgentEventCard.svelte`, `MemoryHitCard.svelte`; routes
+`src/routes/asks` and `src/routes/chair`; APIs `src/routes/api/asks`, `api/ask-candidates`,
+`api/tasks`.
+
+The canonical UX discipline for the ANT Chair is already written down
+([`ant-chair.md`](./concepts/ant-chair.md)): **speech, not a digest** — decision cards with
+2–4 buttons, Yes/No cards, or plain-English FYI alerts; *never* a technical leak ("does L9
+come before F5") or a markdown wall. Improvements:
+
+1. **Enforce speech-not-digest in `DecisionCard.svelte`.** A card states the user-decision in
+   plain English + 2–4 button options; the technical detail collapses behind a "why?"
+   disclosure. The badge counts only **actionable** items (`actionability=review`), not noise.
+2. **Options *with context*.** Each option shows what it does and who/what it affects, pulled
+   from room memory (click-to-explain), not the raw transcript — so the user decides without
+   spelunking. e.g. *"3 claims on artefact X failed validation — (a) re-route to humans,
+   (b) waive with note, (c) accept the lens result."*
+3. **Urgency-ordered, thread-collapsed Inbox** (`InteractiveAsksPanel.svelte`) — driven by the
+   §3 router: high-urgency first, follow-ups/corrections folded into one live thread instead
+   of stacking duplicate cards.
+4. **Live plain-English FYI alerts from a typed event stream** (UI-TARS lesson;
+   `AgentEventCard.svelte` is the seed): *"I unblocked a terminal that was struggling with an
+   MCP to reach Neon"* — an FYI that needs no action, rendered from a subscribable agent
+   event stream rather than scraped from transcripts.
+
+## 5 · Recommendations (each tied to a finding)
+
+1. **ANT Chair triage router** *(tiny-router → routing)* — local multi-head classifier as the
+   triage engine; auto-route `act`, surface `review`, collapse follow-ups, order by urgency.
+   Signal routing only, **not** model selection.
+2. **ANT Chair decision surface** *(UX → user interface)* — speech-not-digest decision cards,
+   options-with-context, urgency/thread-collapsed Inbox, actionable-only badge.
+3. **Typed agent event stream** *(UI-TARS → routing + UI)* — a subscribable typed stream that
+   feeds live FYI alerts and decision-card context, plus a viewer/replay; deepens (not
+   replaces) `terminalReplyRouter` transcript capture.
+4. **`operator` agent kind** *(UI-TARS → routing)* — a vision+DOM computer-use agent mounted
+   via the MCP gateway *widens the set of asks an agent can answer autonomously*, pushing more
+   asks down the `act` path and fewer escalations to the user. Extend
+   `src/lib/stores/agentKinds.svelte.ts`.
+
+Underpinning all four: **chairs stay optional.** Every improvement degrades gracefully to the
+chairless substrate — the router/UI live in the *opt-in* ANT Chair; the operator kind is just
+another peer agent.
+
+## 6 · Actionable backlog (ANT plan / task / ask vocabulary)
+
+Design-contract stubs, ready for an ANT agent to pick up. Proposals, not commitments.
+
+### DC-1 · `ant router` — local signal classifier feeding ANT Chair triage
+- **Surface:** `ant router classify <text> [--history ...]` → `{relation_to_previous,
+  actionability, retention, urgency}` + confidences; consumed by the ANT Chair triage path.
+- **IN:** local/ONNX multi-head classifier (tiny-router shape); actionability gate
+  (`act` → `askCandidateStore` auto-route; `review` → decision card; `none` → FYI/drop);
+  urgency ordering; relation-based thread collapsing; retention → decision log.
+- **OUT (hard line):** model selection / which LLM answers — explicitly excluded per
+  `ant-no-model-router-no-chairman`. Routes signals, not models.
+- **Touches:** `askCandidateStore.ts`, `availabilityDigestStore.ts`, `agentVisibilityStore.ts`,
+  the asks/Inbox path; extends (not redefines) the routing layer.
+
+### DC-2 · ANT Chair decision surface — speech, options-with-context, prioritised Inbox
+- **Surface:** decision-card sheet + top-level nav slot + badge (per `ant-chair.md`);
+  `ant chair inbox` / `ant chair decide <id> --option <o> --note "..."`.
+- **IN:** enforce speech-not-digest in `DecisionCard.svelte`; options carry context
+  (click-to-explain); urgency-ordered + thread-collapsed `InteractiveAsksPanel.svelte`;
+  actionable-only badge count.
+- **OUT:** Room Chair verb UI (separate surface); making the ANT Chair mandatory.
+- **Touches:** `DecisionCard.svelte`, `AskCard.svelte`, `InteractiveAsksPanel.svelte`,
+  `src/routes/asks`, `src/routes/chair`, `api/asks`, `api/ask-candidates`.
+
+### DC-3 · Typed agent event stream + plain-English FYI alerts
+- **Surface:** `ant events tail <room>` / viewer; typed events (`agent.state`, `tool.call`,
+  `tool.result`, `message.final`) the UI/Inbox/ANT Chair subscribe to.
+- **IN:** typed event schema; subscriber API; FYI-alert rendering (`AgentEventCard.svelte`);
+  replay/viewer.
+- **OUT:** removing transcript capture — this enriches `terminalReplyRouter`, not replaces it.
+- **Touches:** PTY/transcript layer, `eventBroadcast.ts`, `AgentEventCard.svelte`.
+
+### DC-4 · `operator` agent kind via the MCP gateway
+- **Surface:** new agent kind `operator` (UI-TARS-style vision+DOM) selectable alongside
+  claude/codex/…; mounted on the MCP gateway; evidence via existing `ant screenshot`.
+- **IN:** agent-kind registration; MCP mount; capability advertisement so the router can route
+  GUI-shaped asks to it.
+- **OUT:** hosting the VLM — mount an external operator, don't host it.
 - **Touches:** `src/lib/stores/agentKinds.svelte.ts`, `modelKinds.svelte.ts`, MCP gateway.
 
-### DC-3 · `ant router` — local signal classifier (triage + retention)
-- **Surface:** `ant router classify <text>` → `{relation_to_previous, actionability,
-  retention, urgency}` with calibrated confidences; consumed by Inbox triage + the
-  memory-write path.
-- **IN:** local/ONNX multi-head classifier (tiny-router shape); Inbox urgency+actionability
-  gate; retention-driven memory-write policy; follow-up/correction state-update routing.
-- **OUT (hard line):** model selection / "which LLM answers" — explicitly *not* in scope,
-  per `ant-no-model-router-no-chairman`. This routes *signals*, not models.
-- **Touches:** Cross-Agent Inbox / asks; durable-memory write path; existing `ant router`
-  CLI verb (extend, don't redefine).
+## 7 · Verification
 
-### DC-4 · Portfolio Chair + shared-template promotion gate
-- **Surface:** `ant chair board --portfolio` (cross-room digest); a promotion gate when a
-  room pattern is proposed for the shared vault, with ripple analysis across rooms.
-- **IN:** cross-room aggregation of per-room digests; promotion-request → Chair-approval
-  flow; ripple report ("which rooms does this shared-template change touch?").
-- **OUT:** per-room chair scoping changes (separate contract, per M4.4 Q1).
-- **Touches:** `chairStore` / `chairEnabledStore` + `/api/chair*` routes; vault/template
-  surface.
-
-## 5 · Verification
-
-- **HTML artifact:** opened `agents-pitch/agent-cluster-workflow-dark.html` headless
-  (`/opt/pw-browsers` Chromium) at 1200×2000 and confirmed both panels render in the house
-  dark style (Geist / JetBrains Mono, `--ink-900`, agent colour tokens), with the routing
-  gate, edge labels, Handoff legend (Panel A) and the peer triad + fan-out tree (Panel B).
-- **Mermaid:** both fenced ```mermaid``` blocks above use standard `flowchart` syntax
-  matching the README convention; render via GitHub markdown preview or
-  `npx -y @mermaid-js/mermaid-cli`.
-- **Self-consistency:** the doc uses only ANT vocabulary (rooms / plans / tasks / asks /
-  Chair) and the tiny-router recommendation (DC-3) explicitly disclaims model selection.
+- **HTML artifact:** rendered headless (`/opt/pw-browsers` Chromium, 1200×2050) — both panels
+  render in the house dark style; Room Chair + ANT Chair show as dashed **OPTIONAL** overlays,
+  the substrate core + "works with zero chairs" principle banner are present, and the triage
+  gate branches to auto-route vs decision-card.
+- **Mermaid:** both ```mermaid``` blocks validated with `@mermaid-js/mermaid-cli` (render OK).
+- **Self-consistency:** mapping rejects the mandatory orchestrator; the two chairs are
+  optional and distinct per `ant-chair.md`; the routing recommendation explicitly disclaims
+  model selection; routing + UI sections cite real files that already exist.
 
 ## Notes
 
-No production code is changed by this work item — the deliverables are this doc, the HTML
-diagram, and the DC-1…DC-4 backlog. Any individual recommendation, if accepted, becomes its
-own change with its own design contract.
+No production code is changed — deliverables are this doc, the HTML diagram, and the DC-1…DC-4
+backlog. Each recommendation lives in the *opt-in* chair layer and degrades to the chairless
+substrate; any one, if accepted, becomes its own change with its own design contract.
