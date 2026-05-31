@@ -400,7 +400,8 @@ export function setTerminalModel(terminalId: string, model: string | null): bool
  */
 export function setTerminalStatus(
   terminalId: string,
-  status: 'live' | 'archived' | 'deleted'
+  status: 'live' | 'archived' | 'deleted',
+  options: { skipProjection?: boolean } = {}
 ): boolean {
   const db = getIdentityDb();
   const now = currentUnixSeconds();
@@ -469,7 +470,7 @@ export function setTerminalStatus(
     return true;
   });
   const existed = txn();
-  if (existed) projectAntRegistryFileBestEffort();
+  if (existed && !options.skipProjection) projectAntRegistryFileBestEffort();
   return existed;
 }
 
@@ -685,8 +686,13 @@ export function backfillArchivedTerminalTags(): number {
   let tagged = 0;
   for (const row of rows) {
     if (isTagged(row.name)) continue;
-    setTerminalStatus(row.id, 'archived');
+    setTerminalStatus(row.id, 'archived', { skipProjection: true });
     tagged++;
+  }
+  if (tagged > 0) {
+    // One-time convergence for legacy archived rows — surface that it landed.
+    console.log(`[backfill] archived-name tags applied to ${tagged} terminal(s)`);
+    projectAntRegistryFileBestEffort();
   }
   return tagged;
 }
