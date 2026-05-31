@@ -1,31 +1,50 @@
 /**
- * modelKinds store — JWPK msg_fespxsi2lu + msg_05lh00n3wg antV4
- * 2026-05-28: terminals are already tagged + grouped by CLI; users
- * also want to flag + group by model ("how many Kimis in Codex vs
- * Codex in Codex"). Same per-client preference shape as agentKinds so
- * the Settings UI and the per-terminal dropdown share patterns.
+ * modelKinds store — model chip list.
  *
- * Mirrors the agentKinds store exactly: enabled[], add/remove/toggle/
- * reset, localStorage-backed, defaults seeded. Free-form labels so
- * the user chooses how to name them — these are aesthetic tags, not
- * canonical model IDs.
+ * 2026-05-31 (JWPK): moved from browser-only localStorage to the
+ * server-side `default_models` table via /api/default-models. The public
+ * surface is unchanged (`enabled`, `init`, `add`, `remove`, `toggle`,
+ * `reset`) so the settings UI + per-terminal dropdown need no edits.
+ * localStorage is now an OFFLINE CACHE only.
+ *
+ * `items` exposes the rich rows (provider, runs_where, logo_slug) for chips
+ * that want to render a logo — see src/lib/icons/llmLogoCatalogue.ts.
  */
 const STORAGE_KEY = 'ant-model-kinds';
+const API = '/api/default-models';
+// Offline fallback = the canonical server seed (names only).
 const DEFAULTS = [
-  'claude-opus',
-  'claude-sonnet',
-  'claude-haiku',
   'kimi',
   'codex',
   'gpt-5',
-  'gemini-pro',
-  'qwen'
+  'qwen',
+  'claude',
+  'gemini',
+  'gemma',
+  'qwen-cloud',
+  'gemma4-local',
+  'gpt-oss',
+  'Ollama-other-cloud',
+  'Other-local'
 ];
+
+export type ModelItem = {
+  name: string;
+  provider: string | null;
+  runs_where: 'cloud' | 'local' | null;
+  logo_slug: string | null;
+};
 
 class ModelKindsStore {
   enabled = $state<string[]>([...DEFAULTS]);
+  items = $state<ModelItem[]>([]);
 
   init(): void {
+    this.hydrateFromCache();
+    void this.refresh();
+  }
+
+  private hydrateFromCache(): void {
     if (typeof localStorage === 'undefined') return;
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -39,17 +58,36 @@ class ModelKindsStore {
     }
   }
 
+  async refresh(): Promise<void> {
+    try {
+      const res = await fetch(API);
+      if (!res.ok) return;
+      const data = (await res.json()) as { models?: ModelItem[] };
+      if (Array.isArray(data.models)) this.applyRows(data.models);
+    } catch {
+      /* offline — keep cache */
+    }
+  }
+
+  private applyRows(rows: ModelItem[]): void {
+    this.items = rows;
+    this.enabled = rows.map((r) => r.name);
+    this.cache();
+  }
+
   add(label: string): void {
     const trimmed = label.trim();
-    if (!trimmed) return;
-    if (this.enabled.includes(trimmed)) return;
-    this.enabled = [...this.enabled, trimmed];
-    this.persist();
+    if (!trimmed || this.enabled.includes(trimmed)) return;
+    this.enabled = [...this.enabled, trimmed]; // optimistic
+    this.cache();
+    void this.send('POST', API, { name: trimmed });
   }
 
   remove(label: string): void {
-    this.enabled = this.enabled.filter((x) => x !== label);
-    this.persist();
+    this.enabled = this.enabled.filter((x) => x !== label); // optimistic
+    this.items = this.items.filter((x) => x.name !== label);
+    this.cache();
+    void this.send('DELETE', `${API}/${encodeURIComponent(label)}`);
   }
 
   toggle(label: string): void {
@@ -58,11 +96,27 @@ class ModelKindsStore {
   }
 
   reset(): void {
-    this.enabled = [...DEFAULTS];
-    this.persist();
+    this.enabled = [...DEFAULTS]; // optimistic
+    this.cache();
+    void this.send('PUT', API, { names: DEFAULTS });
   }
 
-  private persist(): void {
+  private async send(method: string, url: string, body?: unknown): Promise<void> {
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: body ? { 'content-type': 'application/json' } : undefined,
+        body: body ? JSON.stringify(body) : undefined
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as { models?: ModelItem[] };
+      if (Array.isArray(data.models)) this.applyRows(data.models);
+    } catch {
+      /* offline — optimistic state already applied + cached */
+    }
+  }
+
+  private cache(): void {
     if (typeof localStorage === 'undefined') return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.enabled));
