@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { getIdentityDb } from './db';
 import { baseName } from './terminalNameTag';
 import { resolveMemoryVaultPath } from './memoryVaultSettingsStore';
@@ -149,7 +149,7 @@ export function projectAntRegistryFile(options: { force?: boolean } = {}): AntRe
   const content = buildAntRegistryMarkdown();
   const targets = [path];
   const vault = resolveMemoryVaultPath();
-  if (vault && vault.trim().length > 0) {
+  if (vault && vault.trim().length > 0 && isAbsolute(vault.trim())) {
     targets.push(join(vault.trim(), 'ant-registry.md'));
   }
   for (const target of targets) {
