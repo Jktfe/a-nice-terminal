@@ -20,8 +20,11 @@ import {
   getTerminalByName,
   getLiveTerminalByName,
   getLiveTerminalByPid,
-  getLiveTerminalsByHandle
+  getLiveTerminalsByHandle,
+  setTerminalStatus
 } from '$lib/server/terminalsStore';
+import { listArchivedMatchesForBase } from '$lib/server/archivedNameMatches';
+import { baseName } from '$lib/server/terminalNameTag';
 import { isValidClientAgentKind, AGENT_KINDS_CLIENT_INPUT } from '$lib/server/agentKindEnum';
 import { classifyIfUnknown } from '$lib/server/agentStatusPoller';
 import { normalisePidStartToIso8601 } from '$lib/server/pidStartNormaliser';
@@ -56,6 +59,13 @@ type IdentityRegisterBody = {
    * supply either form during the cut-over window.
    */
   handle?: unknown;
+  /**
+   * Task 4 (spec 2026-05-31): archived-name intent flags. Exactly one
+   * should be supplied when the CLI confirms a revive-vs-fresh choice.
+   * Both absent → 409 if archived matches exist (drives CLI prompt).
+   */
+  fresh?: unknown;
+  revive?: unknown;
 };
 
 function parsePidsList(rawPids: unknown): { pid: number; pid_start: string | null }[] {
@@ -134,6 +144,10 @@ export const POST: RequestHandler = async ({ request }) => {
     }
     handleValue = validation.canonicalHandle;
   }
+  // Task 4 (spec 2026-05-31): parse archived-name intent fields.
+  const reviveId = typeof rawBody.revive === 'string' && rawBody.revive.trim().length > 0
+    ? rawBody.revive.trim() : null;
+  const freshIntent = rawBody.fresh === true;
   // M3.2b: pre-read for INSERT-new probe + path-B kind preservation on re-register.
   const trimmedName = nameRaw.trim();
   const existing = getTerminalByName(trimmedName);
@@ -179,6 +193,32 @@ export const POST: RequestHandler = async ({ request }) => {
       409,
       `PID ${leafPid.pid} (start=${leafPid.pid_start}) is already bound to live terminal '${pidConflict.name}'. Archive it first or use a different shell.`
     );
+  }
+  // Archived-name decision (spec 2026-05-31). The base name is free of any
+  // LIVE terminal here (liveNameConflict guards that), but archived history
+  // rows may hold it under an [A] tag. Honour an explicit intent; otherwise
+  // surface the ambiguity as a structured 409 so the CLI can prompt (or fail
+  // loud when non-interactive). Skipped for known v0.2 reclaim callers.
+  if (!knownV02Agent) {
+    if (reviveId) {
+      const target = getTerminalById(reviveId);
+      if (!target || target.status !== 'archived' || baseName(target.name) !== trimmedName) {
+        throw error(409, `Cannot revive ${reviveId}: not an archived terminal whose base name is '${trimmedName}'.`);
+      }
+      setTerminalStatus(reviveId, 'live'); // restores base name; upsert below rebinds pid
+    } else if (!freshIntent) {
+      const candidates = listArchivedMatchesForBase(trimmedName);
+      if (candidates.length > 0) {
+        return json(
+          {
+            error: 'archived_name_matches',
+            message: `Name '${trimmedName}' has ${candidates.length} archived terminal(s). Pass revive:<id> or fresh:true.`,
+            candidates
+          },
+          { status: 409 }
+        );
+      }
+    }
   }
   // Fix #2 (sec-iter1 2026-05-30): handle uniqueness across
   // terminal_records — reject if another ACTIVE terminal_record already
