@@ -21,6 +21,7 @@ import { getIdentityDb } from './db';
 import { projectAntRegistryFileBestEffort } from './antRegistryFile';
 import { normalisePidStartToIso8601 } from './pidStartNormaliser';
 import type { TerminalRecord } from './terminalRecordsStore';
+import { baseName, isTagged, nextArchiveSeq, tagArchivedName } from './terminalNameTag';
 
 export type TerminalRow = {
   id: string;
@@ -382,34 +383,82 @@ export function setTerminalModel(terminalId: string, model: string | null): bool
 }
 
 /**
- * Lifecycle: flip a terminal's status. JWPK A Team msg_w7sfmc4hpp
- * + msg_7uvr35x0xr 2026-05-29 (Phase A1). Used by:
+ * Single authority for terminal lifecycle transitions. The status flip
+ * and the name rewrite are fused into ONE transaction so "becoming
+ * archived" and "vacating the base name" can never be partially applied.
  *
- * - agentStatusPoller (Phase A3) when it detects the tmux pane is
- *   gone, flipping `live` → `archived` so the handle becomes free
- *   for re-bind without manual operator action.
- * - operator commands `ant terminal archive` / `ant terminal delete`
- *   (Phase C UX).
- * - the upcoming `ant register` rule (Phase A2) that rejects new
- *   sessions on a name already in use by a `live` terminal — checked
- *   via getLiveTerminalsByHandle / getLiveTerminalByName below.
+ *  - → 'archived': if the name is untagged, rewrite terminals.name (and the
+ *    matching terminal_records row, keyed by session_id === terminals.id) to
+ *    the next free `[A] <base>` / `[A-N] <base>`, freeing the base name in
+ *    the global UNIQUE index. Idempotent: an already-tagged row is left as-is.
+ *  - → 'live': if the name is tagged AND the base is free of any other live
+ *    terminal, restore the base name (revive). If a live terminal already
+ *    owns the base, keep the tag (UNIQUE backstop).
+ *  - → 'deleted': status only, no rename.
  *
- * Returns true when a row was updated. Idempotent — flipping to the
- * current status still returns true for an existing row so the poller
- * can fire on every tick without branching on prior state. Returns
- * false only when terminalId doesn't match any row.
+ * Returns true when the row existed, false for an unknown terminalId.
  */
 export function setTerminalStatus(
   terminalId: string,
   status: 'live' | 'archived' | 'deleted'
 ): boolean {
   const db = getIdentityDb();
-  const info = db.prepare(
-    `UPDATE terminals
-     SET status = ?, updated_at = ?
-     WHERE id = ?`
-  ).run(status, currentUnixSeconds(), terminalId);
-  return info.changes > 0;
+  const now = currentUnixSeconds();
+  const nowMs = Date.now();
+  const txn = db.transaction((): boolean => {
+    const row = db
+      .prepare(`SELECT id, name FROM terminals WHERE id = ?`)
+      .get(terminalId) as { id: string; name: string } | undefined;
+    if (!row) return false;
+
+    let nextName = row.name;
+    if (status === 'archived' && !isTagged(row.name)) {
+      const base = baseName(row.name);
+      for (let attempt = 0; attempt < 50; attempt++) {
+        const siblings = db
+          .prepare(`SELECT name FROM terminals WHERE name LIKE '[A%] ' || ?`)
+          .all(base) as { name: string }[];
+        const seq = nextArchiveSeq(base, siblings.map((s) => s.name)) + attempt;
+        const candidate = tagArchivedName(base, seq);
+        const clash = db
+          .prepare(`SELECT 1 FROM terminals WHERE name = ?`)
+          .get(candidate);
+        if (!clash) { nextName = candidate; break; }
+      }
+    } else if (status === 'live' && isTagged(row.name)) {
+      const base = baseName(row.name);
+      const baseTaken = db
+        .prepare(
+          `SELECT 1 FROM terminals WHERE name = ? AND status = 'live' AND id != ?`
+        )
+        .get(base, row.id);
+      if (!baseTaken) nextName = base;
+    }
+
+    db.prepare(`UPDATE terminals SET status = ?, name = ?, updated_at = ? WHERE id = ?`)
+      .run(status, nextName, now, terminalId);
+
+    if (nextName !== row.name) {
+      const rec = db
+        .prepare(`SELECT name FROM terminal_records WHERE session_id = ?`)
+        .get(terminalId) as { name: string } | undefined;
+      if (rec) {
+        if (status === 'archived') {
+          db.prepare(
+            `UPDATE terminal_records SET name = ?, superseded_at_ms = ?, updated_at_ms = ? WHERE session_id = ?`
+          ).run(nextName, nowMs, nowMs, terminalId);
+        } else {
+          db.prepare(
+            `UPDATE terminal_records SET name = ?, updated_at_ms = ? WHERE session_id = ?`
+          ).run(nextName, nowMs, terminalId);
+        }
+      }
+    }
+    return true;
+  });
+  const existed = txn();
+  if (existed) projectAntRegistryFileBestEffort();
+  return existed;
 }
 
 /**
