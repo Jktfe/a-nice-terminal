@@ -27,16 +27,7 @@ export async function handleRegisterVerb(action, args, runtime, ctx) {
     ? [action, ...args]
     : args;
   const flags = parseFlags(fullArgs, CliInputError);
-  return runRegister({
-    ...runtime,
-    flags,
-    CliInputError,
-    isInteractive: runtime.isInteractive ?? process.stdin.isTTY === true,
-    promptImpl: runtime.promptImpl ?? (async (q) => {
-      const rl = (await import('node:readline/promises')).createInterface({ input: process.stdin, output: process.stdout });
-      try { return await rl.question(q); } finally { rl.close(); }
-    })
-  });
+  return runRegister({ ...runtime, flags, CliInputError });
 }
 
 export async function handleAddVerb(action, args, runtime, ctx) {
@@ -132,6 +123,13 @@ export function chooseRegisterPidChain(initialChain, hasExplicitPid) {
   return initialChain.slice(1);
 }
 
+const fmtLastSeen = (v) => {
+  if (!v || typeof v !== 'number') return 'unknown';
+  // terminals.updated_at is unix SECONDS; values that look like ms are divided.
+  const ms = v > 1e12 ? v : v * 1000;
+  try { return new Date(ms).toISOString(); } catch { return String(v); }
+};
+
 export async function runRegister(runtime) {
   const { flags, CliInputError } = runtime;
   const handle = flags.handle;
@@ -165,7 +163,7 @@ export async function runRegister(runtime) {
 
   // Explicit flags skip the prompt entirely.
   if (flags.revive) registerBody.revive = flags.revive;
-  if (flags.fresh) registerBody.fresh = true;
+  if (flags.fresh !== undefined) registerBody.fresh = true;
 
   const primaryResp = await postJson(runtime, `${runtime.serverUrl}/api/identity/register`, registerBody);
 
@@ -179,7 +177,7 @@ export async function runRegister(runtime) {
         // Interactive: list candidates and prompt.
         runtime.writeOut('Archived terminals with the same base name:');
         candidates.forEach((c, i) => {
-          runtime.writeOut(`  [${i + 1}] ${c.name} (id: ${c.id}, handle: ${c.handle}, last_seen: ${c.last_seen})`);
+          runtime.writeOut(`  [${i + 1}] ${c.name} (id: ${c.id}, handle: ${c.handle}, last_seen: ${fmtLastSeen(c.last_seen)})`);
         });
         const answer = (await runtime.promptImpl('Revive which number, [f]resh, or [c]ancel? ')).trim().toLowerCase();
         if (answer === 'c' || answer === '') {
