@@ -28,6 +28,7 @@ Each concept doc in this directory is:
 | `ant-stage.md` | ANT Stage = shell wrapping any deck + 5 agent-aware capabilities | shipped `5b6a602` + CLI added `7501fc1` |
 | `ant-chair.md` | Chair two-primitive split: ANT Chair (user proxy, 1/person) + Room Chair (operator, 1/room) | shipped 2026-05-28 |
 | `ant-verification.md` | Verification substrate: tags + source-sets + anchors + applications + overrides + lenses + lens-tag-rows + verdicts + V3 contract + Phase C/D consumer surface | shipped 2026-05-28 (Phase A + B substrate complete) |
+| `ant-memory-layers.md` | Memory routing contract — ObsidiANT (ledger) + mempalace (engine) + semble (code map), distinct altitudes, one fact per lane, cross-ref not duplicate | shipped 2026-05-31 |
 
 ### G1 — Verification research consolidation (2026-05-28)
 
@@ -72,7 +73,7 @@ These are substrate primitives every agent in any room needs to operate cleanly.
 | `plan-scoped` (created by `ant plan start`) | `ant-plans.md`, `ant-artefacts.md` | Agents need plan + artefact semantics |
 | `stage-presentation` (rooms hosting a Stage deck) | `ant-stage.md`, `ant-click-to-explain.md`, `ant-artefacts.md` | Presenter agents need Stage capabilities |
 | `premium-tier` (any room where `validation_ux: true`) | `ant-verification.md`, `ant-chair.md` | Premium agents need lens + Chair primitives |
-| `dev-substrate` (Main Dev coordination rooms — orsz / similar) | `ant-bridge.md`, `ant-memory-and-attach.md` | Substrate-design context needed |
+| `dev-substrate` (Main Dev coordination rooms — orsz / similar) | `ant-bridge.md`, `ant-memory-and-attach.md`, `ant-memory-layers.md` | Substrate-design context needed (incl. which memory lane to use for which fact) |
 | `apps-team` (eiw05zdurz + similar cross-app coordination) | `ant-stage.md`, `ant-verification.md`, `ant-artefacts.md` | App contracts cross-reference these primitives heavily |
 
 Room kind is determined by:
@@ -132,6 +133,7 @@ All concept docs (and any other doc intended for cross-agent import) must use fr
 | `metadata.importable` | yes (for cross-agent docs) | Marker for the future search-attach feature to surface |
 | `metadata.category` | recommended | `concept` / `manifest` / `case-study` |
 | `metadata.scope` | optional | `public` / `org` / `user` — defaults to public for `docs/concepts/` |
+| `kg_entities` | optional | List of mempalace KG entity names this memory concerns; the ObsidiANT→mempalace cross-link (see `ant-memory-layers.md`). A KG triple's `source_closet` points back at this file. |
 
 ## Maintenance
 
