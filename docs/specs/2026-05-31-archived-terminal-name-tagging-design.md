@@ -39,6 +39,8 @@ archived terminal visible as history and avoiding duplication.
 | 4 | Non-interactive register with archived matches | **Fail loudly** — never silently pick fresh |
 | 5 | `terminal_records` table | **In scope** — must also free its name |
 | 6 | Offline reference | **Required** — MD recovery file in ObsidiANT / user-defined path |
+| 7 | Existing archived squatters | **Backfill** — one-shot tag pass on rollout |
+| 8 | Recovery file destination | **Both** — `~/Documents/ant-registry.md` **and** the vault path |
 
 ## Naming scheme
 
@@ -135,16 +137,34 @@ mirror rather than build new plumbing:
   with a **`## Recoverable archived terminals`** section: one row per archived
   terminal — base name, current `[A…]` tag, `@handle`, last-seen, last PID/tmux
   pane, and the exact `ant register --name <base> --revive <id>` command.
-- Resolve the destination via `resolveMemoryVaultPath()`
-  (`src/lib/server/memoryVaultSettingsStore.ts:73`) so it writes into the
-  **ObsidiANT vault** (or the user-defined path / `ANT_REGISTRY_FILE_PATH`
-  env override), in addition to the current `~/Documents/ant-registry.md`.
+- Write to **both** destinations (decision #8): the current
+  `~/Documents/ant-registry.md` (or its `ANT_REGISTRY_FILE_PATH` /
+  `ANT_AGENT_REGISTRY_PATH` override) **and** the **ObsidiANT vault** resolved
+  via `resolveMemoryVaultPath()` (`src/lib/server/memoryVaultSettingsStore.ts:73`,
+  user-defined path). Each write is independent and best-effort — one failing
+  must not skip the other. If the vault path is unset, only the default writes
+  (no error).
 - Keep the existing **best-effort, never-block** wrapper
   (`projectAntRegistryFileBestEffort`, `antRegistryFile.ts:126`): a failed
   recovery-file write must never stop a terminal from archiving or a register
   from completing.
 - The file stays a projected mirror ("ANT database state is canonical",
   `antRegistryFile.ts:77`).
+
+### 6. Backfill (decision #7)
+
+A one-shot pass at rollout tags every *already*-archived squatter so existing
+names free up without waiting for a re-archive:
+
+- Run idempotently at startup (guarded by a `schema_migrations`-style marker so
+  it executes once) or as an explicit `ant terminals backfill-archived-tags`
+  verb — **planning to pick** whichever fits the repo's migration convention.
+- For each `terminals` row with `status='archived'` and an **untagged** name,
+  reuse the same `baseName` / `nextArchiveSeq` helpers to assign the next free
+  `[A…]` tag, grouped by base so collisions increment correctly.
+- Apply the matching `terminal_records` vacate in the same pass.
+- Re-project the recovery file once at the end (not per row).
+- Idempotent: rows already tagged are skipped, so re-running is a no-op.
 
 ## Data flow
 
@@ -191,8 +211,12 @@ ant register --name terminal3
 - **Register**: no-match passthrough; `--revive`; `--fresh`; non-interactive +
   match + no flag → non-zero exit (fail-loud); revive-when-base-taken guard.
 - **Recovery file**: archived terminals appear in the `## Recoverable archived
-  terminals` section with a correct `--revive` command; write targets both the
-  default path and the resolved vault path; write failure never throws.
+  terminals` section with a correct `--revive` command; **both** the default path
+  and the resolved vault path are written; either write failing leaves the other
+  intact; unset vault path writes only the default with no error.
+- **Backfill**: untagged archived squatters get tagged with correct per-base
+  sequence; already-tagged rows untouched; second run is a no-op (idempotent);
+  matching `terminal_records` freed.
 
 ## Scope / non-goals
 
@@ -200,10 +224,9 @@ ant register --name terminal3
   name, leave the index predicate untouched).
 - No change to `@handle` identity — only display `name` is tagged; reclaim/handle
   flows are unaffected.
-- No retroactive bulk-rename migration of *already*-archived terminals in this
-  change unless planning finds it trivial; new archives are tagged going forward.
-  (Open: a one-shot backfill may be desirable so existing squatters free up — to
-  be decided in planning.)
+- **In scope:** a one-shot **backfill** that tags already-archived squatters on
+  rollout (decision #7), so existing names free up immediately rather than only
+  on the next archive. See Backfill section below.
 
 ## Files touched (anticipated)
 
@@ -216,6 +239,8 @@ ant register --name terminal3
 - `src/lib/server/antRegistryFile.ts` — recovery section + vault mirror target.
 - `src/routes/api/identity/register/+server.ts` — revive/fresh intent.
 - `scripts/ant-cli-register.mjs` — TTY prompt + fail-loud + flags.
+- Backfill entry point — startup migration **or** `ant terminals
+  backfill-archived-tags` verb (planning picks the convention).
 - Tests alongside each.
 
 <!-- Open planning questions are inline above (terminal_records key, backfill). -->
