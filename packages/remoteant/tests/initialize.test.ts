@@ -51,7 +51,7 @@ describe("MCP initialize", () => {
     child.kill("SIGTERM");
   });
 
-  it("tools/list returns ant.ping as the only tool", async () => {
+  it("tools/list returns ant.ping plus the six B2 methods", async () => {
     const child = spawn("node", [CLI, "--mcp-stdio"], { stdio: ["pipe", "pipe", "pipe"] });
     child.stdin.write(JSON.stringify({
       jsonrpc: "2.0",
@@ -63,8 +63,9 @@ describe("MCP initialize", () => {
     const response = JSON.parse(line);
 
     expect(response.id).toBe(2);
-    expect(response.result.tools).toHaveLength(1);
+    expect(response.result.tools).toHaveLength(7);
     expect(response.result.tools[0].name).toBe("ant.ping");
+    expect(response.result.tools.map((tool: { name: string }) => tool.name)).toContain("ant.chat.send");
     child.kill("SIGTERM");
   });
 });

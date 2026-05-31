@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "node scripts/build-version.mjs && bun build --target=node --outdir=dist src/cli.ts",
-    "build:dev": "bun build --target=node --outdir=dist src/cli.ts",
+    "build:dev": "node scripts/build-version.mjs && bun build --target=node --outdir=dist src/cli.ts",
     "test": "../../node_modules/.bin/vitest run --config vitest.config.ts"
   },
   "devDependencies": {
