@@ -100,6 +100,7 @@ export function pruneOperationalHistory(input: {
   // when it is dead (superseded — replaced/archived — OR orphaned, no backing
   // terminal) AND aged past the same retention cutoff. Age = superseded_at_ms
   // when present, else updated_at_ms. Recent/live records are preserved.
+  // terminal_records is bounded (tens-to-hundreds of rows); no batch loop needed.
   const terminalRecordsDeleted = db.prepare(
     `DELETE FROM terminal_records
        WHERE (superseded_at_ms IS NOT NULL OR session_id NOT IN (SELECT id FROM terminals))

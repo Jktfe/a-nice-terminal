@@ -12,6 +12,7 @@ vi.mock('$lib/server/operationalRetention', () => ({
     cutoffMs: 123,
     terminalRunEventsDeleted: 10,
     cliHookEventsDeleted: 2,
+    terminalRecordsDeleted: 0,
     vacuumed: true
   }))
 }));
@@ -69,6 +70,7 @@ describe('POST /api/maintenance/operational-retention', () => {
       cutoffMs: 123,
       terminalRunEventsDeleted: 10,
       cliHookEventsDeleted: 2,
+      terminalRecordsDeleted: 0,
       vacuumed: true
     });
     expect(pruneOperationalHistory).toHaveBeenCalledWith({ vacuum: true });
