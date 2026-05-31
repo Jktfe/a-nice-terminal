@@ -132,17 +132,24 @@ are temperature-calibrated. Sources: <https://github.com/UdaraJay/tiny-router>,
 
 **Today (code-grounded):**
 
-- `src/lib/server/pty-inject-fanout.ts` — outbound @-mention fanout (user/agent → terminal
-  paste), handle-based.
-- `src/lib/server/terminalReplyRouter.ts` — inbound agent stdout → linked chat room
-  (debounce + noise-filter), closing the loop.
-- `src/lib/server/askCandidateStore.ts` + `availabilityDigestStore.ts` +
-  `agentVisibilityStore.ts` + `handleBindings.ts` — the seed of "who *could* answer this
-  ask?" (candidate agents + availability/visibility).
+- `src/lib/chat/mentionRouting.ts` — `@handle` routing directives: bare = active route,
+  bracketed `[@handle]` = informational, `@everyone` broadcast, quote-aware.
+- `src/lib/server/pty-inject-fanout.ts` — outbound @-mention fanout (→ terminal paste);
+  `terminalReplyRouter.ts` — inbound agent stdout → linked chat room (debounce + noise-filter).
+- `src/lib/server/classifierRegistry.ts` (`dispatchClassify`) — per-agent-kind **output**
+  classifiers (claude-code / codex / gemini / qwen …). Note: this classifies *terminal
+  output into events*, not *asks into routing decisions* — a different, complementary job.
+- `src/lib/server/askCandidateStore.ts` — detects **implicit ask signals** (`@you` bare
+  mention, 🙌/🙋 emoji, hand-up reactions) and promotes them to a formal Ask.
+- `src/lib/server/planTriggerDispatcher.ts` — event→action runner (`task.created`,
+  `plan.completed`, … → `room.message` / `task.create` / `webhook.post`).
+- `askCandidateStore` + `availabilityDigestStore` + `agentVisibilityStore` +
+  `handleBindings.ts` — the seed of "who *could* answer this ask?".
 
-So routing today is **handle / mention / availability** based. There is **no semantic
-classifier** deciding whether an ask needs a human, how urgent it is, or whether it's a
-follow-up to something already open.
+So routing today is **mention / signal / availability** based, and the only classifiers are
+*output* classifiers. There is **no semantic ask-triage classifier** deciding whether an ask
+needs a human, how urgent it is, or whether it's a follow-up to something already open — and
+no intent-disambiguation when `@you` could mean one of several people.
 
 **Improvement — an ANT Chair triage router (from tiny-router).** A compact, **locally-run**
 (ONNX) multi-head classifier becomes the ANT Chair's triage engine. The four heads map
@@ -160,8 +167,12 @@ almost one-to-one onto decisions ANT already makes implicitly:
 
 Pair the classifier's `act` verdict with a **capability+availability score** over
 `askCandidateStore` / `availabilityDigestStore` so an ask routes to the *best idle* agent
-automatically, and only escalates to the user when no agent can answer. Running locally fits
-ANT's "local for routine sweeps, reserve cloud for deep judgment" cost philosophy.
+automatically, and only escalates to the user when no agent can answer. The
+`relation_to_previous` collapsing has a ready home too: the ask model already carries a
+`merged` state (`src/lib/server/askStore.ts`) where asks roll up into one — wire the
+classifier's `follow_up`/`correction` verdict into that rollup instead of opening a new ask.
+Running locally fits ANT's "local for routine sweeps, reserve cloud for deep judgment" cost
+philosophy.
 
 > **Hard line (respecting `ant-no-model-router-no-chairman`):** this routes **asks and
 > signals**, deciding *who/whether* — it does **not** pick which LLM answers. Model selection
@@ -170,12 +181,19 @@ ANT's "local for routine sweeps, reserve cloud for deep judgment" cost philosoph
 
 ## 4 · User interface — what exists, and how to improve it
 
-**Today (code-grounded):** the surfaces are scaffolded but thin —
-`src/lib/components/DecisionCard.svelte`, `AskCard.svelte`, `InteractiveAsksPanel.svelte`
-(ANT Chair side); `ChairBoard.svelte`, `ChairRow.svelte`, `ChairRoomNotesPanel.svelte`
-(Room Chair side); `AgentEventCard.svelte`, `MemoryHitCard.svelte`; routes
-`src/routes/asks` and `src/routes/chair`; APIs `src/routes/api/asks`, `api/ask-candidates`,
-`api/tasks`.
+**Today (code-grounded):** more than scaffolding — there is a working **cross-room asks
+queue** at `src/routes/asks/+page.svelte` (open + recently-answered, text filter,
+answer/dismiss), an in-room `InteractiveAsksPanel.svelte`, a stateless `AskCard.svelte`, a
+read-only `RoomTasksPanel.svelte`, and a dashboard (`src/routes/+page.svelte`) showing top
+asks. The ANT Chair has a real **substrate seed**: `src/lib/server/humanInboxRoomStore.ts`
+gives every human a hidden `__inbox_<slug>__` room that is the cross-room auth-gate + event
+channel for "asks aimed at this person" — exactly what a user-scope ANT Chair reads from.
+Decision surfaces exist as components (`DecisionCard.svelte`, `AgentEventCard.svelte`,
+`MemoryHitCard.svelte`) and the Room Chair board (`ChairBoard.svelte`, `ChairRow.svelte`,
+`ChairRoomNotesPanel.svelte`), but the *digest-board* Chair shipped today is room-scoped and
+heuristic — the two-primitive ANT Chair / Room Chair in `ant-chair.md` is still
+`spec-not-yet-built`. Gaps the agent confirmed: no urgency ordering, no follow-up/thread
+collapsing in the queue, no intent-disambiguation surface, no ask-merge UI.
 
 The canonical UX discipline for the ANT Chair is already written down
 ([`ant-chair.md`](./concepts/ant-chair.md)): **speech, not a digest** — decision cards with
@@ -229,7 +247,8 @@ Design-contract stubs, ready for an ANT agent to pick up. Proposals, not commitm
 - **OUT (hard line):** model selection / which LLM answers — explicitly excluded per
   `ant-no-model-router-no-chairman`. Routes signals, not models.
 - **Touches:** `askCandidateStore.ts`, `availabilityDigestStore.ts`, `agentVisibilityStore.ts`,
-  the asks/Inbox path; extends (not redefines) the routing layer.
+  `askStore.ts` (`merged` rollup for follow-ups), `mentionRouting.ts`; complements
+  `classifierRegistry.ts` (output classifier) — does not redefine it.
 
 ### DC-2 · ANT Chair decision surface — speech, options-with-context, prioritised Inbox
 - **Surface:** decision-card sheet + top-level nav slot + badge (per `ant-chair.md`);
@@ -239,7 +258,8 @@ Design-contract stubs, ready for an ANT agent to pick up. Proposals, not commitm
   actionable-only badge count.
 - **OUT:** Room Chair verb UI (separate surface); making the ANT Chair mandatory.
 - **Touches:** `DecisionCard.svelte`, `AskCard.svelte`, `InteractiveAsksPanel.svelte`,
-  `src/routes/asks`, `src/routes/chair`, `api/asks`, `api/ask-candidates`.
+  `src/routes/asks/+page.svelte`, `src/routes/+page.svelte` (dashboard),
+  `humanInboxRoomStore.ts` (the cross-room read substrate), `api/asks`, `api/ask-candidates`.
 
 ### DC-3 · Typed agent event stream + plain-English FYI alerts
 - **Surface:** `ant events tail <room>` / viewer; typed events (`agent.state`, `tool.call`,
