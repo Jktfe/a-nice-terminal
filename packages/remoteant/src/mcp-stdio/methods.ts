@@ -1,6 +1,7 @@
 import { makeSuccessResponse, makeErrorResponse, ErrorCodes } from "./errors.ts";
 import { handleInitialize } from "./initialize.ts";
 import { handlePing } from "./ping.ts";
+import type { RemoteantTransport } from "../transport/index.ts";
 
 export type JsonRpcRequest = {
   jsonrpc: "2.0";
@@ -15,7 +16,7 @@ const registry = new Map<string, Handler>();
 
 registry.set("initialize", (req) => handleInitialize({ id: req.id ?? null, params: req.params as { protocolVersion?: string } }));
 
-registry.set("ant.ping", (req) => handlePing({ id: req.id ?? null }));
+registry.set("ant.ping", (req) => handlePing({ id: req.id ?? null, transport: currentTransport }));
 
 registry.set("tools/list", (req) =>
   makeSuccessResponse(req.id ?? null, {
@@ -38,4 +39,10 @@ export function dispatch(request: JsonRpcRequest): unknown | Promise<unknown> {
     });
   }
   return handler(request);
+}
+
+let currentTransport: RemoteantTransport | undefined;
+
+export function setCurrentTransport(transport: RemoteantTransport | undefined): void {
+  currentTransport = transport;
 }
