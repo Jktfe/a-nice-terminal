@@ -22,14 +22,38 @@ The plan's B2 acceptance: *"Each method returns per the locked contract in the E
 
 | MCP method            | HTTP target                              | Params required                          | Result shape                                            |
 |-----------------------|------------------------------------------|------------------------------------------|---------------------------------------------------------|
-| `ant.rooms.list`      | `GET /api/chat-rooms?archived=…&limit=…` | `{ archived?: bool, limit?: number }`    | `{ rooms: Array<{ id, title, memberCount, lastMessageAtMs }> }` |
-| `ant.rooms.get`       | `GET /api/chat-rooms/[roomId]`           | `{ roomId: string }` (REQUIRED)          | `{ room: { id, title, memberCount, members: Array<{ handle, name }> } }` |
+| `ant.rooms.list`      | `GET /api/chat-rooms`                    | `{ archived?: bool, limit?: number }` (server may ignore; client filters) | `{ rooms: Array<{ id, name, lastUpdate, members: Array<{ handle, displayName, kind }> }> }` |
+| `ant.rooms.get`       | `GET /api/chat-rooms/[roomId]`           | `{ roomId: string }` (REQUIRED)          | `{ room: { id, name, members: Array<{ handle, displayName, kind }> } }` |
 | `ant.chat.send`       | `POST /api/chat-rooms/[roomId]/messages` | `{ roomId, body, kind?: "human"|"agent" }` (roomId+body REQUIRED) | `{ messageId, ts }` |
 | `ant.chat.history`    | `GET /api/chat-rooms/[roomId]/messages?since=…&limit=…` | `{ roomId, since?: messageId, limit?: number }` | `{ messages: Array<{ id, handle, body, ts, replyTo }> }` |
 | `ant.plans.show`      | `GET /api/plans/[planId]`                | `{ planId: string }` (REQUIRED)          | `{ plan: { id, sections, milestones, decisions, acceptance } }` |
-| `ant.status`          | `GET /api/status`                        | `{}`                                     | `{ daemonReachable, serverVersion, dbReachable, uptimeSeconds }` |
+| `ant.status`          | `GET /api/health` (alias — see §2.1)     | `{}`                                     | `{ daemonReachable: bool, serverVersion: string, dbReachable: bool, uptimeSeconds: number }` |
 
 (Note: the plan substrate phrased "six JSON-RPC methods" — `ant.ping` from A1 is the seventh internal one; not counted here. Total surface after B2: 7 methods + `tools/list` + `initialize`.)
+
+### 2.1 2026-05-31 endpoint reality check amendments
+
+Pre-flight against the live daemon at `:6174` (run from @homebrewmainclaude before B2 activation):
+
+**`GET /api/status` does NOT exist** (returned 404). Two options:
+1. **Remap `ant.status` → `GET /api/health`** (existing endpoint, returns the right shape). Wrap the response in the documented `BridgeStatusResponse`-adjacent envelope. RECOMMENDED — fastest path; ships in B2 without server-side substrate work.
+2. **Build a server-side `/api/status` endpoint** (~30 LoC) that wraps /api/health plus adds `serverVersion` from package.json. Cleaner long-term but introduces another substrate gap.
+
+Spec defaults to option 1. The kimi PR description should call out which path was taken so codex can validate.
+
+**`GET /api/chat-rooms` response shape is `{ chatRooms: [...] }` NOT `{ rooms: [...] }`** (verified live). Each item is shaped:
+```typescript
+{ id, name, summary, description, attentionState, lastUpdate, whenItWasCreated,
+  whoCreatedIt, creationOrder, contractId, members: Array<{ handle, displayName,
+  displayColor, displayIcon, joinedAt, kind }> }
+```
+
+The `ant.rooms.list` handler should:
+- Read `chatRooms` field from daemon response (NOT `rooms`).
+- Map each entry to the documented MCP shape `{ id, name, lastUpdate, members: [...] }`.
+- The `archived` and `limit` params in MCP are client-side filters applied AFTER fetch (the daemon endpoint doesn't appear to honour them per current API surface).
+
+`GET /api/plans` and `GET /api/health` both confirmed live and returning 200 per pre-flight check.
 
 ---
 
