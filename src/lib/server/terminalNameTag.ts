@@ -29,17 +29,20 @@ export function parseArchiveSeq(name: string): number {
   return m[1] ? Number(m[1]) : 1;
 }
 
-/** Build the tagged name for a given base at sequence `seq` (>=1). */
+/** Build the tagged name for a given base at sequence `seq`. seq must be >= 1; values <= 1 render as `[A] <base>`. */
 export function tagArchivedName(name: string, seq: number): string {
   const base = baseName(name);
   return seq <= 1 ? `[A] ${base}` : `[A-${seq}] ${base}`;
 }
 
 /**
- * Smallest free sequence (>=1) for `base` given a list of existing names.
- * Only names whose base matches `base` and which are tagged are considered.
+ * Smallest free sequence (>=1) for `target` given a list of existing names.
+ * Only names whose base matches `target`'s base (and which are tagged) are
+ * considered. `target` is normalised through `baseName`, so passing either a
+ * base ("terminal3") or an already-tagged name ("[A] terminal3") is safe.
  */
-export function nextArchiveSeq(base: string, existingNames: string[]): number {
+export function nextArchiveSeq(target: string, existingNames: string[]): number {
+  const base = baseName(target);
   const used = new Set<number>();
   for (const name of existingNames) {
     if (isTagged(name) && baseName(name) === base) {
