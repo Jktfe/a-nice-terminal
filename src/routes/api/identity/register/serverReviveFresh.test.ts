@@ -84,7 +84,7 @@ describe('POST /api/identity/register — archived-name intent handling', () => 
     expect(payload.candidates.map((c: { id: string }) => c.id)).toContain(archived.id);
   });
 
-  // Case 2: fresh:true → 200; archived row stays tagged; new live terminal owns the base name
+  // Case 2: fresh:true → 201; archived row stays tagged; new live terminal owns the base name
   it('proceeds with a NEW live terminal when fresh:true is provided', async () => {
     const archived = upsertTerminal({ pid: 920001, pid_start: 'arc-b', name: 'fresh-intent' });
     setTerminalStatus(archived.id, 'archived');
@@ -109,7 +109,7 @@ describe('POST /api/identity/register — archived-name intent handling', () => 
     expect(live?.id).not.toBe(archived.id);
   });
 
-  // Case 3: revive:<id> → 200; archived terminal restored to base name + live
+  // Case 3: revive:<id> → 201; archived terminal restored to base name + live
   it('un-archives the target terminal when revive:<id> is provided', async () => {
     const archived = upsertTerminal({ pid: 930001, pid_start: 'arc-c', name: 'revive-direct' });
     setTerminalStatus(archived.id, 'archived');

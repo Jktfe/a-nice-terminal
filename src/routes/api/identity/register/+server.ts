@@ -148,6 +148,9 @@ export const POST: RequestHandler = async ({ request }) => {
   const reviveId = typeof rawBody.revive === 'string' && rawBody.revive.trim().length > 0
     ? rawBody.revive.trim() : null;
   const freshIntent = rawBody.fresh === true;
+  if (reviveId && freshIntent) {
+    throw error(400, 'Specify revive or fresh, not both.');
+  }
   // M3.2b: pre-read for INSERT-new probe + path-B kind preservation on re-register.
   const trimmedName = nameRaw.trim();
   const existing = getTerminalByName(trimmedName);
