@@ -40,7 +40,7 @@
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getTerminalRecord, deleteTerminalRecord } from '$lib/server/terminalRecordsStore';
+import { getTerminalRecord } from '$lib/server/terminalRecordsStore';
 import { canCallerActOnTerminal, OPERATOR_HANDLE } from '$lib/server/allowlistGuard';
 import { resolveTerminalCallerHandle } from '$lib/server/authGate';
 import { killTerminal } from '$lib/server/ptyClient';
@@ -108,9 +108,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
     if (record?.linked_chat_room_id) {
       softDeleteChatRoom(record.linked_chat_room_id);
     }
-    if (recordBacked) {
-      deleteTerminalRecord(sessionId);
-    }
+    // (record deletion is handled atomically inside deleteTerminalById below)
     deleteTerminalById(sessionId);
   } else if (mode === 'just-kill') {
     // Non-destructive: tmux session is gone but the operator may re-attach
