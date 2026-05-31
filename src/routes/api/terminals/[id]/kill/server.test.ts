@@ -8,9 +8,10 @@ vi.mock('$lib/server/ptyClient', () => ({
 }));
 
 import { POST as killTerminalPost } from './+server';
-import { resetIdentityDbForTests } from '$lib/server/db';
+import { getIdentityDb, resetIdentityDbForTests } from '$lib/server/db';
 import { createChatRoom, findChatRoomById, listChatRooms } from '$lib/server/chatRoomStore';
 import { createTerminalRecord, getTerminalRecord } from '$lib/server/terminalRecordsStore';
+import { getTerminalById } from '$lib/server/terminalsStore';
 
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
@@ -173,5 +174,41 @@ describe('POST /api/terminals/:id/kill linked-chat lifecycle', () => {
     expect(body.mode).toBe('archive');
     // Terminal record survives the fail-safe downgrade.
     expect(getTerminalRecord('t_orphan_delete')?.session_id).toBe('t_orphan_delete');
+  });
+
+  it('mode=delete removes the terminal record + terminal row and soft-deletes the linked chat', async () => {
+    const visibleRoom = createChatRoom({ name: 'visible team room', whoCreatedIt: '@you' });
+    const linkedRoom = createChatRoom({ name: 'Terminal: doomed', whoCreatedIt: '@you' });
+    // Backing terminals row whose id matches the session_id, so the endpoint's
+    // deleteTerminalById(sessionId) has a real terminal row to remove too.
+    getIdentityDb()
+      .prepare(
+        `INSERT INTO terminals (id, pid, pid_start, name, source, meta, created_at, updated_at)
+         VALUES ('t_delete_happy', 1, 'x', 'doomed terminal', 'cli-register', '{}', 1, 1)`
+      )
+      .run();
+    createTerminalRecord({
+      sessionId: 't_delete_happy',
+      name: 'doomed terminal',
+      linkedChatRoomId: linkedRoom.id,
+      createdBy: '@you'
+    });
+
+    const response = await runHandler(
+      killTerminalPost as unknown as AnyHandler,
+      eventFor('t_delete_happy', { mode: 'delete' })
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { mode?: string; killed?: boolean };
+    expect(body.mode).toBe('delete'); // did NOT downgrade to archive
+    expect(body.killed).toBe(true);
+    // Fix #1: deleteTerminalById now removes the terminal_record atomically.
+    expect(getTerminalRecord('t_delete_happy')).toBeNull();
+    // The backing terminals row is gone too.
+    expect(getTerminalById('t_delete_happy')).toBeNull();
+    // The linked chat is soft-deleted (hidden from every surface).
+    expect(findChatRoomById(linkedRoom.id)).toBeUndefined();
+    expect(listChatRooms().map((room) => room.id)).toEqual([visibleRoom.id]);
   });
 });
