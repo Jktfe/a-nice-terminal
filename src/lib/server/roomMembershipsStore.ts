@@ -376,7 +376,7 @@ export function isCandidateStale(candidate: TerminalRow, nowMs: number): boolean
  * atomically:
  *   (1) move every room_memberships row from old → new terminal_id;
  *   (2) flip the old terminals row to status='archived';
- *   (3) mark the old terminal_records row as superseded_at_ms = nowMs.
+ *   (3) mark the old terminal_records row as superseded — delegated to setTerminalStatus, which also vacates its name.
  *
  * Caller MUST decide whether to rebind via `isCandidateStale` — we do NOT
  * want to steal memberships from a live session that's only briefly idle.
@@ -397,7 +397,8 @@ export function autoRebindMembershipsFromStaleTerminal(params: {
   newTerminalId: string;
   nowMs: number;
 }): { reboundCount: number; affectedRoomIds: string[] } {
-  const { handle, oldTerminalId, newTerminalId, nowMs } = params;
+  // nowMs intentionally not destructured — setTerminalStatus captures its own archive timestamp.
+  const { handle, oldTerminalId, newTerminalId } = params;
   if (oldTerminalId === newTerminalId) {
     return { reboundCount: 0, affectedRoomIds: [] };
   }
