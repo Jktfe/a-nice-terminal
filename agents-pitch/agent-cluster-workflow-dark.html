@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ANT Agents — Agent Cluster Workflow</title>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --font-sans: 'Geist', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+    --ink-900: #0C1021; --ink-800: #0E1322; --ink-700: #121828; --ink-600: #161C30;
+    --ink-500: #222940; --ink-400: #363E58; --ink-300: #565E7A; --ink-200: #8990A8;
+    --ink-100: #BFC6D6; --ink-50: #E3E7F0;
+    --emerald-500: #22C55E; --emerald-400: #34D06F; --blue-500: #3B82F6;
+    --amber-400: #F59E0B; --radius-card: 10px; --radius-full: 9999px;
+    --agent-claude: #E07856; --agent-codex: #2EBD85; --agent-gemini: #5B8DEF;
+    --agent-ollama: #F2B65A; --agent-copilot: #9B6BF0; --agent-qwen: #EC493A;
+    --chair: #5B8DEF; --room: #34D06F; --shared: #9B6BF0;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:var(--font-sans); background:var(--ink-900); color:var(--ink-50); min-height:100vh; padding:2rem; }
+  .page-header { margin-bottom:2rem; max-width:80ch; }
+  .page-header h1 { font-size:1.85rem; font-weight:900; letter-spacing:-0.02em; margin-bottom:0.5rem; }
+  .page-header p { color:var(--ink-200); font-size:0.92rem; line-height:1.5; }
+  .page-header .ref { color:var(--ink-300); font-family:var(--font-mono); font-size:11px; margin-top:0.6rem; }
+
+  .panel { margin-top:2.5rem; }
+  .panel-title {
+    font-family:var(--font-mono); font-size:11px; letter-spacing:0.18em;
+    text-transform:uppercase; color:var(--ink-200); margin-bottom:1.25rem;
+    display:flex; align-items:center; gap:0.75rem;
+  }
+  .panel-title::after { content:''; flex:1; height:1px; background:rgba(255,255,255,0.06); }
+
+  /* ---- node cards ---- */
+  .canvas { position:relative; width:100%; max-width:1080px; margin:0 auto; }
+  .node {
+    position:absolute; background:var(--ink-800);
+    border:1px solid rgba(255,255,255,0.08); border-radius:var(--radius-card);
+    padding:0.85rem 1rem; z-index:2; box-shadow:0 8px 30px rgba(0,0,0,0.35);
+  }
+  .node h3 { font-size:14px; font-weight:800; letter-spacing:-0.01em; }
+  .node .role { font-family:var(--font-mono); font-size:10px; color:var(--ink-300); margin-top:1px; }
+  .node ul { list-style:none; margin-top:0.6rem; display:flex; flex-direction:column; gap:0.28rem; }
+  .node li { font-size:11.5px; color:var(--ink-100); line-height:1.35; padding-left:0.85rem; position:relative; }
+  .node li::before { content:'›'; position:absolute; left:0; color:var(--ink-300); }
+  .node li.restrict { color:var(--amber-400); }
+  .node li.restrict::before { content:'⚠'; font-size:9px; }
+  .node .accent { height:3px; border-radius:3px 3px 0 0; margin:-0.85rem -1rem 0.7rem; }
+
+  .node-chair { border-color:rgba(91,141,239,0.45); }
+  .node-chair .accent { background:linear-gradient(90deg,var(--chair),transparent); }
+  .node-room  { border-color:rgba(52,208,111,0.40); }
+  .node-room .accent { background:linear-gradient(90deg,var(--room),transparent); }
+  .node-shared{ border-color:rgba(155,107,240,0.42); }
+  .node-shared .accent { background:linear-gradient(90deg,var(--shared),transparent); }
+
+  .gate {
+    position:absolute; z-index:3; width:118px; height:118px;
+    display:flex; align-items:center; justify-content:center; text-align:center;
+    background:var(--ink-700); border:1px solid rgba(52,208,111,0.5);
+    transform:rotate(45deg); border-radius:14px;
+  }
+  .gate span { transform:rotate(-45deg); font-size:11px; font-weight:700; color:var(--emerald-400); line-height:1.25; }
+
+  .edge-label {
+    position:absolute; z-index:4; font-family:var(--font-mono); font-size:10px;
+    color:var(--ink-200); background:var(--ink-900); padding:2px 7px;
+    border-radius:5px; border:1px solid rgba(255,255,255,0.06); line-height:1.3; text-align:center;
+  }
+  svg.wires { position:absolute; inset:0; width:100%; height:100%; z-index:1; pointer-events:none; overflow:visible; }
+
+  /* ---- legend / handoff ---- */
+  .legend {
+    position:absolute; z-index:3; background:var(--ink-800);
+    border:1px solid rgba(52,197,94,0.35); border-radius:var(--radius-card);
+    padding:0.85rem 1rem; box-shadow:0 0 0 1px rgba(52,197,94,0.08), 0 8px 30px rgba(0,0,0,0.4);
+  }
+  .legend h4 { font-size:12px; font-weight:800; margin-bottom:0.5rem; color:var(--emerald-400); }
+  .legend .row { display:flex; gap:0.5rem; font-size:11px; color:var(--ink-100); margin-bottom:0.3rem; line-height:1.3; }
+  .legend .row b { color:var(--ink-50); }
+  .legend code { font-family:var(--font-mono); font-size:10px; color:var(--ink-200); }
+
+  /* ---- panel B ---- */
+  .teams { display:grid; grid-template-columns:300px 1fr; gap:2rem; align-items:start; }
+  @media (max-width:860px){ .teams{ grid-template-columns:1fr; } }
+  .subcap { font-family:var(--font-mono); font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ink-300); margin-top:0.75rem; text-align:center; }
+
+  .pill {
+    display:inline-flex; align-items:center; gap:0.45rem; padding:0.5rem 0.9rem;
+    background:var(--ink-800); border:1px solid rgba(255,255,255,0.1); border-radius:var(--radius-card);
+    font-size:12px; font-weight:700;
+  }
+  .pill .dot { width:8px; height:8px; border-radius:50%; }
+  .pill.dark { background:#070a14; border-color:rgba(255,255,255,0.14); }
+
+  .footer-note { margin-top:3rem; color:var(--ink-300); font-size:11px; max-width:80ch; line-height:1.6; border-top:1px solid rgba(255,255,255,0.06); padding-top:1rem; }
+  .footer-note code { font-family:var(--font-mono); color:var(--ink-200); }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>ANT Agent Cluster Workflow</h1>
+  <p>The "AI Agent Cluster" pattern, mapped onto ANT's real substrate. The portfolio
+  orchestrator is the always-on <b>Chair</b>; product work happens in <b>rooms</b>;
+  shared skills and templates live in the <b>Obsidian vault pool</b>. Context survives
+  across the cluster through durable room memory, <code>ant chair handoff</code>, and the
+  Cross-Agent Inbox — not through any single session.</p>
+  <div class="ref">recreation of @adrianmurray "AI Agent Cluster Workflow" · ANT context · 2026-05-31</div>
+</div>
+
+<!-- ============================ PANEL A ============================ -->
+<div class="panel">
+  <div class="panel-title">Panel A · Cluster topology &amp; the routing gate</div>
+  <div class="canvas" style="height:640px;">
+    <svg class="wires" viewBox="0 0 1080 640" preserveAspectRatio="none">
+      <defs>
+        <marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+          <path d="M0,0 L7,3 L0,6 Z" fill="#565E7A"/>
+        </marker>
+        <marker id="ahg" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+          <path d="M0,0 L7,3 L0,6 Z" fill="#34D06F"/>
+        </marker>
+        <marker id="ahp" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+          <path d="M0,0 L7,3 L0,6 Z" fill="#9B6BF0"/>
+        </marker>
+      </defs>
+      <!-- Room -> Chair : request promotion / flag -->
+      <path d="M250,300 C250,180 360,150 470,140" fill="none" stroke="#34D06F" stroke-width="1.5" marker-end="url(#ahg)" opacity="0.8"/>
+      <!-- Chair -> Room : strategic direction -->
+      <path d="M470,120 C330,95 215,150 200,230" fill="none" stroke="#5B8DEF" stroke-width="1.5" marker-end="url(#ah)" opacity="0.8"/>
+      <!-- Chair -> Shared : assign implementation -->
+      <path d="M700,140 C820,150 860,200 870,250" fill="none" stroke="#5B8DEF" stroke-width="1.5" marker-end="url(#ah)" opacity="0.8"/>
+      <!-- Shared -> Chair : new component / ripple -->
+      <path d="M900,250 C920,180 820,120 700,108" fill="none" stroke="#9B6BF0" stroke-width="1.5" marker-end="url(#ahp)" opacity="0.85"/>
+      <!-- Room -> gate -->
+      <path d="M320,360 C400,380 460,390 500,400" fill="none" stroke="#34D06F" stroke-width="1.5" marker-end="url(#ahg)" opacity="0.8"/>
+      <!-- gate -> Shared : pattern extraction -->
+      <path d="M620,400 C720,390 800,380 840,360" fill="none" stroke="#34D06F" stroke-width="1.5" marker-end="url(#ahg)" opacity="0.8"/>
+      <!-- gate -> Chair : validate & approve -->
+      <path d="M560,360 C570,280 580,210 585,170" fill="none" stroke="#565E7A" stroke-width="1.4" stroke-dasharray="4 4" marker-end="url(#ah)" opacity="0.8"/>
+    </svg>
+
+    <!-- Chair (Co-CTO analog) -->
+    <div class="node node-chair" style="left:380px; top:18px; width:320px;">
+      <div class="accent"></div>
+      <h3>Chair · Portfolio level</h3>
+      <div class="role">Strategic orchestrator &amp; gatekeeper · always-on, cheap model</div>
+      <ul>
+        <li>Watches every room, compiles per-room digests</li>
+        <li>Runs "ripple analysis" on shared-template changes</li>
+        <li>Approves promotion of room patterns → shared pool</li>
+        <li><code style="font-family:var(--font-mono);font-size:10px;color:var(--ink-200)">ant chair enable / handoff / board</code></li>
+      </ul>
+    </div>
+
+    <!-- Room agents (App agents analog) -->
+    <div class="node node-room" style="left:40px; top:236px; width:300px;">
+      <div class="accent"></div>
+      <h3>Room Agents · Product level</h3>
+      <div class="role">Deliverable owners — reports · decks · sheets</div>
+      <ul>
+        <li>Own feature work, drafts &amp; QA for one room</li>
+        <li>Identify reusable patterns worth promoting</li>
+        <li class="restrict">Cannot edit the shared vault directly</li>
+      </ul>
+    </div>
+
+    <!-- Shared-template agents (Framework agents analog) -->
+    <div class="node node-shared" style="left:740px; top:256px; width:300px;">
+      <div class="accent"></div>
+      <h3>Vault Agents · Shared level</h3>
+      <div class="role">Obsidian skill + template pool maintainers</div>
+      <ul>
+        <li>Build room-agnostic shared skills &amp; templates</li>
+        <li>Implement approved pattern extractions</li>
+        <li class="restrict">Changes require Chair approval</li>
+      </ul>
+    </div>
+
+    <!-- routing gate -->
+    <div class="gate" style="left:501px; top:341px;"><span>Pattern<br>identified?</span></div>
+
+    <!-- edge labels -->
+    <div class="edge-label" style="left:35px; top:150px; width:150px;">Strategic direction<br>&amp; approved changes</div>
+    <div class="edge-label" style="left:300px; top:120px; width:150px;">Request promotion /<br>flag breaking change</div>
+    <div class="edge-label" style="left:560px; top:250px; width:90px;">Validate<br>&amp; approve</div>
+    <div class="edge-label" style="left:705px; top:175px; width:120px;">Assign<br>implementation</div>
+    <div class="edge-label" style="left:735px; top:120px; width:150px;">New shared component<br>(ripples to all rooms)</div>
+    <div class="edge-label" style="left:360px; top:430px; width:150px;">Pattern extraction →<br>vault promotion</div>
+
+    <!-- Handoff legend -->
+    <div class="legend" style="left:660px; top:470px; width:400px;">
+      <h4>Handoff Protocol · context preservation</h4>
+      <div class="row">✅&nbsp; <span><b>Accomplished</b> — written to durable room memory + Chair digest</span></div>
+      <div class="row">⏳&nbsp; <span><b>Pending</b> — next in queue; survives the session, not lost on context fill</span></div>
+      <div class="row">🚧&nbsp; <span><b>Blockers</b> — raised as <b>asks</b> into the Cross-Agent Inbox; an idle agent resolves</span></div>
+      <div class="row"><code>ant chair handoff &lt;room&gt; --to @handle</code> · re-seats the chair with full context</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ PANEL B ============================ -->
+<div class="panel">
+  <div class="panel-title">Panel B · Agent teams &amp; dynamic workflows</div>
+  <div class="teams">
+
+    <!-- Agent teams: peer triad -->
+    <div>
+      <div class="canvas" style="height:300px; max-width:300px;">
+        <svg class="wires" viewBox="0 0 300 300" preserveAspectRatio="none">
+          <defs>
+            <marker id="ah2" markerWidth="9" markerHeight="9" refX="4" refY="3" orient="auto">
+              <path d="M0,0 L7,3 L0,6 Z" fill="#565E7A"/>
+            </marker>
+          </defs>
+          <path d="M150,80 L80,180" stroke="#565E7A" stroke-width="1.5" marker-start="url(#ah2)" marker-end="url(#ah2)"/>
+          <path d="M150,80 L220,180" stroke="#565E7A" stroke-width="1.5" marker-start="url(#ah2)" marker-end="url(#ah2)"/>
+          <path d="M95,205 L205,205" stroke="#565E7A" stroke-width="1.5" marker-start="url(#ah2)" marker-end="url(#ah2)"/>
+        </svg>
+        <div class="node node-room" style="left:90px; top:42px; width:120px; padding:0.6rem 0.8rem; text-align:center;">
+          <div class="accent"></div><h3 style="font-size:12px;">@claude</h3><div class="role">room peer</div>
+        </div>
+        <div class="node node-shared" style="left:6px; top:188px; width:120px; padding:0.6rem 0.8rem; text-align:center;">
+          <div class="accent"></div><h3 style="font-size:12px;">@codex</h3><div class="role">room peer</div>
+        </div>
+        <div class="node node-chair" style="left:174px; top:188px; width:120px; padding:0.6rem 0.8rem; text-align:center;">
+          <div class="accent"></div><h3 style="font-size:12px;">@gemini</h3><div class="role">room peer</div>
+        </div>
+      </div>
+      <div class="subcap">Agent teams — peers cross-check in one room</div>
+    </div>
+
+    <!-- Dynamic workflows: fan-out tree -->
+    <div>
+      <div class="canvas" style="height:520px;">
+        <svg class="wires" viewBox="0 0 720 520" preserveAspectRatio="none">
+          <defs>
+            <marker id="ah3" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+              <path d="M0,0 L7,3 L0,6 Z" fill="#565E7A"/>
+            </marker>
+          </defs>
+          <!-- chair -> tasks -->
+          <path d="M360,52 L150,110" stroke="#565E7A" stroke-width="1.4" marker-end="url(#ah3)"/>
+          <path d="M360,52 L360,110" stroke="#565E7A" stroke-width="1.4" marker-end="url(#ah3)"/>
+          <path d="M360,52 L570,110" stroke="#565E7A" stroke-width="1.4" marker-end="url(#ah3)"/>
+          <!-- implementer -> verifiers (col1) -->
+          <path d="M150,150 L110,210" stroke="#565E7A" stroke-width="1.2" marker-end="url(#ah3)"/>
+          <path d="M150,150 L190,210" stroke="#565E7A" stroke-width="1.2" marker-end="url(#ah3)"/>
+          <path d="M150,250 L150,300" stroke="#565E7A" stroke-width="1.2" marker-end="url(#ah3)"/>
+          <!-- col2 -->
+          <path d="M360,150 L320,210" stroke="#565E7A" stroke-width="1.2" marker-end="url(#ah3)"/>
+          <path d="M360,150 L400,210" stroke="#565E7A" stroke-width="1.2" marker-end="url(#ah3)"/>
+          <path d="M360,250 L360,300" stroke="#565E7A" stroke-width="1.2" marker-end="url(#ah3)"/>
+          <!-- col3 -->
+          <path d="M570,150 L530,210" stroke="#565E7A" stroke-width="1.2" marker-end="url(#ah3)"/>
+          <path d="M570,150 L610,210" stroke="#565E7A" stroke-width="1.2" marker-end="url(#ah3)"/>
+          <path d="M570,250 L570,300" stroke="#565E7A" stroke-width="1.2" marker-end="url(#ah3)"/>
+          <!-- fixers -> return -->
+          <path d="M150,340 L330,420" stroke="#565E7A" stroke-width="1.4" marker-end="url(#ah3)"/>
+          <path d="M360,340 L360,420" stroke="#565E7A" stroke-width="1.4" marker-end="url(#ah3)"/>
+          <path d="M570,340 L390,420" stroke="#565E7A" stroke-width="1.4" marker-end="url(#ah3)"/>
+        </svg>
+
+        <!-- orchestrator -->
+        <div class="node" style="left:280px; top:8px; width:160px; text-align:center; background:#070a14; border-color:rgba(91,141,239,0.4);">
+          <h3 style="font-size:12px;">Chair · plan</h3>
+          <div class="role">fans out N tasks (N can be 100s)</div>
+        </div>
+
+        <!-- row labels -->
+        <div class="edge-label" style="left:0; top:118px;">implementer</div>
+        <div class="edge-label" style="left:0; top:222px;">verifiers</div>
+        <div class="edge-label" style="left:0; top:316px;">fixer</div>
+        <div class="subcap" style="position:absolute; left:120px; top:78px;">TASK 1</div>
+        <div class="subcap" style="position:absolute; left:330px; top:78px;">TASK 2</div>
+        <div class="subcap" style="position:absolute; left:540px; top:78px;">TASK N</div>
+
+        <!-- task columns -->
+        <!-- implementers -->
+        <div class="pill" style="position:absolute; left:108px; top:120px;"><span class="dot" style="background:var(--room)"></span>impl</div>
+        <div class="pill" style="position:absolute; left:318px; top:120px;"><span class="dot" style="background:var(--room)"></span>impl</div>
+        <div class="pill" style="position:absolute; left:528px; top:120px;"><span class="dot" style="background:var(--room)"></span>impl</div>
+        <!-- verifiers -->
+        <div class="pill" style="position:absolute; left:70px; top:224px;"><span class="dot" style="background:var(--shared)"></span>verify</div>
+        <div class="pill" style="position:absolute; left:160px; top:224px;"><span class="dot" style="background:var(--shared)"></span>verify</div>
+        <div class="pill" style="position:absolute; left:280px; top:224px;"><span class="dot" style="background:var(--shared)"></span>verify</div>
+        <div class="pill" style="position:absolute; left:370px; top:224px;"><span class="dot" style="background:var(--shared)"></span>verify</div>
+        <div class="pill" style="position:absolute; left:490px; top:224px;"><span class="dot" style="background:var(--shared)"></span>verify</div>
+        <div class="pill" style="position:absolute; left:580px; top:224px;"><span class="dot" style="background:var(--shared)"></span>verify</div>
+        <!-- fixers -->
+        <div class="pill" style="position:absolute; left:110px; top:318px;"><span class="dot" style="background:var(--amber-400)"></span>fix</div>
+        <div class="pill" style="position:absolute; left:320px; top:318px;"><span class="dot" style="background:var(--amber-400)"></span>fix</div>
+        <div class="pill" style="position:absolute; left:530px; top:318px;"><span class="dot" style="background:var(--amber-400)"></span>fix</div>
+
+        <!-- return -->
+        <div class="node" style="left:280px; top:424px; width:160px; text-align:center; background:#070a14; border-color:rgba(52,197,94,0.45);">
+          <h3 style="font-size:12px;">return → Chair digest</h3>
+          <div class="role">results land in durable room memory</div>
+        </div>
+      </div>
+      <div class="subcap">Dynamic workflows — plan → task fan-out over PTY terminals, verify, fix, return</div>
+    </div>
+  </div>
+</div>
+
+<div class="footer-note">
+  Mapping: <code>Chair</code> ↔ Co-CTO orchestrator/gatekeeper · <code>Room agents</code> ↔ App agents ·
+  <code>Vault agents</code> ↔ Framework/shared-component agents · the routing gate is a candidate home for a
+  local <b>signal router</b> (tiny-router style) · the Handoff Protocol is ANT's durable room memory +
+  <code>ant chair handoff</code> + asks/Inbox. The fan-out in Panel B runs as ANT plans → tasks over the
+  PTY daemon; verify/fix are room-peer roles; everything returns to the Chair digest rather than a lossy session.
+  See <code>docs/ant-agent-cluster-workflow-research-2026-05-31.md</code> for the full mapping, research, and backlog.
+</div>
+
+</body>
+</html>
