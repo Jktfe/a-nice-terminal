@@ -23,6 +23,7 @@ export type OperationalRetentionResult = {
   cutoffMs: number;
   terminalRunEventsDeleted: number;
   cliHookEventsDeleted: number;
+  terminalRecordsDeleted: number;
   vacuumed: boolean;
   trigger: 'manual' | 'scheduled' | 'threshold';
   dbBytesBefore: number;
@@ -95,7 +96,16 @@ export function pruneOperationalHistory(input: {
     cutoffMs,
     batchSize
   });
-  const deletedTotal = terminalRunEventsDeleted + cliHookEventsDeleted;
+  // Age out dead terminal_records (spec 2026-05-31): a record is removed only
+  // when it is dead (superseded — replaced/archived — OR orphaned, no backing
+  // terminal) AND aged past the same retention cutoff. Age = superseded_at_ms
+  // when present, else updated_at_ms. Recent/live records are preserved.
+  const terminalRecordsDeleted = db.prepare(
+    `DELETE FROM terminal_records
+       WHERE (superseded_at_ms IS NOT NULL OR session_id NOT IN (SELECT id FROM terminals))
+         AND COALESCE(superseded_at_ms, updated_at_ms) < ?`
+  ).run(cutoffMs).changes;
+  const deletedTotal = terminalRunEventsDeleted + cliHookEventsDeleted + terminalRecordsDeleted;
   const shouldVacuum = input.vacuum === true && deletedTotal > 0;
   if (shouldVacuum) {
     db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
@@ -106,6 +116,7 @@ export function pruneOperationalHistory(input: {
     cutoffMs,
     terminalRunEventsDeleted,
     cliHookEventsDeleted,
+    terminalRecordsDeleted,
     vacuumed: shouldVacuum,
     trigger: input.trigger ?? 'manual',
     dbBytesBefore,
