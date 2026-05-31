@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getIdentityDb, resetIdentityDbForTests } from './db';
-import { upsertTerminal, getTerminalById, backfillArchivedTerminalTags } from './terminalsStore';
+import { upsertTerminal, getTerminalById, backfillArchivedTerminalTags, setTerminalStatus } from './terminalsStore';
 
 let tmpDir: string;
 beforeEach(() => {
@@ -54,5 +54,16 @@ describe('backfillArchivedTerminalTags', () => {
     const live = upsertTerminal({ pid: 850301, pid_start: 'a', name: 'terminal3' });
     backfillArchivedTerminalTags();
     expect(getTerminalById(live.id)?.name).toBe('terminal3');
+  });
+
+  it('skips already-tagged archived rows in a mixed run and sequences correctly', () => {
+    const a = upsertTerminal({ pid: 850401, pid_start: 'a', name: 'terminal3' });
+    setTerminalStatus(a.id, 'archived'); // properly tagged -> [A] terminal3
+    const b = upsertTerminal({ pid: 850402, pid_start: 'b', name: 'terminal3' });
+    archiveUntagged(b.id); // legacy untagged archived row
+    const tagged = backfillArchivedTerminalTags();
+    expect(tagged).toBe(1); // only b is tagged; a is skipped
+    expect(getTerminalById(a.id)?.name).toBe('[A] terminal3'); // unchanged
+    expect(getTerminalById(b.id)?.name).toBe('[A-2] terminal3'); // sequenced after a
   });
 });
