@@ -65,4 +65,7 @@ describe('nextArchiveSeq', () => {
   it('ignores siblings with a different base', () => {
     expect(nextArchiveSeq('terminal3', ['[A] terminal9', '[A-2] terminal9'])).toBe(1);
   });
+  it('normalises an already-tagged target so it still finds siblings', () => {
+    expect(nextArchiveSeq('[A] terminal3', ['[A] terminal3'])).toBe(2);
+  });
 });
