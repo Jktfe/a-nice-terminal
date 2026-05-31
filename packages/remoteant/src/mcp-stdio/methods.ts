@@ -2,6 +2,7 @@ import { makeSuccessResponse, makeErrorResponse, ErrorCodes } from "./errors.ts"
 import { handleInitialize } from "./initialize.ts";
 import { handlePing } from "./ping.ts";
 import type { RemoteantTransport } from "../transport/index.ts";
+import { b2MethodHandlers, b2ToolDefinitions, dispatchB2Method } from "../methods/index.ts";
 
 export type JsonRpcRequest = {
   jsonrpc: "2.0";
@@ -18,6 +19,10 @@ registry.set("initialize", (req) => handleInitialize({ id: req.id ?? null, param
 
 registry.set("ant.ping", (req) => handlePing({ id: req.id ?? null, transport: currentTransport }));
 
+for (const [method, handler] of b2MethodHandlers) {
+  registry.set(method, (req) => dispatchB2Method(req, handler));
+}
+
 registry.set("tools/list", (req) =>
   makeSuccessResponse(req.id ?? null, {
     tools: [
@@ -26,6 +31,7 @@ registry.set("tools/list", (req) =>
         description: "Probe the ANT daemon health endpoint",
         inputSchema: { type: "object", properties: {} },
       },
+      ...b2ToolDefinitions(),
     ],
   })
 );

@@ -9,7 +9,7 @@ const pkgDir = join(__dirname, "..");
 const sha = execSync("git rev-parse --short HEAD", { cwd: pkgDir, encoding: "utf-8" }).trim();
 const version = "0.1.0";
 
-const content = `export const VERSION = "${version}";\nexport const GIT_SHA = "${sha}";\nexport const VERSION_STRING = \`remoteant \${VERSION} (\${GIT_SHA})\`;\n`;
+const content = `export const BUILD_GIT_SHA = "${sha}";\n`;
 
-writeFileSync(join(pkgDir, "src", "version.ts"), content, "utf-8");
-console.log(`Generated version.ts: ${version} (${sha})`);
+writeFileSync(join(pkgDir, "src", "version-build-generated.ts"), content, "utf-8");
+console.log(`Generated version-build-generated.ts: ${version} (${sha})`);
