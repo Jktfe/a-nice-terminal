@@ -19,7 +19,7 @@ import { processIdentityChain } from './ant-cli-identity-chain.mjs';
 const PARSE_TTL_PATTERN = /^(\d+)(s|m|h)?$/;
 const DEFAULT_TTL_SECONDS = 12 * 60 * 60;
 const V3_SERVER_URL_DEFAULT = process.env.ANT_V3_SERVER_URL ?? 'http://127.0.0.1:6458';
-const BOOLEAN_FLAGS = new Set(['mirror-v3']);
+const BOOLEAN_FLAGS = new Set(['mirror-v3', 'fresh']);
 
 export async function handleRegisterVerb(action, args, runtime, ctx) {
   const { CliInputError } = ctx;
@@ -27,7 +27,16 @@ export async function handleRegisterVerb(action, args, runtime, ctx) {
     ? [action, ...args]
     : args;
   const flags = parseFlags(fullArgs, CliInputError);
-  return runRegister(flags, runtime, CliInputError);
+  return runRegister({
+    ...runtime,
+    flags,
+    CliInputError,
+    isInteractive: runtime.isInteractive ?? process.stdin.isTTY === true,
+    promptImpl: runtime.promptImpl ?? (async (q) => {
+      const rl = (await import('node:readline/promises')).createInterface({ input: process.stdin, output: process.stdout });
+      try { return await rl.question(q); } finally { rl.close(); }
+    })
+  });
 }
 
 export async function handleAddVerb(action, args, runtime, ctx) {
@@ -75,7 +84,7 @@ function parseFlags(rawArgs, CliInputError) {
 }
 
 function writeUsage(runtime) {
-  runtime.writeOut('ant register --handle @x --name terminalN [--ttl 12h] [--pane PANE_ID] [--agent-kind claude_code] [--mirror-v3]');
+  runtime.writeOut('ant register --handle @x --name terminalN [--ttl 12h] [--pane PANE_ID] [--agent-kind claude_code] [--mirror-v3] [--revive <id>] [--fresh]');
   runtime.writeOut('ant add session --pid PID --name NAME [--ttl 12h] [--pane PANE_ID] [--agent-kind claude_code]');
   runtime.writeOut('ant add membership --room ROOM_ID --handle @h --name TERMINAL_NAME');
   runtime.writeOut('ant resolve [--room ROOM_ID]');
@@ -123,7 +132,8 @@ export function chooseRegisterPidChain(initialChain, hasExplicitPid) {
   return initialChain.slice(1);
 }
 
-async function runRegister(flags, runtime, CliInputError) {
+export async function runRegister(runtime) {
+  const { flags, CliInputError } = runtime;
   const handle = flags.handle;
   const name = flags.name;
   if (!name) throw new CliInputError('register requires --name <terminalName>');
@@ -153,7 +163,66 @@ async function runRegister(flags, runtime, CliInputError) {
   if (detectedPane) registerBody.pane = detectedPane;
   if (flags['agent-kind']) registerBody.agent_kind = flags['agent-kind'];
 
+  // Explicit flags skip the prompt entirely.
+  if (flags.revive) registerBody.revive = flags.revive;
+  if (flags.fresh) registerBody.fresh = true;
+
   const primaryResp = await postJson(runtime, `${runtime.serverUrl}/api/identity/register`, registerBody);
+
+  // 409 archived_name_matches: prompt or fail loud.
+  if (primaryResp.status === 409) {
+    let payload;
+    try { payload = await primaryResp.json(); } catch { payload = {}; }
+    if (payload.error === 'archived_name_matches') {
+      const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
+      if (runtime.isInteractive) {
+        // Interactive: list candidates and prompt.
+        runtime.writeOut('Archived terminals with the same base name:');
+        candidates.forEach((c, i) => {
+          runtime.writeOut(`  [${i + 1}] ${c.name} (id: ${c.id}, handle: ${c.handle}, last_seen: ${c.last_seen})`);
+        });
+        const answer = (await runtime.promptImpl('Revive which number, [f]resh, or [c]ancel? ')).trim().toLowerCase();
+        if (answer === 'c' || answer === '') {
+          throw new CliInputError('register cancelled');
+        }
+        if (answer === 'f') {
+          registerBody.fresh = true;
+        } else {
+          const idx = Number(answer);
+          if (!Number.isInteger(idx) || idx < 1 || idx > candidates.length) {
+            throw new CliInputError(`invalid choice "${answer}" — expected a number 1-${candidates.length}, f, or c`);
+          }
+          registerBody.revive = candidates[idx - 1].id;
+        }
+        // Re-POST with resolution.
+        const retryResp = await postJson(runtime, `${runtime.serverUrl}/api/identity/register`, registerBody);
+        if (!retryResp.ok) {
+          const text = await retryResp.text().catch(() => '');
+          runtime.writeErr(`fresh-ANT register failed (${retryResp.status}): ${text.slice(0, 200)}`);
+          return 1;
+        }
+        const retryBody = await retryResp.json();
+        runtime.writeOut(`Registered ${retryBody.name} as ${retryBody.terminal_id} (fresh-ANT)`);
+        if (flags['mirror-v3'] !== undefined) {
+          await mirrorToV3BestEffort(runtime, registerBody);
+        }
+        return 0;
+      } else {
+        // Non-interactive: fail loud.
+        runtime.writeErr('Archived terminals exist with the same base name. Pass one of:');
+        candidates.forEach((c) => {
+          runtime.writeErr(`  --revive ${c.id}  (${c.name}, handle: ${c.handle})`);
+        });
+        runtime.writeErr('Or pass --fresh to register a new terminal ignoring archived ones.');
+        throw new CliInputError(`archived name "${name}" matches existing archived terminals; needs --revive <id> or --fresh`);
+      }
+    }
+    // Other 409 or unexpected error body.
+    const text = await primaryResp.text().catch(() => '');
+    runtime.writeErr(`fresh-ANT register failed (${primaryResp.status}): ${text.slice(0, 200)}`);
+    return 1;
+  }
+
   if (!primaryResp.ok) {
     const text = await primaryResp.text().catch(() => '');
     runtime.writeErr(`fresh-ANT register failed (${primaryResp.status}): ${text.slice(0, 200)}`);

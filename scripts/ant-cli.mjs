@@ -82,7 +82,12 @@ export function makeCliRunner({ fetchImpl, writeOut, writeErr, serverUrl, server
     serverUrl: configuredServerUrl,
     serverUrlSource,
     config: config ?? loadAntConfig(),
-    fallbackWarned: false
+    fallbackWarned: false,
+    isInteractive: process.stdin.isTTY === true,
+    promptImpl: async (q) => {
+      const rl = (await import('node:readline/promises')).createInterface({ input: process.stdin, output: process.stdout });
+      try { return await rl.question(q); } finally { rl.close(); }
+    }
   };
 
   async function run(argv) {
