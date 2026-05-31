@@ -21,6 +21,7 @@ import { postSystemMessage } from './chatMessageStore';
 import { resolveHumanOwnership } from './consentGate';
 import { resolveMemoryVaultPath } from './memoryVaultSettingsStore';
 import type { TerminalRow } from './terminalsStore';
+import { setTerminalStatus } from './terminalsStore';
 
 /**
  * Sec-iter6 Fix #3 (2026-05-30): tag prefix for `Error.message` thrown by
@@ -423,19 +424,14 @@ export function autoRebindMembershipsFromStaleTerminal(params: {
       affectedRoomIds.push(row.room_id);
     }
     // Flip the old terminals row to archived so subsequent picker /
-    // fanout / status reads skip it. Best-effort — a missing row (e.g.
-    // terminals row already deleted) just produces zero changes here.
-    db.prepare(
-      `UPDATE terminals SET status = 'archived', updated_at = ?
-        WHERE id = ? AND status = 'live'`
-    ).run(Math.floor(nowMs / 1000), oldTerminalId);
-    // Mark the old terminal_records row as superseded so picker queries
-    // that filter on `superseded_at_ms IS NULL` skip it. Same pattern as
-    // pane-binding supersession in terminalRecordsStore.ts.
-    db.prepare(
-      `UPDATE terminal_records SET superseded_at_ms = ?, updated_at_ms = ?
-        WHERE session_id = ? AND superseded_at_ms IS NULL`
-    ).run(nowMs, nowMs, oldTerminalId);
+    // fanout / status reads skip it. Route through the lifecycle chokepoint
+    // so the old name is vacated (tagged [A] <base>) atomically with the
+    // archive, and terminal_records.superseded_at_ms is set in the same
+    // operation. setTerminalStatus opens a nested SAVEPOINT inside this
+    // transaction (better-sqlite3 nests via SAVEPOINT, so this is safe).
+    // Re-archiving an already-archived row is idempotent — the chokepoint
+    // only renames when the name is not yet tagged, so no double-tagging.
+    setTerminalStatus(oldTerminalId, 'archived');
     return { reboundCount: rows.length, affectedRoomIds };
   });
   return txn();

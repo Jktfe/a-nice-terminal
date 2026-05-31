@@ -33,6 +33,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { getIdentityDb } from './db';
+import { setTerminalStatus } from './terminalsStore';
 
 export type ReclaimTargetKind = 'terminal' | 'membership' | 'identity' | 'session';
 export type ReclaimStatus = 'pending' | 'approved' | 'executed' | 'denied' | 'expired';
@@ -397,9 +398,8 @@ function runTerminalReclaim(terminalId: string, dryRun: boolean): ReclaimAction[
   }
 
   const nowMs = Date.now();
-  const archiveResult = db
-    .prepare(`UPDATE terminals SET status = 'archived', updated_at = ? WHERE id = ?`)
-    .run(Math.floor(nowMs / 1000), terminalId);
+  const archivedOk = setTerminalStatus(terminalId, 'archived');
+  const archiveResult = { changes: archivedOk ? 1 : 0 };
   const revokeResult = db
     .prepare(
       `UPDATE room_memberships
