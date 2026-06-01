@@ -16,7 +16,9 @@
 -->
 <script lang="ts">
   type AgentStatus = 'idle' | 'thinking' | 'working' | 'response-required' | 'unknown';
-  type StatusEntry = { handle: string; status: AgentStatus; statusAtMs: number | null };
+  // `openAsk` (additive, shipped server-side in fcbdcd2) is the open-ask
+  // dimension: CLI response-required OR an open Ask targeted at the handle.
+  type StatusEntry = { handle: string; status: AgentStatus; statusAtMs: number | null; openAsk?: boolean };
 
   type Props = {
     roomId: string;
@@ -28,8 +30,14 @@
   let statuses = $state<StatusEntry[]>([]);
   let lastActivityMs = $state<number | null>(null);
 
-  const activeCount = $derived(
-    statuses.filter((entry) => entry.status === 'working' || entry.status === 'response-required').length
+  // Activity and open-ask are orthogonal (per the agent-status model): an
+  // agent can be working AND have an open ask, or idle AND have one. Count
+  // them separately — never fold "needs you" into "working".
+  const workingCount = $derived(
+    statuses.filter((entry) => entry.status === 'working' || entry.status === 'thinking').length
+  );
+  const needsYouCount = $derived(
+    statuses.filter((entry) => entry.openAsk === true).length
   );
 
   async function refreshFromServer() {
@@ -65,12 +73,18 @@
 </script>
 
 <span class="room-card-activity" aria-label="Room activity">
-  {#if activeCount > 0}
+  {#if workingCount > 0}
     <span class="activity-pulse" aria-hidden="true"></span>
-    <span class="activity-count">{activeCount} working</span>
+    <span class="activity-count">{workingCount} working</span>
   {:else}
     <span class="activity-dot activity-idle" aria-hidden="true"></span>
     <span class="activity-count">{formatLastActivity(lastActivityMs)}</span>
+  {/if}
+  {#if needsYouCount > 0}
+    <span class="needs-you" title="Agents waiting on a response">
+      <span class="needs-you-dot" aria-hidden="true"></span>
+      {needsYouCount} needs you
+    </span>
   {/if}
 </span>
 
@@ -103,6 +117,25 @@
   }
   .activity-dot.activity-idle { background: #9ca3af; opacity: 0.7; }
   .activity-count { font-weight: 700; }
+  .needs-you {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-left: 0.35rem;
+    padding: 0.05rem 0.4rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, #f0a020 16%, transparent);
+    border: 1px solid color-mix(in srgb, #f0a020 45%, transparent);
+    color: #b9770f;
+    font-weight: 800;
+  }
+  .needs-you-dot {
+    display: inline-block;
+    width: 0.4rem;
+    height: 0.4rem;
+    border-radius: 50%;
+    background: #f0a020;
+  }
   @keyframes room-card-pulse {
     0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, #16a34a 50%, transparent); }
     50% { box-shadow: 0 0 0 4px color-mix(in srgb, #16a34a 0%, transparent); }
