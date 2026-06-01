@@ -1,8 +1,8 @@
 ---
-title: ANT v0.2 — BYOWORM Sink Adapter (M1.1 Contract)
+title: ANT v0.2 — BYOWORM Sink Adapter (M1.1 contract + M1.2 S3 Object Lock impl)
 date: 2026-05-30
 authors: ["@enterprisec"]
-status: draft — M1.1 contract land; M1.2 S3 Object Lock impl pending
+status: draft — M1.1 contract + M1.2 S3 Object Lock impl landed; M1.3 dispatcher pending
 plan: antos-enterprise-control-plane-2026-05-27 §M1
 companion: ant-v02-identity-and-recovery.md (audit_events table source)
 ---
@@ -135,8 +135,8 @@ For a customer (or partner) implementing this contract for their destination:
 
 | Slice | Status | Owner | Notes |
 |---|---|---|---|
-| M1.1 contract + reference adapter | this PR | @enterprisec | Type-level + no-op + tests + this doc |
-| M1.2 S3 Object Lock backend | planned | @enterprisec | AWS SDK v3, compliance mode, bucket retention floor |
+| M1.1 contract + reference adapter | landed (PR #125 fb731d6) | @enterprisec | Type-level + no-op + tests + this doc |
+| M1.2 S3 Object Lock backend | this PR (stacked on PR #125) | @enterprisec | AWS SDK v3, compliance mode mapping, date-partitioned keys, AWS error → SinkError mapping |
 | M1.3 audit dispatcher | planned | TBD | Watermark + replay + retry-per-error-kind |
 | M7.2 SIEM destination adapters | planned (depends on M1.1) | @2ec | Splunk HEC / Datadog Logs / Elastic — implementations of this contract |
 
