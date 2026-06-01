@@ -20,6 +20,11 @@ const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 const SPARKLINE_HOURS = 24;
 const HEATMAP_DAYS = 7;
+// A terminal-less agent (active room seat, no attached local pty) is badged
+// `remote` if it posted within this window, else `offline`. Mirrors the
+// 5-min remote-heartbeat staleness threshold used elsewhere (room-membership
+// liveness) so "active right now" reads consistently across surfaces.
+const REMOTE_ACTIVE_MS = 5 * 60 * 1000;
 
 // Positive reactions = the OK / Good / Celebrate buckets. 👎 is explicitly
 // excluded and 🙋‍♂️ is a question, not approval.
@@ -273,6 +278,30 @@ function loadHandleWorkspaces(handles: string[]): Map<string, string | null> {
   return out;
 }
 
+// Latest chat-message timestamp (ms) per handle — drives the remote/offline
+// badge for terminal-less agents, which have no pty heartbeat to read.
+function loadLastMessageAtByHandle(handles: string[]): Map<string, number> {
+  const out = new Map<string, number>();
+  if (handles.length === 0) return out;
+  const db = getIdentityDb();
+  const placeholders = handles.map(() => '?').join(',');
+  const rows = db
+    .prepare(
+      `SELECT author_handle AS handle, MAX(posted_at) AS last_at
+       FROM chat_messages
+       WHERE author_handle IN (${placeholders})
+         AND kind IN ('human','agent')
+       GROUP BY author_handle`
+    )
+    .all(...handles) as Array<{ handle: string; last_at: string | null }>;
+  for (const r of rows) {
+    if (!r.last_at) continue;
+    const ms = Date.parse(r.last_at);
+    if (!Number.isNaN(ms)) out.set(r.handle, ms);
+  }
+  return out;
+}
+
 function loadCollaborators(agents: AgentRegistryEntry[]): Map<string, string[]> {
   // For every agent, list the OTHER agent handles that share a current room.
   const out = new Map<string, string[]>();
@@ -417,12 +446,30 @@ export function listFleetAgents(
   const registryByHandle = new Map(registry.map((a) => [a.handle, a] as const));
   const collabByHandle = loadCollaborators(registry);
   const modelById = listTerminalModelsByIds(records.map((r) => r.session_id));
-  const handles = [...new Set(records.map((r) => r.handle ?? deriveHandle(r)))];
+  const terminalHandles = new Set(records.map((r) => r.handle ?? deriveHandle(r)));
+
+  // UNION — registered agents that hold an ACTIVE room seat but have NO
+  // attached terminal on this host. JWPK 2026-06-01: "@v4claude isn't on the
+  // agents page" — an agent JWPK was actively talking to was dropped because
+  // the fleet is terminal_records-sourced and that agent has an identity +
+  // membership but no local terminal row (fresh-shell rebind gap / remote
+  // agent). These surface as terminal-less cards badged remote (recent chat
+  // activity) or offline. The flip side of the original "only-2" bug, where
+  // the filter was so narrow it hid terminals; this restores agents the
+  // terminal-centric query structurally cannot see.
+  const terminalLessAgents = registry.filter(
+    (a) => a.rooms.length > 0 && !terminalHandles.has(a.handle)
+  );
+
+  const handles = [
+    ...new Set([...terminalHandles, ...terminalLessAgents.map((a) => a.handle)]),
+  ];
   const counts = aggregateCounts(handles, nowMs);
   const series = timeseriesByHandle(handles, nowMs);
   const workspaces = loadHandleWorkspaces(handles);
+  const lastMessageAt = loadLastMessageAtByHandle(terminalLessAgents.map((a) => a.handle));
 
-  return records.map((r) => {
+  const terminalEntries: FleetAgent[] = records.map((r) => {
     const handle = r.handle ?? deriveHandle(r);
     const reg = registryByHandle.get(handle);
     // Prefer the registered agent's display name; fall back to the terminal
@@ -466,4 +513,50 @@ export function listFleetAgents(
       },
     };
   });
+
+  // Terminal-less active agents — no local pty, so no sessionId, agentKind or
+  // model, and the /agents card hides the go-to-terminal nav for an empty
+  // sessionId. Status is derived from recent chat activity (remote/offline)
+  // since there is no pty heartbeat. Stats/rooms still layer in by handle.
+  const terminalLessEntries: FleetAgent[] = terminalLessAgents.map((a) => {
+    const handle = a.handle;
+    const c = counts.get(handle) ?? emptyCounts();
+    const s = series.get(handle) ?? {
+      sparkline: new Array(SPARKLINE_HOURS).fill(0),
+      heatmap: new Array(HEATMAP_DAYS).fill(0),
+    };
+    const lastAt = lastMessageAt.get(handle) ?? null;
+    const isRemote = lastAt !== null && nowMs - lastAt <= REMOTE_ACTIVE_MS;
+    return {
+      handle,
+      sessionId: '',
+      name: a.displayName,
+      agentKind: null,
+      model: null,
+      displayName: a.displayName,
+      displayColor: a.displayColor ?? defaultParticipantColor(handle),
+      displayIcon: a.displayIcon ?? defaultParticipantIcon(a.displayName),
+      displayBackgroundStyle: a.displayBackgroundStyle ?? null,
+      rooms: a.rooms,
+      pastRooms: [],
+      collaborators: collabByHandle.get(handle) ?? [],
+      status: { state: isRemote ? 'remote' : 'offline', atMs: lastAt ?? nowMs },
+      workspace: workspaces.get(handle) ?? null,
+      productivityScore: computeProductivityScore(c),
+      deliveryRate: computeDeliveryRate(c),
+      streakDays: computeStreakDays(s.heatmap),
+      sparkline: s.sparkline,
+      heatmap: s.heatmap,
+      stats: {
+        messages24h: c.messages24h,
+        runEvents24h: c.runEvents24h,
+        plansCreated: c.plansCreated,
+        positiveReactions: c.positiveReactions,
+        tasks: c.tasks,
+        asksPosed: { open: c.asksOpen },
+      },
+    };
+  });
+
+  return [...terminalEntries, ...terminalLessEntries];
 }

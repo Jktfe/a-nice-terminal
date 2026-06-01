@@ -255,12 +255,18 @@
               <span class="workspace">📁 {agent.workspace}</span>
             {/if}
             <!-- Quick-nav to this terminal on the management page (stopPropagation
-                 so it navigates instead of toggling the card). -->
-            <a
-              class="goto-terminal"
-              href={`/terminals#term-${agent.sessionId}`}
-              onclick={(e) => e.stopPropagation()}
-            >go to terminal →</a>
+                 so it navigates instead of toggling the card). Terminal-less
+                 agents (remote/offline, no attached pty → empty sessionId) have
+                 no terminal to jump to, so we label them instead of linking. -->
+            {#if agent.sessionId}
+              <a
+                class="goto-terminal"
+                href={`/terminals#term-${agent.sessionId}`}
+                onclick={(e) => e.stopPropagation()}
+              >go to terminal →</a>
+            {:else}
+              <span class="no-terminal">no local terminal</span>
+            {/if}
           </div>
 
           <!-- Productivity score -->
@@ -505,6 +511,7 @@
   /* Quick-nav to this terminal on the management page. */
   .goto-terminal { margin-left: auto; font-size: 10px; font-weight: 600; color: var(--accent); text-decoration: none; white-space: nowrap; }
   .goto-terminal:hover { text-decoration: underline; }
+  .no-terminal { margin-left: auto; font-size: 10px; font-weight: 600; color: var(--muted); white-space: nowrap; opacity: 0.7; }
   .status-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem; flex-wrap: wrap; }
   .status-pill { font-family: ui-monospace, monospace; font-size: 10.5px; padding: 2px 7px; border-radius: 4px; background: var(--surface-raised); border: 0.5px solid var(--line-soft); color: var(--ink-soft); white-space: nowrap; }
   .status-pill.working { background: rgba(26, 194, 112, 0.1); border-color: rgba(26, 194, 112, 0.25); color: var(--ok); }
