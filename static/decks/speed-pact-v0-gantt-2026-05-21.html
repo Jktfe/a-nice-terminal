@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Speed Pact v0 — Delivery Gantt</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --surface-2: #21262d; --border: #30363d;
+    --text: #c9d1d9; --text-muted: #8b949e;
+    --L1: #58a6ff; --L2: #3fb950; --L3: #f0883e;
+    --critical: #f85149; --milestone: #d2a8ff;
+    --font-mono: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, monospace;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--text); font-family: var(--font-sans); min-height: 100vh; }
+  .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+  header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); flex-wrap: wrap; gap: 1rem; }
+  h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.01em; }
+  .subtitle { color: var(--text-muted); font-size: 1rem; font-family: var(--font-mono); }
+  .legend { display: flex; gap: 1.25rem; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; }
+  .swatch { width: 14px; height: 14px; border-radius: 3px; }
+  .gantt-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; overflow-x: auto; }
+  .week-header { display: grid; grid-template-columns: 200px repeat(15, 1fr); gap: 0; margin-bottom: 0.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted); }
+  .week-header > div { text-align: center; padding: 0.25rem 0; }
+  .week-header > div:first-child { text-align: left; padding-left: 0.5rem; }
+  .week-divider { border-left: 1px solid var(--border); }
+  .row { display: grid; grid-template-columns: 200px 1fr; gap: 0; min-height: 36px; align-items: center; border-bottom: 1px dashed var(--border); padding: 0.4rem 0; }
+  .row:last-child { border-bottom: none; }
+  .milestone-label { padding-left: 0.5rem; font-family: var(--font-mono); font-size: 0.85rem; color: var(--milestone); font-weight: 600; }
+  .row-task .label { padding-left: 1.25rem; font-size: 0.85rem; color: var(--text); }
+  .row-task .label .tid { font-family: var(--font-mono); color: var(--text-muted); margin-right: 0.4rem; }
+  .row-task .label .owner { display: inline-block; font-family: var(--font-mono); font-size: 0.7rem; padding: 0.05rem 0.4rem; border-radius: 3px; margin-left: 0.5rem; }
+  .lane { position: relative; height: 24px; }
+  .bar { position: absolute; height: 22px; top: 1px; border-radius: 4px; padding: 0 0.6rem; display: flex; align-items: center; font-size: 0.75rem; font-family: var(--font-mono); color: #0d1117; font-weight: 600; cursor: help; overflow: hidden; white-space: nowrap; }
+  .bar.L1 { background: var(--L1); }
+  .bar.L2 { background: var(--L2); }
+  .bar.L3 { background: var(--L3); }
+  .bar.joint { background: linear-gradient(90deg, var(--L1) 0%, var(--L1) 33%, var(--L2) 33%, var(--L2) 66%, var(--L3) 66%, var(--L3) 100%); color: #fff; }
+  .bar.banked { background: var(--surface-2); color: var(--text-muted); border: 1px dashed var(--border); }
+  .milestone-diamond { position: absolute; width: 14px; height: 14px; top: 5px; background: var(--milestone); transform: rotate(45deg); }
+  .deps-overlay { position: absolute; inset: 0; pointer-events: none; }
+  .dep-line { stroke: var(--critical); stroke-width: 1.5; fill: none; opacity: 0.55; stroke-dasharray: 3 2; }
+  .dep-arrow { fill: var(--critical); opacity: 0.55; }
+  .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 1.5rem; }
+  .summary-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.25rem; }
+  .summary-card h3 { font-size: 0.9rem; font-family: var(--font-mono); color: var(--text-muted); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .summary-card .value { font-size: 1.6rem; font-weight: 700; font-family: var(--font-mono); }
+  .summary-card .L1 { color: var(--L1); }
+  .summary-card .L2 { color: var(--L2); }
+  .summary-card .L3 { color: var(--L3); }
+  .notes { margin-top: 1.5rem; padding: 1.25rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6; }
+  .notes h3 { color: var(--text); font-size: 1rem; margin-bottom: 0.75rem; font-family: var(--font-sans); }
+  .notes ul { margin-left: 0; list-style: none; }
+  .notes li { padding-left: 1.25rem; position: relative; margin-bottom: 0.4rem; }
+  .notes li::before { content: "▸"; position: absolute; left: 0; color: var(--L1); }
+  code { font-family: var(--font-mono); background: var(--surface-2); padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.8em; }
+  .critical-badge { display: inline-block; font-size: 0.65rem; font-family: var(--font-mono); padding: 0.05rem 0.35rem; border-radius: 3px; background: var(--critical); color: #fff; margin-left: 0.4rem; vertical-align: middle; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div>
+      <h1>Speed Pact v0 — Delivery Gantt</h1>
+      <div class="subtitle">3 weeks · 3 lanes · 5 milestones · 19 tasks · created 2026-05-21</div>
+    </div>
+    <div class="legend">
+      <div class="legend-item"><div class="swatch" style="background: var(--L1);"></div>L1 @speedyclaude — Measure & Cadence</div>
+      <div class="legend-item"><div class="swatch" style="background: var(--L2);"></div>L2 @speedykimi — Reuse & Refactor</div>
+      <div class="legend-item"><div class="swatch" style="background: var(--L3);"></div>L3 @speedycodex — Onboarding & Memory</div>
+      <div class="legend-item"><div class="swatch" style="background: var(--milestone); transform: rotate(45deg);"></div>milestone</div>
+      <div class="legend-item"><div class="swatch" style="background: var(--critical);"></div>critical dep</div>
+    </div>
+  </header>
+
+  <div class="gantt-wrap">
+    <!-- Week header: 15 day-columns = 3 weeks × 5 working days -->
+    <div class="week-header">
+      <div>Milestone / Task</div>
+      <div>M</div><div>T</div><div>W</div><div>T</div><div>F</div>
+      <div class="week-divider">M</div><div>T</div><div>W</div><div>T</div><div>F</div>
+      <div class="week-divider">M</div><div>T</div><div>W</div><div>T</div><div>F</div>
+    </div>
+    <div style="display: grid; grid-template-columns: 200px 1fr; gap: 0; font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted); padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); margin-bottom: 0.5rem;">
+      <div></div>
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr);">
+        <div style="text-align: center; color: var(--L1);">WEEK 1 — Perceived ACK</div>
+        <div style="text-align: center; color: var(--L2);">WEEK 2 — Verdict Accuracy</div>
+        <div style="text-align: center; color: var(--L3);">WEEK 3+ — Wall-Clock Refactor</div>
+      </div>
+    </div>
+
+    <!-- M-Measure -->
+    <div class="row"><div class="milestone-label">M-Measure</div><div class="lane"></div></div>
+    <div class="row row-task"><div class="label"><span class="tid">T1</span>Baseline-1: 8 latency metrics</div>
+      <div class="lane"><div class="bar L1" style="left: 0%; width: 13%;" title="L1 owns. ~2d. Independent.">T1 · 2d · L1</div></div>
+    </div>
+    <div class="row row-task"><div class="label"><span class="tid">T2</span>Agent-path latency probes <span class="critical-badge">crit</span></div>
+      <div class="lane"><div class="bar L1" style="left: 13%; width: 13%;" title="L1. Depends T1.">T2 · 2d · L1</div></div>
+    </div>
+    <div class="row row-task"><div class="label"><span class="tid">T3</span>ACK budget enforcement scaffold</div>
+      <div class="lane"><div class="bar L1" style="left: 0%; width: 6.5%;" title="L1. Independent. ~1d.">T3·L1</div></div>
+    </div>
+    <div class="row row-task"><div class="label"><span class="tid">T4</span>Speed-ledger append protocol</div>
+      <div class="lane"><div class="bar L1" style="left: 26%; width: 6.5%;" title="L1. ~0.5d follow-on of T2.">T4·L1</div><div class="milestone-diamond" style="left: 32.5%;" title="M-Measure milestone"></div></div>
+    </div>
+
+    <!-- M-Reuse -->
+    <div class="row"><div class="milestone-label">M-Reuse</div><div class="lane"></div></div>
+    <div class="row row-task"><div class="label"><span class="tid">T5</span>TranscriptTailWatcher generic + 6 parsers <span class="critical-badge">crit</span></div>
+      <div class="lane"><div class="bar L2" style="left: 33.3%; width: 20%;" title="L2 Cand 1. Depends T2 (transcript-capture baseline). ~3d.">T5 · 3d · L2</div></div>
+    </div>
+    <div class="row row-task"><div class="label"><span class="tid">T6</span>ModalShell + ConfirmModal primitive</div>
+      <div class="lane"><div class="bar L2" style="left: 33.3%; width: 13%;" title="L2 Cand 2. Depends T1 (HMR baseline). ~2d. Parallel with T5.">T6 · 2d · L2</div></div>
+    </div>
+    <div class="row row-task"><div class="label"><span class="tid">T7</span>Store factory pattern pilot <span class="critical-badge">crit</span></div>
+      <div class="lane"><div class="bar L2" style="left: 53.3%; width: 20%;" title="L2 Cand 3. Depends T5 (proven factory shape). ~3d.">T7 · 3d · L2</div></div>
+    </div>
+    <div class="row row-task"><div class="label"><span class="tid">T8</span>vitest pool=threads migration</div>
+      <div class="lane"><div class="bar L2" style="left: 46.6%; width: 6.5%;" title="L2 parallel. Independent. ~1d.">T8·L2</div><div class="milestone-diamond" style="left: 73.3%;" title="M-Reuse milestone"></div></div>
+    </div>
+
+    <!-- M-Onboard -->
+    <div class="row"><div class="milestone-label">M-Onboard</div><div class="lane"></div></div>
+    <div class="row row-task"><div class="label"><span class="tid">T9</span>Status-line install button + 6-CLI normalisation</div>
+      <div class="lane"><div class="bar L3" style="left: 53.3%; width: 13%;" title="L3. Depends T5 (parser-plugin shape). ~2d.">T9 · 2d · L3</div></div>
+    </div>
+    <div class="row row-task"><div class="label"><span class="tid">T10</span>Capability manifest publishing</div>
+      <div class="lane"><div class="bar L3" style="left: 0%; width: 13%;" title="L3. Independent. ~2d.">T10 · 2d · L3</div></div>
+    </div>
+    <div class="row row-task"><div class="label"><span class="tid">T11</span>Memory-as-cache freshness probe</div>
+      <div class="lane"><div class="bar L3" style="left: 13%; width: 13%;" title="L3. Independent. ~2d.">T11 · 2d · L3</div></div>
+    </div>
+    <div class="row row-task"><div class="label"><span class="tid">T12</span>First-post identity injection final polish</div>
+      <div class="lane"><div class="bar L3" style="left: 26%; width: 6.5%;" title="L3. Substrate already shipped. ~1d polish.">T12·L3</div><div class="milestone-diamond" style="left: 66.6%;" title="M-Onboard milestone"></div></div>
+    </div>
+
+    <!-- M-Auto -->
+    <div class="row"><div class="milestone-label">M-Auto</div><div class="lane"></div></div>
+    <div class="row row-task"><div class="label"><span class="tid">T13</span>Heads-down room mode UX (entityClaimStore wired)</div>
+      <div class="lane"><div class="bar L3" style="left: 33.3%; width: 13%;" title="L3. entityClaimStore already shipped — needs UI. ~2d.">T13 · 2d · L3</div></div>
+    </div>
+    <div class="row row-task"><div class="label"><span class="tid">T14</span>Planning-mode signal + icon state</div>
+      <div class="lane"><div class="bar L3" style="left: 46.6%; width: 6.5%;" title="L3. ~1d.">T14·L3</div></div>
+    </div>
+    <div class="row row-task"><div class="label"><span class="tid">T15</span>Asks-as-interview-pattern refactor</div>
+      <div class="lane"><div class="bar L3" style="left: 53.3%; width: 20%;" title="L3. Depends T13 (claim primitives in UI). ~3d.">T15 · 3d · L3</div></div>
+    </div>
+    <div class="row row-task"><div class="label"><span class="tid">T16</span>Seen-by read receipts on asks</div>
+      <div class="lane"><div class="bar L3" style="left: 73.3%; width: 6.5%;" title="L3. Depends T15 indirectly. ~1d.">T16·L3</div><div class="milestone-diamond" style="left: 80%;" title="M-Auto milestone"></div></div>
+    </div>
+
+    <!-- M-Demo -->
+    <div class="row"><div class="milestone-label">M-Demo</div><div class="lane"></div></div>
+    <div class="row row-task"><div class="label"><span class="tid">T17</span>Walkthrough rehearsal + Q1-Q4 ratify-or-amend</div>
+      <div class="lane"><div class="bar joint" style="left: 86.6%; width: 6.5%;" title="Joint. ~0.5d.">T17·joint</div><div class="milestone-diamond" style="left: 93.3%;" title="M-Demo milestone — Speed Pact v1 shipped"></div></div>
+    </div>
+    <div class="row row-task"><div class="label"><span class="tid">T18</span>Stage primitive v0.5 (post-Speed-Pact)</div>
+      <div class="lane"><div class="bar banked" style="left: 93.3%; width: 6.5%;" title="BANKED — separate plan after Speed Pact.">banked</div></div>
+    </div>
+    <div class="row row-task"><div class="label"><span class="tid">T19</span>Validation feature v0.5 (post-Speed-Pact)</div>
+      <div class="lane"><div class="bar banked" style="left: 93.3%; width: 6.5%;" title="BANKED — policyStore exists; build after Speed Pact.">banked</div></div>
+    </div>
+
+    <!-- Dependency arrows overlay (SVG positioned over the gantt grid) -->
+    <!-- Drawn separately as an SVG layer below. -->
+  </div>
+
+  <!-- Resource summary -->
+  <div class="summary">
+    <div class="summary-card">
+      <h3>L1 @speedyclaude</h3>
+      <div class="value L1">5.5 days</div>
+      <div style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">T1 + T2 + T3 + T4 — measurement + cadence scaffolding. Critical path runs through T2 → T5.</div>
+    </div>
+    <div class="summary-card">
+      <h3>L2 @speedykimi</h3>
+      <div class="value L2">9 days</div>
+      <div style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">T5 + T6 + T7 + T8 — three refactor candidates + vitest pool migration. Critical path: T5 → T7.</div>
+    </div>
+    <div class="summary-card">
+      <h3>L3 @speedycodex</h3>
+      <div class="value L3">14 days</div>
+      <div style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">T9-T16 + coordinator — biggest single load. Many parallel tasks; coordinator role on top.</div>
+    </div>
+  </div>
+
+  <!-- Critical path + risks + assumptions -->
+  <div class="notes">
+    <h3>Critical path</h3>
+    <ul>
+      <li><code>T1 → T2 → T5 → T7</code> — 10 working days. Any slip here slips the whole plan. Buffer in T8 (parallel) and T6 (independent of T5).</li>
+      <li><code>T5 → T9</code> — L3 status-line normalisation waits on L2 parser-plugin shape. If T5 slips, T9 slips with it.</li>
+      <li><code>T13 → T15</code> — asks-as-interview refactor needs heads-down claim primitives in UI first.</li>
+    </ul>
+    <h3 style="margin-top: 1rem;">Key dependencies (per R3 of Speed Pact contract)</h3>
+    <ul>
+      <li><strong>L1 baselines (T1) MUST land before L2 refactor candidates (T5, T6).</strong> "You can't refactor what you haven't measured."</li>
+      <li>L2 Candidate 1 (T5) proves the parser-plugin pattern that L3 status-line normalisation (T9) and L2 Candidate 3 (T7) both consume.</li>
+      <li>L3 substrate work (T10, T11, T12) is mostly independent — pulls into Week 1 for parallelism.</li>
+    </ul>
+    <h3 style="margin-top: 1rem;">Risks + assumptions</h3>
+    <ul>
+      <li><strong>Day-estimates are nominal working days</strong> — agent throughput varies; assume 0.7× efficiency for cross-lane coordination overhead.</li>
+      <li><strong>R4 hold</strong>: no <code>ant plan</code> or <code>ant task</code> entries created until JWPK explicit-blesses Q1-Q4. "Looks good + build the Gantt" treated as implicit ratification for the Gantt itself; explicit ratification required for plan/task creation.</li>
+      <li><strong>Stage + Validation banked</strong>: per JWPK msg_qh9s9qa1g5 — built only after Speed Pact M-Measure / M-Reuse / M-Onboard / M-Auto / M-Demo land. Shown as banked stubs T18/T19 so resource budget reflects reality.</li>
+      <li><strong>Heads-down room mode</strong>: entityClaimStore (🖐️🤝👐 claim primitive) is already shipped (ratified via ask_hj2ubjbum8dmpce8dc1). T13 is UX-only, not greenfield.</li>
+      <li><strong>Identity substrate</strong>: room identity table + alias canonicalisation already shipped. T12 is polish, not core build.</li>
+    </ul>
+    <h3 style="margin-top: 1rem;">Cadence checkpoints</h3>
+    <ul>
+      <li>End of Week 1: M-Measure milestone hit. L1 publishes Baseline-1 ledger. Decision: L2 starts refactor or L1 re-baselines.</li>
+      <li>End of Week 2: M-Reuse + M-Onboard milestones hit. L2 has 3 refactors landed; L3 has substrate + status-line normalisation.</li>
+      <li>End of Week 3: M-Auto + M-Demo. Asks-as-interview live; walkthrough demo; Q1-Q4 ratified-or-amended for any v1.1 changes.</li>
+    </ul>
+  </div>
+</div>
+</body>
+</html>

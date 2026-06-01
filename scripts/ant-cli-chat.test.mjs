@@ -1,0 +1,409 @@
+import { describe, expect, it } from 'vitest';
+import { handleChatVerb } from './ant-cli-chat.mjs';
+
+class CliInputError extends Error {}
+
+function makeMessage(overrides) {
+  return {
+    id: 'msg-' + Math.random().toString(36).slice(2, 6),
+    roomId: 'room-a',
+    authorHandle: '@guest',
+    authorDisplayName: 'Guest',
+    kind: 'human',
+    body: 'hello',
+    postedAt: '2026-05-12T20:00:00.000Z',
+    postOrder: 1,
+    ...overrides
+  };
+}
+
+function makeRuntime(responseBuilder) {
+  const captured = { gets: [], requests: [], stdout: [], stderr: [] };
+  const fetchImpl = async (url, init = {}) => {
+    captured.gets.push(url);
+    captured.requests.push({ url, init });
+    return responseBuilder(captured.gets.length, { url, init });
+  };
+  return {
+    runtime: {
+      fetchImpl,
+      serverUrl: 'http://test.local',
+      writeOut: (line) => captured.stdout.push(line),
+      writeErr: (line) => captured.stderr.push(line)
+    },
+    captured
+  };
+}
+
+function okMessages(messages) {
+  return { ok: true, status: 200, json: async () => ({ messages }), text: async () => JSON.stringify({ messages }) };
+}
+
+function failure(status, bodyText) {
+  return { ok: false, status, json: async () => ({}), text: async () => bodyText };
+}
+
+function okJson(body, status = 200) {
+  return { ok: true, status, json: async () => body, text: async () => JSON.stringify(body) };
+}
+const bodyAt = (captured, index = 0) => JSON.parse(captured.requests[index].init.body);
+
+describe('ant chat tail', () => {
+  it('T1: tail prints one line per new message after --since-order 0', async () => {
+    const messages = [makeMessage({ id: 'a', postOrder: 1, body: 'first' }), makeMessage({ id: 'b', postOrder: 2, body: 'second' })];
+    const { runtime, captured } = makeRuntime(() => okMessages(messages));
+    await handleChatVerb('tail', ['--room', 'room-a', '--since-order', '0', '--once'], runtime, { CliInputError });
+    expect(captured.stdout).toHaveLength(2);
+    expect(captured.stdout[0]).toContain('first');
+    expect(captured.stdout[1]).toContain('second');
+  });
+
+  it('T2: tail filters messages with postOrder <= since-order', async () => {
+    const messages = [makeMessage({ id: 'a', postOrder: 1, body: 'old' }), makeMessage({ id: 'b', postOrder: 5, body: 'new' })];
+    const { runtime, captured } = makeRuntime(() => okMessages(messages));
+    await handleChatVerb('tail', ['--room', 'room-a', '--since-order', '3', '--once'], runtime, { CliInputError });
+    expect(captured.stdout).toHaveLength(1);
+    expect(captured.stdout[0]).toContain('new');
+  });
+
+  it('T3: tail advances since-order across consecutive polls (no duplicates)', async () => {
+    const firstPoll = [makeMessage({ id: 'a', postOrder: 1 }), makeMessage({ id: 'b', postOrder: 2 })];
+    const secondPoll = [...firstPoll, makeMessage({ id: 'c', postOrder: 3, body: 'newer' })];
+    let fetchCount = 0;
+    const { runtime, captured } = makeRuntime(() => {
+      fetchCount++;
+      return okMessages(fetchCount === 1 ? firstPoll : secondPoll);
+    });
+    await handleChatVerb('tail', ['--room', 'room-a', '--since-order', '0', '--once'], runtime, { CliInputError });
+    expect(captured.stdout).toHaveLength(2);
+  });
+
+  it('T4: --once exits after exactly one fetch', async () => {
+    const { runtime, captured } = makeRuntime(() => okMessages([makeMessage({ postOrder: 1 })]));
+    await handleChatVerb('tail', ['--room', 'room-a', '--once'], runtime, { CliInputError });
+    expect(captured.gets).toHaveLength(1);
+    expect(new URL(captured.gets[0]).searchParams.get('pidChain')).toBeTruthy();
+  });
+
+  it('T4b: tail mints a browser-session cookie and retries when read gate returns 401', async () => {
+    const messages = [makeMessage({ id: 'm1', postOrder: 1, body: 'hello after auth' })];
+    const { runtime, captured } = makeRuntime((callIndex) => {
+      if (callIndex === 1) return failure(401, 'Authentication required.');
+      if (callIndex === 2) {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'set-cookie': 'ant_browser_session=session-123; Path=/api/chat-rooms/room-a' }
+        });
+      }
+      return okMessages(messages);
+    });
+    runtime.config = { handle: '@agent' };
+
+    const code = await handleChatVerb('tail', ['--room', 'room-a', '--since-order', '0', '--once'], runtime, { CliInputError });
+
+    expect(code).toBe(0);
+    expect(captured.requests[1]).toMatchObject({
+      url: 'http://test.local/api/chat-rooms/room-a/browser-session',
+      init: expect.objectContaining({ method: 'POST' })
+    });
+    expect(bodyAt(captured, 1)).toMatchObject({ authorHandle: '@agent', pidChain: expect.any(Array) });
+    expect(captured.requests[2].init.headers.cookie).toBe('ant_browser_session=session-123');
+    expect(captured.stdout.join('\n')).toContain('hello after auth');
+  });
+
+  it('T5: missing --room raises CliInputError before any fetch', async () => {
+    const { runtime, captured } = makeRuntime(() => okMessages([]));
+    let captured_err = null;
+    try { await handleChatVerb('tail', ['--once'], runtime, { CliInputError }); } catch (failure) { captured_err = failure; }
+    expect(captured_err).toBeInstanceOf(CliInputError);
+    expect(captured.gets).toHaveLength(0);
+  });
+
+  it('T6: invalid --poll-ms clamps via accepted range (no crash)', async () => {
+    const { runtime } = makeRuntime(() => okMessages([]));
+    await handleChatVerb('tail', ['--room', 'room-a', '--poll-ms', 'notanumber', '--once'], runtime, { CliInputError });
+    await handleChatVerb('tail', ['--room', 'room-a', '--poll-ms', '-5', '--once'], runtime, { CliInputError });
+    await handleChatVerb('tail', ['--room', 'room-a', '--poll-ms', '99999999', '--once'], runtime, { CliInputError });
+  });
+
+  it('T7: server 404 (unknown room) surfaces as exit 1 + stderr', async () => {
+    const { runtime, captured } = makeRuntime(() => failure(404, 'Room not found.'));
+    const code = await handleChatVerb('tail', ['--room', 'room-x', '--once'], runtime, { CliInputError });
+    expect(code).toBe(1);
+    expect(captured.stderr.join('\n')).toContain('404');
+  });
+
+  it('T8: server 500 surfaces as exit 1', async () => {
+    const { runtime, captured } = makeRuntime(() => failure(500, 'boom'));
+    const code = await handleChatVerb('tail', ['--room', 'room-a', '--once'], runtime, { CliInputError });
+    expect(code).toBe(1);
+    expect(captured.stderr.join('\n')).toContain('500');
+  });
+
+  it('T9: tail emits full bodies so agent routers do not lose instructions', async () => {
+    const longBody = 'a'.repeat(500);
+    const messages = [makeMessage({ postOrder: 1, body: longBody })];
+    const { runtime, captured } = makeRuntime(() => okMessages(messages));
+    await handleChatVerb('tail', ['--room', 'room-a', '--since-order', '0', '--once'], runtime, { CliInputError });
+    expect(captured.stdout[0]).toContain(longBody);
+    expect(captured.stdout[0]).not.toContain('…');
+  });
+
+  it('T10: multiple new messages emit in postOrder order', async () => {
+    const out = [
+      makeMessage({ id: 'c', postOrder: 3, body: 'third' }),
+      makeMessage({ id: 'a', postOrder: 1, body: 'first' }),
+      makeMessage({ id: 'b', postOrder: 2, body: 'second' })
+    ];
+    const { runtime, captured } = makeRuntime(() => okMessages(out));
+    await handleChatVerb('tail', ['--room', 'room-a', '--since-order', '0', '--once'], runtime, { CliInputError });
+    expect(captured.stdout[0]).toContain('first');
+    expect(captured.stdout[1]).toContain('second');
+    expect(captured.stdout[2]).toContain('third');
+  });
+});
+
+describe('ant chat state wrappers', () => {
+  it('S1: send reads a shell-safe message body from --stdin', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ message: { id: 'msg-stdin', authorHandle: '@codex' } }, 201));
+    runtime.fs = {
+      readFileSync: (path) => {
+        expect(path).toBe(0);
+        return 'literal `ticks` and trailing @\n';
+      }
+    };
+
+    await handleChatVerb('send', ['room-a', '--stdin'], runtime, { CliInputError });
+
+    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/room-a/messages');
+    expect(captured.requests[0].init.method).toBe('POST');
+    expect(bodyAt(captured)).toMatchObject({
+      body: 'literal `ticks` and trailing @\n',
+      pidChain: expect.any(Array)
+    });
+    expect(captured.stdout.join('\n')).toContain('msg-stdin');
+  });
+
+  it('S2: reply derives the target room from the parent message id', async () => {
+    const { runtime, captured } = makeRuntime((callIndex, { url }) => {
+      if (url === 'http://test.local/api/chat-rooms/messages/msg_parent') {
+        return okJson({ message: { id: 'msg_parent', roomId: 'room-a', authorHandle: '@you', body: 'Question?' } });
+      }
+      if (url === 'http://test.local/api/chat-rooms/room-a/messages') {
+        return okJson({ message: { id: 'msg_reply', authorHandle: '@codex' } }, 201);
+      }
+      return failure(404, 'unexpected path');
+    });
+    runtime.fs = {
+      readFileSync: (path) => {
+        expect(path).toBe(0);
+        return 'Answer body from a safe heredoc.\n';
+      }
+    };
+
+    await handleChatVerb('reply', ['msg_parent', '--stdin', '--handle', '@codex'], runtime, { CliInputError });
+
+    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/messages/msg_parent');
+    expect(captured.requests[0].init.method).toBe('GET');
+    expect(captured.requests[1].url).toBe('http://test.local/api/chat-rooms/room-a/messages');
+    expect(captured.requests[1].init.method).toBe('POST');
+    expect(bodyAt(captured, 1)).toMatchObject({
+      body: 'Answer body from a safe heredoc.\n',
+      parentMessageId: 'msg_parent',
+      authorHandle: '@codex',
+      pidChain: expect.any(Array)
+    });
+    expect(captured.stdout.join('\n')).toContain('Replied msg_reply as @codex into room-a.');
+  });
+
+  it('C1: break POSTs a context break with reason and pidChain', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ message: { id: 'break-1', body: 'Context break.' } }, 201));
+
+    await handleChatVerb('break', ['--room', 'room-a', '--reason', 'switching lane', '--handle', '@codex'], runtime, { CliInputError });
+    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/room-a/breaks');
+    expect(captured.requests[0].init.method).toBe('POST');
+    const body = bodyAt(captured);
+    expect(body.reason).toBe('switching lane');
+    expect(body.postedByHandle).toBe('@codex');
+    expect(Array.isArray(body.pidChain)).toBe(true);
+    expect(captured.stdout.join('\n')).toContain('break-1');
+  });
+
+  it('C2: read POSTs the reader handle to a message read endpoint', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ receipt: { id: 'read-1' } }, 201));
+    await handleChatVerb('read', ['--room', 'room-a', '--message', 'msg-1', '--handle', '@researchant', '--json'], runtime, { CliInputError });
+    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/room-a/messages/msg-1/read');
+    expect(captured.requests[0].init.method).toBe('POST');
+    expect(bodyAt(captured)).toMatchObject({ readerHandle: '@researchant', pidChain: expect.any(Array) });
+    expect(JSON.parse(captured.stdout[0])).toMatchObject({ receipt: { id: 'read-1' } });
+  });
+
+  it('C3: typing POSTs the member handle to the typing endpoint', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ ok: true }, 201));
+    await handleChatVerb('typing', ['--room', 'room-a', '--handle', '@claude2'], runtime, { CliInputError });
+    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/room-a/typing');
+    expect(captured.requests[0].init.method).toBe('POST');
+    expect(bodyAt(captured)).toMatchObject({ memberHandle: '@claude2', pidChain: expect.any(Array) });
+    expect(captured.stdout.join('\n')).toContain('Typing heartbeat sent');
+  });
+
+  it('C4: draft PUTs text and DELETEs when --clear is passed', async () => {
+    const replies = [
+      okJson({ draft: { id: 'draft-1', draftText: 'partial note' } }),
+      okJson({ wasCleared: true })
+    ];
+    const { runtime, captured } = makeRuntime((callIndex) => replies[callIndex - 1]);
+    await handleChatVerb('draft', ['--room', 'room-a', '--handle', '@codex', '--text', 'partial note'], runtime, { CliInputError });
+    await handleChatVerb('draft', ['--room', 'room-a', '--handle', '@codex', '--clear'], runtime, { CliInputError });
+    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/room-a/composer-draft');
+    expect(captured.requests[0].init.method).toBe('PUT');
+    expect(bodyAt(captured)).toMatchObject({ authorHandle: '@codex', draftText: 'partial note', pidChain: expect.any(Array) });
+    expect(captured.requests[1].init.method).toBe('DELETE');
+    expect(bodyAt(captured, 1)).toMatchObject({ authorHandle: '@codex', pidChain: expect.any(Array) });
+  });
+
+  it('C5: wrapper verbs reject missing required flags before fetch', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ ok: true }));
+    await expect(handleChatVerb('read', ['--room', 'room-a'], runtime, { CliInputError })).rejects.toThrow('missing required flag --message');
+    await expect(handleChatVerb('draft', ['--room', 'room-a'], runtime, { CliInputError })).rejects.toThrow('requires --text or --clear');
+    expect(captured.requests).toHaveLength(0);
+  });
+
+  it('C6: focus PUTs member, duration, and reason to focus-mode', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({
+      focusEntry: { memberHandle: '@codex', expiresAt: '2026-05-16T22:00:00.000Z' }
+    }));
+    await handleChatVerb('focus', ['room-a', '--member', '@codex', '--for', '30m', '--reason', 'heads down'], runtime, { CliInputError });
+    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/room-a/focus-mode');
+    expect(captured.requests[0].init.method).toBe('PUT');
+    expect(bodyAt(captured)).toMatchObject({
+      memberHandle: '@codex',
+      durationMs: 1_800_000,
+      reason: 'heads down'
+    });
+    expect(captured.stdout.join('\n')).toContain('Focus set');
+  });
+
+  it('C7: unfocus DELETEs the member focus-mode row', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ wasActive: true }));
+    await handleChatVerb('unfocus', ['room-a', '--member', '@codex', '--json'], runtime, { CliInputError });
+    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/room-a/focus-mode');
+    expect(captured.requests[0].init.method).toBe('DELETE');
+    expect(bodyAt(captured)).toMatchObject({ memberHandle: '@codex' });
+    expect(JSON.parse(captured.stdout[0])).toMatchObject({ wasActive: true });
+  });
+
+  it('C8: decide PATCHes a discussion with decision text and pidChain', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({
+      discussion: { id: 'disc-1', summary: 'Use postgres', status: 'closed' }
+    }));
+    await handleChatVerb('decide', ['room-a', 'disc-1', 'Use', 'postgres'], runtime, { CliInputError });
+    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/room-a/discussions/disc-1');
+    expect(captured.requests[0].init.method).toBe('PATCH');
+    expect(bodyAt(captured)).toMatchObject({ decision: 'Use postgres', pidChain: expect.any(Array) });
+    expect(captured.stdout.join('\n')).toContain('closed with decision');
+  });
+});
+
+describe('ant chat send — message body input modes', () => {
+  function makeSendRuntime(messageResponse, fsStub) {
+    const captured = { requests: [], stdout: [], stderr: [] };
+    const fetchImpl = async (url, init = {}) => {
+      captured.requests.push({ url, init });
+      return { ok: true, status: 200, json: async () => messageResponse, text: async () => JSON.stringify(messageResponse) };
+    };
+    return {
+      runtime: {
+        fetchImpl,
+        serverUrl: 'http://test.local',
+        writeOut: (line) => captured.stdout.push(line),
+        writeErr: (line) => captured.stderr.push(line),
+        fs: fsStub
+      },
+      captured
+    };
+  }
+  const ok = { message: { id: 'msg-x', authorHandle: '@test' } };
+
+  it('B1: --msg "..." posts the body verbatim (legacy shape still works)', async () => {
+    const { runtime, captured } = makeSendRuntime(ok);
+    await handleChatVerb('send', ['--room', 'room-a', '--msg', 'hello literal'], runtime, { CliInputError });
+    expect(bodyAt(captured).body).toBe('hello literal');
+  });
+
+  it('B2: --msg-file reads body from disk; content with backticks/$/!/@ comes through untouched', async () => {
+    const trickyBody = 'reply with `whoami` and $PATH and ! marks plus trailing @';
+    const fsStub = { readFileSync: (p, enc) => {
+      if (p !== '/tmp/msg.txt' || enc !== 'utf8') throw new Error('unexpected read');
+      return trickyBody;
+    }};
+    const { runtime, captured } = makeSendRuntime(ok, fsStub);
+    await handleChatVerb('send', ['--room', 'room-a', '--msg-file', '/tmp/msg.txt'], runtime, { CliInputError });
+    expect(bodyAt(captured).body).toBe(trickyBody);
+  });
+
+  it('B3: --msg-stdin reads body from fd 0; content arrives intact', async () => {
+    const stdinBody = 'multi\nline\nbody with `backticks` and trailing @';
+    const fsStub = { readFileSync: (fd, enc) => {
+      if (fd !== 0 || enc !== 'utf8') throw new Error('unexpected stdin read');
+      return stdinBody;
+    }};
+    const { runtime, captured } = makeSendRuntime(ok, fsStub);
+    await handleChatVerb('send', ['--room', 'room-a', '--msg-stdin'], runtime, { CliInputError });
+    expect(bodyAt(captured).body).toBe(stdinBody);
+  });
+
+  it('B4: rejects when no body source is supplied', async () => {
+    const { runtime } = makeSendRuntime(ok);
+    await expect(
+      handleChatVerb('send', ['--room', 'room-a'], runtime, { CliInputError })
+    ).rejects.toThrow(/missing message body/);
+  });
+
+  it('B5: rejects when two body sources are supplied (no silent precedence)', async () => {
+    const fsStub = { readFileSync: () => 'from file' };
+    const { runtime } = makeSendRuntime(ok, fsStub);
+    await expect(
+      handleChatVerb('send', ['--room', 'room-a', '--msg', 'argv', '--msg-file', '/tmp/x.txt'], runtime, { CliInputError })
+    ).rejects.toThrow(/multiple message body sources/);
+  });
+
+  it('B6a: rejects obvious reply-shaped broadcasts before fetch', async () => {
+    const { runtime, captured } = makeSendRuntime(ok);
+
+    await expect(
+      handleChatVerb('send', ['--room', 'room-a', '--msg', 'reply-to=msg_parent I agree'], runtime, { CliInputError })
+    ).rejects.toThrow(/looks like a reply/);
+
+    expect(captured.requests).toHaveLength(0);
+  });
+
+  it('B6b: --broadcast-ok allows an intentional message-id broadcast', async () => {
+    const { runtime, captured } = makeSendRuntime(ok);
+
+    await handleChatVerb('send', ['--room', 'room-a', '--msg', 'Status for msg_parent is done', '--broadcast-ok'], runtime, { CliInputError });
+
+    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/room-a/messages');
+    expect(bodyAt(captured)).toMatchObject({ body: 'Status for msg_parent is done' });
+  });
+
+  it('B6c: --parent-message allows explicit reply posts through send', async () => {
+    const { runtime, captured } = makeSendRuntime(ok);
+
+    await handleChatVerb('send', ['--room', 'room-a', '--msg', 'reply-to=msg_parent I agree', '--parent-message', 'msg_parent'], runtime, { CliInputError });
+
+    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/room-a/messages');
+    expect(bodyAt(captured)).toMatchObject({
+      body: 'reply-to=msg_parent I agree',
+      parentMessageId: 'msg_parent'
+    });
+  });
+
+  it('B6: --msg-file path that cannot be read surfaces a useful error', async () => {
+    const fsStub = { readFileSync: () => { throw new Error('ENOENT'); }};
+    const { runtime } = makeSendRuntime(ok, fsStub);
+    await expect(
+      handleChatVerb('send', ['--room', 'room-a', '--msg-file', '/tmp/missing.txt'], runtime, { CliInputError })
+    ).rejects.toThrow(/--msg-file .* could not be read: ENOENT/);
+  });
+});

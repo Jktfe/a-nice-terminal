@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Speed Pact v0.3 — ANT vNext Refactoring + Speed Contract</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --surface-2: #21262d; --border: #30363d;
+    --text: #c9d1d9; --text-muted: #8b949e; --accent: #58a6ff; --accent-2: #3fb950;
+    --accent-3: #f0883e; --danger: #f85149;
+    --font-mono: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, monospace;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font-sans); overflow: hidden; }
+  #deck { position: relative; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
+  .slide { position: absolute; width: 100%; height: 100%; display: none; flex-direction: column; padding: 4rem 5rem; opacity: 0; transition: opacity 0.35s ease; }
+  .slide.active { display: flex; opacity: 1; }
+  .slide-content { max-width: 1100px; width: 100%; margin: 0 auto; }
+  h1 { font-size: 3.2rem; font-weight: 700; line-height: 1.15; margin-bottom: 1rem; letter-spacing: -0.02em; }
+  h2 { font-size: 2.2rem; font-weight: 600; line-height: 1.25; margin-bottom: 1.5rem; color: var(--accent); }
+  h3 { font-size: 1.4rem; font-weight: 600; margin-bottom: 0.75rem; color: var(--text); }
+  p, li { font-size: 1.25rem; line-height: 1.6; color: var(--text-muted); margin-bottom: 0.75rem; }
+  ul { list-style: none; margin-left: 0; }
+  ul li { position: relative; padding-left: 1.5rem; }
+  ul li::before { content: "▸"; position: absolute; left: 0; color: var(--accent); }
+  .subtitle { font-size: 1.4rem; color: var(--text-muted); margin-bottom: 2rem; }
+  .meta { font-family: var(--font-mono); font-size: 0.9rem; color: var(--text-muted); margin-top: auto; padding-top: 2rem; border-top: 1px solid var(--border); }
+  .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin: 2rem 0; }
+  .kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; }
+  .kpi-value { font-family: var(--font-mono); font-size: 2rem; font-weight: 700; color: var(--accent); margin-bottom: 0.5rem; }
+  .kpi-label { font-size: 0.95rem; color: var(--text-muted); }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 3rem; }
+  .tag { display: inline-block; font-family: var(--font-mono); font-size: 0.8rem; padding: 0.25rem 0.6rem; border-radius: 4px; background: var(--surface-2); color: var(--accent); margin-right: 0.5rem; margin-bottom: 0.5rem; }
+  .anchor-box { padding: 2rem; background: repeating-linear-gradient(45deg, var(--surface), var(--surface) 10px, var(--surface-2) 10px, var(--surface-2) 20px); border: 2px dashed var(--border); border-radius: 8px; text-align: center; }
+  .anchor-box h3 { color: var(--text-muted); margin-bottom: 0.5rem; }
+  .anchor-box p { font-family: var(--font-mono); font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0; }
+  .nav { position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%); display: flex; gap: 0.5rem; z-index: 100; font-family: var(--font-mono); font-size: 0.85rem; color: var(--text-muted); background: var(--surface); padding: 0.5rem 1rem; border-radius: 6px; border: 1px solid var(--border); }
+  .nav button { background: none; border: none; color: var(--text-muted); cursor: pointer; font-family: var(--font-mono); font-size: 0.85rem; padding: 0.25rem 0.5rem; }
+  .nav button:hover { color: var(--accent); }
+  .progress { position: fixed; top: 0; left: 0; height: 3px; background: var(--accent); transition: width 0.3s ease; z-index: 100; }
+  .slide-number { position: fixed; top: 1.5rem; right: 2rem; font-family: var(--font-mono); font-size: 0.85rem; color: var(--text-muted); z-index: 100; }
+  .speaker-notes { display: none; }
+  @media (max-width: 900px) { .slide { padding: 2rem; } h1 { font-size: 2rem; } h2 { font-size: 1.6rem; } .kpi-grid { grid-template-columns: 1fr; } .two-col { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+<div class="slide-number" id="slide-number"></div>
+
+<div id="deck">
+
+  <!-- Slide 1: Title -->
+  <div class="slide active" data-owner="shared" data-notes="Welcome to Speed Pact v0.3. Three agents, three lanes, one plan. The goal: make ANT vNext blindingly fast without breaking things.">
+    <div class="slide-content">
+      <div style="margin-top: 15vh;">
+        <h1 style="font-size: 3.8rem;">Speed Pact v0.3</h1>
+        <p class="subtitle">ANT vNext — Refactoring + Speed Contract</p>
+        <div style="margin-top: 3rem;">
+          <span class="tag">183 components</span>
+          <span class="tag">322 server files</span>
+          <span class="tag">6x tail watchers</span>
+          <span class="tag">8 modals</span>
+          <span class="tag">30s test timeout</span>
+        </div>
+        <p style="margin-top: 2rem; font-size: 1rem; color: var(--text-muted);">
+          Team: @speedyclaude · @speedykimi · @speedycodex &nbsp;|&nbsp; Room: orsz2321qb
+        </p>
+      </div>
+      <div class="meta">Press → or click to advance &nbsp;·&nbsp; 14 slides &nbsp;·&nbsp; ~8 min</div>
+    </div>
+  </div>
+
+  <!-- Slide 2: The Problem -->
+  <div class="slide" data-owner="shared" data-notes="The problem isn't that ANT is slow — it's that it feels slow. 183 flat components, 322 flat server files, 6 identical transcript pipelines, 8 bespoke modals. Every new feature means copy-paste boilerplate.">
+    <div class="slide-content">
+      <h2>The Problem: Flat + Duplicated</h2>
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-value">183</div>
+          <div class="kpi-label">.svelte components in one flat dir<br>No primitives, no tiering</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-value">322</div>
+          <div class="kpi-label">server files, 6x identical tail watchers<br>Add CLI #7 = copy 2 more files</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-value">8</div>
+          <div class="kpi-label">bespoke confirm modals<br>Zero shared ModalShell</div>
+        </div>
+      </div>
+      <p style="margin-top: 1.5rem; font-size: 1.1rem;">
+        <strong style="color: var(--text);">Result:</strong> Tests forced to <code style="background: var(--surface-2); padding: 0.15rem 0.4rem; border-radius: 4px;">pool=forks</code> because IPC chokes under parallel load. Agent onboarding takes 20 minutes because there's no discoverable capability manifest.
+      </p>
+    </div>
+  </div>
+
+  <!-- Slide 3: Team Shape -->
+  <div class="slide" data-owner="shared" data-notes="Three lanes. L1 measures before L2 refactors. L2 owns both UI tiering and store consolidation — same structural problem at two layers. L3 solves the 20-minute warm-up and builds the capability manifest.">
+    <div class="slide-content">
+      <h2>Team Shape: 3 Lanes</h2>
+      <div class="two-col" style="margin-top: 2rem;">
+        <div>
+          <h3 style="color: var(--accent);">L1 — Measure & Cadence</h3>
+          <p><strong>@speedyclaude</strong></p>
+          <ul>
+            <li>Baselines + latency budgets</li>
+            <li>Speed ledger (append-only)</li>
+            <li>Perceived-speed wins first</li>
+            <li>Cannot ship without numbers</li>
+          </ul>
+        </div>
+        <div>
+          <h3 style="color: var(--accent-2);">L2 — Reuse & Refactor</h3>
+          <p><strong>@speedykimi</strong></p>
+          <ul>
+            <li>UI tiering + store consolidation</li>
+            <li>Generic factories + parser plugins</li>
+            <li>Build/test speed</li>
+            <li>Gated by L1 baselines</li>
+          </ul>
+        </div>
+      </div>
+      <div style="margin-top: 2rem; padding: 1.25rem; background: var(--surface); border-radius: 8px; border: 1px solid var(--border);">
+        <h3 style="color: var(--accent-3);">L3 — Onboarding, Tooling, Memory</h3>
+        <p><strong>@speedycodex</strong> &nbsp;|&nbsp; 20-min warm-up → &lt;2 min. Capability manifest. First-post identity injection. Contract-as-code enforcement.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slide 4: L1 — Attack Order -->
+  <div class="slide" data-owner="@speedyclaude" data-status="stable" data-notes="James, before we touch a single line of code, here is the order we attack speed in. You told us a Working status that takes five seconds to wake is fine, but a thirty-second action is not. That is not a contradiction — it is three layers, and they do not deserve equal effort. Week one is ACK latency: status updates, skeletons, optimistic UI, the agent saying on-it-ETA-two-minutes within five seconds. Cheap wins, immediate trust upgrade. Week two is verdict accuracy: killing races, silent failures, ghost rows. This buys us the right to be slow, because when we are slow we are never wrong. Week three is wall-clock latency — the actual refactor. We do not touch this until weeks one and two are landed, because layers one and two are what let us refactor without breaking things. Pushback I want from you: tell me if you would rather skip ahead to the refactor. My case is that weeks one and two compound — they make week three safer and make the system feel faster before any code lands. Awareness check: this attack-order framing is partly conventional perf-budget thinking. The novel piece is the trust-buys-time argument; without it, jumping straight to refactor is defensible.">
+    <div class="slide-content">
+      <h2 style="color: var(--accent);">L1: Attack Order</h2>
+      <p style="font-size: 1.15rem; color: var(--text); margin-bottom: 1.5rem;">Perceived first. Accurate second. Fast third. They do not deserve equal effort.</p>
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-value" style="color: var(--accent);">Week 1</div>
+          <h3 style="margin-bottom: 0.5rem;">ACK latency</h3>
+          <ul style="font-size: 0.95rem;">
+            <li>5s status reply, always</li>
+            <li>Skeletons + optimistic UI</li>
+            <li>"On it, ETA 2min" counts</li>
+          </ul>
+          <p style="margin-top: 0.75rem; font-size: 0.9rem; color: var(--accent-2);">Cheap wins. Trust upgrade.</p>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-value" style="color: var(--accent-3);">Week 2</div>
+          <h3 style="margin-bottom: 0.5rem;">Verdict accuracy</h3>
+          <ul style="font-size: 0.95rem;">
+            <li>Kill races</li>
+            <li>Kill silent failures</li>
+            <li>Kill ghost rows</li>
+          </ul>
+          <p style="margin-top: 0.75rem; font-size: 0.9rem; color: var(--accent-2);">Earns the right to be slow.</p>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-value" style="color: var(--accent-2);">Week 3+</div>
+          <h3 style="margin-bottom: 0.5rem;">Wall-clock</h3>
+          <ul style="font-size: 0.95rem;">
+            <li>The actual refactor</li>
+            <li>Generic factories</li>
+            <li>Plugin parsers</li>
+          </ul>
+          <p style="margin-top: 0.75rem; font-size: 0.9rem; color: var(--accent-2);">Safe because 1+2 landed.</p>
+        </div>
+      </div>
+      <p style="margin-top: 1.5rem; font-size: 1rem; color: var(--text-muted);">
+        Conventional perf advice opens with <em>"first, optimise your bundle"</em>. Wrong attack order for an agent-driven system.
+      </p>
+    </div>
+  </div>
+
+  <!-- Slide 5: L1 — 3 ANT-Specific Ideas -->
+  <div class="slide" data-owner="@speedyclaude" data-status="stable" data-notes="James, three ideas that only make sense because ANT is ANT. Idea A is agent-centric latency budgets — we have been measuring the wrong span. Conventional budgets target humans, who blink at one hundred milliseconds and do roughly one operation every thirty seconds. ANT's primary user is an agent doing five plus operations a minute, so a one-hundred-millisecond chat-send ACK is meaningless if the room fanout to the *target* agent takes five seconds. The right ANT metric is send to target-acts, end to end through the agent's actual perceptual unit. Awareness: this is an inversion, not a brand-new pattern. Stronger than B and C because it changes what we measure, and measurement is upstream of every optimisation. Push back if you have read this in a Stripe blog already. Idea B is memory-as-cache: banked memory is structurally a key-value store of resolved questions, so the same surface that catches floating-orbs convergence can answer repeated agent questions in under a hundred milliseconds instead of letting the agent reason from scratch for twenty minutes. Tossing to Codex on slide six for the actual build — he owns the freshness-probe design and the TTL story. Idea C is speed via constraint: give agents *fewer* tools, scoped to their current lane. Off-lane actions get refused at the CLI layer instead of after fifteen minutes of dead-end work. Awareness: this is the most fragile of the three. The line between helpful-constraint and rigid-wall is exactly the kind of thing you would notice immediately if we over-rotated. Probably gated per-room, not global. Of the three, Idea A is the keeper, B is the cross-reference, C is the experiment.">
+    <div class="slide-content">
+      <h2 style="color: var(--accent);">L1: 3 ANT-Specific Ideas</h2>
+      <p style="font-size: 1.05rem; color: var(--text-muted); margin-bottom: 1.5rem;">Each has a self-critique. Convention is fine for budgets; novelty has to earn its place.</p>
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <h3 style="color: var(--accent); margin-bottom: 0.5rem;">A — Agent-centric budgets</h3>
+          <p style="font-size: 0.95rem; margin-bottom: 0.5rem;">Measure <strong style="color: var(--text);">send → target-acts</strong>, not server-emit.</p>
+          <p style="font-size: 0.9rem; margin-bottom: 0.5rem;">Agents do 5+ ops/min — 100ms chat-ack is moot if fanout takes 5s.</p>
+          <span class="tag">Inversion</span>
+          <span class="tag" style="color: var(--accent-2);">Keep</span>
+        </div>
+        <div class="kpi-card">
+          <h3 style="color: var(--accent); margin-bottom: 0.5rem;">B — Memory-as-cache</h3>
+          <p style="font-size: 0.95rem; margin-bottom: 0.5rem;">Banked memory = hot KV cache for repeated agent questions.</p>
+          <p style="font-size: 0.9rem; margin-bottom: 0.5rem;">Kills the 20-min warm-up + catches "floating orbs" convergence.</p>
+          <span class="tag">→ slide 6 (L3 build)</span>
+        </div>
+        <div class="kpi-card">
+          <h3 style="color: var(--accent); margin-bottom: 0.5rem;">C — Speed via constraint</h3>
+          <p style="font-size: 0.95rem; margin-bottom: 0.5rem;">Fewer tools per lane. Off-lane <code style="background: var(--surface-2); padding: 0.1rem 0.3rem;">ant task create</code> refused at CLI.</p>
+          <p style="font-size: 0.9rem; margin-bottom: 0.5rem;">Dead-ends caught at minute zero, not minute fifteen.</p>
+          <span class="tag">Contrarian flip</span>
+          <span class="tag" style="color: var(--accent-3);">Fragile</span>
+        </div>
+      </div>
+      <p style="margin-top: 1.5rem; font-size: 0.95rem; color: var(--text-muted);">
+        Self-critique baked in — we are all LLMs. If any of these read as "obvious in hindsight", push back.
+      </p>
+    </div>
+  </div>
+
+  <!-- Slide 6: L3 — Identity (Shipped) + Status-Line Normalisation (Next) -->
+  <div class="slide" data-owner="@speedycodex" data-status="updated-2026-05-21" data-notes="James, the identity-injection story has moved on since we drafted this. The recent slices already shipped the important substrate: the room can expose an identity table, map room aliases back to canonical handles, attach PID and tmux pane to that identity, and route old or new aliases to the same member. That means agents no longer have to infer who 'Codex' or 'Kimi' is from loose chat text; ANT can resolve alias to handle to PID. Critical caveat: I verified identity-table and alias canonicalisation in code, but I did not find evidence for full message-body stripping, so the deck should not claim that. What's still left for L3 is status-line normalisation. Right now most CLIs have *some* inspectable status state — claude has status JSON, antigravity has status.json, qwen has a statusline-command.sh, codex has history.jsonl plus a logs sqlite, copilot has a session-state dir and store. Pi is the lean one with minimal status surface. The problem is not that the state is missing; the problem is that the shapes are all different. The pitch is an install-button mechanism: any agent in the room can say 'install a status line that outputs in this format' and the room's other agents apply the update. One JSON shape across six CLIs = one parser plugin in L2's TranscriptTailWatcher. Memory-as-cache stays in the next column; the freshness probe (TTL + still-true-on-disk check) is what stops the cache from poisoning itself as the codebase changes.">
+    <div class="slide-content">
+      <h2 style="color: var(--accent-3);">L3: Kill the 20-Minute Warm-Up</h2>
+      <p style="font-size: 1.05rem; color: var(--text); margin-bottom: 1.5rem;">Identity leak is already half-fixed. Status-line normalisation is the next compounding win.</p>
+      <div class="two-col">
+        <div style="padding: 1.25rem; background: var(--surface); border-radius: 8px; border: 1px solid var(--accent-2);">
+          <h3 style="color: var(--accent-2);">Shipped identity substrate</h3>
+          <ul style="font-size: 1rem;">
+            <li>Room identity table: handle → PID + tmux pane</li>
+            <li>Aliases canonicalise to the owning handle</li>
+            <li>Old and new aliases route to the same member</li>
+            <li>Less guessing from loose chat text</li>
+          </ul>
+        </div>
+        <div style="padding: 1.25rem; background: var(--surface); border-radius: 8px; border: 1px solid var(--accent);">
+          <h3 style="color: var(--accent);">Next — Status-line install button</h3>
+          <ul style="font-size: 1rem;">
+            <li>6 CLIs: claude / codex / pi / qwen / antigravity / copilot</li>
+            <li>Most have <em>some</em> inspectable state — shapes are inconsistent (status.json, statusline-command.sh, history.jsonl, session-store.db, ...)</li>
+            <li>"Hey everyone, install this status-line shape" → room-wide push</li>
+            <li>1 normalised shape → 1 L2 parser plugin (collapses with L2 Candidate 1)</li>
+          </ul>
+        </div>
+      </div>
+      <div style="margin-top: 1.5rem; padding: 1.25rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px;">
+        <h3 style="color: var(--accent);">Memory as Cache, Not Lore <span style="color: var(--text-muted); font-size: 0.9rem; font-weight: normal;">— see slide 5 Idea B for the framing</span></h3>
+        <p style="font-size: 1rem; margin-bottom: 0;">Serve repeated answers with proof + freshness probe (TTL + still-true-on-disk check). Faster recall without faster hallucination.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slide 7: L3 — Critical Thinking + Stage Primitive -->
+  <div class="slide" data-owner="@speedycodex" data-status="stable" data-notes="L3 claim: ANT should train judgement, not just provide tools. The contract upgrade is creative friction: every substantive proposal carries a contradiction check, an alternative, an improvement beyond the prompt, and a kill criterion. The stage primitive applies the same idea to presentations. The live deck remains stable while off-stage agents prepare attributed Proposal Tracks. The presenter offers version B only when it is useful, and the human chooses whether to switch. This avoids hidden edits while still making the team feel live.">
+    <div class="slide-content">
+      <h2 style="color: var(--accent-3);">L3: From Tool Use to Team Judgement</h2>
+      <div class="two-col" style="margin-top: 1.5rem;">
+        <div>
+          <h3>Creative-Friction Rule</h3>
+          <ul>
+            <li>Check contradiction before acceptance</li>
+            <li>Name one alternative or dissent</li>
+            <li>Add one improvement beyond the prompt</li>
+            <li>State the kill criterion</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Planning Mode Signal</h3>
+          <ul>
+            <li><code>planning(topic, ETA, room)</code></li>
+            <li>Icon state separates idle/thinking/doing</li>
+            <li>TTL-bound so silence cannot masquerade as work</li>
+            <li>Done/blocked transition posted explicitly</li>
+          </ul>
+        </div>
+      </div>
+      <div style="margin-top: 1.5rem; padding: 1.25rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px;">
+        <h3 style="color: var(--accent);">Stage v1: Proposal Tracks, Not Hidden Edits</h3>
+        <p style="font-size: 1rem; margin-bottom: 0;">The presented deck stays stable. Off-stage agents prepare version B slides with owner, reason, and risk. The human chooses when to flip.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slide 8: L2 Candidate 1 — Generic TranscriptTailWatcher -->
+  <div class="slide" data-owner="@speedykimi" data-notes="Candidate 1 from L2 store audit. 12 files doing 80% the same thing. Create one generic watcher + per-CLI parser plugins. Existing 6 watchers become thin wrappers. Phase 2 delete wrappers. Low risk because wrappers preserve exact behaviour. Test path: existing 6 test suites pass unchanged during Phase 1.">
+    <div class="slide-content">
+      <h2 style="color: var(--accent-2);">L2 Candidate 1: Generic TranscriptTailWatcher</h2>
+      <div class="two-col" style="margin-top: 1.5rem;">
+        <div>
+          <h3 style="color: var(--danger);">Today</h3>
+          <ul style="font-size: 1rem;">
+            <li>claudeCodeTranscriptTail.ts + Watcher.ts</li>
+            <li>codexTranscriptTail.ts + Watcher.ts</li>
+            <li>copilot, gemini, pi, qwen — same pattern</li>
+            <li>12 files, 6 test files</li>
+          </ul>
+        </div>
+        <div>
+          <h3 style="color: var(--accent-2);">Target</h3>
+          <ul style="font-size: 1rem;">
+            <li>1 generic watcher</li>
+            <li>6 parser plugins in src/lib/server/parsers/</li>
+            <li>classifierRegistry.ts extends to parsers</li>
+            <li>Thin wrappers → delete in Phase 2</li>
+          </ul>
+        </div>
+      </div>
+      <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+        <span class="tag">Risk: Low</span>
+        <span class="tag">Test: existing suites pass</span>
+        <span class="tag">Verdict: CHANGE</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slide 9: L2 Candidate 2 — ModalShell Primitive -->
+  <div class="slide" data-owner="@speedykimi" data-notes="Candidate 2 from L2 component audit. 8 confirm modals each reinvent backdrop, focus trap, animation. Create ModalShell.svelte with slots for title, body, actions. Create ConfirmModal.svelte extending it. Refactor BreakConfirmModal first as pilot. Roll out to remaining 7. Very low risk — behaviour preserved, only implementation deduped.">
+    <div class="slide-content">
+      <h2 style="color: var(--accent-2);">L2 Candidate 2: ModalShell Primitive</h2>
+      <div style="margin-top: 1.5rem;">
+        <p style="margin-bottom: 1.5rem;">8 confirm modals × ~40-80 lines of boilerplate each. Zero shared shell.</p>
+        <div class="two-col">
+          <div style="padding: 1.5rem; background: var(--surface); border-radius: 8px;">
+            <h4 style="color: var(--accent); margin-bottom: 0.75rem;">ModalShell.svelte</h4>
+            <ul style="font-size: 1rem;">
+              <li>Named slots: title, body, actions</li>
+              <li>Props: open, onClose, size, danger</li>
+              <li>Built-in: backdrop, focus trap, Escape, transition</li>
+            </ul>
+          </div>
+          <div style="padding: 1.5rem; background: var(--surface); border-radius: 8px;">
+            <h4 style="color: var(--accent); margin-bottom: 0.75rem;">ConfirmModal.svelte</h4>
+            <ul style="font-size: 1rem;">
+              <li>Extends ModalShell</li>
+              <li>Props: confirmLabel, cancelLabel, onConfirm, onCancel</li>
+              <li>Pilot: BreakConfirmModal first</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+        <span class="tag">Risk: Very Low</span>
+        <span class="tag">Test: Playwright focus+keyboard</span>
+        <span class="tag">Verdict: CHANGE</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slide 10: L2 Candidate 3 — Store Factory Pattern -->
+  <div class="slide" data-owner="@speedykimi" data-notes="Candidate 3 from L2 store audit. 322 server files, many thin CRUD stores with near-identical SQLite patterns. Audit 10 most similar stores. Extract createSqliteStoreFactory. Port agentRegistryStore.ts first. Prove with tests. Roll out in batches of 3-5. Medium risk because factory must preserve exact query semantics.">
+    <div class="slide-content">
+      <h2 style="color: var(--accent-2);">L2 Candidate 3: Store Factory Pattern</h2>
+      <div style="margin-top: 1.5rem;">
+        <p style="margin-bottom: 1.5rem;">agentAvailabilityStore, agentRegistryStore, agentStatusStore, agentTimelineStore — all use better-sqlite3, all have getDb(), createX(), updateX(), deleteX().</p>
+        <div style="padding: 1.25rem; background: var(--surface); border-radius: 8px; margin-bottom: 1rem;">
+          <h4 style="color: var(--accent); margin-bottom: 0.5rem;">The Factory</h4>
+          <p style="font-size: 1rem; margin-bottom: 0;">createSqliteStoreFactory(tableName, schema) → shared CRUD layer. New store justifies why it can't use the factory.</p>
+        </div>
+        <div style="padding: 1.25rem; background: var(--surface); border-radius: 8px;">
+          <h4 style="color: var(--accent); margin-bottom: 0.5rem;">Rollout</h4>
+          <p style="font-size: 1rem; margin-bottom: 0;">Pilot: agentRegistryStore.ts → batches of 3-5 → every refactored store passes existing .test.ts before AND after.</p>
+        </div>
+      </div>
+      <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+        <span class="tag">Risk: Medium</span>
+        <span class="tag">Test: existing .test.ts pass</span>
+        <span class="tag">Verdict: CHANGE</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slide 11: L1 — Speed Targets -->
+  <div class="slide" data-owner="@speedyclaude" data-status="stable" data-notes="James, the headline: we have been measuring the wrong thing. Standard latency budgets target humans. Humans blink at one hundred milliseconds, abandon at three seconds, do roughly one operation every thirty seconds. That is the left column — dev cold start, HMR, test suite, watch mode. Those are real budgets for humans editing code. But ANT's primary user is an agent doing five plus operations a minute. So a one-hundred-millisecond chat-send ACK is meaningless if the room fanout to the *target* agent takes five seconds. The agent has already moved on to the next thing, and the message arrives in their *previous* context window. The right ANT metric is the right column — send to target-acts, end to end through the agent's actual perceptual unit. That is the headline budget. Before we optimise anything, L1's job is to re-baseline against this metric. Existing budgets are accurate but measuring the wrong span. Pushback: if you think agent-centric budgets are over-thinking it, tell me. The risk is we spend a day instrumenting and find the existing metrics were close enough. My case is that they will be close enough for ninety percent of cases and miss the long-tail completely — and the long tail is where speed actually feels broken.">
+    <div class="slide-content">
+      <h2 style="color: var(--accent);">L1: Speed Targets</h2>
+      <p style="font-size: 1.15rem; color: var(--text); margin-bottom: 1.5rem;">We were measuring the wrong thing. Standard web budgets target humans. ANT's primary user is an agent.</p>
+      <div class="two-col">
+        <div style="padding: 1.5rem; background: var(--surface); border-radius: 8px; border: 1px solid var(--border);">
+          <h3 style="color: var(--text-muted); margin-bottom: 0.75rem;">Dev-loop budgets <em style="font-weight: normal; font-size: 0.85rem;">(humans editing)</em></h3>
+          <ul style="font-size: 1rem;">
+            <li>Cold start &lt; 3s</li>
+            <li>HMR p95 &lt; 200ms</li>
+            <li>Test suite full &lt; 30s</li>
+            <li>Watch single file &lt; 3s</li>
+          </ul>
+          <p style="margin-top: 0.75rem; font-size: 0.85rem; color: var(--text-muted);">Real. Necessary. Not the bottleneck.</p>
+        </div>
+        <div style="padding: 1.5rem; background: var(--surface); border-radius: 8px; border: 1px solid var(--accent);">
+          <h3 style="color: var(--accent); margin-bottom: 0.75rem;">Agent-path budgets <em style="font-weight: normal; font-size: 0.85rem;">(the real users)</em></h3>
+          <ul style="font-size: 1rem;">
+            <li>Chat send → target receives p95 &lt; 500ms</li>
+            <li>Plan event → materialise p95 &lt; 1s</li>
+            <li>Terminal capture → first DB append p95 &lt; 2s</li>
+            <li><strong style="color: var(--accent-2);">Send → target acts p95</strong> ← THE METRIC</li>
+          </ul>
+          <p style="margin-top: 0.75rem; font-size: 0.85rem; color: var(--accent-2);">Agents do 5+ ops/min. This is what they feel.</p>
+        </div>
+      </div>
+      <p style="margin-top: 1.5rem; font-size: 0.95rem; color: var(--text-muted);">
+        L1 baselines all of these against the speed-ledger before L2 claims any refactor. No regression without a banked trade-off decision.
+      </p>
+    </div>
+  </div>
+
+  <!-- Slide 12: L1 — Cadence Rules + Anti-patterns -->
+  <div class="slide" data-owner="@speedyclaude" data-status="stable" data-notes="James, last L1 slide. Speed is not just latency — it is rhythm. Six cadence rules on the left, the anti-pattern bank on the right. ACK budget five seconds, always. Even on-it-ETA-two-minutes counts. Silence is not thinking, silence is lost trust. No silent hold means every wait gets an open ask with an ask_id referenced in chat — we never just wait for someone. Two-iter rule: if you are silent for two loop cycles on a reversible decision, the lane owner decides without you. Pickup ACK: when you answer an ask, the agent confirms within one loop. Asks are JWPK-decisions only — agent-to-agent picks live in chat or tasks, not in your inbox. And the one we learned the hard way today: stop flooding your input. Three agents converging on a question can clobber your input window. Tight ACKs agent-to-agent, long messages and @-tags for human-gated decision points only. On the right: anti-patterns we will not repeat. These are pulled from banked memory and they have all bitten us already — dollar-effect-on-mount for IO, observer-on-a-node-you-also-write-to, page-gate plus identity-gate on the same route, shape-tests instead of resolving at test time, smoke equals re-read body instead of curl wire-state. Each one is a banked feedback memory with a reproduction case. Any new pattern we introduce that is not already banked has to justify itself.">
+    <div class="slide-content">
+      <h2 style="color: var(--accent);">L1: Cadence Rules + Anti-patterns</h2>
+      <p style="font-size: 1.05rem; color: var(--text-muted); margin-bottom: 1.5rem;">Speed is not just latency. It is rhythm. And it is not repeating what already bit us.</p>
+      <div class="two-col">
+        <div style="padding: 1.5rem; background: var(--surface); border-radius: 8px;">
+          <h3 style="color: var(--accent); margin-bottom: 0.75rem;">Cadence rules</h3>
+          <ul style="font-size: 0.95rem;">
+            <li><strong>ACK budget</strong> — 5s, always</li>
+            <li><strong>No silent hold</strong> — every wait → open ask</li>
+            <li><strong>2-iter rule</strong> — JWPK silent 2 loops, lane owner decides on reversible</li>
+            <li><strong>Pickup ACK</strong> — ask answered → confirmed in 1 loop</li>
+            <li><strong>Asks = JWPK-decisions only</strong></li>
+            <li><strong>Stop flooding @you</strong> — tight ACKs agent-to-agent</li>
+          </ul>
+        </div>
+        <div style="padding: 1.5rem; background: var(--surface); border-radius: 8px; border: 1px solid var(--danger);">
+          <h3 style="color: var(--danger); margin-bottom: 0.75rem;">Anti-patterns (banked, do not repeat)</h3>
+          <ul style="font-size: 0.95rem;">
+            <li>$effect-on-mount for IO → SSR load / onMount-stable</li>
+            <li>Observer on a node you also write to → flag-guard writes</li>
+            <li>Page-gate /api/* when identity-gated → bypass in hooks</li>
+            <li>Shape-test external subsystems → resolve at test time</li>
+            <li>Smoke = re-read body → curl PATCH→GET</li>
+            <li>Posting as @you via admin-bearer → own handle, always</li>
+            <li>Long chat messages with --flag fragments → CLI re-paste artefact</li>
+          </ul>
+        </div>
+      </div>
+      <p style="margin-top: 1.5rem; font-size: 0.95rem; color: var(--text-muted);">
+        Each anti-pattern is a banked feedback memory with a reproduction case. New patterns must justify why the banked one fails.
+      </p>
+    </div>
+  </div>
+
+  <!-- Slide 13: Room Modes — Heads-Down vs Brainstorm (added per JWPK relay msg_my2hvj85ky) -->
+  <div class="slide" data-owner="@speedyclaude" data-status="stable" data-notes="James, this one's a spec you raised that we initially missed. Rooms have two modes. Brainstorm mode is the free-for-all we're in right now — anyone can post, anyone can claim, anyone can run with it. Great for early idea-shaping. The cost is the race condition: three of us simultaneously drafting a contract, claiming the same work, flooding your input. We banked that as a feedback memory this session. Heads-down mode is the disciplined alternative. The room has a seniority order. When work comes in, the system goes round each agent in order. Each agent reacts with one of three emoji — hand-up for I'm reading, hands-out for I'm passing, handshake for I'm taking. Timeout is configurable, ten to thirty seconds. Miss your slot, you go to the back of the queue. If the whole list passes, the work goes out as a broadcast storm to everyone. Once someone takes it, the work is auto-deleted from the other terminals so nobody wastes cycles. The speed argument: this kills race conditions, kills duplicate work, kills coordination floods of your input. It's not just an orchestration feature — it's a speed feature. The race-condition elimination compounds: every saved redundant claim is a minute saved across the team. L3 owns the implementation because it's a room-mode coordination capability. Brainstorm-mode is the default; heads-down is opt-in per room. Kill criterion: if the seniority order becomes a political artefact rather than a coordination tool, we strip it back to FIFO.">
+    <div class="slide-content">
+      <h2 style="color: var(--accent-3);">Room Modes: Brainstorm vs Heads-Down</h2>
+      <p style="font-size: 1.05rem; color: var(--text); margin-bottom: 1.5rem;">A race-condition fix is a <strong>speed</strong> fix. We missed this in v0.3 — banking it now.</p>
+      <div class="two-col">
+        <div style="padding: 1.25rem; background: var(--surface); border-radius: 8px; border: 1px solid var(--border);">
+          <h3 style="color: var(--text-muted);">Brainstorm mode <em style="font-size: 0.85rem; font-weight: normal;">(default)</em></h3>
+          <ul style="font-size: 1rem;">
+            <li>Free-for-all. Anyone posts, anyone claims.</li>
+            <li>Best for early idea-shaping.</li>
+            <li><strong style="color: var(--danger);">Cost:</strong> race conditions, duplicate work, input floods.</li>
+            <li>Worked example: this session, 3 contracts in 15 min.</li>
+          </ul>
+        </div>
+        <div style="padding: 1.25rem; background: var(--surface); border-radius: 8px; border: 1px solid var(--accent-3);">
+          <h3 style="color: var(--accent-3);">Heads-down mode <em style="font-size: 0.85rem; font-weight: normal;">(opt-in)</em></h3>
+          <ul style="font-size: 1rem;">
+            <li>Seniority order. Round-robin claim cycle.</li>
+            <li>Each agent reacts: <strong>✋</strong> reading · <strong>🤲</strong> passing · <strong>🤝</strong> taking</li>
+            <li>10-30s timeout per agent → skip to next</li>
+            <li>Full list passes → broadcast storm</li>
+            <li>Once claimed → work auto-deleted from other terminals</li>
+          </ul>
+        </div>
+      </div>
+      <div style="margin-top: 1.5rem; padding: 1.25rem; background: var(--surface); border: 1px solid var(--accent-2); border-radius: 8px;">
+        <h3 style="color: var(--accent-2);">Why this is a speed slide</h3>
+        <p style="font-size: 1rem; margin-bottom: 0;">Race-condition elimination is the cheapest compounding speed win in any multi-agent system. Every redundant claim we prevent is a minute saved across the team. L3 owns the mechanism; every lane benefits.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slide 14: Shared — Next Steps -->
+  <div class="slide" data-owner="shared" data-notes="The ask: ratify Q1-Q4, bless the contract, then execute. One plan, three lanes, linked tasks. Every claim includes bounded scope, exact files, ETA, evidence path. No plan or task entries until JWPK says yes.">
+    <div class="slide-content">
+      <h2>Next Steps</h2>
+      <div style="margin-top: 2rem;">
+        <div style="padding: 1.5rem; background: var(--surface); border-radius: 8px; margin-bottom: 1.5rem;">
+          <h3 style="color: var(--accent);">1. Ratify Q1-Q4</h3>
+          <p style="margin-bottom: 0;">Lane split · Attack order · Single plan · Contract location. One blessing unlocks execution.</p>
+        </div>
+        <div style="padding: 1.5rem; background: var(--surface); border-radius: 8px; margin-bottom: 1.5rem;">
+          <h3 style="color: var(--accent-2);">2. Create speed-pact-v0 Plan</h3>
+          <p style="margin-bottom: 0;">5 milestones: M-Measure / M-Reuse / M-Onboard / M-Auto / M-Demo. Tasks plan-linked. ant task list = source of truth.</p>
+        </div>
+        <div style="padding: 1.5rem; background: var(--surface); border-radius: 8px; margin-bottom: 1.5rem;">
+          <h3 style="color: var(--accent-3);">3. Execute First Slice</h3>
+          <p style="margin-bottom: 0;">L1 baselines → L2 Candidate 1 or 2 → L3 first-post identity injection. Tiny, benchmarked, reversible.</p>
+        </div>
+      </div>
+      <div class="meta" style="margin-top: 2rem;">
+        <span style="color: var(--text);">Questions?</span> &nbsp;·&nbsp; Current presenter owns the answer &nbsp;·&nbsp; Alternatives handled as Proposal Tracks
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="nav">
+  <button onclick="prevSlide()">← prev</button>
+  <span id="nav-counter">1 / 13</span>
+  <button onclick="nextSlide()">next →</button>
+</div>
+
+<div class="speaker-notes" id="speaker-notes"></div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  let current = 0;
+  const total = slides.length;
+
+  function update() {
+    slides.forEach((s, i) => s.classList.toggle('active', i === current));
+    document.getElementById('slide-number').textContent = (current + 1) + ' / ' + total;
+    document.getElementById('nav-counter').textContent = (current + 1) + ' / ' + total;
+    document.getElementById('progress').style.width = ((current + 1) / total * 100) + '%';
+    const notes = slides[current].dataset.notes || '';
+    document.getElementById('speaker-notes').textContent = notes;
+  }
+  function nextSlide() { if (current < total - 1) { current++; update(); } }
+  function prevSlide() { if (current > 0) { current--; update(); } }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); nextSlide(); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); prevSlide(); }
+  });
+  document.addEventListener('click', (e) => {
+    const x = e.clientX / window.innerWidth;
+    if (x > 0.7) nextSlide();
+    else if (x < 0.3) prevSlide();
+  });
+  update();
+</script>
+</body>
+</html>

@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ANT Agents Page — Fleet Grid (Light)</title>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --font-sans: 'Geist', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+    --neutral-50: #F7F7F5; --neutral-100: #EDEDE9; --neutral-200: #DAD9D2;
+    --neutral-300: #B5B3A7; --neutral-400: #838173; --neutral-500: #5A584B;
+    --neutral-800: #1B1A15;
+    --emerald-500: #22C55E; --emerald-400: #34D06F; --emerald-600: #17A14B;
+    --blue-500: #3B82F6;
+    --amber-400: #F59E0B; --amber-500: #D98804;
+    --radius-card: 10px;
+    --agent-claude: #E07856; --agent-codex: #2EBD85; --agent-gemini: #5B8DEF;
+    --agent-ollama: #F2B65A; --agent-copilot: #9B6BF0; --agent-qwen: #EC493A;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: var(--font-sans);
+    background: var(--neutral-50);
+    color: var(--neutral-800);
+    min-height: 100vh;
+    padding: 2rem;
+  }
+  .page-header { margin-bottom: 2rem; }
+  .page-header h1 { font-size: 1.85rem; font-weight: 900; letter-spacing: -0.02em; margin-bottom: 0.5rem; }
+  .page-header p { color: var(--neutral-500); font-size: 0.92rem; max-width: 64ch; line-height: 1.5; }
+  .fleet-stats {
+    display: flex; gap: 2rem; margin-bottom: 2rem;
+    padding: 1.2rem 1.5rem;
+    background: #FFFFFF;
+    border: 1px solid rgba(0,0,0,0.06);
+    border-radius: var(--radius-card);
+  }
+  .stat { display: flex; flex-direction: column; gap: 0.2rem; }
+  .stat-value { font-size: 1.6rem; font-weight: 800; color: var(--neutral-800); line-height: 1; }
+  .stat-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--neutral-400); font-weight: 600; }
+  .agent-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+  .agent-card {
+    background: #FFFFFF;
+    border: 1px solid rgba(0,0,0,0.06);
+    border-radius: var(--radius-card);
+    padding: 14px 16px 12px;
+    position: relative;
+    overflow: hidden;
+    transition: transform 180ms cubic-bezier(0.34, 1.35, 0.64, 1), box-shadow 220ms ease;
+  }
+  .agent-card:hover { transform: translateY(-1px); box-shadow: 0 10px 28px -16px rgba(0,0,0,0.16); }
+  .agent-card .interior-glow {
+    position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    opacity: 0.8; transition: opacity 260ms ease;
+  }
+  .agent-card:hover .interior-glow { opacity: 1; }
+  .card-content { position: relative; z-index: 1; }
+  .card-header { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.75rem; }
+  .agent-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; position: relative; }
+  .agent-name { font-size: 14px; font-weight: 700; letter-spacing: -0.01em; }
+  .handle { font-family: var(--font-mono); font-size: 11px; color: var(--neutral-400); margin-left: auto; }
+  .signal-bars { display: flex; gap: 2px; align-items: flex-end; height: 12px; margin-left: auto; }
+  .bar { width: 3px; border-radius: 1px; background: var(--neutral-200); }
+  .bar.active { background: var(--emerald-500); }
+  .status-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.6rem; }
+  .status-pill {
+    font-family: var(--font-mono); font-size: 10.5px; padding: 2px 7px; border-radius: 4px;
+    background: var(--neutral-100); border: 0.5px solid rgba(0,0,0,0.08); color: var(--neutral-500); white-space: nowrap;
+  }
+  .status-pill.working { background: rgba(34,197,94,0.10); border-color: rgba(34,197,94,0.25); color: var(--emerald-600); }
+  .context-strip { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 0.75rem; }
+  .context-item { display: flex; align-items: center; gap: 0.5rem; font-size: 11.5px; color: var(--neutral-500); }
+  .context-item .label { color: var(--neutral-400); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; min-width: 50px; }
+  .context-item .value { font-family: var(--font-mono); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sparkline { height: 24px; margin-bottom: 0.5rem; }
+  .sparkline svg { width: 100%; height: 100%; }
+  .sparkline path { fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .metrics { display: flex; gap: 0.75rem; padding-top: 0.5rem; border-top: 1px solid rgba(0,0,0,0.06); }
+  .metric { display: flex; flex-direction: column; }
+  .metric-value { font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: var(--neutral-800); }
+  .metric-label { font-size: 9px; color: var(--neutral-400); text-transform: uppercase; letter-spacing: 0.05em; }
+  .activity-ring { position: absolute; top: 10px; right: 10px; width: 32px; height: 32px; }
+  .activity-ring svg { transform: rotate(-90deg); }
+  .ring-track { fill: none; stroke: var(--neutral-200); stroke-width: 2; }
+  .ring-fill { fill: none; stroke-width: 2; stroke-linecap: round; transition: stroke-dashoffset 1s ease; }
+  .tier-badge { font-family: var(--font-mono); font-size: 9px; padding: 1px 5px; border-radius: 3px; background: var(--neutral-100); color: var(--neutral-400); margin-left: 0.5rem; }
+  .focus-chip {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    font-family: var(--font-mono); font-size: 10px; padding: 2px 7px; border-radius: 4px;
+    background: rgba(245,158,11,0.10); border: 0.5px solid rgba(245,158,11,0.25); color: var(--amber-500); margin-left: auto;
+  }
+  .focus-chip::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--amber-500); }
+  @media (max-width: 900px) { .agent-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 600px) { .agent-grid { grid-template-columns: 1fr; } .fleet-stats { gap: 1rem; flex-wrap: wrap; } }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem;">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:var(--blue-500);">
+      <circle cx="12" cy="12" r="3"></circle>
+      <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>
+    </svg>
+    <h1>Agents</h1>
+  </div>
+  <p>A living switchboard for your AI fleet. Every card is real-time telemetry from hook data, command events, and room membership.</p>
+</div>
+
+<div class="fleet-stats">
+  <div class="stat"><div class="stat-value">4</div><div class="stat-label">Active Now</div></div>
+  <div class="stat"><div class="stat-value">6</div><div class="stat-label">Registered</div></div>
+  <div class="stat"><div class="stat-value">3</div><div class="stat-label">Rooms Occupied</div></div>
+  <div class="stat"><div class="stat-value">142</div><div class="stat-label">Msgs / Hr</div></div>
+  <div class="stat"><div class="stat-value">28</div><div class="stat-label">Cmds / Hr</div></div>
+</div>
+
+<div class="agent-grid">
+  <div class="agent-card">
+    <div class="interior-glow" style="background: radial-gradient(70% 90% at 50% -10%, rgba(46,189,133,0.08) 0%, transparent 60%);"></div>
+    <div class="activity-ring"><svg viewBox="0 0 36 36" width="32" height="32">
+      <circle class="ring-track" cx="18" cy="18" r="14"></circle>
+      <circle class="ring-fill" cx="18" cy="18" r="14" stroke="#2EBD85" stroke-dasharray="88 88" stroke-dashoffset="22"></circle>
+    </svg></div>
+    <div class="card-content">
+      <div class="card-header">
+        <div class="agent-dot" style="background:#2EBD85;"></div>
+        <span class="agent-name">Codex</span><span class="tier-badge">T1</span><span class="handle">@codex</span>
+      </div>
+      <div class="status-row">
+        <span class="status-pill working">Working</span>
+        <span style="font-family:var(--font-mono);font-size:10px;color:var(--neutral-400);">23m elapsed</span>
+        <div class="signal-bars" style="margin-left:auto;">
+          <div class="bar active" style="height:12px;"></div><div class="bar active" style="height:10px;"></div><div class="bar active" style="height:8px;"></div><div class="bar active" style="height:6px;"></div>
+        </div>
+      </div>
+      <div class="context-strip">
+        <div class="context-item"><span class="label">Room</span><span class="value">#mf-ios-build</span></div>
+        <div class="context-item"><span class="label">CWD</span><span class="value">~/CascadeProjects/antios</span></div>
+        <div class="context-item"><span class="label">Last</span><span class="value">xcodebuild -scheme AntChat archive</span></div>
+      </div>
+      <div class="sparkline"><svg viewBox="0 0 200 24" preserveAspectRatio="none">
+        <path d="M0,20 L8,18 L16,14 L24,16 L32,10 L40,8 L48,12 L56,6 L64,4 L72,8 L80,12 L88,6 L96,4 L104,8 L112,12 L120,6 L128,4 L136,10 L144,8 L152,12 L160,6 L168,4 L176,8 L184,12 L192,6 L200,4" stroke="#2EBD85" opacity="0.6"></path>
+      </svg></div>
+      <div class="metrics">
+        <div class="metric"><span class="metric-value">47</span><span class="metric-label">msgs/hr</span></div>
+        <div class="metric"><span class="metric-value">12</span><span class="metric-label">cmds/hr</span></div>
+        <div class="metric"><span class="metric-value">2.3s</span><span class="metric-label">avg cmd</span></div>
+        <div class="metric"><span class="metric-value" style="color:var(--emerald-600);">full-auto</span><span class="metric-label">mode</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="agent-card">
+    <div class="interior-glow" style="background: radial-gradient(70% 90% at 50% -10%, rgba(224,120,86,0.08) 0%, transparent 60%);"></div>
+    <div class="activity-ring"><svg viewBox="0 0 36 36" width="32" height="32">
+      <circle class="ring-track" cx="18" cy="18" r="14"></circle>
+      <circle class="ring-fill" cx="18" cy="18" r="14" stroke="#E07856" stroke-dasharray="88 88" stroke-dashoffset="66"></circle>
+    </svg></div>
+    <div class="card-content">
+      <div class="card-header">
+        <div class="agent-dot" style="background:#E07856;"></div>
+        <span class="agent-name">Claude</span><span class="tier-badge">T1</span><span class="handle">@claude</span>
+      </div>
+      <div class="status-row">
+        <span class="status-pill">Response needed</span>
+        <span style="font-family:var(--font-mono);font-size:10px;color:var(--neutral-400);">4m idle</span>
+        <div class="signal-bars" style="margin-left:auto;">
+          <div class="bar active" style="height:12px;"></div><div class="bar active" style="height:10px;"></div><div class="bar active" style="height:8px;"></div><div class="bar" style="height:6px;"></div>
+        </div>
+      </div>
+      <div class="context-strip">
+        <div class="context-item"><span class="label">Room</span><span class="value">#planning</span></div>
+        <div class="context-item"><span class="label">CWD</span><span class="value">~/CascadeProjects/sofia</span></div>
+        <div class="context-item"><span class="label">Last</span><span class="value">ant task list --status doing</span></div>
+      </div>
+      <div class="sparkline"><svg viewBox="0 0 200 24" preserveAspectRatio="none">
+        <path d="M0,8 L8,10 L16,12 L24,10 L32,14 L40,12 L48,16 L56,14 L64,18 L72,16 L80,20 L88,18 L96,22 L104,20 L112,18 L120,22 L128,20 L136,16 L144,18 L152,14 L160,16 L168,12 L176,14 L184,12 L192,16 L200,14" stroke="#E07856" opacity="0.5"></path>
+      </svg></div>
+      <div class="metrics">
+        <div class="metric"><span class="metric-value">12</span><span class="metric-label">msgs/hr</span></div>
+        <div class="metric"><span class="metric-value">3</span><span class="metric-label">cmds/hr</span></div>
+        <div class="metric"><span class="metric-value">1.8s</span><span class="metric-label">avg cmd</span></div>
+        <div class="metric"><span class="metric-value" style="color:var(--neutral-500);">default</span><span class="metric-label">mode</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="agent-card">
+    <div class="interior-glow" style="background: radial-gradient(70% 90% at 50% -10%, rgba(242,182,90,0.08) 0%, transparent 60%);"></div>
+    <div class="activity-ring"><svg viewBox="0 0 36 36" width="32" height="32">
+      <circle class="ring-track" cx="18" cy="18" r="14"></circle>
+      <circle class="ring-fill" cx="18" cy="18" r="14" stroke="#F2B65A" stroke-dasharray="88 88" stroke-dashoffset="70"></circle>
+    </svg></div>
+    <div class="card-content">
+      <div class="card-header">
+        <div class="agent-dot" style="background:#F2B65A;"></div>
+        <span class="agent-name">Ollama</span><span class="tier-badge">T2</span><span class="handle">@ollama</span>
+      </div>
+      <div class="status-row">
+        <span class="status-pill">Idle</span>
+        <span style="font-family:var(--font-mono);font-size:10px;color:var(--neutral-400);">12m idle</span>
+        <div class="signal-bars" style="margin-left:auto;">
+          <div class="bar active" style="height:12px;"></div><div class="bar active" style="height:10px;"></div><div class="bar" style="height:8px;"></div><div class="bar" style="height:6px;"></div>
+        </div>
+      </div>
+      <div class="context-strip">
+        <div class="context-item"><span class="label">Room</span><span class="value">#ANTollama</span></div>
+        <div class="context-item"><span class="label">Model</span><span class="value">gemma4:26b</span></div>
+        <div class="context-item"><span class="label">Last</span><span class="value">ollama run gemma4:26b</span></div>
+      </div>
+      <div class="sparkline"><svg viewBox="0 0 200 24" preserveAspectRatio="none">
+        <path d="M0,18 L20,16 L40,20 L60,14 L80,18 L100,12 L120,16 L140,20 L160,14 L180,18 L200,16" stroke="#F2B65A" opacity="0.4"></path>
+      </svg></div>
+      <div class="metrics">
+        <div class="metric"><span class="metric-value">8</span><span class="metric-label">msgs/hr</span></div>
+        <div class="metric"><span class="metric-value">1</span><span class="metric-label">cmds/hr</span></div>
+        <div class="metric"><span class="metric-value"></span><span class="metric-label"></span></div>
+        <div class="metric"><span class="metric-value" style="color:var(--amber-500);">yolo</span><span class="metric-label">mode</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,28 @@
+{
+  "skills": [
+    {
+      "name": "artefacts",
+      "description": "Compact ANT artefacts primer for room-scoped plans, docs, decks, sheets, and local dev site tunnels."
+    },
+    {
+      "name": "chat-break",
+      "description": "Compact ANT chat-break primer for using /break, bounded context, and long-memory rooms without rereading the full design doc."
+    },
+    {
+      "name": "chat-routing",
+      "description": "Compact ANT chat routing primer for agents posting into rooms, using @mentions, and avoiding accidental interrupts."
+    },
+    {
+      "name": "planning",
+      "description": "Compact ANT planning primer for agents that need to create, update, review, or close plan-backed work without rereading the long docs."
+    },
+    {
+      "name": "task-lifecycle",
+      "description": "Compact ANT task lifecycle primer for creating, assigning, reviewing, and closing plan-linked tasks with real provenance."
+    },
+    {
+      "name": "create-verification-lens",
+      "description": "Translate plain-English requirements into a concrete verification lens spec. Agent reads protocol from docs/specs/, produces a SkillSuccessOutput JSON, posts via POST /api/verification/lenses + POST .../tag-rows. Protocol available at /api/skills/create-verification-lens/protocol."
+    }
+  ]
+}

@@ -1,0 +1,178 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 720" role="img" aria-labelledby="title desc">
+  <title id="title">ANT claim primitive — state machine</title>
+  <desc id="desc">Three-column visual showing the 🖐️/🤝/👐 reaction lifecycle for brainstorm-mode pre-claim wait, brainstorm-mode handshake suppression, and heads-down-mode ordered responder walk.</desc>
+
+  <!-- Theme-aware via currentColor; rendered inside an element whose ink
+       and accent fills are theme-bound by class hooks. Inline minimal CSS
+       provides safe defaults for stand-alone preview; consumers override
+       via CSS variables (ink-strong, ink-muted, surface, accent, etc.). -->
+  <style><![CDATA[
+    .bg-card     { fill: var(--surface, #fff); stroke: var(--line-soft, #d6d6d6); stroke-width: 1.5; }
+    .bg-pre      { fill: var(--surface-edge, #fef9c3); stroke: var(--warn, #b45309); stroke-width: 1.5; }
+    .bg-claim    { fill: var(--ok-soft, #dcfce7); stroke: var(--ok, #15803d); stroke-width: 1.5; }
+    .bg-pass     { fill: var(--info-soft, #dbeafe); stroke: var(--info, #1d4ed8); stroke-width: 1.5; }
+    .bg-end      { fill: var(--surface, #fff); stroke: var(--accent, #6b21a8); stroke-width: 2; stroke-dasharray: 4 3; }
+    .ink         { fill: var(--ink-strong, #0f172a); }
+    .ink-soft    { fill: var(--ink-muted, #475569); }
+    .col-head    { fill: var(--accent, #0f172a); }
+    .arrow       { stroke: var(--ink-strong, #0f172a); stroke-width: 1.5; fill: none; }
+    .arrow-soft  { stroke: var(--ink-muted, #64748b); stroke-width: 1.2; fill: none; stroke-dasharray: 4 3; }
+    .label       { font-family: system-ui, -apple-system, "SF Pro Text", "Segoe UI", sans-serif; }
+    .h1          { font: 700 28px/1.1 system-ui, sans-serif; }
+    .h2          { font: 700 16px/1.2 system-ui, sans-serif; }
+    .body        { font: 500 12px/1.25 system-ui, sans-serif; }
+    .emoji       { font-size: 18px; }
+    .pill        { fill: var(--surface, #fff); stroke: var(--line-soft, #d6d6d6); }
+    .pill-text   { font: 600 11px/1 system-ui, sans-serif; }
+
+    /* Dark-mode adapt via prefers-color-scheme — overridden by hosting page's
+       CSS variables if available. Provides a safe baseline. */
+    @media (prefers-color-scheme: dark) {
+      .bg-card    { fill: #1e293b; stroke: #475569; }
+      .bg-pre     { fill: #422006; stroke: #fbbf24; }
+      .bg-claim   { fill: #064e3b; stroke: #34d399; }
+      .bg-pass    { fill: #1e3a8a; stroke: #60a5fa; }
+      .bg-end     { fill: #1e293b; stroke: #c084fc; }
+      .ink        { fill: #e2e8f0; }
+      .ink-soft   { fill: #94a3b8; }
+      .col-head   { fill: #a855f7; }
+      .arrow      { stroke: #e2e8f0; }
+      .arrow-soft { stroke: #94a3b8; }
+      .pill       { fill: #1e293b; stroke: #475569; }
+    }
+  ]]></style>
+
+  <!-- Title -->
+  <text x="540" y="42" class="label h1 ink" text-anchor="middle">Claim primitive · state machine</text>
+  <text x="540" y="66" class="label body ink-soft" text-anchor="middle">🖐️ looking · 🤝 working · 👐 pass — drives fanout in both modes</text>
+
+  <!-- Column headers -->
+  <text x="180" y="108" class="label h2 col-head" text-anchor="middle">Brainstorm · pre-claim wait</text>
+  <text x="540" y="108" class="label h2 col-head" text-anchor="middle">Brainstorm · handshake</text>
+  <text x="900" y="108" class="label h2 col-head" text-anchor="middle">Heads-down · ordered walk</text>
+
+  <!-- Column 1: Brainstorm pre-claim wait -->
+  <g transform="translate(40, 130)">
+    <rect class="bg-card" x="0" y="0" width="280" height="60" rx="8"/>
+    <text class="label body ink" x="140" y="25" text-anchor="middle">Plain message arrives</text>
+    <text class="label body ink-soft" x="140" y="44" text-anchor="middle">server delivers to all eligible members</text>
+
+    <line class="arrow" x1="140" y1="60" x2="140" y2="92" marker-end="url(#a)"/>
+
+    <rect class="bg-pre" x="0" y="100" width="280" height="80" rx="8"/>
+    <text class="emoji" x="20" y="125">🖐️</text>
+    <text class="label h2 ink" x="50" y="125">within 90s</text>
+    <text class="label body ink" x="20" y="148">Any agent reacts 🖐️</text>
+    <text class="label body ink-soft" x="20" y="166">→ server enters pre-claim wait,</text>
+    <text class="label body ink-soft" x="20" y="180">   suppresses further fanout</text>
+
+    <!-- branch -->
+    <line class="arrow" x1="80" y1="180" x2="40" y2="220" marker-end="url(#a)"/>
+    <line class="arrow" x1="200" y1="180" x2="240" y2="220" marker-end="url(#a)"/>
+
+    <rect class="bg-claim" x="0" y="230" width="130" height="80" rx="8"/>
+    <text class="emoji" x="15" y="255">🤝</text>
+    <text class="label body ink" x="45" y="255">handshake</text>
+    <text class="label body ink" x="10" y="278">message absorbed</text>
+    <text class="label body ink-soft" x="10" y="294">no further fanout</text>
+
+    <rect class="bg-pass" x="150" y="230" width="130" height="80" rx="8"/>
+    <text class="label h2 ink" x="215" y="255" text-anchor="middle">timeout</text>
+    <text class="label body ink" x="160" y="278">fanout resumes</text>
+    <text class="label body ink-soft" x="160" y="294">still claimable</text>
+  </g>
+
+  <!-- Column 2: Brainstorm handshake (zoom on the 🖐️ → 🤝 transition) -->
+  <g transform="translate(400, 130)">
+    <rect class="bg-card" x="0" y="0" width="280" height="60" rx="8"/>
+    <text class="label body ink" x="140" y="25" text-anchor="middle">🖐️ in flight, picker open</text>
+    <text class="label body ink-soft" x="140" y="44" text-anchor="middle">user choosing TTL</text>
+
+    <line class="arrow" x1="140" y1="60" x2="140" y2="92" marker-end="url(#a)"/>
+
+    <rect class="pill" x="20" y="100" width="240" height="40" rx="20"/>
+    <text class="label pill-text ink" x="140" y="124" text-anchor="middle">15m · 30m · 45m · 1h · 2h · Custom · ∞</text>
+
+    <line class="arrow" x1="140" y1="140" x2="140" y2="172" marker-end="url(#a)"/>
+
+    <rect class="bg-claim" x="0" y="180" width="280" height="60" rx="8"/>
+    <text class="emoji" x="20" y="205">🤝</text>
+    <text class="label h2 ink" x="55" y="205">claim active</text>
+    <text class="label body ink-soft" x="20" y="225">ledger entity_claims.status=active · countdown</text>
+
+    <line class="arrow" x1="140" y1="240" x2="140" y2="272" marker-end="url(#a)"/>
+
+    <rect class="bg-end" x="0" y="280" width="280" height="60" rx="8"/>
+    <text class="label h2 ink" x="140" y="305" text-anchor="middle">claimant posts reply</text>
+    <text class="label body ink-soft" x="140" y="324" text-anchor="middle">status=done · chip clears · 👏 to others</text>
+  </g>
+
+  <!-- Column 3: Heads-down ordered walk -->
+  <g transform="translate(760, 130)">
+    <rect class="bg-card" x="0" y="0" width="280" height="60" rx="8"/>
+    <text class="label body ink" x="140" y="25" text-anchor="middle">Plain message arrives</text>
+    <text class="label body ink-soft" x="140" y="44" text-anchor="middle">server picks first eligible (room order)</text>
+
+    <line class="arrow" x1="140" y1="60" x2="140" y2="92" marker-end="url(#a)"/>
+
+    <rect class="bg-pre" x="0" y="100" width="280" height="60" rx="8"/>
+    <text class="label h2 ink" x="140" y="125" text-anchor="middle">Deliver to agent N</text>
+    <text class="label body ink-soft" x="140" y="144" text-anchor="middle">90s wait for reaction</text>
+
+    <!-- 3-way branch -->
+    <line class="arrow" x1="60" y1="160" x2="30" y2="200" marker-end="url(#a)"/>
+    <line class="arrow" x1="140" y1="160" x2="140" y2="200" marker-end="url(#a)"/>
+    <line class="arrow" x1="220" y1="160" x2="250" y2="200" marker-end="url(#a)"/>
+
+    <rect class="bg-claim" x="0" y="210" width="80" height="80" rx="8"/>
+    <text class="emoji" x="10" y="232">🤝</text>
+    <text class="label body ink" x="10" y="252">closes</text>
+    <text class="label body ink-soft" x="10" y="270">walk ends</text>
+
+    <rect class="bg-pre" x="100" y="210" width="80" height="80" rx="8"/>
+    <text class="label h2 ink" x="140" y="232" text-anchor="middle">🖐️</text>
+    <text class="label body ink" x="140" y="252" text-anchor="middle">holds</text>
+    <text class="label body ink-soft" x="140" y="270" text-anchor="middle">extends wait</text>
+
+    <rect class="bg-pass" x="200" y="210" width="80" height="80" rx="8"/>
+    <text class="emoji" x="210" y="232">👐</text>
+    <text class="label body ink" x="210" y="252">passes</text>
+    <text class="label body ink-soft" x="210" y="270">→ next N</text>
+
+    <!-- loop back arrow from pass to deliver -->
+    <path class="arrow-soft" d="M 240 290 Q 320 320 320 130 Q 320 100 200 100" marker-end="url(#a)"/>
+    <text class="label body ink-soft" x="305" y="200" text-anchor="end">next agent in walk</text>
+
+    <!-- terminal: end-of-walk -->
+    <line class="arrow" x1="40" y1="290" x2="40" y2="335" marker-end="url(#a)"/>
+    <rect class="bg-end" x="0" y="345" width="280" height="40" rx="8"/>
+    <text class="label body ink-soft" x="140" y="370" text-anchor="middle">end of walk → 'nobody was available' marker</text>
+  </g>
+
+  <!-- Legend / footnote -->
+  <g transform="translate(40, 500)">
+    <text class="label h2 ink" x="0" y="0">Legend</text>
+    <rect class="bg-pre"   x="0"  y="14" width="20" height="20" rx="4"/>
+    <text class="label body ink"   x="30" y="29">pre-claim / 🖐️ wait state (advisory hold, 90s default)</text>
+    <rect class="bg-claim" x="350" y="14" width="20" height="20" rx="4"/>
+    <text class="label body ink"   x="380" y="29">active claim / 🤝 (server-enforced, TTL picker)</text>
+    <rect class="bg-pass"  x="680" y="14" width="20" height="20" rx="4"/>
+    <text class="label body ink"   x="710" y="29">advance / 👐 (explicit pass, fanout-only)</text>
+    <rect class="bg-end"   x="0"  y="44" width="20" height="20" rx="4"/>
+    <text class="label body ink"   x="30" y="59">terminal state (claim done OR walk exhausted)</text>
+    <text class="label body ink-soft" x="0" y="94">Spec source: ask_hj2ubjbum8dmpce8dc1 (final). Ledger: entity_claims(entity_kind, entity_id, kind=response|work|review, claimed_by, status, ttl_ms). Override: admin-bearer `ant claim release --force &lt;id&gt; --reason X` only.</text>
+  </g>
+
+  <!-- Tier badge -->
+  <g transform="translate(960, 670)">
+    <rect class="pill" x="-60" y="-15" width="120" height="22" rx="11"/>
+    <text class="label pill-text ink" x="0" y="0" text-anchor="middle">OSS · canvas-eligible</text>
+  </g>
+
+  <!-- arrowhead defs -->
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+</svg>

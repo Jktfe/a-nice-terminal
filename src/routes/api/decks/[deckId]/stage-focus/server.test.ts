@@ -1,0 +1,222 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { POST } from './+server';
+import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
+import { createDeck, resetDeckStoreForTests } from '$lib/server/deckStore';
+import { resetChatMessageStoreForTests, listMessagesInRoom } from '$lib/server/chatMessageStore';
+import { subscribeRoomEvents } from '$lib/server/eventBroadcast';
+import { resetPlanModeStoreForTests } from '$lib/server/planModeStore';
+import { getCurrentFocus } from '$lib/server/stageStore';
+import { GET } from './+server';
+
+const ADMIN_TOKEN_FOR_TESTS = 'stage-focus-route-test-admin-token';
+const ORIGINAL_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
+
+beforeAll(() => {
+  process.env.ANT_ADMIN_TOKEN = ADMIN_TOKEN_FOR_TESTS;
+});
+
+afterAll(() => {
+  if (ORIGINAL_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = ORIGINAL_ADMIN_TOKEN;
+});
+
+type AnyEvent = Parameters<typeof POST>[0];
+type GetEvent = Parameters<typeof GET>[0];
+
+function eventFor(
+  deckId: string,
+  body: unknown,
+  opts: { withAuth?: boolean; password?: string } = { withAuth: true }
+): AnyEvent {
+  const url = new URL(`http://localhost/api/decks/${deckId}/stage-focus`);
+  if (opts.password) url.searchParams.set('password', opts.password);
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (opts.withAuth ?? true) headers.authorization = `Bearer ${ADMIN_TOKEN_FOR_TESTS}`;
+  const request = new Request(url.toString(), {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body)
+  });
+  return { request, params: { deckId }, url } as unknown as AnyEvent;
+}
+
+async function runPost(event: AnyEvent): Promise<Response> {
+  try {
+    return (await POST(event)) as Response;
+  } catch (thrownByHandler) {
+    if (thrownByHandler instanceof Response) return thrownByHandler;
+    const httpFailure = thrownByHandler as { status?: number; body?: { message?: string } };
+    if (typeof httpFailure?.status === 'number') {
+      return new Response(JSON.stringify(httpFailure.body ?? {}), { status: httpFailure.status });
+    }
+    throw thrownByHandler;
+  }
+}
+
+async function runGet(event: GetEvent): Promise<Response> {
+  try {
+    return (await GET(event)) as Response;
+  } catch (thrownByHandler) {
+    if (thrownByHandler instanceof Response) return thrownByHandler;
+    const httpFailure = thrownByHandler as { status?: number; body?: { message?: string } };
+    if (typeof httpFailure?.status === 'number') {
+      return new Response(JSON.stringify(httpFailure.body ?? {}), { status: httpFailure.status });
+    }
+    throw thrownByHandler;
+  }
+}
+
+describe('POST /api/decks/:deckId/stage-focus', () => {
+  beforeEach(() => {
+    resetChatRoomStoreForTests();
+    resetDeckStoreForTests();
+    resetChatMessageStoreForTests();
+    resetPlanModeStoreForTests();
+  });
+
+  it('publishes the focused slide into stageStore and the room fanout', async () => {
+    const room = createChatRoom({ name: 'stage room', whoCreatedIt: '@you' });
+    const deck = createDeck({
+      roomId: room.id,
+      title: 'Stage Pitch',
+      slides: [
+        { id: 's1', title: 'Opening', content: 'One' },
+        { id: 's2', title: 'Evidence', content: 'Two' }
+      ]
+    });
+    const broadcastEvents: Record<string, unknown>[] = [];
+    const unsubscribe = subscribeRoomEvents(room.id, (event) => {
+      broadcastEvents.push(event);
+    });
+
+    try {
+      const response = await runPost(eventFor(deck.id, {
+        planId: 'stage-primitive-v1',
+        slideId: 's2',
+        slideIndex: 1,
+        slideTitle: 'Evidence'
+      }));
+
+      expect(response.status).toBe(201);
+      const body = await response.json();
+      expect(body.focus).toMatchObject({
+        stageId: deck.id,
+        ref: `stage:${deck.id}:slide:s2`,
+        label: 'Slide 2: Evidence',
+        source: 'plan_event'
+      });
+    } finally {
+      unsubscribe();
+    }
+
+    expect(getCurrentFocus(deck.id)).toMatchObject({
+      ref: `stage:${deck.id}:slide:s2`,
+      label: 'Slide 2: Evidence'
+    });
+    const messages = listMessagesInRoom(room.id);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].kind).toBe('system');
+    expect(messages[0].body).toContain('Stage focus: Stage Pitch');
+    expect(messages[0].body).toContain('Slide 2: Evidence');
+    expect(broadcastEvents).toHaveLength(1);
+    expect(broadcastEvents[0]).toMatchObject({
+      type: 'message_added',
+      message: messages[0]
+    });
+  });
+
+  it('rejects unauthenticated focus publishes without creating focus evidence', async () => {
+    const room = createChatRoom({ name: 'private stage room', whoCreatedIt: '@you' });
+    const deck = createDeck({
+      roomId: room.id,
+      title: 'Private Stage',
+      slides: [{ id: 's1', title: 'Opening', content: 'One' }]
+    });
+
+    const response = await runPost(eventFor(deck.id, {
+      planId: 'stage-primitive-v1',
+      slideId: 's1',
+      slideIndex: 0,
+      slideTitle: 'Opening'
+    }, { withAuth: false }));
+
+    expect(response.status).toBe(401);
+    expect(getCurrentFocus(deck.id)).toBeNull();
+    expect(listMessagesInRoom(room.id)).toEqual([]);
+  });
+
+  it('lets an authorized caller read the current focus through the read gate', async () => {
+    const room = createChatRoom({ name: 'readable stage room', whoCreatedIt: '@you' });
+    const deck = createDeck({
+      roomId: room.id,
+      title: 'Readable Stage',
+      slides: [{ id: 's1', title: 'Opening', content: 'One' }]
+    });
+    await runPost(eventFor(deck.id, {
+      planId: 'stage-primitive-v1',
+      slideId: 's1',
+      slideIndex: 0,
+      slideTitle: 'Opening'
+    }));
+    const url = new URL(`http://localhost/api/decks/${deck.id}/stage-focus`);
+    url.searchParams.set('pidChain', JSON.stringify([]));
+    const response = await runGet({
+      request: new Request(url.toString(), {
+        headers: { authorization: `Bearer ${ADMIN_TOKEN_FOR_TESTS}` }
+      }),
+      params: { deckId: deck.id },
+      url
+    } as unknown as GetEvent);
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.focus).toMatchObject({
+      ref: `stage:${deck.id}:slide:s1`,
+      label: 'Slide 1: Opening'
+    });
+  });
+
+  it('allows a deck-password presenter to publish focus without room auth', async () => {
+    const room = createChatRoom({ name: 'password stage room', whoCreatedIt: '@you' });
+    const deck = createDeck({
+      roomId: room.id,
+      title: 'Password Stage',
+      accessPassword: 'stage-demo',
+      slides: [{ id: 's1', title: 'Opening', content: 'One' }]
+    });
+
+    const response = await runPost(eventFor(deck.id, {
+      slideId: 's1',
+      slideIndex: 0,
+      slideTitle: 'Opening'
+    }, { withAuth: false, password: 'stage-demo' }));
+
+    expect(response.status).toBe(201);
+    expect(getCurrentFocus(deck.id)).toMatchObject({
+      ref: `stage:${deck.id}:slide:s1`,
+      label: 'Slide 1: Opening'
+    });
+  });
+
+  it('uses the slide index as the focus ref when slides do not have ids', async () => {
+    const room = createChatRoom({ name: 'idless stage room', whoCreatedIt: '@you' });
+    const deck = createDeck({
+      roomId: room.id,
+      title: 'Imported Deck',
+      slides: [{ id: undefined as unknown as string, title: 'Opening', content: 'One' }]
+    });
+
+    const response = await runPost(eventFor(deck.id, {
+      planId: 'stage-primitive-v1',
+      slideIndex: 0,
+      slideTitle: 'Opening'
+    }));
+
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body.focus).toMatchObject({
+      ref: `stage:${deck.id}:slide:slide-1`,
+      label: 'Slide 1: Opening'
+    });
+  });
+});

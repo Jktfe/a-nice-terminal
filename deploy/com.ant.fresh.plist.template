@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  ANT launchd plist template.
+
+  1. Copy this file to ~/Library/LaunchAgents/com.ant.fresh.plist
+  2. Replace every {{ANT_*}} placeholder with the absolute path for
+     YOUR machine.
+  3. launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ant.fresh.plist
+
+  The deployed copy (with real paths) is .gitignore'd as
+  deploy/com.ant.fresh.plist so it never leaks the operator's home dir
+  + node version + secrets path into git history.
+
+  ANT_NODE_BIN_DIR    e.g. /Users/you/.nvm/versions/node/v22.22.1/bin
+                          OR /opt/homebrew/bin
+                          OR /usr/local/bin
+  ANT_BUN_BIN_DIR     e.g. /Users/you/.bun/bin                    (optional; for `bun` CLI)
+  ANT_SECRETS_ENV     e.g. /Users/you/.ant/secrets.env            (chmod 600)
+  ANT_WORKING_DIR     e.g. /Users/you/src/a-nice-terminal         (the ANT repo)
+-->
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>{{ANT_BUN_BIN_DIR}}:{{ANT_NODE_BIN_DIR}}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<key>KeepAlive</key>
+	<true/>
+	<key>Label</key>
+	<string>com.ant.fresh</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>{{ANT_NODE_BIN_DIR}}/node</string>
+		<string>--env-file={{ANT_SECRETS_ENV}}</string>
+		<string>scripts/start-snapshot.mjs</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>/tmp/ant-fresh.log</string>
+	<key>StandardOutPath</key>
+	<string>/tmp/ant-fresh.log</string>
+	<key>ThrottleInterval</key>
+	<integer>5</integer>
+	<key>WorkingDirectory</key>
+	<string>{{ANT_WORKING_DIR}}</string>
+</dict>
+</plist>

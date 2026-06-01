@@ -1,0 +1,508 @@
+/**
+ * /api/permission-requests/[requestId]/approve endpoint tests — Stage B
+ * substrate (plan milestone p3-stage-b-permission-requests of
+ * ant-substrate-v0.2-2026-05-29).
+ *
+ * Covers:
+ *   - 404 on unknown request (after auth)
+ *   - 409 on already-decided request
+ *   - 403 + structured payload for non-approver
+ *   - 201 happy path for room owner — grant lands + ready_for_replay set
+ *   - admin-bearer bypass
+ *   - invalid decisionScope -> 400
+ *   - 401 on unauthenticated probe
+ *   - non-approver cannot probe via missing-id (401 wins over 404)
+ */
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { POST } from './+server';
+import { resetIdentityDbForTests } from '$lib/server/db';
+import {
+  createPermissionRequest,
+  resetPermissionRequestsForTests
+} from '$lib/server/permissionRequestsStore';
+import {
+  lookupActiveGrant,
+  resetGrantsShimForTests
+} from '$lib/server/grantsShimStore';
+import { createChatRoom } from '$lib/server/chatRoomStore';
+import { upsertTerminal } from '$lib/server/terminalsStore';
+import { addMembership } from '$lib/server/roomMembershipsStore';
+import { createTerminalRecord } from '$lib/server/terminalRecordsStore';
+
+let tmpDir: string;
+const previousDbEnv = process.env.ANT_FRESH_DB_PATH;
+const previousAdminToken = process.env.ANT_ADMIN_TOKEN;
+const TEST_ADMIN = 'admin-token-for-approve-tests';
+
+type AnyHandler = (event: unknown) => unknown;
+
+function eventFor(requestId: string, init: RequestInit): unknown {
+  const url = new URL(
+    `http://localhost/api/permission-requests/${requestId}/approve`
+  );
+  const request = new Request(url.toString(), { method: 'POST', ...init });
+  return { request, params: { requestId }, url };
+}
+
+async function runHandler(handler: AnyHandler, event: unknown): Promise<Response> {
+  try {
+    return (await handler(event)) as Response;
+  } catch (thrown) {
+    if (thrown instanceof Response) return thrown;
+    const httpFailure = thrown as { status?: number; body?: unknown };
+    if (typeof httpFailure?.status === 'number') {
+      return new Response(JSON.stringify(httpFailure.body ?? {}), {
+        status: httpFailure.status
+      });
+    }
+    throw thrown;
+  }
+}
+
+function seedTerminal(handle: string, pid: number, roomId: string) {
+  const terminal = upsertTerminal({
+    pid,
+    pid_start: `2026-05-29T20:00:0${pid % 10}.000Z`,
+    name: `term-${pid}`,
+    ttlSeconds: 60 * 60
+  });
+  // sec-iter1 Fix #1: caller-handle resolution now reads
+  // terminal_records.handle (authoritative) rather than per-room
+  // memberships[0].handle. Tests must seed BOTH the legacy membership
+  // row (for the existing approver-list shape) AND the terminal_records
+  // row (so the new gate resolves the caller's declared handle).
+  createTerminalRecord({
+    sessionId: terminal.id,
+    name: `term-${pid}`,
+    handle
+  });
+  addMembership({ room_id: roomId, handle, terminal_id: terminal.id });
+  return { terminal, pidChainEntry: { pid, pid_start: `2026-05-29T20:00:0${pid % 10}.000Z` } };
+}
+
+beforeEach(() => {
+  tmpDir = mkdtempSync(join(tmpdir(), 'ant-permission-approve-'));
+  process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
+  process.env.ANT_ADMIN_TOKEN = TEST_ADMIN;
+  resetIdentityDbForTests();
+  resetGrantsShimForTests();
+  resetPermissionRequestsForTests();
+});
+
+afterEach(() => {
+  if (previousDbEnv === undefined) delete process.env.ANT_FRESH_DB_PATH;
+  else process.env.ANT_FRESH_DB_PATH = previousDbEnv;
+  if (previousAdminToken === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = previousAdminToken;
+  resetIdentityDbForTests();
+  rmSync(tmpDir, { recursive: true, force: true });
+});
+
+describe('POST /api/permission-requests/[requestId]/approve', () => {
+  it('admin-bearer bypasses approver gate + writes grant + flips replay_status', async () => {
+    const room = createChatRoom({ name: 'admin-ok', whoCreatedIt: '@jwpk' });
+    const created = createPermissionRequest({
+      requesterHandle: '@speedyc',
+      action: 'chat.post',
+      targetKind: 'room',
+      targetId: room.id,
+      approvers: [{ handle: '@jwpk', role: 'room_owner', preferred: true }],
+      pendingAction: {
+        httpMethod: 'POST',
+        httpPath: `/api/chat-rooms/${room.id}/messages`,
+        payloadJson: '{"body":"hi"}'
+      }
+    });
+
+    const event = eventFor(created.request.requestId, {
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${TEST_ADMIN}`
+      },
+      body: JSON.stringify({})
+    });
+    const response = await runHandler(POST as AnyHandler, event);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      request: { status: string; resultingGrantId: string };
+      grant: { grantId: string };
+      replay: { ready: boolean; status: string; actionId: string };
+    };
+    expect(body.request.status).toBe('approved');
+    expect(body.grant.grantId).toMatch(/^gr_/);
+    expect(body.replay.ready).toBe(true);
+    expect(body.replay.status).toBe('ready_for_replay');
+    // Grant queryable via existing store helper.
+    const grant = lookupActiveGrant({
+      granteeHandle: '@speedyc',
+      action: 'chat.post',
+      targetKind: 'room',
+      targetId: room.id
+    });
+    expect(grant).not.toBeNull();
+  });
+
+  it('room owner can approve their own room request', async () => {
+    const room = createChatRoom({ name: 'owner-approve', whoCreatedIt: '@jwpk' });
+    const created = createPermissionRequest({
+      requesterHandle: '@speedyc',
+      action: 'chat.post',
+      targetKind: 'room',
+      targetId: room.id,
+      approvers: [{ handle: '@jwpk', role: 'room_owner', preferred: true }]
+    });
+    const { pidChainEntry } = seedTerminal('@jwpk', 80001, room.id);
+
+    const event = eventFor(created.request.requestId, {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pidChain: [pidChainEntry] })
+    });
+    const response = await runHandler(POST as AnyHandler, event);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { request: { status: string } };
+    expect(body.request.status).toBe('approved');
+  });
+
+  it('non-approver gets 403 with structured permission_denied payload', async () => {
+    const room = createChatRoom({ name: 'non-approver', whoCreatedIt: '@jwpk' });
+    const created = createPermissionRequest({
+      requesterHandle: '@speedyc',
+      action: 'chat.post',
+      targetKind: 'room',
+      targetId: room.id,
+      approvers: [{ handle: '@jwpk', role: 'room_owner', preferred: true }]
+    });
+    // @rando is authenticated but NOT a room owner.
+    const otherRoom = createChatRoom({ name: 'other', whoCreatedIt: '@other' });
+    const { pidChainEntry } = seedTerminal('@rando', 80002, otherRoom.id);
+
+    const event = eventFor(created.request.requestId, {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pidChain: [pidChainEntry] })
+    });
+    const response = await runHandler(POST as AnyHandler, event);
+    expect(response.status).toBe(403);
+    const body = (await response.json()) as {
+      permission_denied?: { reason?: string; approvers?: Array<{ handle: string }> };
+    };
+    expect(body.permission_denied?.reason).toBe('not_room_owner');
+    expect(body.permission_denied?.approvers?.[0].handle).toBe('@jwpk');
+  });
+
+  it('returns 401 on unauthenticated probe', async () => {
+    delete process.env.ANT_ADMIN_TOKEN;
+    const event = eventFor('req_anything', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const response = await runHandler(POST as AnyHandler, event);
+    expect(response.status).toBe(401);
+  });
+
+  it('returns 404 when request does not exist', async () => {
+    const event = eventFor('req_does_not_exist', {
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${TEST_ADMIN}`
+      },
+      body: JSON.stringify({})
+    });
+    const response = await runHandler(POST as AnyHandler, event);
+    expect(response.status).toBe(404);
+  });
+
+  it('returns 409 when request is already decided', async () => {
+    const room = createChatRoom({ name: 'already-decided', whoCreatedIt: '@jwpk' });
+    const created = createPermissionRequest({
+      requesterHandle: '@speedyc',
+      action: 'chat.post',
+      targetKind: 'room',
+      targetId: room.id,
+      approvers: [{ handle: '@jwpk', role: 'room_owner', preferred: true }]
+    });
+    // First approve succeeds.
+    await runHandler(
+      POST as AnyHandler,
+      eventFor(created.request.requestId, {
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${TEST_ADMIN}`
+        },
+        body: JSON.stringify({})
+      })
+    );
+    // Second approve 409s.
+    const response = await runHandler(
+      POST as AnyHandler,
+      eventFor(created.request.requestId, {
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${TEST_ADMIN}`
+        },
+        body: JSON.stringify({})
+      })
+    );
+    expect(response.status).toBe(409);
+  });
+
+  it('returns 400 on invalid decisionScope', async () => {
+    const room = createChatRoom({ name: 'bad-scope', whoCreatedIt: '@jwpk' });
+    const created = createPermissionRequest({
+      requesterHandle: '@s',
+      action: 'chat.post',
+      targetKind: 'room',
+      targetId: room.id,
+      approvers: [{ handle: '@jwpk', role: 'room_owner', preferred: true }]
+    });
+    const event = eventFor(created.request.requestId, {
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${TEST_ADMIN}`
+      },
+      body: JSON.stringify({ decisionScope: 'forever' })
+    });
+    const response = await runHandler(POST as AnyHandler, event);
+    expect(response.status).toBe(400);
+  });
+
+  it('rejects non-admin system-scoped approval with 403', async () => {
+    // System-scoped requests are admin-bearer only — even an authenticated
+    // room owner can't approve them.
+    const otherRoom = createChatRoom({ name: 'other', whoCreatedIt: '@jwpk' });
+    const created = createPermissionRequest({
+      requesterHandle: '@speedyc',
+      action: 'system.reclaim',
+      targetKind: 'system',
+      targetId: 'global',
+      approvers: []
+    });
+    const { pidChainEntry } = seedTerminal('@jwpk', 80003, otherRoom.id);
+    const event = eventFor(created.request.requestId, {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pidChain: [pidChainEntry] })
+    });
+    const response = await runHandler(POST as AnyHandler, event);
+    expect(response.status).toBe(403);
+  });
+
+  // sec-iter1 Fix #1 attack-scenario tests — privilege escalation via
+  // memberships[0].handle. These cover the exact attack vector the fix
+  // closes: an attacker registers a terminal under a handle different
+  // from the victim's, then is invited into a room WHERE THEIR PER-ROOM
+  // HANDLE happens to be the victim's. Pre-fix, memberships[0].handle
+  // returned the victim's handle and the gate succeeded. Post-fix the
+  // gate reads terminal_records.handle (the attacker's declared
+  // identity), which is NOT the victim's, so it 403s.
+  describe('sec-iter1 Fix #1: privilege escalation via memberships[0]', () => {
+    it('rejects the attack: caller pidChain resolves to a terminal whose terminal_records.handle is NOT the victim, even if their per-room membership row uses the victim handle', async () => {
+      const room = createChatRoom({ name: 'esc-room', whoCreatedIt: '@jwpk' });
+      const created = createPermissionRequest({
+        requesterHandle: '@speedyc',
+        action: 'chat.post',
+        targetKind: 'room',
+        targetId: room.id,
+        approvers: [{ handle: '@jwpk', role: 'room_owner', preferred: true }]
+      });
+      // Attacker's terminal has its OWN declared identity in
+      // terminal_records (@attacker) but somehow has a membership row
+      // bound to @jwpk in another room (simulating the pre-fix attack
+      // path). Pre-fix this would make memberships[0].handle == '@jwpk'
+      // and let them approve. Post-fix the gate reads
+      // terminal_records.handle == '@attacker' and 403s.
+      const attackerTerminal = upsertTerminal({
+        pid: 80050,
+        pid_start: '2026-05-30T00:00:00.000Z',
+        name: 'attacker-pane',
+        ttlSeconds: 60 * 60
+      });
+      createTerminalRecord({
+        sessionId: attackerTerminal.id,
+        name: 'attacker-pane',
+        handle: '@attacker'
+      });
+      // Plant the malicious membership row under the victim handle.
+      const otherRoom = createChatRoom({ name: 'innocent-room', whoCreatedIt: '@otherowner' });
+      addMembership({
+        room_id: otherRoom.id,
+        handle: '@jwpk',
+        terminal_id: attackerTerminal.id
+      });
+
+      const event = eventFor(created.request.requestId, {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          pidChain: [{ pid: 80050, pid_start: '2026-05-30T00:00:00.000Z' }]
+        })
+      });
+      const response = await runHandler(POST as AnyHandler, event);
+      expect(response.status).toBe(403);
+      const body = (await response.json()) as {
+        permission_denied?: { reason?: string };
+      };
+      expect(body.permission_denied?.reason).toBe('not_room_owner');
+    });
+
+    it('fail-closes (401) when caller terminal has NO terminal_records row', async () => {
+      const room = createChatRoom({ name: 'no-record', whoCreatedIt: '@jwpk' });
+      const created = createPermissionRequest({
+        requesterHandle: '@speedyc',
+        action: 'chat.post',
+        targetKind: 'room',
+        targetId: room.id,
+        approvers: [{ handle: '@jwpk', role: 'room_owner', preferred: true }]
+      });
+      const terminal = upsertTerminal({
+        pid: 80060,
+        pid_start: '2026-05-30T00:00:01.000Z',
+        name: 'no-record-term',
+        ttlSeconds: 60 * 60
+      });
+      // No terminal_records row created — fail-closed.
+      addMembership({ room_id: room.id, handle: '@jwpk', terminal_id: terminal.id });
+
+      const event = eventFor(created.request.requestId, {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          pidChain: [{ pid: 80060, pid_start: '2026-05-30T00:00:01.000Z' }]
+        })
+      });
+      const response = await runHandler(POST as AnyHandler, event);
+      expect(response.status).toBe(401);
+    });
+
+    it('fail-closes (401) when terminal_records.handle is NULL', async () => {
+      const room = createChatRoom({ name: 'null-handle', whoCreatedIt: '@jwpk' });
+      const created = createPermissionRequest({
+        requesterHandle: '@speedyc',
+        action: 'chat.post',
+        targetKind: 'room',
+        targetId: room.id,
+        approvers: [{ handle: '@jwpk', role: 'room_owner', preferred: true }]
+      });
+      const terminal = upsertTerminal({
+        pid: 80070,
+        pid_start: '2026-05-30T00:00:02.000Z',
+        name: 'null-handle-term',
+        ttlSeconds: 60 * 60
+      });
+      // Record exists but handle is NULL (e.g. pre-handle-pick terminal).
+      createTerminalRecord({
+        sessionId: terminal.id,
+        name: 'null-handle-term',
+        handle: null
+      });
+      addMembership({ room_id: room.id, handle: '@jwpk', terminal_id: terminal.id });
+
+      const event = eventFor(created.request.requestId, {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          pidChain: [{ pid: 80070, pid_start: '2026-05-30T00:00:02.000Z' }]
+        })
+      });
+      const response = await runHandler(POST as AnyHandler, event);
+      expect(response.status).toBe(401);
+    });
+  });
+
+  /**
+   * Sec-iter2 Fix #3 (2026-05-30): structural fix — admin authority no
+   * longer derives from string-equality between caller.handle and
+   * ADMIN_BEARER_HANDLE. Even if an attacker bypassed every other gate
+   * and somehow planted a terminal_records row with handle='@admin',
+   * the approver gate now consults `caller.isAdminBearer` (set ONLY by
+   * a proven admin-bearer token) and 403s the request.
+   *
+   * Fix #1 + Fix #2 close the known planting paths (POST + PATCH);
+   * Fix #3 closes the ENTIRE CLASS of "any future writer that lands
+   * '@admin' into a handle column spoofs admin". We plant the row via
+   * raw SQL to simulate a hypothetical future bypass and assert the
+   * gate still rejects.
+   */
+  describe('sec-iter2 Fix #3: typed isAdminBearer discriminator (structural)', () => {
+    it('terminal_records.handle=@admin (planted via raw SQL, simulating a future-writer bypass) does NOT spoof admin authority', async () => {
+      const { getIdentityDb } = await import('$lib/server/db');
+      const room = createChatRoom({ name: 'iter2-room', whoCreatedIt: '@jwpk' });
+      const created = createPermissionRequest({
+        requesterHandle: '@speedyc',
+        action: 'chat.post',
+        targetKind: 'room',
+        targetId: room.id,
+        approvers: [{ handle: '@jwpk', role: 'room_owner', preferred: true }]
+      });
+      const terminal = upsertTerminal({
+        pid: 80080,
+        pid_start: '2026-05-30T00:00:03.000Z',
+        name: 'spoofer-pane',
+        ttlSeconds: 60 * 60
+      });
+      // Plant the @admin handle via raw SQL — the public API (Fix #1)
+      // would reject this. This simulates a hypothetical future writer
+      // that forgot the choke-point and proves Fix #3 still rejects.
+      const now = Date.now();
+      getIdentityDb().prepare(
+        `INSERT INTO terminal_records (session_id, name, auto_forward_chat, tmux_target_pane, handle, created_at_ms, updated_at_ms)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(terminal.id, 'spoofer-pane', 1, `${terminal.id}:0.0`, '@admin', now, now);
+
+      const event = eventFor(created.request.requestId, {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          pidChain: [{ pid: 80080, pid_start: '2026-05-30T00:00:03.000Z' }]
+        })
+      });
+      const response = await runHandler(POST as AnyHandler, event);
+      // Pre-Fix#3 this would be 200 (admin short-circuit on
+      // string-eq). Post-Fix#3 the gate reads `isAdminBearer` which
+      // is FALSE for this caller (no admin-bearer token), so it falls
+      // through to the approver check and 403s.
+      expect(response.status).toBe(403);
+    });
+
+    it('admin-bearer token STILL bypasses (control case — Fix #3 must not break the legitimate admin path)', async () => {
+      const room = createChatRoom({ name: 'iter2-control', whoCreatedIt: '@jwpk' });
+      const created = createPermissionRequest({
+        requesterHandle: '@speedyc',
+        action: 'chat.post',
+        targetKind: 'room',
+        targetId: room.id,
+        approvers: [{ handle: '@jwpk', role: 'room_owner', preferred: true }]
+      });
+      // No pidChain, no fancy terminal setup — just the admin bearer.
+      const event = eventFor(created.request.requestId, {
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${TEST_ADMIN}`
+        },
+        body: JSON.stringify({})
+      });
+      const response = await runHandler(POST as AnyHandler, event);
+      expect(response.status).toBe(200);
+    });
+  });
+
+  it('happy path honours decisionScope=always-for-room on the grant', async () => {
+    const room = createChatRoom({ name: 'scoped-grant', whoCreatedIt: '@jwpk' });
+    const created = createPermissionRequest({
+      requesterHandle: '@speedyc',
+      action: 'chat.post',
+      targetKind: 'room',
+      targetId: room.id,
+      approvers: [{ handle: '@jwpk', role: 'room_owner', preferred: true }]
+    });
+    const event = eventFor(created.request.requestId, {
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${TEST_ADMIN}`
+      },
+      body: JSON.stringify({ decisionScope: 'always-for-room' })
+    });
+    const response = await runHandler(POST as AnyHandler, event);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { grant: { scope: string } };
+    expect(body.grant.scope).toBe('always-for-room');
+  });
+});

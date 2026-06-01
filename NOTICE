@@ -1,0 +1,46 @@
+ANT — Agent-Native Terminal
+Copyright (C) 2026 New Model Venture Capital Ltd and contributors
+
+This product includes software developed by New Model Venture Capital Ltd and the
+ANT contributors as part of the ANT project (https://github.com/Jktfe/a-nice-terminal).
+
+================================================================================
+
+ANT is dual-licensed:
+
+1. **AGPL-3.0-or-later** for open-source / self-hosted use.
+   See LICENSE for the full text.
+   AGPL means: you can run, modify, and distribute ANT freely, but if you
+   make it available to users over a network (e.g. hosted SaaS), you must
+   make your modifications available to those users under the same licence.
+
+2. **ANT Commercial Licence** for proprietary use, hosted commercial service,
+   premium native apps (paid Mac/iOS/Android antchat), or any deployment where
+   the AGPL's source-availability obligation is incompatible with your business
+   model.
+   See COMMERCIAL_LICENSE.md for terms.
+   See docs/licensing.md for guidance on which licence applies to your use.
+
+================================================================================
+
+This product includes third-party software components. Their notices are
+preserved in their respective subdirectories. Notable dependencies:
+
+- SvelteKit (MIT, https://github.com/sveltejs/kit)
+- better-sqlite3 (MIT, https://github.com/WiseLibs/better-sqlite3)
+- Bun runtime (MIT, https://bun.sh)
+- Node.js (MIT-like, https://nodejs.org)
+- @sveltejs/adapter-node (MIT)
+
+When ANT integrates additional optional dependencies (e.g. semble MCP for
+hybrid code search, svar-widgets/gantt for the timeline view), their licences
+travel with their respective package metadata. See package.json + the per-
+package LICENCE files installed in node_modules/.
+
+For questions about licensing, contact: the maintainers via GitHub (github.com/Jktfe/a-nice-terminal)
+
+================================================================================
+ANT is built BY ANT — this project's coordinator agent has been running
+continuously since 2026-05-08. The orchestration discipline that produced
+this codebase is itself the product on display.
+================================================================================

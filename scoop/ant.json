@@ -1,0 +1,22 @@
+{
+  "$comment": "Reference copy. The version users actually install lives in the bucket repo: https://github.com/Jktfe/scoop-antchat (bucket/ant.json) — same bucket as antchat per m6.2 Q2 JWPK pragmatic-v1. After each Release ant workflow run, scoop/update-bucket.sh syncs version + hash into the bucket repo. The hash below stays as PLACEHOLDER until release time.",
+  "version": "0.0.0",
+  "description": "Fresh-ANT CLI — agent coordination + chat from your terminal",
+  "homepage": "https://github.com/Jktfe/a-nice-terminal",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/Jktfe/a-nice-terminal/releases/download/ant-v0.0.0/ant-0.0.0-windows-x64.zip",
+      "hash": "PLACEHOLDER_WIN_X64_SHA256_REPLACE_AT_RELEASE_TIME"
+    }
+  },
+  "bin": "ant.exe",
+  "checkver": "github",
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/Jktfe/a-nice-terminal/releases/download/ant-v$version/ant-$version-windows-x64.zip"
+      }
+    }
+  }
+}

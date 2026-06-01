@@ -1,0 +1,244 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, isAbsolute, join } from 'node:path';
+import { getIdentityDb } from './db';
+import { baseName } from './terminalNameTag';
+import { resolveMemoryVaultPath } from './memoryVaultSettingsStore';
+
+export type AntRegistryProjectionResult = {
+  path: string;
+  rows: number;
+  skipped: boolean;
+};
+
+type RegistryRow = {
+  session_id: string;
+  name: string | null;
+  handle: string | null;
+  agent_kind: string | null;
+  tmux_target_pane: string | null;
+  terminal_pid: number | null;
+  terminal_updated_at: number | null;
+  terminal_source: string | null;
+  record_updated_at_ms: number | null;
+};
+
+export function antRegistryFilePath(): string {
+  const configured = process.env.ANT_REGISTRY_FILE_PATH || process.env.ANT_AGENT_REGISTRY_PATH;
+  if (configured && configured.trim().length > 0) return configured.trim();
+  return join(homedir(), 'Documents', 'ant-registry.md');
+}
+
+export function buildAntRegistryMarkdown(nowMs = Date.now()): string {
+  const rows = listRegistryRows();
+  const lines = [
+    '# ANT Agent Registry',
+    '',
+    `Updated: ${new Date(nowMs).toISOString()}`,
+    `Server: ${process.env.ANT_SERVER_URL || 'http://localhost:6174'}`,
+    '',
+    '| Handle | Name | Kind | PID | Tmux session | Last seen | Source |',
+    '|---|---|---|---:|---|---|---|'
+  ];
+
+  for (const row of rows) {
+    lines.push(`| ${[
+      md(row.handle || handleFromName(row.name || row.session_id)),
+      md(row.name || row.session_id),
+      md(row.agent_kind || ''),
+      row.terminal_pid ? String(row.terminal_pid) : '',
+      md(tmuxSession(row.tmux_target_pane)),
+      md(lastSeenIso(row)),
+      md(row.terminal_source || '')
+    ].join(' | ')} |`);
+  }
+
+  // Per-room alias projection (PID-as-identity slice 5, JWPK 2026-05-21).
+  // The registry is JWPK's human-to-PID-to-tmux-pane lookup ("ok ClaudeV4
+  // is this PID I can tmux into"). Aliases stack per (room × handle), so
+  // when JWPK sees @cdx-shouting in a chat snippet he can grep here for
+  // the alias → owning handle → PID → tmux pane chain.
+  const aliasRows = listAliasRowsForRegistry();
+  if (aliasRows.length > 0) {
+    lines.push('');
+    lines.push('## Room aliases');
+    let currentRoomId: string | null = null;
+    for (const row of aliasRows) {
+      if (row.room_id !== currentRoomId) {
+        lines.push('');
+        lines.push(`### ${row.room_name ?? row.room_id} (${row.room_id})`);
+        currentRoomId = row.room_id;
+      }
+      const pidSuffix = row.terminal_pid ? ` — PID ${row.terminal_pid}` : '';
+      const paneSuffix = row.tmux_target_pane ? ` — tmux ${tmuxSession(row.tmux_target_pane)}` : '';
+      lines.push(`- ${md(row.alias)} → ${md(row.global_handle)}${pidSuffix}${paneSuffix}`);
+    }
+  }
+
+  // Recoverable archived terminals (spec 2026-05-31). Read directly from
+  // `terminals` so this works as a cold-start reference even when the
+  // server/daemon is down — open this file in Obsidian and run the command.
+  const archived = getIdentityDb().prepare(
+    `SELECT t.id, t.name, t.updated_at, tr.handle
+       FROM terminals t
+       LEFT JOIN terminal_records tr ON tr.session_id = t.id
+      WHERE t.status = 'archived' AND t.name LIKE '[A%] %'
+      ORDER BY t.updated_at DESC`
+  ).all() as Array<{ id: string; name: string; updated_at: number; handle: string | null }>;
+  if (archived.length > 0) {
+    lines.push('');
+    lines.push('## Recoverable archived terminals');
+    lines.push('');
+    lines.push('| Base name | Tag | Handle | Last seen | Recover |');
+    lines.push('|---|---|---|---|---|');
+    for (const row of archived) {
+      const base = baseName(row.name);
+      lines.push(`| ${[
+        md(base),
+        md(row.name),
+        md(row.handle ?? ''),
+        md(new Date((row.updated_at || 0) * 1000).toISOString()),
+        md(`\`ant register --name ${base} --revive ${row.id}\``)
+      ].join(' | ')} |`);
+    }
+  }
+
+  lines.push('');
+  lines.push('<!-- This file is a projected mirror. ANT database state is canonical. -->');
+  return lines.join('\n');
+}
+
+type AliasRegistryRow = {
+  room_id: string;
+  room_name: string | null;
+  global_handle: string;
+  alias: string;
+  set_at_ms: number;
+  terminal_pid: number | null;
+  tmux_target_pane: string | null;
+};
+
+function listAliasRowsForRegistry(): AliasRegistryRow[] {
+  // LEFT JOIN through room_memberships→terminals so the PID + tmux pane
+  // appear next to each alias when the member is terminal-backed (humans
+  // get NULLs and skip the suffix). Sorted by room creation order then
+  // alias age newest-first so the file reads top-down naturally.
+  return getIdentityDb().prepare(`
+    SELECT
+      a.room_id,
+      cr.name AS room_name,
+      a.global_handle,
+      a.alias,
+      a.set_at_ms,
+      t.pid AS terminal_pid,
+      t.tmux_target_pane
+    FROM chat_room_aliases a
+    LEFT JOIN chat_rooms cr ON cr.id = a.room_id
+    LEFT JOIN room_memberships rm
+      ON rm.room_id = a.room_id AND rm.handle = a.global_handle
+    LEFT JOIN terminals t ON t.id = rm.terminal_id
+    ORDER BY cr.creation_order ASC, a.set_at_ms DESC, a.id DESC
+  `).all() as AliasRegistryRow[];
+}
+
+export function projectAntRegistryFile(options: { force?: boolean } = {}): AntRegistryProjectionResult {
+  const path = antRegistryFilePath();
+  if (!options.force && process.env.NODE_ENV === 'test' && !process.env.ANT_REGISTRY_FILE_PATH && !process.env.ANT_AGENT_REGISTRY_PATH) {
+    return { path, rows: 0, skipped: true };
+  }
+  const content = buildAntRegistryMarkdown();
+  const targets = [path];
+  const vault = resolveMemoryVaultPath();
+  if (vault && vault.trim().length > 0 && isAbsolute(vault.trim())) {
+    targets.push(join(vault.trim(), 'ant-registry.md'));
+  }
+  for (const target of targets) {
+    try {
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, content, 'utf8');
+    } catch {
+      // Independent best-effort per target — one failing must not skip the
+      // other, and neither may block terminal routing.
+    }
+  }
+  const rows = content.split('\n').filter((line) => line.startsWith('| ') && !line.includes('---')).length - 1;
+  return { path, rows: Math.max(0, rows), skipped: false };
+}
+
+export function projectAntRegistryFileBestEffort(): void {
+  try {
+    projectAntRegistryFile();
+  } catch {
+    // Registry projection must never block registration or terminal routing.
+  }
+}
+
+function listRegistryRows(): RegistryRow[] {
+  const db = getIdentityDb();
+  const recordRows = db.prepare(`
+    SELECT
+      tr.session_id,
+      tr.name,
+      tr.handle,
+      tr.agent_kind,
+      tr.tmux_target_pane,
+      t.pid AS terminal_pid,
+      t.updated_at AS terminal_updated_at,
+      t.source AS terminal_source,
+      tr.updated_at_ms AS record_updated_at_ms
+    FROM terminal_records tr
+    LEFT JOIN terminals t ON t.id = tr.session_id
+  `).all() as RegistryRow[];
+
+  const seen = new Set(recordRows.map((row) => row.session_id));
+  // Filter out browser-session rows: those are page-load tracking entries
+  // (cookie issuance, identity-gate pidchain stub, etc.), not operator-
+  // named terminals. Including them was noise — the Registry should be a
+  // human-readable list of REAL agents, not a SQL dump. Per JWPK
+  // 2026-05-21 ("ANT Registry.md is filled with a load of noise…").
+  const terminalOnlyRows = db.prepare(`
+    SELECT
+      t.id AS session_id,
+      t.name AS name,
+      NULL AS handle,
+      t.agent_kind AS agent_kind,
+      t.tmux_target_pane AS tmux_target_pane,
+      t.pid AS terminal_pid,
+      t.updated_at AS terminal_updated_at,
+      t.source AS terminal_source,
+      NULL AS record_updated_at_ms
+    FROM terminals t
+    WHERE t.source NOT LIKE 'browser-session%'
+      AND (t.agent_kind IS NULL OR t.agent_kind != 'browser')
+  `).all() as RegistryRow[];
+
+  return [...recordRows, ...terminalOnlyRows.filter((row) => !seen.has(row.session_id))]
+    .sort((a, b) => lastSeenMs(b) - lastSeenMs(a));
+}
+
+function md(value: string): string {
+  return value.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+}
+
+function handleFromName(name: string): string {
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'terminal';
+  return `@${slug}`;
+}
+
+function tmuxSession(targetPane: string | null): string {
+  if (!targetPane) return '';
+  const [session] = targetPane.split(':');
+  return session || targetPane;
+}
+
+function lastSeenMs(row: RegistryRow): number {
+  return Math.max(
+    row.record_updated_at_ms ?? 0,
+    row.terminal_updated_at ? row.terminal_updated_at * 1000 : 0
+  );
+}
+
+function lastSeenIso(row: RegistryRow): string {
+  const ms = lastSeenMs(row);
+  return ms > 0 ? new Date(ms).toISOString() : '';
+}

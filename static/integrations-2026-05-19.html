@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<title>ANT integration proposal — 2026-05-19</title>
+<style>
+  :root {
+    --bg: #F8F7F4;
+    --ink: #14110E;
+    --muted: #6B6256;
+    --accent: #C0392B;
+    --blue: #1F4E79;
+    --card: #FFFFFF;
+    --border: #E8E3D9;
+    --green: #2E7D5A;
+    --amber: #B07024;
+    --grey: #999;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif; margin: 0; background: var(--bg); color: var(--ink); line-height: 1.55; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 48px 32px 96px; }
+  h1 { font-weight: 900; font-size: 38px; letter-spacing: -0.02em; margin: 0 0 8px; }
+  h2 { font-weight: 850; font-size: 24px; letter-spacing: -0.01em; margin: 48px 0 16px; padding-top: 24px; border-top: 1px solid var(--border); }
+  h3 { font-weight: 800; font-size: 18px; margin: 24px 0 8px; }
+  .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 32px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin: 16px 0; }
+  .pick { border-left: 4px solid var(--accent); padding-left: 16px; margin: 24px 0; }
+  .pick.gantt { border-color: var(--blue); }
+  .pick.semble { border-color: var(--green); }
+  .pick.shellin { border-color: var(--amber); }
+  .meta { display: flex; gap: 16px; flex-wrap: wrap; margin: 12px 0; font-size: 13px; color: var(--muted); }
+  .meta span { background: var(--bg); padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); }
+  .meta .effort-low { color: var(--green); border-color: var(--green); }
+  .meta .effort-med { color: var(--amber); border-color: var(--amber); }
+  .meta .risk-low { color: var(--green); }
+  .meta .risk-med { color: var(--amber); }
+  .meta .risk-high { color: var(--accent); }
+  ul { padding-left: 22px; }
+  li { margin: 6px 0; }
+  .preserves { background: #E8F5E9; border: 1px solid #C8E6C9; padding: 12px 16px; border-radius: 8px; margin: 12px 0; font-size: 14px; color: #1B5E20; }
+  .preserves::before { content: "✓ Preserves: "; font-weight: 700; }
+  .touches { background: #FFF8E1; border: 1px solid #FFE082; padding: 12px 16px; border-radius: 8px; margin: 12px 0; font-size: 14px; color: #6D4C00; }
+  .touches::before { content: "⚠ Touches: "; font-weight: 700; }
+  .open-q { background: #F3E5F5; border: 1px solid #E1BEE7; padding: 12px 16px; border-radius: 8px; margin: 12px 0; font-size: 14px; color: #4A148C; }
+  .open-q b { display: block; margin-bottom: 4px; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  th { background: var(--bg); font-weight: 700; }
+  .pick-cell { font-weight: 700; }
+  .decision-form { background: var(--card); border: 2px solid var(--accent); border-radius: 12px; padding: 24px; margin: 32px 0; }
+  .decision-form h3 { margin-top: 0; }
+  .decision-row { display: flex; align-items: center; gap: 16px; margin: 12px 0; padding: 12px; background: var(--bg); border-radius: 8px; }
+  .decision-row .name { flex: 1; font-weight: 700; }
+  .decision-row label { cursor: pointer; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border); background: white; font-size: 14px; }
+  .decision-row label:hover { border-color: var(--accent); }
+  .decision-row input { margin-right: 6px; }
+  blockquote { border-left: 3px solid var(--muted); margin: 16px 0; padding-left: 16px; color: var(--muted); font-style: italic; }
+  code { background: var(--bg); padding: 2px 6px; border-radius: 4px; font-size: 13px; font-family: "SF Mono", Monaco, monospace; }
+  .summary-banner { background: linear-gradient(135deg, #1F4E79 0%, #C0392B 100%); color: white; padding: 24px 28px; border-radius: 12px; margin: 24px 0; }
+  .summary-banner h3 { color: white; margin: 0 0 8px; font-size: 16px; font-weight: 700; }
+  .summary-banner p { margin: 0; font-size: 15px; opacity: 0.95; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Integration proposal</h1>
+<div class="subtitle">From the research doc at <code>potential-integrations-research-2026-05-18.md</code> — three picks the user flagged interest in, scoped so nothing existing breaks. Coordinator: @evolveantclaude, 2026-05-19.</div>
+
+<div class="summary-banner">
+<h3>TL;DR — three integrations, additive only, no rip-up</h3>
+<p>Each pick lands as a side-by-side addition with explicit fallback. None replace working ANT primitives. User picks Y/N per row at the bottom; deferred picks bank as v1.1 design hypotheses.</p>
+</div>
+
+<h2>The three picks</h2>
+
+<div class="pick gantt">
+<h3>1. svar-widgets/gantt — Svelte 5 Gantt component</h3>
+
+<div class="meta">
+<span>Tier 1 — adopt</span>
+<span class="effort-low">Effort: low (~2 days first slice)</span>
+<span class="risk-med">Risk: medium (PRO-features gated)</span>
+<span>Closes banked feature: IMG_0438 plan Gantt</span>
+</div>
+
+<p><b>What it does</b>: Production-ready Gantt chart for Svelte 5. Drag-and-drop tasks, dependencies, hierarchies, custom scales, filtering, zoom. v2.6.2, MIT-licensed, actively maintained. PRO edition adds auto-scheduling, baselines, critical path, PDF/Excel export — commercial license.</p>
+
+<p><b>Scoped integration plan</b></p>
+<ul>
+<li><b>Slice A — read-only timeline view (no break)</b>. Add a new <code>/plans/[planId]/gantt</code> route alongside existing <code>/plans/[planId]</code>. Mount <code>@svar-ui/svelte-gantt</code>, feed plan_events → Gantt data shape via adapter, no edit affordances. ~1 day. User sees the IMG_0438 banked vision without touching anything else.</li>
+<li><b>Slice B — drag-and-drop edits</b> (if Slice A lands cleanly). Add task-bar dragging → emits PATCH /api/tasks/:id with new start/end/dependency. Gated by current plan dashboard ratify. Optional.</li>
+<li><b>PRO upgrade decision</b>: deferred. MIT covers the core experience; auto-scheduling/baselines/critical-path are nice-to-have, not v1.</li>
+</ul>
+
+<div class="preserves">Existing <code>/plans/[planId]</code> dashboard (the donuts + task lists + asks panel) stays exactly as-is. Gantt is a sibling route, not a replacement.</div>
+<div class="touches">New peer-dependency tree (svar packages — Vite, stores, locales workspaces). Bun monorepo bundling needs a smoke test. Adds ~80kb to bundle initially. Easy revert: remove the new route + uninstall the package.</div>
+
+<div class="open-q">
+<b>User open Q</b>
+Should the Gantt be a new sibling route (<code>/plans/[id]/gantt</code>) or a toggle inside the existing dashboard (button: "Timeline view")? Coordinator recommendation: <b>sibling route</b> — cleaner, easier to revert if it doesn't land.
+</div>
+</div>
+
+<div class="pick semble">
+<h3>2. MinishLab/semble — hybrid code search as MCP</h3>
+
+<div class="meta">
+<span>Tier 2 — integrate</span>
+<span class="effort-low">Effort: low (drop-in MCP)</span>
+<span class="risk-med">Risk: medium (beta status DS-4)</span>
+<span>Fills a real gap in agent context-gathering</span>
+</div>
+
+<p><b>What it does</b>: Hybrid semantic (Model2Vec) + lexical (BM25) code search. Returns snippet-level matches with file + line refs, ~98% more token-efficient than grep + read full file. Ships as MCP server + AGENTS.md bash wrapper. Beta (Development Status 4).</p>
+
+<p><b>Scoped integration plan</b></p>
+<ul>
+<li><b>Slice A — mount as MCP for ALL agents (additive)</b>. Add semble to <code>~/.claude/mcp-config.json</code> + per-agent equivalents. Agents gain <code>semble_search</code> tool alongside existing grep/Read. No removal of existing tools. ~30 min.</li>
+<li><b>Slice B — agent guidance (banked memory rule)</b>: bank a rule "<i>for cross-file code-search where you don't know the file, prefer semble_search over grep — returns snippets, not requires Read+chunk</i>". Agents drift to semble naturally for the use case it fits.</li>
+<li><b>Slice C — scope to project codebases only</b> (not memory/ files which are auth-sensitive). Configure semble index to <code>~/.ant/repos/*</code> + <code>~/CascadeProjects/*</code> with explicit per-project allowlist.</li>
+</ul>
+
+<div class="preserves">Existing grep/Read/Glob tool fleet stays. Agents can fall back instantly if semble misbehaves. MCP unmount = single config-file edit + restart.</div>
+<div class="touches">First-run index build is slow on large codebases (semble's tree-sitter chunking). Pre-build the index on the user's working repos before announce-to-bench. Beta status (DS-4) means watch for upstream churn; pin to a specific version.</div>
+
+<div class="open-q">
+<b>User open Q</b>
+Should semble index <b>all</b> agent-accessible repos (CascadeProjects/*) or just ANT-owned ones (ant + a-nice-terminal + antchat)? Coordinator recommendation: <b>ANT-owned only for v1</b> — narrows the index size + privacy surface; widens later if proven useful.
+</div>
+</div>
+
+<div class="pick shellin">
+<h3>3. Shellin concept — control-plane never sees terminal bytes (native apps premium)</h3>
+
+<div class="meta">
+<span>Tier 3 — extract pattern (architectural lesson)</span>
+<span class="effort-med">Effort: medium-high (WebRTC stack + per-platform clients)</span>
+<span class="risk-med">Risk: medium (build/deploy complexity)</span>
+<span>Premium-tier privacy differentiator for iOS/Mac</span>
+</div>
+
+<p><b>What it is</b>: Shellin's architecture splits agent (desktop PTY owner), viewer (iOS app), control-plane (auth + signaling only). WebRTC DataChannels P2P with two channels: <code>terminal</code> (keystroke/output bytes) + <code>control</code> (resize/control events/focus). Control plane explicitly cannot see terminal bytes — privacy is end-to-end. Published threat-model doc with sensitive-code-path inventory.</p>
+
+<p><b>Scoped integration plan</b></p>
+<ul>
+<li><b>Slice A — bank the architectural pattern (no code yet)</b>. Add ObsidiANT/architecture/native-apps-private-transport.md documenting: 3-role model, 2-channel split, signaling token replay-protection, ICE/TURN credential sanitisation. Reference design doc for future native lanes. ~1 hour.</li>
+<li><b>Slice B — Shellin-style threat-model doc as OSS launch prep</b>. Mirror Shellin's <code>docs/threat-model.md</code> template: trust boundaries → control-plane visibility → sensitive code paths by file → applied controls. Critical before AGPL publish (publishes WHAT we see + WHAT we don't see). ~2 hours. <b>Recommend P0 pre-OSS-publish</b>.</li>
+<li><b>Slice C — premium iOS wedge (deferred to iOS-2)</b>. After baseline iOS app ships via TestFlight, add WebRTC transport as a premium-only mode. OSS users keep SSE+REST (server sees the bytes — acceptable for self-hosted single-user). Paid users get E2E privacy via WebRTC. Marketing: "Pay £5.99/mo. Your terminal stays yours — even from us."</li>
+<li><b>Slice D — copy the AGPL + commercial dual licensing artefacts</b>: NOTICE + COMMERCIAL_LICENSE.md + docs/licensing.md triple. Mirrors what you already locked as the revenue model.</li>
+</ul>
+
+<div class="preserves">Existing SSE + REST transport stays as the OSS-tier path. WebRTC is purely additive for the paid native client. The threat-model doc and licensing artefacts are pure documentation — zero code touch.</div>
+<div class="touches">Slice C alone is substantial (WebRTC stack on server + Swift WebRTC client). Don't ship until baseline iOS exists. Slice A + B + D are pure documentation, no risk to existing code.</div>
+
+<div class="open-q">
+<b>User open Q (1 of 2)</b>
+Is the threat-model doc (Slice B) P0 pre-OSS-publish (recommended) or post-publish (lower priority)? Coordinator recommendation: <b>P0</b> — publishing source without saying what we see is opening you to "what does the ANT server know about me" questions you can't answer cleanly afterwards.
+</div>
+
+<div class="open-q">
+<b>User open Q (2 of 2)</b>
+Slice C (WebRTC premium transport) — bank as iOS-2 (after baseline iOS ships) or hold until paid-tier proves traction? Coordinator recommendation: <b>bank for iOS-2</b>; design doc lands now (Slice A), build only when iOS-1 is in TestFlight + early users want it.
+</div>
+</div>
+
+<h2>What we are NOT picking up</h2>
+
+<p>The research doc also raised <code>obra/superpowers</code>, <code>collab-public</code>, <code>evo</code>, <code>paperclipai</code>, <code>n8n</code>, <code>ClaudeWatch</code>, <code>delphitools</code>. Coordinator recommends <b>defer all of them</b> — none fit the "additive, no rip-up" filter cleanly:</p>
+
+<ul>
+<li><code>superpowers</code> — would re-architect ANT's plan/task system. Big lift, risks ANT becoming an aggregator instead of a coherent product.</li>
+<li><code>collab-public</code> — local-JSON-only storage conflicts with ANT's multi-device sync model (the research doc itself flags this).</li>
+<li><code>evo</code>, <code>paperclipai</code>, <code>n8n</code> — patterns useful, but extraction = forking complex codebases. Too costly vs. inventing in-place when ANT needs the primitive.</li>
+<li><code>ClaudeWatch</code> — single-tool monitor; ANT manages 5+ agent types already, generalisation needed before lift is worth it.</li>
+<li><code>delphitools</code> — UI patterns library; useful for individual pattern study, not lift. Banked.</li>
+</ul>
+
+<h2>Star-count fact-check (deferred)</h2>
+
+<p>The research doc cited <code>obra/superpowers</code> at 196k stars and <code>paperclipai/paperclip</code> at 66k. Both feel inflated. Coordinator did not verify these in real-time — recommend re-probing before any future decision on these specific repos. Doesn't affect the three picks above (svar-gantt + semble + Shellin all have separately-verified evidence).</p>
+
+<h2>Decision matrix — pick Y / N / DEFER per row</h2>
+
+<table>
+<tr><th>Integration</th><th>Slice A</th><th>Slice B</th><th>Slice C</th><th>Slice D</th></tr>
+<tr>
+  <td class="pick-cell">svar-gantt</td>
+  <td>Read-only timeline at <code>/plans/[id]/gantt</code></td>
+  <td>Drag-and-drop edits (after A lands)</td>
+  <td>—</td>
+  <td>—</td>
+</tr>
+<tr>
+  <td class="pick-cell">semble MCP</td>
+  <td>Mount MCP for all agents</td>
+  <td>Bank "prefer semble for cross-file" rule</td>
+  <td>Scope to ANT-owned repos only</td>
+  <td>—</td>
+</tr>
+<tr>
+  <td class="pick-cell">Shellin pattern</td>
+  <td>Bank architectural doc</td>
+  <td>Threat-model doc (P0 pre-OSS-publish)</td>
+  <td>WebRTC premium transport (iOS-2)</td>
+  <td>AGPL+commercial artefacts triple</td>
+</tr>
+</table>
+
+<div class="decision-form">
+<h3>Your picks</h3>
+<p style="margin-top: 0; color: var(--muted); font-size: 14px;">Use chat to flag picks back to coordinator. E.g. "svar-A yes, svar-B defer, semble-all yes, shellin-B yes, shellin-A/C/D bank".</p>
+
+<div class="decision-row">
+<div class="name">svar-gantt Slice A — read-only timeline</div>
+<label><input type="radio" name="svar-a" value="y">YES (now)</label>
+<label><input type="radio" name="svar-a" value="n">NO</label>
+<label><input type="radio" name="svar-a" value="d">DEFER</label>
+</div>
+<div class="decision-row">
+<div class="name">svar-gantt Slice B — drag-and-drop edits</div>
+<label><input type="radio" name="svar-b" value="y">YES</label>
+<label><input type="radio" name="svar-b" value="n">NO</label>
+<label><input type="radio" name="svar-b" value="d">DEFER</label>
+</div>
+<div class="decision-row">
+<div class="name">semble MCP — mount for all agents</div>
+<label><input type="radio" name="semble-a" value="y">YES</label>
+<label><input type="radio" name="semble-a" value="n">NO</label>
+<label><input type="radio" name="semble-a" value="d">DEFER</label>
+</div>
+<div class="decision-row">
+<div class="name">semble — bank "prefer semble for cross-file" rule</div>
+<label><input type="radio" name="semble-b" value="y">YES</label>
+<label><input type="radio" name="semble-b" value="n">NO</label>
+<label><input type="radio" name="semble-b" value="d">DEFER</label>
+</div>
+<div class="decision-row">
+<div class="name">semble — scope to ANT-owned repos only (vs all CascadeProjects)</div>
+<label><input type="radio" name="semble-c" value="y">YES (ANT-only)</label>
+<label><input type="radio" name="semble-c" value="n">NO (all repos)</label>
+</div>
+<div class="decision-row">
+<div class="name">Shellin Slice A — bank architectural design doc</div>
+<label><input type="radio" name="shellin-a" value="y">YES</label>
+<label><input type="radio" name="shellin-a" value="n">NO</label>
+<label><input type="radio" name="shellin-a" value="d">DEFER</label>
+</div>
+<div class="decision-row">
+<div class="name">Shellin Slice B — threat-model doc (P0 pre-OSS-publish)</div>
+<label><input type="radio" name="shellin-b" value="y">YES</label>
+<label><input type="radio" name="shellin-b" value="n">NO</label>
+<label><input type="radio" name="shellin-b" value="d">DEFER (post-publish)</label>
+</div>
+<div class="decision-row">
+<div class="name">Shellin Slice C — WebRTC premium transport (iOS-2)</div>
+<label><input type="radio" name="shellin-c" value="y">YES (bank as iOS-2)</label>
+<label><input type="radio" name="shellin-c" value="n">NO</label>
+<label><input type="radio" name="shellin-c" value="d">DEFER (post-paid-traction)</label>
+</div>
+<div class="decision-row">
+<div class="name">Shellin Slice D — AGPL+commercial dual artefacts triple</div>
+<label><input type="radio" name="shellin-d" value="y">YES</label>
+<label><input type="radio" name="shellin-d" value="n">NO</label>
+<label><input type="radio" name="shellin-d" value="d">DEFER</label>
+</div>
+</div>
+
+<h2>Footer</h2>
+<p style="font-size: 13px; color: var(--muted);">File: <code>ObsidiANT/proposals/integrations-2026-05-19.html</code> · Open via Finder or <code>open</code> CLI · No JavaScript / no network calls / safe to read offline. Picks via chat once reviewed.</p>
+
+</div>
+</body>
+</html>
