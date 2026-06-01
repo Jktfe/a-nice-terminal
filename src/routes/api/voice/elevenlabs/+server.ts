@@ -24,7 +24,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 
-const DEFAULT_VOICE_ID = process.env.ELEVENLABS_DEFAULT_VOICE_ID || '21m00Tcm4TlvDq8ikWAM';
+const DEFAULT_VOICE_ID = process.env.ELEVENLABS_DEFAULT_VOICE_ID || '41b1bEgfCyhbIxCRSOh7';
 const DEFAULT_MODEL_ID = process.env.ELEVENLABS_DEFAULT_MODEL_ID || 'eleven_turbo_v2_5';
 const ELEVENLABS_BASE = 'https://api.elevenlabs.io/v1';
 const DEFAULT_STAGE_PROVIDER = process.env.ANT_STAGE_VOICE_PROVIDER || 'elevenlabs';

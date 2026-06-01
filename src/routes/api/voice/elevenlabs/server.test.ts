@@ -112,6 +112,9 @@ describe('ElevenLabs voice access', () => {
     expect(response.headers.get('content-type')).toBe('audio/mpeg');
     expect(await response.arrayBuffer()).toHaveProperty('byteLength', 3);
     expect(fetch).toHaveBeenCalledOnce();
+    expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe(
+      'https://api.elevenlabs.io/v1/text-to-speech/41b1bEgfCyhbIxCRSOh7'
+    );
   });
 
   it('rejects a wrong deck password before calling ElevenLabs', async () => {
