@@ -5,8 +5,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { resetIdentityDbForTests, getIdentityDb } from './db';
 import { upsertTerminal } from './terminalsStore';
-import { getAgentStatus, listEventsForTerminal } from './agentStatusStore';
+import { getAgentStatus, listEventsForTerminal, setAgentStatus } from './agentStatusStore';
 import { startPoller, defaultTmuxCaptureFn, _testResetPoller } from './agentStatusPoller';
+import { hashCaptureOutput } from './fingerprintHasher';
 import { setSpawnImplForTests, resetBridgeStateForTests } from './pty-inject-bridge';
 import type { TerminalRow } from './terminalsStore';
 
@@ -183,6 +184,82 @@ describe('agentStatusPoller — runOnce per-terminal', () => {
     // actually invoked — but the current cascade returns null on no-prev so
     // no setAgentStatus fires either way, hence we just assert presence).
     expect(getAgentStatus(t2)).not.toBeNull();
+  });
+
+  it('preserves a fresh hook-written status when fingerprint disagrees', async () => {
+    const tid = makeAgentTerminal('t-fresh-hook');
+    const unchangedToolCapture = 'previous tool output\n⏺ running shell\n';
+    const staleFingerprintAtMs = Date.now() - 60_000;
+    getIdentityDb().prepare(
+      `UPDATE terminals
+       SET last_fingerprint_hash = ?, last_fingerprint_at_ms = ?
+       WHERE id = ?`
+    ).run(hashCaptureOutput(unchangedToolCapture), staleFingerprintAtMs, tid);
+    setAgentStatus({
+      terminalId: tid,
+      newStatus: 'working',
+      source: 'hook',
+      nowMs: Date.now() - 5_000,
+      evidence: { hookEventName: 'PreToolUse' }
+    });
+
+    const c = startPoller({ captureFn: () => unchangedToolCapture, intervalMs: 5000 });
+    await c.runOnce();
+    c.stop();
+
+    const status = getAgentStatus(tid);
+    expect(status?.agent_status).toBe('working');
+    expect(status?.agent_status_source).toBe('hook');
+    expect(listEventsForTerminal(tid)).toHaveLength(1);
+  });
+
+  it('preserves current status when fingerprint cannot decide', async () => {
+    const tid = makeAgentTerminal('t-null-preserve');
+    setAgentStatus({
+      terminalId: tid,
+      newStatus: 'thinking',
+      source: 'hook',
+      nowMs: Date.now() - 2_000,
+      evidence: { hookEventName: 'ThinkingStart' }
+    });
+
+    const c = startPoller({ captureFn: () => 'first capture has no prior hash', intervalMs: 5000 });
+    await c.runOnce();
+    c.stop();
+
+    const status = getAgentStatus(tid);
+    expect(status?.agent_status).toBe('thinking');
+    expect(status?.agent_status_source).toBe('hook');
+    expect(listEventsForTerminal(tid)).toHaveLength(1);
+  });
+
+  it('refreshes volatile status timestamp without adding an event when fingerprint re-confirms it', async () => {
+    const tid = makeAgentTerminal('t-refresh-volatile');
+    const previousCapture = 'tool starting\n';
+    const currentCapture = 'tool running\n⏺ shell command\n';
+    const oldStatusAtMs = Date.now() - 60_000;
+    getIdentityDb().prepare(
+      `UPDATE terminals
+       SET last_fingerprint_hash = ?, last_fingerprint_at_ms = ?
+       WHERE id = ?`
+    ).run(hashCaptureOutput(previousCapture), Date.now() - 1_000, tid);
+    setAgentStatus({
+      terminalId: tid,
+      newStatus: 'working',
+      source: 'hook',
+      nowMs: oldStatusAtMs,
+      evidence: { hookEventName: 'PreToolUse' }
+    });
+
+    const c = startPoller({ captureFn: () => currentCapture, intervalMs: 5000 });
+    await c.runOnce();
+    c.stop();
+
+    const status = getAgentStatus(tid);
+    expect(status?.agent_status).toBe('working');
+    expect(status?.agent_status_source).toBe('hook');
+    expect(status?.agent_status_at_ms ?? 0).toBeGreaterThan(oldStatusAtMs);
+    expect(listEventsForTerminal(tid)).toHaveLength(1);
   });
 });
 

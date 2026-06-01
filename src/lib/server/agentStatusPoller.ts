@@ -23,7 +23,7 @@
  * spinning a second interval. Clean shutdown via controller.stop().
  */
 import { listAllTerminals, setTerminalStatus, type TerminalRow } from './terminalsStore';
-import { getAgentStatus, setAgentStatus } from './agentStatusStore';
+import { getAgentStatus, refreshAgentStatusAtMs, setAgentStatus, type AgentStatus } from './agentStatusStore';
 import { deriveStateFromFingerprint, decideAgentStatus } from './fingerprintHasher';
 import { detectFingerprint, applyFingerprintWriteBack } from './fingerprintDetector';
 import { defaultTmuxCaptureFn, type CaptureFn } from './tmuxCapture';
@@ -36,6 +36,7 @@ const POLL_MIN_MS = 5_000;
 const POLL_MAX_MS = 60_000;
 const POLL_DEFAULT_MS = 10_000;
 const POLL_MAX_TERMINALS_DEFAULT = 5;
+const HOOK_FRESH_MS = 30_000;
 
 export type PollerController = {
   stop: () => void;
@@ -89,6 +90,10 @@ function maxTerminalsPerTick(): number {
   return Math.max(1, Math.min(50, Math.floor(raw)));
 }
 
+function isVolatileAgentStatus(status: AgentStatus): boolean {
+  return status === 'working' || status === 'thinking';
+}
+
 // defaultTmuxCaptureFn now lives in ./tmuxCapture (M3.2c B1 cycle break).
 // Re-exported above for backwards compat with existing importers.
 
@@ -123,11 +128,24 @@ async function pollOneTerminal(terminal: TerminalRow, captureFn: CaptureFn): Pro
     captureText, prevHash, prevAtMs, nowMs
   });
   writeFingerprintState(terminal.id, fingerprint.hash, nowMs);
+  const current = getAgentStatus(terminal.id);
+  if (!fingerprint.status) return;
+  if (current && current.agent_status === fingerprint.status) {
+    if (isVolatileAgentStatus(current.agent_status)) {
+      refreshAgentStatusAtMs(terminal.id, nowMs);
+    }
+    return;
+  }
+  if (
+    current &&
+    current.agent_status_source === 'hook' &&
+    nowMs - current.agent_status_at_ms < HOOK_FRESH_MS
+  ) {
+    return;
+  }
   const decision = decideAgentStatus({
     fingerprint, hookPush: null, antActivity: null, pidCpu: null
   });
-  const current = getAgentStatus(terminal.id);
-  if (current && current.agent_status === decision.status) return;
   setAgentStatus({
     terminalId: terminal.id,
     newStatus: decision.status,

@@ -117,6 +117,15 @@ export function setAgentStatus(input: SetAgentStatusInput): AgentStatusRow {
   };
 }
 
+export function refreshAgentStatusAtMs(terminalId: string, nowMs: number = Date.now()): void {
+  const db = getIdentityDb();
+  db.transaction(() => {
+    db.prepare(`UPDATE terminals
+      SET agent_status_at_ms = ?
+      WHERE id = ?`).run(nowMs, terminalId);
+  })();
+}
+
 export function listEventsForTerminal(terminalId: string): AgentStatusEvent[] {
   const db = getIdentityDb();
   const rows = db
