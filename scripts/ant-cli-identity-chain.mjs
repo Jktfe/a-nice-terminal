@@ -99,6 +99,17 @@ function readParentPidPosix(pid) {
   }
 }
 
+function readProcessNamePosix(pid) {
+  try {
+    const raw = execFileSync('ps', ['-o', 'comm=', '-p', String(pid)], { stdio: 'pipe' })
+      .toString()
+      .trim();
+    return raw.length > 0 ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Windows (CIM via PowerShell) ───────────────────────────────────
 
 /** Cache one CIM lookup per (pid) so the chain walk's two helpers
@@ -115,7 +126,7 @@ function readWindowsProcessRecord(pid) {
         '-NoProfile',
         '-NonInteractive',
         '-Command',
-        `Get-CimInstance Win32_Process -Filter 'ProcessId=${Number(pid)}' | ForEach-Object { [PSCustomObject]@{ ProcessId = $_.ProcessId; ParentProcessId = $_.ParentProcessId; CreationDate = $_.CreationDate.ToString('o') } } | ConvertTo-Json -Compress`
+        `Get-CimInstance Win32_Process -Filter 'ProcessId=${Number(pid)}' | ForEach-Object { [PSCustomObject]@{ ProcessId = $_.ProcessId; ParentProcessId = $_.ParentProcessId; CreationDate = $_.CreationDate.ToString('o'); Name = $_.Name } } | ConvertTo-Json -Compress`
       ],
       { stdio: 'pipe', windowsHide: true }
     ).toString().trim();
@@ -127,7 +138,8 @@ function readWindowsProcessRecord(pid) {
       // safety fallback in case a future PS edition wraps the string.
       record = {
         ppid: Number.isFinite(parsed?.ParentProcessId) ? parsed.ParentProcessId : null,
-        startTime: parsed?.CreationDate ?? null
+        startTime: parsed?.CreationDate ?? null,
+        name: typeof parsed?.Name === 'string' && parsed.Name.length > 0 ? parsed.Name : null
       };
     }
   } catch {
@@ -163,6 +175,11 @@ function readParentPidWindows(pid) {
   return record && Number.isFinite(record.ppid) && record.ppid > 0 ? record.ppid : null;
 }
 
+function readProcessNameWindows(pid) {
+  const record = readWindowsProcessRecord(pid);
+  return record && typeof record.name === 'string' && record.name.length > 0 ? record.name : null;
+}
+
 // ─── Public API (platform-switched) ─────────────────────────────────
 
 function readProcessStartTime(pid) {
@@ -173,6 +190,10 @@ function readParentPid(pid) {
   return IS_WINDOWS ? readParentPidWindows(pid) : readParentPidPosix(pid);
 }
 
+function readProcessName(pid) {
+  return IS_WINDOWS ? readProcessNameWindows(pid) : readProcessNamePosix(pid);
+}
+
 export function pidStart(pid) {
   return readProcessStartTime(pid);
 }
@@ -181,6 +202,16 @@ export function parentPid(pid) {
   return readParentPid(pid);
 }
 
+export function processName(pid) {
+  return readProcessName(pid);
+}
+
+// Chain entries gained `name` in v0.1.15 (Xeno name-based anchor follow-up):
+// `chooseRegisterPidChain` walks the chain looking for the agent-binary
+// ancestor (claude.exe / claude / codex / codex.exe) and anchors there
+// instead of relying on a fragile position-based slice. Servers that didn't
+// expect `name` field ignore it (chain entries are sent as { pid, pid_start,
+// name? } — name is additive, no schema break).
 export function processIdentityChain(startPid, maxDepth) {
   const startingPid = startPid ?? process.pid;
   const cap = maxDepth ?? MAX_CHAIN_DEPTH;
@@ -189,7 +220,11 @@ export function processIdentityChain(startPid, maxDepth) {
   let cursor = startingPid;
   while (cursor && cursor > 1 && !visited.has(cursor) && chain.length < cap) {
     visited.add(cursor);
-    chain.push({ pid: cursor, pid_start: readProcessStartTime(cursor) });
+    chain.push({
+      pid: cursor,
+      pid_start: readProcessStartTime(cursor),
+      name: readProcessName(cursor)
+    });
     cursor = readParentPid(cursor);
   }
   return chain;

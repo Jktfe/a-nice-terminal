@@ -100,25 +100,68 @@ async function postJson(runtime, url, body) {
   });
 }
 
-// 0.1.8 slice A (Xeno windows-cli-auth-wedge follow-up 2026-05-22):
-// when --pid is not given, prefer the grandparent over process.ppid so
-// `ant register` from MSYS2 bash doesn't anchor to a one-off cygwin
-// helper that dies the moment the register call returns. Subsequent
-// `ant chat send` invocations spawn fresh helpers (different PIDs) but
-// the bash / shell ancestor stays put, so the server's pidChain lookup
-// matches on the bash entry of both register-time and resolve-time
-// chains.
+// Process names that identify an "agent binary" ancestor — the long-lived
+// process worth anchoring the registration against, vs the short-lived
+// shell/helper leaves below it. Data-driven so adding a new agent
+// (e.g. a future `gemini-cli`) is one line.
 //
-// Safe on Mac/Linux too: chain[0] (the immediate shell) is stable
-// across invocations, but chain[1] (the terminal emulator) is also
-// stable AND appears in every subsequent resolve chain — so registering
-// against either yields a match. We pick the longer-lived ancestor by
-// default for the MSYS2 case without regressing the POSIX case.
+// Both forms are listed because the same agent has different basenames on
+// different platforms: `claude.exe` on Windows / `claude` on macOS+Linux,
+// `codex.exe` / `codex`. Match is case-insensitive (Windows surfaces
+// `claude.exe` from CIM but a future PS edition might uppercase).
+export const AGENT_BINARY_NAMES = new Set([
+  'claude.exe', 'claude',
+  'codex.exe', 'codex'
+]);
+
+function isAgentBinary(name) {
+  if (typeof name !== 'string' || name.length === 0) return false;
+  return AGENT_BINARY_NAMES.has(name.toLowerCase());
+}
+
+// v0.1.15 (Xeno xenocc-windows-rebind follow-up 2026-06-01): name-based
+// anchor.
 //
-// Explicit --pid still wins; users with a known stable PID (e.g.
-// claude.exe pid 51680 from Xeno's manual recovery) bypass this.
+// Why this exists: the original 0.1.8 slice A (the fallback below) did
+// position-based anchoring — drop the leaf and prefer the grandparent.
+// That fixed the MSYS2 short-leaf cygwin-helper case where the leaf was
+// always at depth-1. But on Windows the long-lived claude.exe / codex.exe
+// ancestor is at VARIABLE depth — for xenocc on 2026-06-01 it was:
+//   powershell → bash → bash → bash → claude.exe(81632) → cmd → wezterm → explorer
+// claude.exe is at depth 4 from powershell. A position-prefer-grandparent
+// slice lands on the middle bash, not claude.exe. Server can't match
+// because subsequent invocations spawn different bash PIDs.
+//
+// Name-walk: scan the chain for the first entry whose process name is
+// in AGENT_BINARY_NAMES (claude / codex / their .exe variants). If found,
+// anchor there — that's the durable process that survives across CLI
+// invocations from the same agent shell. Send the chain FROM that entry
+// upward so the server has the full agent-rooted ancestry to match against.
+//
+// Miss case (no agent ancestor in chain — raw shell, no Claude/Codex
+// parent): falls back to the existing position-based behaviour below.
+// That keeps the MSYS2 short-leaf case working unchanged + never errors.
+// Pure improvement, no regression surface.
+//
+// Explicit --pid still wins (unchanged): users with a known stable PID
+// bypass both name-walk and position-based.
 export function chooseRegisterPidChain(initialChain, hasExplicitPid) {
   if (hasExplicitPid) return initialChain;
+  if (initialChain.length === 0) return initialChain;
+
+  // Name-walk first: prefer anchoring on the agent-binary ancestor.
+  const agentIdx = initialChain.findIndex((entry) => isAgentBinary(entry && entry.name));
+  if (agentIdx >= 0) return initialChain.slice(agentIdx);
+
+  // Fallback: original 0.1.8 slice A behaviour for the MSYS2 short-leaf
+  // cygwin-helper case (no Claude/Codex parent in chain — raw shell user).
+  // When --pid is not given, prefer the grandparent over process.ppid so
+  // `ant register` from MSYS2 bash doesn't anchor to a one-off cygwin
+  // helper that dies the moment the register call returns. Subsequent
+  // `ant chat send` invocations spawn fresh helpers (different PIDs) but
+  // the bash / shell ancestor stays put, so the server's pidChain lookup
+  // matches on the bash entry of both register-time and resolve-time
+  // chains.
   if (initialChain.length < 2) return initialChain;
   return initialChain.slice(1);
 }

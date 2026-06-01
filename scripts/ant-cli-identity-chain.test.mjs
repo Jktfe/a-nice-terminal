@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { pidStart, parentPid, processIdentityChain } from './ant-cli-identity-chain.mjs';
+import { pidStart, parentPid, processName, processIdentityChain } from './ant-cli-identity-chain.mjs';
 
 vi.mock('node:child_process', () => ({
   execFileSync: vi.fn()
@@ -36,6 +36,23 @@ describe('pidStart', () => {
   it('returns null on unparseable garbage (no throw)', () => {
     vi.mocked(execFileSync).mockReturnValue(Buffer.from('not a date\n'));
     expect(pidStart(123)).toBeNull();
+  });
+});
+
+describe('processName', () => {
+  it('returns trimmed comm name from ps -o comm=', () => {
+    vi.mocked(execFileSync).mockReturnValue(Buffer.from('claude\n'));
+    expect(processName(123)).toBe('claude');
+  });
+
+  it('returns null on empty stdout', () => {
+    vi.mocked(execFileSync).mockReturnValue(Buffer.from(''));
+    expect(processName(123)).toBeNull();
+  });
+
+  it('returns null on error', () => {
+    vi.mocked(execFileSync).mockImplementation(() => { throw new Error('ENOENT'); });
+    expect(processName(999)).toBeNull();
   });
 });
 
@@ -115,5 +132,30 @@ describe('processIdentityChain', () => {
     });
     const chain = processIdentityChain(undefined);
     expect(chain[0].pid).toBe(process.pid);
+  });
+
+  it('includes process name on every chain entry (v0.1.15)', () => {
+    const ppidMap = { 100: 200, 200: 1 };
+    const nameMap = { 100: 'bash', 200: 'claude' };
+    vi.mocked(execFileSync).mockImplementation((_cmd, args) => {
+      const pid = args[3];
+      if (args[1] === 'ppid=') return Buffer.from(`${ppidMap[pid] ?? 1}\n`);
+      if (args[1] === 'comm=') return Buffer.from(`${nameMap[pid] ?? ''}\n`);
+      return Buffer.from('Fri 29 May 11:11:00 2026\n');
+    });
+    const chain = processIdentityChain(100, 10);
+    expect(chain.length).toBe(2);
+    expect(chain[0].name).toBe('bash');
+    expect(chain[1].name).toBe('claude');
+  });
+
+  it('chain entry name is null when comm read fails', () => {
+    vi.mocked(execFileSync).mockImplementation((_cmd, args) => {
+      if (args[1] === 'ppid=') return Buffer.from('1\n');
+      if (args[1] === 'comm=') return Buffer.from('');
+      return Buffer.from('Fri 29 May 11:11:00 2026\n');
+    });
+    const chain = processIdentityChain(100);
+    expect(chain[0].name).toBeNull();
   });
 });

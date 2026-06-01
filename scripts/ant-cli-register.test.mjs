@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { handleRegisterVerb, handleAddVerb, handleResolveVerb, chooseRegisterPidChain } from './ant-cli-register.mjs';
+import { handleRegisterVerb, handleAddVerb, handleResolveVerb, chooseRegisterPidChain, AGENT_BINARY_NAMES } from './ant-cli-register.mjs';
 
 class CliInputError extends Error {}
 
@@ -249,36 +249,150 @@ describe('handleResolveVerb', () => {
   });
 });
 
-// 0.1.8 slice A (Xeno windows-cli-auth-wedge follow-up 2026-05-22):
-// when --pid is implicit, register against the grandparent rather than
-// the one-off MSYS2 cygwin helper at the immediate ppid. Explicit --pid
-// remains untouched.
+// chooseRegisterPidChain has two anchoring strategies, tried in order:
+//
+//   1. Name-walk (v0.1.15): scan the chain for an agent-binary ancestor
+//      (claude.exe / claude / codex / codex.exe). Anchor THERE — the
+//      durable process that survives across CLI invocations from the
+//      same agent shell.
+//
+//   2. Position-based fallback (0.1.8 slice A): if no agent ancestor is
+//      found in the chain (raw shell case, no Claude/Codex parent),
+//      drop the leaf and prefer the grandparent — fixes the MSYS2
+//      short-leaf cygwin-helper case.
+//
+// Explicit --pid bypasses both and uses the chain as-is.
 describe('chooseRegisterPidChain', () => {
-  const HELPER = { pid: 65764, pid_start: 'iso-2026-05-22T20:36:39.4326010+01:00' };
-  const BASH = { pid: 52788, pid_start: 'iso-2026-05-22T20:36:39.3812590+01:00' };
-  const WEZTERM = { pid: 11804, pid_start: 'iso-2026-05-13T16:40:55+01:00' };
+  const HELPER = { pid: 65764, pid_start: 'iso-2026-05-22T20:36:39.4326010+01:00', name: 'cygwin-helper.exe' };
+  const BASH = { pid: 52788, pid_start: 'iso-2026-05-22T20:36:39.3812590+01:00', name: 'bash.exe' };
+  const WEZTERM = { pid: 11804, pid_start: 'iso-2026-05-13T16:40:55+01:00', name: 'wezterm-gui.exe' };
 
-  it('returns the chain unchanged when --pid was explicit', () => {
-    const chain = [HELPER, BASH, WEZTERM];
-    expect(chooseRegisterPidChain(chain, true)).toEqual(chain);
+  describe('explicit --pid', () => {
+    it('returns the chain unchanged when --pid was explicit (bypasses both strategies)', () => {
+      const chain = [HELPER, BASH, WEZTERM];
+      expect(chooseRegisterPidChain(chain, true)).toEqual(chain);
+    });
   });
 
-  it('drops the immediate ppid when chain has >= 2 entries and --pid was implicit', () => {
-    const chain = [HELPER, BASH, WEZTERM];
-    expect(chooseRegisterPidChain(chain, false)).toEqual([BASH, WEZTERM]);
+  describe('fallback: position-based (no agent ancestor in chain)', () => {
+    it('drops the immediate ppid when chain has >= 2 entries', () => {
+      const chain = [HELPER, BASH, WEZTERM];
+      expect(chooseRegisterPidChain(chain, false)).toEqual([BASH, WEZTERM]);
+    });
+
+    it('returns the chain unchanged when it has only one entry', () => {
+      expect(chooseRegisterPidChain([HELPER], false)).toEqual([HELPER]);
+    });
+
+    it('returns the chain unchanged when it is empty', () => {
+      expect(chooseRegisterPidChain([], false)).toEqual([]);
+    });
+
+    it('does not mutate the input chain', () => {
+      const chain = [HELPER, BASH, WEZTERM];
+      chooseRegisterPidChain(chain, false);
+      expect(chain).toEqual([HELPER, BASH, WEZTERM]);
+    });
+
+    it('falls back when chain entries have null/undefined name (older client)', () => {
+      const oldShape = [
+        { pid: 65764, pid_start: 'iso-A' },
+        { pid: 52788, pid_start: 'iso-B' },
+        { pid: 11804, pid_start: 'iso-C' }
+      ];
+      // No agent name visible → falls through to position-based slice(1)
+      expect(chooseRegisterPidChain(oldShape, false)).toEqual([
+        { pid: 52788, pid_start: 'iso-B' },
+        { pid: 11804, pid_start: 'iso-C' }
+      ]);
+    });
   });
 
-  it('returns the chain unchanged when it has only one entry (no grandparent fallback)', () => {
-    expect(chooseRegisterPidChain([HELPER], false)).toEqual([HELPER]);
+  describe('name-walk: agent ancestor at variable depth (v0.1.15)', () => {
+    // Real Windows chain observed for xenocc on 2026-06-01 that motivated this
+    // change. claude.exe sits at depth 4 from powershell — position-based slice
+    // would land on the middle bash (pid 121756), missing the durable claude.
+    // Server-side @speedy bound terminal 8ff8e8b6 to pid 81632 — name-walk
+    // anchors there correctly without --pid override.
+    const XENOCC_CHAIN_WINDOWS = [
+      { pid: 124364, pid_start: '2026-06-01T10:55:00Z', name: 'powershell.exe' },
+      { pid: 110016, pid_start: '2026-06-01T10:54:00Z', name: 'bash.exe' },
+      { pid: 121756, pid_start: '2026-06-01T10:54:00Z', name: 'bash.exe' },
+      { pid: 122232, pid_start: '2026-06-01T10:53:00Z', name: 'bash.exe' },
+      { pid: 81632,  pid_start: '2026-05-28T20:26:47Z', name: 'claude.exe' },
+      { pid: 18600,  pid_start: '2026-05-28T20:26:00Z', name: 'cmd.exe' },
+      { pid: 19392,  pid_start: '2026-05-13T16:40:55Z', name: 'wezterm-gui.exe' },
+      { pid: 11804,  pid_start: '2026-05-13T16:40:50Z', name: 'explorer.exe' }
+    ];
+
+    it('anchors on claude.exe (depth 4) — the xenocc reproducer', () => {
+      const result = chooseRegisterPidChain(XENOCC_CHAIN_WINDOWS, false);
+      expect(result[0].pid).toBe(81632);
+      expect(result[0].name).toBe('claude.exe');
+      expect(result).toHaveLength(4); // claude.exe + cmd + wezterm + explorer
+    });
+
+    it('anchors on claude (no .exe) for macOS/Linux chain', () => {
+      const macChain = [
+        { pid: 99999, pid_start: 'iso-A', name: 'bash' },
+        { pid: 88888, pid_start: 'iso-B', name: 'claude' },
+        { pid: 77777, pid_start: 'iso-C', name: 'Terminal' }
+      ];
+      const result = chooseRegisterPidChain(macChain, false);
+      expect(result[0].name).toBe('claude');
+      expect(result).toHaveLength(2);
+    });
+
+    it('anchors on codex.exe for the codex agent case', () => {
+      const codexChain = [
+        { pid: 1001, pid_start: 'a', name: 'bash.exe' },
+        { pid: 1002, pid_start: 'b', name: 'codex.exe' },
+        { pid: 1003, pid_start: 'c', name: 'cmd.exe' }
+      ];
+      const result = chooseRegisterPidChain(codexChain, false);
+      expect(result[0].name).toBe('codex.exe');
+      expect(result).toHaveLength(2);
+    });
+
+    it('anchors on the FIRST agent ancestor when multiple are present', () => {
+      // Nested case: claude spawned a sub-claude (e.g. agent tool). Anchor on
+      // the leafmost agent — that's the one whose shell context the current
+      // CLI invocation actually lives in.
+      const nested = [
+        { pid: 100, pid_start: 'a', name: 'bash.exe' },
+        { pid: 200, pid_start: 'b', name: 'claude.exe' },  // ← anchor here
+        { pid: 300, pid_start: 'c', name: 'cmd.exe' },
+        { pid: 400, pid_start: 'd', name: 'claude.exe' },
+        { pid: 500, pid_start: 'e', name: 'explorer.exe' }
+      ];
+      const result = chooseRegisterPidChain(nested, false);
+      expect(result[0].pid).toBe(200);
+      expect(result).toHaveLength(4);
+    });
+
+    it('is case-insensitive (Windows CLAUDE.EXE)', () => {
+      const upper = [
+        { pid: 1, pid_start: 'a', name: 'bash.exe' },
+        { pid: 2, pid_start: 'b', name: 'CLAUDE.EXE' }
+      ];
+      const result = chooseRegisterPidChain(upper, false);
+      expect(result[0].pid).toBe(2);
+    });
+
+    it('ignores name-walk when explicit --pid is set (explicit always wins)', () => {
+      const result = chooseRegisterPidChain(XENOCC_CHAIN_WINDOWS, true);
+      // Explicit --pid: chain returned as-is, with powershell still at depth 0
+      expect(result[0].pid).toBe(124364);
+      expect(result).toEqual(XENOCC_CHAIN_WINDOWS);
+    });
   });
 
-  it('returns the chain unchanged when it is empty', () => {
-    expect(chooseRegisterPidChain([], false)).toEqual([]);
-  });
-
-  it('does not mutate the input chain', () => {
-    const chain = [HELPER, BASH, WEZTERM];
-    chooseRegisterPidChain(chain, false);
-    expect(chain).toEqual([HELPER, BASH, WEZTERM]);
+  describe('AGENT_BINARY_NAMES set', () => {
+    it('contains both case forms for both agents', () => {
+      expect(AGENT_BINARY_NAMES.has('claude.exe')).toBe(true);
+      expect(AGENT_BINARY_NAMES.has('claude')).toBe(true);
+      expect(AGENT_BINARY_NAMES.has('codex.exe')).toBe(true);
+      expect(AGENT_BINARY_NAMES.has('codex')).toBe(true);
+    });
   });
 });
