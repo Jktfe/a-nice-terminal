@@ -105,6 +105,47 @@ describe('listFleetAgents — terminal-less agent union', () => {
     expect(busy.status?.state).toBe('remote');
   });
 
+  it('badges a terminal-less agent remote via pty heartbeat even with no recent chat', () => {
+    // The heartbeat-union: an agent working silently at a real pty (no chat)
+    // still reads alive. The terminal exists in `terminals` + is mapped by a
+    // membership, but has NO terminal_records row (the fresh-shell rebind gap),
+    // so the fleet still sources it as terminal-less.
+    const room = createChatRoom({ name: 'heroes', whoCreatedIt: '@seed' });
+    seedTerminalLessAgent(room.id, '@working', 'Working');
+
+    const nowMs = 1_000_000_000_000;
+    const t = upsertTerminal({ pid: 999, pid_start: 'pst', name: 'working-pty' });
+    const db = getIdentityDb();
+    db.prepare(`UPDATE terminals SET last_pty_byte_at_ms = ? WHERE id = ?`).run(nowMs - 60_000, t.id);
+    db.prepare(
+      `INSERT INTO room_memberships (id, room_id, handle, terminal_id, created_at, revoked_at_ms)
+       VALUES ('rm_working', ?, '@working', ?, ?, NULL)`
+    ).run(room.id, t.id, nowMs);
+
+    // terminal NOT in liveSessionIds + no terminal_records row → still terminal-less.
+    const fleet = listFleetAgents(new Set(), nowMs);
+    const working = fleet.find((a) => a.handle === '@working')!;
+    expect(working.status?.state).toBe('remote');
+  });
+
+  it('ignores a revoked seat heartbeat (stale terminal cannot keep an agent alive)', () => {
+    const room = createChatRoom({ name: 'heroes', whoCreatedIt: '@seed' });
+    seedTerminalLessAgent(room.id, '@revoked', 'Revoked');
+
+    const nowMs = 1_000_000_000_000;
+    const t = upsertTerminal({ pid: 998, pid_start: 'pst', name: 'revoked-pty' });
+    const db = getIdentityDb();
+    db.prepare(`UPDATE terminals SET last_pty_byte_at_ms = ? WHERE id = ?`).run(nowMs - 60_000, t.id);
+    db.prepare(
+      `INSERT INTO room_memberships (id, room_id, handle, terminal_id, created_at, revoked_at_ms)
+       VALUES ('rm_revoked', ?, '@revoked', ?, ?, ?)`
+    ).run(room.id, t.id, nowMs, nowMs - 1000);
+
+    const fleet = listFleetAgents(new Set(), nowMs);
+    const revoked = fleet.find((a) => a.handle === '@revoked')!;
+    expect(revoked.status?.state).toBe('offline');
+  });
+
   it('excludes registered agents with no active room membership', () => {
     // An agent row can exist in chat_room_members only via inviteAgentToRoom,
     // so "no membership" means it never appears in listAgents() at all; the

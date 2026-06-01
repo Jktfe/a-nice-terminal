@@ -20,11 +20,16 @@ const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 const SPARKLINE_HOURS = 24;
 const HEATMAP_DAYS = 7;
-// A terminal-less agent (active room seat, no attached local pty) is badged
-// `remote` if it posted within this window, else `offline`. Mirrors the
-// 5-min remote-heartbeat staleness threshold used elsewhere (room-membership
-// liveness) so "active right now" reads consistently across surfaces.
-const REMOTE_ACTIVE_MS = 5 * 60 * 1000;
+// A terminal-less agent (active room seat, no attached local pty in
+// terminal_records) is badged `remote` if it has been alive within this
+// window, else `offline`. Liveness is a UNION of signals — recent chat OR a
+// recent pty-byte / message heartbeat on a terminal its membership maps to —
+// because an agent can be heads-down WORKING at a real pty for minutes
+// without posting (the chat-only proxy mislabels that as offline). 15 min
+// comfortably covers normal work gaps while still flagging genuine staleness.
+// (The deeper cause that some agents have a live pty but no terminal_records
+// row is the fresh-shell rebind gap; the binding fix is separate.)
+const REMOTE_ACTIVE_MS = 15 * 60 * 1000;
 
 // Positive reactions = the OK / Good / Celebrate buckets. 👎 is explicitly
 // excluded and 🙋‍♂️ is a question, not approval.
@@ -302,6 +307,32 @@ function loadLastMessageAtByHandle(handles: string[]): Map<string, number> {
   return out;
 }
 
+// Latest pty/message heartbeat (ms) per handle, via the terminal(s) the
+// handle's active memberships map to. Complements chat recency for agents
+// that work silently at a real pty without posting. Revoked seats are
+// excluded so a dead seat's stale terminal can't keep an agent "alive".
+function loadHeartbeatByHandle(handles: string[]): Map<string, number> {
+  const out = new Map<string, number>();
+  if (handles.length === 0) return out;
+  const db = getIdentityDb();
+  const placeholders = handles.map(() => '?').join(',');
+  const rows = db
+    .prepare(
+      `SELECT rm.handle AS handle,
+              MAX(MAX(COALESCE(t.last_pty_byte_at_ms, 0), COALESCE(t.last_message_sent_at_ms, 0))) AS hb
+         FROM room_memberships rm
+         JOIN terminals t ON t.id = rm.terminal_id
+        WHERE rm.handle IN (${placeholders})
+          AND rm.revoked_at_ms IS NULL
+        GROUP BY rm.handle`
+    )
+    .all(...handles) as Array<{ handle: string; hb: number | null }>;
+  for (const r of rows) {
+    if (r.hb && r.hb > 0) out.set(r.handle, r.hb);
+  }
+  return out;
+}
+
 function loadCollaborators(agents: AgentRegistryEntry[]): Map<string, string[]> {
   // For every agent, list the OTHER agent handles that share a current room.
   const out = new Map<string, string[]>();
@@ -467,7 +498,9 @@ export function listFleetAgents(
   const counts = aggregateCounts(handles, nowMs);
   const series = timeseriesByHandle(handles, nowMs);
   const workspaces = loadHandleWorkspaces(handles);
-  const lastMessageAt = loadLastMessageAtByHandle(terminalLessAgents.map((a) => a.handle));
+  const terminalLessHandles = terminalLessAgents.map((a) => a.handle);
+  const lastMessageAt = loadLastMessageAtByHandle(terminalLessHandles);
+  const heartbeatAt = loadHeartbeatByHandle(terminalLessHandles);
 
   const terminalEntries: FleetAgent[] = records.map((r) => {
     const handle = r.handle ?? deriveHandle(r);
@@ -525,7 +558,11 @@ export function listFleetAgents(
       sparkline: new Array(SPARKLINE_HOURS).fill(0),
       heatmap: new Array(HEATMAP_DAYS).fill(0),
     };
-    const lastAt = lastMessageAt.get(handle) ?? null;
+    // Liveness = the most recent of chat activity OR pty/message heartbeat,
+    // so an agent working silently at a real pty still reads alive.
+    const lastChatAt = lastMessageAt.get(handle) ?? 0;
+    const lastBeatAt = heartbeatAt.get(handle) ?? 0;
+    const lastAt = Math.max(lastChatAt, lastBeatAt) || null;
     const isRemote = lastAt !== null && nowMs - lastAt <= REMOTE_ACTIVE_MS;
     return {
       handle,
