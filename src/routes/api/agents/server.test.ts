@@ -111,6 +111,14 @@ function attachTerminal(
     `INSERT INTO terminals (id, pid, pid_start, name, tmux_target_pane, pane_status, source, expires_at, meta, created_at, updated_at, agent_status, agent_status_at_ms)
      VALUES (?, ?, ?, ?, ?, 'verified', 'test', ?, '{}', ?, ?, ?, ?)`
   ).run(sessionId, 1, 'x', `term-${sessionId}`, `tmux:${sessionId}`, expiresAt, 1, 1, agentStatus, agentStatusAtMs);
+  // The fleet view is TERMINAL-centric: it sources attached, non-superseded
+  // terminal_records (not the agent registry). Seed the matching record so the
+  // bound terminal appears in the fleet. name = handle so displayName asserts
+  // stay stable.
+  db.prepare(
+    `INSERT INTO terminal_records (session_id, name, agent_kind, tmux_target_pane, handle, created_at_ms, updated_at_ms)
+     VALUES (?, ?, 'claude', ?, ?, ?, ?)`
+  ).run(sessionId, handle, `tmux:${sessionId}`, handle, 1, 1);
   db.prepare(
     `INSERT INTO room_memberships (id, room_id, handle, terminal_id, created_at)
      VALUES (?, ?, ?, ?, ?)`

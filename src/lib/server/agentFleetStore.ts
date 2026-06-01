@@ -361,23 +361,25 @@ function listLiveAttachedHandles(
   return out;
 }
 
-// Per-terminal agent_status (working / thinking / idle / response-required),
-// keyed by terminal session id — the terminal-centric analogue of
-// listLiveAttachedHandles (which keys by handle via room_memberships and so
-// can't see handle-less terminals).
-function loadTerminalStatuses(sessionIds: string[]): Map<string, HandleStatus> {
-  const out = new Map<string, HandleStatus>();
+// Per-terminal runtime (agent_status + TTL), keyed by terminal session id —
+// the terminal-centric analogue of listLiveAttachedHandles (which keys by
+// handle via room_memberships and so can't see handle-less terminals). We lift
+// expires_at here too so TTL-expired terminals are dropped even when tmux still
+// claims the pane.
+type TerminalRuntime = { state: string | null; atMs: number; expiresAt: number | null };
+function loadTerminalRuntime(sessionIds: string[]): Map<string, TerminalRuntime> {
+  const out = new Map<string, TerminalRuntime>();
   if (sessionIds.length === 0) return out;
   const db = getIdentityDb();
   const placeholders = sessionIds.map(() => '?').join(',');
   const rows = db
     .prepare(
-      `SELECT id, agent_status AS state, agent_status_at_ms AS at_ms
+      `SELECT id, agent_status AS state, agent_status_at_ms AS at_ms, expires_at
        FROM terminals WHERE id IN (${placeholders})`
     )
-    .all(...sessionIds) as Array<{ id: string; state: string | null; at_ms: number | null }>;
+    .all(...sessionIds) as Array<{ id: string; state: string | null; at_ms: number | null; expires_at: number | null }>;
   for (const r of rows) {
-    if (r.state) out.set(r.id, { state: r.state, atMs: r.at_ms ?? 0 });
+    out.set(r.id, { state: r.state, atMs: r.at_ms ?? 0, expiresAt: r.expires_at });
   }
   return out;
 }
@@ -394,15 +396,24 @@ export function listFleetAgents(
   liveSessionIds: ReadonlySet<string>,
   nowMs: number = Date.now()
 ): FleetAgent[] {
-  const records = listTerminalRecords().filter(
+  const nowSeconds = Math.floor(nowMs / 1000);
+  const candidates = listTerminalRecords().filter(
     (r) =>
       r.tmux_target_pane !== null &&
       r.superseded_at_ms === null &&
       liveSessionIds.has(r.session_id)
   );
+  const runtime = loadTerminalRuntime(candidates.map((r) => r.session_id));
+  // Drop TTL-expired terminals (tmux may still claim the pane, but the binding
+  // has lapsed) — matches the old listLiveAttachedHandles expiry guard.
+  const records = candidates.filter((r) => {
+    const rt = runtime.get(r.session_id);
+    return !rt || rt.expiresAt === null || rt.expiresAt > nowSeconds;
+  });
 
-  const registryByHandle = new Map(listAgents().map((a) => [a.handle, a] as const));
-  const termStatuses = loadTerminalStatuses(records.map((r) => r.session_id));
+  const registry = listAgents();
+  const registryByHandle = new Map(registry.map((a) => [a.handle, a] as const));
+  const collabByHandle = loadCollaborators(registry);
   const handles = [...new Set(records.map((r) => r.handle ?? deriveHandle(r)))];
   const counts = aggregateCounts(handles, nowMs);
   const series = timeseriesByHandle(handles, nowMs);
@@ -410,16 +421,18 @@ export function listFleetAgents(
 
   return records.map((r) => {
     const handle = r.handle ?? deriveHandle(r);
-    const displayName = r.name || handle;
     const reg = registryByHandle.get(handle);
+    // Prefer the registered agent's display name; fall back to the terminal
+    // name (handle-less terminals like `fast`/`antc4`).
+    const displayName = reg?.displayName ?? (r.name || handle);
     const c = counts.get(handle) ?? emptyCounts();
     const s = series.get(handle) ?? {
       sparkline: new Array(SPARKLINE_HOURS).fill(0),
       heatmap: new Array(HEATMAP_DAYS).fill(0),
     };
     // Live terminal → its agent_status (default idle); never null here since
-    // every record in this list is alive.
-    const st = termStatuses.get(r.session_id);
+    // every record in this list is alive + non-expired.
+    const rt = runtime.get(r.session_id);
     return {
       handle,
       sessionId: r.session_id,
@@ -431,8 +444,8 @@ export function listFleetAgents(
       displayBackgroundStyle: reg?.displayBackgroundStyle ?? null,
       rooms: reg?.rooms ?? [],
       pastRooms: [],
-      collaborators: [],
-      status: st ? { state: st.state, atMs: st.atMs } : { state: 'idle', atMs: nowMs },
+      collaborators: collabByHandle.get(handle) ?? [],
+      status: rt?.state ? { state: rt.state, atMs: rt.atMs } : { state: 'idle', atMs: nowMs },
       workspace: workspaces.get(handle) ?? null,
       productivityScore: computeProductivityScore(c),
       deliveryRate: computeDeliveryRate(c),
