@@ -2155,7 +2155,48 @@ const SCHEMA_DDL_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_tool_grants_v02_lookup ON tool_grants_v02(grantee_handle, tool_id, scope_kind, scope_id, revoked_at_ms)`,
   `CREATE INDEX IF NOT EXISTS idx_tool_grants_v02_tool ON tool_grants_v02(tool_id, revoked_at_ms)`,
-  `CREATE INDEX IF NOT EXISTS idx_grants_shim_lookup ON grants_shim (grantee_handle, action, target_id, revoked_at_ms)`
+  `CREATE INDEX IF NOT EXISTS idx_grants_shim_lookup ON grants_shim (grantee_handle, action, target_id, revoked_at_ms)`,
+
+  // M6.1 — RBAC role registry (antOS Enterprise Control Plane plan).
+  // Replaces ad-hoc endpoint-level gates (room_owner / org_admin /
+  // plan_owner / isAdminBearer) with an enumerable role model bound to
+  // identities. Role IDs are deliberately string-stable so the parallel
+  // `enterpriseCapabilityPolicy` work (commit 3cbfc32, raw-PTY gate via
+  // tool_grants_v02) can dependency-seam onto these IDs without coupling
+  // to the row layout. is_seeded marks the four canonical roles
+  // (super-admin / org-admin / room-owner / member) so admin-bearer
+  // writers cannot accidentally delete or relabel them via /api/roles.
+  // role_capabilities is a junction table; (role_id, capability, scope)
+  // is the natural composite PK. role_assignments binds a role to an
+  // identity handle scoped to global / org / room / session — scope_id
+  // is NULL when scope_kind = 'global'. Additive only; no FK to identities
+  // because that table belongs to PR #99's surface and may be renamed.
+  `CREATE TABLE IF NOT EXISTS roles (
+    role_id       TEXT PRIMARY KEY,
+    name          TEXT NOT NULL UNIQUE,
+    description   TEXT,
+    created_at_ms INTEGER NOT NULL,
+    is_seeded     INTEGER NOT NULL DEFAULT 0
+  )`,
+  `CREATE TABLE IF NOT EXISTS role_capabilities (
+    role_id    TEXT NOT NULL REFERENCES roles(role_id) ON DELETE CASCADE,
+    capability TEXT NOT NULL,
+    scope      TEXT NOT NULL,
+    PRIMARY KEY (role_id, capability, scope)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_role_capabilities_role ON role_capabilities(role_id)`,
+  `CREATE TABLE IF NOT EXISTS role_assignments (
+    assignment_id       TEXT PRIMARY KEY,
+    role_id             TEXT NOT NULL REFERENCES roles(role_id) ON DELETE CASCADE,
+    identity_handle     TEXT NOT NULL,
+    scope_kind          TEXT NOT NULL,
+    scope_id            TEXT,
+    assigned_at_ms      INTEGER NOT NULL,
+    assigned_by_handle  TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_role_assignments_identity ON role_assignments(identity_handle)`,
+  `CREATE INDEX IF NOT EXISTS idx_role_assignments_role ON role_assignments(role_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_role_assignments_scope ON role_assignments(scope_kind, scope_id)`
 ];
 
 // =====================================================================
