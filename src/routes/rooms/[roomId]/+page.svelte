@@ -434,7 +434,7 @@
       {#if realtimeStatus}
         <RealtimeStatusIndicator store={realtimeStatus} />
       {/if}
-      <RoomCardActivity roomId={roomFromServer.id} />
+      <RoomCardActivity roomId={roomFromServer.id} variant="header" />
     {/snippet}
     {#snippet menu()}
       <RoomMenuDropdown summary="More" innerIds={['participants', 'responders', 'focus', 'asks', 'plans', 'tasks', 'linked-rooms', 'interviews', 'artefacts', 'screenshots', 'memory', 'attachments']}>
