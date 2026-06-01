@@ -15,7 +15,12 @@ describe('read receipt identity wiring', () => {
     expect(messageListSource).toContain('{readReceiptEvent}');
     expect(messageRowSource).toContain('asHandle?: string');
     expect(messageRowSource).toContain('readReceiptEvent?:');
-    expect(messageRowSource).toContain('<MessageReadIndicator roomId={message.roomId} messageId={message.id} {asHandle} {readReceiptEvent} />');
+    expect(messageRowSource).toContain('<MessageReadIndicator');
+    expect(messageRowSource).toContain('roomId={message.roomId}');
+    expect(messageRowSource).toContain('messageId={message.id}');
+    expect(messageRowSource).toContain('{asHandle}');
+    expect(messageRowSource).toContain('{readReceiptEvent}');
+    expect(messageRowSource).toContain('initialReaders={message.readReceipts ?? EMPTY_READ_RECEIPTS}');
     expect(messageRowSource).toContain("message.body.startsWith('Open ask answered by ')");
     expect(messageRowSource).toContain('{#if isAnsweredAskReceipt}');
     expect(indicatorSource).not.toContain("asHandle = '@you'");

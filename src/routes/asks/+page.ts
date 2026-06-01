@@ -11,6 +11,7 @@
 
 import type { PageLoad } from './$types';
 import type { Ask } from '$lib/server/askStore';
+import type { AskCandidate } from '$lib/server/askCandidateStore';
 import type { ChairRowDigest } from '$lib/server/chairStore';
 
 export const load: PageLoad = async ({ fetch }) => {
@@ -21,11 +22,17 @@ export const load: PageLoad = async ({ fetch }) => {
 
   let asks: Ask[] = [];
   let recentlyAnswered: Ask[] = [];
+  let candidates: AskCandidate[] = [];
   let asksFetchFailed = false;
   if (asksResponse.ok) {
-    const asksBody = (await asksResponse.json()) as { asks: Ask[]; recentlyAnswered?: Ask[] };
+    const asksBody = (await asksResponse.json()) as {
+      asks: Ask[];
+      recentlyAnswered?: Ask[];
+      candidates?: AskCandidate[];
+    };
     asks = asksBody.asks ?? [];
     recentlyAnswered = asksBody.recentlyAnswered ?? [];
+    candidates = asksBody.candidates ?? [];
   } else {
     asksFetchFailed = true;
   }
@@ -43,6 +50,7 @@ export const load: PageLoad = async ({ fetch }) => {
   return {
     asksFromServer: asks,
     recentlyAnsweredFromServer: recentlyAnswered,
+    candidatesFromServer: candidates,
     roomNameByRoomId,
     asksFetchFailed
   };

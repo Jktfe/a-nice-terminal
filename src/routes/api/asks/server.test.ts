@@ -363,6 +363,34 @@ describe('POST + GET /api/asks', () => {
     expect(scopedBody.candidates).toHaveLength(2);
   });
 
+  it('GET retro-backfills standalone @ shorthand and raised-hand emoji candidates', async () => {
+    const room = createChatRoom({ name: 'signals-shorthand', whoCreatedIt: '@you' });
+    postMessage({
+      roomId: room.id,
+      authorHandle: '@codex',
+      body: '@ can you decide this?'
+    });
+    postMessage({
+      roomId: room.id,
+      authorHandle: '@svelte',
+      body: 'raising hand 🙋‍♂️'
+    });
+    postMessage({
+      roomId: room.id,
+      authorHandle: '@kimi',
+      body: '"@" is quoted and should not count'
+    });
+
+    const response = await callGet();
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.asks).toEqual([]);
+    expect(body.candidates.map((candidate: { sourceType: string }) => candidate.sourceType)).toEqual([
+      'mention',
+      'emoji-message'
+    ]);
+  });
+
   it('GET /api/asks default returns asks in global insertion order across rooms (not room-grouped)', async () => {
     const roomA = createChatRoom({ name: 'A', whoCreatedIt: '@you' });
     const roomB = createChatRoom({ name: 'B', whoCreatedIt: '@you' });

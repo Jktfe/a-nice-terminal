@@ -24,6 +24,7 @@
     submitDismissFor as askActionsDismiss
   } from '$lib/askActions';
   import type { Ask } from '$lib/server/askStore';
+  import type { AskCandidate } from '$lib/server/askCandidateStore';
 
   const ACTOR_HANDLE = '@you';
 
@@ -31,6 +32,7 @@
     data: {
       asksFromServer: Ask[];
       recentlyAnsweredFromServer: Ask[];
+      candidatesFromServer: AskCandidate[];
       roomNameByRoomId: Record<string, string>;
       asksFetchFailed: boolean;
     };
@@ -40,6 +42,7 @@
 
   const asksFromServer = $derived<Ask[]>(data.asksFromServer);
   const recentlyAnsweredFromServer = $derived<Ask[]>(data.recentlyAnsweredFromServer);
+  const candidatesFromServer = $derived<AskCandidate[]>(data.candidatesFromServer);
   const roomNameByRoomId = $derived<Record<string, string>>(data.roomNameByRoomId);
   const asksFetchFailed = $derived<boolean>(data.asksFetchFailed);
 
@@ -60,6 +63,15 @@
     return false;
   }
 
+  function matchesCandidateFilter(candidate: AskCandidate, needle: string): boolean {
+    if (needle.length === 0) return true;
+    if (candidate.title.toLowerCase().includes(needle)) return true;
+    if (candidate.body.toLowerCase().includes(needle)) return true;
+    const roomName = resolveRoomNameSafely(candidate.roomId).toLowerCase();
+    if (roomName.includes(needle)) return true;
+    return false;
+  }
+
   const filteredOpenAsks = $derived.by(() => {
     const needle = askFilter.trim().toLowerCase();
     if (needle.length === 0) return asksFromServer;
@@ -72,13 +84,21 @@
     return recentlyAnsweredFromServer.filter((ask) => matchesAskFilter(ask, needle));
   });
 
+  const filteredCandidates = $derived.by(() => {
+    const needle = askFilter.trim().toLowerCase();
+    if (needle.length === 0) return candidatesFromServer;
+    return candidatesFromServer.filter((candidate) => matchesCandidateFilter(candidate, needle));
+  });
+
   // Filter-aware empty-state branching (codex CHANGES REQUESTED on
   // 5aef74b): the prior shape only checked Open-section emptiness, so a
   // filter that matched neither Open nor Recently-answered fell through
   // to the celebratory "All caught up" state when Open started empty.
   // These derived flags drive a unified no-results state when filtering.
   const isFiltering = $derived(askFilter.trim().length > 0);
-  const hasFilteredResults = $derived(filteredOpenAsks.length + filteredAnsweredAsks.length > 0);
+  const hasFilteredResults = $derived(
+    filteredOpenAsks.length + filteredAnsweredAsks.length + filteredCandidates.length > 0
+  );
 
   // One answer form open at a time; one in-flight verb at a time. Keeps
   // state shape tight and matches the "one task in focus" UX of a queue.
@@ -86,7 +106,10 @@
   let answerText = $state('');
   let inFlightAskId = $state<string | null>(null);
   let inFlightVerb = $state<'answer' | 'dismiss' | null>(null);
+  let inFlightCandidateId = $state<string | null>(null);
+  let inFlightCandidateVerb = $state<'promote' | 'dismiss' | null>(null);
   let lastErrorByAskId = $state<Record<string, string>>({});
+  let lastErrorByCandidateId = $state<Record<string, string>>({});
 
   // Ask-pickup notice (task 3947e563, JWPK msg_kjyh3lmypd): per-card
   // pickup summary loaded best-effort after hydration. The data drives
@@ -170,6 +193,14 @@
   function setErrorFor(askId: string, message: string) {
     lastErrorByAskId = { ...lastErrorByAskId, [askId]: message };
   }
+  function clearCandidateErrorFor(candidateId: string) {
+    if (!lastErrorByCandidateId[candidateId]) return;
+    const { [candidateId]: _removed, ...rest } = lastErrorByCandidateId;
+    lastErrorByCandidateId = rest;
+  }
+  function setCandidateErrorFor(candidateId: string, message: string) {
+    lastErrorByCandidateId = { ...lastErrorByCandidateId, [candidateId]: message };
+  }
 
   function openAnswerFormFor(askId: string) {
     activeAnswerAskId = askId;
@@ -219,6 +250,58 @@
       inFlightVerb = null;
     }
   }
+
+  async function promoteCandidate(candidateId: string) {
+    inFlightCandidateId = candidateId;
+    inFlightCandidateVerb = 'promote';
+    clearCandidateErrorFor(candidateId);
+    try {
+      const response = await fetch(`/api/ask-candidates/${encodeURIComponent(candidateId)}/promote`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ promotedByHandle: ACTOR_HANDLE })
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { message?: string };
+        throw new Error(body.message ?? 'Could not promote ask candidate.');
+      }
+      await invalidateAll();
+    } catch (causeOfFailure) {
+      setCandidateErrorFor(
+        candidateId,
+        causeOfFailure instanceof Error ? causeOfFailure.message : 'Could not promote ask candidate.'
+      );
+    } finally {
+      inFlightCandidateId = null;
+      inFlightCandidateVerb = null;
+    }
+  }
+
+  async function dismissCandidate(candidateId: string) {
+    inFlightCandidateId = candidateId;
+    inFlightCandidateVerb = 'dismiss';
+    clearCandidateErrorFor(candidateId);
+    try {
+      const response = await fetch(`/api/ask-candidates/${encodeURIComponent(candidateId)}/dismiss`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dismissedByHandle: ACTOR_HANDLE })
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { message?: string };
+        throw new Error(body.message ?? 'Could not dismiss ask candidate.');
+      }
+      await invalidateAll();
+    } catch (causeOfFailure) {
+      setCandidateErrorFor(
+        candidateId,
+        causeOfFailure instanceof Error ? causeOfFailure.message : 'Could not dismiss ask candidate.'
+      );
+    } finally {
+      inFlightCandidateId = null;
+      inFlightCandidateVerb = null;
+    }
+  }
 </script>
 
 <svelte:head>
@@ -235,7 +318,7 @@
       Could not load the asks queue. Try again in a moment.
     </p>
   {:else}
-    {#if asksFromServer.length > 0 || recentlyAnsweredFromServer.length > 0}
+    {#if asksFromServer.length > 0 || recentlyAnsweredFromServer.length > 0 || candidatesFromServer.length > 0}
       <div class="ask-filter-row">
         <Explainable explainKey="asks-queue">
         <input
@@ -250,9 +333,58 @@
         {#if askFilter.trim().length > 0}
           <span class="ask-filter-count" aria-live="polite">
             {filteredOpenAsks.length} open · {filteredAnsweredAsks.length} answered
+            {#if filteredCandidates.length > 0}
+              · {filteredCandidates.length} needs review
+            {/if}
           </span>
         {/if}
       </div>
+    {/if}
+
+    {#if filteredCandidates.length > 0}
+      <section class="candidate-section" aria-labelledby="ask-candidates-heading">
+        <div class="candidate-heading-row">
+          <h2 id="ask-candidates-heading">Needs review</h2>
+          <span>{filteredCandidates.length} signal{filteredCandidates.length === 1 ? '' : 's'}</span>
+        </div>
+        <ul class="candidate-list" aria-label="Ask signals needing review">
+          {#each filteredCandidates as candidate (candidate.id)}
+            <li class="candidate-card">
+              <header class="candidate-meta">
+                <a href="/rooms/{candidate.roomId}">{resolveRoomNameSafely(candidate.roomId)}</a>
+                <span>{candidate.sourceActorHandle}</span>
+                <span>{candidate.sourceEmoji ?? (candidate.sourceType === 'mention' ? '@' : 'signal')}</span>
+              </header>
+              <h3>{candidate.title}</h3>
+              <p>{candidate.body}</p>
+              {#if lastErrorByCandidateId[candidate.id]}
+                <p class="candidate-error" role="alert">{lastErrorByCandidateId[candidate.id]}</p>
+              {/if}
+              <div class="candidate-actions">
+                <button
+                  type="button"
+                  onclick={() => promoteCandidate(candidate.id)}
+                  disabled={inFlightCandidateId !== null}
+                >
+                  {inFlightCandidateId === candidate.id && inFlightCandidateVerb === 'promote'
+                    ? 'Promoting…'
+                    : 'Promote to ask'}
+                </button>
+                <button
+                  type="button"
+                  class="secondary"
+                  onclick={() => dismissCandidate(candidate.id)}
+                  disabled={inFlightCandidateId !== null}
+                >
+                  {inFlightCandidateId === candidate.id && inFlightCandidateVerb === 'dismiss'
+                    ? 'Dismissing…'
+                    : 'Dismiss'}
+                </button>
+              </div>
+            </li>
+          {/each}
+        </ul>
+      </section>
     {/if}
 
     {#if isFiltering && !hasFilteredResults}
@@ -264,7 +396,7 @@
         No asks match "<strong>{askFilter}</strong>".
         <button type="button" class="filter-reset-btn" onclick={() => (askFilter = '')}>Clear filter</button>
       </p>
-    {:else if !isFiltering && asksFromServer.length === 0}
+    {:else if !isFiltering && asksFromServer.length === 0 && candidatesFromServer.length === 0}
       <div class="empty-celebrate" role="status" aria-label="All open asks resolved">
         <span class="celebrate-icon" aria-hidden="true">✓</span>
         <div class="celebrate-text">
@@ -276,6 +408,9 @@
       <!-- Filtering matched answered but not open: keep the Open header
            area quiet (the empty-nudge would be misleading next to a
            non-empty Recently-answered list). -->
+    {:else if filteredOpenAsks.length === 0}
+      <!-- Candidate rows above are the actionable state; avoid an empty
+           Open list when signals exist but no formal ask has been promoted. -->
     {:else}
       <ul class="ask-list" aria-label="Open asks queue">
         {#each filteredOpenAsks as ask (ask.id)}
@@ -345,6 +480,78 @@
 
 <style>
   .error-message { margin: 0 0 0.75rem; color: var(--accent); }
+
+  .candidate-section {
+    margin: 0 0 1rem;
+  }
+  .candidate-heading-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 0 0 0.5rem;
+  }
+  .candidate-heading-row h2 {
+    margin: 0;
+    font-size: 1rem;
+  }
+  .candidate-heading-row span {
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  .candidate-list {
+    list-style: none;
+    display: grid;
+    gap: 0.65rem;
+    margin: 0;
+    padding: 0;
+  }
+  .candidate-card {
+    border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+    border-radius: 8px;
+    padding: 0.85rem;
+    background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+  }
+  .candidate-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem 0.7rem;
+    color: var(--muted);
+    font-size: 0.83rem;
+  }
+  .candidate-card h3 {
+    margin: 0.45rem 0 0.35rem;
+    font-size: 0.98rem;
+  }
+  .candidate-card p {
+    margin: 0;
+    white-space: pre-wrap;
+  }
+  .candidate-error {
+    color: var(--accent);
+    margin-top: 0.5rem !important;
+  }
+  .candidate-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+  }
+  .candidate-actions button {
+    border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
+    border-radius: 6px;
+    padding: 0.45rem 0.65rem;
+    background: var(--accent);
+    color: var(--on-accent, white);
+    cursor: pointer;
+  }
+  .candidate-actions button.secondary {
+    background: transparent;
+    color: var(--text);
+  }
+  .candidate-actions button:disabled {
+    cursor: wait;
+    opacity: 0.62;
+  }
 
   /* Ask filter input (mirrors /rooms d08bc69 / e059268 affordance).
      Type to narrow both Open and Recently-answered lists by title or

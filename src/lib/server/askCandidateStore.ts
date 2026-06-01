@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { listBareMentionHandles } from '$lib/chat/mentionRouting';
+import { hasBareAtMarker, listBareMentionHandles } from '$lib/chat/mentionRouting';
 import type { ChatMessage } from './chatMessageStore';
 import { listMessagesInRoom } from './chatMessageStore';
 import { listChatRooms } from './chatRoomStore';
@@ -134,7 +134,10 @@ export function collectAskCandidatesFromMessage(message: ChatMessage): AskCandid
   if (message.kind !== 'human' && message.kind !== 'agent') return [];
   const createdAtMs = messageCreatedAtMs(message);
   const candidates: AskCandidate[] = [];
-  if (listBareMentionHandles(message.body).some((handle) => handle.toLowerCase() === '@you')) {
+  const targetsLoggedInHuman =
+    listBareMentionHandles(message.body).some((handle) => handle.toLowerCase() === '@you')
+    || hasBareAtMarker(message.body);
+  if (targetsLoggedInHuman) {
     const candidate = insertCandidate({
       roomId: message.roomId,
       sourceMessageId: message.id,

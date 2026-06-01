@@ -25,6 +25,7 @@ import { findChatRoomById } from './chatRoomStore';
 import { getIdentityDb } from './db';
 import { operatorDisplayHandle } from './operatorDisplayHandle';
 import type { MessageReactionSummary } from './messageReactionStore';
+import type { MessageReadReceipt } from './messageReadReceiptStore';
 
 export type ChatMessageKind = 'human' | 'agent' | 'system' | 'system-break';
 
@@ -46,6 +47,7 @@ export type ChatMessage = {
   deletedByHandle?: string | null;
   editedAtMs?: number | null;
   reactions?: MessageReactionSummary[];
+  readReceipts?: MessageReadReceipt[];
 };
 
 type ChatMessageRow = {

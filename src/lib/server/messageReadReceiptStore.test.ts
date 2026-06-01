@@ -3,6 +3,7 @@ import { getIdentityDb } from './db';
 import {
   hasReaderReadMessage,
   listReadersForMessage,
+  listReadersForMessages,
   markMessageRead,
   resetMessageReadReceiptStoreForTests
 } from './messageReadReceiptStore';
@@ -67,6 +68,20 @@ describe('messageReadReceiptStore', () => {
 
   it('listReadersForMessage returns an empty array for an unread message', () => {
     expect(listReadersForMessage('unread')).toEqual([]);
+  });
+
+  it('listReadersForMessages groups persisted readers by message id', () => {
+    markMessageRead({ messageId: 'msg_b', readerHandle: '@second' });
+    markMessageRead({ messageId: 'msg_a', readerHandle: '@first' });
+    markMessageRead({ messageId: 'msg_b', readerHandle: '@third' });
+
+    expect(listReadersForMessages(['msg_a', 'msg_b', 'msg_missing'])).toEqual({
+      msg_a: [expect.objectContaining({ messageId: 'msg_a', readerHandle: '@first' })],
+      msg_b: [
+        expect.objectContaining({ messageId: 'msg_b', readerHandle: '@second' }),
+        expect.objectContaining({ messageId: 'msg_b', readerHandle: '@third' })
+      ]
+    });
   });
 
   it('listReadersForMessage returns a defensive copy (mutating it does not affect store)', () => {

@@ -81,6 +81,29 @@ export function listReadersForMessage(messageId: string): MessageReadReceipt[] {
     .all(messageId) as MessageReadReceiptRow[]).map(rowToReceipt);
 }
 
+export function listReadersForMessages(messageIds: readonly string[]): Record<string, MessageReadReceipt[]> {
+  const ids = [...new Set(messageIds.map((id) => id.trim()).filter((id) => id.length > 0))];
+  if (ids.length === 0) return {};
+
+  const placeholders = ids.map(() => '?').join(', ');
+  const rows = getIdentityDb()
+    .prepare(
+      `SELECT message_id, reader_handle, read_at
+         FROM message_read_receipts
+        WHERE message_id IN (${placeholders})
+        ORDER BY message_id ASC, read_at_ms ASC, reader_handle ASC`
+    )
+    .all(...ids) as MessageReadReceiptRow[];
+
+  const byMessageId: Record<string, MessageReadReceipt[]> = {};
+  for (const row of rows) {
+    const bucket = byMessageId[row.message_id] ?? [];
+    bucket.push(rowToReceipt(row));
+    byMessageId[row.message_id] = bucket;
+  }
+  return byMessageId;
+}
+
 export function hasReaderReadMessage(
   messageId: string,
   readerHandle: string

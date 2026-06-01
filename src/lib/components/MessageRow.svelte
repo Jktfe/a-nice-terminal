@@ -22,6 +22,9 @@
   import MessageRowActions from './MessageRowActions.svelte';
   import { renderMarkdown } from '$lib/chat/renderMarkdown';
   import { resolveAddressedKind, type AddressedKind } from '$lib/chat/addressedToViewer';
+  import type { MessageReadReceipt } from '$lib/server/messageReadReceiptStore';
+
+  const EMPTY_READ_RECEIPTS: MessageReadReceipt[] = [];
 
   type Props = {
     message: ChatMessage;
@@ -125,7 +128,13 @@
   <div class="system-row" class:has-read-receipts={isAnsweredAskReceipt}>
     <span class="system-text">{message.body}</span>
     {#if isAnsweredAskReceipt}
-      <MessageReadIndicator roomId={message.roomId} messageId={message.id} {asHandle} {readReceiptEvent} />
+      <MessageReadIndicator
+        roomId={message.roomId}
+        messageId={message.id}
+        {asHandle}
+        {readReceiptEvent}
+        initialReaders={message.readReceipts ?? EMPTY_READ_RECEIPTS}
+      />
     {/if}
   </div>
 {:else}
@@ -192,7 +201,13 @@
         {onClaimChanged}
       />
     {/if}
-    <MessageReadIndicator roomId={message.roomId} messageId={message.id} {asHandle} {readReceiptEvent} />
+    <MessageReadIndicator
+      roomId={message.roomId}
+      messageId={message.id}
+      {asHandle}
+      {readReceiptEvent}
+      initialReaders={message.readReceipts ?? EMPTY_READ_RECEIPTS}
+    />
   </article>
 {/if}
 

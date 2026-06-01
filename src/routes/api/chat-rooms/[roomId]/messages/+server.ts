@@ -46,6 +46,7 @@ import { getContextBreakEnforcement } from '$lib/server/contextBreakSettingsStor
 import { summariseReactionsForMessage } from '$lib/server/messageReactionStore';
 import { buildPermissionDeniedPayload } from '$lib/server/permissionDeniedPayload';
 import { resolveApproversFor } from '$lib/server/permissionApproverResolver';
+import { listReadersForMessages } from '$lib/server/messageReadReceiptStore';
 
 const DEFAULT_MESSAGE_PAGE_SIZE = 100;
 const MAX_MESSAGE_PAGE_SIZE = 200;
@@ -80,8 +81,13 @@ export const GET: RequestHandler = async ({ params, request, url }) => {
     sinceBreak: !includePreBreak,
     ...(before !== undefined && { beforePostOrder: before })
   });
+  const messagesWithReactions = page.messages.map((message) => withReactionSummaries(message, viewerHandles));
+  const readersByMessageId = listReadersForMessages(messagesWithReactions.map((message) => message.id));
   return json({
-    messages: page.messages.map((message) => withReactionSummaries(message, viewerHandles)),
+    messages: messagesWithReactions.map((message) => {
+      const readReceipts = readersByMessageId[message.id] ?? [];
+      return readReceipts.length > 0 ? { ...message, readReceipts } : message;
+    }),
     paging: {
       limit,
       before: before ?? null,

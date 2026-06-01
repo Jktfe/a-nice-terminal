@@ -30,11 +30,16 @@
     roomId: string;
     asHandle?: string;
     readReceiptEvent?: Record<string, unknown> | null;
+    initialReaders?: MessageReadReceipt[];
   };
 
-  let { messageId, roomId, asHandle, readReceiptEvent }: Props = $props();
+  let { messageId, roomId, asHandle, readReceiptEvent, initialReaders = [] }: Props = $props();
 
   let readersFromServer = $state<MessageReadReceipt[]>([]);
+
+  $effect(() => {
+    readersFromServer = initialReaders;
+  });
 
   $effect(() => {
     if (readReceiptEvent?.type === 'message_read' &&

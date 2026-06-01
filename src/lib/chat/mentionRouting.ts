@@ -7,6 +7,7 @@
 
 const BARE_EVERYONE_PATTERN = /(^|\s)@everyone(?=$|\s|[.,!?;:)\]])/i;
 const BARE_HANDLE_PATTERN = /(^|\s)@([A-Za-z0-9_-]+)(?=$|\s|[.,!?;:)\]])/g;
+const BARE_AT_MARKER_PATTERN = /(^|\s)@(?=$|\s|[.,!?;:)\]])/;
 const BRACKETED_HANDLE_PATTERN = /\[@[A-Za-z0-9_-]+\]/;
 
 export function hasBareEveryoneMention(body: string): boolean {
@@ -26,6 +27,11 @@ export function listBareMentionHandles(body: string): string[] {
     if (!handles.includes(handle)) handles.push(handle);
   }
   return handles;
+}
+
+export function hasBareAtMarker(body: string): boolean {
+  const withoutQuotes = body.replace(/"[^"]*"/g, '""');
+  return BARE_AT_MARKER_PATTERN.test(withoutQuotes);
 }
 
 export function hasBracketedMention(body: string): boolean {

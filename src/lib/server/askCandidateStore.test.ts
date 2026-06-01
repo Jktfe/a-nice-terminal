@@ -44,6 +44,36 @@ describe('askCandidateStore', () => {
     });
   });
 
+  it('creates a candidate for standalone @ shorthand to the logged-in human', () => {
+    const room = createChatRoom({ name: 'candidate-room', whoCreatedIt: '@you' });
+    const shorthand = postMessage({
+      roomId: room.id,
+      authorHandle: '@codex',
+      body: '@ can you decide this?'
+    });
+
+    const candidates = collectAskCandidatesFromMessage(shorthand);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({
+      roomId: room.id,
+      sourceMessageId: shorthand.id,
+      sourceType: 'mention',
+      sourceActorHandle: '@codex',
+      status: 'candidate'
+    });
+  });
+
+  it('does not create a candidate for standalone @ inside quotes', () => {
+    const room = createChatRoom({ name: 'candidate-room', whoCreatedIt: '@you' });
+    const quoted = postMessage({
+      roomId: room.id,
+      authorHandle: '@codex',
+      body: '"@" is just a quoted symbol'
+    });
+
+    expect(collectAskCandidatesFromMessage(quoted)).toEqual([]);
+  });
+
   it('creates message-emoji and reaction candidates idempotently', () => {
     const room = createChatRoom({ name: 'emoji-room', whoCreatedIt: '@you' });
     const message = postMessage({

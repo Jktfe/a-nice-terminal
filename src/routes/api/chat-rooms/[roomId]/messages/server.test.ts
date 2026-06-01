@@ -23,6 +23,10 @@ import { createBrowserSession } from '$lib/server/browserSessionStore';
 import { issueToken, resetAntchatAuthTokensForTests } from '$lib/server/antchatAuthStore';
 import { resetAskStoreForTests } from '$lib/server/askStore';
 import { listOpenAskCandidates } from '$lib/server/askCandidateStore';
+import {
+  markMessageRead,
+  resetMessageReadReceiptStoreForTests
+} from '$lib/server/messageReadReceiptStore';
 
 type CallOptions = { roomId: string; body?: string; cookie?: string; headers?: Record<string, string> };
 
@@ -108,6 +112,7 @@ describe('GET /api/chat-rooms/:roomId/messages pagination', () => {
     resetAntchatAuthTokensForTests();
     resetAskStoreForTests();
     resetMessageReactionStoreForTests();
+    resetMessageReadReceiptStoreForTests();
   });
 
   it('rejects unauthenticated message reads', async () => {
@@ -213,6 +218,25 @@ describe('GET /api/chat-rooms/:roomId/messages pagination', () => {
       { emoji: '🙌', count: 1, topReactors: ['@codex'], viewerHasReacted: false }
     ]);
     expect(secondPayload.reactions).toBeUndefined();
+  });
+
+  it('hydrates persisted read receipts in the message history payload', async () => {
+    const room = createChatRoom({ name: 'read-receipt-history', whoCreatedIt: '@you' });
+    const read = postMessage({ roomId: room.id, authorHandle: '@you', body: 'read me' });
+    const unread = postMessage({ roomId: room.id, authorHandle: '@you', body: 'not read' });
+    markMessageRead({ messageId: read.id, readerHandle: '@agent' });
+
+    const { token } = issueToken('you@example.com');
+    const response = await callGet(room.id, '', { authorization: `Bearer ${token}` });
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    const readPayload = payload.messages.find((message: { id: string }) => message.id === read.id);
+    const unreadPayload = payload.messages.find((message: { id: string }) => message.id === unread.id);
+    expect(readPayload.readReceipts).toEqual([
+      expect.objectContaining({ messageId: read.id, readerHandle: '@agent' })
+    ]);
+    expect(unreadPayload.readReceipts).toBeUndefined();
   });
 
   it('sets viewerHasReacted=true when the viewer reacted but is outside the truncated topReactors', async () => {
@@ -416,6 +440,22 @@ describe('POST /api/chat-rooms/:roomId/messages with M30 slice 2 parentMessageId
       roomId: room.id,
       body: JSON.stringify({
         body: '@you please pick this up 🙌',
+        ...verifiedCaller(room.id, '@codex')
+      })
+    });
+    expect(response.status).toBe(201);
+    expect(listOpenAskCandidates(room.id).map((candidate) => candidate.sourceType)).toEqual([
+      'mention',
+      'emoji-message'
+    ]);
+  });
+
+  it('POST creates ask candidates for standalone @ shorthand and raised hand emoji', async () => {
+    const room = createChatRoom({ name: 'candidate-route-short', whoCreatedIt: '@you' });
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({
+        body: '@ can you decide? 🙋‍♂️',
         ...verifiedCaller(room.id, '@codex')
       })
     });
