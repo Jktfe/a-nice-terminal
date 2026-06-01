@@ -1,8 +1,8 @@
 ---
-title: ANT v0.2 — BYOWORM Sink Adapter (M1.1 contract + M1.2 S3 Object Lock impl)
+title: ANT v0.2 — BYOWORM Sink Adapter (M1.1 contract + M1.2 S3 Object Lock impl + M1.3 dispatcher skeleton)
 date: 2026-05-30
 authors: ["@enterprisec"]
-status: draft — M1.1 contract + M1.2 S3 Object Lock impl landed; M1.3 dispatcher pending
+status: draft — M1.1 + M1.2 + M1.3 (single-sink, single-batch) landed; multi-sink fanout + persistent watermark + retry-with-backoff pending
 plan: antos-enterprise-control-plane-2026-05-27 §M1
 companion: ant-v02-identity-and-recovery.md (audit_events table source)
 ---
@@ -136,8 +136,9 @@ For a customer (or partner) implementing this contract for their destination:
 | Slice | Status | Owner | Notes |
 |---|---|---|---|
 | M1.1 contract + reference adapter | landed (PR #125 fb731d6) | @enterprisec | Type-level + no-op + tests + this doc |
-| M1.2 S3 Object Lock backend | this PR (stacked on PR #125) | @enterprisec | AWS SDK v3, compliance mode mapping, date-partitioned keys, AWS error → SinkError mapping |
-| M1.3 audit dispatcher | planned | TBD | Watermark + replay + retry-per-error-kind |
+| M1.2 S3 Object Lock backend | landed (PR #127 2f57c6c, stacked on #125) | @enterprisec | AWS SDK v3, compliance mode mapping, date-partitioned keys, AWS error → SinkError mapping |
+| M1.3 audit dispatcher (skeleton) | this PR (stacked on PR #127) | @enterprisec | Pure envelope builder + dispatch loop with chain context; single-sink, in-memory chain state, caller drives retries |
+| M1.4 multi-sink fanout + persistent watermark | planned | TBD | sink_watermarks table; parallel writes to N sinks per dispatch; retry-with-backoff inside dispatcher |
 | M7.2 SIEM destination adapters | planned (depends on M1.1) | @2ec | Splunk HEC / Datadog Logs / Elastic — implementations of this contract |
 
 ## Acceptance criteria
