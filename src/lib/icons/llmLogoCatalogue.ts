@@ -25,6 +25,7 @@ export const LLM_LOGOS: readonly LlmLogo[] = [
   { slug: 'codex-icon.svg', file: 'codex-icon.svg', label: 'Codex' },
   { slug: 'gemini-icon.svg', file: 'gemini-icon.svg', label: 'Gemini' },
   { slug: 'geminicli-icon.svg', file: 'geminicli-icon.svg', label: 'Gemini CLI' },
+  { slug: 'gemma-icon.svg', file: 'gemma-icon.svg', label: 'Gemma' },
   { slug: 'openai-icon.svg', file: 'openai-icon.svg', label: 'OpenAI' },
   { slug: 'copilot-icon.svg', file: 'copilot-icon.svg', label: 'GitHub Copilot' },
   { slug: '365-copilot-icon.svg', file: '365-copilot-icon.svg', label: 'Microsoft 365 Copilot' },
