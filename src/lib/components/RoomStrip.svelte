@@ -111,7 +111,7 @@
     <div class="name-row">
       <h3>{room.name}</h3>
       <RoomPlanProgressBadge progress={room.planProgress} />
-      <RoomCardActivity roomId={room.id} />
+      <RoomCardActivity roomId={room.id} variant="header" />
     </div>
     {#if room.members && room.members.length > 0}
       <div class="members" aria-label={`${room.members.length} ${room.members.length === 1 ? 'participant' : 'participants'}`}>

@@ -23,9 +23,10 @@
   type Props = {
     roomId: string;
     pollIntervalMs?: number;
+    variant?: 'activity' | 'header';
   };
 
-  let { roomId, pollIntervalMs = 30_000 }: Props = $props();
+  let { roomId, pollIntervalMs = 30_000, variant = 'activity' }: Props = $props();
 
   let statuses = $state<StatusEntry[]>([]);
   let lastActivityMs = $state<number | null>(null);
@@ -92,20 +93,7 @@
   }
 </script>
 
-<span class="room-card-activity" aria-label="Room activity">
-  {#if workingCount > 0}
-    <span class="activity-pulse" aria-hidden="true"></span>
-    <span class="activity-count">{workingCount} working</span>
-  {:else}
-    <span class="activity-dot activity-idle" aria-hidden="true"></span>
-    <span class="activity-count">{formatLastActivity(lastActivityMs)}</span>
-  {/if}
-  {#if needsYouCount > 0}
-    <span class="needs-you" title="Agents waiting on a response">
-      <span class="needs-you-dot" aria-hidden="true"></span>
-      {needsYouCount} needs you
-    </span>
-  {/if}
+{#snippet statusPills()}
   {#if agentStatusPills.length > 0}
     <span class="agent-status-pills" aria-label="Agent status pills">
       {#each agentStatusPills as entry (entry.handle)}
@@ -125,9 +113,44 @@
       {/if}
     </span>
   {/if}
-</span>
+{/snippet}
+
+{#if variant === 'header'}
+  <span class="room-card-status-header" aria-label="Room agent status">
+    {@render statusPills()}
+    {#if needsYouCount > 0}
+      <span class="needs-you" title="Agents waiting on a response">
+        <span class="needs-you-dot" aria-hidden="true"></span>
+        {needsYouCount} needs you
+      </span>
+    {/if}
+  </span>
+{:else}
+  <span class="room-card-activity" aria-label="Room activity">
+    {#if workingCount > 0}
+      <span class="activity-pulse" aria-hidden="true"></span>
+      <span class="activity-count">{workingCount} working</span>
+    {:else}
+      <span class="activity-dot activity-idle" aria-hidden="true"></span>
+      <span class="activity-count">{formatLastActivity(lastActivityMs)}</span>
+    {/if}
+    {#if needsYouCount > 0}
+      <span class="needs-you" title="Agents waiting on a response">
+        <span class="needs-you-dot" aria-hidden="true"></span>
+        {needsYouCount} needs you
+      </span>
+    {/if}
+  </span>
+{/if}
 
 <style>
+  .room-card-status-header {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    min-width: 0;
+  }
   .room-card-activity {
     display: inline-flex;
     align-items: center;
@@ -181,7 +204,6 @@
     align-items: center;
     flex-wrap: wrap;
     gap: 0.25rem;
-    margin-left: 0.25rem;
   }
   .agent-status-pill,
   .agent-status-overflow {

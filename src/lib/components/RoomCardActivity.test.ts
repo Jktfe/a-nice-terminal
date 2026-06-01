@@ -14,4 +14,11 @@ describe('RoomCardActivity room-card status pills', () => {
     expect(COMPONENT_SRC).toMatch(/class={`agent-status-pill status-\${entry.status}`}/);
     expect(COMPONENT_SRC).toMatch(/aria-label={`\${entry.handle} is \${labelForStatus\(entry.status\)}`}/);
   });
+
+  it('has a header variant for placing status pills next to the room live pill', () => {
+    expect(COMPONENT_SRC).toMatch(/variant\?: 'activity' \| 'header'/);
+    expect(COMPONENT_SRC).toMatch(/variant = 'activity'/);
+    expect(COMPONENT_SRC).toMatch(/room-card-status-header/);
+    expect(COMPONENT_SRC).toMatch(/variant === 'header'/);
+  });
 });
