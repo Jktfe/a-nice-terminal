@@ -55,28 +55,12 @@
     if (initialCwd) onCwdDetected?.(initialCwd);
   });
 
-  // RAW history replay: Terminal.svelte only live-tails the PTY /stream,
-  // so on attach to a quiet/idle terminal the xterm is blank even though
-  // the persisted raw scrollback exists in terminal_run_events. Seed the
-  // xterm with persisted kind=raw src=pty rows (oldest→newest) BEFORE
-  // opening the live stream — v3-style replay-then-live. Accepts a tiny
-  // race window for bytes emitted between fetch and SSE-connect (a small
-  // gap, never duplication — matches v3 behaviour).
-  async function seedRawHistory(): Promise<void> {
-    try {
-      const res = await fetch(
-        `/api/terminals/${encodeURIComponent(terminalId)}/run-events?kinds=raw&limit=1000`
-      );
-      if (!res.ok) return;
-      const body = (await res.json()) as { events?: { ts_ms: number; text: string; source?: string }[] };
-      const rows = (body.events ?? [])
-        .filter((e) => typeof e.text === 'string' && (e.source ?? 'pty') === 'pty')
-        .sort((a, b) => a.ts_ms - b.ts_ms);
-      for (const row of rows) enqueueWrite(row.text);
-    } catch {
-      /* non-blocking — live stream still wires */
-    }
-  }
+  // (Removed seedRawHistory: it replayed persisted kind=raw run-events that
+  // are ANSI-stripped at capture, painting escape-free + duplicated scrollback
+  // under /stream's own raw capturePaneScrollback snapshot. /stream provides
+  // the initial scrollback on connect, so the replay was both redundant and
+  // the source of the mis-render. Deep escape-preserving history is a separate
+  // server-side capture fix.)
 
   // Thin wrappers binding this pane's terminalId to the shared PTY-input
   // path (src/lib/terminal/ptyInput). Behaviour is identical to the
@@ -161,11 +145,14 @@
       resizeObserver = new ResizeObserver(() => handleResize());
       resizeObserver.observe(hostEl!);
 
-      // Replay persisted raw scrollback so a quiet line-mode shell isn't
-      // a blank xterm. NOTE: alt-screen TUIs (claude-code/codex full-screen
-      // UIs) can't be reconstructed from chunk replay — see the SIGWINCH
-      // repaint nudge below (ANTstorm Track-2 alt-screen limitation).
-      await seedRawHistory();
+      // Initial scrollback comes from /stream's capturePaneScrollback on
+      // connect (raw tmux bytes, escapes intact). We deliberately do NOT
+      // replay persisted run-events here: the kind=raw rows are ANSI-stripped
+      // at capture (normalizeForClassifier in the ingest feeds cleanChunk to
+      // everything), so replaying them painted escape-free, mis-rendered +
+      // DUPLICATED scrollback under the (correct) live tail — JWPK's "not
+      // rendering correctly" bug. Alt-screen TUIs still rely on the SIGWINCH
+      // repaint nudge below.
 
       // Open SSE stream + write incoming frames via the chunked queue.
       eventSource = new EventSource(
