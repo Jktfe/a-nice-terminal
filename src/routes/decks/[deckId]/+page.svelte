@@ -81,6 +81,8 @@
     autoplay: boolean;
     elevenLabsAvailable: boolean;
     voiceId?: string;
+    modelId?: string;
+    voiceName?: string;
   }>({ provider: 'elevenlabs', autoplay: true, elevenLabsAvailable: false });
   let currentTTSHandle: TTSHandle | null = null;
   let currentProvider: TTSProvider | null = null;
@@ -317,7 +319,9 @@
         stage_provider?: string;
         stage_autoplay?: boolean;
         default_voice_id?: string;
+        default_model_id?: string;
       };
+      const deckVoicePreset = deck.voicePreset;
       const provider = settings.stage_provider === 'browser' || settings.stage_provider === 'off'
         ? settings.stage_provider
         : 'elevenlabs';
@@ -325,7 +329,13 @@
         provider,
         autoplay: settings.stage_autoplay !== false,
         elevenLabsAvailable: settings.available === true,
-        voiceId: typeof settings.default_voice_id === 'string' ? settings.default_voice_id : undefined
+        voiceId: typeof deckVoicePreset?.voiceId === 'string'
+          ? deckVoicePreset.voiceId
+          : (typeof settings.default_voice_id === 'string' ? settings.default_voice_id : undefined),
+        modelId: typeof deckVoicePreset?.modelId === 'string'
+          ? deckVoicePreset.modelId
+          : (typeof settings.default_model_id === 'string' ? settings.default_model_id : undefined),
+        voiceName: typeof deckVoicePreset?.name === 'string' ? deckVoicePreset.name : undefined
       };
     } catch {
       voiceNotice = 'Could not load Stage voice settings.';
@@ -379,7 +389,9 @@
       voiceNotice = 'ElevenLabs is not configured on this server.';
       return null;
     }
-    voiceNotice = 'Using ElevenLabs Stage voice.';
+    voiceNotice = voiceSettings.voiceName
+      ? `Using ${voiceSettings.voiceName}.`
+      : 'Using ElevenLabs Stage voice.';
     return currentProvider;
   }
 
@@ -535,6 +547,7 @@
       if (!provider) return;
       const handle = provider.speak(narration, {
         voiceId: voiceSettings.voiceId,
+        modelId: voiceSettings.modelId,
         deckId: deck.id,
         deckPassword: data.deckPassword ?? undefined
       });

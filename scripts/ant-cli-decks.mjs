@@ -7,8 +7,8 @@
  * generated alternatives, validation overlays, and other real-time behaviour.
  *
  *   ant decks list --room ROOM_ID [--json]
- *   ant decks add --room ROOM_ID --title TITLE [--slides-json JSON] [--theme TEXT] [--animotion-slug SLUG] [--open-slide-slug SLUG] [--json]
- *   ant decks update --room ROOM_ID --id DECK_ID [--title TEXT] [--slides-json JSON] [--theme TEXT] [--json]
+ *   ant decks add --room ROOM_ID --title TITLE [--slides-json JSON] [--theme TEXT] [--animotion-slug SLUG] [--open-slide-slug SLUG] [--voice-preset ID] [--json]
+ *   ant decks update --room ROOM_ID --id DECK_ID [--title TEXT] [--slides-json JSON] [--theme TEXT] [--voice-preset ID] [--json]
  *   ant decks remove --room ROOM_ID --id DECK_ID [--json]
  *
  * Auth: mutating verbs (add/update/remove) include the caller's pidChain
@@ -66,8 +66,8 @@ function parseFlags(rawArgs, CliInputError) {
 function writeUsage(runtime) {
   runtime.writeOut('Stage presentations only. For a normal deck artefact, use: ant artefact add --kind deck --ref-url /d/SLUG');
   runtime.writeOut('ant decks list --room ROOM_ID [--json]');
-  runtime.writeOut('ant decks add --room ROOM_ID --title TITLE [--slides-json JSON] [--theme TEXT] [--animotion-slug SLUG] [--open-slide-slug SLUG] [--password TEXT] [--json]');
-  runtime.writeOut('ant decks update --room ROOM_ID --id DECK_ID [--title TEXT] [--slides-json JSON] [--theme TEXT] [--password TEXT] [--json]');
+  runtime.writeOut('ant decks add --room ROOM_ID --title TITLE [--slides-json JSON] [--theme TEXT] [--animotion-slug SLUG] [--open-slide-slug SLUG] [--password TEXT] [--voice-preset ID] [--json]');
+  runtime.writeOut('ant decks update --room ROOM_ID --id DECK_ID [--title TEXT] [--slides-json JSON] [--theme TEXT] [--password TEXT] [--voice-preset ID|--clear-voice-preset true] [--json]');
   runtime.writeOut('ant decks remove --room ROOM_ID --id DECK_ID [--json]');
 }
 
@@ -125,6 +125,7 @@ async function runAdd(flags, runtime, CliInputError) {
     theme: flags.theme ?? 'default',
     createdBy: runtime.handle ?? null,
     accessPassword: flags.password ?? null,
+    voicePresetId: flags['voice-preset'] ?? null,
     pidChain: processIdentityChain()
   };
   if (flags['animotion-slug'] !== undefined) {
@@ -172,6 +173,8 @@ async function runUpdate(flags, runtime, CliInputError) {
   }
   if (flags.theme !== undefined) body.theme = flags.theme;
   if (flags.password !== undefined) body.accessPassword = flags.password;
+  if (flags['voice-preset'] !== undefined) body.voicePresetId = flags['voice-preset'];
+  if (flags['clear-voice-preset'] !== undefined) body.voicePresetId = null;
   body.pidChain = processIdentityChain();
 
   const url = `${runtime.serverUrl}/api/chat-rooms/${encodeURIComponent(roomId)}/decks?deckId=${encodeURIComponent(deckId)}`;

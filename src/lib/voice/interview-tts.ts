@@ -49,6 +49,7 @@ export interface TTSProvider {
 
 export interface TTSSpeakOpts {
   voiceId?: string;
+  modelId?: string;
   rate?: number;
   pitch?: number;
   deckId?: string;
@@ -170,6 +171,7 @@ export class ElevenLabsTTSProvider implements TTSProvider {
           body: JSON.stringify({
             text,
             voice_id: opts.voiceId,
+            model_id: opts.modelId,
             deck_id: opts.deckId,
             deck_password: opts.deckPassword
           }),

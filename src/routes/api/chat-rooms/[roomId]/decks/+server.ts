@@ -29,7 +29,7 @@ export const GET: RequestHandler = ({ params }) => {
 export const POST: RequestHandler = async ({ params, request }) => {
   if (!findChatRoomById(params.roomId)) throw error(404, "Room not found.");
   const payload = (await request.json().catch(() => null)) as
-    | { title?: unknown; slides?: unknown; theme?: unknown; animotionSlug?: unknown; openSlideSlug?: unknown; createdBy?: unknown; accessPassword?: unknown; parentDeckId?: unknown }
+    | { title?: unknown; slides?: unknown; theme?: unknown; animotionSlug?: unknown; openSlideSlug?: unknown; createdBy?: unknown; accessPassword?: unknown; parentDeckId?: unknown; voicePresetId?: unknown }
     | null;
   if (!payload) throw error(400, "JSON body required.");
 
@@ -73,15 +73,23 @@ export const POST: RequestHandler = async ({ params, request }) => {
   }
 
   const slides = Array.isArray(payload.slides) ? payload.slides : undefined;
-  const deck = createDeck({
-    roomId: params.roomId,
-    title: payload.title,
-    slides,
-    theme,
-    createdBy,
-    accessPassword: typeof payload.accessPassword === "string" ? payload.accessPassword : null,
-    parentDeckId: typeof payload.parentDeckId === "string" ? payload.parentDeckId : null
-  });
+  let deck;
+  try {
+    deck = createDeck({
+      roomId: params.roomId,
+      title: payload.title,
+      slides,
+      theme,
+      createdBy,
+      accessPassword: typeof payload.accessPassword === "string" ? payload.accessPassword : null,
+      parentDeckId: typeof payload.parentDeckId === "string" ? payload.parentDeckId : null,
+      voicePresetId: typeof payload.voicePresetId === "string" ? payload.voicePresetId : null
+    });
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    if (message.includes("voice preset not found")) throw error(400, "voicePresetId was not found.");
+    throw cause;
+  }
   return json(serializeDeckForApi(deck), { status: 201 });
 };
 
@@ -91,7 +99,7 @@ export const PATCH: RequestHandler = async ({ params, url, request }) => {
   if (!deckId) throw error(400, "deckId query parameter required.");
 
   const payload = (await request.json().catch(() => null)) as
-    | { title?: unknown; slides?: unknown; theme?: unknown; accessPassword?: unknown }
+    | { title?: unknown; slides?: unknown; theme?: unknown; accessPassword?: unknown; voicePresetId?: unknown }
     | null;
   if (!payload) throw error(400, "JSON body required.");
 
@@ -104,12 +112,20 @@ export const PATCH: RequestHandler = async ({ params, url, request }) => {
     throw error(403, "Deck does not belong to this room.");
   }
 
-  const updated = updateDeck(deckId, {
-    title: typeof payload.title === "string" ? payload.title : undefined,
-    slides: Array.isArray(payload.slides) ? payload.slides : undefined,
-    theme: payload.theme !== undefined ? (typeof payload.theme === "string" ? payload.theme : null) : undefined,
-    accessPassword: payload.accessPassword !== undefined ? (typeof payload.accessPassword === "string" ? payload.accessPassword : null) : undefined
-  });
+  let updated;
+  try {
+    updated = updateDeck(deckId, {
+      title: typeof payload.title === "string" ? payload.title : undefined,
+      slides: Array.isArray(payload.slides) ? payload.slides : undefined,
+      theme: payload.theme !== undefined ? (typeof payload.theme === "string" ? payload.theme : null) : undefined,
+      accessPassword: payload.accessPassword !== undefined ? (typeof payload.accessPassword === "string" ? payload.accessPassword : null) : undefined,
+      voicePresetId: payload.voicePresetId !== undefined ? (typeof payload.voicePresetId === "string" ? payload.voicePresetId : null) : undefined
+    });
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    if (message.includes("voice preset not found")) throw error(400, "voicePresetId was not found.");
+    throw cause;
+  }
   if (!updated) throw error(404, "Deck not found.");
   return json(serializeDeckForApi(updated));
 };

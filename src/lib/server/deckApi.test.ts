@@ -13,6 +13,7 @@ describe('deckApi', () => {
       createdBy: '@you',
       accessPassword: 'secret123',
       parentDeckId: null,
+      voicePresetId: null,
       createdAtMs: 1,
       updatedAtMs: 2
     };
@@ -36,6 +37,7 @@ describe('deckApi', () => {
       createdBy: null,
       accessPassword: '',
       parentDeckId: null,
+      voicePresetId: null,
       createdAtMs: 1,
       updatedAtMs: null
     };
@@ -55,6 +57,7 @@ describe('deckApi', () => {
       createdBy: null,
       accessPassword: null,
       parentDeckId: null,
+      voicePresetId: null,
       createdAtMs: 1,
       updatedAtMs: null
     };

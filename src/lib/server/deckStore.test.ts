@@ -12,14 +12,17 @@ import {
   resetDeckStoreForTests
 } from './deckStore';
 import { createChatRoom, resetChatRoomStoreForTests } from './chatRoomStore';
+import { resetVoicePresetStoreForTests, saveVoicePreset } from './voicePresetStore';
 
 beforeEach(() => {
   resetDeckStoreForTests();
+  resetVoicePresetStoreForTests();
   resetChatRoomStoreForTests();
 });
 
 afterEach(() => {
   resetDeckStoreForTests();
+  resetVoicePresetStoreForTests();
   resetChatRoomStoreForTests();
 });
 
@@ -94,6 +97,34 @@ describe('createDeck', () => {
     const room = makeRoom();
     expect(() => createDeck({ roomId: room.id, title: '   ' })).toThrow('title cannot be blank');
   });
+
+  it('creates a deck with a Stage voice preset reference', () => {
+    const room = makeRoom();
+    saveVoicePreset({
+      id: 'xeno-demo',
+      name: 'Xeno demo voice',
+      provider: 'elevenlabs',
+      voiceId: 'wADoNOIls814sWSl7P4V'
+    });
+
+    const deck = createDeck({
+      roomId: room.id,
+      title: 'Xeno demo',
+      voicePresetId: 'xeno-demo'
+    });
+
+    expect(deck.voicePresetId).toBe('xeno-demo');
+    expect(getDeck(deck.id)?.voicePresetId).toBe('xeno-demo');
+  });
+
+  it('rejects an unknown Stage voice preset reference', () => {
+    const room = makeRoom();
+    expect(() => createDeck({
+      roomId: room.id,
+      title: 'Missing voice',
+      voicePresetId: 'missing'
+    })).toThrow('voice preset not found');
+  });
 });
 
 describe('listDecksInRoom', () => {
@@ -155,6 +186,23 @@ describe('updateDeck', () => {
     expect(updated!.title).toBe('New');
     expect(updated!.slides.length).toBe(1);
     expect(updated!.slides[0].title).toBe('S2');
+  });
+
+  it('updates and clears the Stage voice preset reference', () => {
+    const room = makeRoom();
+    saveVoicePreset({
+      id: 'stage-default',
+      name: 'Default Stage voice',
+      provider: 'elevenlabs',
+      voiceId: '41b1bEgfCyhbIxCRSOh7'
+    });
+    const deck = createDeck({ roomId: room.id, title: 'Voice deck' });
+
+    const updated = updateDeck(deck.id, { voicePresetId: 'stage-default' });
+    expect(updated?.voicePresetId).toBe('stage-default');
+
+    const cleared = updateDeck(deck.id, { voicePresetId: null });
+    expect(cleared?.voicePresetId).toBeNull();
   });
 
   it('rejects blank title', () => {

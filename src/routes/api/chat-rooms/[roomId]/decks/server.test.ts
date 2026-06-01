@@ -7,6 +7,7 @@ import { DELETE, GET, PATCH, POST } from "./+server";
 import { GET as GET_PUBLIC_DECK } from "../../../decks/[deckId]/+server";
 import { createChatRoom, resetChatRoomStoreForTests } from "$lib/server/chatRoomStore";
 import { resetDeckStoreForTests } from "$lib/server/deckStore";
+import { resetVoicePresetStoreForTests, saveVoicePreset } from "$lib/server/voicePresetStore";
 
 // LAUNCH-BLOCKER CVE FIX C (Finding #3, 2026-05-20): POST/PATCH/DELETE now
 // require chatRoomAuthGate. Default tests supply admin Bearer; 401-unauth
@@ -75,6 +76,7 @@ async function runHandler(handler: (event: AnyEvent) => unknown, event: AnyEvent
 describe("/api/chat-rooms/:roomId/decks", () => {
   beforeEach(() => {
     resetDeckStoreForTests();
+    resetVoicePresetStoreForTests();
     resetChatRoomStoreForTests();
   });
 
@@ -168,6 +170,50 @@ describe("/api/chat-rooms/:roomId/decks", () => {
     const updated = await patchRes.json();
     expect(updated.title).toBe("New");
     expect(updated.accessPassword).toBeUndefined();
+  });
+
+  it("POST and PATCH expose a deck voice preset without leaking deck password", async () => {
+    const room = createChatRoom({ name: "decks-test", whoCreatedIt: "test" });
+    saveVoicePreset({
+      id: "xeno-demo",
+      name: "Xeno demo voice",
+      provider: "elevenlabs",
+      voiceId: "wADoNOIls814sWSl7P4V",
+      modelId: "eleven_turbo_v2_5"
+    });
+    saveVoicePreset({
+      id: "stage-default",
+      name: "Default Stage voice",
+      provider: "elevenlabs",
+      voiceId: "41b1bEgfCyhbIxCRSOh7"
+    });
+
+    const postRes = await runHandler(POST, eventFor("POST", room.id, "", {
+      title: "Voiced",
+      accessPassword: "secret",
+      voicePresetId: "xeno-demo"
+    }));
+    expect(postRes.status).toBe(201);
+    const created = await postRes.json();
+    expect(created.voicePresetId).toBe("xeno-demo");
+    expect(created.voicePreset).toMatchObject({
+      id: "xeno-demo",
+      name: "Xeno demo voice",
+      voiceId: "wADoNOIls814sWSl7P4V",
+      modelId: "eleven_turbo_v2_5"
+    });
+    expect(created.accessPassword).toBeUndefined();
+
+    const patchRes = await runHandler(PATCH, eventFor("PATCH", room.id, `?deckId=${created.id}`, {
+      voicePresetId: "stage-default"
+    }));
+    expect(patchRes.status).toBe(200);
+    const updated = await patchRes.json();
+    expect(updated.voicePresetId).toBe("stage-default");
+    expect(updated.voicePreset).toMatchObject({
+      id: "stage-default",
+      name: "Default Stage voice"
+    });
   });
 
   it("PATCH updates deck password without leaking it and public GET accepts the new password", async () => {

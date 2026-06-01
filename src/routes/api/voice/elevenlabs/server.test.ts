@@ -7,6 +7,7 @@ import { POST, _resolveElevenLabsCachePath as resolveElevenLabsCachePath } from 
 import { resetIdentityDbForTests } from '$lib/server/db';
 import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
 import { createDeck, resetDeckStoreForTests } from '$lib/server/deckStore';
+import { resetVoicePresetStoreForTests, saveVoicePreset } from '$lib/server/voicePresetStore';
 
 let cacheDir = '';
 const originalCacheDir = process.env.ANT_VOICE_CACHE_DIR;
@@ -20,6 +21,7 @@ beforeEach(() => {
   resetIdentityDbForTests();
   resetChatRoomStoreForTests();
   resetDeckStoreForTests();
+  resetVoicePresetStoreForTests();
 });
 
 afterEach(() => {
@@ -135,5 +137,43 @@ describe('ElevenLabs voice access', () => {
 
     expect(response.status).toBe(403);
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('uses the deck voice preset when a Stage viewer omits voice_id', async () => {
+    const room = createChatRoom({ name: 'stage voice', whoCreatedIt: '@you' });
+    const preset = saveVoicePreset({
+      id: 'xeno-demo',
+      name: 'Xeno demo voice',
+      provider: 'elevenlabs',
+      voiceId: 'wADoNOIls814sWSl7P4V',
+      modelId: 'eleven_turbo_v2_5'
+    });
+    const deck = createDeck({
+      roomId: room.id,
+      title: 'Xeno voice deck',
+      accessPassword: 'stage-demo',
+      voicePresetId: preset.id,
+      slides: [{ id: 's1', title: 'Slide 1', content: 'Visible', speakerNotes: 'Narration' }]
+    });
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      new Response(new Uint8Array([9, 9, 9]), {
+        status: 200,
+        headers: { 'content-type': 'audio/mpeg' }
+      })
+    ));
+
+    const response = await runPost({
+      text: 'Narration',
+      deck_id: deck.id,
+      deck_password: 'stage-demo'
+    });
+
+    expect(response.status).toBe(200);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe(
+      'https://api.elevenlabs.io/v1/text-to-speech/wADoNOIls814sWSl7P4V'
+    );
+    const upstreamBody = JSON.parse((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+    expect(upstreamBody.model_id).toBe('eleven_turbo_v2_5');
   });
 });

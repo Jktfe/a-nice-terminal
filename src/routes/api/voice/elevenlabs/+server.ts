@@ -18,6 +18,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { resolveBrowserSessionSecretIgnoringRoom } from '$lib/server/browserSessionStore';
 import { getDeck } from '$lib/server/deckStore';
+import { getVoicePreset } from '$lib/server/voicePresetStore';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -85,6 +86,39 @@ function requireVoiceAccess(event: RequestEvent, body: { deck_id?: unknown; deck
   if (!resolved) throw error(403, 'Invalid browser session.');
 }
 
+function resolveVoiceConfig(body: { voice_id?: unknown; model_id?: unknown; deck_id?: unknown }): {
+  voiceId: string;
+  modelId: string;
+} {
+  const explicitVoiceId = typeof body.voice_id === 'string' && body.voice_id.trim().length > 0
+    ? body.voice_id.trim()
+    : '';
+  const explicitModelId = typeof body.model_id === 'string' && body.model_id.trim().length > 0
+    ? body.model_id.trim()
+    : '';
+  if (explicitVoiceId) {
+    return {
+      voiceId: explicitVoiceId,
+      modelId: explicitModelId || DEFAULT_MODEL_ID
+    };
+  }
+
+  const deckId = typeof body.deck_id === 'string' ? body.deck_id : '';
+  const deck = deckId ? getDeck(deckId) : undefined;
+  const preset = deck?.voicePresetId ? getVoicePreset(deck.voicePresetId) : null;
+  if (preset) {
+    return {
+      voiceId: preset.voiceId,
+      modelId: explicitModelId || preset.modelId || DEFAULT_MODEL_ID
+    };
+  }
+
+  return {
+    voiceId: DEFAULT_VOICE_ID,
+    modelId: explicitModelId || DEFAULT_MODEL_ID
+  };
+}
+
 export function GET() {
   return json({
     available: !!process.env.ELEVENLABS_API_KEY,
@@ -113,8 +147,7 @@ export async function POST(event: RequestEvent) {
   const text = typeof body.text === 'string' ? body.text.trim() : '';
   if (!text) throw error(400, 'text required');
 
-  const voiceId = typeof body.voice_id === 'string' && body.voice_id ? body.voice_id : DEFAULT_VOICE_ID;
-  const modelId = typeof body.model_id === 'string' && body.model_id ? body.model_id : DEFAULT_MODEL_ID;
+  const { voiceId, modelId } = resolveVoiceConfig(body);
   const cache = _resolveElevenLabsCachePath({ text, voiceId, modelId });
 
   if (existsSync(cache.path)) {

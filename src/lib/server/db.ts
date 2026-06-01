@@ -934,6 +934,22 @@ const SCHEMA_DDL_STATEMENTS = [
   // Task #159: deck access control — add password column to existing tables.
   `ALTER TABLE chat_room_decks ADD COLUMN access_password TEXT`,
   `ALTER TABLE chat_room_decks ADD COLUMN parent_deck_id TEXT`,
+  // Stage voice presets: reusable human-named voice choices that a Stage deck
+  // can reference without invalidating the audio cache when the friendly name changes.
+  `CREATE TABLE IF NOT EXISTS voice_presets (
+    id             TEXT PRIMARY KEY,
+    name           TEXT NOT NULL,
+    provider       TEXT NOT NULL CHECK (provider IN ('elevenlabs','browser')),
+    voice_id       TEXT NOT NULL,
+    model_id       TEXT,
+    notes          TEXT,
+    sample_text    TEXT,
+    created_at_ms  INTEGER NOT NULL,
+    updated_at_ms  INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_voice_presets_name ON voice_presets (name COLLATE NOCASE)`,
+  `CREATE INDEX IF NOT EXISTS idx_voice_presets_lookup ON voice_presets (provider, voice_id, model_id)`,
+  `ALTER TABLE chat_room_decks ADD COLUMN voice_preset_id TEXT`,
   // Task #130 v3-parity: persist asks to SQLite (was in-memory Maps).
   `CREATE TABLE IF NOT EXISTS asks (
     id              TEXT PRIMARY KEY,

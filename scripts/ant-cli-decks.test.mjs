@@ -74,6 +74,34 @@ describe('ant decks', () => {
     });
   });
 
+  it('update can assign a Stage voice preset by id', async () => {
+    vi.spyOn(identityChain, 'processIdentityChain').mockReturnValue([{ pid: 99, pid_start: 'deck-editor' }]);
+    const { runtime, captured } = makeRuntime(() => okJson({
+      id: 'deck-1',
+      title: 'Xeno deck',
+      voicePresetId: 'xeno-demo',
+      voicePreset: {
+        id: 'xeno-demo',
+        name: 'Xeno demo voice',
+        voiceId: 'wADoNOIls814sWSl7P4V'
+      },
+      slides: []
+    }));
+
+    const code = await handleDecksVerb('update', [
+      '--room', 'room-1',
+      '--id', 'deck-1',
+      '--voice-preset', 'xeno-demo',
+      '--json'
+    ], runtime, { CliInputError });
+
+    expect(code).toBe(0);
+    const requestBody = JSON.parse(captured.requests[0].init.body);
+    expect(requestBody.voicePresetId).toBe('xeno-demo');
+    expect(requestBody.pidChain).toEqual([{ pid: 99, pid_start: 'deck-editor' }]);
+    expect(JSON.parse(captured.stdout[0]).voicePresetId).toBe('xeno-demo');
+  });
+
   it('add rejects competing external deck substrate flags', async () => {
     const { runtime } = makeRuntime(() => okJson({}));
 

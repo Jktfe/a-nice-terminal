@@ -42,16 +42,20 @@ function httpError(status, snippetBody) {
 }
 
 const ORIGINAL_KEY = process.env.ELEVENLABS_API_KEY;
+const ORIGINAL_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
 let tmpDir;
 
 beforeEach(async () => {
   delete process.env.ELEVENLABS_API_KEY;
+  delete process.env.ANT_ADMIN_TOKEN;
   tmpDir = await mkdtemp(join(tmpdir(), 'ant-voice-test-'));
 });
 
 afterEach(async () => {
   if (ORIGINAL_KEY === undefined) delete process.env.ELEVENLABS_API_KEY;
   else process.env.ELEVENLABS_API_KEY = ORIGINAL_KEY;
+  if (ORIGINAL_ADMIN_TOKEN === undefined) delete process.env.ANT_ADMIN_TOKEN;
+  else process.env.ANT_ADMIN_TOKEN = ORIGINAL_ADMIN_TOKEN;
   if (tmpDir) await rm(tmpDir, { recursive: true, force: true });
 });
 
@@ -162,5 +166,75 @@ describe('ant voice elevenlabs test', () => {
     await expect(
       handleVoiceVerb('elevenlabs', ['frobnicate'], runtime, { CliInputError })
     ).rejects.toThrow(/unknown voice elevenlabs verb/);
+  });
+});
+
+describe('ant voice preset', () => {
+  it('save posts a reusable voice preset to the ANT server with admin bearer', async () => {
+    process.env.ANT_ADMIN_TOKEN = 'admin-token';
+    const { runtime, captured } = makeRuntime(() => ({
+      ok: true,
+      status: 201,
+      json: async () => ({
+        preset: {
+          id: 'xeno-demo',
+          name: 'Xeno demo voice',
+          provider: 'elevenlabs',
+          voiceId: 'wADoNOIls814sWSl7P4V',
+          modelId: 'eleven_turbo_v2_5'
+        }
+      }),
+      text: async () => ''
+    }));
+
+    const exitCode = await handleVoiceVerb(
+      'preset',
+      ['save', '--id', 'xeno-demo', '--name', 'Xeno demo voice', '--voice', 'wADoNOIls814sWSl7P4V', '--model', 'eleven_turbo_v2_5', '--json'],
+      runtime,
+      { CliInputError }
+    );
+
+    expect(exitCode).toBe(0);
+    expect(captured.requests[0].url).toBe('http://test.local/api/voice/presets');
+    expect(captured.requests[0].init.method).toBe('POST');
+    expect(captured.requests[0].init.headers.authorization).toBe('Bearer admin-token');
+    expect(JSON.parse(captured.requests[0].init.body)).toMatchObject({
+      id: 'xeno-demo',
+      name: 'Xeno demo voice',
+      provider: 'elevenlabs',
+      voiceId: 'wADoNOIls814sWSl7P4V',
+      modelId: 'eleven_turbo_v2_5'
+    });
+    expect(JSON.parse(captured.stdout[0]).id).toBe('xeno-demo');
+  });
+
+  it('save requires ANT_ADMIN_TOKEN so voice library writes are explicit', async () => {
+    const { runtime } = makeRuntime(() => audioOk());
+
+    await expect(handleVoiceVerb(
+      'preset',
+      ['save', '--name', 'Voice', '--voice', 'voice-id'],
+      runtime,
+      { CliInputError }
+    )).rejects.toThrow(/ANT_ADMIN_TOKEN/);
+  });
+
+  it('list reads voice presets from the ANT server with admin bearer', async () => {
+    process.env.ANT_ADMIN_TOKEN = 'admin-token';
+    const { runtime, captured } = makeRuntime(() => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        presets: [{ id: 'xeno-demo', name: 'Xeno demo voice', voiceId: 'wADoNOIls814sWSl7P4V' }]
+      }),
+      text: async () => ''
+    }));
+
+    const exitCode = await handleVoiceVerb('preset', ['list', '--json'], runtime, { CliInputError });
+
+    expect(exitCode).toBe(0);
+    expect(captured.requests[0].url).toBe('http://test.local/api/voice/presets');
+    expect(captured.requests[0].init.headers.authorization).toBe('Bearer admin-token');
+    expect(JSON.parse(captured.stdout[0])[0].id).toBe('xeno-demo');
   });
 });

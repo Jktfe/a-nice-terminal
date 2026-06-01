@@ -7,6 +7,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { getIdentityDb } from './db';
+import { getVoicePreset } from './voicePresetStore';
 
 export type DeckSlide = {
   id: string;
@@ -29,6 +30,7 @@ export type RoomDeck = {
   createdBy: string | null;
   accessPassword: string | null;
   parentDeckId: string | null;
+  voicePresetId: string | null;
   createdAtMs: number;
   updatedAtMs: number | null;
 };
@@ -42,6 +44,7 @@ type DeckRow = {
   created_by: string | null;
   access_password: string | null;
   parent_deck_id: string | null;
+  voice_preset_id: string | null;
   created_at_ms: number;
   updated_at_ms: number | null;
   deleted_at_ms: number | null;
@@ -113,9 +116,22 @@ function rowToDeck(row: DeckRow): RoomDeck {
     createdBy: row.created_by,
     accessPassword: row.access_password,
     parentDeckId: row.parent_deck_id,
+    voicePresetId: row.voice_preset_id,
     createdAtMs: row.created_at_ms,
     updatedAtMs: row.updated_at_ms
   };
+}
+
+function normalizeVoicePresetId(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function assertVoicePresetExists(voicePresetId: string | null): void {
+  if (voicePresetId && !getVoicePreset(voicePresetId)) {
+    throw new Error('voice preset not found.');
+  }
 }
 
 export function createDeck(input: {
@@ -126,6 +142,7 @@ export function createDeck(input: {
   createdBy?: string | null;
   accessPassword?: string | null;
   parentDeckId?: string | null;
+  voicePresetId?: string | null;
   nowMs?: number;
 }): RoomDeck {
   const trimmedTitle = input.title.trim();
@@ -136,11 +153,13 @@ export function createDeck(input: {
   const id = randomUUID();
   const nowMs = input.nowMs ?? Date.now();
   const slides = normalizeSlides(input.slides ?? []);
+  const voicePresetId = normalizeVoicePresetId(input.voicePresetId);
+  assertVoicePresetExists(voicePresetId);
 
   db.prepare(
     `INSERT INTO chat_room_decks
-     (id, room_id, title, slides_json, theme, created_by, access_password, parent_deck_id, created_at_ms, updated_at_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     (id, room_id, title, slides_json, theme, created_by, access_password, parent_deck_id, voice_preset_id, created_at_ms, updated_at_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id, input.roomId, trimmedTitle,
     JSON.stringify(slides),
@@ -148,6 +167,7 @@ export function createDeck(input: {
     input.createdBy ?? null,
     input.accessPassword ?? null,
     input.parentDeckId ?? null,
+    voicePresetId,
     nowMs, nowMs
   );
 
@@ -160,6 +180,7 @@ export function createDeck(input: {
     createdBy: input.createdBy ?? null,
     accessPassword: input.accessPassword ?? null,
     parentDeckId: input.parentDeckId ?? null,
+    voicePresetId,
     createdAtMs: nowMs,
     updatedAtMs: nowMs
   };
@@ -168,7 +189,7 @@ export function createDeck(input: {
 export function listDecksInRoom(roomId: string): RoomDeck[] {
   const rows = getIdentityDb()
     .prepare(
-      `SELECT id, room_id, title, slides_json, theme, created_by, access_password, parent_deck_id, created_at_ms, updated_at_ms, deleted_at_ms
+      `SELECT id, room_id, title, slides_json, theme, created_by, access_password, parent_deck_id, voice_preset_id, created_at_ms, updated_at_ms, deleted_at_ms
          FROM chat_room_decks
         WHERE room_id = ? AND deleted_at_ms IS NULL
         ORDER BY updated_at_ms DESC, created_at_ms DESC`
@@ -188,7 +209,7 @@ export function getDeck(id: string): RoomDeck | undefined {
   const cleanId = normalizeDeckId(id);
   const row = getIdentityDb()
     .prepare(
-      `SELECT id, room_id, title, slides_json, theme, created_by, access_password, parent_deck_id, created_at_ms, updated_at_ms, deleted_at_ms
+      `SELECT id, room_id, title, slides_json, theme, created_by, access_password, parent_deck_id, voice_preset_id, created_at_ms, updated_at_ms, deleted_at_ms
          FROM chat_room_decks
         WHERE id = ? AND deleted_at_ms IS NULL`
     )
@@ -201,6 +222,7 @@ export function updateDeck(id: string, input: {
   slides?: DeckSlide[];
   theme?: string | null;
   accessPassword?: string | null;
+  voicePresetId?: string | null;
   nowMs?: number;
 }): RoomDeck | undefined {
   const db = getIdentityDb();
@@ -212,18 +234,22 @@ export function updateDeck(id: string, input: {
   const slides = input.slides !== undefined ? normalizeSlides(input.slides) : existing.slides;
   const theme = input.theme !== undefined ? input.theme : existing.theme;
   const accessPassword = input.accessPassword !== undefined ? input.accessPassword : existing.accessPassword;
+  const voicePresetId = input.voicePresetId !== undefined
+    ? normalizeVoicePresetId(input.voicePresetId)
+    : existing.voicePresetId;
 
   if (title.length === 0) {
     throw new Error('title cannot be blank.');
   }
+  assertVoicePresetExists(voicePresetId);
 
   db.prepare(
     `UPDATE chat_room_decks
-        SET title = ?, slides_json = ?, theme = ?, access_password = ?, updated_at_ms = ?
+        SET title = ?, slides_json = ?, theme = ?, access_password = ?, voice_preset_id = ?, updated_at_ms = ?
       WHERE id = ? AND deleted_at_ms IS NULL`
-  ).run(title, JSON.stringify(slides), theme, accessPassword, nowMs, id);
+  ).run(title, JSON.stringify(slides), theme, accessPassword, voicePresetId, nowMs, id);
 
-  return { ...existing, title, slides, theme, accessPassword, updatedAtMs: nowMs };
+  return { ...existing, title, slides, theme, accessPassword, voicePresetId, updatedAtMs: nowMs };
 }
 
 export function softDeleteDeck(id: string, nowMs?: number): boolean {

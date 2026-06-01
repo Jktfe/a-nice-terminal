@@ -2,6 +2,8 @@
  * ant voice — optional voice plug-in smoke tests.
  *
  *   ant voice elevenlabs test --text "hello world" [--voice <id>] [--out <path>] [--json]
+ *   ant voice preset save --name "Xeno" --voice <id> [--id xeno] [--model <id>] [--json]
+ *   ant voice preset list [--json]
  *
  * Reads ELEVENLABS_API_KEY from the environment. If absent, the verb
  * prints a friendly skip message and exits 0 — it is a smoke test, not a
@@ -32,6 +34,16 @@ export async function handleVoiceVerb(action, args, runtime, ctx) {
     }
     throw new CliInputError(`unknown voice elevenlabs verb: ${subAction}`);
   }
+  if (action === 'preset') {
+    const [subAction, ...rest] = args;
+    if (subAction === 'save') return runPresetSave(rest, runtime, CliInputError);
+    if (subAction === 'list') return runPresetList(rest, runtime, CliInputError);
+    if (!subAction || subAction === 'help' || subAction === '--help') {
+      writeUsage(runtime);
+      return subAction ? 0 : 1;
+    }
+    throw new CliInputError(`unknown voice preset verb: ${subAction}`);
+  }
   if (!action || action === 'help' || action === '--help') {
     writeUsage(runtime);
     return action ? 0 : 1;
@@ -43,6 +55,8 @@ function writeUsage(runtime) {
   runtime.writeOut('ant voice elevenlabs test --text "..." [--voice <id>] [--out <path>] [--json]');
   runtime.writeOut('  Smoke-test the optional ElevenLabs TTS plug-in.');
   runtime.writeOut('  Reads ELEVENLABS_API_KEY from env. Skips gracefully if unset.');
+  runtime.writeOut('ant voice preset save --name "..." --voice <id> [--id <id>] [--model <id>] [--notes "..."] [--sample-text "..."] [--json]');
+  runtime.writeOut('ant voice preset list [--json]');
 }
 
 function parseFlags(rawArgs, CliInputError) {
@@ -129,6 +143,77 @@ async function runElevenlabsTest(args, runtime, CliInputError) {
     runtime.writeOut(JSON.stringify({ ok: true, path: outPath, voiceId, bytes: audioBuffer.byteLength }));
   } else {
     runtime.writeOut(outPath);
+  }
+  return 0;
+}
+
+function requireAdminToken(CliInputError) {
+  const token = process.env.ANT_ADMIN_TOKEN;
+  if (!token || token.trim().length === 0) {
+    throw new CliInputError('ANT_ADMIN_TOKEN is required for voice preset writes/reads.');
+  }
+  return token;
+}
+
+async function runPresetSave(args, runtime, CliInputError) {
+  const flags = parseFlags(args, CliInputError);
+  if (!flags.name) throw new CliInputError('--name is required');
+  if (!flags.voice) throw new CliInputError('--voice is required');
+  const token = requireAdminToken(CliInputError);
+  const body = {
+    id: flags.id,
+    name: flags.name,
+    provider: flags.provider ?? 'elevenlabs',
+    voiceId: flags.voice,
+    modelId: flags.model ?? null,
+    notes: flags.notes ?? null,
+    sampleText: flags['sample-text'] ?? null
+  };
+  const response = await runtime.fetchImpl(`${runtime.serverUrl}/api/voice/presets`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    const bodyText = await response.text().catch(() => '');
+    runtime.writeErr(`voice preset save failed (${response.status}): ${bodyText.slice(0, 200)}`);
+    return 1;
+  }
+  const payload = await response.json();
+  if (flags.json === 'true') {
+    runtime.writeOut(JSON.stringify(payload.preset));
+  } else {
+    runtime.writeOut(`Saved voice preset: ${payload.preset.id} — ${payload.preset.name}`);
+  }
+  return 0;
+}
+
+async function runPresetList(args, runtime, CliInputError) {
+  const flags = parseFlags(args, CliInputError);
+  const token = requireAdminToken(CliInputError);
+  const response = await runtime.fetchImpl(`${runtime.serverUrl}/api/voice/presets`, {
+    headers: { authorization: `Bearer ${token}` }
+  });
+  if (!response.ok) {
+    const bodyText = await response.text().catch(() => '');
+    runtime.writeErr(`voice preset list failed (${response.status}): ${bodyText.slice(0, 200)}`);
+    return 1;
+  }
+  const payload = await response.json();
+  if (flags.json === 'true') {
+    runtime.writeOut(JSON.stringify(payload.presets ?? []));
+    return 0;
+  }
+  const presets = payload.presets ?? [];
+  if (presets.length === 0) {
+    runtime.writeOut('No voice presets saved.');
+    return 0;
+  }
+  for (const preset of presets) {
+    runtime.writeOut(`${preset.id}  ${preset.name}  ${preset.provider}:${preset.voiceId}`);
   }
   return 0;
 }

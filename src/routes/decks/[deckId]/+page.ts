@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
-import type { RoomDeck } from '$lib/server/deckStore';
+import type { PublicRoomDeck } from '$lib/server/deckApi';
 
 export const load: PageLoad = async ({ fetch, params, url }) => {
   const password = url.searchParams.get('password');
@@ -13,6 +13,6 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
     if (response.status === 403) throw error(403, 'Access denied — room membership or deck password required.');
     throw error(response.status, `Could not load deck (${response.status}).`);
   }
-  const body = (await response.json()) as { deck: RoomDeck };
+  const body = (await response.json()) as { deck: PublicRoomDeck };
   return { deck: body.deck, deckPassword: password ?? '' };
 };
