@@ -21,34 +21,10 @@
 import type { RequestHandler } from './$types';
 import { error } from '@sveltejs/kit';
 import { spawnSync } from 'node:child_process';
-import { basename } from 'node:path';
 import { getTerminalRecord } from '$lib/server/terminalRecordsStore';
-import {
-  findStateForSessionId,
-  findStateForCwd,
-  findStateForCwdBasename,
-  type AgentCli,
-  type AgentStateSnapshot
-} from '$lib/server/agentStateReader';
-import { resolveTerminalRecordCliSession } from '$lib/server/terminalSessionLink';
+import type { AgentStateSnapshot } from '$lib/server/agentStateReader';
 import { getAgentStatus, setAgentStatus, type AgentStatus } from '$lib/server/agentStatusStore';
-
-/** Map the freeform stateLabel from a CLI state file to the projected
- *  enum the room-participant pill reads via terminals.agent_status.
- *  Claude writes capitalised words ("Working", "Available", "Menu");
- *  antigravity writes lowercase enum values directly. Unknown strings
- *  fall back to 'idle' so the pill at least doesn't crash on a new
- *  state label we haven't seen yet. */
-function projectStateLabelToAgentStatus(label: string | undefined): AgentStatus {
-  if (!label) return 'idle';
-  const k = label.trim().toLowerCase();
-  if (k === 'working') return 'working';
-  if (k === 'thinking') return 'thinking';
-  if (k === 'response-required' || k === 'response needed') return 'response-required';
-  if (k.startsWith('menu')) return 'response-required';
-  if (k === 'available' || k === 'idle' || k === 'waiting') return 'idle';
-  return 'idle';
-}
+import { projectLiveAgentStateSnapshotToStatus, resolveAgentStateSnapshotForTerminal } from '$lib/server/agentStateProjection';
 
 const TMUX_BIN = process.env.ANT_TMUX_BIN ?? '/opt/homebrew/bin/tmux';
 // 1s server-side poll — 250ms was hammering the system because each tick
@@ -86,23 +62,6 @@ const cwdCache = new Map<string, CwdCacheEntry>();
 const RESPONSE_REQUIRED_DEBOUNCE_MS = 3_000;
 const lastWorkingAtByTerminal = new Map<string, number>();
 
-const AGENT_KIND_TO_CLI: Record<string, AgentCli> = {
-  'claude': 'claude-code',
-  'claude-code': 'claude-code',
-  'claude_code': 'claude-code',
-  'codex': 'codex-cli',
-  'codex-cli': 'codex-cli',
-  'gemini': 'gemini-cli',
-  'gemini-cli': 'gemini-cli',
-  'qwen': 'qwen-cli',
-  'qwen-cli': 'qwen-cli',
-  'pi': 'pi',
-  'copilot': 'copilot-cli',
-  'copilot-cli': 'copilot-cli',
-  'agy': 'antigravity',
-  'antigravity': 'antigravity'
-};
-
 function tmuxPaneCurrentPath(pane: string): string | null {
   if (!pane) return null;
   const nowMs = Date.now();
@@ -128,9 +87,7 @@ function tmuxPaneCurrentPath(pane: string): string | null {
 
 function resolveSnapshot(terminalId: string): AgentStateSnapshot | null {
   const record = getTerminalRecord(terminalId);
-  if (!record || !record.agent_kind) return null;
-  const cli = AGENT_KIND_TO_CLI[record.agent_kind];
-  if (!cli) return null;
+  if (!record) return null;
 
   // Prefer the PID-disambiguated link (works once write-state.sh has
   // started writing pid into state files). Falls back to the same
@@ -139,14 +96,7 @@ function resolveSnapshot(terminalId: string): AgentStateSnapshot | null {
   const cwd = record.tmux_target_pane
     ? tmuxPaneCurrentPath(record.tmux_target_pane)
     : null;
-  const linked = resolveTerminalRecordCliSession(record, cwd ? { cwd } : {});
-  if (linked?.snapshot) return linked.snapshot;
-
-  let snapshot = findStateForSessionId(cli, terminalId);
-  if (!snapshot && cwd) {
-    snapshot = findStateForCwd(cli, cwd) ?? findStateForCwdBasename(cli, basename(cwd));
-  }
-  return snapshot ?? null;
+  return resolveAgentStateSnapshotForTerminal(record, cwd);
 }
 
 export const GET: RequestHandler = ({ params }) => {
@@ -178,7 +128,8 @@ export const GET: RequestHandler = ({ params }) => {
           // single upstream that lights both pills at once. No-op when
           // the projected status hasn't changed (mirrors agentStatusPoller).
           if (snap) {
-            const projected = projectStateLabelToAgentStatus(snap.stateLabel);
+            const projected = projectLiveAgentStateSnapshotToStatus(snap);
+            if (!projected) return;
             const current = getAgentStatus(sessionId);
             if (!current || current.agent_status !== projected) {
               // Suppress transient response-required flips that happen

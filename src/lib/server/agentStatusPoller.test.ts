@@ -3,16 +3,21 @@
 // setAgentStatus only on meaningful state change + clean abort.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, utimesSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { resetIdentityDbForTests, getIdentityDb } from './db';
 import { upsertTerminal } from './terminalsStore';
 import { getAgentStatus, listEventsForTerminal, setAgentStatus } from './agentStatusStore';
 import { startPoller, defaultTmuxCaptureFn, _testResetPoller } from './agentStatusPoller';
 import { hashCaptureOutput } from './fingerprintHasher';
 import { setSpawnImplForTests, resetBridgeStateForTests } from './pty-inject-bridge';
+import { _clearStateReaderCache } from './agentStateReader';
 import type { TerminalRow } from './terminalsStore';
 
 const PREV_POLL_MS = process.env.ANT_AGENT_STATUS_POLL_MS;
 const PREV_MAX_TERMINALS = process.env.ANT_AGENT_STATUS_MAX_TERMINALS_PER_TICK;
+const PREV_HOME = process.env.HOME;
 
 // Phase A3 added a verifyPaneTargetState gate before the fingerprint
 // sample in pollOneTerminal. Without a stub, the test sandbox calls real
@@ -34,9 +39,12 @@ function defaultVerifiedSpawn() {
 }
 
 beforeEach(() => {
+  const homeDir = mkdtempSync(join(tmpdir(), 'ant-status-poller-home-'));
+  process.env.HOME = homeDir;
   process.env.ANT_FRESH_DB_PATH = ':memory:';
   delete process.env.ANT_AGENT_STATUS_POLL_MS;
   delete process.env.ANT_AGENT_STATUS_MAX_TERMINALS_PER_TICK;
+  _clearStateReaderCache();
   resetIdentityDbForTests();
   _testResetPoller();
   // See VERIFIED_CAPTURE_BYTES comment above for why this defaults here.
@@ -46,6 +54,12 @@ afterEach(() => {
   _testResetPoller();
   resetIdentityDbForTests();
   resetBridgeStateForTests();
+  _clearStateReaderCache();
+  if (process.env.HOME && process.env.HOME.includes('ant-status-poller-home-')) {
+    rmSync(process.env.HOME, { recursive: true, force: true });
+  }
+  if (PREV_HOME === undefined) delete process.env.HOME;
+  else process.env.HOME = PREV_HOME;
   delete process.env.ANT_FRESH_DB_PATH;
   if (PREV_POLL_MS === undefined) delete process.env.ANT_AGENT_STATUS_POLL_MS;
   else process.env.ANT_AGENT_STATUS_POLL_MS = PREV_POLL_MS;
@@ -59,6 +73,15 @@ function makeAgentTerminal(name: string, agentKind: string | null = 'claude_code
   getIdentityDb().prepare(`UPDATE terminals SET agent_kind = ?, tmux_target_pane = ? WHERE id = ?`)
     .run(agentKind, pane, t.id);
   return t.id;
+}
+
+function writeCliState(cli: string, sessionId: string, body: Record<string, unknown>, mtimeMs = Date.now()): void {
+  const stateDir = join(process.env.HOME!, '.ant', 'state', cli);
+  mkdirSync(stateDir, { recursive: true });
+  const filePath = join(stateDir, `${sessionId}.json`);
+  writeFileSync(filePath, JSON.stringify(body));
+  const seconds = mtimeMs / 1000;
+  utimesSync(filePath, seconds, seconds);
 }
 
 describe('agentStatusPoller — startPoller controller', () => {
@@ -261,6 +284,48 @@ describe('agentStatusPoller — runOnce per-terminal', () => {
     expect(status?.agent_status_at_ms ?? 0).toBeGreaterThan(oldStatusAtMs);
     expect(listEventsForTerminal(tid)).toHaveLength(1);
   });
+
+  it('projects a fresh CLI status-line file into canonical room status without an open terminal stream', async () => {
+    const tid = makeAgentTerminal('t-status-line', 'codex-cli', '%42');
+    writeCliState('codex-cli', 'codex-session', {
+      state: 'Working',
+      cwd: '/repo/status-line',
+      session_start: '2026-06-01T12:00:00Z'
+    });
+
+    const c = startPoller({
+      captureFn: () => null,
+      cwdFn: () => '/repo/status-line',
+      intervalMs: 5000
+    });
+    await c.runOnce();
+    c.stop();
+
+    const status = getAgentStatus(tid);
+    expect(status?.agent_status).toBe('working');
+    expect(status?.agent_status_source).toBe('hook');
+    expect(listEventsForTerminal(tid)).toHaveLength(1);
+  });
+
+  it('ignores stale CLI status-line files so old sessions cannot poison room pills', async () => {
+    const tid = makeAgentTerminal('t-stale-status-line', 'codex-cli', '%42');
+    writeCliState('codex-cli', 'old-codex-session', {
+      state: 'Working',
+      cwd: '/repo/stale-status-line',
+      session_start: '2026-05-01T12:00:00Z'
+    }, Date.now() - 120_000);
+
+    const c = startPoller({
+      captureFn: () => null,
+      cwdFn: () => '/repo/stale-status-line',
+      intervalMs: 5000
+    });
+    await c.runOnce();
+    c.stop();
+
+    expect(getAgentStatus(tid)?.agent_status).toBe('idle');
+    expect(listEventsForTerminal(tid)).toHaveLength(0);
+  });
 });
 
 describe('agentStatusPoller — cadence clamp', () => {
@@ -458,7 +523,12 @@ describe('agentStatusPoller — Phase A3: remote/paneless heartbeat sweep', () =
     const tid = makeAgentTerminal('t-already-archived', 'remote', null);
     const sixMinAgo = Date.now() - 6 * 60 * 1000;
     getIdentityDb().prepare(
-      `UPDATE terminals SET last_message_sent_at_ms = ?, last_pty_byte_at_ms = ?, status = 'archived' WHERE id = ?`
+      `UPDATE terminals
+          SET last_message_sent_at_ms = ?,
+              last_pty_byte_at_ms = ?,
+              status = 'archived',
+              name = '[A] t-already-archived'
+        WHERE id = ?`
     ).run(sixMinAgo, sixMinAgo, tid);
     const beforeUpdate = (getIdentityDb().prepare(`SELECT updated_at FROM terminals WHERE id = ?`).get(tid) as { updated_at: number }).updated_at;
     // Wait 1+ second so a sneaky write would bump updated_at observably.

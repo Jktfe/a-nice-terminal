@@ -29,6 +29,11 @@ import { detectFingerprint, applyFingerprintWriteBack } from './fingerprintDetec
 import { defaultTmuxCaptureFn, type CaptureFn } from './tmuxCapture';
 import { verifyPaneTargetState } from './pty-inject-bridge';
 import { getIdentityDb } from './db';
+import { spawnSync } from 'node:child_process';
+import {
+  projectLiveAgentStateSnapshotToStatus,
+  resolveAgentStateSnapshotForTerminal
+} from './agentStateProjection';
 export { defaultTmuxCaptureFn };
 export type { CaptureFn };
 
@@ -37,6 +42,11 @@ const POLL_MAX_MS = 60_000;
 const POLL_DEFAULT_MS = 10_000;
 const POLL_MAX_TERMINALS_DEFAULT = 5;
 const HOOK_FRESH_MS = 30_000;
+const TMUX_BIN = process.env.ANT_TMUX_BIN ?? '/opt/homebrew/bin/tmux';
+const CWD_CACHE_TTL_MS = 5_000;
+
+type CwdCacheEntry = { value: string | null; expiresAtMs: number };
+const cwdCache = new Map<string, CwdCacheEntry>();
 
 export type PollerController = {
   stop: () => void;
@@ -92,6 +102,30 @@ function maxTerminalsPerTick(): number {
 
 function isVolatileAgentStatus(status: AgentStatus): boolean {
   return status === 'working' || status === 'thinking';
+}
+
+function defaultTmuxCwdFn(terminal: TerminalRow): string | null {
+  const pane = terminal.tmux_target_pane;
+  if (!pane) return null;
+  const nowMs = Date.now();
+  const cached = cwdCache.get(pane);
+  if (cached && cached.expiresAtMs > nowMs) return cached.value;
+  try {
+    const result = spawnSync(TMUX_BIN, ['display-message', '-p', '-t', pane, '#{pane_current_path}'], {
+      timeout: 500
+    });
+    if (result.status !== 0) {
+      cwdCache.set(pane, { value: null, expiresAtMs: nowMs + CWD_CACHE_TTL_MS });
+      return null;
+    }
+    const path = (result.stdout?.toString('utf8') ?? '').trim();
+    const value = path.length > 0 ? path : null;
+    cwdCache.set(pane, { value, expiresAtMs: nowMs + CWD_CACHE_TTL_MS });
+    return value;
+  } catch {
+    cwdCache.set(pane, { value: null, expiresAtMs: nowMs + CWD_CACHE_TTL_MS });
+    return null;
+  }
 }
 
 // defaultTmuxCaptureFn now lives in ./tmuxCapture (M3.2c B1 cycle break).
@@ -156,8 +190,32 @@ async function pollOneTerminal(terminal: TerminalRow, captureFn: CaptureFn): Pro
 
 export type StartPollerInput = {
   captureFn?: CaptureFn;
+  cwdFn?: (terminal: TerminalRow) => string | null;
   intervalMs?: number;
 };
+
+function projectCliStateFileStatus(terminal: TerminalRow, cwdFn?: (terminal: TerminalRow) => string | null): boolean {
+  const cwd = cwdFn ? cwdFn(terminal) : null;
+  const snapshot = resolveAgentStateSnapshotForTerminal(terminal, cwd);
+  const projected = projectLiveAgentStateSnapshotToStatus(snapshot);
+  if (!projected) return false;
+  const current = getAgentStatus(terminal.id);
+  if (current?.agent_status === projected) {
+    if (isVolatileAgentStatus(projected)) refreshAgentStatusAtMs(terminal.id);
+    return true;
+  }
+  setAgentStatus({
+    terminalId: terminal.id,
+    newStatus: projected,
+    source: 'hook',
+    evidence: {
+      stateLabel: snapshot?.stateLabel ?? null,
+      sessionId: snapshot?.sessionId ?? null,
+      via: 'agent-state-poller'
+    }
+  });
+  return true;
+}
 
 export function startPoller(input: StartPollerInput = {}): PollerController {
   const slot = globalThis as Record<string, unknown>;
@@ -165,6 +223,7 @@ export function startPoller(input: StartPollerInput = {}): PollerController {
   if (existing && existing.isRunning()) return existing;
   const cadence = clampCadence(input.intervalMs);
   const captureFn: CaptureFn = input.captureFn ?? defaultTmuxCaptureFn;
+  const cwdFn = input.cwdFn ?? defaultTmuxCwdFn;
   let stopped = false;
   let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -179,7 +238,10 @@ export function startPoller(input: StartPollerInput = {}): PollerController {
     }
     const terminals = listAllTerminals().filter(isPollableTerminal).slice(0, maxTerminals);
     for (const terminal of terminals) {
-      try { await pollOneTerminal(terminal, captureFn); } catch { /* per-terminal failure does not block other terminals */ }
+      try {
+        if (projectCliStateFileStatus(terminal, cwdFn)) continue;
+        await pollOneTerminal(terminal, captureFn);
+      } catch { /* per-terminal failure does not block other terminals */ }
     }
     // Phase A3 (JWPK A Team msg_7uvr35x0xr 2026-05-29): heartbeat sweep for
     // the rows isPollableTerminal SKIPS — remote terminals and terminals

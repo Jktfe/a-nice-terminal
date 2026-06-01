@@ -218,7 +218,7 @@ describe('GET /api/agents?view=fleet', () => {
     expect(beta.collaborators).toEqual(['@alpha']);
   });
 
-  it('excludes agents whose terminal is archived (tmux session no longer exists)', async () => {
+  it('falls back to terminal-less offline cards when a room agent has no live tmux session', async () => {
     const room = createChatRoom({ name: 'mixed-room', whoCreatedIt: '@you' });
     inviteAgentToRoom({ roomId: room.id, agentHandle: '@live', agentDisplayName: 'Live' });
     inviteAgentToRoom({ roomId: room.id, agentHandle: '@archived', agentDisplayName: 'Archived' });
@@ -233,7 +233,19 @@ describe('GET /api/agents?view=fleet', () => {
 
     const res = await GET(req('http://x/api/agents?view=fleet'));
     const body = await res.json();
-    expect(body.agents.map((a: { handle: string }) => a.handle)).toEqual(['@live']);
+    expect(body.agents.map((a: { handle: string }) => a.handle)).toEqual(['@live', '@archived', '@detached']);
+    expect(body.agents.find((a: { handle: string }) => a.handle === '@live')).toMatchObject({
+      sessionId: 'sess-live',
+      status: { state: 'idle', atMs: 0 }
+    });
+    expect(body.agents.find((a: { handle: string }) => a.handle === '@archived')).toMatchObject({
+      sessionId: '',
+      status: { state: 'offline' }
+    });
+    expect(body.agents.find((a: { handle: string }) => a.handle === '@detached')).toMatchObject({
+      sessionId: '',
+      status: { state: 'offline' }
+    });
   });
 
   it("surfaces the live terminal's agent_status as the agent's current state", async () => {
@@ -252,7 +264,7 @@ describe('GET /api/agents?view=fleet', () => {
     expect(thinker.status).toEqual({ state: 'thinking', atMs: 6000 });
   });
 
-  it('excludes agents whose terminal has expired (TTL past) even when tmux still claims it', async () => {
+  it('drops an expired terminal card even when tmux still claims it, then shows the room agent offline', async () => {
     const room = createChatRoom({ name: 'expiry-room', whoCreatedIt: '@you' });
     inviteAgentToRoom({ roomId: room.id, agentHandle: '@expired', agentDisplayName: 'Expired' });
     attachTerminal('@expired', room.id, 'sess-exp', { expiresAt: 1 });
@@ -260,6 +272,12 @@ describe('GET /api/agents?view=fleet', () => {
 
     const res = await GET(req('http://x/api/agents?view=fleet'));
     const body = await res.json();
-    expect(body.agents).toEqual([]);
+    expect(body.agents).toEqual([
+      expect.objectContaining({
+        handle: '@expired',
+        sessionId: '',
+        status: expect.objectContaining({ state: 'offline' })
+      })
+    ]);
   });
 });
