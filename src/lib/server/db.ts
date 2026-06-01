@@ -2343,6 +2343,34 @@ const V02_SCHEMA_DDL_STATEMENTS = [
      CHECK (member_kind IS NULL OR member_kind IN ('human','agent'))`,
   `ALTER TABLE memberships ADD COLUMN room_display_name TEXT`,
 
+  // -- Catalogue Layer ------------------------------------------------
+  // default_models / default_agent_kinds — server-side canonical lists
+  // for the model + agent-kind chips (JWPK 2026-05-31). These replace the
+  // browser-only localStorage store (src/lib/stores/agentKinds.svelte.ts),
+  // making the defaults durable + shareable across devices. Seeded by
+  // scripts/seed-default-catalogues.mjs (INSERT OR IGNORE, idempotent);
+  // schema lives here so a fresh DB has the (empty) tables on bootstrap.
+  // logo_slug references src/lib/icons/llmLogoCatalogue.ts.
+  `CREATE TABLE IF NOT EXISTS default_models (
+    name              TEXT PRIMARY KEY,
+    provider          TEXT,
+    runs_where        TEXT CHECK (runs_where IS NULL OR runs_where IN ('cloud','local')),
+    default_on        INTEGER NOT NULL DEFAULT 1,
+    sort_order        INTEGER NOT NULL,
+    logo_slug         TEXT,
+    created_at_ms     INTEGER NOT NULL,
+    updated_at_ms     INTEGER NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS default_agent_kinds (
+    name              TEXT PRIMARY KEY,
+    provider          TEXT,
+    default_on        INTEGER NOT NULL DEFAULT 1,
+    sort_order        INTEGER NOT NULL,
+    logo_slug         TEXT,
+    created_at_ms     INTEGER NOT NULL,
+    updated_at_ms     INTEGER NOT NULL
+  )`,
+
   // -- Access Layer ---------------------------------------------------
   // tool_grants — issued capability rows. tool_slug is open-ended TEXT
   // (the tools catalog is out of scope this PR; can be added as an FK
