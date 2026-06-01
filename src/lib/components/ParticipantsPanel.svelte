@@ -34,6 +34,10 @@
     // member name; null/undefined (no terminal bound) falls through to the
     // existing live treatment.
     lifecycleStatus?: 'live' | 'archived' | 'deleted' | null;
+    // Open-ask dimension (additive, server fcbdcd2): CLI response-required OR
+    // an open Ask targeted at the handle. Orthogonal to `status` — rendered as
+    // a separate "needs you" badge, never folded into the activity dot.
+    openAsk?: boolean;
   };
 
   type Props = {
@@ -203,6 +207,9 @@
                   <span class="member-state-dot" aria-hidden="true"></span>
                   <span>{labelForStatus(memberStatus)}</span>
                 {/if}
+                {#if statusForRow?.openAsk}
+                  <span class="needs-you-badge" title="Waiting on a response">needs you</span>
+                {/if}
               </span>
             </button>
             {#if isArchived && canManageMembers}
@@ -315,6 +322,16 @@
     color: var(--ink-soft);
     background: color-mix(in srgb, var(--ink-soft) 12%, transparent);
     padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    letter-spacing: 0.02em;
+  }
+  .needs-you-badge {
+    font-size: 0.72rem;
+    font-weight: 800;
+    color: #b9770f;
+    background: color-mix(in srgb, #f0a020 16%, transparent);
+    border: 1px solid color-mix(in srgb, #f0a020 45%, transparent);
+    padding: 0.05rem 0.4rem;
     border-radius: 999px;
     letter-spacing: 0.02em;
   }
