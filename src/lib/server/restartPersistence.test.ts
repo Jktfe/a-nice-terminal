@@ -21,7 +21,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resetIdentityDbForTests } from './db';
+import { resetIdentityDbForTests, closeIdentityDbHandleForTests } from './db';
 import {
   createChatRoom,
   inviteAgentToRoom,
@@ -57,10 +57,15 @@ afterEach(() => {
 });
 
 // Simulates fresh-ANT process restart: closes the in-process better-sqlite3
-// connection + clears the singleton. Next store call re-opens against the
-// same DB file (path is preserved via ANT_FRESH_DB_PATH).
+// connection + clears the singleton WITHOUT deleting the DB file. The next
+// store call re-opens against the same on-disk database (path preserved via
+// ANT_FRESH_DB_PATH), so committed rows survive — which is the whole point
+// of this persistence proof. Uses closeIdentityDbHandleForTests, NOT
+// resetIdentityDbForTests: the latter now deletes the file (the correct
+// isolation behaviour) and would erase exactly the data we're proving
+// survives a restart.
 function simulateProcessRestart() {
-  resetIdentityDbForTests();
+  closeIdentityDbHandleForTests();
 }
 
 describe('m5.4 restart-persistence-proof', () => {

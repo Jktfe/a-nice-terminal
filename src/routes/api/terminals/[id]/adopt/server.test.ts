@@ -81,7 +81,12 @@ describe('POST /api/terminals/:id/adopt', () => {
       handle: '@adoptme',
       adopted: {
         pid: 777,
-        pidStart: 'Tue May 19 17:45:00 2026',
+        // pid_start is normalised to ISO 8601 UTC at the storage boundary
+        // (pidStartNormaliser.ts) — the endpoint echoes back the stored
+        // ISO form, not the raw `ps -o lstart=` locale string the caller
+        // supplied. The lookup assertion below still passes a raw string
+        // because lookupTerminalByPidChain normalises its input too.
+        pidStart: '2026-05-19T16:45:00.000Z',
         ttlSeconds: 900
       }
     });

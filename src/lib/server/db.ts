@@ -31,7 +31,7 @@
  */
 
 import Database from 'better-sqlite3';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { sweepAutoCreatedRoomPlansInDb } from './autoRoomPlanCleanup';
 
@@ -2847,6 +2847,28 @@ export function getIdentityDb(): DatabaseInstance {
   return db;
 }
 
+/**
+ * Test helper: close the in-process better-sqlite3 connection and clear the
+ * singleton WITHOUT deleting the underlying file. The next getIdentityDb()
+ * re-opens against the same on-disk database, so all committed rows survive.
+ *
+ * This is the honest simulation of a process restart (the server going down
+ * and coming back up against its persistent DB). It is distinct from
+ * resetIdentityDbForTests(), which DELETES the file to guarantee a clean
+ * slate between unrelated tests. Conflating the two — as the old leaky
+ * resetIdentityDbForTests() accidentally did — is what coupled
+ * restart-persistence proofs to a reset that "happened not to wipe". Keep
+ * them separate: this preserves data; reset destroys it.
+ */
+export function closeIdentityDbHandleForTests(): void {
+  const globalSlot = globalThis as Record<string, unknown>;
+  const existing = globalSlot[DB_GLOBAL_KEY] as DatabaseInstance | undefined;
+  if (existing) {
+    try { existing.close(); } catch { /* db may already be closed */ }
+  }
+  delete globalSlot[DB_GLOBAL_KEY];
+}
+
 export function resetIdentityDbForTests(): void {
   const globalSlot = globalThis as Record<string, unknown>;
   const existing = globalSlot[DB_GLOBAL_KEY] as DatabaseInstance | undefined;
@@ -2854,4 +2876,30 @@ export function resetIdentityDbForTests(): void {
     try { existing.close(); } catch { /* db may already be closed */ }
   }
   delete globalSlot[DB_GLOBAL_KEY];
+
+  // Closing the handle is NOT enough: the identity DB is a FILE (per-worker
+  // /tmp/ant-vitest-fresh-*.db or an explicit ANT_FRESH_DB_PATH), so the next
+  // getIdentityDb() reopens the same file with every row intact. That made
+  // tests order-dependent — e.g. a terminal row (pid 4242) inserted by one
+  // describe block bled into a later block sharing the file, resolving a
+  // pidChain to a non-member terminal and turning an expected 201 into a 403
+  // (found 2026-06-01 in chat-rooms messages strict-403 suite: passed solo,
+  // failed in-suite). Delete the file + WAL/SHM sidecars so the next open
+  // re-runs the schema migrations against a genuinely empty database.
+  //
+  // GUARD: only delete a TEST-scoped path. We refuse to unlink anything
+  // outside the vitest temp pattern or an explicitly test-pointed
+  // ANT_FRESH_DB_PATH — so a stray call in a non-test context can never
+  // destroy ~/.ant/fresh-ant.db.
+  const dbFile = resolveDbFilePath();
+  const isVitestTempScope = /\/ant-vitest-fresh-[^/]+\.db$/.test(dbFile);
+  const isExplicitTestPath =
+    Boolean(process.env.ANT_FRESH_DB_PATH) && process.env.VITEST === 'true';
+  if (!isVitestTempScope && !isExplicitTestPath) return;
+  for (const suffix of ['', '-wal', '-shm']) {
+    const path = `${dbFile}${suffix}`;
+    if (existsSync(path)) {
+      try { rmSync(path, { force: true }); } catch { /* best-effort cleanup */ }
+    }
+  }
 }
