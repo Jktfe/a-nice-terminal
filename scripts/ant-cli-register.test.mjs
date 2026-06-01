@@ -58,6 +58,12 @@ describe('handleRegisterVerb', () => {
     expect(body.name).toBe('claude2-main');
     expect(Array.isArray(body.pids)).toBe(true);
     expect(body.pids.length).toBeGreaterThan(0);
+    // Regression: --handle MUST land at top-level body.handle, since the
+    // server reads rawBody.handle (register/+server.ts:134) to bind
+    // terminal_records.handle AND drive the v0.2 knownV02Agent reclaim
+    // bypass. Prior bug shipped the handle only inside body.meta, which
+    // silently bound no identity and mis-fired the name-collision 409.
+    expect(body.handle).toBe('@claude2');
     expect(captured.stdout.some((line) => line.includes('claude2-main'))).toBe(true);
   });
 

@@ -150,8 +150,19 @@ export async function runRegister(runtime) {
     pids: chain,
     ttl_seconds: ttlSeconds,
     source: 'cli-register',
+    // Handle MUST be top-level — the server reads `rawBody.handle`
+    // (register/+server.ts:134) to (a) bind terminal_records.handle and
+    // (b) drive the v0.2 `knownV02Agent` auto-reclaim bypass. Leaving it
+    // only inside `meta` (the prior shape) silently disabled both: a
+    // bare `--handle` bound no identity AND fell through to the
+    // name-collision 409 because the reclaim gate normalised the *name*
+    // instead of the handle. Keep the meta copy for backward-compat
+    // readers; the top-level field is the authoritative one.
     meta: { handle: handle ?? null, cwd: runtime.cwd ?? process.cwd() }
   };
+  if (typeof handle === 'string' && handle.trim().length > 0) {
+    registerBody.handle = handle.trim();
+  }
   // Phase A2 (JWPK A Team msg_7uvr35x0xr 2026-05-29, design Q1 default A):
   // when --pane isn't explicit, auto-detect from caller env. tmux exports
   // TMUX_PANE (e.g. "%42"); wezterm exports WEZTERM_PANE. Tests can inject
