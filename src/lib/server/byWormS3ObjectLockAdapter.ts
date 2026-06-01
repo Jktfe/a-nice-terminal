@@ -8,12 +8,22 @@
 // Plan: antos-enterprise-control-plane-2026-05-27 §M1.2
 // Depends on: M1.1 contract (this PR's parent, enterprisec/byworm-sink-adapter @ fb731d6)
 
-import {
-  type S3Client,
-  HeadBucketCommand,
-  PutObjectCommand,
-  type PutObjectCommandOutput,
-} from '@aws-sdk/client-s3';
+// @aws-sdk/client-s3 is an OPTIONAL peer dependency, NOT a hard dep of ANT.
+// Only customers who actually configure an S3 Object Lock sink need it. To
+// keep the package install-free for everyone else (no-op + filesystem-WORM
+// adapters cover the default path), we:
+//   1. model the tiny slice of the SDK we touch as LOCAL STRUCTURAL types
+//      (S3-like client with a `send`, command output with an etag/versionId),
+//      so the module TYPE-CHECKS with zero @aws-sdk types installed; and
+//   2. DYNAMICALLY import('@aws-sdk/client-s3') at the call sites, so the
+//      package is loaded only when this adapter is constructed + used.
+// The caller injects the real `new S3Client(...)` (see ByWormS3ObjectLockOptions
+// .s3Client) — we never construct one — so dependency-injection already keeps
+// the SDK out of this module's static graph; this just removes the last
+// type/value coupling. JWPK 2026-06-01 consolidation: "lazy-load / S3 optional".
+type S3LikeClient = { send(command: unknown): Promise<unknown> };
+type PutObjectCommandOutput = { ETag?: string; VersionId?: string };
+type S3Client = S3LikeClient;
 
 import {
   type AuditEnvelope,
@@ -193,6 +203,10 @@ export class ByWormS3ObjectLockAdapter implements SinkAdapter {
 
   async health(): Promise<SinkHealth> {
     try {
+      // @ts-expect-error — @aws-sdk/client-s3 is an OPTIONAL peer dep loaded
+      // at runtime only when an S3 sink is configured; not installed by
+      // default, so the module specifier can't resolve at compile time.
+      const { HeadBucketCommand } = await import('@aws-sdk/client-s3');
       await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }));
       return { healthy: true };
     } catch (err) {
@@ -219,7 +233,9 @@ export class ByWormS3ObjectLockAdapter implements SinkAdapter {
 
     let result: PutObjectCommandOutput;
     try {
-      result = await this.client.send(
+      // @ts-expect-error — optional peer dep, see health() note above.
+      const { PutObjectCommand } = await import('@aws-sdk/client-s3');
+      result = (await this.client.send(
         new PutObjectCommand({
           Bucket: this.bucket,
           Key,
@@ -228,7 +244,7 @@ export class ByWormS3ObjectLockAdapter implements SinkAdapter {
           ObjectLockMode,
           ObjectLockRetainUntilDate,
         }),
-      );
+      )) as PutObjectCommandOutput;
     } catch (err) {
       throw mapAwsErrorToSinkError(err, this.kind);
     }
