@@ -49,7 +49,7 @@ describe('GET /api/chat-rooms/:roomId/agent-statuses', () => {
       terminalId: terminal.id,
       newStatus: 'working',
       source: 'ant-activity',
-      nowMs: Date.now() - 120_000
+      nowMs: Date.now() - 302_000
     });
 
     const response = await callGet(room.id);

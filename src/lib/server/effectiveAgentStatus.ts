@@ -1,9 +1,11 @@
 import type { AgentStatus, AgentStatusSource } from './agentStatusStore';
 
-const FINGERPRINT_STALE_MS = 30_000;
-const HOOK_STALE_MS = 30_000;
-const ANT_ACTIVITY_STALE_MS = 60_000;
-const PID_CPU_STALE_MS = 60_000;
+const VOLATILE_ACTIVE_STALE_MS = 5 * 60_000;
+
+const FINGERPRINT_STALE_MS = VOLATILE_ACTIVE_STALE_MS;
+const HOOK_STALE_MS = VOLATILE_ACTIVE_STALE_MS;
+const ANT_ACTIVITY_STALE_MS = VOLATILE_ACTIVE_STALE_MS;
+const PID_CPU_STALE_MS = VOLATILE_ACTIVE_STALE_MS;
 
 export type RawAgentStatusProjection = {
   agent_status: AgentStatus | null;

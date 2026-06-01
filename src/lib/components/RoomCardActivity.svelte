@@ -39,6 +39,17 @@
   const needsYouCount = $derived(
     statuses.filter((entry) => entry.openAsk === true).length
   );
+  const agentStatusPills = $derived(
+    statuses
+      .filter((entry) => entry.status !== 'unknown')
+      .slice(0, 4)
+  );
+  const hiddenAgentStatusCount = $derived(
+    Math.max(
+      0,
+      statuses.filter((entry) => entry.status !== 'unknown').length - agentStatusPills.length
+    )
+  );
 
   async function refreshFromServer() {
     try {
@@ -70,6 +81,15 @@
     const hours = Math.floor(minutes / 60);
     return `${hours}h ago`;
   }
+
+  function labelForStatus(status: AgentStatus): string {
+    if (status === 'response-required') return 'needs reply';
+    return status;
+  }
+
+  function shortHandle(handle: string): string {
+    return handle.startsWith('@') ? handle.slice(1) : handle;
+  }
 </script>
 
 <span class="room-card-activity" aria-label="Room activity">
@@ -86,12 +106,32 @@
       {needsYouCount} needs you
     </span>
   {/if}
+  {#if agentStatusPills.length > 0}
+    <span class="agent-status-pills" aria-label="Agent status pills">
+      {#each agentStatusPills as entry (entry.handle)}
+        <span
+          class={`agent-status-pill status-${entry.status}`}
+          aria-label={`${entry.handle} is ${labelForStatus(entry.status)}`}
+          title={`${entry.handle} is ${labelForStatus(entry.status)}`}
+        >
+          <span class="agent-status-dot" aria-hidden="true"></span>
+          {shortHandle(entry.handle)}
+        </span>
+      {/each}
+      {#if hiddenAgentStatusCount > 0}
+        <span class="agent-status-overflow" title={`${hiddenAgentStatusCount} more agent statuses`}>
+          +{hiddenAgentStatusCount}
+        </span>
+      {/if}
+    </span>
+  {/if}
 </span>
 
 <style>
   .room-card-activity {
     display: inline-flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 0.3rem;
     padding: 0.1rem 0.45rem;
     border-radius: 999px;
@@ -136,6 +176,55 @@
     border-radius: 50%;
     background: #f0a020;
   }
+  .agent-status-pills {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-left: 0.25rem;
+  }
+  .agent-status-pill,
+  .agent-status-overflow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.22rem;
+    max-width: 6.8rem;
+    padding: 0.05rem 0.38rem;
+    border: 1px solid var(--surface-edge);
+    border-radius: 999px;
+    background: var(--surface-card);
+    color: var(--ink-soft);
+    font-weight: 800;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .agent-status-dot {
+    width: 0.38rem;
+    height: 0.38rem;
+    border-radius: 999px;
+    background: #9ca3af;
+    flex: 0 0 auto;
+  }
+  .agent-status-pill.status-working {
+    border-color: color-mix(in srgb, #16a34a 34%, var(--surface-edge));
+    background: color-mix(in srgb, #16a34a 10%, var(--surface-card));
+    color: #15803d;
+  }
+  .agent-status-pill.status-working .agent-status-dot { background: #16a34a; }
+  .agent-status-pill.status-thinking {
+    border-color: color-mix(in srgb, #0a85f0 34%, var(--surface-edge));
+    background: color-mix(in srgb, #0a85f0 10%, var(--surface-card));
+    color: #2563eb;
+  }
+  .agent-status-pill.status-thinking .agent-status-dot { background: #0a85f0; }
+  .agent-status-pill.status-response-required {
+    border-color: color-mix(in srgb, #f0a020 42%, var(--surface-edge));
+    background: color-mix(in srgb, #f0a020 14%, var(--surface-card));
+    color: #b9770f;
+  }
+  .agent-status-pill.status-response-required .agent-status-dot { background: #f0a020; }
+  .agent-status-pill.status-idle .agent-status-dot { background: #9ca3af; }
   @keyframes room-card-pulse {
     0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, #16a34a 50%, transparent); }
     50% { box-shadow: 0 0 0 4px color-mix(in srgb, #16a34a 0%, transparent); }
