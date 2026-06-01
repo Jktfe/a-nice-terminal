@@ -4,6 +4,7 @@ import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoom
 import { createDeck, resetDeckStoreForTests } from '$lib/server/deckStore';
 import { appendPlanEvent, resetPlanModeStoreForTests } from '$lib/server/planModeStore';
 import { createTask, _resetTaskStoreForTests } from '$lib/server/taskStore';
+import { appendStageAlternativeDecision } from '$lib/server/stageAlternativeStore';
 
 type AnyEvent = Parameters<typeof GET>[0];
 
@@ -92,6 +93,13 @@ describe('GET /api/decks/:deckId/alternatives', () => {
         })
       }]
     });
+    appendStageAlternativeDecision({
+      deckId: deck.id,
+      alternativeRef: `alt:${deck.id}:slide:1:2000`,
+      action: 'append-appendix',
+      decidedBy: '@you',
+      nowMs: 3000
+    });
 
     const response = await runGet(eventFor(deck.id, 'stage-demo'));
 
@@ -108,7 +116,9 @@ describe('GET /api/decks/:deckId/alternatives', () => {
         kind: 'slide',
         slideIndex: 1,
         proposedTitle: 'Better path',
-        proposedContent: 'Generated downstream alternative'
+        proposedContent: 'Generated downstream alternative',
+        feedbackRef: 'stage-ref',
+        decision: expect.objectContaining({ action: 'append-appendix' })
       })
     ]));
   });

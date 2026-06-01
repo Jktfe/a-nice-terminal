@@ -36,4 +36,14 @@ describe('/decks/[deckId] page source', () => {
     expect(pageSource).toContain('externalDeckSourceFromTheme(deck.theme)');
     expect(pageSource).toContain('src={externalDeckSource.path}');
   });
+
+  it('lets presenters compose accepted alternatives into the active Stage path', () => {
+    expect(pageSource).toContain('type StageAlternativeDecisionAction');
+    expect(pageSource).toContain('composedSlides');
+    expect(pageSource).toContain('/alternatives/decision');
+    expect(pageSource).toContain('Use as replacement');
+    expect(pageSource).toContain('Append after slide');
+    expect(pageSource).toContain('Append to appendix');
+    expect(pageSource).toContain('Park');
+  });
 });

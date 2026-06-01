@@ -72,7 +72,8 @@ const EVIDENCE_KINDS: ReadonlySet<TaskEvidenceKind> = new Set<
   'stage_focus',
   'stage_pause_context',
   'stage_feedback',
-  'stage_alternative'
+  'stage_alternative',
+  'stage_alternative_decision'
 ]);
 
 export function isEvidenceKind(value: unknown): value is TaskEvidenceKind {
@@ -194,7 +195,8 @@ export function evidenceStats(): EvidenceStats {
     stage_focus: 0,
     stage_pause_context: 0,
     stage_feedback: 0,
-    stage_alternative: 0
+    stage_alternative: 0,
+    stage_alternative_decision: 0
   };
   let withLabel = 0;
   for (const row of all) {

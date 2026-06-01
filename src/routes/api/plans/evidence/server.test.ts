@@ -34,7 +34,7 @@ describe('GET /api/plans/evidence', () => {
       byKind: {
         run_event: 0, task: 0, url: 0, file: 0, chat_message: 0,
         proposal: 0, stage_focus: 0, stage_pause_context: 0,
-        stage_feedback: 0, stage_alternative: 0
+        stage_feedback: 0, stage_alternative: 0, stage_alternative_decision: 0
       },
       total: 0,
       withLabel: 0
@@ -87,7 +87,7 @@ describe('GET /api/plans/evidence', () => {
     expect(body.stats.byKind).toEqual({
       run_event: 0, task: 0, url: 2, file: 1, chat_message: 0,
       proposal: 0, stage_focus: 0, stage_pause_context: 0,
-      stage_feedback: 0, stage_alternative: 0
+      stage_feedback: 0, stage_alternative: 0, stage_alternative_decision: 0
     });
   });
 

@@ -102,6 +102,18 @@
     lastSpokenWindow: string;
     capturedAtMs: number;
   };
+  type StageAlternativeDecisionAction =
+    | 'replace-slide'
+    | 'append-after'
+    | 'append-appendix'
+    | 'park'
+    | 'reject';
+  type StageAlternativeDecision = {
+    alternativeRef: string;
+    action: StageAlternativeDecisionAction;
+    decidedBy: string;
+    decidedAtMs: number;
+  };
   type StageAlternativeOption =
     | {
         kind: 'proposal';
@@ -118,6 +130,7 @@
         slideIndex: number;
         eventId: string;
         ref: string;
+        feedbackRef: string | null;
         label: string;
         originalTitle: string | null;
         proposedTitle: string;
@@ -125,7 +138,13 @@
         proposedSpeakerNotes: string;
         rationale: string;
         createdAtMs: number;
+        decision: StageAlternativeDecision | null;
       };
+  type StagePresentedSlide = DeckSlide & {
+    source: 'original' | 'alternative';
+    sourceSlideIndex: number;
+    sourceAlternativeRef?: string;
+  };
   let pauseSnapshot = $state<PauseSnapshot | null>(null);
   let feedbackText = $state('');
   let pasteContext = $state('');
@@ -140,11 +159,68 @@
   const deck = $derived(data.deck);
   const externalDeckSource = $derived(externalDeckSourceFromTheme(deck.theme));
   const deckPasswordQuery = $derived(data.deckPassword ? `?password=${encodeURIComponent(data.deckPassword)}` : '');
-  const slides = $derived(deck.slides ?? []);
+  const originalSlides = $derived(deck.slides ?? []);
+  const slideAlternatives = $derived(
+    stageAlternatives.filter((alt): alt is Extract<StageAlternativeOption, { kind: 'slide' }> => alt.kind === 'slide')
+  );
+  function slideFromAlternative(alternative: Extract<StageAlternativeOption, { kind: 'slide' }>, idPrefix: string): StagePresentedSlide {
+    return {
+      id: `${idPrefix}-${alternative.slideIndex}`,
+      title: alternative.proposedTitle,
+      content: alternative.proposedContent,
+      speakerNotes: alternative.proposedSpeakerNotes,
+      source: 'alternative',
+      sourceSlideIndex: alternative.slideIndex,
+      sourceAlternativeRef: alternative.ref
+    };
+  }
+  const composedSlides = $derived.by<StagePresentedSlide[]>(() => {
+    const replacements = new Map<number, Extract<StageAlternativeOption, { kind: 'slide' }>>();
+    const appendAfter = new Map<number, Extract<StageAlternativeOption, { kind: 'slide' }>[]>();
+    const appendix: Extract<StageAlternativeOption, { kind: 'slide' }>[] = [];
+
+    for (const alternative of slideAlternatives) {
+      const action = alternative.decision?.action;
+      if (!action || action === 'park' || action === 'reject') continue;
+      if (action === 'replace-slide') {
+        const incumbent = replacements.get(alternative.slideIndex);
+        if (!incumbent || (alternative.decision?.decidedAtMs ?? 0) >= (incumbent.decision?.decidedAtMs ?? 0)) {
+          replacements.set(alternative.slideIndex, alternative);
+        }
+      } else if (action === 'append-after') {
+        const list = appendAfter.get(alternative.slideIndex) ?? [];
+        list.push(alternative);
+        list.sort((a, b) => (a.decision?.decidedAtMs ?? 0) - (b.decision?.decidedAtMs ?? 0));
+        appendAfter.set(alternative.slideIndex, list);
+      } else if (action === 'append-appendix') {
+        appendix.push(alternative);
+      }
+    }
+    appendix.sort((a, b) => (a.decision?.decidedAtMs ?? 0) - (b.decision?.decidedAtMs ?? 0));
+
+    const out: StagePresentedSlide[] = [];
+    for (let index = 0; index < originalSlides.length; index += 1) {
+      const replacement = replacements.get(index);
+      out.push(replacement ? slideFromAlternative(replacement, 'alt-slide') : {
+        ...originalSlides[index],
+        source: 'original',
+        sourceSlideIndex: index
+      });
+      for (const alternative of appendAfter.get(index) ?? []) {
+        out.push(slideFromAlternative(alternative, 'after-alt-slide'));
+      }
+    }
+    for (const alternative of appendix) {
+      out.push(slideFromAlternative(alternative, 'appendix-alt-slide'));
+    }
+    return out;
+  });
+  const slides = $derived(composedSlides);
   const slideCount = $derived(slides.length);
   const activeSlide = $derived(slides[activeIndex]);
+  const activeSourceSlideIndex = $derived(activeSlide?.sourceSlideIndex ?? activeIndex);
   const activeAlternatives = $derived(
-    stageAlternatives.filter((alt) => alt.slideIndex === activeIndex)
+    stageAlternatives.filter((alt) => alt.slideIndex === activeSourceSlideIndex)
   );
   const selectedAlternative = $derived(
     activeAlternatives.find((alt) => alt.ref === selectedAlternativeRef) ?? activeAlternatives[0] ?? null
@@ -267,6 +343,27 @@
     }
   }
 
+  async function chooseAlternativePath(
+    alternative: Extract<StageAlternativeOption, { kind: 'slide' }>,
+    action: StageAlternativeDecisionAction
+  ): Promise<void> {
+    try {
+      const response = await fetch(`/api/decks/${encodeURIComponent(deck.id)}/alternatives/decision${deckPasswordQuery}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ alternativeRef: alternative.ref, action })
+      });
+      if (!response.ok) {
+        feedbackNotice = { kind: 'err', text: `Alternative decision failed (HTTP ${response.status}).` };
+        return;
+      }
+      await refreshStageAlternatives();
+      feedbackNotice = { kind: 'ok', text: `Alternative set to ${action}.` };
+    } catch {
+      feedbackNotice = { kind: 'err', text: 'Alternative decision failed (network).' };
+    }
+  }
+
   async function resolveStageProvider(): Promise<TTSProvider | null> {
     if (voiceSettings.provider === 'off') {
       voiceNotice = 'Stage voice is turned off in settings.';
@@ -307,7 +404,7 @@
     const windowStart = Math.max(0, estimatedCharOffset - 120);
     const lastSpokenWindow = narration.slice(windowStart, estimatedCharOffset);
     pauseSnapshot = {
-      slideIndex: activeIndex,
+      slideIndex: activeSlide.sourceSlideIndex,
       slideId: activeSlide.id,
       slideTitle: activeSlide.title,
       narrationText: narration,
@@ -688,6 +785,29 @@
                 <a href={alternative.ref} target="_blank" rel="noopener">Open track</a>
               {:else}
                 <p>{alternative.rationale}</p>
+                {#if alternative.feedbackRef}
+                  <p class="alternative-feedback-ref">Addresses feedback {alternative.feedbackRef}</p>
+                {/if}
+                {#if alternative.decision}
+                  <p class="alternative-decision">Current path: {alternative.decision.action}</p>
+                {/if}
+                <div class="alternative-actions" aria-label="Choose presentation path">
+                  <button type="button" onclick={() => chooseAlternativePath(alternative, 'replace-slide')}>
+                    Use as replacement
+                  </button>
+                  <button type="button" onclick={() => chooseAlternativePath(alternative, 'append-after')}>
+                    Append after slide
+                  </button>
+                  <button type="button" onclick={() => chooseAlternativePath(alternative, 'append-appendix')}>
+                    Append to appendix
+                  </button>
+                  <button type="button" onclick={() => chooseAlternativePath(alternative, 'park')}>
+                    Park
+                  </button>
+                  <button type="button" onclick={() => chooseAlternativePath(alternative, 'reject')}>
+                    Reject
+                  </button>
+                </div>
               {/if}
             </li>
           {/each}
@@ -1069,6 +1189,32 @@
     margin: -0.35rem 0 0;
     color: var(--ink-soft);
     font-size: 0.82rem;
+  }
+  .alternative-feedback-ref,
+  .alternative-decision {
+    color: var(--ink-soft);
+    font-size: 0.76rem;
+  }
+  .alternative-actions {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .alternative-actions button {
+    border: 1px solid var(--line-soft);
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--ink-strong);
+    padding: 0.38rem 0.62rem;
+    font: inherit;
+    font-size: 0.76rem;
+    font-weight: 850;
+    cursor: pointer;
+  }
+  .alternative-actions button:hover {
+    border-color: var(--accent);
+    color: var(--accent);
   }
   .inspector {
     margin-top: 1.25rem;

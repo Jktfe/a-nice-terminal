@@ -26,7 +26,8 @@ const KINDS: ReadonlySet<TaskEvidenceKind> = new Set<TaskEvidenceKind>([
   'stage_focus',
   'stage_pause_context',
   'stage_feedback',
-  'stage_alternative'
+  'stage_alternative',
+  'stage_alternative_decision'
 ]);
 
 export const load: PageLoad = async ({ fetch, url }) => {
@@ -60,7 +61,8 @@ export const load: PageLoad = async ({ fetch, url }) => {
             stage_focus: 0,
             stage_pause_context: 0,
             stage_feedback: 0,
-            stage_alternative: 0
+            stage_alternative: 0,
+            stage_alternative_decision: 0
           },
           total: 0,
           withLabel: 0

@@ -28,21 +28,21 @@ type StageFeedbackPayload = {
   validationLensId?: unknown;
 };
 
-const LENS_FRAMES = [
+const ALTERNATIVE_SHAPES = [
   {
-    id: 'poc',
-    title: 'POC',
-    prompt: 'What is the smallest demoable proof this feedback demands?'
+    id: 'replace',
+    title: 'Replace slide',
+    prompt: 'Draft a direct replacement for the current slide that answers this feedback.'
   },
   {
-    id: 'fca',
-    title: 'FCA',
-    prompt: 'Which claim basis, caveat, or source would a regulated audience need before accepting this?'
+    id: 'explain',
+    title: 'Add explanatory slide',
+    prompt: 'Draft a new slide immediately after this one that explains the missing logic.'
   },
   {
-    id: 'investor',
-    title: 'Investor',
-    prompt: 'How should this change the commercial story, objection handling, or next-slide emphasis?'
+    id: 'appendix',
+    title: 'Append appendix evidence',
+    prompt: 'Draft an appendix slide with supporting evidence, caveats, or implementation detail.'
   }
 ] as const;
 
@@ -93,15 +93,15 @@ function buildAlternativeTrackMarkdown(input: {
     '- Identify which claim or sentence the feedback challenges.',
     '- Draft a Version B for this slide or path.',
     '- List downstream slides or claims that may become stale.',
-    '- State which validation lenses are affected.',
+    '- State whether the change should replace the slide, add a new slide, or go to appendix.',
     '- Leave the source deck unchanged until the presenter adopts the proposal.',
     '',
-    '## Lens Frames',
+    '## Alternative Shapes',
     '',
-    ...LENS_FRAMES.flatMap((lens) => [
-      `### ${lens.title}`,
+    ...ALTERNATIVE_SHAPES.flatMap((shape) => [
+      `### ${shape.title}`,
       '',
-      lens.prompt,
+      shape.prompt,
       ''
     ]),
     '',
@@ -185,11 +185,11 @@ export const POST: RequestHandler = async ({ params, request, url }) => {
     nowMs: tsMillis
   });
   const proposalRef = `/artefacts/${alternativeArtefact.id}`;
-  const proposalTasks = LENS_FRAMES.map((lens, index) =>
+  const proposalTasks = ALTERNATIVE_SHAPES.map((shape, index) =>
     createTask({
-      id: `task-stage-alternative-${lens.id}-${tsMillis}-${Math.random().toString(36).slice(2, 8)}`,
-      subject: `${alternativeTitle} (${lens.title})`,
-      description: lens.prompt,
+      id: `task-stage-alternative-${shape.id}-${tsMillis}-${Math.random().toString(36).slice(2, 8)}`,
+      subject: `${alternativeTitle} (${shape.title})`,
+      description: shape.prompt,
       status: 'pending',
       priority: index + 1,
       planId: `stage-${deck.id}`,
@@ -197,12 +197,12 @@ export const POST: RequestHandler = async ({ params, request, url }) => {
       evidence: [
         {
           kind: 'proposal',
-          ref: `${proposalRef}#lens-${lens.id}`,
-          label: `${lens.title}: ${alternativeTitle}`,
+          ref: `${proposalRef}#shape-${shape.id}`,
+          label: `${shape.title}: ${alternativeTitle}`,
           narration: alternativeMarkdown
         }
       ],
-      notes: `Seeded from ${ref}; lens=${lens.id}`,
+      notes: `Seeded from ${ref}; shape=${shape.id}`,
       startedAtMs: tsMillis
     })
   );

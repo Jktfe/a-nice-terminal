@@ -101,16 +101,17 @@ describe('POST /api/decks/:deckId/stage-feedback', () => {
     expect(content?.contentBody).toContain('## User Feedback');
     expect(content?.contentBody).toContain('No, we do not do that');
     expect(content?.contentBody).toContain('## Agent Work Required');
-    expect(content?.contentBody).toContain('## Lens Frames');
-    expect(content?.contentBody).toContain('### FCA');
+    expect(content?.contentBody).toContain('## Alternative Shapes');
+    expect(content?.contentBody).toContain('### Replace slide');
+    expect(content?.contentBody).not.toContain('FCA');
 
     const task = getTask(body.proposal.taskIds[0]);
     expect(task).not.toBeNull();
     expect(task?.planId).toBe(`stage-${deck.id}`);
     expect(task?.evidence[0]).toMatchObject({
       kind: 'proposal',
-      ref: `/artefacts/${artefacts[0].id}#lens-poc`,
-      label: 'POC: Alternative Track: Stage Deck / slide 1'
+      ref: `/artefacts/${artefacts[0].id}#shape-replace`,
+      label: 'Replace slide: Alternative Track: Stage Deck / slide 1'
     });
   });
 
