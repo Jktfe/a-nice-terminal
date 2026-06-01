@@ -123,6 +123,7 @@ export const GET: RequestHandler = ({ params }) => {
     return {
       handle,
       status: row ? effective.agent_status : 'unknown',
+      statusSource: row ? effective.agent_status_source : 'default',
       statusAtMs: row ? effective.agent_status_at_ms : null,
       openAsk,
       uptimeMs,

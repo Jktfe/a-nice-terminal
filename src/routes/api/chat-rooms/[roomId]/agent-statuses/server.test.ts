@@ -63,6 +63,7 @@ describe('GET /api/chat-rooms/:roomId/agent-statuses', () => {
     expect(row.handle).toBe('@agent');
     expect(row.status).toBe('idle');
     expect(row.statusAtMs).toBe(0);
+    expect(row.statusSource).toBe('default');
     expect(typeof row.uptimeMs === 'number' || row.uptimeMs === null).toBe(true);
     if (typeof row.uptimeMs === 'number') {
       expect(row.uptimeMs).toBeGreaterThanOrEqual(0);
@@ -123,5 +124,21 @@ describe('GET /api/chat-rooms/:roomId/agent-statuses', () => {
     const response = await callGet(room.id);
     const payload = await response.json();
     expect(payload.statuses[0].openAsk).toBe(false);
+  });
+
+  it('surfaces the effective status source so UI pills can explain context', async () => {
+    const room = createChatRoom({ name: 'source-room', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@agent' });
+    const terminal = upsertTerminal({ pid: 4004, pid_start: 'p4', name: 'agent-term' });
+    addMembership({ room_id: room.id, handle: '@agent', terminal_id: terminal.id });
+    setAgentStatus({ terminalId: terminal.id, newStatus: 'thinking', source: 'hook' });
+
+    const response = await callGet(room.id);
+    const payload = await response.json();
+    expect(payload.statuses[0]).toMatchObject({
+      handle: '@agent',
+      status: 'thinking',
+      statusSource: 'hook'
+    });
   });
 });

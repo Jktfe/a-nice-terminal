@@ -16,9 +16,16 @@
 -->
 <script lang="ts">
   type AgentStatus = 'idle' | 'thinking' | 'working' | 'response-required' | 'unknown';
+  type AgentStatusSource = 'fingerprint' | 'hook' | 'ant-activity' | 'pid-cpu' | 'default';
   // `openAsk` (additive, shipped server-side in fcbdcd2) is the open-ask
   // dimension: CLI response-required OR an open Ask targeted at the handle.
-  type StatusEntry = { handle: string; status: AgentStatus; statusAtMs: number | null; openAsk?: boolean };
+  type StatusEntry = {
+    handle: string;
+    status: AgentStatus;
+    statusSource?: AgentStatusSource;
+    statusAtMs: number | null;
+    openAsk?: boolean;
+  };
 
   type Props = {
     roomId: string;
@@ -84,12 +91,25 @@
   }
 
   function labelForStatus(status: AgentStatus): string {
-    if (status === 'response-required') return 'needs reply';
+    if (status === 'response-required') return 'needs input';
     return status;
   }
 
   function shortHandle(handle: string): string {
     return handle.startsWith('@') ? handle.slice(1) : handle;
+  }
+
+  function contextForStatus(entry: StatusEntry): string {
+    if (entry.status === 'unknown') return 'not bound';
+    if (entry.statusSource === 'fingerprint') return 'status line';
+    if (entry.statusSource === 'ant-activity') return 'ANT activity';
+    if (entry.statusSource === 'pid-cpu') return 'process';
+    if (entry.statusSource === 'hook') return 'hook';
+    return 'default';
+  }
+
+  function titleForStatus(entry: StatusEntry): string {
+    return `${entry.handle}: ${labelForStatus(entry.status)} from ${contextForStatus(entry)}`;
   }
 </script>
 
@@ -99,11 +119,13 @@
       {#each agentStatusPills as entry (entry.handle)}
         <span
           class={`agent-status-pill status-${entry.status}`}
-          aria-label={`${entry.handle} is ${labelForStatus(entry.status)}`}
-          title={`${entry.handle} is ${labelForStatus(entry.status)}`}
+          aria-label={titleForStatus(entry)}
+          title={titleForStatus(entry)}
         >
           <span class="agent-status-dot" aria-hidden="true"></span>
-          {shortHandle(entry.handle)}
+          <span class="agent-status-handle">{shortHandle(entry.handle)}</span>
+          <span class="agent-status-state">{labelForStatus(entry.status)}</span>
+          <span class="agent-status-context">{contextForStatus(entry)}</span>
         </span>
       {/each}
       {#if hiddenAgentStatusCount > 0}
@@ -210,7 +232,7 @@
     display: inline-flex;
     align-items: center;
     gap: 0.22rem;
-    max-width: 6.8rem;
+    max-width: 13rem;
     padding: 0.05rem 0.38rem;
     border: 1px solid var(--surface-edge);
     border-radius: 999px;
@@ -220,6 +242,27 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .agent-status-handle,
+  .agent-status-state,
+  .agent-status-context {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .agent-status-state {
+    color: var(--ink-strong);
+  }
+  .agent-status-context {
+    opacity: 0.72;
+    font-weight: 700;
+  }
+  .agent-status-state::before,
+  .agent-status-context::before {
+    content: "·";
+    margin-right: 0.22rem;
+    color: var(--ink-soft);
+    opacity: 0.7;
   }
   .agent-status-dot {
     width: 0.38rem;
