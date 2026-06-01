@@ -23,8 +23,13 @@
 
 import type { TerminalRecord } from './terminalRecordsStore';
 import { parseAllowlist } from './terminalRecordsStore';
+import { OPERATOR_SENTINEL } from '$lib/operatorSentinel';
 
-export const OPERATOR_HANDLE = '@you';
+// Single source of truth for the operator sentinel lives in the client-safe
+// $lib/operatorSentinel module so the render layer can share the exact literal
+// without importing server code. Re-exported here under the established name so
+// existing server callers (kill / agent-launch / vault gates) are unchanged.
+export const OPERATOR_HANDLE = OPERATOR_SENTINEL;
 
 export function canCallerActOnTerminal(
   callerHandle: string | null | undefined,

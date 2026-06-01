@@ -12,6 +12,7 @@
   import type { ChatMessage } from '$lib/server/chatMessageStore';
   import type { RoomMember } from '$lib/server/chatRoomStore';
   import type { EntityClaim } from '$lib/server/entityClaimStore';
+  import { OPERATOR_SENTINEL } from '$lib/operatorSentinel';
   import MemberIcon from './MemberIcon.svelte';
   import ClaimChip from './ClaimChip.svelte';
 
@@ -131,7 +132,12 @@
     <MemberIcon icon={displayIcon} fallbackText={displayName} size="md" />
   </span>
   <span class="author-handle">{displayName}</span>
-  {#if displayName !== message.authorHandle}
+  <!-- Canonical-handle subscript shows the underlying @handle when the
+       display name differs (e.g. an agent with a friendly name). Suppressed
+       for the operator sentinel so the demo display handle (@JWPK) never has
+       @you peeking underneath it — the sentinel stays internal truth, just
+       not shown. -->
+  {#if displayName !== message.authorHandle && message.authorHandle !== OPERATOR_SENTINEL}
     <span class="canonical-handle">{message.authorHandle}</span>
   {/if}
   {#if message.kind === 'agent'}

@@ -23,6 +23,7 @@
 
 import { findChatRoomById } from './chatRoomStore';
 import { getIdentityDb } from './db';
+import { operatorDisplayHandle } from './operatorDisplayHandle';
 import type { MessageReactionSummary } from './messageReactionStore';
 
 export type ChatMessageKind = 'human' | 'agent' | 'system' | 'system-break';
@@ -83,8 +84,12 @@ function rowToMessage(row: ChatMessageRow): ChatMessage {
   const message: ChatMessage = {
     id: row.id,
     roomId: row.room_id,
+    // Structural handle stays the @you sentinel — client logic + self-message
+    // detection key off it. Only the cosmetic display label is mapped OUT to
+    // the operator's demo handle (operatorDisplayHandle is a no-op unless
+    // ANT_OPERATOR_DISPLAY_HANDLE is set).
     authorHandle: row.author_handle,
-    authorDisplayName: row.author_display_name,
+    authorDisplayName: operatorDisplayHandle(row.author_display_name),
     kind: row.kind,
     body: row.body,
     postedAt: row.posted_at,

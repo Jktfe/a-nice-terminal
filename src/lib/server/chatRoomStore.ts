@@ -17,6 +17,7 @@
 import { randomUUID } from 'node:crypto';
 import type { RoomAttentionState } from '$lib/domain/types';
 import { getIdentityDb } from './db';
+import { operatorDisplayHandle } from './operatorDisplayHandle';
 import { findTerminalRecordByHandle } from './terminalRecordsStore';
 import { recomputeInboxEdgesForRoomMembershipChange } from './humanInboxMembership';
 import { ensureHumanInboxRoom } from './humanInboxRoomStore';
@@ -222,11 +223,16 @@ function memberRowToMember(row: ChatRoomMemberRow): RoomMember {
     row.kind === 'human' && row.handle !== '@you' && findTerminalRecordByHandle(row.handle)
       ? 'agent'
       : row.kind;
+  // OUT-only display mapping: structural `handle` stays the @you sentinel
+  // (client logic + colour stability key off it); only the visible label and
+  // its derived badge letter render as the operator's demo handle. No-op
+  // unless ANT_OPERATOR_DISPLAY_HANDLE is set.
+  const displayName = operatorDisplayHandle(row.display_name);
   return {
     handle: row.handle,
-    displayName: row.display_name,
+    displayName,
     displayColor: row.display_color ?? defaultParticipantColor(row.handle),
-    displayIcon: row.display_icon ?? defaultParticipantIcon(row.display_name || row.handle),
+    displayIcon: row.display_icon ?? defaultParticipantIcon(displayName || row.handle),
     displayBackgroundStyle: normaliseParticipantBackgroundStyle(
       row.display_background_style,
       kind
@@ -295,11 +301,15 @@ function v02HydratedRowToMember(row: {
     kind === 'human' && row.handle !== '@you' && findTerminalRecordByHandle(row.handle)
       ? 'agent'
       : kind;
+  // OUT-only display mapping (see memberRowToMember above): visible label +
+  // badge letter render as the operator's demo handle; structural `handle`
+  // stays @you. No-op unless ANT_OPERATOR_DISPLAY_HANDLE is set.
+  const displayName = operatorDisplayHandle(row.display_name);
   return {
     handle: row.handle,
-    displayName: row.display_name,
+    displayName,
     displayColor: row.display_color ?? defaultParticipantColor(row.handle),
-    displayIcon: row.display_icon ?? defaultParticipantIcon(row.display_name || row.handle),
+    displayIcon: row.display_icon ?? defaultParticipantIcon(displayName || row.handle),
     displayBackgroundStyle: normaliseParticipantBackgroundStyle(
       row.display_background_style,
       resolvedKind
