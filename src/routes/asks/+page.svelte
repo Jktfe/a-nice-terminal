@@ -341,6 +341,53 @@
       </div>
     {/if}
 
+    {#if isFiltering && !hasFilteredResults}
+      <!-- Unified no-results state: filter eliminates everything across
+           BOTH Open and Recently-answered. Replaces the section-local
+           empty-after-filter rendering so the operator gets one Clear
+           button regardless of which section would have shown results. -->
+      <p class="empty-nudge" role="status">
+        No asks match "<strong>{askFilter}</strong>".
+        <button type="button" class="filter-reset-btn" onclick={() => (askFilter = '')}>Clear filter</button>
+      </p>
+    {:else if !isFiltering && asksFromServer.length === 0 && candidatesFromServer.length === 0}
+      <div class="empty-celebrate" role="status" aria-label="All open asks resolved">
+        <span class="celebrate-icon" aria-hidden="true">✓</span>
+        <div class="celebrate-text">
+          <strong>All caught up.</strong>
+          <span class="celebrate-detail">No open asks right now. New ones appear here automatically when a member opens one from inside a room.</span>
+        </div>
+      </div>
+    {:else if filteredOpenAsks.length === 0 && filteredAnsweredAsks.length > 0}
+      <!-- Filtering matched answered but not open: keep the Open header
+           area quiet (the empty-nudge would be misleading next to a
+           non-empty Recently-answered list). -->
+    {:else if filteredOpenAsks.length === 0}
+      <!-- Candidate rows below are the actionable state; avoid an empty
+           Open list when signals exist but no formal ask has been promoted. -->
+    {:else}
+      <ul class="ask-list" aria-label="Open asks queue">
+        {#each filteredOpenAsks as ask (ask.id)}
+          <li>
+            <AskCard
+              ask={ask}
+              roomNameLabel={resolveRoomNameSafely(ask.roomId)}
+              isAnswerFormOpen={activeAnswerAskId === ask.id}
+              isInFlightAsAnswer={inFlightAskId === ask.id && inFlightVerb === 'answer'}
+              isInFlightAsDismiss={inFlightAskId === ask.id && inFlightVerb === 'dismiss'}
+              lastErrorMessage={lastErrorByAskId[ask.id]}
+              answerText={activeAnswerAskId === ask.id ? answerText : ''}
+              onOpenAnswerForm={() => openAnswerFormFor(ask.id)}
+              onCancelAnswerForm={cancelAnswerForm}
+              onAnswerTextChange={(next) => (answerText = next)}
+              onSubmitAnswer={() => submitAnswerFor(ask.id)}
+              onSubmitDismiss={() => submitDismissFor(ask.id)}
+            />
+          </li>
+        {/each}
+      </ul>
+    {/if}
+
     {#if filteredCandidates.length > 0}
       <section class="candidate-section" aria-labelledby="ask-candidates-heading">
         <div class="candidate-heading-row">
@@ -385,53 +432,6 @@
           {/each}
         </ul>
       </section>
-    {/if}
-
-    {#if isFiltering && !hasFilteredResults}
-      <!-- Unified no-results state: filter eliminates everything across
-           BOTH Open and Recently-answered. Replaces the section-local
-           empty-after-filter rendering so the operator gets one Clear
-           button regardless of which section would have shown results. -->
-      <p class="empty-nudge" role="status">
-        No asks match "<strong>{askFilter}</strong>".
-        <button type="button" class="filter-reset-btn" onclick={() => (askFilter = '')}>Clear filter</button>
-      </p>
-    {:else if !isFiltering && asksFromServer.length === 0 && candidatesFromServer.length === 0}
-      <div class="empty-celebrate" role="status" aria-label="All open asks resolved">
-        <span class="celebrate-icon" aria-hidden="true">✓</span>
-        <div class="celebrate-text">
-          <strong>All caught up.</strong>
-          <span class="celebrate-detail">No open asks right now. New ones appear here automatically when a member opens one from inside a room.</span>
-        </div>
-      </div>
-    {:else if filteredOpenAsks.length === 0 && filteredAnsweredAsks.length > 0}
-      <!-- Filtering matched answered but not open: keep the Open header
-           area quiet (the empty-nudge would be misleading next to a
-           non-empty Recently-answered list). -->
-    {:else if filteredOpenAsks.length === 0}
-      <!-- Candidate rows above are the actionable state; avoid an empty
-           Open list when signals exist but no formal ask has been promoted. -->
-    {:else}
-      <ul class="ask-list" aria-label="Open asks queue">
-        {#each filteredOpenAsks as ask (ask.id)}
-          <li>
-            <AskCard
-              ask={ask}
-              roomNameLabel={resolveRoomNameSafely(ask.roomId)}
-              isAnswerFormOpen={activeAnswerAskId === ask.id}
-              isInFlightAsAnswer={inFlightAskId === ask.id && inFlightVerb === 'answer'}
-              isInFlightAsDismiss={inFlightAskId === ask.id && inFlightVerb === 'dismiss'}
-              lastErrorMessage={lastErrorByAskId[ask.id]}
-              answerText={activeAnswerAskId === ask.id ? answerText : ''}
-              onOpenAnswerForm={() => openAnswerFormFor(ask.id)}
-              onCancelAnswerForm={cancelAnswerForm}
-              onAnswerTextChange={(next) => (answerText = next)}
-              onSubmitAnswer={() => submitAnswerFor(ask.id)}
-              onSubmitDismiss={() => submitDismissFor(ask.id)}
-            />
-          </li>
-        {/each}
-      </ul>
     {/if}
 
     {#if filteredAnsweredAsks.length > 0}

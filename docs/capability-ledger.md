@@ -63,6 +63,7 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Read receipts | audit blockers | CHANGE | Claude | Zero-token receipt model. |
 | Persisted read receipt hydration | JWPK speed matters msg_ksdvwcco5p, 2026-06-01 | CHANGE | Codex | Message history responses now include persisted read receipts in bulk and MessageReadIndicator hydrates from that payload, so "Read by" survives reloads without restoring one GET per row. |
 | Open Ask signal review queue | JWPK speed matters msg_4yqs3deep6, 2026-06-01 | CHANGE | Codex | `/asks` now surfaces captured ask candidates from bare `@you`, standalone `@`, and hands-up signals in a Needs review section with promote/dismiss actions, instead of hiding candidates until manually inspected through the API. |
+| Open Ask queue priority | JWPK speed matters msg_nx24h3tlor, 2026-06-01 | CHANGE | Codex | `/asks` now renders definite open asks before potential Needs review signals, so confirmed questions lead the operator queue and candidate signals remain secondary. |
 | Reactions | audit blockers | CHANGE | Claude | Thumbs up/down plus mobile target. |
 | Typing indicator | audit blockers | CHANGE | Claude | Stale timeout visible. |
 | Draft persistence | audit blockers | CHANGE | Claude | Never lose typed text. |
