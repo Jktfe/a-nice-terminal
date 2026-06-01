@@ -238,6 +238,22 @@ async function sessionExists(sessionId: string): Promise<boolean> {
   }
 }
 
+async function armOutputPipe(sessionId: string, outPath: string): Promise<void> {
+  await tmux(['pipe-pane', '-o', '-t', `${sessionId}:0.0`, `cat >> ${shellQuote(outPath)}`]);
+}
+
+function seedLiveTailFromCurrentEnd(sessionId: string, outPath: string): void {
+  const store = getStore();
+  try {
+    const st = statSync(outPath);
+    store.fileOffsets.set(sessionId, st.size);
+    store.fileInodes.set(sessionId, st.ino);
+  } catch {
+    store.fileOffsets.set(sessionId, 0);
+    store.fileInodes.delete(sessionId);
+  }
+}
+
 // ─── public API ────────────────────────────────────────────────────────
 
 export async function spawnTerminal(
@@ -254,6 +270,8 @@ export async function spawnTerminal(
 
   try {
     if (await sessionExists(sessionId)) {
+      await armOutputPipe(sessionId, outPath);
+      seedLiveTailFromCurrentEnd(sessionId, outPath);
       // Re-attach to existing session — capture current scrollback as initial.
       try {
         const { stdout } = await tmux(['capture-pane', '-p', '-t', sessionId]);
@@ -275,13 +293,12 @@ export async function spawnTerminal(
     // Pipe pane output to disk (-o = overwrite previous pipe; we own the
     // file). The shell wrapper guarantees the file is created even before
     // first byte arrives.
-    await tmux(['pipe-pane', '-o', '-t', `${sessionId}:0.0`, `cat >> ${shellQuote(outPath)}`]);
+    await armOutputPipe(sessionId, outPath);
 
     // Seed the file-offset baseline at 0 so subsequent appends fan out.
     // Record the inode too so a later rotation (same path, new file) is
     // detected by drainSessionFile even if the size doesn't shrink.
-    getStore().fileOffsets.set(sessionId, 0);
-    try { getStore().fileInodes.set(sessionId, statSync(outPath).ino); } catch { /* file not yet flushed — seeded on first drain */ }
+    seedLiveTailFromCurrentEnd(sessionId, outPath);
 
     return { alive: true, scrollback: '' };
   } catch (cause) {
