@@ -6,7 +6,10 @@
 
   v0 ships ONE active adapter (Claude Desktop, Anthropic-first per spec).
   Other targets render disabled with "v0.5" tooltip until adapters land.
-  Premium-tier-gated via `bring_in_app_ux` feature flag.
+  Premium-tier-gated via `bring_in_app_ux` feature flag: when NOT available the
+  row renders nothing. The old "Bring in Claude / ChatGPT … Premium" teaser was
+  removed from web (JWPK 2026-06-01 — it did nothing here); bring-in-agent
+  belongs in the antOS / remote-ant apps, where it is a real action.
 
   Lives below the room header so the affordance is reachable when the
   operator wants to hand off the room context to an external thinker.
@@ -57,12 +60,7 @@
   }
 </script>
 
-{#if !available}
-  <div class="bring-in-row locked" aria-label="Bring-in-App is a premium feature">
-    <span class="locked-label">Bring in Claude / ChatGPT / Codex / Gemini</span>
-    <span class="locked-hint">Premium</span>
-  </div>
-{:else}
+{#if available}
   <div class="bring-in-row" role="toolbar" aria-label="Bring in an external app with this room's context">
     {#each BRING_IN_APP_ADAPTERS as adapter}
       <button
@@ -93,24 +91,6 @@
     gap: 0.4rem;
     margin-top: 0.4rem;
     padding: 0.35rem 0;
-  }
-  .bring-in-row.locked {
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .locked-label {
-    color: var(--ink-muted, #8a7a70);
-    font-size: 0.82rem;
-  }
-  .locked-hint {
-    padding: 0.1rem 0.4rem;
-    border: 1px solid var(--accent);
-    border-radius: 999px;
-    color: var(--accent);
-    font-size: 0.7rem;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
   }
   .bring-in-pill {
     padding: 0.3rem 0.7rem;

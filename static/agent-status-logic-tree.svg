@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 820" font-family="ui-sans-serif, -apple-system, Segoe UI, Roboto, sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5a6a5e"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1180" height="820" fill="#0c0e0c"/>
+
+  <!-- Title -->
+  <text x="590" y="44" text-anchor="middle" fill="#1ac270" font-size="27" font-weight="700">Agent status — how a signal becomes a state</text>
+  <text x="590" y="71" text-anchor="middle" fill="#9aa39a" font-size="14">Two orthogonal axes · activity flips only on a confirmed source · the CLI status line is the trusted trunk</text>
+
+  <!-- Incoming signal -->
+  <rect x="470" y="90" width="240" height="46" rx="23" fill="#15201a" stroke="#3a5a48" stroke-width="1.5"/>
+  <text x="590" y="118" text-anchor="middle" fill="#eaffea" font-size="16" font-weight="600">Incoming signal</text>
+
+  <!-- splits -->
+  <line x1="560" y1="136" x2="320" y2="176" stroke="#5a6a5e" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="620" y1="136" x2="860" y2="176" stroke="#5a6a5e" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- divider -->
+  <line x1="590" y1="170" x2="590" y2="690" stroke="#1d241d" stroke-width="1" stroke-dasharray="4 6"/>
+
+  <!-- ================= LIVENESS lane ================= -->
+  <rect x="120" y="178" width="360" height="40" rx="8" fill="#11201c" stroke="#2f7d5a" stroke-width="1.5"/>
+  <text x="300" y="204" text-anchor="middle" fill="#cfe9bf" font-size="16" font-weight="600">LIVENESS — is it reachable?</text>
+
+  <rect x="140" y="246" width="320" height="58" rx="10" fill="#12151200" stroke="#3a4a3e" stroke-width="1.5"/>
+  <text x="300" y="270" text-anchor="middle" fill="#e7efe3" font-size="14" font-weight="600">heartbeat</text>
+  <text x="300" y="290" text-anchor="middle" fill="#9aa39a" font-size="12">message · pty-byte · commit</text>
+
+  <!-- liveness outcomes -->
+  <line x1="300" y1="304" x2="300" y2="360" stroke="#5a6a5e" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="300" y1="304" x2="300" y2="418" stroke="#5a6a5e" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="300" y1="304" x2="300" y2="476" stroke="#5a6a5e" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <text x="262" y="356" text-anchor="end" fill="#9aa39a" font-size="12">recent</text>
+  <rect x="306" y="340" width="190" height="38" rx="19" fill="#10271b" stroke="#1ac270" stroke-width="1.5"/>
+  <text x="401" y="364" text-anchor="middle" fill="#1ac270" font-size="14" font-weight="600">● online</text>
+
+  <text x="262" y="421" text-anchor="end" fill="#9aa39a" font-size="12">stale &gt; T₁</text>
+  <rect x="306" y="399" width="190" height="38" rx="19" fill="#241a0d" stroke="#f0a020" stroke-width="1.5"/>
+  <text x="401" y="423" text-anchor="middle" fill="#f0a020" font-size="14" font-weight="600">● remote</text>
+
+  <text x="262" y="479" text-anchor="end" fill="#9aa39a" font-size="12">stale &gt; T₂</text>
+  <rect x="306" y="457" width="190" height="38" rx="19" fill="#16191600" stroke="#6b756b" stroke-width="1.5"/>
+  <text x="401" y="481" text-anchor="middle" fill="#9aa39a" font-size="14" font-weight="600">○ offline</text>
+
+  <text x="300" y="525" text-anchor="middle" fill="#6b756b" font-size="12" font-style="italic">Heartbeat sets liveness only — never “working”.</text>
+
+  <!-- ================= ACTIVITY lane ================= -->
+  <rect x="700" y="178" width="360" height="40" rx="8" fill="#11201c" stroke="#2f7d5a" stroke-width="1.5"/>
+  <text x="880" y="204" text-anchor="middle" fill="#cfe9bf" font-size="16" font-weight="600">ACTIVITY — what is it doing?</text>
+
+  <!-- trunk: CLI status-line state file (emphasised) -->
+  <rect x="700" y="240" width="360" height="74" rx="11" fill="#0f2a1d" stroke="#1ac270" stroke-width="2.5"/>
+  <text x="880" y="266" text-anchor="middle" fill="#eaffea" font-size="15" font-weight="700">CLI status-line STATE FILE</text>
+  <text x="880" y="285" text-anchor="middle" fill="#9aa39a" font-size="11">~/.ant/state/&lt;cli&gt;/&lt;sid&gt;.json · written by the statusline (ant status)</text>
+  <text x="880" y="302" text-anchor="middle" fill="#1ac270" font-size="11" font-weight="600">HIGH TRUST · 0 tokens · the CLI telling us directly</text>
+
+  <!-- trunk outcomes -->
+  <line x1="880" y1="314" x2="905" y2="347" stroke="#5a6a5e" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="880" y1="314" x2="905" y2="389" stroke="#5a6a5e" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="880" y1="314" x2="905" y2="431" stroke="#5a6a5e" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="880" y1="314" x2="905" y2="473" stroke="#5a6a5e" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <text x="772" y="351" text-anchor="end" fill="#cfe9bf" font-size="12" font-family="ui-monospace, monospace">Working</text>
+  <rect x="905" y="329" width="215" height="36" rx="18" fill="#10271b" stroke="#1ac270" stroke-width="1.5"/>
+  <text x="1012" y="352" text-anchor="middle" fill="#1ac270" font-size="13" font-weight="600">● working</text>
+
+  <text x="772" y="393" text-anchor="end" fill="#cfe9bf" font-size="12" font-family="ui-monospace, monospace">Available</text>
+  <rect x="905" y="371" width="215" height="36" rx="18" fill="#16191600" stroke="#6b756b" stroke-width="1.5"/>
+  <text x="1012" y="394" text-anchor="middle" fill="#9aa39a" font-size="13" font-weight="600">○ idle</text>
+
+  <text x="772" y="435" text-anchor="end" fill="#cfe9bf" font-size="12" font-family="ui-monospace, monospace">Waiting</text>
+  <rect x="905" y="413" width="215" height="36" rx="18" fill="#16191600" stroke="#6b756b" stroke-width="1.5"/>
+  <text x="1012" y="436" text-anchor="middle" fill="#9aa39a" font-size="13" font-weight="600">○ idle · done</text>
+
+  <text x="772" y="470" text-anchor="end" fill="#cfe9bf" font-size="11" font-family="ui-monospace, monospace">Response needed</text>
+  <text x="772" y="483" text-anchor="end" fill="#8a938a" font-size="10" font-family="ui-monospace, monospace">/ menuKind set</text>
+  <rect x="905" y="455" width="215" height="36" rx="18" fill="#241a0d" stroke="#f0a020" stroke-width="1.5"/>
+  <text x="1012" y="478" text-anchor="middle" fill="#f0a020" font-size="13" font-weight="600">● requires-input</text>
+
+  <!-- secondary confirmed sources -->
+  <rect x="700" y="512" width="360" height="96" rx="10" fill="#10161300" stroke="#2f5a44" stroke-width="1.5"/>
+  <text x="716" y="533" fill="#cfe9bf" font-size="13" font-weight="600">Other confirmed sources (push):</text>
+  <text x="716" y="556" fill="#d6ffe6" font-size="12">hook event · UserPromptSubmit / PreToolUse  →  working</text>
+  <text x="716" y="577" fill="#ffe6c2" font-size="12">persisted Ask row / promoted candidate  →  requires-input</text>
+  <text x="716" y="598" fill="#9aa39a" font-size="12">no signal + quiet (decay)  →  idle</text>
+
+  <!-- exclusion banner -->
+  <rect x="120" y="636" width="940" height="46" rx="9" fill="#1c0f0c" stroke="#c0533a" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text x="590" y="664" text-anchor="middle" fill="#e0866f" font-size="13">✗ Scraped TUI status text (raw PTY bytes) = MEDIUM trust — used only to hide TUI chrome from chat, NEVER to drive state.</text>
+
+  <!-- legend -->
+  <g font-size="12" fill="#9aa39a">
+    <rect x="120" y="704" width="16" height="12" rx="3" fill="#10271b" stroke="#1ac270"/><text x="142" y="714">high confidence → state</text>
+    <rect x="300" y="704" width="16" height="12" rx="3" fill="#241a0d" stroke="#f0a020"/><text x="322" y="714">requires-input</text>
+    <rect x="452" y="704" width="16" height="12" rx="3" fill="#16191600" stroke="#6b756b"/><text x="474" y="714">idle / offline</text>
+    <rect x="592" y="704" width="16" height="12" rx="3" fill="#1c0f0c" stroke="#c0533a" stroke-dasharray="3 2"/><text x="614" y="714">excluded (scrape / inference)</text>
+  </g>
+
+  <!-- central invariant -->
+  <text x="590" y="752" text-anchor="middle" fill="#1ac270" font-size="14" font-style="italic" font-weight="600">Liveness signals set liveness. Activity flips only on a confirmed event — never inferred.</text>
+  <text x="590" y="776" text-anchor="middle" fill="#6b756b" font-size="11">CLI priority: Claude · Codex · Pi (first-class) → Qwen · Copilot · Antigravity (supported) · gemini deprecated · model is CLI-agnostic</text>
+</svg>

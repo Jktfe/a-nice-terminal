@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1300 880" font-family="ui-sans-serif, -apple-system, Segoe UI, Roboto, sans-serif">
+  <defs>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5a6a5e"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="1300" height="880" fill="#0c0e0c"/>
+
+  <text x="650" y="44" text-anchor="middle" fill="#1ac270" font-size="27" font-weight="700">Agent status — THREE independent dimensions</text>
+  <text x="650" y="71" text-anchor="middle" fill="#9aa39a" font-size="14">An open ask is an obligation, not an activity — it coexists with idle OR working, and resolves when anyone answers or it goes moot</text>
+
+  <rect x="530" y="90" width="240" height="46" rx="23" fill="#15201a" stroke="#3a5a48" stroke-width="1.5"/>
+  <text x="650" y="118" text-anchor="middle" fill="#eaffea" font-size="16" font-weight="600">Incoming signal</text>
+  <line x1="600" y1="136" x2="250" y2="176" stroke="#5a6a5e" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <line x1="650" y1="136" x2="650" y2="176" stroke="#5a6a5e" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <line x1="700" y1="136" x2="1050" y2="176" stroke="#5a6a5e" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+  <line x1="450" y1="170" x2="450" y2="690" stroke="#1d241d" stroke-width="1" stroke-dasharray="4 6"/>
+  <line x1="855" y1="170" x2="855" y2="690" stroke="#1d241d" stroke-width="1" stroke-dasharray="4 6"/>
+
+  <!-- ===== LIVENESS ===== -->
+  <rect x="40" y="178" width="380" height="38" rx="8" fill="#11201c" stroke="#2f7d5a" stroke-width="1.5"/>
+  <text x="230" y="203" text-anchor="middle" fill="#cfe9bf" font-size="15" font-weight="600">1 · LIVENESS — reachable?</text>
+  <rect x="70" y="240" width="320" height="50" rx="10" fill="#12151200" stroke="#3a4a3e" stroke-width="1.5"/>
+  <text x="230" y="262" text-anchor="middle" fill="#e7efe3" font-size="13" font-weight="600">heartbeat</text>
+  <text x="230" y="280" text-anchor="middle" fill="#9aa39a" font-size="11">message · pty-byte · commit</text>
+  <line x1="230" y1="290" x2="230" y2="334" stroke="#5a6a5e" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <line x1="230" y1="290" x2="230" y2="386" stroke="#5a6a5e" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <line x1="230" y1="290" x2="230" y2="438" stroke="#5a6a5e" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <text x="120" y="330" text-anchor="end" fill="#9aa39a" font-size="11">recent</text>
+  <rect x="130" y="316" width="180" height="34" rx="17" fill="#10271b" stroke="#1ac270" stroke-width="1.5"/>
+  <text x="220" y="338" text-anchor="middle" fill="#1ac270" font-size="13" font-weight="600">● online</text>
+  <text x="120" y="382" text-anchor="end" fill="#9aa39a" font-size="11">stale &gt; T₁</text>
+  <rect x="130" y="368" width="180" height="34" rx="17" fill="#241a0d" stroke="#f0a020" stroke-width="1.5"/>
+  <text x="220" y="390" text-anchor="middle" fill="#f0a020" font-size="13" font-weight="600">● remote</text>
+  <text x="120" y="434" text-anchor="end" fill="#9aa39a" font-size="11">stale &gt; T₂</text>
+  <rect x="130" y="420" width="180" height="34" rx="17" fill="#16191600" stroke="#6b756b" stroke-width="1.5"/>
+  <text x="220" y="442" text-anchor="middle" fill="#9aa39a" font-size="13" font-weight="600">○ offline</text>
+
+  <!-- ===== ACTIVITY ===== -->
+  <rect x="465" y="178" width="380" height="38" rx="8" fill="#11201c" stroke="#2f7d5a" stroke-width="1.5"/>
+  <text x="655" y="203" text-anchor="middle" fill="#cfe9bf" font-size="15" font-weight="600">2 · ACTIVITY — doing?</text>
+  <rect x="485" y="240" width="340" height="64" rx="11" fill="#0f2a1d" stroke="#1ac270" stroke-width="2.5"/>
+  <text x="655" y="263" text-anchor="middle" fill="#eaffea" font-size="13" font-weight="700">CLI status-line STATE FILE</text>
+  <text x="655" y="280" text-anchor="middle" fill="#9aa39a" font-size="10">~/.ant/state/&lt;cli&gt;/&lt;sid&gt;.json · HIGH · 0 tokens</text>
+  <text x="655" y="295" text-anchor="middle" fill="#1ac270" font-size="10">+ hookEventStatusMapper (push)</text>
+  <line x1="655" y1="304" x2="655" y2="344" stroke="#5a6a5e" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <line x1="655" y1="304" x2="655" y2="396" stroke="#5a6a5e" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <text x="545" y="340" text-anchor="end" fill="#cfe9bf" font-size="11" font-family="ui-monospace,monospace">Working / PreToolUse</text>
+  <rect x="555" y="326" width="200" height="34" rx="17" fill="#10271b" stroke="#1ac270" stroke-width="1.5"/>
+  <text x="655" y="348" text-anchor="middle" fill="#1ac270" font-size="13" font-weight="600">● working</text>
+  <text x="545" y="392" text-anchor="end" fill="#cfe9bf" font-size="11" font-family="ui-monospace,monospace">Available / Waiting</text>
+  <rect x="555" y="378" width="200" height="34" rx="17" fill="#16191600" stroke="#6b756b" stroke-width="1.5"/>
+  <text x="655" y="400" text-anchor="middle" fill="#9aa39a" font-size="13" font-weight="600">○ idle</text>
+  <text x="655" y="446" text-anchor="middle" fill="#6b756b" font-size="11" font-style="italic">Two values only. \"requires-input\" is NOT here →</text>
+
+  <!-- ===== OPEN ASK ===== -->
+  <rect x="870" y="178" width="390" height="38" rx="8" fill="#211a10" stroke="#a87a2a" stroke-width="1.5"/>
+  <text x="1065" y="203" text-anchor="middle" fill="#f0d9a8" font-size="15" font-weight="600">3 · OPEN ASK — obligation?</text>
+  <rect x="890" y="240" width="350" height="64" rx="11" fill="#241a0d" stroke="#f0a020" stroke-width="2"/>
+  <text x="1065" y="262" text-anchor="middle" fill="#ffe6c2" font-size="12" font-weight="700">RAISE: CLI Response-needed / menuKind</text>
+  <text x="1065" y="280" text-anchor="middle" fill="#d8b98a" font-size="11">· persisted Ask row · promoted candidate</text>
+  <text x="1065" y="296" text-anchor="middle" fill="#f0a020" font-size="11" font-weight="600">→ ask = PENDING</text>
+  <line x1="1065" y1="304" x2="1065" y2="334" stroke="#5a6a5e" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <rect x="965" y="334" width="200" height="34" rx="17" fill="#241a0d" stroke="#f0a020" stroke-width="1.5"/>
+  <text x="1065" y="356" text-anchor="middle" fill="#f0a020" font-size="13" font-weight="600">⬤ ask: pending</text>
+  <text x="1065" y="392" text-anchor="middle" fill="#d8b98a" font-size="11" font-weight="600">LIFECYCLE — resolves when ANY:</text>
+  <g font-size="11" fill="#cfe9bf">
+    <text x="895" y="414">• answered by the asker</text>
+    <text x="895" y="432">• answered/handled by SOMEONE ELSE</text>
+    <text x="895" y="450">• superseded — conversation moved on (moot)</text>
+    <text x="895" y="468">• withdrawn / timed out</text>
+  </g>
+  <line x1="1065" y1="476" x2="1065" y2="500" stroke="#5a6a5e" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <rect x="965" y="500" width="200" height="32" rx="16" fill="#10271b" stroke="#1ac270" stroke-width="1.5"/>
+  <text x="1065" y="521" text-anchor="middle" fill="#1ac270" font-size="12" font-weight="600">○ ask: resolved</text>
+
+  <!-- ===== composition strip ===== -->
+  <rect x="40" y="556" width="1220" height="92" rx="10" fill="#10161300" stroke="#2f5a44" stroke-width="1.5"/>
+  <text x="60" y="579" fill="#cfe9bf" font-size="14" font-weight="600">The three compose independently — real ANT states:</text>
+  <g font-size="13">
+    <text x="60" y="606" fill="#d6ffe6">● online · ● working · ⬤ ask:pending</text><text x="360" y="606" fill="#6b756b">asked, now working on something else</text>
+    <text x="60" y="628" fill="#d6ffe6">● online · ○ idle · ⬤ ask:pending</text><text x="360" y="628" fill="#6b756b">asked, waiting on you</text>
+    <text x="720" y="606" fill="#d6ffe6">● remote · ○ idle · ○ ask:none</text><text x="990" y="606" fill="#6b756b">quiet, nothing pending</text>
+    <text x="720" y="628" fill="#d6ffe6">● online · ● working · ○ ask:none</text><text x="990" y="628" fill="#6b756b">heads-down, no obligation</text>
+  </g>
+
+  <rect x="40" y="660" width="1220" height="44" rx="9" fill="#1c0f0c" stroke="#c0533a" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text x="650" y="687" text-anchor="middle" fill="#e0866f" font-size="13">✗ Scraped TUI status text (raw PTY bytes) = MEDIUM trust — hides TUI chrome from chat, NEVER drives any dimension.</text>
+
+  <text x="650" y="742" text-anchor="middle" fill="#1ac270" font-size="14" font-style="italic" font-weight="600">Liveness ⟂ Activity ⟂ Open-ask. Each set only by confirmed signals; the ask is an obligation with its own lifecycle, not a slot on activity.</text>
+  <text x="650" y="768" text-anchor="middle" fill="#6b756b" font-size="11">CLI priority: Claude · Codex · Pi (first-class) → Qwen · Copilot · Antigravity (supported) · gemini deprecated · CLI-agnostic</text>
+  <text x="650" y="800" text-anchor="middle" fill="#8a938a" font-size="11">Surfacing (slide 9): when menuKind is set, surface the CLI's actual menu/question + options to answer — inbox / room / Ask-Once — not just a pill.</text>
+</svg>
