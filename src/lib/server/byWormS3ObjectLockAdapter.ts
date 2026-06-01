@@ -203,9 +203,12 @@ export class ByWormS3ObjectLockAdapter implements SinkAdapter {
 
   async health(): Promise<SinkHealth> {
     try {
-      // @ts-expect-error — @aws-sdk/client-s3 is an OPTIONAL peer dep loaded
-      // at runtime only when an S3 sink is configured; not installed by
-      // default, so the module specifier can't resolve at compile time.
+      // @ts-ignore — @aws-sdk/client-s3 is an OPTIONAL peer dep loaded at
+      // runtime only when an S3 sink is configured; not installed by
+      // default. Use @ts-ignore (not @ts-expect-error) because whether the
+      // dynamic import errors depends on the check env — with the dep
+      // absent TS may resolve it to `any` rather than erroring, which makes
+      // @ts-expect-error itself an unused-directive error (TS2578).
       const { HeadBucketCommand } = await import('@aws-sdk/client-s3');
       await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }));
       return { healthy: true };
@@ -233,7 +236,7 @@ export class ByWormS3ObjectLockAdapter implements SinkAdapter {
 
     let result: PutObjectCommandOutput;
     try {
-      // @ts-expect-error — optional peer dep, see health() note above.
+      // @ts-ignore — optional peer dep, see health() note above.
       const { PutObjectCommand } = await import('@aws-sdk/client-s3');
       result = (await this.client.send(
         new PutObjectCommand({
