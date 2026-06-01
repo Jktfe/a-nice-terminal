@@ -240,6 +240,9 @@
             {/if}
             <UsageBadge agentKind={agent.handle} usage={pageUsage} />
             <span class="reaction-badge">👍 {agent.stats.positiveReactions ?? 0}</span>
+            {#if agent.agentKind}
+              <span class="cli-badge">{agent.agentKind}{#if agent.model} · {agent.model}{/if}</span>
+            {/if}
           </div>
 
           <!-- Status row -->
@@ -251,6 +254,13 @@
             {#if agent.workspace}
               <span class="workspace">📁 {agent.workspace}</span>
             {/if}
+            <!-- Quick-nav to this terminal on the management page (stopPropagation
+                 so it navigates instead of toggling the card). -->
+            <a
+              class="goto-terminal"
+              href={`/terminals#term-${agent.sessionId}`}
+              onclick={(e) => e.stopPropagation()}
+            >go to terminal →</a>
           </div>
 
           <!-- Productivity score -->
@@ -490,6 +500,11 @@
   .handle-text { font-family: ui-monospace, monospace; font-size: 10px; color: var(--ink-muted); margin-left: auto; }
   .streak-badge { font-family: ui-monospace, monospace; font-size: 9px; padding: 1px 5px; border-radius: 3px; background: rgba(255, 107, 0, 0.1); border: 0.5px solid rgba(255, 107, 0, 0.25); color: #FF6B00; margin-left: auto; }
   .reaction-badge { font-family: ui-monospace, monospace; font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(26, 194, 112, 0.1); border: 0.5px solid rgba(26, 194, 112, 0.25); color: var(--ok); }
+  /* CLI + model tag — e.g. "claude · opus-4.8" / "codex". */
+  .cli-badge { font-family: ui-monospace, monospace; font-size: 10px; padding: 2px 6px; border-radius: 4px; background: var(--surface-raised); border: 0.5px solid var(--line-soft); color: var(--ink-muted); text-transform: lowercase; }
+  /* Quick-nav to this terminal on the management page. */
+  .goto-terminal { margin-left: auto; font-size: 10px; font-weight: 600; color: var(--accent); text-decoration: none; white-space: nowrap; }
+  .goto-terminal:hover { text-decoration: underline; }
   .status-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem; flex-wrap: wrap; }
   .status-pill { font-family: ui-monospace, monospace; font-size: 10.5px; padding: 2px 7px; border-radius: 4px; background: var(--surface-raised); border: 0.5px solid var(--line-soft); color: var(--ink-soft); white-space: nowrap; }
   .status-pill.working { background: rgba(26, 194, 112, 0.1); border-color: rgba(26, 194, 112, 0.25); color: var(--ok); }

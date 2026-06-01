@@ -323,7 +323,8 @@
                 <h5 class="model-subheading"><span class="model-marker">●</span>{subgroup.label}</h5>
                 <div class="chips">
                   {#each subgroup.records as record (record.sessionId)}
-                    <span class="chip-with-model">
+                    <!-- Anchor target for the /agents card "go to terminal" deep-link. -->
+                    <span class="chip-with-model" id={`term-${record.sessionId}`}>
                       <button
                         type="button"
                         class="chip ant-chip"

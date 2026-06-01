@@ -12,6 +12,7 @@
 import { getIdentityDb } from './db';
 import { listAgents, type AgentRegistryEntry, type AgentRoomMembership } from './agentRegistryStore';
 import { listTerminalRecords, deriveHandle } from './terminalRecordsStore';
+import { listTerminalModelsByIds } from './terminalsStore';
 import { defaultParticipantColor, defaultParticipantIcon } from './chatRoomStore';
 import { ALLOWED_REACTION_EMOJI } from '../reactions/canonicalEmoji';
 
@@ -32,6 +33,7 @@ export type FleetAgent = {
   sessionId: string;
   name: string;
   agentKind: string | null;
+  model: string | null;
   displayName: string;
   displayColor: string | null;
   displayIcon: string | null;
@@ -414,6 +416,7 @@ export function listFleetAgents(
   const registry = listAgents();
   const registryByHandle = new Map(registry.map((a) => [a.handle, a] as const));
   const collabByHandle = loadCollaborators(registry);
+  const modelById = listTerminalModelsByIds(records.map((r) => r.session_id));
   const handles = [...new Set(records.map((r) => r.handle ?? deriveHandle(r)))];
   const counts = aggregateCounts(handles, nowMs);
   const series = timeseriesByHandle(handles, nowMs);
@@ -438,6 +441,7 @@ export function listFleetAgents(
       sessionId: r.session_id,
       name: r.name,
       agentKind: r.agent_kind,
+      model: modelById.get(r.session_id) ?? null,
       displayName,
       displayColor: reg?.displayColor ?? defaultParticipantColor(handle),
       displayIcon: reg?.displayIcon ?? defaultParticipantIcon(displayName),
