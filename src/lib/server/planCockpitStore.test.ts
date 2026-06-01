@@ -196,4 +196,35 @@ describe('buildPlanCockpit', () => {
   it('returns null for a completely unknown plan', () => {
     expect(buildPlanCockpit('missing-plan')).toBeNull();
   });
+
+  it('renders unparented milestones in an Ungrouped phase so nothing counted is invisible', () => {
+    createPlan({ id: 'unparented-plan', title: 'Unparented', description: 'x', createdBy: '@you' });
+    appendPlanEvent(event({ plan_id: 'unparented-plan', id: 'sec-1', kind: 'plan_section', title: 'Section One', status: 'active', order: 1, ts_millis: 1_000 }));
+    appendPlanEvent(event({ plan_id: 'unparented-plan', id: 'ms-parented', kind: 'plan_milestone', parent_id: 'sec-1', milestone_id: 'p1', title: 'Parented MS', status: 'done', order: 1, ts_millis: 1_100 }));
+    // Unparented milestone (no parent_id) — the bug case: counts in the global
+    // total but previously rendered under no phase.
+    appendPlanEvent(event({ plan_id: 'unparented-plan', id: 'ms-orphan', kind: 'plan_milestone', milestone_id: 'orphan', title: 'Orphan MS', status: 'done', order: 0, ts_millis: 1_200 }));
+
+    const cockpit = buildPlanCockpit('unparented-plan');
+    // both milestones counted globally
+    expect(cockpit?.progress.milestones.total).toBe(2);
+    // the parented one stays under its real section
+    const sec = cockpit?.phases.find((p) => p.id === 'sec-1');
+    expect(sec?.milestones.map((m) => m.title)).toEqual(['Parented MS']);
+    // the orphan renders in an Ungrouped phase (visible, not silently dropped)
+    const ungrouped = cockpit?.phases.find((p) => p.id === '__ungrouped__');
+    expect(ungrouped?.milestones.map((m) => m.title)).toEqual(['Orphan MS']);
+    // and it shows in phase progress as real green
+    const ungroupedProgress = cockpit?.progress.phases.find((p) => p.id === '__ungrouped__');
+    expect(ungroupedProgress).toMatchObject({ total: 1, completed: 1 });
+  });
+
+  it('adds no Ungrouped phase when every milestone is parented to a real section', () => {
+    createPlan({ id: 'clean-plan', title: 'Clean', description: 'x', createdBy: '@you' });
+    appendPlanEvent(event({ plan_id: 'clean-plan', id: 'sec-a', kind: 'plan_section', title: 'A', status: 'active', order: 1, ts_millis: 1_000 }));
+    appendPlanEvent(event({ plan_id: 'clean-plan', id: 'ms-a', kind: 'plan_milestone', parent_id: 'sec-a', milestone_id: 'a', title: 'A1', status: 'done', order: 1, ts_millis: 1_100 }));
+
+    const cockpit = buildPlanCockpit('clean-plan');
+    expect(cockpit?.phases.find((p) => p.id === '__ungrouped__')).toBeUndefined();
+  });
 });

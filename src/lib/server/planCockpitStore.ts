@@ -208,6 +208,34 @@ export function buildPlanCockpit(planId: string): PlanCockpit | null {
     decisions: decisionsBySectionId.get(section.id) ?? []
   }));
 
+  // Render fallback (2026-06-01): a milestone whose parent_id matches no section
+  // (unparented, or parented to a stale id) was keyed under a bucket no phase
+  // reads, so it COUNTED in the global total but rendered under NO phase — the
+  // "phase shows 0% while work shipped" bug. Collect those into an explicit
+  // Ungrouped phase so nothing counted is ever invisible. (Correct section
+  // nesting for such milestones comes from re-posting with parent_id — the
+  // write-time `--parent` path; this is the safety net that guarantees the
+  // dashboard never silently drops a milestone. Order-based attachment was
+  // rejected: real plans carry unparented milestones all at order 0, so there
+  // is no reliable preceding-section sequence to walk.)
+  const renderedSectionIds = new Set(sections.map((section) => section.id));
+  const ungroupedMilestones = [...milestonesBySectionId.entries()]
+    .filter(([sectionKey]) => !renderedSectionIds.has(sectionKey))
+    .flatMap(([, list]) => list);
+  const ungroupedDecisions = [...decisionsBySectionId.entries()]
+    .filter(([sectionKey]) => !renderedSectionIds.has(sectionKey))
+    .flatMap(([, list]) => list);
+  if (ungroupedMilestones.length > 0 || ungroupedDecisions.length > 0) {
+    phases.push({
+      id: '__ungrouped__',
+      title: 'Ungrouped',
+      body: null,
+      status: null,
+      milestones: ungroupedMilestones,
+      decisions: ungroupedDecisions
+    });
+  }
+
   const phaseProgress = phases.map((phase) => {
     const total = phase.milestones.length;
     const completed = phase.milestones.filter((milestone) =>
