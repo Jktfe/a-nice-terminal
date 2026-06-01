@@ -129,9 +129,16 @@
   });
   const newestMessageId = $derived(messages.at(-1)?.id ?? '');
 
+  // Sticky-scroll threshold (NMT feedback A from @mark, hs9jv51zrh
+  // msg_qbfwu3yegs + msg_eh21iqcajn 2026-05-28). The previous 100px
+  // bound treated "scrolled up by one message" as still-at-bottom, so
+  // any newer arrival yanked Mark's feed back down even though he was
+  // clearly reading older content. 16px is the SAFE threshold — it
+  // tolerates sub-pixel rounding + sticky-composer overlap without
+  // claiming "still at bottom" for any meaningful scroll-up gesture.
   function isNearBottom(element: HTMLElement): boolean {
     const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
-    return distanceFromBottom < 100;
+    return distanceFromBottom < 16;
   }
 
   async function handleScroll() {
@@ -196,6 +203,18 @@
     countMessagesBelow(messages, lastSeenMessageIdAtBottom, shouldFollowBottom)
   );
 
+  // Own-message check (NMT feedback A Test 2 from @mark, 2026-05-28).
+  // When the viewer JUST sent a message, scroll-to-bottom regardless of
+  // sticky-scroll state — UX convention is that sending shows your own
+  // message immediately. Other senders only trigger auto-scroll when
+  // shouldFollowBottom is true (sticky-scroll respects scrolled-up
+  // readers).
+  const newestMessageIsOwn = $derived.by(() => {
+    const newest = messages.at(-1);
+    if (!newest || !asHandle) return false;
+    return newest.authorHandle === asHandle;
+  });
+
   // Track the previous newest-id so the unread-dispatch fires only on
   // an actual newest-message change (not on prop-init or list-length
   // tweaks like read-receipts). Persists across re-renders without a
@@ -203,7 +222,7 @@
   let lastNotifiedMessageId = '';
   $effect(() => {
     newestMessageId;
-    if (shouldFollowBottom) void scrollToBottom();
+    if (shouldFollowBottom || newestMessageIsOwn) void scrollToBottom();
     // Dispatch an unread-tab notification when a brand-new message
     // arrives. TabTitleUnread (mounted in +layout) increments the tab
     // counter while the tab is hidden; if the user is looking at the
