@@ -11,6 +11,8 @@
 
 import { getIdentityDb } from './db';
 import { listAgents, type AgentRegistryEntry, type AgentRoomMembership } from './agentRegistryStore';
+import { listTerminalRecords, deriveHandle } from './terminalRecordsStore';
+import { defaultParticipantColor, defaultParticipantIcon } from './chatRoomStore';
 import { ALLOWED_REACTION_EMOJI } from '../reactions/canonicalEmoji';
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -24,6 +26,12 @@ const POSITIVE_EMOJIS = ALLOWED_REACTION_EMOJI.filter((e) => e === '👌' || e =
 
 export type FleetAgent = {
   handle: string;
+  // Terminal identity — the fleet is TERMINAL-centric (one card per attached,
+  // non-archived terminal), so these distinguish terminals that share or lack
+  // a handle. `handle` falls back to the derived handle for handle-less rows.
+  sessionId: string;
+  name: string;
+  agentKind: string | null;
   displayName: string;
   displayColor: string | null;
   displayIcon: string | null;
@@ -353,37 +361,79 @@ function listLiveAttachedHandles(
   return out;
 }
 
+// Per-terminal agent_status (working / thinking / idle / response-required),
+// keyed by terminal session id — the terminal-centric analogue of
+// listLiveAttachedHandles (which keys by handle via room_memberships and so
+// can't see handle-less terminals).
+function loadTerminalStatuses(sessionIds: string[]): Map<string, HandleStatus> {
+  const out = new Map<string, HandleStatus>();
+  if (sessionIds.length === 0) return out;
+  const db = getIdentityDb();
+  const placeholders = sessionIds.map(() => '?').join(',');
+  const rows = db
+    .prepare(
+      `SELECT id, agent_status AS state, agent_status_at_ms AS at_ms
+       FROM terminals WHERE id IN (${placeholders})`
+    )
+    .all(...sessionIds) as Array<{ id: string; state: string | null; at_ms: number | null }>;
+  for (const r of rows) {
+    if (r.state) out.set(r.id, { state: r.state, atMs: r.at_ms ?? 0 });
+  }
+  return out;
+}
+
+// TERMINAL-centric fleet (JWPK 2026-06-01): show EVERY attached, non-archived
+// terminal — not just registry agents with a live LOCAL pty, which was an
+// inner-join that hid remote + handle-less terminals (7-of-2 / 18-of-2 bug).
+// Inclusion = pane-bound (attached) + not superseded + alive (live session).
+// Excludes unattached (no pane / browser-bs) + archived (pane gone / superseded).
+// Each terminal is badged with its live agent_status. Stats/rooms are layered
+// in by handle where the terminal's handle is a registered agent; handle-less
+// terminals still appear (with a derived handle + zeroed stats).
 export function listFleetAgents(
   liveSessionIds: ReadonlySet<string>,
   nowMs: number = Date.now()
 ): FleetAgent[] {
-  const liveHandles = listLiveAttachedHandles(nowMs, liveSessionIds);
-  const agents = listAgents().filter((a) => liveHandles.has(a.handle));
-  const handles = agents.map((a) => a.handle);
+  const records = listTerminalRecords().filter(
+    (r) =>
+      r.tmux_target_pane !== null &&
+      r.superseded_at_ms === null &&
+      liveSessionIds.has(r.session_id)
+  );
 
+  const registryByHandle = new Map(listAgents().map((a) => [a.handle, a] as const));
+  const termStatuses = loadTerminalStatuses(records.map((r) => r.session_id));
+  const handles = [...new Set(records.map((r) => r.handle ?? deriveHandle(r)))];
   const counts = aggregateCounts(handles, nowMs);
   const series = timeseriesByHandle(handles, nowMs);
   const workspaces = loadHandleWorkspaces(handles);
-  const collaborators = loadCollaborators(agents);
 
-  return agents.map((a) => {
-    const c = counts.get(a.handle) ?? emptyCounts();
-    const s = series.get(a.handle) ?? {
+  return records.map((r) => {
+    const handle = r.handle ?? deriveHandle(r);
+    const displayName = r.name || handle;
+    const reg = registryByHandle.get(handle);
+    const c = counts.get(handle) ?? emptyCounts();
+    const s = series.get(handle) ?? {
       sparkline: new Array(SPARKLINE_HOURS).fill(0),
       heatmap: new Array(HEATMAP_DAYS).fill(0),
     };
-    const liveStatus = liveHandles.get(a.handle) ?? null;
+    // Live terminal → its agent_status (default idle); never null here since
+    // every record in this list is alive.
+    const st = termStatuses.get(r.session_id);
     return {
-      handle: a.handle,
-      displayName: a.displayName,
-      displayColor: a.displayColor,
-      displayIcon: a.displayIcon,
-      displayBackgroundStyle: a.displayBackgroundStyle,
-      rooms: a.rooms,
+      handle,
+      sessionId: r.session_id,
+      name: r.name,
+      agentKind: r.agent_kind,
+      displayName,
+      displayColor: reg?.displayColor ?? defaultParticipantColor(handle),
+      displayIcon: reg?.displayIcon ?? defaultParticipantIcon(displayName),
+      displayBackgroundStyle: reg?.displayBackgroundStyle ?? null,
+      rooms: reg?.rooms ?? [],
       pastRooms: [],
-      collaborators: collaborators.get(a.handle) ?? [],
-      status: liveStatus ? { state: liveStatus.state, atMs: liveStatus.atMs } : null,
-      workspace: workspaces.get(a.handle) ?? null,
+      collaborators: [],
+      status: st ? { state: st.state, atMs: st.atMs } : { state: 'idle', atMs: nowMs },
+      workspace: workspaces.get(handle) ?? null,
       productivityScore: computeProductivityScore(c),
       deliveryRate: computeDeliveryRate(c),
       streakDays: computeStreakDays(s.heatmap),
