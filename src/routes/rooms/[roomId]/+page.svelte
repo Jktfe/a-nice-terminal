@@ -31,7 +31,7 @@
   import RoomDetailLeftPane from '$lib/components/RoomDetailLeftPane.svelte';
   import { roomSidePanelPins } from '$lib/stores/roomSidePanelPins.svelte';
   import RoomDigestPanel from '$lib/components/RoomDigestPanel.svelte';
-  import AgentStatusFooter from '$lib/components/AgentStatusFooter.svelte';
+  import RoomCardActivity from '$lib/components/RoomCardActivity.svelte';
   import RoomDetailContextRail from '$lib/components/RoomDetailContextRail.svelte';
   import RoomDetailMemberSheet from '$lib/components/RoomDetailMemberSheet.svelte';
   import RoomDetailMoreMenu from '$lib/components/RoomDetailMoreMenu.svelte';
@@ -434,6 +434,7 @@
       {#if realtimeStatus}
         <RealtimeStatusIndicator store={realtimeStatus} />
       {/if}
+      <RoomCardActivity roomId={roomFromServer.id} />
     {/snippet}
     {#snippet menu()}
       <RoomMenuDropdown summary="More" innerIds={['participants', 'responders', 'focus', 'asks', 'plans', 'tasks', 'linked-rooms', 'interviews', 'artefacts', 'screenshots', 'memory', 'attachments']}>
@@ -523,7 +524,6 @@
       onClearReplyingTo={clearReplyingTo}
       {lastOwnEditableMessage}
     />
-    <AgentStatusFooter roomId={roomFromServer.id} />
   </div>
 
   {#if agentEventsFromServer.length > 0}
