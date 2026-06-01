@@ -78,5 +78,6 @@ node_modules
 docs/
 agents-pitch/
 POSITIONING.md
+_pending-slices/
 .claude/
 test-api.cjs
