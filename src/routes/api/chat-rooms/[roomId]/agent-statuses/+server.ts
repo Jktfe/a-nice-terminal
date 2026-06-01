@@ -16,6 +16,7 @@ import type { RequestHandler } from './$types';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { getIdentityDb } from '$lib/server/db';
 import { projectEffectiveAgentStatus } from '$lib/server/effectiveAgentStatus';
+import { hasResponseRequiredAsksForHandle } from '$lib/server/askStore';
 import type { AgentStatus as StoredAgentStatus, AgentStatusSource } from '$lib/server/agentStatusStore';
 
 type AgentStatus = StoredAgentStatus | 'unknown';
@@ -107,10 +108,23 @@ export const GET: RequestHandler = ({ params }) => {
     ) {
       contextFill = row.agent_context_fill;
     }
+    // Open-ask axis (three-axis model, 2026-06-01): "needs you" is ORTHOGONAL
+    // to activity — an agent can be working AND awaiting input, or idle AND
+    // awaiting input. Signal = the CLI reporting response-required (menuKind /
+    // "Response needed") OR a persisted Ask targeted at this handle that is
+    // still open. Surfaced as a SEPARATE field so the UI renders it as an
+    // independent "needs you" badge, not a value on the activity pill. Additive
+    // + non-breaking: `status` is unchanged for legacy readers. Confirmed-only
+    // (never inferred from prose); resolves when the ask is answered-by-anyone
+    // / superseded (askStore status leaves 'open').
+    const openAsk =
+      (row ? effective.agent_status === 'response-required' : false) ||
+      hasResponseRequiredAsksForHandle(handle);
     return {
       handle,
       status: row ? effective.agent_status : 'unknown',
       statusAtMs: row ? effective.agent_status_at_ms : null,
+      openAsk,
       uptimeMs,
       contextFill,
       // Phase C2 (0.1.13): surface terminals.status so the participants

@@ -100,4 +100,28 @@ describe('GET /api/chat-rooms/:roomId/agent-statuses', () => {
     expect(payload.statuses).toHaveLength(1);
     expect(payload.statuses[0].lifecycleStatus).toBeNull();
   });
+
+  it('surfaces openAsk=true when the CLI reports response-required (separate axis)', async () => {
+    const room = createChatRoom({ name: 'openask-room', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@agent' });
+    const terminal = upsertTerminal({ pid: 2002, pid_start: 'p2', name: 'agent-term' });
+    addMembership({ room_id: room.id, handle: '@agent', terminal_id: terminal.id });
+    setAgentStatus({ terminalId: terminal.id, newStatus: 'response-required', source: 'hook' });
+
+    const response = await callGet(room.id);
+    const payload = await response.json();
+    expect(payload.statuses[0].openAsk).toBe(true);
+  });
+
+  it('openAsk=false for a plain working agent with no open ask', async () => {
+    const room = createChatRoom({ name: 'noask-room', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@agent' });
+    const terminal = upsertTerminal({ pid: 3003, pid_start: 'p3', name: 'agent-term' });
+    addMembership({ room_id: room.id, handle: '@agent', terminal_id: terminal.id });
+    setAgentStatus({ terminalId: terminal.id, newStatus: 'working', source: 'hook' });
+
+    const response = await callGet(room.id);
+    const payload = await response.json();
+    expect(payload.statuses[0].openAsk).toBe(false);
+  });
 });
