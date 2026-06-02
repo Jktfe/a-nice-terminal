@@ -41,7 +41,7 @@ import { bootstrapV02Identity, normaliseV02Handle } from '$lib/server/v02Registe
 import { getLiveAgentByHandle } from '$lib/server/v02AgentsStore';
 import { validateHandleForRegistration } from '$lib/server/handleValidation';
 import { findActiveTerminalRecordByHandle } from '$lib/server/terminalRecordsStore';
-import { ensureSession } from '$lib/server/antSessionStore';
+import { ensureSession, SessionAdoptionRefused } from '$lib/server/antSessionStore';
 
 const VALID_AGENT_KINDS_LIST = Array.from(AGENT_KINDS_CLIENT_INPUT).join(', ');
 
@@ -271,7 +271,22 @@ export const POST: RequestHandler = async ({ request }) => {
     typeof sessionTokenRaw === 'string' && sessionTokenRaw.trim().length > 0
       ? sessionTokenRaw.trim()
       : terminal.id;
-  const antSession = ensureSession(sessionToken, { kind: 'local-cli', label: terminal.name });
+  // Bind the durable session to THIS terminal (anti-adoption anchor): a caller
+  // re-presenting a known token from a different terminal is refused, and the
+  // post-path requires the caller's pidChain to resolve to this terminal.
+  let antSession;
+  try {
+    antSession = ensureSession(sessionToken, {
+      kind: 'local-cli',
+      label: terminal.name,
+      terminalId: terminal.id
+    });
+  } catch (e) {
+    if (e instanceof SessionAdoptionRefused) {
+      throw error(409, 'sessionToken is bound to a different terminal — refusing to adopt another terminal\'s session.');
+    }
+    throw e;
+  }
   const updateKindValue = agentKindValue !== null
     ? agentKindValue : (existed ? (existing?.agent_kind ?? null) : null);
   if (paneValue) updatePaneTarget(terminal.id, paneValue, updateKindValue);
