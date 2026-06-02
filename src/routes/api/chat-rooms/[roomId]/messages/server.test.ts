@@ -27,6 +27,13 @@ import {
   markMessageRead,
   resetMessageReadReceiptStoreForTests
 } from '$lib/server/messageReadReceiptStore';
+import { createSession } from '$lib/server/antSessionStore';
+import {
+  createRoomHandleLease,
+  findRoomHandleOwnerAtTime
+} from '$lib/server/roomHandleLeaseStore';
+import { setRoomPolicy } from '$lib/server/roomPolicyStore';
+import { resolveCurrentOwner } from '$lib/server/roomIdentityResolver';
 
 type CallOptions = { roomId: string; body?: string; cookie?: string; headers?: Record<string, string> };
 
@@ -603,6 +610,101 @@ describe('POST /api/chat-rooms/:roomId/messages IDENTITY-GATE-POSTS (transition 
     });
     expect(response.status).toBe(403);
     expect(listMessagesInRoom(room.id)).toHaveLength(0);
+  });
+
+  it('durable session posting to an open room auto-joins and stamps the leased handle', async () => {
+    const room = createChatRoom({ name: 'durable-open-auto-join', whoCreatedIt: '@you' });
+    setRoomPolicy(room.id, { joinPolicy: 'open', readPolicy: 'open' });
+    const session = createSession({ kind: 'local-cli', label: 'macxeno' });
+
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({
+        body: 'hello from a durable session',
+        authorHandle: '@macxeno',
+        sessionId: session.id
+      })
+    });
+
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload.message.authorHandle).toBe('@macxeno');
+    expect(resolveCurrentOwner(room.id, '@macxeno')?.session.id).toBe(session.id);
+  });
+
+  it('durable session posting to an open room receives the next free handle when preferred is taken', async () => {
+    const room = createChatRoom({ name: 'durable-open-collision', whoCreatedIt: '@you' });
+    setRoomPolicy(room.id, { joinPolicy: 'open', readPolicy: 'open' });
+    const existing = createSession({ kind: 'local-cli', label: 'existing-macxeno' });
+    const joining = createSession({ kind: 'local-cli', label: 'new-macxeno' });
+    createRoomHandleLease({
+      roomId: room.id,
+      sessionId: existing.id,
+      handle: '@macxeno',
+      createdFrom: 'test-existing'
+    });
+
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({
+        body: 'collision should suffix',
+        authorHandle: '@macxeno',
+        sessionId: joining.id
+      })
+    });
+
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload.message.authorHandle).toBe('@macxeno2');
+    expect(resolveCurrentOwner(room.id, '@macxeno')?.session.id).toBe(existing.id);
+    expect(resolveCurrentOwner(room.id, '@macxeno2')?.session.id).toBe(joining.id);
+  });
+
+  it('durable session posting to a non-open room without a lease is rejected', async () => {
+    const room = createChatRoom({ name: 'durable-invite-reject', whoCreatedIt: '@you' });
+    const session = createSession({ kind: 'local-cli', label: 'blocked-agent' });
+
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({
+        body: 'should not enter invite room',
+        authorHandle: '@blocked-agent',
+        sessionId: session.id
+      })
+    });
+
+    expect(response.status).toBe(403);
+    expect(listMessagesInRoom(room.id)).toHaveLength(0);
+    expect(findRoomHandleOwnerAtTime({
+      roomId: room.id,
+      handle: '@blocked-agent',
+      atMs: Date.now()
+    })).toBeNull();
+  });
+
+  it('durable session with an existing lease posts without minting a suffix', async () => {
+    const room = createChatRoom({ name: 'durable-existing-member', whoCreatedIt: '@you' });
+    const session = createSession({ kind: 'local-cli', label: 'member-agent' });
+    createRoomHandleLease({
+      roomId: room.id,
+      sessionId: session.id,
+      handle: '@member-agent',
+      createdFrom: 'test-existing-member'
+    });
+
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({
+        body: 'existing member post',
+        authorHandle: '@member-agent',
+        sessionId: session.id
+      })
+    });
+
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload.message.authorHandle).toBe('@member-agent');
+    expect(resolveCurrentOwner(room.id, '@member-agent')?.session.id).toBe(session.id);
   });
 
   it('pidChain present but no matching terminal in DB: rejects without fallback', async () => {
