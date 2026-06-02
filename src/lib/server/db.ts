@@ -2376,6 +2376,31 @@ const V02_SCHEMA_DDL_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_memberships_agent
      ON memberships (agent_id)`,
 
+  // room_handle_leases — room-scoped handle ownership history.
+  // A durable session/agent can hold a handle in a room for a period of
+  // time, then leave and free that handle for reuse. Old messages keep a
+  // snapshot of the lease and render retired owners with a suffix such as
+  // @fast#1, while the new active owner renders as @fast. This is the
+  // explicit lease object from JWPK Heroes msg_z1fc79412i + msg_qf1r6vbljb.
+  `CREATE TABLE IF NOT EXISTS room_handle_leases (
+    lease_id          TEXT PRIMARY KEY,
+    room_id           TEXT NOT NULL,
+    session_id        TEXT NOT NULL,
+    handle            TEXT NOT NULL,
+    active_from_ms    INTEGER NOT NULL,
+    active_until_ms   INTEGER,
+    retired_suffix    INTEGER,
+    created_from      TEXT
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_room_handle_leases_active_handle
+     ON room_handle_leases (room_id, handle) WHERE active_until_ms IS NULL`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_room_handle_leases_active_session
+     ON room_handle_leases (room_id, session_id) WHERE active_until_ms IS NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_room_handle_leases_session_room
+     ON room_handle_leases (session_id, room_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_room_handle_leases_room_handle
+     ON room_handle_leases (room_id, handle, active_from_ms)`,
+
   // M9d cut-over: per-room presentation columns mirrored from the
   // legacy chat_room_members table (display_color / display_icon /
   // display_background_style / member_kind + room_display_name).
