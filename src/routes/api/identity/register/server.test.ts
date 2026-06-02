@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { POST } from './+server';
 import { getIdentityDb, resetIdentityDbForTests } from '$lib/server/db';
+import { getSession } from '$lib/server/antSessionStore';
 import {
   getTerminalById,
   getTerminalByName,
@@ -111,6 +112,41 @@ describe('POST /api/identity/register', () => {
     const firstPayload = await first.json();
     const secondPayload = await second.json();
     expect(secondPayload.terminal_id).toBe(firstPayload.terminal_id);
+  });
+
+  // ACTIVATION (Simplify & Harden lane A): register populates the durable
+  // ant_sessions layer (was 0/dormant on live) + returns the session id.
+  it('register POPULATES a durable session and returns session_id', async () => {
+    const response = await callPost(JSON.stringify({
+      name: 'activate-test', pids: [{ pid: 4242, pid_start: 's' }], source: 'test'
+    }));
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload.session_id).toBeTruthy();
+    // the durable session actually exists (no longer dormant)
+    expect(getSession(payload.session_id)).not.toBeNull();
+    expect(getSession(payload.session_id)!.kind).toBe('local-cli');
+  });
+
+  it('re-register on the same name resolves the SAME durable session (stable, not pid-derived)', async () => {
+    const body = JSON.stringify({ name: 'stable-test', pids: [{ pid: 1, pid_start: 'a' }] });
+    const first = await (await callPost(body)).json();
+    // re-register with a DIFFERENT pid_start (the day-roll/restart that used to 403)
+    const restart = JSON.stringify({ name: 'stable-test', pids: [{ pid: 1, pid_start: 'DIFFERENT' }] });
+    const second = await (await callPost(restart)).json();
+    expect(second.session_id).toBe(first.session_id); // same identity across pid change
+  });
+
+  it('honours a client-supplied sessionToken (durable across restart even if terminal id changed)', async () => {
+    const tok = 'client-persisted-token-xyz';
+    const a = await (await callPost(JSON.stringify({
+      name: 'tok-a', pids: [{ pid: 1, pid_start: 'a' }], sessionToken: tok
+    }))).json();
+    const b = await (await callPost(JSON.stringify({
+      name: 'tok-b', pids: [{ pid: 2, pid_start: 'b' }], sessionToken: tok
+    }))).json();
+    expect(a.session_id).toBe(tok);
+    expect(b.session_id).toBe(tok); // same token -> same durable identity regardless of terminal
   });
 
   // M3.2d: client-input agent_kind validation rejects unknown/remote/browser/bogus.
