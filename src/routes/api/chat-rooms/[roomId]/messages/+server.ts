@@ -553,6 +553,14 @@ function resolveAntSessionAuthor(
     rejectMessageIdentity(roomId, 'ANT session id does not resolve.');
   }
 
+  // SECURITY (half 2): a session id is NOT a bearer credential. Require the
+  // caller's pidChain to resolve to the terminal this session is bound to, so a
+  // stolen/guessed/adopted session id alone can't post as its owner. Fail-closed.
+  const callerTerminal = lookupTerminalByPidChain(parsePidChainFromBody(rawBody));
+  if (!session.terminal_id || !callerTerminal || callerTerminal.id !== session.terminal_id) {
+    rejectMessageIdentity(roomId, 'ANT session id does not match the calling terminal.');
+  }
+
   const preferredHandle = clientAuthorHandle ?? session.label ?? session.id;
   const currentOwner = resolveCurrentOwner(roomId, preferredHandle);
   if (currentOwner?.session.id === session.id) {
