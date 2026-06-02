@@ -111,10 +111,16 @@
     bottom: 0.3rem;
     right: 0.6rem;
     display: inline-flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
     align-items: center;
     gap: 0.4rem;
     z-index: 2;
   }
+  /* JWPK msg_l7e12tm2hh: copy was stacking under the react button — force it
+     to the left of the strip + keep the strip a single nowrap row so copy and
+     react sit side-by-side, copy on the left. */
+  .copy-btn { order: -1; }
   /* Copy button — small + quiet by default; lights up when copied.
      JWPK msg_pge4o6wurl 2026-05-27. Sits between the claim bar and
      reactions bar so it reads as message-level, not claim/reaction-
