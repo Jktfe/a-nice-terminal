@@ -10,6 +10,7 @@
   import RenameRoomHeaderForm from './RenameRoomHeaderForm.svelte';
   import EditRoomDescriptionForm from './EditRoomDescriptionForm.svelte';
   import BringInAppRow from './BringInAppRow.svelte';
+  import RoomPolicyBadge from './RoomPolicyBadge.svelte';
 
   type Props = {
     roomId: string;
@@ -54,6 +55,10 @@
       {showRenameForm ? '×' : '✎'}
     </button>
     <h1 id="roomNameHeading">{roomName}</h1>
+    <!-- Workstream-C DISPLAY: two-axis room policy posture, sat next to the
+         realtime/activity status slot. Read-only; consumes A's getRoomPolicy
+         via the /policy endpoint (no policy logic in the client). -->
+    <span class="policy-slot"><RoomPolicyBadge {roomId} /></span>
     {#if status}
       <span class="status-slot">{@render status()}</span>
     {/if}
@@ -126,6 +131,17 @@
     margin-left: auto;
     display: inline-flex;
     align-items: center;
+  }
+  /* Policy badge sits just after the title. When a status slot follows, the
+     status slot's margin-left:auto pushes itself + the menu to the trailing
+     edge, leaving the policy badge hugging the room name. When no status slot
+     is present, the policy badge takes the auto-margin to the trailing edge. */
+  .policy-slot {
+    display: inline-flex;
+    align-items: center;
+  }
+  .title-row > .policy-slot:not(:has(~ .status-slot)) {
+    margin-left: auto;
   }
   .title-row :global(.status-slot) + :global(.room-menu-dropdown) {
     margin-left: 0.5rem;
