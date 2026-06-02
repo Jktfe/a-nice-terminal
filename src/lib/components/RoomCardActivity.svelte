@@ -95,6 +95,14 @@
     return status;
   }
 
+  // DISPLAY IDENTITY INVARIANT (workstream-C, room-identity hardening):
+  // the pill's identity is ALWAYS entry.handle — the identity field the
+  // /agent-statuses feed projects from room_memberships.handle, which the
+  // server resolves via the lease -> durable-session resolver, never the
+  // runtime pid. This component must NOT infer identity from a pid and must
+  // NOT reimplement lease lookup in Svelte; it consumes the already-resolved
+  // handle. ('pid-cpu' appears only as a STATUS-SOURCE label below — the
+  // provenance of the activity reading, not the source of identity.)
   function shortHandle(handle: string): string {
     return handle.startsWith('@') ? handle.slice(1) : handle;
   }
