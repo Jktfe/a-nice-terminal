@@ -15,6 +15,7 @@
  */
 
 import { processIdentityChain } from './ant-cli-identity-chain.mjs';
+import { persistAntSessionBindingToConfig } from './ant-cli-config-write.mjs';
 
 const PARSE_TTL_PATTERN = /^(\d+)(s|m|h)?$/;
 const DEFAULT_TTL_SECONDS = 12 * 60 * 60;
@@ -211,6 +212,7 @@ export async function runRegister(runtime) {
           return 1;
         }
         const retryBody = await retryResp.json();
+        persistRegisterSessionBindingBestEffort(runtime, retryBody, { pane: detectedPane, name });
         runtime.writeOut(`Registered ${retryBody.name} as ${retryBody.terminal_id} (fresh-ANT)`);
         if (flags['mirror-v3'] !== undefined) {
           await mirrorToV3BestEffort(runtime, registerBody);
@@ -238,12 +240,27 @@ export async function runRegister(runtime) {
     return 1;
   }
   const primaryBody = await primaryResp.json();
+  persistRegisterSessionBindingBestEffort(runtime, primaryBody, { pane: detectedPane, name });
   runtime.writeOut(`Registered ${primaryBody.name} as ${primaryBody.terminal_id} (fresh-ANT)`);
 
   if (flags['mirror-v3'] !== undefined) {
     await mirrorToV3BestEffort(runtime, registerBody);
   }
   return 0;
+}
+
+function persistRegisterSessionBindingBestEffort(runtime, responseBody, context) {
+  const sessionId = typeof responseBody?.session_id === 'string' ? responseBody.session_id : null;
+  if (!sessionId) return;
+  const result = persistAntSessionBindingToConfig({
+    sessionId,
+    pane: context.pane,
+    terminalName: context.name,
+    homeDir: runtime.homeDir
+  });
+  if (!result.ok && typeof runtime.writeErr === 'function') {
+    runtime.writeErr(`Warning: register returned session_id but could not persist it: ${result.error}`);
+  }
 }
 
 async function mirrorToV3BestEffort(runtime, registerBody) {

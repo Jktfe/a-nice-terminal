@@ -172,6 +172,82 @@ export function readRoomTokenEntry(roomId, homeDir) {
   return (entry && typeof entry === 'object') ? entry : null;
 }
 
+function normaliseSessionId(sessionId) {
+  return typeof sessionId === 'string' && sessionId.trim().length > 0
+    ? sessionId.trim()
+    : null;
+}
+
+function normalisePane(pane) {
+  return typeof pane === 'string' && pane.trim().length > 0 ? pane.trim() : null;
+}
+
+function normaliseTerminalName(name) {
+  return typeof name === 'string' && name.trim().length > 0 ? name.trim() : null;
+}
+
+function normaliseAntSessions(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  return {
+    byPane: source.byPane && typeof source.byPane === 'object' && !Array.isArray(source.byPane)
+      ? { ...source.byPane }
+      : {},
+    byName: source.byName && typeof source.byName === 'object' && !Array.isArray(source.byName)
+      ? { ...source.byName }
+      : {}
+  };
+}
+
+/**
+ * Persist the durable session returned by /api/identity/register without using
+ * one global value. Several live agents share ~/.ant/config.json on the same
+ * machine, so a top-level ant_session_id would make every terminal claim the
+ * last registered identity. Pane/name scoped bindings keep the value local to
+ * the terminal that registered.
+ */
+export function persistAntSessionBindingToConfig(options) {
+  const sessionId = normaliseSessionId(options?.sessionId);
+  if (!sessionId) return { ok: false, error: 'sessionId required' };
+  const pane = normalisePane(options?.pane);
+  const terminalName = normaliseTerminalName(options?.terminalName);
+  if (!pane && !terminalName) {
+    return { ok: false, error: 'pane or terminalName required' };
+  }
+  const configPath = configFilePath(options?.homeDir);
+  try {
+    const config = readExistingConfig(configPath);
+    const antSessions = normaliseAntSessions(config.antSessions);
+    if (pane) antSessions.byPane[pane] = sessionId;
+    if (terminalName) antSessions.byName[terminalName] = sessionId;
+    const nextConfig = { ...config, antSessions };
+    writeAtomic(configPath, JSON.stringify(nextConfig, null, 2));
+    return { ok: true, path: configPath };
+  } catch (cause) {
+    return {
+      ok: false,
+      error: cause instanceof Error ? cause.message : String(cause)
+    };
+  }
+}
+
+export function readAntSessionBindingFromConfig(options = {}) {
+  const configPath = configFilePath(options.homeDir);
+  if (!existsSync(configPath)) return null;
+  const config = readExistingConfig(configPath);
+  const antSessions = normaliseAntSessions(config.antSessions);
+  const pane = normalisePane(options.pane);
+  if (pane) {
+    const byPane = normaliseSessionId(antSessions.byPane[pane]);
+    if (byPane) return byPane;
+  }
+  const terminalName = normaliseTerminalName(options.terminalName);
+  if (terminalName) {
+    const byName = normaliseSessionId(antSessions.byName[terminalName]);
+    if (byName) return byName;
+  }
+  return null;
+}
+
 /** Test-only helper exposing the resolved path for assertions. */
 export function _configFilePathForTests(homeDir) {
   return configFilePath(homeDir);

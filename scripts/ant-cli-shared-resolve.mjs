@@ -73,8 +73,8 @@ function chatRoomsListUrl(runtime) {
 
 /** Helper for runtimes that may not have writeOut/writeErr (defensive). */
 export function makeStandardSendJson(runtime) {
-  return async function sendJson(path, method, body) {
-    const init = { method, headers: { 'content-type': 'application/json' } };
+  return async function sendJson(path, method, body, extraHeaders = {}) {
+    const init = { method, headers: { 'content-type': 'application/json', ...extraHeaders } };
     if (body !== undefined) init.body = JSON.stringify(body);
     const response = await runtime.fetchImpl(`${runtime.serverUrl}${path}`, init);
     if (!response.ok) {

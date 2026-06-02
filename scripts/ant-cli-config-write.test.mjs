@@ -12,6 +12,8 @@ import { join } from 'node:path';
 import {
   persistRoomTokenToConfig,
   readRoomTokenEntry,
+  persistAntSessionBindingToConfig,
+  readAntSessionBindingFromConfig,
   _configFilePathForTests
 } from './ant-cli-config-write.mjs';
 
@@ -217,5 +219,54 @@ describe('readRoomTokenEntry', () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'config.json'), 'garbage');
     expect(readRoomTokenEntry('r_x', scratchHome)).toBeNull();
+  });
+});
+
+describe('persistAntSessionBindingToConfig', () => {
+  it('persists durable sessions by pane and terminal name, not as one shared global id', () => {
+    const result = persistAntSessionBindingToConfig({
+      sessionId: 'sess-terminal-a',
+      pane: '%a',
+      terminalName: 'terminal-a',
+      homeDir: scratchHome
+    });
+    expect(result.ok).toBe(true);
+    const raw = JSON.parse(readFileSync(join(scratchHome, '.ant', 'config.json'), 'utf8'));
+    expect(raw.antSessions.byPane['%a']).toBe('sess-terminal-a');
+    expect(raw.antSessions.byName['terminal-a']).toBe('sess-terminal-a');
+    expect(raw.ant_session_id).toBeUndefined();
+    expect(raw.sessionId).toBeUndefined();
+  });
+
+  it('preserves existing token config while adding terminal-scoped sessions', () => {
+    seedExistingConfig({
+      tokens: { r_keep: { token: 'tok_keep' } },
+      serverUrl: 'https://server.example'
+    });
+    persistAntSessionBindingToConfig({
+      sessionId: 'sess-b',
+      pane: '%b',
+      homeDir: scratchHome
+    });
+    const raw = JSON.parse(readFileSync(join(scratchHome, '.ant', 'config.json'), 'utf8'));
+    expect(raw.tokens.r_keep.token).toBe('tok_keep');
+    expect(raw.serverUrl).toBe('https://server.example');
+    expect(raw.antSessions.byPane['%b']).toBe('sess-b');
+  });
+
+  it('reads pane first, then terminal name', () => {
+    seedExistingConfig({
+      antSessions: {
+        byPane: { '%pane': 'sess-pane' },
+        byName: { named: 'sess-name' }
+      }
+    });
+    expect(readAntSessionBindingFromConfig({ pane: '%pane', terminalName: 'named', homeDir: scratchHome })).toBe('sess-pane');
+    expect(readAntSessionBindingFromConfig({ terminalName: 'named', homeDir: scratchHome })).toBe('sess-name');
+  });
+
+  it('rejects missing session id or missing terminal scope', () => {
+    expect(persistAntSessionBindingToConfig({ sessionId: '', pane: '%x', homeDir: scratchHome }).ok).toBe(false);
+    expect(persistAntSessionBindingToConfig({ sessionId: 'sess-x', homeDir: scratchHome }).ok).toBe(false);
   });
 });

@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { handleRegisterVerb, handleAddVerb, handleResolveVerb, chooseRegisterPidChain } from './ant-cli-register.mjs';
 
 class CliInputError extends Error {}
@@ -46,6 +49,15 @@ function makeRuntime(responseQueue, runtimeOverrides = {}) {
 }
 
 describe('handleRegisterVerb', () => {
+  let scratchHome;
+
+  afterEach(() => {
+    if (scratchHome) {
+      rmSync(scratchHome, { recursive: true, force: true });
+      scratchHome = undefined;
+    }
+  });
+
   it('posts pids + name to /api/identity/register and prints the terminal id', async () => {
     const { runtime, captured } = makeRuntime([
       okJson({ terminal_id: 't_abc', name: 'claude2-main', expires_at: 99 })
@@ -75,6 +87,20 @@ describe('handleRegisterVerb', () => {
     expect(code).toBe(0);
     expect(captured.calls.length).toBe(1);
     expect(captured.calls[0].url).not.toContain(':6458');
+  });
+
+  it('persists returned session_id as a terminal-scoped binding after register', async () => {
+    scratchHome = mkdtempSync(join(tmpdir(), 'ant-cli-register-session-'));
+    const { runtime } = makeRuntime(
+      [okJson({ terminal_id: 't_session', name: 'SessionTerm', expires_at: 1, session_id: 'sess-returned' })],
+      { envTmuxPane: '%session-pane', homeDir: scratchHome }
+    );
+    const code = await handleRegisterVerb('--handle', ['@session', '--name', 'SessionTerm'], runtime, { CliInputError });
+    expect(code).toBe(0);
+    const raw = JSON.parse(readFileSync(join(scratchHome, '.ant', 'config.json'), 'utf8'));
+    expect(raw.antSessions.byPane['%session-pane']).toBe('sess-returned');
+    expect(raw.antSessions.byName.SessionTerm).toBe('sess-returned');
+    expect(raw.ant_session_id).toBeUndefined();
   });
 
   it('throws CliInputError when --name is missing', async () => {
