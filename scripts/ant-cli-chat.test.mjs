@@ -186,7 +186,8 @@ describe('ant chat state wrappers', () => {
 
   it('S2: reply derives the target room from the parent message id', async () => {
     const { runtime, captured } = makeRuntime((callIndex, { url }) => {
-      if (url === 'http://test.local/api/chat-rooms/messages/msg_parent') {
+      const parsed = new URL(url);
+      if (parsed.pathname === '/api/chat-rooms/messages/msg_parent') {
         return okJson({ message: { id: 'msg_parent', roomId: 'room-a', authorHandle: '@you', body: 'Question?' } });
       }
       if (url === 'http://test.local/api/chat-rooms/room-a/messages') {
@@ -203,7 +204,9 @@ describe('ant chat state wrappers', () => {
 
     await handleChatVerb('reply', ['msg_parent', '--stdin', '--handle', '@codex'], runtime, { CliInputError });
 
-    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/messages/msg_parent');
+    const parentLookupUrl = new URL(captured.requests[0].url);
+    expect(`${parentLookupUrl.origin}${parentLookupUrl.pathname}`).toBe('http://test.local/api/chat-rooms/messages/msg_parent');
+    expect(parentLookupUrl.searchParams.get('pidChain')).toBeTruthy();
     expect(captured.requests[0].init.method).toBe('GET');
     expect(captured.requests[1].url).toBe('http://test.local/api/chat-rooms/room-a/messages');
     expect(captured.requests[1].init.method).toBe('POST');

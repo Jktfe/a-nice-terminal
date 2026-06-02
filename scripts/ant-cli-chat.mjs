@@ -343,7 +343,10 @@ function looksReplyShaped(body) {
 async function runReply(flags, runtime, CliInputError) {
   const parentMessageId = requireFlag(flags, 'room', CliInputError);
   const body = resolveMessageBody(flags, runtime, CliInputError);
-  const lookup = await getJson(runtime, `/api/chat-rooms/messages/${encodeURIComponent(parentMessageId)}`);
+  const lookup = await getJson(
+    runtime,
+    pathWithPidChain(`/api/chat-rooms/messages/${encodeURIComponent(parentMessageId)}`)
+  );
   const parent = lookup?.message;
   if (!parent || typeof parent.roomId !== 'string' || parent.roomId.length === 0) {
     throw new CliInputError(`Could not resolve parent message ${parentMessageId} to a room.`);
@@ -575,6 +578,12 @@ function resolveBaseUrlForPath(runtime, path, baseUrl) {
     }
   }
   return runtime.serverUrl;
+}
+
+function pathWithPidChain(path) {
+  const url = new URL(path, 'http://ant.local');
+  url.searchParams.set('pidChain', JSON.stringify(processIdentityChain()));
+  return `${url.pathname}${url.search}`;
 }
 
 async function getJson(runtime, path, baseUrl) {
