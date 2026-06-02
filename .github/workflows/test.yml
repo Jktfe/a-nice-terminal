@@ -14,10 +14,12 @@ name: Test
 # enterprise security floor.
 #
 # better-sqlite3 ABI hazard: the runtime SQLite store binds against
-# Node v20.19.4 (see src/lib/server/db.ts header). We pin
-# actions/setup-node@v4 with node-version: 20.19.4 + run
+# the launchd com.ant.fresh Node runtime — Node v22.22.1 (see
+# src/lib/server/db.ts header; verified on the live process). We pin
+# actions/setup-node@v4 with node-version: 22.22.1 + run
 # `npm rebuild better-sqlite3` after the bun install so the native
-# binding matches the Node version that vitest loads under.
+# binding matches both the Node version that vitest loads under AND
+# the production runtime (fidelity: CI tests under the deployed Node).
 
 on:
   push:
@@ -46,7 +48,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20.19.4
+          node-version: 22.22.1
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -55,7 +57,7 @@ jobs:
       - name: install dependencies
         run: bun install --frozen-lockfile
 
-      - name: rebuild better-sqlite3 for Node v20.19.4
+      - name: rebuild better-sqlite3 for Node v22.22.1
         # Per src/lib/server/db.ts header — the native binding must match
         # the Node runtime that vitest invokes, not the Node that
         # better-sqlite3 prebuilds shipped against.

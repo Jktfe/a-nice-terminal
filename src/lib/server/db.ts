@@ -3,16 +3,17 @@
  *
  * Why better-sqlite3 not bun:sqlite: the launchd com.ant.fresh service runs
  * `bun run start` which executes `node build/index.js`. The SvelteKit server
- * handler runs under Node v20.19.4 (verified via lsof on live process). Node
- * v20.19.4 has no `node:sqlite` (that ships in Node 22.5+) and cannot import
- * `bun:sqlite` (Bun-only built-in). better-sqlite3 is the only Node-runtime
- * compatible synchronous SQLite for this stack.
+ * handler runs under Node v22.22.1 (verified on the live process 2026-06-02).
+ * It cannot import `bun:sqlite` (Bun-only built-in); `node:sqlite` is now
+ * available (ships in Node 22.5+) but we retain better-sqlite3 as the
+ * established, stable binding rather than migrate the runtime store. It
+ * remains the synchronous SQLite for this stack.
  *
  * ABI hazard (binding, per feedback_better_sqlite3_abi_mismatch):
  * If the launchd Node version changes (nvm upgrade, system Node bump, etc.),
  * better-sqlite3's native binding may break with a silent crash after the
  * server logs "running at PORT". Recovery:
- *   /Users/you/.nvm/versions/node/v20.19.4/bin/npm rebuild better-sqlite3
+ *   /Users/you/.nvm/versions/node/v22.22.1/bin/npm rebuild better-sqlite3
  *   launchctl kickstart -k gui/501/com.ant.fresh
  * Or use the bundled script:  bun run rebuild:sqlite  (added to package.json).
  *
