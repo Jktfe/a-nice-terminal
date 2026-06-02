@@ -22,6 +22,10 @@ import { listReadersForMessage } from './messageReadReceiptStore';
 import { subscribeToRoom, unsubscribeFromRoom } from './eventBroadcast';
 import { setRoomAlias } from './chatRoomAliasStore';
 import { createClaim, resetEntityClaimStoreForTests } from './entityClaimStore';
+import { createSession } from './antSessionStore';
+import { createRoomHandleLease } from './roomHandleLeaseStore';
+import { getContextState } from './roomSessionContextStore';
+import { createSubagentSession, mintSubagentLease } from './subagentIdentity';
 
 let tmpDir: string;
 const previousDbPath = process.env.ANT_FRESH_DB_PATH;
@@ -56,6 +60,31 @@ function setupRoomAndMember(roomName: string, handle: string, pane: string | nul
   if (pane) updatePaneTarget(terminal.id, pane, 'claude_code');
   addMembership({ room_id: room.id, handle, terminal_id: terminal.id });
   return { roomId: room.id, terminalId: terminal.id };
+}
+
+function captureInjectedBuffers(): { calls: { args: string[]; input?: string }[] } {
+  const calls: { args: string[]; input?: string }[] = [];
+  setSpawnImplForTests((bin, args, options) => {
+    calls.push({
+      args,
+      input: typeof options.input === 'string' ? options.input : options.input?.toString('utf8')
+    });
+    return {
+      pid: 1,
+      stdout: Buffer.from('│ > ready prompt'),
+      stderr: Buffer.alloc(0),
+      status: 0,
+      signal: null,
+      output: []
+    } as any;
+  });
+  return { calls };
+}
+
+function parseDeliveryEnvelope(input: string): any {
+  const line = input.split('\n').find((l) => l.startsWith('[ANT delivery-envelope] '));
+  expect(line).toBeDefined();
+  return JSON.parse(line!.replace('[ANT delivery-envelope] ', ''));
 }
 
 describe('fanoutMessageToRoomTerminals — recursion lockout', () => {
@@ -370,6 +399,105 @@ describe('fanoutMessageToRoomTerminals — mention-targeted routing', () => {
     } finally {
       unsubscribeFromRoom(room.id, controller);
     }
+  });
+
+  it('injects a structured delivery envelope with durable sender and recipient identities', () => {
+    const room = createChatRoom({ name: 'envelope-room', whoCreatedIt: '@test' });
+    const sender = upsertTerminal({ pid: 1, pid_start: 'p1', name: 'sender-term' });
+    const recipient = upsertTerminal({ pid: 2, pid_start: 'p2', name: 'recipient-term' });
+    updatePaneTarget(recipient.id, '%recipient', 'claude_code');
+    addMembership({ room_id: room.id, handle: '@sender', terminal_id: sender.id });
+    addMembership({ room_id: room.id, handle: '@recip', terminal_id: recipient.id });
+    createSession({ id: sender.id, kind: 'local-cli', label: 'sender', terminalId: sender.id });
+    createSession({ id: recipient.id, kind: 'local-cli', label: 'recipient', terminalId: recipient.id });
+    createRoomHandleLease({ roomId: room.id, sessionId: sender.id, handle: '@sender', createdFrom: 'test' });
+    createRoomHandleLease({ roomId: room.id, sessionId: recipient.id, handle: '@recip', createdFrom: 'test' });
+    const { calls } = captureInjectedBuffers();
+
+    const message = postMessage({ roomId: room.id, authorHandle: '@sender', body: '@recip hello', kind: 'agent' });
+    fanoutMessageToRoomTerminals(room.id, message);
+    getFanoutQueueForTests().immediateFlush(`${room.id}::${recipient.id}`);
+
+    const loadCall = calls.find((c) => c.args[0] === 'load-buffer');
+    expect(loadCall?.input).toContain('[ANT room envelope-room');
+    const delivery = parseDeliveryEnvelope(loadCall!.input!);
+    expect(delivery).toMatchObject({
+      roomId: room.id,
+      roomName: 'envelope-room',
+      messageId: message.id,
+      postOrder: message.postOrder,
+      bodyMarkdown: '@recip hello',
+      sender: { sessionId: sender.id, handle: '@sender', displayName: '@sender' },
+      recipient: { sessionId: recipient.id, handle: '@recip' },
+      contextRefs: [],
+      replyTo: null,
+      ackActions: ['read', 'work', 'reply', 'look', 'pass']
+    });
+    expect(delivery.deliveredAtMs).toEqual(expect.any(Number));
+  });
+
+  it('marks room-session context seen after delivery and stops asking for onboarding on the next envelope', () => {
+    const room = createChatRoom({ name: 'context-room', whoCreatedIt: '@test' });
+    const sender = upsertTerminal({ pid: 10, pid_start: 'p10', name: 'context-sender' });
+    const recipient = upsertTerminal({ pid: 11, pid_start: 'p11', name: 'context-recipient' });
+    updatePaneTarget(recipient.id, '%context-recipient', 'claude_code');
+    addMembership({ room_id: room.id, handle: '@sender', terminal_id: sender.id });
+    addMembership({ room_id: room.id, handle: '@recip', terminal_id: recipient.id });
+    createSession({ id: sender.id, kind: 'local-cli', label: 'sender', terminalId: sender.id });
+    const recipientSessionId = 'context-recipient-durable-session';
+    createSession({ id: recipientSessionId, kind: 'local-cli', label: 'recipient', terminalId: recipient.id });
+    createRoomHandleLease({ roomId: room.id, sessionId: sender.id, handle: '@sender', createdFrom: 'test' });
+    createRoomHandleLease({ roomId: room.id, sessionId: recipientSessionId, handle: '@recip', createdFrom: 'test' });
+    const { calls } = captureInjectedBuffers();
+
+    const first = postMessage({ roomId: room.id, authorHandle: '@sender', body: '@recip first', kind: 'agent' });
+    fanoutMessageToRoomTerminals(room.id, first);
+    getFanoutQueueForTests().immediateFlush(`${room.id}::${recipient.id}`);
+    const firstLoad = calls.find((c) => c.args[0] === 'load-buffer');
+    const firstEnvelope = parseDeliveryEnvelope(firstLoad!.input!);
+    expect(firstEnvelope.context.needsOnboarding).toBe(true);
+    expect(firstEnvelope.recipient.sessionId).toBe(recipientSessionId);
+    expect(getContextState(room.id, recipientSessionId).needsOnboarding).toBe(false);
+    expect(getContextState(room.id, recipient.id).needsOnboarding).toBe(true);
+
+    calls.length = 0;
+    const second = postMessage({ roomId: room.id, authorHandle: '@sender', body: '@recip second', kind: 'agent' });
+    fanoutMessageToRoomTerminals(room.id, second);
+    getFanoutQueueForTests().immediateFlush(`${room.id}::${recipient.id}`);
+    const secondLoad = calls.find((c) => c.args[0] === 'load-buffer');
+    const secondEnvelope = parseDeliveryEnvelope(secondLoad!.input!);
+    expect(secondEnvelope.context.needsOnboarding).toBe(false);
+  });
+
+  it('renders subagent delivery as the child session with its parent handle', () => {
+    const room = createChatRoom({ name: 'subagent-room', whoCreatedIt: '@test' });
+    const parentTerminal = upsertTerminal({ pid: 20, pid_start: 'p20', name: 'speedy-parent' });
+    const recipient = upsertTerminal({ pid: 21, pid_start: 'p21', name: 'subagent-recipient' });
+    updatePaneTarget(recipient.id, '%subagent-recipient', 'claude_code');
+    addMembership({ room_id: room.id, handle: '@speedy', terminal_id: parentTerminal.id });
+    addMembership({ room_id: room.id, handle: '@recip', terminal_id: recipient.id });
+    const parent = createSession({ id: parentTerminal.id, kind: 'local-cli', label: 'speedy', terminalId: parentTerminal.id });
+    const sub = createSubagentSession({ parentSessionId: parent.id, label: 'reviewer' });
+    createRoomHandleLease({ roomId: room.id, sessionId: parent.id, handle: '@speedy', createdFrom: 'test' });
+    const subLease = mintSubagentLease({ roomId: room.id, subagentSessionId: sub.id, parentHandle: '@speedy', role: 'reviewer' });
+    createSession({ id: recipient.id, kind: 'local-cli', label: 'recipient', terminalId: recipient.id });
+    createRoomHandleLease({ roomId: room.id, sessionId: recipient.id, handle: '@recip', createdFrom: 'test' });
+    const { calls } = captureInjectedBuffers();
+
+    const message = postMessage({ roomId: room.id, authorHandle: subLease.handle, body: '@recip subagent finding', kind: 'agent' });
+    fanoutMessageToRoomTerminals(room.id, message);
+    getFanoutQueueForTests().immediateFlush(`${room.id}::${recipient.id}`);
+
+    const loadCall = calls.find((c) => c.args[0] === 'load-buffer');
+    const delivery = parseDeliveryEnvelope(loadCall!.input!);
+    expect(delivery.sender).toMatchObject({
+      sessionId: sub.id,
+      handle: subLease.handle,
+      displayName: `${subLease.handle} via @speedy`,
+      kind: 'subagent',
+      parentSessionId: parent.id,
+      parentHandle: '@speedy'
+    });
   });
 
   it('linked-room direct path falls back to terminal_records pane when identity row has no pane', () => {

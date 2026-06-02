@@ -20,6 +20,7 @@
 
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { getDiscussion } from './chatDiscussionStore';
+import type { MessageDeliveryEnvelope } from './messageDeliveryEnvelope';
 import {
   type TerminalRow,
   markPaneVerified,
@@ -199,6 +200,7 @@ export type EnvelopeMessage = {
   // (human-readable for the LLM consuming the pty-inject). Both signals
   // are ADDITIVE — absent means existing envelope shape unchanged.
   replyParent?: { messageId: string; senderHandle: string; body: string };
+  deliveryEnvelope?: MessageDeliveryEnvelope;
 };
 
 export type EnvelopeInput = {
@@ -256,19 +258,25 @@ function renderMessageWithReplyContext(m: EnvelopeMessage): string {
   return `${m.senderHandle}: ${renderBodyWithClosedMarker(m)}${replyContextLine(m)}`;
 }
 
+function deliveryEnvelopeLine(m: EnvelopeMessage): string {
+  if (!m.deliveryEnvelope) return '';
+  return `\n[ANT delivery-envelope] ${JSON.stringify(m.deliveryEnvelope)}`;
+}
+
 export function formatEnvelope(input: EnvelopeInput): string {
   const head = input.head;
   const extras = input.batchedExtras ?? [];
   const singleRoom = extras.length === 0 || isSingleRoomBatch(head, extras);
   if (extras.length === 0) {
     const header = `[ANT room ${head.roomName} id=${head.roomId} msg=${head.messageId}${discTag(head)}${replyToTag(head)}]`;
-    return `${header} ${renderMessageWithReplyContext(head)}${replyInstruction(head.messageId)}`;
+    return `${header} ${renderMessageWithReplyContext(head)}${deliveryEnvelopeLine(head)}${replyInstruction(head.messageId)}`;
   }
   if (singleRoom) {
     const lastMessageId = extras[extras.length - 1].messageId;
     const header = `[ANT room ${head.roomName} id=${head.roomId} msg=${lastMessageId}]`;
     const all = [renderMessageWithReplyContext(head), ...extras.map(renderMessageWithReplyContext)].join(', ');
-    return `${header} ${extras.length + 1} messages: ${all}${replyInstruction(lastMessageId)}`;
+    const deliveryLines = [head, ...extras].map(deliveryEnvelopeLine).join('');
+    return `${header} ${extras.length + 1} messages: ${all}${deliveryLines}${replyInstruction(lastMessageId)}`;
   }
   const lastMessageId = extras[extras.length - 1].messageId;
   const header = `[ANT cross-room msg=${lastMessageId}]`;
@@ -276,7 +284,8 @@ export function formatEnvelope(input: EnvelopeInput): string {
     `[room ${head.roomName} id=${head.roomId}] ${renderMessageWithReplyContext(head)}`,
     ...extras.map((m) => `[room ${m.roomName} id=${m.roomId}] ${renderMessageWithReplyContext(m)}`)
   ].join(', ');
-  return `${header} ${extras.length + 1} messages: ${all}\n\n[ANT reply instruction: respond to the relevant message with: ant chat reply MESSAGE_ID --stdin]`;
+  const deliveryLines = [head, ...extras].map(deliveryEnvelopeLine).join('');
+  return `${header} ${extras.length + 1} messages: ${all}${deliveryLines}\n\n[ANT reply instruction: respond to the relevant message with: ant chat reply MESSAGE_ID --stdin]`;
 }
 
 function staleMarkerKeyFor(roomId: string, handle: string): string {

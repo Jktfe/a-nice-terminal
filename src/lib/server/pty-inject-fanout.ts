@@ -40,6 +40,9 @@ import { pickNextResponder, type ResponderWithStatus } from './responderPicker';
 import { openAskInRoom, AskTargetNotHumanError, AskerNotInInboxError } from './askStore';
 import type { ChatRoom } from './chatRoomStore';
 import { inboxRoomIdFor } from './humanInboxRoomStore';
+import { buildMessageDeliveryEnvelope } from './messageDeliveryEnvelope';
+import { getContextState, markContextSeen } from './roomSessionContextStore';
+import { resolveCurrentOwner } from './roomIdentityResolver';
 
 // (room × askee × messageId) → already opened; prevents double-file under
 // retried fanout. Bounded — entries age out after fanout for the message
@@ -158,6 +161,7 @@ type QueuedItem = {
   body: string;
   recipientHandle: string;
   terminalId: string;
+  postOrder: number;
   discussion_id?: string;
   // JWPK msg_wcq5fwlhg7 (2026-05-19): pre-resolved reply-parent context.
   // Carried verbatim into the envelope so agents see what they're
@@ -176,13 +180,33 @@ function queueKeyFor(roomId: string, terminalId: string): string {
 
 const queue = makeInjectQueue<QueuedItem>(onFlush);
 
+function recipientSessionIdFor(q: QueuedItem): string {
+  return resolveCurrentOwner(q.roomId, q.recipientHandle)?.session.id ?? q.terminalId;
+}
+
 function toEnvelopeMessage(q: QueuedItem): EnvelopeMessage {
+  const recipientSessionId = recipientSessionIdFor(q);
+  const context = getContextState(q.roomId, recipientSessionId);
   return {
     roomName: q.roomName,
     roomId: q.roomId,
     messageId: q.messageId,
     senderHandle: q.senderHandle,
     body: q.body,
+    deliveryEnvelope: buildMessageDeliveryEnvelope({
+      roomId: q.roomId,
+      roomName: q.roomName,
+      message: {
+        id: q.messageId,
+        authorHandle: q.senderHandle,
+        body: q.body,
+        postOrder: q.postOrder,
+        ...(q.replyParent !== undefined && { parentMessageId: q.replyParent.messageId })
+      },
+      recipientHandle: q.recipientHandle,
+      recipientFallbackSessionId: recipientSessionId,
+      context
+    }),
     ...(q.discussion_id !== undefined && { discussion_id: q.discussion_id }),
     ...(q.replyParent !== undefined && { replyParent: q.replyParent })
   };
@@ -208,6 +232,9 @@ function onFlush(handle: string, batch: QueuedItem[]): void {
   if (!terminal) return;
   const outcome = injectToTerminal(terminal, envelope, head.roomId, head.recipientHandle, emitStaleSystemMessage);
   if (outcome.kind === 'paste') {
+    for (const item of batch) {
+      markContextSeen(item.roomId, recipientSessionIdFor(item));
+    }
     markDeliveredBatchRead(batch);
   }
 }
@@ -462,6 +489,7 @@ export function fanoutMessageToRoomTerminals(
       body: message.body,
       recipientHandle: membership.handle,
       terminalId: terminal.id,
+      postOrder: message.postOrder,
       ...(message.discussion_id !== undefined && { discussion_id: message.discussion_id }),
       ...(replyParent !== null && { replyParent })
     });
@@ -494,6 +522,7 @@ export function fanoutMessageToRoomTerminals(
       body: message.body,
       recipientHandle: linkedHandle,
       terminalId: terminal.id,
+      postOrder: message.postOrder,
       ...(message.discussion_id !== undefined && { discussion_id: message.discussion_id })
     });
   }
