@@ -29,7 +29,7 @@ import type { RequestHandler } from './$types';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { listMessagesInRoom } from '$lib/server/chatMessageStore';
 import { resolveBrowserSessionSecret } from '$lib/server/browserSessionStore';
-import { OPERATOR_HANDLE } from '$lib/server/allowlistGuard';
+import { isSuperAdmin } from '$lib/server/orgStore';
 
 function getCookieValue(request: Request, cookieName: string): string | null {
   const cookieHeader = request.headers.get('cookie');
@@ -50,7 +50,7 @@ function requireOperatorBrowserSession(request: Request, roomId: string): void {
   if (!cookie) throw error(403, 'Operator browser session required.');
   const resolved = resolveBrowserSessionSecret(cookie, roomId);
   if (!resolved) throw error(403, 'Operator browser session required.');
-  if (resolved.handle !== OPERATOR_HANDLE) {
+  if (!isSuperAdmin(resolved.handle)) {
     throw error(403, 'Only the operator can mine the vault.');
   }
 }

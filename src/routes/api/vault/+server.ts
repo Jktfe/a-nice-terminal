@@ -26,7 +26,7 @@ import type { RequestHandler } from './$types';
 import { listArchivedChatRooms } from '$lib/server/chatRoomStore';
 import { listMessagesInRoom } from '$lib/server/chatMessageStore';
 import { resolveBrowserSessionSecret } from '$lib/server/browserSessionStore';
-import { OPERATOR_HANDLE } from '$lib/server/allowlistGuard';
+import { isSuperAdmin } from '$lib/server/orgStore';
 
 function getCookieValue(request: Request, cookieName: string): string | null {
   const cookieHeader = request.headers.get('cookie');
@@ -58,7 +58,7 @@ function requireOperatorBrowserSessionAnyRoom(request: Request): void {
   const archives = listArchivedChatRooms();
   for (const archive of archives) {
     const resolved = resolveBrowserSessionSecret(cookie, archive.id);
-    if (resolved && resolved.handle === OPERATOR_HANDLE) return;
+    if (resolved && isSuperAdmin(resolved.handle)) return;
   }
   // No archived rooms or no cookie match — refuse. Operator should hit
   // /rooms first to mint a session; vault is gated on having at least one
