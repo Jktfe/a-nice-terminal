@@ -38,6 +38,7 @@ type SessionsAddBody = {
   room_id?: unknown;
   handle?: unknown;
   terminal_name?: unknown;
+  terminal_id?: unknown;
   pane?: unknown;
   agent_kind?: unknown;
 };
@@ -45,7 +46,7 @@ type SessionsAddBody = {
 function isMembershipMode(body: SessionsAddBody): boolean {
   return typeof body.room_id === 'string'
     && typeof body.handle === 'string'
-    && typeof body.terminal_name === 'string';
+    && (typeof body.terminal_name === 'string' || typeof body.terminal_id === 'string');
 }
 
 function isTerminalMode(body: SessionsAddBody): boolean {
@@ -223,9 +224,10 @@ function _handleTerminalModeImpl(body: SessionsAddBody): Response {
 function handleMembershipMode(request: Request, rawBody: unknown, body: SessionsAddBody): Response {
   const roomId = (body.room_id as string).trim();
   const handle = (body.handle as string).trim();
-  const terminalName = (body.terminal_name as string).trim();
-  if (!roomId || !handle || !terminalName) {
-    throw error(400, 'room_id, handle, and terminal_name must all be non-empty.');
+  const terminalName = typeof body.terminal_name === 'string' ? body.terminal_name.trim() : '';
+  const terminalId = typeof body.terminal_id === 'string' ? body.terminal_id.trim() : '';
+  if (!roomId || !handle || (!terminalName && !terminalId)) {
+    throw error(400, 'room_id, handle, and terminal_name or terminal_id must all be non-empty.');
   }
   // Sec-iter6 Fix #1: membership-mode auth gate. Caller may only add
   // memberships for their OWN handle (or via admin-bearer break-glass).
@@ -233,9 +235,11 @@ function handleMembershipMode(request: Request, rawBody: unknown, body: Sessions
   // handle and silently rebind their membership row via the
   // `addMembership` UPDATE branch.
   requireMembershipAuth(request, rawBody, handle);
-  const terminal = getTerminalByName(terminalName);
+  const terminal = terminalId ? getTerminalById(terminalId) : getTerminalByName(terminalName);
   if (!terminal) {
-    throw error(404, `No terminal registered with name "${terminalName}".`);
+    throw error(404, terminalId
+      ? `No terminal registered with id "${terminalId}".`
+      : `No terminal registered with name "${terminalName}".`);
   }
   const membership = addMembership({ room_id: roomId, handle, terminal_id: terminal.id });
   return json({
