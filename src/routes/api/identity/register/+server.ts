@@ -41,6 +41,7 @@ import { bootstrapV02Identity, normaliseV02Handle } from '$lib/server/v02Registe
 import { getLiveAgentByHandle } from '$lib/server/v02AgentsStore';
 import { validateHandleForRegistration } from '$lib/server/handleValidation';
 import { findActiveTerminalRecordByHandle } from '$lib/server/terminalRecordsStore';
+import { ensureSession } from '$lib/server/antSessionStore';
 
 const VALID_AGENT_KINDS_LIST = Array.from(AGENT_KINDS_CLIENT_INPUT).join(', ');
 
@@ -259,6 +260,18 @@ export const POST: RequestHandler = async ({ request }) => {
   }
   const terminal = upsertTerminal({ pid: leafPid.pid, pid_start: leafPid.pid_start,
     name: trimmedName, ttlSeconds, source, meta });
+  // ACTIVATION (Simplify & Harden lane A): populate the durable session so the
+  // identity model is IN FORCE, not dormant (ant_sessions was 0 on live). Keyed
+  // by the client's persisted token when sent, else the stable terminal.id —
+  // which is name-stable and NOT pid-derived, so the session survives a
+  // restart/day-roll without the CLI needing to send a token. Returned as
+  // session_id for the CLI to persist + re-present on post.
+  const sessionTokenRaw = (rawBody as { sessionToken?: unknown }).sessionToken;
+  const sessionToken =
+    typeof sessionTokenRaw === 'string' && sessionTokenRaw.trim().length > 0
+      ? sessionTokenRaw.trim()
+      : terminal.id;
+  const antSession = ensureSession(sessionToken, { kind: 'local-cli', label: terminal.name });
   const updateKindValue = agentKindValue !== null
     ? agentKindValue : (existed ? (existing?.agent_kind ?? null) : null);
   if (paneValue) updatePaneTarget(terminal.id, paneValue, updateKindValue);
@@ -353,6 +366,10 @@ export const POST: RequestHandler = async ({ request }) => {
   return json({ terminal_id: terminal.id, name: terminal.name,
     expires_at: terminal.expires_at, tmux_target_pane: paneValue,
     agent_kind: classifiedAgentKind,
+    // ACTIVATION: the durable session id — the CLI persists this and sends it
+    // back as `sessionToken` on register + as x-ant-session-id on post, so the
+    // durable identity model is exercised end-to-end.
+    session_id: antSession.id,
     // v0.2 surface — clients that don't yet consume these can ignore them.
     // The legacy fields above remain the contract until M9d ships.
     v02_agent_id: v02AgentId, v02_runtime_id: v02RuntimeId
