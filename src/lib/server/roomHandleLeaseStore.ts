@@ -55,6 +55,19 @@ export type FindRoomHandleOwnerAtTimeInput = {
   atMs: number;
 };
 
+export type BackfillRoomHandleLeasesInput = {
+  sessionId: string;
+  createdFrom?: string | null;
+  activeFromMs?: number;
+};
+
+export type BackfillRoomHandleLeasesResult = {
+  created: number;
+  skippedExisting: number;
+  skippedConflict: number;
+  roomIds: string[];
+};
+
 function nowMs(): number {
   return Date.now();
 }
@@ -163,6 +176,66 @@ export function allocateHandle(input: AllocateHandleInput): RoomHandleLease {
     activeFromMs: input.activeFromMs,
     createdFrom: input.createdFrom
   });
+}
+
+export function backfillActiveLeasesFromRoomMemberships(
+  input: BackfillRoomHandleLeasesInput
+): BackfillRoomHandleLeasesResult {
+  const db = getIdentityDb();
+  const rows = db
+    .prepare(
+      `SELECT room_id, handle
+         FROM room_memberships
+        WHERE terminal_id = ?
+          AND revoked_at_ms IS NULL
+        ORDER BY room_id, handle`
+    )
+    .all(input.sessionId) as Array<{ room_id: string; handle: string }>;
+
+  const result: BackfillRoomHandleLeasesResult = {
+    created: 0,
+    skippedExisting: 0,
+    skippedConflict: 0,
+    roomIds: []
+  };
+
+  for (const row of rows) {
+    const activeForSession = db
+      .prepare(
+        `SELECT 1
+           FROM room_handle_leases
+          WHERE room_id = ?
+            AND session_id = ?
+            AND active_until_ms IS NULL
+          LIMIT 1`
+      )
+      .get(row.room_id, input.sessionId);
+    if (activeForSession) {
+      result.skippedExisting += 1;
+      continue;
+    }
+
+    if (activeHandleExists(row.room_id, row.handle)) {
+      result.skippedConflict += 1;
+      continue;
+    }
+
+    try {
+      createRoomHandleLease({
+        roomId: row.room_id,
+        sessionId: input.sessionId,
+        handle: row.handle,
+        activeFromMs: input.activeFromMs,
+        createdFrom: input.createdFrom ?? 'register-existing-membership-backfill'
+      });
+      result.created += 1;
+      result.roomIds.push(row.room_id);
+    } catch {
+      result.skippedConflict += 1;
+    }
+  }
+
+  return result;
 }
 
 export function findRoomHandleOwnerAtTime(input: FindRoomHandleOwnerAtTimeInput): RoomHandleLease | null {

@@ -15,6 +15,7 @@ import {
   addMembership,
   listMembershipsForRoom
 } from '$lib/server/roomMembershipsStore';
+import { findRoomHandleOwnerAtTime } from '$lib/server/roomHandleLeaseStore';
 import {
   createTerminalRecord,
   getHandleAliases,
@@ -154,6 +155,39 @@ describe('POST /api/identity/register', () => {
     // attacker on a DIFFERENT terminal presents the known token -> 409, no adoption
     const attacker = await callPost(JSON.stringify({ name: 'attacker', pids: [{ pid: 2, pid_start: 'b' }], sessionToken: tok }));
     expect(attacker.status).toBe(409);
+  });
+
+  it('backfills room handle leases from existing memberships when register activates a durable session', async () => {
+    const existing = upsertTerminal({
+      name: 'lease-backfill',
+      pid: 11,
+      pid_start: 'same',
+      ttlSeconds: 3600,
+      source: 'test',
+      meta: {}
+    });
+    addMembership({
+      room_id: 'room-existing-membership',
+      handle: '@leasebackfill',
+      terminal_id: existing.id
+    });
+
+    const response = await callPost(JSON.stringify({
+      name: 'lease-backfill',
+      pids: [{ pid: 11, pid_start: 'same' }],
+      handle: '@leasebackfill'
+    }));
+
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    const lease = findRoomHandleOwnerAtTime({
+      roomId: 'room-existing-membership',
+      handle: '@leasebackfill',
+      atMs: Date.now()
+    });
+    expect(lease).not.toBeNull();
+    expect(lease?.sessionId).toBe(payload.session_id);
+    expect(lease?.createdFrom).toBe('register-existing-membership-backfill');
   });
 
   // M3.2d: client-input agent_kind validation rejects unknown/remote/browser/bogus.

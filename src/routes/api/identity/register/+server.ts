@@ -42,6 +42,7 @@ import { getLiveAgentByHandle } from '$lib/server/v02AgentsStore';
 import { validateHandleForRegistration } from '$lib/server/handleValidation';
 import { findActiveTerminalRecordByHandle } from '$lib/server/terminalRecordsStore';
 import { ensureSession, SessionAdoptionRefused } from '$lib/server/antSessionStore';
+import { backfillActiveLeasesFromRoomMemberships } from '$lib/server/roomHandleLeaseStore';
 
 const VALID_AGENT_KINDS_LIST = Array.from(AGENT_KINDS_CLIENT_INPUT).join(', ');
 
@@ -337,6 +338,10 @@ export const POST: RequestHandler = async ({ request }) => {
       }
     }
   }
+  backfillActiveLeasesFromRoomMemberships({
+    sessionId: antSession.id,
+    createdFrom: 'register-existing-membership-backfill'
+  });
   // Response kind starts at updateKindValue (preserved); re-fetch only when classify ran.
   let classifiedAgentKind: string | null = updateKindValue;
   if (!existed && agentKindValue === null && paneValue !== null) {
