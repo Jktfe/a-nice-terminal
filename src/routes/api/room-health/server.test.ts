@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { GET } from './+server';
 import { createChatRoom, resetChatRoomStoreForTests, archiveChatRoom } from '$lib/server/chatRoomStore';
 import { getIdentityDb, resetIdentityDbForTests } from '$lib/server/db';
+import { createSession } from '$lib/server/antSessionStore';
 
 // GET /api/room-health — read-only room-identity health feed (workstream C).
 // Wraps listRoomHealth() + summary so the RoomHealthPanel can poll one cheap
@@ -109,5 +110,41 @@ describe('GET /api/room-health', () => {
     const body = await res.json();
     expect(body.summary.broken).toBe(1);
     expect(body.terminals[0].brokenReason).toBe('dangling-linked-room');
+  });
+});
+
+describe('GET /api/room-health durableActivation field', () => {
+  it("reports 'idle' with zeroed counts when there are no live terminals", async () => {
+    const res = await callGet();
+    const body = await res.json();
+    expect(body.durableActivation.status).toBe('idle');
+    expect(body.durableActivation.counts).toMatchObject({
+      antSessions: 0,
+      activeLeases: 0,
+      liveTerminals: 0
+    });
+    expect(typeof body.durableActivation.reason).toBe('string');
+  });
+
+  it("reports 'dormant' when live terminals exist but ant_sessions is empty", async () => {
+    insertTerminal('s1', 't1');
+    insertTerminalRecord({ sessionId: 's1', handle: '@one', linkedChatRoomId: null });
+
+    const res = await callGet();
+    const body = await res.json();
+    expect(body.durableActivation.status).toBe('dormant');
+    expect(body.durableActivation.counts.liveTerminals).toBe(1);
+    expect(body.durableActivation.counts.antSessions).toBe(0);
+  });
+
+  it("reports 'active' once durable sessions cover the live fleet", async () => {
+    insertTerminal('s1', 't1');
+    insertTerminalRecord({ sessionId: 's1', handle: '@one', linkedChatRoomId: null });
+    createSession({ kind: 'local-cli', label: 's1' });
+
+    const res = await callGet();
+    const body = await res.json();
+    expect(body.durableActivation.status).toBe('active');
+    expect(body.durableActivation.counts.antSessions).toBe(1);
   });
 });
