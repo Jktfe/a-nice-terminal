@@ -231,7 +231,7 @@ async function runNameAwarePost(chatIdentifier, args, runtime, CliInputError, pa
   }
   if (!body) throw new CliInputError('post needs a message (positional or --msg / --msg-file / --msg-stdin)');
   const room = await resolveChatRoomIdentifier(runtime, chatIdentifier, CliInputError);
-  const payload = { body, pidChain: processIdentityChain() };
+  const payload = withDurableSessionIdentity(runtime, room.id, { body, pidChain: processIdentityChain() });
   if (parentMessageId) payload.parentMessageId = parentMessageId;
   if (flags.handle) payload.authorHandle = flags.handle;
   if (flags.kind) {
@@ -241,7 +241,12 @@ async function runNameAwarePost(chatIdentifier, args, runtime, CliInputError, pa
     payload.kind = flags.kind;
   }
   const sendJson = makeStandardSendJson(runtime);
-  const result = await sendJson(`/api/chat-rooms/${encodeURIComponent(room.id)}/messages`, 'POST', payload);
+  const result = await sendJson(
+    `/api/chat-rooms/${encodeURIComponent(room.id)}/messages`,
+    'POST',
+    payload,
+    durableSessionHeaders(runtime, room.id)
+  );
   if (flags.json !== undefined) {
     runtime.writeOut(JSON.stringify(result));
   } else {
@@ -279,7 +284,7 @@ async function runSend(flags, runtime, CliInputError) {
   const room = requireFlag(flags, 'room', CliInputError);
   const body = resolveMessageBody(flags, runtime, CliInputError);
   assertSendIntentIsSafe(body, flags, CliInputError);
-  const payload = { body, pidChain: processIdentityChain() };
+  const payload = withDurableSessionIdentity(runtime, room, { body, pidChain: processIdentityChain() });
   if (flags.handle) payload.authorHandle = flags.handle;
   if (flags.kind) {
     if (!ALLOWED_KIND_TAGS.has(flags.kind)) {
@@ -308,7 +313,7 @@ async function runSend(flags, runtime, CliInputError) {
   const roomServerUrl = resolveRoomServerUrl(runtime, room);
   let result;
   try {
-    result = await sendJson(runtime, messagesPath, 'POST', payload, roomServerUrl);
+    result = await sendJson(runtime, messagesPath, 'POST', payload, roomServerUrl, durableSessionHeaders(runtime, room));
   } catch (firstAttemptError) {
     const isIdentityWedge =
       firstAttemptError instanceof Error &&
@@ -351,7 +356,7 @@ async function runReply(flags, runtime, CliInputError) {
   if (!parent || typeof parent.roomId !== 'string' || parent.roomId.length === 0) {
     throw new CliInputError(`Could not resolve parent message ${parentMessageId} to a room.`);
   }
-  const payload = { body, parentMessageId, pidChain: processIdentityChain() };
+  const payload = withDurableSessionIdentity(runtime, parent.roomId, { body, parentMessageId, pidChain: processIdentityChain() });
   if (flags.handle) payload.authorHandle = flags.handle;
   if (flags.kind) {
     if (!ALLOWED_KIND_TAGS.has(flags.kind)) {
@@ -365,7 +370,8 @@ async function runReply(flags, runtime, CliInputError) {
     `/api/chat-rooms/${encodeURIComponent(parent.roomId)}/messages`,
     'POST',
     payload,
-    roomServerUrl
+    roomServerUrl,
+    durableSessionHeaders(runtime, parent.roomId)
   );
   if (flags.json !== undefined) {
     runtime.writeOut(JSON.stringify(result));
@@ -426,6 +432,49 @@ function resolveCallerHandleForRoom(runtime, roomId, explicitHandle) {
     if (typeof config.handle === 'string') return config.handle;
   } catch { /* config absent — fall through */ }
   return null;
+}
+
+function normaliseDurableSessionId(raw) {
+  return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : null;
+}
+
+function durableSessionIdForRoom(runtime, roomId) {
+  const envSession = normaliseDurableSessionId(process.env.ANT_SESSION_ID);
+  if (envSession) return envSession;
+
+  const pane = currentPane(runtime);
+  const byPane = runtime.config?.antSessions?.byPane;
+  if (pane && byPane && typeof byPane === 'object') {
+    const paneSession = normaliseDurableSessionId(byPane[pane]);
+    if (paneSession) return paneSession;
+  }
+
+  const terminalName = normaliseDurableSessionId(runtime.terminalName);
+  const byName = runtime.config?.antSessions?.byName;
+  if (terminalName && byName && typeof byName === 'object') {
+    const nameSession = normaliseDurableSessionId(byName[terminalName]);
+    if (nameSession) return nameSession;
+  }
+
+  return null;
+}
+
+function currentPane(runtime) {
+  return (
+    normaliseDurableSessionId(runtime.envTmuxPane) ??
+    normaliseDurableSessionId(process.env.TMUX_PANE) ??
+    normaliseDurableSessionId(process.env.WEZTERM_PANE)
+  );
+}
+
+function withDurableSessionIdentity(runtime, roomId, payload) {
+  const sessionId = durableSessionIdForRoom(runtime, roomId);
+  return sessionId ? { ...payload, sessionId } : payload;
+}
+
+function durableSessionHeaders(runtime, roomId) {
+  const sessionId = durableSessionIdForRoom(runtime, roomId);
+  return sessionId ? { 'x-ant-session-id': sessionId } : {};
 }
 
 async function sendJsonWithCookie(runtime, path, method, body, cookieValue, baseUrl) {
@@ -598,11 +647,11 @@ async function getJson(runtime, path, baseUrl) {
   }
   return response.json();
 }
-async function sendJson(runtime, path, method, body, baseUrl) {
+async function sendJson(runtime, path, method, body, baseUrl, extraHeaders = {}) {
   const base = resolveBaseUrlForPath(runtime, path, baseUrl);
   const response = await runtime.fetchImpl(`${base}${path}`, {
     method,
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...extraHeaders },
     body: JSON.stringify(body)
   });
   if (!response.ok) {

@@ -184,6 +184,39 @@ describe('ant chat state wrappers', () => {
     expect(captured.stdout.join('\n')).toContain('msg-stdin');
   });
 
+  it('S1b: send attaches durable session identity when configured', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ message: { id: 'msg-session', authorHandle: '@durable' } }, 201));
+    runtime.envTmuxPane = '%durable';
+    runtime.config = { antSessions: { byPane: { '%durable': 'sess-durable-1' } } };
+
+    await handleChatVerb('send', ['room-a', '--msg', 'durable hello'], runtime, { CliInputError });
+
+    expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/room-a/messages');
+    expect(captured.requests[0].init.headers['x-ant-session-id']).toBe('sess-durable-1');
+    expect(bodyAt(captured)).toMatchObject({
+      body: 'durable hello',
+      sessionId: 'sess-durable-1',
+      pidChain: expect.any(Array)
+    });
+  });
+
+  it('S1c: send ignores shared global/per-room session ids and uses the terminal-scoped pane binding', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ message: { id: 'msg-pane-session', authorHandle: '@panedurable' } }, 201));
+    runtime.envTmuxPane = '%pane-a';
+    runtime.config = {
+      antSessionId: 'sess-global',
+      tokens: {
+        'room-a': { ant_session_id: 'sess-room-a' }
+      },
+      antSessions: { byPane: { '%pane-a': 'sess-pane-a' } }
+    };
+
+    await handleChatVerb('send', ['room-a', '--msg', 'pane durable hello'], runtime, { CliInputError });
+
+    expect(captured.requests[0].init.headers['x-ant-session-id']).toBe('sess-pane-a');
+    expect(bodyAt(captured)).toMatchObject({ sessionId: 'sess-pane-a' });
+  });
+
   it('S2: reply derives the target room from the parent message id', async () => {
     const { runtime, captured } = makeRuntime((callIndex, { url }) => {
       const parsed = new URL(url);
@@ -217,6 +250,32 @@ describe('ant chat state wrappers', () => {
       pidChain: expect.any(Array)
     });
     expect(captured.stdout.join('\n')).toContain('Replied msg_reply as @codex into room-a.');
+  });
+
+  it('S2b: reply attaches durable session identity to the message POST', async () => {
+    const { runtime, captured } = makeRuntime((callIndex, { url }) => {
+      const parsed = new URL(url);
+      if (parsed.pathname === '/api/chat-rooms/messages/msg_parent') {
+        return okJson({ message: { id: 'msg_parent', roomId: 'room-a', authorHandle: '@you', body: 'Question?' } });
+      }
+      if (url === 'http://test.local/api/chat-rooms/room-a/messages') {
+        return okJson({ message: { id: 'msg_reply', authorHandle: '@durable' } }, 201);
+      }
+      return failure(404, 'unexpected path');
+    });
+    runtime.envTmuxPane = '%reply';
+    runtime.config = { antSessions: { byPane: { '%reply': 'sess-reply-1' } } };
+    runtime.fs = { readFileSync: () => 'Reply from durable CLI.\n' };
+
+    await handleChatVerb('reply', ['msg_parent', '--stdin'], runtime, { CliInputError });
+
+    expect(captured.requests[1].init.headers['x-ant-session-id']).toBe('sess-reply-1');
+    expect(bodyAt(captured, 1)).toMatchObject({
+      body: 'Reply from durable CLI.\n',
+      parentMessageId: 'msg_parent',
+      sessionId: 'sess-reply-1',
+      pidChain: expect.any(Array)
+    });
   });
 
   it('C1: break POSTs a context break with reason and pidChain', async () => {
