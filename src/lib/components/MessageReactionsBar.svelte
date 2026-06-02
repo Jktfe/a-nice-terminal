@@ -4,8 +4,8 @@
   msg_90prrrfb6x ("show it independently as then it stops managing
   different states and the reactions can go bottom right").
 
-  Visual: ONE always-rendered trigger button in the bottom-right corner
-  of each message. The trigger shows the caller's current reaction emoji
+  Visual: ONE always-rendered trigger button in the message action strip.
+  The trigger shows the caller's current reaction emoji
   (or a '+' placeholder if they haven't reacted). Clicking the trigger
   opens a small popover with the 5 canonical emojis + their reactor
   counts. Clicking any emoji in the popover toggles the caller's
@@ -189,12 +189,10 @@
 
 <style>
   .reaction-host {
-    position: absolute;
-    right: 0.45rem;
-    bottom: 0.4rem;
-    /* The whole affordance sits in the bottom-right of MessageRow per
-       JWPK msg_90prrrfb6x. MessageRow.message-row is position:relative
-       so absolute here anchors there. */
+    position: relative;
+    display: inline-flex;
+    /* MessageRowActions owns bottom-right row placement. Keeping this
+       component in flow prevents it from covering neighbouring actions. */
   }
   .reaction-trigger {
     display: inline-flex;

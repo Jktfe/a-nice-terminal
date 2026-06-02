@@ -70,36 +70,42 @@
      Humans see only the ClaimChip in the header. -->
 <div class="row-action-strip">
   {#if viewerIsAgent}
-    <ClaimActionBar
+    <span class="claim-action-slot">
+      <ClaimActionBar
+        {roomId}
+        {messageId}
+        asHandle={asHandle ?? '@you'}
+        {claims}
+        {onClaimChanged}
+      />
+    </span>
+  {/if}
+  <span class="copy-action-slot">
+    <button
+      type="button"
+      class="copy-btn"
+      class:copied={copyState === 'copied'}
+      class:errored={copyState === 'error'}
+      aria-label={copyState === 'copied' ? 'Message body copied' : 'Copy message body'}
+      title={copyState === 'error' ? 'Clipboard unavailable — select text manually' : 'Copy'}
+      onclick={() => void copyBody()}
+    >
+      {#if copyState === 'copied'}
+        ✓ Copied
+      {:else if copyState === 'error'}
+        ⚠
+      {:else}
+        ⧉
+      {/if}
+    </button>
+  </span>
+  <span class="reaction-action-slot">
+    <MessageReactionsBar
       {roomId}
       {messageId}
-      asHandle={asHandle ?? '@you'}
-      {claims}
-      {onClaimChanged}
+      {asHandle}
     />
-  {/if}
-  <button
-    type="button"
-    class="copy-btn"
-    class:copied={copyState === 'copied'}
-    class:errored={copyState === 'error'}
-    aria-label={copyState === 'copied' ? 'Message body copied' : 'Copy message body'}
-    title={copyState === 'error' ? 'Clipboard unavailable — select text manually' : 'Copy'}
-    onclick={() => void copyBody()}
-  >
-    {#if copyState === 'copied'}
-      ✓ Copied
-    {:else if copyState === 'error'}
-      ⚠
-    {:else}
-      ⧉
-    {/if}
-  </button>
-  <MessageReactionsBar
-    {roomId}
-    {messageId}
-    {asHandle}
-  />
+  </span>
 </div>
 
 <style>
@@ -117,10 +123,17 @@
     gap: 0.4rem;
     z-index: 2;
   }
-  /* JWPK msg_l7e12tm2hh: copy was stacking under the react button — force it
-     to the left of the strip + keep the strip a single nowrap row so copy and
-     react sit side-by-side, copy on the left. */
-  .copy-btn { order: -1; }
+  .claim-action-slot,
+  .copy-action-slot,
+  .reaction-action-slot {
+    display: inline-flex;
+    align-items: center;
+  }
+  /* JWPK msg_l7e12tm2hh: keep Copy in the flow, visibly left of React,
+     with a little breathing room so the reaction trigger cannot cover it. */
+  .copy-action-slot {
+    margin-right: 0.35rem;
+  }
   /* Copy button — small + quiet by default; lights up when copied.
      JWPK msg_pge4o6wurl 2026-05-27. Sits between the claim bar and
      reactions bar so it reads as message-level, not claim/reaction-
