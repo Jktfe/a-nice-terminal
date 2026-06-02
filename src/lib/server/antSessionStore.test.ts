@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { resetIdentityDbForTests } from './db';
 import {
   createSession,
+  ensureSession,
   getSession,
   markSessionSeen,
   childSessions
@@ -87,5 +88,34 @@ describe('antSessionStore — durable identity, not pid-derived', () => {
   it('returns null resolving an unknown id (no throw)', () => {
     expect(getSession('nope')).toBeNull();
     expect(markSessionSeen('nope')).toBeNull();
+  });
+
+  it('createSession honours a supplied id (the durable client token)', () => {
+    const s = createSession({ id: 'client-token-abc', kind: 'local-cli', label: 'auto:speedy' });
+    expect(s.id).toBe('client-token-abc');
+    expect(getSession('client-token-abc')!.label).toBe('auto:speedy');
+  });
+
+  it('createSession rejects a duplicate id (steers to ensureSession)', () => {
+    createSession({ id: 'dup', kind: 'local-cli' });
+    expect(() => createSession({ id: 'dup', kind: 'local-cli' })).toThrow(/already exists/);
+  });
+});
+
+describe('ensureSession — the activation entry point (resolve-or-create by token)', () => {
+  it('creates on first call, resolves the SAME identity on every later call (durable across restart)', () => {
+    const first = ensureSession('tok-1', { kind: 'local-cli', label: 'auto:speedy' });
+    expect(first.id).toBe('tok-1');
+    // A "restart" re-presents the same token -> same identity, not a new row.
+    const again = ensureSession('tok-1', { kind: 'local-cli', label: 'auto:speedy' });
+    expect(again.id).toBe('tok-1');
+    expect(again.created_at_ms).toBe(first.created_at_ms); // not re-created
+  });
+
+  it('touches liveness on resolve', () => {
+    const first = ensureSession('tok-2', { kind: 'remote-agent' });
+    const again = ensureSession('tok-2', { kind: 'remote-agent' });
+    expect(again.last_seen_at_ms).toBeGreaterThanOrEqual(first.last_seen_at_ms);
+    expect(again.id).toBe('tok-2');
   });
 });

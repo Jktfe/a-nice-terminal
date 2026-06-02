@@ -96,6 +96,13 @@ export type CreateSessionInput = {
   label?: string | null;
   /** Set for subagents — must reference an existing session. */
   parentSessionId?: string | null;
+  /** Durable session token supplied by the client (persisted client-side and
+   *  re-presented across restarts). When given, it BECOMES the session id, so
+   *  the same client resolves the same identity forever. Omit to mint a fresh
+   *  UUID (server-originated sessions). This is the hook the activation wiring
+   *  uses: the CLI generates+persists a token once, register/login calls
+   *  ensureSession(token), and ant_sessions populates. */
+  id?: string;
 };
 
 /** Mint a new durable identity. The returned id is the stable handle the
@@ -110,8 +117,11 @@ export function createSession(input: CreateSessionInput, db = getIdentityDb()): 
     throw new Error(`createSession: parent session '${input.parentSessionId}' does not exist`);
   }
   const now = Date.now();
+  if (input.id && getSession(input.id, db)) {
+    throw new Error(`createSession: id '${input.id}' already exists (use ensureSession to resolve-or-create)`);
+  }
   const row: SessionRow = {
-    id: randomUUID(),
+    id: input.id ?? randomUUID(),
     kind: input.kind,
     label: input.label ?? null,
     parent_session_id: input.parentSessionId ?? null,
@@ -123,6 +133,24 @@ export function createSession(input: CreateSessionInput, db = getIdentityDb()): 
      VALUES (@id, @kind, @label, @parent_session_id, @created_at_ms, @last_seen_at_ms)`
   ).run(row);
   return rowToSession(row);
+}
+
+/**
+ * Resolve-or-create by a durable client token — THE activation entry point.
+ * register/login calls this with the client's persisted token: if a session
+ * already exists for that token it's returned (and touched for liveness), else
+ * one is created with the token as its id. Idempotent across restarts: the
+ * same token always lands on the same identity, which is what populates
+ * ant_sessions and puts the durable model in force for real agents.
+ */
+export function ensureSession(
+  token: string,
+  opts: { kind: SessionKind; label?: string | null; parentSessionId?: string | null },
+  db = getIdentityDb()
+): AntSession {
+  const existing = getSession(token, db);
+  if (existing) return markSessionSeen(token, Date.now(), db) ?? existing;
+  return createSession({ id: token, kind: opts.kind, label: opts.label, parentSessionId: opts.parentSessionId }, db);
 }
 
 /** Resolve a session by its durable ID. This is the restart-safe path:
