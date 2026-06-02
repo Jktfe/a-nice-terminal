@@ -47,6 +47,11 @@ import { summariseReactionsForMessage } from '$lib/server/messageReactionStore';
 import { buildPermissionDeniedPayload } from '$lib/server/permissionDeniedPayload';
 import { resolveApproversFor } from '$lib/server/permissionApproverResolver';
 import { listReadersForMessages } from '$lib/server/messageReadReceiptStore';
+import { resolveOrNull } from '$lib/server/sessionResolver';
+import { resolveCurrentOwner } from '$lib/server/roomIdentityResolver';
+import { getRoomPolicy } from '$lib/server/roomPolicyStore';
+import { decidePost } from '$lib/server/roomAccessGate';
+import { allocateHandle } from '$lib/server/roomHandleLeaseStore';
 
 const DEFAULT_MESSAGE_PAGE_SIZE = 100;
 const MAX_MESSAGE_PAGE_SIZE = 200;
@@ -395,7 +400,7 @@ type AuthorResolution = {
   /** plan_consent_gate_2026_05_20 T6: how the caller authenticated. The
    *  consent gate treats 'bearer' as authenticated self-post (no grant
    *  needed) because a bearer token is a first-party human credential. */
-  authPath: 'bearer' | 'cookie' | 'pidchain' | 'caller-grant';
+  authPath: 'bearer' | 'cookie' | 'pidchain' | 'caller-grant' | 'ant-session';
 };
 
 async function resolveAccountsBearerHandle(token: string): Promise<string | null> {
@@ -434,6 +439,9 @@ async function resolveMessageAuthorHandle(
     // Invalid/expired Bearer token — fall through (cookie/pidChain may
     // still validate the request).
   }
+
+  const antSessionResolution = resolveAntSessionAuthor(roomId, request, rawBody, clientAuthorHandle);
+  if (antSessionResolution) return antSessionResolution;
 
   // Step 1 (cookie-first per M3.6a-v0 + M3.6a-v1 Q2 precedence): cookie
   // PRESENT-BUT-VALID-BUT-MISMATCHED-HANDLE 403s (real spoof signal).
@@ -530,6 +538,52 @@ async function resolveMessageAuthorHandle(
   }
 
   rejectMessageIdentity(roomId, 'server-resolved identity required.');
+}
+
+function resolveAntSessionAuthor(
+  roomId: string,
+  request: Request,
+  rawBody: unknown,
+  clientAuthorHandle: string | null
+): AuthorResolution | null {
+  const sessionId = extractAntSessionId(request, rawBody);
+  if (!sessionId) return null;
+  const session = resolveOrNull(sessionId);
+  if (!session) {
+    rejectMessageIdentity(roomId, 'ANT session id does not resolve.');
+  }
+
+  const preferredHandle = clientAuthorHandle ?? session.label ?? session.id;
+  const currentOwner = resolveCurrentOwner(roomId, preferredHandle);
+  if (currentOwner?.session.id === session.id) {
+    return { handle: currentOwner.lease.handle, authPath: 'ant-session' };
+  }
+
+  const policy = getRoomPolicy(roomId);
+  const postDecision = decidePost(policy.joinPolicy, false);
+  if (postDecision !== 'auto-join') {
+    rejectMessageIdentity(roomId, 'ANT session is not a member of this room.');
+  }
+
+  const lease = allocateHandle({
+    roomId,
+    sessionId: session.id,
+    preferredHandle,
+    fallbackSessionId: session.id,
+    createdFrom: 'auto-join-on-post'
+  });
+  return { handle: lease.handle, authPath: 'ant-session' };
+}
+
+function extractAntSessionId(request: Request, rawBody: unknown): string | null {
+  const fromHeader = request.headers.get('x-ant-session-id')?.trim();
+  if (fromHeader) return fromHeader;
+  if (!rawBody || typeof rawBody !== 'object') return null;
+  const sessionId = (rawBody as { sessionId?: unknown; antSessionId?: unknown }).sessionId;
+  if (typeof sessionId === 'string' && sessionId.trim().length > 0) return sessionId.trim();
+  const antSessionId = (rawBody as { antSessionId?: unknown }).antSessionId;
+  if (typeof antSessionId === 'string' && antSessionId.trim().length > 0) return antSessionId.trim();
+  return null;
 }
 
 // REVERTED 2026-05-19: isSameOriginBrowserPost + autoMintBrowserSessionInline
