@@ -62,9 +62,17 @@ function rowToMembership(r: MembershipRow): Membership {
 }
 
 /**
- * Add or update a member. Upsert on (room_id, handle): re-adding the same
- * handle in the same room updates the session it resolves to (the durable
- * session may change across rebinds), preserving the original created_at_ms.
+ * Add or update a member. Upsert on (room_id, handle), preserving the original
+ * created_at_ms.
+ *
+ * HANDLE-HIJACK GUARD (security): a held handle must NOT be silently stolen by
+ * a different session. On conflict we only adopt the incoming session_id when
+ * the incumbent claim is UNOWNED — i.e. its session_id is NULL (a legacy
+ * backfill row) — or when it is the SAME session re-adding itself (idempotent
+ * rebind / heartbeat). When a DIFFERENT, non-null session already owns the
+ * handle, the existing claim is left untouched: a second session's addMember
+ * is a no-op on the incumbent's session_id. This closes the hole where any
+ * session could re-add e.g. @JWPK and quietly take over the handle.
  */
 export function addMember(
   roomId: string,
@@ -77,7 +85,9 @@ export function addMember(
   db.prepare(
     `INSERT INTO room_membership (room_id, handle, session_id, created_at_ms)
      VALUES (@room_id, @handle, @session_id, @created_at_ms)
-     ON CONFLICT (room_id, handle) DO UPDATE SET session_id = excluded.session_id`
+     ON CONFLICT (room_id, handle) DO UPDATE SET session_id = excluded.session_id
+       WHERE room_membership.session_id IS NULL
+          OR room_membership.session_id = excluded.session_id`
   ).run({ room_id: roomId, handle, session_id: sessionId, created_at_ms: now });
   const row = db
     .prepare(`SELECT * FROM room_membership WHERE room_id = ? AND handle = ?`)
