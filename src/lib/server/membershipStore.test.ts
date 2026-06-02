@@ -39,12 +39,33 @@ describe('membershipStore — (room_id, handle, session_id) is the WHOLE table',
     expect(isMember('roomX', '@nobody')).toBe(false);
   });
 
-  it('addMember upserts on UNIQUE(room,handle) — one row, session updated', () => {
+  it('addMember by the SAME session is idempotent — one row, no duplicate', () => {
     addMember('roomX', '@alice', 'sess1');
-    const updated = addMember('roomX', '@alice', 'sess2'); // rebind
-    expect(updated.session_id).toBe('sess2');
-    expect(resolveMember('roomX', '@alice')).toBe('sess2');
+    const again = addMember('roomX', '@alice', 'sess1'); // same session re-add
+    expect(again.session_id).toBe('sess1');
+    expect(resolveMember('roomX', '@alice')).toBe('sess1');
     expect(listMembers('roomX')).toHaveLength(1); // no duplicate
+  });
+
+  // HIJACK FIX (PART 1): a held handle must NOT be silently stolen by a
+  // different session. addMember from a second session is a no-op on the
+  // incumbent's session_id — it does NOT overwrite the existing claim.
+  it('addMember from a DIFFERENT session does NOT overwrite the incumbent (hijack fix)', () => {
+    addMember('roomX', '@JWPK', 'sessOwner');
+    const attempt = addMember('roomX', '@JWPK', 'sessAttacker'); // hijack attempt
+    expect(attempt.session_id).toBe('sessOwner'); // incumbent unchanged
+    expect(resolveMember('roomX', '@JWPK')).toBe('sessOwner');
+    expect(listMembers('roomX')).toHaveLength(1); // still one row
+  });
+
+  // A NULL-session incumbent (legacy backfill row) is not an owned claim, so a
+  // real session may fill it — that is not a hijack.
+  it('addMember fills a NULL-session incumbent (backfill row is unowned)', () => {
+    addMember('roomX', '@alice', null); // backfill, unowned
+    const filled = addMember('roomX', '@alice', 'sessReal');
+    expect(filled.session_id).toBe('sessReal');
+    expect(resolveMember('roomX', '@alice')).toBe('sessReal');
+    expect(listMembers('roomX')).toHaveLength(1);
   });
 
   it('upsert preserves the original created_at_ms', () => {
