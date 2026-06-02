@@ -9,14 +9,22 @@
  *
  * No auth gate beyond DB reachability (matches /api/health + the other
  * decorative read feeds). Cheap enough for a 30s client poll.
+ *
+ * Also carries `durableActivation` — the read-only "deployed-but-dormant"
+ * verdict for the durable-identity model (ant_sessions / room_handle_leases).
+ * Kept on this one read-model (consistent with #139) so a single poll surfaces
+ * both per-terminal identity drift AND whether the durable model is actually in
+ * use vs silently dormant on the fallback path. Read-only: SELECT/COUNT only.
  */
 
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { listRoomHealth, summariseRoomHealth } from '$lib/server/roomHealthStore';
+import { summariseDurableActivation } from '$lib/server/durableActivationHealth';
 
 export const GET: RequestHandler = () => {
   const terminals = listRoomHealth();
   const summary = summariseRoomHealth(terminals);
-  return json({ terminals, summary });
+  const durableActivation = summariseDurableActivation();
+  return json({ terminals, summary, durableActivation });
 };
