@@ -137,16 +137,23 @@ describe('POST /api/identity/register', () => {
     expect(second.session_id).toBe(first.session_id); // same identity across pid change
   });
 
-  it('honours a client-supplied sessionToken (durable across restart even if terminal id changed)', async () => {
+  it('honours a client sessionToken from its OWN terminal (binds + reuses)', async () => {
     const tok = 'client-persisted-token-xyz';
-    const a = await (await callPost(JSON.stringify({
-      name: 'tok-a', pids: [{ pid: 1, pid_start: 'a' }], sessionToken: tok
-    }))).json();
-    const b = await (await callPost(JSON.stringify({
-      name: 'tok-b', pids: [{ pid: 2, pid_start: 'b' }], sessionToken: tok
-    }))).json();
-    expect(a.session_id).toBe(tok);
-    expect(b.session_id).toBe(tok); // same token -> same durable identity regardless of terminal
+    const a1 = await callPost(JSON.stringify({ name: 'tok-own', pids: [{ pid: 1, pid_start: 'a' }], sessionToken: tok }));
+    expect(a1.status).toBe(201);
+    expect((await a1.json()).session_id).toBe(tok);
+    // same terminal (same name), restart pid -> reuses the bound session
+    const a2 = await callPost(JSON.stringify({ name: 'tok-own', pids: [{ pid: 9, pid_start: 'z' }], sessionToken: tok }));
+    expect((await a2.json()).session_id).toBe(tok);
+  });
+
+  it('REFUSES a client sessionToken reused from a DIFFERENT terminal (anti-adoption, @v4claude #149 vector)', async () => {
+    const tok = 'victim-token';
+    const victim = await callPost(JSON.stringify({ name: 'victim', pids: [{ pid: 1, pid_start: 'a' }], sessionToken: tok }));
+    expect(victim.status).toBe(201);
+    // attacker on a DIFFERENT terminal presents the known token -> 409, no adoption
+    const attacker = await callPost(JSON.stringify({ name: 'attacker', pids: [{ pid: 2, pid_start: 'b' }], sessionToken: tok }));
+    expect(attacker.status).toBe(409);
   });
 
   // M3.2d: client-input agent_kind validation rejects unknown/remote/browser/bogus.

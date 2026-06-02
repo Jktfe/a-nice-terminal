@@ -8,7 +8,8 @@ import {
   ensureSession,
   getSession,
   markSessionSeen,
-  childSessions
+  childSessions,
+  SessionAdoptionRefused
 } from './antSessionStore';
 
 let tmpDir: string;
@@ -117,5 +118,34 @@ describe('ensureSession — the activation entry point (resolve-or-create by tok
     const again = ensureSession('tok-2', { kind: 'remote-agent' });
     expect(again.last_seen_at_ms).toBeGreaterThanOrEqual(first.last_seen_at_ms);
     expect(again.id).toBe('tok-2');
+  });
+});
+
+describe('ensureSession — anti-adoption terminal binding (the #149 vector fix)', () => {
+  it('binds terminal_id on create', () => {
+    const s = ensureSession('tokA', { kind: 'local-cli', terminalId: 'term-1' });
+    expect(s.terminal_id).toBe('term-1');
+    expect(getSession('tokA')!.terminal_id).toBe('term-1');
+  });
+
+  it('resolve from the SAME terminal is fine (legit re-register)', () => {
+    ensureSession('tokB', { kind: 'local-cli', terminalId: 'term-1' });
+    const again = ensureSession('tokB', { kind: 'local-cli', terminalId: 'term-1' });
+    expect(again.id).toBe('tokB');
+    expect(again.terminal_id).toBe('term-1');
+  });
+
+  it('REFUSES adoption: a different terminal presenting a known token is rejected', () => {
+    ensureSession('victim-token', { kind: 'local-cli', terminalId: 'victim-terminal' });
+    // Attacker knows victim-token (= a discoverable terminal id) but is on
+    // their own terminal -> must NOT get the victim's session.
+    expect(() => ensureSession('victim-token', { kind: 'local-cli', terminalId: 'attacker-terminal' }))
+      .toThrow(SessionAdoptionRefused);
+  });
+
+  it('resolve with no caller terminalId does not refuse (post-path enforces separately)', () => {
+    ensureSession('tokC', { kind: 'local-cli', terminalId: 'term-1' });
+    const r = ensureSession('tokC', { kind: 'local-cli' }); // no terminalId presented
+    expect(r.id).toBe('tokC');
   });
 });

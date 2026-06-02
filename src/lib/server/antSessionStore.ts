@@ -40,6 +40,12 @@ export type AntSession = {
    *  tied to its parent but independently addressable (slide 11). NULL for
    *  top-level sessions. */
   parent_session_id: string | null;
+  /** The terminal this session is BOUND to (the registering terminal's id).
+   *  Set on create, immutable on resolve. The anti-adoption anchor: a caller
+   *  re-presenting this session's token must come from the SAME terminal, and
+   *  the post-path requires the caller's pidChain to resolve to this terminal.
+   *  NULL only for server-minted sessions with no terminal (rare). */
+  terminal_id: string | null;
   created_at_ms: number;
   /** Last time the session was seen/resolved — liveness signal, distinct
    *  from identity. Updated on resolve; never gates identity. */
@@ -51,6 +57,7 @@ type SessionRow = {
   kind: string;
   label: string | null;
   parent_session_id: string | null;
+  terminal_id: string | null;
   created_at_ms: number;
   last_seen_at_ms: number;
 };
@@ -72,6 +79,7 @@ function ensureTable(db = getIdentityDb()): void {
         CHECK (kind IN ('human','local-cli','remote-agent','mcp-agent','web-session','subagent')),
       label              TEXT,
       parent_session_id  TEXT REFERENCES ant_sessions(id) ON DELETE SET NULL,
+      terminal_id        TEXT,
       created_at_ms      INTEGER NOT NULL,
       last_seen_at_ms    INTEGER NOT NULL
     );
@@ -86,6 +94,7 @@ function rowToSession(r: SessionRow): AntSession {
     kind: r.kind as SessionKind,
     label: r.label,
     parent_session_id: r.parent_session_id,
+    terminal_id: r.terminal_id,
     created_at_ms: r.created_at_ms,
     last_seen_at_ms: r.last_seen_at_ms
   };
@@ -103,6 +112,9 @@ export type CreateSessionInput = {
    *  uses: the CLI generates+persists a token once, register/login calls
    *  ensureSession(token), and ant_sessions populates. */
   id?: string;
+  /** The terminal this session binds to (the registering terminal's id). The
+   *  anti-adoption anchor — see AntSession.terminal_id. */
+  terminalId?: string | null;
 };
 
 /** Mint a new durable identity. The returned id is the stable handle the
@@ -125,32 +137,59 @@ export function createSession(input: CreateSessionInput, db = getIdentityDb()): 
     kind: input.kind,
     label: input.label ?? null,
     parent_session_id: input.parentSessionId ?? null,
+    terminal_id: input.terminalId ?? null,
     created_at_ms: now,
     last_seen_at_ms: now
   };
   db.prepare(
-    `INSERT INTO ant_sessions (id, kind, label, parent_session_id, created_at_ms, last_seen_at_ms)
-     VALUES (@id, @kind, @label, @parent_session_id, @created_at_ms, @last_seen_at_ms)`
+    `INSERT INTO ant_sessions (id, kind, label, parent_session_id, terminal_id, created_at_ms, last_seen_at_ms)
+     VALUES (@id, @kind, @label, @parent_session_id, @terminal_id, @created_at_ms, @last_seen_at_ms)`
   ).run(row);
   return rowToSession(row);
+}
+
+/** Thrown when a caller tries to resolve (adopt) an existing session from a
+ *  DIFFERENT terminal than the one it's bound to. The anti-adoption gate. */
+export class SessionAdoptionRefused extends Error {
+  constructor(public readonly token: string, public readonly boundTerminalId: string | null, public readonly callerTerminalId: string | null) {
+    super(`Session '${token}' is bound to terminal '${boundTerminalId}'; refusing adoption by terminal '${callerTerminalId}'.`);
+    this.name = 'SessionAdoptionRefused';
+  }
 }
 
 /**
  * Resolve-or-create by a durable client token — THE activation entry point.
  * register/login calls this with the client's persisted token: if a session
  * already exists for that token it's returned (and touched for liveness), else
- * one is created with the token as its id. Idempotent across restarts: the
- * same token always lands on the same identity, which is what populates
- * ant_sessions and puts the durable model in force for real agents.
+ * one is created BOUND to opts.terminalId. Idempotent across restarts: the
+ * same token + same terminal always lands on the same identity.
+ *
+ * ANTI-ADOPTION (the #149 vector @v4claude found): a session id is NOT a
+ * capability. On RESOLVE, if the existing session is bound to a terminal and
+ * the caller presents a DIFFERENT terminal_id, REFUSE — a discoverable token
+ * can't be used to adopt another terminal's identity. (A caller with no
+ * terminalId, or matching it, resolves normally.)
  */
 export function ensureSession(
   token: string,
-  opts: { kind: SessionKind; label?: string | null; parentSessionId?: string | null },
+  opts: { kind: SessionKind; label?: string | null; parentSessionId?: string | null; terminalId?: string | null },
   db = getIdentityDb()
 ): AntSession {
   const existing = getSession(token, db);
-  if (existing) return markSessionSeen(token, Date.now(), db) ?? existing;
-  return createSession({ id: token, kind: opts.kind, label: opts.label, parentSessionId: opts.parentSessionId }, db);
+  if (existing) {
+    if (
+      existing.terminal_id !== null &&
+      opts.terminalId != null &&
+      existing.terminal_id !== opts.terminalId
+    ) {
+      throw new SessionAdoptionRefused(token, existing.terminal_id, opts.terminalId);
+    }
+    return markSessionSeen(token, Date.now(), db) ?? existing;
+  }
+  return createSession(
+    { id: token, kind: opts.kind, label: opts.label, parentSessionId: opts.parentSessionId, terminalId: opts.terminalId },
+    db
+  );
 }
 
 /** Resolve a session by its durable ID. This is the restart-safe path:
