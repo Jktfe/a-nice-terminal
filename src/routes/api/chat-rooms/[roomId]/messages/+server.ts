@@ -48,10 +48,15 @@ import { buildPermissionDeniedPayload } from '$lib/server/permissionDeniedPayloa
 import { resolveApproversFor } from '$lib/server/permissionApproverResolver';
 import { listReadersForMessages } from '$lib/server/messageReadReceiptStore';
 import { resolveOrNull } from '$lib/server/sessionResolver';
-import { resolveCurrentOwner } from '$lib/server/roomIdentityResolver';
 import { getRoomPolicy } from '$lib/server/roomPolicyStore';
 import { decidePost } from '$lib/server/roomAccessGate';
-import { allocateHandle } from '$lib/server/roomHandleLeaseStore';
+// CLEAN MODEL (identity rebuild): the ONE writer — handle-keyed lease store
+// (room, handle, session), reuse-rules 1-4, no terminal_id in the identity path.
+import {
+  isMember as isCleanMember,
+  displayHandleForSession,
+  claimHandle
+} from '$lib/server/roomHandleLeaseClean';
 
 const DEFAULT_MESSAGE_PAGE_SIZE = 100;
 const MAX_MESSAGE_PAGE_SIZE = 200;
@@ -561,26 +566,24 @@ function resolveAntSessionAuthor(
     rejectMessageIdentity(roomId, 'ANT session id does not match the calling terminal.');
   }
 
+  // CLEAN MODEL: membership + handle resolution via roomHandleLeaseClean
+  // (handle-keyed, no terminal_id). Already a member -> render the lease's
+  // current display handle (incl. the @x-N suffix per JWPK's reuse rules).
   const preferredHandle = clientAuthorHandle ?? session.label ?? session.id;
-  const currentOwner = resolveCurrentOwner(roomId, preferredHandle);
-  if (currentOwner?.session.id === session.id) {
-    return { handle: currentOwner.lease.handle, authPath: 'ant-session' };
+  if (isCleanMember(roomId, session.id)) {
+    const display = displayHandleForSession(roomId, session.id);
+    return { handle: display ?? preferredHandle, authPath: 'ant-session' };
   }
 
+  // Not a member: auto-join ONLY if the room policy is open. claimHandle never
+  // overwrites a held handle — a collision gets the lowest-free @x-N suffix
+  // (rule 4), so a different session can't steal @JWPK.
   const policy = getRoomPolicy(roomId);
-  const postDecision = decidePost(policy.joinPolicy, false);
-  if (postDecision !== 'auto-join') {
+  if (decidePost(policy.joinPolicy, false) !== 'auto-join') {
     rejectMessageIdentity(roomId, 'ANT session is not a member of this room.');
   }
-
-  const lease = allocateHandle({
-    roomId,
-    sessionId: session.id,
-    preferredHandle,
-    fallbackSessionId: session.id,
-    createdFrom: 'auto-join-on-post'
-  });
-  return { handle: lease.handle, authPath: 'ant-session' };
+  const display = claimHandle(roomId, preferredHandle, session.id);
+  return { handle: display, authPath: 'ant-session' };
 }
 
 function extractAntSessionId(request: Request, rawBody: unknown): string | null {
