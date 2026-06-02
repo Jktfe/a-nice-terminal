@@ -86,6 +86,18 @@ function ensureTable(db = getIdentityDb()): void {
     CREATE INDEX IF NOT EXISTS idx_ant_sessions_parent
       ON ant_sessions (parent_session_id);
   `);
+  // Migration for the pre-existing live table: CREATE TABLE IF NOT EXISTS is a
+  // no-op when ant_sessions already exists (it was created by the original
+  // antSessionStore deploy WITHOUT terminal_id), so the column above is NOT
+  // added on an existing table. Backfill it via ALTER — the same
+  // ALTER-on-existing pattern db.ts uses for terminals/chat_rooms columns.
+  // Without this, createSession's INSERT (... terminal_id ...) throws
+  // "no such column" and 500s register on live. (Caught by @v4claude — the
+  // fresh-db tests miss this path; see the seed-old-schema regression test.)
+  const cols = db.prepare(`PRAGMA table_info(ant_sessions)`).all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === 'terminal_id')) {
+    db.exec(`ALTER TABLE ant_sessions ADD COLUMN terminal_id TEXT`);
+  }
 }
 
 function rowToSession(r: SessionRow): AntSession {

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resetIdentityDbForTests } from './db';
+import { getIdentityDb, resetIdentityDbForTests } from './db';
 import {
   createSession,
   ensureSession,
@@ -147,5 +147,29 @@ describe('ensureSession — anti-adoption terminal binding (the #149 vector fix)
     ensureSession('tokC', { kind: 'local-cli', terminalId: 'term-1' });
     const r = ensureSession('tokC', { kind: 'local-cli' }); // no terminalId presented
     expect(r.id).toBe('tokC');
+  });
+});
+
+describe('ensureTable — migrates a pre-existing old-schema table (the #152 live deploy-blocker)', () => {
+  it('backfills terminal_id on a table created WITHOUT it (CREATE-IF-NOT-EXISTS no-ops, ALTER must run)', () => {
+    // Seed the OLD schema exactly as it exists on live (created by the
+    // original antSessionStore deploy, no terminal_id). CREATE TABLE IF NOT
+    // EXISTS would no-op on this; ensureTable must ALTER-add the column or
+    // createSession's INSERT 500s with "no such column: terminal_id".
+    getIdentityDb().exec(`
+      CREATE TABLE ant_sessions (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        label TEXT,
+        parent_session_id TEXT,
+        created_at_ms INTEGER NOT NULL,
+        last_seen_at_ms INTEGER NOT NULL
+      );
+    `);
+    // createSession -> ensureTable: must backfill terminal_id, then INSERT must succeed.
+    const s = createSession({ kind: 'local-cli', label: 'x', terminalId: 'term-9' });
+    expect(s.terminal_id).toBe('term-9');
+    const cols = getIdentityDb().prepare(`PRAGMA table_info(ant_sessions)`).all() as Array<{ name: string }>;
+    expect(cols.some((c) => c.name === 'terminal_id')).toBe(true);
   });
 });
