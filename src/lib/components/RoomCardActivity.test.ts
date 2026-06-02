@@ -29,3 +29,35 @@ describe('RoomCardActivity room-card status pills', () => {
     expect(COMPONENT_SRC).toMatch(/contextForStatus\(entry\)/);
   });
 });
+
+describe('RoomCardActivity display-identity invariant (room-identity hardening)', () => {
+  it('renders the pill identity from the resolved handle field, not a pid', () => {
+    // Identity displayed = entry.handle (server-resolved via lease ->
+    // durable session in the /agent-statuses feed). The handle must be the
+    // displayed token.
+    expect(COMPONENT_SRC).toMatch(/shortHandle\(entry\.handle\)/);
+    expect(COMPONENT_SRC).toMatch(/function shortHandle\(handle: string\)/);
+  });
+
+  it('sources status entries from the agent-statuses endpoint (no client-side identity resolution)', () => {
+    expect(COMPONENT_SRC).toMatch(/\/api\/chat-rooms\/\$\{encodeURIComponent\(roomId\)\}\/agent-statuses/);
+  });
+
+  it('does not infer identity from a pid binding', () => {
+    // No pid-keyed identity lookup. 'pid-cpu' is allowed ONLY as a status
+    // source LABEL, never as an identity key — assert there is no pid-based
+    // identity derivation (e.g. entry.pid, pidToHandle, bindingPid).
+    expect(COMPONENT_SRC).not.toMatch(/entry\.pid\b/);
+    expect(COMPONENT_SRC).not.toMatch(/pidToHandle|pidBinding|bindingPid|handleForPid/);
+  });
+
+  it('does not reimplement lease/owner lookup in Svelte', () => {
+    // Lease resolution belongs in the server resolver (roomIdentityResolver),
+    // consumed via the endpoint — never duplicated here.
+    expect(COMPONENT_SRC).not.toMatch(/findRoomHandleOwnerAtTime|roomHandleLeaseStore|resolveHandleToSession/);
+  });
+
+  it('documents the display-identity invariant so the rule survives edits', () => {
+    expect(COMPONENT_SRC).toMatch(/DISPLAY IDENTITY INVARIANT/);
+  });
+});
