@@ -92,6 +92,24 @@ describe('POST /api/sessions/add — membership mode', () => {
     expect(listMembershipsForRoom('r-7').length).toBe(1);
   });
 
+  it('adds a membership by terminal_id so operator bind can use terminal_records friendly names', async () => {
+    const terminal = upsertTerminal({ pid: 101, pid_start: 'x2', name: 'auto:t_friendly' });
+    createTerminalRecord({
+      sessionId: terminal.id,
+      name: 'Friendly Terminal',
+      handle: '@friendly',
+      tmuxTargetPane: 't_friendly:0.0'
+    });
+    const response = await callPost(JSON.stringify({
+      room_id: 'r-friendly', handle: '@friendly', terminal_id: terminal.id
+    }));
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload.handle).toBe('@friendly');
+    expect(payload.terminal_id).toBe(terminal.id);
+    expect(listMembershipsForRoom('r-friendly')[0].terminal_id).toBe(terminal.id);
+  });
+
   it('returns 404 when terminal_name is unknown', async () => {
     const response = await callPost(JSON.stringify({
       room_id: 'r-7', handle: '@nope', terminal_name: 'nonexistent'

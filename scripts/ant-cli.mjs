@@ -13,6 +13,7 @@ import { handleArtefactVerb } from './ant-cli-artefact.mjs';
 import { handleAskVerb } from './ant-cli-ask.mjs';
 import { handleAttachVerb } from './ant-cli-attach.mjs';
 import { handleAuditVerb } from './ant-cli-audit.mjs';
+import { handleBindVerb } from './ant-cli-bind.mjs';
 import { handleChairVerb } from './ant-cli-chair.mjs';
 import { handleChatVerb } from './ant-cli-chat.mjs';
 import { handleDeckVerb } from './ant-cli-deck.mjs';
@@ -64,7 +65,7 @@ const DEFAULT_SERVER_URL = 'http://127.0.0.1:6174';
 const ENV_SERVER_URL = process.env.ANT_SERVER_URL?.trim();
 
 const DISPATCH = {
-  plan: handlePlanVerb, ask: handleAskVerb, artefact: handleArtefactVerb, attach: handleAttachVerb, invite: handleInviteVerb, chat: handleChatVerb, room: handleRoomVerb,
+  plan: handlePlanVerb, ask: handleAskVerb, artefact: handleArtefactVerb, attach: handleAttachVerb, bind: handleBindVerb, invite: handleInviteVerb, chat: handleChatVerb, room: handleRoomVerb,
   reaction: handleReactionVerb, reclaim: handleReclaimVerb, handle: handleHandleVerb, status: handleStatusVerb, delivery: handleDeliveryVerb, audit: handleAuditVerb, docs: handleDocsVerb,
   deck: handleDeckVerb, decks: handleDecksVerb, stage: handleStageVerb, remote: handleRemoteVerb, 'remote-room': handleRemoteRoomVerb, discussion: handleDiscussionVerb, linkedchat: handleLinkedchatVerb, fingerprint: handleFingerprintVerb, mcp: handleMcpVerb, chair: handleChairVerb, interview: handleInterviewVerb, screenshot: handleScreenshotVerb, hooks: handleHooksVerb, new: handleNewVerb, list: handleListVerb, terminal: handleTerminalVerb, tools: handleToolsVerb, settings: handleSettingsVerb, flag: handleFlagVerb, grant: handleGrantVerb, request: handleRequestVerb, task: handleTaskVerb, memory: handleMemoryVerb, sessions: handleSessionsVerb, voice: handleVoiceVerb, tunnel: handleTunnelVerb, pairing: handlePairingVerb, agents: handleAgentsVerb, share: handleShareVerb, identity: handleIdentityVerb, register: handleRegisterVerb, add: handleAddVerb, resolve: handleResolveVerb, router: handleRouterVerb, whoami: handleWhoamiVerb
 };
@@ -457,6 +458,7 @@ function printUsage({ writeOut, serverUrl }) {
 
 Verbs:
   rooms list|create|members|invite|post|break|messages   Manage rooms + post + breaks.
+  bind --room ROOM --handle @h --terminal "Name"   Bind a friendly terminal to a room handle.
   room members|add-member|aliases     Manage room admission and aliases.
   reaction list|add|remove            Manage message reactions.
   status show --room ROOM_ID          Show pane/terminal delivery status per room member.
