@@ -20,6 +20,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { postMessage, listMessagesInRoom, listMessagesPageInRoom, generateMessageId } from '$lib/server/chatMessageStore';
 import { resolveHumanOwnership, gateAndConsumeForWrite } from '$lib/server/consentGate';
+import { canonicaliseOperatorHandle } from '$lib/server/operatorHandle';
 import { broadcastToRoom } from '$lib/server/eventBroadcast';
 import { doesChatRoomExist, ensureAgentMemberInRoom } from '$lib/server/chatRoomStore';
 import { fanoutMessageToRoomTerminals } from '$lib/server/pty-inject-fanout';
@@ -355,8 +356,7 @@ function normalizeHandle(rawHandle: string): string {
 }
 
 function canonicalBrowserHandle(rawHandle: string): string {
-  const normalized = normalizeHandle(rawHandle);
-  return normalized === '@you' ? '@JWPK' : normalized;
+  return canonicaliseOperatorHandle(rawHandle);
 }
 
 function getCookieValues(request: Request, cookieName: string): string[] {

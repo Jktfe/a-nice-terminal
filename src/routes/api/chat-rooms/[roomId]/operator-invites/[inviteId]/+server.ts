@@ -10,7 +10,7 @@ import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { resolveBrowserSessionSecret } from '$lib/server/browserSessionStore';
-import { OPERATOR_HANDLE } from '$lib/server/allowlistGuard';
+import { isOperatorHandle } from '$lib/server/operatorHandle';
 import { revokeInvite } from '$lib/server/chatInviteStore';
 
 function getCookieValue(request: Request, cookieName: string): string | null {
@@ -32,7 +32,7 @@ function requireOperatorBrowserSession(request: Request, roomId: string): void {
   if (!cookie) throw error(403, 'Operator browser session required.');
   const resolved = resolveBrowserSessionSecret(cookie, roomId);
   if (!resolved) throw error(403, 'Operator browser session required.');
-  if (resolved.handle !== OPERATOR_HANDLE) {
+  if (!isOperatorHandle(resolved.handle)) {
     throw error(403, 'Only the operator can manage invites.');
   }
 }

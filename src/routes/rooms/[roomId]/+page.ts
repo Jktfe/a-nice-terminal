@@ -155,9 +155,21 @@ export const load: PageLoad = async ({ fetch, params }) => {
   // capabilities endpoint is unreachable — never blocks room load.
   const capabilitiesResponse = await fetch('/api/capabilities').catch(() => null);
   let bringInAppAvailable = false;
+  // The operator's structural handle (configured server-side via
+  // ANT_OPERATOR_HANDLE). Threaded to the composer as `asHandle` so the
+  // browser mints + posts under the same handle the server stores — the
+  // client never hardcodes the `@you` sentinel. Falls back to `@you` only if
+  // capabilities is unreachable (matches the legacy default).
+  let operatorHandle = '@you';
   if (capabilitiesResponse?.ok) {
-    const body = (await capabilitiesResponse.json()) as { featureFlags?: Record<string, boolean> };
+    const body = (await capabilitiesResponse.json()) as {
+      featureFlags?: Record<string, boolean>;
+      operatorHandle?: string;
+    };
     bringInAppAvailable = body.featureFlags?.bring_in_app_ux === true;
+    if (typeof body.operatorHandle === 'string' && body.operatorHandle.length > 0) {
+      operatorHandle = body.operatorHandle;
+    }
   }
 
   const allRoomLabels: Record<string, string> = {};
@@ -180,6 +192,7 @@ export const load: PageLoad = async ({ fetch, params }) => {
     roomMode: roomModeBody.mode,
     responders: (respondersBody as ResponderFetchResult).responders,
     allRoomLabels,
-    bringInAppAvailable
+    bringInAppAvailable,
+    asHandle: operatorHandle
   };
 };

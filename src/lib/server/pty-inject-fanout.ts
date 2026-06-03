@@ -18,6 +18,7 @@ import type { ChatMessage } from './chatMessageStore';
 import { findChatRoomById } from './chatRoomStore';
 import { listMembershipsForRoom, type RoomMembershipRow } from './roomMembershipsStore';
 import { getTerminalById, touchLastPtyByteAt } from './terminalsStore';
+import { isOperatorHandle } from './operatorHandle';
 import { getRoomMode } from './roomModesStore';
 import {
   injectToTerminal,
@@ -246,7 +247,7 @@ function membershipIsTargeted(
 }
 
 function isOperatorBroadcastAuthor(handle: string): boolean {
-  return handle.toLowerCase() === '@you';
+  return isOperatorHandle(handle);
 }
 
 function isBrowserTerminalSource(source: string | null | undefined): boolean {

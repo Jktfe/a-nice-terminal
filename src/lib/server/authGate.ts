@@ -24,6 +24,7 @@ import {
 } from './browserSessionStore';
 import { applyDeprecationOrThrow, AUTH_DEPRECATION_HINT_BODY } from './authDeprecation';
 import { lookupTerminalByPidChain } from './terminalsStore';
+import { getOperatorHandle } from './operatorHandle';
 import {
   bearerTokenFromHeader,
   resolveToken as resolveAntchatToken,
@@ -280,7 +281,9 @@ export function resolveTerminalCallerHandle(request: Request): string | null {
     if (supplied.length > 0) {
       const a = Buffer.from(supplied);
       const b = Buffer.from(configured);
-      if (a.length === b.length && timingSafeEqual(a, b)) return '@you';
+      // Admin-token holder IS the operator. Resolve to the configured operator
+      // handle so downstream superadmin / operator checks recognise it.
+      if (a.length === b.length && timingSafeEqual(a, b)) return getOperatorHandle();
     }
   }
   return null;

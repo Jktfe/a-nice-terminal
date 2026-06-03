@@ -38,6 +38,7 @@ import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { addMembership, getTerminalIdByHandle } from '$lib/server/roomMembershipsStore';
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { createBrowserSession } from '$lib/server/browserSessionStore';
+import { getOperatorHandle } from '$lib/server/operatorHandle';
 import {
   findStoredUser,
   normalizeAntchatEmail,
@@ -45,7 +46,6 @@ import {
   userShapeForEmail
 } from '$lib/server/antchatAuthStore';
 
-const DEFAULT_DEMO_HANDLE = '@you';
 const DEFAULT_DEMO_ROOM_ID = 'zj4jlety9q'; // antv4 — JWPK's existing membership
 
 type BrowserLoginIdentity = {
@@ -61,7 +61,11 @@ function getDemoCreds(): { email: string; password: string; handle: string; room
   return {
     email,
     password,
-    handle: process.env.ANT_DEMO_HANDLE || DEFAULT_DEMO_HANDLE,
+    // Demo login binds the browser session to the operator. Default to the
+    // single configured operator handle (getOperatorHandle) so one env var
+    // (ANT_OPERATOR_HANDLE) keeps login, membership, mint and display in sync.
+    // ANT_DEMO_HANDLE still overrides if a deployment needs a distinct demo id.
+    handle: process.env.ANT_DEMO_HANDLE || getOperatorHandle(),
     roomId: process.env.ANT_DEMO_ROOM_ID || DEFAULT_DEMO_ROOM_ID
   };
 }

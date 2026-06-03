@@ -5,6 +5,7 @@ import { listMessagesInRoom } from './chatMessageStore';
 import { listChatRooms } from './chatRoomStore';
 import { getIdentityDb } from './db';
 import { openAskInRoom, type Ask } from './askStore';
+import { isOperatorHandle } from './operatorHandle';
 
 const HANDS_UP_EMOJIS = ['🙌', '🙋‍♂️'] as const;
 const RETROSCAN_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -135,7 +136,7 @@ export function collectAskCandidatesFromMessage(message: ChatMessage): AskCandid
   const createdAtMs = messageCreatedAtMs(message);
   const candidates: AskCandidate[] = [];
   const targetsLoggedInHuman =
-    listBareMentionHandles(message.body).some((handle) => handle.toLowerCase() === '@you')
+    listBareMentionHandles(message.body).some((handle) => isOperatorHandle(handle))
     || hasBareAtMarker(message.body);
   if (targetsLoggedInHuman) {
     const candidate = insertCandidate({

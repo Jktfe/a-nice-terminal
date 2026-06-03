@@ -22,6 +22,7 @@ import { resolveHumanOwnership } from './consentGate';
 import { resolveMemoryVaultPath } from './memoryVaultSettingsStore';
 import type { TerminalRow } from './terminalsStore';
 import { setTerminalStatus } from './terminalsStore';
+import { canonicaliseOperatorHandle } from './operatorHandle';
 
 /**
  * Sec-iter6 Fix #3 (2026-05-30): tag prefix for `Error.message` thrown by
@@ -165,10 +166,12 @@ function currentUnixSeconds(): number {
   return Math.floor(Date.now() / 1000);
 }
 
+// Route through the operator canonicaliser so membership WRITES and READS use
+// the same handle the session-mint check uses (browserSessionStore). Before
+// this, addMembership stored `@you` while the mint checked `@JWPK` → the row
+// was invisible to the mint and the operator could never establish a session.
 function normalizeHandle(rawHandle: string): string {
-  const trimmed = rawHandle.trim();
-  if (trimmed.length === 0) return trimmed;
-  return trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
+  return canonicaliseOperatorHandle(rawHandle);
 }
 
 export function addMembership(input: AddMembershipInput): RoomMembershipRow {

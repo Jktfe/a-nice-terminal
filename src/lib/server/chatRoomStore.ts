@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto';
 import type { RoomAttentionState } from '$lib/domain/types';
 import { getIdentityDb } from './db';
 import { operatorDisplayHandle } from './operatorDisplayHandle';
+import { getOperatorHandle, isOperatorHandle } from './operatorHandle';
 import { findTerminalRecordByHandle } from './terminalRecordsStore';
 import { recomputeInboxEdgesForRoomMembershipChange } from './humanInboxMembership';
 import { ensureHumanInboxRoom } from './humanInboxRoomStore';
@@ -220,7 +221,7 @@ function rowToRoom(row: ChatRoomRow, members: RoomMember[]): ChatRoom {
 
 function memberRowToMember(row: ChatRoomMemberRow): RoomMember {
   const kind: RoomMember['kind'] =
-    row.kind === 'human' && row.handle !== '@you' && findTerminalRecordByHandle(row.handle)
+    row.kind === 'human' && !isOperatorHandle(row.handle) && findTerminalRecordByHandle(row.handle)
       ? 'agent'
       : row.kind;
   // OUT-only display mapping: structural `handle` stays the @you sentinel
@@ -290,7 +291,7 @@ function v02HydratedRowToMember(row: {
   // by chatRoomStore. Fall back to terminal_records detection for
   // legacy rows that pre-date the column (member_kind IS NULL).
   const fallbackKind: RoomMember['kind'] =
-    row.handle !== '@you' && findTerminalRecordByHandle(row.handle) ? 'agent' : 'human';
+    !isOperatorHandle(row.handle) && findTerminalRecordByHandle(row.handle) ? 'agent' : 'human';
   const kind: RoomMember['kind'] = row.member_kind ?? fallbackKind;
   // memberRowToMember (legacy) does a same-shape derivation for
   // member_kind='human' handles that turn out to be agents (terminal
@@ -298,7 +299,7 @@ function v02HydratedRowToMember(row: {
   // 'human' but a terminal_records row resolves the handle, prefer
   // 'agent' — protects against stale member_kind labels.
   const resolvedKind: RoomMember['kind'] =
-    kind === 'human' && row.handle !== '@you' && findTerminalRecordByHandle(row.handle)
+    kind === 'human' && !isOperatorHandle(row.handle) && findTerminalRecordByHandle(row.handle)
       ? 'agent'
       : kind;
   // OUT-only display mapping (see memberRowToMember above): visible label +
@@ -356,7 +357,7 @@ export function createChatRoom(input: {
   // Without this fallback, agents creating side-rooms get stored as
   // kind='human' and the agent pill goes missing.
   const hasExistingAgentBinding = (handle: string): boolean => {
-    if (handle === '@you' || handle.startsWith('@browser-bs_')) return false;
+    if (isOperatorHandle(handle) || handle.startsWith('@browser-bs_')) return false;
     const row = getIdentityDb()
       .prepare(
         `SELECT 1 FROM room_memberships
@@ -367,7 +368,7 @@ export function createChatRoom(input: {
     return !!row;
   };
   const creatorKind: RoomMember['kind'] =
-    input.whoCreatedIt === '@you'
+    isOperatorHandle(input.whoCreatedIt)
       ? 'human'
       : findTerminalRecordByHandle(input.whoCreatedIt) || hasExistingAgentBinding(input.whoCreatedIt)
         ? 'agent'
@@ -406,17 +407,20 @@ export function createChatRoom(input: {
       creatorKind
     );
 
-    // Task #138: server operator @you is always a member
-    if (input.whoCreatedIt !== '@you') {
+    // Task #138: the server operator is always a member. Handle comes from the
+    // single configurable source (getOperatorHandle) so the roster, the mint
+    // check, and the membership write all agree on one value.
+    const operatorMemberHandle = getOperatorHandle();
+    if (!isOperatorHandle(input.whoCreatedIt)) {
       db.prepare(`INSERT INTO chat_room_members
         (id, room_id, handle, display_name, display_color, display_icon, display_background_style, joined_at, kind)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'human')`).run(
         randomUUID(),
         newRoomId,
-        '@you',
-        '@you',
-        defaultParticipantColor('@you'),
-        defaultParticipantIcon('@you'),
+        operatorMemberHandle,
+        operatorMemberHandle,
+        defaultParticipantColor(operatorMemberHandle),
+        defaultParticipantIcon(operatorMemberHandle),
         defaultParticipantBackgroundStyle('human'),
         nowIso
       );
@@ -445,8 +449,8 @@ export function createChatRoom(input: {
     displayBackgroundStyle: defaultParticipantBackgroundStyle(creatorKind),
     memberKind: creatorKind
   });
-  const operatorHandle = '@JWPK';
-  if (input.whoCreatedIt !== operatorHandle) {
+  const operatorHandle = getOperatorHandle();
+  if (!isOperatorHandle(input.whoCreatedIt)) {
     v02MirrorAddMembership({
       roomId: newRoomId,
       handle: operatorHandle,
@@ -465,9 +469,9 @@ export function createChatRoom(input: {
   // same hook, so @JWPK's inbox is provisioned the first time @JWPK appears
   // anywhere in the system.
   if (creatorKind === 'human') ensureHumanInboxRoom(input.whoCreatedIt);
-  if (input.whoCreatedIt !== operatorHandle) ensureHumanInboxRoom(operatorHandle);
+  if (!isOperatorHandle(input.whoCreatedIt)) ensureHumanInboxRoom(operatorHandle);
   recomputeInboxEdgesForRoomMembershipChange(newRoomId, input.whoCreatedIt);
-  if (input.whoCreatedIt !== operatorHandle) {
+  if (!isOperatorHandle(input.whoCreatedIt)) {
     recomputeInboxEdgesForRoomMembershipChange(newRoomId, operatorHandle);
   }
   return loadRoomById(newRoomId)!;

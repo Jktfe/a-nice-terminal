@@ -3,6 +3,7 @@
 
 import { hashToken, mintTokenSecret } from './chatInviteStore';
 import { getIdentityDb } from './db';
+import { canonicaliseOperatorHandle } from './operatorHandle';
 
 // 30 days. Bumped from 24h after JWPK 2026-05-19 "this keeps happening"
 // — the 24h re-auth loop was unworkable for daily-driver use. Matches
@@ -42,11 +43,13 @@ export type ResolvedBrowserSession = {
   handle: string;
 };
 
+// Operator canonicalisation is the SINGLE source of truth (operatorHandle.ts):
+// `@you` maps to the configured operator handle, everything else passes
+// through. This MUST match the membership-WRITE path (roomMembershipsStore)
+// or the mint check below looks for a handle that was never stored — the
+// exact bug that broke browser-operator login.
 function normalizeHandle(rawHandle: string): string {
-  const trimmed = rawHandle.trim();
-  if (trimmed.length === 0) return trimmed;
-  const withAt = trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
-  return withAt === '@you' ? '@JWPK' : withAt;
+  return canonicaliseOperatorHandle(rawHandle);
 }
 
 function newBrowserSessionId(): string { return `bs_${mintTokenSecret().slice(0, 16)}`; }
