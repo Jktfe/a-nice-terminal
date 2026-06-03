@@ -54,15 +54,21 @@
     busy = true;
     errorMessage = '';
     try {
-      const response = await fetch('/api/auth/demo-login', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email, password })
-      });
+      // Try the real accounts.antonline.dev (Better Auth) login first; fall
+      // back to the legacy stored-user login. This lets either your accounts
+      // password OR your existing login work, so the swap can never lock you
+      // out (verify-before-delete — demo/stored login stays until accounts is
+      // proven). Both set the same browser-session cookie server-side.
+      const body = JSON.stringify({ email, password });
+      const headers = { 'content-type': 'application/json' };
+      let response = await fetch('/api/auth/accounts-login', { method: 'POST', headers, body });
+      if (!response.ok && (response.status === 401 || response.status === 403 || response.status >= 500)) {
+        response = await fetch('/api/auth/demo-login', { method: 'POST', headers, body });
+      }
       if (!response.ok) {
         const failure = await response.json().catch(() => ({ message: response.statusText }));
         const status = response.status;
-        if (status === 401) {
+        if (status === 401 || status === 403) {
           errorMessage = 'That email or password did not match. Try again.';
         } else if (status === 503) {
           errorMessage = 'Login is not configured on this server.';
