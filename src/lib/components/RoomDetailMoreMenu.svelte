@@ -142,6 +142,7 @@
   <InteractiveAsksPanel
     {asksFromServer}
     {asksFetchFailed}
+    actorHandle={callerHandle}
     roomNameLabel={room.name}
   />
 </CollapsibleSection>

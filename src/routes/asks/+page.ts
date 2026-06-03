@@ -15,9 +15,10 @@ import type { AskCandidate } from '$lib/server/askCandidateStore';
 import type { ChairRowDigest } from '$lib/server/chairStore';
 
 export const load: PageLoad = async ({ fetch }) => {
-  const [asksResponse, chairResponse] = await Promise.all([
+  const [asksResponse, chairResponse, capabilitiesResponse] = await Promise.all([
     fetch('/api/asks'),
-    fetch('/api/chair')
+    fetch('/api/chair'),
+    fetch('/api/capabilities').catch(() => null)
   ]);
 
   let asks: Ask[] = [];
@@ -47,11 +48,22 @@ export const load: PageLoad = async ({ fetch }) => {
     }
   }
 
+  let operatorHandle = '@JWPK';
+  if (capabilitiesResponse?.ok) {
+    const capabilitiesBody = (await capabilitiesResponse.json()) as {
+      operatorHandle?: string;
+    };
+    if (typeof capabilitiesBody.operatorHandle === 'string' && capabilitiesBody.operatorHandle.trim().length > 0) {
+      operatorHandle = capabilitiesBody.operatorHandle.trim();
+    }
+  }
+
   return {
     asksFromServer: asks,
     recentlyAnsweredFromServer: recentlyAnswered,
     candidatesFromServer: candidates,
     roomNameByRoomId,
-    asksFetchFailed
+    asksFetchFailed,
+    operatorHandle
   };
 };

@@ -26,8 +26,6 @@
   import type { Ask } from '$lib/server/askStore';
   import type { AskCandidate } from '$lib/server/askCandidateStore';
 
-  const ACTOR_HANDLE = '@you';
-
   type Props = {
     data: {
       asksFromServer: Ask[];
@@ -35,6 +33,7 @@
       candidatesFromServer: AskCandidate[];
       roomNameByRoomId: Record<string, string>;
       asksFetchFailed: boolean;
+      operatorHandle: string;
     };
   };
 
@@ -45,6 +44,7 @@
   const candidatesFromServer = $derived<AskCandidate[]>(data.candidatesFromServer);
   const roomNameByRoomId = $derived<Record<string, string>>(data.roomNameByRoomId);
   const asksFetchFailed = $derived<boolean>(data.asksFetchFailed);
+  const operatorHandle = $derived<string>(data.operatorHandle);
 
   // Text filter (JWPK rooms-filter follow-up, 2026-05-24): mirrors the
   // /rooms name-or-description filter. With many cross-room asks, "find
@@ -221,7 +221,7 @@
     try {
       await askActionsAnswer({
         askId,
-        actorHandle: ACTOR_HANDLE,
+        actorHandle: operatorHandle,
         answer: trimmedAnswer
       });
       activeAnswerAskId = null;
@@ -240,7 +240,7 @@
     inFlightVerb = 'dismiss';
     clearErrorFor(askId);
     try {
-      await askActionsDismiss({ askId, actorHandle: ACTOR_HANDLE });
+      await askActionsDismiss({ askId, actorHandle: operatorHandle });
       if (activeAnswerAskId === askId) activeAnswerAskId = null;
       await invalidateAll();
     } catch (causeOfFailure) {
@@ -259,7 +259,7 @@
       const response = await fetch(`/api/ask-candidates/${encodeURIComponent(candidateId)}/promote`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ promotedByHandle: ACTOR_HANDLE })
+        body: JSON.stringify({ promotedByHandle: operatorHandle })
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({})) as { message?: string };
@@ -285,7 +285,7 @@
       const response = await fetch(`/api/ask-candidates/${encodeURIComponent(candidateId)}/dismiss`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ dismissedByHandle: ACTOR_HANDLE })
+        body: JSON.stringify({ dismissedByHandle: operatorHandle })
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({})) as { message?: string };

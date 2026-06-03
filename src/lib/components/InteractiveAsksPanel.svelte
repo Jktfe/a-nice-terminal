@@ -11,9 +11,8 @@
   Per @evolveantcodex + @codex2 slice 2 boundary:
     - Imports limited to AskCard + askActions + invalidateAll + Ask type.
     - askActions is transport-only (no invalidateAll/state); this panel
-      owns invalidateAll + per-ask state + ACTOR_HANDLE constant.
-    - ACTOR_HANDLE = "@you" mirrors /asks page constant.
-    - Backend membership-before-validation guards handle @you membership
+      owns invalidateAll + per-ask state while the room page supplies identity.
+    - Backend membership-before-validation guards the supplied caller handle
       — non-member 404 surfaces as inline lastErrorByAskId message under
       the offending card.
     - Resolved (answered/dismissed) asks drop from listOpenAsksInRoom on
@@ -26,11 +25,10 @@
   import { submitAnswerFor, submitDismissFor } from '$lib/askActions';
   import type { Ask } from '$lib/server/askStore';
 
-  const ACTOR_HANDLE = '@you';
-
   type Props = {
     asksFromServer: Ask[];
     asksFetchFailed: boolean;
+    actorHandle: string;
     // Slice 2 B1 fix: AskCard always renders roomNameLabel as the room
     // link text. The in-room panel must provide a meaningful label so
     // the link is not empty (a11y / render contract). The room page
@@ -39,7 +37,7 @@
     roomNameLabel: string;
   };
 
-  let { asksFromServer, asksFetchFailed, roomNameLabel }: Props = $props();
+  let { asksFromServer, asksFetchFailed, actorHandle, roomNameLabel }: Props = $props();
 
   let activeAnswerAskId = $state<string | null>(null);
   let answerText = $state('');
@@ -75,7 +73,7 @@
     try {
       await submitAnswerFor({
         askId,
-        actorHandle: ACTOR_HANDLE,
+        actorHandle,
         answer: trimmedAnswer
       });
       activeAnswerAskId = null;
@@ -99,7 +97,7 @@
     inFlightVerb = 'dismiss';
     clearErrorFor(askId);
     try {
-      await submitDismissFor({ askId, actorHandle: ACTOR_HANDLE });
+      await submitDismissFor({ askId, actorHandle });
       if (activeAnswerAskId === askId) activeAnswerAskId = null;
       await invalidateAll();
     } catch (causeOfFailure) {
