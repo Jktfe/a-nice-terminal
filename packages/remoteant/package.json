@@ -13,7 +13,7 @@
     "test": "../../node_modules/.bin/vitest run --config vitest.config.ts"
   },
   "devDependencies": {
-    "vitest": "^1.6.0",
+    "vitest": "^4.1.8",
     "@types/node": "^20.12.0"
   }
 }
