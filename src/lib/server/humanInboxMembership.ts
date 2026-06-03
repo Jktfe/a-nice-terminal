@@ -82,6 +82,10 @@ function sharedContextExists(humanHandle: string, agentHandle: string): boolean 
  */
 export function recomputeInboxEdge(humanHandle: string, agentHandle: string): void {
   if (!humanHandle || !agentHandle || humanHandle === agentHandle) return;
+  // JWPK cleanup 2026-06-03: hidden per-human inbox rooms are retired.
+  // Membership hooks still call this during normal room/agent changes; keep
+  // those hooks harmless instead of recreating or writing into hidden rooms.
+  return;
   const inboxRoomId = ensureHumanInboxRoom(humanHandle);
   const db = getIdentityDb();
   const shouldBeMember = sharedContextExists(humanHandle, agentHandle);

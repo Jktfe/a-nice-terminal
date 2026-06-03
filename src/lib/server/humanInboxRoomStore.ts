@@ -96,6 +96,10 @@ export function ensureHumanInboxRoom(humanHandle: string): string {
   if (trimmed.length === 0) throw new Error('humanHandle cannot be blank.');
   const withAt = trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
   const roomId = inboxRoomIdFor(withAt);
+  // JWPK cleanup 2026-06-03: hidden per-human inbox rooms are retired.
+  // Keep the deterministic id return for callers that use it for broadcasts,
+  // but do not create chat_rooms / membership rows.
+  return roomId;
   const db = getIdentityDb();
   const nowIso = new Date().toISOString();
 
