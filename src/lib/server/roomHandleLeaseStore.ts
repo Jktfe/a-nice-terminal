@@ -57,6 +57,7 @@ export type FindRoomHandleOwnerAtTimeInput = {
 
 export type BackfillRoomHandleLeasesInput = {
   sessionId: string;
+  terminalId?: string | null;
   createdFrom?: string | null;
   activeFromMs?: number;
 };
@@ -190,7 +191,7 @@ export function backfillActiveLeasesFromRoomMemberships(
           AND revoked_at_ms IS NULL
         ORDER BY room_id, handle`
     )
-    .all(input.sessionId) as Array<{ room_id: string; handle: string }>;
+    .all(input.terminalId ?? input.sessionId) as Array<{ room_id: string; handle: string }>;
 
   const result: BackfillRoomHandleLeasesResult = {
     created: 0,

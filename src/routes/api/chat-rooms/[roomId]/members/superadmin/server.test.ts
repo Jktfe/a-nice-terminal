@@ -119,6 +119,25 @@ describe('POST /api/chat-rooms/:roomId/members/superadmin (add)', () => {
     expect(resolveMember(ROOM_ID, '@x')).toBe(targetSession);
   });
 
+  it('adds a live cutover agent whose handle is still on terminal_records, not ant_sessions.label', async () => {
+    const db = getIdentityDb();
+    const targetSession = createSession({
+      kind: 'local-cli',
+      label: 'MasterClaude Terminal',
+      terminalId: 't_masterclaude'
+    });
+    const now = Date.now();
+    db.prepare(
+      `INSERT INTO terminal_records
+         (session_id, name, auto_forward_chat, handle, created_at_ms, updated_at_ms)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run('t_masterclaude', 'MasterClaude Terminal', 1, '@masterclaude', now, now);
+
+    const res = await run(POST(eventForPost({ handle: '@masterclaude' }, adminHeaders)));
+    expect(res.status).toBe(201);
+    expect(resolveMember(ROOM_ID, '@masterclaude')).toBe(targetSession.id);
+  });
+
   it('non-SuperAdmin caller → 403, claimHandle does NOT run', async () => {
     const callerSession = seedMemberCaller('@nobody');
     seedTargetSession('@x');

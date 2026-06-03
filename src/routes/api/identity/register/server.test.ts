@@ -119,21 +119,30 @@ describe('POST /api/identity/register', () => {
   // ant_sessions layer (was 0/dormant on live) + returns the session id.
   it('register POPULATES a durable session and returns session_id', async () => {
     const response = await callPost(JSON.stringify({
-      name: 'activate-test', pids: [{ pid: 4242, pid_start: 's' }], source: 'test'
+      name: 'activate-test', pids: [{ pid: 4242, pid_start: 's' }], source: 'test',
+      handle: '@activate'
     }));
     expect(response.status).toBe(201);
     const payload = await response.json();
     expect(payload.session_id).toBeTruthy();
+    expect(payload.session_id).not.toBe(payload.terminal_id);
     // the durable session actually exists (no longer dormant)
-    expect(getSession(payload.session_id)).not.toBeNull();
-    expect(getSession(payload.session_id)!.kind).toBe('local-cli');
+    const session = getSession(payload.session_id);
+    expect(session).not.toBeNull();
+    expect(session!.kind).toBe('local-cli');
+    expect(session!.label).toBe('@activate');
   });
 
-  it('re-register on the same name resolves the SAME durable session (stable, not pid-derived)', async () => {
-    const body = JSON.stringify({ name: 'stable-test', pids: [{ pid: 1, pid_start: 'a' }] });
+  it('re-register with the returned secret token resolves the SAME durable session', async () => {
+    const body = JSON.stringify({ name: 'stable-test', handle: '@stable', pids: [{ pid: 1, pid_start: 'a' }] });
     const first = await (await callPost(body)).json();
     // re-register with a DIFFERENT pid_start (the day-roll/restart that used to 403)
-    const restart = JSON.stringify({ name: 'stable-test', pids: [{ pid: 1, pid_start: 'DIFFERENT' }] });
+    const restart = JSON.stringify({
+      name: 'stable-test',
+      handle: '@stable',
+      pids: [{ pid: 1, pid_start: 'DIFFERENT' }],
+      sessionToken: first.session_id
+    });
     const second = await (await callPost(restart)).json();
     expect(second.session_id).toBe(first.session_id); // same identity across pid change
   });

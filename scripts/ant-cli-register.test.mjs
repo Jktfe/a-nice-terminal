@@ -99,7 +99,7 @@ describe('handleRegisterVerb', () => {
     expect(code).toBe(0);
     const raw = JSON.parse(readFileSync(join(scratchHome, '.ant', 'config.json'), 'utf8'));
     expect(raw.antSessions.byPane['%session-pane']).toBe('sess-returned');
-    expect(raw.antSessions.byName.SessionTerm).toBe('sess-returned');
+    expect(raw.antSessions.byName).toBeUndefined();
     expect(raw.ant_session_id).toBeUndefined();
   });
 

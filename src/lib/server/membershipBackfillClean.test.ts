@@ -6,6 +6,7 @@ import { getIdentityDb, resetIdentityDbForTests } from './db';
 import { createSession } from './antSessionStore';
 import { listMembers, resolveMember } from './membershipStore';
 import { backfillFromLegacy } from './membershipBackfillClean';
+import { listLeases, resolveMember as resolveLeaseMember } from './roomHandleLeaseClean';
 
 let tmpDir: string;
 const prev = process.env.ANT_FRESH_DB_PATH;
@@ -55,6 +56,7 @@ describe('membershipBackfillClean — legacy room_memberships -> clean room_memb
     const report = backfillFromLegacy();
     expect(report).toEqual({ scanned: 1, inserted: 1, skipped: 0 });
     expect(resolveMember('roomA', '@alice')).toBe(session.id);
+    expect(resolveLeaseMember('roomA', '@alice')).toBe(session.id);
   });
 
   it('writes the membership with NULL session when no session is bound to the terminal', () => {
@@ -65,6 +67,7 @@ describe('membershipBackfillClean — legacy room_memberships -> clean room_memb
     expect(report).toEqual({ scanned: 1, inserted: 1, skipped: 0 });
     expect(listMembers('roomB')).toHaveLength(1);
     expect(resolveMember('roomB', '@bob')).toBeNull(); // membership preserved, session unknown
+    expect(listLeases('roomB')).toHaveLength(0); // no runtime yet, so no active lease can be claimed
   });
 
   it('is lossless across multiple rooms/handles', () => {
@@ -104,6 +107,7 @@ describe('membershipBackfillClean — legacy room_memberships -> clean room_memb
     const second = backfillFromLegacy();
     expect(first).toEqual(second);
     expect(listMembers('roomA')).toHaveLength(1); // no duplicate row
+    expect(listLeases('roomA')).toHaveLength(1); // no duplicate lease
   });
 
   it('prefers the most-recently-seen session when a terminal had several', () => {

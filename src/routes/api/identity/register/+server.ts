@@ -13,6 +13,7 @@
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { randomBytes } from 'node:crypto';
 import {
   upsertTerminal,
   updatePaneTarget,
@@ -263,15 +264,15 @@ export const POST: RequestHandler = async ({ request }) => {
     name: trimmedName, ttlSeconds, source, meta });
   // ACTIVATION (Simplify & Harden lane A): populate the durable session so the
   // identity model is IN FORCE, not dormant (ant_sessions was 0 on live). Keyed
-  // by the client's persisted token when sent, else the stable terminal.id —
-  // which is name-stable and NOT pid-derived, so the session survives a
-  // restart/day-roll without the CLI needing to send a token. Returned as
-  // session_id for the CLI to persist + re-present on post.
+  // by the client's persisted SECRET token when sent, else mint a fresh secret
+  // for the client to persist. Do NOT use terminal.id as a session token:
+  // terminal ids are discoverable runtime identifiers, not credentials.
   const sessionTokenRaw = (rawBody as { sessionToken?: unknown }).sessionToken;
   const sessionToken =
     typeof sessionTokenRaw === 'string' && sessionTokenRaw.trim().length > 0
       ? sessionTokenRaw.trim()
-      : terminal.id;
+      : randomBytes(32).toString('hex');
+  const sessionLabel = handleValue ?? v02HandleForGate;
   // Bind the durable session to THIS terminal (anti-adoption anchor): a caller
   // re-presenting a known token from a different terminal is refused, and the
   // post-path requires the caller's pidChain to resolve to this terminal.
@@ -279,7 +280,7 @@ export const POST: RequestHandler = async ({ request }) => {
   try {
     antSession = ensureSession(sessionToken, {
       kind: 'local-cli',
-      label: terminal.name,
+      label: sessionLabel,
       terminalId: terminal.id
     });
   } catch (e) {
@@ -340,6 +341,7 @@ export const POST: RequestHandler = async ({ request }) => {
   }
   backfillActiveLeasesFromRoomMemberships({
     sessionId: antSession.id,
+    terminalId: terminal.id,
     createdFrom: 'register-existing-membership-backfill'
   });
   // Response kind starts at updateKindValue (preserved); re-fetch only when classify ran.

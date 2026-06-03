@@ -13,6 +13,9 @@ export async function handleRoomVerb(action, args, runtime, ctx) {
   // BEFORE parseFlags so the sub-action token (a bare word, not --flag) does
   // not trip the room parser's --flag-required check.
   if (action === 'invite') return handleInviteVerb(args[0], args.slice(1), runtime, ctx);
+  if (action && !action.startsWith('--') && ['add', 'remove'].includes(args[0])) {
+    return runPositionalMemberEdit(action, args[0], args.slice(1), runtime, CliInputError);
+  }
   const flags = parseFlags(args, CliInputError);
   switch (action) {
     case 'members': return runMembers(flags, runtime, CliInputError);
@@ -47,6 +50,7 @@ function parseFlags(rawArgs, CliInputError) {
 }
 
 function writeUsage(runtime) {
+  runtime.writeOut('ant room <room-id> <add|remove> @handle');
   runtime.writeOut('ant room <members|add-member|remove-member|aliases|set-alias|clear-alias|mode|responders|invite> [flags]');
 }
 
@@ -69,6 +73,30 @@ async function fetchJson(runtime, path, init = {}) {
 function writeJsonOrText(runtime, flags, payload, text) {
   if (flags.json !== undefined) runtime.writeOut(JSON.stringify(payload));
   else runtime.writeOut(text);
+}
+
+function adminHeaders() {
+  const token = process.env.ANT_ADMIN_TOKEN ?? process.env.ANT_ADMIN_BEARER;
+  return token ? { authorization: `Bearer ${token}` } : {};
+}
+
+async function runPositionalMemberEdit(room, action, args, runtime, CliInputError) {
+  const handle = args[0];
+  if (!handle || handle.trim().length === 0) {
+    throw new CliInputError(`ant room ${room} ${action} needs a handle`);
+  }
+  const body = { handle: handle.trim(), pidChain: processIdentityChain() };
+  const payload = await fetchJson(runtime, `/api/chat-rooms/${encodeURIComponent(room)}/members/superadmin`, {
+    method: action === 'add' ? 'POST' : 'DELETE',
+    headers: { 'content-type': 'application/json', ...adminHeaders() },
+    body: JSON.stringify(body)
+  });
+  if (action === 'add') {
+    runtime.writeOut(`Member added: ${payload.handle ?? body.handle}`);
+  } else {
+    runtime.writeOut(`Member removed: ${body.handle}${payload.retiredAs ? ` (history: ${payload.retiredAs})` : ''}`);
+  }
+  return 0;
 }
 
 async function runMembers(flags, runtime, CliInputError) {

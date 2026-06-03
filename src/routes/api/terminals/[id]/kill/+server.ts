@@ -41,7 +41,8 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getTerminalRecord } from '$lib/server/terminalRecordsStore';
-import { canCallerActOnTerminal, OPERATOR_HANDLE } from '$lib/server/allowlistGuard';
+import { canCallerActOnTerminal } from '$lib/server/allowlistGuard';
+import { isSuperAdmin } from '$lib/server/orgStore';
 import { resolveTerminalCallerHandle } from '$lib/server/authGate';
 import { killTerminal } from '$lib/server/ptyClient';
 import { broadcastTerminalEvent } from '$lib/server/terminalEventBroadcast';
@@ -75,7 +76,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
     // Operator-bypass: with the @you shortcut removed from allowlistGuard
     // (CVE FIX B), the route still trusts the *server-resolved* operator
     // identity for any ANT terminal on the operator's own host.
-    const operatorBypass = callerHandle === OPERATOR_HANDLE;
+    const operatorBypass = isSuperAdmin(callerHandle);
     if (!operatorBypass && !canCallerActOnTerminal(callerHandle, record)) {
       throw error(403, 'caller is not allowed to act on this terminal');
     }
@@ -83,7 +84,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
     // Per coordinator product decision (2026-05-14): bare tmux panes run on
     // the operator's machine — only the operator may kill them. Unowned-by-
     // ANT does not mean unowned-by-anyone.
-    if (callerHandle !== OPERATOR_HANDLE) {
+    if (!isSuperAdmin(callerHandle)) {
       throw error(403, 'bare tmux panes can only be killed by the operator');
     }
   }

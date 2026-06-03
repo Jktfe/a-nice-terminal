@@ -449,13 +449,6 @@ function durableSessionIdForRoom(runtime, roomId) {
     if (paneSession) return paneSession;
   }
 
-  const terminalName = normaliseDurableSessionId(runtime.terminalName);
-  const byName = runtime.config?.antSessions?.byName;
-  if (terminalName && byName && typeof byName === 'object') {
-    const nameSession = normaliseDurableSessionId(byName[terminalName]);
-    if (nameSession) return nameSession;
-  }
-
   return null;
 }
 

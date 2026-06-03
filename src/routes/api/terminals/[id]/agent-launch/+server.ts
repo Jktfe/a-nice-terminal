@@ -28,7 +28,8 @@ import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { postMessage } from '$lib/server/chatMessageStore';
 import { fanoutMessageToRoomTerminals } from '$lib/server/pty-inject-fanout';
 import { broadcastToRoom } from '$lib/server/eventBroadcast';
-import { canCallerActOnTerminal, OPERATOR_HANDLE } from '$lib/server/allowlistGuard';
+import { canCallerActOnTerminal } from '$lib/server/allowlistGuard';
+import { isSuperAdmin } from '$lib/server/orgStore';
 import { resolveTerminalCallerHandle } from '$lib/server/authGate';
 
 export const POST: RequestHandler = async ({ params, request }) => {
@@ -53,7 +54,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
   // this terminal. Operator-bypass remains explicit here for the operator
   // who owns the host (matches the kill route's bare-pane invariant after
   // CVE FIX B removed the @you shortcut from allowlistGuard).
-  const operatorBypass = callerHandle === OPERATOR_HANDLE;
+  const operatorBypass = isSuperAdmin(callerHandle);
   if (!operatorBypass && !canCallerActOnTerminal(callerHandle, record)) {
     throw error(403, 'caller is not allowed to launch into this terminal');
   }
