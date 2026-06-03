@@ -74,7 +74,7 @@
       <ClaimActionBar
         {roomId}
         {messageId}
-        asHandle={asHandle ?? '@you'}
+        asHandle={asHandle ?? '@JWPK'}
         {claims}
         {onClaimChanged}
       />

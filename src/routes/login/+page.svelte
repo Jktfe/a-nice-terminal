@@ -1,11 +1,6 @@
 <!--
-  /login — demo login gate (JWPK msg_yh5d58msjf creds + msg_3mukvhkqyk
-  scope). Shows the email + password form when ANT_DEMO_EMAIL is set on
-  the server; otherwise shows a banner explaining the gate is disabled
-  + a link to / so anonymous walk-in resumes.
-
-  Reversibility: unset the env vars + kickstart and this page shows the
-  "auth unavailable" state. No code change needed.
+  /login — browser login. The old launchd-env demo credential path has been
+  removed; this form authenticates stored ANT users.
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
@@ -23,7 +18,7 @@
   // produced a "Checking…" stuck state that masked broken sign-in for
   // anyone whose JS ran but hit a transient fetch error. JWPK
   // 2026-05-19 "redirects to sign in and doesn't ever allow through".
-  let demoAvailable = $state<boolean>(true);
+  let loginAvailable = $state<boolean>(true);
 
   // hooks.server.ts captures the originally-requested URL as ?next= so
   // we can hop the operator back there after sign-in instead of always
@@ -43,13 +38,13 @@
     try {
       const response = await fetch('/api/auth/demo-login');
       if (!response.ok) {
-        demoAvailable = false;
+        loginAvailable = false;
         return;
       }
       const body = (await response.json()) as { available?: boolean };
-      demoAvailable = body.available === true;
+      loginAvailable = body.available === true;
     } catch {
-      demoAvailable = false;
+      loginAvailable = false;
     }
   }
 
@@ -70,7 +65,7 @@
         if (status === 401) {
           errorMessage = 'That email or password did not match. Try again.';
         } else if (status === 503) {
-          errorMessage = 'Demo login is not configured on this server.';
+          errorMessage = 'Login is not configured on this server.';
         } else {
           errorMessage = failure.message ?? `Sign-in failed (${status}).`;
         }
@@ -92,13 +87,11 @@
 <main class="login-shell">
   <section class="login-card" aria-labelledby="loginHeading">
     <h1 id="loginHeading">Sign in to ANT</h1>
-    {#if demoAvailable === null}
+    {#if loginAvailable === null}
       <p class="muted">Checking…</p>
-    {:else if demoAvailable === false}
+    {:else if loginAvailable === false}
       <p class="muted">
-        Demo login isn't configured on this server. Set
-        <code>ANT_DEMO_EMAIL</code> + <code>ANT_DEMO_PASSWORD</code> on the
-        launchd plist + kickstart to enable.
+        Login is not configured on this server.
       </p>
       <a class="muted-link" href="/rooms">Continue anonymously →</a>
     {:else}
@@ -168,12 +161,6 @@
     text-decoration: none;
   }
   .muted-link:hover { text-decoration: underline; }
-  .muted code {
-    padding: 0.05rem 0.3rem;
-    border-radius: 0.3rem;
-    background: var(--bg);
-    font-size: 0.82rem;
-  }
   .login-form {
     display: flex;
     flex-direction: column;

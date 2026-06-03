@@ -24,7 +24,7 @@
     asHandle?: string;
   };
 
-  let { roomId, asHandle = '@you' }: Props = $props();
+  let { roomId, asHandle = '@JWPK' }: Props = $props();
 
   // JWPK msg_1cksqfbcyp: 'Spreadsheets' → 'Sheets' to match the
   // 'Decks' shortform + keep the panel header from breaking alignment

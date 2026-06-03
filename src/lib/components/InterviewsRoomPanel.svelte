@@ -36,7 +36,7 @@
     members?: RoomMember[];
   };
 
-  let { roomId, asHandle = '@you', members = [] }: Props = $props();
+  let { roomId, asHandle = '@JWPK', members = [] }: Props = $props();
 
   // v3 modal state
   let modalOpen = $state(false);

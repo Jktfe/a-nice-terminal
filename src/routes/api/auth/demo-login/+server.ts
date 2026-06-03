@@ -1,26 +1,9 @@
 /**
  * POST /api/auth/demo-login
  *
- * Env-driven demo login for the first-client demo. Validates the posted
- * email + password against ANT_DEMO_EMAIL + ANT_DEMO_PASSWORD launchd env
- * vars, mints a browser-session for the resolved handle in a configured
- * default room, and sets a site-wide cookie so the gate hook in
- * hooks.server.ts lets the operator past /login.
- *
- * Demo credentials are supplied at runtime via ANT_DEMO_EMAIL /
- * ANT_DEMO_PASSWORD (never hard-coded here). Scope: a stopgap
- * before the proper Neon-backed auth flow lands.
- *
- * Reversibility: unset ANT_DEMO_EMAIL or ANT_DEMO_PASSWORD on the launchd
- * plist + kickstart and this endpoint 503s. /login then says auth is
- * unavailable and the operator is back to the prior anonymous-walk-in
- * model (no gate). Zero code change to disable.
- *
- * Security: timingSafeEqual on the password compare (defence against
- * timing attacks even though the threat is low for a demo-only env).
- * No password ever logged. The handle the demo binds to ('@you' by
- * default per JWPK's "reuse @you" scope answer) is configurable via
- * ANT_DEMO_HANDLE.
+ * Legacy route name, current behavior: stored-user browser login. The old
+ * ANT_DEMO_EMAIL / ANT_DEMO_PASSWORD credential branch is intentionally gone;
+ * this route no longer mints identity from launchd demo variables.
  *
  * Cookie: `ant_browser_session=<secret>; Path=/; SameSite=Lax; HttpOnly`
  * + Secure when served over HTTPS (origin header check). 30-day Max-Age
@@ -32,13 +15,11 @@
 
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { timingSafeEqual } from 'crypto';
 import bcrypt from 'bcryptjs';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { addMembership, getTerminalIdByHandle } from '$lib/server/roomMembershipsStore';
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { createBrowserSession } from '$lib/server/browserSessionStore';
-import { getOperatorHandle } from '$lib/server/operatorHandle';
 import {
   findStoredUser,
   normalizeAntchatEmail,
@@ -54,31 +35,8 @@ type BrowserLoginIdentity = {
   roomId: string;
 };
 
-function getDemoCreds(): { email: string; password: string; handle: string; roomId: string } | null {
-  const email = process.env.ANT_DEMO_EMAIL;
-  const password = process.env.ANT_DEMO_PASSWORD;
-  if (!email || email.length === 0 || !password || password.length === 0) return null;
-  return {
-    email,
-    password,
-    // Demo login binds the browser session to the operator. Default to the
-    // single configured operator handle (getOperatorHandle) so one env var
-    // (ANT_OPERATOR_HANDLE) keeps login, membership, mint and display in sync.
-    // ANT_DEMO_HANDLE still overrides if a deployment needs a distinct demo id.
-    handle: process.env.ANT_DEMO_HANDLE || getOperatorHandle(),
-    roomId: process.env.ANT_DEMO_ROOM_ID || DEFAULT_DEMO_ROOM_ID
-  };
-}
-
 function browserLoginRoomId(): string {
-  return process.env.ANT_DEMO_ROOM_ID || DEFAULT_DEMO_ROOM_ID;
-}
-
-function constantTimeEqual(a: string, b: string): boolean {
-  const aBuf = Buffer.from(a);
-  const bBuf = Buffer.from(b);
-  if (aBuf.length !== bBuf.length) return false;
-  return timingSafeEqual(aBuf, bBuf);
+  return process.env.ANT_BROWSER_LOGIN_ROOM_ID || process.env.ANT_DEMO_ROOM_ID || DEFAULT_DEMO_ROOM_ID;
 }
 
 function buildDemoSessionCookie(secret: string, expiresAtMs: number, nowMs: number, request: Request): string {
@@ -108,11 +66,6 @@ async function resolveBrowserLoginIdentity(
   const password = body.password;
   if (typeof email !== 'string' || typeof password !== 'string') {
     throw error(400, 'email + password required');
-  }
-
-  const creds = getDemoCreds();
-  if (creds && constantTimeEqual(email, creds.email) && constantTimeEqual(password, creds.password)) {
-    return { email: creds.email, handle: creds.handle, roomId: creds.roomId };
   }
 
   const normalisedEmail = normalizeAntchatEmail(email);
@@ -158,18 +111,18 @@ export const POST: RequestHandler = async ({ request }) => {
   const identity = await resolveBrowserLoginIdentity(body as Record<string, unknown>);
 
   const room = findChatRoomById(identity.roomId);
-  if (!room) throw error(503, 'demo room missing — set ANT_DEMO_ROOM_ID to a valid room id');
+  if (!room) throw error(503, 'login room missing — set ANT_BROWSER_LOGIN_ROOM_ID to a valid room id');
 
   // Same lazy-create pattern as /api/chat-rooms/:roomId/browser-session
-  // so the demo handle gets a synthetic terminal + membership the
+  // so the browser handle gets a synthetic terminal + membership the
   // identity gate accepts downstream.
   if (!getTerminalIdByHandle(identity.roomId, identity.handle)) {
     const syntheticTerminal = upsertTerminal({
       pid: 0,
-      pid_start: `demo-login-${Date.now()}`,
-      name: `demo-${identity.roomId}-${identity.handle}`,
-      source: 'demo-login',
-      meta: { kind: 'demo-login', roomId: identity.roomId, authorHandle: identity.handle }
+      pid_start: `browser-login-${Date.now()}`,
+      name: `browser-${identity.roomId}-${identity.handle}`,
+      source: 'browser-login',
+      meta: { kind: 'browser-login', roomId: identity.roomId, authorHandle: identity.handle }
     });
     addMembership({ room_id: identity.roomId, handle: identity.handle, terminal_id: syntheticTerminal.id });
   }
@@ -187,7 +140,5 @@ export const POST: RequestHandler = async ({ request }) => {
 };
 
 export const GET: RequestHandler = () => {
-  // Surface availability so /login can pre-flight without leaking the
-  // configured email. Returns { available: boolean } only.
-  return json({ available: getDemoCreds() !== null });
+  return json({ available: true });
 };

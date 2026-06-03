@@ -33,8 +33,7 @@ describe('operatorDisplayHandle', () => {
 
   it('leaves every non-operator handle untouched even when mapping is active', () => {
     process.env.ANT_OPERATOR_DISPLAY_HANDLE = '@JWPK';
-    // Other agents, system, and already-friendly display names pass through —
-    // the mapping is strictly scoped to the @you sentinel.
+    // Other agents, system, and already-friendly display names pass through.
     expect(operatorDisplayHandle('@speedy')).toBe('@speedy');
     expect(operatorDisplayHandle('@system')).toBe('@system');
     expect(operatorDisplayHandle('@JWPK')).toBe('@JWPK');

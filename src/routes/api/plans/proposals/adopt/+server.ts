@@ -10,6 +10,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { appendPlanEvent } from '$lib/server/planModeStore';
 import { getPlan } from '$lib/server/planStore';
+import { getOperatorHandle } from '$lib/server/operatorHandle';
 
 export const POST: RequestHandler = async ({ request }) => {
   const body = await request.json().catch(() => null);
@@ -43,9 +44,9 @@ export const POST: RequestHandler = async ({ request }) => {
     title: `Adopt: ${label}`,
     body: `Proposal Track adopted. Ref: ${ref}`,
     status: 'done' as const,
-    owner: '@you',
+    owner: getOperatorHandle(),
     order: Date.now(),
-    author_handle: '@you',
+    author_handle: getOperatorHandle(),
     author_kind: 'human' as const,
     ts_millis: Date.now(),
     evidence: [{ kind: 'proposal' as const, ref, label }],

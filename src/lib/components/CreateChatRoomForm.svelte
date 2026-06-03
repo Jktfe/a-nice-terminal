@@ -61,7 +61,6 @@
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           name: trimmedName,
-          whoCreatedIt: '@you',
           ...(trimmedDescription.length > 0 && { description: trimmedDescription })
         })
       });

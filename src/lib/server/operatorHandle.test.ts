@@ -16,10 +16,11 @@ describe('operatorHandle — single configurable operator identity', () => {
     else process.env.ANT_OPERATOR_HANDLE = prior;
   });
 
-  it('defaults to the legacy sentinel when ANT_OPERATOR_HANDLE is unset', () => {
+  it('defaults to the structural JWPK sentinel when ANT_OPERATOR_HANDLE is unset', () => {
     expect(getOperatorHandle()).toBe(OPERATOR_SENTINEL);
-    // With no operator configured, the sentinel maps to itself (no transform).
-    expect(canonicaliseOperatorHandle('@you')).toBe('@you');
+    expect(getOperatorHandle()).toBe('@JWPK');
+    expect(canonicaliseOperatorHandle('@you')).toBe('@JWPK');
+    expect(canonicaliseOperatorHandle('@JWPK')).toBe('@JWPK');
   });
 
   it('reads the configured operator handle from the env', () => {
@@ -27,19 +28,20 @@ describe('operatorHandle — single configurable operator identity', () => {
     expect(getOperatorHandle()).toBe('@JWPK');
   });
 
-  it('canonicalises the sentinel to the configured handle, passes others through', () => {
+  it('canonicalises legacy operator aliases to the configured handle, passes others through', () => {
     process.env.ANT_OPERATOR_HANDLE = '@JWPK';
     expect(canonicaliseOperatorHandle('@you')).toBe('@JWPK');
     expect(canonicaliseOperatorHandle('you')).toBe('@JWPK'); // adds leading @
+    expect(canonicaliseOperatorHandle('@JWPK')).toBe('@JWPK');
     expect(canonicaliseOperatorHandle('@speedy')).toBe('@speedy');
     expect(canonicaliseOperatorHandle('agent')).toBe('@agent');
     expect(canonicaliseOperatorHandle('')).toBe('');
   });
 
-  it('does NOT canonicalise non-sentinel handles (case-sensitive structural map)', () => {
+  it('canonicalises operator aliases case-insensitively', () => {
     process.env.ANT_OPERATOR_HANDLE = '@JWPK';
-    // Only the exact sentinel maps; a stray `@You` is left alone structurally.
-    expect(canonicaliseOperatorHandle('@You')).toBe('@You');
+    expect(canonicaliseOperatorHandle('@You')).toBe('@JWPK');
+    expect(canonicaliseOperatorHandle('@jwpk')).toBe('@JWPK');
   });
 
   it('isOperatorHandle accepts both the sentinel and the configured handle (case-insensitive)', () => {

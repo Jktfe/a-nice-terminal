@@ -114,7 +114,7 @@
 
   <label>
     <span>Created by (optional)</span>
-    <input type="text" placeholder="@you" bind:value={createdBy} />
+    <input type="text" placeholder="@JWPK" bind:value={createdBy} />
   </label>
 
   {#if showMessage}

@@ -20,7 +20,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { postMessage, listMessagesInRoom, listMessagesPageInRoom, generateMessageId } from '$lib/server/chatMessageStore';
 import { resolveHumanOwnership, gateAndConsumeForWrite } from '$lib/server/consentGate';
-import { canonicaliseOperatorHandle } from '$lib/server/operatorHandle';
+import { canonicaliseOperatorHandle, getOperatorHandle } from '$lib/server/operatorHandle';
 import { broadcastToRoom } from '$lib/server/eventBroadcast';
 import { doesChatRoomExist, ensureAgentMemberInRoom } from '$lib/server/chatRoomStore';
 import { fanoutMessageToRoomTerminals } from '$lib/server/pty-inject-fanout';
@@ -619,7 +619,7 @@ function rejectMessageIdentity(roomId: string, reason: string): never {
       target_id: roomId,
       target_display_name: room?.name,
       reason: 'identity_unresolved',
-      grantee_handle: '@you',
+      grantee_handle: getOperatorHandle(),
       approvers: resolveApproversFor({ targetKind: 'room', targetId: roomId }),
       message: legacyMessage
     })

@@ -122,9 +122,14 @@
   const membersByHandle = $derived(
     new Map(members.map((member) => [member.handle, member]))
   );
+  function isOperatorLikeHandle(handle: string): boolean {
+    const lower = handle.trim().toLowerCase();
+    return lower === '@jwpk' || lower === '@you';
+  }
   const viewerIsAgent = $derived.by(() => {
     const handle = asHandle?.trim();
     if (!handle) return false;
+    if (isOperatorLikeHandle(handle)) return false;
     return membersByHandle.get(handle)?.kind === 'agent';
   });
   const newestMessageId = $derived(messages.at(-1)?.id ?? '');

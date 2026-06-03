@@ -814,7 +814,7 @@ function advanceLastSeen(messages, sinceOrder) {
  */
 async function runFocus(flags, runtime, CliInputError) {
   const room = requireFlag(flags, 'room', CliInputError);
-  const memberHandle = flags.member ?? flags.handle ?? '@you';
+  const memberHandle = flags.member ?? flags.handle ?? '@JWPK';
   const payload = { memberHandle };
   if (flags.reason) payload.reason = flags.reason;
   if (flags.for) {
@@ -839,7 +839,7 @@ async function runFocus(flags, runtime, CliInputError) {
  */
 async function runUnfocus(flags, runtime, CliInputError) {
   const room = requireFlag(flags, 'room', CliInputError);
-  const memberHandle = flags.member ?? flags.handle ?? '@you';
+  const memberHandle = flags.member ?? flags.handle ?? '@JWPK';
   const result = await sendJson(runtime, `/api/chat-rooms/${encodeURIComponent(room)}/focus-mode`, 'DELETE', { memberHandle });
   if (flags.json !== undefined) {
     runtime.writeOut(JSON.stringify(result));

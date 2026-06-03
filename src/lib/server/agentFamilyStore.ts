@@ -12,7 +12,7 @@
 import { getIdentityDb } from './db';
 
 const STATIC_FAMILIES: string[][] = [
-  ['@jamesK', '@you', '@james', '@antchatmacdev', '@antmacdevcodex', '@serverlaptop'],
+  ['@JWPK', '@jamesK', '@james', '@antchatmacdev', '@antmacdevcodex', '@serverlaptop'],
   ['@mark'],
   ['@stevo', '@jstephenson'],
   ['@jamesm5'],

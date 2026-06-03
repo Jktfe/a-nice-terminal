@@ -16,7 +16,7 @@ export const FIXTURE_MARK_EMAIL = 'demo-mark@example.test';
 export const FIXTURE_STEVE_EMAIL = 'demo-steve@example.test';
 
 export const FIXTURE_ORG_HANDLE_MAP: Record<string, string[]> = {
-  [FIXTURE_OPERATOR_EMAIL]: ['@jamesK', '@you', '@james'],
+  [FIXTURE_OPERATOR_EMAIL]: ['@JWPK', '@jamesK', '@you', '@james'],
   [FIXTURE_OPERATOR_M5_EMAIL]: ['@jamesm5'],
   [FIXTURE_MARK_EMAIL]: ['@mark'],
   [FIXTURE_STEVE_EMAIL]: ['@stevo', '@jstephenson']

@@ -2,12 +2,13 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { listRoomBookmarks, replaceRoomBookmarks } from '$lib/server/roomBookmarkStore';
-
-const DEFAULT_OWNER_HANDLE = '@you';
+import { canonicaliseOperatorHandle, getOperatorHandle } from '$lib/server/operatorHandle';
 
 function ownerFromUrl(url: URL): string {
   const owner = url.searchParams.get('owner');
-  return owner && owner.trim().length > 0 ? owner.trim() : DEFAULT_OWNER_HANDLE;
+  return owner && owner.trim().length > 0
+    ? canonicaliseOperatorHandle(owner)
+    : getOperatorHandle();
 }
 
 export const GET: RequestHandler = ({ url }) => {

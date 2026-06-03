@@ -53,7 +53,7 @@
 
   let {
     roomId,
-    asHandle = '@you',
+    asHandle = '@JWPK',
     membersInRoom = [],
     aliasesInRoom = [],
     onMessagePosted,

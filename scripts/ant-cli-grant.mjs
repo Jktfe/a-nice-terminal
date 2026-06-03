@@ -165,9 +165,9 @@ async function main() {
       }
       const out = await postGrant({
         kind: 'human', pid, pid_start, expires_in_ms: expiresInMs,
-        password_verified: passwordVerified, granted_by_handle: '@you'
+        password_verified: passwordVerified, granted_by_handle: '@JWPK'
       });
-      console.log(`Granted @you to PID ${pid} for ${flags.for}. id=${out.grant.id}`);
+      console.log(`Granted @JWPK to PID ${pid} for ${flags.for}. id=${out.grant.id}`);
     } else if (verb === 'grantagent') {
       if (!flags.pid) throw new Error('--pid required');
       if (!flags.handle) throw new Error('--handle required (e.g. @evolveantfoo)');
@@ -176,7 +176,7 @@ async function main() {
       const out = await postGrant({
         kind: 'agent', pid, pid_start, handle: String(flags.handle),
         tmux_session_id: flags.tmux ? String(flags.tmux) : null,
-        granted_by_handle: '@you'
+        granted_by_handle: '@JWPK'
       });
       console.log(`Granted ${out.grant.handle} to PID ${pid}. id=${out.grant.id}`);
     } else if (verb === 'revokegrant') {

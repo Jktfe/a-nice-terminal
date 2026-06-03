@@ -10,6 +10,7 @@ import {
   createSuggestion,
   listSuggestions
 } from '$lib/server/manualScreenStore';
+import { canonicaliseOperatorHandle, getOperatorHandle } from '$lib/server/operatorHandle';
 
 export const GET: RequestHandler = async ({ url }) => {
   const screenId = url.searchParams.get('screenId') ?? undefined;
@@ -33,8 +34,8 @@ export const POST: RequestHandler = async ({ request }) => {
   if (text.length > 2000) throw error(400, 'body exceeds 2000 chars');
 
   const capturedByHandle = typeof body.capturedByHandle === 'string' && body.capturedByHandle.trim().length > 0
-    ? body.capturedByHandle.trim()
-    : '@you';
+    ? canonicaliseOperatorHandle(body.capturedByHandle)
+    : getOperatorHandle();
 
   const suggestion = createSuggestion({
     screenId: typeof body.screenId === 'string' && body.screenId.length > 0 ? body.screenId : null,

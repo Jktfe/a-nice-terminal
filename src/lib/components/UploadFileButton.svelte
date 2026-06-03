@@ -11,7 +11,7 @@
   mint + POST flow to composerAttachments so the side panel and composer upload
   paths stay identical. Soft-fails on every error — never crashes the room page.
 
-  Identity: asHandle defaults to "@you", same convention as ChatComposer
+  Identity: asHandle defaults to "@JWPK", same convention as ChatComposer
   and MessageReactionsBar, until the auth lane wires real handles. The
   M11 backend rejects non-members with 404, which this component shows
   as an inline error rather than a crash.
@@ -27,7 +27,7 @@
     asHandle?: string;
   };
 
-  let { roomId, asHandle = '@you' }: Props = $props();
+  let { roomId, asHandle = '@JWPK' }: Props = $props();
 
   let uploadState = $state<UploadState>('idle');
   let lastErrorMessage = $state('');

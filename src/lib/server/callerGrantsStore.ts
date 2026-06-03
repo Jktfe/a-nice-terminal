@@ -12,6 +12,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { getIdentityDb } from './db';
+import { getOperatorHandle } from './operatorHandle';
 
 export type CallerGrantKind = 'human' | 'agent';
 export type CallerGrantStatus = 'active' | 'expired' | 'revoked';
@@ -61,8 +62,8 @@ function rowToGrant(row: Row): CallerGrant {
 }
 
 /**
- * Grant @you to a specific PID for a time window. Per JWPK ratify, only
- * @you grants need an explicit expiry — agents grants don't (auto-revoked
+ * Grant the operator to a specific PID for a time window. Per JWPK ratify,
+ * only human/operator grants need an explicit expiry — agents grants don't (auto-revoked
  * when their PID exits via the sweeper below). password_verified_at_ms is
  * optional; null means the CLI ran without --password.
  */
@@ -80,10 +81,11 @@ export function grantHumanGrant(input: {
   db.prepare(`INSERT INTO caller_grants
     (id, kind, pid, pid_start, handle, granted_at_ms, expires_at_ms,
      granted_by_handle, password_verified_at_ms, tmux_session_id, status)
-    VALUES (?, 'human', ?, ?, '@you', ?, ?, ?, ?, ?, 'active')`).run(
+    VALUES (?, 'human', ?, ?, ?, ?, ?, ?, ?, ?, 'active')`).run(
     id,
     input.pid,
     input.pidStart,
+    getOperatorHandle(),
     nowMs,
     input.expiresAtMs,
     input.grantedByHandle,

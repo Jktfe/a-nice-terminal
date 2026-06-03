@@ -11,6 +11,7 @@ import {
   recordAnnotationAudit,
   findAnnotationByKeys
 } from '$lib/server/manualScreenStore';
+import { canonicaliseOperatorHandle, getOperatorHandle } from '$lib/server/operatorHandle';
 
 type Bbox = { x: number; y: number; w: number; h: number };
 
@@ -62,7 +63,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
   recordAnnotationAudit({
     screenId, stateSlug, elementSlug,
     editedByHandle: typeof body.editedByHandle === 'string' && body.editedByHandle.length > 0
-      ? body.editedByHandle : '@you',
+      ? canonicaliseOperatorHandle(body.editedByHandle) : getOperatorHandle(),
     action: before === null ? 'create' : 'update',
     before,
     after: annotation

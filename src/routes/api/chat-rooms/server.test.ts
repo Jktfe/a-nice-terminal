@@ -68,6 +68,7 @@ async function callGet(headers: Record<string, string> = {}): Promise<Response> 
 
 describe('POST /api/chat-rooms whoCreatedIt normalisation', () => {
   beforeEach(() => {
+    process.env.ANT_OPERATOR_HANDLE = '@JWPK';
     resetIdentityDbForTests();
     resetChatMessageStoreForTests();
     resetAntchatAuthTokensForTests();
@@ -77,15 +78,27 @@ describe('POST /api/chat-rooms whoCreatedIt normalisation', () => {
     installFixtureOrgHandleMap();
   });
 
-  it('falls back to @unknown when whoCreatedIt is whitespace-only', async () => {
+  it('falls back to the configured operator handle when whoCreatedIt is whitespace-only', async () => {
     const response = await callPost(
       JSON.stringify({ name: 'whitespace-creator', whoCreatedIt: '   ' })
     );
     expect(response.status).toBe(201);
     const rooms = listChatRooms();
     expect(rooms).toHaveLength(1);
-    expect(rooms[0].whoCreatedIt).toBe('@you');
-    expect(rooms[0].members[0].handle).toBe('@you');
+    expect(rooms[0].whoCreatedIt).toBe('@JWPK');
+    expect(rooms[0].members[0].handle).toBe('@JWPK');
+  });
+
+  it('canonicalises the legacy @you creator to the configured operator handle', async () => {
+    const response = await callPost(
+      JSON.stringify({ name: 'legacy-creator', whoCreatedIt: '@you' })
+    );
+
+    expect(response.status).toBe(201);
+    const rooms = listChatRooms();
+    expect(rooms[0].whoCreatedIt).toBe('@JWPK');
+    expect(rooms[0].members.map((member) => member.handle)).toContain('@JWPK');
+    expect(rooms[0].members.map((member) => member.handle)).not.toContain('@you');
   });
 
   it('records participation under the normalised handle, not the raw whitespace', async () => {
@@ -97,7 +110,7 @@ describe('POST /api/chat-rooms whoCreatedIt normalisation', () => {
     // The created room itself is excluded from a "prior" lookup, but the
     // handle should be findable from any other room id.
     const priorElsewhere = listPriorCollaboratorsExcludingRoom('someOtherRoomId');
-    expect(priorElsewhere).toContain('@you');
+    expect(priorElsewhere).toContain('@JWPK');
     // And the room itself was actually created — no partial mutation.
     expect(findChatRoomById(createdRoom.id)).toBeDefined();
   });
@@ -244,7 +257,7 @@ describe('POST /api/chat-rooms whoCreatedIt normalisation', () => {
     const markRoom = (await (await callPost(
       JSON.stringify({ name: 'mark-room', whoCreatedIt: '@mark' })
     )).json()).chatRoom as { id: string };
-    removeMemberFromRoom({ roomId: markRoom.id, globalHandle: '@you' });
+    removeMemberFromRoom({ roomId: markRoom.id, globalHandle: '@JWPK' });
     const { token } = issueToken('demo-operator@example.test');
 
     const response = await callGet({ authorization: `Bearer ${token}` });
@@ -293,7 +306,7 @@ describe('POST /api/chat-rooms whoCreatedIt normalisation', () => {
       body: 'claimed #136b cockpit UI'
     });
 
-    const { token } = issueToken('you@example.com');
+    const { token } = issueToken('demo-operator@example.test');
     const response = await callGet({ authorization: `Bearer ${token}` });
     const body = await response.json();
 

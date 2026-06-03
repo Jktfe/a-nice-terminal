@@ -10,6 +10,7 @@ import {
   listAnnotationsForState,
   recordAnnotationAudit
 } from '$lib/server/manualScreenStore';
+import { canonicaliseOperatorHandle, getOperatorHandle } from '$lib/server/operatorHandle';
 
 type Bbox = { x: number; y: number; w: number; h: number };
 
@@ -62,7 +63,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
   recordAnnotationAudit({
     screenId, stateSlug, elementSlug,
     editedByHandle: typeof body.editedByHandle === 'string' && body.editedByHandle.length > 0
-      ? body.editedByHandle : '@you',
+      ? canonicaliseOperatorHandle(body.editedByHandle) : getOperatorHandle(),
     action: 'update',
     before: current,
     after: annotation
@@ -85,10 +86,12 @@ export const DELETE: RequestHandler = async ({ params, request }) => {
 
   if (result.changes > 0 && before) {
     // Editor handle from query string (?editedByHandle=@x) since DELETE
-    // bodies are not portable. Falls back to @you for parity with
-    // PATCH/POST defaults.
+    // bodies are not portable. Falls back to the structural operator handle
+    // for parity with PATCH/POST defaults.
     const url = new URL(request.url);
-    const editedByHandle = url.searchParams.get('editedByHandle') ?? '@you';
+    const editedByHandle = canonicaliseOperatorHandle(
+      url.searchParams.get('editedByHandle') ?? getOperatorHandle()
+    );
     recordAnnotationAudit({
       screenId, stateSlug, elementSlug,
       editedByHandle,

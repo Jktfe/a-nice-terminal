@@ -18,7 +18,7 @@
 
   Click semantics: clicking an emoji you've already reacted with removes
   it; clicking one you haven't adds it. Server allowlist is enforced.
-  Identity defaults to @you to match ChatComposer.
+  Identity defaults to @JWPK to match ChatComposer.
 
   Decorative surface — fetch failures soft-fail.
 -->
@@ -36,7 +36,7 @@
     asHandle?: string;
   };
 
-  let { roomId, messageId, asHandle = '@you' }: Props = $props();
+  let { roomId, messageId, asHandle = '@JWPK' }: Props = $props();
 
   // EMOJI-TRIM canonical spectrum: Bad / OK / Good / Celebrate / Question.
   const FIXED_EMOJI_SET = ALLOWED_REACTION_EMOJI;

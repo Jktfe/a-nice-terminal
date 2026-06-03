@@ -1,4 +1,5 @@
 import { getIdentityDb } from './db';
+import { getOperatorHandle } from './operatorHandle';
 
 export type RoomBookmark = {
   ownerHandle: string;
@@ -26,7 +27,7 @@ function rowToBookmark(row: BookmarkRow): RoomBookmark {
   };
 }
 
-export function listRoomBookmarks(ownerHandle = '@you'): RoomBookmark[] {
+export function listRoomBookmarks(ownerHandle = getOperatorHandle()): RoomBookmark[] {
   return getIdentityDb()
     .prepare(
       `SELECT owner_handle, room_id, order_index, created_at_ms, updated_at_ms

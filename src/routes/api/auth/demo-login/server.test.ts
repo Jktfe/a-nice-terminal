@@ -10,9 +10,6 @@ import { getIdentityDb } from '$lib/server/db';
 const PREV_USERS_PATH = process.env.ANTCHAT_DEV_USERS_PATH;
 const PREV_LICENCES_PATH = process.env.ANTCHAT_DEV_LICENCES_PATH;
 const PREV_DEMO_ROOM_ID = process.env.ANT_DEMO_ROOM_ID;
-const PREV_DEMO_EMAIL = process.env.ANT_DEMO_EMAIL;
-const PREV_DEMO_PASSWORD = process.env.ANT_DEMO_PASSWORD;
-const PREV_DEMO_HANDLE = process.env.ANT_DEMO_HANDLE;
 
 let tmpDir: string;
 
@@ -84,9 +81,6 @@ beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'antchat-browser-login-'));
   resetIdentityRows();
   writeAuthFiles();
-  delete process.env.ANT_DEMO_EMAIL;
-  delete process.env.ANT_DEMO_PASSWORD;
-  delete process.env.ANT_DEMO_HANDLE;
   const room = createChatRoom({ name: 'm5 test room', whoCreatedIt: '@jamesm5' });
   process.env.ANT_DEMO_ROOM_ID = room.id;
 });
@@ -100,12 +94,6 @@ afterEach(() => {
   else process.env.ANTCHAT_DEV_LICENCES_PATH = PREV_LICENCES_PATH;
   if (PREV_DEMO_ROOM_ID === undefined) delete process.env.ANT_DEMO_ROOM_ID;
   else process.env.ANT_DEMO_ROOM_ID = PREV_DEMO_ROOM_ID;
-  if (PREV_DEMO_EMAIL === undefined) delete process.env.ANT_DEMO_EMAIL;
-  else process.env.ANT_DEMO_EMAIL = PREV_DEMO_EMAIL;
-  if (PREV_DEMO_PASSWORD === undefined) delete process.env.ANT_DEMO_PASSWORD;
-  else process.env.ANT_DEMO_PASSWORD = PREV_DEMO_PASSWORD;
-  if (PREV_DEMO_HANDLE === undefined) delete process.env.ANT_DEMO_HANDLE;
-  else process.env.ANT_DEMO_HANDLE = PREV_DEMO_HANDLE;
 });
 
 describe('POST /api/auth/demo-login browser cookie login', () => {

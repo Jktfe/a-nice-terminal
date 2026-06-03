@@ -25,6 +25,7 @@ import { parsePidChainFromBody, resolveServerSideHandle } from '$lib/server/iden
 import { tryAdminBearer } from '$lib/server/chatRoomAuthGate';
 import { buildPermissionDeniedPayload } from '$lib/server/permissionDeniedPayload';
 import { resolveApproversFor } from '$lib/server/permissionApproverResolver';
+import { getOperatorHandle } from '$lib/server/operatorHandle';
 import {
   getCookieValuesFromRequest
 } from '$lib/server/authGate';
@@ -105,7 +106,7 @@ export const PUT: RequestHandler = async ({ params, request }) => {
         target_id: params.roomId,
         target_display_name: room?.name,
         reason: 'no_membership',
-        grantee_handle: '@you',
+        grantee_handle: getOperatorHandle(),
         approvers: resolveApproversFor({
           targetKind: 'room',
           targetId: params.roomId

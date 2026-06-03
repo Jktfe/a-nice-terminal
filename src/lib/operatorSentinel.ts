@@ -1,5 +1,5 @@
 /**
- * The internal operator sentinel handle.
+ * The internal operator handle.
  *
  * This is the canonical, load-bearing identity of the human operator across
  * the whole substrate: it is what gets written into `chat_messages
@@ -8,15 +8,14 @@
  * agent-launch / vault, kind detection, inbox-edge routing). It MUST NOT be
  * rewritten in any of those paths.
  *
- * Display layers MAY render it under a human handle (see
- * `operatorDisplayHandle()` + the `ANT_OPERATOR_DISPLAY_HANDLE` env var), but
- * that translation is OUT-only and never flows back into a stored or compared
- * value.
+ * The old implementation used `@you` here and sometimes displayed it as a
+ * friendlier label. The clean identity model is simpler: the operator is
+ * structurally `@JWPK` everywhere.
  *
  * This module is client-safe (no `$lib/server` imports) precisely so the
  * render layer (e.g. `MessageRowHeader.svelte`) can reference the same literal
- * the server uses, instead of duplicating the `'@you'` string and risking
+ * the server uses, instead of duplicating the `@JWPK` string and risking
  * drift. The server-side `OPERATOR_HANDLE` in `allowlistGuard.ts` re-exports
  * this so there is a single source of truth.
  */
-export const OPERATOR_SENTINEL = '@you';
+export const OPERATOR_SENTINEL = '@JWPK';

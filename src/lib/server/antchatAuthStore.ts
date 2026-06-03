@@ -24,6 +24,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import bcrypt from 'bcryptjs';
 import { getIdentityDb } from './db';
+import { canonicaliseOperatorHandle } from './operatorHandle';
 
 function usersFilePath(): string {
   return process.env.ANTCHAT_DEV_USERS_PATH || join(homedir(), '.ant', 'dev-users.json');
@@ -53,9 +54,7 @@ type StoredUser = {
   role?: string;
   tier?: string;
   must_change_password?: boolean;
-  /** Optional override of the auto-derived handle (default = `@<local-part>`).
-   *  Use for users whose canonical v4 room handle differs from their email
-   *  local-part — e.g. an operator email → `@you` per demo-login convention. */
+  /** Optional override of the auto-derived handle (default = `@<local-part>`). */
   handle?: string;
 };
 
@@ -264,11 +263,10 @@ export function userShapeForEmail(email: string): AntchatUser {
     .split(/[._-]/)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
-  // Honour stored handle override (e.g. an operator email → @you per v4
-  // demo-login convention) if the user record has one, else derive from
-  // the email local-part.
+  // Honour stored handle override, then canonicalise legacy operator aliases
+  // so old dev-users.json rows cannot mint @you browser identities.
   const stored = findStoredUser(normalised);
-  const handle = stored?.handle ?? `@${local.replace(/[^a-z0-9]/g, '')}`;
+  const handle = canonicaliseOperatorHandle(stored?.handle ?? `@${local.replace(/[^a-z0-9]/g, '')}`);
   return {
     id: normalised, // email as stable id for now
     email: normalised,

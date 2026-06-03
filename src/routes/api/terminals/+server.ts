@@ -22,6 +22,7 @@ import {
 } from '$lib/server/terminalRecordsStore';
 import { validateHandleForRegistration } from '$lib/server/handleValidation';
 import { createChatRoom, findChatRoomById } from '$lib/server/chatRoomStore';
+import { getOperatorHandle } from '$lib/server/operatorHandle';
 import {
   autoRegisterTerminalForSpawnedSession,
   listTerminalModelsByIds
@@ -152,7 +153,7 @@ export const POST: RequestHandler = async ({ request }) => {
   if (!record.linked_chat_room_id) {
     const linkedRoom = createChatRoom({
       name: `Terminal: ${record.name}`,
-      whoCreatedIt: '@you'
+      whoCreatedIt: getOperatorHandle()
     });
     const updated = updateTerminalRecord(sessionId, { linkedChatRoomId: linkedRoom.id });
     if (updated) record = updated;
@@ -160,7 +161,7 @@ export const POST: RequestHandler = async ({ request }) => {
     // Linked room was deleted out from under us — recreate + relink.
     const linkedRoom = createChatRoom({
       name: `Terminal: ${record.name}`,
-      whoCreatedIt: '@you'
+      whoCreatedIt: getOperatorHandle()
     });
     const updated = updateTerminalRecord(sessionId, { linkedChatRoomId: linkedRoom.id });
     if (updated) record = updated;

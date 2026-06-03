@@ -13,8 +13,7 @@ afterEach(() => {
   _testResetPollerBoot();
   _testResetPoller();
   delete process.env.ANT_FRESH_DB_PATH;
-  delete process.env.ANT_DEMO_EMAIL;
-  delete process.env.ANT_DEMO_PASSWORD;
+  delete process.env.ANT_REQUIRE_LOGIN;
 });
 
 function fakeEvent() {
@@ -67,8 +66,7 @@ describe('hooks.server — boot poller on first request', () => {
   });
 
   it('lets shareable deck pages reach their own password access gate', async () => {
-    process.env.ANT_DEMO_EMAIL = 'demo@example.com';
-    process.env.ANT_DEMO_PASSWORD = 'secret';
+    process.env.ANT_REQUIRE_LOGIN = '1';
     const res = await handle({
       event: pageEvent('/decks/deck-1?password=hunter2'),
       resolve: passResolve
@@ -78,8 +76,7 @@ describe('hooks.server — boot poller on first request', () => {
   });
 
   it('lets built deck iframe payloads load inside shareable deck pages', async () => {
-    process.env.ANT_DEMO_EMAIL = 'demo@example.com';
-    process.env.ANT_DEMO_PASSWORD = 'secret';
+    process.env.ANT_REQUIRE_LOGIN = '1';
     const res = await handle({
       event: pageEvent('/d/ant-animotion-demo'),
       resolve: passResolve
@@ -89,8 +86,7 @@ describe('hooks.server — boot poller on first request', () => {
   });
 
   it('lets the seeded Univer demo artefact load without a browser login', async () => {
-    process.env.ANT_DEMO_EMAIL = 'demo@example.com';
-    process.env.ANT_DEMO_PASSWORD = 'secret';
+    process.env.ANT_REQUIRE_LOGIN = '1';
     const res = await handle({
       event: pageEvent('/artefacts/univer_demo_5892abff'),
       resolve: passResolve
@@ -99,9 +95,8 @@ describe('hooks.server — boot poller on first request', () => {
     expect(await res.text()).toBe('ok');
   });
 
-  it('keeps ordinary artefact pages behind the demo login gate', async () => {
-    process.env.ANT_DEMO_EMAIL = 'demo@example.com';
-    process.env.ANT_DEMO_PASSWORD = 'secret';
+  it('keeps ordinary artefact pages behind the login gate', async () => {
+    process.env.ANT_REQUIRE_LOGIN = '1';
 
     await expect(handle({
       event: pageEvent('/artefacts/private-artefact'),

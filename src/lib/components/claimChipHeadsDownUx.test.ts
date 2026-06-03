@@ -32,4 +32,13 @@ describe('heads-down claim chip UX wiring', () => {
     expect(source).toContain("{myWorking ? 'taking' : 'take'}");
     expect(source).toContain("{myPass ? 'passed' : 'pass'}");
   });
+
+  it('never treats the human operator handles as an agent claim actor', () => {
+    const source = readFileSync('src/lib/components/MessageList.svelte', 'utf8');
+
+    expect(source).toContain('isOperatorLikeHandle');
+    expect(source).toContain("lower === '@jwpk'");
+    expect(source).toContain("lower === '@you'");
+    expect(source).toContain('if (isOperatorLikeHandle(handle)) return false;');
+  });
 });

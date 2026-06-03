@@ -79,9 +79,9 @@ function ensureAtHandle(raw) {
 function callerHandle(runtime) {
   // The CLI's caller handle is whatever the identity-chain helper resolves
   // — we let the existing pidChain machinery fill in the request body, but
-  // for asks we need the handle string client-side too. Falls back to @you
+  // for asks we need the handle string client-side too. Falls back to @JWPK
   // for human-driven invocations from a local terminal (the common case).
-  return runtime.config?.callerHandle ?? '@you';
+  return runtime.config?.callerHandle ?? '@JWPK';
 }
 
 async function runOpen(args, runtime, CliInputError) {

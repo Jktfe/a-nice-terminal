@@ -113,11 +113,10 @@
   const agentEventsFromServer = $derived<AgentEvent[]>(data.agentEvents ?? []);
   // #76 — find the caller's most recent editable message in this room
   // so ↑ in an empty composer loads it. Walk from the newest backwards,
-  // skip system kinds + deleted rows. asHandle defaults to @you.
-  // Fall back to @you when the page data hasn't surfaced a caller handle —
-  // matches the ChatComposer's own default.
+  // skip system kinds + deleted rows. Fall back to @JWPK so the browser
+  // never reintroduces the legacy @you sentinel when capabilities fail.
   const callerHandle = $derived(
-    (data as { asHandle?: string }).asHandle ?? '@you'
+    (data as { asHandle?: string }).asHandle ?? '@JWPK'
   );
   const lastOwnEditableMessage = $derived.by(() => {
     const list = (liveMessageRoomId === null ? messagesFromServer : liveMessages) ?? [];

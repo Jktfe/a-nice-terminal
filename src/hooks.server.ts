@@ -57,15 +57,14 @@ function bootPollerOnce(): void {
   slot[POLLER_BOOTED_KEY] = Date.now();
 }
 
-// JWPK msg_yh5d58msjf demo-login gate. When ANT_DEMO_EMAIL is set on
-// the launchd plist, anonymous visitors get redirected to /login until
-// they sign in. Unsetting the env disables the gate entirely with zero
-// code change.
+// Browser page login gate. Demo credential env vars no longer control access;
+// set ANT_REQUIRE_LOGIN=1 when the product should redirect anonymous page
+// visitors to /login.
 //
 // Paths that bypass the gate (so /login itself can load + the auth
 // endpoint can be POSTed to + SvelteKit's own infra works):
 //   - /login
-//   - /api/auth/* (the demo-login endpoint + future auth surface)
+//   - /api/auth/* (login endpoints)
 //   - /api/health (operational liveness probe — gating it would break
 //     external uptime monitors)
 //   - /decks/* (shareable deck route; deckAccessGate enforces room/password)
@@ -75,7 +74,7 @@ function bootPollerOnce(): void {
 //   - favicon.ico and similar static assets
 function isGateBypassPath(pathname: string): boolean {
   if (pathname === '/login' || pathname.startsWith('/login/')) return true;
-  // ALL /api/* endpoints bypass the page-gate. The demo-login gate is for
+  // ALL /api/* endpoints bypass the page-gate. The login gate is for
   // unauthenticated browser PAGES. API endpoints already enforce identity
   // via pidChain + room-membership resolvers (server-resolved). Gating /api/*
   // here would break the agent CLI fleet which posts to chat/asks/plans
@@ -84,14 +83,14 @@ function isGateBypassPath(pathname: string): boolean {
   if (pathname.startsWith('/api/')) return true;
   // Deck pages are intentionally shareable. The page loader calls
   // /api/decks/:id, where deckAccessGate enforces either room membership
-  // or ?password=. If the global demo-login gate catches /decks first,
+  // or ?password=. If the global login gate catches /decks first,
   // password links can never reach their own access gate.
   if (pathname.startsWith('/decks/')) return true;
   // Built deck payloads are loaded inside the shareable deck page iframe.
   // Keep this narrow to the static deck slug route; the parent /decks page
   // still controls who can discover a deck URL in the first place.
   if (pathname.startsWith('/d/')) return true;
-  // Emergency Univer dogfood demo (JWPK msg_w62h4zdl9z 2026-05-26):
+  // Emergency Univer dogfood route (JWPK msg_w62h4zdl9z 2026-05-26):
   // the seeded demo artefact must be reachable from a clean browser while
   // we show the runtime. Keep this scoped to generated demo ids; ordinary
   // artefacts remain behind the login gate.
@@ -100,7 +99,7 @@ function isGateBypassPath(pathname: string): boolean {
   if (pathname === '/favicon.ico') return true;
   // /mcp/* routes are the share-URL onboarding surface (JWPK msg_7i2h8klrtp);
   // the route itself enforces invite+password auth via exchangePasswordForToken.
-  // Bypassing the demo-login cookie gate lets an unauthenticated Claude
+  // Bypassing the browser-login cookie gate lets an unauthenticated Claude
   // Desktop agent follow the shared URL directly to the JSON / HTML config.
   if (pathname.startsWith('/mcp/')) return true;
   return false;
@@ -118,9 +117,9 @@ function readCookie(cookieHeader: string | null, name: string): string | null {
 /**
  * Multi-cookie iteration — JWPK msg_6556jggvwk (2026-05-19): /plans/triggers
  * redirect loop. Browsers send multiple `ant_browser_session=...` cookies
- * when paths differ (Path=/ demo-login + Path=/api/chat-rooms/{id} per-room
+ * when paths differ (Path=/ browser-login + Path=/api/chat-rooms/{id} per-room
  * mints). The single-readCookie path returns only the first match, so if
- * the room-scoped cookie sorts ahead of the demo-login cookie, the page-gate
+ * the room-scoped cookie sorts ahead of the browser-login cookie, the page-gate
  * tests it via `resolveBrowserSessionSecretIgnoringRoom` and gets nothing
  * because that helper validates against the FULL secret table — but only
  * one of the inputs gets a chance. Mirrors the multi-cookie fix that
@@ -139,7 +138,7 @@ function readAllCookies(cookieHeader: string | null, name: string): string[] {
 }
 
 function gateIsEnabled(): boolean {
-  return !!process.env.ANT_DEMO_EMAIL && !!process.env.ANT_DEMO_PASSWORD;
+  return process.env.ANT_REQUIRE_LOGIN === '1';
 }
 
 function isAuthenticated(event: { request: Request }): boolean {
@@ -195,7 +194,7 @@ export const handle: Handle = async ({ event, resolve }) => {
   bootPollerOnce();
   await gateChatRoomReadApi(event);
 
-  // Demo-login gate runs before route handling so anonymous visitors
+  // Login gate runs before route handling so anonymous visitors
   // never see app pages while the gate is on. JWPK msg about repeated
   // "I get redirected and can't get back where I was" pain (2026-05-19):
   // preserve the originally-requested URL as `?next=` so /login can hop

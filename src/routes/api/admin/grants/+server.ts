@@ -31,6 +31,7 @@ import {
   listActiveGrants,
   revokeGrant
 } from '$lib/server/callerGrantsStore';
+import { canonicaliseOperatorHandle, getOperatorHandle } from '$lib/server/operatorHandle';
 
 export const POST: RequestHandler = async ({ request }) => {
   requireAdminAuth(request);
@@ -50,8 +51,8 @@ export const POST: RequestHandler = async ({ request }) => {
     throw error(400, 'pid (positive integer) and pid_start (string) are required.');
   }
   const grantedByHandle = typeof body.granted_by_handle === 'string'
-    ? body.granted_by_handle
-    : '@you';
+    ? canonicaliseOperatorHandle(body.granted_by_handle)
+    : getOperatorHandle();
   const tmuxSessionId = typeof body.tmux_session_id === 'string' ? body.tmux_session_id : null;
   if (kind === 'human') {
     const expiresInMs = typeof body.expires_in_ms === 'number' && Number.isFinite(body.expires_in_ms) && body.expires_in_ms > 0

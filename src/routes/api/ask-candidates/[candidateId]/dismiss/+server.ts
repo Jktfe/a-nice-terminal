@@ -1,10 +1,11 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { dismissAskCandidate } from '$lib/server/askCandidateStore';
+import { getOperatorHandle } from '$lib/server/operatorHandle';
 
 export const POST: RequestHandler = async ({ params, request }) => {
   const body = await readOptionalJsonObject(request);
-  const dismissedByHandle = normalizeHandle(body.dismissedByHandle, '@you');
+  const dismissedByHandle = normalizeHandle(body.dismissedByHandle, getOperatorHandle());
   try {
     const candidate = dismissAskCandidate({
       candidateId: params.candidateId,

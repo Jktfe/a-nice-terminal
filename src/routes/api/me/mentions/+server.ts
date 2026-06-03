@@ -43,6 +43,7 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { resolveCallerHandleAnyRoom } from '$lib/server/authGate';
 import { requireAdminAuth } from '$lib/server/chatInviteAuth';
+import { getOperatorHandle } from '$lib/server/operatorHandle';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { getIdentityDb } from '$lib/server/db';
 import { subscribeRoomEvents } from '$lib/server/eventBroadcast';
@@ -247,11 +248,11 @@ export const GET: RequestHandler = async ({ url, request }) => {
   if (!callerHandle) {
     try {
       requireAdminAuth(request);
-      // Admin-bearer is the operator (@you) on the local machine. The
+      // Admin-bearer is the operator on the local machine. The
       // operator running the MCP server IS the box owner; mapping
-      // admin-bearer to @you matches the convention used by terminal
+      // admin-bearer to the structural operator matches the convention used by terminal
       // sub-routes (see resolveTerminalCallerHandle).
-      callerHandle = '@you';
+      callerHandle = getOperatorHandle();
     } catch {
       throw error(401, 'browser-session, antchat Bearer, or admin-bearer required');
     }

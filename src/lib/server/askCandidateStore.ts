@@ -5,7 +5,7 @@ import { listMessagesInRoom } from './chatMessageStore';
 import { listChatRooms } from './chatRoomStore';
 import { getIdentityDb } from './db';
 import { openAskInRoom, type Ask } from './askStore';
-import { isOperatorHandle } from './operatorHandle';
+import { getOperatorHandle, isOperatorHandle } from './operatorHandle';
 
 const HANDS_UP_EMOJIS = ['🙌', '🙋‍♂️'] as const;
 const RETROSCAN_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -77,7 +77,7 @@ function rowToCandidate(row: AskCandidateRow): AskCandidate {
 function titleFor(type: AskCandidateSourceType, message: ChatMessage, emoji?: string): string {
   if (type === 'reaction') return `Candidate ask from ${emoji ?? 'reaction'}`;
   if (type === 'emoji-message') return `Candidate ask from ${emoji ?? 'hands-up'} signal`;
-  return `Candidate ask from @you mention`;
+  return `Candidate ask from ${getOperatorHandle()} mention`;
 }
 
 function bodyFor(type: AskCandidateSourceType, message: ChatMessage, actorHandle: string, emoji?: string): string {
@@ -234,7 +234,7 @@ export function promoteAskCandidate(input: {
               promoted_at_ms = ?
         WHERE id = ?`
     )
-    .run(ask.id, input.promotedByHandle.trim() || '@you', nowMs, input.candidateId);
+    .run(ask.id, input.promotedByHandle.trim() || getOperatorHandle(), nowMs, input.candidateId);
   return { candidate: findCandidateById(input.candidateId)!, ask };
 }
 
@@ -254,7 +254,7 @@ export function dismissAskCandidate(input: {
               dismissed_at_ms = ?
         WHERE id = ?`
     )
-    .run(input.dismissedByHandle.trim() || '@you', nowMs, input.candidateId);
+    .run(input.dismissedByHandle.trim() || getOperatorHandle(), nowMs, input.candidateId);
   return findCandidateById(input.candidateId)!;
 }
 

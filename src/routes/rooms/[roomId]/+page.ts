@@ -158,9 +158,9 @@ export const load: PageLoad = async ({ fetch, params }) => {
   // The operator's structural handle (configured server-side via
   // ANT_OPERATOR_HANDLE). Threaded to the composer as `asHandle` so the
   // browser mints + posts under the same handle the server stores — the
-  // client never hardcodes the `@you` sentinel. Falls back to `@you` only if
-  // capabilities is unreachable (matches the legacy default).
-  let operatorHandle = '@you';
+  // client never hardcodes the `@you` sentinel. Falls back to @JWPK if
+  // capabilities is unreachable so user-facing identity stays clean.
+  let operatorHandle = '@JWPK';
   if (capabilitiesResponse?.ok) {
     const body = (await capabilitiesResponse.json()) as {
       featureFlags?: Record<string, boolean>;

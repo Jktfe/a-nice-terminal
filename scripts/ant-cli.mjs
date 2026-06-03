@@ -241,7 +241,7 @@ async function createRoom(name, runtime) {
   const response = await fetchFromServer(runtime, '/api/chat-rooms', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ name: trimmedName, whoCreatedIt: '@you' })
+    body: JSON.stringify({ name: trimmedName })
   });
   await throwIfNotOk(response, runtime);
   const body = await response.json();

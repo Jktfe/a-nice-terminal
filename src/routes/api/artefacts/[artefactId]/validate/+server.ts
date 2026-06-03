@@ -27,6 +27,7 @@ import {
   type ValidationParticipant
 } from '$lib/server/validationOrchestrator';
 import { createValidationWorkItems } from '$lib/server/validationWorkItems';
+import { getOperatorHandle } from '$lib/server/operatorHandle';
 import {
   getValidationSchema,
   listValidationRunsForClaim,
@@ -84,8 +85,8 @@ function publicDemoAccess(roomId: string): ChatRoomReadAccess {
   return {
     isAdminBearer: false,
     source: 'room-invite-bearer',
-    handles: ['@you'],
-    principalHandles: ['@you'],
+    handles: [getOperatorHandle()],
+    principalHandles: [getOperatorHandle()],
     resolvedRoomIds: [roomId]
   };
 }

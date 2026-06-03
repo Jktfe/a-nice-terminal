@@ -166,7 +166,7 @@
       const res = await fetch(`/api/terminals/${encodeURIComponent(terminalId)}/kill`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ callerHandle: '@you', mode })
+        body: JSON.stringify({ callerHandle: '@JWPK', mode })
       });
       if (res.status === 403) { killError = 'Not authorised to kill this terminal'; return; }
       if (!res.ok) { killError = `kill failed: ${res.status}`; return; }

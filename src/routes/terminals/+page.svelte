@@ -53,7 +53,7 @@
   let modalMode = $state<'spawn' | 'attach'>('spawn');
   let modalSessionId = $state<string | null>(null);
   let pendingName = $state('');
-  let pendingUser = $state('@you');
+  let pendingUser = $state('@JWPK');
   let pendingPickedHandles = $state<string[]>([]);  // multi-select from existing handles
 
   // PICKER-SAME-SET 2026-05-14: picker source == bottom-tier ANT terminals
@@ -98,7 +98,7 @@
     modalMode = 'spawn';
     modalSessionId = null;
     pendingName = `Terminal ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-    pendingUser = '@you';
+    pendingUser = '@JWPK';
     pendingPickedHandles = [];
     modalOpen = true;
   }
@@ -107,7 +107,7 @@
     modalMode = 'attach';
     modalSessionId = pane.sessionId;
     pendingName = `Attached ${pane.sessionId.slice(0, 8)}`;
-    pendingUser = '@you';
+    pendingUser = '@JWPK';
     pendingPickedHandles = [];
     modalOpen = true;
   }
@@ -162,7 +162,7 @@
       const res = await fetch(`/api/terminals/${encodeURIComponent(sessionId)}/kill`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ callerHandle: '@you', mode })
+        body: JSON.stringify({ callerHandle: '@JWPK', mode })
       });
       if (res.status === 403) { lastError = 'Not authorised to kill this pane'; }
       else if (!res.ok) { lastError = `kill failed: ${res.status}`; }
@@ -428,7 +428,7 @@
           <p class="muted">Pane: <code>{modalSessionId}</code></p>
         {/if}
         <label>Name <input type="text" bind:value={pendingName} placeholder="e.g. backend work" required /></label>
-        <label>User (creator handle) <input type="text" bind:value={pendingUser} placeholder="@you" required /></label>
+        <label>User (creator handle) <input type="text" bind:value={pendingUser} placeholder="@JWPK" required /></label>
         <!-- agentKind is set AFTER spawn via TerminalHeader dropdown per JWPK
              Option B 2026-05-14: daemon doesn't launch the CLI, only stores
              the label metadata — removing the field from the create modal
