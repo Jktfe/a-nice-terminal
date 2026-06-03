@@ -354,6 +354,11 @@ function normalizeHandle(rawHandle: string): string {
   return trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
 }
 
+function canonicalBrowserHandle(rawHandle: string): string {
+  const normalized = normalizeHandle(rawHandle);
+  return normalized === '@you' ? '@JWPK' : normalized;
+}
+
 function getCookieValues(request: Request, cookieName: string): string[] {
   // Browsers can send MULTIPLE cookies with the same name when paths differ
   // (e.g. demo-login mints Path=/ + per-room mint Path=/api/chat-rooms/{id}).
@@ -462,12 +467,13 @@ async function resolveMessageAuthorHandle(
   for (const browserSessionSecret of browserSessionSecrets) {
     const resolved = resolveBrowserSessionSecret(browserSessionSecret, roomId);
     if (resolved) {
-      if (clientAuthorHandle !== null && normalizeHandle(clientAuthorHandle) !== resolved.handle) {
+      const resolvedHandle = canonicalBrowserHandle(resolved.handle);
+      if (clientAuthorHandle !== null && canonicalBrowserHandle(clientAuthorHandle) !== resolvedHandle) {
         rejectMessageIdentity(roomId, 'authorHandle does not match browser session.');
       }
       touchBrowserSessionLastSeen(resolved.session_id);
       return {
-        handle: resolved.handle,
+        handle: resolvedHandle,
         callerTerminalId: resolved.terminal_id,
         authPath: 'cookie'
       };

@@ -145,8 +145,8 @@ describe('GET /api/chat-rooms/:roomId/messages pagination', () => {
 
   it('hides message reads from authenticated non-members', async () => {
     const room = createChatRoom({ name: 'private-messages', whoCreatedIt: '@mark' });
-    postMessage({ roomId: room.id, authorHandle: '@you', body: 'secret' });
-    removeMemberFromRoom({ roomId: room.id, globalHandle: '@you' });
+    postMessage({ roomId: room.id, authorHandle: '@JWPK', body: 'secret' });
+    removeMemberFromRoom({ roomId: room.id, globalHandle: '@JWPK' });
     const { token } = issueToken('demo-operator-m5@example.test');
 
     const response = await callGet(room.id, '', { authorization: `Bearer ${token}` });
@@ -839,9 +839,9 @@ describe('M3.6a-v0 T3: browser-session identity mixed mode', () => {
   });
 
   function seedBrowserSession() {
-    const room = createChatRoom({ name: 'browser-id', whoCreatedIt: '@you' });
+    const room = createChatRoom({ name: 'browser-id', whoCreatedIt: '@JWPK' });
     const terminal = upsertTerminal({ pid: 9001, pid_start: 'browser-proof', name: 'browser-public' });
-    addMembership({ room_id: room.id, handle: '@you', terminal_id: terminal.id });
+    addMembership({ room_id: room.id, handle: '@JWPK', terminal_id: terminal.id });
     const session = createBrowserSession({ roomId: room.id, authorHandle: '@you' });
     if (!session) throw new Error('expected browser session');
     return { room, session };
@@ -856,7 +856,7 @@ describe('M3.6a-v0 T3: browser-session identity mixed mode', () => {
     });
     expect(response.status).toBe(201);
     const payload = await response.json();
-    expect(payload.message.authorHandle).toBe('@you');
+    expect(payload.message.authorHandle).toBe('@JWPK');
     const row = (await import('$lib/server/db')).getIdentityDb()
       .prepare(`SELECT last_seen_at_ms FROM browser_sessions WHERE id = ?`)
       .get(session.session.id) as { last_seen_at_ms: number | null };
@@ -923,7 +923,7 @@ describe('M3.6a-v0 T3: browser-session identity mixed mode', () => {
     });
     expect(response.status).toBe(201);
     const payload = await response.json();
-    expect(payload.message.authorHandle).toBe('@you');
+    expect(payload.message.authorHandle).toBe('@JWPK');
   });
 });
 

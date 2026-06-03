@@ -45,7 +45,8 @@ export type ResolvedBrowserSession = {
 function normalizeHandle(rawHandle: string): string {
   const trimmed = rawHandle.trim();
   if (trimmed.length === 0) return trimmed;
-  return trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
+  const withAt = trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
+  return withAt === '@you' ? '@JWPK' : withAt;
 }
 
 function newBrowserSessionId(): string { return `bs_${mintTokenSecret().slice(0, 16)}`; }
@@ -146,7 +147,7 @@ export function resolveBrowserSessionSecret(
     session_id: session.id,
     room_id: session.room_id,
     terminal_id: session.terminal_id,
-    handle: session.handle
+    handle: normalizeHandle(session.handle)
   };
 }
 
@@ -180,7 +181,7 @@ export function resolveBrowserSessionSecretIgnoringRoom(
     session_id: session.id,
     room_id: session.room_id,
     terminal_id: session.terminal_id,
-    handle: session.handle
+    handle: normalizeHandle(session.handle)
   };
 }
 
