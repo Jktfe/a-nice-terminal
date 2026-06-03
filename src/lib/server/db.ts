@@ -2933,20 +2933,8 @@ export function getIdentityDb(): DatabaseInstance {
   } catch {
     /* import failure (e.g. test env) — swallow */
   }
-  // Per-human inbox backfill (asks-as-pill JWPK 2026-05-22): seed inbox
-  // rooms + memberships for existing humans on first call. Best-effort —
-  // a backfill failure must NEVER block the DB handle return; the live
-  // hooks in chatRoomStore + terminalRecordsStore will fill gaps as
-  // membership changes happen post-deploy. Lazy import to avoid the
-  // cycle (humanInboxBackfill → ensureHumanInboxRoom → getIdentityDb).
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    void import('./humanInboxBackfill').then((module) => {
-      try { module.backfillHumanInboxes(); } catch { /* idempotent — swallow */ }
-    });
-  } catch {
-    /* import failure (e.g. test env) — swallow */
-  }
+  // JWPK cleanup 2026-06-03: do not auto-create hidden per-human inbox
+  // chat rooms on boot. The live room model must only surface explicit rooms.
   // Manual canvas v2 seed (JWPK 2026-05-23 slice 1): hand-authored
   // annotations for the /rooms default state. Idempotent — only writes
   // when the table is empty. Cycle-safe via dynamic import.

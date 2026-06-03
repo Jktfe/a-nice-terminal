@@ -445,29 +445,30 @@ export function createChatRoom(input: {
     displayBackgroundStyle: defaultParticipantBackgroundStyle(creatorKind),
     memberKind: creatorKind
   });
-  if (input.whoCreatedIt !== '@you') {
+  const operatorHandle = '@JWPK';
+  if (input.whoCreatedIt !== operatorHandle) {
     v02MirrorAddMembership({
       roomId: newRoomId,
-      handle: '@you',
-      displayName: '@you',
+      handle: operatorHandle,
+      displayName: operatorHandle,
       role: 'member',
-      roomDisplayName: '@you',
-      displayColor: defaultParticipantColor('@you'),
-      displayIcon: defaultParticipantIcon('@you'),
+      roomDisplayName: operatorHandle,
+      displayColor: defaultParticipantColor(operatorHandle),
+      displayIcon: defaultParticipantIcon(operatorHandle),
       displayBackgroundStyle: defaultParticipantBackgroundStyle('human'),
       memberKind: 'human'
     });
   }
   // Per-human inbox: provision the creator's inbox (if human) + recompute
   // edges so any pre-existing agents in the room come into the inbox.
-  // The @you membership added above also triggers a recompute through the
-  // same hook, so @you's inbox is provisioned the first time @you appears
+  // The operator membership added above also triggers a recompute through the
+  // same hook, so @JWPK's inbox is provisioned the first time @JWPK appears
   // anywhere in the system.
   if (creatorKind === 'human') ensureHumanInboxRoom(input.whoCreatedIt);
-  if (input.whoCreatedIt !== '@you') ensureHumanInboxRoom('@you');
+  if (input.whoCreatedIt !== operatorHandle) ensureHumanInboxRoom(operatorHandle);
   recomputeInboxEdgesForRoomMembershipChange(newRoomId, input.whoCreatedIt);
-  if (input.whoCreatedIt !== '@you') {
-    recomputeInboxEdgesForRoomMembershipChange(newRoomId, '@you');
+  if (input.whoCreatedIt !== operatorHandle) {
+    recomputeInboxEdgesForRoomMembershipChange(newRoomId, operatorHandle);
   }
   return loadRoomById(newRoomId)!;
 }
