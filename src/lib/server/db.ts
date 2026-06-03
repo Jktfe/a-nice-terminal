@@ -2850,24 +2850,26 @@ export function getDbFilePath(): string {
   return resolveDbFilePath();
 }
 
-function ensureYouMembership(db: DatabaseInstance): void {
-  // Task #138 retro-fix: ensure @you is a member of every room
-  const roomsWithoutYou = db.prepare(`
+function ensureOperatorMembership(db: DatabaseInstance): void {
+  // vNext cleanup: the operator is @JWPK in stored room membership data. Do
+  // not recreate the old @you sentinel on boot.
+  const operatorHandle = '@JWPK';
+  const roomsWithoutOperator = db.prepare(`
     SELECT r.id FROM chat_rooms r
     WHERE r.deleted_at_ms IS NULL
       AND r.id NOT IN (
-        SELECT room_id FROM chat_room_members WHERE handle = '@you'
+        SELECT room_id FROM chat_room_members WHERE handle = ?
       )
-  `).all() as { id: string }[];
+  `).all(operatorHandle) as { id: string }[];
   const nowIso = new Date().toISOString();
-  for (const row of roomsWithoutYou) {
+  for (const row of roomsWithoutOperator) {
     db.prepare(`INSERT INTO chat_room_members
       (id, room_id, handle, display_name, display_color, display_icon, display_background_style, joined_at, kind)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'human')`).run(
       `m-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
       row.id,
-      '@you',
-      '@you',
+      operatorHandle,
+      operatorHandle,
       '#DC2626',
       'J',
       'card',
@@ -2899,7 +2901,7 @@ export function getIdentityDb(): DatabaseInstance {
   // rows) that the poller does twice per tick.
   db.pragma('cache_size = -64000');
   applySchemaMigrations(db);
-  ensureYouMembership(db);
+  ensureOperatorMembership(db);
   sweepAutoCreatedRoomPlansInDb(db);
   // Backfill chat_rooms.last_post_order from the live chat_messages
   // history once (JWPK 2026-05-22 rooms-sort fix). Idempotent: only
