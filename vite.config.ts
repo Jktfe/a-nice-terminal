@@ -1,6 +1,6 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { realpathSync } from 'node:fs';
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 
 const nodeModulesRealPath = realpathSync('node_modules');
 
@@ -25,7 +25,7 @@ export default defineConfig({
     testTimeout: 30_000,
     hookTimeout: 30_000,
     teardownTimeout: 30_000,
-    // pool=forks (over default 'threads') with maxForks=4 — under heavy
+    // pool=forks (over default 'threads') with maxWorkers=4 — under heavy
     // parallel load the worker→main IPC channel was hitting its ~5s
     // timeout for onTaskUpdate, surfacing as "Timeout calling
     // onTaskUpdate" unhandled errors even though every test passed.
@@ -33,8 +33,6 @@ export default defineConfig({
     // at 4 keeps the main thread from drowning in IPC traffic from too
     // many parallel reporters. Slightly slower walltime; no false flake.
     pool: 'forks',
-    poolOptions: {
-      forks: { maxForks: 4 }
-    }
+    maxWorkers: 4
   }
 });
