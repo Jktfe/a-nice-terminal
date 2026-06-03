@@ -80,6 +80,30 @@ function adminHeaders() {
   return token ? { authorization: `Bearer ${token}` } : {};
 }
 
+function normaliseSessionId(raw) {
+  return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : null;
+}
+
+function currentPane(runtime) {
+  return (
+    normaliseSessionId(runtime.envTmuxPane) ??
+    normaliseSessionId(process.env.TMUX_PANE) ??
+    normaliseSessionId(process.env.WEZTERM_PANE)
+  );
+}
+
+function durableSessionHeaders(runtime) {
+  const envSession = normaliseSessionId(process.env.ANT_SESSION_ID);
+  if (envSession) return { 'x-ant-session-id': envSession };
+  const pane = currentPane(runtime);
+  const byPane = runtime.config?.antSessions?.byPane;
+  if (pane && byPane && typeof byPane === 'object') {
+    const paneSession = normaliseSessionId(byPane[pane]);
+    if (paneSession) return { 'x-ant-session-id': paneSession };
+  }
+  return {};
+}
+
 async function runPositionalMemberEdit(room, action, args, runtime, CliInputError) {
   const handle = args[0];
   if (!handle || handle.trim().length === 0) {
@@ -88,7 +112,7 @@ async function runPositionalMemberEdit(room, action, args, runtime, CliInputErro
   const body = { handle: handle.trim(), pidChain: processIdentityChain() };
   const payload = await fetchJson(runtime, `/api/chat-rooms/${encodeURIComponent(room)}/members/superadmin`, {
     method: action === 'add' ? 'POST' : 'DELETE',
-    headers: { 'content-type': 'application/json', ...adminHeaders() },
+    headers: { 'content-type': 'application/json', ...durableSessionHeaders(runtime), ...adminHeaders() },
     body: JSON.stringify(body)
   });
   if (action === 'add') {

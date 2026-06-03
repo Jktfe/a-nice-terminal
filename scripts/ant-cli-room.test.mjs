@@ -27,9 +27,12 @@ const bodyAt = (captured, index = 0) => JSON.parse(captured.requests[index].init
 describe('ant room admission wrappers', () => {
   it('R0a: positional add uses the clean SuperAdmin membership endpoint', async () => {
     const { runtime, captured } = makeRuntime(() => okJson({ handle: '@JWPK' }, 201));
+    runtime.envTmuxPane = '%admin';
+    runtime.config = { antSessions: { byPane: { '%admin': 'sess-admin' } } };
     await handleRoomVerb('s1hiftd05p', ['add', '@JWPK'], runtime, { CliInputError });
     expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/s1hiftd05p/members/superadmin');
     expect(captured.requests[0].init.method).toBe('POST');
+    expect(captured.requests[0].init.headers['x-ant-session-id']).toBe('sess-admin');
     const body = bodyAt(captured);
     expect(body.handle).toBe('@JWPK');
     expect(Array.isArray(body.pidChain)).toBe(true);
