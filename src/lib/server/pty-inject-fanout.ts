@@ -275,6 +275,29 @@ function emitStaleSystemMessage(roomId: string, handle: string, reason: string):
   }
 }
 
+/**
+ * Deliver a directed heads-down relay notification to a single responder's
+ * terminal (e.g. "taken by @x", "this is now available to claim"). Routes
+ * through the same per-handle inject queue as normal fanout, so the responder
+ * receives it in their terminal. Best-effort: no-op if the room or the
+ * responder's membership/terminal can't be resolved.
+ */
+export function sendCoordinationRelay(roomId: string, recipientHandle: string, body: string): void {
+  const room = findChatRoomById(roomId);
+  if (!room) return;
+  const membership = listMembershipsForRoom(roomId).find((m) => m.handle === recipientHandle);
+  if (!membership?.terminal_id) return;
+  queue.enqueue(queueKeyFor(roomId, membership.terminal_id), {
+    roomId,
+    roomName: room.name,
+    messageId: `relay-${Date.now()}-${membership.terminal_id}`,
+    senderHandle: '@system',
+    body,
+    recipientHandle,
+    terminalId: membership.terminal_id
+  });
+}
+
 export function fanoutMessageToRoomTerminals(
   roomId: string,
   message: ChatMessage,

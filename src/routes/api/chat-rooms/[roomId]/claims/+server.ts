@@ -26,6 +26,8 @@ import {
   type ClaimKind,
   type EntityKind
 } from '$lib/server/entityClaimStore';
+import { emitClaimRelay } from '$lib/server/headsDownRelay';
+import { sendCoordinationRelay } from '$lib/server/pty-inject-fanout';
 
 export const GET: RequestHandler = ({ params, url }) => {
   const roomId = readRoomId(params.roomId);
@@ -68,6 +70,12 @@ export const POST: RequestHandler = async ({ params, request }) => {
       ttl_ms: ttlMs,
       default_working_ttl_ms: defaultWorkingTtlMsForRoom(roomId)
     });
+    // Heads-down responder-relay: notify the other readers/holder of this
+    // claim transition (no-op outside heads-down / non-message entities).
+    emitClaimRelay(
+      { roomId, entityKind, entityId, claimKind, claimedByHandle },
+      (recipientHandle, body) => sendCoordinationRelay(roomId, recipientHandle, body)
+    );
     return json({ claim }, { status: 201 });
   } catch (cause) {
     if (cause instanceof EntityClaimConflictError) {
