@@ -23,6 +23,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { findChatRoomById, listChatRooms } from '$lib/server/chatRoomStore';
+import { canonicalOperatorHandleForMembers } from '$lib/operatorSentinel';
 import {
   listAllRecentlyAnsweredAsks,
   listAllOpenAsks,
@@ -178,9 +179,12 @@ export const POST: RequestHandler = async ({ request }) => {
     throw error(400, 'openedByHandle must be a non-empty string.');
   }
   const trimmedHandle = openedByHandleRaw.trim();
-  const handleWithAtSign = trimmedHandle.startsWith('@')
+  const rawWithAtSign = trimmedHandle.startsWith('@')
     ? trimmedHandle
     : `@${trimmedHandle}`;
+  // Canonicalise the legacy operator sentinel (@you) -> @JWPK so an operator
+  // still sending @you resolves against the migrated @JWPK membership.
+  const handleWithAtSign = canonicalOperatorHandleForMembers(rawWithAtSign, room.members);
   // Asks principle (JWPK msg_86qcfvbkur 2026-05-19, locked in
   // audits/2026-05-19-asks-principle-user-only.md): Open Asks are
   // user-facing decision points only. Agent-pattern handles cannot file

@@ -27,6 +27,7 @@ import type { ChatRoom } from './chatRoomStore';
 import { expandHandlesToOwnerFamilies } from './agentFamilyStore';
 import { lookupTerminalByPidChain } from './terminalsStore';
 import { deriveHandle, getTerminalRecord } from './terminalRecordsStore';
+import { isOperatorHandle } from './operatorHandle';
 
 export type ChatRoomReadAccess = {
   isAdminBearer: boolean;
@@ -383,6 +384,7 @@ export function canReadChatRoom(room: ChatRoom, access: ChatRoomReadAccess): boo
   if (access.isAdminBearer) return true;
   if (access.resolvedRoomIds?.includes(room.id)) return true;
   for (const handle of access.handles) {
+    if (isOperatorHandle(handle) && room.members.some((member) => isOperatorHandle(member.handle))) return true;
     if (room.members.some((member) => member.handle === handle)) return true;
     const globalHandle = findHandleForAliasInRoom(room.id, handle);
     if (room.members.some((member) => member.handle === globalHandle)) return true;

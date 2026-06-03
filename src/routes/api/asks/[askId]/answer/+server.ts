@@ -18,6 +18,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
+import { canonicalOperatorHandleForMembers } from '$lib/operatorSentinel';
 import { answerAsk, findAskById, hasResponseRequiredAsksForHandle, type Ask } from '$lib/server/askStore';
 import { inboxRoomIdFor } from '$lib/server/humanInboxRoomStore';
 import { consumeConsentGrant } from '$lib/server/consentGrantStore';
@@ -42,9 +43,10 @@ export const POST: RequestHandler = async ({ params, request }) => {
     throw error(400, 'answeredByHandle must be a non-empty string.');
   }
   const trimmedHandle = answeredByHandleRaw.trim();
-  const handleWithAtSign = trimmedHandle.startsWith('@')
-    ? trimmedHandle
-    : `@${trimmedHandle}`;
+  const handleWithAtSign = canonicalOperatorHandleForMembers(
+    trimmedHandle.startsWith('@') ? trimmedHandle : `@${trimmedHandle}`,
+    room.members
+  );
   const isMemberOfRoom = room.members.some((member) => member.handle === handleWithAtSign);
   if (!isMemberOfRoom) {
     throw error(404, `${handleWithAtSign} is not a member of this room.`);
