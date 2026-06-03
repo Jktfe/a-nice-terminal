@@ -35,6 +35,7 @@ import Database from 'better-sqlite3';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { sweepAutoCreatedRoomPlansInDb } from './autoRoomPlanCleanup';
+import { getOperatorHandle } from './operatorHandle';
 
 type DatabaseInstance = ReturnType<typeof Database>;
 
@@ -2851,9 +2852,10 @@ export function getDbFilePath(): string {
 }
 
 function ensureOperatorMembership(db: DatabaseInstance): void {
-  // vNext cleanup: the operator is @JWPK in stored room membership data. Do
-  // not recreate the old @you sentinel on boot.
-  const operatorHandle = '@JWPK';
+  // The operator's structural handle comes from the single configurable source
+  // (getOperatorHandle → ANT_OPERATOR_HANDLE, default `@you`). On boot, ensure
+  // the operator is a member of every live room so the human can always post.
+  const operatorHandle = getOperatorHandle();
   const roomsWithoutOperator = db.prepare(`
     SELECT r.id FROM chat_rooms r
     WHERE r.deleted_at_ms IS NULL

@@ -22,6 +22,7 @@ import {
   getMigrationCompatibility,
   getBranding,
 } from '$lib/server/featureGates';
+import { getOperatorHandle } from '$lib/server/operatorHandle';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -69,6 +70,10 @@ export const GET: RequestHandler = async ({ request }) => {
     limits: getLimitsForTier(CURRENT_TIER),
     migrationCompatibility: getMigrationCompatibility(),
     branding: getBranding(),
+    // The configured structural handle of the human operator. The browser
+    // composer mints + attributes posts under this handle so the client and
+    // server agree end-to-end (no `@you` sentinel leaking into the UI).
+    operatorHandle: getOperatorHandle(),
     native: nativeClientConfig(request),
   });
 

@@ -1,6 +1,7 @@
 import { getIdentityDb } from './db';
 import type { DeckSlide, RoomDeck } from './deckStore';
 import { appendPlanEvent, type EvidenceRef } from './planModeStore';
+import { isOperatorHandle } from './operatorHandle';
 
 export type StageAlternativeDecisionAction =
   | 'replace-slide'
@@ -202,7 +203,7 @@ export function appendStageAlternativeDecision(input: {
     body: `Presenter chose ${input.action} for ${input.alternativeRef}.`,
     order: 0,
     author_handle: input.decidedBy,
-    author_kind: input.decidedBy === '@you' ? 'human' : 'agent',
+    author_kind: isOperatorHandle(input.decidedBy) ? 'human' : 'agent',
     ts_millis: nowMs,
     evidence: [{
       kind: 'stage_alternative_decision',

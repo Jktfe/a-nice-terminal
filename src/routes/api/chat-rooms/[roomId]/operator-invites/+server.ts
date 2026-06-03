@@ -24,7 +24,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { resolveBrowserSessionSecret } from '$lib/server/browserSessionStore';
-import { OPERATOR_HANDLE } from '$lib/server/allowlistGuard';
+import { getOperatorHandle, isOperatorHandle } from '$lib/server/operatorHandle';
 import {
   createInvite,
   listActiveInvitesWithUsageForRoom,
@@ -62,7 +62,7 @@ function requireOperatorBrowserSession(request: Request, roomId: string): void {
   if (!cookie) throw error(403, 'Operator browser session required.');
   const resolved = resolveBrowserSessionSecret(cookie, roomId);
   if (!resolved) throw error(403, 'Operator browser session required.');
-  if (resolved.handle !== OPERATOR_HANDLE) {
+  if (!isOperatorHandle(resolved.handle)) {
     throw error(403, 'Only the operator can manage invites.');
   }
 }
@@ -153,7 +153,7 @@ export const POST: RequestHandler = async ({ params, request, url }) => {
     label: labelRaw.trim(),
     password: passwordRaw,
     kinds,
-    createdBy: OPERATOR_HANDLE
+    createdBy: getOperatorHandle()
   });
 
   return json({ invite: withShares(summary, publicOrigin(url)) }, { status: 201 });

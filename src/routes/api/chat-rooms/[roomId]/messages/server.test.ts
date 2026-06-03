@@ -144,14 +144,25 @@ describe('GET /api/chat-rooms/:roomId/messages pagination', () => {
   });
 
   it('hides message reads from authenticated non-members', async () => {
-    const room = createChatRoom({ name: 'private-messages', whoCreatedIt: '@mark' });
-    postMessage({ roomId: room.id, authorHandle: '@JWPK', body: 'secret' });
-    removeMemberFromRoom({ roomId: room.id, globalHandle: '@JWPK' });
-    const { token } = issueToken('demo-operator-m5@example.test');
+    // @JWPK is the operator here — auto-added as a member of @mark's room, then
+    // removed to become a non-member. Pin the operator handle so that auto-add
+    // is @JWPK (default-unset would auto-add @you). Verifies a separate
+    // authenticated non-member can't read.
+    const prior = process.env.ANT_OPERATOR_HANDLE;
+    process.env.ANT_OPERATOR_HANDLE = '@JWPK';
+    try {
+      const room = createChatRoom({ name: 'private-messages', whoCreatedIt: '@mark' });
+      postMessage({ roomId: room.id, authorHandle: '@JWPK', body: 'secret' });
+      removeMemberFromRoom({ roomId: room.id, globalHandle: '@JWPK' });
+      const { token } = issueToken('demo-operator-m5@example.test');
 
-    const response = await callGet(room.id, '', { authorization: `Bearer ${token}` });
+      const response = await callGet(room.id, '', { authorization: `Bearer ${token}` });
 
-    expect(response.status).toBe(404);
+      expect(response.status).toBe(404);
+    } finally {
+      if (prior === undefined) delete process.env.ANT_OPERATOR_HANDLE;
+      else process.env.ANT_OPERATOR_HANDLE = prior;
+    }
   });
 
   it('returns the newest message page by default instead of the full room history', async () => {
@@ -832,10 +843,19 @@ describe('POST /api/chat-rooms/:roomId/messages IDENTITY-GATE-POSTS (transition 
 });
 
 describe('M3.6a-v0 T3: browser-session identity mixed mode', () => {
+  // The browser mints the `@you` sentinel; it must resolve to the configured
+  // operator handle. Pin `@JWPK` so the seeded `@JWPK` membership lines up with
+  // the minted `@you` session (default-unset would map `@you`→`@you`).
+  const priorOperatorHandle = process.env.ANT_OPERATOR_HANDLE;
   beforeEach(() => {
+    process.env.ANT_OPERATOR_HANDLE = '@JWPK';
     resetChatRoomStoreForTests();
     resetChatMessageStoreForTests();
     resetIdentityDbForTests();
+  });
+  afterEach(() => {
+    if (priorOperatorHandle === undefined) delete process.env.ANT_OPERATOR_HANDLE;
+    else process.env.ANT_OPERATOR_HANDLE = priorOperatorHandle;
   });
 
   function seedBrowserSession() {
