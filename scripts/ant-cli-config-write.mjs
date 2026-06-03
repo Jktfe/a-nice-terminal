@@ -191,9 +191,6 @@ function normaliseAntSessions(raw) {
   return {
     byPane: source.byPane && typeof source.byPane === 'object' && !Array.isArray(source.byPane)
       ? { ...source.byPane }
-      : {},
-    byName: source.byName && typeof source.byName === 'object' && !Array.isArray(source.byName)
-      ? { ...source.byName }
       : {}
   };
 }
@@ -202,23 +199,22 @@ function normaliseAntSessions(raw) {
  * Persist the durable session returned by /api/identity/register without using
  * one global value. Several live agents share ~/.ant/config.json on the same
  * machine, so a top-level ant_session_id would make every terminal claim the
- * last registered identity. Pane/name scoped bindings keep the value local to
- * the terminal that registered.
+ * last registered identity. Pane scoped bindings keep the value local to the
+ * terminal that registered; name scoped bindings are deliberately not written
+ * because terminal names are reused and stale byName entries poison identity.
  */
 export function persistAntSessionBindingToConfig(options) {
   const sessionId = normaliseSessionId(options?.sessionId);
   if (!sessionId) return { ok: false, error: 'sessionId required' };
   const pane = normalisePane(options?.pane);
-  const terminalName = normaliseTerminalName(options?.terminalName);
-  if (!pane && !terminalName) {
-    return { ok: false, error: 'pane or terminalName required' };
+  if (!pane) {
+    return { ok: false, error: 'pane required' };
   }
   const configPath = configFilePath(options?.homeDir);
   try {
     const config = readExistingConfig(configPath);
     const antSessions = normaliseAntSessions(config.antSessions);
     if (pane) antSessions.byPane[pane] = sessionId;
-    if (terminalName) antSessions.byName[terminalName] = sessionId;
     const nextConfig = { ...config, antSessions };
     writeAtomic(configPath, JSON.stringify(nextConfig, null, 2));
     return { ok: true, path: configPath };
@@ -239,11 +235,6 @@ export function readAntSessionBindingFromConfig(options = {}) {
   if (pane) {
     const byPane = normaliseSessionId(antSessions.byPane[pane]);
     if (byPane) return byPane;
-  }
-  const terminalName = normaliseTerminalName(options.terminalName);
-  if (terminalName) {
-    const byName = normaliseSessionId(antSessions.byName[terminalName]);
-    if (byName) return byName;
   }
   return null;
 }

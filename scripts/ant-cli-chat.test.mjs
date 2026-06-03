@@ -217,6 +217,19 @@ describe('ant chat state wrappers', () => {
     expect(bodyAt(captured)).toMatchObject({ sessionId: 'sess-pane-a' });
   });
 
+  it('S1d: send ignores stale terminal-name durable sessions', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ message: { id: 'msg-no-stale-name', authorHandle: '@pidchain' } }, 201));
+    runtime.terminalName = 'reused-name';
+    runtime.config = {
+      antSessions: { byName: { 'reused-name': 'stale-session-token' } }
+    };
+
+    await handleChatVerb('send', ['room-a', '--msg', 'no stale name token'], runtime, { CliInputError });
+
+    expect(captured.requests[0].init.headers['x-ant-session-id']).toBeUndefined();
+    expect(bodyAt(captured).sessionId).toBeUndefined();
+  });
+
   it('S2: reply derives the target room from the parent message id', async () => {
     const { runtime, captured } = makeRuntime((callIndex, { url }) => {
       const parsed = new URL(url);

@@ -223,7 +223,7 @@ describe('readRoomTokenEntry', () => {
 });
 
 describe('persistAntSessionBindingToConfig', () => {
-  it('persists durable sessions by pane and terminal name, not as one shared global id', () => {
+  it('persists durable sessions by pane only, not as one shared global id or stale name binding', () => {
     const result = persistAntSessionBindingToConfig({
       sessionId: 'sess-terminal-a',
       pane: '%a',
@@ -233,7 +233,7 @@ describe('persistAntSessionBindingToConfig', () => {
     expect(result.ok).toBe(true);
     const raw = JSON.parse(readFileSync(join(scratchHome, '.ant', 'config.json'), 'utf8'));
     expect(raw.antSessions.byPane['%a']).toBe('sess-terminal-a');
-    expect(raw.antSessions.byName['terminal-a']).toBe('sess-terminal-a');
+    expect(raw.antSessions.byName).toBeUndefined();
     expect(raw.ant_session_id).toBeUndefined();
     expect(raw.sessionId).toBeUndefined();
   });
@@ -252,9 +252,10 @@ describe('persistAntSessionBindingToConfig', () => {
     expect(raw.tokens.r_keep.token).toBe('tok_keep');
     expect(raw.serverUrl).toBe('https://server.example');
     expect(raw.antSessions.byPane['%b']).toBe('sess-b');
+    expect(raw.antSessions.byName).toBeUndefined();
   });
 
-  it('reads pane first, then terminal name', () => {
+  it('reads pane only and ignores stale terminal-name bindings', () => {
     seedExistingConfig({
       antSessions: {
         byPane: { '%pane': 'sess-pane' },
@@ -262,10 +263,10 @@ describe('persistAntSessionBindingToConfig', () => {
       }
     });
     expect(readAntSessionBindingFromConfig({ pane: '%pane', terminalName: 'named', homeDir: scratchHome })).toBe('sess-pane');
-    expect(readAntSessionBindingFromConfig({ terminalName: 'named', homeDir: scratchHome })).toBe('sess-name');
+    expect(readAntSessionBindingFromConfig({ terminalName: 'named', homeDir: scratchHome })).toBeNull();
   });
 
-  it('rejects missing session id or missing terminal scope', () => {
+  it('rejects missing session id or missing pane scope', () => {
     expect(persistAntSessionBindingToConfig({ sessionId: '', pane: '%x', homeDir: scratchHome }).ok).toBe(false);
     expect(persistAntSessionBindingToConfig({ sessionId: 'sess-x', homeDir: scratchHome }).ok).toBe(false);
   });

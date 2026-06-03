@@ -29,11 +29,10 @@ import {
 } from '$lib/server/messageReadReceiptStore';
 import { createSession } from '$lib/server/antSessionStore';
 import {
-  createRoomHandleLease,
-  findRoomHandleOwnerAtTime
-} from '$lib/server/roomHandleLeaseStore';
+  claimHandle,
+  resolveMember
+} from '$lib/server/roomHandleLeaseClean';
 import { setRoomPolicy } from '$lib/server/roomPolicyStore';
-import { resolveCurrentOwner } from '$lib/server/roomIdentityResolver';
 
 type CallOptions = { roomId: string; body?: string; cookie?: string; headers?: Record<string, string> };
 
@@ -634,7 +633,7 @@ describe('POST /api/chat-rooms/:roomId/messages IDENTITY-GATE-POSTS (transition 
     expect(response.status).toBe(201);
     const payload = await response.json();
     expect(payload.message.authorHandle).toBe('@macxeno');
-    expect(resolveCurrentOwner(room.id, '@macxeno')?.session.id).toBe(session.id);
+    expect(resolveMember(room.id, '@macxeno')).toBe(session.id);
   });
 
   it('durable session posting to an open room receives the next free handle when preferred is taken', async () => {
@@ -653,12 +652,7 @@ describe('POST /api/chat-rooms/:roomId/messages IDENTITY-GATE-POSTS (transition 
       label: 'new-macxeno',
       terminalId: joiningTerminal.id
     });
-    createRoomHandleLease({
-      roomId: room.id,
-      sessionId: existing.id,
-      handle: '@macxeno',
-      createdFrom: 'test-existing'
-    });
+    claimHandle(room.id, '@macxeno', existing.id);
 
     const response = await callPost({
       roomId: room.id,
@@ -672,9 +666,8 @@ describe('POST /api/chat-rooms/:roomId/messages IDENTITY-GATE-POSTS (transition 
 
     expect(response.status).toBe(201);
     const payload = await response.json();
-    expect(payload.message.authorHandle).toBe('@macxeno2');
-    expect(resolveCurrentOwner(room.id, '@macxeno')?.session.id).toBe(existing.id);
-    expect(resolveCurrentOwner(room.id, '@macxeno2')?.session.id).toBe(joining.id);
+    expect(payload.message.authorHandle).toBe('@macxeno-1');
+    expect(resolveMember(room.id, '@macxeno')).toBe(existing.id);
   });
 
   it('durable session posting to a non-open room without a lease is rejected', async () => {
@@ -696,11 +689,7 @@ describe('POST /api/chat-rooms/:roomId/messages IDENTITY-GATE-POSTS (transition 
 
     expect(response.status).toBe(403);
     expect(listMessagesInRoom(room.id)).toHaveLength(0);
-    expect(findRoomHandleOwnerAtTime({
-      roomId: room.id,
-      handle: '@blocked-agent',
-      atMs: Date.now()
-    })).toBeNull();
+    expect(resolveMember(room.id, '@blocked-agent')).toBeNull();
   });
 
   it('durable session with an existing lease posts without minting a suffix', async () => {
@@ -709,12 +698,7 @@ describe('POST /api/chat-rooms/:roomId/messages IDENTITY-GATE-POSTS (transition 
     // co-location (half 2): session bound to terminal + matching pidChain.
     const terminal = upsertTerminal({ pid: 14_003, pid_start: 'durable-bind-c', name: 'member-agent-pane' });
     const session = createSession({ kind: 'local-cli', label: 'member-agent', terminalId: terminal.id });
-    createRoomHandleLease({
-      roomId: room.id,
-      sessionId: session.id,
-      handle: '@member-agent',
-      createdFrom: 'test-existing-member'
-    });
+    claimHandle(room.id, '@member-agent', session.id);
 
     const response = await callPost({
       roomId: room.id,
@@ -729,84 +713,72 @@ describe('POST /api/chat-rooms/:roomId/messages IDENTITY-GATE-POSTS (transition 
     expect(response.status).toBe(201);
     const payload = await response.json();
     expect(payload.message.authorHandle).toBe('@member-agent');
-    expect(resolveCurrentOwner(room.id, '@member-agent')?.session.id).toBe(session.id);
+    expect(resolveMember(room.id, '@member-agent')).toBe(session.id);
   });
 
-  // SECURITY half 2: a session id is not a bearer credential — the caller must
-  // also prove local terminal co-location via a matching pidChain. Fail-closed.
-  it('SECURITY half 2: durable session id with a MISMATCHED pidChain (different terminal) is rejected', async () => {
-    const room = createChatRoom({ name: 'durable-half2-mismatch', whoCreatedIt: '@you' });
+  it('clean token model: durable secret posts even when pidChain points at a different terminal', async () => {
+    const room = createChatRoom({ name: 'durable-secret-mismatch-ignored', whoCreatedIt: '@you' });
     setRoomPolicy(room.id, { joinPolicy: 'open', readPolicy: 'open' });
     const ownerTerminal = upsertTerminal({ pid: 15_001, pid_start: 'half2-owner', name: 'owner-pane' });
-    const session = createSession({ kind: 'local-cli', label: 'victim', terminalId: ownerTerminal.id });
-    // An attacker who learned the session id posts from a DIFFERENT terminal.
+    const session = createSession({ kind: 'local-cli', label: '@victim', terminalId: ownerTerminal.id });
     const attackerTerminal = upsertTerminal({ pid: 15_002, pid_start: 'half2-attacker', name: 'attacker-pane' });
 
     const response = await callPost({
       roomId: room.id,
       body: JSON.stringify({
-        body: 'stolen session id, wrong terminal',
+        body: 'secret token wins; pidChain is not identity',
         authorHandle: '@victim',
         sessionId: session.id,
         pidChain: [{ pid: 15_002, pid_start: 'half2-attacker' }]
       })
     });
 
-    expect(response.status).toBe(403);
-    expect(listMessagesInRoom(room.id)).toHaveLength(0);
-    expect(
-      findRoomHandleOwnerAtTime({ roomId: room.id, handle: '@victim', atMs: Date.now() })
-    ).toBeNull();
-    // sanity: attacker terminal exists but never minted a lease
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload.message.authorHandle).toBe('@victim');
     expect(attackerTerminal.id).not.toBe(ownerTerminal.id);
   });
 
-  it('SECURITY half 2: durable session id with NO pidChain in the body is rejected', async () => {
-    const room = createChatRoom({ name: 'durable-half2-no-pidchain', whoCreatedIt: '@you' });
+  it('clean token model: durable secret with NO pidChain can post', async () => {
+    const room = createChatRoom({ name: 'durable-secret-no-pidchain', whoCreatedIt: '@you' });
     setRoomPolicy(room.id, { joinPolicy: 'open', readPolicy: 'open' });
     const terminal = upsertTerminal({ pid: 15_003, pid_start: 'half2-nopid', name: 'nopid-pane' });
-    const session = createSession({ kind: 'local-cli', label: 'nopid-agent', terminalId: terminal.id });
+    const session = createSession({ kind: 'local-cli', label: '@nopid-agent', terminalId: terminal.id });
 
     const response = await callPost({
       roomId: room.id,
       body: JSON.stringify({
-        body: 'session id alone, no local proof',
+        body: 'secret token only',
         authorHandle: '@nopid-agent',
         sessionId: session.id
       })
     });
 
-    expect(response.status).toBe(403);
-    expect(listMessagesInRoom(room.id)).toHaveLength(0);
-    expect(
-      findRoomHandleOwnerAtTime({ roomId: room.id, handle: '@nopid-agent', atMs: Date.now() })
-    ).toBeNull();
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload.message.authorHandle).toBe('@nopid-agent');
+    expect(terminal.id).toBeTruthy();
   });
 
-  it('SECURITY half 2: durable session whose terminal_id is null is rejected (fail-closed)', async () => {
-    const room = createChatRoom({ name: 'durable-half2-unbound', whoCreatedIt: '@you' });
+  it('clean token model: durable secret does not require terminal_id binding', async () => {
+    const room = createChatRoom({ name: 'durable-secret-unbound', whoCreatedIt: '@you' });
     setRoomPolicy(room.id, { joinPolicy: 'open', readPolicy: 'open' });
-    // Session created WITHOUT a terminal binding (terminal_id stays null).
-    const session = createSession({ kind: 'local-cli', label: 'unbound-agent' });
-    // Even a valid pidChain that resolves to a real terminal cannot rescue an
-    // unbound session — there is nothing to match against, so we fail closed.
+    const session = createSession({ kind: 'local-cli', label: '@unbound-agent' });
     const terminal = upsertTerminal({ pid: 15_004, pid_start: 'half2-unbound', name: 'unbound-pane' });
 
     const response = await callPost({
       roomId: room.id,
       body: JSON.stringify({
-        body: 'unbound session should not post',
+        body: 'unbound secret token should post',
         authorHandle: '@unbound-agent',
         sessionId: session.id,
         pidChain: [{ pid: 15_004, pid_start: 'half2-unbound' }]
       })
     });
 
-    expect(response.status).toBe(403);
-    expect(listMessagesInRoom(room.id)).toHaveLength(0);
-    expect(
-      findRoomHandleOwnerAtTime({ roomId: room.id, handle: '@unbound-agent', atMs: Date.now() })
-    ).toBeNull();
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload.message.authorHandle).toBe('@unbound-agent');
     expect(terminal.id).toBeTruthy();
   });
 

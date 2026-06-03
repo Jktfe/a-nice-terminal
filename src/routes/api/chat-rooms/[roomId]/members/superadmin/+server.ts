@@ -46,6 +46,34 @@ function normaliseHandle(raw: string): string {
   return `@${withoutAt}`;
 }
 
+function targetSessionForHandle(handle: string): { id: string } | undefined {
+  const db = getIdentityDb();
+  // Ensure the ant_sessions table exists (the admin-bearer path skips the
+  // session resolver, so the table may not have been touched yet).
+  getSession('__ensure_table__', db);
+  const byCleanLabel = db
+    .prepare(
+      `SELECT id FROM ant_sessions WHERE label = ? ORDER BY created_at_ms DESC, id DESC LIMIT 1`
+    )
+    .get(handle) as { id: string } | undefined;
+  if (byCleanLabel) return byCleanLabel;
+
+  // Transition bridge: current live agents may still be known by
+  // terminal_records.handle while their ant_sessions label is a terminal name.
+  // Resolve that server-side so the SuperAdmin command stays handle-shaped.
+  return db
+    .prepare(
+      `SELECT s.id
+         FROM terminal_records tr
+         JOIN ant_sessions s ON s.terminal_id = tr.session_id
+        WHERE tr.handle = ?
+          AND tr.superseded_at_ms IS NULL
+        ORDER BY s.last_seen_at_ms DESC, tr.updated_at_ms DESC, s.id DESC
+        LIMIT 1`
+    )
+    .get(handle) as { id: string } | undefined;
+}
+
 /** Pull a usable `handle` from the parsed body, or null. */
 function handleFromBody(rawBody: unknown): string | null {
   if (!rawBody || typeof rawBody !== 'object') return null;
@@ -138,18 +166,11 @@ export const POST: RequestHandler = async ({ params, request }) => {
   }
   const handle = normaliseHandle(rawHandle);
 
-  // Resolve the TARGET: the most-recent durable ant_sessions row whose label
-  // matches the normalised @handle. No placeholder session is invented — if
-  // the target has never connected, fail with a clear 409.
+  // Resolve the TARGET: most-recent durable session for this handle. The clean
+  // path is ant_sessions.label; the terminal_records bridge keeps already-live
+  // agents addable during the cutover without exposing terminal ids to the CLI.
   const db = getIdentityDb();
-  // Ensure the ant_sessions table exists (the admin-bearer path skips the
-  // session resolver, so the table may not have been touched yet).
-  getSession('__ensure_table__', db);
-  const targetSession = db
-    .prepare(
-      `SELECT id FROM ant_sessions WHERE label = ? ORDER BY created_at_ms DESC, id DESC LIMIT 1`
-    )
-    .get(handle) as { id: string } | undefined;
+  const targetSession = targetSessionForHandle(handle);
   if (!targetSession) {
     // FOLLOW-UP: once a handle can be pre-provisioned without a live runtime,
     // this 409 becomes an add-then-bind flow. For now a handle must have a

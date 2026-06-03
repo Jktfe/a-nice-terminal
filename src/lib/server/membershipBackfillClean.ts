@@ -22,6 +22,7 @@
 
 import { getIdentityDb } from './db';
 import { addMember } from './membershipStore';
+import { claimHandle } from './roomHandleLeaseClean';
 
 export type BackfillReport = {
   /** Active legacy rows examined. */
@@ -51,8 +52,9 @@ function tableExists(db: ReturnType<typeof getIdentityDb>, table: string): boole
 }
 
 /**
- * Backfill clean `room_membership` from legacy `room_memberships`.
- * Returns a lossless count report. Safe to call repeatedly (idempotent upsert).
+ * Backfill clean `room_membership` and `room_handle_lease` from legacy
+ * `room_memberships`. Returns a lossless count report. Safe to call repeatedly
+ * (idempotent upsert / claim).
  */
 export function backfillFromLegacy(db = getIdentityDb()): BackfillReport {
   // No legacy table => nothing to do (fresh install / test DB).
@@ -96,6 +98,9 @@ export function backfillFromLegacy(db = getIdentityDb()): BackfillReport {
     }
     const sessionId = resolveSession(r.terminal_id);
     addMember(r.room_id, r.handle, sessionId, db);
+    if (sessionId) {
+      claimHandle(r.room_id, r.handle, sessionId, db);
+    }
     inserted++;
   }
 
