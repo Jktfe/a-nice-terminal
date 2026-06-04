@@ -34,7 +34,8 @@ import {
   evaluateTokenTerminalBinding,
   tokenBindingAction,
   tokenTerminalBindingMode,
-  sessionFingerprint
+  sessionFingerprint,
+  terminalFp
 } from '$lib/server/tokenTerminalBinding';
 import { resolveBrowserSessionSecret, touchBrowserSessionLastSeen, createBrowserSession } from '$lib/server/browserSessionStore';
 import { upsertTerminal } from '$lib/server/terminalsStore';
@@ -589,14 +590,17 @@ function resolveAntSessionAuthor(
   const bindingAction = tokenBindingAction(binding);
   if (bindingAction !== 'allow') {
     // eslint-disable-next-line no-console -- observability for the flag-phase rollout
-    // NEVER log session.id — it IS the secret credential. Log a non-reversible
-    // fingerprint + the (discoverable, non-secret) terminal ids instead.
+    // CREDENTIAL HYGIENE: NEVER log a raw id that could equal the secret token.
+    // session.id IS the token; and a legacy session where id==terminal_id makes
+    // the terminal id the token too. So EVERY id-bearing field is a fingerprint
+    // (*_fp); the diagnostic signal comes from the structured non-secret fields
+    // (kind / hadPidChain). No raw token can appear via any field.
     console.warn(
       `[token-binding:${tokenTerminalBindingMode()}] room=${roomId} ` +
         `session_fp=${sessionFingerprint(session.id)} ` +
-        `session_terminal=${session.terminal_id ?? 'none'} ` +
-        `caller_terminal=${callerTerminal?.id ?? 'none'} ` +
-        `kind=${binding.kind} (${binding.violation})`
+        `session_terminal_fp=${terminalFp(session.terminal_id)} ` +
+        `caller_terminal_fp=${terminalFp(callerTerminal?.id ?? null)} ` +
+        `kind=${binding.kind} hadPidChain=${bindingPidChain.length > 0}`
     );
     if (bindingAction === 'reject') {
       rejectMessageIdentity(roomId, 'ANT session token presented from a terminal it is not bound to.');

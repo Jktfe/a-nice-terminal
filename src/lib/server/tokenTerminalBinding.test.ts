@@ -3,7 +3,8 @@ import {
   evaluateTokenTerminalBinding,
   tokenTerminalBindingMode,
   tokenBindingAction,
-  sessionFingerprint
+  sessionFingerprint,
+  terminalFp
 } from './tokenTerminalBinding';
 
 const prev = process.env.ANT_TOKEN_TERMINAL_BINDING;
@@ -26,6 +27,24 @@ describe('sessionFingerprint (credential hygiene)', () => {
   });
   it('different tokens → different fingerprints', () => {
     expect(sessionFingerprint('aaa')).not.toBe(sessionFingerprint('bbb'));
+  });
+});
+
+describe('terminalFp (never log a raw terminal id — it may equal the token)', () => {
+  it("'none' for null/undefined", () => {
+    expect(terminalFp(null)).toBe('none');
+    expect(terminalFp(undefined)).toBe('none');
+  });
+  it('fingerprints a normal terminal id (never raw)', () => {
+    const id = 't_abc123';
+    expect(terminalFp(id)).toBe(sessionFingerprint(id));
+    expect(terminalFp(id)).not.toContain(id);
+  });
+  it('fingerprints a legacy id==token terminal id so the token never appears raw', () => {
+    const tokenAsTerminal = 'e8afd5da-f445-4f4f-8d1d-36d1f9e2f32a'; // legacy id==terminal_id
+    const fp = terminalFp(tokenAsTerminal);
+    expect(fp).toBe(sessionFingerprint(tokenAsTerminal));
+    expect(fp).not.toContain(tokenAsTerminal);
   });
 });
 

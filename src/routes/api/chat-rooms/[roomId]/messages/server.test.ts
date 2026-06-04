@@ -1378,4 +1378,35 @@ describe('POST /api/chat-rooms/:roomId/messages — R2 token→terminal binding'
       warnSpy.mockRestore();
     }
   });
+
+  it('CREDENTIAL HYGIENE: legacy id==terminal_id — the token never leaks via session_terminal either', async () => {
+    process.env.ANT_TOKEN_TERMINAL_BINDING = 'flag';
+    const room = createChatRoom({ name: 'r2-legacy-conflate', whoCreatedIt: '@you' });
+    setRoomPolicy(room.id, { joinPolicy: 'open', readPolicy: 'open' });
+    // The shape the original no-leak test STRUCTURALLY couldn't hit: a legacy
+    // hand-aligned session where ant_sessions.id == terminal_id, so the
+    // "terminal id" IS the token. createSession mints a random id, so force the
+    // equality via the DB.
+    const terminal = upsertTerminal({ pid: 15_050, pid_start: 'r2-legacy', name: 'r2-legacy-pane' });
+    const session = createSession({ kind: 'local-cli', label: 'r2legacy', terminalId: terminal.id });
+    const { getIdentityDb } = await import('$lib/server/db');
+    getIdentityDb().prepare(`UPDATE ant_sessions SET terminal_id = id WHERE id = ?`).run(session.id);
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const response = await callPost({
+        roomId: room.id,
+        body: JSON.stringify({ body: 'legacy conflate post', authorHandle: '@r2legacy', sessionId: session.id })
+        // no pidChain → flagged violation → the log line is emitted
+      });
+      expect(response.status).toBe(201);
+      const logged = warnSpy.mock.calls.map((c) => c.join(' ')).join('\n');
+      expect(logged).toContain('session_terminal_fp=');
+      // the token == id == terminal_id must NOT appear raw via ANY field
+      expect(logged).not.toContain(session.id);
+      expect(logged).toContain(sessionFingerprint(session.id));
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
 });

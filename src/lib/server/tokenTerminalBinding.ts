@@ -39,6 +39,18 @@ export function sessionFingerprint(token: string): string {
   return createHash('sha256').update(token).digest('hex').slice(0, 8);
 }
 
+/**
+ * Fingerprint a terminal id for a log line, or 'none'. Terminal ids are
+ * normally discoverable, BUT a LEGACY session where `ant_sessions.id ==
+ * terminal_id` means the "terminal id" IS the secret token — and rather than
+ * special-case that, we NEVER log a raw terminal id: every id-bearing field in
+ * the binding log is a fingerprint (`*_fp`). Structured non-secret fields
+ * (mode/kind/roomId/hadPidChain) carry the diagnostic signal instead.
+ */
+export function terminalFp(terminalId: string | null | undefined): string {
+  return terminalId ? sessionFingerprint(terminalId) : 'none';
+}
+
 /** Read the rollout mode from env. Unknown/unset → the safe default `flag`. */
 export function tokenTerminalBindingMode(): TokenBindingMode {
   const raw = (process.env.ANT_TOKEN_TERMINAL_BINDING ?? 'flag').trim().toLowerCase();
