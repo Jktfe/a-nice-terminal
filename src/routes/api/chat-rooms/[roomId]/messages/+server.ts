@@ -30,6 +30,12 @@ import { getRoomMode } from '$lib/server/roomModesStore';
 import { getTerminalIdByHandle, addMembership } from '$lib/server/roomMembershipsStore';
 import { mirrorAddMembership } from '$lib/server/v02ChatRoomBridge';
 import { lookupTerminalByPidChain, touchLastMessageSentAt } from '$lib/server/terminalsStore';
+import {
+  evaluateTokenTerminalBinding,
+  tokenBindingAction,
+  tokenTerminalBindingMode,
+  sessionFingerprint
+} from '$lib/server/tokenTerminalBinding';
 import { resolveBrowserSessionSecret, touchBrowserSessionLastSeen, createBrowserSession } from '$lib/server/browserSessionStore';
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
@@ -562,6 +568,39 @@ function resolveAntSessionAuthor(
   const session = resolveOrNull(sessionId);
   if (!session) {
     rejectMessageIdentity(roomId, 'ANT session id does not resolve.');
+  }
+
+  // R2 (token→terminal binding, 2026-06-04): the sessionToken is a BEARER
+  // credential — verify the caller is actually on the terminal it was minted
+  // for, so a token lifted from config.json can't post from a foreign process.
+  // A pidChain resolving to a DIFFERENT terminal than the session's anchor is
+  // active cross-terminal theft. Staged via ANT_TOKEN_TERMINAL_BINDING
+  // (off|flag|strict, default flag): flag LOGS-not-rejects (lockout-safe — never
+  // mutes a fleet whose CLI may not yet send a resolving pidChain); strict
+  // rejects ONLY the wrong-terminal case. Token-only / no-pidChain stays allowed
+  // until R3 makes a resolving pidChain mandatory. See tokenTerminalBinding.ts.
+  const bindingPidChain = parsePidChainFromBody(rawBody);
+  const callerTerminal = lookupTerminalByPidChain(bindingPidChain);
+  const binding = evaluateTokenTerminalBinding(
+    session.terminal_id,
+    callerTerminal?.id ?? null,
+    bindingPidChain.length > 0
+  );
+  const bindingAction = tokenBindingAction(binding);
+  if (bindingAction !== 'allow') {
+    // eslint-disable-next-line no-console -- observability for the flag-phase rollout
+    // NEVER log session.id — it IS the secret credential. Log a non-reversible
+    // fingerprint + the (discoverable, non-secret) terminal ids instead.
+    console.warn(
+      `[token-binding:${tokenTerminalBindingMode()}] room=${roomId} ` +
+        `session_fp=${sessionFingerprint(session.id)} ` +
+        `session_terminal=${session.terminal_id ?? 'none'} ` +
+        `caller_terminal=${callerTerminal?.id ?? 'none'} ` +
+        `kind=${binding.kind} (${binding.violation})`
+    );
+    if (bindingAction === 'reject') {
+      rejectMessageIdentity(roomId, 'ANT session token presented from a terminal it is not bound to.');
+    }
   }
 
   // CLEAN MODEL: membership + handle resolution via roomHandleLeaseClean

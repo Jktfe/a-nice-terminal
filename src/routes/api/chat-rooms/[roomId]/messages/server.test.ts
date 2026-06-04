@@ -28,6 +28,7 @@ import {
   resetMessageReadReceiptStoreForTests
 } from '$lib/server/messageReadReceiptStore';
 import { createSession } from '$lib/server/antSessionStore';
+import { sessionFingerprint } from '$lib/server/tokenTerminalBinding';
 import {
   claimHandle,
   resolveMember
@@ -1261,5 +1262,120 @@ describe('plan_consent_gate_2026_05_20 T6: post-gate + grant_id audit', () => {
       .prepare(`SELECT consumed_grant_id FROM chat_messages WHERE id = ?`)
       .get(payload.message.id) as { consumed_grant_id: string | null };
     expect(row.consumed_grant_id).toBeNull();
+  });
+});
+
+// R2 (token→terminal binding, 2026-06-04): the sessionToken stops being a pure
+// bearer credential. Staged via ANT_TOKEN_TERMINAL_BINDING (off|flag|strict,
+// default flag). flag logs-not-rejects (lockout-safe); strict rejects ONLY the
+// active cross-terminal theft case; token-only/no-pidChain stays allowed at R2
+// (tightens in R3). See tokenTerminalBinding.ts.
+describe('POST /api/chat-rooms/:roomId/messages — R2 token→terminal binding', () => {
+  const prevBindMode = process.env.ANT_TOKEN_TERMINAL_BINDING;
+  afterEach(() => {
+    if (prevBindMode === undefined) delete process.env.ANT_TOKEN_TERMINAL_BINDING;
+    else process.env.ANT_TOKEN_TERMINAL_BINDING = prevBindMode;
+  });
+
+  function seedOwner(roomName: string, pid: number, pidStart: string, handle: string) {
+    const room = createChatRoom({ name: roomName, whoCreatedIt: '@you' });
+    setRoomPolicy(room.id, { joinPolicy: 'open', readPolicy: 'open' });
+    const terminal = upsertTerminal({ pid, pid_start: pidStart, name: `${handle}-pane` });
+    const session = createSession({
+      kind: 'local-cli',
+      label: handle.replace(/^@/, ''),
+      terminalId: terminal.id
+    });
+    return { room, session };
+  }
+
+  it('STRICT: stolen token presented from a DIFFERENT terminal is rejected (negative test)', async () => {
+    process.env.ANT_TOKEN_TERMINAL_BINDING = 'strict';
+    const { room, session } = seedOwner('r2-strict-theft', 15_001, 'r2-owner', '@r2owner');
+    upsertTerminal({ pid: 15_002, pid_start: 'r2-thief', name: 'r2-thief-pane' }); // the thief's real terminal
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({
+        body: 'stolen-token post',
+        authorHandle: '@r2owner',
+        sessionId: session.id,
+        pidChain: [{ pid: 15_002, pid_start: 'r2-thief' }] // WRONG terminal
+      })
+    });
+    expect(response.status).toBe(403);
+    expect(JSON.stringify(await response.json())).toMatch(/not bound|bound to/i);
+  });
+
+  it('STRICT: same token from its OWN terminal still posts (legit caller unaffected)', async () => {
+    process.env.ANT_TOKEN_TERMINAL_BINDING = 'strict';
+    const { room, session } = seedOwner('r2-strict-ok', 15_010, 'r2-ok', '@r2ok');
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({
+        body: 'legit post',
+        authorHandle: '@r2ok',
+        sessionId: session.id,
+        pidChain: [{ pid: 15_010, pid_start: 'r2-ok' }] // MATCHING terminal
+      })
+    });
+    expect(response.status).toBe(201);
+  });
+
+  it('STRICT: token-only (no pidChain) still posts at R2 — no inverted lockout (tightens in R3)', async () => {
+    process.env.ANT_TOKEN_TERMINAL_BINDING = 'strict';
+    const { room, session } = seedOwner('r2-strict-tokenonly', 15_020, 'r2-to', '@r2to');
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({
+        body: 'token-only post',
+        authorHandle: '@r2to',
+        sessionId: session.id // NO pidChain
+      })
+    });
+    expect(response.status).toBe(201);
+  });
+
+  it('FLAG (default): a wrong-terminal token is logged but still posts — lockout-safe deploy', async () => {
+    process.env.ANT_TOKEN_TERMINAL_BINDING = 'flag';
+    const { room, session } = seedOwner('r2-flag-theft', 15_030, 'r2-fowner', '@r2fowner');
+    upsertTerminal({ pid: 15_031, pid_start: 'r2-fthief', name: 'r2-fthief-pane' });
+    const response = await callPost({
+      roomId: room.id,
+      body: JSON.stringify({
+        body: 'flag-mode wrong-terminal',
+        authorHandle: '@r2fowner',
+        sessionId: session.id,
+        pidChain: [{ pid: 15_031, pid_start: 'r2-fthief' }]
+      })
+    });
+    expect(response.status).toBe(201); // logged, not rejected
+  });
+
+  it('CREDENTIAL HYGIENE: the violation log NEVER contains the raw sessionToken', async () => {
+    process.env.ANT_TOKEN_TERMINAL_BINDING = 'flag';
+    const { room, session } = seedOwner('r2-log-hygiene', 15_040, 'r2-log', '@r2log');
+    upsertTerminal({ pid: 15_041, pid_start: 'r2-logthief', name: 'r2-logthief-pane' });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const response = await callPost({
+        roomId: room.id,
+        body: JSON.stringify({
+          body: 'trigger a flagged violation',
+          authorHandle: '@r2log',
+          sessionId: session.id,
+          pidChain: [{ pid: 15_041, pid_start: 'r2-logthief' }]
+        })
+      });
+      expect(response.status).toBe(201);
+      // It must have logged the violation …
+      const logged = warnSpy.mock.calls.map((c) => c.join(' ')).join('\n');
+      expect(logged).toContain('[token-binding:');
+      expect(logged).toContain('session_fp=');
+      // … but NEVER the secret token itself.
+      expect(logged).not.toContain(session.id);
+      expect(logged).toContain(sessionFingerprint(session.id));
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });
