@@ -132,3 +132,16 @@ export function isMember(roomId: string, handle: string, db = getIdentityDb()): 
     .get(roomId, handle) as { 1: number } | undefined;
   return row !== undefined;
 }
+
+/**
+ * Every room this handle already belongs to. Used by register's Part 2 lease
+ * self-heal to re-key the clean (gate-read) lease to the real token for the
+ * agent's EXISTING memberships only — never to auto-join new rooms.
+ */
+export function listRoomsForHandle(handle: string, db = getIdentityDb()): string[] {
+  ensureTable(db);
+  const rows = db
+    .prepare(`SELECT DISTINCT room_id FROM room_membership WHERE handle = ?`)
+    .all(handle) as Array<{ room_id: string }>;
+  return rows.map((r) => r.room_id);
+}

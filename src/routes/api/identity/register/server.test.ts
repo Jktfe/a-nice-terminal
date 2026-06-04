@@ -23,6 +23,12 @@ import {
 } from '$lib/server/terminalRecordsStore';
 import * as v02Agents from '$lib/server/v02AgentsStore';
 import * as v02Runtimes from '$lib/server/v02RuntimesStore';
+import { addMember } from '$lib/server/membershipStore';
+import {
+  claimHandle as claimCleanHandle,
+  resolveMember as resolveCleanMember,
+  isMember as isCleanMember
+} from '$lib/server/roomHandleLeaseClean';
 
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
@@ -499,15 +505,13 @@ describe('POST /api/identity/register', () => {
       expect(oldRecord?.superseded_at_ms).not.toBeNull();
     });
 
-    it('rejects with 409 when old terminal heartbeat is fresh (sec-iter1 Fix #2)', async () => {
-      // Pre sec-iter1: register returned 201 but did NOT move memberships
-      // — the new terminal silently shared the handle with the fresh
-      // owner, which is exactly the privilege-escalation surface Fix #2
-      // closes. Post sec-iter1: when the existing claimant is still
-      // ALIVE (fresh heartbeat) and is not the v0.2 reclaim caller, the
-      // new register attempt is rejected with 409 + recovery hint. The
-      // auto-rebind path still works when the prior owner is stale (see
-      // the previous test).
+    it('Option A: suffixes (not steals) when old terminal heartbeat is fresh — no-hijack preserved (2026-06-04)', async () => {
+      // Pre sec-iter1: register returned 201 but SHARED the handle with the
+      // fresh owner (privilege-escalation surface). sec-iter1 closed that with
+      // a 409. Option A (2026-06-04) keeps the no-hijack guarantee WITHOUT the
+      // mute: a live incumbent keeps clean @alivec + all its memberships; the
+      // new caller is suffixed to @alivec-1 and still gets a token. The
+      // auto-rebind path still reclaims clean when the prior owner is stale.
       const thirtySecondsAgo = Date.now() - 30 * 1000;
       const { oldTerminalId, roomIds } = seedOldTerminalForHandle({
         handle: '@alivec',
@@ -520,9 +524,12 @@ describe('POST /api/identity/register', () => {
         pids: [{ pid: 4444, pid_start: 'pst-new' }],
         handle: '@alivec'
       }));
-      expect(response.status).toBe(409);
-      // Memberships still bound to the original owner (no side effects
-      // from the rejected request).
+      // Not mute: 201 + token, but the caller is SUFFIXED, not granted @alivec.
+      expect(response.status).toBe(201);
+      const body = await response.json();
+      expect(typeof body.session_id).toBe('string');
+      expect(getSession(body.session_id)?.label).toBe('@alivec-1');
+      // NO-HIJACK: memberships still bound to the original live owner.
       for (const roomId of roomIds) {
         const rows = listMembershipsForRoom(roomId);
         const alivec = rows.find((r) => r.handle === '@alivec');
@@ -802,9 +809,12 @@ describe('POST /api/identity/register', () => {
       expect(response.status).toBe(201);
     });
 
-    it('rejects with 409 when handle is already claimed by a different LIVE terminal', async () => {
-      // Set up an existing terminal that owns the handle with a FRESH
-      // heartbeat so the auto-rebind exemption does NOT apply.
+    it('Option A: live-handle collision -> 201 + suffixed @x-N, clean @x untouched (supersedes the old 409, 2026-06-04)', async () => {
+      // Pre-2026-06-04 this path threw 409 — but it rejected BEFORE the session
+      // token + lease were minted, so the caller walked away TOKENLESS = mute
+      // (the bug hand-repaired five times). Option A keeps the live incumbent's
+      // clean handle and grants the new caller the lowest-free @x-N suffix PLUS
+      // a real token, so it can post under a distinct, visible identity.
       const setup = upsertTerminal({
         pid: 7001,
         pid_start: 'pst-fresh',
@@ -821,17 +831,30 @@ describe('POST /api/identity/register', () => {
         `UPDATE terminals SET last_message_sent_at_ms = ?, last_pty_byte_at_ms = ? WHERE id = ?`
       ).run(nowMs, nowMs, setup.id);
 
-      // Attacker tries to register a new terminal claiming the same
-      // handle — fresh owner means auto-rebind defers; uniqueness check
-      // fires.
+      // A different LIVE terminal registers under the same handle.
       const response = await callPost(JSON.stringify({
         name: 'attacker-pane',
         handle: '@uniq-owner',
         pids: [{ pid: 7002, pid_start: 'pst-attacker' }]
       }));
-      expect(response.status).toBe(409);
+
+      // (1) NEVER MUTE: 201 + a real session token is returned.
+      expect(response.status).toBe(201);
       const body = await response.json();
-      expect(JSON.stringify(body)).toMatch(/already claimed/i);
+      expect(typeof body.session_id).toBe('string');
+      expect(body.session_id.length).toBeGreaterThan(0);
+
+      // (2) the caller is SUFFIXED, not granted clean @uniq-owner. (register
+      // does not create a terminal_record, so the granted handle lives on the
+      // durable session label.)
+      const callerSession = getSession(body.session_id);
+      expect(callerSession?.label).toBe('@uniq-owner-1');
+
+      // (3) NO-HIJACK: the live incumbent's terminal_record is byte-unchanged —
+      // it still owns clean @uniq-owner on its own session.
+      const incumbent = getTerminalRecord(setup.id);
+      expect(incumbent?.handle).toBe('@uniq-owner');
+      expect(incumbent?.session_id).toBe(setup.id);
     });
 
     it('still allows auto-rebind when the existing claimant is STALE', async () => {
@@ -861,6 +884,85 @@ describe('POST /api/identity/register', () => {
         pids: [{ pid: 7101, pid_start: 'pst-new' }]
       }));
       expect(response.status).toBe(201);
+    });
+  });
+
+  // PART 2 (register-writes-real-token, 2026-06-04): register re-keys the CLEAN
+  // singular room_handle_lease (the table the POST-gate actually reads) to the
+  // caller's real token for its EXISTING memberships, so an invite-room agent
+  // whose lease was minted under a now-dead terminal-id is no longer mute —
+  // closing the 5×-hand-repaired recurrence in code.
+  describe('Part 2: clean-lease self-heal for existing memberships', () => {
+    it('re-keys a dead-terminal-id clean lease to the real token on register (invite-room mute fix)', async () => {
+      const roomId = 'invite-room-pt2';
+      const handle = '@partytwo';
+      // The agent is already a member (clean membership), but its clean lease in
+      // this room is keyed to a DEAD terminal-id — no ant_session resolves it.
+      // This is exactly the antOS shape that needed a manual fix.
+      const deadTerminalKey = 't_deadkey_zzz';
+      addMember(roomId, handle, deadTerminalKey);
+      claimCleanHandle(roomId, handle, deadTerminalKey);
+      // Pre-condition: the gate sees the dead key as the clean holder.
+      expect(resolveCleanMember(roomId, handle)).toBe(deadTerminalKey);
+
+      // The real agent registers with its handle and a live pidChain.
+      const response = await callPost(JSON.stringify({
+        name: 'partytwo-shell',
+        handle,
+        pids: [{ pid: 9001, pid_start: 'pst-pt2' }]
+      }));
+      expect(response.status).toBe(201);
+      const body = await response.json();
+      const realToken = body.session_id as string;
+      expect(typeof realToken).toBe('string');
+
+      // Self-heal: the clean holder the gate reads is now the REAL token …
+      expect(resolveCleanMember(roomId, handle)).toBe(realToken);
+      expect(isCleanMember(roomId, realToken)).toBe(true);
+      // … and the dead terminal-id lease has been retired (no longer a member).
+      expect(isCleanMember(roomId, deadTerminalKey)).toBe(false);
+    });
+
+    it('does NOT steal clean @x from a genuinely-live different session (no-hijack)', async () => {
+      const roomId = 'invite-room-pt2-live';
+      const handle = '@livehold';
+      // A genuinely-live session holds clean @livehold: real ant_session bound to
+      // a fresh (live) terminal.
+      const liveOwner = upsertTerminal({ pid: 8201, pid_start: 'pst-live', name: 'livehold-owner' });
+      const now = Date.now();
+      const db = getIdentityDb();
+      db.prepare(
+        `UPDATE terminals SET last_message_sent_at_ms = ?, last_pty_byte_at_ms = ? WHERE id = ?`
+      ).run(now, now, liveOwner.id);
+      // Bind a durable session to that terminal and let it hold clean @livehold.
+      // (ensureSession via a register call gives us a real token bound to the
+      // live terminal.)
+      const ownerResp = await callPost(JSON.stringify({
+        name: 'livehold-owner',
+        handle,
+        pids: [{ pid: 8201, pid_start: 'pst-live' }]
+      }));
+      const ownerToken = (await ownerResp.json()).session_id as string;
+      addMember(roomId, handle, ownerToken);
+      claimCleanHandle(roomId, handle, ownerToken);
+      expect(resolveCleanMember(roomId, handle)).toBe(ownerToken);
+
+      // A DIFFERENT shell registers the same handle. Part 1 suffixes it to
+      // @livehold-1 (live incumbent terminal_record holds @livehold), so Part 2
+      // runs for @livehold-1 — which has no memberships — and never touches the
+      // live owner's clean @livehold lease.
+      const intruderResp = await callPost(JSON.stringify({
+        name: 'livehold-intruder',
+        handle,
+        pids: [{ pid: 8202, pid_start: 'pst-intruder' }]
+      }));
+      expect(intruderResp.status).toBe(201);
+      const intruderToken = (await intruderResp.json()).session_id as string;
+
+      // No-hijack: the live owner still wears clean @livehold; the intruder did
+      // not become a clean member of the room.
+      expect(resolveCleanMember(roomId, handle)).toBe(ownerToken);
+      expect(isCleanMember(roomId, intruderToken)).toBe(false);
     });
   });
 });

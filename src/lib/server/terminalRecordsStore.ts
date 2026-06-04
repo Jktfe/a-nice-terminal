@@ -495,3 +495,33 @@ export function findActiveTerminalRecordByHandle(handle: string): TerminalRecord
     .get(normalised) as TerminalRecord | undefined;
   return row ?? null;
 }
+
+/**
+ * Lowest-free handle in the terminal_records namespace, using the same @x / @x-N
+ * (dash) convention as the room lease layer (roomHandleLeaseClean.display). The
+ * base is returned when free; otherwise @x-1, @x-2 … skipping any active
+ * (non-superseded) terminal_records handle. `exemptSessionId` lets a
+ * re-register keep its own row's handle (so an idempotent re-register never
+ * self-suffixes).
+ *
+ * Used by register's Option A: instead of 409-rejecting a live-handle collision
+ * (which left the caller tokenless = mute), the caller is granted a distinct,
+ * visible @x-N while the live incumbent keeps clean @x untouched.
+ */
+export function lowestFreeTerminalHandle(
+  rawBase: string,
+  exemptSessionId?: string | null
+): string {
+  const t = rawBase.trim();
+  const base = t.startsWith('@') ? t : `@${t}`;
+  const isTaken = (candidate: string): boolean => {
+    const rec = findActiveTerminalRecordByHandle(candidate);
+    return rec !== null && rec.session_id !== (exemptSessionId ?? null);
+  };
+  if (!isTaken(base)) return base;
+  for (let n = 1; n <= 999; n += 1) {
+    const candidate = `${base}-${n}`;
+    if (!isTaken(candidate)) return candidate;
+  }
+  throw new Error(`No free terminal handle found for ${base}.`);
+}

@@ -209,6 +209,62 @@ export function claimHandle(
 }
 
 /**
+ * Register-time self-heal: re-key the CLEAN (@x) handle in a room to `sessionId`
+ * (the caller's REAL durable token) when the current clean holder is STALE — its
+ * session no longer resolves to a live identity (a dead terminal-id key or a
+ * superseded token). This is the manual lease-repair recipe, in code.
+ *
+ * Why this exists: the post-gate reads THIS table keyed by session token, but
+ * `POST /api/identity/register` historically only backfilled the legacy PLURAL
+ * `room_handle_leases`, never this clean SINGULAR `room_handle_lease`. So an
+ * agent whose clean lease was minted under a now-dead terminal-id stayed mute in
+ * invite rooms (which never auto-join). Calling this on register lets the agent
+ * re-assert its own handle with its own token, with no manual DB surgery.
+ *
+ * Security (no-hijack): we only demote the incumbent when `isHolderStale`
+ * reports it is NOT a genuinely-live DIFFERENT session. A live different holder
+ * keeps clean @x and the caller falls through to a rule-4 suffix — a different
+ * live session can never steal @x. The staleness window is identical to the
+ * already-shipped register handle-uniqueness exemption (claimantIsStale), so
+ * this adds no new attack surface.
+ *
+ * Returns the granted clean display handle (@x) when reclaimed/free/already-held,
+ * or null when a genuinely-live different session holds @x (strict no-op — Part 2
+ * never joins a room or demotes a live holder).
+ */
+export function reclaimCleanHandleIfStale(
+  roomId: string,
+  rawHandle: string,
+  sessionId: string,
+  isHolderStale: (holderSessionId: string) => boolean,
+  db = getIdentityDb()
+): string | null {
+  ensureTable(db);
+  const handle = normaliseBase(rawHandle);
+  const clean = getCleanHolder(db, roomId, handle);
+  if (clean && clean.session_id !== sessionId) {
+    if (!isHolderStale(clean.session_id)) {
+      // A genuinely-live DIFFERENT session holds clean @x. Do NOTHING — do not
+      // suffix-join the caller into this room and do not demote the live holder.
+      // (In the normal flow Part 1 has already suffixed an impostor's handle so
+      // this room never appears for them; this guards the edge case where the
+      // live holder has no terminal_record and Part 1 couldn't see the clash.)
+      return null;
+    }
+    // Stale incumbent: retire (not demote) the dead terminal-id/token so the
+    // real token can take clean @x. Its history row is preserved for rendering.
+    db.prepare(
+      `UPDATE room_handle_lease
+          SET active = 0, retired_at_ms = ?
+        WHERE room_id = ? AND handle = ? AND session_id = ?`
+    ).run(Date.now(), roomId, handle, clean.session_id);
+  }
+  // No clean holder, a now-retired stale incumbent, or it's already us →
+  // promote sessionId to clean @x (idempotent when it already holds it).
+  return claimHandle(roomId, handle, sessionId, db);
+}
+
+/**
  * Demote the given (currently clean) holder to a suffix: reuse its STABLE
  * assigned_suffix if it has one and that suffix is free, otherwise the lowest
  * free suffix. Keeps the lease ACTIVE (it remains a member, just suffixed).

@@ -41,9 +41,15 @@ import {
 import { bootstrapV02Identity, normaliseV02Handle } from '$lib/server/v02RegisterBootstrap';
 import { getLiveAgentByHandle } from '$lib/server/v02AgentsStore';
 import { validateHandleForRegistration } from '$lib/server/handleValidation';
-import { findActiveTerminalRecordByHandle } from '$lib/server/terminalRecordsStore';
+import {
+  findActiveTerminalRecordByHandle,
+  lowestFreeTerminalHandle
+} from '$lib/server/terminalRecordsStore';
 import { ensureSession, SessionAdoptionRefused } from '$lib/server/antSessionStore';
 import { backfillActiveLeasesFromRoomMemberships } from '$lib/server/roomHandleLeaseStore';
+import { reclaimCleanHandleIfStale } from '$lib/server/roomHandleLeaseClean';
+import { listRoomsForHandle } from '$lib/server/membershipStore';
+import { resolveOrNull } from '$lib/server/sessionResolver';
 
 const VALID_AGENT_KINDS_LIST = Array.from(AGENT_KINDS_CLIENT_INPUT).join(', ');
 
@@ -253,10 +259,17 @@ export const POST: RequestHandler = async ({ request }) => {
       const claimantIsStale =
         !claimantTerminal || isCandidateStale(claimantTerminal, Date.now());
       if (!claimantIsStale) {
-        throw error(
-          409,
-          `Handle '${handleValue}' is already claimed by terminal '${claimedBy.name}' (session ${claimedBy.session_id}). Pick a different --handle or reclaim with --handle <your-existing-handle>.`
-        );
+        // OPTION A (2026-06-04, register-writes-real-token): a genuinely-LIVE
+        // different terminal already holds this clean handle. The old behaviour
+        // threw 409 here — but that rejected BEFORE the session token + lease
+        // were minted, so the caller walked away tokenless = mute (the bug we
+        // hand-repaired five times). Instead, grant the lowest-free suffixed
+        // handle (@x-N, same dash convention as the room lease layer) and fall
+        // through to mint a token. The live incumbent keeps clean @x untouched
+        // (no-hijack), the caller gets a distinct, visible identity it can post
+        // under. Stale incumbents still fall through unsuffixed to the
+        // auto-rebind / reclaim path below (they get clean @x back).
+        handleValue = lowestFreeTerminalHandle(handleValue, existing?.id ?? null);
       }
     }
   }
@@ -344,6 +357,31 @@ export const POST: RequestHandler = async ({ request }) => {
     terminalId: terminal.id,
     createdFrom: 'register-existing-membership-backfill'
   });
+  // PART 2 (2026-06-04, register-writes-real-token): re-key the CLEAN room
+  // leases the POST-gate actually reads — roomHandleLeaseClean (the SINGULAR
+  // room_handle_lease, session-token-keyed) — to THIS real token, for every
+  // room this handle already belongs to. The backfill above writes the LEGACY
+  // PLURAL room_handle_leases, which the gate does NOT read, so on its own a
+  // register never refreshed the gate's lease: an agent whose clean lease was
+  // minted under a now-dead terminal-id stayed mute in invite rooms (which
+  // never auto-join). reclaimCleanHandleIfStale promotes our token to clean @x
+  // only when the incumbent clean holder is stale/unresolvable; a genuinely
+  // live different holder keeps @x (no-hijack) and we'd take a rule-4 suffix.
+  // Scoped to listRoomsForHandle so we only touch EXISTING memberships, never
+  // auto-join new rooms.
+  if (handleValue) {
+    const isHolderStale = (holderSessionId: string): boolean => {
+      const holder = resolveOrNull(holderSessionId);
+      if (!holder) return true;
+      const holderTerminal = holder.terminal_id
+        ? getTerminalById(holder.terminal_id)
+        : null;
+      return !holderTerminal || isCandidateStale(holderTerminal, Date.now());
+    };
+    for (const memberRoomId of listRoomsForHandle(handleValue)) {
+      reclaimCleanHandleIfStale(memberRoomId, handleValue, antSession.id, isHolderStale);
+    }
+  }
   // Response kind starts at updateKindValue (preserved); re-fetch only when classify ran.
   let classifiedAgentKind: string | null = updateKindValue;
   if (!existed && agentKindValue === null && paneValue !== null) {
