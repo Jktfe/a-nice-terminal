@@ -42,6 +42,7 @@ import * as v02Memberships from './v02MembershipsStore';
 import type { V02MembershipRole, V02MemberKind } from './v02MembershipsStore';
 import { getIdentityByHandle } from './identityKeysStore';
 import { appendAuditEvent as appendAuditEventCanonical } from './auditEventsStore';
+import { addMember as cleanAddMember, removeMember as cleanRemoveMember } from './membershipStore';
 
 /**
  * INSERT OR IGNORE a v02_rooms row keyed by roomId. Lookup display_name
@@ -218,6 +219,12 @@ export function mirrorAddMembership(input: {
         via: 'v02-chatroom-bridge'
       }
     });
+    // R3 consolidation (2026-06-05): ALSO write the clean room_membership
+    // roster (handle-keyed; session resolves later via the post-gate, so NULL
+    // here is correct). ADDITIVE — the dashboard doesn't read room_membership
+    // yet; this populates the canonical roster ahead of the read cut-over so
+    // it lands on a complete table. Best-effort, inside the existing try.
+    cleanAddMember(input.roomId, input.handle, null);
     return membership.membership_id;
   } catch (err) {
     // eslint-disable-next-line no-console
@@ -267,6 +274,9 @@ export function mirrorUpdateMemberPresentation(input: {
  */
 export function mirrorRemoveMembership(roomId: string, handle: string): boolean {
   try {
+    // R3 consolidation: mirror the leave into the clean roster too (best-effort,
+    // additive). Done regardless of whether a v0.2 agent resolves below.
+    cleanRemoveMember(roomId, handle);
     const agent = v02Agents.getLiveAgentByHandle(handle);
     if (!agent) return false;
     const flipped = v02Memberships.removeMembership(agent.agent_id, roomId);

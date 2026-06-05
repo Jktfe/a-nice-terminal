@@ -10,10 +10,29 @@ import {
   __overrideRoomCreatorForTests
 } from './chatRoomStore';
 import { getMemberPresentation } from './membershipPresentationStore';
+import { isMember as cleanIsMember } from './membershipStore';
 
 describe('chatRoomStore — members and invites', () => {
   beforeEach(() => {
     resetChatRoomStoreForTests();
+  });
+
+  it('member-add additively populates the clean room_membership roster (R3)', () => {
+    const room = createChatRoom({ name: 'r3-roster-mirror', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@vera' });
+    // both the creator and the invited agent land in the clean roster
+    expect(cleanIsMember(room.id, '@you')).toBe(true);
+    expect(cleanIsMember(room.id, '@vera')).toBe(true);
+    // a non-member is absent
+    expect(cleanIsMember(room.id, '@nobody')).toBe(false);
+  });
+
+  it('member-remove additively clears the clean roster row (R3)', () => {
+    const room = createChatRoom({ name: 'r3-roster-remove', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@vera' });
+    expect(cleanIsMember(room.id, '@vera')).toBe(true);
+    removeMemberFromRoom({ roomId: room.id, globalHandle: '@vera' });
+    expect(cleanIsMember(room.id, '@vera')).toBe(false);
   });
 
   it('updateRoomMemberPresentation additively mirrors into room_member_presentation (R3)', () => {
