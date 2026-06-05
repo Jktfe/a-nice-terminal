@@ -32,7 +32,7 @@ import { getIdentityDb } from './db';
  * reads), so the clean table can never be polluted by a browser session.
  */
 export function isDurableMemberHandle(handle: string): boolean {
-  return !handle.trim().toLowerCase().startsWith('@browser-bs');
+  return !handle.trim().toLowerCase().startsWith('@browser-bs_');
 }
 
 export type Membership = {

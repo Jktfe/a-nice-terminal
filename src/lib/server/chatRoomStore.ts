@@ -407,7 +407,7 @@ export function createChatRoom(input: {
   // Without this fallback, agents creating side-rooms get stored as
   // kind='human' and the agent pill goes missing.
   const hasExistingAgentBinding = (handle: string): boolean => {
-    if (isOperatorHandle(handle) || handle.startsWith('@browser-bs_')) return false;
+    if (isOperatorHandle(handle) || !isDurableMemberHandle(handle)) return false;
     const row = getIdentityDb()
       .prepare(
         `SELECT 1 FROM room_memberships
