@@ -321,7 +321,10 @@ export function sendCoordinationRelay(roomId: string, recipientHandle: string, b
     senderHandle: '@system',
     body,
     recipientHandle,
-    terminalId: membership.terminal_id
+    terminalId: membership.terminal_id,
+    // Directed relays are not persisted chat messages, so they do not own
+    // a room post_order. Use a monotonic synthetic order for the envelope.
+    postOrder: Date.now()
   });
 }
 
