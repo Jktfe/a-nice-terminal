@@ -17,6 +17,7 @@
 import type { ChatMessage } from './chatMessageStore';
 import { findChatRoomById } from './chatRoomStore';
 import { listMembershipsForRoom, type RoomMembershipRow } from './roomMembershipsStore';
+import { listFocusedMembersInRoom } from './focusModeStore';
 import { getTerminalById, touchLastPtyByteAt } from './terminalsStore';
 import { isOperatorHandle } from './operatorHandle';
 import { getRoomMode } from './roomModesStore';
@@ -412,8 +413,25 @@ export function fanoutMessageToRoomTerminals(
       };
     }
   }
+  // Focus mode (JWPK 2026-06-05): a focused member is heads-down — the room
+  // FIREHOSE is suppressed at their terminal so a small/local model isn't
+  // drowned, but a DIRECT @-mention of them still breaks through (resolved
+  // below via membershipIsTargeted). Per-member (focusModeStore), so focusing
+  // @localant never affects @researchant; cleared one member at a time via
+  // exitFocus. Nothing is lost — the message is in room history regardless;
+  // focus only gates the PTY push. Distinct from heads-down (responder relay)
+  // and room-mode (room-wide). Resolved ONCE here, not per-membership.
+  const focusedHandles = new Set(
+    listFocusedMembersInRoom(roomId).map((entry) => entry.memberHandle)
+  );
   for (const membership of memberships) {
     if (membership.handle === message.authorHandle) continue;
+    if (
+      focusedHandles.has(membership.handle) &&
+      !membershipIsTargeted(membership, targetedHandles)
+    ) {
+      continue; // focused member: suppress firehose, only direct @mention breaks through
+    }
     if (!broadcastToAll && !membershipIsTargeted(membership, targetedHandles)) continue;
     if (!activeClaimAllowsRecipient(message, membership.handle)) continue;
     const terminal = getTerminalById(membership.terminal_id);

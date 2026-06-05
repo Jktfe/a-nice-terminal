@@ -22,6 +22,7 @@ import { listReadersForMessage } from './messageReadReceiptStore';
 import { subscribeToRoom, unsubscribeFromRoom } from './eventBroadcast';
 import { setRoomAlias } from './chatRoomAliasStore';
 import { createClaim, resetEntityClaimStoreForTests } from './entityClaimStore';
+import { enterFocus, resetFocusModeStoreForTests } from './focusModeStore';
 
 let tmpDir: string;
 const previousDbPath = process.env.ANT_FRESH_DB_PATH;
@@ -36,6 +37,7 @@ beforeEach(() => {
   resetBridgeStateForTests();
   resetNoResponderRateLimitForTests();
   resetEntityClaimStoreForTests();
+  resetFocusModeStoreForTests();
 });
 
 afterEach(() => {
@@ -45,6 +47,7 @@ afterEach(() => {
   resetFanoutQueueForTests();
   resetBridgeStateForTests();
   resetEntityClaimStoreForTests();
+  resetFocusModeStoreForTests();
   rmSync(tmpDir, { recursive: true, force: true });
   if (previousDbPath === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = previousDbPath;
@@ -854,5 +857,59 @@ describe('fanoutMessageToRoomTerminals — asks-as-pill auto-open (slice 6)', ()
 
     const open = listAllOpenAsks().filter((a) => a.targetHandle === '@you');
     expect(open).toHaveLength(1);
+  });
+});
+
+describe('fanoutMessageToRoomTerminals — focus mode (JWPK 2026-06-05)', () => {
+  // Focus = a focused member STOPS receiving the room firehose at their
+  // terminal; a DIRECT @mention of them still breaks through. Per-member,
+  // so focusing @focused never affects @normal. Nothing is lost — the
+  // message is in room history regardless; focus only gates the PTY push.
+  it('suppresses a broadcast to a FOCUSED member but still delivers to a non-focused member', () => {
+    const room = createChatRoom({ name: 'focus-room', whoCreatedIt: '@test' });
+    const tSender = upsertTerminal({ pid: 1, pid_start: 'pf1', name: 'focus-sender' });
+    const tFocused = upsertTerminal({ pid: 2, pid_start: 'pf2', name: 'focus-focused' });
+    const tNormal = upsertTerminal({ pid: 3, pid_start: 'pf3', name: 'focus-normal' });
+    updatePaneTarget(tFocused.id, '%focused', 'claude_code');
+    updatePaneTarget(tNormal.id, '%normal', 'claude_code');
+    addMembership({ room_id: room.id, handle: '@sender', terminal_id: tSender.id });
+    addMembership({ room_id: room.id, handle: '@focused', terminal_id: tFocused.id });
+    addMembership({ room_id: room.id, handle: '@normal', terminal_id: tNormal.id });
+    // enterFocus validates membership against chatRoomStore.room.members
+    // (chat_room_members), a different table than addMembership's
+    // room_memberships — the drift R3 is consolidating. Register the focus
+    // target in both so the focus check has a member to gate.
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@focused', agentDisplayName: 'Focused' });
+    enterFocus({ roomId: room.id, memberHandle: '@focused' });
+    const message = postMessage({
+      roomId: room.id,
+      authorHandle: '@sender',
+      body: '@everyone deploy now',
+      kind: 'human'
+    });
+    fanoutMessageToRoomTerminals(room.id, message);
+    const q = getFanoutQueueForTests();
+    expect(q.pendingCountForTests(`${room.id}::${tFocused.id}`)).toBe(0); // suppressed by focus
+    expect(q.pendingCountForTests(`${room.id}::${tNormal.id}`)).toBe(1); // unaffected
+  });
+
+  it('a DIRECT @mention breaks through focus mode', () => {
+    const room = createChatRoom({ name: 'focus-mention-room', whoCreatedIt: '@test' });
+    const tSender = upsertTerminal({ pid: 4, pid_start: 'pf4', name: 'fm-sender' });
+    const tFocused = upsertTerminal({ pid: 5, pid_start: 'pf5', name: 'fm-focused' });
+    updatePaneTarget(tFocused.id, '%fmfocused', 'claude_code');
+    addMembership({ room_id: room.id, handle: '@sender', terminal_id: tSender.id });
+    addMembership({ room_id: room.id, handle: '@focused', terminal_id: tFocused.id });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@focused', agentDisplayName: 'Focused' });
+    enterFocus({ roomId: room.id, memberHandle: '@focused' });
+    const message = postMessage({
+      roomId: room.id,
+      authorHandle: '@sender',
+      body: '@focused please look at this',
+      kind: 'human'
+    });
+    fanoutMessageToRoomTerminals(room.id, message);
+    const q = getFanoutQueueForTests();
+    expect(q.pendingCountForTests(`${room.id}::${tFocused.id}`)).toBe(1); // mention breaks through
   });
 });
