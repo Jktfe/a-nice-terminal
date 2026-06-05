@@ -348,15 +348,24 @@ describe('ant chat state wrappers', () => {
     const { runtime, captured } = makeRuntime(() => okJson({
       focusEntry: { memberHandle: '@codex', expiresAt: '2026-05-16T22:00:00.000Z' }
     }));
-    await handleChatVerb('focus', ['room-a', '--member', '@codex', '--for', '30m', '--reason', 'heads down'], runtime, { CliInputError });
+    await handleChatVerb('focus', ['room-a', '--member', '@codex', '--for', '30m', '--reason', 'heads down', '--mode', 'solo'], runtime, { CliInputError });
     expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/room-a/focus-mode');
     expect(captured.requests[0].init.method).toBe('PUT');
     expect(bodyAt(captured)).toMatchObject({
       memberHandle: '@codex',
       durationMs: 1_800_000,
-      reason: 'heads down'
+      reason: 'heads down',
+      mode: 'solo'
     });
     expect(captured.stdout.join('\n')).toContain('Focus set');
+  });
+
+  it('C6b: focus rejects invalid mode before fetch', async () => {
+    const { runtime, captured } = makeRuntime(() => okJson({ ok: true }));
+    await expect(
+      handleChatVerb('focus', ['room-a', '--member', '@codex', '--mode', 'lurk'], runtime, { CliInputError })
+    ).rejects.toThrow('mode must be shield or solo');
+    expect(captured.requests).toHaveLength(0);
   });
 
   it('C7: unfocus DELETEs the member focus-mode row', async () => {

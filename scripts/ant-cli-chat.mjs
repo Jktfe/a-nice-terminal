@@ -809,7 +809,9 @@ function advanceLastSeen(messages, sinceOrder) {
 /**
  * `ant chat focus <roomId> --member @h [--for 30m] [--reason "..."]`
  * Sets the head-down signal for one member in one room. `--for` accepts
- * a duration (s/m/h/d); omit for indefinite. Backs PUT
+ * a duration (s/m/h/d); omit for indefinite. `--mode` selects shield
+ * (member stops receiving the room) or solo (everyone else is muted).
+ * Backs PUT
  * /api/chat-rooms/:roomId/focus-mode.
  */
 async function runFocus(flags, runtime, CliInputError) {
@@ -817,6 +819,12 @@ async function runFocus(flags, runtime, CliInputError) {
   const memberHandle = flags.member ?? flags.handle ?? '@JWPK';
   const payload = { memberHandle };
   if (flags.reason) payload.reason = flags.reason;
+  if (flags.mode !== undefined) {
+    if (flags.mode !== 'shield' && flags.mode !== 'solo') {
+      throw new CliInputError('mode must be shield or solo');
+    }
+    payload.mode = flags.mode;
+  }
   if (flags.for) {
     const durationMs = parseDurationToMs(flags.for, CliInputError);
     if (durationMs !== undefined) payload.durationMs = durationMs;
