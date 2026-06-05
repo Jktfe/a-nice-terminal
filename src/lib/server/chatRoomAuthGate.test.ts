@@ -16,6 +16,8 @@ import { createChatRoom, resetChatRoomStoreForTests } from './chatRoomStore';
 import { addMembership } from './roomMembershipsStore';
 import { upsertTerminal } from './terminalsStore';
 import { createOwner } from './ownersStore';
+import { createSession } from './antSessionStore';
+import { claimHandle } from './roomHandleLeaseClean';
 
 function makeRequest(opts: {
   headers?: Record<string, string>;
@@ -217,5 +219,52 @@ describe('requireChatRoomMutationAuth', () => {
         expect(httpFailure.status).toBe(401);
       }
     });
+  });
+});
+
+describe('requireChatRoomMutationAuth — Step 3c: ANT clean session lease (anti-flood lever 4)', () => {
+  // Before this step existed, agents authenticating by session token (the
+  // clean model) 401'd on EVERY non-post mutation — reactions, typing,
+  // breaks, focus-mode, member-remove — because the gate only tried pidChain.
+  // That's the "ant reaction add 401s for agents" blocker. These pin the fix:
+  // accept the same x-ant-session-id the chat-message POST path accepts,
+  // membership-gated via the clean lease.
+  beforeEach(() => {
+    resetIdentityDbForTests();
+    resetChatRoomStoreForTests();
+  });
+
+  it('a clean-session MEMBER resolves via x-ant-session-id header (was 401)', () => {
+    const room = createChatRoom({ name: 'react-room', whoCreatedIt: '@test' });
+    const session = createSession({ kind: 'local-cli', label: 'agent-x' });
+    claimHandle(room.id, '@agent-x', session.id);
+    const { request, rawBody } = makeRequest({ headers: { 'x-ant-session-id': session.id }, body: {} });
+    const result = requireChatRoomMutationAuth(room.id, request, rawBody);
+    expect(result.handle).toBe('@agent-x');
+    expect(result.isAdminBearer).toBe(false);
+  });
+
+  it('a clean session that is NOT a member of the room still 401s (membership-gated, grants nothing new)', () => {
+    const room = createChatRoom({ name: 'react-room-2', whoCreatedIt: '@test' });
+    const session = createSession({ kind: 'local-cli', label: 'outsider' });
+    // no claimHandle → not a clean member of this room
+    const { request, rawBody } = makeRequest({ headers: { 'x-ant-session-id': session.id }, body: {} });
+    expect(() => requireChatRoomMutationAuth(room.id, request, rawBody)).toThrow();
+  });
+
+  it('accepts the session id from the body (sessionId field) too, mirroring the post path', () => {
+    const room = createChatRoom({ name: 'react-room-3', whoCreatedIt: '@test' });
+    const session = createSession({ kind: 'local-cli', label: 'body-agent' });
+    claimHandle(room.id, '@body-agent', session.id);
+    const { request, rawBody } = makeRequest({ body: { sessionId: session.id } });
+    const result = requireChatRoomMutationAuth(room.id, request, rawBody);
+    expect(result.handle).toBe('@body-agent');
+    expect(result.isAdminBearer).toBe(false);
+  });
+
+  it('an unknown/garbage session id falls through to 401 (no identity)', () => {
+    const room = createChatRoom({ name: 'react-room-4', whoCreatedIt: '@test' });
+    const { request, rawBody } = makeRequest({ headers: { 'x-ant-session-id': 'not-a-real-session' }, body: {} });
+    expect(() => requireChatRoomMutationAuth(room.id, request, rawBody)).toThrow();
   });
 });

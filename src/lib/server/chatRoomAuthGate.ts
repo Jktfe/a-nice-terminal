@@ -48,6 +48,8 @@ import { resolveHumanOwnership } from './consentGate';
 import { isHandleMemberOfRoom, findChatRoomById } from './chatRoomStore';
 import { buildPermissionDeniedPayload } from './permissionDeniedPayload';
 import { resolveApproversFor } from './permissionApproverResolver';
+import { resolveOrNull } from './sessionResolver';
+import { isMember as isCleanMember, displayHandleForSession } from './roomHandleLeaseClean';
 
 /** Sentinel handle attributed to admin-bearer callers. Mirrors the
  *  CLI/automation convention used by other admin-gated routes. */
@@ -205,6 +207,25 @@ export function requireChatRoomMutationAuth(
       return { handle: resolved.handle, isAdminBearer: false };
     }
   }
+  // Step 3c: ANT clean session lease (x-ant-session-id / body sessionId).
+  // The chat-message POST path (resolveAntSessionAuthor) accepts this token,
+  // but this mutation gate did NOT — so every non-post mutation (reactions,
+  // typing, breaks, focus-mode, member-remove, …) 401'd agents that
+  // authenticate by session token rather than pidChain. That's the
+  // "ant reaction add 401s for agents" blocker (anti-flood lever 4: an ack
+  // via reaction pings only the author, no fan-out). Membership-gated via the
+  // clean lease (isCleanMember) — grants nothing a non-member could reach —
+  // and resolves to the lease's display handle (incl. @x-N), matching the
+  // post path exactly. Added before pidChain since the session token is the
+  // canonical agent credential in the clean model.
+  const antSessionId = extractAntSessionId(request, rawBody);
+  if (antSessionId) {
+    const session = resolveOrNull(antSessionId);
+    if (session && isCleanMember(roomId, session.id)) {
+      const display = displayHandleForSession(roomId, session.id);
+      return { handle: display ?? session.label ?? session.id, isAdminBearer: false };
+    }
+  }
   // Step 4: pidChain (CLI / agent process).
   const pidChain = parsePidChainFromBody(rawBody);
   const pidChainHandle = resolveServerSideHandle(roomId, pidChain);
@@ -216,4 +237,21 @@ export function requireChatRoomMutationAuth(
     `[chat-room-auth] mutating request rejected room=${roomId} reason=no-identity`
   );
   throw error(401, 'Authentication required.');
+}
+
+/**
+ * Extract the ANT clean-session token from the request — the x-ant-session-id
+ * header first, then a body `sessionId` / `antSessionId` field. Mirrors the
+ * messages POST path (resolveAntSessionAuthor) so the mutation gate accepts
+ * the SAME credential the post path does. Returns null when none present.
+ */
+function extractAntSessionId(request: Request, rawBody: unknown): string | null {
+  const fromHeader = request.headers.get('x-ant-session-id')?.trim();
+  if (fromHeader) return fromHeader;
+  if (!rawBody || typeof rawBody !== 'object') return null;
+  const sessionId = (rawBody as { sessionId?: unknown }).sessionId;
+  if (typeof sessionId === 'string' && sessionId.trim().length > 0) return sessionId.trim();
+  const antSessionId = (rawBody as { antSessionId?: unknown }).antSessionId;
+  if (typeof antSessionId === 'string' && antSessionId.trim().length > 0) return antSessionId.trim();
+  return null;
 }
