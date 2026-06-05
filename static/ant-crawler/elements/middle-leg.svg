@@ -1,19 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 84 68 72" role="img" aria-labelledby="middle-leg-title">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="18 84 64 72" role="img" aria-labelledby="middle-leg-title">
   <title id="middle-leg-title">ANT crawler middle leg element</title>
   <style>
     .shell { fill: none; stroke: #ffffff; stroke-linecap: round; stroke-linejoin: round; stroke-width: 10; }
-    .core { fill: none; stroke: #08253d; stroke-linecap: round; stroke-linejoin: round; stroke-width: 5.4; }
+    .core { fill: none; stroke: #08243b; stroke-linecap: round; stroke-linejoin: round; stroke-width: 5.4; }
   </style>
-  <g id="middle-leg-upper" style="transform-origin: 76px 88px" data-joint="76 88">
-    <path class="shell" d="M76 88 C70 106 63 122 55 137"/>
-    <path class="core" d="M76 88 C70 106 63 122 55 137"/>
+  <g id="middle-leg-upper" style="transform-origin: 77px 88px" data-joint="77 88">
+    <path class="shell" d="M77 88 C71 105 64 121 56 136"/>
+    <path class="core" d="M77 88 C71 105 64 121 56 136"/>
   </g>
-  <g id="middle-leg-lower" style="transform-origin: 55px 137px" data-joint="55 137">
-    <path class="shell" d="M55 137 C49 147 42 152 32 152"/>
-    <path class="core" d="M55 137 C49 147 42 152 32 152"/>
+  <g id="middle-leg-lower" style="transform-origin: 56px 136px" data-joint="56 136">
+    <path class="shell" d="M56 136 C51 146 45 151 36 152"/>
+    <path class="core" d="M56 136 C51 146 45 151 36 152"/>
   </g>
-  <g id="middle-leg-foot" style="transform-origin: 32px 152px" data-joint="32 152">
-    <path class="shell" d="M32 152 L19 152"/>
-    <path class="core" d="M32 152 L19 152"/>
+  <g id="middle-leg-foot" style="transform-origin: 36px 152px" data-joint="36 152">
+    <path class="shell" d="M36 152 L24 152"/>
+    <path class="core" d="M36 152 L24 152"/>
   </g>
 </svg>

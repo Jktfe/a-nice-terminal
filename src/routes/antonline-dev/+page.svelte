@@ -30,6 +30,10 @@
   import AntonlineDevSpotlights from '$lib/components/AntonlineDevSpotlights.svelte';
   import AntonlineDevQuickstart from '$lib/components/AntonlineDevQuickstart.svelte';
   import AntonlineDevPricing from '$lib/components/AntonlineDevPricing.svelte';
+  import AntPathAnimation from '$lib/components/AntPathAnimation.svelte';
+
+  const homepageCrawlPath =
+    'M 100 120 L 900 120 Q 920 120 920 140 L 920 220 Q 920 240 900 240 L 100 240 Q 80 240 80 260 L 80 440 Q 80 460 100 460 L 900 460';
 </script>
 
 <svelte:head>
@@ -41,6 +45,23 @@
 </svelte:head>
 
 <div class="ant-marketing">
+  <div class="homepage-crawl-demo" aria-hidden="true">
+    <AntPathAnimation
+      pathStyle="custom"
+      customPath={homepageCrawlPath}
+      endMode="reset"
+      antCount={7}
+      spacing={12}
+      duration={18500}
+      bodyColor="#0a253c"
+      outlineColor="#fdfbf6"
+      routeColor="#c63b3b"
+      antScale={0.22}
+      leaderEnabled={false}
+      showPath={false}
+    />
+  </div>
+
   <!-- ============================== SECTION 1: HERO ============================== -->
   <section class="hero" aria-labelledby="hero-headline">
     <div class="hero-inner">
@@ -84,11 +105,8 @@
         layer between them.
       </p>
     </header>
-    <div class="architecture-frame" aria-label="Architecture diagram placeholder">
-      <div class="arch-placeholder">
-        <span class="arch-label">flowspec architecture diagram</span>
-        <span class="arch-sub">renders here on launch — sourced from the flowspec canvas</span>
-      </div>
+    <div class="architecture-frame" aria-label="ANT path animation playground">
+      <AntPathAnimation showControls={true} />
     </div>
   </section>
 
@@ -124,11 +142,50 @@
     --marketing-accent: #c63b3b;
     --marketing-edge: rgba(27, 24, 16, 0.12);
 
+    position: relative;
+    overflow: hidden;
     color: var(--marketing-ink);
     background: var(--marketing-bg);
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     font-weight: 500;
     min-height: 100vh;
+  }
+
+  .homepage-crawl-demo {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    z-index: 1;
+    width: min(1180px, 112vw);
+    height: min(760px, 88vh);
+    transform: translateX(-50%);
+    pointer-events: none;
+    opacity: 0.62;
+  }
+
+  :global(.homepage-crawl-demo .ant-animation-container) {
+    height: 100%;
+  }
+
+  :global(.homepage-crawl-demo .stage) {
+    min-height: 100%;
+    height: 100%;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    overflow: visible;
+  }
+
+  :global(.homepage-crawl-demo .stage svg) {
+    min-height: 100%;
+    height: 100%;
+    background: transparent;
+    overflow: visible;
+  }
+
+  :global(.homepage-crawl-demo .stage svg > path) {
+    opacity: 0;
   }
 
   .section-head {
@@ -266,26 +323,7 @@
     max-width: 64rem;
     margin: 0 auto;
   }
-  .arch-placeholder {
-    aspect-ratio: 16 / 9;
-    border-radius: 1rem;
-    border: 2px dashed var(--marketing-edge);
-    background: white;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    color: var(--marketing-soft);
-    gap: 0.4rem;
-  }
-  .arch-label {
-    font-weight: 700;
-    color: var(--marketing-ink);
-    font-size: 1.05rem;
-  }
-  .arch-sub {
-    font-size: 0.85rem;
-  }
+
 
   /* ============================== FOOTER ============================== */
   .site-footer {

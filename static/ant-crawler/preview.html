@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ANT crawler rig preview</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        background: #05090d;
+        color: #f4fbf7;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+      }
+
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+          radial-gradient(circle at 58% 45%, rgba(28, 211, 114, 0.18), transparent 42%),
+          #05090d;
+        background-size: 32px 32px, 32px 32px, 100% 100%, 100% 100%;
+      }
+
+      main {
+        width: min(880px, calc(100vw - 32px));
+      }
+
+      .stage {
+        position: relative;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 18px;
+        background: linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.025));
+        box-shadow: 0 32px 90px rgba(0, 0, 0, 0.52);
+      }
+
+      object {
+        display: block;
+        width: 100%;
+        height: auto;
+        aspect-ratio: 16 / 9;
+        padding: 6%;
+        box-sizing: border-box;
+      }
+
+      .floor {
+        position: absolute;
+        left: 7%;
+        right: 7%;
+        bottom: 21%;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22), transparent);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="stage" aria-label="ANT crawler rig animation preview">
+        <div class="floor"></div>
+        <object id="antRig" type="image/svg+xml" data="./ant-crawler-rig.svg" aria-label="Animated ANT crawler rig"></object>
+      </section>
+    </main>
+
+    <script>
+      const rig = document.querySelector("#antRig");
+      rig.addEventListener("load", () => {
+        rig.contentDocument?.documentElement.classList.add("is-crawling");
+      });
+    </script>
+  </body>
+</html>

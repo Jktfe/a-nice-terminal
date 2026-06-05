@@ -1,0 +1,199 @@
+/*
+ * ant-motion.css
+ * Stylesheet for the ANT brand motion primitive.
+ * Contains both SVG route layouts and the CSS Sprite Sheet walker class (.ant-walker).
+ */
+
+/* ── SVG Ant Path Styles ── */
+.ant-animation-container {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  align-items: stretch;
+  width: 100%;
+}
+
+.ant-animation-container.with-controls {
+  grid-template-columns: minmax(0, 1fr) 340px;
+}
+
+.stage {
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.13));
+  border-radius: 28px;
+  overflow: hidden;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.38);
+  background: #070b0d;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 500px;
+}
+
+.stage svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 500px;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    radial-gradient(circle at 50% 48%, rgba(124, 255, 46, 0.075), transparent 38%),
+    #070b0d;
+  background-size: 42px 42px, 42px 42px, 100% 100%, 100% 100%;
+}
+
+.route-glow {
+  stroke-linecap: round;
+  opacity: 0.95;
+}
+
+.route-line {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.ant-sprite {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* ── CSS Sprite Sheet Walker ── */
+.ant-walker {
+  width: 150px;   /* Width of a single frame (1200px / 8 frames) */
+  height: 150px;  /* Height of a single frame */
+  background-image: url('/ant-spritesheet.png');
+  background-repeat: no-repeat;
+  background-size: 1200px 150px; /* Total size of the 1200x150 png */
+  animation: ant-walk-cycle 0.8s steps(8) infinite;
+  display: inline-block;
+  image-rendering: pixelated; /* Crisp rendering of outline edges */
+}
+
+@keyframes ant-walk-cycle {
+  100% {
+    background-position-x: -1200px; /* Move horizontally across the 8 frames */
+  }
+}
+
+/* ── Interactive Controls Drawer ── */
+.controls {
+  padding: 18px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.13));
+  border-radius: 28px;
+  background: linear-gradient(180deg, rgba(17, 24, 27, 0.98), rgba(8, 12, 14, 0.98));
+  color: #edf7f2;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.38);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-size: 14px;
+  max-height: 620px;
+  overflow-y: auto;
+}
+
+.control-title {
+  margin: 0 0 4px;
+  font-size: 16px;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+
+.control {
+  border-top: 1px solid rgba(255, 255, 255, 0.085);
+  padding: 10px 0;
+}
+
+.control:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.control label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+  color: #dce7e2;
+  font-size: 13px;
+}
+
+.control .value {
+  color: #c7ff74;
+  font-variant-numeric: tabular-nums;
+}
+
+.control input[type="range"], 
+.control select, 
+.control input[type="text"] {
+  width: 100%;
+  accent-color: #7cff2e;
+}
+
+.control input[type="text"], 
+.control select {
+  height: 38px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 12px;
+  padding: 0 11px;
+  color: #edf7f2;
+  background: #0a0f11;
+  outline: none;
+}
+
+.control-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.control input[type="color"] {
+  width: 100%;
+  height: 38px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 12px;
+  padding: 3px;
+  background: #0a0f11;
+}
+
+.switchline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.switchline label {
+  margin: 0;
+}
+
+.controls button {
+  appearance: none;
+  width: 100%;
+  border: 0;
+  border-radius: 16px;
+  padding: 12px 14px;
+  color: #061006;
+  background: linear-gradient(180deg, #c8ff6f, #72f12f);
+  font-weight: 760;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  box-shadow: 0 12px 26px rgba(124, 255, 46, 0.18);
+  margin-top: 8px;
+}
+
+.controls .hint {
+  margin: 6px 0 0;
+  color: #9db0a7;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+@media (max-width: 980px) {
+  .ant-animation-container.with-controls {
+    grid-template-columns: 1fr;
+  }
+  .stage {
+    min-height: 400px;
+  }
+}

@@ -1,11 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="76 50 86 82" role="img" aria-labelledby="abdomen-title">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="66 44 100 86" role="img" aria-labelledby="abdomen-title">
   <title id="abdomen-title">ANT crawler abdomen element</title>
   <style>
-    .rim { fill: #ffffff; stroke: #050505; stroke-width: 2.15; stroke-linejoin: round; }
-    .fill { fill: #08253d; }
-    .gloss { fill: none; stroke: rgba(255,255,255,.32); stroke-linecap: round; stroke-width: 3.2; }
+    .shell { fill: #ffffff; stroke: #050505; stroke-width: 2.1; stroke-linejoin: round; }
+    .fill { fill: #08243b; }
+    .highlight { fill: none; stroke: rgba(255,255,255,0.28); stroke-linecap: round; stroke-width: 3.2; }
   </style>
-  <path class="rim" d="M88 67 C106 54 137 58 151 77 C165 96 153 121 128 127 C105 132 84 119 80 99 C77 84 80 74 88 67 Z"/>
-  <path class="fill" d="M92 70 C109 60 134 63 146 80 C157 95 148 114 126 119 C106 124 88 113 85 98 C83 86 85 76 92 70 Z"/>
-  <path class="gloss" d="M101 65 C118 62 136 67 146 80"/>
+  <path class="shell" d="M82 65 C98 48 133 51 151 72 C167 91 155 119 127 126 C101 132 75 116 72 93 C70 80 75 71 82 65 Z"/>
+  <path class="fill" d="M86 68 C101 55 130 57 146 75 C158 90 149 112 125 118 C103 124 82 111 79 92 C77 81 80 73 86 68 Z"/>
+  <path class="highlight" d="M95 61 C113 56 134 61 146 76"/>
 </svg>

@@ -1,19 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-28 78 82 68" role="img" aria-labelledby="front-leg-title">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-24 76 78 68" role="img" aria-labelledby="front-leg-title">
   <title id="front-leg-title">ANT crawler front leg element</title>
   <style>
     .shell { fill: none; stroke: #ffffff; stroke-linecap: round; stroke-linejoin: round; stroke-width: 10; }
-    .core { fill: none; stroke: #08253d; stroke-linecap: round; stroke-linejoin: round; stroke-width: 5.4; }
+    .core { fill: none; stroke: #08243b; stroke-linecap: round; stroke-linejoin: round; stroke-width: 5.4; }
   </style>
-  <g id="front-leg-upper" style="transform-origin: 48px 84px" data-joint="48 84">
-    <path class="shell" d="M48 84 C38 97 29 110 20 122"/>
-    <path class="core" d="M48 84 C38 97 29 110 20 122"/>
+  <g id="front-leg-upper" style="transform-origin: 48px 83px" data-joint="48 83">
+    <path class="shell" d="M48 83 C38 96 29 109 20 121"/>
+    <path class="core" d="M48 83 C38 96 29 109 20 121"/>
   </g>
-  <g id="front-leg-lower" style="transform-origin: 20px 122px" data-joint="20 122">
-    <path class="shell" d="M20 122 C9 131 -2 137 -15 140"/>
-    <path class="core" d="M20 122 C9 131 -2 137 -15 140"/>
+  <g id="front-leg-lower" style="transform-origin: 20px 121px" data-joint="20 121">
+    <path class="shell" d="M20 121 C9 130 -1 136 -12 139"/>
+    <path class="core" d="M20 121 C9 130 -1 136 -12 139"/>
   </g>
-  <g id="front-leg-foot" style="transform-origin: -15px 140px" data-joint="-15 140">
-    <path class="shell" d="M-15 140 L-25 136"/>
-    <path class="core" d="M-15 140 L-25 136"/>
+  <g id="front-leg-foot" style="transform-origin: -12px 139px" data-joint="-12 139">
+    <path class="shell" d="M-12 139 L-20 136"/>
+    <path class="core" d="M-12 139 L-20 136"/>
   </g>
 </svg>

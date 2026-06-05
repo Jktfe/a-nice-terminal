@@ -2,14 +2,14 @@
   <title id="antennae-title">ANT crawler antennae element</title>
   <style>
     .shell { fill: none; stroke: #ffffff; stroke-linecap: round; stroke-linejoin: round; stroke-width: 10; }
-    .core { fill: none; stroke: #08253d; stroke-linecap: round; stroke-linejoin: round; stroke-width: 5.4; }
+    .core { fill: none; stroke: #08243b; stroke-linecap: round; stroke-linejoin: round; stroke-width: 5.4; }
   </style>
-  <g id="upper-antenna" style="transform-origin: 21px 54px" data-joint="21 54">
-    <path class="shell" d="M21 54 C10 40 2 26 -4 12"/>
-    <path class="core" d="M21 54 C10 40 2 26 -4 12"/>
+  <g id="upper-antenna" style="transform-origin: 20px 53px" data-joint="20 53">
+    <path class="shell" d="M20 53 C9 38 2 25 -2 12"/>
+    <path class="core" d="M20 53 C9 38 2 25 -2 12"/>
   </g>
-  <g id="lower-antenna" style="transform-origin: 20px 59px" data-joint="20 59">
-    <path class="shell" d="M20 59 C7 50 -6 43 -18 39"/>
-    <path class="core" d="M20 59 C7 50 -6 43 -18 39"/>
+  <g id="lower-antenna" style="transform-origin: 18px 60px" data-joint="18 60">
+    <path class="shell" d="M18 60 C5 50 -6 43 -16 39"/>
+    <path class="core" d="M18 60 C5 50 -6 43 -16 39"/>
   </g>
 </svg>

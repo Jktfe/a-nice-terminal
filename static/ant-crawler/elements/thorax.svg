@@ -1,11 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="34 50 76 72" role="img" aria-labelledby="thorax-title">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="34 48 76 72" role="img" aria-labelledby="thorax-title">
   <title id="thorax-title">ANT crawler thorax element</title>
   <style>
-    .rim { fill: #ffffff; stroke: #050505; stroke-width: 2.15; stroke-linejoin: round; }
-    .fill { fill: #08253d; }
-    .gloss { fill: none; stroke: rgba(255,255,255,.32); stroke-linecap: round; stroke-width: 3.2; }
+    .shell { fill: #ffffff; stroke: #050505; stroke-width: 2.1; stroke-linejoin: round; }
+    .fill { fill: #08243b; }
+    .highlight { fill: none; stroke: rgba(255,255,255,0.28); stroke-linecap: round; stroke-width: 3.2; }
   </style>
-  <path class="rim" d="M45 65 C60 52 86 55 100 72 C113 88 104 109 81 115 C59 120 41 107 39 88 C37 77 39 70 45 65 Z"/>
-  <path class="fill" d="M50 69 C63 59 84 62 95 76 C105 89 97 103 79 108 C61 112 47 102 46 88 C45 79 46 73 50 69 Z"/>
-  <path class="gloss" d="M55 65 C69 60 87 64 97 76"/>
+  <path class="shell" d="M47 66 C63 51 91 54 104 72 C118 91 104 113 79 116 C55 119 39 103 39 83 C39 75 42 70 47 66 Z"/>
+  <path class="fill" d="M52 69 C66 58 87 61 98 76 C108 91 97 106 78 109 C59 111 46 99 46 84 C46 77 48 73 52 69 Z"/>
+  <path class="highlight" d="M55 64 C70 59 89 63 99 75"/>
 </svg>
