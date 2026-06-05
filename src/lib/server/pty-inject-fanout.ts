@@ -413,24 +413,43 @@ export function fanoutMessageToRoomTerminals(
       };
     }
   }
-  // Focus mode (JWPK 2026-06-05): a focused member is heads-down — the room
-  // FIREHOSE is suppressed at their terminal so a small/local model isn't
-  // drowned, but a DIRECT @-mention of them still breaks through (resolved
-  // below via membershipIsTargeted). Per-member (focusModeStore), so focusing
-  // @localant never affects @researchant; cleared one member at a time via
-  // exitFocus. Nothing is lost — the message is in room history regardless;
-  // focus only gates the PTY push. Distinct from heads-down (responder relay)
-  // and room-mode (room-wide). Resolved ONCE here, not per-membership.
-  const focusedHandles = new Set(
-    listFocusedMembersInRoom(roomId).map((entry) => entry.memberHandle)
+  // Focus mode (JWPK 2026-06-05) — MVP-2 slice 2: mode-aware suppression at the
+  // inject seam. Per-member (focusModeStore, persisted), so focusing @localant
+  // never affects @researchant. Nothing is lost — the message is in room history
+  // regardless; focus only gates the PTY push, and the missed stream is
+  // reconstructed as the break-bounded exit digest (slice 4). Distinct from
+  // heads-down (responder relay) and room-mode (room-wide).
+  //   • SHIELD @X  → X stops receiving the room entirely. By default even a
+  //     direct @-mention is suppressed (→ digest), so a mention can't be a flood
+  //     vector (team-locked, JWPK 'make a decision and go'). The breakthrough
+  //     knob below flips that to "mentions break through" with one line.
+  //   • SOLO @X    → mute EVERYONE ELSE so X works/presents uninterrupted; only
+  //     the solo target(s) keep receiving.
+  // FOCUS_SHIELD_MENTION_BREAKTHROUGH: false = no live breakthrough (default,
+  // team-locked). Flip to true to restore JWPK's earlier "mentions break
+  // through" pick — single-line, no other change.
+  const FOCUS_SHIELD_MENTION_BREAKTHROUGH = false;
+  const focusEntries = listFocusedMembersInRoom(roomId);
+  const shieldedHandles = new Set(
+    focusEntries.filter((e) => e.mode === 'shield').map((e) => e.memberHandle)
   );
+  const soloTargets = new Set(
+    focusEntries.filter((e) => e.mode === 'solo').map((e) => e.memberHandle)
+  );
+  const soloActive = soloTargets.size > 0;
   for (const membership of memberships) {
     if (membership.handle === message.authorHandle) continue;
+    // SOLO: when any member is soloing the room, only the solo target(s) receive.
+    if (soloActive && !soloTargets.has(membership.handle)) {
+      continue;
+    }
+    // SHIELD: a shielded member's firehose is suppressed; a direct @-mention
+    // breaks through ONLY when the breakthrough knob is on (default off).
     if (
-      focusedHandles.has(membership.handle) &&
-      !membershipIsTargeted(membership, targetedHandles)
+      shieldedHandles.has(membership.handle) &&
+      !(FOCUS_SHIELD_MENTION_BREAKTHROUGH && membershipIsTargeted(membership, targetedHandles))
     ) {
-      continue; // focused member: suppress firehose, only direct @mention breaks through
+      continue;
     }
     if (!broadcastToAll && !membershipIsTargeted(membership, targetedHandles)) continue;
     if (!activeClaimAllowsRecipient(message, membership.handle)) continue;

@@ -893,7 +893,11 @@ describe('fanoutMessageToRoomTerminals — focus mode (JWPK 2026-06-05)', () => 
     expect(q.pendingCountForTests(`${room.id}::${tNormal.id}`)).toBe(1); // unaffected
   });
 
-  it('a DIRECT @mention breaks through focus mode', () => {
+  it('SHIELD suppresses even a DIRECT @mention (no live breakthrough — goes to digest)', () => {
+    // MVP-2 slice 2 (team-locked, JWPK "make a decision and go"): a mention of a
+    // shielded member is NOT delivered live (would be a flood vector); it's
+    // captured in the break-bounded exit digest instead. (Reverses the MVP-1
+    // mention-breakthrough; flip FOCUS_SHIELD_MENTION_BREAKTHROUGH to restore.)
     const room = createChatRoom({ name: 'focus-mention-room', whoCreatedIt: '@test' });
     const tSender = upsertTerminal({ pid: 4, pid_start: 'pf4', name: 'fm-sender' });
     const tFocused = upsertTerminal({ pid: 5, pid_start: 'pf5', name: 'fm-focused' });
@@ -901,7 +905,7 @@ describe('fanoutMessageToRoomTerminals — focus mode (JWPK 2026-06-05)', () => 
     addMembership({ room_id: room.id, handle: '@sender', terminal_id: tSender.id });
     addMembership({ room_id: room.id, handle: '@focused', terminal_id: tFocused.id });
     inviteAgentToRoom({ roomId: room.id, agentHandle: '@focused', agentDisplayName: 'Focused' });
-    enterFocus({ roomId: room.id, memberHandle: '@focused' });
+    enterFocus({ roomId: room.id, memberHandle: '@focused' }); // mode defaults to shield
     const message = postMessage({
       roomId: room.id,
       authorHandle: '@sender',
@@ -910,6 +914,30 @@ describe('fanoutMessageToRoomTerminals — focus mode (JWPK 2026-06-05)', () => 
     });
     fanoutMessageToRoomTerminals(room.id, message);
     const q = getFanoutQueueForTests();
-    expect(q.pendingCountForTests(`${room.id}::${tFocused.id}`)).toBe(1); // mention breaks through
+    expect(q.pendingCountForTests(`${room.id}::${tFocused.id}`)).toBe(0); // suppressed; lives in history/digest
+  });
+
+  it('SOLO @X mutes everyone else — only the solo target keeps receiving', () => {
+    const room = createChatRoom({ name: 'solo-room', whoCreatedIt: '@test' });
+    const tSender = upsertTerminal({ pid: 6, pid_start: 'pf6', name: 'solo-sender' });
+    const tSolo = upsertTerminal({ pid: 7, pid_start: 'pf7', name: 'solo-target' });
+    const tOther = upsertTerminal({ pid: 8, pid_start: 'pf8', name: 'solo-other' });
+    updatePaneTarget(tSolo.id, '%solo', 'claude_code');
+    updatePaneTarget(tOther.id, '%other', 'claude_code');
+    addMembership({ room_id: room.id, handle: '@sender', terminal_id: tSender.id });
+    addMembership({ room_id: room.id, handle: '@solo', terminal_id: tSolo.id });
+    addMembership({ room_id: room.id, handle: '@other', terminal_id: tOther.id });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@solo', agentDisplayName: 'Solo' });
+    enterFocus({ roomId: room.id, memberHandle: '@solo', mode: 'solo' });
+    const message = postMessage({
+      roomId: room.id,
+      authorHandle: '@sender',
+      body: '@everyone status?',
+      kind: 'human'
+    });
+    fanoutMessageToRoomTerminals(room.id, message);
+    const q = getFanoutQueueForTests();
+    expect(q.pendingCountForTests(`${room.id}::${tSolo.id}`)).toBe(1); // solo target still receives
+    expect(q.pendingCountForTests(`${room.id}::${tOther.id}`)).toBe(0); // everyone else muted
   });
 });
