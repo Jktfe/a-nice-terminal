@@ -9,6 +9,7 @@ import {
   CannotRemoveRoomMemberError,
   __overrideRoomCreatorForTests
 } from './chatRoomStore';
+import { getIdentityDb } from './db';
 import { getMemberPresentation } from './membershipPresentationStore';
 import { isMember as cleanIsMember } from './membershipStore';
 
@@ -91,6 +92,20 @@ describe('chatRoomStore — members and invites', () => {
     const created = createChatRoom({ name: 'with-creator', whoCreatedIt: '@you' });
     expect(created.members).toHaveLength(1);
     expect(created.members[0].handle).toBe('@you');
+    expect(created.members[0].kind).toBe('human');
+  });
+
+  it('does not classify case-variant browser-session synthetic handles as real agents', () => {
+    getIdentityDb().pragma('foreign_keys = OFF');
+    getIdentityDb()
+      .prepare(
+        `INSERT INTO room_memberships (id, room_id, handle, terminal_id, created_at)
+         VALUES ('synthetic-binding', 'some-room', '@BROWSER-BS_ABC123', 'terminal-bs', 0)`
+      )
+      .run();
+
+    const created = createChatRoom({ name: 'synthetic-creator', whoCreatedIt: '@BROWSER-BS_ABC123' });
+
     expect(created.members[0].kind).toBe('human');
   });
 
