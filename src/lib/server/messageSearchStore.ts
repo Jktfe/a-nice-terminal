@@ -16,7 +16,11 @@
  */
 
 import { listChatRooms, findChatRoomById } from './chatRoomStore';
-import { listMessagesInRoom, type ChatMessage } from './chatMessageStore';
+import {
+  listMessagesAfterLatestBreak,
+  listMessagesInRoom,
+  type ChatMessage
+} from './chatMessageStore';
 
 const DEFAULT_RESULT_LIMIT = 50;
 const HIGHEST_ALLOWED_LIMIT = 200;
@@ -31,6 +35,7 @@ export function searchMessages(input: {
   query: string;
   roomId?: string;
   limit?: number;
+  afterLatestBreakOnly?: boolean;
 }): MessageSearchHit[] {
   const trimmedQuery = input.query.trim();
   if (trimmedQuery.length === 0) {
@@ -44,7 +49,9 @@ export function searchMessages(input: {
   const allHits: MessageSearchHit[] = [];
 
   for (const room of roomsToSearch) {
-    const messages = listMessagesInRoom(room.id);
+    const messages = input.afterLatestBreakOnly === true
+      ? listMessagesAfterLatestBreak(room.id)
+      : listMessagesInRoom(room.id);
     for (const message of messages) {
       if (message.body.toLowerCase().includes(queryInLowercase)) {
         allHits.push({ message, roomId: room.id, roomName: room.name });
@@ -65,9 +72,10 @@ export function searchMessages(input: {
 export function searchMessagesInRoom(
   roomId: string,
   query: string,
-  limit?: number
+  limit?: number,
+  options: { afterLatestBreakOnly?: boolean } = {}
 ): MessageSearchHit[] {
-  return searchMessages({ query, roomId, limit });
+  return searchMessages({ query, roomId, limit, afterLatestBreakOnly: options.afterLatestBreakOnly });
 }
 
 export function resetMessageSearchStoreForTests(): void {

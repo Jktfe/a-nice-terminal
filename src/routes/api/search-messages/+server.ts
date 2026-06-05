@@ -1,7 +1,7 @@
 /**
  * Search messages across every chat room (or one room when scoped).
  *
- *   GET /api/search-messages?query=...[&roomId=...][&limit=...]
+ *   GET /api/search-messages?query=...[&roomId=...][&limit=...][&allContent=1]
  *     → 200 { hits: MessageSearchHit[] }   newest first, capped to limit
  *     → 400                                 query missing or blank
  *     → 404                                 roomId provided but unknown
@@ -29,10 +29,13 @@ export const GET: RequestHandler = ({ url }) => {
     rawRoomId !== null && rawRoomId.trim().length > 0 ? rawRoomId : undefined;
 
   const limit = parseLimitParam(url.searchParams.get('limit'));
+  const allContent = parseBooleanParam(url.searchParams.get('allContent')) ||
+    parseBooleanParam(url.searchParams.get('longMemory'));
+  const afterLatestBreakOnly = roomId !== undefined && !allContent;
 
   try {
-    const hits = searchMessages({ query: rawQuery, roomId, limit });
-    return json({ hits });
+    const hits = searchMessages({ query: rawQuery, roomId, limit, afterLatestBreakOnly });
+    return json({ hits, allContent });
   } catch (causeOfFailure) {
     const reason =
       causeOfFailure instanceof Error ? causeOfFailure.message : 'Could not search.';
@@ -46,4 +49,10 @@ function parseLimitParam(rawLimit: string | null): number | undefined {
   const parsedNumber = Number(rawLimit);
   if (!Number.isFinite(parsedNumber)) return undefined;
   return parsedNumber;
+}
+
+function parseBooleanParam(rawValue: string | null): boolean {
+  if (rawValue === null) return false;
+  const normalized = rawValue.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'on' || normalized === 'yes';
 }

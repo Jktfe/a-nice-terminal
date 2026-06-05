@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { GET } from './+server';
 import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
 import {
+  postBreakMessage,
   postMessage,
   resetChatMessageStoreForTests
 } from '$lib/server/chatMessageStore';
@@ -69,6 +70,41 @@ describe('GET /api/search-messages', () => {
     const body = await response.json();
     expect(body.hits).toHaveLength(1);
     expect(body.hits[0].roomId).toBe(roomA.id);
+  });
+
+  it('defaults room-scoped search to the current block after the latest break', async () => {
+    const room = createChatRoom({ name: 'Scoped Block', whoCreatedIt: '@you' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'scopeword before break' });
+    postBreakMessage({ roomId: room.id, postedByHandle: '@you', reason: 'new section' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'scopeword after break' });
+
+    const response = await callGet(
+      `/api/search-messages?query=scopeword&roomId=${room.id}`
+    );
+    const body = await response.json();
+
+    expect(body.hits.map((hit: { message: { body: string } }) => hit.message.body)).toEqual([
+      'scopeword after break'
+    ]);
+    expect(body.allContent).toBe(false);
+  });
+
+  it('keeps full room history available when allContent is explicitly enabled', async () => {
+    const room = createChatRoom({ name: 'Scoped Full', whoCreatedIt: '@you' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'scopefull before break' });
+    postBreakMessage({ roomId: room.id, postedByHandle: '@you', reason: 'new section' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'scopefull after break' });
+
+    const response = await callGet(
+      `/api/search-messages?query=scopefull&roomId=${room.id}&allContent=1`
+    );
+    const body = await response.json();
+
+    expect(body.hits.map((hit: { message: { body: string } }) => hit.message.body)).toEqual([
+      'scopefull after break',
+      'scopefull before break'
+    ]);
+    expect(body.allContent).toBe(true);
   });
 
   it('treats whitespace-only roomId as unscoped (all rooms)', async () => {

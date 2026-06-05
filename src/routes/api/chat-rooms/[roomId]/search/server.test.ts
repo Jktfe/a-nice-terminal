@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { GET } from './+server';
 import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
 import {
+  postBreakMessage,
   postMessage,
   resetChatMessageStoreForTests
 } from '$lib/server/chatMessageStore';
@@ -109,5 +110,36 @@ describe('GET /api/chat-rooms/[roomId]/search', () => {
     const body = await response.json();
     expect(body.matches).toHaveLength(1);
     expect(body.matches[0].body).toContain('FRESH ant');
+  });
+
+  it('defaults room search to the current block after the latest break', async () => {
+    const room = createChatRoom({ name: 'current-block', whoCreatedIt: '@you' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'blockword before break' });
+    postBreakMessage({ roomId: room.id, postedByHandle: '@you', reason: 'new section' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'blockword after break' });
+
+    const response = await callGet(room.id, '?q=blockword');
+    const body = await response.json();
+
+    expect(body.matches.map((match: { body: string }) => match.body)).toEqual([
+      'blockword after break'
+    ]);
+    expect(body.allContent).toBe(false);
+  });
+
+  it('returns full room history when allContent is explicitly enabled', async () => {
+    const room = createChatRoom({ name: 'all-content', whoCreatedIt: '@you' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'allword before break' });
+    postBreakMessage({ roomId: room.id, postedByHandle: '@you', reason: 'new section' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'allword after break' });
+
+    const response = await callGet(room.id, '?q=allword&allContent=1');
+    const body = await response.json();
+
+    expect(body.matches.map((match: { body: string }) => match.body)).toEqual([
+      'allword after break',
+      'allword before break'
+    ]);
+    expect(body.allContent).toBe(true);
   });
 });
