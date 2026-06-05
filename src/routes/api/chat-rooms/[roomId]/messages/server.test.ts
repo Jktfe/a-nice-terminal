@@ -10,7 +10,8 @@ import {
   listMessagesInRoom,
   postBreakMessage,
   postMessage,
-  resetChatMessageStoreForTests
+  resetChatMessageStoreForTests,
+  softDeleteMessage
 } from '$lib/server/chatMessageStore';
 import {
   addReactionToMessage,
@@ -142,6 +143,21 @@ describe('GET /api/chat-rooms/:roomId/messages pagination', () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.messages.map((message: { body: string }) => message.body)).toContain('visible via pidChain');
+  });
+
+  it('filters deleted and synthetic browser-session rows from normal room reads', async () => {
+    const room = createChatRoom({ name: 'visible-read-scope', whoCreatedIt: '@you' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'visible keeper' });
+    const deleted = postMessage({ roomId: room.id, authorHandle: '@you', body: 'deleted ghost' });
+    postMessage({ roomId: room.id, authorHandle: '@browser-bs_deadbeef', body: 'synthetic ghost' });
+    softDeleteMessage({ messageId: deleted.id, byHandle: '@you' });
+    const { token } = issueToken('you@example.com');
+
+    const response = await callGet(room.id, '', { authorization: `Bearer ${token}` });
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.messages.map((message: { body: string }) => message.body)).toEqual(['visible keeper']);
   });
 
   it('hides message reads from authenticated non-members', async () => {

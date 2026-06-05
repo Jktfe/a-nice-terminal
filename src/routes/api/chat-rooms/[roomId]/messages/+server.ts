@@ -58,6 +58,7 @@ import { listReadersForMessages } from '$lib/server/messageReadReceiptStore';
 import { resolveOrNull } from '$lib/server/sessionResolver';
 import { getRoomPolicy } from '$lib/server/roomPolicyStore';
 import { decidePost } from '$lib/server/roomAccessGate';
+import { filterVisibleMessages } from '$lib/server/visibleContentScope';
 // CLEAN MODEL (identity rebuild): the ONE writer — handle-keyed lease store
 // (room, handle, session), reuse-rules 1-4, no terminal_id in the identity path.
 import {
@@ -99,7 +100,8 @@ export const GET: RequestHandler = async ({ params, request, url }) => {
     sinceBreak: !includePreBreak,
     ...(before !== undefined && { beforePostOrder: before })
   });
-  const messagesWithReactions = page.messages.map((message) => withReactionSummaries(message, viewerHandles));
+  const visibleMessages = filterVisibleMessages(page.messages, {});
+  const messagesWithReactions = visibleMessages.map((message) => withReactionSummaries(message, viewerHandles));
   const readersByMessageId = listReadersForMessages(messagesWithReactions.map((message) => message.id));
   return json({
     messages: messagesWithReactions.map((message) => {
