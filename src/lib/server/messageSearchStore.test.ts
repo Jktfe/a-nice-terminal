@@ -4,7 +4,8 @@ import {
   postBreakMessage,
   postMessage,
   postSystemMessage,
-  resetChatMessageStoreForTests
+  resetChatMessageStoreForTests,
+  softDeleteMessage
 } from './chatMessageStore';
 import { searchMessages } from './messageSearchStore';
 
@@ -77,6 +78,34 @@ describe('messageSearchStore', () => {
       'archiveword after break',
       'archiveword before break'
     ]);
+  });
+
+  it('does not return deleted messages or synthetic browser-session rows even when all content is enabled', () => {
+    const room = createChatRoom({ name: 'Visible Scope Room', whoCreatedIt: '@you' });
+    const deleted = postMessage({
+      roomId: room.id,
+      authorHandle: '@you',
+      body: 'scopeword deleted'
+    });
+    postMessage({
+      roomId: room.id,
+      authorHandle: '@browser-bs_tmp',
+      body: 'scopeword synthetic'
+    });
+    postMessage({
+      roomId: room.id,
+      authorHandle: '@agent',
+      body: 'scopeword visible'
+    });
+    softDeleteMessage({ messageId: deleted.id, byHandle: '@you', nowMs: 123 });
+
+    const hits = searchMessages({
+      query: 'scopeword',
+      roomId: room.id,
+      afterLatestBreakOnly: false
+    });
+
+    expect(hits.map((hit) => hit.message.body)).toEqual(['scopeword visible']);
   });
 
   it('matches system and break messages too (they live in the same store)', () => {

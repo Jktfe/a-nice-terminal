@@ -21,6 +21,7 @@ import {
   listMessagesInRoom,
   type ChatMessage
 } from './chatMessageStore';
+import { filterVisibleMessages } from './visibleContentScope';
 
 const DEFAULT_RESULT_LIMIT = 50;
 const HIGHEST_ALLOWED_LIMIT = 200;
@@ -49,9 +50,13 @@ export function searchMessages(input: {
   const allHits: MessageSearchHit[] = [];
 
   for (const room of roomsToSearch) {
-    const messages = input.afterLatestBreakOnly === true
+    const currentBlockMessages = input.afterLatestBreakOnly === true
       ? listMessagesAfterLatestBreak(room.id)
-      : listMessagesInRoom(room.id);
+      : undefined;
+    const currentBlockIds = currentBlockMessages === undefined
+      ? undefined
+      : new Set(currentBlockMessages.map((message) => message.id));
+    const messages = filterVisibleMessages(listMessagesInRoom(room.id), { currentBlockIds });
     for (const message of messages) {
       if (message.body.toLowerCase().includes(queryInLowercase)) {
         allHits.push({ message, roomId: room.id, roomName: room.name });
