@@ -5,13 +5,30 @@ import {
   inviteAgentToRoom,
   removeMemberFromRoom,
   resetChatRoomStoreForTests,
+  updateRoomMemberPresentation,
   CannotRemoveRoomMemberError,
   __overrideRoomCreatorForTests
 } from './chatRoomStore';
+import { getMemberPresentation } from './membershipPresentationStore';
 
 describe('chatRoomStore — members and invites', () => {
   beforeEach(() => {
     resetChatRoomStoreForTests();
+  });
+
+  it('updateRoomMemberPresentation additively mirrors into room_member_presentation (R3)', () => {
+    const room = createChatRoom({ name: 'r3-presentation-mirror', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@tony' });
+    updateRoomMemberPresentation({
+      roomId: room.id,
+      globalHandle: '@tony',
+      displayColor: '#abc123',
+      displayIcon: 'robot'
+    });
+    const p = getMemberPresentation(room.id, '@tony');
+    expect(p?.display_color).toBe('#abc123');
+    expect(p?.display_icon).toBe('robot');
+    expect(p?.member_kind).toBe('agent');
   });
 
   it('creates a room with the creator as the first member', () => {

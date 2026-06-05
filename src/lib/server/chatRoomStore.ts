@@ -28,6 +28,7 @@ import {
   mirrorUpdateMemberPresentation as v02MirrorUpdateMemberPresentation,
   ensureV02RoomExists as v02EnsureRoomExists
 } from './v02ChatRoomBridge';
+import { setMemberPresentation } from './membershipPresentationStore';
 import {
   listRoomMembersHydrated as v02ListRoomMembersHydrated,
   isHandleActiveMemberOfRoom as v02IsHandleActiveMemberOfRoom
@@ -984,6 +985,24 @@ export function updateRoomMemberPresentation(input: {
     displayIcon,
     displayBackgroundStyle
   });
+
+  // R3 consolidation (2026-06-05): ALSO mirror into the clean
+  // room_member_presentation table. ADDITIVE — nothing reads it yet, so this
+  // fills the canonical presentation table with real data ahead of the
+  // dashboard read cut-over (then the read-flip is on already-populated data).
+  // Best-effort, same as the v0.2 mirror.
+  try {
+    setMemberPresentation(input.roomId, input.globalHandle, {
+      room_display_name: displayName,
+      display_color: displayColor,
+      display_icon: displayIcon,
+      display_background_style: displayBackgroundStyle,
+      member_kind: current.kind
+    });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[r3-presentation] room_member_presentation mirror failed (legacy unaffected):', err);
+  }
 
   const updated = loadRoomById(input.roomId)!;
   return updated.members.find((member) => member.handle === input.globalHandle)!;
