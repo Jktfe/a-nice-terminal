@@ -27,8 +27,22 @@
   let lastError = $state('');
 
   async function refresh() {
+    // No room context → nothing to fetch. Render the quiet empty state.
+    if (!roomId) {
+      isLoading = false;
+      return;
+    }
     try {
       const res = await fetch(`/api/chat-rooms/${encodeURIComponent(roomId)}/screenshots`);
+      // 404 (room no longer a live chat_rooms row — e.g. just archived/deleted
+      // while its detail view was still mounted) and 401 (read context not yet
+      // resolved) are EXPECTED absences for a context-rail sub-panel, not
+      // failures. Degrade to the empty state silently; only 5xx / network
+      // faults are worth a visible error.
+      if (res.status === 404 || res.status === 401) {
+        screenshots = [];
+        return;
+      }
       if (!res.ok) throw new Error(`Could not load screenshots (${res.status}).`);
       const body = (await res.json()) as { screenshots: Screenshot[] };
       screenshots = body.screenshots ?? [];
@@ -50,6 +64,10 @@
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
 
+  function screenshotUrl(shot: Screenshot): string {
+    return `/uploads/rooms/${shot.room_id}/screenshots/${shot.sha}.png`;
+  }
+
   refresh();
 </script>
 
@@ -63,8 +81,8 @@
   {:else}
     <div class="screenshots-grid">
       {#each screenshots as shot}
-        <a class="screenshot-thumb" href={`/uploads/${shot.room_id}/${shot.sha}.png`} target="_blank">
-          <img src={`/uploads/${shot.room_id}/${shot.sha}.png`} alt={shot.topic ?? 'Screenshot'} loading="lazy" />
+        <a class="screenshot-thumb" href={screenshotUrl(shot)} target="_blank">
+          <img src={screenshotUrl(shot)} alt={shot.topic ?? 'Screenshot'} loading="lazy" />
           <span class="screenshot-meta">
             {shot.taken_by} · {formatSize(shot.bytes)}
             {#if shot.dimensions}· {shot.dimensions}{/if}
