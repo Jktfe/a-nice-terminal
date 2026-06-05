@@ -1,4 +1,5 @@
 import type { ChatMessage } from './chatMessageStore';
+import { isDurableMemberHandle } from './membershipStore';
 
 export type VisibleContentSkipReason =
   | 'non_current_block'
@@ -22,7 +23,7 @@ export function visibleContentSkipReason(
   scope: VisibleContentScope
 ): VisibleContentSkipReason | null {
   if (message.deletedAtMs !== undefined && message.deletedAtMs !== null) return 'message_deleted';
-  if (message.authorHandle.startsWith('@browser-bs_')) return 'synthetic_browser_session';
+  if (!isDurableMemberHandle(message.authorHandle)) return 'synthetic_browser_session';
   if (scope.currentBlockIds !== undefined && !scope.currentBlockIds.has(message.id)) {
     return 'non_current_block';
   }
