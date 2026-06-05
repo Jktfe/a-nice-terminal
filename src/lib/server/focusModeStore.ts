@@ -1,38 +1,83 @@
 /**
  * Focus mode — per-room, per-member head-down signal.
  *
- * One member can enter focus in a room with an optional reason
- * ("writing PR description", "deep review"). Other members and the
- * chair digest can render this so people know when not to interrupt.
+ * A member enters focus in a room (shield = stop receiving the room firehose;
+ * solo = mute everyone else). Set by the member themselves or by an operator/
+ * peer (`setter`). MVP-2 (2026-06-05): the record is now PERSISTED to the
+ * `room_focus` table (was an in-memory Map) so a shield + its timer/exit-policy
+ * survive a server restart — a restart must not silently un-shield a member or
+ * lose who set it. Per-member, per-room. Distinct from heads-down (responder
+ * relay) and room-mode (room-wide).
  *
- * Backs the "Focus mode" capability ledger row. UI wiring is a later
- * slice; this slice ships the store + endpoint surface only.
+ * Enforcement (the firehose suppression) lives in pty-inject-fanout; this store
+ * is the durable source of truth it reads.
  */
 
+import { getIdentityDb } from './db';
 import { findChatRoomById } from './chatRoomStore';
 
 export const FOCUS_REASON_MAX_LENGTH = 280;
 
+export type FocusMode = 'shield' | 'solo';
+/** What happens when a focus timer (`expiresAt`) lapses. 'stay-shielded' =
+ *  never auto-release; prompt the setter + keep shielded until answered
+ *  (JWPK 2026-06-05, the never-auto-dump rule). */
+export type FocusExitPolicy = 'stay-shielded';
+
 export type FocusEntry = {
   roomId: string;
   memberHandle: string;
+  /** Who set the focus. Defaults to the member themselves (self-set). Used to
+   *  DIRECT the timer-exit prompt (never gates voluntary self-release). */
+  setter: string;
+  mode: FocusMode;
+  exitPolicy: FocusExitPolicy;
   reason?: string;
   enteredAt: string;
-  // FOCUS-DURATION (2026-05-15, JWPK): ISO timestamp at which the
-  // focus claim auto-clears. null = indefinite (until explicit exitFocus).
-  // Lazy expiry: list/find filter past-expiry entries on read and
-  // opportunistically prune them from the underlying map.
+  // ISO timestamp at which the focus claim's timer lapses. null = indefinite
+  // (until explicit exitFocus). Lazy expiry: list/find filter past-expiry
+  // entries on read and opportunistically prune them.
   expiresAt: string | null;
 };
 
-const focusByRoomThenMember = new Map<string, Map<string, FocusEntry>>();
+type FocusRow = {
+  room_id: string;
+  member_handle: string;
+  setter_handle: string;
+  mode: string;
+  exit_policy: string;
+  reason: string | null;
+  entered_at_ms: number;
+  expires_at_ms: number | null;
+};
 
-function focusMapForRoom(roomId: string): Map<string, FocusEntry> {
-  const existing = focusByRoomThenMember.get(roomId);
-  if (existing) return existing;
-  const freshMapForRoom = new Map<string, FocusEntry>();
-  focusByRoomThenMember.set(roomId, freshMapForRoom);
-  return freshMapForRoom;
+function ensureTable(db = getIdentityDb()): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS room_focus (
+      room_id        TEXT NOT NULL,
+      member_handle  TEXT NOT NULL,
+      setter_handle  TEXT NOT NULL,
+      mode           TEXT NOT NULL DEFAULT 'shield' CHECK (mode IN ('shield','solo')),
+      exit_policy    TEXT NOT NULL DEFAULT 'stay-shielded',
+      reason         TEXT,
+      entered_at_ms  INTEGER NOT NULL,
+      expires_at_ms  INTEGER,
+      PRIMARY KEY (room_id, member_handle)
+    )
+  `);
+}
+
+function rowToEntry(row: FocusRow): FocusEntry {
+  return {
+    roomId: row.room_id,
+    memberHandle: row.member_handle,
+    setter: row.setter_handle,
+    mode: row.mode === 'solo' ? 'solo' : 'shield',
+    exitPolicy: 'stay-shielded',
+    reason: row.reason ?? undefined,
+    enteredAt: new Date(row.entered_at_ms).toISOString(),
+    expiresAt: row.expires_at_ms === null ? null : new Date(row.expires_at_ms).toISOString()
+  };
 }
 
 function normaliseToAtHandle(raw: string): string {
@@ -50,9 +95,13 @@ function assertHandleNonBlank(rawHandle: string): void {
 export function enterFocus(input: {
   roomId: string;
   memberHandle: string;
+  /** Who set it. Omit = self-set (defaults to the member). */
+  setter?: string;
+  /** shield (default) = stop receiving the room; solo = mute everyone else. */
+  mode?: FocusMode;
   reason?: string;
-  // FOCUS-DURATION: optional auto-clear timer. Milliseconds from now;
-  // server stamps the absolute expiresAt. Omit/undefined = indefinite.
+  // optional auto-clear timer. Milliseconds from now; server stamps the
+  // absolute expiresAt. Omit/undefined = indefinite.
   durationMs?: number;
 }): FocusEntry {
   const room = findChatRoomById(input.roomId);
@@ -68,81 +117,119 @@ export function enterFocus(input: {
     throw new Error(`${handle} is not a member of this room.`);
   }
 
-  let trimmedReason: string | undefined;
+  const setter =
+    input.setter && input.setter.trim().length > 0
+      ? normaliseToAtHandle(input.setter)
+      : handle; // self-set
+  const mode: FocusMode = input.mode === 'solo' ? 'solo' : 'shield';
+
+  let trimmedReason: string | null = null;
   if (input.reason !== undefined) {
     const trimmed = input.reason.trim();
     if (trimmed.length > FOCUS_REASON_MAX_LENGTH) {
       throw new Error(`Focus reason must be ${FOCUS_REASON_MAX_LENGTH} characters or fewer.`);
     }
-    trimmedReason = trimmed.length === 0 ? undefined : trimmed;
+    trimmedReason = trimmed.length === 0 ? null : trimmed;
   }
 
-  let expiresAt: string | null = null;
+  let expiresAtMs: number | null = null;
   if (input.durationMs !== undefined) {
     if (!Number.isFinite(input.durationMs) || input.durationMs <= 0) {
       throw new Error('durationMs must be a positive finite number.');
     }
-    expiresAt = new Date(Date.now() + input.durationMs).toISOString();
+    expiresAtMs = Date.now() + input.durationMs;
   }
 
-  const entry: FocusEntry = {
+  const db = getIdentityDb();
+  ensureTable(db);
+  const enteredAtMs = Date.now();
+  // Upsert — idempotent per (room, member); a re-enter replaces the prior row.
+  db.prepare(
+    `INSERT INTO room_focus
+       (room_id, member_handle, setter_handle, mode, exit_policy, reason, entered_at_ms, expires_at_ms)
+     VALUES (?, ?, ?, ?, 'stay-shielded', ?, ?, ?)
+     ON CONFLICT(room_id, member_handle) DO UPDATE SET
+       setter_handle = excluded.setter_handle,
+       mode          = excluded.mode,
+       exit_policy   = excluded.exit_policy,
+       reason        = excluded.reason,
+       entered_at_ms = excluded.entered_at_ms,
+       expires_at_ms = excluded.expires_at_ms`
+  ).run(input.roomId, handle, setter, mode, trimmedReason, enteredAtMs, expiresAtMs);
+
+  return {
     roomId: input.roomId,
     memberHandle: handle,
-    reason: trimmedReason,
-    enteredAt: new Date().toISOString(),
-    expiresAt
+    setter,
+    mode,
+    exitPolicy: 'stay-shielded',
+    reason: trimmedReason ?? undefined,
+    enteredAt: new Date(enteredAtMs).toISOString(),
+    expiresAt: expiresAtMs === null ? null : new Date(expiresAtMs).toISOString()
   };
-
-  focusMapForRoom(input.roomId).set(handle, entry);
-  return entry;
 }
 
 export function exitFocus(input: { roomId: string; memberHandle: string }): boolean {
   assertHandleNonBlank(input.memberHandle);
   const handle = normaliseToAtHandle(input.memberHandle);
-  return focusMapForRoom(input.roomId).delete(handle);
+  const db = getIdentityDb();
+  ensureTable(db);
+  const result = db
+    .prepare(`DELETE FROM room_focus WHERE room_id = ? AND member_handle = ?`)
+    .run(input.roomId, handle);
+  return result.changes > 0;
 }
 
-// FOCUS-DURATION: an entry has expired when its `expiresAt` is non-null
-// and lies in the past. Indefinite entries (expiresAt === null) never
-// expire.
-function isExpired(entry: FocusEntry, now: number): boolean {
-  if (entry.expiresAt === null) return false;
-  return new Date(entry.expiresAt).getTime() <= now;
+// An entry has expired when its expires_at_ms is non-null and in the past.
+// Indefinite entries (null) never expire.
+function isExpiredMs(expiresAtMs: number | null, now: number): boolean {
+  if (expiresAtMs === null) return false;
+  return expiresAtMs <= now;
 }
 
 export function findFocus(roomId: string, memberHandle: string): FocusEntry | undefined {
   if (memberHandle.trim().length === 0) return undefined;
   const handle = normaliseToAtHandle(memberHandle);
-  const map = focusMapForRoom(roomId);
-  const entry = map.get(handle);
-  if (!entry) return undefined;
-  if (isExpired(entry, Date.now())) {
-    // Lazy prune: keep the map bounded as expired entries are observed.
-    map.delete(handle);
+  const db = getIdentityDb();
+  ensureTable(db);
+  const row = db
+    .prepare(`SELECT * FROM room_focus WHERE room_id = ? AND member_handle = ?`)
+    .get(roomId, handle) as FocusRow | undefined;
+  if (!row) return undefined;
+  if (isExpiredMs(row.expires_at_ms, Date.now())) {
+    // Lazy prune: drop the expired row as it is observed.
+    db.prepare(`DELETE FROM room_focus WHERE room_id = ? AND member_handle = ?`).run(roomId, handle);
     return undefined;
   }
-  return entry;
+  return rowToEntry(row);
 }
 
 export function listFocusedMembersInRoom(roomId: string): FocusEntry[] {
-  const map = focusMapForRoom(roomId);
+  const db = getIdentityDb();
+  ensureTable(db);
   const now = Date.now();
+  const rows = db
+    .prepare(`SELECT * FROM room_focus WHERE room_id = ? ORDER BY entered_at_ms ASC, member_handle ASC`)
+    .all(roomId) as FocusRow[];
   const survivors: FocusEntry[] = [];
-  for (const [handle, entry] of map) {
-    if (isExpired(entry, now)) {
-      map.delete(handle); // opportunistic prune during iteration
+  const expired: string[] = [];
+  for (const row of rows) {
+    if (isExpiredMs(row.expires_at_ms, now)) {
+      expired.push(row.member_handle);
       continue;
     }
-    survivors.push(entry);
+    survivors.push(rowToEntry(row));
   }
-  return survivors.sort((leftEntry, rightEntry) => {
-    if (leftEntry.enteredAt < rightEntry.enteredAt) return -1;
-    if (leftEntry.enteredAt > rightEntry.enteredAt) return 1;
-    return 0;
-  });
+  // Opportunistic prune of expired rows observed during the scan.
+  if (expired.length > 0) {
+    const del = db.prepare(`DELETE FROM room_focus WHERE room_id = ? AND member_handle = ?`);
+    for (const h of expired) del.run(roomId, h);
+  }
+  return survivors;
 }
 
 export function resetFocusModeStoreForTests(): void {
-  focusByRoomThenMember.clear();
+  const db = getIdentityDb();
+  ensureTable(db);
+  db.prepare(`DELETE FROM room_focus`).run();
 }
