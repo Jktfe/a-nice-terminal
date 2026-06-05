@@ -28,7 +28,8 @@ import {
   mirrorUpdateMemberPresentation as v02MirrorUpdateMemberPresentation,
   ensureV02RoomExists as v02EnsureRoomExists
 } from './v02ChatRoomBridge';
-import { setMemberPresentation } from './membershipPresentationStore';
+import { setMemberPresentation, getMemberPresentation } from './membershipPresentationStore';
+import { listMembers as cleanListMembers } from './membershipStore';
 import {
   listRoomMembersHydrated as v02ListRoomMembersHydrated,
   isHandleActiveMemberOfRoom as v02IsHandleActiveMemberOfRoom
@@ -265,7 +266,50 @@ function recoverableRowToRoom(
   };
 }
 
+/**
+ * R3 read-flip (2026-06-05): which roster table the dashboard reads from.
+ * `clean`  → room_membership ⋈ room_member_presentation (the consolidated model)
+ * default  → v0.2 memberships JOIN agents (current live behaviour)
+ *
+ * Gated by env so this commit lands with ZERO live behaviour change: go-live is
+ * a single `ANT_ROSTER_READ=clean` + kickstart under sign-off, and rollback is
+ * the reverse env flip with no redeploy. The keeper-rule gate (verify on a
+ * WAL-trio copy showing noDrops=0 / noDupes=0) is satisfied by the live proof
+ * at docs/specs/r3-roster-consolidation-live-proof-2026-06-05.json.
+ */
+function rosterReadMode(): 'clean' | 'legacy' {
+  return process.env.ANT_ROSTER_READ?.trim().toLowerCase() === 'clean' ? 'clean' : 'legacy';
+}
+
+/**
+ * Clean-model roster read. Sources membership from `room_membership` (oldest
+ * first — same ordering contract as the legacy joined_at ASC read) and
+ * presentation from `room_member_presentation`, then reuses the EXACT
+ * v02HydratedRowToMember mapper so the output is byte-identical to the legacy
+ * read: same kind-resolution (member_kind ?? terminal-record fallback), same
+ * display fallbacks (default colour/icon/background), same operator display
+ * mapping. The live proof shows this roster is a lossless + injective image of
+ * the legacy union, so the only change at the flip is the SOURCE, not the shape.
+ */
+function loadMembersForRoomClean(roomId: string): RoomMember[] {
+  return cleanListMembers(roomId).map((member) => {
+    const presentation = getMemberPresentation(roomId, member.handle);
+    return v02HydratedRowToMember({
+      handle: member.handle,
+      // room_display_name is a per-room override; null inherits the handle, which
+      // is exactly what the legacy hydrated read passes as display_name too.
+      display_name: presentation?.room_display_name ?? member.handle,
+      display_color: presentation?.display_color ?? null,
+      display_icon: presentation?.display_icon ?? null,
+      display_background_style: presentation?.display_background_style ?? null,
+      member_kind: (presentation?.member_kind as 'human' | 'agent' | null) ?? null,
+      joined_at_iso: new Date(member.created_at_ms).toISOString()
+    });
+  });
+}
+
 function loadMembersForRoom(roomId: string): RoomMember[] {
+  if (rosterReadMode() === 'clean') return loadMembersForRoomClean(roomId);
   // M9d cut-over phase 3: read from v0.2 memberships JOIN agents
   // rather than chat_room_members. Writes still dual-write to both
   // until the week-2 cleanup PR drops the legacy half (rollback

@@ -43,6 +43,7 @@ import type { V02MembershipRole, V02MemberKind } from './v02MembershipsStore';
 import { getIdentityByHandle } from './identityKeysStore';
 import { appendAuditEvent as appendAuditEventCanonical } from './auditEventsStore';
 import { addMember as cleanAddMember, removeMember as cleanRemoveMember } from './membershipStore';
+import { setMemberPresentation } from './membershipPresentationStore';
 
 /**
  * INSERT OR IGNORE a v02_rooms row keyed by roomId. Lookup display_name
@@ -225,6 +226,29 @@ export function mirrorAddMembership(input: {
     // yet; this populates the canonical roster ahead of the read cut-over so
     // it lands on a complete table. Best-effort, inside the existing try.
     cleanAddMember(input.roomId, input.handle, null);
+    // R3 read-flip parity: seed the clean presentation row at invite time too,
+    // so member_kind / display_* survive into the clean read WITHOUT depending
+    // on a later updateRoomMemberPresentation call or a live terminal_records
+    // fallback. The legacy hydrated read gets member_kind from v0.2 memberships;
+    // the clean read gets it from HERE. Only write fields we were actually given
+    // (partial-merge upsert preserves anything an explicit update set earlier).
+    if (
+      input.memberKind != null ||
+      input.roomDisplayName != null ||
+      input.displayColor != null ||
+      input.displayIcon != null ||
+      input.displayBackgroundStyle != null
+    ) {
+      setMemberPresentation(input.roomId, input.handle, {
+        ...(input.roomDisplayName != null && { room_display_name: input.roomDisplayName }),
+        ...(input.displayColor != null && { display_color: input.displayColor }),
+        ...(input.displayIcon != null && { display_icon: input.displayIcon }),
+        ...(input.displayBackgroundStyle != null && {
+          display_background_style: input.displayBackgroundStyle
+        }),
+        ...(input.memberKind != null && { member_kind: input.memberKind })
+      });
+    }
     return membership.membership_id;
   } catch (err) {
     // eslint-disable-next-line no-console

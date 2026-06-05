@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   createChatRoom,
   findChatRoomById,
@@ -15,6 +15,43 @@ import { isMember as cleanIsMember } from './membershipStore';
 describe('chatRoomStore — members and invites', () => {
   beforeEach(() => {
     resetChatRoomStoreForTests();
+  });
+
+  describe('R3 read-flip — ANT_ROSTER_READ=clean sources the roster from room_membership', () => {
+    const prev = process.env.ANT_ROSTER_READ;
+    beforeEach(() => {
+      process.env.ANT_ROSTER_READ = 'clean';
+    });
+    afterEach(() => {
+      if (prev === undefined) delete process.env.ANT_ROSTER_READ;
+      else process.env.ANT_ROSTER_READ = prev;
+    });
+
+    it('findChatRoomById reads members from the clean tables, with presentation + kind preserved', () => {
+      const room = createChatRoom({ name: 'r3-clean-read', whoCreatedIt: '@you' });
+      inviteAgentToRoom({ roomId: room.id, agentHandle: '@tony' });
+      updateRoomMemberPresentation({
+        roomId: room.id,
+        globalHandle: '@tony',
+        displayColor: '#5566ff',
+        displayIcon: 'robot'
+      });
+
+      const fetched = findChatRoomById(room.id);
+      const tony = fetched?.members.find((m) => m.handle === '@tony');
+      const creator = fetched?.members.find((m) => m.handle === '@you');
+
+      // membership sourced from room_membership (both creator + invitee present)
+      expect(creator).toBeTruthy();
+      expect(tony).toBeTruthy();
+      // presentation sourced from room_member_presentation
+      expect(tony?.displayColor).toBe('#5566ff');
+      expect(tony?.displayIcon).toBe('robot');
+      // kind resolution preserved through the shared mapper
+      expect(tony?.kind).toBe('agent');
+      // oldest-first ordering contract: creator before invitee
+      expect(fetched?.members[0].handle).toBe('@you');
+    });
   });
 
   it('member-add additively populates the clean room_membership roster (R3)', () => {
