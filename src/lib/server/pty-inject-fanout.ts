@@ -18,7 +18,7 @@ import type { ChatMessage } from './chatMessageStore';
 import { findChatRoomById } from './chatRoomStore';
 import { listMembershipsForRoom, type RoomMembershipRow } from './roomMembershipsStore';
 import { getTerminalById, touchLastPtyByteAt } from './terminalsStore';
-import { isOperatorHandle } from './operatorHandle';
+import { canonicaliseOperatorHandle, isOperatorHandle } from './operatorHandle';
 import { getRoomMode } from './roomModesStore';
 import {
   injectToTerminal,
@@ -277,6 +277,10 @@ function isOperatorBroadcastAuthor(handle: string): boolean {
   return isOperatorHandle(handle);
 }
 
+function sameAuthorHandle(left: string, right: string): boolean {
+  return canonicaliseOperatorHandle(left).toLowerCase() === canonicaliseOperatorHandle(right).toLowerCase();
+}
+
 function isBrowserTerminalSource(source: string | null | undefined): boolean {
   return typeof source === 'string' && source.startsWith('browser');
 }
@@ -443,7 +447,7 @@ export function fanoutMessageToRoomTerminals(
     }
   }
   for (const membership of memberships) {
-    if (membership.handle === message.authorHandle) continue;
+    if (sameAuthorHandle(membership.handle, message.authorHandle)) continue;
     if (!broadcastToAll && !membershipIsTargeted(membership, targetedHandles)) continue;
     if (!activeClaimAllowsRecipient(message, membership.handle)) continue;
     const terminal = getTerminalById(membership.terminal_id);
