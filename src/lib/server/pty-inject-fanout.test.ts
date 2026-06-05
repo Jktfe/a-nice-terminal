@@ -23,6 +23,7 @@ import { subscribeToRoom, unsubscribeFromRoom } from './eventBroadcast';
 import { setRoomAlias } from './chatRoomAliasStore';
 import { createClaim, resetEntityClaimStoreForTests } from './entityClaimStore';
 import { enterFocus, resetFocusModeStoreForTests } from './focusModeStore';
+import { fireFocusTimerPrompts } from './pty-inject-fanout';
 
 let tmpDir: string;
 const previousDbPath = process.env.ANT_FRESH_DB_PATH;
@@ -939,5 +940,27 @@ describe('fanoutMessageToRoomTerminals — focus mode (JWPK 2026-06-05)', () => 
     const q = getFanoutQueueForTests();
     expect(q.pendingCountForTests(`${room.id}::${tSolo.id}`)).toBe(1); // solo target still receives
     expect(q.pendingCountForTests(`${room.id}::${tOther.id}`)).toBe(0); // everyone else muted
+  });
+});
+
+describe('fanoutMessageToRoomTerminals — focus timer prompt (MVP-2 slice 3)', () => {
+  it('a lapsed shield fires a ONE-SHOT directed timer prompt to the setter (stays shielded)', async () => {
+    const room = createChatRoom({ name: 'timer-prompt', whoCreatedIt: '@you' });
+    const tSetter = upsertTerminal({ pid: 9, pid_start: 'pf9', name: 'ts-setter' });
+    const tMember = upsertTerminal({ pid: 10, pid_start: 'pf10', name: 'ts-member' });
+    updatePaneTarget(tSetter.id, '%tsetter', 'claude_code');
+    updatePaneTarget(tMember.id, '%tmember', 'claude_code');
+    addMembership({ room_id: room.id, handle: '@setter', terminal_id: tSetter.id });
+    addMembership({ room_id: room.id, handle: '@member', terminal_id: tMember.id });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@member', agentDisplayName: 'Member' });
+    // @setter shields @member with a 1ms timer.
+    enterFocus({ roomId: room.id, memberHandle: '@member', setter: '@setter', durationMs: 1 });
+    await new Promise((r) => setTimeout(r, 5));
+    const q = getFanoutQueueForTests();
+    const before = q.pendingCountForTests(`${room.id}::${tSetter.id}`);
+    fireFocusTimerPrompts(room.id);
+    expect(q.pendingCountForTests(`${room.id}::${tSetter.id}`)).toBe(before + 1); // setter prompted (directed)
+    fireFocusTimerPrompts(room.id);
+    expect(q.pendingCountForTests(`${room.id}::${tSetter.id}`)).toBe(before + 1); // one-shot: no double-prompt
   });
 });

@@ -17,7 +17,11 @@
 import type { ChatMessage } from './chatMessageStore';
 import { findChatRoomById } from './chatRoomStore';
 import { listMembershipsForRoom, type RoomMembershipRow } from './roomMembershipsStore';
-import { listFocusedMembersInRoom } from './focusModeStore';
+import {
+  listFocusedMembersInRoom,
+  listLapsedUnpromptedShields,
+  markTimerPrompted
+} from './focusModeStore';
 import { getTerminalById, touchLastPtyByteAt } from './terminalsStore';
 import { isOperatorHandle } from './operatorHandle';
 import { getRoomMode } from './roomModesStore';
@@ -299,6 +303,32 @@ export function sendCoordinationRelay(roomId: string, recipientHandle: string, b
   });
 }
 
+/**
+ * Focus MVP-2 slice 3 — fire the directed timer-lapse prompt to the SETTER for
+ * every shield whose timer has lapsed and hasn't been prompted yet. STAY-
+ * shielded (JWPK 2026-06-05): the focus is NOT auto-released — the setter is
+ * prompted (privately, never a room post; self-set → goes to the member) to
+ * extend or release, and the member stays shielded until then. One-shot per
+ * lapse via markTimerPrompted. Piggybacks on room activity (the fanout call)
+ * rather than a background timer — if the room's quiet there's no flood to
+ * escape, so the prompt only matters once traffic resumes.
+ */
+export function fireFocusTimerPrompts(roomId: string): void {
+  for (const focus of listLapsedUnpromptedShields(roomId)) {
+    const reasonSuffix = focus.reason ? ` (reason: ${focus.reason})` : '';
+    const selfSet = focus.setter === focus.memberHandle;
+    const body = selfSet
+      ? `⏰ Your focus shield timer has lapsed${reasonSuffix}. You're STILL shielded — exitFocus to rejoin, or it stays shielded.`
+      : `⏰ Focus shield timer lapsed for ${focus.memberHandle}${reasonSuffix} (you set it). They're STILL shielded — extend, release them, or leave it shielded.`;
+    try {
+      sendCoordinationRelay(roomId, focus.setter, body);
+    } catch {
+      /* best-effort notify; never block fanout */
+    }
+    markTimerPrompted(roomId, focus.memberHandle);
+  }
+}
+
 export function fanoutMessageToRoomTerminals(
   roomId: string,
   message: ChatMessage,
@@ -313,6 +343,9 @@ export function fanoutMessageToRoomTerminals(
   //   Explicit @handle / @everyone routing still works in either open mode.
   const mode = getRoomMode(roomId);
   if (mode === 'closed') return;
+  // Focus slice 3: on any room activity, fire any pending lapsed-shield timer
+  // prompts to setters (directed, one-shot, never auto-release).
+  fireFocusTimerPrompts(roomId);
   const memberships = listMembershipsForRoom(roomId);
   const targetedHandles = resolveBareMentionsToGlobalHandles(roomId, message.body);
   const containsInformationalMention = hasBracketedMention(message.body);

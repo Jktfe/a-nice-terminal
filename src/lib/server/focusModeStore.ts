@@ -34,10 +34,15 @@ export type FocusEntry = {
   exitPolicy: FocusExitPolicy;
   reason?: string;
   enteredAt: string;
-  // ISO timestamp at which the focus claim's timer lapses. null = indefinite
-  // (until explicit exitFocus). Lazy expiry: list/find filter past-expiry
-  // entries on read and opportunistically prune them.
+  // ISO timestamp at which the focus timer lapses → PROMPT the setter (NOT
+  // auto-release; exitPolicy 'stay-shielded'). null = indefinite (no timer).
+  // The focus STAYS active past this; expiry never prunes it (the never-
+  // auto-dump rule, JWPK 2026-06-05). Release is by explicit exitFocus or a
+  // setter action after the prompt.
   expiresAt: string | null;
+  // ISO timestamp the setter was notified that the timer lapsed (one-shot per
+  // lapse). null = not yet prompted. Cleared on re-enter / extend.
+  promptedAt: string | null;
 };
 
 type FocusRow = {
@@ -49,6 +54,7 @@ type FocusRow = {
   reason: string | null;
   entered_at_ms: number;
   expires_at_ms: number | null;
+  prompted_at_ms: number | null;
 };
 
 function ensureTable(db = getIdentityDb()): void {
@@ -62,6 +68,7 @@ function ensureTable(db = getIdentityDb()): void {
       reason         TEXT,
       entered_at_ms  INTEGER NOT NULL,
       expires_at_ms  INTEGER,
+      prompted_at_ms INTEGER,
       PRIMARY KEY (room_id, member_handle)
     )
   `);
@@ -76,7 +83,8 @@ function rowToEntry(row: FocusRow): FocusEntry {
     exitPolicy: 'stay-shielded',
     reason: row.reason ?? undefined,
     enteredAt: new Date(row.entered_at_ms).toISOString(),
-    expiresAt: row.expires_at_ms === null ? null : new Date(row.expires_at_ms).toISOString()
+    expiresAt: row.expires_at_ms === null ? null : new Date(row.expires_at_ms).toISOString(),
+    promptedAt: row.prompted_at_ms === null ? null : new Date(row.prompted_at_ms).toISOString()
   };
 }
 
@@ -144,17 +152,20 @@ export function enterFocus(input: {
   ensureTable(db);
   const enteredAtMs = Date.now();
   // Upsert — idempotent per (room, member); a re-enter replaces the prior row.
+  // prompted_at_ms resets to NULL on (re)enter — a fresh window / extended
+  // timer has not yet prompted the setter.
   db.prepare(
     `INSERT INTO room_focus
-       (room_id, member_handle, setter_handle, mode, exit_policy, reason, entered_at_ms, expires_at_ms)
-     VALUES (?, ?, ?, ?, 'stay-shielded', ?, ?, ?)
+       (room_id, member_handle, setter_handle, mode, exit_policy, reason, entered_at_ms, expires_at_ms, prompted_at_ms)
+     VALUES (?, ?, ?, ?, 'stay-shielded', ?, ?, ?, NULL)
      ON CONFLICT(room_id, member_handle) DO UPDATE SET
-       setter_handle = excluded.setter_handle,
-       mode          = excluded.mode,
-       exit_policy   = excluded.exit_policy,
-       reason        = excluded.reason,
-       entered_at_ms = excluded.entered_at_ms,
-       expires_at_ms = excluded.expires_at_ms`
+       setter_handle  = excluded.setter_handle,
+       mode           = excluded.mode,
+       exit_policy    = excluded.exit_policy,
+       reason         = excluded.reason,
+       entered_at_ms  = excluded.entered_at_ms,
+       expires_at_ms  = excluded.expires_at_ms,
+       prompted_at_ms = NULL`
   ).run(input.roomId, handle, setter, mode, trimmedReason, enteredAtMs, expiresAtMs);
 
   return {
@@ -165,7 +176,8 @@ export function enterFocus(input: {
     exitPolicy: 'stay-shielded',
     reason: trimmedReason ?? undefined,
     enteredAt: new Date(enteredAtMs).toISOString(),
-    expiresAt: expiresAtMs === null ? null : new Date(expiresAtMs).toISOString()
+    expiresAt: expiresAtMs === null ? null : new Date(expiresAtMs).toISOString(),
+    promptedAt: null
   };
 }
 
@@ -180,13 +192,6 @@ export function exitFocus(input: { roomId: string; memberHandle: string }): bool
   return result.changes > 0;
 }
 
-// An entry has expired when its expires_at_ms is non-null and in the past.
-// Indefinite entries (null) never expire.
-function isExpiredMs(expiresAtMs: number | null, now: number): boolean {
-  if (expiresAtMs === null) return false;
-  return expiresAtMs <= now;
-}
-
 export function findFocus(roomId: string, memberHandle: string): FocusEntry | undefined {
   if (memberHandle.trim().length === 0) return undefined;
   const handle = normaliseToAtHandle(memberHandle);
@@ -196,36 +201,58 @@ export function findFocus(roomId: string, memberHandle: string): FocusEntry | un
     .prepare(`SELECT * FROM room_focus WHERE room_id = ? AND member_handle = ?`)
     .get(roomId, handle) as FocusRow | undefined;
   if (!row) return undefined;
-  if (isExpiredMs(row.expires_at_ms, Date.now())) {
-    // Lazy prune: drop the expired row as it is observed.
-    db.prepare(`DELETE FROM room_focus WHERE room_id = ? AND member_handle = ?`).run(roomId, handle);
-    return undefined;
-  }
+  // STAY-SHIELDED (JWPK 2026-06-05): an expired timer does NOT prune the focus.
+  // It stays active (still shielding); the lapse triggers a one-shot setter
+  // prompt via listLapsedUnpromptedShields, never an auto-release. Only an
+  // explicit exitFocus (self-unset or post-prompt setter action) clears it.
   return rowToEntry(row);
 }
 
 export function listFocusedMembersInRoom(roomId: string): FocusEntry[] {
   const db = getIdentityDb();
   ensureTable(db);
-  const now = Date.now();
+  // STAY-SHIELDED: return ALL focuses regardless of timer lapse — an expired
+  // shield is still actively shielding until explicit exitFocus (no auto-prune).
   const rows = db
     .prepare(`SELECT * FROM room_focus WHERE room_id = ? ORDER BY entered_at_ms ASC, member_handle ASC`)
     .all(roomId) as FocusRow[];
-  const survivors: FocusEntry[] = [];
-  const expired: string[] = [];
-  for (const row of rows) {
-    if (isExpiredMs(row.expires_at_ms, now)) {
-      expired.push(row.member_handle);
-      continue;
-    }
-    survivors.push(rowToEntry(row));
-  }
-  // Opportunistic prune of expired rows observed during the scan.
-  if (expired.length > 0) {
-    const del = db.prepare(`DELETE FROM room_focus WHERE room_id = ? AND member_handle = ?`);
-    for (const h of expired) del.run(roomId, h);
-  }
-  return survivors;
+  return rows.map(rowToEntry);
+}
+
+/**
+ * Shields whose timer has LAPSED (expires_at in the past) and whose setter has
+ * NOT yet been prompted (prompted_at_ms IS NULL). These need a one-shot directed
+ * setter prompt; the focus STAYS shielded (never auto-released). Scoped to a
+ * room when roomId is given. Caller fires the prompt then marks them prompted.
+ */
+export function listLapsedUnpromptedShields(roomId?: string): FocusEntry[] {
+  const db = getIdentityDb();
+  ensureTable(db);
+  const now = Date.now();
+  const rows = (
+    roomId === undefined
+      ? db.prepare(
+          `SELECT * FROM room_focus
+            WHERE mode = 'shield' AND expires_at_ms IS NOT NULL
+              AND expires_at_ms <= ? AND prompted_at_ms IS NULL`
+        ).all(now)
+      : db.prepare(
+          `SELECT * FROM room_focus
+            WHERE room_id = ? AND mode = 'shield' AND expires_at_ms IS NOT NULL
+              AND expires_at_ms <= ? AND prompted_at_ms IS NULL`
+        ).all(roomId, now)
+  ) as FocusRow[];
+  return rows.map(rowToEntry);
+}
+
+/** Record that the setter has been prompted for this lapse (one-shot guard). */
+export function markTimerPrompted(roomId: string, memberHandle: string): void {
+  const handle = normaliseToAtHandle(memberHandle);
+  const db = getIdentityDb();
+  ensureTable(db);
+  db.prepare(
+    `UPDATE room_focus SET prompted_at_ms = ? WHERE room_id = ? AND member_handle = ?`
+  ).run(Date.now(), roomId, handle);
 }
 
 export function resetFocusModeStoreForTests(): void {
