@@ -32,7 +32,10 @@ import {
   type EnvelopeMessage
 } from './pty-inject-bridge';
 import { makeInjectQueue } from './pty-inject-queue';
-import { getMessageById, postSystemMessage } from './chatMessageStore';
+import { getMessageById, postSystemMessage, listMessagesAfterLatestBreak } from './chatMessageStore';
+import { listReactionsForMessage } from './messageReactionStore';
+import { summariseBlock } from './blockDigest';
+import type { FocusEntry } from './focusModeStore';
 import { listLinkedTerminalRowsForRoom, getLinkedTerminalRowBySessionId } from './linkedRoomTerminalLookup';
 import { deriveHandle, getTerminalRecord } from './terminalRecordsStore';
 import { hasBareEveryoneMention, hasBracketedMention, listBareMentionHandles } from '../chat/mentionRouting';
@@ -326,6 +329,35 @@ export function fireFocusTimerPrompts(roomId: string): void {
       /* best-effort notify; never block fanout */
     }
     markTimerPrompted(roomId, focus.memberHandle);
+  }
+}
+
+/**
+ * Focus MVP-2 slice 4b — on shield RELEASE, deliver the break-bounded,
+ * reaction-weighted digest of what the member missed, DIRECTED to them only
+ * (never a room post). Solo release delivers nothing (the soloer received
+ * everything; others were the muted ones). No-op when there's nothing to
+ * summarise. Best-effort — never blocks the release.
+ */
+export function deliverFocusExitDigest(roomId: string, focus: FocusEntry): void {
+  if (focus.mode !== 'shield') return;
+  // Missed window = CURRENT-BLOCK messages posted AFTER the shield began.
+  // listMessagesAfterLatestBreak keeps it break-bounded — the digest never
+  // reconstructs across a system-break (that boundary is hard, per the design).
+  const blockMessages = listMessagesAfterLatestBreak(roomId).filter(
+    (m) => m.postedAt > focus.enteredAt
+  );
+  if (blockMessages.length === 0) return;
+  const reactionCountByMessageId = new Map<string, number>();
+  for (const m of blockMessages) {
+    reactionCountByMessageId.set(m.id, listReactionsForMessage(m.id).length);
+  }
+  const digest = summariseBlock({ messages: blockMessages, reactionCountByMessageId });
+  if (digest.text.length === 0) return;
+  try {
+    sendCoordinationRelay(roomId, focus.memberHandle, digest.text);
+  } catch {
+    /* best-effort; release already succeeded */
   }
 }
 

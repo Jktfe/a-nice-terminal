@@ -23,7 +23,8 @@ import { subscribeToRoom, unsubscribeFromRoom } from './eventBroadcast';
 import { setRoomAlias } from './chatRoomAliasStore';
 import { createClaim, resetEntityClaimStoreForTests } from './entityClaimStore';
 import { enterFocus, resetFocusModeStoreForTests } from './focusModeStore';
-import { fireFocusTimerPrompts } from './pty-inject-fanout';
+import { fireFocusTimerPrompts, deliverFocusExitDigest } from './pty-inject-fanout';
+import { addReactionToMessage } from './messageReactionStore';
 
 let tmpDir: string;
 const previousDbPath = process.env.ANT_FRESH_DB_PATH;
@@ -962,5 +963,51 @@ describe('fanoutMessageToRoomTerminals — focus timer prompt (MVP-2 slice 3)', 
     expect(q.pendingCountForTests(`${room.id}::${tSetter.id}`)).toBe(before + 1); // setter prompted (directed)
     fireFocusTimerPrompts(room.id);
     expect(q.pendingCountForTests(`${room.id}::${tSetter.id}`)).toBe(before + 1); // one-shot: no double-prompt
+  });
+});
+
+describe('deliverFocusExitDigest — focus exit summary (MVP-2 slice 4b)', () => {
+  it('shield release delivers a directed missed-window digest to the member', async () => {
+    const room = createChatRoom({ name: 'exit-digest', whoCreatedIt: '@you' });
+    const tMember = upsertTerminal({ pid: 11, pid_start: 'pf11', name: 'ed-member' });
+    updatePaneTarget(tMember.id, '%edmember', 'claude_code');
+    addMembership({ room_id: room.id, handle: '@member', terminal_id: tMember.id });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@member', agentDisplayName: 'Member' });
+    const focus = enterFocus({ roomId: room.id, memberHandle: '@member', mode: 'shield' });
+    await new Promise((r) => setTimeout(r, 3)); // ensure missed msgs are postedAt > enteredAt
+    postMessage({ roomId: room.id, authorHandle: '@a', body: 'you missed this', kind: 'human' });
+    postMessage({ roomId: room.id, authorHandle: '@b', body: 'and this too', kind: 'human' });
+    const q = getFanoutQueueForTests();
+    const before = q.pendingCountForTests(`${room.id}::${tMember.id}`);
+    deliverFocusExitDigest(room.id, focus);
+    expect(q.pendingCountForTests(`${room.id}::${tMember.id}`)).toBe(before + 1); // one directed digest
+  });
+
+  it('solo release delivers NO digest (the soloer never missed anything)', async () => {
+    const room = createChatRoom({ name: 'exit-solo', whoCreatedIt: '@you' });
+    const tSolo = upsertTerminal({ pid: 12, pid_start: 'pf12', name: 'es-solo' });
+    updatePaneTarget(tSolo.id, '%essolo', 'claude_code');
+    addMembership({ room_id: room.id, handle: '@solo', terminal_id: tSolo.id });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@solo', agentDisplayName: 'Solo' });
+    const focus = enterFocus({ roomId: room.id, memberHandle: '@solo', mode: 'solo' });
+    await new Promise((r) => setTimeout(r, 3));
+    postMessage({ roomId: room.id, authorHandle: '@a', body: 'stuff', kind: 'human' });
+    const q = getFanoutQueueForTests();
+    const before = q.pendingCountForTests(`${room.id}::${tSolo.id}`);
+    deliverFocusExitDigest(room.id, focus);
+    expect(q.pendingCountForTests(`${room.id}::${tSolo.id}`)).toBe(before); // no digest for solo
+  });
+
+  it('no digest when nothing was missed during the shield window', () => {
+    const room = createChatRoom({ name: 'exit-empty', whoCreatedIt: '@you' });
+    const tMember = upsertTerminal({ pid: 13, pid_start: 'pf13', name: 'ee-member' });
+    updatePaneTarget(tMember.id, '%eemember', 'claude_code');
+    addMembership({ room_id: room.id, handle: '@member', terminal_id: tMember.id });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@member', agentDisplayName: 'Member' });
+    const focus = enterFocus({ roomId: room.id, memberHandle: '@member', mode: 'shield' });
+    const q = getFanoutQueueForTests();
+    const before = q.pendingCountForTests(`${room.id}::${tMember.id}`);
+    deliverFocusExitDigest(room.id, focus); // no messages posted after the shield
+    expect(q.pendingCountForTests(`${room.id}::${tMember.id}`)).toBe(before);
   });
 });

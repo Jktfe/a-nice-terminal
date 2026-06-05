@@ -133,6 +133,31 @@ describe('/api/chat-rooms/:roomId/focus-mode', () => {
       expect(findFocus(room.id, '@you')?.reason).toBe('second');
     });
 
+    it('accepts mode=solo and derives the AUTHENTICATED caller as setter (unspoofable)', async () => {
+      const room = createChatRoom({ name: 'put-mode-setter', whoCreatedIt: '@you' });
+      const response = await callPut(
+        room.id,
+        // a spoofed `setter` in the body must be IGNORED — the gate decides.
+        JSON.stringify({ memberHandle: '@you', mode: 'solo', setter: '@someone-else' })
+      );
+      expect(response.status).toBe(200);
+      const entry = findFocus(room.id, '@you');
+      expect(entry?.mode).toBe('solo');
+      expect(entry?.setter).toBe('@admin'); // from the admin-bearer gate, not the body
+    });
+
+    it('defaults mode to shield when omitted', async () => {
+      const room = createChatRoom({ name: 'put-default-mode', whoCreatedIt: '@you' });
+      await callPut(room.id, JSON.stringify({ memberHandle: '@you' }));
+      expect(findFocus(room.id, '@you')?.mode).toBe('shield');
+    });
+
+    it('returns 400 on an invalid mode', async () => {
+      const room = createChatRoom({ name: 'put-bad-mode', whoCreatedIt: '@you' });
+      const response = await callPut(room.id, JSON.stringify({ memberHandle: '@you', mode: 'lurk' }));
+      expect(response.status).toBe(400);
+    });
+
     it('returns 404 when the room is unknown', async () => {
       const response = await callPut(
         'doesnotexist',
