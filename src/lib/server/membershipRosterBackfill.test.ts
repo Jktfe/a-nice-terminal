@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import Database from 'better-sqlite3';
 import { resetIdentityDbForTests, getIdentityDb } from './db';
 import { resolveCanonicalMember, backfillRosterFromAllLegacy, verifyRosterConsolidation } from './membershipRosterBackfill';
-import { isMember, listMembers } from './membershipStore';
+import { addMember, isMember, listMembers } from './membershipStore';
+import { getMemberPresentation, setMemberPresentation } from './membershipPresentationStore';
 import { createAgent } from './v02AgentsStore';
 
 let tmpDir: string;
@@ -196,10 +198,57 @@ describe('browser-session synthetic handles are excluded from the clean roster',
     expect(isMember('roomBS', '@browser-bs_aaaa1111bbbb2222')).toBe(false);
     // they're counted, not silently dropped
     expect(report.skippedBrowserSessions).toBeGreaterThanOrEqual(2);
+    expect(report.purgedBrowserSessions).toBe(0);
     // and the proof stays green — verify's notion of "legacy member" excludes them
     // too, so they don't read as drops
     const v = verifyRosterConsolidation();
     expect(v.noDrops.count).toBe(0);
     expect(v.noDupes.count).toBe(0);
+    expect(v.nonDurable.count).toBe(0);
+  });
+
+  it('purges pre-existing @browser-bs_ rows already in room_membership and presentation', () => {
+    seedChatRoomMember('roomBSPurge', '@realagent');
+    addMember('roomBSPurge', '@browser-bs_oldrow1234', 'browser-session-token');
+    setMemberPresentation('roomBSPurge', '@browser-bs_oldrow1234', {
+      room_display_name: 'Browser',
+      member_kind: 'agent'
+    });
+
+    const report = backfillRosterFromAllLegacy();
+    const v = verifyRosterConsolidation();
+
+    expect(report.purgedBrowserSessions).toBe(1);
+    expect(isMember('roomBSPurge', '@browser-bs_oldrow1234')).toBe(false);
+    expect(v.nonDurable.count).toBe(0);
+    expect(getMemberPresentation('roomBSPurge', '@browser-bs_oldrow1234')).toBeNull();
+  });
+
+  it('uses the explicit proof DB for tier-1 agent resolution, not the global DB', async () => {
+    createAgent({
+      display_name: 'Global Shadow',
+      primary_handle: '@shadow',
+      primary_trust_key_id: null,
+      owner_org: null
+    });
+    seedChatRoomMember('roomProof', '@shadow');
+
+    const proofPath = join(tmpDir, 'proof.db');
+    await getIdentityDb().backup(proofPath);
+    const proofDb = new Database(proofPath);
+    try {
+      // Diverge the proof DB from the global test DB. Old code read agents via
+      // getIdentityDb(), so it would still resolve @shadow as tier 1 here.
+      proofDb.prepare(`DELETE FROM agents WHERE primary_handle='@shadow'`).run();
+      const report = backfillRosterFromAllLegacy(proofDb);
+      const row = proofDb
+        .prepare(`SELECT identity_key FROM room_membership WHERE room_id='roomProof' AND handle='@shadow'`)
+        .get() as { identity_key: string };
+
+      expect(report.tierCounts[1]).toBe(0);
+      expect(row.identity_key).toBe('handle:roomProof:@shadow');
+    } finally {
+      proofDb.close();
+    }
   });
 });

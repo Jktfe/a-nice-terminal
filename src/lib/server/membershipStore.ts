@@ -35,6 +35,10 @@ export function isDurableMemberHandle(handle: string): boolean {
   return !handle.trim().toLowerCase().startsWith('@browser-bs_');
 }
 
+export function durableMemberWhereClause(column = 'handle'): string {
+  return `lower(${column}) NOT LIKE '@browser-bs_%'`;
+}
+
 export type Membership = {
   room_id: string;
   handle: string;
@@ -150,7 +154,11 @@ export function removeMember(roomId: string, handle: string, db = getIdentityDb(
 export function listMembers(roomId: string, db = getIdentityDb()): Membership[] {
   ensureTable(db);
   const rows = db
-    .prepare(`SELECT * FROM room_membership WHERE room_id = ? ORDER BY created_at_ms ASC, handle ASC`)
+    .prepare(
+      `SELECT * FROM room_membership
+        WHERE room_id = ? AND ${durableMemberWhereClause()}
+        ORDER BY created_at_ms ASC, handle ASC`
+    )
     .all(roomId) as MembershipRow[];
   return rows.map(rowToMembership);
 }
@@ -161,6 +169,7 @@ export function listMembers(roomId: string, db = getIdentityDb()): Membership[] 
  *  "member with no session". */
 export function resolveMember(roomId: string, handle: string, db = getIdentityDb()): string | null {
   ensureTable(db);
+  if (!isDurableMemberHandle(handle)) return null;
   const row = db
     .prepare(`SELECT session_id FROM room_membership WHERE room_id = ? AND handle = ?`)
     .get(roomId, handle) as { session_id: string | null } | undefined;
@@ -170,6 +179,7 @@ export function resolveMember(roomId: string, handle: string, db = getIdentityDb
 /** Whether the handle is a member of the room (regardless of session_id). */
 export function isMember(roomId: string, handle: string, db = getIdentityDb()): boolean {
   ensureTable(db);
+  if (!isDurableMemberHandle(handle)) return false;
   const row = db
     .prepare(`SELECT 1 FROM room_membership WHERE room_id = ? AND handle = ?`)
     .get(roomId, handle) as { 1: number } | undefined;
@@ -183,6 +193,7 @@ export function isMember(roomId: string, handle: string, db = getIdentityDb()): 
  */
 export function listRoomsForHandle(handle: string, db = getIdentityDb()): string[] {
   ensureTable(db);
+  if (!isDurableMemberHandle(handle)) return [];
   const rows = db
     .prepare(`SELECT DISTINCT room_id FROM room_membership WHERE handle = ?`)
     .all(handle) as Array<{ room_id: string }>;

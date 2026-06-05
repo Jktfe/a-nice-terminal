@@ -27,7 +27,12 @@
  */
 
 import { getIdentityDb } from './db';
-import { addMember, setMemberIdentityKey, isDurableMemberHandle } from './membershipStore';
+import {
+  addMember,
+  setMemberIdentityKey,
+  isDurableMemberHandle,
+  durableMemberWhereClause
+} from './membershipStore';
 import { getLiveAgentByHandle } from './v02AgentsStore';
 import { canonicaliseOperatorHandle, isOperatorHandle } from './operatorHandle';
 import { findRoomHandleOwnerAtTime } from './roomHandleLeaseStore';
@@ -63,7 +68,7 @@ export function resolveCanonicalMember(
   const opCanon = canonicaliseOperatorHandle(handle); // @you → @JWPK
 
   // Tier 1 — durable agentID (the spine). Highest-confidence identity.
-  const agent = getLiveAgentByHandle(opCanon);
+  const agent = getLiveAgentByHandle(opCanon, db);
   if (agent) {
     return { canonicalHandle: agent.primary_handle, identityKey: `agent:${agent.agent_id}`, tier: 1 };
   }
@@ -82,7 +87,7 @@ export function resolveCanonicalMember(
   }
 
   // Tier 3 — lease owner-at-time: who held this room handle.
-  const owner = findRoomHandleOwnerAtTime({ roomId, handle: opCanon, atMs: Date.now() });
+  const owner = findRoomHandleOwnerAtTime({ roomId, handle: opCanon, atMs: Date.now() }, db);
   if (owner) {
     return { canonicalHandle: opCanon, identityKey: `lease:${owner.sessionId}`, tier: 3 };
   }
@@ -109,6 +114,8 @@ export type RosterBackfillReport = {
   written: number;
   /** Legacy rows skipped as non-durable browser-session synthetic handles. */
   skippedBrowserSessions: number;
+  /** Existing synthetic rows purged from the canonical clean roster. */
+  purgedBrowserSessions: number;
 };
 
 function tableExists(db: ReturnType<typeof getIdentityDb>, name: string): boolean {
@@ -132,8 +139,19 @@ export function backfillRosterFromAllLegacy(db = getIdentityDb()): RosterBackfil
     tierCounts: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
     fallbackRows: [],
     written: 0,
-    skippedBrowserSessions: 0
+    skippedBrowserSessions: 0,
+    purgedBrowserSessions: 0
   };
+
+  if (tableExists(db, 'room_membership')) {
+    const purged = db
+      .prepare(`DELETE FROM room_membership WHERE NOT (${durableMemberWhereClause()})`)
+      .run();
+    report.purgedBrowserSessions += purged.changes;
+  }
+  if (tableExists(db, 'room_member_presentation')) {
+    db.prepare(`DELETE FROM room_member_presentation WHERE NOT (${durableMemberWhereClause()})`).run();
+  }
   // De-dup tracking so the per-tier + written counts reflect DISTINCT identities,
   // not raw rows (two raw handles → one canonical identity counts once).
   const seen = new Set<string>();
@@ -209,6 +227,8 @@ export type VerifyReport = {
   noDrops: { count: number; details: Array<{ room_id: string; handle: string; identityKey: string }> };
   /** NO-DUPES: one persisted identity under >1 handle in a room (a false split). */
   noDupes: { count: number; details: Array<{ room_id: string; identity_key: string; handles: string }> };
+  /** NON-DURABLE: persisted synthetic browser-session handles in clean roster. */
+  nonDurable: { count: number; details: Array<{ room_id: string; handle: string }> };
 };
 
 /** Iterate every active legacy member (room_id, raw handle) across all sources. */
@@ -297,6 +317,13 @@ export function verifyRosterConsolidation(db = getIdentityDb()): VerifyReport {
          GROUP BY room_id, identity_key HAVING c > 1`
     )
     .all() as Array<{ room_id: string; identity_key: string; c: number; handles: string }>;
+  const nonDurableDetails = db
+    .prepare(
+      `SELECT room_id, handle FROM room_membership
+        WHERE NOT (${durableMemberWhereClause()})
+        ORDER BY room_id, handle`
+    )
+    .all() as Array<{ room_id: string; handle: string }>;
 
   return {
     tierCounts,
@@ -305,6 +332,7 @@ export function verifyRosterConsolidation(db = getIdentityDb()): VerifyReport {
     noDupes: {
       count: dupeDetails.length,
       details: dupeDetails.map((d) => ({ room_id: d.room_id, identity_key: d.identity_key, handles: d.handles }))
-    }
+    },
+    nonDurable: { count: nonDurableDetails.length, details: nonDurableDetails }
   };
 }
