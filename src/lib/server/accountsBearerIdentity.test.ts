@@ -55,6 +55,27 @@ describe('resolveAccountsBearerIdentity', () => {
     expect(elapsed).toBeLessThan(250);
   });
 
+  it('allows realistic first-hop accounts latency by default', async () => {
+    vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) =>
+      new Promise<Response>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          resolve(new Response(JSON.stringify({
+            user: { email: 'warmup@example.com', handle: '@warmup' }
+          }), { status: 200, headers: { 'content-type': 'application/json' } }));
+        }, 850);
+        init?.signal?.addEventListener('abort', () => {
+          clearTimeout(timer);
+          reject(new Error('aborted'));
+        });
+      })
+    ));
+
+    await expect(resolveAccountsBearerIdentity('warmup-token')).resolves.toMatchObject({
+      email: 'warmup@example.com',
+      handle: '@warmup'
+    });
+  });
+
   it('negative-caches failed account bearer lookups', async () => {
     const fetchMock = vi.fn(async () => new Response('nope', { status: 401 }));
     vi.stubGlobal('fetch', fetchMock);

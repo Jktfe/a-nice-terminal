@@ -87,12 +87,13 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   // 1. accounts Better-Auth email sign-in
+  const accountsOrigin = accountsBaseUrl();
   let signin: Response;
   try {
-    signin = await fetch(`${accountsBaseUrl()}/api/auth/sign-in/email`, {
+    signin = await fetch(`${accountsOrigin}/api/auth/sign-in/email`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email, password })
+      headers: { 'content-type': 'application/json', origin: accountsOrigin },
+      body: JSON.stringify({ email, password, rememberMe: true })
     });
   } catch {
     throw error(502, 'accounts auth unreachable');

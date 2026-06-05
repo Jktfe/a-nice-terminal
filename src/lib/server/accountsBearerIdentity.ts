@@ -25,7 +25,7 @@ export type AccountsBearerIdentity = {
   expiresAtMs?: number;
 };
 
-const DEFAULT_ACCOUNTS_BEARER_TIMEOUT_MS = 750;
+const DEFAULT_ACCOUNTS_BEARER_TIMEOUT_MS = 3_000;
 const NEGATIVE_TOKEN_CACHE_MS = 30_000;
 const negativeTokenCache = new Map<string, number>();
 
@@ -36,7 +36,7 @@ const negativeTokenCache = new Map<string, number>();
  *
  * Why: a browser tab loading the dashboard fires several /api/* requests
  * in parallel with the same bearer cookie. Without dedup, each gate call
- * fires its own 750ms fetch → N× the latency budget for the SAME identity
+ * fires its own fetch → N× the latency budget for the SAME identity
  * resolution. The negative cache only kicks in AFTER the first miss
  * completes, so the in-flight burst doesn't get the benefit. Dedup closes
  * that gap.
