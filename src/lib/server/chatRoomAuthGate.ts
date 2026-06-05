@@ -50,6 +50,14 @@ import { buildPermissionDeniedPayload } from './permissionDeniedPayload';
 import { resolveApproversFor } from './permissionApproverResolver';
 import { resolveOrNull } from './sessionResolver';
 import { isMember as isCleanMember, displayHandleForSession } from './roomHandleLeaseClean';
+import { lookupTerminalByPidChain } from './terminalsStore';
+import {
+  evaluateTokenTerminalBinding,
+  tokenBindingAction,
+  tokenTerminalBindingMode,
+  sessionFingerprint,
+  terminalFp
+} from './tokenTerminalBinding';
 
 /** Sentinel handle attributed to admin-bearer callers. Mirrors the
  *  CLI/automation convention used by other admin-gated routes. */
@@ -218,16 +226,39 @@ export function requireChatRoomMutationAuth(
   // and resolves to the lease's display handle (incl. @x-N), matching the
   // post path exactly. Added before pidChain since the session token is the
   // canonical agent credential in the clean model.
+  const pidChain = parsePidChainFromBody(rawBody);
   const antSessionId = extractAntSessionId(request, rawBody);
   if (antSessionId) {
     const session = resolveOrNull(antSessionId);
     if (session && isCleanMember(roomId, session.id)) {
+      const callerTerminal = lookupTerminalByPidChain(pidChain);
+      const binding = evaluateTokenTerminalBinding(
+        session.terminal_id,
+        callerTerminal?.id ?? null,
+        pidChain.length > 0
+      );
+      const bindingAction = tokenBindingAction(binding);
+      if (bindingAction !== 'allow') {
+        // eslint-disable-next-line no-console -- observability for the flag-phase rollout
+        // CREDENTIAL HYGIENE: mirror the post path; never log raw sessionToken
+        // material, and never log raw terminal ids because legacy rows can have
+        // terminal_id === session.id.
+        console.warn(
+          `[token-binding:${tokenTerminalBindingMode()}] room=${roomId} ` +
+            `session_fp=${sessionFingerprint(session.id)} ` +
+            `session_terminal_fp=${terminalFp(session.terminal_id)} ` +
+            `caller_terminal_fp=${terminalFp(callerTerminal?.id ?? null)} ` +
+            `kind=${binding.kind} hadPidChain=${pidChain.length > 0}`
+        );
+        if (bindingAction === 'reject') {
+          throw error(401, 'ANT session token presented from a terminal it is not bound to.');
+        }
+      }
       const display = displayHandleForSession(roomId, session.id);
       return { handle: display ?? session.label ?? session.id, isAdminBearer: false };
     }
   }
   // Step 4: pidChain (CLI / agent process).
-  const pidChain = parsePidChainFromBody(rawBody);
   const pidChainHandle = resolveServerSideHandle(roomId, pidChain);
   if (pidChainHandle) {
     return { handle: pidChainHandle, isAdminBearer: false };
