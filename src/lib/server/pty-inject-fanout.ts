@@ -23,7 +23,7 @@ import {
   markTimerPrompted
 } from './focusModeStore';
 import { getTerminalById, touchLastPtyByteAt } from './terminalsStore';
-import { isOperatorHandle } from './operatorHandle';
+import { canonicaliseOperatorHandle, isOperatorHandle } from './operatorHandle';
 import { getRoomMode } from './roomModesStore';
 import {
   injectToTerminal,
@@ -256,6 +256,10 @@ function membershipIsTargeted(
 
 function isOperatorBroadcastAuthor(handle: string): boolean {
   return isOperatorHandle(handle);
+}
+
+function sameAuthorHandle(left: string, right: string): boolean {
+  return canonicaliseOperatorHandle(left).toLowerCase() === canonicaliseOperatorHandle(right).toLowerCase();
 }
 
 function isBrowserTerminalSource(source: string | null | undefined): boolean {
@@ -503,7 +507,7 @@ export function fanoutMessageToRoomTerminals(
   );
   const soloActive = soloTargets.size > 0;
   for (const membership of memberships) {
-    if (membership.handle === message.authorHandle) continue;
+    if (sameAuthorHandle(membership.handle, message.authorHandle)) continue;
     // SOLO: when any member is soloing the room, only the solo target(s) receive.
     if (soloActive && !soloTargets.has(membership.handle)) {
       continue;
