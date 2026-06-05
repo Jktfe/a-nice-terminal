@@ -50,6 +50,35 @@ function ensureTable(db = getIdentityDb()): void {
     CREATE INDEX IF NOT EXISTS idx_room_membership_room ON room_membership (room_id);
     CREATE INDEX IF NOT EXISTS idx_room_membership_handle ON room_membership (handle);
   `);
+  // R3 (2026-06-05): the resolved durable identity the roster backfill writes
+  // (agent:<id> / session:<id> / lease:<id> / operator:<h> / handle:<...>), so
+  // the lossless+injective proof verifies the PERSISTED identity off disk rather
+  // than re-deriving it. Additive ALTER, guarded for existing tables.
+  const hasIdentityKey = (db.prepare(`PRAGMA table_info(room_membership)`).all() as Array<{ name: string }>).some(
+    (c) => c.name === 'identity_key'
+  );
+  if (!hasIdentityKey) {
+    db.exec(`ALTER TABLE room_membership ADD COLUMN identity_key TEXT`);
+  }
+}
+
+/**
+ * Record the resolved canonical identity for an existing membership row. Kept
+ * SEPARATE from addMember so the membership hot path (gate + register) is
+ * untouched. Only writes when the row exists; never creates one.
+ */
+export function setMemberIdentityKey(
+  roomId: string,
+  handle: string,
+  identityKey: string,
+  db = getIdentityDb()
+): void {
+  ensureTable(db);
+  db.prepare(`UPDATE room_membership SET identity_key = ? WHERE room_id = ? AND handle = ?`).run(
+    identityKey,
+    roomId,
+    handle
+  );
 }
 
 function rowToMembership(r: MembershipRow): Membership {

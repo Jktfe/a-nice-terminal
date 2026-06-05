@@ -27,7 +27,7 @@
  */
 
 import { getIdentityDb } from './db';
-import { addMember } from './membershipStore';
+import { addMember, setMemberIdentityKey } from './membershipStore';
 import { getLiveAgentByHandle } from './v02AgentsStore';
 import { canonicaliseOperatorHandle, isOperatorHandle } from './operatorHandle';
 import { findRoomHandleOwnerAtTime } from './roomHandleLeaseStore';
@@ -139,6 +139,9 @@ export function backfillRosterFromAllLegacy(db = getIdentityDb()): RosterBackfil
     if (!roomId || !rawHandle) return;
     const canon = resolveCanonicalMember(roomId, rawHandle, db);
     addMember(roomId, canon.canonicalHandle, null, db);
+    // Persist the resolved identity ON DISK so the proof verifies the stored
+    // roster, not a re-derivation (a mis-write then FAILS the proof).
+    setMemberIdentityKey(roomId, canon.canonicalHandle, canon.identityKey, db);
     const dedupKey = `${roomId}|${canon.identityKey}`;
     if (seen.has(dedupKey)) return;
     seen.add(dedupKey);
@@ -185,4 +188,106 @@ export function backfillRosterFromAllLegacy(db = getIdentityDb()): RosterBackfil
   }
 
   return report;
+}
+
+export type VerifyReport = {
+  /** How many distinct identities resolved at each tier (audit, re-derived). */
+  tierCounts: Record<CanonicalTier, number>;
+  /** Tier-5 fallback identities, listed explicitly. */
+  fallbackRows: Array<{ room_id: string; handle: string }>;
+  /** NO-DROPS: legacy members whose resolved identity is NOT in the PERSISTED
+   *  room_membership.identity_key set (must be empty for a lossless flip). */
+  noDrops: { count: number; details: Array<{ room_id: string; handle: string; identityKey: string }> };
+  /** NO-DUPES: one persisted identity under >1 handle in a room (a false split). */
+  noDupes: { count: number; details: Array<{ room_id: string; identity_key: string; handles: string }> };
+};
+
+/** Iterate every active legacy member (room_id, raw handle) across all sources. */
+function forEachLegacyMember(
+  db: ReturnType<typeof getIdentityDb>,
+  cb: (roomId: string, rawHandle: string) => void
+): void {
+  if (tableExists(db, 'chat_room_members')) {
+    for (const r of db.prepare(`SELECT room_id, handle FROM chat_room_members`).all() as Array<{
+      room_id: string;
+      handle: string;
+    }>)
+      cb(r.room_id, r.handle);
+  }
+  if (tableExists(db, 'room_memberships')) {
+    const where = columnExists(db, 'room_memberships', 'revoked_at_ms') ? `WHERE revoked_at_ms IS NULL` : ``;
+    for (const r of db.prepare(`SELECT room_id, handle FROM room_memberships ${where}`).all() as Array<{
+      room_id: string;
+      handle: string;
+    }>)
+      cb(r.room_id, r.handle);
+  }
+  if (tableExists(db, 'memberships') && tableExists(db, 'agents')) {
+    const leftCol = columnExists(db, 'memberships', 'left_at_ms') ? `WHERE m.left_at_ms IS NULL` : ``;
+    for (const r of db
+      .prepare(
+        `SELECT m.room_id AS room_id, a.primary_handle AS handle
+           FROM memberships m JOIN agents a ON a.agent_id = m.agent_id ${leftCol}`
+      )
+      .all() as Array<{ room_id: string; handle: string }>)
+      cb(r.room_id, r.handle);
+  }
+}
+
+/**
+ * The lossless+injective PROOF, read off the PERSISTED room_membership.identity_key
+ * (NOT a re-run of the backfill — a mis-written row therefore FAILS the proof).
+ * Run against a WAL-trio copy (proof.db), never live pre-deploy. A green flip
+ * requires noDrops.count === 0 AND noDupes.count === 0.
+ */
+export function verifyRosterConsolidation(db = getIdentityDb()): VerifyReport {
+  // PERSISTED clean roster identity sets, read off disk.
+  const persisted = new Map<string, Set<string>>();
+  for (const r of db.prepare(`SELECT room_id, identity_key FROM room_membership`).all() as Array<{
+    room_id: string;
+    identity_key: string | null;
+  }>) {
+    if (!r.identity_key) continue;
+    if (!persisted.has(r.room_id)) persisted.set(r.room_id, new Set());
+    persisted.get(r.room_id)!.add(r.identity_key);
+  }
+
+  const tierCounts: Record<CanonicalTier, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  const fallbackRows: Array<{ room_id: string; handle: string }> = [];
+  const dropDetails: Array<{ room_id: string; handle: string; identityKey: string }> = [];
+  const seen = new Set<string>();
+
+  forEachLegacyMember(db, (roomId, rawHandle) => {
+    if (!roomId || !rawHandle) return;
+    const canon = resolveCanonicalMember(roomId, rawHandle, db);
+    const dedup = `${roomId}|${canon.identityKey}`;
+    if (!seen.has(dedup)) {
+      seen.add(dedup);
+      tierCounts[canon.tier]++;
+      if (canon.tier === 5) fallbackRows.push({ room_id: roomId, handle: canon.canonicalHandle });
+    }
+    // NO-DROPS: the legacy identity must be in the PERSISTED disk set.
+    if (!persisted.get(roomId)?.has(canon.identityKey)) {
+      dropDetails.push({ room_id: roomId, handle: rawHandle, identityKey: canon.identityKey });
+    }
+  });
+
+  // NO-DUPES: one persisted identity_key under >1 handle in a room.
+  const dupeDetails = db
+    .prepare(
+      `SELECT room_id, identity_key, COUNT(*) AS c, group_concat(handle) AS handles
+         FROM room_membership WHERE identity_key IS NOT NULL
+         GROUP BY room_id, identity_key HAVING c > 1`
+    )
+    .all() as Array<{ room_id: string; identity_key: string; c: number; handles: string }>;
+
+  return {
+    tierCounts,
+    fallbackRows,
+    noDrops: { count: dropDetails.length, details: dropDetails },
+    noDupes: {
+      count: dupeDetails.length,
+      details: dupeDetails.map((d) => ({ room_id: d.room_id, identity_key: d.identity_key, handles: d.handles }))
+    }
+  };
 }

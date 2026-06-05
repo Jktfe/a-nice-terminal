@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resetIdentityDbForTests, getIdentityDb } from './db';
-import { resolveCanonicalMember, backfillRosterFromAllLegacy } from './membershipRosterBackfill';
+import { resolveCanonicalMember, backfillRosterFromAllLegacy, verifyRosterConsolidation } from './membershipRosterBackfill';
 import { isMember, listMembers } from './membershipStore';
 import { createAgent } from './v02AgentsStore';
 
@@ -139,5 +139,42 @@ describe('backfillRosterFromAllLegacy — union, lossless + injective', () => {
     seedChatRoomMember('roomC', '@unknownthing');
     const report = backfillRosterFromAllLegacy();
     expect(report.fallbackRows).toContainEqual({ room_id: 'roomC', handle: '@unknownthing' });
+  });
+});
+
+describe('verifyRosterConsolidation — proof on PERSISTED identity', () => {
+  it('GREEN after backfill: noDrops=0, noDupes=0, tiers audited', () => {
+    createAgent({ display_name: 'Vera', primary_handle: '@vera', primary_trust_key_id: null, owner_org: null });
+    seedChatRoomMember('roomV', '@vera'); // tier 1 agent
+    seedChatRoomMember('roomV', '@you'); // tier 4 → @JWPK
+    seedChatRoomMember('roomV', '@randoX'); // tier 5 fallback
+    backfillRosterFromAllLegacy();
+    const r = verifyRosterConsolidation();
+    expect(r.noDrops.count).toBe(0);
+    expect(r.noDupes.count).toBe(0);
+    expect(r.tierCounts[1]).toBeGreaterThanOrEqual(1);
+    expect(r.tierCounts[4]).toBeGreaterThanOrEqual(1);
+    expect(r.fallbackRows).toContainEqual({ room_id: 'roomV', handle: '@randoX' });
+  });
+
+  it('FALSIFIABLE: a member missing from the persisted roster FAILS the proof (catches drops)', () => {
+    seedChatRoomMember('roomD', '@present');
+    seedChatRoomMember('roomD', '@dropped');
+    backfillRosterFromAllLegacy();
+    // simulate a backfill that mis-wrote / dropped a member
+    getIdentityDb().prepare(`DELETE FROM room_membership WHERE room_id='roomD' AND handle='@dropped'`).run();
+    const r = verifyRosterConsolidation();
+    expect(r.noDrops.count).toBeGreaterThan(0);
+    expect(r.noDrops.details.some((d) => d.handle === '@dropped')).toBe(true);
+  });
+
+  it('idempotent: backfill run twice = identical room_membership row count (re-runnable on boot)', () => {
+    seedChatRoomMember('roomI', '@a');
+    seedChatRoomMember('roomI', '@b');
+    backfillRosterFromAllLegacy();
+    const c1 = (getIdentityDb().prepare(`SELECT COUNT(*) AS c FROM room_membership`).get() as { c: number }).c;
+    backfillRosterFromAllLegacy();
+    const c2 = (getIdentityDb().prepare(`SELECT COUNT(*) AS c FROM room_membership`).get() as { c: number }).c;
+    expect(c2).toBe(c1);
   });
 });
