@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ANT Long-Autonomy Harness</title>
+<style>
+  :root {
+    --page: #f7f4ed;
+    --ink: #1d2430;
+    --muted: #667085;
+    --line: #ddd6c7;
+    --panel: #fffdf8;
+    --soft: #efe9dc;
+    --scratch: #8b5cf6;
+    --scratch-bg: #f1e9ff;
+    --harness: #0f766e;
+    --harness-bg: #dff3ee;
+    --search: #b45309;
+    --search-bg: #fff0d9;
+    --room: #2563eb;
+    --room-bg: #e6eefc;
+    --memory: #15803d;
+    --memory-bg: #e3f4e6;
+    --proof: #be123c;
+    --proof-bg: #ffe4eb;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background:
+      linear-gradient(90deg, rgba(29,36,48,.035) 1px, transparent 1px) 0 0 / 42px 42px,
+      linear-gradient(180deg, #fbf8f1 0%, var(--page) 46%, #f3efe6 100%);
+    color: var(--ink);
+    font: 16px/1.55 "Avenir Next", Avenir, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 42px 28px 72px; }
+  .display { font-family: Charter, "Iowan Old Style", "Palatino Linotype", Georgia, serif; }
+  header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 28px;
+    align-items: end;
+    margin-bottom: 26px;
+  }
+  h1 {
+    margin: 0;
+    max-width: 780px;
+    font: 700 42px/1.08 Charter, "Iowan Old Style", Georgia, serif;
+    letter-spacing: 0;
+  }
+  .tagline {
+    margin: 14px 0 0;
+    max-width: 780px;
+    color: var(--muted);
+    font-size: 18px;
+  }
+  .tagline strong { color: var(--harness); }
+  .stamp {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(255,253,248,.86);
+    padding: 16px;
+    box-shadow: 0 1px 2px rgba(40, 30, 10, .04);
+  }
+  .stamp b { display: block; margin-bottom: 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; }
+  .stamp p { margin: 0; color: var(--muted); font-size: 14px; }
+  .legend {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--panel);
+    box-shadow: 0 1px 2px rgba(40, 30, 10, .04);
+    margin-bottom: 30px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    width: fit-content;
+    padding: 3px 10px;
+    border: 1.5px solid currentColor;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .chip .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .scratch { color: var(--scratch); background: var(--scratch-bg); }
+  .harness { color: var(--harness); background: var(--harness-bg); }
+  .search { color: var(--search); background: var(--search-bg); }
+  .room { color: var(--room); background: var(--room-bg); }
+  .memory { color: var(--memory); background: var(--memory-bg); }
+  .proof { color: var(--proof); background: var(--proof-bg); }
+  .legend .item { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+  .legend .what { color: var(--muted); font-size: 13px; }
+  section { margin-top: 38px; }
+  h2 {
+    margin: 0 0 8px;
+    font: 700 28px/1.18 Charter, "Iowan Old Style", Georgia, serif;
+  }
+  .section-sub { margin: 0 0 18px; max-width: 850px; color: var(--muted); }
+  .split {
+    display: grid;
+    grid-template-columns: 1.05fr .95fr;
+    gap: 18px;
+    align-items: stretch;
+  }
+  .panel {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: rgba(255,253,248,.92);
+    box-shadow: 0 1px 2px rgba(40, 30, 10, .04);
+  }
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  .panel-head b { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; }
+  .panel-body { padding: 16px; }
+  .bad-stack {
+    display: grid;
+    gap: 10px;
+  }
+  .bad-box {
+    border: 1px dashed #b7ad9a;
+    border-radius: 8px;
+    padding: 13px;
+    background: #f5efe4;
+  }
+  .bad-box b { display: block; margin-bottom: 4px; }
+  .bad-box p { margin: 0; color: var(--muted); font-size: 14px; }
+  .loop {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(118px, 1fr));
+    gap: 10px;
+    align-items: stretch;
+  }
+  .step {
+    position: relative;
+    min-height: 168px;
+    padding: 14px 12px;
+    border: 1px solid var(--line);
+    border-top: 5px solid var(--harness);
+    border-radius: 9px;
+    background: var(--panel);
+  }
+  .step.search-line { border-top-color: var(--search); }
+  .step.room-line { border-top-color: var(--room); }
+  .step.memory-line { border-top-color: var(--memory); }
+  .step.proof-line { border-top-color: var(--proof); }
+  .step.scratch-line { border-top-color: var(--scratch); }
+  .num {
+    display: inline-grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    margin-bottom: 9px;
+    border-radius: 7px;
+    background: var(--ink);
+    color: #fff;
+    font: 700 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .step h3 { margin: 0 0 7px; font-size: 16px; line-height: 1.2; }
+  .step p { margin: 0; color: var(--muted); font-size: 13.5px; }
+  .step code,
+  .primitive code,
+  .decision code {
+    font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    padding: 1px 5px;
+    border-radius: 5px;
+    background: var(--soft);
+    color: #384152;
+  }
+  .implementation-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+  .primitive {
+    border: 1px solid var(--line);
+    border-left: 5px solid currentColor;
+    border-radius: 9px;
+    background: var(--panel);
+    padding: 14px;
+    min-height: 152px;
+  }
+  .primitive h3 { margin: 9px 0 6px; font-size: 16px; }
+  .primitive p { margin: 0; color: var(--muted); font-size: 13.5px; }
+  .rail {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    gap: 16px;
+  }
+  .rail-menu {
+    display: grid;
+    gap: 9px;
+    align-content: start;
+  }
+  .rail-menu div {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 11px 12px;
+    background: var(--panel);
+    font-size: 14px;
+  }
+  .rail-menu b { display: block; margin-bottom: 2px; }
+  .rail-menu span { color: var(--muted); font-size: 12.5px; }
+  .handoff {
+    display: grid;
+    gap: 12px;
+  }
+  .handoff-row {
+    display: grid;
+    grid-template-columns: 150px minmax(0, 1fr);
+    gap: 12px;
+    align-items: stretch;
+  }
+  .handoff-row .label {
+    border-radius: 8px;
+    padding: 12px;
+    background: var(--ink);
+    color: #fff;
+    font-weight: 700;
+    font-size: 14px;
+  }
+  .handoff-row .copy {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .decision-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+  .decision {
+    border: 1px solid var(--line);
+    border-top: 5px solid var(--harness);
+    border-radius: 9px;
+    background: var(--panel);
+    padding: 15px;
+  }
+  .decision.warn { border-top-color: var(--search); }
+  .decision.risk { border-top-color: var(--proof); }
+  .decision h3 { margin: 0 0 8px; font-size: 16px; }
+  .decision ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13.5px; }
+  .decision li + li { margin-top: 5px; }
+  footer {
+    margin-top: 40px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 13px;
+  }
+  @media (max-width: 980px) {
+    header,
+    .split,
+    .rail,
+    .decision-row { grid-template-columns: 1fr; }
+    .legend,
+    .implementation-grid { grid-template-columns: repeat(2, 1fr); }
+    .loop { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 640px) {
+    .wrap { padding: 28px 16px 48px; }
+    h1 { font-size: 32px; }
+    .legend,
+    .implementation-grid,
+    .loop,
+    .handoff-row { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1 class="display">How an ANT agent works for hours without carrying hours of context</h1>
+      <p class="tagline">The product move is simple: <strong>short-term context becomes disposable, while the harness makes resources, proof, and durable learning explicit.</strong> The agent does not remember everything. It knows how to work the system.</p>
+    </div>
+    <div class="stamp">
+      <b>Review draft</b>
+      <p>Built from the Oldboys identity explainer pattern, Perplexity's search-as-code diagram, and Anthropic's long-running-agent harness argument.</p>
+    </div>
+  </header>
+
+  <div class="legend">
+    <div class="item"><span class="chip scratch"><span class="dot"></span>Scratch context</span><span class="what">current task only</span></div>
+    <div class="item"><span class="chip harness"><span class="dot"></span>Harness state</span><span class="what">progress and gates</span></div>
+    <div class="item"><span class="chip search"><span class="dot"></span>Search as code</span><span class="what">typed resource calls</span></div>
+    <div class="item"><span class="chip room"><span class="dot"></span>Linked rooms</span><span class="what">deep work lanes</span></div>
+    <div class="item"><span class="chip memory"><span class="dot"></span>Durable memory</span><span class="what">promoted lessons</span></div>
+    <div class="item"><span class="chip proof"><span class="dot"></span>Proof trail</span><span class="what">evidence before claims</span></div>
+  </div>
+
+  <section>
+    <h2 class="display">1. What changes</h2>
+    <p class="section-sub">The agent stops treating one conversation window as the whole brain. Context is just the working bench. The durable system is the bench plan, the shelves, the labels, and the inspection record.</p>
+    <div class="split">
+      <div class="panel">
+        <div class="panel-head"><b>Today: context stuffing</b><span class="chip scratch"><span class="dot"></span>fragile</span></div>
+        <div class="panel-body bad-stack">
+          <div class="bad-box"><b>Long chat = fake continuity</b><p>The agent carries old turns until compaction removes detail or stale claims feel current.</p></div>
+          <div class="bad-box"><b>Memory = one vague bucket</b><p>Semble, Mempalis, Obsidian, room history, GitHub, and screenshots blur together.</p></div>
+          <div class="bad-box"><b>Review = last answer wins</b><p>Claims arrive faster than the proof trail, so confidence is not tied to source quality.</p></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><b>Target: harnessed autonomy</b><span class="chip harness"><span class="dot"></span>explicit</span></div>
+        <div class="panel-body bad-stack">
+          <div class="bad-box"><b>Fresh context starts from bearings</b><p>Every new agent reads goal, room state, open decisions, linked lanes, and verification gates before acting.</p></div>
+          <div class="bad-box"><b>Resources are typed primitives</b><p>Search, rooms, memory, source files, web, and artefacts each have a reason to be called.</p></div>
+          <div class="bad-box"><b>Only durable lessons survive</b><p>Evidence-backed findings are promoted; scratch notes and failed branches stay disposable.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="display">2. The agent loop going forward</h2>
+    <p class="section-sub">This is the cold-start ritual and work cycle for any agent brought into a long-running ANT track.</p>
+    <div class="loop">
+      <div class="step harness-line">
+        <span class="num">1</span>
+        <h3>Get bearings</h3>
+        <p>Read the room brief, current goal, linked rooms, last checkpoint, and owned lane before touching work.</p>
+      </div>
+      <div class="step scratch-line">
+        <span class="num">2</span>
+        <h3>Set a small run</h3>
+        <p>Choose one bounded question or build step. Scratch context is loaded for that run only.</p>
+      </div>
+      <div class="step search-line">
+        <span class="num">3</span>
+        <h3>Search as code</h3>
+        <p>Compose retrieval: <code>retrieve</code>, <code>fanout</code>, <code>dedupe</code>, <code>rank</code>, <code>pack</code>.</p>
+      </div>
+      <div class="step room-line">
+        <span class="num">4</span>
+        <h3>Move depth out</h3>
+        <p>Use a linked room or note for noisy exploration. Keep the main room for decisions and artefact review.</p>
+      </div>
+      <div class="step proof-line">
+        <span class="num">5</span>
+        <h3>Bank proof</h3>
+        <p>Attach source links, screenshots, commands, diffs, or direct quotes before promoting the claim.</p>
+      </div>
+      <div class="step memory-line">
+        <span class="num">6</span>
+        <h3>Promote lessons</h3>
+        <p>Only stable, reusable findings go into durable memory. Everything else stays in the lane log.</p>
+      </div>
+      <div class="step harness-line">
+        <span class="num">7</span>
+        <h3>Leave a handoff</h3>
+        <p>Write what changed, what is verified, what is open, and exactly where the next agent resumes.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="display">3. What ANT implements underneath</h2>
+    <p class="section-sub">The implementation is not one magic memory feature. It is a set of small primitives with clear jobs and clear promotion rules.</p>
+    <div class="implementation-grid">
+      <div class="primitive harness">
+        <span class="chip harness"><span class="dot"></span>Goal ledger</span>
+        <h3>Current work state</h3>
+        <p>Room-scoped goal, owner, open decisions, blocked items, acceptance gates, and latest verified checkpoint.</p>
+      </div>
+      <div class="primitive search">
+        <span class="chip search"><span class="dot"></span>Resource router</span>
+        <h3>Search primitive selection</h3>
+        <p>Exact local lookup, Semble-style discovery, web/source fetch, GitHub stars, screenshots, or prior room history.</p>
+      </div>
+      <div class="primitive room">
+        <span class="chip room"><span class="dot"></span>Lane rooms</span>
+        <h3>Noise control</h3>
+        <p>Deep research happens in linked rooms with their own artefacts, while Research Colony stays a review surface.</p>
+      </div>
+      <div class="primitive proof">
+        <span class="chip proof"><span class="dot"></span>Evidence packer</span>
+        <h3>Claims need backing</h3>
+        <p>Promoted notes carry source, timestamp, command output, screenshot, file path, or explicit uncertainty.</p>
+      </div>
+      <div class="primitive memory">
+        <span class="chip memory"><span class="dot"></span>Memory promotion</span>
+        <h3>Disposable to durable</h3>
+        <p>Mempalis/Obsidian entries are written only when a lesson is reusable and stable enough to survive compaction.</p>
+      </div>
+      <div class="primitive scratch">
+        <span class="chip scratch"><span class="dot"></span>Context pack</span>
+        <h3>Small working set</h3>
+        <p>The next agent receives the minimum useful bundle: goal, constraints, evidence links, and next action.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="display">4. How a fresh agent resumes cleanly</h2>
+    <p class="section-sub">Compaction becomes normal instead of scary. A fresh context window should look like a shift handover, not amnesia.</p>
+    <div class="rail">
+      <div class="rail-menu">
+        <div><b>Read room header</b><span>purpose, owner, current review item</span></div>
+        <div><b>Open linked lane</b><span>deep work and raw exploration</span></div>
+        <div><b>Load context pack</b><span>only the needed state</span></div>
+        <div><b>Verify live surface</b><span>commands, browser, files, or artefact</span></div>
+        <div><b>Declare next run</b><span>small, bounded, reviewable</span></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><b>Handoff packet</b><span class="chip proof"><span class="dot"></span>reviewable</span></div>
+        <div class="panel-body handoff">
+          <div class="handoff-row"><div class="label">What I know</div><div class="copy">Evidence-backed facts and the exact artefacts or sources they came from.</div></div>
+          <div class="handoff-row"><div class="label">What I did</div><div class="copy">Files, rooms, searches, screenshots, commands, or visual drafts touched during the run.</div></div>
+          <div class="handoff-row"><div class="label">What is open</div><div class="copy">Decisions, risks, contradictions, and what would make the next claim unsafe.</div></div>
+          <div class="handoff-row"><div class="label">Next action</div><div class="copy">One concrete step the next agent can execute without rereading the entire history.</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="display">5. Implementation decisions to make</h2>
+    <p class="section-sub">These are the product choices that decide whether the system becomes useful or just another memory drawer.</p>
+    <div class="decision-row">
+      <div class="decision">
+        <h3>Default route</h3>
+        <ul>
+          <li>Main room gets summaries and review links.</li>
+          <li>Linked rooms get raw exploration.</li>
+          <li>Artefacts become first-class review objects.</li>
+        </ul>
+      </div>
+      <div class="decision warn">
+        <h3>Promotion rule</h3>
+        <ul>
+          <li>No durable memory from a single unverified answer.</li>
+          <li>Require evidence or mark uncertainty.</li>
+          <li>Prefer small reusable lessons over transcripts.</li>
+        </ul>
+      </div>
+      <div class="decision risk">
+        <h3>Failure mode</h3>
+        <ul>
+          <li>Do not let memory become a dumping ground.</li>
+          <li>Do not let linked rooms hide decisions.</li>
+          <li>Do not let context packs overgrow into full history.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    The working slogan: harness first, memory second. ANT wins when an agent can lose its short-term context, come back through the harness, and continue with better evidence than before.
+  </footer>
+</div>
+</body>
+</html>
