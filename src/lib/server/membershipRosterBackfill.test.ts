@@ -178,3 +178,28 @@ describe('verifyRosterConsolidation — proof on PERSISTED identity', () => {
     expect(c2).toBe(c1);
   });
 });
+
+describe('browser-session synthetic handles are excluded from the clean roster', () => {
+  it('backfill skips @browser-bs_ handles, counts them, and verify stays green', () => {
+    seedChatRoomMember('roomBS', '@realagent');
+    seedChatRoomMember('roomBS', '@browser-bs_deadbeefcafe1234');
+    getIdentityDb().pragma('foreign_keys = OFF');
+    getIdentityDb()
+      .prepare(`INSERT INTO room_memberships (id, room_id, handle, terminal_id, created_at) VALUES (?, 'roomBS', '@browser-bs_aaaa1111bbbb2222', 't-bs', 0)`)
+      .run('rm-bs');
+
+    const report = backfillRosterFromAllLegacy();
+
+    // the browser sessions are NOT members; the real agent IS
+    expect(isMember('roomBS', '@realagent')).toBe(true);
+    expect(isMember('roomBS', '@browser-bs_deadbeefcafe1234')).toBe(false);
+    expect(isMember('roomBS', '@browser-bs_aaaa1111bbbb2222')).toBe(false);
+    // they're counted, not silently dropped
+    expect(report.skippedBrowserSessions).toBeGreaterThanOrEqual(2);
+    // and the proof stays green — verify's notion of "legacy member" excludes them
+    // too, so they don't read as drops
+    const v = verifyRosterConsolidation();
+    expect(v.noDrops.count).toBe(0);
+    expect(v.noDupes.count).toBe(0);
+  });
+});

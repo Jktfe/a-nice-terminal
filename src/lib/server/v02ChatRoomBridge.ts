@@ -42,7 +42,11 @@ import * as v02Memberships from './v02MembershipsStore';
 import type { V02MembershipRole, V02MemberKind } from './v02MembershipsStore';
 import { getIdentityByHandle } from './identityKeysStore';
 import { appendAuditEvent as appendAuditEventCanonical } from './auditEventsStore';
-import { addMember as cleanAddMember, removeMember as cleanRemoveMember } from './membershipStore';
+import {
+  addMember as cleanAddMember,
+  removeMember as cleanRemoveMember,
+  isDurableMemberHandle
+} from './membershipStore';
 import { setMemberPresentation } from './membershipPresentationStore';
 
 /**
@@ -225,7 +229,14 @@ export function mirrorAddMembership(input: {
     // here is correct). ADDITIVE — the dashboard doesn't read room_membership
     // yet; this populates the canonical roster ahead of the read cut-over so
     // it lands on a complete table. Best-effort, inside the existing try.
-    cleanAddMember(input.roomId, input.handle, null);
+    //
+    // SKIP browser-session synthetic handles: the browser-session mint calls
+    // this bridge with a @browser-bs_ handle, which is NOT a durable member (the
+    // live read hides it). Guarding here stops ongoing pollution of the clean
+    // roster — the backfill skips the historical ones, this skips new ones.
+    if (isDurableMemberHandle(input.handle)) {
+      cleanAddMember(input.roomId, input.handle, null);
+    }
     // R3 read-flip parity: seed the clean presentation row at invite time too,
     // so member_kind / display_* survive into the clean read WITHOUT depending
     // on a later updateRoomMemberPresentation call or a live terminal_records
@@ -233,11 +244,12 @@ export function mirrorAddMembership(input: {
     // the clean read gets it from HERE. Only write fields we were actually given
     // (partial-merge upsert preserves anything an explicit update set earlier).
     if (
-      input.memberKind != null ||
-      input.roomDisplayName != null ||
-      input.displayColor != null ||
-      input.displayIcon != null ||
-      input.displayBackgroundStyle != null
+      isDurableMemberHandle(input.handle) &&
+      (input.memberKind != null ||
+        input.roomDisplayName != null ||
+        input.displayColor != null ||
+        input.displayIcon != null ||
+        input.displayBackgroundStyle != null)
     ) {
       setMemberPresentation(input.roomId, input.handle, {
         ...(input.roomDisplayName != null && { room_display_name: input.roomDisplayName }),

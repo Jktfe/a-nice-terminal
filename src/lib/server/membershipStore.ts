@@ -21,6 +21,20 @@
 
 import { getIdentityDb } from './db';
 
+/**
+ * Browser sessions are minted per-room as ephemeral auth artifacts and the
+ * legacy room_memberships table carries one synthetic `@browser-bs_<hex>` row
+ * per session (715+ live). They are NOT durable members: the live dashboard
+ * read (v0.2 memberships JOIN agents) hides them because they have no agent
+ * record. The clean roster must match — so a `@browser-bs_` handle is never a
+ * member of room_membership. Canonical predicate, used at every entry to the
+ * clean roster (dual-write, backfill, and the consistency-iterator the proof
+ * reads), so the clean table can never be polluted by a browser session.
+ */
+export function isDurableMemberHandle(handle: string): boolean {
+  return !handle.trim().toLowerCase().startsWith('@browser-bs');
+}
+
 export type Membership = {
   room_id: string;
   handle: string;

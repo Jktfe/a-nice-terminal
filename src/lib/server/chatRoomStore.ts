@@ -29,7 +29,7 @@ import {
   ensureV02RoomExists as v02EnsureRoomExists
 } from './v02ChatRoomBridge';
 import { setMemberPresentation, getMemberPresentation } from './membershipPresentationStore';
-import { listMembers as cleanListMembers } from './membershipStore';
+import { listMembers as cleanListMembers, isDurableMemberHandle } from './membershipStore';
 import {
   listRoomMembersHydrated as v02ListRoomMembersHydrated,
   isHandleActiveMemberOfRoom as v02IsHandleActiveMemberOfRoom
@@ -292,7 +292,12 @@ function rosterReadMode(): 'clean' | 'legacy' {
  * the legacy union, so the only change at the flip is the SOURCE, not the shape.
  */
 function loadMembersForRoomClean(roomId: string): RoomMember[] {
-  return cleanListMembers(roomId).map((member) => {
+  return cleanListMembers(roomId)
+    // Defence-in-depth: browser-session synthetic handles must never render as
+    // members. The backfill + dual-write already exclude them, so this filter is
+    // belt-and-braces against any that leaked into room_membership pre-fix.
+    .filter((member) => isDurableMemberHandle(member.handle))
+    .map((member) => {
     const presentation = getMemberPresentation(roomId, member.handle);
     return v02HydratedRowToMember({
       handle: member.handle,

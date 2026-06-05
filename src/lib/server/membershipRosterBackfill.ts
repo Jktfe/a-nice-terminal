@@ -27,7 +27,7 @@
  */
 
 import { getIdentityDb } from './db';
-import { addMember, setMemberIdentityKey } from './membershipStore';
+import { addMember, setMemberIdentityKey, isDurableMemberHandle } from './membershipStore';
 import { getLiveAgentByHandle } from './v02AgentsStore';
 import { canonicaliseOperatorHandle, isOperatorHandle } from './operatorHandle';
 import { findRoomHandleOwnerAtTime } from './roomHandleLeaseStore';
@@ -107,6 +107,8 @@ export type RosterBackfillReport = {
   fallbackRows: Array<{ room_id: string; handle: string }>;
   /** Distinct canonical (room, identityKey) pairs written. */
   written: number;
+  /** Legacy rows skipped as non-durable browser-session synthetic handles. */
+  skippedBrowserSessions: number;
 };
 
 function tableExists(db: ReturnType<typeof getIdentityDb>, name: string): boolean {
@@ -129,7 +131,8 @@ export function backfillRosterFromAllLegacy(db = getIdentityDb()): RosterBackfil
     sources: { chat_room_members: 0, room_memberships: 0, memberships: 0 },
     tierCounts: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
     fallbackRows: [],
-    written: 0
+    written: 0,
+    skippedBrowserSessions: 0
   };
   // De-dup tracking so the per-tier + written counts reflect DISTINCT identities,
   // not raw rows (two raw handles → one canonical identity counts once).
@@ -137,6 +140,12 @@ export function backfillRosterFromAllLegacy(db = getIdentityDb()): RosterBackfil
 
   const ingest = (roomId: string, rawHandle: string): void => {
     if (!roomId || !rawHandle) return;
+    // Browser-session synthetic handles are not durable members — the live read
+    // hides them, so the clean roster must too (see isDurableMemberHandle).
+    if (!isDurableMemberHandle(rawHandle)) {
+      report.skippedBrowserSessions++;
+      return;
+    }
     const canon = resolveCanonicalMember(roomId, rawHandle, db);
     addMember(roomId, canon.canonicalHandle, null, db);
     // Persist the resolved identity ON DISK so the proof verifies the stored
@@ -211,16 +220,24 @@ function forEachLegacyMember(
     for (const r of db.prepare(`SELECT room_id, handle FROM chat_room_members`).all() as Array<{
       room_id: string;
       handle: string;
-    }>)
-      cb(r.room_id, r.handle);
+    }>) {
+      // Skip browser-session synthetic handles so the proof's notion of "legacy
+      // members" matches what the backfill actually writes (else all 715 would
+      // read as drops). Single source of truth: isDurableMemberHandle.
+      if (isDurableMemberHandle(r.handle)) cb(r.room_id, r.handle);
+    }
   }
   if (tableExists(db, 'room_memberships')) {
     const where = columnExists(db, 'room_memberships', 'revoked_at_ms') ? `WHERE revoked_at_ms IS NULL` : ``;
     for (const r of db.prepare(`SELECT room_id, handle FROM room_memberships ${where}`).all() as Array<{
       room_id: string;
       handle: string;
-    }>)
-      cb(r.room_id, r.handle);
+    }>) {
+      // Skip browser-session synthetic handles so the proof's notion of "legacy
+      // members" matches what the backfill actually writes (else all 715 would
+      // read as drops). Single source of truth: isDurableMemberHandle.
+      if (isDurableMemberHandle(r.handle)) cb(r.room_id, r.handle);
+    }
   }
   if (tableExists(db, 'memberships') && tableExists(db, 'agents')) {
     const leftCol = columnExists(db, 'memberships', 'left_at_ms') ? `WHERE m.left_at_ms IS NULL` : ``;
