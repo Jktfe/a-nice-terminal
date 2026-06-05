@@ -151,6 +151,57 @@ export function listPresentationForRoom(
   return rows.map(rowToPresentation);
 }
 
+/**
+ * One-time CALLABLE backfill: populate room_member_presentation from the legacy
+ * `chat_room_members` presentation columns, so the dashboard read-flip operates
+ * on a COMPLETE table (every existing member, not just those who've updated
+ * presentation since the dual-write shipped). Idempotent (upsert). Returns a
+ * count report. Safe on a DB with no chat_room_members table (fresh/test).
+ */
+export function backfillPresentationFromChatRoomMembers(
+  db = getIdentityDb()
+): { scanned: number; written: number } {
+  ensureTable(db);
+  const tableExists = db
+    .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='chat_room_members'`)
+    .get();
+  if (!tableExists) return { scanned: 0, written: 0 };
+
+  const rows = db
+    .prepare(
+      `SELECT room_id, handle, display_name, kind, display_color, display_icon,
+              display_background_style
+         FROM chat_room_members`
+    )
+    .all() as Array<{
+    room_id: string;
+    handle: string;
+    display_name: string | null;
+    kind: string | null;
+    display_color: string | null;
+    display_icon: string | null;
+    display_background_style: string | null;
+  }>;
+
+  let written = 0;
+  for (const r of rows) {
+    setMemberPresentation(
+      r.room_id,
+      r.handle,
+      {
+        room_display_name: r.display_name ?? null,
+        display_color: r.display_color ?? null,
+        display_icon: r.display_icon ?? null,
+        display_background_style: r.display_background_style ?? null,
+        member_kind: r.kind ?? null
+      },
+      db
+    );
+    written++;
+  }
+  return { scanned: rows.length, written };
+}
+
 /** Drop a member's presentation (e.g. when they leave). Returns true if removed. */
 export function removeMemberPresentation(
   roomId: string,

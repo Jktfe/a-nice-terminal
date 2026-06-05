@@ -7,8 +7,10 @@ import {
   setMemberPresentation,
   getMemberPresentation,
   listPresentationForRoom,
-  removeMemberPresentation
+  removeMemberPresentation,
+  backfillPresentationFromChatRoomMembers
 } from './membershipPresentationStore';
+import { getIdentityDb } from './db';
 
 let tmpDir: string;
 const prevDbPath = process.env.ANT_FRESH_DB_PATH;
@@ -74,6 +76,32 @@ describe('membershipPresentationStore', () => {
     setMemberPresentation('room2', '@gamma', { display_color: '#0f0' });
     const list = listPresentationForRoom('room1');
     expect(list.map((p) => p.handle)).toEqual(['@alpha', '@bravo']);
+  });
+
+  it('backfills presentation from chat_room_members (idempotent)', () => {
+    const db = getIdentityDb();
+    db.prepare(
+      `INSERT INTO chat_rooms (id, name, last_update, when_it_was_created, who_created_it, creation_order)
+       VALUES ('rbf','Room BF','t','t','@you',9001)`
+    ).run();
+    db.prepare(
+      `INSERT INTO chat_room_members (room_id, handle, display_name, kind, joined_at, display_color, display_icon, display_background_style)
+       VALUES ('rbf','@tony','Tony','agent','t','#f00','robot','solid')`
+    ).run();
+
+    const report = backfillPresentationFromChatRoomMembers();
+    expect(report.written).toBe(1);
+    const p = getMemberPresentation('rbf', '@tony');
+    expect(p?.display_color).toBe('#f00');
+    expect(p?.member_kind).toBe('agent');
+    expect(p?.room_display_name).toBe('Tony');
+
+    // idempotent — second run upserts the same row, no error
+    expect(backfillPresentationFromChatRoomMembers().written).toBe(1);
+  });
+
+  it('backfill is safe with no chat_room_members rows', () => {
+    expect(backfillPresentationFromChatRoomMembers()).toEqual({ scanned: 0, written: 0 });
   });
 
   it('removes presentation', () => {
