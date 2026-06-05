@@ -32,8 +32,8 @@
   import AntonlineDevPricing from '$lib/components/AntonlineDevPricing.svelte';
   import AntPathAnimation from '$lib/components/AntPathAnimation.svelte';
 
-  const homepageCrawlPath =
-    'M 100 120 L 900 120 Q 920 120 920 140 L 920 220 Q 920 240 900 240 L 100 240 Q 80 240 80 260 L 80 440 Q 80 460 100 460 L 900 460';
+  const heroVideoCrawlPath =
+    'M 110 86 L 890 86 Q 940 86 940 136 L 940 484 Q 940 534 890 534 L 110 534 Q 60 534 60 484 L 60 136 Q 60 86 110 86';
 </script>
 
 <svelte:head>
@@ -45,23 +45,6 @@
 </svelte:head>
 
 <div class="ant-marketing">
-  <div class="homepage-crawl-demo" aria-hidden="true">
-    <AntPathAnimation
-      pathStyle="custom"
-      customPath={homepageCrawlPath}
-      endMode="reset"
-      antCount={7}
-      spacing={12}
-      duration={18500}
-      bodyColor="#0a253c"
-      outlineColor="#fdfbf6"
-      routeColor="#c63b3b"
-      antScale={0.22}
-      leaderEnabled={false}
-      showPath={false}
-    />
-  </div>
-
   <!-- ============================== SECTION 1: HERO ============================== -->
   <section class="hero" aria-labelledby="hero-headline">
     <div class="hero-inner">
@@ -79,6 +62,22 @@
       </div>
       <div class="hero-video" aria-label="60-second product clip placeholder">
         <div class="hero-video-frame">
+          <div class="hero-video-crawl" aria-hidden="true">
+            <AntPathAnimation
+              pathStyle="custom"
+              customPath={heroVideoCrawlPath}
+              endMode="reset"
+              antCount={8}
+              spacing={12}
+              duration={18500}
+              bodyColor="#0a253c"
+              outlineColor="#fdfbf6"
+              routeColor="#c63b3b"
+              antScale={0.2}
+              leaderEnabled={false}
+              showPath={false}
+            />
+          </div>
           <div class="hero-video-content">
             <span class="hero-video-play" aria-hidden="true">▶</span>
             <p>60-second hero clip lands here</p>
@@ -149,43 +148,6 @@
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     font-weight: 500;
     min-height: 100vh;
-  }
-
-  .homepage-crawl-demo {
-    position: absolute;
-    top: 0;
-    left: 50%;
-    z-index: 1;
-    width: min(1180px, 112vw);
-    height: min(760px, 88vh);
-    transform: translateX(-50%);
-    pointer-events: none;
-    opacity: 0.62;
-  }
-
-  :global(.homepage-crawl-demo .ant-animation-container) {
-    height: 100%;
-  }
-
-  :global(.homepage-crawl-demo .stage) {
-    min-height: 100%;
-    height: 100%;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    box-shadow: none;
-    overflow: visible;
-  }
-
-  :global(.homepage-crawl-demo .stage svg) {
-    min-height: 100%;
-    height: 100%;
-    background: transparent;
-    overflow: visible;
-  }
-
-  :global(.homepage-crawl-demo .stage svg > path) {
-    opacity: 0;
   }
 
   .section-head {
@@ -274,6 +236,7 @@
     margin: 0 auto;
   }
   .hero-video-frame {
+    position: relative;
     aspect-ratio: 16 / 9;
     border-radius: 1.2rem;
     background: linear-gradient(180deg, #f3eee0 0%, #ece6d4 100%);
@@ -283,7 +246,41 @@
     align-items: center;
     justify-content: center;
   }
+  .hero-video-crawl {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.58;
+  }
+  :global(.hero-video-crawl .ant-animation-container) {
+    height: 100%;
+  }
+  :global(.hero-video-crawl .stage) {
+    min-height: 100%;
+    height: 100%;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    overflow: hidden;
+  }
+  :global(.hero-video-crawl .stage svg) {
+    min-height: 100%;
+    height: 100%;
+    background: transparent;
+  }
+  :global(.hero-video-crawl .stage svg > path) {
+    opacity: 0;
+  }
+  @media (max-width: 700px) {
+    .hero-video-crawl {
+      display: none;
+    }
+  }
   .hero-video-content {
+    position: relative;
+    z-index: 1;
     text-align: center;
     color: var(--marketing-soft);
     padding: 2rem;
