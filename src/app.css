@@ -45,15 +45,56 @@
   box-sizing: border-box;
 }
 
+html {
+  /* iOS Safari: don't auto-inflate text on rotate; honour the notch via
+     viewport-fit=cover (set in app.html) so env(safe-area-inset-*) works. */
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
+  /* svh (not vh) accounts for Safari's dynamic toolbar — kills the dead white
+     gap where content didn't fill the screen on iPhone. */
+  min-height: 100svh;
   color: var(--ink-strong);
   background:
     linear-gradient(135deg, rgb(255 61 90 / 10%), transparent 32rem),
     radial-gradient(circle at top right, rgb(10 133 240 / 12%), transparent 28rem),
     var(--surface-app);
+}
+
+/* ── Mobile baseline (JWPK 2026-06-06: iPhone 15 Pro Safari polish) ────────
+   Foundational responsive guards applied below the desktop breakpoint so the
+   existing desktop UI is untouched. Per-surface drawer/composer fixes build
+   on this. */
+@media (max-width: 768px) {
+  /* Nothing bleeds off the right edge — kills the spilled room list. clip (not
+     hidden) so it doesn't create a stray scroll container or break sticky. */
+  html,
+  body {
+    overflow-x: clip;
+    max-width: 100%;
+  }
+
+  /* Comfortable thumb targets for primary interactive controls. */
+  button,
+  a[role='button'],
+  [role='tab'],
+  summary,
+  input[type='button'],
+  input[type='submit'] {
+    min-height: 2.75rem; /* 44px — Apple HIG minimum */
+  }
+
+  /* Utility: pad fixed/sticky chrome clear of the notch + home-bar. Apply to
+     headers/composers/floating actions per-surface. */
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
 }
 
 button,
