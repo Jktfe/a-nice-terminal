@@ -121,4 +121,24 @@
   .retry-btn:hover {
     background: rgba(220, 38, 38, 0.1);
   }
+
+  @media (max-width: 768px) {
+    .realtime-status {
+      min-height: 32px;
+      max-width: 100%;
+      padding: 0.25rem 0.55rem;
+      font-size: 0.72rem;
+    }
+    .label {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .retry-btn {
+      min-height: 32px;
+      padding: 0 0.65rem;
+      white-space: nowrap;
+    }
+  }
 </style>

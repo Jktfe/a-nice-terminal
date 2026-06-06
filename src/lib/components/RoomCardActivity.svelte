@@ -302,4 +302,51 @@
     0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, #16a34a 50%, transparent); }
     50% { box-shadow: 0 0 0 4px color-mix(in srgb, #16a34a 0%, transparent); }
   }
+
+  @media (max-width: 768px) {
+    .room-card-status-header {
+      width: 100%;
+      overflow-x: auto;
+      flex-wrap: nowrap;
+      padding-bottom: 0.15rem;
+      -webkit-overflow-scrolling: touch;
+    }
+    .room-card-status-header::-webkit-scrollbar,
+    .agent-status-pills::-webkit-scrollbar {
+      display: none;
+    }
+    .room-card-activity {
+      min-height: 32px;
+      max-width: 100%;
+      padding: 0.2rem 0.5rem;
+      font-size: 0.74rem;
+    }
+    .agent-status-pills {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      max-width: 100%;
+      padding-bottom: 0.1rem;
+      -webkit-overflow-scrolling: touch;
+    }
+    .agent-status-pill,
+    .agent-status-overflow,
+    .needs-you {
+      flex: 0 0 auto;
+      min-height: 32px;
+      max-width: 10rem;
+      padding: 0.2rem 0.5rem;
+      font-size: 0.72rem;
+    }
+    .agent-status-context {
+      display: none;
+    }
+    .agent-status-state::before {
+      content: "·";
+      margin-right: 0.22rem;
+    }
+    .needs-you {
+      margin-left: 0;
+      white-space: nowrap;
+    }
+  }
 </style>
