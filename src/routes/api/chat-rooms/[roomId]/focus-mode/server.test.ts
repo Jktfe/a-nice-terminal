@@ -133,7 +133,7 @@ describe('/api/chat-rooms/:roomId/focus-mode', () => {
       expect(findFocus(room.id, '@you')?.reason).toBe('second');
     });
 
-    it('accepts mode=solo and derives the AUTHENTICATED caller as setter (unspoofable)', async () => {
+    it('accepts mode=solo and ignores body-supplied setter', async () => {
       const room = createChatRoom({ name: 'put-mode-setter', whoCreatedIt: '@you' });
       const response = await callPut(
         room.id,
@@ -143,7 +143,7 @@ describe('/api/chat-rooms/:roomId/focus-mode', () => {
       expect(response.status).toBe(200);
       const entry = findFocus(room.id, '@you');
       expect(entry?.mode).toBe('solo');
-      expect(entry?.setter).toBe('@admin'); // from the admin-bearer gate, not the body
+      expect(entry?.setter).toBe('@you'); // admin-bearer focus is self-set so timer prompts are deliverable
     });
 
     it('defaults mode to shield when omitted', async () => {

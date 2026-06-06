@@ -513,6 +513,53 @@ describe('fanoutMessageToRoomTerminals — mention-targeted routing', () => {
     expect(q.pendingCountForTests(`${room.id}::linked-codex`)).toBe(2);
     expect(q.pendingCountForTests(`${room.id}::linked-svelte`)).toBe(2);
   });
+
+  it('linked-room direct path honours focus shield and solo suppression', () => {
+    const room = createChatRoom({ name: 'linked-focus-room', whoCreatedIt: '@test' });
+    createTerminalRecord({
+      sessionId: 'linked-focused',
+      name: 'linked focused',
+      linkedChatRoomId: room.id,
+      tmuxTargetPane: '%linked-focused',
+      agentKind: 'codex_cli',
+      handle: '@focused'
+    });
+    createTerminalRecord({
+      sessionId: 'linked-other',
+      name: 'linked other',
+      linkedChatRoomId: room.id,
+      tmuxTargetPane: '%linked-other',
+      agentKind: 'claude_code',
+      handle: '@other'
+    });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@focused', agentDisplayName: 'Focused' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@other', agentDisplayName: 'Other' });
+
+    enterFocus({ roomId: room.id, memberHandle: '@focused', mode: 'shield' });
+    const shielded = postMessage({
+      roomId: room.id,
+      authorHandle: '@sender',
+      body: '@everyone shield check',
+      kind: 'human'
+    });
+    fanoutMessageToRoomTerminals(room.id, shielded);
+
+    const q = getFanoutQueueForTests();
+    expect(q.pendingCountForTests(`${room.id}::linked-focused`)).toBe(0);
+    expect(q.pendingCountForTests(`${room.id}::linked-other`)).toBe(1);
+
+    enterFocus({ roomId: room.id, memberHandle: '@focused', mode: 'solo' });
+    const solo = postMessage({
+      roomId: room.id,
+      authorHandle: '@sender',
+      body: '@everyone solo check',
+      kind: 'human'
+    });
+    fanoutMessageToRoomTerminals(room.id, solo);
+
+    expect(q.pendingCountForTests(`${room.id}::linked-focused`)).toBe(1);
+    expect(q.pendingCountForTests(`${room.id}::linked-other`)).toBe(1);
+  });
 });
 
 describe('fanoutMessageToRoomTerminals — room-mode integration (M3.b.4)', () => {
@@ -963,6 +1010,22 @@ describe('fanoutMessageToRoomTerminals — focus timer prompt (MVP-2 slice 3)', 
     expect(q.pendingCountForTests(`${room.id}::${tSetter.id}`)).toBe(before + 1); // setter prompted (directed)
     fireFocusTimerPrompts(room.id);
     expect(q.pendingCountForTests(`${room.id}::${tSetter.id}`)).toBe(before + 1); // one-shot: no double-prompt
+  });
+
+  it('does NOT mark a lapsed shield prompted when the setter relay cannot be delivered', async () => {
+    const room = createChatRoom({ name: 'timer-undeliverable', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@member', agentDisplayName: 'Member' });
+    enterFocus({ roomId: room.id, memberHandle: '@member', setter: '@admin', durationMs: 1 });
+    await new Promise((r) => setTimeout(r, 5));
+
+    fireFocusTimerPrompts(room.id);
+    fireFocusTimerPrompts(room.id);
+
+    const db = getIdentityDb();
+    const row = db
+      .prepare(`SELECT prompted_at_ms FROM room_focus WHERE room_id = ? AND member_handle = ?`)
+      .get(room.id, '@member') as { prompted_at_ms: number | null } | undefined;
+    expect(row?.prompted_at_ms).toBeNull();
   });
 });
 

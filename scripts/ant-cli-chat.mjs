@@ -817,7 +817,7 @@ function advanceLastSeen(messages, sinceOrder) {
 async function runFocus(flags, runtime, CliInputError) {
   const room = requireFlag(flags, 'room', CliInputError);
   const memberHandle = flags.member ?? flags.handle ?? '@JWPK';
-  const payload = { memberHandle };
+  const payload = { memberHandle, pidChain: processIdentityChain() };
   if (flags.reason) payload.reason = flags.reason;
   if (flags.mode !== undefined) {
     if (flags.mode !== 'shield' && flags.mode !== 'solo') {
@@ -848,7 +848,10 @@ async function runFocus(flags, runtime, CliInputError) {
 async function runUnfocus(flags, runtime, CliInputError) {
   const room = requireFlag(flags, 'room', CliInputError);
   const memberHandle = flags.member ?? flags.handle ?? '@JWPK';
-  const result = await sendJson(runtime, `/api/chat-rooms/${encodeURIComponent(room)}/focus-mode`, 'DELETE', { memberHandle });
+  const result = await sendJson(runtime, `/api/chat-rooms/${encodeURIComponent(room)}/focus-mode`, 'DELETE', {
+    memberHandle,
+    pidChain: processIdentityChain()
+  });
   if (flags.json !== undefined) {
     runtime.writeOut(JSON.stringify(result));
   } else {

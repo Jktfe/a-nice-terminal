@@ -355,7 +355,8 @@ describe('ant chat state wrappers', () => {
       memberHandle: '@codex',
       durationMs: 1_800_000,
       reason: 'heads down',
-      mode: 'solo'
+      mode: 'solo',
+      pidChain: expect.any(Array)
     });
     expect(captured.stdout.join('\n')).toContain('Focus set');
   });
@@ -373,7 +374,7 @@ describe('ant chat state wrappers', () => {
     await handleChatVerb('unfocus', ['room-a', '--member', '@codex', '--json'], runtime, { CliInputError });
     expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/room-a/focus-mode');
     expect(captured.requests[0].init.method).toBe('DELETE');
-    expect(bodyAt(captured)).toMatchObject({ memberHandle: '@codex' });
+    expect(bodyAt(captured)).toMatchObject({ memberHandle: '@codex', pidChain: expect.any(Array) });
     expect(JSON.parse(captured.stdout[0])).toMatchObject({ wasActive: true });
   });
 

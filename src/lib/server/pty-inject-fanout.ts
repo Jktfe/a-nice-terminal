@@ -294,11 +294,11 @@ function emitStaleSystemMessage(roomId: string, handle: string, reason: string):
  * receives it in their terminal. Best-effort: no-op if the room or the
  * responder's membership/terminal can't be resolved.
  */
-export function sendCoordinationRelay(roomId: string, recipientHandle: string, body: string): void {
+export function sendCoordinationRelay(roomId: string, recipientHandle: string, body: string): boolean {
   const room = findChatRoomById(roomId);
-  if (!room) return;
+  if (!room) return false;
   const membership = listMembershipsForRoom(roomId).find((m) => m.handle === recipientHandle);
-  if (!membership?.terminal_id) return;
+  if (!membership?.terminal_id) return false;
   queue.enqueue(queueKeyFor(roomId, membership.terminal_id), {
     roomId,
     roomName: room.name,
@@ -308,6 +308,7 @@ export function sendCoordinationRelay(roomId: string, recipientHandle: string, b
     recipientHandle,
     terminalId: membership.terminal_id
   });
+  return true;
 }
 
 /**
@@ -327,12 +328,15 @@ export function fireFocusTimerPrompts(roomId: string): void {
     const body = selfSet
       ? `⏰ Your focus shield timer has lapsed${reasonSuffix}. You're STILL shielded — exitFocus to rejoin, or it stays shielded.`
       : `⏰ Focus shield timer lapsed for ${focus.memberHandle}${reasonSuffix} (you set it). They're STILL shielded — extend, release them, or leave it shielded.`;
+    let delivered = false;
     try {
-      sendCoordinationRelay(roomId, focus.setter, body);
+      delivered = sendCoordinationRelay(roomId, focus.setter, body);
     } catch {
       /* best-effort notify; never block fanout */
     }
-    markTimerPrompted(roomId, focus.memberHandle);
+    if (delivered) {
+      markTimerPrompted(roomId, focus.memberHandle);
+    }
   }
 }
 
@@ -586,6 +590,13 @@ export function fanoutMessageToRoomTerminals(
   for (const terminal of listLinkedTerminalRowsForRoom(room.id)) {
     if (enqueuedIds.has(terminal.id)) continue;
     const linkedHandle = recipientHandleForLinkedTerminal(terminal.id);
+    if (soloActive && !soloTargets.has(linkedHandle)) continue;
+    if (
+      shieldedHandles.has(linkedHandle) &&
+      !(FOCUS_SHIELD_MENTION_BREAKTHROUGH && targetedHandles.has(linkedHandle))
+    ) {
+      continue;
+    }
     if (!broadcastToAll && targetedHandles.size === 0 && containsInformationalMention) continue;
     if (targetedHandles.size > 0 && !broadcastToAll && !targetedHandles.has(linkedHandle)) continue;
     if (!activeClaimAllowsRecipient(message, linkedHandle)) continue;

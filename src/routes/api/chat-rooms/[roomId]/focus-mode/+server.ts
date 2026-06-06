@@ -113,7 +113,10 @@ export const PUT: RequestHandler = async ({ params, request }) => {
     const focusEntry = enterFocus({
       roomId: params.roomId,
       memberHandle,
-      setter: auth.handle,
+      // Admin-bearer is an automation credential, not a room member with a
+      // terminal. Timed shields still need a deliverable prompt, so treat
+      // admin-set focus as self-set for timer notification purposes.
+      setter: auth.isAdminBearer ? memberHandle : auth.handle,
       mode,
       reason,
       durationMs
