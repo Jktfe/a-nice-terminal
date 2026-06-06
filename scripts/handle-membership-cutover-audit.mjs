@@ -32,7 +32,14 @@ const DISPLAY_ONLY_PATTERNS = [
   /operator sentinel/i
 ];
 
+const AUDIT_IMPLEMENTATION_FILES = new Set([
+  'scripts/handle-membership-cutover-audit.mjs'
+]);
+
 export function scanTextForCutoverFindings(file, text) {
+  const normalisedFile = file.replace(/\\/g, '/');
+  if (AUDIT_IMPLEMENTATION_FILES.has(normalisedFile)) return [];
+
   const findings = [];
   const lines = text.split(/\r?\n/);
   lines.forEach((line, index) => {

@@ -37,6 +37,18 @@ describe('handle membership cutover audit', () => {
     ]);
   });
 
+  it('does not count this audit script rule table as a cutover blocker', () => {
+    const findings = scanTextForCutoverFindings('scripts/handle-membership-cutover-audit.mjs', `
+      { kind: 'legacy-chat-room-members', pattern: /\\bchat_room_members\\b/ },
+      { kind: 'legacy-room-memberships', pattern: /\\broom_memberships\\b/ },
+      { kind: 'legacy-v02-memberships', pattern: /\\bmemberships\\b/ },
+      { kind: 'operator-sentinel-auth', pattern: /\\bOPERATOR_HANDLE\\b/ },
+      { kind: 'cli-config-identity-cache', pattern: /\\bantSessions\\.(?:byName|byPane)\\b/ }
+    `);
+
+    expect(findings).toEqual([]);
+  });
+
   it('summarises blockers by kind for the deploy gate', () => {
     const summary = classifyCutoverFindings([
       { file: 'a.ts', line: 1, kind: 'legacy-room-memberships', text: 'room_memberships' },
