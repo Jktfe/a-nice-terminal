@@ -54,8 +54,9 @@ export const POST: RequestHandler = async ({ request, params }) => {
 
   const auth = requireChatRoomMutationAuth(roomId, request, rawBody);
 
+  const existing = readBlock(roomId, params.blockId, { includeDeleted: true });
+  if (!existing) throw error(404, 'Block not found.');
   setBlockDeleted(roomId, params.blockId, deleted, auth.handle);
   const result = readBlock(roomId, params.blockId, { includeDeleted: true });
-  if (!result) throw error(404, 'Block not found.');
-  return json({ block: result.block });
+  return json({ block: result?.block ?? existing.block });
 };

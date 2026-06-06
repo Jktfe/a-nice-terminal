@@ -15,6 +15,7 @@ import { resetIdentityDbForTests } from '$lib/server/db';
 import { createChatRoom } from '$lib/server/chatRoomStore';
 import { postMessage, postBreakMessage } from '$lib/server/chatMessageStore';
 import { OPEN_BLOCK_ID } from '$lib/server/roomBlocksStore';
+import { getBlockState } from '$lib/server/roomBlockStateStore';
 
 const ADMIN_TOKEN = 'blocks-route-test-admin-token';
 const ORIGINAL_ADMIN_TOKEN = process.env.ANT_ADMIN_TOKEN;
@@ -110,5 +111,15 @@ describe('blocks API endpoints', () => {
     // bad body → 400
     const bad = await asResponse(() => tombstonePOST(event(roomId, break1, { method: 'POST', body: JSON.stringify({}) })));
     expect(bad.status).toBe(400);
+  });
+
+  it('POST /blocks/:id 404s an unknown block without creating phantom block state', async () => {
+    const { roomId } = seed();
+    const res = await asResponse(() =>
+      tombstonePOST(event(roomId, 'no-such-block', { method: 'POST', body: JSON.stringify({ deleted: true }) }))
+    );
+
+    expect(res.status).toBe(404);
+    expect(getBlockState(roomId, 'no-such-block')).toBeNull();
   });
 });
