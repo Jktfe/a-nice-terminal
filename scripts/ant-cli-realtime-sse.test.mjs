@@ -84,6 +84,10 @@ describe('startSseSubscriber', () => {
     vi.restoreAllMocks();
   });
 
+  function nextTimerTick() {
+    return new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
   function makeSseBody(blocks) {
     // Glue blocks with the `\n\n` SSE separator; emit as one chunk.
     const text = blocks.map((b) => `${b}\n\n`).join('');
@@ -125,7 +129,7 @@ describe('startSseSubscriber', () => {
       runtime: makeRuntime(fetchImpl),
       roomId: 'r_test',
       onEvent: (event) => events.push(event),
-      sleepImpl: async () => undefined
+      sleepImpl: nextTimerTick
     });
     // Give the loop a tick to drain the stub stream.
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -148,7 +152,7 @@ describe('startSseSubscriber', () => {
       },
       roomId: 'r_test',
       onEvent: () => {},
-      sleepImpl: async () => undefined
+      sleepImpl: nextTimerTick
     });
     await new Promise((resolve) => setTimeout(resolve, 30));
     controller.stop();
@@ -168,7 +172,7 @@ describe('startSseSubscriber', () => {
       runtime: { serverUrl: 'http://localhost:6174', fetchImpl, config: {} },
       roomId: 'r_test',
       onEvent: () => {},
-      sleepImpl: async () => undefined
+      sleepImpl: nextTimerTick
     });
     await new Promise((resolve) => setTimeout(resolve, 30));
     controller.stop();
@@ -198,7 +202,7 @@ describe('startSseSubscriber', () => {
       runtime: makeRuntime(fetchImpl),
       roomId: 'r_test',
       onEvent: () => {},
-      sleepImpl: async () => undefined
+      sleepImpl: nextTimerTick
     });
     // Two connections worth of drain + a reconnect sleep tick.
     await new Promise((resolve) => setTimeout(resolve, 80));
@@ -225,7 +229,7 @@ describe('startSseSubscriber', () => {
       roomId: 'r_test',
       onEvent: () => {},
       onError: (err, attempt) => errors.push({ msg: err.message, attempt }),
-      sleepImpl: async () => undefined
+      sleepImpl: nextTimerTick
     });
     await new Promise((resolve) => setTimeout(resolve, 80));
     controller.stop();
@@ -263,7 +267,7 @@ describe('startSseSubscriber', () => {
       runtime: makeRuntime(fetchImpl),
       roomId: 'r_test',
       onEvent: (event) => events.push(event),
-      sleepImpl: async () => undefined
+      sleepImpl: nextTimerTick
     });
     await new Promise((resolve) => setTimeout(resolve, 50));
     controller.stop();

@@ -85,6 +85,7 @@ describe('ant router', () => {
     const exitCode = await handleRouterVerb('start', [
       '--room', 'r1',
       '--handle', '@agent',
+      '--mode', 'poll',
       '--since-order', '0',
       '--once'
     ], runtime, {
@@ -122,6 +123,7 @@ describe('ant router', () => {
     const exitCode = await handleRouterVerb('start', [
       '--room', 'r1',
       '--handle', '@agent',
+      '--mode', 'poll',
       '--since-order', '0',
       '--once'
     ], runtime, {
