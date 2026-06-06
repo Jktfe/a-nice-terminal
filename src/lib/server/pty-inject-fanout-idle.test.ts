@@ -7,11 +7,13 @@ import { upsertTerminal, updatePaneTarget } from './terminalsStore';
 import { addMembership } from './roomMembershipsStore';
 import { resetChatRoomStoreForTests, createChatRoom } from './chatRoomStore';
 import {
+  fanoutMessageToRoomTerminals,
   runIdleMonitor,
   resetFanoutQueueForTests,
   getFanoutQueueForTests,
   resetIdleMonitorThrottleForTests
 } from './pty-inject-fanout';
+import { postMessage, resetChatMessageStoreForTests } from './chatMessageStore';
 import { setAgentStatus } from './agentStatusStore';
 import { resetEntityClaimStoreForTests } from './entityClaimStore';
 import { resetIdleNudgeTrackerForTests } from './idleAgentTriggers';
@@ -24,6 +26,7 @@ beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
   resetIdentityDbForTests();
   resetChatRoomStoreForTests();
+  resetChatMessageStoreForTests();
   resetFanoutQueueForTests();
   resetEntityClaimStoreForTests();
   resetIdleNudgeTrackerForTests();
@@ -33,6 +36,7 @@ beforeEach(() => {
 afterEach(() => {
   resetIdentityDbForTests();
   resetChatRoomStoreForTests();
+  resetChatMessageStoreForTests();
   resetFanoutQueueForTests();
   resetEntityClaimStoreForTests();
   resetIdleNudgeTrackerForTests();
@@ -78,5 +82,25 @@ describe('runIdleMonitor — idle-agent trigger adapter (live wiring)', () => {
     runIdleMonitor(room.id, T0 + 6 * 60_000);
     runIdleMonitor(room.id, T0 + 7 * 60_000); // still idle
     expect(q.pendingCountForTests(`${room.id}::${tIdle.id}`)).toBe(1); // exactly one, not two
+  });
+
+  it('does NOT nudge the author of the message that triggered the monitor', () => {
+    const room = createChatRoom({ name: 'idle-author-active', whoCreatedIt: '@you' });
+    const tAuthor = upsertTerminal({ pid: 4, pid_start: 'pa4', name: 'author4' });
+    const tOther = upsertTerminal({ pid: 5, pid_start: 'po5', name: 'other5' });
+    updatePaneTarget(tAuthor.id, '%author4', 'claude_code');
+    updatePaneTarget(tOther.id, '%other5', 'claude_code');
+    addMembership({ room_id: room.id, handle: '@author', terminal_id: tAuthor.id });
+    addMembership({ room_id: room.id, handle: '@other', terminal_id: tOther.id });
+    const T0 = Date.now();
+    setAgentStatus({ terminalId: tAuthor.id, newStatus: 'idle', source: 'hook', nowMs: T0 - 6 * 60_000 });
+    setAgentStatus({ terminalId: tOther.id, newStatus: 'idle', source: 'hook', nowMs: T0 - 6 * 60_000 });
+
+    const message = postMessage({ roomId: room.id, authorHandle: '@author', body: '@everyone update', kind: 'human' });
+    fanoutMessageToRoomTerminals(room.id, message);
+
+    const q = getFanoutQueueForTests();
+    expect(q.pendingCountForTests(`${room.id}::${tAuthor.id}`)).toBe(0);
+    expect(q.pendingCountForTests(`${room.id}::${tOther.id}`)).toBeGreaterThanOrEqual(1);
   });
 });

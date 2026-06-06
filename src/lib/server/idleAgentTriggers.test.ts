@@ -103,6 +103,16 @@ describe('computeIdleTriggers — per-room report + one-shot directed nudges', (
     expect(third.nudges).toHaveLength(1);
   });
 
+  it('scopes one-shot nudges by room so repeated room handles do not suppress each other', () => {
+    const idleAgent = [
+      { handle: '@testing', status: 'idle' as const, lastActivityMs: NOW - DEFAULT_IDLE_THRESHOLD_MS, hasOpenWork: false }
+    ];
+
+    expect(computeIdleTriggers({ now: NOW, scopeId: 'room-a', agents: idleAgent }).nudges).toHaveLength(1);
+    expect(computeIdleTriggers({ now: NOW, scopeId: 'room-b', agents: idleAgent }).nudges).toHaveLength(1);
+    expect(computeIdleTriggers({ now: NOW + 60_000, scopeId: 'room-a', agents: idleAgent }).nudges).toHaveLength(0);
+  });
+
   it('does not nudge working/offline agents (no spam)', () => {
     const { nudges } = computeIdleTriggers({
       now: NOW,

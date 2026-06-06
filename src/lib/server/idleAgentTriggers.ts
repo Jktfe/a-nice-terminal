@@ -95,6 +95,7 @@ export function resetIdleNudgeTrackerForTests(): void {
  * delivers each nudge via sendCoordinationRelay (directed, never a room post).
  */
 export function computeIdleTriggers(input: {
+  scopeId?: string;
   agents: Array<{
     handle: string;
     status: AgentStatus | null;
@@ -108,6 +109,7 @@ export function computeIdleTriggers(input: {
   const report: IdleReportRow[] = [];
   const nudges: PendingNudge[] = [];
   for (const agent of input.agents) {
+    const nudgeKey = input.scopeId ? `${input.scopeId}::${agent.handle}` : agent.handle;
     const engagement = classifyEngagement({
       status: agent.status,
       lastActivityMs: agent.lastActivityMs,
@@ -119,18 +121,18 @@ export function computeIdleTriggers(input: {
 
     if (engagement !== 'idle') {
       // Re-engaged (or offline) → clear the one-shot so the NEXT idle re-nudges.
-      nudgedHandles.delete(agent.handle);
+      nudgedHandles.delete(nudgeKey);
       continue;
     }
     const decision = decideIdleNudge({
       engagement,
       hasOpenWork: agent.hasOpenWork,
-      alreadyNudged: nudgedHandles.has(agent.handle),
+      alreadyNudged: nudgedHandles.has(nudgeKey),
       handle: agent.handle
     });
     if (decision.shouldNudge && decision.text) {
       nudges.push({ handle: agent.handle, text: decision.text });
-      nudgedHandles.add(agent.handle);
+      nudgedHandles.add(nudgeKey);
     }
   }
   return { report, nudges };

@@ -18,7 +18,7 @@ import type { ChatMessage } from './chatMessageStore';
 import { findChatRoomById } from './chatRoomStore';
 import { listMembershipsForRoom, type RoomMembershipRow } from './roomMembershipsStore';
 import { getTerminalById, touchLastPtyByteAt } from './terminalsStore';
-import { isOperatorHandle } from './operatorHandle';
+import { canonicaliseOperatorHandle, isOperatorHandle } from './operatorHandle';
 import { getRoomMode } from './roomModesStore';
 import {
   injectToTerminal,
@@ -252,6 +252,10 @@ function isOperatorBroadcastAuthor(handle: string): boolean {
   return isOperatorHandle(handle);
 }
 
+function sameAuthorHandle(left: string, right: string): boolean {
+  return canonicaliseOperatorHandle(left).toLowerCase() === canonicaliseOperatorHandle(right).toLowerCase();
+}
+
 function isBrowserTerminalSource(source: string | null | undefined): boolean {
   return typeof source === 'string' && source.startsWith('browser');
 }
@@ -309,19 +313,25 @@ export function sendCoordinationRelay(roomId: string, recipientHandle: string, b
  * activity (the fanout call); a quiet room has no flood to escape, so a nudge
  * only matters once traffic resumes.
  */
-export function runIdleMonitor(roomId: string, nowMs: number = Date.now()): IdleReportRow[] {
+export function runIdleMonitor(
+  roomId: string,
+  nowMs: number = Date.now(),
+  activeAuthorHandle?: string
+): IdleReportRow[] {
   const agents = listMembershipsForRoom(roomId)
     .filter((m) => m.terminal_id)
     .map((m) => {
       const status = getAgentStatus(m.terminal_id);
+      const isCurrentAuthor =
+        activeAuthorHandle !== undefined && sameAuthorHandle(m.handle, activeAuthorHandle);
       return {
         handle: m.handle,
-        status: status?.agent_status ?? null,
-        lastActivityMs: status?.agent_status_at_ms ?? null,
+        status: isCurrentAuthor ? 'working' : status?.agent_status ?? null,
+        lastActivityMs: isCurrentAuthor ? nowMs : status?.agent_status_at_ms ?? null,
         hasOpenWork: hasActiveClaimForHandle(m.handle)
       };
     });
-  const { report, nudges } = computeIdleTriggers({ agents, now: nowMs });
+  const { report, nudges } = computeIdleTriggers({ scopeId: roomId, agents, now: nowMs });
   for (const nudge of nudges) {
     try {
       sendCoordinationRelay(roomId, nudge.handle, nudge.text);
@@ -339,12 +349,12 @@ const IDLE_MONITOR_THROTTLE_MS = 60_000;
 export function resetIdleMonitorThrottleForTests(): void {
   lastIdleMonitorRunMs.clear();
 }
-function maybeRunIdleMonitor(roomId: string): void {
+function maybeRunIdleMonitor(roomId: string, activeAuthorHandle?: string): void {
   const now = Date.now();
   if (now - (lastIdleMonitorRunMs.get(roomId) ?? 0) < IDLE_MONITOR_THROTTLE_MS) return;
   lastIdleMonitorRunMs.set(roomId, now);
   try {
-    runIdleMonitor(roomId, now);
+    runIdleMonitor(roomId, now, activeAuthorHandle);
   } catch {
     /* best-effort; never block fanout */
   }
@@ -366,7 +376,7 @@ export function fanoutMessageToRoomTerminals(
   if (mode === 'closed') return;
   // Idle monitor: on room activity, run the idle-trigger sweep (throttled per
   // room) so newly-idle agents get a one-shot directed nudge. Best-effort.
-  maybeRunIdleMonitor(roomId);
+  maybeRunIdleMonitor(roomId, message.authorHandle);
   const memberships = listMembershipsForRoom(roomId);
   const targetedHandles = resolveBareMentionsToGlobalHandles(roomId, message.body);
   const containsInformationalMention = hasBracketedMention(message.body);
