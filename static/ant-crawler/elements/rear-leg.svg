@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="96 86 88 64" role="img" aria-labelledby="rear-leg-title">
+  <title id="rear-leg-title">ANT crawler rear leg element</title>
+  <style>
+    .shell { fill: none; stroke: #ffffff; stroke-linecap: round; stroke-linejoin: round; stroke-width: 10; }
+    .core { fill: none; stroke: #08253d; stroke-linecap: round; stroke-linejoin: round; stroke-width: 5.4; }
+  </style>
+  <g id="rear-leg-upper" style="transform-origin: 101px 91px" data-joint="101 91">
+    <path class="shell" d="M101 91 C116 102 128 115 140 130"/>
+    <path class="core" d="M101 91 C116 102 128 115 140 130"/>
+  </g>
+  <g id="rear-leg-lower" style="transform-origin: 140px 130px" data-joint="140 130">
+    <path class="shell" d="M140 130 C150 140 160 145 171 146"/>
+    <path class="core" d="M140 130 C150 140 160 145 171 146"/>
+  </g>
+  <g id="rear-leg-foot" style="transform-origin: 171px 146px" data-joint="171 146">
+    <path class="shell" d="M171 146 L180 139"/>
+    <path class="core" d="M171 146 L180 139"/>
+  </g>
+</svg>

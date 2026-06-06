@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="34 50 76 72" role="img" aria-labelledby="thorax-title">
+  <title id="thorax-title">ANT crawler thorax element</title>
+  <style>
+    .rim { fill: #ffffff; stroke: #050505; stroke-width: 2.15; stroke-linejoin: round; }
+    .fill { fill: #08253d; }
+    .gloss { fill: none; stroke: rgba(255,255,255,.32); stroke-linecap: round; stroke-width: 3.2; }
+  </style>
+  <path class="rim" d="M45 65 C60 52 86 55 100 72 C113 88 104 109 81 115 C59 120 41 107 39 88 C37 77 39 70 45 65 Z"/>
+  <path class="fill" d="M50 69 C63 59 84 62 95 76 C105 89 97 103 79 108 C61 112 47 102 46 88 C45 79 46 73 50 69 Z"/>
+  <path class="gloss" d="M55 65 C69 60 87 64 97 76"/>
+</svg>

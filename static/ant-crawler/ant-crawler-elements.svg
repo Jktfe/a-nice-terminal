@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 320" role="img" aria-labelledby="sheet-title">
+  <title id="sheet-title">ANT crawler element contact sheet</title>
+  <style>
+    .tile { fill: #f7faf7; stroke: #d8e1dc; stroke-width: 1; }
+    .label { fill: #3e4d57; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 11px; font-weight: 800; letter-spacing: .08em; }
+  </style>
+  <rect class="tile" x="16" y="16" width="156" height="132" rx="8"/>
+  <image href="./elements/head.svg" x="26" y="28" width="136" height="88"/>
+  <text class="label" x="26" y="134">HEAD</text>
+  <rect class="tile" x="188" y="16" width="156" height="132" rx="8"/>
+  <image href="./elements/thorax.svg" x="198" y="28" width="136" height="88"/>
+  <text class="label" x="198" y="134">THORAX</text>
+  <rect class="tile" x="360" y="16" width="188" height="132" rx="8"/>
+  <image href="./elements/abdomen.svg" x="370" y="26" width="168" height="94"/>
+  <text class="label" x="370" y="134">ABDOMEN</text>
+  <rect class="tile" x="564" y="16" width="140" height="132" rx="8"/>
+  <image href="./elements/antennae.svg" x="574" y="22" width="120" height="92"/>
+  <text class="label" x="574" y="134">ANTENNAE</text>
+  <rect class="tile" x="16" y="172" width="204" height="132" rx="8"/>
+  <image href="./elements/front-leg.svg" x="26" y="184" width="184" height="82"/>
+  <text class="label" x="26" y="288">FRONT LEG</text>
+  <rect class="tile" x="236" y="172" width="204" height="132" rx="8"/>
+  <image href="./elements/middle-leg.svg" x="246" y="182" width="184" height="92"/>
+  <text class="label" x="246" y="288">MIDDLE LEG</text>
+  <rect class="tile" x="456" y="172" width="248" height="132" rx="8"/>
+  <image href="./elements/rear-leg.svg" x="466" y="184" width="228" height="82"/>
+  <text class="label" x="466" y="288">REAR LEG</text>
+</svg>

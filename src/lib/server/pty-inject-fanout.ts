@@ -478,7 +478,7 @@ export function fanoutMessageToRoomTerminals(
     }
   }
   for (const membership of memberships) {
-    if (membership.handle === message.authorHandle) continue;
+    if (sameAuthorHandle(membership.handle, message.authorHandle)) continue;
     if (!broadcastToAll && !membershipIsTargeted(membership, targetedHandles)) continue;
     if (!activeClaimAllowsRecipient(message, membership.handle)) continue;
     const terminal = getTerminalById(membership.terminal_id);
