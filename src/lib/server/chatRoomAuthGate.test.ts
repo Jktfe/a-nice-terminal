@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { requireChatRoomMutationAuth, ADMIN_BEARER_HANDLE } from './chatRoomAuthGate';
 import { resetIdentityDbForTests } from './db';
 import { createBrowserSession } from './browserSessionStore';
-import { createChatRoom, resetChatRoomStoreForTests } from './chatRoomStore';
+import { createChatRoom, inviteAgentToRoom, resetChatRoomStoreForTests } from './chatRoomStore';
 import { addMembership } from './roomMembershipsStore';
 import { upsertTerminal } from './terminalsStore';
 import { createOwner } from './ownersStore';
@@ -80,14 +80,14 @@ describe('requireChatRoomMutationAuth', () => {
       name: 'auth-gate-test',
       ttlSeconds: 60 * 60
     });
-    addMembership({ room_id: room.id, handle: '@you', terminal_id: terminal.id });
-    const session = createBrowserSession({ roomId: room.id, authorHandle: '@you' });
+    addMembership({ room_id: room.id, handle: '@JWPK', terminal_id: terminal.id });
+    const session = createBrowserSession({ roomId: room.id, authorHandle: '@JWPK' });
     if (!session) throw new Error('createBrowserSession returned null');
     const { request, rawBody } = makeRequest({
       headers: { cookie: `ant_browser_session=${session.browserSessionSecret}` }
     });
     const result = requireChatRoomMutationAuth(room.id, request, rawBody);
-    expect(result.handle).toBe('@you');
+    expect(result.handle).toBe('@JWPK');
     expect(result.isAdminBearer).toBe(false);
   });
 
@@ -168,24 +168,29 @@ describe('requireChatRoomMutationAuth', () => {
       // session was minted bound to roomA. Without step 3b, an action
       // on roomB would 401. With step 3b, the cookie resolves to the
       // identity ignoring scope + membership-check in roomB passes.
-      const roomA = createChatRoom({ name: 'minted-here', whoCreatedIt: '@you' });
-      const roomB = createChatRoom({ name: 'acting-here', whoCreatedIt: '@you' });
+      const roomA = createChatRoom({ name: 'minted-here', whoCreatedIt: '@owner-a' });
+      const roomB = createChatRoom({ name: 'acting-here', whoCreatedIt: '@owner-b' });
       const terminal = upsertTerminal({
         pid: 991_002,
         pid_start: 'auth-gate-cross-room-test',
         name: 'auth-gate-cross-room-test',
         ttlSeconds: 60 * 60
       });
-      addMembership({ room_id: roomA.id, handle: '@you', terminal_id: terminal.id });
-      addMembership({ room_id: roomB.id, handle: '@you', terminal_id: terminal.id });
-      const session = createBrowserSession({ roomId: roomA.id, authorHandle: '@you' });
+      // Browser-session minting still checks room_memberships, while the
+      // cross-room fallback checks v0.2 membership. Seed both surfaces so
+      // this test exercises the intended bridge instead of fixture drift.
+      addMembership({ room_id: roomA.id, handle: '@cross-room', terminal_id: terminal.id });
+      addMembership({ room_id: roomB.id, handle: '@cross-room', terminal_id: terminal.id });
+      inviteAgentToRoom({ roomId: roomA.id, agentHandle: '@cross-room' });
+      inviteAgentToRoom({ roomId: roomB.id, agentHandle: '@cross-room' });
+      const session = createBrowserSession({ roomId: roomA.id, authorHandle: '@cross-room' });
       if (!session) throw new Error('createBrowserSession returned null');
       const { request, rawBody } = makeRequest({
         headers: { cookie: `ant_browser_session=${session.browserSessionSecret}` }
       });
       // Acting on roomB (NOT roomA where the cookie was minted):
       const result = requireChatRoomMutationAuth(roomB.id, request, rawBody);
-      expect(result.handle).toBe('@you');
+      expect(result.handle).toBe('@cross-room');
       expect(result.isAdminBearer).toBe(false);
     });
 
