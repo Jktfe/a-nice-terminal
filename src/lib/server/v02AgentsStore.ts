@@ -126,8 +126,7 @@ export function getAgentByHandle(handle: string): V02AgentRow | null {
  * Same as {@link getAgentByHandle} but constrained to status='live'.
  * Use this for the "is this handle in use right now" check.
  */
-export function getLiveAgentByHandle(handle: string): V02AgentRow | null {
-  const db = getIdentityDb();
+export function getLiveAgentByHandle(handle: string, db = getIdentityDb()): V02AgentRow | null {
   const normalised = normalizeHandle(handle);
   const row = db
     .prepare(

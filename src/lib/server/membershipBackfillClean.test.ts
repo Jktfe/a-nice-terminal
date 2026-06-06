@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getIdentityDb, resetIdentityDbForTests } from './db';
 import { createSession } from './antSessionStore';
-import { listMembers, resolveMember } from './membershipStore';
+import { isMember, listMembers, resolveMember } from './membershipStore';
 import { backfillFromLegacy } from './membershipBackfillClean';
 import { listLeases, resolveMember as resolveLeaseMember } from './roomHandleLeaseClean';
 
@@ -68,6 +68,19 @@ describe('membershipBackfillClean — legacy room_memberships -> clean room_memb
     expect(listMembers('roomB')).toHaveLength(1);
     expect(resolveMember('roomB', '@bob')).toBeNull(); // membership preserved, session unknown
     expect(listLeases('roomB')).toHaveLength(0); // no runtime yet, so no active lease can be claimed
+  });
+
+  it('skips synthetic browser-session handles before they reach the clean membership writer', () => {
+    seedTerminal('t-bs');
+    createSession({ kind: 'web-session', label: 'browser', terminalId: 't-bs' });
+    seedLegacyMembership('m-bs', 'roomBrowser', '@browser-bs_deadbeef', 't-bs');
+
+    const report = backfillFromLegacy();
+
+    expect(report).toEqual({ scanned: 1, inserted: 0, skipped: 1 });
+    expect(isMember('roomBrowser', '@browser-bs_deadbeef')).toBe(false);
+    expect(listMembers('roomBrowser')).toHaveLength(0);
+    expect(listLeases('roomBrowser')).toHaveLength(0);
   });
 
   it('is lossless across multiple rooms/handles', () => {

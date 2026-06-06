@@ -42,6 +42,12 @@ import * as v02Memberships from './v02MembershipsStore';
 import type { V02MembershipRole, V02MemberKind } from './v02MembershipsStore';
 import { getIdentityByHandle } from './identityKeysStore';
 import { appendAuditEvent as appendAuditEventCanonical } from './auditEventsStore';
+import {
+  addMember as cleanAddMember,
+  removeMember as cleanRemoveMember,
+  isDurableMemberHandle
+} from './membershipStore';
+import { setMemberPresentation } from './membershipPresentationStore';
 
 /**
  * INSERT OR IGNORE a v02_rooms row keyed by roomId. Lookup display_name
@@ -218,6 +224,43 @@ export function mirrorAddMembership(input: {
         via: 'v02-chatroom-bridge'
       }
     });
+    // R3 consolidation (2026-06-05): ALSO write the clean room_membership
+    // roster (handle-keyed; session resolves later via the post-gate, so NULL
+    // here is correct). ADDITIVE — the dashboard doesn't read room_membership
+    // yet; this populates the canonical roster ahead of the read cut-over so
+    // it lands on a complete table. Best-effort, inside the existing try.
+    //
+    // SKIP browser-session synthetic handles: the browser-session mint calls
+    // this bridge with a @browser-bs_ handle, which is NOT a durable member (the
+    // live read hides it). Guarding here stops ongoing pollution of the clean
+    // roster — the backfill skips the historical ones, this skips new ones.
+    if (isDurableMemberHandle(input.handle)) {
+      cleanAddMember(input.roomId, input.handle, null);
+    }
+    // R3 read-flip parity: seed the clean presentation row at invite time too,
+    // so member_kind / display_* survive into the clean read WITHOUT depending
+    // on a later updateRoomMemberPresentation call or a live terminal_records
+    // fallback. The legacy hydrated read gets member_kind from v0.2 memberships;
+    // the clean read gets it from HERE. Only write fields we were actually given
+    // (partial-merge upsert preserves anything an explicit update set earlier).
+    if (
+      isDurableMemberHandle(input.handle) &&
+      (input.memberKind != null ||
+        input.roomDisplayName != null ||
+        input.displayColor != null ||
+        input.displayIcon != null ||
+        input.displayBackgroundStyle != null)
+    ) {
+      setMemberPresentation(input.roomId, input.handle, {
+        ...(input.roomDisplayName != null && { room_display_name: input.roomDisplayName }),
+        ...(input.displayColor != null && { display_color: input.displayColor }),
+        ...(input.displayIcon != null && { display_icon: input.displayIcon }),
+        ...(input.displayBackgroundStyle != null && {
+          display_background_style: input.displayBackgroundStyle
+        }),
+        ...(input.memberKind != null && { member_kind: input.memberKind })
+      });
+    }
     return membership.membership_id;
   } catch (err) {
     // eslint-disable-next-line no-console
@@ -267,6 +310,9 @@ export function mirrorUpdateMemberPresentation(input: {
  */
 export function mirrorRemoveMembership(roomId: string, handle: string): boolean {
   try {
+    // R3 consolidation: mirror the leave into the clean roster too (best-effort,
+    // additive). Done regardless of whether a v0.2 agent resolves below.
+    cleanRemoveMember(roomId, handle);
     const agent = v02Agents.getLiveAgentByHandle(handle);
     if (!agent) return false;
     const flipped = v02Memberships.removeMembership(agent.agent_id, roomId);

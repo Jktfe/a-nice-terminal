@@ -28,6 +28,8 @@ import {
   mirrorUpdateMemberPresentation as v02MirrorUpdateMemberPresentation,
   ensureV02RoomExists as v02EnsureRoomExists
 } from './v02ChatRoomBridge';
+import { setMemberPresentation, getMemberPresentation } from './membershipPresentationStore';
+import { listMembers as cleanListMembers, isDurableMemberHandle } from './membershipStore';
 import {
   listRoomMembersHydrated as v02ListRoomMembersHydrated,
   isHandleActiveMemberOfRoom as v02IsHandleActiveMemberOfRoom
@@ -264,7 +266,55 @@ function recoverableRowToRoom(
   };
 }
 
+/**
+ * R3 read-flip (2026-06-05): which roster table the dashboard reads from.
+ * `clean`  → room_membership ⋈ room_member_presentation (the consolidated model)
+ * default  → v0.2 memberships JOIN agents (current live behaviour)
+ *
+ * Gated by env so this commit lands with ZERO live behaviour change: go-live is
+ * a single `ANT_ROSTER_READ=clean` + kickstart under sign-off, and rollback is
+ * the reverse env flip with no redeploy. The keeper-rule gate (verify on a
+ * WAL-trio copy showing noDrops=0 / noDupes=0) is satisfied by the live proof
+ * at docs/specs/r3-roster-consolidation-live-proof-2026-06-05.json.
+ */
+function rosterReadMode(): 'clean' | 'legacy' {
+  return process.env.ANT_ROSTER_READ?.trim().toLowerCase() === 'clean' ? 'clean' : 'legacy';
+}
+
+/**
+ * Clean-model roster read. Sources membership from `room_membership` (oldest
+ * first — same ordering contract as the legacy joined_at ASC read) and
+ * presentation from `room_member_presentation`, then reuses the EXACT
+ * v02HydratedRowToMember mapper so the output is byte-identical to the legacy
+ * read: same kind-resolution (member_kind ?? terminal-record fallback), same
+ * display fallbacks (default colour/icon/background), same operator display
+ * mapping. The live proof shows this roster is a lossless + injective image of
+ * the legacy union, so the only change at the flip is the SOURCE, not the shape.
+ */
+function loadMembersForRoomClean(roomId: string): RoomMember[] {
+  return cleanListMembers(roomId)
+    // Defence-in-depth: browser-session synthetic handles must never render as
+    // members. The backfill + dual-write already exclude them, so this filter is
+    // belt-and-braces against any that leaked into room_membership pre-fix.
+    .filter((member) => isDurableMemberHandle(member.handle))
+    .map((member) => {
+    const presentation = getMemberPresentation(roomId, member.handle);
+    return v02HydratedRowToMember({
+      handle: member.handle,
+      // room_display_name is a per-room override; null inherits the handle, which
+      // is exactly what the legacy hydrated read passes as display_name too.
+      display_name: presentation?.room_display_name ?? member.handle,
+      display_color: presentation?.display_color ?? null,
+      display_icon: presentation?.display_icon ?? null,
+      display_background_style: presentation?.display_background_style ?? null,
+      member_kind: (presentation?.member_kind as 'human' | 'agent' | null) ?? null,
+      joined_at_iso: new Date(member.created_at_ms).toISOString()
+    });
+  });
+}
+
 function loadMembersForRoom(roomId: string): RoomMember[] {
+  if (rosterReadMode() === 'clean') return loadMembersForRoomClean(roomId);
   // M9d cut-over phase 3: read from v0.2 memberships JOIN agents
   // rather than chat_room_members. Writes still dual-write to both
   // until the week-2 cleanup PR drops the legacy half (rollback
@@ -357,7 +407,7 @@ export function createChatRoom(input: {
   // Without this fallback, agents creating side-rooms get stored as
   // kind='human' and the agent pill goes missing.
   const hasExistingAgentBinding = (handle: string): boolean => {
-    if (isOperatorHandle(handle) || handle.startsWith('@browser-bs_')) return false;
+    if (isOperatorHandle(handle) || !isDurableMemberHandle(handle)) return false;
     const row = getIdentityDb()
       .prepare(
         `SELECT 1 FROM room_memberships
@@ -984,6 +1034,24 @@ export function updateRoomMemberPresentation(input: {
     displayIcon,
     displayBackgroundStyle
   });
+
+  // R3 consolidation (2026-06-05): ALSO mirror into the clean
+  // room_member_presentation table. ADDITIVE — nothing reads it yet, so this
+  // fills the canonical presentation table with real data ahead of the
+  // dashboard read cut-over (then the read-flip is on already-populated data).
+  // Best-effort, same as the v0.2 mirror.
+  try {
+    setMemberPresentation(input.roomId, input.globalHandle, {
+      room_display_name: displayName,
+      display_color: displayColor,
+      display_icon: displayIcon,
+      display_background_style: displayBackgroundStyle,
+      member_kind: current.kind
+    });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[r3-presentation] room_member_presentation mirror failed (legacy unaffected):', err);
+  }
 
   const updated = loadRoomById(input.roomId)!;
   return updated.members.find((member) => member.handle === input.globalHandle)!;

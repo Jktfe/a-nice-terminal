@@ -239,9 +239,12 @@ export function backfillActiveLeasesFromRoomMemberships(
   return result;
 }
 
-export function findRoomHandleOwnerAtTime(input: FindRoomHandleOwnerAtTimeInput): RoomHandleLease | null {
+export function findRoomHandleOwnerAtTime(
+  input: FindRoomHandleOwnerAtTimeInput,
+  db = getIdentityDb()
+): RoomHandleLease | null {
   const handle = normaliseHandle(input.handle);
-  const row = getIdentityDb()
+  const row = db
     .prepare(
       `SELECT * FROM room_handle_leases
         WHERE room_id = ?
