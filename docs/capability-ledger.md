@@ -46,6 +46,7 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Navigate to other chats | v5 chat/room lane | CHANGE | Claude | Command palette and room switcher. |
 | Upload pictures and files | audit blockers | CHANGE | Claude | Include drag/drop, picker, errors, policy, and mobile. |
 | Break context | v5 chat/room lane | CHANGE | Claude | Breaks are first-class context boundaries. |
+| Room blocks | JWPK msg_21nr8z2x91 + msg_dihwbu3ull + msg_v8u2q86wtx, 2026-06-05 | CHANGE | Claude/Codex | Context breaks now derive addressable room blocks: list/read prior sections, skip soft-deleted messages/blocks by default while retaining audit access, and provide reaction-weighted summary input. Search scoping remains deduped into the shared visible-content/search lane. |
 | Rename session | audit blockers | CHANGE | Codex | Session PATCH and visible rename history. |
 | Search messages | v5 chat/room lane | CHANGE | Claude | Per-room first, global search later if productized. |
 | Linked terminal | v5 terminal lane | CHANGE | Codex | Show linked chat, ANT terminal, and Raw terminal. |
