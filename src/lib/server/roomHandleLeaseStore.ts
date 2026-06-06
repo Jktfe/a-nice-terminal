@@ -255,6 +255,20 @@ export function findRoomHandleOwnerAtTime(input: FindRoomHandleOwnerAtTimeInput)
   return row ? rowToLease(row) : null;
 }
 
+export function findActiveRoomHandleForSession(roomId: string, sessionId: string): RoomHandleLease | null {
+  const row = getIdentityDb()
+    .prepare(
+      `SELECT * FROM room_handle_leases
+        WHERE room_id = ?
+          AND session_id = ?
+          AND active_until_ms IS NULL
+        ORDER BY active_from_ms DESC
+        LIMIT 1`
+    )
+    .get(roomId, sessionId) as RoomHandleLeaseRow | undefined;
+  return row ? rowToLease(row) : null;
+}
+
 function nextRetiredSuffix(roomId: string, handle: string): number {
   const row = getIdentityDb()
     .prepare(
