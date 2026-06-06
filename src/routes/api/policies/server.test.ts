@@ -86,7 +86,7 @@ async function actorCookie(): Promise<string> {
     .run('t_test', nowSec + 99999, nowSec, nowSec);
   db.prepare(`INSERT OR IGNORE INTO room_memberships (id, room_id, handle, terminal_id, created_at)
     VALUES (?, ?, ?, ?, ?)`)
-    .run('mem-test', room.id, '@you', 't_test', nowSec);
+    .run('mem-test', room.id, '@JWPK', 't_test', nowSec);
   const result = createBrowserSession({ roomId: room.id, authorHandle: '@you', browserSessionId: 'bs_test' });
   if (!result) throw new Error('Failed to create browser session');
   return result.browserSessionSecret;

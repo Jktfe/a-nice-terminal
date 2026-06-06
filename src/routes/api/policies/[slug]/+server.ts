@@ -17,14 +17,20 @@ import {
 } from '$lib/server/policyStore';
 import { resolvePolicyActor } from '$lib/server/policyActor';
 import { CURRENT_TIER, getFeatureFlagsForTier } from '$lib/server/featureGates';
+import { isOperatorHandle } from '$lib/server/operatorHandle';
+
+function isSamePolicyOwner(ownerHandle: string, callerHandle: string | null): boolean {
+  if (callerHandle === null) return false;
+  return ownerHandle === callerHandle || (isOperatorHandle(ownerHandle) && isOperatorHandle(callerHandle));
+}
 
 function assertReadable(slug: string, callerHandle: string | null) {
   const policy = getPolicyBySlug(slug);
   if (!policy) throw error(404, 'Policy not found.');
-  if (policy.deletedAtMs !== null && policy.ownerHandle !== callerHandle) {
+  if (policy.deletedAtMs !== null && !isSamePolicyOwner(policy.ownerHandle, callerHandle)) {
     throw error(404, 'Policy not found.');
   }
-  if (policy.visibility === 'private' && policy.ownerHandle !== callerHandle) {
+  if (policy.visibility === 'private' && !isSamePolicyOwner(policy.ownerHandle, callerHandle)) {
     throw error(403, 'Policy is private.');
   }
   return policy;
@@ -60,7 +66,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 
   const existing = getPolicyBySlug(params.slug);
   if (!existing || existing.deletedAtMs !== null) throw error(404, 'Policy not found.');
-  if (existing.ownerHandle !== actor.handle) throw error(403, 'Only the policy owner can edit it.');
+  if (!isSamePolicyOwner(existing.ownerHandle, actor.handle)) throw error(403, 'Only the policy owner can edit it.');
 
   const updated = updatePolicy({
     slug: params.slug,
@@ -97,7 +103,7 @@ export const DELETE: RequestHandler = async ({ params, request }) => {
 
   const existing = getPolicyBySlug(params.slug);
   if (!existing || existing.deletedAtMs !== null) throw error(404, 'Policy not found.');
-  if (existing.ownerHandle !== actor.handle) throw error(403, 'Only the policy owner can delete it.');
+  if (!isSamePolicyOwner(existing.ownerHandle, actor.handle)) throw error(403, 'Only the policy owner can delete it.');
 
   const reason = rawBody && typeof rawBody === 'object' && typeof (rawBody as { reason?: unknown }).reason === 'string'
     ? (rawBody as { reason: string }).reason

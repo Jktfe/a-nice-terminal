@@ -26,6 +26,7 @@ import {
 import { broadcastToRoom } from '$lib/server/eventBroadcast';
 import { parsePidChainFromBody, resolveServerSideHandle } from '$lib/server/identityGate';
 import { resolveCallerHandleAnyRoom } from '$lib/server/authGate';
+import { isOperatorHandle } from '$lib/server/operatorHandle';
 
 function resolveCallerHandle(roomId: string, request: Request, rawBody: unknown): string | null {
   // Try cookie/Bearer first (iterates every ant_browser_session cookie
@@ -45,6 +46,10 @@ function assertMessageInRoom(messageId: string, roomId: string) {
   return existing;
 }
 
+function isSameAuthor(storedAuthorHandle: string, callerHandle: string): boolean {
+  return storedAuthorHandle === callerHandle || (isOperatorHandle(storedAuthorHandle) && isOperatorHandle(callerHandle));
+}
+
 export const DELETE: RequestHandler = async ({ params, request }) => {
   if (!doesChatRoomExist(params.roomId)) throw error(404, 'Room not found.');
   const rawBody = await request.json().catch(() => null);
@@ -52,7 +57,7 @@ export const DELETE: RequestHandler = async ({ params, request }) => {
   if (!callerHandle) throw error(401, 'Identity required to delete a message.');
 
   const existing = assertMessageInRoom(params.messageId, params.roomId);
-  if (existing.authorHandle !== callerHandle) {
+  if (!isSameAuthor(existing.authorHandle, callerHandle)) {
     throw error(403, 'Only the author can delete this message.');
   }
 
@@ -80,7 +85,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
   if (!callerHandle) throw error(401, 'Identity required to edit a message.');
 
   const existing = assertMessageInRoom(params.messageId, params.roomId);
-  if (existing.authorHandle !== callerHandle) {
+  if (!isSameAuthor(existing.authorHandle, callerHandle)) {
     throw error(403, 'Only the author can edit this message.');
   }
   if (existing.deletedAtMs) {

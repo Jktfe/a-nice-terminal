@@ -6,6 +6,7 @@ import { POST } from './+server';
 import { resetIdentityDbForTests } from '$lib/server/db';
 import { createBrowserSession } from '$lib/server/browserSessionStore';
 import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
+import { canonicaliseOperatorHandle } from '$lib/server/operatorHandle';
 import { listAuditForPolicy, resetPolicyStoreForTests } from '$lib/server/policyStore';
 import { JKS_VALIDATION_RULE_POLICY, JKS_VALIDATION_RULE_SLUG } from '$lib/server/validationPolicyPresets';
 
@@ -43,7 +44,8 @@ async function run(handler: AnyHandler, event: unknown): Promise<Response> {
 }
 
 async function actorCookie(): Promise<string> {
-  const room = createChatRoom({ name: 'validation-room', whoCreatedIt: '@you' });
+  const operatorHandle = canonicaliseOperatorHandle('@you');
+  const room = createChatRoom({ name: 'validation-room', whoCreatedIt: operatorHandle });
   const db = (await import('$lib/server/db')).getIdentityDb();
   const nowSec = Math.floor(Date.now() / 1000);
   db.prepare(`INSERT OR IGNORE INTO terminals (id, pid, pid_start, name, tmux_target_pane, agent_kind, pane_status, source, expires_at, meta, created_at, updated_at)
@@ -51,7 +53,7 @@ async function actorCookie(): Promise<string> {
     .run('t_test', nowSec + 99999, nowSec, nowSec);
   db.prepare(`INSERT OR IGNORE INTO room_memberships (id, room_id, handle, terminal_id, created_at)
     VALUES (?, ?, ?, ?, ?)`)
-    .run('mem-test', room.id, '@you', 't_test', nowSec);
+    .run('mem-test', room.id, operatorHandle, 't_test', nowSec);
   const result = createBrowserSession({ roomId: room.id, authorHandle: '@you', browserSessionId: 'bs_test' });
   if (!result) throw new Error('Failed to create browser session');
   return result.browserSessionSecret;

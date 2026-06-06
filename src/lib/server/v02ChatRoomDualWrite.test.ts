@@ -61,14 +61,14 @@ describe('chatRoomStore.createChatRoom dual-writes to v02_memberships', () => {
     expect(memberships[0].role).toBe('owner');
   });
 
-  it('also writes a @you membership when the creator is a non-@you handle', () => {
+  it('also writes an operator membership when the creator is a non-operator handle', () => {
     const room = createChatRoom({ name: 'm9c-test-2', whoCreatedIt: '@cv4' });
     const memberships = v02Memberships.listActiveMembershipsForRoom(room.id);
     expect(memberships.length).toBe(2);
     const handles = memberships
       .map((m) => v02Agents.getAgentById(m.agent_id)?.primary_handle)
       .sort();
-    expect(handles).toEqual(['@cv4', '@you']);
+    expect(handles).toEqual(['@JWPK', '@cv4']);
   });
 
   it('also writes a v02_rooms row keyed by the legacy chat_rooms.id', () => {
@@ -131,17 +131,14 @@ describe('removeMemberFromRoom dual-writes to v02_memberships', () => {
   });
 });
 
-describe('humanInbox dual-writes to v02_memberships', () => {
-  it('ensureHumanInboxRoom seeds an owner membership in v02_memberships', () => {
+describe('retired humanInbox dual-write path', () => {
+  it('ensureHumanInboxRoom returns the deterministic id without creating hidden memberships', () => {
     const inboxId = ensureHumanInboxRoom('@you');
     const memberships = v02Memberships.listActiveMembershipsForRoom(inboxId);
-    expect(memberships.length).toBe(1);
-    expect(memberships[0].role).toBe('owner');
-    const agent = v02Agents.getAgentById(memberships[0].agent_id);
-    expect(agent?.primary_handle).toBe('@you');
+    expect(memberships.length).toBe(0);
   });
 
-  it('recomputeInboxEdge adds + removes v02_memberships in lockstep with legacy', () => {
+  it('recomputeInboxEdge does not recreate retired hidden inbox memberships', () => {
     ensureHumanInboxRoom('@you');
     // Create a shared non-inbox room so sharedContextExists(@you, @agent)
     // returns true on the first call to recomputeInboxEdge.
@@ -158,6 +155,6 @@ describe('humanInbox dual-writes to v02_memberships', () => {
     const agentInInbox = afterAdd.find(
       (m) => v02Agents.getAgentById(m.agent_id)?.primary_handle === '@inbox-agent'
     );
-    expect(agentInInbox).toBeDefined();
+    expect(agentInInbox).toBeUndefined();
   });
 });

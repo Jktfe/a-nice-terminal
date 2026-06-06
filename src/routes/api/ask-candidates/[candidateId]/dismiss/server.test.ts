@@ -55,7 +55,7 @@ function seedCandidate() {
 }
 
 describe('POST /api/ask-candidates/:candidateId/dismiss', () => {
-  it('dismisses a candidate and defaults the actor to @you', async () => {
+  it('dismisses a candidate and defaults the actor to the canonical operator', async () => {
     const { candidate } = seedCandidate();
 
     const res = await POST(req(candidate.id));
@@ -65,7 +65,7 @@ describe('POST /api/ask-candidates/:candidateId/dismiss', () => {
     expect(body.candidate).toMatchObject({
       id: candidate.id,
       status: 'dismissed',
-      dismissedByHandle: '@you',
+      dismissedByHandle: '@JWPK',
       dismissedAt: expect.any(String)
     });
   });

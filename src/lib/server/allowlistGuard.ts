@@ -24,6 +24,7 @@
 import type { TerminalRecord } from './terminalRecordsStore';
 import { parseAllowlist } from './terminalRecordsStore';
 import { OPERATOR_SENTINEL } from '$lib/operatorSentinel';
+import { canonicaliseOperatorHandle } from './operatorHandle';
 
 // Single source of truth for the operator sentinel lives in the client-safe
 // $lib/operatorSentinel module so the render layer can share the exact literal
@@ -36,8 +37,9 @@ export function canCallerActOnTerminal(
   terminal: TerminalRecord
 ): boolean {
   if (!callerHandle || callerHandle.length === 0) return false;
-  if (terminal.created_by && callerHandle === terminal.created_by) return true;
+  const caller = canonicaliseOperatorHandle(callerHandle);
+  if (terminal.created_by && caller === canonicaliseOperatorHandle(terminal.created_by)) return true;
   const list = parseAllowlist(terminal.allowlist);
-  if (list && list.includes(callerHandle)) return true;
+  if (list && list.some((handle) => canonicaliseOperatorHandle(handle) === caller)) return true;
   return false;
 }

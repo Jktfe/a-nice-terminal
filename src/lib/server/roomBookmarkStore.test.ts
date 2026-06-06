@@ -40,7 +40,7 @@ describe('roomBookmarkStore', () => {
     expect(result[0].orderIndex).toBe(0);
     expect(result[1].roomId).toBe(room2.id);
     expect(result[1].orderIndex).toBe(1);
-    expect(result[0].ownerHandle).toBe('@you');
+    expect(result[0].ownerHandle).toBe('@JWPK');
   });
 
   it('lists bookmarks ordered by order_index', () => {
@@ -96,7 +96,7 @@ describe('roomBookmarkStore', () => {
     expect(listRoomBookmarks('@cli').length).toBe(0);
   });
 
-  it('uses default owner handle @you', () => {
+  it('uses the canonical operator handle by default', () => {
     const room1 = createChatRoom({ name: 'Room 1', whoCreatedIt: '@you' });
     replaceRoomBookmarks('@you', [room1.id]);
     expect(listRoomBookmarks().length).toBe(1);

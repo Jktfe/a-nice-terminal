@@ -175,13 +175,14 @@ describe('GET /api/chat-rooms/:roomId/status', () => {
       terminalId: terminal.id,
       newStatus: 'working',
       source: 'ant-activity',
-      nowMs: Date.now() - 120_000
+      nowMs: Date.now() - 10 * 60_000
     });
 
     const response = await callGet(room.id, '?rich=1');
     const payload = await response.json();
-    expect(payload.members[0].agent_status).toBe('idle');
-    expect(payload.members[0].agent_status_source).toBe('default');
-    expect(payload.members[0].agent_status_at_ms).toBe(0);
+    const staleMember = payload.members.find((member: { handle: string }) => member.handle === '@stale');
+    expect(staleMember.agent_status).toBe('idle');
+    expect(staleMember.agent_status_source).toBe('default');
+    expect(staleMember.agent_status_at_ms).toBe(0);
   });
 });

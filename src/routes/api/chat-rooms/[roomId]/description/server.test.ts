@@ -13,6 +13,7 @@ import {
 } from '$lib/server/chatRoomStore';
 import { createBrowserSession } from '$lib/server/browserSessionStore';
 import { resetChatMessageStoreForTests } from '$lib/server/chatMessageStore';
+import { canonicaliseOperatorHandle } from '$lib/server/operatorHandle';
 
 const ADMIN_TOKEN = 'test-admin-token-room-description';
 
@@ -52,17 +53,18 @@ async function run(handler: AnyHandler, event: unknown): Promise<Response> {
 }
 
 async function makeRoomWithSessionFor(handle: string): Promise<{ roomId: string; cookie: string }> {
-  const room = createChatRoom({ name: 'desc-test-room', whoCreatedIt: handle });
+  const storageHandle = canonicaliseOperatorHandle(handle);
+  const room = createChatRoom({ name: 'desc-test-room', whoCreatedIt: storageHandle });
   const db = (await import('$lib/server/db')).getIdentityDb();
   const nowSec = Math.floor(Date.now() / 1000);
   db.prepare(
     `INSERT OR IGNORE INTO terminals (id, pid, pid_start, name, tmux_target_pane, agent_kind, pane_status, source, expires_at, meta, created_at, updated_at)
      VALUES (?, 0, 'test', ?, NULL, NULL, 'verified', 'test', ?, '{}', ?, ?)`
-  ).run(`t_${handle}`, `term-${handle}`, nowSec + 99999, nowSec, nowSec);
+  ).run(`t_${storageHandle}`, `term-${storageHandle}`, nowSec + 99999, nowSec, nowSec);
   db.prepare(
     `INSERT OR IGNORE INTO room_memberships (id, room_id, handle, terminal_id, created_at)
      VALUES (?, ?, ?, ?, ?)`
-  ).run(`mem-${handle}-${room.id}`, room.id, handle, `t_${handle}`, nowSec);
+  ).run(`mem-${storageHandle}-${room.id}`, room.id, storageHandle, `t_${storageHandle}`, nowSec);
   const result = createBrowserSession({ roomId: room.id, authorHandle: handle, browserSessionId: `bs_${handle}_${room.id}` });
   if (!result) throw new Error('Failed to create browser session');
   return { roomId: room.id, cookie: `ant_browser_session=${result.browserSessionSecret}` };

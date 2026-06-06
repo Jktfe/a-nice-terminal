@@ -6,6 +6,7 @@ import { error } from '@sveltejs/kit';
 import { resetIdentityDbForTests, getIdentityDb } from '$lib/server/db';
 import { createBrowserSession } from '$lib/server/browserSessionStore';
 import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
+import { canonicaliseOperatorHandle } from '$lib/server/operatorHandle';
 import { getValidationSchema, listValidationSchemaAuditForSchema } from '$lib/server/validationLensStore';
 
 const featureGateState = vi.hoisted(() => ({
@@ -92,19 +93,20 @@ async function run(handler: Handler, event: unknown): Promise<Response> {
 
 function actorCookie(handle: string): string {
   actorCounter += 1;
-  const room = createChatRoom({ name: `${handle} room`, whoCreatedIt: handle });
+  const storageHandle = canonicaliseOperatorHandle(handle);
+  const room = createChatRoom({ name: `${handle} room`, whoCreatedIt: storageHandle });
   const db = getIdentityDb();
   const nowSec = Math.floor(Date.now() / 1000);
-  const terminalId = `lens_${handle.replace(/[^a-z0-9]/gi, '_')}_${actorCounter}`;
+  const terminalId = `lens_${storageHandle.replace(/[^a-z0-9]/gi, '_')}_${actorCounter}`;
   db.prepare(
     `INSERT OR IGNORE INTO terminals
       (id, pid, pid_start, name, tmux_target_pane, agent_kind, pane_status, source, expires_at, meta, created_at, updated_at)
      VALUES (?, ?, ?, ?, NULL, NULL, 'verified', 'test', ?, '{}', ?, ?)`
-  ).run(terminalId, actorCounter, `test-${actorCounter}`, `${handle} terminal`, nowSec + 99999, nowSec, nowSec);
+  ).run(terminalId, actorCounter, `test-${actorCounter}`, `${storageHandle} terminal`, nowSec + 99999, nowSec, nowSec);
   db.prepare(
     `INSERT OR IGNORE INTO room_memberships (id, room_id, handle, terminal_id, created_at)
      VALUES (?, ?, ?, ?, ?)`
-  ).run(`mem_${terminalId}`, room.id, handle, terminalId, nowSec);
+  ).run(`mem_${terminalId}`, room.id, storageHandle, terminalId, nowSec);
   const session = createBrowserSession({
     roomId: room.id,
     authorHandle: handle,
@@ -172,7 +174,7 @@ describe('/api/verification/lenses', () => {
     expect(response.status).toBe(201);
     const body = await response.json() as { lens: { id: string; rules: unknown; scopeId: string } };
     expect(body.lens.rules).toEqual(validRules);
-    expect(body.lens.scopeId).toBe('@you');
+    expect(body.lens.scopeId).toBe('@JWPK');
 
     const stored = getValidationSchema(body.lens.id);
     expect(stored?.rulesJson).toBe(JSON.stringify(validRules));
@@ -236,9 +238,9 @@ describe('/api/verification/lenses', () => {
     expect(audit.status).toBe(200);
     await expect(audit.json()).resolves.toMatchObject({
       audit: [
-        { action: 'archive', actorHandle: '@you' },
-        { action: 'update', actorHandle: '@you' },
-        { action: 'create', actorHandle: '@you' }
+        { action: 'archive', actorHandle: '@JWPK' },
+        { action: 'update', actorHandle: '@JWPK' },
+        { action: 'create', actorHandle: '@JWPK' }
       ]
     });
   });

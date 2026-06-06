@@ -76,7 +76,7 @@ describe('POST /api/chat-rooms/:roomId/browser-session', () => {
     const body = await response.json();
     expect(body.browserSession).toMatchObject({
       room_id: room.id,
-      handle: '@you'
+      handle: '@JWPK'
     });
     expect(JSON.stringify(body)).not.toContain('bws_');
     const setCookie = response.headers.get('set-cookie') ?? '';

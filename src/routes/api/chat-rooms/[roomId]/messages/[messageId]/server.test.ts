@@ -3,6 +3,7 @@ import { resetIdentityDbForTests } from '\$lib/server/db';
 import { createChatRoom, resetChatRoomStoreForTests } from '\$lib/server/chatRoomStore';
 import { postMessage, resetChatMessageStoreForTests } from '\$lib/server/chatMessageStore';
 import { createBrowserSession } from '\$lib/server/browserSessionStore';
+import { canonicaliseOperatorHandle } from '\$lib/server/operatorHandle';
 import { DELETE, PATCH } from './+server';
 
 const PREV_DB_PATH = process.env.ANT_FRESH_DB_PATH;
@@ -42,13 +43,14 @@ async function run(handler: AnyHandler, event: unknown): Promise<Response> {
 async function memberCookie(roomId: string, handle = '@you'): Promise<string> {
   const db = (await import('\$lib/server/db')).getIdentityDb();
   const nowSec = Math.floor(Date.now() / 1000);
-  const termId = `t_${handle.slice(1)}_${roomId.slice(0, 8)}`;
-  const memId = `mem_${handle.slice(1)}_${roomId.slice(0, 8)}`;
-  const bsId = `bs_${handle.slice(1)}_${roomId.slice(0, 8)}`;
+  const storageHandle = canonicaliseOperatorHandle(handle);
+  const termId = `t_${storageHandle.slice(1)}_${roomId.slice(0, 8)}`;
+  const memId = `mem_${storageHandle.slice(1)}_${roomId.slice(0, 8)}`;
+  const bsId = `bs_${storageHandle.slice(1)}_${roomId.slice(0, 8)}`;
   db.prepare(`INSERT OR IGNORE INTO terminals (id, pid, pid_start, name, tmux_target_pane, agent_kind, pane_status, source, expires_at, meta, created_at, updated_at) VALUES (?, 0, 'test', ?, NULL, NULL, 'verified', 'test', ?, '{}', ?, ?)`)
     .run(termId, termId, nowSec + 99999, nowSec, nowSec);
   db.prepare(`INSERT OR IGNORE INTO room_memberships (id, room_id, handle, terminal_id, created_at) VALUES (?, ?, ?, ?, ?)`)
-    .run(memId, roomId, handle, termId, nowSec);
+    .run(memId, roomId, storageHandle, termId, nowSec);
   const result = createBrowserSession({ roomId, authorHandle: handle, browserSessionId: bsId });
   if (!result) throw new Error('Failed to create browser session');
   return result.browserSessionSecret;

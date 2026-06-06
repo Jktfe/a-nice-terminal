@@ -1,5 +1,5 @@
 import { getIdentityDb } from './db';
-import { getOperatorHandle } from './operatorHandle';
+import { canonicaliseOperatorHandle, getOperatorHandle } from './operatorHandle';
 
 export type RoomBookmark = {
   ownerHandle: string;
@@ -28,6 +28,7 @@ function rowToBookmark(row: BookmarkRow): RoomBookmark {
 }
 
 export function listRoomBookmarks(ownerHandle = getOperatorHandle()): RoomBookmark[] {
+  const owner = canonicaliseOperatorHandle(ownerHandle);
   return getIdentityDb()
     .prepare(
       `SELECT owner_handle, room_id, order_index, created_at_ms, updated_at_ms
@@ -35,31 +36,32 @@ export function listRoomBookmarks(ownerHandle = getOperatorHandle()): RoomBookma
        WHERE owner_handle = ?
        ORDER BY order_index ASC, updated_at_ms ASC`
     )
-    .all(ownerHandle)
+    .all(owner)
     .map((row) => rowToBookmark(row as BookmarkRow));
 }
 
 export function replaceRoomBookmarks(ownerHandle: string, roomIds: string[]): RoomBookmark[] {
+  const owner = canonicaliseOperatorHandle(ownerHandle);
   const uniqueRoomIds = [...new Set(roomIds.map((id) => id.trim()).filter(Boolean))];
   const now = Date.now();
   const db = getIdentityDb();
   const existingCreatedAt = new Map<string, number>(
-    listRoomBookmarks(ownerHandle).map((bookmark) => [bookmark.roomId, bookmark.createdAtMs])
+    listRoomBookmarks(owner).map((bookmark) => [bookmark.roomId, bookmark.createdAtMs])
   );
 
   const tx = db.transaction(() => {
-    db.prepare(`DELETE FROM room_bookmarks WHERE owner_handle = ?`).run(ownerHandle);
+    db.prepare(`DELETE FROM room_bookmarks WHERE owner_handle = ?`).run(owner);
     const insert = db.prepare(
       `INSERT INTO room_bookmarks (owner_handle, room_id, order_index, created_at_ms, updated_at_ms)
        VALUES (?, ?, ?, ?, ?)`
     );
     uniqueRoomIds.forEach((roomId, index) => {
-      insert.run(ownerHandle, roomId, index, existingCreatedAt.get(roomId) ?? now, now);
+      insert.run(owner, roomId, index, existingCreatedAt.get(roomId) ?? now, now);
     });
   });
   tx();
 
-  return listRoomBookmarks(ownerHandle);
+  return listRoomBookmarks(owner);
 }
 
 export function resetRoomBookmarkStoreForTests(): void {

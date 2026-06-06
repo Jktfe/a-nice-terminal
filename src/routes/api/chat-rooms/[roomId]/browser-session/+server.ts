@@ -5,6 +5,7 @@ import { addMembership, getTerminalIdByHandle } from '$lib/server/roomMembership
 import { mirrorAddMembership } from '$lib/server/v02ChatRoomBridge';
 import { lookupTerminalByPidChain, upsertTerminal } from '$lib/server/terminalsStore';
 import { createBrowserSession } from '$lib/server/browserSessionStore';
+import { canonicaliseOperatorHandle } from '$lib/server/operatorHandle';
 import { getRoomMode } from '$lib/server/roomModesStore';
 import { bindRoomHandleToLiveTerminal } from '$lib/server/terminalHandleBinding';
 import { parsePidChainFromBody, resolveServerSideHandle } from '$lib/server/identityGate';
@@ -23,7 +24,7 @@ import {
 function normalizeHandle(rawHandle: string): string {
   const trimmed = rawHandle.trim();
   if (trimmed.length === 0) return trimmed;
-  return trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
+  return canonicaliseOperatorHandle(trimmed);
 }
 
 async function parseRequiredJsonBody(request: Request): Promise<Record<string, unknown>> {

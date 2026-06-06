@@ -43,7 +43,7 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { resolveCallerHandleAnyRoom } from '$lib/server/authGate';
 import { requireAdminAuth } from '$lib/server/chatInviteAuth';
-import { getOperatorHandle } from '$lib/server/operatorHandle';
+import { getOperatorHandle, isOperatorHandle } from '$lib/server/operatorHandle';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { getIdentityDb } from '$lib/server/db';
 import { subscribeRoomEvents } from '$lib/server/eventBroadcast';
@@ -107,14 +107,19 @@ function findMatch(body: string, bound: Set<string>): string | null {
 
 function listRoomIdsForCaller(callerHandle: string): string[] {
   const db = getIdentityDb();
+  const handles = isOperatorHandle(callerHandle)
+    ? Array.from(new Set([callerHandle, '@you', getOperatorHandle()]))
+    : [callerHandle];
+  const placeholders = handles.map(() => '?').join(',');
   // chat_room_members is the source of truth for "which rooms can the
   // caller see". We deliberately don't filter on chat_rooms.deleted_at_ms
   // here — the message query below references chat_rooms via roomName
   // lookup, and any deleted room's messages won't be returned because
-  // the room name lookup will return null.
+  // the room name lookup will return null. The operator has legacy
+  // @you rows and canonical @JWPK rows, so read both aliases here.
   const rows = db
-    .prepare(`SELECT DISTINCT room_id FROM chat_room_members WHERE handle = ?`)
-    .all(callerHandle) as { room_id: string }[];
+    .prepare(`SELECT DISTINCT room_id FROM chat_room_members WHERE handle IN (${placeholders})`)
+    .all(...handles) as { room_id: string }[];
   return rows.map((row) => row.room_id);
 }
 

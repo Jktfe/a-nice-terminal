@@ -402,6 +402,10 @@ function normalizeHandle(rawHandle: string): string {
   return trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
 }
 
+function canonicalClaimedHandle(rawHandle: string): string {
+  return canonicaliseOperatorHandle(rawHandle);
+}
+
 function canonicalBrowserHandle(rawHandle: string): string {
   return canonicaliseOperatorHandle(rawHandle);
 }
@@ -538,7 +542,7 @@ async function resolveMessageAuthorHandle(
   const pidChain = parsePidChainFromBody(rawBody);
   const resolvedHandle = resolveServerSideHandle(roomId, pidChain);
   if (resolvedHandle) {
-    if (clientAuthorHandle !== null && normalizeHandle(clientAuthorHandle) !== resolvedHandle) {
+    if (clientAuthorHandle !== null && canonicalClaimedHandle(clientAuthorHandle) !== resolvedHandle) {
       rejectMessageIdentity(roomId, 'authorHandle does not match server-resolved identity.');
     }
     const pidchainTerminal = lookupTerminalByPidChain(pidChain);
@@ -581,7 +585,7 @@ async function resolveMessageAuthorHandle(
       const grant = findActiveGrantForCaller({
         pid: headEntry.pid,
         pidStart: headEntry.pid_start,
-        handle: normalizeHandle(clientAuthorHandle)
+        handle: canonicalClaimedHandle(clientAuthorHandle)
       });
       if (grant) {
         const pidchainTerminal = lookupTerminalByPidChain(pidChain);

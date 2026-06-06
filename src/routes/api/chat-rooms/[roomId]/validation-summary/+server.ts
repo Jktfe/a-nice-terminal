@@ -39,6 +39,7 @@ import { listArtefactsInRoom } from '$lib/server/chatRoomArtefactStore';
 import { listValidationRunsForArtefacts } from '$lib/server/validationLensStore';
 import { listTasks } from '$lib/server/tasksStore';
 import { CURRENT_TIER, getFeatureFlagsForTier } from '$lib/server/featureGates';
+import { isOperatorHandle } from '$lib/server/operatorHandle';
 
 type TrustState = 'passed' | 'failed' | 'pending' | 'stale' | 'unknown';
 
@@ -150,7 +151,10 @@ export const GET: RequestHandler = async ({ params, request }) => {
   // Evidence form URL = next pending verifier task assigned to the caller
   // (any handle in their family). Returns null when no such task exists.
   const callerTask = pendingValidationTasks.find(
-    (t) => t.assignedTo !== null && access.handles.includes(t.assignedTo)
+    (t) =>
+      t.assignedTo !== null &&
+      (access.handles.includes(t.assignedTo) ||
+        (isOperatorHandle(t.assignedTo) && access.handles.some((handle) => isOperatorHandle(handle))))
   );
   const evidenceFormUrl = callerTask ? `/tasks/${callerTask.id}/validation-run` : null;
 

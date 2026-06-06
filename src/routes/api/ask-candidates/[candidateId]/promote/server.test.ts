@@ -76,13 +76,13 @@ describe('POST /api/ask-candidates/:candidateId/promote', () => {
     });
   });
 
-  it('defaults the promoter to @you on an empty body', async () => {
+  it('defaults the promoter to the canonical operator on an empty body', async () => {
     const { candidate } = seedCandidate();
 
     const res = await POST(req(candidate.id));
     const body = await res.json();
 
-    expect(body.candidate.promotedByHandle).toBe('@you');
+    expect(body.candidate.promotedByHandle).toBe('@JWPK');
   });
 
   it('rejects malformed bodies and missing candidates', async () => {

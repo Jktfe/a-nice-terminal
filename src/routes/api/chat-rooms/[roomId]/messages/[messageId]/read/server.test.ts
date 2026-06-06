@@ -290,20 +290,20 @@ describe('POST + GET /api/chat-rooms/:roomId/messages/:messageId/read', () => {
   });
 
   it('POST records the browser-session reader when readerHandle is omitted', async () => {
-    const room = createChatRoom({ name: 'a', whoCreatedIt: '@you' });
+    const room = createChatRoom({ name: 'a', whoCreatedIt: '@JWPK' });
     const message = postMessage({
       roomId: room.id,
-      authorHandle: '@you',
+      authorHandle: '@JWPK',
       body: 'hi'
     });
     const response = await callPost({
       roomId: room.id,
       messageId: message.id,
-      cookie: browserReaderCookie(room.id, '@you'),
+      cookie: browserReaderCookie(room.id, '@JWPK'),
       body: JSON.stringify({})
     });
     expect(response.status).toBe(201);
-    expect(listReadersForMessage(message.id)[0].readerHandle).toBe('@you');
+    expect(listReadersForMessage(message.id)[0].readerHandle).toBe('@JWPK');
   });
 
   it('POST rejects when claimed readerHandle does not match pidChain identity', async () => {

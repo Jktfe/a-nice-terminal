@@ -100,7 +100,7 @@ describe('GET /api/me/mentions', () => {
 
   it('returns immediately when matching messages already exist', async () => {
     const room = createChatRoom({ name: 'Room A', whoCreatedIt: '@you' });
-    postMessage({ roomId: room.id, authorHandle: '@other', body: 'hello @you please look' });
+    postMessage({ roomId: room.id, authorHandle: '@other', body: 'hello @JWPK please look' });
 
     const res = await call('?since=0&wait=0');
     expect(res.status).toBe(200);
@@ -111,8 +111,8 @@ describe('GET /api/me/mentions', () => {
       roomId: room.id,
       roomName: 'Room A',
       authorHandle: '@other',
-      body: 'hello @you please look',
-      matchedHandle: '@you'
+      body: 'hello @JWPK please look',
+      matchedHandle: '@JWPK'
     });
     expect(typeof data.nextCursor).toBe('number');
     expect(data.nextCursor).toBeGreaterThan(0);
@@ -150,7 +150,7 @@ describe('GET /api/me/mentions', () => {
 
     const res = await call('?since=0&wait=0');
     const data = await res.json();
-    // Only the second message matched — first mentions @you, which is
+    // Only the second message matched — first mentions @JWPK, which is
     // the caller's resolved handle but is NOT in bindings.json.
     expect(data.mentions).toHaveLength(1);
     expect(data.mentions[0].body).toBe('hi @bound-handle yes you');
@@ -160,17 +160,17 @@ describe('GET /api/me/mentions', () => {
   it('falls back to caller handle when bindings.json is missing', async () => {
     // No bindings.json written — ANT_ACCOUNT_DIR points at an empty tmpdir.
     const room = createChatRoom({ name: 'Room A', whoCreatedIt: '@you' });
-    postMessage({ roomId: room.id, authorHandle: '@other', body: '@you ping' });
+    postMessage({ roomId: room.id, authorHandle: '@other', body: '@JWPK ping' });
 
     const res = await call('?since=0&wait=0');
     const data = await res.json();
     expect(data.mentions).toHaveLength(1);
-    expect(data.mentions[0].matchedHandle).toBe('@you');
+    expect(data.mentions[0].matchedHandle).toBe('@JWPK');
   });
 
   it('respects the since cursor — older messages are filtered out', async () => {
     const room = createChatRoom({ name: 'Room A', whoCreatedIt: '@you' });
-    postMessage({ roomId: room.id, authorHandle: '@other', body: '@you first' });
+    postMessage({ roomId: room.id, authorHandle: '@other', body: '@JWPK first' });
     // Advance the cursor past the first message.
     const firstRes = await (await call('?since=0&wait=0')).json();
     const cursorAfterFirst = firstRes.nextCursor as number;
@@ -182,10 +182,10 @@ describe('GET /api/me/mentions', () => {
     // on the same millisecond. A short wait keeps the cursor semantic
     // honest without adding API complexity.
     await new Promise((resolve) => setTimeout(resolve, 5));
-    postMessage({ roomId: room.id, authorHandle: '@other', body: '@you second' });
+    postMessage({ roomId: room.id, authorHandle: '@other', body: '@JWPK second' });
     const secondRes = await (await call(`?since=${cursorAfterFirst}&wait=0`)).json();
     expect(secondRes.mentions).toHaveLength(1);
-    expect(secondRes.mentions[0].body).toBe('@you second');
+    expect(secondRes.mentions[0].body).toBe('@JWPK second');
   });
 
   it('wakes on a live broadcast within the wait window', async () => {
@@ -195,7 +195,7 @@ describe('GET /api/me/mentions', () => {
     // 3-second wait expires.
     const pending = call('?since=0&wait=3');
     setTimeout(() => {
-      const msg = postMessage({ roomId: room.id, authorHandle: '@bot', body: '@you wake up' });
+      const msg = postMessage({ roomId: room.id, authorHandle: '@bot', body: '@JWPK wake up' });
       broadcastToRoom(room.id, { type: 'message_added', message: msg });
     }, 50);
     const start = Date.now();
@@ -203,7 +203,7 @@ describe('GET /api/me/mentions', () => {
     const elapsed = Date.now() - start;
     const data = await res.json();
     expect(data.mentions).toHaveLength(1);
-    expect(data.mentions[0].matchedHandle).toBe('@you');
+    expect(data.mentions[0].matchedHandle).toBe('@JWPK');
     expect(elapsed).toBeLessThan(2000);
   });
 });

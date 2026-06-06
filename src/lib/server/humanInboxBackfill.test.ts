@@ -24,7 +24,7 @@ describe('humanInboxBackfill', () => {
     getIdentityDb().prepare(`DELETE FROM terminal_records`).run();
   });
 
-  it('seeds inbox rooms for every distinct human handle + populates initial memberships', () => {
+  it('counts legacy humans and edges without recreating retired hidden inbox rows', () => {
     // Set up state WITHOUT calling the live hooks (simulate pre-backfill
     // legacy data). Direct SQL inserts of members + a terminal record.
     const db = getIdentityDb();
@@ -53,21 +53,18 @@ describe('humanInboxBackfill', () => {
     expect(result.humansSeeded).toBeGreaterThanOrEqual(1);
     expect(result.edgesEvaluated).toBeGreaterThanOrEqual(2);
 
-    // Inbox now exists with the legacy human as self-member + both agents
-    // (one via shared-room path, one via terminal-ownership path).
+    // Hidden inbox rooms are retired; backfill still reports the legacy
+    // humans/edges it examined, but does not recreate the old carrier rows.
     const members = inboxMembers('@legacy-human');
-    expect(members).toContain('@legacy-human');
-    expect(members).toContain('@legacy-agent');
-    expect(members).toContain('@owned-by-legacy-human');
+    expect(members).toEqual([]);
   });
 
   it('is idempotent — running twice produces the same membership snapshot', () => {
     const room = createChatRoom({ name: 'r', whoCreatedIt: '@you' });
     inviteAgentToRoom({ roomId: room.id, agentHandle: '@codex' });
-    const before = inboxMembers('@you');
     const first = backfillHumanInboxes();
     const second = backfillHumanInboxes();
-    expect(inboxMembers('@you')).toEqual(before);
+    expect(inboxMembers('@you')).toEqual([]);
     // Idempotent — both calls return the same humansSeeded count.
     expect(first.humansSeeded).toBe(second.humansSeeded);
   });

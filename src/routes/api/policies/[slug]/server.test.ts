@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetIdentityDbForTests, getIdentityDb } from '$lib/server/db';
 import { createBrowserSession } from '$lib/server/browserSessionStore';
 import { createChatRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
+import { canonicaliseOperatorHandle } from '$lib/server/operatorHandle';
 import {
   createPolicy,
   listAuditForPolicy,
@@ -87,10 +88,11 @@ function event(
 
 function actorCookie(handle: string): string {
   actorCounter += 1;
-  const room = createChatRoom({ name: `${handle} room`, whoCreatedIt: handle });
+  const storageHandle = canonicaliseOperatorHandle(handle);
+  const room = createChatRoom({ name: `${handle} room`, whoCreatedIt: storageHandle });
   const db = getIdentityDb();
   const nowSec = Math.floor(Date.now() / 1000);
-  const terminalId = `t_${handle.replace(/[^a-z0-9]/gi, '_')}_${actorCounter}`;
+  const terminalId = `t_${storageHandle.replace(/[^a-z0-9]/gi, '_')}_${actorCounter}`;
   db.prepare(
     `INSERT OR IGNORE INTO terminals
       (id, pid, pid_start, name, tmux_target_pane, agent_kind, pane_status, source, expires_at, meta, created_at, updated_at)
@@ -99,7 +101,7 @@ function actorCookie(handle: string): string {
     terminalId,
     actorCounter,
     `test-${actorCounter}`,
-    `${handle} terminal ${actorCounter}`,
+    `${storageHandle} terminal ${actorCounter}`,
     nowSec + 99999,
     nowSec,
     nowSec
@@ -107,7 +109,7 @@ function actorCookie(handle: string): string {
   db.prepare(
     `INSERT OR IGNORE INTO room_memberships (id, room_id, handle, terminal_id, created_at)
      VALUES (?, ?, ?, ?, ?)`
-  ).run(`mem_${terminalId}`, room.id, handle, terminalId, nowSec);
+  ).run(`mem_${terminalId}`, room.id, storageHandle, terminalId, nowSec);
   const result = createBrowserSession({
     roomId: room.id,
     authorHandle: handle,

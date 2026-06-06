@@ -24,6 +24,7 @@
 import { findChatRoomById } from './chatRoomStore';
 import { getIdentityDb } from './db';
 import { operatorDisplayHandle } from './operatorDisplayHandle';
+import { isOperatorHandle } from './operatorHandle';
 import type { MessageReactionSummary } from './messageReactionStore';
 import type { MessageReadReceipt } from './messageReadReceiptStore';
 
@@ -70,6 +71,10 @@ function makeMessageId(): string {
   const four = Math.random().toString(36).slice(2, 6);
   const six = Math.random().toString(36).slice(2, 8);
   return `msg_${four}${six}`;
+}
+
+function isSameAuthorHandle(a: string, b: string): boolean {
+  return a === b || (isOperatorHandle(a) && isOperatorHandle(b));
 }
 
 /**
@@ -388,7 +393,7 @@ export function softDeleteMessage(input: {
   const db = getIdentityDb();
   const existing = getMessageById(input.messageId);
   if (!existing) return null;
-  if (existing.authorHandle !== input.byHandle) return null;
+  if (!isSameAuthorHandle(existing.authorHandle, input.byHandle)) return null;
   if (existing.deletedAtMs) return null;
   if (existing.kind === 'system' || existing.kind === 'system-break') return null;
 
@@ -443,7 +448,7 @@ export function editMessageBody(input: {
   const db = getIdentityDb();
   const existing = getMessageById(input.messageId);
   if (!existing) return null;
-  if (existing.authorHandle !== input.byHandle) return null;
+  if (!isSameAuthorHandle(existing.authorHandle, input.byHandle)) return null;
   if (existing.deletedAtMs) return null;
   if (existing.kind === 'system' || existing.kind === 'system-break') return null;
 

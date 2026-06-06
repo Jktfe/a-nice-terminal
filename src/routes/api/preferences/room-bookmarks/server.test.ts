@@ -52,7 +52,7 @@ describe('/api/preferences/room-bookmarks', () => {
   it('returns an empty list before the operator stars a room', async () => {
     const response = await run(GET as unknown as AnyHandler, eventFor('GET'));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ownerHandle: '@you', roomIds: [] });
+    expect(await response.json()).toEqual({ ownerHandle: '@JWPK', roomIds: [] });
   });
 
   it('persists starred rooms in caller-supplied order', async () => {

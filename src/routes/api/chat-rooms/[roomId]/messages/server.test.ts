@@ -325,7 +325,7 @@ describe('GET /api/chat-rooms/:roomId/messages pagination', () => {
     for (const handle of ['@a', '@b', '@c', '@d', '@e']) {
       addReactionToMessage({ messageId: message.id, reactorHandle: handle, emoji: '👍' });
     }
-    addReactionToMessage({ messageId: message.id, reactorHandle: '@you', emoji: '👍' });
+    addReactionToMessage({ messageId: message.id, reactorHandle: '@JWPK', emoji: '👍' });
 
     const { token } = issueToken('you@example.com');
     const response = await callGet(room.id, '', { authorization: `Bearer ${token}` });
@@ -334,7 +334,7 @@ describe('GET /api/chat-rooms/:roomId/messages pagination', () => {
     const messagePayload = payload.messages.find((m: { id: string }) => m.id === message.id);
     const thumb = messagePayload.reactions.find((r: { emoji: string }) => r.emoji === '👍');
     expect(thumb.count).toBe(6);
-    expect(thumb.topReactors).not.toContain('@you');
+    expect(thumb.topReactors).not.toContain('@JWPK');
     expect(thumb.viewerHasReacted).toBe(true);
   });
 
@@ -1220,26 +1220,26 @@ describe('plan_consent_gate_2026_05_20 T6: post-gate + grant_id audit', () => {
     const { createOwner } = await importStores();
     const { grantHumanGrant } = await import('$lib/server/callerGrantsStore');
     const room = createChatRoom({ name: 'gate-no-grant', whoCreatedIt: '@you' });
-    // Make @you a real owner (human-kind handle in owner_handles). With no
+    // Make the structural operator a real owner (human-kind handle in owner_handles). With no
     // human_consent_grant tied to the agent's terminal, the post-gate denies.
-    createOwner({ handle: '@you', password: 'pw' });
+    createOwner({ handle: '@JWPK', password: 'pw' });
     // Agent's terminal exists (lookupTerminalByPidChain finds it) but is NOT
-    // a member of @you in this room, so resolveServerSideHandle returns null
+    // a member of @JWPK in this room, so resolveServerSideHandle returns null
     // and the route falls through to the caller-grants path. A human caller-
-    // grant lets the agent post AS @you at the identity layer — and the new
+    // grant lets the agent post AS @JWPK at the identity layer — and the new
     // consent gate is exactly the guard for this impersonation vector.
     upsertTerminal({ pid: 12321, pid_start: 'agent-ps', name: 'rogue-agent' });
     grantHumanGrant({
       pid: 12321,
       pidStart: 'agent-ps',
       expiresAtMs: Date.now() + 15 * 60_000,
-      grantedByHandle: '@you'
+      grantedByHandle: '@JWPK'
     });
 
     const response = await callPost({
       roomId: room.id,
       body: JSON.stringify({
-        body: 'rogue post as @you via grant',
+        body: 'rogue post as @JWPK via grant',
         authorHandle: '@you',
         pidChain: [{ pid: 12321, pid_start: 'agent-ps' }]
       })
@@ -1255,23 +1255,23 @@ describe('plan_consent_gate_2026_05_20 T6: post-gate + grant_id audit', () => {
     const { createOwner, createHumanConsentGrant, getIdentityDb } = await importStores();
     const { grantHumanGrant } = await import('$lib/server/callerGrantsStore');
     const room = createChatRoom({ name: 'gate-grant-ok', whoCreatedIt: '@you' });
-    // Make @you a real owner (human-kind handle) so the gate fires when the
-    // caller-grant resolves the authorHandle to @you.
-    const owner = createOwner({ handle: '@you', password: 'pw' });
+    // Make the structural operator a real owner (human-kind handle) so the gate fires when the
+    // caller-grant resolves the authorHandle to @JWPK.
+    const owner = createOwner({ handle: '@JWPK', password: 'pw' });
     const agentTerminal = upsertTerminal({ pid: 13131, pid_start: 'agent-ps2', name: 'consented-agent' });
-    // Caller-grant lets the agent's pidChain post as @you at the identity
+    // Caller-grant lets the agent's pidChain post as @JWPK at the identity
     // layer. The consent gate then runs and finds an active human_consent_grant
     // tied to the same terminal, consumes one unit, and records the grant_id.
     grantHumanGrant({
       pid: 13131,
       pidStart: 'agent-ps2',
       expiresAtMs: Date.now() + 15 * 60_000,
-      grantedByHandle: '@you'
+      grantedByHandle: '@JWPK'
     });
     const grant = createHumanConsentGrant({
       ownerId: owner.id,
       grantedToTerminalId: agentTerminal.id,
-      grantedToHandle: '@you',
+      grantedToHandle: '@JWPK',
       createdByTerminalId: 't_human_self',
       durationMs: 30 * 60_000,
       maxUses: 3
@@ -1287,7 +1287,7 @@ describe('plan_consent_gate_2026_05_20 T6: post-gate + grant_id audit', () => {
     });
     expect(response.status).toBe(201);
     const payload = await response.json();
-    expect(payload.message.authorHandle).toBe('@you');
+    expect(payload.message.authorHandle).toBe('@JWPK');
 
     const row = getIdentityDb()
       .prepare(`SELECT consumed_grant_id FROM chat_messages WHERE id = ?`)

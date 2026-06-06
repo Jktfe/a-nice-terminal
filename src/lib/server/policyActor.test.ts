@@ -39,7 +39,7 @@ describe('resolvePolicyActor', () => {
 
     const actor = resolvePolicyActor(cookieRequest(result.browserSessionSecret), null);
     expect(actor).toBeTruthy();
-    expect(actor!.handle).toBe('@you');
+    expect(actor!.handle).toBe('@JWPK');
     expect(actor!.kind).toBe('human');
   });
 

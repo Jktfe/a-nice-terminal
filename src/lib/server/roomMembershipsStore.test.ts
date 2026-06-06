@@ -86,10 +86,8 @@ describe('addMembership', () => {
  * `@chair`, `@system`, etc.) before any DB write so a future writer that
  * forgets the API-edge auth check cannot bypass the iter-5 exploit fix.
  * The list intentionally does NOT cover all `data/reserved-handles.json`
- * entries — `@you` is a legitimate operator-marker in `room_memberships`
- * (e.g. the browser-session synthetic-terminal flow at
- * `/api/chat-rooms/:roomId/browser-session/+server.ts:243`), and blocking
- * it would break the server-operator UX.
+ * entries — the legacy `@you` operator marker is legitimate input, but the
+ * store canonicalises it to the structural operator handle before writing.
  */
 describe('sec-iter6 Fix #3 — addMembership authority-handle choke-point', () => {
   it('rejects @admin with INVALID_MEMBERSHIP_HANDLE_ERROR_PREFIX', () => {
@@ -122,10 +120,10 @@ describe('sec-iter6 Fix #3 — addMembership authority-handle choke-point', () =
       .toThrowError(new RegExp(`^\\${INVALID_MEMBERSHIP_HANDLE_ERROR_TAG} `));
   });
 
-  it('accepts @you (operator marker — used by browser-session synthetic terminal)', () => {
+  it('accepts @you as the legacy operator marker and stores the canonical handle', () => {
     const tid = makeTerminal('t1');
     const m = addMembership({ room_id: 'r-ok', handle: '@you', terminal_id: tid });
-    expect(m.handle).toBe('@you');
+    expect(m.handle).toBe('@JWPK');
   });
 
   it('accepts other broadcast/marker reserved handles (out-of-scope for membership choke-point)', () => {

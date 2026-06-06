@@ -157,7 +157,7 @@ describe('PATCH /api/chat-rooms/[roomId]/discussions/[discussionId]', () => {
     const body = (await response.json()) as { discussion: { status: string; summary: string; closed_by: string } };
     expect(body.discussion.status).toBe('closed');
     expect(body.discussion.summary).toBe('use postgres');
-    expect(body.discussion.closed_by).toBe('@you');
+    expect(body.discussion.closed_by).toBe('@JWPK');
     // Persist check:
     const stored = getDiscussion(discussionId);
     expect(stored?.status).toBe('closed');

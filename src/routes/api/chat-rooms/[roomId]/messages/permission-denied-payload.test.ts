@@ -83,7 +83,7 @@ describe('Stage A 403 PermissionDenied payload — chat messages POST', () => {
     expect(payload.permission_denied.approvers[0].preferred).toBe(true);
     // T6 string-equal check.
     expect(payload.permission_denied.approve_command).toBe(
-      `ant grant @you chat.post --room ${room.id}`
+      `ant grant @JWPK chat.post --room ${room.id}`
     );
   });
 });

@@ -26,20 +26,19 @@ describe('humanInboxRoomStore', () => {
     expect(isInboxRoomId('inbox_james')).toBe(false); // no leading underscores
   });
 
-  it('ensureHumanInboxRoom creates the room + adds the human as the seed member', () => {
+  it('ensureHumanInboxRoom returns the deterministic id without creating hidden rows', () => {
     const roomId = ensureHumanInboxRoom('@you');
     expect(roomId).toBe('__inbox_you__');
     const db = getIdentityDb();
     const room = db.prepare(`SELECT id, who_created_it FROM chat_rooms WHERE id = ?`).get(roomId) as
       { id: string; who_created_it: string } | undefined;
-    expect(room?.who_created_it).toBe('@you');
+    expect(room).toBeUndefined();
     const member = db.prepare(`SELECT handle, kind FROM chat_room_members WHERE room_id = ?`).all(roomId) as
       Array<{ handle: string; kind: string }>;
-    expect(member).toHaveLength(1);
-    expect(member[0]).toEqual({ handle: '@you', kind: 'human' });
+    expect(member).toEqual([]);
   });
 
-  it('ensureHumanInboxRoom is idempotent (second call is a no-op)', () => {
+  it('ensureHumanInboxRoom is idempotent and non-mutating', () => {
     const a = ensureHumanInboxRoom('@you');
     const b = ensureHumanInboxRoom('@you');
     const c = ensureHumanInboxRoom('you'); // bareform → same room
@@ -47,9 +46,9 @@ describe('humanInboxRoomStore', () => {
     expect(b).toBe(c);
     const db = getIdentityDb();
     const rows = db.prepare(`SELECT COUNT(*) AS n FROM chat_rooms WHERE id = ?`).get(a) as { n: number };
-    expect(rows.n).toBe(1);
+    expect(rows.n).toBe(0);
     const members = db.prepare(`SELECT COUNT(*) AS n FROM chat_room_members WHERE room_id = ?`).get(a) as { n: number };
-    expect(members.n).toBe(1); // still just @you, no duplicate insert
+    expect(members.n).toBe(0);
   });
 
   it('different humans get different inbox rooms', () => {

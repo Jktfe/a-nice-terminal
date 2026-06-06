@@ -45,7 +45,7 @@ describe('createBrowserSession', () => {
   it('rejects revoked memberships', () => {
     addActiveMember('room1', '@you');
     getIdentityDb().prepare(`UPDATE room_memberships SET revoked_at_ms = ? WHERE room_id = ? AND handle = ?`)
-      .run(Date.now(), 'room1', '@you');
+      .run(Date.now(), 'room1', '@JWPK');
     expect(createBrowserSession({ roomId: 'room1', authorHandle: '@you' })).toBeNull();
   });
 
@@ -68,7 +68,7 @@ describe('createBrowserSession', () => {
       browserSessionId: 'bs_tx_shape',
       nowMs: 1_700_000_000_000
     });
-    expect(result?.session.handle).toBe('@you');
+    expect(result?.session.handle).toBe('@JWPK');
     expect(result?.session.terminal_id).toBe('browser-bs_tx_shape');
     // 30-day TTL (bumped from 24h in 100f44b — JWPK msg 'I can't sign
     // in every day' fix). 1_700_000_000_000 + (30 * 86_400_000) =
@@ -92,7 +92,7 @@ describe('createBrowserSession', () => {
       `SELECT handle, terminal_id FROM room_memberships WHERE room_id = ?`
     ).all('room1') as { handle: string; terminal_id: string }[];
     expect(memberships).toEqual(expect.arrayContaining([
-      { handle: '@you', terminal_id: proofTerminalId },
+      { handle: '@JWPK', terminal_id: proofTerminalId },
       { handle: '@browser-bs_tx_shape', terminal_id: 'browser-bs_tx_shape' }
     ]));
   });
@@ -120,7 +120,7 @@ describe('resolve/touch/revoke browser sessions', () => {
     expect(resolved).toMatchObject({
       session_id: result?.session.id,
       room_id: 'room1',
-      handle: '@you',
+      handle: '@JWPK',
       terminal_id: result?.session.terminal_id
     });
     expect(resolveBrowserSessionSecret(result?.browserSessionSecret ?? '', 'other')).toBeNull();

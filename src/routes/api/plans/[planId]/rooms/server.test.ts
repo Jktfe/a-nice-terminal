@@ -77,7 +77,7 @@ describe('GET /api/plans/:planId/rooms', () => {
   it('lists only readable rooms attached to the plan and rejects missing plan ids', async () => {
     const alpha = createChatRoom({ name: 'alpha', whoCreatedIt: '@you' });
     const beta = createChatRoom({ name: 'beta', whoCreatedIt: '@mark' });
-    removeMemberFromRoom({ roomId: beta.id, globalHandle: '@you' });
+    removeMemberFromRoom({ roomId: beta.id, globalHandle: '@JWPK' });
     attachPlanToRoom({ planId: 'plan-a', roomId: alpha.id, attachedBy: '@codex' });
     attachPlanToRoom({ planId: 'plan-a', roomId: beta.id });
     attachPlanToRoom({ planId: 'other-plan', roomId: alpha.id });
@@ -167,6 +167,6 @@ describe('POST /api/plans/:planId/rooms', () => {
     const attached = listRoomsForPlan('plan-a');
     expect(attached).toHaveLength(1);
     // attachedBy is the server-resolved handle, not the client-supplied spoof.
-    expect(attached[0].attachedBy).toBe('@you');
+    expect(attached[0].attachedBy).toBe('@JWPK');
   });
 });

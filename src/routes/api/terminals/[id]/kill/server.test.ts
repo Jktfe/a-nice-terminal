@@ -12,6 +12,7 @@ import { getIdentityDb, resetIdentityDbForTests } from '$lib/server/db';
 import { createChatRoom, findChatRoomById, listChatRooms } from '$lib/server/chatRoomStore';
 import { createTerminalRecord, getTerminalRecord } from '$lib/server/terminalRecordsStore';
 import { getTerminalById } from '$lib/server/terminalsStore';
+import { seedDefaultOrg } from '$lib/server/orgStore';
 
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
@@ -60,6 +61,7 @@ describe('POST /api/terminals/:id/kill linked-chat lifecycle', () => {
     process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
     process.env.ANT_ADMIN_TOKEN = TEST_ADMIN_TOKEN;
     resetIdentityDbForTests();
+    seedDefaultOrg();
   });
 
   afterEach(() => {

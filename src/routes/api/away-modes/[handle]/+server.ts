@@ -20,6 +20,7 @@ import { getAwayMode, setAwayMode, clearAwayMode, isAllowedAwayTier } from '$lib
 import { tryAdminBearer } from '$lib/server/chatRoomAuthGate';
 import { resolveBrowserSessionSecretIgnoringRoom } from '$lib/server/browserSessionStore';
 import { getCookieValuesFromRequest } from '$lib/server/authGate';
+import { canonicaliseOperatorHandle } from '$lib/server/operatorHandle';
 
 type Auth = { kind: 'admin' | 'self'; setBy: string } | null;
 
@@ -39,16 +40,17 @@ function resolveAuth(handleParam: string, request: Request): Auth {
 }
 
 export const GET: RequestHandler = async ({ params, request }) => {
-  const auth = resolveAuth(params.handle, request);
+  const handle = canonicaliseOperatorHandle(params.handle);
+  const auth = resolveAuth(handle, request);
   if (!auth) throw error(401, 'Authentication required.');
-  const mode = getAwayMode(params.handle);
+  const mode = getAwayMode(handle);
   if (!mode) {
     // Default to active when no record exists — tells the UI the user
     // hasn't picked a tier yet so it can fall back to the room-mode
     // derived guess for visual state.
     return json({
       mode: {
-        handle: params.handle,
+        handle,
         tier: 'active',
         intensity: 50,
         note: null,
@@ -62,7 +64,8 @@ export const GET: RequestHandler = async ({ params, request }) => {
 };
 
 export const PUT: RequestHandler = async ({ params, request }) => {
-  const auth = resolveAuth(params.handle, request);
+  const handle = canonicaliseOperatorHandle(params.handle);
+  const auth = resolveAuth(handle, request);
   if (!auth) throw error(401, 'Authentication required.');
   const payload = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
@@ -80,7 +83,7 @@ export const PUT: RequestHandler = async ({ params, request }) => {
   }
 
   const mode = setAwayMode({
-    handle: params.handle,
+    handle,
     tier,
     ...(intensity !== undefined && { intensity }),
     note: typeof payload.note === 'string' ? payload.note.trim() : null,
@@ -94,8 +97,9 @@ export const PUT: RequestHandler = async ({ params, request }) => {
 };
 
 export const DELETE: RequestHandler = async ({ params, request }) => {
-  const auth = resolveAuth(params.handle, request);
+  const handle = canonicaliseOperatorHandle(params.handle);
+  const auth = resolveAuth(handle, request);
   if (!auth) throw error(401, 'Authentication required.');
-  clearAwayMode(params.handle);
+  clearAwayMode(handle);
   return json({ ok: true });
 };
