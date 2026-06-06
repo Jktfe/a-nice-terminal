@@ -27,9 +27,11 @@ import { findChatRoomById } from '$lib/server/chatRoomStore';
 import {
   enterFocus,
   exitFocus,
+  findFocus,
   listFocusedMembersInRoom
 } from '$lib/server/focusModeStore';
 import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
+import { deliverFocusExitDigest } from '$lib/server/pty-inject-fanout';
 
 function assertRoomExists(roomId: string): void {
   if (!findChatRoomById(roomId)) {
@@ -65,11 +67,25 @@ export const PUT: RequestHandler = async ({ params, request }) => {
   assertRoomExists(params.roomId);
   const bodyAsObject = await parseRequiredJsonBody(request);
   // LAUNCH-BLOCKER CVE FIX D (2026-05-20): identity-gate focus-mode PUT.
-  requireChatRoomMutationAuth(params.roomId, request, bodyAsObject);
+  // MVP-2 (2026-06-05): the AUTHENTICATED caller is the focus `setter` — it
+  // directs the timer-exit prompt + the self-unset notify and must NOT be a
+  // spoofable body field. Resolved here from the gate, never from the request.
+  const auth = requireChatRoomMutationAuth(params.roomId, request, bodyAsObject);
 
   const memberHandle = bodyAsObject.memberHandle;
   if (typeof memberHandle !== 'string' || memberHandle.trim().length === 0) {
     throw error(400, 'memberHandle must be a non-empty string.');
+  }
+
+  // MVP-2: shield (default) = stop receiving the room; solo = mute everyone
+  // else. Validated to the two known modes.
+  const modeRaw = bodyAsObject.mode;
+  let mode: 'shield' | 'solo' | undefined;
+  if (modeRaw !== undefined) {
+    if (modeRaw !== 'shield' && modeRaw !== 'solo') {
+      throw error(400, "mode must be 'shield' or 'solo' when present.");
+    }
+    mode = modeRaw;
   }
 
   const reasonRaw = bodyAsObject.reason;
@@ -97,6 +113,11 @@ export const PUT: RequestHandler = async ({ params, request }) => {
     const focusEntry = enterFocus({
       roomId: params.roomId,
       memberHandle,
+      // Admin-bearer is an automation credential, not a room member with a
+      // terminal. Timed shields still need a deliverable prompt, so treat
+      // admin-set focus as self-set for timer notification purposes.
+      setter: auth.isAdminBearer ? memberHandle : auth.handle,
+      mode,
       reason,
       durationMs
     });
@@ -122,6 +143,16 @@ export const DELETE: RequestHandler = async ({ params, request }) => {
     throw error(400, 'memberHandle must be a non-empty string.');
   }
 
+  // Capture the focus BEFORE release so we can deliver the missed-window digest
+  // (s4b). The release itself is the source of truth; the digest is best-effort.
+  const releasing = findFocus(params.roomId, memberHandle);
   const wasActive = exitFocus({ roomId: params.roomId, memberHandle });
+  if (wasActive && releasing) {
+    try {
+      deliverFocusExitDigest(params.roomId, releasing);
+    } catch {
+      /* digest is decorative; the release already succeeded */
+    }
+  }
   return json({ wasActive });
 };

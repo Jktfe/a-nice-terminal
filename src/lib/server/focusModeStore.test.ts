@@ -9,6 +9,8 @@ import {
   exitFocus,
   findFocus,
   listFocusedMembersInRoom,
+  listLapsedUnpromptedShields,
+  markTimerPrompted,
   resetFocusModeStoreForTests,
   FOCUS_REASON_MAX_LENGTH
 } from './focusModeStore';
@@ -187,34 +189,49 @@ describe('focusModeStore', () => {
       expect(() => enterFocus({ roomId: room.id, memberHandle: '@you', durationMs: Infinity })).toThrow(/positive/);
     });
 
-    it('findFocus filters + lazy-prunes an entry whose expiresAt is in the past', () => {
+    it('STAY-SHIELDED: findFocus still returns a focus whose timer has lapsed (no auto-prune)', () => {
       const room = createChatRoom({ name: 'find-expired', whoCreatedIt: '@you' });
-      // Enter with a 1ms duration; sleep past it; read should return undefined and prune.
+      // 1ms timer; sleep past it. New model: the focus STAYS active (still
+      // shielding); the lapse triggers a setter prompt, never auto-release.
       enterFocus({ roomId: room.id, memberHandle: '@you', durationMs: 1 });
       return new Promise<void>((resolve) => {
         setTimeout(() => {
-          expect(findFocus(room.id, '@you')).toBeUndefined();
-          // List should also be empty (proves the underlying map entry got pruned).
-          expect(listFocusedMembersInRoom(room.id)).toEqual([]);
+          expect(findFocus(room.id, '@you')).toBeDefined();
+          expect(listFocusedMembersInRoom(room.id)).toHaveLength(1);
           resolve();
         }, 5);
       });
     });
 
-    it('listFocusedMembersInRoom drops only expired entries; live ones survive', () => {
+    it('STAY-SHIELDED: listFocusedMembersInRoom keeps lapsed shields alongside live ones', () => {
       const room = createChatRoom({ name: 'mixed', whoCreatedIt: '@you' });
       inviteAgentToRoom({ roomId: room.id, agentHandle: '@live' });
       inviteAgentToRoom({ roomId: room.id, agentHandle: '@stale' });
-      // @you indefinite; @live indefinite; @stale 1ms (will expire).
       enterFocus({ roomId: room.id, memberHandle: '@you' });
       enterFocus({ roomId: room.id, memberHandle: '@live' });
       enterFocus({ roomId: room.id, memberHandle: '@stale', durationMs: 1 });
       return new Promise<void>((resolve) => {
         setTimeout(() => {
           const handles = listFocusedMembersInRoom(room.id).map((e) => e.memberHandle);
-          expect(handles).toEqual(expect.arrayContaining(['@you', '@live']));
-          expect(handles).not.toContain('@stale');
-          expect(handles).toHaveLength(2);
+          expect(handles).toEqual(expect.arrayContaining(['@you', '@live', '@stale']));
+          expect(handles).toHaveLength(3); // @stale lapsed but STAYS shielded
+          resolve();
+        }, 5);
+      });
+    });
+
+    it('listLapsedUnpromptedShields surfaces a lapsed shield once; markTimerPrompted silences it', () => {
+      const room = createChatRoom({ name: 'lapsed-prompt', whoCreatedIt: '@you' });
+      enterFocus({ roomId: room.id, memberHandle: '@you', durationMs: 1 });
+      return new Promise<void>((resolve) => {
+        setTimeout(() => {
+          const lapsed = listLapsedUnpromptedShields(room.id);
+          expect(lapsed.map((e) => e.memberHandle)).toEqual(['@you']);
+          markTimerPrompted(room.id, '@you');
+          // One-shot: already prompted → no longer surfaced.
+          expect(listLapsedUnpromptedShields(room.id)).toHaveLength(0);
+          // ...but the focus is STILL active (shielding) — only exitFocus clears it.
+          expect(findFocus(room.id, '@you')).toBeDefined();
           resolve();
         }, 5);
       });

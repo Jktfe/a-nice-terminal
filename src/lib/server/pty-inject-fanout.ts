@@ -17,6 +17,11 @@
 import type { ChatMessage } from './chatMessageStore';
 import { findChatRoomById } from './chatRoomStore';
 import { listMembershipsForRoom, type RoomMembershipRow } from './roomMembershipsStore';
+import {
+  listFocusedMembersInRoom,
+  listLapsedUnpromptedShields,
+  markTimerPrompted
+} from './focusModeStore';
 import { getTerminalById, touchLastPtyByteAt } from './terminalsStore';
 import { canonicaliseOperatorHandle, isOperatorHandle } from './operatorHandle';
 import { getRoomMode } from './roomModesStore';
@@ -27,7 +32,10 @@ import {
   type EnvelopeMessage
 } from './pty-inject-bridge';
 import { makeInjectQueue } from './pty-inject-queue';
-import { getMessageById, postSystemMessage } from './chatMessageStore';
+import { getMessageById, postSystemMessage, listMessagesAfterLatestBreak } from './chatMessageStore';
+import { listReactionsForMessage } from './messageReactionStore';
+import { summariseBlock } from './blockDigest';
+import type { FocusEntry } from './focusModeStore';
 import { listLinkedTerminalRowsForRoom, getLinkedTerminalRowBySessionId } from './linkedRoomTerminalLookup';
 import { deriveHandle, getTerminalRecord } from './terminalRecordsStore';
 import { hasBareEveryoneMention, hasBracketedMention, listBareMentionHandles } from '../chat/mentionRouting';
@@ -315,11 +323,11 @@ function emitStaleSystemMessage(roomId: string, handle: string, reason: string):
  * receives it in their terminal. Best-effort: no-op if the room or the
  * responder's membership/terminal can't be resolved.
  */
-export function sendCoordinationRelay(roomId: string, recipientHandle: string, body: string): void {
+export function sendCoordinationRelay(roomId: string, recipientHandle: string, body: string): boolean {
   const room = findChatRoomById(roomId);
-  if (!room) return;
+  if (!room) return false;
   const membership = listMembershipsForRoom(roomId).find((m) => m.handle === recipientHandle);
-  if (!membership?.terminal_id) return;
+  if (!membership?.terminal_id) return false;
   queue.enqueue(queueKeyFor(roomId, membership.terminal_id), {
     roomId,
     roomName: room.name,
@@ -332,6 +340,65 @@ export function sendCoordinationRelay(roomId: string, recipientHandle: string, b
     // a room post_order. Use a monotonic synthetic order for the envelope.
     postOrder: Date.now()
   });
+  return true;
+}
+
+/**
+ * Focus MVP-2 slice 3 — fire the directed timer-lapse prompt to the SETTER for
+ * every shield whose timer has lapsed and hasn't been prompted yet. STAY-
+ * shielded (JWPK 2026-06-05): the focus is NOT auto-released — the setter is
+ * prompted (privately, never a room post; self-set → goes to the member) to
+ * extend or release, and the member stays shielded until then. One-shot per
+ * lapse via markTimerPrompted. Piggybacks on room activity (the fanout call)
+ * rather than a background timer — if the room's quiet there's no flood to
+ * escape, so the prompt only matters once traffic resumes.
+ */
+export function fireFocusTimerPrompts(roomId: string): void {
+  for (const focus of listLapsedUnpromptedShields(roomId)) {
+    const reasonSuffix = focus.reason ? ` (reason: ${focus.reason})` : '';
+    const selfSet = focus.setter === focus.memberHandle;
+    const body = selfSet
+      ? `⏰ Your focus shield timer has lapsed${reasonSuffix}. You're STILL shielded — exitFocus to rejoin, or it stays shielded.`
+      : `⏰ Focus shield timer lapsed for ${focus.memberHandle}${reasonSuffix} (you set it). They're STILL shielded — extend, release them, or leave it shielded.`;
+    let delivered = false;
+    try {
+      delivered = sendCoordinationRelay(roomId, focus.setter, body);
+    } catch {
+      /* best-effort notify; never block fanout */
+    }
+    if (delivered) {
+      markTimerPrompted(roomId, focus.memberHandle);
+    }
+  }
+}
+
+/**
+ * Focus MVP-2 slice 4b — on shield RELEASE, deliver the break-bounded,
+ * reaction-weighted digest of what the member missed, DIRECTED to them only
+ * (never a room post). Solo release delivers nothing (the soloer received
+ * everything; others were the muted ones). No-op when there's nothing to
+ * summarise. Best-effort — never blocks the release.
+ */
+export function deliverFocusExitDigest(roomId: string, focus: FocusEntry): void {
+  if (focus.mode !== 'shield') return;
+  // Missed window = CURRENT-BLOCK messages posted AFTER the shield began.
+  // listMessagesAfterLatestBreak keeps it break-bounded — the digest never
+  // reconstructs across a system-break (that boundary is hard, per the design).
+  const blockMessages = listMessagesAfterLatestBreak(roomId).filter(
+    (m) => m.postedAt > focus.enteredAt
+  );
+  if (blockMessages.length === 0) return;
+  const reactionCountByMessageId = new Map<string, number>();
+  for (const m of blockMessages) {
+    reactionCountByMessageId.set(m.id, listReactionsForMessage(m.id).length);
+  }
+  const digest = summariseBlock({ messages: blockMessages, reactionCountByMessageId });
+  if (digest.text.length === 0) return;
+  try {
+    sendCoordinationRelay(roomId, focus.memberHandle, digest.text);
+  } catch {
+    /* best-effort; release already succeeded */
+  }
 }
 
 /**
@@ -404,6 +471,9 @@ export function fanoutMessageToRoomTerminals(
   //   Explicit @handle / @everyone routing still works in either open mode.
   const mode = getRoomMode(roomId);
   if (mode === 'closed') return;
+  // Focus slice 3: on any room activity, fire any pending lapsed-shield timer
+  // prompts to setters (directed, one-shot, never auto-release).
+  fireFocusTimerPrompts(roomId);
   // Idle monitor: on room activity, run the idle-trigger sweep (throttled per
   // room) so newly-idle agents get a one-shot directed nudge. Best-effort.
   maybeRunIdleMonitor(roomId, message.authorHandle);
@@ -507,8 +577,44 @@ export function fanoutMessageToRoomTerminals(
       };
     }
   }
+  // Focus mode (JWPK 2026-06-05) — MVP-2 slice 2: mode-aware suppression at the
+  // inject seam. Per-member (focusModeStore, persisted), so focusing @localant
+  // never affects @researchant. Nothing is lost — the message is in room history
+  // regardless; focus only gates the PTY push, and the missed stream is
+  // reconstructed as the break-bounded exit digest (slice 4). Distinct from
+  // heads-down (responder relay) and room-mode (room-wide).
+  //   • SHIELD @X  → X stops receiving the room entirely. By default even a
+  //     direct @-mention is suppressed (→ digest), so a mention can't be a flood
+  //     vector (team-locked, JWPK 'make a decision and go'). The breakthrough
+  //     knob below flips that to "mentions break through" with one line.
+  //   • SOLO @X    → mute EVERYONE ELSE so X works/presents uninterrupted; only
+  //     the solo target(s) keep receiving.
+  // FOCUS_SHIELD_MENTION_BREAKTHROUGH: false = no live breakthrough (default,
+  // team-locked). Flip to true to restore JWPK's earlier "mentions break
+  // through" pick — single-line, no other change.
+  const FOCUS_SHIELD_MENTION_BREAKTHROUGH = false;
+  const focusEntries = listFocusedMembersInRoom(roomId);
+  const shieldedHandles = new Set(
+    focusEntries.filter((e) => e.mode === 'shield').map((e) => e.memberHandle)
+  );
+  const soloTargets = new Set(
+    focusEntries.filter((e) => e.mode === 'solo').map((e) => e.memberHandle)
+  );
+  const soloActive = soloTargets.size > 0;
   for (const membership of memberships) {
     if (sameAuthorHandle(membership.handle, message.authorHandle)) continue;
+    // SOLO: when any member is soloing the room, only the solo target(s) receive.
+    if (soloActive && !soloTargets.has(membership.handle)) {
+      continue;
+    }
+    // SHIELD: a shielded member's firehose is suppressed; a direct @-mention
+    // breaks through ONLY when the breakthrough knob is on (default off).
+    if (
+      shieldedHandles.has(membership.handle) &&
+      !(FOCUS_SHIELD_MENTION_BREAKTHROUGH && membershipIsTargeted(membership, targetedHandles))
+    ) {
+      continue;
+    }
     if (!broadcastToAll && !membershipIsTargeted(membership, targetedHandles)) continue;
     if (!activeClaimAllowsRecipient(message, membership.handle)) continue;
     const terminal = getTerminalById(membership.terminal_id);
@@ -576,6 +682,13 @@ export function fanoutMessageToRoomTerminals(
   for (const terminal of listLinkedTerminalRowsForRoom(room.id)) {
     if (enqueuedIds.has(terminal.id)) continue;
     const linkedHandle = recipientHandleForLinkedTerminal(terminal.id);
+    if (soloActive && !soloTargets.has(linkedHandle)) continue;
+    if (
+      shieldedHandles.has(linkedHandle) &&
+      !(FOCUS_SHIELD_MENTION_BREAKTHROUGH && targetedHandles.has(linkedHandle))
+    ) {
+      continue;
+    }
     if (!broadcastToAll && targetedHandles.size === 0 && containsInformationalMention) continue;
     if (targetedHandles.size > 0 && !broadcastToAll && !targetedHandles.has(linkedHandle)) continue;
     if (!activeClaimAllowsRecipient(message, linkedHandle)) continue;
