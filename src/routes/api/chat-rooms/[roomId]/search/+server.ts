@@ -1,7 +1,7 @@
 /**
  * Search messages within ONE chat room.
  *
- *   GET /api/chat-rooms/:roomId/search?q=<query>[&limit=<n>]
+ *   GET /api/chat-rooms/:roomId/search?q=<query>[&limit=<n>][&allContent=1]
  *     → 200 { matches: [{ id, postedAt, authorHandle, body, postOrder }] }
  *         newest-first, capped to limit (default 50, max 200).
  *     → 400 q missing/blank.
@@ -34,9 +34,12 @@ export const GET: RequestHandler = ({ params, url }) => {
   }
 
   const limit = parseLimitParam(url.searchParams.get('limit'));
+  const allContent = parseBooleanParam(url.searchParams.get('allContent')) ||
+    parseBooleanParam(url.searchParams.get('longMemory'));
+  const afterLatestBreakOnly = !allContent;
 
   try {
-    const hits = searchMessagesInRoom(params.roomId ?? '', rawQuery, limit);
+    const hits = searchMessagesInRoom(params.roomId ?? '', rawQuery, limit, { afterLatestBreakOnly });
     const matches = hits.map((hit: ReturnType<typeof searchMessagesInRoom>[number]) => ({
       id: hit.message.id,
       postedAt: hit.message.postedAt,
@@ -44,7 +47,7 @@ export const GET: RequestHandler = ({ params, url }) => {
       body: hit.message.body,
       postOrder: hit.message.postOrder
     }));
-    return json({ matches });
+    return json({ matches, allContent });
   } catch (causeOfFailure) {
     const reason =
       causeOfFailure instanceof Error ? causeOfFailure.message : 'Could not search.';
@@ -59,4 +62,10 @@ function parseLimitParam(rawLimit: string | null): number | undefined {
   const parsedNumber = Number(rawLimit);
   if (!Number.isFinite(parsedNumber)) return undefined;
   return parsedNumber;
+}
+
+function parseBooleanParam(rawValue: string | null): boolean {
+  if (rawValue === null) return false;
+  const normalized = rawValue.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'on' || normalized === 'yes';
 }

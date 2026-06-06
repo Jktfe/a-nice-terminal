@@ -15,6 +15,8 @@ export const load: PageLoad = async ({ url, fetch }) => {
   const rawRoomId = url.searchParams.get('roomId') ?? '';
   const trimmedQuery = rawQuery.trim();
   const roomId = rawRoomId.trim();
+  const allContentEnabled = parseBooleanParam(url.searchParams.get('allContent')) ||
+    parseBooleanParam(url.searchParams.get('longMemory'));
 
   if (trimmedQuery.length === 0) {
     return {
@@ -27,7 +29,8 @@ export const load: PageLoad = async ({ url, fetch }) => {
 
   const encodedQuery = encodeURIComponent(trimmedQuery);
   const roomParam = roomId ? `&roomId=${encodeURIComponent(roomId)}` : '';
-  const response = await fetch(`/api/search-messages?query=${encodedQuery}${roomParam}&limit=50`);
+  const allContentParam = allContentEnabled ? '&allContent=1' : '';
+  const response = await fetch(`/api/search-messages?query=${encodedQuery}${roomParam}&limit=50${allContentParam}`);
 
   if (!response.ok) {
     return {
@@ -46,3 +49,9 @@ export const load: PageLoad = async ({ url, fetch }) => {
     searchFetchFailed: false
   };
 };
+
+function parseBooleanParam(rawValue: string | null): boolean {
+  if (rawValue === null) return false;
+  const normalized = rawValue.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'on' || normalized === 'yes';
+}

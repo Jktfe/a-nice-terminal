@@ -21,6 +21,15 @@
 
 import { getIdentityDb } from './db';
 
+/**
+ * Browser sessions are ephemeral auth artifacts, not durable room members.
+ * Only the literal `@browser-bs_` prefix is synthetic; near-prefix handles such
+ * as `@browser-bsX` are normal names.
+ */
+export function isDurableMemberHandle(handle: string): boolean {
+  return !handle.trim().toLowerCase().startsWith('@browser-bs_');
+}
+
 export type Membership = {
   room_id: string;
   handle: string;

@@ -58,6 +58,7 @@ import { listReadersForMessages } from '$lib/server/messageReadReceiptStore';
 import { resolveOrNull } from '$lib/server/sessionResolver';
 import { getRoomPolicy } from '$lib/server/roomPolicyStore';
 import { decidePost } from '$lib/server/roomAccessGate';
+import { filterVisibleMessages } from '$lib/server/visibleContentScope';
 // CLEAN MODEL (identity rebuild): the ONE writer — handle-keyed lease store
 // (room, handle, session), reuse-rules 1-4, no terminal_id in the identity path.
 import {
@@ -93,7 +94,7 @@ export const GET: RequestHandler = async ({ params, request, url }) => {
   const enforcement = getContextBreakEnforcement(params.roomId);
   const includePreBreak =
     enforcement !== 'hard' && url.searchParams.get('include_pre_break') === 'true';
-  const page = listMessagesPageInRoom({
+  const page = listVisibleMessagesPageInRoom({
     roomId: params.roomId,
     limit,
     sinceBreak: !includePreBreak,
@@ -115,6 +116,45 @@ export const GET: RequestHandler = async ({ params, request, url }) => {
     }
   });
 };
+
+function listVisibleMessagesPageInRoom(input: {
+  roomId: string;
+  beforePostOrder?: number;
+  limit: number;
+  sinceBreak?: boolean;
+}): ReturnType<typeof listMessagesPageInRoom> {
+  const normalizedLimit = Math.max(1, Math.floor(input.limit));
+  const targetVisibleRows = normalizedLimit + 1;
+  const rawBatchLimit = Math.max(normalizedLimit, 50);
+  let cursor = input.beforePostOrder;
+  const visibleNewestFirst: ReturnType<typeof listMessagesPageInRoom>['messages'] = [];
+
+  while (visibleNewestFirst.length < targetVisibleRows) {
+    const rawPage = listMessagesPageInRoom({
+      roomId: input.roomId,
+      limit: rawBatchLimit,
+      sinceBreak: input.sinceBreak,
+      ...(cursor !== undefined && { beforePostOrder: cursor })
+    });
+
+    if (rawPage.messages.length === 0) break;
+
+    const visibleInBatch = filterVisibleMessages(rawPage.messages, {});
+    visibleNewestFirst.push(...visibleInBatch.reverse());
+
+    if (!rawPage.hasMore) break;
+    cursor = rawPage.messages[0].postOrder;
+  }
+
+  const newestVisiblePage = visibleNewestFirst.slice(0, normalizedLimit);
+  const messages = newestVisiblePage.reverse();
+  const hasMore = visibleNewestFirst.length > normalizedLimit;
+  return {
+    messages,
+    hasMore,
+    nextBefore: hasMore && messages.length > 0 ? messages[0].postOrder : null
+  };
+}
 
 function withReactionSummaries(
   message: ReturnType<typeof listMessagesPageInRoom>['messages'][number],

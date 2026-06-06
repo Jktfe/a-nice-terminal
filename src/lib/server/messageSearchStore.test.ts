@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createChatRoom, resetChatRoomStoreForTests } from './chatRoomStore';
 import {
+  postBreakMessage,
   postMessage,
   postSystemMessage,
-  resetChatMessageStoreForTests
+  resetChatMessageStoreForTests,
+  softDeleteMessage
 } from './chatMessageStore';
 import { searchMessages } from './messageSearchStore';
 
@@ -47,6 +49,63 @@ describe('messageSearchStore', () => {
     const hits = searchMessages({ query: 'pizza', roomId: roomA.id });
     expect(hits).toHaveLength(1);
     expect(hits[0].roomId).toBe(roomA.id);
+  });
+
+  it('can scope a room search to the current block after the latest break', () => {
+    const room = createChatRoom({ name: 'Block Room', whoCreatedIt: '@you' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'needle before break' });
+    postBreakMessage({ roomId: room.id, postedByHandle: '@you', reason: 'new block' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'needle after break' });
+
+    const hits = searchMessages({
+      query: 'needle',
+      roomId: room.id,
+      afterLatestBreakOnly: true
+    });
+
+    expect(hits.map((hit) => hit.message.body)).toEqual(['needle after break']);
+  });
+
+  it('leaves full-room search available when the current-block option is not set', () => {
+    const room = createChatRoom({ name: 'Full Room', whoCreatedIt: '@you' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'archiveword before break' });
+    postBreakMessage({ roomId: room.id, postedByHandle: '@you', reason: 'new block' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'archiveword after break' });
+
+    const hits = searchMessages({ query: 'archiveword', roomId: room.id });
+
+    expect(hits.map((hit) => hit.message.body)).toEqual([
+      'archiveword after break',
+      'archiveword before break'
+    ]);
+  });
+
+  it('does not return deleted messages or synthetic browser-session rows even when all content is enabled', () => {
+    const room = createChatRoom({ name: 'Visible Scope Room', whoCreatedIt: '@you' });
+    const deleted = postMessage({
+      roomId: room.id,
+      authorHandle: '@you',
+      body: 'scopeword deleted'
+    });
+    postMessage({
+      roomId: room.id,
+      authorHandle: '@browser-bs_tmp',
+      body: 'scopeword synthetic'
+    });
+    postMessage({
+      roomId: room.id,
+      authorHandle: '@agent',
+      body: 'scopeword visible'
+    });
+    softDeleteMessage({ messageId: deleted.id, byHandle: '@you', nowMs: 123 });
+
+    const hits = searchMessages({
+      query: 'scopeword',
+      roomId: room.id,
+      afterLatestBreakOnly: false
+    });
+
+    expect(hits.map((hit) => hit.message.body)).toEqual(['scopeword visible']);
   });
 
   it('matches system and break messages too (they live in the same store)', () => {

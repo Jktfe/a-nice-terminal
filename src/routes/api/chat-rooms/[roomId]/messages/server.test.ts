@@ -10,7 +10,8 @@ import {
   listMessagesInRoom,
   postBreakMessage,
   postMessage,
-  resetChatMessageStoreForTests
+  resetChatMessageStoreForTests,
+  softDeleteMessage
 } from '$lib/server/chatMessageStore';
 import {
   addReactionToMessage,
@@ -142,6 +143,63 @@ describe('GET /api/chat-rooms/:roomId/messages pagination', () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.messages.map((message: { body: string }) => message.body)).toContain('visible via pidChain');
+  });
+
+  it('filters deleted and synthetic browser-session rows from normal room reads', async () => {
+    const room = createChatRoom({ name: 'visible-read-scope', whoCreatedIt: '@you' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'visible keeper' });
+    const deleted = postMessage({ roomId: room.id, authorHandle: '@you', body: 'deleted ghost' });
+    postMessage({ roomId: room.id, authorHandle: '@browser-bs_deadbeef', body: 'synthetic ghost' });
+    softDeleteMessage({ messageId: deleted.id, byHandle: '@you' });
+    const { token } = issueToken('you@example.com');
+
+    const response = await callGet(room.id, '', { authorization: `Bearer ${token}` });
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.messages.map((message: { body: string }) => message.body)).toEqual(['visible keeper']);
+  });
+
+  it('paginates visible rows instead of starving the page with hidden newest rows', async () => {
+    const room = createChatRoom({ name: 'visible-pagination-scope', whoCreatedIt: '@you' });
+    postMessage({ roomId: room.id, authorHandle: '@you', body: 'visible older' });
+    const visibleMiddle = postMessage({ roomId: room.id, authorHandle: '@you', body: 'visible middle' });
+    const visibleNewer = postMessage({ roomId: room.id, authorHandle: '@you', body: 'visible newer' });
+    const deleted = postMessage({ roomId: room.id, authorHandle: '@you', body: 'deleted newest' });
+    postMessage({ roomId: room.id, authorHandle: '@browser-bs_deadbeef', body: 'synthetic newest' });
+    softDeleteMessage({ messageId: deleted.id, byHandle: '@you' });
+    const { token } = issueToken('you@example.com');
+
+    const response = await callGet(room.id, '?limit=2', { authorization: `Bearer ${token}` });
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.messages.map((message: { body: string }) => message.body)).toEqual([
+      'visible middle',
+      'visible newer'
+    ]);
+    expect(payload.paging).toEqual({
+      limit: 2,
+      before: null,
+      hasMore: true,
+      nextBefore: visibleMiddle.postOrder,
+      sinceBreak: true
+    });
+
+    const olderResponse = await callGet(
+      room.id,
+      `?limit=2&before=${visibleMiddle.postOrder}`,
+      { authorization: `Bearer ${token}` }
+    );
+    expect(olderResponse.status).toBe(200);
+    const olderPayload = await olderResponse.json();
+    expect(olderPayload.messages.map((message: { body: string }) => message.body)).toEqual([
+      'visible older'
+    ]);
+    expect(olderPayload.paging.hasMore).toBe(false);
+    expect(olderPayload.paging.nextBefore).toBeNull();
+    expect(olderPayload.messages).not.toContainEqual(expect.objectContaining({ id: visibleMiddle.id }));
+    expect(olderPayload.messages).not.toContainEqual(expect.objectContaining({ id: visibleNewer.id }));
   });
 
   it('hides message reads from authenticated non-members', async () => {

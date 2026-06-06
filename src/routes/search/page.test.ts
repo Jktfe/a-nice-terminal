@@ -85,6 +85,16 @@ describe('/search +page.ts load', () => {
     expect(result.searchFetchFailed).toBe(false);
   });
 
+  it('forwards allContent when the user explicitly asks for full-room search', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(jsonResponse({ hits: [] }));
+
+    await runLoad(buildLoadEvent('/search?q=hello&roomId=r1&allContent=1', mockFetch));
+
+    const calledUrl = mockFetch.mock.calls[0][0] as string;
+    expect(calledUrl).toContain('roomId=r1');
+    expect(calledUrl).toContain('allContent=1');
+  });
+
   it('flags searchFetchFailed when the api returns a non-ok response', async () => {
     const mockFetch = vi.fn().mockResolvedValue(
       new Response('boom', { status: 500 })

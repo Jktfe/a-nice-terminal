@@ -8,7 +8,8 @@ import {
   removeMember,
   listMembers,
   resolveMember,
-  isMember
+  isMember,
+  isDurableMemberHandle
 } from './membershipStore';
 
 let tmpDir: string;
@@ -101,5 +102,11 @@ describe('membershipStore — (room_id, handle, session_id) is the WHOLE table',
     expect(isMember('roomX', '@alice')).toBe(true);
     expect(resolveMember('roomX', '@alice')).toBeNull();
     expect(listMembers('roomX')[0].session_id).toBeNull();
+  });
+
+  it('only the literal @browser-bs_ prefix is synthetic', () => {
+    expect(isDurableMemberHandle('@browser-bs_abc123')).toBe(false);
+    expect(isDurableMemberHandle('@browser-bsXabc123')).toBe(true);
+    expect(isDurableMemberHandle('@browser-bs')).toBe(true);
   });
 });
