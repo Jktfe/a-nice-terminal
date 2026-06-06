@@ -328,7 +328,7 @@
     line-height: 1.5;
   }
 
-  @media (max-width: 720px) {
+  @media (max-width: 768px) {
     header {
       display: grid;
       grid-template-columns: auto 1fr auto;
@@ -363,6 +363,32 @@
       overflow: visible;
       clip: auto;
       white-space: normal;
+    }
+    /* Mobile UX (JWPK 2026-06-06): the desktop hero floor (3rem / 48px) eats
+       a whole phone screen, burying page content. Compact it so the actual
+       page (rooms, terminals, …) is reachable without scrolling past a wall
+       of headline. Shared shell → fixes the hero on every page at once. */
+    .intro {
+      margin: 0.85rem 0 1rem;
+      padding: 1rem;
+      border-radius: 1rem;
+    }
+    h1 {
+      font-size: clamp(1.7rem, 7.5vw, 3rem);
+      line-height: 0.98;
+      max-width: 100%;
+    }
+    .intro p {
+      margin-bottom: 0.6rem;
+      font-size: 0.72rem;
+    }
+    .intro span {
+      margin-top: 0.7rem;
+      font-size: 0.95rem;
+    }
+    .intro-status {
+      position: static;
+      margin-bottom: 0.6rem;
     }
   }
 </style>
