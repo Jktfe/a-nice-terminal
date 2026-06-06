@@ -8,7 +8,7 @@
  * resolveCallerIdentityStrict's own tests; here we only assert the
  * dispatch + the admin-bearer fallback that this helper adds.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { requireChatRoomMutationAuth, ADMIN_BEARER_HANDLE } from './chatRoomAuthGate';
 import { resetIdentityDbForTests } from './db';
 import { createBrowserSession } from './browserSessionStore';
@@ -16,6 +16,9 @@ import { createChatRoom, resetChatRoomStoreForTests } from './chatRoomStore';
 import { addMembership } from './roomMembershipsStore';
 import { upsertTerminal } from './terminalsStore';
 import { createOwner } from './ownersStore';
+import { createSession } from './antSessionStore';
+import { claimHandle } from './roomHandleLeaseClean';
+import { sessionFingerprint } from './tokenTerminalBinding';
 
 function makeRequest(opts: {
   headers?: Record<string, string>;
@@ -217,5 +220,137 @@ describe('requireChatRoomMutationAuth', () => {
         expect(httpFailure.status).toBe(401);
       }
     });
+  });
+});
+
+describe('requireChatRoomMutationAuth — Step 3c: ANT clean session lease (anti-flood lever 4)', () => {
+  // Before this step existed, agents authenticating by session token (the
+  // clean model) 401'd on EVERY non-post mutation — reactions, typing,
+  // breaks, focus-mode, member-remove — because the gate only tried pidChain.
+  // That's the "ant reaction add 401s for agents" blocker. These pin the fix:
+  // accept the same x-ant-session-id the chat-message POST path accepts,
+  // membership-gated via the clean lease.
+  beforeEach(() => {
+    resetIdentityDbForTests();
+    resetChatRoomStoreForTests();
+    delete process.env.ANT_TOKEN_TERMINAL_BINDING;
+  });
+
+  afterEach(() => {
+    delete process.env.ANT_TOKEN_TERMINAL_BINDING;
+    vi.restoreAllMocks();
+  });
+
+  it('a clean-session MEMBER resolves via x-ant-session-id header (was 401)', () => {
+    const room = createChatRoom({ name: 'react-room', whoCreatedIt: '@test' });
+    const session = createSession({ kind: 'local-cli', label: 'agent-x' });
+    claimHandle(room.id, '@agent-x', session.id);
+    const { request, rawBody } = makeRequest({ headers: { 'x-ant-session-id': session.id }, body: {} });
+    const result = requireChatRoomMutationAuth(room.id, request, rawBody);
+    expect(result.handle).toBe('@agent-x');
+    expect(result.isAdminBearer).toBe(false);
+  });
+
+  it('a clean session that is NOT a member of the room still 401s (membership-gated, grants nothing new)', () => {
+    const room = createChatRoom({ name: 'react-room-2', whoCreatedIt: '@test' });
+    const session = createSession({ kind: 'local-cli', label: 'outsider' });
+    // no claimHandle → not a clean member of this room
+    const { request, rawBody } = makeRequest({ headers: { 'x-ant-session-id': session.id }, body: {} });
+    expect(() => requireChatRoomMutationAuth(room.id, request, rawBody)).toThrow();
+  });
+
+  it('accepts the session id from the body (sessionId field) too, mirroring the post path', () => {
+    const room = createChatRoom({ name: 'react-room-3', whoCreatedIt: '@test' });
+    const session = createSession({ kind: 'local-cli', label: 'body-agent' });
+    claimHandle(room.id, '@body-agent', session.id);
+    const { request, rawBody } = makeRequest({ body: { sessionId: session.id } });
+    const result = requireChatRoomMutationAuth(room.id, request, rawBody);
+    expect(result.handle).toBe('@body-agent');
+    expect(result.isAdminBearer).toBe(false);
+  });
+
+  it('an unknown/garbage session id falls through to 401 (no identity)', () => {
+    const room = createChatRoom({ name: 'react-room-4', whoCreatedIt: '@test' });
+    const { request, rawBody } = makeRequest({ headers: { 'x-ant-session-id': 'not-a-real-session' }, body: {} });
+    expect(() => requireChatRoomMutationAuth(room.id, request, rawBody)).toThrow();
+  });
+
+  it('strict token-terminal binding rejects a clean-session token presented from the wrong terminal', () => {
+    process.env.ANT_TOKEN_TERMINAL_BINDING = 'strict';
+    const room = createChatRoom({ name: 'react-room-5', whoCreatedIt: '@test' });
+    const ownerTerminal = upsertTerminal({
+      pid: 991_004,
+      pid_start: 'auth-gate-token-owner',
+      name: 'auth-gate-token-owner',
+      ttlSeconds: 60 * 60
+    });
+    const attackerTerminal = upsertTerminal({
+      pid: 991_005,
+      pid_start: 'auth-gate-token-attacker',
+      name: 'auth-gate-token-attacker',
+      ttlSeconds: 60 * 60
+    });
+    const session = createSession({
+      kind: 'local-cli',
+      label: 'bound-agent',
+      terminalId: ownerTerminal.id
+    });
+    claimHandle(room.id, '@bound-agent', session.id);
+    const { request, rawBody } = makeRequest({
+      headers: { 'x-ant-session-id': session.id },
+      body: {
+        pidChain: [{ pid: attackerTerminal.pid, pid_start: attackerTerminal.pid_start }]
+      }
+    });
+
+    try {
+      requireChatRoomMutationAuth(room.id, request, rawBody);
+      throw new Error('should have thrown');
+    } catch (failure) {
+      const httpFailure = failure as { status?: number; body?: { message?: string } };
+      expect(httpFailure.status).toBe(401);
+      expect(httpFailure.body?.message).toBe('ANT session token presented from a terminal it is not bound to.');
+    }
+  });
+
+  it('flag-mode token-terminal binding logs fingerprints only and still allows the mutation', () => {
+    process.env.ANT_TOKEN_TERMINAL_BINDING = 'flag';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const room = createChatRoom({ name: 'react-room-6', whoCreatedIt: '@test' });
+    const ownerTerminal = upsertTerminal({
+      pid: 991_006,
+      pid_start: 'auth-gate-token-owner-flag',
+      name: 'auth-gate-token-owner-flag',
+      ttlSeconds: 60 * 60
+    });
+    const attackerTerminal = upsertTerminal({
+      pid: 991_007,
+      pid_start: 'auth-gate-token-attacker-flag',
+      name: 'auth-gate-token-attacker-flag',
+      ttlSeconds: 60 * 60
+    });
+    const session = createSession({
+      kind: 'local-cli',
+      label: 'flag-agent',
+      terminalId: ownerTerminal.id
+    });
+    claimHandle(room.id, '@flag-agent', session.id);
+    const { request, rawBody } = makeRequest({
+      headers: { 'x-ant-session-id': session.id },
+      body: {
+        pidChain: [{ pid: attackerTerminal.pid, pid_start: attackerTerminal.pid_start }]
+      }
+    });
+
+    const result = requireChatRoomMutationAuth(room.id, request, rawBody);
+
+    expect(result.handle).toBe('@flag-agent');
+    const logged = warn.mock.calls.map((args) => args.join(' ')).join('\n');
+    expect(logged).toContain('[token-binding:flag]');
+    expect(logged).toContain(`session_fp=${sessionFingerprint(session.id)}`);
+    expect(logged).not.toContain(session.id);
+    expect(logged).not.toContain(ownerTerminal.id);
+    expect(logged).not.toContain(attackerTerminal.id);
+    warn.mockRestore();
   });
 });
