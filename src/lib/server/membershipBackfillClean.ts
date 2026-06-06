@@ -21,7 +21,7 @@
  */
 
 import { getIdentityDb } from './db';
-import { addMember } from './membershipStore';
+import { addMember, isDurableMemberHandle } from './membershipStore';
 import { claimHandle } from './roomHandleLeaseClean';
 
 export type BackfillReport = {
@@ -93,6 +93,10 @@ export function backfillFromLegacy(db = getIdentityDb()): BackfillReport {
   for (const r of legacy) {
     scanned++;
     if (!r.room_id || !r.handle) {
+      skipped++;
+      continue;
+    }
+    if (!isDurableMemberHandle(r.handle)) {
       skipped++;
       continue;
     }

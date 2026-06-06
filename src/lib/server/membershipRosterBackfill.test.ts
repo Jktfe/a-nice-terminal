@@ -209,7 +209,11 @@ describe('browser-session synthetic handles are excluded from the clean roster',
 
   it('purges pre-existing @browser-bs_ rows already in room_membership and presentation', () => {
     seedChatRoomMember('roomBSPurge', '@realagent');
-    addMember('roomBSPurge', '@browser-bs_oldrow1234', 'browser-session-token');
+    addMember('roomBSPurge', '@realagent', 'real-agent-token');
+    getIdentityDb()
+      .prepare(`INSERT INTO room_membership (room_id, handle, session_id, created_at_ms)
+                VALUES ('roomBSPurge', '@browser-bs_oldrow1234', 'browser-session-token', 0)`)
+      .run();
     setMemberPresentation('roomBSPurge', '@browser-bs_oldrow1234', {
       room_display_name: 'Browser',
       member_kind: 'agent'

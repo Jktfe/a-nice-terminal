@@ -97,6 +97,19 @@ describe('membershipStore — (room_id, handle, session_id) is the WHOLE table',
     expect(listMembers('roomX').map((m) => m.handle)).toEqual(['@a', '@b']);
   });
 
+  it('listMembers keeps near-prefix browser handles because only @browser-bs_ is synthetic', () => {
+    addMember('roomX', '@browser-bsXabc123', 'sess-near');
+    expect(listMembers('roomX').map((m) => m.handle)).toEqual(['@browser-bsXabc123']);
+  });
+
+  it('addMember rejects synthetic browser-session handles before writing a clean row', () => {
+    expect(() => addMember('roomX', '@browser-bs_abc123', 'browser-session-token')).toThrow(
+      /synthetic browser-session handle/
+    );
+    expect(isMember('roomX', '@browser-bs_abc123')).toBe(false);
+    expect(listMembers('roomX')).toHaveLength(0);
+  });
+
   it('a member may have a NULL session (backfill case); isMember still true, resolveMember null', () => {
     addMember('roomX', '@alice', null);
     expect(isMember('roomX', '@alice')).toBe(true);

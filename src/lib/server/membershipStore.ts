@@ -36,7 +36,7 @@ export function isDurableMemberHandle(handle: string): boolean {
 }
 
 export function durableMemberWhereClause(column = 'handle'): string {
-  return `lower(${column}) NOT LIKE '@browser-bs_%'`;
+  return `lower(${column}) NOT LIKE '@browser-bs\\_%' ESCAPE '\\'`;
 }
 
 export type Membership = {
@@ -128,6 +128,9 @@ export function addMember(
   db = getIdentityDb()
 ): Membership {
   ensureTable(db);
+  if (!isDurableMemberHandle(handle)) {
+    throw new Error(`Cannot add synthetic browser-session handle ${handle} to room_membership.`);
+  }
   const now = Date.now();
   db.prepare(
     `INSERT INTO room_membership (room_id, handle, session_id, created_at_ms)
