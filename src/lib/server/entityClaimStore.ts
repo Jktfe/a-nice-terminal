@@ -247,6 +247,24 @@ export function getActiveWorkingClaim(
   return row ? rowToClaim(row) : null;
 }
 
+/**
+ * Does this handle hold ANY active (non-expired) claim? The idle-trigger monitor
+ * reads this as the "open work" signal: an agent with an active claim that has
+ * gone idle gets the "push it forward or report blocked" nudge; one with no
+ * claim gets "claim the next slice". Read-only.
+ */
+export function hasActiveClaimForHandle(handle: string): boolean {
+  const db = getIdentityDb();
+  const nowMs = Date.now();
+  const row = db.prepare(
+    `SELECT 1 FROM entity_claims
+     WHERE claimed_by_handle = ? AND status = 'active'
+       AND (expires_at_ms IS NULL OR expires_at_ms > ?)
+     LIMIT 1`
+  ).get(handle, nowMs);
+  return row !== undefined;
+}
+
 export function listClaimsForRoomEntity(
   entityKind: EntityKind,
   entityIds: string[]

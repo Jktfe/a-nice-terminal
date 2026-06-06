@@ -34,7 +34,9 @@ import { hasBareEveryoneMention, hasBracketedMention, listBareMentionHandles } f
 import { listReadersForMessage, markMessageRead } from './messageReadReceiptStore';
 import { broadcastToRoom } from './eventBroadcast';
 import { findHandleForAliasInRoom } from './chatRoomAliasStore';
-import { getActiveWorkingClaim, listActiveClaimsForEntity } from './entityClaimStore';
+import { getActiveWorkingClaim, listActiveClaimsForEntity, hasActiveClaimForHandle } from './entityClaimStore';
+import { getAgentStatus } from './agentStatusStore';
+import { computeIdleTriggers, type IdleReportRow } from './idleAgentTriggers';
 import { listRespondersForRoom } from './roomRespondersStore';
 import { pickNextResponder, type ResponderWithStatus } from './responderPicker';
 import { openAskInRoom, AskTargetNotHumanError, AskerNotInInboxError } from './askStore';
@@ -332,6 +334,62 @@ export function sendCoordinationRelay(roomId: string, recipientHandle: string, b
   });
 }
 
+/**
+ * Idle-agent monitor + trigger (JWPK 2026-06-06). Gathers each room member's
+ * CANONICAL status (agentStatusStore — consumed, not re-derived) + open-work
+ * signal (an active claim), runs the idle policy, fires a ONE-SHOT directed
+ * nudge to each newly-idle agent (sendCoordinationRelay — never a room post),
+ * and returns the per-room report for the controller. Piggybacks on room
+ * activity (the fanout call); a quiet room has no flood to escape, so a nudge
+ * only matters once traffic resumes.
+ */
+export function runIdleMonitor(
+  roomId: string,
+  nowMs: number = Date.now(),
+  activeAuthorHandle?: string
+): IdleReportRow[] {
+  const agents = listMembershipsForRoom(roomId)
+    .filter((m) => m.terminal_id)
+    .map((m) => {
+      const status = getAgentStatus(m.terminal_id);
+      const isCurrentAuthor =
+        activeAuthorHandle !== undefined && sameAuthorHandle(m.handle, activeAuthorHandle);
+      return {
+        handle: m.handle,
+        status: isCurrentAuthor ? 'working' : status?.agent_status ?? null,
+        lastActivityMs: isCurrentAuthor ? nowMs : status?.agent_status_at_ms ?? null,
+        hasOpenWork: hasActiveClaimForHandle(m.handle)
+      };
+    });
+  const { report, nudges } = computeIdleTriggers({ scopeId: roomId, agents, now: nowMs });
+  for (const nudge of nudges) {
+    try {
+      sendCoordinationRelay(roomId, nudge.handle, nudge.text);
+    } catch {
+      /* best-effort; never block fanout */
+    }
+  }
+  return report;
+}
+
+// Per-room throttle so the idle sweep runs at most once a minute regardless of
+// message volume (the scan is O(members) of status+claim queries).
+const lastIdleMonitorRunMs = new Map<string, number>();
+const IDLE_MONITOR_THROTTLE_MS = 60_000;
+export function resetIdleMonitorThrottleForTests(): void {
+  lastIdleMonitorRunMs.clear();
+}
+function maybeRunIdleMonitor(roomId: string, activeAuthorHandle?: string): void {
+  const now = Date.now();
+  if (now - (lastIdleMonitorRunMs.get(roomId) ?? 0) < IDLE_MONITOR_THROTTLE_MS) return;
+  lastIdleMonitorRunMs.set(roomId, now);
+  try {
+    runIdleMonitor(roomId, now, activeAuthorHandle);
+  } catch {
+    /* best-effort; never block fanout */
+  }
+}
+
 export function fanoutMessageToRoomTerminals(
   roomId: string,
   message: ChatMessage,
@@ -346,6 +404,9 @@ export function fanoutMessageToRoomTerminals(
   //   Explicit @handle / @everyone routing still works in either open mode.
   const mode = getRoomMode(roomId);
   if (mode === 'closed') return;
+  // Idle monitor: on room activity, run the idle-trigger sweep (throttled per
+  // room) so newly-idle agents get a one-shot directed nudge. Best-effort.
+  maybeRunIdleMonitor(roomId, message.authorHandle);
   const memberships = listMembershipsForRoom(roomId);
   const targetedHandles = resolveBareMentionsToGlobalHandles(roomId, message.body);
   const containsInformationalMention = hasBracketedMention(message.body);
