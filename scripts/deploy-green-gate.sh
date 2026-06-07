@@ -62,6 +62,30 @@ if [ "${2:-}" = "--live" ]; then
     [ "$code" = "200" ] || fail "${path} returned ${code} (expected 200) — live site is not green."
     ok "${path} → 200"
   done
+
+  # Real-room route must NOT 5xx. A stale/broken build chokes parsing real
+  # room data HERE while /rooms (list) and /rooms/<nonexistent> (404) both
+  # look fine — exactly the gap that left prod :6174 500ing on a real room
+  # while the route-200 checks above passed (2026-06-07, @v4claude's catch).
+  ROOM_ID="${ANT_ROOMS_PROBE_ID:-fnokx03pud}"
+  rcode="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "${LIVE_BASE}/rooms/${ROOM_ID}")"
+  case "$rcode" in
+    5*) fail "/rooms/${ROOM_ID} → ${rcode} (server error — a stale/broken build chokes on real-room data).";;
+    *)  ok "/rooms/${ROOM_ID} → ${rcode} (non-5xx)";;
+  esac
+
+  # Served-CONTENT freshness. Route-200 does NOT mean new code is served — a
+  # stale bundle 200s too (2026-06-07: fa75596 was committed but the running
+  # build-server kept serving the old CSS; the route-200 gate lied). Grep the
+  # served HTML for an expected marker so the gate fails when the live server
+  # is serving an OLD build. Override ANT_EXPECT_MARKER with a fix-specific
+  # string (e.g. a class/rule from the commit) to assert THAT change is live.
+  MARKER="${ANT_EXPECT_MARKER:-viewport-fit=cover}"
+  if curl -s --max-time 15 "${LIVE_BASE}/login" | grep -q -- "$MARKER"; then
+    ok "served content carries «${MARKER}» (not a stale build)"
+  else
+    fail "served /login is MISSING «${MARKER}» — the running server is serving a STALE build (route-200 lied). Rebuild/restart the serving process."
+  fi
 else
   echo "── 3/3  live route health — skipped (pass --live after kickstart) ──"
 fi
