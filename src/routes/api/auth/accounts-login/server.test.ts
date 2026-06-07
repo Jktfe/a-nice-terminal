@@ -17,12 +17,12 @@ function resetIdentityRows(): void {
 
 function eventForPost(body: unknown) {
   return {
-    request: new Request('https://mac.kingfisher-interval.ts.net/api/auth/accounts-login', {
+    request: new Request('https://mac.example.ts.net/api/auth/accounts-login', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body)
     }),
-    url: new URL('https://mac.kingfisher-interval.ts.net/api/auth/accounts-login'),
+    url: new URL('https://mac.example.ts.net/api/auth/accounts-login'),
     params: {}
   } as never;
 }
@@ -44,7 +44,7 @@ beforeEach(() => {
   resetIdentityRows();
   const room = createChatRoom({ name: 'operator landing', whoCreatedIt: '@JWPK' });
   process.env.ANT_BROWSER_LOGIN_ROOM_ID = room.id;
-  process.env.ANT_OPERATOR_EMAIL = 'james@newmodel.vc';
+  process.env.ANT_OPERATOR_EMAIL = 'operator@example.com';
   process.env.ANT_OPERATOR_HANDLE = '@JWPK';
 });
 
@@ -66,12 +66,12 @@ describe('POST /api/auth/accounts-login', () => {
       if (url.endsWith('/api/auth/sign-in/email')) {
         return Response.json({
           token: 'better-auth-token',
-          user: { email: 'james@newmodel.vc' }
+          user: { email: 'operator@example.com' }
         });
       }
       if (url.endsWith('/api/auth/me')) {
         return Response.json({
-          user: { email: 'james@newmodel.vc', handle: '@JWPK' },
+          user: { email: 'operator@example.com', handle: '@JWPK' },
           expiresAt: Date.now() + 60_000
         });
       }
@@ -80,7 +80,7 @@ describe('POST /api/auth/accounts-login', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const response = await capture(() =>
-      POST(eventForPost({ email: 'james@newmodel.vc', password: 'correct-password' }))
+      POST(eventForPost({ email: 'operator@example.com', password: 'correct-password' }))
     );
 
     expect(response.status).toBe(200);

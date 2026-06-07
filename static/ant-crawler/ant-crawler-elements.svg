@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 320" role="img" aria-labelledby="ant-elements-title">
   <title id="ant-elements-title">ANT crawler individual SVG elements</title>
   <!--
-    Source reference: /Users/jamesking/Downloads/ant.svg lines 1-18
+    Source reference: ~/Downloads/ant.svg lines 1-18
     Verdict: CHANGE
     Simplification: Fresh reusable symbol library for animation. Import symbols
     by ID or copy individual groups into a scene-level SVG.
