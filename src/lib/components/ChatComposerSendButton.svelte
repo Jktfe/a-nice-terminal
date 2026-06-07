@@ -44,4 +44,12 @@
 <style>
   button.primary { padding: 0.5rem 1rem; font-weight: 800; font-size: 0.9rem; color: white; background: var(--accent); border: none; border-radius: 999px; cursor: pointer; }
   button.primary:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  @media (max-width: 768px) {
+    button.primary {
+      min-height: 44px;
+      padding: 0 1.05rem;
+      font-size: 0.86rem;
+    }
+  }
 </style>

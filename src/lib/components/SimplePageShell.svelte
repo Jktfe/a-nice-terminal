@@ -339,8 +339,8 @@
       grid-template-columns: auto 1fr auto;
       align-items: center;
       gap: 0.35rem;
-      min-height: 3.1rem;
-      padding: 0.3rem 0.42rem;
+      min-height: 3rem;
+      padding: 0.25rem 0.38rem;
       border-radius: 0.7rem;
     }
     .brand {
@@ -351,12 +351,12 @@
       gap: 0.35rem;
     }
     .brand :global(.ant-word) {
-      font-size: 0.95rem;
+      font-size: 0.82rem;
       letter-spacing: 0.03em;
     }
     .brand :global(.ant-mark) {
-      width: 2rem;
-      height: 2rem;
+      width: 1.65rem;
+      height: 1.65rem;
     }
     .nav-toggle {
       display: inline-block;

@@ -73,4 +73,12 @@
   }
   .attach-action:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
   .attach-action:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  @media (max-width: 768px) {
+    .attach-action {
+      width: 44px;
+      height: 44px;
+      font-size: 0.92rem;
+    }
+  }
 </style>
