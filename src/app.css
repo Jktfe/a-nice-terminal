@@ -77,6 +77,21 @@ body {
     max-width: 100%;
   }
 
+  /* iOS Safari force-zooms any focused input/textarea/select/contenteditable
+     under 16px, and on a fixed-height layout the user then can't pinch back
+     out (JWPK 2026-06-07: "zoomed in aggressively" + scrolling felt dead).
+     Enforce 16px app-wide below the breakpoint to kill zoom-on-focus across
+     all ~20 text fields in one rule. !important is required: the per-field
+     sizes that trigger it are CLASS selectors (.search-input, .me-input,
+     etc. at 0.86rem) which out-specify a bare element selector. Accepted
+     trade-off: compact mobile forms render a touch larger. */
+  input,
+  textarea,
+  select,
+  [contenteditable]:not([contenteditable='false']) {
+    font-size: 16px !important;
+  }
+
   /* Comfortable thumb targets for primary interactive controls. */
   button,
   a[role='button'],
