@@ -145,6 +145,26 @@ export function pruneOperationalHistoryIfOverThreshold(input: {
   });
 }
 
+/**
+ * Truncating WAL checkpoint. SQLite's autocheckpoint runs PASSIVE — it flushes
+ * WAL pages into the main DB but never shrinks the `-wal` FILE. Under the
+ * fleet's high terminal_run_events write rate (~100 events/sec of PTY output)
+ * that let the WAL grow unbounded — ~1GB every ~13 min, an audited corruption /
+ * disk-fill risk (2026-06-07). Running TRUNCATE on the existing 5-min threshold
+ * timer keeps the `-wal` file bounded to a few minutes of frames.
+ *
+ * Safe by construction: a checkpoint can never corrupt the DB — the risk was
+ * NOT checkpointing. If a reader pins old frames, TRUNCATE partial-checkpoints
+ * and the file is reclaimed on a later pass. Best-effort: never throws.
+ */
+export function checkpointWalTruncate(): void {
+  try {
+    getIdentityDb().pragma('wal_checkpoint(TRUNCATE)');
+  } catch {
+    /* checkpoint is best-effort maintenance; never crash the sweep */
+  }
+}
+
 export function ensureOperationalRetentionSweepBooted(input: {
   runImmediately?: boolean;
   initialDelayMs?: number;
@@ -172,6 +192,10 @@ export function ensureOperationalRetentionSweepBooted(input: {
     } catch {
       /* threshold pruning is best-effort; do not crash the server */
     }
+    // Bound the -wal file every ~5 min (autocheckpoint only runs PASSIVE and
+    // never truncates it; see checkpointWalTruncate). Keeps the WAL from
+    // re-bloating to ~1GB under the fleet's terminal_run_events write rate.
+    checkpointWalTruncate();
   };
 
   if (input.runImmediately !== false) {
