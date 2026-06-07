@@ -752,4 +752,75 @@
     color: var(--accent, #6b21a8);
     font-size: 1.1rem;
   }
+
+  @media (max-width: 768px) {
+    .server-error,
+    .empty-nudge,
+    .attach-banner {
+      padding: 0.7rem 0.8rem;
+      border-radius: 0.75rem;
+      font-size: 0.9rem;
+    }
+    .rooms-toolbar {
+      align-items: flex-start;
+      margin: 0.9rem 0 0.45rem;
+      gap: 0.5rem;
+    }
+    .rooms-toolbar .section-heading {
+      width: 100%;
+      font-size: 0.9rem;
+    }
+    .view-toggle {
+      width: 100%;
+      max-width: 100%;
+      overflow-x: auto;
+      justify-content: flex-start;
+      border-radius: 0.75rem;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+    }
+    .view-toggle::-webkit-scrollbar,
+    .filter-chips::-webkit-scrollbar {
+      display: none;
+    }
+    .view-toggle-btn {
+      min-height: 44px;
+      flex: 1 0 auto;
+      justify-content: center;
+      padding: 0.35rem 0.65rem;
+    }
+    .rooms-filter-bar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.55rem;
+      padding: 0.6rem;
+      border-radius: 0.75rem;
+    }
+    .filter-chips {
+      display: flex;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      padding-bottom: 0.05rem;
+      -webkit-overflow-scrolling: touch;
+    }
+    .filter-chip {
+      min-height: 44px;
+      flex: 0 0 auto;
+      padding: 0.35rem 0.85rem;
+    }
+    .name-filter,
+    .sort-select-wrap,
+    .sort-select {
+      width: 100%;
+    }
+    .name-filter,
+    .sort-select {
+      min-height: 44px;
+      font-size: 0.95rem;
+    }
+    .sort-select-wrap {
+      display: grid;
+      gap: 0.25rem;
+    }
+  }
 </style>

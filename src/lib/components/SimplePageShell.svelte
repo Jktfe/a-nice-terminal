@@ -329,10 +329,16 @@
   }
 
   @media (max-width: 768px) {
+    .simple-page {
+      width: min(100%, calc(100vw - 1rem));
+      padding: 0.5rem 0 calc(5rem + env(safe-area-inset-bottom));
+    }
     header {
+      top: calc(0.45rem + env(safe-area-inset-top));
       display: grid;
       grid-template-columns: auto 1fr auto;
       align-items: center;
+      border-radius: 0.75rem;
     }
     .brand { justify-self: start; }
     .nav-toggle {

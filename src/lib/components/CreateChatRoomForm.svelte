@@ -260,4 +260,41 @@
     margin: 0;
     color: var(--accent);
   }
+
+  @media (max-width: 768px) {
+    .create-chat-room-form {
+      gap: 0.65rem;
+      padding: 0.9rem;
+      border-radius: 0.85rem;
+    }
+    h2 {
+      font-size: 0.98rem;
+    }
+    form {
+      gap: 0.55rem;
+    }
+    label {
+      font-size: 0.8rem;
+    }
+    input,
+    textarea,
+    button.primary {
+      width: 100%;
+    }
+    input,
+    button.primary {
+      min-height: 44px;
+    }
+    input {
+      padding: 0.58rem 0.75rem;
+    }
+    textarea {
+      min-height: 4.75rem;
+      padding: 0.58rem 0.75rem;
+    }
+    button.primary {
+      align-self: stretch;
+      border-radius: 0.75rem;
+    }
+  }
 </style>
