@@ -8,13 +8,17 @@ export default defineConfig({
   plugins: [sveltekit()],
   server: {
     host: '0.0.0.0',
+    watch: {
+      ignored: ['**/.worktrees/**']
+    },
     fs: {
       allow: [process.cwd(), nodeModulesRealPath]
     },
     allowedHosts: [
       'localhost',
       '127.0.0.1',
-      '.anthost-interval.ts.net'
+      '.anthost-interval.ts.net',
+      '.kingfisher-interval.ts.net'
     ]
   },
   test: {
