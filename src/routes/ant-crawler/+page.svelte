@@ -1,7 +1,10 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+
   let rigObject: HTMLObjectElement | null = $state(null);
   let isCrawling = $state(true);
-  let rigLoaded = $state(false);
+  let rigLoaded = $state(true);
+  let useStaticRig = $state(true);
 
   const elementCards = [
     { label: 'Head', src: '/ant-crawler/elements/head.svg' },
@@ -29,6 +32,11 @@
     isCrawling = next;
     applyCrawlState();
   }
+
+  onMount(() => {
+    useStaticRig = window.matchMedia('(max-width: 768px)').matches;
+    rigLoaded = useStaticRig;
+  });
 </script>
 
 <svelte:head>
@@ -57,19 +65,27 @@
     {#if !rigLoaded}
       <div class="loading">Loading rig</div>
     {/if}
-    <object
-      bind:this={rigObject}
-      class:loaded={rigLoaded}
-      type="image/svg+xml"
-      data="/ant-crawler/ant-crawler-rig.svg"
-      aria-label="Animated ANT crawler rig"
-      onload={handleRigLoad}
-    ></object>
+    {#if useStaticRig}
+      <img
+        class="rig-image loaded"
+        src="/ant-crawler/ant-crawler-rig.svg"
+        alt="Static ANT crawler rig"
+      />
+    {:else}
+      <object
+        bind:this={rigObject}
+        class:loaded={rigLoaded}
+        type="image/svg+xml"
+        data="/ant-crawler/ant-crawler-rig.svg"
+        aria-label="Animated ANT crawler rig"
+        onload={handleRigLoad}
+      ></object>
 
-    <div class="controls" aria-label="Animation controls">
-      <button class:active={isCrawling} type="button" onclick={() => setMotion(true)}>Crawl</button>
-      <button class:active={!isCrawling} type="button" onclick={() => setMotion(false)}>Still</button>
-    </div>
+      <div class="controls" aria-label="Animation controls">
+        <button class:active={isCrawling} type="button" onclick={() => setMotion(true)}>Crawl</button>
+        <button class:active={!isCrawling} type="button" onclick={() => setMotion(false)}>Still</button>
+      </div>
+    {/if}
   </section>
 
   <section class="parts-grid" aria-label="Individual SVG crawler elements">
@@ -179,7 +195,8 @@
     background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
   }
 
-  object {
+  object,
+  .rig-image {
     position: absolute;
     top: 48%;
     left: 50%;
@@ -191,7 +208,8 @@
     filter: drop-shadow(0 24px 34px rgba(0, 0, 0, 0.28));
   }
 
-  object.loaded {
+  object.loaded,
+  .rig-image.loaded {
     opacity: 1;
   }
 
@@ -272,7 +290,8 @@
       min-height: 430px;
     }
 
-    object {
+    object,
+    .rig-image {
       width: min(560px, 94vw);
     }
 
