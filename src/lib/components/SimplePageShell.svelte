@@ -375,26 +375,25 @@
        page (rooms, terminals, …) is reachable without scrolling past a wall
        of headline. Shared shell → fixes the hero on every page at once. */
     .intro {
-      margin: 0.85rem 0 1rem;
-      padding: 1rem;
-      border-radius: 1rem;
+      margin: 0.65rem 0 0.85rem;
+      padding: 0.8rem;
+      border-radius: 0.85rem;
     }
     h1 {
-      font-size: clamp(1.7rem, 7.5vw, 3rem);
-      line-height: 0.98;
+      font-size: clamp(1.35rem, 6vw, 2.1rem);
+      line-height: 1.02;
       max-width: 100%;
     }
     .intro p {
-      margin-bottom: 0.6rem;
-      font-size: 0.72rem;
+      margin-bottom: 0.45rem;
+      padding: 0.35rem 0.55rem;
+      font-size: 0.68rem;
     }
     .intro span {
-      margin-top: 0.7rem;
-      font-size: 0.95rem;
+      margin-top: 0.45rem;
+      font-size: 0.86rem;
+      line-height: 1.35;
     }
-    .intro-status {
-      position: static;
-      margin-bottom: 0.6rem;
-    }
+    .intro-status { position: static; margin-bottom: 0.45rem; }
   }
 </style>

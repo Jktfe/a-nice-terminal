@@ -44,13 +44,17 @@
 
   @media (max-width: 768px) {
     .logout-button {
-      left: calc(12px + env(safe-area-inset-left));
-      right: calc(12px + env(safe-area-inset-right));
-      bottom: calc(10px + env(safe-area-inset-bottom));
+      position: static;
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      width: calc(100% - 1.5rem);
       min-height: 44px;
+      margin:
+        0.75rem
+        calc(0.75rem + env(safe-area-inset-right))
+        calc(0.75rem + env(safe-area-inset-bottom))
+        calc(0.75rem + env(safe-area-inset-left));
       padding: 0 14px;
       border-radius: 12px;
       color: rgb(248 250 252 / 0.92);
