@@ -166,10 +166,17 @@
   @media (max-width: 768px) {
     .room-name-header {
       position: static;
+      z-index: 80;
+      overflow: visible;
       margin: 0.2rem 0 0.15rem;
       padding: 0.32rem 0.45rem;
       border-radius: 0.75rem;
       box-shadow: 0 6px 18px rgb(27 20 12 / 7%);
+      backdrop-filter: none;
+    }
+    .room-name-header:has(:global(.room-menu-dropdown[open])) {
+      position: relative;
+      z-index: 90;
     }
     .title-row {
       gap: 0.35rem;

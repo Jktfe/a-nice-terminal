@@ -93,17 +93,17 @@
     }
     .label { font-size: 0.78rem; }
     .menu-body {
-      position: fixed;
-      inset: auto 0 0 0;
-      width: auto;
+      position: absolute;
+      top: calc(100% + 0.4rem);
+      right: 0;
+      bottom: auto;
+      left: auto;
+      width: min(calc(100vw - 1rem), 28rem);
       max-height: min(68svh, 560px);
       margin: 0;
-      padding: 0.35rem 0.45rem calc(0.6rem + env(safe-area-inset-bottom, 0));
-      border-right: 0;
-      border-bottom: 0;
-      border-left: 0;
-      border-radius: 1rem 1rem 0 0;
-      box-shadow: 0 -16px 36px rgb(27 20 12 / 18%);
+      padding: 0.45rem;
+      border-radius: 0.85rem;
+      box-shadow: 0 14px 34px rgb(27 20 12 / 18%);
     }
   }
 </style>

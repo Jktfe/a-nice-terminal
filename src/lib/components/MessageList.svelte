@@ -5,7 +5,7 @@
   threading later) live in MessageRow rather than swelling this file.
 -->
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import type { ChatMessage } from '$lib/server/chatMessageStore';
   import type { RoomMember } from '$lib/server/chatRoomStore';
   import type { EntityClaim } from '$lib/server/entityClaimStore';
@@ -146,29 +146,51 @@
     return distanceFromBottom < 16;
   }
 
-  async function handleScroll() {
-    if (!listElement) return;
-    shouldFollowBottom = isNearBottom(listElement);
+  function usesPageScroll(element: HTMLElement): boolean {
+    if (typeof window === 'undefined') return false;
+    return window.getComputedStyle(element).overflowY === 'visible';
+  }
+
+  function isNearCurrentBottom(element: HTMLElement): boolean {
+    if (!usesPageScroll(element)) return isNearBottom(element);
+    return element.getBoundingClientRect().bottom - window.innerHeight < 16;
+  }
+
+  async function maybeLoadOlderFromCurrentScroll(element: HTMLElement) {
+    const isNearTop = usesPageScroll(element)
+      ? element.getBoundingClientRect().top >= -40
+      : element.scrollTop <= 40;
     if (
-      listElement.scrollTop <= 40 &&
+      isNearTop &&
       hasOlderMessages &&
       !isLoadingOlder &&
       !isRequestingOlder &&
       onLoadOlder &&
       Date.now() - mountedAt > 1500
     ) {
-      const previousScrollHeight = listElement.scrollHeight;
+      const previousScrollHeight = element.scrollHeight;
       isRequestingOlder = true;
       try {
         await onLoadOlder();
         await tick();
-        if (listElement) {
+        if (listElement && !usesPageScroll(listElement)) {
           listElement.scrollTop = listElement.scrollHeight - previousScrollHeight + listElement.scrollTop;
         }
       } finally {
         isRequestingOlder = false;
       }
     }
+  }
+
+  async function updateScrollStateFromCurrentContainer() {
+    if (!listElement) return;
+    shouldFollowBottom = isNearCurrentBottom(listElement);
+    await maybeLoadOlderFromCurrentScroll(listElement);
+  }
+
+  async function handleScroll() {
+    if (!listElement || usesPageScroll(listElement)) return;
+    await updateScrollStateFromCurrentContainer();
   }
 
   async function scrollToBottom() {
@@ -179,12 +201,30 @@
     const prefersReduced =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    if (usesPageScroll(listElement)) {
+      listElement.scrollIntoView({ block: 'end', behavior: prefersReduced ? 'auto' : 'smooth' });
+      return;
+    }
     if (prefersReduced) {
       listElement.scrollTop = listElement.scrollHeight;
       return;
     }
     listElement.scrollTo({ top: listElement.scrollHeight, behavior: 'smooth' });
   }
+
+  onMount(() => {
+    const handleViewportScroll = () => {
+      if (!listElement || !usesPageScroll(listElement)) return;
+      void updateScrollStateFromCurrentContainer();
+    };
+    window.addEventListener('scroll', handleViewportScroll, { passive: true });
+    window.addEventListener('resize', handleViewportScroll);
+    requestAnimationFrame(handleViewportScroll);
+    return () => {
+      window.removeEventListener('scroll', handleViewportScroll);
+      window.removeEventListener('resize', handleViewportScroll);
+    };
+  });
 
   // New-messages-below counter (NMT feedback #B from @mark, 2026-05-26).
   // Sticky-scroll behaviour is already shipped via `shouldFollowBottom` +
@@ -449,8 +489,10 @@
       font-size: 0.78rem;
     }
     .jump-to-bottom {
+      position: fixed;
       right: 0.65rem;
-      bottom: 0.65rem;
+      bottom: calc(5.7rem + env(safe-area-inset-bottom, 0));
+      z-index: 25;
       min-height: 44px;
     }
   }
