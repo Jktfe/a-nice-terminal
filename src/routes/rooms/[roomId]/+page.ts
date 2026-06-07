@@ -1,5 +1,5 @@
 import type { PageLoad } from './$types';
-import { error } from '@sveltejs/kit';
+import { error, redirect } from '@sveltejs/kit';
 import type { ChatRoom } from '$lib/server/chatRoomStore';
 import type { ChatMessage } from '$lib/server/chatMessageStore';
 import type { RoomAliasEntry } from '$lib/server/chatRoomAliasStore';
@@ -34,7 +34,11 @@ type MessagesFetchResult = {
 
 export const load: PageLoad = async ({ fetch, params }) => {
   const roomResponse = await fetch(`/api/chat-rooms/${params.roomId}`);
+  if (roomResponse.status === 401) {
+    throw redirect(303, `/login?next=${encodeURIComponent(`/rooms/${params.roomId}`)}`);
+  }
   if (roomResponse.status === 404) throw error(404, 'Room not found.');
+  if (roomResponse.status === 403) throw error(403, 'You do not have access to this room.');
   if (!roomResponse.ok) throw error(500, 'Could not fetch room.');
 
   const roomBody = (await roomResponse.json()) as { chatRoom: ChatRoom };

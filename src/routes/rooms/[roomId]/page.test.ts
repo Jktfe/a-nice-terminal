@@ -10,6 +10,19 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe('/rooms/[roomId] load', () => {
+  it('redirects unauthenticated room visits to login with a return path', async () => {
+    const fetch = vi.fn(async () => jsonResponse({ message: 'Authentication required' }, 401));
+    const event = {
+      fetch,
+      params: { roomId: 'fnokx03pud' }
+    } as unknown as Parameters<typeof load>[0];
+
+    await expect(load(event)).rejects.toMatchObject({
+      status: 303,
+      location: '/login?next=%2Frooms%2Ffnokx03pud'
+    });
+  });
+
   it('loads room focus mode state', async () => {
     const fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
