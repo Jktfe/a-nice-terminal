@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { getIdentityDb, resetIdentityDbForTests } from './db';
+import { closeIdentityDbHandleForTests, getIdentityDb, resetIdentityDbForTests } from './db';
 
 let tmpDir: string;
 let dbFile: string;
@@ -49,5 +49,33 @@ describe('getIdentityDb', () => {
       .all() as { name: string }[];
     expect(cols.some((c) => c.name === 'name')).toBe(true);
     expect(cols.some((c) => c.name === 'tmux_target_pane')).toBe(true);
+  });
+
+  it('drops empty legacy validation tables when verification tables already exist', () => {
+    const db = getIdentityDb();
+    db.prepare(`CREATE TABLE validation_schemas (id TEXT PRIMARY KEY)`).run();
+    db.prepare(`CREATE TABLE validation_runs (id TEXT PRIMARY KEY)`).run();
+    closeIdentityDbHandleForTests();
+
+    const reopened = getIdentityDb();
+    const tableNames = new Set(
+      reopened
+        .prepare(`SELECT name FROM sqlite_master WHERE type='table'`)
+        .all()
+        .map((row) => (row as { name: string }).name)
+    );
+
+    expect(tableNames.has('verification_lenses')).toBe(true);
+    expect(tableNames.has('validation_schemas')).toBe(false);
+    expect(tableNames.has('validation_runs')).toBe(false);
+  });
+
+  it('still blocks duplicate validation tables when legacy rows remain', () => {
+    const db = getIdentityDb();
+    db.prepare(`CREATE TABLE validation_schemas (id TEXT PRIMARY KEY)`).run();
+    db.prepare(`INSERT INTO validation_schemas (id) VALUES ('legacy-row')`).run();
+    closeIdentityDbHandleForTests();
+
+    expect(() => getIdentityDb()).toThrow(/manual reconciliation required/);
   });
 });
