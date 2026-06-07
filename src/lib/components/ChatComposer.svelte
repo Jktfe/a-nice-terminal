@@ -615,11 +615,13 @@
       max-height: 6.5rem;
       padding: 0.46rem 0.58rem;
       border-radius: 0.7rem;
-      font-size: 0.86rem;
-      line-height: 1.25;
+      /* iOS Safari zooms focused inputs below 16px. Keep the field compact
+         with padding/line-height rather than shrinking the text. */
+      font-size: 16px;
+      line-height: 1.18;
     }
     .message-body-field::placeholder {
-      font-size: 0.86rem;
+      font-size: 16px;
     }
     .composer-footer {
       justify-content: flex-end;

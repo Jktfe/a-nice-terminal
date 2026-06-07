@@ -618,36 +618,33 @@
   }
 
   /* Mobile chat app-shell (JWPK IMG_0671 fix): on phones the room column
-     fills the visual viewport and the message list GROWS to absorb the
-     vertical slack, so a short thread no longer strands the composer
-     mid-screen above a dead background gap. The list keeps its own
-     internal scroll (overflow-y:auto in MessageList); the sticky
-     composer then docks flush to the real bottom. Scoped ≤768px so the
-     desktop grid layout is untouched; :global() reaches MessageList's
-     scoped classes from this parent. */
+     uses page-level scrolling. iOS Safari is brittle when dynamic control
+     rows live inside a fixed-height overflow:hidden shell: a slightly taller
+     status/mode strip can consume the whole inner scroll area and make the
+     page feel both stuck and over-zoomed. Keep the composer sticky, but let
+     the document own vertical scrolling. Scoped ≤768px so the desktop grid
+     layout is untouched; :global() reaches MessageList's scoped classes from
+     this parent. */
   @media (max-width: 768px) {
     .room-grid {
       gap: 0;
     }
     .room-main {
-      height: calc(100svh - 3.45rem - env(safe-area-inset-top, 0));
-      min-height: 0;
-      gap: 0.25rem;
-      overflow: hidden;
+      min-height: calc(100svh - 3.45rem - env(safe-area-inset-top, 0));
+      gap: 0.35rem;
+      overflow: visible;
     }
     .room-main :global(.message-list-wrapper) {
-      flex: 1 1 auto;
+      display: block;
       min-height: 0;
-      display: flex;
-      flex-direction: column;
     }
     .room-main :global(.message-list) {
-      /* Drop the 60vh cap — the flex parent now bounds the list height,
-         so it fills available space and scrolls within. */
+      /* Page scroll owns vertical movement on mobile. The desktop list keeps
+         its inner scroll; the phone list becomes natural document content so
+         Safari gestures always have one obvious scroll target. */
       max-height: none;
-      flex: 1 1 auto;
-      min-height: 0;
-      padding: 0.45rem 0.5rem 0.6rem;
+      overflow-y: visible;
+      padding: 0.42rem 0.48rem calc(5.8rem + env(safe-area-inset-bottom, 0));
       border-radius: 0.8rem;
     }
     .composer-dock {
@@ -659,6 +656,24 @@
     .room-main :global(.away-mode-bar),
     .room-main :global(.focus-strip) {
       flex: 0 0 auto;
+    }
+    .room-main :global(.room-mode-switcher),
+    .room-main :global(.away-mode-toggle) {
+      display: flex;
+      gap: 0.25rem;
+      overflow-x: auto;
+      overscroll-behavior-x: contain;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+    }
+    .room-main :global(.room-mode-switcher::-webkit-scrollbar),
+    .room-main :global(.away-mode-toggle::-webkit-scrollbar) {
+      display: none;
+    }
+    .room-main :global(.mode-pill),
+    .room-main :global(.away-pill) {
+      flex: 1 0 5.4rem;
+      min-width: 5.4rem;
     }
   }
 
