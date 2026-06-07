@@ -204,11 +204,17 @@ function bootDirWatcher(): void {
   } catch { /* PTY_DIR missing — ensurePtyDirExists above covers creation */ }
 
   if (!s.dirWatcher) {
-    s.dirWatcher = fsWatch(PTY_DIR, (_event, filename) => {
+    const watcher = fsWatch(PTY_DIR, (_event, filename) => {
       if (!filename || !filename.endsWith('.out')) return;
       const sessionId = filename.slice(0, -'.out'.length);
       drainSessionFile(sessionId);
     });
+    watcher.on('error', (cause) => {
+      console.warn('[ptyClient] fs.watch unavailable; falling back to polling', cause);
+      try { watcher.close(); } catch { /* ignore close races */ }
+      if (s.dirWatcher === watcher) s.dirWatcher = null;
+    });
+    s.dirWatcher = watcher;
   }
   // macOS fs.watch silently misses appends to existing files under
   // FSEvents — without polling, live shell output never reaches the SSE
