@@ -136,7 +136,7 @@
 
 <style>
   .login-shell {
-    min-height: 100vh;
+    min-height: 100svh;
     display: grid;
     place-items: center;
     padding: 1.5rem;
@@ -220,4 +220,36 @@
   }
   .primary:hover:not(:disabled) { filter: brightness(1.05); }
   .primary:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  @media (max-width: 768px) {
+    .login-shell {
+      align-items: start;
+      padding:
+        calc(env(safe-area-inset-top) + clamp(1rem, 7svh, 3rem))
+        1rem
+        calc(env(safe-area-inset-bottom) + 1rem);
+    }
+    .login-card {
+      padding: 1.15rem;
+      border-radius: 0.85rem;
+    }
+    h1 {
+      font-size: 1.2rem;
+    }
+    .muted {
+      margin-bottom: 0.85rem;
+      font-size: 0.88rem;
+    }
+    .login-form {
+      gap: 0.7rem;
+    }
+    .login-form input,
+    .primary {
+      min-height: 44px;
+    }
+    .primary {
+      width: 100%;
+      border-radius: 0.75rem;
+    }
+  }
 </style>

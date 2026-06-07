@@ -328,11 +328,17 @@
     line-height: 1.5;
   }
 
-  @media (max-width: 720px) {
+  @media (max-width: 768px) {
+    .simple-page {
+      width: min(100%, calc(100vw - 1rem));
+      padding: 0.5rem 0 calc(5rem + env(safe-area-inset-bottom));
+    }
     header {
+      top: calc(0.45rem + env(safe-area-inset-top));
       display: grid;
       grid-template-columns: auto 1fr auto;
       align-items: center;
+      border-radius: 0.75rem;
     }
     .brand { justify-self: start; }
     .nav-toggle {
@@ -364,5 +370,30 @@
       clip: auto;
       white-space: normal;
     }
+    /* Mobile UX (JWPK 2026-06-06): the desktop hero floor (3rem / 48px) eats
+       a whole phone screen, burying page content. Compact it so the actual
+       page (rooms, terminals, …) is reachable without scrolling past a wall
+       of headline. Shared shell → fixes the hero on every page at once. */
+    .intro {
+      margin: 0.65rem 0 0.85rem;
+      padding: 0.8rem;
+      border-radius: 0.85rem;
+    }
+    h1 {
+      font-size: clamp(1.35rem, 6vw, 2.1rem);
+      line-height: 1.02;
+      max-width: 100%;
+    }
+    .intro p {
+      margin-bottom: 0.45rem;
+      padding: 0.35rem 0.55rem;
+      font-size: 0.68rem;
+    }
+    .intro span {
+      margin-top: 0.45rem;
+      font-size: 0.86rem;
+      line-height: 1.35;
+    }
+    .intro-status { position: static; margin-bottom: 0.45rem; }
   }
 </style>

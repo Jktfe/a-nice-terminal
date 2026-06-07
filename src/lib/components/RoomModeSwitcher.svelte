@@ -87,4 +87,28 @@
     opacity: 0.5;
     cursor: not-allowed;
   }
+
+  @media (max-width: 768px) {
+    .room-mode-switcher {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: max-content;
+      gap: 0.45rem;
+      max-width: 100%;
+      overflow-x: auto;
+      padding: 0.2rem 0 0.35rem;
+      scroll-snap-type: x proximity;
+      -webkit-overflow-scrolling: touch;
+    }
+    .room-mode-switcher::-webkit-scrollbar {
+      display: none;
+    }
+    .mode-pill {
+      min-height: 44px;
+      padding: 0.55rem 0.85rem;
+      font-size: 0.86rem;
+      scroll-snap-align: start;
+      white-space: nowrap;
+    }
+  }
 </style>
