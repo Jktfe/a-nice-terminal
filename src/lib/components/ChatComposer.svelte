@@ -587,8 +587,8 @@
 
   @media (max-width: 768px) {
     .chat-composer {
-      gap: 0.35rem;
-      padding: 0.55rem;
+      gap: 0.25rem;
+      padding: 0.35rem 0.45rem;
       border-radius: 0.8rem 0.8rem 0 0;
       border-left: 0;
       border-right: 0;
@@ -599,11 +599,15 @@
       gap: 0.4rem;
     }
     .message-body-field {
-      min-height: 2.75rem;
-      max-height: 8.5rem;
-      padding: 0.62rem 0.72rem;
-      border-radius: 0.75rem;
-      font-size: 1rem;
+      min-height: 2.45rem;
+      max-height: 6.5rem;
+      padding: 0.52rem 0.6rem;
+      border-radius: 0.7rem;
+      font-size: 0.86rem;
+      line-height: 1.25;
+    }
+    .message-body-field::placeholder {
+      font-size: 0.86rem;
     }
     .composer-footer {
       justify-content: flex-end;
@@ -611,6 +615,7 @@
     .composer-actions {
       width: 100%;
       justify-content: space-between;
+      gap: 0.25rem;
     }
     .send-action-slot {
       margin-left: 0;

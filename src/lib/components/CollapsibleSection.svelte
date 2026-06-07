@@ -220,4 +220,30 @@
     outline: 2px solid var(--accent);
     outline-offset: 1px;
   }
+
+  @media (max-width: 768px) {
+    .collapsible-section {
+      margin: 0.4rem 0;
+      border-radius: 0.75rem;
+    }
+    summary {
+      min-height: 44px;
+      gap: 0.35rem;
+      padding: 0.3rem 0.6rem;
+    }
+    .title {
+      font-size: 0.82rem;
+    }
+    .count {
+      font-size: 0.78rem;
+    }
+    .body {
+      padding: 0 0.6rem 0.6rem;
+    }
+    .pin-button {
+      width: 1.8rem;
+      height: 1.8rem;
+      margin-left: 0.15rem;
+    }
+  }
 </style>

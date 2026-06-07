@@ -163,4 +163,23 @@
     color: var(--warn, #c92020);
     border-color: var(--warn, #c92020);
   }
+
+  @media (max-width: 768px) {
+    .row-action-strip {
+      position: static;
+      align-self: flex-end;
+      margin-top: 0.15rem;
+      gap: 0.25rem;
+    }
+    .copy-action-slot {
+      margin-right: 0.1rem;
+    }
+    .copy-btn {
+      min-width: 44px;
+      min-height: 44px;
+      padding: 0;
+      font-size: 0.72rem;
+      border-radius: 0.55rem;
+    }
+  }
 </style>

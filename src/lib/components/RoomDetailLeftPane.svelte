@@ -53,10 +53,6 @@
     flex-direction: column;
     gap: 0.55rem;
   }
-  @media (max-width: 1239px) {
-    /* Below the 3-col breakpoint the panes stack — hide collapse UX. */
-    .pane-toggle { display: none; }
-  }
   .pane-toggle {
     align-self: flex-end;
     width: 1.4rem;
@@ -80,5 +76,14 @@
     width: 0.7rem;
     height: 1.2rem;
     display: block;
+  }
+
+  @media (max-width: 1239px) {
+    /* Below the 3-col breakpoint the panes stack — hide collapse UX. */
+    .pane-toggle { display: none; }
+  }
+
+  @media (max-width: 768px) {
+    .left-pane { display: none; }
   }
 </style>

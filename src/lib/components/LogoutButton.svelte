@@ -48,23 +48,7 @@
 
   @media (max-width: 768px) {
     .logout-button {
-      position: static;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: fit-content;
-      min-width: 9rem;
-      min-height: 44px;
-      margin:
-        0.75rem
-        calc(0.75rem + env(safe-area-inset-right))
-        calc(0.75rem + env(safe-area-inset-bottom))
-        auto;
-      padding: 0 14px;
-      border-radius: 12px;
-      color: rgb(248 250 252 / 0.92);
-      background: rgb(15 23 42 / 0.9);
-      opacity: 0.92;
+      display: none;
     }
   }
 </style>

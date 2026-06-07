@@ -271,4 +271,27 @@
     font-size: 0.74rem;
     font-weight: 700;
   }
+
+  @media (max-width: 768px) {
+    .reaction-trigger {
+      min-width: 44px;
+      height: 44px;
+      padding: 0;
+      font-size: 0.9rem;
+      border-radius: 0.55rem;
+    }
+    .reaction-picker {
+      right: 0;
+      bottom: calc(100% + 0.25rem);
+      gap: 0.15rem;
+      padding: 0.2rem;
+    }
+    .picker-option {
+      min-width: 44px;
+      min-height: 44px;
+      justify-content: center;
+      padding: 0;
+      font-size: 0.86rem;
+    }
+  }
 </style>
