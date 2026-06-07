@@ -53,6 +53,7 @@ export const GET: RequestHandler = async () => {
     allowlist: parseAllowlist(r.allowlist),
     handle: r.handle,
     derivedHandle: deriveHandle(r),
+    bootCommand: r.boot_command,
     createdAtMs: r.created_at_ms,
     updatedAtMs: r.updated_at_ms,
     alive: aliveSet.has(r.session_id)
@@ -110,6 +111,12 @@ export const POST: RequestHandler = async ({ request }) => {
   const handle = typeof raw?.handle === 'string' && (raw.handle as string).trim().length > 0
     ? (raw.handle as string).trim()
     : undefined;
+  // Session recovery: the exact CLI line that launches the agent in this pane.
+  // Stored so `POST /api/terminals/recover` can re-run it after a reboot. Custom
+  // agents (Kimi/Minimax model flags) round-trip verbatim.
+  const bootCommand = typeof raw?.bootCommand === 'string' && (raw.bootCommand as string).trim().length > 0
+    ? (raw.bootCommand as string).trim()
+    : undefined;
   // Sec-iter2 Fix #2 (2026-05-30): validate the handle BEFORE any side
   // effect (spawn / DB write). Closes the bypass where an attacker
   // posted { handle: '@admin' } and got a terminal_records row that
@@ -133,7 +140,8 @@ export const POST: RequestHandler = async ({ request }) => {
     agentKind: agentKind ?? null,
     createdBy: user ?? null,
     allowlist: allowlist ?? null,
-    handle: handle ?? null
+    handle: handle ?? null,
+    bootCommand: bootCommand ?? null
   });
   // S2 + S7: if record predates a slice, allow user/allowlist/handle to be
   // filled in on attach. Don't overwrite an existing creator/handle.
@@ -191,6 +199,7 @@ export const POST: RequestHandler = async ({ request }) => {
     allowlist: parseAllowlist(record.allowlist),
     handle: record.handle,
     derivedHandle: deriveHandle(record),
+    bootCommand: record.boot_command,
     alive: true
   }, { status: 201 });
 };

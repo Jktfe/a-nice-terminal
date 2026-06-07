@@ -28,6 +28,7 @@ export const GET: RequestHandler = async ({ params }) => {
     allowlist: parseAllowlist(record.allowlist),
     handle: record.handle,
     derivedHandle: deriveHandle(record),
+    bootCommand: record.boot_command,
     createdAtMs: record.created_at_ms, updatedAtMs: record.updated_at_ms,
     alive
   });
@@ -73,6 +74,13 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
       patch.handle = trimmed;
     }
   }
+  // Session recovery: let the operator set/correct the launch command (e.g. for
+  // custom agents like Kimi/Minimax). null or empty clears it back to derived.
+  if (raw.bootCommand === null) {
+    patch.bootCommand = null;
+  } else if (typeof raw.bootCommand === 'string') {
+    patch.bootCommand = raw.bootCommand;
+  }
   const updated = updateTerminalRecord(sessionId, patch);
   if (!updated) throw error(404, 'terminal not found');
   return json({
@@ -84,6 +92,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
     allowlist: parseAllowlist(updated.allowlist),
     handle: updated.handle,
     derivedHandle: deriveHandle(updated),
+    bootCommand: updated.boot_command,
     updatedAtMs: updated.updated_at_ms
   });
 };

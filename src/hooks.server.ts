@@ -12,6 +12,7 @@ import { ensureCronJobTickerBooted } from '$lib/server/cronJobTicker';
 import { ensurePermissionRequestsSweepBooted } from '$lib/server/permissionRequestsSweepBoot';
 import { ensureUsageSnapshotPollerBooted } from '$lib/server/usageSnapshotPoller';
 import { projectAntRegistryFileBestEffort } from '$lib/server/antRegistryFile';
+import { ensureSessionRecoveryBooted } from '$lib/server/sessionRecoveryBoot';
 import { resolveBrowserSessionSecretIgnoringRoom } from '$lib/server/browserSessionStore';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
 import {
@@ -54,6 +55,11 @@ function bootPollerOnce(): void {
   // 'expired' instead of waiting forever on an approver who never
   // showed up. Cheap indexed UPDATE; safe to run aggressively.
   ensurePermissionRequestsSweepBooted();
+  // Session recovery (reboot survival). Default OFF; when
+  // ANT_AUTORECOVER_SESSIONS is set, recreate every dead session's tmux pane on
+  // boot (agents relaunched only when ANT_AUTORECOVER_AGENTS is also set). The
+  // launchd-managed server + this hook give a hands-off post-reboot fleet.
+  ensureSessionRecoveryBooted();
   slot[POLLER_BOOTED_KEY] = Date.now();
 }
 

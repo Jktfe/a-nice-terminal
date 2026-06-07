@@ -21,11 +21,16 @@ import { writeFile } from 'node:fs/promises';
 import { resolve as resolvePath } from 'node:path';
 import { makeStandardSendJson } from './ant-cli-shared-resolve.mjs';
 
-const BOOLEAN_FLAGS = new Set(['json']);
+const BOOLEAN_FLAGS = new Set(['json', 'all', 'resume', 'no-agents', 'dry-run']);
 const KNOWN_AGENT_KINDS = new Set(['claude', 'codex', 'pi', 'gemini', 'qwen', 'copilot']);
 
 export async function handleSessionsVerb(action, args, runtime, ctx) {
   const { CliInputError } = ctx;
+  // `recover` takes any number of leading positional names, so it parses its
+  // own args rather than consuming a single leading positional below.
+  if (action === 'recover') {
+    return runSessionsRecover(args, runtime, CliInputError);
+  }
   let positional;
   if (args.length > 0 && !args[0].startsWith('--')) {
     positional = args[0];
@@ -75,11 +80,16 @@ function parseFlags(rawArgs, CliInputError) {
 }
 
 function writeUsage(runtime) {
-  runtime.writeOut('ant sessions <create|export> [name|flags]');
+  runtime.writeOut('ant sessions <create|export|recover> [name|flags]');
   runtime.writeOut('  sessions create <name> [--agent-kind KIND] [--cwd PATH] [--handle @x] [--json]');
   runtime.writeOut('     → alias of `ant new terminal`. POSTs /api/terminals.');
   runtime.writeOut('  sessions export <session-or-room-id> [--format markdown|json|text] [--out FILE] [--json]');
   runtime.writeOut('     → downloads full server-side export (default markdown).');
+  runtime.writeOut('  sessions recover [names…] [--all] [--resume] [--no-agents] [--dry-run] [--json]');
+  runtime.writeOut('     → rebuild dead sessions after a reboot: recreate the tmux pane in the');
+  runtime.writeOut('       original cwd, re-run the agent launch command, and rebind identity.');
+  runtime.writeOut('       --all recovers every not-alive session; --resume appends --resume "<name>";');
+  runtime.writeOut('       --no-agents recreates panes only; --dry-run prints the commands.');
   runtime.writeOut('');
   runtime.writeOut('  KIND ∈ { claude, codex, pi, gemini, qwen, copilot }');
 }
@@ -142,6 +152,104 @@ async function runSessionsExport(flags, runtime, CliInputError) {
     }
   } else {
     for (const line of body.trimEnd().split('\n')) runtime.writeOut(line);
+  }
+  return 0;
+}
+
+/**
+ * Parse recover args: any number of leading positional names + boolean flags.
+ * Unlike parseFlags, positionals are collected (the session names) rather than
+ * rejected.
+ */
+function parseRecoverArgs(rawArgs, CliInputError) {
+  const flags = {};
+  const names = [];
+  for (let cursor = 0; cursor < rawArgs.length;) {
+    const token = rawArgs[cursor];
+    if (!token.startsWith('--')) {
+      names.push(token);
+      cursor += 1;
+      continue;
+    }
+    const name = token.slice(2);
+    if (BOOLEAN_FLAGS.has(name)) {
+      flags[name] = true;
+      cursor += 1;
+      continue;
+    }
+    const value = rawArgs[cursor + 1];
+    if (value === undefined || value.startsWith('--')) {
+      throw new CliInputError(`flag --${name} needs a value`);
+    }
+    flags[name] = value;
+    cursor += 2;
+  }
+  return { flags, names };
+}
+
+/** Resolve a user-supplied identifier to a terminal from the GET list. */
+function matchTerminal(terminals, identifier) {
+  const wanted = identifier.startsWith('@') ? identifier : null;
+  return terminals.find((t) =>
+    t.sessionId === identifier ||
+    t.name === identifier ||
+    t.handle === identifier ||
+    t.derivedHandle === identifier ||
+    (wanted && (t.handle === wanted || t.derivedHandle === wanted))
+  ) ?? null;
+}
+
+async function runSessionsRecover(args, runtime, CliInputError) {
+  const { flags, names } = parseRecoverArgs(args, CliInputError);
+  if (!flags.all && names.length === 0) {
+    throw new CliInputError('sessions recover: pass session names, or --all to recover every dead session.');
+  }
+
+  const sendJson = makeStandardSendJson(runtime);
+  const listing = await sendJson('/api/terminals', 'GET');
+  const terminals = Array.isArray(listing?.terminals) ? listing.terminals : [];
+
+  let targets;
+  if (flags.all) {
+    targets = terminals.filter((t) => t.alive === false);
+    if (targets.length === 0) {
+      runtime.writeOut('No dead sessions to recover — every terminal is already alive.');
+      return 0;
+    }
+  } else {
+    targets = [];
+    for (const name of names) {
+      const match = matchTerminal(terminals, name);
+      if (!match) throw new CliInputError(`no terminal matches "${name}" (try a name, @handle, or sessionId)`);
+      targets.push(match);
+    }
+  }
+
+  const sessionIds = targets.map((t) => t.sessionId);
+  const body = {
+    sessionIds,
+    resume: flags.resume === true,
+    launchAgents: flags['no-agents'] !== true,
+    dryRun: flags['dry-run'] === true
+  };
+  const result = await sendJson('/api/terminals/recover', 'POST', body);
+  const outcomes = Array.isArray(result?.recovered) ? result.recovered : [];
+
+  if (flags.json !== undefined && flags.json !== false) {
+    runtime.writeOut(JSON.stringify(result));
+    return 0;
+  }
+
+  if (body.dryRun) {
+    runtime.writeOut(`Recovery plan for ${outcomes.length} session(s):`);
+  } else {
+    runtime.writeOut(`Recovered ${outcomes.length} session(s):`);
+  }
+  for (const o of outcomes) {
+    const cmd = o.command ? o.command : '(shell only — no agent command)';
+    const status = o.error ? `ERROR: ${o.error}` : `${o.action}${o.agentLaunched ? ' + agent' : ''}`;
+    runtime.writeOut(`  ${o.name}  [${status}]`);
+    runtime.writeOut(`    → ${cmd}`);
   }
   return 0;
 }

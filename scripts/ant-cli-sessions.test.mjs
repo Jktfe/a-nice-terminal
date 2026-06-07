@@ -144,6 +144,86 @@ describe('ant sessions export', () => {
   });
 });
 
+describe('ant sessions recover', () => {
+  function recoverFixture(terminals) {
+    return makeRuntime((url, init) => {
+      if (url === 'http://test.local/api/terminals' && (!init || init.method === 'GET')) {
+        return ok({ terminals });
+      }
+      if (url === 'http://test.local/api/terminals/recover') {
+        const body = JSON.parse(init.body);
+        const recovered = body.sessionIds.map((sid) => {
+          const t = terminals.find((x) => x.sessionId === sid);
+          return { sessionId: sid, name: t?.name ?? sid, command: 'claude --remote-control', action: body.dryRun ? 'planned' : 'spawned', agentLaunched: !body.dryRun };
+        });
+        return ok({ recovered });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+  }
+
+  it('resolves a name to its sessionId and POSTs to /recover', async () => {
+    const { runtime, captured } = recoverFixture([
+      { sessionId: 't_dead', name: 'speedyClaude', alive: false, derivedHandle: '@speedyclaude' }
+    ]);
+    const code = await handleSessionsVerb('recover', ['speedyClaude'], runtime, { CliInputError });
+    expect(code).toBe(0);
+    const post = captured.requests.find((r) => r.url.endsWith('/recover'));
+    const body = JSON.parse(post.init.body);
+    expect(body.sessionIds).toEqual(['t_dead']);
+    expect(body.launchAgents).toBe(true);
+    expect(captured.stdout.join('\n')).toMatch(/speedyClaude/);
+  });
+
+  it('--all recovers only not-alive sessions', async () => {
+    const { runtime, captured } = recoverFixture([
+      { sessionId: 't_live', name: 'A', alive: true, derivedHandle: '@a' },
+      { sessionId: 't_dead1', name: 'B', alive: false, derivedHandle: '@b' },
+      { sessionId: 't_dead2', name: 'C', alive: false, derivedHandle: '@c' }
+    ]);
+    await handleSessionsVerb('recover', ['--all'], runtime, { CliInputError });
+    const post = captured.requests.find((r) => r.url.endsWith('/recover'));
+    expect(JSON.parse(post.init.body).sessionIds).toEqual(['t_dead1', 't_dead2']);
+  });
+
+  it('--resume and --dry-run flow through to the body', async () => {
+    const { runtime, captured } = recoverFixture([
+      { sessionId: 't_dead', name: 'speedyClaude', alive: false, derivedHandle: '@speedyclaude' }
+    ]);
+    await handleSessionsVerb('recover', ['speedyClaude', '--resume', '--dry-run'], runtime, { CliInputError });
+    const post = captured.requests.find((r) => r.url.endsWith('/recover'));
+    const body = JSON.parse(post.init.body);
+    expect(body.resume).toBe(true);
+    expect(body.dryRun).toBe(true);
+    expect(captured.stdout.join('\n')).toMatch(/Recovery plan/);
+  });
+
+  it('--no-agents recreates panes only', async () => {
+    const { runtime, captured } = recoverFixture([
+      { sessionId: 't_dead', name: 'X', alive: false, derivedHandle: '@x' }
+    ]);
+    await handleSessionsVerb('recover', ['X', '--no-agents'], runtime, { CliInputError });
+    const post = captured.requests.find((r) => r.url.endsWith('/recover'));
+    expect(JSON.parse(post.init.body).launchAgents).toBe(false);
+  });
+
+  it('throws on an unknown name', async () => {
+    const { runtime } = recoverFixture([
+      { sessionId: 't_dead', name: 'known', alive: false, derivedHandle: '@known' }
+    ]);
+    await expect(
+      handleSessionsVerb('recover', ['ghost'], runtime, { CliInputError })
+    ).rejects.toThrow(/no terminal matches "ghost"/);
+  });
+
+  it('throws when neither names nor --all are given', async () => {
+    const { runtime } = recoverFixture([]);
+    await expect(
+      handleSessionsVerb('recover', [], runtime, { CliInputError })
+    ).rejects.toThrow(/pass session names, or --all/);
+  });
+});
+
 describe('ant sessions misc', () => {
   it('rejects unknown sub-verb', async () => {
     const { runtime } = makeRuntime(() => ok({}));
