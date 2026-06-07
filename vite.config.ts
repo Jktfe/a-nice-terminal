@@ -9,7 +9,13 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     watch: {
-      ignored: ['**/.worktrees/**']
+      ignored: [
+        '**/.claude/worktrees/**',
+        '**/.worktrees/**',
+        '**/build/**',
+        '**/dist/**',
+        '**/node_modules/**'
+      ]
     },
     fs: {
       allow: [process.cwd(), nodeModulesRealPath]
