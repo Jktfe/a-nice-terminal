@@ -162,4 +162,44 @@
     color: var(--accent);
     margin-bottom: 0.4rem;
   }
+
+  @media (max-width: 768px) {
+    .room-name-header {
+      position: static;
+      margin: 0.45rem 0 0.35rem;
+      padding: 0.45rem 0.55rem;
+      border-radius: 0.75rem;
+      box-shadow: 0 6px 18px rgb(27 20 12 / 7%);
+    }
+    .title-row {
+      gap: 0.35rem;
+      min-width: 0;
+    }
+    h1 {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 1rem;
+      line-height: 1.1;
+    }
+    .edit-toggle {
+      width: 2.25rem;
+      height: 2.25rem;
+      font-size: 1rem;
+    }
+    .policy-slot,
+    .status-slot {
+      display: none;
+    }
+    .title-row :global(.room-menu-dropdown) {
+      margin-left: 0;
+    }
+    .description-slot,
+    .bring-in-slot,
+    .contract-badge {
+      display: none;
+    }
+  }
 </style>

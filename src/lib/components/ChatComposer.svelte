@@ -584,4 +584,38 @@
     padding-left: 0.65rem;
     border-left: 1px solid var(--line-soft);
   }
+
+  @media (max-width: 768px) {
+    .chat-composer {
+      gap: 0.35rem;
+      padding: 0.55rem;
+      border-radius: 0.8rem 0.8rem 0 0;
+      border-left: 0;
+      border-right: 0;
+      border-bottom: 0;
+      box-shadow: 0 -8px 24px rgb(27 20 12 / 10%);
+    }
+    form {
+      gap: 0.4rem;
+    }
+    .message-body-field {
+      min-height: 2.75rem;
+      max-height: 8.5rem;
+      padding: 0.62rem 0.72rem;
+      border-radius: 0.75rem;
+      font-size: 1rem;
+    }
+    .composer-footer {
+      justify-content: flex-end;
+    }
+    .composer-actions {
+      width: 100%;
+      justify-content: space-between;
+    }
+    .send-action-slot {
+      margin-left: 0;
+      padding-left: 0;
+      border-left: 0;
+    }
+  }
 </style>

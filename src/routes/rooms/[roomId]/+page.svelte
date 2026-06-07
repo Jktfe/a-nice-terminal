@@ -626,8 +626,14 @@
      desktop grid layout is untouched; :global() reaches MessageList's
      scoped classes from this parent. */
   @media (max-width: 768px) {
+    .room-grid {
+      gap: 0;
+    }
     .room-main {
-      min-height: 100svh;
+      height: calc(100svh - 4.9rem - env(safe-area-inset-top, 0));
+      min-height: 0;
+      gap: 0.4rem;
+      overflow: hidden;
     }
     .room-main :global(.message-list-wrapper) {
       flex: 1 1 auto;
@@ -641,6 +647,18 @@
       max-height: none;
       flex: 1 1 auto;
       min-height: 0;
+      padding: 0.65rem 0.65rem calc(5.75rem + env(safe-area-inset-bottom, 0));
+      border-radius: 0.8rem;
+    }
+    .composer-dock {
+      margin: 0 -0.15rem;
+      padding: 0.25rem 0.15rem env(safe-area-inset-bottom, 0);
+      background: var(--bg);
+    }
+    .room-main :global(.room-mode-switcher),
+    .room-main :global(.away-mode-bar),
+    .room-main :global(.focus-strip) {
+      flex: 0 0 auto;
     }
   }
 

@@ -84,4 +84,25 @@
     background: var(--surface-card);
     box-shadow: var(--shadow-card);
   }
+
+  @media (max-width: 768px) {
+    summary {
+      min-height: 2.25rem;
+      padding: 0.45rem 0.7rem;
+      font-size: 0.84rem;
+    }
+    .menu-body {
+      position: fixed;
+      inset: auto 0 0 0;
+      width: auto;
+      max-height: min(76svh, 640px);
+      margin: 0;
+      padding: 0.75rem 0.75rem calc(1rem + env(safe-area-inset-bottom, 0));
+      border-right: 0;
+      border-bottom: 0;
+      border-left: 0;
+      border-radius: 1rem 1rem 0 0;
+      box-shadow: 0 -16px 36px rgb(27 20 12 / 18%);
+    }
+  }
 </style>
