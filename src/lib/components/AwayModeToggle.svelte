@@ -177,48 +177,27 @@
     .away-mode-bar {
       display: grid;
       grid-template-columns: minmax(0, 1fr);
-      gap: 0.5rem;
-      padding: 0.55rem 0;
+      gap: 0.25rem;
+      padding: 0;
       border-bottom: 0;
       background: transparent;
     }
     .away-mode-label {
-      min-width: 0;
-      padding: 0.45rem 0.65rem;
-      border: 1px solid var(--line-soft, #ead8ca);
-      border-radius: 0.8rem;
-      background: var(--surface-raised, #fff0df);
-      font-size: 0.82rem;
-    }
-    .away-mode-label strong {
-      white-space: nowrap;
-    }
-    .mode-desc {
-      min-width: 0;
-      margin-left: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-size: 0.74rem;
+      display: none;
     }
     .away-mode-toggle {
       display: grid;
-      grid-auto-flow: column;
-      grid-auto-columns: max-content;
-      gap: 0.45rem;
-      overflow-x: auto;
-      padding-bottom: 0.35rem;
-      scroll-snap-type: x proximity;
-      -webkit-overflow-scrolling: touch;
-    }
-    .away-mode-toggle::-webkit-scrollbar {
-      display: none;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.25rem;
+      overflow: visible;
+      padding-bottom: 0;
     }
     .away-pill {
       min-height: 44px;
-      padding: 0.55rem 0.85rem;
-      font-size: 0.86rem;
-      scroll-snap-align: start;
+      width: 100%;
+      padding: 0 0.3rem;
+      font-size: 0.68rem;
+      line-height: 1.05;
       white-space: nowrap;
     }
   }

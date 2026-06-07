@@ -331,21 +331,44 @@
   @media (max-width: 768px) {
     .simple-page {
       width: min(100%, calc(100vw - 1rem));
-      padding: 0.5rem 0 calc(5rem + env(safe-area-inset-bottom));
+      padding: 0.35rem 0 calc(3.5rem + env(safe-area-inset-bottom));
     }
     header {
-      top: calc(0.45rem + env(safe-area-inset-top));
+      top: calc(0.25rem + env(safe-area-inset-top));
       display: grid;
       grid-template-columns: auto 1fr auto;
       align-items: center;
-      border-radius: 0.75rem;
+      gap: 0.35rem;
+      min-height: 3rem;
+      padding: 0.25rem 0.38rem;
+      border-radius: 0.7rem;
     }
-    .brand { justify-self: start; }
+    .brand {
+      justify-self: start;
+      min-width: 0;
+    }
+    .brand :global(.ant-logo) {
+      gap: 0.35rem;
+    }
+    .brand :global(.ant-word) {
+      font-size: 0.82rem;
+      letter-spacing: 0.03em;
+    }
+    .brand :global(.ant-mark) {
+      width: 1.65rem;
+      height: 1.65rem;
+    }
     .nav-toggle {
       display: inline-block;
       justify-self: end;
     }
     .theme-toggle { justify-self: end; }
+    .nav-toggle,
+    .theme-toggle {
+      width: 2.5rem;
+      height: 2.5rem;
+      border-radius: 0.7rem;
+    }
     nav {
       margin-left: 0;
       display: none;

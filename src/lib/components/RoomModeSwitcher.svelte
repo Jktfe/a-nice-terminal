@@ -91,23 +91,17 @@
   @media (max-width: 768px) {
     .room-mode-switcher {
       display: grid;
-      grid-auto-flow: column;
-      grid-auto-columns: max-content;
-      gap: 0.45rem;
-      max-width: 100%;
-      overflow-x: auto;
-      padding: 0.2rem 0 0.35rem;
-      scroll-snap-type: x proximity;
-      -webkit-overflow-scrolling: touch;
-    }
-    .room-mode-switcher::-webkit-scrollbar {
-      display: none;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.25rem;
+      width: 100%;
+      padding: 0;
     }
     .mode-pill {
       min-height: 44px;
-      padding: 0.55rem 0.85rem;
-      font-size: 0.86rem;
-      scroll-snap-align: start;
+      width: 100%;
+      padding: 0 0.35rem;
+      font-size: 0.74rem;
+      line-height: 1.05;
       white-space: nowrap;
     }
   }

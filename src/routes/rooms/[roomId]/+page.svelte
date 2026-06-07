@@ -630,9 +630,9 @@
       gap: 0;
     }
     .room-main {
-      height: calc(100svh - 4.9rem - env(safe-area-inset-top, 0));
+      height: calc(100svh - 3.45rem - env(safe-area-inset-top, 0));
       min-height: 0;
-      gap: 0.4rem;
+      gap: 0.25rem;
       overflow: hidden;
     }
     .room-main :global(.message-list-wrapper) {
@@ -647,12 +647,12 @@
       max-height: none;
       flex: 1 1 auto;
       min-height: 0;
-      padding: 0.65rem 0.65rem calc(5.75rem + env(safe-area-inset-bottom, 0));
+      padding: 0.45rem 0.5rem 0.6rem;
       border-radius: 0.8rem;
     }
     .composer-dock {
       margin: 0 -0.15rem;
-      padding: 0.25rem 0.15rem env(safe-area-inset-bottom, 0);
+      padding: 0.15rem 0.15rem env(safe-area-inset-bottom, 0);
       background: var(--bg);
     }
     .room-main :global(.room-mode-switcher),

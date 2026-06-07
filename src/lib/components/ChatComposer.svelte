@@ -97,6 +97,7 @@
   let mentionTrigger = $state<MentionTrigger | null>(null);
   let mentionActiveIndex = $state(0);
   let textareaRef = $state<HTMLTextAreaElement | null>(null);
+  let compactComposer = $state(false);
   let isDropTargetHovered = $state(false);
   let uploadsInFlight = $state<string[]>([]);
   // Composer attachment chips: small previews of every attached file
@@ -213,6 +214,17 @@
       autoResizeTextarea();
     });
   }
+
+  $effect(() => {
+    if (typeof window === 'undefined') return;
+    const media = window.matchMedia('(max-width: 768px)');
+    const apply = () => {
+      compactComposer = media.matches;
+    };
+    apply();
+    media.addEventListener('change', apply);
+    return () => media.removeEventListener('change', apply);
+  });
 
   function applyMentionPick(handleToInsert: string) {
     if (!mentionTrigger) return;
@@ -481,7 +493,7 @@
     <textarea
       bind:this={textareaRef}
       class="message-body-field"
-      placeholder="Say something to the room… (drop or paste files to attach)"
+      placeholder={compactComposer ? 'Message the room…' : 'Say something to the room… (drop or paste files to attach)'}
       rows="2"
       value={bodyBeingTyped}
       oninput={(event) => handleBodyInput(event.currentTarget.value)}
@@ -587,8 +599,8 @@
 
   @media (max-width: 768px) {
     .chat-composer {
-      gap: 0.35rem;
-      padding: 0.55rem;
+      gap: 0.25rem;
+      padding: 0.35rem 0.45rem;
       border-radius: 0.8rem 0.8rem 0 0;
       border-left: 0;
       border-right: 0;
@@ -599,11 +611,15 @@
       gap: 0.4rem;
     }
     .message-body-field {
-      min-height: 2.75rem;
-      max-height: 8.5rem;
-      padding: 0.62rem 0.72rem;
-      border-radius: 0.75rem;
-      font-size: 1rem;
+      min-height: 2.25rem;
+      max-height: 6.5rem;
+      padding: 0.46rem 0.58rem;
+      border-radius: 0.7rem;
+      font-size: 0.86rem;
+      line-height: 1.25;
+    }
+    .message-body-field::placeholder {
+      font-size: 0.86rem;
     }
     .composer-footer {
       justify-content: flex-end;
@@ -611,6 +627,7 @@
     .composer-actions {
       width: 100%;
       justify-content: space-between;
+      gap: 0.25rem;
     }
     .send-action-slot {
       margin-left: 0;

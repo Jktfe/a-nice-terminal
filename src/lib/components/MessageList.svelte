@@ -436,4 +436,22 @@
   @media (prefers-reduced-motion: reduce) {
     .jump-to-bottom.has-new { animation: none; }
   }
+
+  @media (max-width: 768px) {
+    .message-list {
+      gap: 0.45rem;
+      padding: 0.45rem 0.5rem 0.6rem;
+      border-radius: 0.75rem;
+    }
+    .load-older {
+      min-height: 44px;
+      padding: 0.35rem 0.85rem;
+      font-size: 0.78rem;
+    }
+    .jump-to-bottom {
+      right: 0.65rem;
+      bottom: 0.65rem;
+      min-height: 44px;
+    }
+  }
 </style>

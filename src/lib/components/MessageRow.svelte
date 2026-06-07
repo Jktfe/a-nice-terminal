@@ -418,4 +418,50 @@
     flex: 1;
     text-align: center;
   }
+
+  @media (max-width: 768px) {
+    .message-row {
+      gap: 0.12rem;
+      padding: 0.45rem 0.58rem;
+      border-left-width: 3px;
+      border-radius: 0.62rem;
+    }
+    .message-row.is-reply {
+      margin-left: 0.55rem;
+      padding-left: 0.6rem;
+    }
+    .message-body {
+      font-size: 0.9rem;
+      line-height: 1.32;
+    }
+    .message-body :global(p) {
+      margin: 0.35rem 0;
+    }
+    .message-body :global(p:first-child) {
+      margin-top: 0;
+    }
+    .message-body :global(p:last-child) {
+      margin-bottom: 0.2rem;
+    }
+    .message-body :global(pre) {
+      padding: 0.45rem;
+      font-size: 0.76rem;
+    }
+    .message-tombstone,
+    .message-error {
+      font-size: 0.78rem;
+    }
+    .system-row {
+      padding: 0.2rem 0;
+    }
+    .system-text {
+      font-size: 0.72rem;
+    }
+    .break-row {
+      margin: 0.25rem 0;
+      padding: 0.42rem 0.65rem;
+      font-size: 0.78rem;
+      border-radius: 0.5rem;
+    }
+  }
 </style>

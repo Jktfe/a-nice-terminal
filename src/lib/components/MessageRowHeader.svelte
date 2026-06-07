@@ -302,4 +302,49 @@
     font-size: 0.72rem;
     font-style: italic;
   }
+
+  @media (max-width: 768px) {
+    header {
+      gap: 0.28rem;
+      font-size: 0.7rem;
+      line-height: 1.2;
+      flex-wrap: wrap;
+    }
+    .speaker-mark {
+      width: 1.15rem;
+      height: 1.15rem;
+      border-radius: 0.35rem;
+      font-size: 0.68rem;
+    }
+    .author-handle {
+      max-width: 9rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .canonical-handle,
+    .agent-badge,
+    .edited-badge {
+      display: none;
+    }
+    .posted-at {
+      margin-left: auto;
+      font-size: 0.68rem;
+    }
+    .reply-count {
+      padding: 0.05rem 0.35rem;
+      font-size: 0.66rem;
+    }
+    .reply-button,
+    .delete-button {
+      min-height: 44px;
+      margin-left: 0.1rem;
+      padding: 0 0.52rem;
+      font-size: 0.7rem;
+    }
+    .delete-button.armed {
+      padding: 0 0.62rem;
+      font-size: 0.7rem;
+    }
+  }
 </style>

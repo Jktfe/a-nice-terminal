@@ -166,8 +166,8 @@
   @media (max-width: 768px) {
     .room-name-header {
       position: static;
-      margin: 0.45rem 0 0.35rem;
-      padding: 0.45rem 0.55rem;
+      margin: 0.2rem 0 0.15rem;
+      padding: 0.32rem 0.45rem;
       border-radius: 0.75rem;
       box-shadow: 0 6px 18px rgb(27 20 12 / 7%);
     }
@@ -185,8 +185,8 @@
       line-height: 1.1;
     }
     .edit-toggle {
-      width: 2.25rem;
-      height: 2.25rem;
+      width: 44px;
+      height: 44px;
       font-size: 1rem;
     }
     .policy-slot,
