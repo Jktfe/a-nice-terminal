@@ -2699,9 +2699,32 @@ function renameLegacyValidationTables(db: DatabaseInstance): void {
     )
     .get();
   if (hasNew) {
-    // Both names exist somehow — bail loudly rather than corrupt either.
+    // Some live dev DBs reached the post-rename verification_* schema but
+    // kept empty validation_* shells behind. Treat empty shells as already
+    // migrated and remove them; keep the original hard stop if any old table
+    // still carries rows we would need to reconcile.
+    const legacyTables = ['validation_runs', 'validation_schema_audit', 'validation_schemas'];
+    const nonEmptyLegacyTables = legacyTables.filter((tableName) => {
+      const exists = db
+        .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name = ?`)
+        .get(tableName);
+      if (!exists) return false;
+      const row = db.prepare(`SELECT COUNT(*) AS count FROM ${tableName}`).get() as { count: number };
+      return row.count > 0;
+    });
+    if (nonEmptyLegacyTables.length === 0) {
+      const dropEmptyLegacy = db.transaction(() => {
+        db.prepare(`DROP TABLE IF EXISTS validation_runs`).run();
+        db.prepare(`DROP TABLE IF EXISTS validation_schema_audit`).run();
+        db.prepare(`DROP TABLE IF EXISTS validation_schemas`).run();
+      });
+      dropEmptyLegacy();
+      return;
+    }
+
+    // Both names exist with legacy rows — bail loudly rather than corrupt either.
     throw new Error(
-      'renameLegacyValidationTables: both validation_schemas and verification_lenses exist; manual reconciliation required'
+      `renameLegacyValidationTables: both validation_schemas and verification_lenses exist with legacy rows in ${nonEmptyLegacyTables.join(', ')}; manual reconciliation required`
     );
   }
 
