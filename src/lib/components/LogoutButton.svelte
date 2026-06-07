@@ -48,13 +48,14 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: calc(100% - 1.5rem);
+      width: fit-content;
+      min-width: 9rem;
       min-height: 44px;
       margin:
         0.75rem
         calc(0.75rem + env(safe-area-inset-right))
         calc(0.75rem + env(safe-area-inset-bottom))
-        calc(0.75rem + env(safe-area-inset-left));
+        auto;
       padding: 0 14px;
       border-radius: 12px;
       color: rgb(248 250 252 / 0.92);
