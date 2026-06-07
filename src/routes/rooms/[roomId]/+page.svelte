@@ -617,6 +617,33 @@
     background: linear-gradient(to bottom, transparent 0, var(--bg) 0.6rem, var(--bg) 100%);
   }
 
+  /* Mobile chat app-shell (JWPK IMG_0671 fix): on phones the room column
+     fills the visual viewport and the message list GROWS to absorb the
+     vertical slack, so a short thread no longer strands the composer
+     mid-screen above a dead background gap. The list keeps its own
+     internal scroll (overflow-y:auto in MessageList); the sticky
+     composer then docks flush to the real bottom. Scoped ≤768px so the
+     desktop grid layout is untouched; :global() reaches MessageList's
+     scoped classes from this parent. */
+  @media (max-width: 768px) {
+    .room-main {
+      min-height: 100svh;
+    }
+    .room-main :global(.message-list-wrapper) {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .room-main :global(.message-list) {
+      /* Drop the 60vh cap — the flex parent now bounds the list height,
+         so it fills available space and scrolls within. */
+      max-height: none;
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+  }
+
   .discipline-links {
     display: flex;
     flex-wrap: wrap;
