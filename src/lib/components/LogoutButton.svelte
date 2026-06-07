@@ -1,8 +1,12 @@
 <script lang="ts">
-  import { page } from '$app/state';
+  import { onMount } from 'svelte';
 
   // Hide on the login page itself — nothing to log out of when you're not in.
-  let visible = $derived(!page.url.pathname.startsWith('/login'));
+  let visible = $state(false);
+
+  onMount(() => {
+    visible = !window.location.pathname.startsWith('/login');
+  });
 </script>
 
 {#if visible}
