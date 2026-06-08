@@ -14,6 +14,8 @@ import {
   markPaneStale
 } from '$lib/server/terminalsStore';
 import { addMembership } from '$lib/server/roomMembershipsStore';
+import { createSession } from '$lib/server/antSessionStore';
+import { addMember } from '$lib/server/membershipStore';
 
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
@@ -45,6 +47,16 @@ async function callGet(roomId: string, query: string = ''): Promise<Response> {
   }
 }
 
+function addDurableStatusMember(roomId: string, handle: string, terminalId: string): void {
+  const session = createSession({
+    id: `sess-${terminalId}`,
+    kind: 'local-cli',
+    label: handle,
+    terminalId
+  });
+  addMember(roomId, handle, session.id);
+}
+
 describe('GET /api/chat-rooms/:roomId/status', () => {
   it('returns 404 when the room does not exist', async () => {
     const response = await callGet('does-not-exist');
@@ -63,7 +75,7 @@ describe('GET /api/chat-rooms/:roomId/status', () => {
   it('surfaces verified pane_status for a member whose terminal is at a ready prompt', async () => {
     const room = createChatRoom({ name: 'r', whoCreatedIt: '@you' });
     const terminal = upsertTerminal({ pid: 1001, pid_start: 'ps1', name: 'term-a' });
-    addMembership({ room_id: room.id, handle: '@a', terminal_id: terminal.id });
+    addDurableStatusMember(room.id, '@a', terminal.id);
     markPaneVerified(terminal.id);
 
     const response = await callGet(room.id);
@@ -80,7 +92,7 @@ describe('GET /api/chat-rooms/:roomId/status', () => {
   it('surfaces stale pane_status with pane_stale_since for a stale terminal', async () => {
     const room = createChatRoom({ name: 'r', whoCreatedIt: '@you' });
     const terminal = upsertTerminal({ pid: 1002, pid_start: 'ps2', name: 'term-b' });
-    addMembership({ room_id: room.id, handle: '@b', terminal_id: terminal.id });
+    addDurableStatusMember(room.id, '@b', terminal.id);
     markPaneStale(terminal.id);
 
     const response = await callGet(room.id);
@@ -94,7 +106,7 @@ describe('GET /api/chat-rooms/:roomId/status', () => {
   it('returns unknown pane_status for a freshly registered terminal that has not been verified yet', async () => {
     const room = createChatRoom({ name: 'r', whoCreatedIt: '@you' });
     const terminal = upsertTerminal({ pid: 1003, pid_start: 'ps3', name: 'term-c' });
-    addMembership({ room_id: room.id, handle: '@c', terminal_id: terminal.id });
+    addDurableStatusMember(room.id, '@c', terminal.id);
 
     const response = await callGet(room.id);
     expect(response.status).toBe(200);
@@ -108,9 +120,9 @@ describe('GET /api/chat-rooms/:roomId/status', () => {
     const t1 = upsertTerminal({ pid: 2001, pid_start: 'p1', name: 't1' });
     const t2 = upsertTerminal({ pid: 2002, pid_start: 'p2', name: 't2' });
     const t3 = upsertTerminal({ pid: 2003, pid_start: 'p3', name: 't3' });
-    addMembership({ room_id: room.id, handle: '@first', terminal_id: t1.id });
-    addMembership({ room_id: room.id, handle: '@second', terminal_id: t2.id });
-    addMembership({ room_id: room.id, handle: '@third', terminal_id: t3.id });
+    addDurableStatusMember(room.id, '@first', t1.id);
+    addDurableStatusMember(room.id, '@second', t2.id);
+    addDurableStatusMember(room.id, '@third', t3.id);
     markPaneVerified(t1.id);
     markPaneStale(t2.id);
     // t3 stays unknown
@@ -127,8 +139,8 @@ describe('GET /api/chat-rooms/:roomId/status', () => {
     const room = createChatRoom({ name: 'r', whoCreatedIt: '@you' });
     const t1 = upsertTerminal({ pid: 7001, pid_start: 'r1', name: 'rich-1' });
     const t2 = upsertTerminal({ pid: 7002, pid_start: 'r2', name: 'rich-2' });
-    addMembership({ room_id: room.id, handle: '@rich-a', terminal_id: t1.id });
-    addMembership({ room_id: room.id, handle: '@rich-b', terminal_id: t2.id });
+    addDurableStatusMember(room.id, '@rich-a', t1.id);
+    addDurableStatusMember(room.id, '@rich-b', t2.id);
     setAgentStatus({ terminalId: t1.id, newStatus: 'thinking', source: 'fingerprint' });
     setAgentStatus({ terminalId: t2.id, newStatus: 'working', source: 'hook' });
 
@@ -146,7 +158,7 @@ describe('GET /api/chat-rooms/:roomId/status', () => {
   it('M3.4a-v2 T3c: rich=absent response is byte-compatible with v1 (no agent_status fields)', async () => {
     const room = createChatRoom({ name: 'r', whoCreatedIt: '@you' });
     const terminal = upsertTerminal({ pid: 7003, pid_start: 'r3', name: 'no-rich' });
-    addMembership({ room_id: room.id, handle: '@plain', terminal_id: terminal.id });
+    addDurableStatusMember(room.id, '@plain', terminal.id);
 
     const response = await callGet(room.id);
     const payload = await response.json();
@@ -157,7 +169,7 @@ describe('GET /api/chat-rooms/:roomId/status', () => {
   it('M3.4a-v2 T3c: rich=1 with terminal that has no agent_status row falls back to idle/default/0', async () => {
     const room = createChatRoom({ name: 'r', whoCreatedIt: '@you' });
     const terminal = upsertTerminal({ pid: 7004, pid_start: 'r4', name: 'no-agent-row' });
-    addMembership({ room_id: room.id, handle: '@fresh', terminal_id: terminal.id });
+    addDurableStatusMember(room.id, '@fresh', terminal.id);
 
     const response = await callGet(room.id, '?rich=1');
     const payload = await response.json();
@@ -170,7 +182,7 @@ describe('GET /api/chat-rooms/:roomId/status', () => {
     const { setAgentStatus } = await import('$lib/server/agentStatusStore');
     const room = createChatRoom({ name: 'r', whoCreatedIt: '@you' });
     const terminal = upsertTerminal({ pid: 7005, pid_start: 'r5', name: 'stale-active' });
-    addMembership({ room_id: room.id, handle: '@stale', terminal_id: terminal.id });
+    addDurableStatusMember(room.id, '@stale', terminal.id);
     setAgentStatus({
       terminalId: terminal.id,
       newStatus: 'working',
@@ -184,5 +196,18 @@ describe('GET /api/chat-rooms/:roomId/status', () => {
     expect(staleMember.agent_status).toBe('idle');
     expect(staleMember.agent_status_source).toBe('default');
     expect(staleMember.agent_status_at_ms).toBe(0);
+  });
+
+  it('does not surface legacy synthetic browser-session memberships', async () => {
+    const room = createChatRoom({ name: 'r', whoCreatedIt: '@you' });
+    const durableTerminal = upsertTerminal({ pid: 8001, pid_start: 'durable', name: 'durable' });
+    const browserTerminal = upsertTerminal({ pid: 8002, pid_start: 'browser', name: 'browser' });
+    addDurableStatusMember(room.id, '@durable', durableTerminal.id);
+    addMembership({ room_id: room.id, handle: '@browser-bs_deadbeef', terminal_id: browserTerminal.id });
+
+    const response = await callGet(room.id);
+    const payload = await response.json();
+
+    expect(payload.members.map((m: { handle: string }) => m.handle)).toEqual(['@durable']);
   });
 });
