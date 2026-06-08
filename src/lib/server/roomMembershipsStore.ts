@@ -224,6 +224,57 @@ export function addMembership(input: AddMembershipInput): RoomMembershipRow {
   };
 }
 
+/**
+ * Mirror a clean/durable membership into the legacy terminal-bound table
+ * without emitting the one-time agent-join preamble.
+ *
+ * The legacy table is no longer authoritative for identity, but several
+ * transitional read surfaces still consume it. Keeping it aligned with the
+ * durable session's terminal binding prevents split-brain delivery/status
+ * while those readers are migrated.
+ */
+export function syncMembershipTerminalBinding(input: AddMembershipInput): RoomMembershipRow {
+  assertMembershipHandleValidOrThrow(input.handle);
+
+  const db = getIdentityDb();
+  const handle = normalizeHandle(input.handle);
+  const now = currentUnixSeconds();
+
+  const existing = db
+    .prepare(`SELECT * FROM room_memberships WHERE room_id = ? AND handle = ? AND revoked_at_ms IS NULL`)
+    .get(input.room_id, handle) as RoomMembershipRow | undefined;
+
+  if (existing) {
+    if (existing.terminal_id !== input.terminal_id) {
+      db.prepare(`UPDATE room_memberships SET terminal_id = ? WHERE id = ?`).run(
+        input.terminal_id,
+        existing.id
+      );
+      return { ...existing, terminal_id: input.terminal_id };
+    }
+    return existing;
+  }
+
+  const newId = randomUUID();
+  db.prepare(`INSERT INTO room_memberships
+    (id, room_id, handle, terminal_id, created_at)
+    VALUES (?, ?, ?, ?, ?)`).run(
+    newId,
+    input.room_id,
+    handle,
+    input.terminal_id,
+    now
+  );
+
+  return {
+    id: newId,
+    room_id: input.room_id,
+    handle,
+    terminal_id: input.terminal_id,
+    created_at: now
+  };
+}
+
 function maybePostAgentJoinPreamble(roomId: string, handle: string): void {
   const ownership = resolveHumanOwnership(handle);
   if (ownership.kind !== 'agent') return;

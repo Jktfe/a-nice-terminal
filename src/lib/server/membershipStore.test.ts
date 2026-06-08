@@ -3,6 +3,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resetIdentityDbForTests } from './db';
+import { createSession } from './antSessionStore';
+import { getTerminalIdByHandle, addMembership } from './roomMembershipsStore';
+import { upsertTerminal } from './terminalsStore';
 import {
   addMember,
   rebindMemberSessionIfStale,
@@ -140,6 +143,41 @@ describe('membershipStore — (room_id, handle, session_id) is the WHOLE table',
     expect(isMember('roomX', '@alice')).toBe(true);
     expect(resolveMember('roomX', '@alice')).toBeNull();
     expect(listMembers('roomX')[0].session_id).toBeNull();
+  });
+
+  it('mirrors durable session terminal bindings into the legacy membership row', () => {
+    const staleTerminal = upsertTerminal({ pid: 101, pid_start: 'pst', name: 'old' });
+    const currentTerminal = upsertTerminal({ pid: 202, pid_start: 'pst', name: 'new' });
+    const session = createSession({
+      id: 'durable-session-token',
+      kind: 'local-cli',
+      label: '@agent',
+      terminalId: currentTerminal.id
+    });
+
+    addMembership({ room_id: 'roomX', handle: '@agent', terminal_id: staleTerminal.id });
+    addMember('roomX', '@agent', session.id);
+
+    expect(resolveMember('roomX', '@agent')).toBe(session.id);
+    expect(getTerminalIdByHandle('roomX', '@agent')).toBe(currentTerminal.id);
+  });
+
+  it('register self-heal mirrors a stale clean membership repair into legacy membership', () => {
+    const staleTerminal = upsertTerminal({ pid: 101, pid_start: 'pst', name: 'old' });
+    const currentTerminal = upsertTerminal({ pid: 202, pid_start: 'pst', name: 'new' });
+    const session = createSession({
+      id: 'durable-session-token',
+      kind: 'local-cli',
+      label: '@agent',
+      terminalId: currentTerminal.id
+    });
+
+    addMembership({ room_id: 'roomX', handle: '@agent', terminal_id: staleTerminal.id });
+    addMember('roomX', '@agent', 'dead-session-token');
+    rebindMemberSessionIfStale('roomX', '@agent', session.id, (current) => current === 'dead-session-token');
+
+    expect(resolveMember('roomX', '@agent')).toBe(session.id);
+    expect(getTerminalIdByHandle('roomX', '@agent')).toBe(currentTerminal.id);
   });
 
   it('only the literal @browser-bs_ prefix is synthetic; near-prefix handles stay durable', () => {

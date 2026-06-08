@@ -12,14 +12,17 @@
  * All operations key by HANDLE. session_id is what the handle currently
  * resolves to (the durable ant_sessions id), never a terminal/pid.
  *
- * NEW standalone store built to be cut over to. Does NOT touch the legacy
- * room_memberships / memberships / chat_room_members tables. Self-contained
- * table init (roomPolicyStore pattern). The table name `room_membership`
- * (singular) is distinct from the legacy `room_memberships` (plural), so the
- * two coexist during the build and there is no schema collision.
+ * NEW standalone store built to be cut over to. The table name
+ * `room_membership` (singular) is distinct from the legacy
+ * `room_memberships` (plural), so the two coexist during the build and there
+ * is no schema collision. During cutover, writes with a resolved durable
+ * session also mirror the terminal binding into legacy room_memberships so
+ * transitional readers cannot keep pointing at stale panes.
  */
 
 import { getIdentityDb } from './db';
+import { getSession } from './antSessionStore';
+import { syncMembershipTerminalBinding } from './roomMembershipsStore';
 
 /**
  * Browser sessions are minted per-room as ephemeral auth artifacts and the
@@ -108,6 +111,19 @@ function rowToMembership(r: MembershipRow): Membership {
   };
 }
 
+function mirrorLegacyTerminalBinding(roomId: string, handle: string, sessionId: string | null): void {
+  if (sessionId === null) return;
+  const session = getSession(sessionId);
+  if (!session?.terminal_id) return;
+  try {
+    syncMembershipTerminalBinding({ room_id: roomId, handle, terminal_id: session.terminal_id });
+  } catch {
+    // Clean membership is authoritative. Some tests and transitional paths
+    // create clean rows before the legacy room/terminal FK graph exists; do
+    // not let the compatibility mirror block the durable write.
+  }
+}
+
 /**
  * Add or update a member. Upsert on (room_id, handle), preserving the original
  * created_at_ms.
@@ -142,6 +158,7 @@ export function addMember(
   const row = db
     .prepare(`SELECT * FROM room_membership WHERE room_id = ? AND handle = ?`)
     .get(roomId, handle) as MembershipRow;
+  mirrorLegacyTerminalBinding(roomId, handle, row.session_id);
   return rowToMembership(row);
 }
 
@@ -182,6 +199,7 @@ export function rebindMemberSessionIfStale(
   const next = db
     .prepare(`SELECT * FROM room_membership WHERE room_id = ? AND handle = ?`)
     .get(roomId, handle) as MembershipRow;
+  mirrorLegacyTerminalBinding(roomId, handle, next.session_id);
   return rowToMembership(next);
 }
 
