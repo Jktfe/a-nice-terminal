@@ -286,6 +286,16 @@
     return invalidateAll();
   }
 
+  function remintBrowserSessionForCurrentRoom() {
+    const roomId = currentRoomId;
+    const authorHandle = callerHandle.trim();
+    const key = `${roomId}:${authorHandle}`;
+    if (roomId.length === 0 || authorHandle.length === 0) return;
+    void ensureBrowserSessionForRoom({ roomId, authorHandle, force: true }).then((result) => {
+      if (result.ok && lastBrowserSessionRebindKey === key) browserSessionReadyKey = key;
+    });
+  }
+
   // GAP-55 T2-A SSE subscription (realtime-layer-design-contract 2026-05-14).
   // KEYED on the primitive room id (not the room object) so invalidateAll's
   // new data.room reference does NOT re-fire this effect. Cleanup ONLY
@@ -310,7 +320,8 @@
       onConnect: () => {
         if (!seenInitialOpen) { seenInitialOpen = true; return; }
         void invalidateAll();
-      }
+      },
+      onDisconnect: remintBrowserSessionForCurrentRoom
     });
     realtime = handle;
     lastEventCount = 0;

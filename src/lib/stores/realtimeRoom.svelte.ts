@@ -78,6 +78,7 @@ type PoolEntry = {
   refCount: number;
   callbacks: Set<(event: Record<string, unknown>) => void>;
   onConnectCallbacks: Set<() => void>;
+  onDisconnectCallbacks: Set<() => void>;
   connectedListeners: Set<(connected: boolean) => void>;
   // Slice 4 follow-up consolidation: richer state for the finish-layer
   // status surface. Listener set is separate so the legacy
@@ -218,6 +219,7 @@ function wireSource(entry: PoolEntry, roomId: string): void {
     if (entry.source.readyState === EventSource.CLOSED) {
       scheduleReopen(entry, roomId);
     }
+    for (const cb of entry.onDisconnectCallbacks) cb();
     for (const listener of entry.connectedListeners) listener(false);
     notifyConnectionStateListeners(entry);
   };
@@ -281,6 +283,7 @@ function getOrCreateEntry(roomId: string): PoolEntry {
     refCount: 0,
     callbacks: new Set(),
     onConnectCallbacks: new Set(),
+    onDisconnectCallbacks: new Set(),
     connectedListeners: new Set(),
     connectionStateListeners: new Set(),
     lastEvent: null,
@@ -302,7 +305,7 @@ function getOrCreateEntry(roomId: string): PoolEntry {
 
 export function subscribeToRoomEvents(
   roomId: string,
-  opts?: { onConnect?: () => void }
+  opts?: { onConnect?: () => void; onDisconnect?: () => void }
 ): RealtimeRoomHandle {
   let eventCount = $state(0);
   let lastEvent = $state<Record<string, unknown> | null>(null);
@@ -328,9 +331,11 @@ export function subscribeToRoomEvents(
     connected = isConnected;
   };
   const onConnectCb = opts?.onConnect;
+  const onDisconnectCb = opts?.onDisconnect;
   entry.callbacks.add(messageCb);
   entry.connectedListeners.add(connectedListener);
   if (onConnectCb) entry.onConnectCallbacks.add(onConnectCb);
+  if (onDisconnectCb) entry.onDisconnectCallbacks.add(onDisconnectCb);
 
   // Seed local state from the pooled entry so late subscribers don't
   // miss the connection's current view.
@@ -350,6 +355,7 @@ export function subscribeToRoomEvents(
       current.callbacks.delete(messageCb);
       current.connectedListeners.delete(connectedListener);
       if (onConnectCb) current.onConnectCallbacks.delete(onConnectCb);
+      if (onDisconnectCb) current.onDisconnectCallbacks.delete(onDisconnectCb);
       current.refCount -= 1;
       if (current.refCount <= 0) {
         if (current.unreachableTimer !== null) clearTimeout(current.unreachableTimer);
