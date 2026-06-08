@@ -527,11 +527,18 @@ export function fanoutMessageToRoomTerminals(
   // excludes the reply's own author (replying never pings yourself).
   if (replyParentMessage) {
     const selfHandle = findHandleForAliasInRoom(roomId, message.authorHandle);
+    // Guard an empty author (defensive — not reachable today: authorHandle is
+    // never empty, system posts are '@system'). findHandleForAliasInRoom('')
+    // returns the junk token '@', so skip resolving an empty author AND filter
+    // a bare '@' below — else a no-@ reply could route to a nonexistent '@'
+    // (and an operator reply would flip broadcast→nobody). @speedy nit (b).
+    const parentAuthor = replyParentMessage.authorHandle?.trim();
     const impliedFromParent = new Set<string>([
-      findHandleForAliasInRoom(roomId, replyParentMessage.authorHandle),
+      ...(parentAuthor ? [findHandleForAliasInRoom(roomId, parentAuthor)] : []),
       ...resolveBareMentionsToGlobalHandles(roomId, replyParentMessage.body)
     ]);
     for (const handle of impliedFromParent) {
+      if (handle === '@') continue;
       if (handle && handle !== selfHandle) targetedHandles.add(handle);
     }
   }
@@ -608,11 +615,13 @@ export function fanoutMessageToRoomTerminals(
   ) {
     return;
   }
-  // Resolve the reply-parent ONCE for this fanout. Every recipient sees
-  // the same reply context — no point hitting the DB per-membership.
-  // Tombstoned parents still surface their (now-empty) handle + body
-  // so the agent at least sees the link; the body field will be empty.
-  // Reuse replyParentMessage fetched once above (no 2nd DB hit, @speedy).
+  // Reuse the reply-parent fetched ONCE above (no 2nd DB hit, @speedy). Every
+  // recipient sees the same reply context. NOTE (@speedy nit b): softDeleteMessage
+  // sets deleted_at_ms/deleted_by_handle but PRESERVES author_handle + body, so a
+  // tombstoned parent surfaces its real author + body here (not empty) — and the
+  // implied-mention block above will route a reply to a deleted parent's real
+  // author/mentions. Deliberate for now; revisit if retracted msgs should not
+  // auto-address.
   let replyParent: { messageId: string; senderHandle: string; body: string } | null = null;
   if (replyParentMessage) {
     replyParent = {

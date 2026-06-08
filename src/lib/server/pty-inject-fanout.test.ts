@@ -872,6 +872,25 @@ describe('fanoutMessageToRoomTerminals — heads-down routing (M3.b.5 JWPK-C)', 
     expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t2.id}`)).toBe(0); // @r1 = reply author, self-excluded
   });
 
+  it('reply resolves an ALIASED parent author to the canonical handle (@speedy nit c)', () => {
+    const { room, t2, t3 } = setupHdRoomWithTwoResponders();
+    // @r2 holds the alias @r2box in this room; the parent was authored under it.
+    // The implied-author resolution must canonicalise @r2box → @r2 (t3).
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@r2' }); // member for setRoomAlias gate
+    setRoomAlias({ roomId: room.id, globalHandle: '@r2', newAlias: '@r2box' });
+    const parent = postMessage({ roomId: room.id, authorHandle: '@r2box', body: 'parent under alias', kind: 'human' });
+    const reply = postMessage({
+      roomId: room.id,
+      authorHandle: '@sender',
+      body: 'no mention reply',
+      kind: 'human',
+      parentMessageId: parent.id
+    });
+    fanoutMessageToRoomTerminals(room.id, reply);
+    expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t3.id}`)).toBe(1); // alias resolved → @r2
+    expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t2.id}`)).toBe(0);
+  });
+
   it('bracketed [@everyone] in heads-down routes via responder picker', () => {
     const { room, t2, t3 } = setupHdRoomWithTwoResponders();
     setResponders({ roomId: room.id, terminalIds: [t2.id, t3.id], set_by: '@admin' });
