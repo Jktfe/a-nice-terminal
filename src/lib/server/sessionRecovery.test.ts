@@ -140,6 +140,16 @@ describe('resolveRecoveryCommand', () => {
     expect(resolveRecoveryCommand(rec)).toBe('codex');
   });
 
+  it('falls back from canonical hyphenated agent kinds to their launch binaries', () => {
+    createTerminalRecord({ sessionId: 't_hyphen_claude', name: 'vc', agentKind: 'claude-code' });
+    createTerminalRecord({ sessionId: 't_hyphen_codex', name: 'cx', agentKind: 'codex-cli' });
+    createTerminalRecord({ sessionId: 't_hyphen_gemini', name: 'gm', agentKind: 'gemini-cli' });
+
+    expect(resolveRecoveryCommand(getTerminalRecord('t_hyphen_claude')!)).toBe('claude');
+    expect(resolveRecoveryCommand(getTerminalRecord('t_hyphen_codex')!)).toBe('codex');
+    expect(resolveRecoveryCommand(getTerminalRecord('t_hyphen_gemini')!)).toBe('gemini');
+  });
+
   it('returns null for a bare shell with nothing to launch', () => {
     createTerminalRecord({ sessionId: 't7', name: 's', agentKind: 'generic-shell' });
     const rec = getTerminalRecord('t7')!;

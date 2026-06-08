@@ -38,17 +38,17 @@ const AGENT_BINARIES = [
 ] as const;
 
 /**
- * Map an agent_kind (enum form `claude_code`/`codex_cli` OR short form
- * `claude`/`codex`) to the binary that launches it. Returns null for
- * generic-shell / unknown / null — those recover as a bare shell with no agent
- * relaunch.
+ * Map an agent_kind (canonical `claude-code`, enum form `claude_code`/
+ * `codex_cli`, OR short form `claude`/`codex`) to the binary that launches it.
+ * Returns null for generic-shell / unknown / null — those recover as a bare
+ * shell with no agent relaunch.
  */
 function binaryForAgentKind(agentKind: string | null | undefined): string | null {
   if (!agentKind) return null;
-  const k = agentKind.toLowerCase();
+  const k = agentKind.toLowerCase().replace(/-/g, '_');
   if (k === 'claude' || k === 'claude_code') return 'claude';
   if (k === 'codex' || k === 'codex_cli') return 'codex';
-  if (k === 'gemini') return 'gemini';
+  if (k === 'gemini' || k === 'gemini_cli') return 'gemini';
   if (k === 'aider') return 'aider';
   if (k === 'cursor') return 'cursor';
   if (k === 'qwen') return 'qwen';
