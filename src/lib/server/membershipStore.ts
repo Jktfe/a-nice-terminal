@@ -24,6 +24,9 @@ import { getIdentityDb } from './db';
 import { getSession } from './antSessionStore';
 import { syncMembershipTerminalBinding } from './roomMembershipsStore';
 import { claimHandle } from './roomHandleLeaseClean';
+import { getLiveAgentByHandle } from './v02AgentsStore';
+import { addMembership as addV02Membership } from './v02MembershipsStore';
+import { isOperatorHandle } from './operatorHandle';
 
 /**
  * Browser sessions are minted per-room as ephemeral auth artifacts and the
@@ -150,6 +153,20 @@ function mirrorCleanLease(roomId: string, handle: string, sessionId: string | nu
   claimHandle(roomId, handle, sessionId, db);
 }
 
+function mirrorV02Membership(roomId: string, handle: string, db = getIdentityDb()): void {
+  const roomExists = db
+    .prepare(`SELECT 1 FROM rooms WHERE room_id = ? LIMIT 1`)
+    .get(roomId) as { 1: number } | undefined;
+  if (!roomExists) return;
+  const agent = getLiveAgentByHandle(handle, db);
+  if (!agent) return;
+  addV02Membership({
+    agent_id: agent.agent_id,
+    room_id: roomId,
+    member_kind: isOperatorHandle(handle) ? 'human' : 'agent'
+  });
+}
+
 /**
  * Add or update a member. Upsert on (room_id, handle), preserving the original
  * created_at_ms.
@@ -186,6 +203,7 @@ export function addMember(
     .get(roomId, handle) as MembershipRow;
   mirrorLegacyTerminalBinding(roomId, handle, row.session_id);
   mirrorCleanLease(roomId, handle, row.session_id, db);
+  mirrorV02Membership(roomId, handle, db);
   return rowToMembership(row);
 }
 

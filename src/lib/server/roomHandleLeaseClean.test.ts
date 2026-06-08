@@ -69,19 +69,20 @@ describe('roomHandleLeaseClean — Rule 2 (remove suffixes the incumbent, frees 
   });
 });
 
-describe('roomHandleLeaseClean — Rule 3 (same session reverts to clean; STABLE suffix)', () => {
-  it('a removed session re-claiming @x reverts to clean @x and demotes the current holder', () => {
+describe('roomHandleLeaseClean — Rule 3 (same session reclaims safely; STABLE suffix)', () => {
+  it('a removed session re-claiming @x does not demote a different active clean holder', () => {
     claimHandle('roomX', '@x', 'sessA');
     expect(removeHandle('roomX', '@x')).toBe('@x-1'); // A -> @x-1
     claimHandle('roomX', '@x', 'sessB'); // B takes clean @x
     expect(displayHandleForSession('roomX', 'sessB')).toBe('@x');
 
-    // A (the original) re-claims @x -> reverts to clean @x, demotes B
-    expect(claimHandle('roomX', '@x', 'sessA')).toBe('@x');
-    expect(displayHandleForSession('roomX', 'sessA')).toBe('@x');
-    expect(resolveMember('roomX', '@x')).toBe('sessA');
-    // B is demoted to a suffix (the lowest free one)
-    expect(displayHandleForSession('roomX', 'sessB')).toBe('@x-1');
+    // A (the original) re-claims @x, but B is active on clean @x. Generic
+    // claimHandle must not decide that B is stale; guarded stale-reclaim paths
+    // retire stale holders explicitly before re-claiming clean.
+    expect(claimHandle('roomX', '@x', 'sessA')).toBe('@x-1');
+    expect(displayHandleForSession('roomX', 'sessA')).toBe('@x-1');
+    expect(resolveMember('roomX', '@x')).toBe('sessB');
+    expect(displayHandleForSession('roomX', 'sessB')).toBe('@x');
   });
 
   it('STABLE: A removed (@x-1) then re-added then re-removed keeps @x-1, never @x-2', () => {

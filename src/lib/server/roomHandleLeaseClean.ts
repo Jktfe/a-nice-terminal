@@ -172,11 +172,19 @@ export function claimHandle(
     if (existing.active === 1 && existing.suffix === 0) {
       return handle;
     }
-    // REVERT to clean (rule 3): demote whoever currently holds clean @x, then
-    // promote this session back to suffix 0. assigned_suffix is preserved.
+    // REVERT to clean (rule 3) only when clean @x is free. If a different
+    // active session currently holds clean @x, this generic claim path must not
+    // demote it: callers that can prove staleness should retire that holder
+    // first via reclaimCleanHandleIfStale(), then call claimHandle().
     const clean = getCleanHolder(db, roomId, handle);
     if (clean && clean.session_id !== sessionId) {
-      demoteToSuffix(db, roomId, handle, clean, now);
+      const suffix = existing.assigned_suffix ?? lowestFreeSuffix(activeSuffixes(db, roomId, handle));
+      db.prepare(
+        `UPDATE room_handle_lease
+            SET suffix = ?, assigned_suffix = ?, active = 1, retired_at_ms = NULL
+          WHERE room_id = ? AND handle = ? AND session_id = ?`
+      ).run(suffix, suffix, roomId, handle, sessionId);
+      return display(handle, suffix);
     }
     db.prepare(
       `UPDATE room_handle_lease

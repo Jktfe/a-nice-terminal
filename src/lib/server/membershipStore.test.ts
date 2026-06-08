@@ -2,11 +2,22 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resetIdentityDbForTests } from './db';
+import { getIdentityDb, resetIdentityDbForTests } from './db';
 import { createSession } from './antSessionStore';
 import { getTerminalIdByHandle, addMembership } from './roomMembershipsStore';
 import { upsertTerminal } from './terminalsStore';
-import { isMember as leaseIsMember, resolveMember as leaseResolveMember } from './roomHandleLeaseClean';
+import { createAgent } from './v02AgentsStore';
+import {
+  addMembership as addV02Membership,
+  listActiveMembershipsForRoom as listActiveV02MembershipsForRoom,
+  removeMembership as removeV02Membership
+} from './v02MembershipsStore';
+import {
+  claimHandle,
+  isMember as leaseIsMember,
+  removeHandle,
+  resolveMember as leaseResolveMember
+} from './roomHandleLeaseClean';
 import {
   addMember,
   rebindMemberSessionIfStale,
@@ -32,6 +43,16 @@ afterEach(() => {
   if (prev === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = prev;
 });
+
+function createV02Room(roomId: string): string {
+  getIdentityDb()
+    .prepare(
+      `INSERT INTO rooms (room_id, display_name, visibility, created_at_ms)
+       VALUES (?, ?, 'private', ?)`
+    )
+    .run(roomId, roomId, Date.now());
+  return roomId;
+}
 
 describe('membershipStore — (room_id, handle, session_id) is the WHOLE table', () => {
   it('addMember inserts and resolveMember returns the session', () => {
@@ -215,11 +236,38 @@ describe('membershipStore — member ⟹ can post (membership write claims the c
     expect(leaseResolveMember('roomP', '@x')).toBe('incumbent-sess'); // lease clean holder unchanged
   });
 
+  it('retired handle history cannot demote a different live clean holder through addMember', () => {
+    addMember('roomP', '@x', 'session-a');
+    expect(removeMember('roomP', '@x')).toBe(true);
+    expect(removeHandle('roomP', '@x')).toBe('@x-1');
+    expect(claimHandle('roomP', '@x', 'session-b')).toBe('@x');
+
+    addMember('roomP', '@x', 'session-a');
+
+    expect(resolveMember('roomP', '@x')).toBe('session-a');
+    expect(leaseResolveMember('roomP', '@x')).toBe('session-b');
+    expect(leaseIsMember('roomP', 'session-b')).toBe(true);
+  });
+
   it('rebindMemberSessionIfStale re-keys the lease to the live session when the incumbent is stale', () => {
     addMember('roomP', '@agent', 'dead-sess');
     expect(leaseResolveMember('roomP', '@agent')).toBe('dead-sess');
     rebindMemberSessionIfStale('roomP', '@agent', 'live-sess', (current) => current === 'dead-sess');
     expect(resolveMember('roomP', '@agent')).toBe('live-sess');
     expect(leaseIsMember('roomP', 'live-sess')).toBe(true); // post gate now resolves the live session
+  });
+
+  it('addMember reactivates the matching v0.2 roster membership when one exists', () => {
+    const roomId = createV02Room('roomP');
+    const agent = createAgent({ primary_handle: '@agent', display_name: '@agent' });
+    addV02Membership({ agent_id: agent.agent_id, room_id: roomId, member_kind: 'agent' });
+    expect(removeV02Membership(agent.agent_id, roomId)).toBe(true);
+    expect(listActiveV02MembershipsForRoom(roomId)).toEqual([]);
+
+    addMember(roomId, '@agent', 'sess-agent');
+
+    expect(listActiveV02MembershipsForRoom(roomId).map((member) => member.agent_id)).toEqual([
+      agent.agent_id
+    ]);
   });
 });
