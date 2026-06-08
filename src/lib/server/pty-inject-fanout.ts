@@ -501,6 +501,12 @@ export function fanoutMessageToRoomTerminals(
   const memberships = listDeliveryMembershipsForRoom(roomId);
   const targetedHandles = resolveBareMentionsToGlobalHandles(roomId, message.body);
   const containsInformationalMention = hasBracketedMention(message.body);
+  // Reply-parent fetched ONCE here; reused for the implied-mention enrichment
+  // below AND the per-recipient reply-context block further down (no 2nd DB hit).
+  const replyParentMessage =
+    typeof message.parentMessageId === 'string' && message.parentMessageId.length > 0
+      ? getMessageById(message.parentMessageId)
+      : null;
 
   // Asks-as-pill (JWPK 2026-05-22): every bare @-mention of a HUMAN member
   // opens an ask targeting that human, with the message body as the ask
@@ -510,6 +516,25 @@ export function fanoutMessageToRoomTerminals(
   // on (room × askee × messageId) via a small in-process Set so a
   // double-fanout of the same message doesn't double-file the ask.
   autoOpenAsksForHumanMentions(room, message, targetedHandles);
+
+  // Reply implies addressing the thread (JWPK 2026-06-08): a reply's @-set is
+  // IMPLIED to be the parent's author + the parent's @mentions, so you don't
+  // re-@ the thread. Folded in AFTER autoOpenAsks (deliberate, @speedy's lever):
+  // a threaded reply drives delivery + responder-selection + operator-broadcast-
+  // suppression for the thread people, but does NOT re-file an ask-pill for a
+  // human every turn (only an explicit @ in the reply body opens an ask) — kills
+  // the "long thread re-pings everyone" noise. Canonical/alias-resolved set;
+  // excludes the reply's own author (replying never pings yourself).
+  if (replyParentMessage) {
+    const selfHandle = findHandleForAliasInRoom(roomId, message.authorHandle);
+    const impliedFromParent = new Set<string>([
+      findHandleForAliasInRoom(roomId, replyParentMessage.authorHandle),
+      ...resolveBareMentionsToGlobalHandles(roomId, replyParentMessage.body)
+    ]);
+    for (const handle of impliedFromParent) {
+      if (handle && handle !== selfHandle) targetedHandles.add(handle);
+    }
+  }
   let broadcastToAll =
     options.forceBroadcastToAll === true ||
     hasBareEveryoneMention(message.body) ||
@@ -587,16 +612,14 @@ export function fanoutMessageToRoomTerminals(
   // the same reply context — no point hitting the DB per-membership.
   // Tombstoned parents still surface their (now-empty) handle + body
   // so the agent at least sees the link; the body field will be empty.
+  // Reuse replyParentMessage fetched once above (no 2nd DB hit, @speedy).
   let replyParent: { messageId: string; senderHandle: string; body: string } | null = null;
-  if (typeof message.parentMessageId === 'string' && message.parentMessageId.length > 0) {
-    const parent = getMessageById(message.parentMessageId);
-    if (parent) {
-      replyParent = {
-        messageId: parent.id,
-        senderHandle: parent.authorHandle,
-        body: parent.body
-      };
-    }
+  if (replyParentMessage) {
+    replyParent = {
+      messageId: replyParentMessage.id,
+      senderHandle: replyParentMessage.authorHandle,
+      body: replyParentMessage.body
+    };
   }
   // Focus mode (JWPK 2026-06-05) — MVP-2 slice 2: mode-aware suppression at the
   // inject seam. Per-member (focusModeStore, persisted), so focusing @localant

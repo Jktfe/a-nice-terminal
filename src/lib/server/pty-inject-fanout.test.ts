@@ -832,6 +832,46 @@ describe('fanoutMessageToRoomTerminals — heads-down routing (M3.b.5 JWPK-C)', 
     expect(listMessagesInRoom(room.id).filter((m) => m.kind === 'system').length).toBe(sysBefore);
   });
 
+  // Reply implies addressing the thread (JWPK 2026-06-08): a reply with NO
+  // explicit @ is addressed to the parent's author + the parent's @mentions.
+  it('reply (no explicit @) implies the PARENT AUTHOR and routes to them, not the heads-down rotation pick', () => {
+    const { room, t2, t3 } = setupHdRoomWithTwoResponders();
+    setResponders({ roomId: room.id, terminalIds: [t2.id, t3.id], set_by: '@admin' });
+    markPaneVerified(t2.id);
+    markPaneVerified(t3.id);
+    // Parent authored by @r2 (the SECOND responder). A no-@ reply in heads-down
+    // would normally route to the FIRST responder (@r1/t2); with the implied
+    // rule it must instead route to the parent author @r2 (t3).
+    const parent = postMessage({ roomId: room.id, authorHandle: '@r2', body: 'parent from r2', kind: 'human' });
+    const reply = postMessage({
+      roomId: room.id,
+      authorHandle: '@sender',
+      body: 'replying with no mention',
+      kind: 'human',
+      parentMessageId: parent.id
+    });
+    fanoutMessageToRoomTerminals(room.id, reply);
+    expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t3.id}`)).toBe(1); // @r2 = parent author
+    expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t2.id}`)).toBe(0); // NOT the rotation's first pick
+  });
+
+  it('reply implies the PARENT MENTIONS and excludes the reply author (no self-ping)', () => {
+    const { room, t2, t3 } = setupHdRoomWithTwoResponders();
+    // Parent authored by @r1, mentioning @r2. Reply authored by @r1 (the parent
+    // author) with no explicit @ → implied = @r1 (self, excluded) + @r2 (mention).
+    const parent = postMessage({ roomId: room.id, authorHandle: '@r1', body: '@r2 take a look', kind: 'human' });
+    const reply = postMessage({
+      roomId: room.id,
+      authorHandle: '@r1',
+      body: 'following up',
+      kind: 'human',
+      parentMessageId: parent.id
+    });
+    fanoutMessageToRoomTerminals(room.id, reply);
+    expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t3.id}`)).toBe(1); // @r2 = parent mention
+    expect(getFanoutQueueForTests().pendingCountForTests(`${room.id}::${t2.id}`)).toBe(0); // @r1 = reply author, self-excluded
+  });
+
   it('bracketed [@everyone] in heads-down routes via responder picker', () => {
     const { room, t2, t3 } = setupHdRoomWithTwoResponders();
     setResponders({ roomId: room.id, terminalIds: [t2.id, t3.id], set_by: '@admin' });
