@@ -84,7 +84,8 @@ describe('POST /api/chat-rooms/:roomId/browser-session', () => {
     expect(setCookie).toContain('HttpOnly');
     expect(setCookie).toContain('SameSite=Strict');
     expect(setCookie).toContain('Secure');
-    expect(setCookie).toContain(`Path=/api/chat-rooms/${room.id}`);
+    expect(setCookie).toContain('Path=/');
+    expect(setCookie).not.toContain(`Path=/api/chat-rooms/${room.id}`);
     // 30-day TTL — bumped from 24h in 100f44b (JWPK 'I can't sign in
     // every day' fix). 30 * 86_400 = 2_592_000.
     expect(setCookie).toContain('Max-Age=2592000');

@@ -184,8 +184,9 @@
     const key = `${roomId}:${authorHandle}`;
     if (key === lastBrowserSessionRebindKey) return;
     lastBrowserSessionRebindKey = key;
-    // Per-room browser_session rebind. The cookie is path-scoped
-    // (Path=/api/chat-rooms/<roomId>), so each room id needs its own mint.
+    // Per-room browser_session rebind. The cookie is site-scoped so the
+    // /api/realtime/<roomId>/events EventSource can authenticate too; the
+    // server-side read/write gates still enforce room access per request.
     // This must be keyed on room id, not only onMount: SvelteKit can reuse
     // this route component across client-side room navigation.
     void ensureBrowserSessionForRoom({ roomId, authorHandle, force: true });

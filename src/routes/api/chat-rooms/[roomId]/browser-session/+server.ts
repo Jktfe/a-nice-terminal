@@ -102,7 +102,7 @@ function buildSessionCookie(
     `ant_browser_session=${secret}`,
     'HttpOnly',
     'SameSite=Strict',
-    `Path=/api/chat-rooms/${roomId}`,
+    'Path=/',
     `Max-Age=${maxAgeSeconds}`
   ];
   // GAP-55 follow-up (2026-05-14): the Secure flag must reflect the
