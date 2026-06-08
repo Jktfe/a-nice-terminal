@@ -407,6 +407,31 @@ export function listAllPickableHandles(): string[] {
 }
 
 /**
+ * Invite picker handles are stricter than the historical "pickable" set:
+ * a visible invite target must have a current tmux session right now.
+ *
+ * listLiveTerminalRecords intentionally preserves some orphan rows for
+ * compatibility/history. That is too broad for the right-rail invite UI,
+ * where showing a dead terminal creates a false action.
+ */
+export function listCurrentInvitePickerHandles(
+  aliveSessionIds: Iterable<string>
+): { handles: string[]; explicit: string[] } {
+  const alive = new Set(aliveSessionIds);
+  const handles = new Set<string>();
+  const explicit = new Set<string>();
+  for (const record of listLiveTerminalRecords()) {
+    if (!alive.has(record.session_id)) continue;
+    handles.add(deriveHandle(record));
+    if (record.handle && record.handle.trim().length > 0) explicit.add(record.handle);
+  }
+  return {
+    handles: [...handles].sort(),
+    explicit: [...explicit].sort()
+  };
+}
+
+/**
  * Lifecycle Phase A1 (JWPK A Team msg_w7sfmc4hpp + msg_7uvr35x0xr
  * 2026-05-29). Append a handle to the handle_aliases JSON array on the
  * terminal_records row for `sessionId`. Used by Phase B when

@@ -9,11 +9,10 @@
 
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { listKnownHandles, listAllPickableHandles } from '$lib/server/terminalRecordsStore';
+import { listTerminals } from '$lib/server/ptyClient';
+import { listCurrentInvitePickerHandles } from '$lib/server/terminalRecordsStore';
 
 export const GET: RequestHandler = async () => {
-  return json({
-    handles: listAllPickableHandles(),
-    explicit: listKnownHandles()
-  });
+  const aliveSessionIds = await listTerminals();
+  return json(listCurrentInvitePickerHandles(aliveSessionIds));
 };
