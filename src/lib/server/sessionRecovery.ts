@@ -152,9 +152,19 @@ export function resolveRecoveryCommand(
   if (!base) return null;
   if (opts.resume && !/(^|\s)--resume(\s|=|$)/.test(base)) {
     const flag = resumeFlagForAgentKind(record.agent_kind);
-    // JSON.stringify gives a double-quoted, escape-safe key matching the
-    // operator's `--resume "name"` muscle memory. Use the untagged base name.
-    base = `${base} ${flag} ${JSON.stringify(baseName(record.name))}`;
+    const name = baseName(record.name);
+    // SECURITY: the resolved command is typed into the pane shell (writeInput,
+    // command + '\n'). JSON.stringify is NOT shell-safe — inside double quotes a
+    // shell still expands `$(…)`, backticks and `$VAR`, and no quoting stops an
+    // embedded newline from running as a second typed line. So only append
+    // `--resume` when the name is a strict, shell-inert token (no metachars, no
+    // whitespace/newlines); otherwise fall through and recover WITHOUT a by-name
+    // resume rather than risk RCE — same reject-and-fall-through stance as
+    // matchLaunchLine() for mined commands. Legit session names (speedyClaude,
+    // oiResearch, @v4claude) all pass; the allowlist makes the quoting safe.
+    if (/^[A-Za-z0-9._@-]+$/.test(name)) {
+      base = `${base} ${flag} ${JSON.stringify(name)}`;
+    }
   }
   return base;
 }
