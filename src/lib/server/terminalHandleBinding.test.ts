@@ -5,6 +5,9 @@ import { upsertTerminal, getTerminalById } from './terminalsStore';
 import { addMembership, getTerminalIdByHandle } from './roomMembershipsStore';
 import { createTerminalRecord } from './terminalRecordsStore';
 import { bindRoomHandleToLiveTerminal } from './terminalHandleBinding';
+import { ensureSessionForTerminal } from './antSessionStore';
+import { isMember as leaseIsMember, claimHandle } from './roomHandleLeaseClean';
+import { resolveMember as cleanMembershipSession } from './membershipStore';
 
 beforeEach(() => {
   process.env.ANT_FRESH_DB_PATH = ':memory:';
@@ -191,5 +194,45 @@ describe('bindRoomHandleToLiveTerminal — callerPidChain re-bind path', () => {
     // No third arg — old callers (browser path, MCP path) still work.
     const result = bindRoomHandleToLiveTerminal(ROOM_ID, HANDLE);
     expect(result).toBe(fresh.id);
+  });
+});
+
+// 2026-06-08 (@speedy 0djd8b8cjq): bind historically wrote ONLY the legacy
+// terminal-keyed room_memberships, never the clean session-keyed surfaces the
+// POST gate reads (room_handle_lease + room_membership). So `ant bind` reported
+// "Bound" yet the agent still 403'd. These lock the self-heal: after bind, the
+// POST gate's OWN read resolves the bound session, with no manual DB alignment.
+describe('bindRoomHandleToLiveTerminal — self-heals the clean POST-gate surfaces', () => {
+  const ROOM_ID = 'r_selfheal';
+  const HANDLE = '@speedy';
+
+  it('claims the clean lease so the POST gate sees the bound session (was: "bound but cannot post")', () => {
+    const live = upsertTerminal({ pid: 7000, pid_start: '2026-06-08T12:00:00.000Z', name: 'live-speedy' });
+    addMembership({ room_id: ROOM_ID, handle: HANDLE, terminal_id: live.id });
+    // The drift: legacy membership exists, but NO clean lease for the session.
+    const session = ensureSessionForTerminal({ terminalId: live.id });
+    expect(leaseIsMember(ROOM_ID, session.id)).toBe(false); // post gate would 403 here
+
+    const result = bindRoomHandleToLiveTerminal(ROOM_ID, HANDLE);
+    expect(result).toBe(live.id);
+    // After bind the POST gate's own read (roomHandleLeaseClean.isMember) resolves.
+    expect(leaseIsMember(ROOM_ID, session.id)).toBe(true);
+    // And the clean membership is bound to the same session (delivery surface).
+    expect(cleanMembershipSession(ROOM_ID, HANDLE)).toBe(session.id);
+  });
+
+  it('re-keys the clean lease to the live session when a STALE session holds it (the @speedy multi-record case)', () => {
+    // A dead session previously held clean @speedy (drifted clean lease).
+    const live = upsertTerminal({ pid: 7100, pid_start: '2026-06-08T12:30:00.000Z', name: 'live-speedy-2' });
+    addMembership({ room_id: ROOM_ID, handle: HANDLE, terminal_id: live.id });
+    const liveSession = ensureSessionForTerminal({ terminalId: live.id });
+    // Seed a stale clean holder (a session whose terminal does not exist → stale).
+    claimHandle(ROOM_ID, HANDLE, 'dead-session-no-terminal');
+    expect(leaseIsMember(ROOM_ID, 'dead-session-no-terminal')).toBe(true);
+
+    bindRoomHandleToLiveTerminal(ROOM_ID, HANDLE);
+
+    // Live session now holds the clean lease; post gate resolves it.
+    expect(leaseIsMember(ROOM_ID, liveSession.id)).toBe(true);
   });
 });

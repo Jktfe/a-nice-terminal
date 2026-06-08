@@ -1,5 +1,5 @@
 import { findTerminalRecordByHandle } from './terminalRecordsStore';
-import { addMembership, getTerminalIdByHandle } from './roomMembershipsStore';
+import { addMembership, getTerminalIdByHandle, isCandidateStale } from './roomMembershipsStore';
 import {
   adoptExternalProcessForTerminal,
   autoRegisterTerminalForSpawnedSession,
@@ -8,6 +8,10 @@ import {
   type PidChainEntry,
   type TerminalRow
 } from './terminalsStore';
+import { ensureSessionForTerminal } from './antSessionStore';
+import { addMember, rebindMemberSessionIfStale } from './membershipStore';
+import { reclaimCleanHandleIfStale } from './roomHandleLeaseClean';
+import { resolveOrNull } from './sessionResolver';
 
 function normalizeHandle(rawHandle: string): string {
   const trimmed = rawHandle.trim();
@@ -36,6 +40,42 @@ function isExistingTerminalStillLive(terminal: TerminalRow): boolean {
   return true;
 }
 
+/**
+ * Make `ant bind` SELF-HEAL drift (2026-06-08, @speedy 0djd8b8cjq).
+ *
+ * bindRoomHandleToLiveTerminal historically wrote ONLY the legacy terminal-keyed
+ * `room_memberships` (via addMembership). But the POST gate reads the clean
+ * SESSION-keyed surfaces — `room_handle_lease` (isCleanMember) and
+ * `room_membership` — so bind reported "Bound" yet the agent still 403'd ("bound
+ * but can't post"), and the only fix was a manual DB lease alignment. After bind
+ * resolves the genuinely-live terminal, also bind the CLEAN surfaces to that
+ * terminal's durable session so the post gate resolves it.
+ *
+ * Reuses register's exact, tested no-hijack self-heal (PART 2): a genuinely-live
+ * DIFFERENT holder keeps clean @x (reclaim/rebind are strict no-ops on it); only
+ * a stale/unresolvable incumbent is re-keyed to this session. addMember covers
+ * the fresh case (no clean row yet) and claims the lease. No auth gate is
+ * touched — this is a WRITE that makes the existing gate find the row it requires.
+ */
+function selfHealCleanBinding(roomId: string, handle: string, terminalId: string): void {
+  const session = ensureSessionForTerminal({ terminalId });
+  // Ensure a clean membership row exists (+ claim lease) for the fresh case.
+  // On a stale-but-non-null incumbent this no-ops the session (hijack guard);
+  // the reclaim/rebind below then re-keys it. Order: create → re-key lease →
+  // re-key membership, so the row exists before rebind tries to update it.
+  addMember(roomId, handle, session.id);
+  const isHolderStale = (holderSessionId: string): boolean => {
+    const holder = resolveOrNull(holderSessionId);
+    if (!holder) return true;
+    const holderTerminal = holder.terminal_id ? getTerminalById(holder.terminal_id) : null;
+    return !holderTerminal || isCandidateStale(holderTerminal, Date.now());
+  };
+  const reclaimed = reclaimCleanHandleIfStale(roomId, handle, session.id, isHolderStale);
+  if (reclaimed !== null) {
+    rebindMemberSessionIfStale(roomId, handle, session.id, isHolderStale);
+  }
+}
+
 export function bindRoomHandleToLiveTerminal(
   roomId: string,
   rawHandle: string,
@@ -51,6 +91,10 @@ export function bindRoomHandleToLiveTerminal(
     !existingTerminal.source.startsWith('browser') &&
     isExistingTerminalStillLive(existingTerminal)
   ) {
+    // Existing legacy binding is live — but the clean session-keyed surfaces the
+    // POST gate reads may still be missing/stale (the @speedy 0djd8b8cjq case:
+    // room_memberships live, lease absent). Self-heal them before returning.
+    selfHealCleanBinding(roomId, handle, existingTerminal.id);
     return existingTerminal.id;
   }
 
@@ -66,6 +110,7 @@ export function bindRoomHandleToLiveTerminal(
     const liveTerminal = lookupTerminalByPidChain(callerPidChain);
     if (liveTerminal && isExistingTerminalStillLive(liveTerminal)) {
       addMembership({ room_id: roomId, handle, terminal_id: liveTerminal.id });
+      selfHealCleanBinding(roomId, handle, liveTerminal.id);
       return liveTerminal.id;
     }
   }
@@ -97,5 +142,6 @@ export function bindRoomHandleToLiveTerminal(
 
   if (!terminal) return null;
   addMembership({ room_id: roomId, handle, terminal_id: terminal.id });
+  selfHealCleanBinding(roomId, handle, terminal.id);
   return terminal.id;
 }
