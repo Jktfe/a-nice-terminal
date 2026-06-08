@@ -82,11 +82,40 @@ describe('resolveChatRoomReadAccess debug instrumentation', () => {
     expect(line).toMatch(/accounts=\d+ms/);
     expect(line).toMatch(/roomInvite=\d+ms/);
     expect(line).toMatch(/browserSession=\d+ms/);
+    expect(line).toMatch(/antSession=\d+ms/);
     expect(line).toMatch(/pidChain=\d+ms/);
     expect(line).toMatch(/totalMs=\d+/);
     expect(line).toContain('result=null');
     expect(line).toContain('roomId=room-x');
     // None of them hit, so no '*' markers in the unauth case.
     expect(line).not.toContain('*=');
+  });
+
+  it('resolves room read access from a durable ANT session header', async () => {
+    delete process.env.ANT_AUTH_GATE_DEBUG;
+    const { resolveChatRoomReadAccess } = await loadGate();
+    const { createSession } = await import('./antSessionStore');
+    const { addMember } = await import('./membershipStore');
+
+    const session = createSession({
+      id: 'sess-read-access',
+      kind: 'local-cli',
+      label: '@durable-reader',
+      terminalId: 't-durable-reader'
+    });
+    addMember('room-durable', '@durable-reader', session.id);
+    const request = new Request('http://localhost/api/chat-rooms/room-durable/status', {
+      headers: { 'x-ant-session-id': session.id }
+    });
+
+    const access = await resolveChatRoomReadAccess(request, 'room-durable');
+
+    expect(access).toMatchObject({
+      isAdminBearer: false,
+      source: 'ant-session',
+      handles: ['@durable-reader'],
+      principalHandles: ['@durable-reader'],
+      resolvedRoomIds: ['room-durable']
+    });
   });
 });

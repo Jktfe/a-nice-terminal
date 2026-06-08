@@ -28,10 +28,20 @@ import { expandHandlesToOwnerFamilies } from './agentFamilyStore';
 import { lookupTerminalByPidChain } from './terminalsStore';
 import { deriveHandle, getTerminalRecord } from './terminalRecordsStore';
 import { isOperatorHandle } from './operatorHandle';
+import { getSession } from './antSessionStore';
+import { resolveHandleForSession } from './membershipStore';
+import { displayHandleForSession } from './roomHandleLeaseClean';
 
 export type ChatRoomReadAccess = {
   isAdminBearer: boolean;
-  source?: 'admin-bearer' | 'local-bearer' | 'accounts-bearer' | 'browser-session' | 'pid-chain' | 'room-invite-bearer';
+  source?:
+    | 'admin-bearer'
+    | 'local-bearer'
+    | 'accounts-bearer'
+    | 'browser-session'
+    | 'pid-chain'
+    | 'room-invite-bearer'
+    | 'ant-session';
   handles: string[];
   principalHandles?: string[];
   resolvedRoomIds?: string[];
@@ -205,6 +215,30 @@ function tryBrowserSession(request: Request, roomId?: string): ChatRoomReadAcces
   return null;
 }
 
+function extractAntSessionId(request: Request): string | null {
+  const fromHeader = request.headers.get('x-ant-session-id')?.trim();
+  return fromHeader && fromHeader.length > 0 ? fromHeader : null;
+}
+
+function tryAntSession(request: Request, roomId?: string): ChatRoomReadAccess | null {
+  const sessionId = extractAntSessionId(request);
+  if (!sessionId) return null;
+  const session = getSession(sessionId);
+  if (!session) return null;
+  const handle = roomId
+    ? displayHandleForSession(roomId, session.id) ?? resolveHandleForSession(roomId, session.id)
+    : (typeof session.label === 'string' ? normaliseHandle(session.label) : null);
+  if (!handle) return null;
+  const principalHandle = normaliseHandle(handle);
+  return {
+    isAdminBearer: false,
+    source: 'ant-session',
+    handles: expandHandlesToOwnerFamilies([principalHandle]),
+    principalHandles: [principalHandle],
+    ...(roomId && { resolvedRoomIds: [roomId] })
+  };
+}
+
 function parsePidChainFromQuery(request: Request): PidChainEntry[] {
   const raw = new URL(request.url).searchParams.get('pidChain');
   if (!raw) return [];
@@ -371,6 +405,14 @@ export async function resolveChatRoomReadAccess(
   if (browserSession) {
     endTrace(trace, roomId, browserSession);
     return browserSession;
+  }
+
+  before = trace ? performance.now() : 0;
+  const antSession = tryAntSession(request, roomId);
+  traceStep(trace, 'antSession', before, antSession !== null);
+  if (antSession) {
+    endTrace(trace, roomId, antSession);
+    return antSession;
   }
 
   before = trace ? performance.now() : 0;
