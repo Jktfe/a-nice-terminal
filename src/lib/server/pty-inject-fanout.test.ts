@@ -498,6 +498,38 @@ describe('fanoutMessageToRoomTerminals — mention-targeted routing', () => {
     expect(secondEnvelope.context.needsOnboarding).toBe(false);
   });
 
+  it('uses clean durable membership for envelope actor ids when old leases are stale', () => {
+    const room = createChatRoom({ name: 'clean-envelope-room', whoCreatedIt: '@test' });
+    const sender = upsertTerminal({ pid: 20, pid_start: 'p20', name: 'clean-sender' });
+    const staleRecipient = upsertTerminal({ pid: 21, pid_start: 'p21', name: 'stale-recipient' });
+    const currentRecipient = upsertTerminal({ pid: 22, pid_start: 'p22', name: 'current-recipient' });
+    updatePaneTarget(currentRecipient.id, '%current-recipient', 'claude_code');
+    addMembership({ room_id: room.id, handle: '@sender', terminal_id: sender.id });
+    addMembership({ room_id: room.id, handle: '@recip', terminal_id: staleRecipient.id });
+    createSession({ id: sender.id, kind: 'local-cli', label: 'sender', terminalId: sender.id });
+    createSession({ id: staleRecipient.id, kind: 'local-cli', label: 'stale', terminalId: staleRecipient.id });
+    const durableRecipientSessionId = 'current-recipient-durable-session';
+    createSession({
+      id: durableRecipientSessionId,
+      kind: 'local-cli',
+      label: 'recipient',
+      terminalId: currentRecipient.id
+    });
+    createRoomHandleLease({ roomId: room.id, sessionId: sender.id, handle: '@sender', createdFrom: 'test' });
+    createRoomHandleLease({ roomId: room.id, sessionId: staleRecipient.id, handle: '@recip', createdFrom: 'stale-test' });
+    addMember(room.id, '@recip', durableRecipientSessionId);
+    const { calls } = captureInjectedBuffers();
+
+    const message = postMessage({ roomId: room.id, authorHandle: '@sender', body: '@recip clean', kind: 'agent' });
+    fanoutMessageToRoomTerminals(room.id, message);
+    getFanoutQueueForTests().immediateFlush(`${room.id}::${currentRecipient.id}`);
+
+    const loadCall = calls.find((c) => c.args[0] === 'load-buffer');
+    const delivery = parseDeliveryEnvelope(loadCall!.input!);
+    expect(delivery.recipient.sessionId).toBe(durableRecipientSessionId);
+    expect(delivery.recipient.handle).toBe('@recip');
+  });
+
   it('renders subagent delivery as the child session with its parent handle', () => {
     const room = createChatRoom({ name: 'subagent-room', whoCreatedIt: '@test' });
     const parentTerminal = upsertTerminal({ pid: 20, pid_start: 'p20', name: 'speedy-parent' });

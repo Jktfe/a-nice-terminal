@@ -17,7 +17,7 @@
 import type { ChatMessage } from './chatMessageStore';
 import { findChatRoomById } from './chatRoomStore';
 import { listMembershipsForRoom, type RoomMembershipRow } from './roomMembershipsStore';
-import { listMembers as listDurableMembers } from './membershipStore';
+import { listMembers as listDurableMembers, resolveMember as resolveCleanMember } from './membershipStore';
 import { getSession } from './antSessionStore';
 import {
   listFocusedMembersInRoom,
@@ -210,7 +210,9 @@ function queueKeyFor(roomId: string, terminalId: string): string {
 const queue = makeInjectQueue<QueuedItem>(onFlush);
 
 function recipientSessionIdFor(q: QueuedItem): string {
-  return resolveCurrentOwner(q.roomId, q.recipientHandle)?.session.id ?? q.terminalId;
+  return resolveCleanMember(q.roomId, q.recipientHandle)
+    ?? resolveCurrentOwner(q.roomId, q.recipientHandle)?.session.id
+    ?? q.terminalId;
 }
 
 function toEnvelopeMessage(q: QueuedItem): EnvelopeMessage {

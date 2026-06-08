@@ -1,6 +1,8 @@
 import type { ContextState } from './roomSessionContextStore';
 import { resolveCurrentOwner } from './roomIdentityResolver';
 import { findActiveRoomHandleForSession } from './roomHandleLeaseStore';
+import { getSession } from './antSessionStore';
+import { resolveMember as resolveCleanMember } from './membershipStore';
 
 export type DeliveryAckAction = 'read' | 'work' | 'reply' | 'look' | 'pass';
 
@@ -37,6 +39,20 @@ export type MessageDeliveryEnvelope = {
 const DEFAULT_ACK_ACTIONS: DeliveryAckAction[] = ['read', 'work', 'reply', 'look', 'pass'];
 
 function actorFor(roomId: string, handle: string, fallbackSessionId?: string): DeliveryActor {
+  const cleanSessionId = resolveCleanMember(roomId, handle);
+  const cleanSession = cleanSessionId ? getSession(cleanSessionId) : null;
+  if (cleanSession) {
+    const actor: DeliveryActor = {
+      sessionId: cleanSession.id,
+      handle,
+      kind: cleanSession.kind
+    };
+    if (cleanSession.parent_session_id !== null) {
+      actor.parentSessionId = cleanSession.parent_session_id;
+      actor.parentHandle = findActiveRoomHandleForSession(roomId, cleanSession.parent_session_id)?.handle ?? null;
+    }
+    return actor;
+  }
   const resolved = resolveCurrentOwner(roomId, handle);
   if (!resolved) {
     return { sessionId: fallbackSessionId ?? '', handle };
