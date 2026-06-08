@@ -28,6 +28,8 @@ import {
 import { getIdentityDb, resetIdentityDbForTests } from '$lib/server/db';
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { addMembership, getTerminalIdByHandle } from '$lib/server/roomMembershipsStore';
+import { resolveMember } from '$lib/server/membershipStore';
+import { getSession } from '$lib/server/antSessionStore';
 import { createTerminalRecord } from '$lib/server/terminalRecordsStore';
 import { issueToken } from '$lib/server/antchatAuthStore';
 import { installFixtureOrgHandleMap } from '$lib/server/testSupport/orgIdentityFixtures';
@@ -188,6 +190,9 @@ describe('/api/chat-rooms/:roomId/members', () => {
       const updated = findChatRoomById(room.id);
       expect(updated?.members.some((m) => m.handle === '@evolveantcodex')).toBe(true);
       expect(getTerminalIdByHandle(room.id, '@evolveantcodex')).toBe(terminalId);
+      const sessionId = resolveMember(room.id, '@evolveantcodex');
+      expect(sessionId).toBeTruthy();
+      expect(getSession(sessionId!)?.terminal_id).toBe(terminalId);
       const systemMessages = listMessagesInRoom(room.id).filter((m) => m.kind === 'system');
       expect(systemMessages.some((m) => m.body.includes('joined'))).toBe(true);
     });
@@ -207,6 +212,9 @@ describe('/api/chat-rooms/:roomId/members', () => {
 
       expect(response.status).toBe(200);
       expect(getTerminalIdByHandle(room.id, '@evolveantcodex')).toBe(terminalId);
+      const sessionId = resolveMember(room.id, '@evolveantcodex');
+      expect(sessionId).toBeTruthy();
+      expect(getSession(sessionId!)?.terminal_id).toBe(terminalId);
       const systemMessages = listMessagesInRoom(room.id).filter((m) => m.kind === 'system');
       expect(systemMessages.filter((m) => m.body.includes('joined'))).toHaveLength(0);
     });

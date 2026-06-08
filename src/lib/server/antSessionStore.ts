@@ -204,6 +204,33 @@ export function ensureSession(
   );
 }
 
+/**
+ * Resolve the durable identity currently bound to a terminal, or create one.
+ *
+ * Invite/bind flows start from a known terminal_record. Fanout, however, now
+ * routes through room_membership.session_id, so the terminal must have a
+ * durable ant_sessions row at invite time. Prefer the most recently seen
+ * existing row; if none exists, use the terminal id as the durable token so the
+ * same terminal resolves back to the same identity on future repairs.
+ */
+export function ensureSessionForTerminal(
+  input: { terminalId: string; kind?: SessionKind; label?: string | null },
+  db = getIdentityDb()
+): AntSession {
+  ensureTable(db);
+  const existing = db
+    .prepare(`SELECT * FROM ant_sessions WHERE terminal_id = ? ORDER BY last_seen_at_ms DESC LIMIT 1`)
+    .get(input.terminalId) as SessionRow | undefined;
+  if (existing) {
+    return markSessionSeen(existing.id, Date.now(), db) ?? rowToSession(existing);
+  }
+  return ensureSession(input.terminalId, {
+    kind: input.kind ?? 'local-cli',
+    label: input.label ?? null,
+    terminalId: input.terminalId
+  }, db);
+}
+
 /** Resolve a session by its durable ID. This is the restart-safe path:
  *  the same ID resolves to the same identity regardless of pid drift. */
 export function getSession(id: string, db = getIdentityDb()): AntSession | null {

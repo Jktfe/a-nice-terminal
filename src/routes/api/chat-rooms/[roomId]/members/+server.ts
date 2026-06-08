@@ -34,8 +34,10 @@ import { postSystemMessage } from '$lib/server/chatMessageStore';
 import { recordParticipation } from '$lib/server/chatRoomParticipationHistoryStore';
 import { resolveCallerIdentityOrDeprecate, buildStaleBrowserCookieClearHeader } from '$lib/server/authGate';
 import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
+import { ensureSessionForTerminal } from '$lib/server/antSessionStore';
 import { findTerminalRecordByHandle } from '$lib/server/terminalRecordsStore';
 import { addMembership, removeMembership } from '$lib/server/roomMembershipsStore';
+import { addMember } from '$lib/server/membershipStore';
 import {
   mirrorAddMembership,
   mirrorRemoveMembership
@@ -174,6 +176,10 @@ export const POST: RequestHandler = async ({ params, request }) => {
       `No such handle '${agentHandle.trim()}' — there's no terminal with this handle. Launch a terminal with this handle first.`
     );
   }
+  const durableSession = ensureSessionForTerminal({
+    terminalId: terminalRecord.session_id,
+    label: normalisedAgentHandle
+  });
 
   const agentDisplayNameRaw = (rawBody as { agentDisplayName?: unknown }).agentDisplayName;
   const agentDisplayName =
@@ -195,6 +201,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
         handle: normalisedAgentHandle,
         terminal_id: terminalRecord.session_id
       });
+      addMember(params.roomId, normalisedAgentHandle, durableSession.id);
       // M9c dual-write: mirror the agent rebind into v02_memberships.
       mirrorAddMembership({
         roomId: params.roomId,
@@ -217,6 +224,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
       handle: normalisedAgentHandle,
       terminal_id: terminalRecord.session_id
     });
+    addMember(params.roomId, normalisedAgentHandle, durableSession.id);
     // M9c dual-write: mirror the new agent member into v02_memberships.
     mirrorAddMembership({
       roomId: params.roomId,

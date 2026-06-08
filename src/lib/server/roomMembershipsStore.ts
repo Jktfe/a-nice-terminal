@@ -129,7 +129,7 @@ export function buildAgentJoinPreamble(vaultPath: string | null): string {
   const lines = [
     '**Agent join — context discipline for this room** (one-time system notice).',
     '',
-    '1. `kind=system-break` messages are a HARD backwards-scan boundary. Don\'t read older context unless explicitly asked.'
+    '1. ANT room reads/search default to the current room block. Older blocks and all-content views are explicit CLI lookups only when the task asks for them.'
   ];
   if (vaultPath !== null) {
     lines.push(

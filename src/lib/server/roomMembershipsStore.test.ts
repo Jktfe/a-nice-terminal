@@ -264,7 +264,9 @@ describe('β3 agent-join system message', () => {
     const systemMsgs = msgs.filter((m) => m.kind === 'system');
     expect(systemMsgs).toHaveLength(1);
     expect(systemMsgs[0].body).toContain('context discipline');
-    expect(systemMsgs[0].body).toContain('system-break');
+    expect(systemMsgs[0].body).toContain('current room block');
+    expect(systemMsgs[0].body).toContain('all-content');
+    expect(systemMsgs[0].body).not.toContain('HARD backwards-scan boundary');
     expect(systemMsgs[0].body).toContain('configured memory pack');
     expect(systemMsgs[0].body).toContain('/tmp/ant-memory-pack-test/README.md');
     expect(systemMsgs[0].body).toContain('ant memory recall');
