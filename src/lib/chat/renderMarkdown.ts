@@ -73,6 +73,17 @@ const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
 const TABLE_OPEN_RE = /<table(\s[^>]*)?>/gi;
 const TABLE_CLOSE_RE = /<\/table>/gi;
 
+const MARKDOWN_RENDERER = new marked.Renderer();
+
+function escapeHtmlText(raw: string): string {
+  return raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+MARKDOWN_RENDERER.html = ({ text }) => escapeHtmlText(text);
+
 function wrapTables(html: string): string {
   if (!html || !TABLE_OPEN_RE.test(html)) return html;
   TABLE_OPEN_RE.lastIndex = 0;
@@ -124,6 +135,10 @@ function unescapeShellEscapes(raw: string): string {
 export function renderMarkdown(raw: string | null | undefined): string {
   if (!raw) return '';
   const normalised = unescapeShellEscapes(raw);
-  const parsed = marked.parse(normalised, { breaks: true, gfm: true }) as string;
+  const parsed = marked.parse(normalised, {
+    breaks: true,
+    gfm: true,
+    renderer: MARKDOWN_RENDERER
+  }) as string;
   return wrapTables(sanitizeHtml(parsed, SANITIZE_OPTIONS));
 }

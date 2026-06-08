@@ -56,6 +56,18 @@ describe('renderMarkdown', () => {
     expect(result).toContain('const x = 1;');
   });
 
+  it('shows pasted block html tags as inert text', () => {
+    const result = renderMarkdown('<div class="note">Hello</div>');
+    expect(result).toContain('&lt;div class="note"&gt;Hello&lt;/div&gt;');
+    expect(result).not.toContain('<div class="note">');
+  });
+
+  it('shows pasted inline html tags as inert text', () => {
+    const result = renderMarkdown('paste <button onclick="alert(1)">go</button> here');
+    expect(result).toContain('paste &lt;button onclick="alert(1)"&gt;go&lt;/button&gt; here');
+    expect(result).not.toContain('<button');
+  });
+
   it('renders unordered lists', () => {
     const result = renderMarkdown('- item 1\n- item 2');
     expect(result).toContain('<ul>');
@@ -66,12 +78,13 @@ describe('renderMarkdown', () => {
   it('strips XSS vectors (script tags)', () => {
     const result = renderMarkdown('<script>alert("xss")</script>');
     expect(result).not.toContain('<script>');
-    expect(result).not.toContain('alert');
+    expect(result).toContain('&lt;script&gt;alert("xss")&lt;/script&gt;');
   });
 
   it('strips XSS vectors (event handlers)', () => {
     const result = renderMarkdown('<img src=x onerror=alert(1)>');
-    expect(result).not.toContain('onerror');
+    expect(result).not.toContain('<img');
+    expect(result).toContain('&lt;img src=x onerror=alert(1)&gt;');
   });
 
   it('renders markdown images for Stage decks and manual screenshots', () => {
