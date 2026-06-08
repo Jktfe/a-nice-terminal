@@ -145,6 +145,46 @@ export function addMember(
   return rowToMembership(row);
 }
 
+/**
+ * Register-time self-heal for an EXISTING membership row.
+ *
+ * This is deliberately separate from addMember: ordinary callers must not be
+ * able to overwrite a non-null session_id. Registration, however, can prove a
+ * reclaim is safe by using the same stale-holder predicate as the clean lease
+ * repair. If the incumbent session is null, already the incoming session, or
+ * proven stale/unresolvable, the canonical membership row is re-keyed to the
+ * durable session token the caller just minted.
+ */
+export function rebindMemberSessionIfStale(
+  roomId: string,
+  handle: string,
+  sessionId: string,
+  isCurrentSessionStale: (currentSessionId: string) => boolean,
+  db = getIdentityDb()
+): Membership | null {
+  ensureTable(db);
+  if (!isDurableMemberHandle(handle)) return null;
+  const row = db
+    .prepare(`SELECT * FROM room_membership WHERE room_id = ? AND handle = ?`)
+    .get(roomId, handle) as MembershipRow | undefined;
+  if (!row) return null;
+  if (
+    row.session_id === null ||
+    row.session_id === sessionId ||
+    isCurrentSessionStale(row.session_id)
+  ) {
+    db.prepare(`UPDATE room_membership SET session_id = ? WHERE room_id = ? AND handle = ?`).run(
+      sessionId,
+      roomId,
+      handle
+    );
+  }
+  const next = db
+    .prepare(`SELECT * FROM room_membership WHERE room_id = ? AND handle = ?`)
+    .get(roomId, handle) as MembershipRow;
+  return rowToMembership(next);
+}
+
 /** Remove a member — a hard DELETE of the row (no soft-revoke). Returns true
  *  if a row was removed. */
 export function removeMember(roomId: string, handle: string, db = getIdentityDb()): boolean {

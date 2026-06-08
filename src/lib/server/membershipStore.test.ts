@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { resetIdentityDbForTests } from './db';
 import {
   addMember,
+  rebindMemberSessionIfStale,
   removeMember,
   listMembers,
   resolveMember,
@@ -67,6 +68,30 @@ describe('membershipStore — (room_id, handle, session_id) is the WHOLE table',
     expect(filled.session_id).toBe('sessReal');
     expect(resolveMember('roomX', '@alice')).toBe('sessReal');
     expect(listMembers('roomX')).toHaveLength(1);
+  });
+
+  it('register self-heal may rebind a proven-stale incumbent to the durable session', () => {
+    addMember('roomX', '@alice', 'dead-terminal-id');
+    const rebound = rebindMemberSessionIfStale(
+      'roomX',
+      '@alice',
+      'durable-session',
+      (current) => current === 'dead-terminal-id'
+    );
+    expect(rebound?.session_id).toBe('durable-session');
+    expect(resolveMember('roomX', '@alice')).toBe('durable-session');
+  });
+
+  it('register self-heal does NOT rebind a live incumbent', () => {
+    addMember('roomX', '@alice', 'live-owner-session');
+    const attempted = rebindMemberSessionIfStale(
+      'roomX',
+      '@alice',
+      'attacker-session',
+      () => false
+    );
+    expect(attempted?.session_id).toBe('live-owner-session');
+    expect(resolveMember('roomX', '@alice')).toBe('live-owner-session');
   });
 
   it('upsert preserves the original created_at_ms', () => {

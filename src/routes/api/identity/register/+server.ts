@@ -48,7 +48,7 @@ import {
 import { ensureSession, SessionAdoptionRefused } from '$lib/server/antSessionStore';
 import { backfillActiveLeasesFromRoomMemberships } from '$lib/server/roomHandleLeaseStore';
 import { reclaimCleanHandleIfStale } from '$lib/server/roomHandleLeaseClean';
-import { listRoomsForHandle } from '$lib/server/membershipStore';
+import { listRoomsForHandle, rebindMemberSessionIfStale } from '$lib/server/membershipStore';
 import { resolveOrNull } from '$lib/server/sessionResolver';
 
 const VALID_AGENT_KINDS_LIST = Array.from(AGENT_KINDS_CLIENT_INPUT).join(', ');
@@ -379,7 +379,10 @@ export const POST: RequestHandler = async ({ request }) => {
       return !holderTerminal || isCandidateStale(holderTerminal, Date.now());
     };
     for (const memberRoomId of listRoomsForHandle(handleValue)) {
-      reclaimCleanHandleIfStale(memberRoomId, handleValue, antSession.id, isHolderStale);
+      const reclaimed = reclaimCleanHandleIfStale(memberRoomId, handleValue, antSession.id, isHolderStale);
+      if (reclaimed !== null) {
+        rebindMemberSessionIfStale(memberRoomId, handleValue, antSession.id, isHolderStale);
+      }
     }
   }
   // Response kind starts at updateKindValue (preserved); re-fetch only when classify ran.

@@ -23,7 +23,7 @@ import {
 } from '$lib/server/terminalRecordsStore';
 import * as v02Agents from '$lib/server/v02AgentsStore';
 import * as v02Runtimes from '$lib/server/v02RuntimesStore';
-import { addMember } from '$lib/server/membershipStore';
+import { addMember, resolveMember as resolveMembershipMember } from '$lib/server/membershipStore';
 import {
   claimHandle as claimCleanHandle,
   resolveMember as resolveCleanMember,
@@ -919,6 +919,10 @@ describe('POST /api/identity/register', () => {
       // Self-heal: the clean holder the gate reads is now the REAL token …
       expect(resolveCleanMember(roomId, handle)).toBe(realToken);
       expect(isCleanMember(roomId, realToken)).toBe(true);
+      // … and the canonical membership row follows the same durable token.
+      // Without this, the roster/proof path says one session owns @handle
+      // while the post-gate lease says another session owns it.
+      expect(resolveMembershipMember(roomId, handle)).toBe(realToken);
       // … and the dead terminal-id lease has been retired (no longer a member).
       expect(isCleanMember(roomId, deadTerminalKey)).toBe(false);
     });
