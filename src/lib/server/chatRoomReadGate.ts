@@ -30,7 +30,10 @@ import { deriveHandle, getTerminalRecord } from './terminalRecordsStore';
 import { isOperatorHandle } from './operatorHandle';
 import { getSession } from './antSessionStore';
 import { resolveHandleForSession } from './membershipStore';
-import { displayHandleForSession } from './roomHandleLeaseClean';
+import {
+  displayHandleForSession,
+  isMember as hasActiveRoomHandleLease
+} from './roomHandleLeaseClean';
 
 export type ChatRoomReadAccess = {
   isAdminBearer: boolean;
@@ -226,7 +229,9 @@ function tryAntSession(request: Request, roomId?: string): ChatRoomReadAccess | 
   const session = getSession(sessionId);
   if (!session) return null;
   const handle = roomId
-    ? displayHandleForSession(roomId, session.id) ?? resolveHandleForSession(roomId, session.id)
+    ? hasActiveRoomHandleLease(roomId, session.id)
+      ? displayHandleForSession(roomId, session.id) ?? resolveHandleForSession(roomId, session.id)
+      : resolveHandleForSession(roomId, session.id)
     : (typeof session.label === 'string' ? normaliseHandle(session.label) : null);
   if (!handle) return null;
   const principalHandle = normaliseHandle(handle);

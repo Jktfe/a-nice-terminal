@@ -118,4 +118,28 @@ describe('resolveChatRoomReadAccess debug instrumentation', () => {
       resolvedRoomIds: ['room-durable']
     });
   });
+
+  it('does not resolve room read access from a retired handle lease', async () => {
+    delete process.env.ANT_AUTH_GATE_DEBUG;
+    const { resolveChatRoomReadAccess } = await loadGate();
+    const { createSession } = await import('./antSessionStore');
+    const { addMember, removeMember } = await import('./membershipStore');
+    const { removeHandle } = await import('./roomHandleLeaseClean');
+
+    const session = createSession({
+      id: 'sess-retired-reader',
+      kind: 'local-cli',
+      label: '@retired-reader',
+      terminalId: 't-retired-reader'
+    });
+    addMember('room-retired', '@retired-reader', session.id);
+    expect(removeMember('room-retired', '@retired-reader')).toBe(true);
+    expect(removeHandle('room-retired', '@retired-reader')).toBe('@retired-reader-1');
+
+    const request = new Request('http://localhost/api/chat-rooms/room-retired/status', {
+      headers: { 'x-ant-session-id': session.id }
+    });
+
+    await expect(resolveChatRoomReadAccess(request, 'room-retired')).resolves.toBeNull();
+  });
 });
