@@ -12,6 +12,7 @@ import { ensureSessionForTerminal } from './antSessionStore';
 import { addMember, rebindMemberSessionIfStale } from './membershipStore';
 import { reclaimCleanHandleIfStale } from './roomHandleLeaseClean';
 import { resolveOrNull } from './sessionResolver';
+import { mirrorAddMembership } from './v02ChatRoomBridge';
 
 function normalizeHandle(rawHandle: string): string {
   const trimmed = rawHandle.trim();
@@ -74,6 +75,15 @@ function selfHealCleanBinding(roomId: string, handle: string, terminalId: string
   if (reclaimed !== null) {
     rebindMemberSessionIfStale(roomId, handle, session.id, isHolderStale);
   }
+  // 4th surface (2026-06-08, @speedy): the v0.2 `memberships` roster (read by
+  // /typing + roster, keyed by handle→agent) is separate from the lease +
+  // clean membership above. Without reopening it, an agent self-heals POST
+  // access but /typing + roster still 404 "not a member". mirrorAddMembership
+  // is handle-keyed + best-effort (swallows its own errors) and reopens a left
+  // membership by inserting a fresh active row. (That FOUR surfaces must be
+  // kept in lockstep is the standing argument for the R3 one-canonical-
+  // membership rebuild — this is lockstep-4, not the durable fix.)
+  mirrorAddMembership({ roomId, handle });
 }
 
 export function bindRoomHandleToLiveTerminal(
