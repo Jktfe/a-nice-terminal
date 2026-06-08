@@ -55,6 +55,19 @@ export type RealtimeRoomStore = {
 
 const UNREACHABLE_AFTER_MS = 30_000;
 
+// Native EventSource auto-reconnects on TRANSIENT errors (readyState stays
+// CONNECTING). But on a FATAL response — the 401/text-html the auth gate
+// returns when the browser-session cookie lapses, or a non-event-stream
+// served while :6174 restarts mid-stream — the browser sets readyState to
+// CLOSED and gives up PERMANENTLY, silently freezing live updates until a
+// manual refresh. That was the 2026-06-08 "I'm back to refreshing"
+// regression: server restarts during recovery killed every live tab's
+// stream and nothing re-opened it. We add an explicit close + re-open with
+// capped exponential backoff whenever the source lands in CLOSED while still
+// referenced, so a restart self-heals instead of going dark.
+const REOPEN_BASE_MS = 1_000;
+const REOPEN_MAX_MS = 30_000;
+
 // Refcounted shared pool keyed by roomId. Previously each caller opened
 // its own EventSource (room page + AgentStatusFooter + ParticipantsPanel
 // = 3 SSE sockets per room), saturating Chrome's HTTP/1.1 cap and
@@ -80,6 +93,11 @@ type PoolEntry = {
   lastError: string | null;
   firstFailedAtMs: number | null;
   unreachableTimer: ReturnType<typeof setTimeout> | null;
+  // Explicit-reopen backoff (the fatal-CLOSED self-heal above). Timer is
+  // non-null while a re-open is pending; delay grows per attempt and resets
+  // to REOPEN_BASE_MS on a successful onopen.
+  reopenTimer: ReturnType<typeof setTimeout> | null;
+  reopenDelayMs: number;
 };
 
 const pool = new Map<string, PoolEntry>();
@@ -101,27 +119,33 @@ function notifyConnectionStateListeners(entry: PoolEntry): void {
   for (const listener of entry.connectionStateListeners) listener(snap);
 }
 
-function getOrCreateEntry(roomId: string): PoolEntry {
-  const existing = pool.get(roomId);
-  if (existing) return existing;
-  const source = new EventSource(`/api/realtime/${encodeURIComponent(roomId)}/events`);
-  const entry: PoolEntry = {
-    source,
-    refCount: 0,
-    callbacks: new Set(),
-    onConnectCallbacks: new Set(),
-    connectedListeners: new Set(),
-    connectionStateListeners: new Set(),
-    lastEvent: null,
-    eventCount: 0,
-    connected: false,
-    connectionState: 'connecting',
-    lastSeq: 0,
-    latestSeq: 0,
-    lastError: null,
-    firstFailedAtMs: null,
-    unreachableTimer: null
-  };
+// Schedule an explicit close + re-open after the source has landed in
+// CLOSED (native retry has permanently given up). Capped exponential
+// backoff; no-op if a reopen is already pending or nobody's listening.
+function scheduleReopen(entry: PoolEntry, roomId: string): void {
+  if (entry.reopenTimer !== null) return; // already pending
+  if (entry.refCount <= 0) return; // no subscribers — close() handles teardown
+  entry.reopenTimer = setTimeout(() => {
+    entry.reopenTimer = null;
+    if (entry.refCount <= 0) return;
+    // Native retry may have recovered it in the meantime — don't churn.
+    if (entry.source.readyState !== EventSource.CLOSED) return;
+    entry.reopenDelayMs = Math.min(entry.reopenDelayMs * 2, REOPEN_MAX_MS);
+    try {
+      entry.source.close();
+    } catch {
+      /* already closed */
+    }
+    entry.source = new EventSource(`/api/realtime/${encodeURIComponent(roomId)}/events`);
+    entry.connectionState = 'connecting';
+    wireSource(entry, roomId);
+  }, entry.reopenDelayMs);
+}
+
+// Attach the onopen/onmessage/onerror handlers to entry.source. Factored
+// out of getOrCreateEntry so a backoff re-open can re-wire a fresh source.
+function wireSource(entry: PoolEntry, roomId: string): void {
+  const source = entry.source;
   source.onopen = () => {
     entry.connected = true;
     entry.connectionState = 'connected';
@@ -130,6 +154,12 @@ function getOrCreateEntry(roomId: string): PoolEntry {
     if (entry.unreachableTimer !== null) {
       clearTimeout(entry.unreachableTimer);
       entry.unreachableTimer = null;
+    }
+    // Stream re-established — reset the reopen backoff + cancel any pending reopen.
+    entry.reopenDelayMs = REOPEN_BASE_MS;
+    if (entry.reopenTimer !== null) {
+      clearTimeout(entry.reopenTimer);
+      entry.reopenTimer = null;
     }
     for (const cb of entry.onConnectCallbacks) cb();
     for (const listener of entry.connectedListeners) listener(true);
@@ -181,9 +211,40 @@ function getOrCreateEntry(roomId: string): PoolEntry {
         }
       }, UNREACHABLE_AFTER_MS);
     }
+    // Native EventSource retry only runs while CONNECTING. A CLOSED source
+    // means the browser gave up (fatal response) — force an explicit
+    // backoff re-open so a server restart self-heals instead of going dark.
+    if (entry.source.readyState === EventSource.CLOSED) {
+      scheduleReopen(entry, roomId);
+    }
     for (const listener of entry.connectedListeners) listener(false);
     notifyConnectionStateListeners(entry);
   };
+}
+
+function getOrCreateEntry(roomId: string): PoolEntry {
+  const existing = pool.get(roomId);
+  if (existing) return existing;
+  const entry: PoolEntry = {
+    source: new EventSource(`/api/realtime/${encodeURIComponent(roomId)}/events`),
+    refCount: 0,
+    callbacks: new Set(),
+    onConnectCallbacks: new Set(),
+    connectedListeners: new Set(),
+    connectionStateListeners: new Set(),
+    lastEvent: null,
+    eventCount: 0,
+    connected: false,
+    connectionState: 'connecting',
+    lastSeq: 0,
+    latestSeq: 0,
+    lastError: null,
+    firstFailedAtMs: null,
+    unreachableTimer: null,
+    reopenTimer: null,
+    reopenDelayMs: REOPEN_BASE_MS
+  };
+  wireSource(entry, roomId);
   pool.set(roomId, entry);
   return entry;
 }
@@ -241,6 +302,7 @@ export function subscribeToRoomEvents(
       current.refCount -= 1;
       if (current.refCount <= 0) {
         if (current.unreachableTimer !== null) clearTimeout(current.unreachableTimer);
+        if (current.reopenTimer !== null) clearTimeout(current.reopenTimer);
         current.source.close();
         pool.delete(roomId);
       }
@@ -296,6 +358,7 @@ export function subscribeRoomConnectionState(roomId: string): RealtimeRoomStore 
       current.refCount -= 1;
       if (current.refCount <= 0) {
         if (current.unreachableTimer !== null) clearTimeout(current.unreachableTimer);
+        if (current.reopenTimer !== null) clearTimeout(current.reopenTimer);
         current.source.close();
         pool.delete(roomId);
       }
