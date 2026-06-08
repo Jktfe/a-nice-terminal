@@ -295,6 +295,13 @@ export function resolveHandleForSession(roomId: string, sessionId: string, db = 
  * Read-only — never writes a membership or lease. ant_sessions is owned by
  * antSessionStore; in unit contexts it may not exist yet, so guard explicitly
  * rather than letting the JOIN throw on a missing table.
+ *
+ * BEST-EFFORT PRIMARY HANDLE (not authoritative for a specific room): for an
+ * agent in multiple rooms under different handles this returns the
+ * most-recently-joined room's handle. That is fine for whoami (a self-ID hint)
+ * because the POST path ALWAYS re-resolves the handle per-room server-side, so
+ * this value never drives attribution. A handle from a room the agent has LEFT
+ * cannot be returned: removal is a hard DELETE (no soft-delete row lingers).
  */
 export function resolveHandleForTerminal(terminalId: string, db = getIdentityDb()): string | null {
   ensureTable(db);
