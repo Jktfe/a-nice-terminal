@@ -193,6 +193,59 @@
     return record.name && record.name.length > 0 ? record.name : record.sessionId.slice(0, 12) + '…';
   }
 
+  // ─── Session recovery (post-reboot) ──────────────────────────────────────
+  // Multi-select archived sessions and recover them in one move: the server
+  // recreates each tmux pane in its original cwd, re-runs the agent launch
+  // command, and rebinds identity. See src/lib/server/sessionRecovery.ts.
+  let selectedStale = $state<Set<string>>(new Set());
+  let resumeOnRecover = $state(false);
+  let recovering = $state(false);
+  let recoverPreview = $state<string>('');
+
+  function toggleStale(sessionId: string): void {
+    const next = new Set(selectedStale);
+    if (next.has(sessionId)) next.delete(sessionId); else next.add(sessionId);
+    selectedStale = next;
+    recoverPreview = '';
+  }
+
+  async function recover(sessionIds: string[], dryRun: boolean): Promise<void> {
+    if (sessionIds.length === 0) return;
+    recovering = true;
+    lastError = '';
+    try {
+      const res = await fetch('/api/terminals/recover', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionIds, resume: resumeOnRecover, dryRun })
+      });
+      if (!res.ok) throw new Error(`recover failed: ${res.status}`);
+      const body = (await res.json()) as { recovered?: Array<{ name: string; command: string | null; error?: string }> };
+      const outcomes = body.recovered ?? [];
+      if (dryRun) {
+        recoverPreview = outcomes
+          .map((o) => `${o.name} → ${o.command ?? '(shell only)'}`)
+          .join('\n');
+      } else {
+        recoverPreview = '';
+        selectedStale = new Set();
+        await loadTerminals();
+        // Surface per-session failures so the operator isn't left guessing why
+        // a chip stayed archived.
+        const errors = outcomes.filter((o) => o.error).map((o) => `${o.name}: ${o.error}`);
+        if (errors.length > 0) lastError = `Some sessions failed to recover — ${errors.join('; ')}`;
+      }
+    } catch (cause) {
+      lastError = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      recovering = false;
+    }
+  }
+
+  function recoverSelected(): void { void recover([...selectedStale], false); }
+  function previewSelected(): void { void recover([...selectedStale], true); }
+  function recoverAll(): void { void recover(staleTerminals.map((r) => r.sessionId), false); }
+
   // Group ANT terminals by agentKind sub-headings per JWPK THREAD 1.
   // Ungrouped (null/empty) section appears last.
   //
@@ -359,14 +412,47 @@
 
     {#if staleTerminals.length > 0}
       <section class="tier tier-stale" aria-label="Archived terminals">
-        <h3 class="tier-heading">Archived terminals <span class="muted">— tmux pane gone, kept for history</span></h3>
+        <h3 class="tier-heading">Archived terminals <span class="muted">— tmux pane gone; select to recover</span></h3>
+        <div class="recover-bar">
+          <button
+            type="button"
+            class="recover-btn primary"
+            disabled={selectedStale.size === 0 || recovering}
+            onclick={recoverSelected}
+          >Recover selected ({selectedStale.size})</button>
+          <button
+            type="button"
+            class="recover-btn secondary"
+            disabled={recovering}
+            onclick={recoverAll}
+          >Recover all</button>
+          <button
+            type="button"
+            class="recover-btn secondary"
+            disabled={selectedStale.size === 0 || recovering}
+            onclick={previewSelected}
+          >Show command</button>
+          <label class="resume-toggle">
+            <input type="checkbox" bind:checked={resumeOnRecover} />
+            Resume <span class="muted">(append --resume "name")</span>
+          </label>
+        </div>
         <div class="chips">
           {#each staleTerminals as record (record.sessionId)}
-            <span class="chip ant-chip dead" title={`${record.sessionId} is archived (tmux pane no longer exists)`}>
+            <button
+              type="button"
+              class="chip ant-chip dead selectable"
+              class:selected={selectedStale.has(record.sessionId)}
+              title={`${record.sessionId} is archived — click to select for recovery`}
+              onclick={() => toggleStale(record.sessionId)}
+            >
               {chipLabel(record)}
-            </span>
+            </button>
           {/each}
         </div>
+        {#if recoverPreview}
+          <pre class="recover-preview">{recoverPreview}</pre>
+        {/if}
       </section>
     {/if}
 
@@ -489,7 +575,17 @@
   .chip { padding: 0.35rem 0.65rem; border: 1px solid var(--line-soft); border-radius: 999px; background: var(--surface-card); color: var(--ink-strong); font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; }
   .chip.active { border-color: var(--accent); color: var(--accent); font-weight: 700; }
   .chip.dead { opacity: 0.55; cursor: default; }
+  .chip.dead.selectable { cursor: pointer; opacity: 0.7; }
+  .chip.dead.selectable:hover { opacity: 1; border-color: var(--accent); }
+  .chip.dead.selected { opacity: 1; border-color: var(--accent); color: var(--accent); font-weight: 700; background: var(--surface-card); }
   .tier-stale { margin-top: 0.9rem; padding-top: 0.75rem; border-top: 1px dashed var(--surface-edge); }
+  .recover-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 0.6rem; }
+  .recover-btn { padding: 0.35rem 0.8rem; border-radius: 999px; font-size: 0.8rem; font-weight: 700; cursor: pointer; }
+  .recover-btn.primary { border: 1px solid var(--accent); background: var(--accent); color: white; }
+  .recover-btn.secondary { border: 1px solid var(--line-soft); background: var(--surface-card); color: var(--ink-strong); }
+  .recover-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .resume-toggle { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; color: var(--ink-strong); }
+  .recover-preview { margin: 0.5rem 0 0; padding: 0.5rem 0.7rem; border-radius: 0.4rem; background: var(--surface-card); border: 1px solid var(--line-soft); font-family: ui-monospace, monospace; font-size: 0.75rem; white-space: pre-wrap; color: var(--ink-soft); }
   .tmux-chip { font-family: ui-monospace, monospace; color: var(--ink-soft); }
   .tmux-chip:hover { color: var(--accent); border-color: var(--accent); }
   .tmux-chip .promote-hint { font-size: 0.7rem; opacity: 0.7; }

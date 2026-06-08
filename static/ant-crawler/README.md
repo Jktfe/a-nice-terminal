@@ -1,6 +1,6 @@
 # ANT Crawler Asset Pack
 
-Fresh animation-ready vector assets inspired by `/Users/jamesking/Downloads/ant.svg`.
+Fresh animation-ready vector assets inspired by `~/Downloads/ant.svg`.
 
 ## Files
 

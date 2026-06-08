@@ -2,7 +2,7 @@
   <title id="ant-crawler-title">ANT crawler rig</title>
   <desc id="ant-crawler-desc">A polished ANT ant split into independently animatable body, antenna, and six leg assemblies.</desc>
   <!--
-    Source reference: /Users/jamesking/Downloads/ant.svg lines 1-18
+    Source reference: ~/Downloads/ant.svg lines 1-18
     Verdict: CHANGE
     Simplification: Rebuilt as a premium vector rig instead of copying compound
     source paths. The supplied ant defines the character: dark body, white rim,

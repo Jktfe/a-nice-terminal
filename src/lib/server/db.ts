@@ -486,6 +486,14 @@ const SCHEMA_DDL_STATEMENTS = [
   // `ant register` handle-change path via appendHandleAlias();
   // Phase A1 ships the column + helpers only.
   `ALTER TABLE terminal_records ADD COLUMN handle_aliases TEXT`,
+  // Session recovery (reboot survival). The exact CLI line that launched the
+  // agent in this pane (e.g. `claude --dangerously-skip-permissions
+  // --remote-control`). Lets `POST /api/terminals/recover` recreate the tmux
+  // pane and re-run the agent after a reboot kills the tmux server. NULL until
+  // set explicitly (spawn/PATCH) or mined from captured scrollback at recover
+  // time. Free-form so custom agents (Kimi/Minimax model flags) round-trip
+  // verbatim.
+  `ALTER TABLE terminal_records ADD COLUMN boot_command TEXT`,
   // Fix #2 of sec-iter1 (2026-05-30 enterprise security pass). Root-cause
   // structural fix for the privilege-escalation surface that Fix #1
   // closes at the approver gate: terminal_records.handle must be UNIQUE

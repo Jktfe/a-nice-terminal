@@ -4,6 +4,31 @@ All notable changes to ANT are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Session recovery after a reboot.** A Mac restart kills the tmux server and
+  every agent CLI process (the SQLite DB and the launchd-managed server
+  survive), leaving every session archived and forcing an operator to rebuild
+  each one by hand. Recovery now happens in one move: recreate the tmux pane
+  under the same `sessionId` in its original cwd, un-archive + rebind identity,
+  and re-run the agent's launch command — reconstructed from the stored
+  `boot_command`, mined from captured scrollback (e.g.
+  `claude --dangerously-skip-permissions --remote-control`), or derived from
+  `agent_kind`, with an optional `--resume "<name>"`. Surfaces:
+  - **`POST /api/terminals/recover`** `{ sessionIds, resume?, launchAgents?,
+    dryRun? }` (spawn-locality gated, blocks `Bearer rbt_*`).
+  - **`/terminals` multi-select** — select archived chips and click
+    **Recover selected** / **Recover all**, with a **Resume** toggle and a
+    **Show command** dry-run preview.
+  - **`ant sessions recover [names…] [--all] [--resume] [--no-agents]
+    [--dry-run]`**.
+  - **Optional hands-off boot recovery** via `ANT_AUTORECOVER_SESSIONS=1`
+    (panes) + `ANT_AUTORECOVER_AGENTS=1` (relaunch agents), both default off.
+  - New nullable `terminal_records.boot_command` column, settable on spawn /
+    PATCH so custom agents (Kimi/Minimax model flags) round-trip verbatim.
+
 ## [0.2.2] — 2026-05-23
 
 A polish release on top of `0.2.1` that fixes the JWPK-flagged dogfood layout

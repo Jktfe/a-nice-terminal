@@ -209,6 +209,7 @@ Key variables:
 - `HOST` / `PORT` — bind address and port for production serving (default port `6174`).
 - `ANT_DEMO_EMAIL` / `ANT_DEMO_PASSWORD` — optional, enables the demo-login gate on `/login`. **Change these before exposing the server to anyone but yourself.** Unset both to disable the gate entirely (anonymous walk-in resumes).
 - `ANT_WEBHOOK_ALLOW_PRIVATE` — set to `true` to let cron `webhook.post` jobs target private / loopback / metadata IPs. Default fails closed (SSRF guard).
+- `ANT_AUTORECOVER_SESSIONS` / `ANT_AUTORECOVER_AGENTS` — session recovery after a reboot. A restart kills the tmux server and every agent CLI (the DB and this server survive). The `/terminals` **Recover** buttons and `ant sessions recover` rebuild sessions on demand; set `ANT_AUTORECOVER_SESSIONS=1` to recreate every dead session's pane automatically on boot, and `ANT_AUTORECOVER_AGENTS=1` to also relaunch the agent CLI in each pane. Both default off.
 
 Full reference in [`.env.example`](./.env.example).
 

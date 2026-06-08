@@ -27,7 +27,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 # Node 22 toolchain (matches the better-sqlite3 native build NODE_MODULE_VERSION).
-export PATH="/Users/jamesking/.nvm/versions/node/v22.22.1/bin:$PATH"
+export PATH="$HOME/.nvm/versions/node/v22.22.1/bin:$PATH"
 
 fail() { echo "❌ GREEN-GATE FAIL: $*" >&2; exit 1; }
 ok()   { echo "✅ $*"; }

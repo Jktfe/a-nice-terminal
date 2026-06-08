@@ -20,11 +20,13 @@ export default defineConfig({
     fs: {
       allow: [process.cwd(), nodeModulesRealPath]
     },
+    // Operator tailnet host is supplied via env (ANT_DEV_ALLOWED_HOST, e.g.
+    // `.your-tailnet.ts.net`) so no machine-specific hostname is committed.
     allowedHosts: [
       'localhost',
       '127.0.0.1',
       '.anthost-interval.ts.net',
-      '.kingfisher-interval.ts.net'
+      ...(process.env.ANT_DEV_ALLOWED_HOST ? [process.env.ANT_DEV_ALLOWED_HOST] : [])
     ]
   },
   test: {
