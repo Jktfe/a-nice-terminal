@@ -23,6 +23,7 @@ import { subscribeToRoom, unsubscribeFromRoom } from './eventBroadcast';
 import { setRoomAlias } from './chatRoomAliasStore';
 import { createClaim, resetEntityClaimStoreForTests } from './entityClaimStore';
 import { createSession } from './antSessionStore';
+import { addMember } from './membershipStore';
 import { createRoomHandleLease } from './roomHandleLeaseStore';
 import { getContextState } from './roomSessionContextStore';
 import { createSubagentSession, mintSubagentLease } from './subagentIdentity';
@@ -131,6 +132,29 @@ describe('fanoutMessageToRoomTerminals — B2 room-scoped queue keys', () => {
 });
 
 describe('fanoutMessageToRoomTerminals — mention-targeted routing', () => {
+  it('prefers durable room_membership session binding over stale legacy room_memberships terminal binding', () => {
+    const room = createChatRoom({ name: 'durable-fanout-room', whoCreatedIt: '@JWPK' });
+    const oldTerminal = upsertTerminal({ pid: 1, pid_start: 'old', name: 'old-fast' });
+    const currentTerminal = upsertTerminal({ pid: 2, pid_start: 'current', name: 'current-fast' });
+    updatePaneTarget(oldTerminal.id, '%old-fast', 'codex_cli');
+    updatePaneTarget(currentTerminal.id, '%current-fast', 'codex_cli');
+    addMembership({ room_id: room.id, handle: '@fast', terminal_id: oldTerminal.id });
+    const session = createSession({
+      id: 'durable-fast-session',
+      kind: 'local-cli',
+      label: '@fast',
+      terminalId: currentTerminal.id
+    });
+    addMember(room.id, '@fast', session.id);
+
+    const message = postMessage({ roomId: room.id, authorHandle: '@JWPK', body: '@fast ping', kind: 'human' });
+    fanoutMessageToRoomTerminals(room.id, message);
+
+    const q = getFanoutQueueForTests();
+    expect(q.pendingCountForTests(`${room.id}::${oldTerminal.id}`)).toBe(0);
+    expect(q.pendingCountForTests(`${room.id}::${currentTerminal.id}`)).toBe(1);
+  });
+
   it('does NOT enqueue an unmentioned brainstorm message to room members', () => {
     const room = createChatRoom({ name: 'fanout-room', whoCreatedIt: '@test' });
     const t1 = upsertTerminal({ pid: 1, pid_start: 'p1', name: 'sender-term' });

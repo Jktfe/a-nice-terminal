@@ -17,6 +17,8 @@
 import type { ChatMessage } from './chatMessageStore';
 import { findChatRoomById } from './chatRoomStore';
 import { listMembershipsForRoom, type RoomMembershipRow } from './roomMembershipsStore';
+import { listMembers as listDurableMembers } from './membershipStore';
+import { getSession } from './antSessionStore';
 import {
   listFocusedMembersInRoom,
   listLapsedUnpromptedShields,
@@ -162,6 +164,23 @@ function resolveBareMentionsToGlobalHandles(roomId: string, body: string): Set<s
 }
 
 const FANOUT_KINDS_ALLOWED = new Set(['human', 'agent']);
+
+function listDeliveryMembershipsForRoom(roomId: string): RoomMembershipRow[] {
+  const durableRows = listDurableMembers(roomId)
+    .flatMap((membership) => {
+      if (!membership.session_id) return [];
+      const session = getSession(membership.session_id);
+      if (!session?.terminal_id) return [];
+      return [{
+        id: `${roomId}:${membership.handle}:${membership.session_id}`,
+        room_id: roomId,
+        handle: membership.handle,
+        terminal_id: session.terminal_id,
+        created_at: Math.floor(membership.created_at_ms / 1000)
+      } satisfies RoomMembershipRow];
+    });
+  return durableRows.length > 0 ? durableRows : listMembershipsForRoom(roomId);
+}
 
 type QueuedItem = {
   roomId: string;
@@ -326,7 +345,7 @@ function emitStaleSystemMessage(roomId: string, handle: string, reason: string):
 export function sendCoordinationRelay(roomId: string, recipientHandle: string, body: string): boolean {
   const room = findChatRoomById(roomId);
   if (!room) return false;
-  const membership = listMembershipsForRoom(roomId).find((m) => m.handle === recipientHandle);
+  const membership = listDeliveryMembershipsForRoom(roomId).find((m) => m.handle === recipientHandle);
   if (!membership?.terminal_id) return false;
   queue.enqueue(queueKeyFor(roomId, membership.terminal_id), {
     roomId,
@@ -415,7 +434,7 @@ export function runIdleMonitor(
   nowMs: number = Date.now(),
   activeAuthorHandle?: string
 ): IdleReportRow[] {
-  const agents = listMembershipsForRoom(roomId)
+  const agents = listDeliveryMembershipsForRoom(roomId)
     .filter((m) => m.terminal_id)
     .map((m) => {
       const status = getAgentStatus(m.terminal_id);
@@ -477,7 +496,7 @@ export function fanoutMessageToRoomTerminals(
   // Idle monitor: on room activity, run the idle-trigger sweep (throttled per
   // room) so newly-idle agents get a one-shot directed nudge. Best-effort.
   maybeRunIdleMonitor(roomId, message.authorHandle);
-  const memberships = listMembershipsForRoom(roomId);
+  const memberships = listDeliveryMembershipsForRoom(roomId);
   const targetedHandles = resolveBareMentionsToGlobalHandles(roomId, message.body);
   const containsInformationalMention = hasBracketedMention(message.body);
 
@@ -505,7 +524,7 @@ export function fanoutMessageToRoomTerminals(
   ) {
     const responderRows = listRespondersForRoom(roomId);
     if (responderRows.length > 0) {
-      const responderMemberships = listMembershipsForRoom(roomId);
+      const responderMemberships = listDeliveryMembershipsForRoom(roomId);
       const handleByTerminal = new Map(responderMemberships.map((m) => [m.terminal_id, m.handle]));
       const respondersWithStatus: ResponderWithStatus[] = responderRows.map((row) => {
         const terminal = getTerminalById(row.terminal_id);
@@ -748,7 +767,7 @@ export function fanoutReactionToAuthor(
   const message = getMessageById(messageId);
   if (!message) return;
   if (message.authorHandle === reactorHandle) return;
-  const memberships = listMembershipsForRoom(roomId);
+  const memberships = listDeliveryMembershipsForRoom(roomId);
   const authorMembership = memberships.find((m) => m.handle === message.authorHandle);
   if (!authorMembership) return;
   const terminal = getTerminalById(authorMembership.terminal_id);
