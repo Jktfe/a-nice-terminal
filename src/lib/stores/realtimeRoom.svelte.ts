@@ -142,8 +142,9 @@ function scheduleReopen(entry: PoolEntry, roomId: string): void {
   }, entry.reopenDelayMs);
 }
 
-// Attach the onopen/onmessage/onerror handlers to entry.source. Factored
-// out of getOrCreateEntry so a backoff re-open can re-wire a fresh source.
+// Wire the SSE handlers onto `entry.source`. Extracted from getOrCreateEntry
+// so a backoff re-open or tab-foreground rebuild can re-wire a fresh source
+// without tearing down the pool entry and its subscriber callbacks.
 function wireSource(entry: PoolEntry, roomId: string): void {
   const source = entry.source;
   source.onopen = () => {
@@ -222,9 +223,59 @@ function wireSource(entry: PoolEntry, roomId: string): void {
   };
 }
 
+// MOBILE AUTOREFRESH FIX (2026-06-08, @c4): iOS Safari (and aggressive
+// desktop tab-throttling) suspends or kills a backgrounded EventSource;
+// native auto-reconnect frequently does NOT resume when the tab returns to
+// the foreground, leaving the room view silently stale — the user comes
+// back to a dead socket and "autorefresh stopped working, I missed all the
+// messages". Register ONE document-level visibilitychange listener that,
+// on return-to-foreground, rebuilds any dead/errored socket and forces a
+// catch-up invalidate (via onConnect) so the view re-syncs immediately.
+let foregroundReconnectRegistered = false;
+function ensureForegroundReconnect(): void {
+  if (foregroundReconnectRegistered) return;
+  if (typeof document === 'undefined') return;
+  foregroundReconnectRegistered = true;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    for (const [roomId, entry] of pool) {
+      const dead =
+        entry.source.readyState === EventSource.CLOSED ||
+        entry.connectionState === 'disconnected' ||
+        entry.connectionState === 'unreachable';
+      if (dead) {
+        // Rebuild the socket in place; its onopen fires onConnect →
+        // invalidateAll, so the view catches up on everything missed.
+        try { entry.source.close(); } catch { /* already closed */ }
+        if (entry.unreachableTimer !== null) {
+          clearTimeout(entry.unreachableTimer);
+          entry.unreachableTimer = null;
+        }
+        if (entry.reopenTimer !== null) {
+          clearTimeout(entry.reopenTimer);
+          entry.reopenTimer = null;
+        }
+        entry.connected = false;
+        entry.connectionState = 'connecting';
+        entry.firstFailedAtMs = null;
+        entry.lastError = null;
+        entry.reopenDelayMs = REOPEN_BASE_MS;
+        entry.source = new EventSource(`/api/realtime/${encodeURIComponent(roomId)}/events`);
+        wireSource(entry, roomId);
+        notifyConnectionStateListeners(entry);
+      } else {
+        // Socket believed alive but events may have been throttled/dropped
+        // while backgrounded — force a one-shot catch-up so the list re-syncs.
+        for (const cb of entry.onConnectCallbacks) cb();
+      }
+    }
+  });
+}
+
 function getOrCreateEntry(roomId: string): PoolEntry {
   const existing = pool.get(roomId);
   if (existing) return existing;
+  ensureForegroundReconnect();
   const entry: PoolEntry = {
     source: new EventSource(`/api/realtime/${encodeURIComponent(roomId)}/events`),
     refCount: 0,
