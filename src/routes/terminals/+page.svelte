@@ -230,6 +230,10 @@
         recoverPreview = '';
         selectedStale = new Set();
         await loadTerminals();
+        // Surface per-session failures so the operator isn't left guessing why
+        // a chip stayed archived.
+        const errors = outcomes.filter((o) => o.error).map((o) => `${o.name}: ${o.error}`);
+        if (errors.length > 0) lastError = `Some sessions failed to recover — ${errors.join('; ')}`;
       }
     } catch (cause) {
       lastError = cause instanceof Error ? cause.message : String(cause);

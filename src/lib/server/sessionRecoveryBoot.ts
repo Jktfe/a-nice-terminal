@@ -39,7 +39,10 @@ export function ensureSessionRecoveryBooted(): void {
       try {
         const aliveSet = new Set(await listTerminals());
         const dead = listTerminalRecords()
-          .filter((r) => !aliveSet.has(r.session_id))
+          // Skip superseded rows (pane-recycled / stale) — they're no longer
+          // authoritative, so auto-recovering them on boot is wasteful and can
+          // re-spawn a session a later record already replaced.
+          .filter((r) => r.superseded_at_ms === null && !aliveSet.has(r.session_id))
           .map((r) => r.session_id);
         if (dead.length === 0) return;
         const outcomes = await recoverSessions(dead, { launchAgent });
