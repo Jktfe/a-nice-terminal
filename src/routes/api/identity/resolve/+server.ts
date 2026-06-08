@@ -29,10 +29,16 @@ import type { RequestHandler } from './$types';
 import { lookupTerminalByPidChain, type PidChainEntry } from '$lib/server/terminalsStore';
 import { getRoomScopedHandle } from '$lib/server/roomMembershipsStore';
 import { resolveV02ByPidChain } from '$lib/server/v02RegisterBootstrap';
+import { getSession } from '$lib/server/antSessionStore';
+import { resolveHandleForSession } from '$lib/server/membershipStore';
+import { displayHandleForSession } from '$lib/server/roomHandleLeaseClean';
 
 type IdentityResolveBody = {
   pids?: unknown;
   room_id?: unknown;
+  sessionId?: unknown;
+  session_id?: unknown;
+  antSessionId?: unknown;
 };
 
 function parsePidChain(rawPids: unknown): PidChainEntry[] {
@@ -88,7 +94,22 @@ export const POST: RequestHandler = async ({ request }) => {
 
   const roomIdRaw = rawBody.room_id;
   const roomId = typeof roomIdRaw === 'string' && roomIdRaw.length > 0 ? roomIdRaw : null;
-  const handle = roomId ? getRoomScopedHandle(roomId, terminal.id) : null;
+  const sessionId = extractSessionId(request, rawBody);
+  let handle: string | null = null;
+  if (roomId && sessionId) {
+    const session = getSession(sessionId);
+    const sessionBelongsToTerminal =
+      session !== null &&
+      (session.terminal_id === null || session.terminal_id === terminal.id);
+    if (sessionBelongsToTerminal) {
+      handle =
+        displayHandleForSession(roomId, session.id) ??
+        resolveHandleForSession(roomId, session.id);
+    }
+  }
+  if (!handle && roomId) {
+    handle = getRoomScopedHandle(roomId, terminal.id);
+  }
 
   return json({
     terminal_id: terminal.id,
@@ -99,3 +120,12 @@ export const POST: RequestHandler = async ({ request }) => {
     v02_runtime_id: v02RuntimeId
   });
 };
+
+function extractSessionId(request: Request, body: IdentityResolveBody): string | null {
+  const fromHeader = request.headers.get('x-ant-session-id')?.trim();
+  if (fromHeader) return fromHeader;
+  const bodySessionId = body.sessionId ?? body.session_id ?? body.antSessionId;
+  if (typeof bodySessionId !== 'string') return null;
+  const trimmed = bodySessionId.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}

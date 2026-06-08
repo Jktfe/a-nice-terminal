@@ -52,12 +52,42 @@ async function sendJson(runtime, path, method, body) {
 }
 
 async function resolveCurrentTerminal(runtime, pidChain) {
-  const payload = await sendJson(runtime, '/api/identity/resolve', 'POST', { pids: pidChain });
+  const sessionId = durableSessionIdForRuntime(runtime);
+  const payload = await sendJson(
+    runtime,
+    '/api/identity/resolve',
+    'POST',
+    sessionId ? { pids: pidChain, sessionId } : { pids: pidChain }
+  );
   const terminalId = payload?.terminal_id ?? payload?.terminalId ?? null;
   if (!terminalId) {
     throw new Error('current pidChain did not resolve to a terminal; run `ant register` from this shell first');
   }
   return terminalId;
+}
+
+function normaliseDurableSessionId(raw) {
+  return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : null;
+}
+
+function durableSessionIdForRuntime(runtime) {
+  const envSession = normaliseDurableSessionId(process.env.ANT_SESSION_ID);
+  if (envSession) return envSession;
+  const pane =
+    normaliseDurableSessionId(runtime.envTmuxPane) ??
+    normaliseDurableSessionId(process.env.TMUX_PANE) ??
+    normaliseDurableSessionId(process.env.WEZTERM_PANE);
+  const byPane = runtime.config?.antSessions?.byPane;
+  if (pane && byPane && typeof byPane === 'object') {
+    const paneSession = normaliseDurableSessionId(byPane[pane]);
+    if (paneSession) return paneSession;
+  }
+  return null;
+}
+
+function durableSessionHeaders(runtime) {
+  const sessionId = durableSessionIdForRuntime(runtime);
+  return sessionId ? { 'x-ant-session-id': sessionId } : {};
 }
 
 async function runPlanning(args, runtime, CliInputError) {
@@ -262,8 +292,10 @@ function requireFlag(flags, name, CliInputError) {
   return value;
 }
 
-async function fetchJson(runtime, path) {
-  const response = await runtime.fetchImpl(`${runtime.serverUrl}${path}`);
+async function fetchJson(runtime, path, extraHeaders = {}) {
+  const response = await runtime.fetchImpl(`${runtime.serverUrl}${path}`, {
+    headers: { ...extraHeaders }
+  });
   if (!response.ok) {
     const text = await response.text().catch(() => '');
     throw new Error(`Request failed (${response.status}): ${text.slice(0, 200)}`);
@@ -304,7 +336,7 @@ async function runRoom(roomId, rich, flags, runtime) {
   const query = new URLSearchParams({ pidChain: JSON.stringify(processIdentityChain()) });
   if (rich) query.set('rich', '1');
   const path = `/api/chat-rooms/${encodeURIComponent(roomId)}/status?${query.toString()}`;
-  const payload = await fetchJson(runtime, path);
+  const payload = await fetchJson(runtime, path, durableSessionHeaders(runtime));
 
   if (flags.json !== undefined) {
     runtime.writeOut(JSON.stringify(payload));

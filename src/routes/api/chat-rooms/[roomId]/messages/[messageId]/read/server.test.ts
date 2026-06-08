@@ -16,6 +16,8 @@ import {
 import { resetIdentityDbForTests } from '$lib/server/db';
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { addMembership } from '$lib/server/roomMembershipsStore';
+import { createSession } from '$lib/server/antSessionStore';
+import { addMember } from '$lib/server/membershipStore';
 import { createBrowserSession } from '$lib/server/browserSessionStore';
 import { subscribeToRoom, unsubscribeFromRoom } from '$lib/server/eventBroadcast';
 
@@ -24,6 +26,7 @@ type PostOptions = {
   messageId: string;
   body?: string;
   cookie?: string;
+  sessionId?: string;
 };
 
 async function callPost(options: PostOptions): Promise<Response> {
@@ -32,7 +35,8 @@ async function callPost(options: PostOptions): Promise<Response> {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      ...(options.cookie !== undefined && { cookie: options.cookie })
+      ...(options.cookie !== undefined && { cookie: options.cookie }),
+      ...(options.sessionId !== undefined && { 'x-ant-session-id': options.sessionId })
     },
     body: options.body
   });
@@ -287,6 +291,38 @@ describe('POST + GET /api/chat-rooms/:roomId/messages/:messageId/read', () => {
     });
     expect(response.status).toBe(201);
     expect(listReadersForMessage(message.id)[0].readerHandle).toBe('@a');
+  });
+
+  it('POST records the durable-session reader when pidChain has no legacy room membership', async () => {
+    const room = createChatRoom({ name: 'a', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@durable' });
+    const message = postMessage({
+      roomId: room.id,
+      authorHandle: '@you',
+      body: 'hi'
+    });
+    const terminal = upsertTerminal({
+      pid: 41_000,
+      pid_start: 'durable-reader-start',
+      name: 'durable-reader'
+    });
+    const session = createSession({
+      id: 'sess-reader-durable',
+      kind: 'local-cli',
+      label: '@durable',
+      terminalId: terminal.id
+    });
+    addMember(room.id, '@durable', session.id);
+
+    const response = await callPost({
+      roomId: room.id,
+      messageId: message.id,
+      sessionId: session.id,
+      body: JSON.stringify({ pidChain: [{ pid: 41_000, pid_start: 'durable-reader-start' }] })
+    });
+
+    expect(response.status).toBe(201);
+    expect(listReadersForMessage(message.id)[0].readerHandle).toBe('@durable');
   });
 
   it('POST records the browser-session reader when readerHandle is omitted', async () => {

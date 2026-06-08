@@ -746,11 +746,17 @@ async function runBreak(flags, runtime, CliInputError) {
 async function runRead(flags, runtime, CliInputError) {
   const room = requireFlag(flags, 'room', CliInputError);
   const message = requireFlag(flags, 'message', CliInputError);
+  const payload = withDurableSessionIdentity(runtime, room, {
+    readerHandle: handleFlag(flags),
+    pidChain: processIdentityChain()
+  });
   const result = await sendJson(
     runtime,
     `/api/chat-rooms/${encodeURIComponent(room)}/messages/${encodeURIComponent(message)}/read`,
     'POST',
-    { readerHandle: handleFlag(flags), pidChain: processIdentityChain() }
+    payload,
+    undefined,
+    durableSessionHeaders(runtime, room)
   );
   writeResult(runtime, flags, result, `Marked read: ${message}`);
   return 0;

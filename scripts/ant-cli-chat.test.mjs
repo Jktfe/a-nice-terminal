@@ -306,10 +306,13 @@ describe('ant chat state wrappers', () => {
 
   it('C2: read POSTs the reader handle to a message read endpoint', async () => {
     const { runtime, captured } = makeRuntime(() => okJson({ receipt: { id: 'read-1' } }, 201));
+    runtime.envTmuxPane = '%read';
+    runtime.config = { antSessions: { byPane: { '%read': 'sess-read-1' } } };
     await handleChatVerb('read', ['--room', 'room-a', '--message', 'msg-1', '--handle', '@researchant', '--json'], runtime, { CliInputError });
     expect(captured.requests[0].url).toBe('http://test.local/api/chat-rooms/room-a/messages/msg-1/read');
     expect(captured.requests[0].init.method).toBe('POST');
-    expect(bodyAt(captured)).toMatchObject({ readerHandle: '@researchant', pidChain: expect.any(Array) });
+    expect(captured.requests[0].init.headers['x-ant-session-id']).toBe('sess-read-1');
+    expect(bodyAt(captured)).toMatchObject({ readerHandle: '@researchant', sessionId: 'sess-read-1', pidChain: expect.any(Array) });
     expect(JSON.parse(captured.stdout[0])).toMatchObject({ receipt: { id: 'read-1' } });
   });
 

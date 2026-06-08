@@ -273,6 +273,20 @@ describe('handleResolveVerb', () => {
     const body = JSON.parse(captured.calls[0].init.body);
     expect(body.room_id).toBe('r-7');
   });
+
+  it('includes the pane-scoped durable session when resolving a room handle', async () => {
+    const { runtime, captured } = makeRuntime(
+      [okJson({ terminal_id: 't_x', name: 'n', agent_kind: null, handle: '@durable' }, 200)],
+      {
+        envTmuxPane: '%pane-resolve',
+        config: { antSessions: { byPane: { '%pane-resolve': 'sess-resolve-1' } } }
+      }
+    );
+    await handleResolveVerb('--room', ['r-7'], runtime, { CliInputError });
+    const body = JSON.parse(captured.calls[0].init.body);
+    expect(body.room_id).toBe('r-7');
+    expect(body.sessionId).toBe('sess-resolve-1');
+  });
 });
 
 // 0.1.8 slice A (Xeno windows-cli-auth-wedge follow-up 2026-05-22):

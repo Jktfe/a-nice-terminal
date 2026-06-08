@@ -64,6 +64,24 @@ const TERMINALS_FIXTURE = {
 };
 
 describe('ant terminal name-aware verbs', () => {
+  it('terminal handle resolves current shell with the pane-scoped durable session', async () => {
+    const { runtime, captured } = makeRuntime({
+      '/api/identity/resolve': ok({ terminal_id: 't_abc', name: 'T1', agent_kind: 'claude', handle: '@t1' }),
+      '/api/terminals': ok(TERMINALS_FIXTURE)
+    });
+    runtime.envTmuxPane = '%terminal-handle';
+    runtime.config = { antSessions: { byPane: { '%terminal-handle': 'sess-terminal-handle' } } };
+
+    await handleTerminalVerb('handle', [], runtime, { CliInputError });
+
+    expect(captured.requests[0].url).toBe('http://test.local/api/identity/resolve');
+    expect(JSON.parse(captured.requests[0].init.body)).toMatchObject({
+      pids: expect.any(Array),
+      sessionId: 'sess-terminal-handle'
+    });
+    expect(captured.stdout.join(' ')).toContain('@t1');
+  });
+
   it('terminal <name>: shows info for the matched record', async () => {
     const { runtime, captured } = makeRuntime({
       '/api/terminals': ok(TERMINALS_FIXTURE)

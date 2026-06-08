@@ -25,6 +25,9 @@ import {
 import { applyDeprecationOrThrow, AUTH_DEPRECATION_HINT_BODY } from './authDeprecation';
 import { lookupTerminalByPidChain } from './terminalsStore';
 import { getOperatorHandle } from './operatorHandle';
+import { getSession } from './antSessionStore';
+import { resolveHandleForSession } from './membershipStore';
+import { displayHandleForSession } from './roomHandleLeaseClean';
 import {
   bearerTokenFromHeader,
   resolveToken as resolveAntchatToken,
@@ -187,10 +190,36 @@ export function resolveCallerIdentityStrict(roomId: string, request: Request, ra
     // forged pidChain combination from authenticating.
     throw error(403, 'Invalid browser session.');
   }
+  const sessionHandle = resolveDurableSessionRoomHandle(roomId, request, rawBody);
+  if (sessionHandle) return sessionHandle;
   const pidChain = parsePidChainFromBody(rawBody);
   const handle = resolveServerSideHandle(roomId, pidChain);
   if (handle) return handle;
   throw error(403, AUTH_DEPRECATION_HINT_BODY);
+}
+
+function resolveDurableSessionRoomHandle(roomId: string, request: Request, rawBody: unknown): string | null {
+  const sessionId = extractAntSessionId(request, rawBody);
+  if (!sessionId) return null;
+  const session = getSession(sessionId);
+  if (!session) return null;
+  return (
+    displayHandleForSession(roomId, session.id) ??
+    resolveHandleForSession(roomId, session.id)
+  );
+}
+
+function extractAntSessionId(request: Request, rawBody: unknown): string | null {
+  const fromHeader = request.headers.get('x-ant-session-id')?.trim();
+  if (fromHeader) return fromHeader;
+  if (!rawBody || typeof rawBody !== 'object') return null;
+  const sessionId = (rawBody as { sessionId?: unknown; session_id?: unknown; antSessionId?: unknown }).sessionId;
+  if (typeof sessionId === 'string' && sessionId.trim().length > 0) return sessionId.trim();
+  const sessionIdSnake = (rawBody as { session_id?: unknown }).session_id;
+  if (typeof sessionIdSnake === 'string' && sessionIdSnake.trim().length > 0) return sessionIdSnake.trim();
+  const antSessionId = (rawBody as { antSessionId?: unknown }).antSessionId;
+  if (typeof antSessionId === 'string' && antSessionId.trim().length > 0) return antSessionId.trim();
+  return null;
 }
 
 /**

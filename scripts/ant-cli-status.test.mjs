@@ -42,12 +42,15 @@ describe('ant status wrappers (M3.4a-v1)', () => {
       ]
     };
     const { runtime, captured } = makeRuntime(() => okJson(payload));
+    runtime.envTmuxPane = '%status-show';
+    runtime.config = { antSessions: { byPane: { '%status-show': 'sess-status-show' } } };
     const code = await handleStatusVerb('show', ['--room', 'room-a'], runtime, { CliInputError });
     expect(code).toBe(0);
     // URL now carries pidChain query for the hooks.server.ts gate.
     const u0 = new URL(captured.requests[0].url);
     expect(`${u0.origin}${u0.pathname}`).toBe('http://test.local/api/chat-rooms/room-a/status');
     expect(u0.searchParams.get('pidChain')).toBeTruthy();
+    expect(captured.requests[0].init.headers['x-ant-session-id']).toBe('sess-status-show');
     expect(captured.stdout[0]).toContain('@first');
     expect(captured.stdout[0]).toContain('verified');
     expect(captured.stdout[1]).toContain('@second');
@@ -190,6 +193,8 @@ describe('ant status wrappers (M3.4a-v1)', () => {
       if (idx === 2) return okJson({ terminal_id: 'term-plan', agent_status: 'thinking', agent_status_source: 'ant-activity' });
       return okJson({ message: { id: 'msg1' } });
     });
+    runtime.envTmuxPane = '%status-plan';
+    runtime.config = { antSessions: { byPane: { '%status-plan': 'sess-status-plan' } } };
 
     const code = await handleStatusVerb(
       'planning',
@@ -200,7 +205,10 @@ describe('ant status wrappers (M3.4a-v1)', () => {
 
     expect(code).toBe(0);
     expect(captured.requests[0].url).toBe('http://test.local/api/identity/resolve');
-    expect(JSON.parse(captured.requests[0].init.body).pids).toEqual([{ pid: 42, pid_start: 'start' }]);
+    expect(JSON.parse(captured.requests[0].init.body)).toMatchObject({
+      pids: [{ pid: 42, pid_start: 'start' }],
+      sessionId: 'sess-status-plan'
+    });
     expect(captured.requests[1].url).toBe('http://test.local/api/terminals/term-plan/agent-status');
     expect(JSON.parse(captured.requests[1].init.body).status).toBe('thinking');
     expect(JSON.parse(captured.requests[1].init.body).evidence_json.mode).toBe('planning');

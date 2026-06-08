@@ -137,11 +137,16 @@ function writeUsage(runtime) {
 async function runCurrentTerminalHandle(args, runtime, CliInputError) {
   const { flags } = parseFlags(args, CliInputError);
   const chain = processIdentityChain();
-  // POST /api/identity/resolve with the pidChain → terminalId.
+  // POST /api/identity/resolve with the pidChain + durable session → terminalId.
   const sendJson = makeStandardSendJson(runtime);
   let resolved;
   try {
-    resolved = await sendJson('/api/identity/resolve', 'POST', { pidChain: chain });
+    const sessionId = durableSessionIdForRuntime(runtime);
+    resolved = await sendJson(
+      '/api/identity/resolve',
+      'POST',
+      sessionId ? { pids: chain, sessionId } : { pids: chain }
+    );
   } catch (cause) {
     throw new CliInputError(`could not resolve current pidChain to a terminal: ${cause.message ?? cause}`);
   }
@@ -160,6 +165,25 @@ async function runCurrentTerminalHandle(args, runtime, CliInputError) {
     runtime.writeOut(`Resolved to terminal id ${terminalId} (no terminal_records row).`);
   }
   return 0;
+}
+
+function normaliseDurableSessionId(raw) {
+  return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : null;
+}
+
+function durableSessionIdForRuntime(runtime) {
+  const envSession = normaliseDurableSessionId(process.env.ANT_SESSION_ID);
+  if (envSession) return envSession;
+  const pane =
+    normaliseDurableSessionId(runtime.envTmuxPane) ??
+    normaliseDurableSessionId(process.env.TMUX_PANE) ??
+    normaliseDurableSessionId(process.env.WEZTERM_PANE);
+  const byPane = runtime.config?.antSessions?.byPane;
+  if (pane && byPane && typeof byPane === 'object') {
+    const paneSession = normaliseDurableSessionId(byPane[pane]);
+    if (paneSession) return paneSession;
+  }
+  return null;
 }
 
 async function runShowTerminal(identifier, args, runtime, CliInputError) {

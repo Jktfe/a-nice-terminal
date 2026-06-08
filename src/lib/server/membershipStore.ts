@@ -219,6 +219,24 @@ export function resolveMember(roomId: string, handle: string, db = getIdentityDb
   return row ? row.session_id : null;
 }
 
+/** Resolve the handle mapped to a durable session in one room. This is the
+ *  clean inverse of resolveMember and is used by CLI/server identity gates
+ *  that already possess the durable session token. */
+export function resolveHandleForSession(roomId: string, sessionId: string, db = getIdentityDb()): string | null {
+  ensureTable(db);
+  const trimmedSessionId = sessionId.trim();
+  if (trimmedSessionId.length === 0) return null;
+  const row = db
+    .prepare(
+      `SELECT handle FROM room_membership
+        WHERE room_id = ? AND session_id = ? AND ${durableMemberWhereClause()}
+        ORDER BY created_at_ms ASC, handle ASC
+        LIMIT 1`
+    )
+    .get(roomId, trimmedSessionId) as { handle: string } | undefined;
+  return row?.handle ?? null;
+}
+
 /** Whether the handle is a member of the room (regardless of session_id). */
 export function isMember(roomId: string, handle: string, db = getIdentityDb()): boolean {
   ensureTable(db);

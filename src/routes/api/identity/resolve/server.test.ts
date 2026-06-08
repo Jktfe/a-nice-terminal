@@ -6,6 +6,8 @@ import { POST } from './+server';
 import { resetIdentityDbForTests } from '$lib/server/db';
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { addMembership } from '$lib/server/roomMembershipsStore';
+import { createSession } from '$lib/server/antSessionStore';
+import { addMember } from '$lib/server/membershipStore';
 import {
   bootstrapV02Identity,
   pidStartToIso
@@ -73,6 +75,27 @@ describe('POST /api/identity/resolve', () => {
     const payload = await response.json();
     expect(payload.handle).toBe('@claude2');
     expect(payload.terminal_id).toBe(t.id);
+  });
+
+  it('prefers durable room_membership session identity over legacy terminal membership', async () => {
+    const terminal = upsertTerminal({ pid: 555, pid_start: 'pstart', name: 'resolve-durable' });
+    const session = createSession({
+      id: 'sess-durable-resolve',
+      kind: 'local-cli',
+      label: '@durable',
+      terminalId: terminal.id
+    });
+    addMember('r-1', '@durable', session.id);
+
+    const response = await callPost(JSON.stringify({
+      pids: [{ pid: 555, pid_start: 'pstart' }],
+      room_id: 'r-1',
+      sessionId: session.id
+    }));
+
+    const payload = await response.json();
+    expect(payload.handle).toBe('@durable');
+    expect(payload.terminal_id).toBe(terminal.id);
   });
 
   it('returns null fields when no terminal matches the chain', async () => {

@@ -322,6 +322,8 @@ async function runResolve(flags, runtime, _CliInputError) {
   const chain = processIdentityChain();
   const body = { pids: chain };
   if (flags.room) body.room_id = flags.room;
+  const sessionId = durableSessionIdForRuntime(runtime);
+  if (sessionId) body.sessionId = sessionId;
   const response = await postJson(runtime, `${runtime.serverUrl}/api/identity/resolve`, body);
   if (!response.ok) {
     const text = await response.text().catch(() => '');
@@ -331,4 +333,23 @@ async function runResolve(flags, runtime, _CliInputError) {
   const payload = await response.json();
   runtime.writeOut(JSON.stringify(payload));
   return 0;
+}
+
+function normaliseDurableSessionId(raw) {
+  return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : null;
+}
+
+function durableSessionIdForRuntime(runtime) {
+  const envSession = normaliseDurableSessionId(process.env.ANT_SESSION_ID);
+  if (envSession) return envSession;
+  const pane =
+    normaliseDurableSessionId(runtime.envTmuxPane) ??
+    normaliseDurableSessionId(process.env.TMUX_PANE) ??
+    normaliseDurableSessionId(process.env.WEZTERM_PANE);
+  const byPane = runtime.config?.antSessions?.byPane;
+  if (pane && byPane && typeof byPane === 'object') {
+    const paneSession = normaliseDurableSessionId(byPane[pane]);
+    if (paneSession) return paneSession;
+  }
+  return null;
 }
