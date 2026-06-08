@@ -7,6 +7,8 @@ import { resetIdentityDbForTests } from '$lib/server/db';
 import { upsertTerminal } from '$lib/server/terminalsStore';
 import { createTerminalRecord } from '$lib/server/terminalRecordsStore';
 import { bootstrapV02Identity } from '$lib/server/v02RegisterBootstrap';
+import { createSession } from '$lib/server/antSessionStore';
+import { addMember, isMember } from '$lib/server/membershipStore';
 
 let tmpDir: string;
 const previousEnv = process.env.ANT_FRESH_DB_PATH;
@@ -124,6 +126,47 @@ describe('POST /api/identity/whoami', () => {
     const payload = await response.json();
     expect(payload.handle).toBe('@v02-resolved');
     expect(payload.v02AgentId).toBe(bootstrap.agent_id);
+  });
+
+  it('resolves handle from clean room_membership when terminal_records.handle is empty (the "in-room but registered-no-handle" bug)', async () => {
+    // Reproduces JWPK's Oldboys msg_3iqrmww20n: an agent is a live room member
+    // (receives + posts via the session/lease path) yet whoami reported
+    // "registered-no-handle" because the handle lives in room_membership keyed
+    // by the durable session, not in terminal_records.handle / agents.primary_handle.
+    const terminal = upsertTerminal({ pid: 4242, pid_start: 'pstart', name: 't-live-member' });
+    createTerminalRecord({ sessionId: terminal.id, name: 't-live-member', handle: '' });
+    const session = createSession({ kind: 'local-cli', terminalId: terminal.id });
+    addMember('room-live', '@member', session.id);
+
+    const response = await callPost(JSON.stringify({ pids: [{ pid: 4242, pid_start: 'pstart' }] }));
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.status).toBe('bound');
+    expect(payload.handle).toBe('@member');
+    expect(payload.terminalId).toBe(terminal.id);
+  });
+
+  it('does NOT resolve a synthetic @browser-bs_ membership as a handle', async () => {
+    // The clean roster excludes browser-session handles; whoami must too, so a
+    // terminal that only carries a browser-session membership stays no-handle.
+    const terminal = upsertTerminal({ pid: 4343, pid_start: 'pstart', name: 't-browser-only' });
+    createTerminalRecord({ sessionId: terminal.id, name: 't-browser-only', handle: '' });
+    const session = createSession({ kind: 'local-cli', terminalId: terminal.id });
+    // addMember refuses synthetic handles, so insert one directly to prove the
+    // whoami query's own browser-bs exclusion holds (defence in depth).
+    // isMember() ensures the room_membership table exists before the raw insert.
+    isMember('room-bs', '@noop');
+    const { getIdentityDb } = await import('$lib/server/db');
+    getIdentityDb()
+      .prepare(
+        `INSERT INTO room_membership (room_id, handle, session_id, created_at_ms) VALUES (?, ?, ?, ?)`
+      )
+      .run('room-bs', '@browser-bs_deadbeef', session.id, Date.now());
+
+    const response = await callPost(JSON.stringify({ pids: [{ pid: 4343, pid_start: 'pstart' }] }));
+    expect(response.status).toBe(422);
+    const payload = await response.json();
+    expect(payload.status).toBe('registered-no-handle');
   });
 
   it('treats empty-string terminal_records.handle as missing (not bound)', async () => {

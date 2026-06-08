@@ -23,6 +23,7 @@
 import { getIdentityDb } from './db';
 import { getSession } from './antSessionStore';
 import { syncMembershipTerminalBinding } from './roomMembershipsStore';
+import { claimHandle } from './roomHandleLeaseClean';
 
 /**
  * Browser sessions are minted per-room as ephemeral auth artifacts and the
@@ -125,6 +126,31 @@ function mirrorLegacyTerminalBinding(roomId: string, handle: string, sessionId: 
 }
 
 /**
+ * THE one-writer invariant (2026-06-08, JWPK Oldboys msg_3iqrmww20n "if you are
+ * in a room and receiving messages how does it make sense you aren't bound").
+ *
+ * Delivery/fanout reads room_membership.session_id (this table), but the POST
+ * gate reads room_handle_lease (chatRoomReadGate/messages → isCleanMember).
+ * When an add wrote membership but NOT the lease, an agent received messages yet
+ * 403'd on post — "in the room but unbound". So every membership write also
+ * claims the clean lease for the SAME authoritative session, in lockstep, so the
+ * two surfaces can never drift: member ⟹ can post.
+ *
+ * Keyed on the membership's RESOLVED session_id (post-hijack-guard), never the
+ * raw caller — a different live session re-adding @x is a no-op on the
+ * membership session AND therefore on the lease (claimHandle is idempotent for
+ * the incumbent). claimHandle is self-contained (creates its own table, no
+ * joins) so it cannot throw on missing deps — the invariant is firm, not
+ * best-effort. No gate is relaxed: this is a WRITE that makes the existing gate
+ * find the row it already requires (moat intact — see the spoof analysis that
+ * ruled out relaxing the READ gate to a self-declared deriveHandle).
+ */
+function mirrorCleanLease(roomId: string, handle: string, sessionId: string | null, db = getIdentityDb()): void {
+  if (sessionId === null) return;
+  claimHandle(roomId, handle, sessionId, db);
+}
+
+/**
  * Add or update a member. Upsert on (room_id, handle), preserving the original
  * created_at_ms.
  *
@@ -159,6 +185,7 @@ export function addMember(
     .prepare(`SELECT * FROM room_membership WHERE room_id = ? AND handle = ?`)
     .get(roomId, handle) as MembershipRow;
   mirrorLegacyTerminalBinding(roomId, handle, row.session_id);
+  mirrorCleanLease(roomId, handle, row.session_id, db);
   return rowToMembership(row);
 }
 
@@ -200,6 +227,7 @@ export function rebindMemberSessionIfStale(
     .prepare(`SELECT * FROM room_membership WHERE room_id = ? AND handle = ?`)
     .get(roomId, handle) as MembershipRow;
   mirrorLegacyTerminalBinding(roomId, handle, next.session_id);
+  mirrorCleanLease(roomId, handle, next.session_id, db);
   return rowToMembership(next);
 }
 
@@ -252,6 +280,39 @@ export function resolveHandleForSession(roomId: string, sessionId: string, db = 
         LIMIT 1`
     )
     .get(roomId, trimmedSessionId) as { handle: string } | undefined;
+  return row?.handle ?? null;
+}
+
+/**
+ * Resolve the handle a TERMINAL currently wears, across all rooms, via the
+ * durable-session join (terminal → ant_sessions → room_membership). Used by
+ * whoami: post-cut-over a live agent's handle lives here keyed by its durable
+ * session, NOT in terminal_records.handle / agents.primary_handle (both empty
+ * for current rows), so whoami otherwise reports "registered-no-handle" for an
+ * agent that is demonstrably a live room member. Returns the most-recently-
+ * joined handle, or null if the terminal holds no durable membership.
+ *
+ * Read-only — never writes a membership or lease. ant_sessions is owned by
+ * antSessionStore; in unit contexts it may not exist yet, so guard explicitly
+ * rather than letting the JOIN throw on a missing table.
+ */
+export function resolveHandleForTerminal(terminalId: string, db = getIdentityDb()): string | null {
+  ensureTable(db);
+  const trimmed = terminalId.trim();
+  if (trimmed.length === 0) return null;
+  const hasSessions = db
+    .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'ant_sessions'`)
+    .get() as { 1: number } | undefined;
+  if (!hasSessions) return null;
+  const row = db
+    .prepare(
+      `SELECT m.handle FROM room_membership m
+         JOIN ant_sessions s ON s.id = m.session_id
+        WHERE s.terminal_id = ? AND ${durableMemberWhereClause('m.handle')}
+        ORDER BY m.created_at_ms DESC, m.handle ASC
+        LIMIT 1`
+    )
+    .get(trimmed) as { handle: string } | undefined;
   return row?.handle ?? null;
 }
 

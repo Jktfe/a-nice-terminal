@@ -27,6 +27,7 @@ import { lookupTerminalByPidChain, type PidChainEntry } from '$lib/server/termin
 import { normalisePidStartToIso8601 } from '$lib/server/pidStartNormaliser';
 import { resolveV02ByPidChain } from '$lib/server/v02RegisterBootstrap';
 import { getAgentById } from '$lib/server/v02AgentsStore';
+import { resolveHandleForTerminal } from '$lib/server/membershipStore';
 
 type WhoamiBody = { pids?: unknown };
 
@@ -118,6 +119,21 @@ export const POST: RequestHandler = async ({ request }) => {
       .get(terminal.id) as { handle: string | null } | undefined;
     const legacy = handleRow?.handle;
     if (legacy && legacy.length > 0) handle = legacy;
+  }
+  if (!handle) {
+    // MEMBERSHIP FALLBACK (2026-06-08): post-cut-over a live agent posts via
+    // the session/lease path, so its handle lives in the clean room_membership
+    // keyed by the durable session — NOT in agents.primary_handle or
+    // terminal_records.handle (both empty for current rows). Without this,
+    // whoami reports "registered-no-handle" for an agent that is demonstrably
+    // a live room member receiving + posting — the contradiction JWPK hit
+    // (Oldboys msg_3iqrmww20n). Resolve the handle the same way the post path
+    // does: terminal -> its durable ant_sessions -> clean room_membership.
+    // Self-ID only: the caller already controls this PID chain locally, so
+    // surfacing the handle its OWN terminal's sessions hold grants no new
+    // authority (no membership/lease is written here — read-only).
+    const memberHandle = resolveHandleForTerminal(terminal.id, db);
+    if (memberHandle && memberHandle.length > 0) handle = memberHandle;
   }
 
   if (!handle) {

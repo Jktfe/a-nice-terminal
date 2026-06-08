@@ -6,6 +6,7 @@ import { resetIdentityDbForTests } from './db';
 import { createSession } from './antSessionStore';
 import { getTerminalIdByHandle, addMembership } from './roomMembershipsStore';
 import { upsertTerminal } from './terminalsStore';
+import { isMember as leaseIsMember, resolveMember as leaseResolveMember } from './roomHandleLeaseClean';
 import {
   addMember,
   rebindMemberSessionIfStale,
@@ -184,5 +185,41 @@ describe('membershipStore — (room_id, handle, session_id) is the WHOLE table',
     expect(isDurableMemberHandle('@browser-bs_abc123')).toBe(false);
     expect(isDurableMemberHandle('@browser-bsXabc123')).toBe(true);
     expect(isDurableMemberHandle('@browser-bs')).toBe(true);
+  });
+});
+
+// The load-bearing invariant for JWPK's "in a room but unbound" bug: delivery
+// reads room_membership, the POST gate reads room_handle_lease — addMember must
+// write BOTH so they cannot drift. These assert the POST gate's own read
+// (roomHandleLeaseClean.isMember) directly.
+describe('membershipStore — member ⟹ can post (membership write claims the clean lease)', () => {
+  it('addMember with a session makes the POST gate see an active lease for that session', () => {
+    addMember('roomP', '@poster', 'sess-poster');
+    // The post gate (messages/+server.ts → isCleanMember) reads THIS:
+    expect(leaseIsMember('roomP', 'sess-poster')).toBe(true);
+    expect(leaseResolveMember('roomP', '@poster')).toBe('sess-poster');
+  });
+
+  it('addMember with a NULL session writes no lease (nothing to bind yet)', () => {
+    addMember('roomP', '@pending', null);
+    expect(isMember('roomP', '@pending')).toBe(true);
+    expect(leaseResolveMember('roomP', '@pending')).toBe(null);
+  });
+
+  it('hijack guard holds in lockstep: a different session re-adding @x moves NEITHER membership nor lease', () => {
+    addMember('roomP', '@x', 'incumbent-sess');
+    expect(leaseResolveMember('roomP', '@x')).toBe('incumbent-sess');
+    // A different live session tries to re-add @x — must not steal it.
+    addMember('roomP', '@x', 'attacker-sess');
+    expect(resolveMember('roomP', '@x')).toBe('incumbent-sess'); // membership unchanged
+    expect(leaseResolveMember('roomP', '@x')).toBe('incumbent-sess'); // lease clean holder unchanged
+  });
+
+  it('rebindMemberSessionIfStale re-keys the lease to the live session when the incumbent is stale', () => {
+    addMember('roomP', '@agent', 'dead-sess');
+    expect(leaseResolveMember('roomP', '@agent')).toBe('dead-sess');
+    rebindMemberSessionIfStale('roomP', '@agent', 'live-sess', (current) => current === 'dead-sess');
+    expect(resolveMember('roomP', '@agent')).toBe('live-sess');
+    expect(leaseIsMember('roomP', 'live-sess')).toBe(true); // post gate now resolves the live session
   });
 });
