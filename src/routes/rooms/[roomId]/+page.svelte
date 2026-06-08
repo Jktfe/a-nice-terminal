@@ -177,6 +177,7 @@
   }
 
   let lastBrowserSessionRebindKey = $state('');
+  let browserSessionReadyKey = $state('');
   $effect(() => {
     const roomId = roomFromServer.id;
     const authorHandle = callerHandle.trim();
@@ -184,12 +185,15 @@
     const key = `${roomId}:${authorHandle}`;
     if (key === lastBrowserSessionRebindKey) return;
     lastBrowserSessionRebindKey = key;
+    browserSessionReadyKey = '';
     // Per-room browser_session rebind. The cookie is site-scoped so the
     // /api/realtime/<roomId>/events EventSource can authenticate too; the
     // server-side read/write gates still enforce room access per request.
     // This must be keyed on room id, not only onMount: SvelteKit can reuse
     // this route component across client-side room navigation.
-    void ensureBrowserSessionForRoom({ roomId, authorHandle, force: true });
+    void ensureBrowserSessionForRoom({ roomId, authorHandle, force: true }).then((result) => {
+      if (result.ok && lastBrowserSessionRebindKey === key) browserSessionReadyKey = key;
+    });
   });
 
   // Away-tier fetch — codex CHANGES REQUESTED 2026-05-24 (orsz2321qb):
@@ -296,6 +300,7 @@
   let realtimeStatus = $state<RealtimeRoomStore | null>(null);
   const latestRealtimeEvent = $derived(realtime?.lastEvent ?? null);
   $effect(() => {
+    if (browserSessionReadyKey !== `${currentRoomId}:${callerHandle.trim()}`) return;
     // PATCH A: skip invalidateAll on the INITIAL onopen — data was already
     // fetched server-side and is on the page. Only invalidate on actual
     // reconnects (subsequent opens), where the client needs to catch up
