@@ -26,10 +26,15 @@ export const PUT: RequestHandler = async ({ request, url }) => {
     throw error(400, 'roomIds array required.');
   }
 
-  const roomIds = body.roomIds.filter((roomId): roomId is string => typeof roomId === 'string');
-  for (const roomId of roomIds) {
-    if (!findChatRoomById(roomId)) throw error(404, `Room not found: ${roomId}`);
-  }
+  // Persistence robustness (JWPK 2026-06-09 "stars aren't persisting"): a save
+  // is NOT all-or-nothing. Previously ANY bookmarked room that findChatRoomById
+  // couldn't resolve (a since-deleted/churned room left in the user's star set)
+  // threw 404 for the WHOLE PUT — and the client fires-and-forgets + swallows
+  // the error, so one stale bookmark silently killed persistence for ALL stars.
+  // Skip unknown rooms instead; the valid ones persist.
+  const roomIds = body.roomIds.filter(
+    (roomId): roomId is string => typeof roomId === 'string' && Boolean(findChatRoomById(roomId))
+  );
 
   return json({
     ownerHandle: owner,

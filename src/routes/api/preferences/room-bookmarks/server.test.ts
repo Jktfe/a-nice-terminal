@@ -67,8 +67,25 @@ describe('/api/preferences/room-bookmarks', () => {
     expect((await getResponse.json()).roomIds).toEqual([second.id, first.id]);
   });
 
-  it('rejects unknown room ids instead of storing stale bookmarks', async () => {
+  it('SKIPS unknown room ids and persists the valid ones (no all-or-nothing 404)', async () => {
+    // JWPK 2026-06-09 "stars aren't persisting": one stale/since-deleted room in
+    // the star set must NOT kill the whole save. Unknown ids are dropped; valid
+    // ones persist (the client fires-and-forgets, so a 404 was a silent total loss).
+    const real = createChatRoom({ name: 'real', whoCreatedIt: '@you' });
+    const response = await run(
+      PUT as unknown as AnyHandler,
+      eventFor('PUT', '', { roomIds: [real.id, 'missing-room'] })
+    );
+    expect(response.status).toBe(200);
+    expect((await response.json()).roomIds).toEqual([real.id]); // stale dropped, valid kept
+
+    const getResponse = await run(GET as unknown as AnyHandler, eventFor('GET'));
+    expect((await getResponse.json()).roomIds).toEqual([real.id]); // persisted
+  });
+
+  it('a save containing ONLY unknown rooms persists an empty set (still 200, not 404)', async () => {
     const response = await run(PUT as unknown as AnyHandler, eventFor('PUT', '', { roomIds: ['missing-room'] }));
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(200);
+    expect((await response.json()).roomIds).toEqual([]);
   });
 });

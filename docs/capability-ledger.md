@@ -36,6 +36,7 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Remote invite to room | v5 system lane | CHANGE | Codex | Keep security boundary explicit. |
 | Participants list | v5 chat/room lane | CHANGE | Claude | Participants talk; features serve. |
 | Change participant handle | v5 chat/room lane | CHANGE | Claude | Needs visible rename history. |
+| Room member kick/reinvite identity | JWPK Oldboys msg_ejb33vdks9 + msg_ll7pbiflt6, 2026-06-09 | CHANGE | Codex/Fast | v1 removal invariant: kicking a member now hard-removes the clean membership row and retires every active post-gate lease for that room handle, so reinvite starts from one fresh durable binding instead of inheriting stale v0.2-era handle/session drift. |
 | Focus mode | v5 chat/room lane | CHANGE | Claude | Must not hide accountability. |
 | Link discussions | v5 chat/room lane | DEDUPE | Claude | Discussion is a room facet, not a separate destination. |
 | Artefact rail | v5 chat/room lane | CHANGE | Claude | Decks, docs, sheets, files, and sites share the rail. |
@@ -44,6 +45,8 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Shared docs | v5 chat/room lane | CHANGE | Claude | Room-facing durable synthesis. |
 | Memory recall | v5 chat/room lane | CHANGE | Claude | Searchable context, not a dumping ground. |
 | Navigate to other chats | v5 chat/room lane | CHANGE | Claude | Command palette and room switcher. |
+| Dashboard direct-open aliases | JWPK Oldboys msg_vxuo1g7e9e, 2026-06-09 | CHANGE | Codex/Fast | `/dashboard` and `/dash` now server-redirect to `/`, so stale client links, context-menu new tabs, and copied dashboard URLs land on the canonical dashboard instead of the error page. |
+| Starred room persistence | JWPK Oldboys msg_irghgbdi0u, 2026-06-09 | CHANGE | Codex/Fast | Server table is the boot source of truth for starred rooms. localStorage remains only an offline/legacy cache; in-tab edits still win while a boot GET is in flight. |
 | Upload pictures and files | audit blockers | CHANGE | Claude | Include drag/drop, picker, errors, policy, and mobile. |
 | Break context | v5 chat/room lane | CHANGE | Claude | Breaks are first-class context boundaries. |
 | Room blocks | JWPK msg_21nr8z2x91 + msg_dihwbu3ull + msg_v8u2q86wtx, 2026-06-05 | CHANGE | Claude/Codex | Context breaks now derive addressable room blocks: list/read prior sections, skip soft-deleted messages/blocks by default while retaining audit access, and provide reaction-weighted summary input. Search scoping remains deduped into the shared visible-content/search lane. |
