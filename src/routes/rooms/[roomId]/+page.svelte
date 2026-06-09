@@ -23,6 +23,7 @@
   import MessageList from '$lib/components/MessageList.svelte';
   import AliasAppliedBanner from '$lib/components/AliasAppliedBanner.svelte';
   import AgentTimeline from '$lib/components/AgentTimeline.svelte';
+  import AgentStatusFooter from '$lib/components/AgentStatusFooter.svelte';
   import RoomMenuDropdown from '$lib/components/RoomMenuDropdown.svelte';
   import RoomNameHeader from '$lib/components/RoomNameHeader.svelte';
   import FocusModeModal from '$lib/components/FocusModeModal.svelte';
@@ -540,6 +541,7 @@
       onClearReplyingTo={clearReplyingTo}
       {lastOwnEditableMessage}
     />
+    <AgentStatusFooter roomId={roomFromServer.id} />
   </div>
 
   {#if agentEventsFromServer.length > 0}

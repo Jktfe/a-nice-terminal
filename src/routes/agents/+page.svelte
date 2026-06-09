@@ -178,6 +178,14 @@
   const activeCount = $derived(agents.filter(a => a.status?.state === 'working' || a.status?.state === 'thinking').length);
   const totalRooms = $derived(new Set(agents.flatMap(a => a.rooms.map(r => r.roomId))).size);
   const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const profileUrls: Record<string, string> = {
+    '@antigravitys-agy': '/antigravity-about.html',
+    '@codexs-codex': '/codex-about.html',
+    '@qwens-qwen': '/qwen-about.html',
+    '@claudes-claude': '/claudes-claude-about-me.html',
+    '@copilots-copilot': '/copilots-copilot-about.html',
+    '@pis-pi': '/architect-reveal.html'
+  };
   const topAgents = $derived(agents.slice(0, 6));
 </script>
 
@@ -406,6 +414,15 @@
             <span class="focus-status-pill {statusClass(selectedAgent.status?.state ?? null)}">{statusLabel(selectedAgent.status?.state ?? null)}</span>
             <button class="focus-close" onclick={() => selectedHandle = null}>✕</button>
           </div>
+
+          {#if profileUrls[selectedAgent.handle]}
+            <div class="profile-link-container">
+              <a class="view-profile-btn" href={profileUrls[selectedAgent.handle]} target="_blank" onclick={(e) => e.stopPropagation()}>
+                <span>View Agent Profile Page</span>
+                <span class="btn-arrow">→</span>
+              </a>
+            </div>
+          {/if}
           <div class="focus-stats">
             <div class="focus-stat"><span class="focus-stat-value" style="color: {agentColor(selectedAgent.handle)};">{selectedAgent.productivityScore ?? 0}</span><span class="focus-stat-label">Productivity</span></div>
             <div class="focus-stat"><span class="focus-stat-value">{selectedAgent.stats.messages24h}</span><span class="focus-stat-label">Msgs/24h</span></div>
@@ -620,6 +637,39 @@
   .missed-author { color: var(--ink-soft); font-weight: 700; font-size: 0.78rem; }
   .missed-body { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .missed-overflow { color: var(--ink-muted); font-size: 0.78rem; font-style: italic; padding: 0.25rem 0.5rem; }
+
+  .profile-link-container {
+    margin: 0.5rem 0 1rem;
+  }
+  .view-profile-btn {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1.25rem;
+    border-radius: 10px;
+    background: linear-gradient(135deg, var(--accent, #4338ca), color-mix(in srgb, var(--accent, #4338ca) 80%, #000));
+    color: white;
+    font-weight: 700;
+    font-size: 0.95rem;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+  }
+  .view-profile-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+    filter: brightness(1.1);
+  }
+  .view-profile-btn:active {
+    transform: translateY(0);
+  }
+  .btn-arrow {
+    font-size: 1.1rem;
+    transition: transform 0.2s ease;
+  }
+  .view-profile-btn:hover .btn-arrow {
+    transform: translateX(4px);
+  }
 
   @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
   @keyframes scaleIn { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }

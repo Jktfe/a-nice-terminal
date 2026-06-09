@@ -38,6 +38,32 @@ describe('projectEffectiveAgentStatus', () => {
     });
   });
 
+  it('promotes fresh PTY output to working even when the stored status is idle', () => {
+    expect(projectEffectiveAgentStatus({
+      agent_status: 'idle',
+      agent_status_source: 'default',
+      agent_status_at_ms: 0,
+      last_pty_byte_at_ms: 290_000
+    }, 300_000)).toMatchObject({
+      agent_status: 'working',
+      agent_status_source: 'ant-activity',
+      agent_status_at_ms: 290_000
+    });
+  });
+
+  it('does not promote old PTY output after the output freshness window', () => {
+    expect(projectEffectiveAgentStatus({
+      agent_status: 'idle',
+      agent_status_source: 'default',
+      agent_status_at_ms: 0,
+      last_pty_byte_at_ms: 1_000
+    }, 302_000)).toMatchObject({
+      agent_status: 'idle',
+      agent_status_source: 'default',
+      agent_status_at_ms: 0
+    });
+  });
+
   it('does not expire response-required states', () => {
     expect(projectEffectiveAgentStatus({
       agent_status: 'response-required',

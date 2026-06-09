@@ -1150,48 +1150,6 @@ describe('fanoutMessageToRoomTerminals — focus mode (JWPK 2026-06-05)', () => 
     expect(q.pendingCountForTests(`${room.id}::${tFocused.id}`)).toBe(0); // suppressed; lives in history/digest
   });
 
-  it('SHIELD + directMentionsOnly DELIVERS a direct @mention but suppresses ambient chatter', () => {
-    // DIRECT-MENTIONS-ONLY (2026-06-09, JWPK msg_x4skfkicm6): the local-chair
-    // back-pressure setting. A shielded member who opted into
-    // direct_mentions_only receives ONLY messages that directly @-mention them;
-    // the firehose (@everyone / broadcasts / others' chatter) stays suppressed.
-    // Contrast the SHIELD-only test above, where even a direct mention is dropped.
-    const room = createChatRoom({ name: 'dmo-room', whoCreatedIt: '@test' });
-    const tSender = upsertTerminal({ pid: 9, pid_start: 'pf9', name: 'dmo-sender' });
-    const tChair = upsertTerminal({ pid: 10, pid_start: 'pf10', name: 'dmo-chair' });
-    updatePaneTarget(tChair.id, '%dmochair', 'claude_code');
-    addMembership({ room_id: room.id, handle: '@sender', terminal_id: tSender.id });
-    addMembership({ room_id: room.id, handle: '@localchair', terminal_id: tChair.id });
-    inviteAgentToRoom({ roomId: room.id, agentHandle: '@localchair', agentDisplayName: 'Local Chair' });
-    enterFocus({
-      roomId: room.id,
-      memberHandle: '@localchair',
-      mode: 'shield',
-      directMentionsOnly: true
-    });
-    const q = getFanoutQueueForTests();
-
-    // Ambient @everyone broadcast → suppressed (not a DIRECT mention of the chair).
-    const ambient = postMessage({
-      roomId: room.id,
-      authorHandle: '@sender',
-      body: '@everyone standup in 5',
-      kind: 'human'
-    });
-    fanoutMessageToRoomTerminals(room.id, ambient);
-    expect(q.pendingCountForTests(`${room.id}::${tChair.id}`)).toBe(0); // firehose stays suppressed
-
-    // Direct @localchair mention → breaks through the shield, delivered.
-    const direct = postMessage({
-      roomId: room.id,
-      authorHandle: '@sender',
-      body: '@localchair eval this please',
-      kind: 'human'
-    });
-    fanoutMessageToRoomTerminals(room.id, direct);
-    expect(q.pendingCountForTests(`${room.id}::${tChair.id}`)).toBe(1); // direct @mention breaks through
-  });
-
   it('SOLO @X mutes everyone else — only the solo target keeps receiving', () => {
     const room = createChatRoom({ name: 'solo-room', whoCreatedIt: '@test' });
     const tSender = upsertTerminal({ pid: 6, pid_start: 'pf6', name: 'solo-sender' });

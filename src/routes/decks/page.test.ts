@@ -41,9 +41,21 @@ describe('/decks/[deckId] page source', () => {
     expect(pageSource).toContain('type StageAlternativeDecisionAction');
     expect(pageSource).toContain('composedSlides');
     expect(pageSource).toContain('/alternatives/decision');
-    expect(pageSource).toContain('Use as replacement');
-    expect(pageSource).toContain('Append after slide');
-    expect(pageSource).toContain('Append to appendix');
+    expect(pageSource).toContain('Replace');
+    expect(pageSource).toContain('Append after');
+    expect(pageSource).toContain('Appendix');
     expect(pageSource).toContain('Park');
+  });
+
+  it('renders the Stage cockpit controls from the wireframe', () => {
+    expect(pageSource).toContain('stage-command-strip');
+    expect(pageSource).toContain('assets-menu');
+    expect(pageSource).toContain('stage-cockpit');
+    expect(pageSource).toContain('version-history-panel');
+    expect(pageSource).toContain('slide-picker-grid');
+    expect(pageSource).toContain('Slide picker');
+    expect(pageSource).toContain('Hide');
+    expect(pageSource).toContain('Delete');
+    expect(pageSource).toContain('Move');
   });
 });

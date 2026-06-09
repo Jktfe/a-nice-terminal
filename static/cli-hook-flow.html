@@ -1,0 +1,837 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ANT CLI Hook Flow</title>
+  <style>
+    :root {
+      --bg: #f7f4ef;
+      --ink: #1a1712;
+      --muted: #6d6257;
+      --panel: #fffaf3;
+      --line: #dfd3c3;
+      --amber: #d98726;
+      --blue: #2d8dc8;
+      --mint: #27966f;
+      --red: #bf3e2d;
+      --violet: #8062c6;
+      --shadow: 0 18px 50px rgba(54, 38, 21, .12);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background:
+        linear-gradient(90deg, rgba(26, 23, 18, .035) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(26, 23, 18, .035) 1px, transparent 1px),
+        var(--bg);
+      background-size: 28px 28px;
+      color: var(--ink);
+      font: 15px/1.45 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main {
+      width: min(1480px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 40px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 18px;
+      align-items: end;
+      margin-bottom: 18px;
+      padding: 18px 20px;
+      border: 1px solid var(--line);
+      background: rgba(255, 250, 243, .82);
+      box-shadow: var(--shadow);
+    }
+
+    h1, h2, h3, p { margin: 0; }
+    h1 {
+      font-size: clamp(30px, 4vw, 56px);
+      line-height: .95;
+      letter-spacing: 0;
+    }
+    .subtitle {
+      margin-top: 10px;
+      max-width: 850px;
+      color: var(--muted);
+      font-size: 1rem;
+    }
+    .stamp {
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      background: #fff;
+      font: 700 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 18px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.78);
+      border-radius: 999px;
+      color: var(--muted);
+      font-weight: 750;
+      font-size: 12px;
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--c);
+    }
+
+    .board {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(210px, 1fr));
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    .lane {
+      display: flex;
+      flex-direction: column;
+      min-height: 720px;
+      border: 1px solid var(--line);
+      background: rgba(255, 250, 243, .9);
+      box-shadow: var(--shadow);
+    }
+    .lane h2 {
+      padding: 14px 14px 12px;
+      border-bottom: 1px solid var(--line);
+      font-size: 15px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+
+    .step {
+      position: relative;
+      margin: 12px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+    .step + .step::before {
+      content: "";
+      position: absolute;
+      top: -19px;
+      left: 50%;
+      width: 1px;
+      height: 18px;
+      background: var(--line);
+    }
+    .step::after {
+      content: attr(data-kind);
+      display: inline-block;
+      margin-bottom: 8px;
+      padding: 3px 7px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--accent) 15%, #fff);
+      color: color-mix(in srgb, var(--accent) 72%, #1a1712);
+      font: 800 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    .step h3 {
+      margin-bottom: 7px;
+      font-size: 15px;
+      line-height: 1.15;
+    }
+    .step p {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    code {
+      padding: 1px 4px;
+      border-radius: 4px;
+      background: #f3ede5;
+      color: #3a2a1d;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: .9em;
+    }
+
+    .event { --accent: var(--blue); }
+    .hook { --accent: var(--amber); }
+    .write { --accent: var(--mint); }
+    .project { --accent: var(--violet); }
+    .fail { --accent: var(--red); border-color: color-mix(in srgb, var(--red) 45%, var(--line)); }
+
+    .flow-map {
+      margin-bottom: 18px;
+      border: 1px solid var(--line);
+      background: rgba(255, 250, 243, .92);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .flow-title {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      background: #201a14;
+      color: #fffaf3;
+    }
+    .flow-title h2 {
+      font-size: 16px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+    .flow-title p {
+      color: rgba(255, 250, 243, .72);
+      font-size: 13px;
+    }
+    .flow-header,
+    .flow-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1.12fr 1.06fr 1.08fr 1.12fr;
+    }
+    .flow-header {
+      background: #efe5d7;
+      color: #5f5145;
+      font: 850 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    .flow-header div,
+    .flow-cell {
+      min-width: 0;
+      padding: 11px 12px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+    .flow-header div:last-child,
+    .flow-cell:last-child { border-right: 0; }
+    .flow-row:last-child .flow-cell { border-bottom: 0; }
+    .flow-cell {
+      position: relative;
+      background: #fff;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .flow-cell:not(:last-child)::after {
+      content: "->";
+      position: absolute;
+      right: -13px;
+      top: 50%;
+      z-index: 2;
+      width: 24px;
+      height: 24px;
+      transform: translateY(-50%);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fffaf3;
+      color: var(--ink);
+      font: 900 12px/22px ui-monospace, SFMono-Regular, Menlo, monospace;
+      text-align: center;
+    }
+    .flow-cell strong {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--ink);
+      font-size: 14px;
+      line-height: 1.15;
+    }
+    .flow-cell em {
+      color: color-mix(in srgb, var(--accent) 75%, var(--ink));
+      font-style: normal;
+      font-weight: 850;
+    }
+    .flow-cell.source { --accent: var(--blue); border-left: 5px solid var(--blue); }
+    .flow-cell.trigger { --accent: var(--amber); }
+    .flow-cell.write-path { --accent: var(--mint); }
+    .flow-cell.project-path { --accent: var(--violet); }
+    .flow-cell.outcome { --accent: var(--mint); background: color-mix(in srgb, var(--mint) 8%, #fff); }
+    .flow-cell.failure { --accent: var(--red); background: color-mix(in srgb, var(--red) 7%, #fff); }
+    .flow-row.is-collapsed {
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+    .flow-row.is-collapsed .flow-cell:nth-child(2),
+    .flow-row.is-collapsed .flow-cell:nth-child(3),
+    .flow-row.is-collapsed .flow-cell:nth-child(4) {
+      display: none;
+    }
+    .flow-row.is-collapsed .flow-cell.source::after,
+    .flow-row.is-collapsed .flow-cell.outcome::after {
+      content: "->";
+      position: absolute;
+      right: -13px;
+      top: 50%;
+      z-index: 2;
+      width: 24px;
+      height: 24px;
+      transform: translateY(-50%);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fffaf3;
+      color: var(--ink);
+      font: 900 12px/22px ui-monospace, SFMono-Regular, Menlo, monospace;
+      text-align: center;
+    }
+    .flow-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      margin: -2px 7px 0 0;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fffaf3;
+      color: var(--ink);
+      font: 900 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      cursor: pointer;
+      vertical-align: top;
+    }
+    .flow-toggle:focus-visible {
+      outline: 2px solid var(--blue);
+      outline-offset: 2px;
+    }
+    .flow-cell.source strong {
+      display: inline-block;
+    }
+
+    .section-model {
+      display: grid;
+      grid-template-columns: minmax(340px, .9fr) minmax(360px, 1.1fr);
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+    .terminal-map,
+    .evidence-stack {
+      border: 1px solid var(--line);
+      background: rgba(255, 250, 243, .9);
+      box-shadow: var(--shadow);
+    }
+    .terminal-map {
+      padding: 14px;
+    }
+    .terminal-frame {
+      position: relative;
+      display: grid;
+      grid-template-rows: 34px minmax(220px, 1fr) 42px 58px;
+      gap: 8px;
+      min-height: 420px;
+      padding: 12px;
+      border: 2px solid #201a14;
+      background: #211b15;
+      color: #fffaf3;
+      overflow: hidden;
+    }
+    .zone {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid rgba(255, 250, 243, .28);
+      background: rgba(255, 250, 243, .08);
+      font-weight: 850;
+    }
+    .zone small {
+      color: rgba(255, 250, 243, .74);
+      font-weight: 650;
+      text-align: right;
+    }
+    .zone-main {
+      align-items: flex-start;
+      background:
+        repeating-linear-gradient(180deg, rgba(255,250,243,.08) 0 1px, transparent 1px 28px),
+        rgba(45, 141, 200, .16);
+      border-color: color-mix(in srgb, var(--blue) 55%, #fffaf3);
+    }
+    .zone-strip {
+      background: rgba(128, 98, 198, .24);
+      border-color: color-mix(in srgb, var(--violet) 55%, #fffaf3);
+    }
+    .zone-entry {
+      background: rgba(217, 135, 38, .22);
+      border-color: color-mix(in srgb, var(--amber) 60%, #fffaf3);
+    }
+    .zone-whole {
+      grid-row: 1 / -1;
+      pointer-events: none;
+      position: absolute;
+      inset: 5px;
+      border: 2px dashed rgba(39, 150, 111, .8);
+    }
+    .zone-whole span {
+      position: absolute;
+      right: 8px;
+      top: 8px;
+      padding: 4px 7px;
+      background: #211b15;
+      color: #b8f0d6;
+      font: 850 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      text-transform: uppercase;
+    }
+    .evidence-stack {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0;
+      overflow: hidden;
+    }
+    .evidence-card {
+      padding: 14px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+    }
+    .evidence-card:nth-child(2n) { border-right: 0; }
+    .evidence-card h2 {
+      margin-bottom: 6px;
+      font-size: 15px;
+    }
+    .evidence-card p {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .confidence {
+      display: inline-flex;
+      margin-bottom: 8px;
+      padding: 4px 7px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--accent) 15%, #fff);
+      color: color-mix(in srgb, var(--accent) 75%, #1a1712);
+      font: 850 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    .confidence.strong { --accent: var(--mint); }
+    .confidence.medium { --accent: var(--blue); }
+    .confidence.weak { --accent: var(--amber); }
+    .confidence.stop { --accent: var(--red); }
+
+    .matrix {
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: 1.1fr .9fr .9fr 1fr;
+      border: 1px solid var(--line);
+      background: #fff;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .matrix div {
+      padding: 11px 12px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      min-height: 44px;
+    }
+    .matrix div:nth-child(4n) { border-right: 0; }
+    .matrix .head {
+      background: #201a14;
+      color: #fffaf3;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      font-size: 11px;
+    }
+    .matrix .status {
+      font-weight: 850;
+    }
+
+    .note-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .note {
+      padding: 14px;
+      border: 1px solid var(--line);
+      background: rgba(255, 250, 243, .92);
+      box-shadow: var(--shadow);
+    }
+    .note h2 {
+      margin-bottom: 7px;
+      font-size: 15px;
+    }
+    .note p {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 1180px) {
+      .board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .lane { min-height: 0; }
+      .matrix { grid-template-columns: 1fr; }
+      .matrix div { border-right: 0; }
+      .note-grid { grid-template-columns: 1fr; }
+      .section-model { grid-template-columns: 1fr; }
+      .evidence-stack { grid-template-columns: 1fr; }
+      .evidence-card { border-right: 0; }
+      .flow-header { display: none; }
+      .flow-row {
+        grid-template-columns: 1fr;
+        border-bottom: 2px solid var(--line);
+      }
+      .flow-row.is-collapsed {
+        grid-template-columns: 1fr;
+      }
+      .flow-row.is-collapsed .flow-cell:nth-child(2),
+      .flow-row.is-collapsed .flow-cell:nth-child(3),
+      .flow-row.is-collapsed .flow-cell:nth-child(4) {
+        display: block;
+      }
+      .flow-cell {
+        border-right: 0;
+      }
+      .flow-cell:not(:last-child)::after {
+        content: "↓";
+        right: 14px;
+        top: auto;
+        bottom: -13px;
+        transform: none;
+      }
+      header { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>CLI hook flow: event -> hook -> write -> outcome -> failure</h1>
+        <p class="subtitle">What currently drives ANT's live agent indicators. This separates the CLI-native hook/state path from the ANT server projection path so failures can be diagnosed at the right layer.</p>
+      </div>
+      <div class="stamp">Source-backed visual<br />a-nice-terminal<br />2026-06-09</div>
+    </header>
+
+    <section class="legend" aria-label="Legend">
+      <span class="pill"><span class="dot" style="--c:var(--blue)"></span>thing happened</span>
+      <span class="pill"><span class="dot" style="--c:var(--amber)"></span>hook or watcher fires</span>
+      <span class="pill"><span class="dot" style="--c:var(--mint)"></span>state write</span>
+      <span class="pill"><span class="dot" style="--c:var(--violet)"></span>server projection</span>
+      <span class="pill"><span class="dot" style="--c:var(--red)"></span>failure mode</span>
+    </section>
+
+    <section class="flow-map" aria-label="Hook and watcher decision flow">
+      <div class="flow-title">
+        <h2>Observed terminal fact -> hook/watcher -> ANT outcome</h2>
+        <p>Use this as the operator map: each row starts with something visible or emitted, then shows the path that should explain the footer/status result.</p>
+      </div>
+      <div class="flow-header" aria-hidden="true">
+        <div>This thing happens</div>
+        <div>Triggers this hook</div>
+        <div>Hook / watcher does this</div>
+        <div>ANT writes / projects</div>
+        <div>Should be the outcome</div>
+        <div>Likely failure</div>
+      </div>
+
+      <div class="flow-row">
+        <div class="flow-cell source"><strong>Agent starts prompt/tool work</strong>Claude-style events: prompt submitted, pre-tool, tool start.</div>
+        <div class="flow-cell trigger"><strong>Direct CLI hook</strong><code>UserPromptSubmit</code>, <code>PreToolUse</code>, <code>tool_use_start</code>.</div>
+        <div class="flow-cell write-path"><strong>POST hook event</strong><code>/api/cli-hook</code> stores the event and maps it through <code>hookEventStatusMapper</code>.</div>
+        <div class="flow-cell project-path"><strong>Status projection</strong>Writes <code>terminals.agent_status = working</code> with hook source.</div>
+        <div class="flow-cell outcome"><strong>Ant crawls</strong>Footer says <em>working</em>; idle warnings are suppressed.</div>
+        <div class="flow-cell failure"><strong>No hook row</strong>Hook disabled, wrong endpoint, stale install, or legacy <code>/api/hooks</code> no-op.</div>
+      </div>
+
+      <div class="flow-row">
+        <div class="flow-cell source"><strong>CLI status strip changes</strong>Available, Working, Thinking, Waiting, Response needed, menu state.</div>
+        <div class="flow-cell trigger"><strong>Status-line emitter</strong>CLI adapter writes a local state snapshot.</div>
+        <div class="flow-cell write-path"><strong>State file written</strong><code>~/.ant/state/&lt;cli&gt;/&lt;session&gt;.json</code> carries <code>state</code>, <code>cwd</code>, <code>pid</code>, timestamps, menu kind.</div>
+        <div class="flow-cell project-path"><strong>Reader resolves match</strong><code>agentStateReader</code> + <code>agentStateProjection</code> map it to ANT status.</div>
+        <div class="flow-cell outcome"><strong>Strong label</strong>Footer/status can say <em>thinking</em>, <em>working</em>, or <em>response-required</em>.</div>
+        <div class="flow-cell failure"><strong>Unmatchable snapshot</strong>Missing/stale PID, cwd, session id, or wrong CLI folder means fallback to older status.</div>
+      </div>
+
+      <div class="flow-row">
+        <div class="flow-cell source"><strong>Main output block streams</strong>Lines, tool logs, shell output, assistant text, progress.</div>
+        <div class="flow-cell trigger"><strong>PTY pipe/tail</strong><code>tmux pipe-pane</code> feeds <code>~/.ant/pty/&lt;session&gt;.out</code>.</div>
+        <div class="flow-cell write-path"><strong>PTY client drains bytes</strong><code>ptyClient</code> tails fresh chunks and protects against runaway bursts.</div>
+        <div class="flow-cell project-path"><strong>Classify as active output</strong>Output liveness suppresses idle; classifiers can tag message/thinking/tool/ask-candidate.</div>
+        <div class="flow-cell outcome"><strong>Not idle</strong>Terminal is <em>active-output</em> or working-ish until quiet thresholds expire.</div>
+        <div class="flow-cell failure"><strong>Over-trusting text</strong>A question-looking line is only an ask candidate; it is not a confirmed current ask.</div>
+      </div>
+
+      <div class="flow-row">
+        <div class="flow-cell source"><strong>Whole pane changes</strong>Even if the structured hook is missing, the visible screen is not static.</div>
+        <div class="flow-cell trigger"><strong>tmux capture/fingerprint</strong><code>capture-pane</code> or fingerprint polling sees a changed pane.</div>
+        <div class="flow-cell write-path"><strong>Poller compares freshness</strong><code>agentStatusPoller</code> uses pane evidence when fresher hook/state evidence is unavailable.</div>
+        <div class="flow-cell project-path"><strong>Fallback liveness</strong>Marks the terminal recently active without inventing a precise reason.</div>
+        <div class="flow-cell outcome"><strong>Idle suppressed</strong>Ant should not be treated as available/idle while the whole pane is moving.</div>
+        <div class="flow-cell failure"><strong>Stale active state</strong>Volatile working/thinking must decay after TTL or ants keep crawling forever.</div>
+      </div>
+
+      <div class="flow-row">
+        <div class="flow-cell source"><strong>Entry/status block requests input</strong>Menu, approval prompt, response-needed, explicit open ask.</div>
+        <div class="flow-cell trigger"><strong>State/open-ask path</strong>Status projection or ask store carries the human-needed fact.</div>
+        <div class="flow-cell write-path"><strong>Ask evidence recorded</strong>Open ask row or <code>response-required</code> state is linked to the handle/room.</div>
+        <div class="flow-cell project-path"><strong>Room projection joins it</strong><code>/agent-statuses</code> merges membership, terminal status, and asks.</div>
+        <div class="flow-cell outcome"><strong>Current ask</strong>Footer can show stuck/attention; open-asks queue can route the work.</div>
+        <div class="flow-cell failure"><strong>Only prose evidence</strong>Main-pane text alone should create a review candidate, not a canonical ask.</div>
+      </div>
+
+      <div class="flow-row">
+        <div class="flow-cell source"><strong>Transcript file receives clean events</strong>Assistant message, tool event, context/token line.</div>
+        <div class="flow-cell trigger"><strong>Transcript tail watcher</strong>CLI-specific parser reads the durable transcript path.</div>
+        <div class="flow-cell write-path"><strong>Persist run events</strong><code>terminal_run_events</code> and context fill are updated without model calls.</div>
+        <div class="flow-cell project-path"><strong>Fanout when linked</strong><code>transcriptToChatFanout</code> can post clean replies to the linked room.</div>
+        <div class="flow-cell outcome"><strong>Room sees output</strong>Message appears, tooltip context updates, audit trail has event evidence.</div>
+        <div class="flow-cell failure"><strong>Quiet room, active transcript</strong>Terminal is not linked, dedupe reserved the event, or fanout auth failed.</div>
+      </div>
+    </section>
+
+    <section class="section-model" aria-label="Terminal section evidence model">
+      <article class="terminal-map">
+        <div class="terminal-frame" aria-label="Four semantic terminal zones">
+          <div class="zone zone-main">
+            <span>Main output block</span>
+            <small>streaming lines, tool logs, assistant text</small>
+          </div>
+          <div class="zone zone-strip">
+            <span>Thinking / working strip</span>
+            <small>model status, tool activity, visible progress</small>
+          </div>
+          <div class="zone zone-entry">
+            <span>Entry + status block</span>
+            <small>prompt box, menus, response-needed states</small>
+          </div>
+          <div class="zone zone-whole"><span>whole pane fingerprint</span></div>
+        </div>
+      </article>
+
+      <article class="evidence-stack" aria-label="How section evidence is trusted">
+        <div class="evidence-card">
+          <span class="confidence medium">Proves liveness</span>
+          <h2>Main block or whole pane is changing</h2>
+          <p>Fresh bytes or a changing pane fingerprint means the terminal is not confidently idle. ANT should suppress idle and label it active output until the stream goes quiet.</p>
+        </div>
+        <div class="evidence-card">
+          <span class="confidence strong">Promotes status</span>
+          <h2>Strip says thinking or working</h2>
+          <p>Status-line files and hook events are stronger than raw movement. They can promote the agent to thinking or working without asking a model to interpret the screen.</p>
+        </div>
+        <div class="evidence-card">
+          <span class="confidence strong">Confirms ask</span>
+          <h2>Entry/status says response needed</h2>
+          <p>Menus, response-needed labels, and open-ask rows are the canonical human-needed signal. This is what should drive stuck ants and open ask routing.</p>
+        </div>
+        <div class="evidence-card">
+          <span class="confidence weak">Suggests ask</span>
+          <h2>Main text looks like a question</h2>
+          <p>Output classifiers can create an ask candidate, but prose alone should not become a canonical ask. It needs state, menu, or open-ask confirmation.</p>
+        </div>
+        <div class="evidence-card">
+          <span class="confidence stop">Decays state</span>
+          <h2>No fresh signal after TTL</h2>
+          <p>Working/thinking from volatile sources must expire. Quiet terminals return to idle, then offline, rather than keeping stale ants crawling.</p>
+        </div>
+        <div class="evidence-card">
+          <span class="confidence medium">Normalizes CLIs</span>
+          <h2>Per-CLI adapters, one evidence object</h2>
+          <p>Claude and Codex expose different panes. Each adapter maps its layout into these semantic zones, then ANT projects the same status model for the room footer.</p>
+        </div>
+      </article>
+    </section>
+
+    <section class="board" aria-label="CLI hook flow lanes">
+      <article class="lane">
+        <h2>1. Direct CLI hook events</h2>
+        <div class="step event" data-kind="event">
+          <h3>User prompt, tool start, tool stop, stop, notification</h3>
+          <p>Claude-style hook events use names such as <code>UserPromptSubmit</code>, <code>PreToolUse</code>, <code>PostToolUse</code>, <code>Stop</code>, <code>Notification</code>.</p>
+        </div>
+        <div class="step hook" data-kind="hook">
+          <h3>Shell hook posts to ANT</h3>
+          <p><code>ant-cli hooks install</code> writes commands that POST JSON to <code>/api/cli-hook</code>. Legacy <code>.claude/hooks/ant-hook.sh</code> posts to <code>/api/hooks</code>, which is a no-op compatibility sink.</p>
+        </div>
+        <div class="step write" data-kind="write">
+          <h3>Receiver stores event and maps status</h3>
+          <p><code>/api/cli-hook</code> inserts <code>cli_hook_events</code>, then <code>hookEventStatusMapper</code> maps canonical events to <code>working</code>, <code>thinking</code>, or <code>idle</code>.</p>
+        </div>
+        <div class="step project" data-kind="outcome">
+          <h3>Terminal status column updates</h3>
+          <p>Mapped status writes to <code>terminals.agent_status</code>. Room UI later reads it through <code>/agent-statuses</code>.</p>
+        </div>
+        <div class="step fail" data-kind="failure">
+          <h3>Failure: hooks disabled or wrong endpoint</h3>
+          <p>No new row in <code>cli_hook_events</code>. Diagnostics may look like "hook lag", but that can just mean stale hook freshness.</p>
+        </div>
+      </article>
+
+      <article class="lane">
+        <h2>2. Status-line state files</h2>
+        <div class="step event" data-kind="event">
+          <h3>CLI status changes locally</h3>
+          <p>CLI says Available, Working, Thinking, Waiting, Response needed, or a menu state.</p>
+        </div>
+        <div class="step hook" data-kind="hook">
+          <h3>Status-line / adapter writes JSON</h3>
+          <p>The CLI emitter writes <code>~/.ant/state/&lt;cli&gt;/&lt;session&gt;.json</code>. ANT also checks CLI-native dirs such as <code>~/.claude/state</code>.</p>
+        </div>
+        <div class="step write" data-kind="write">
+          <h3>Snapshot contains state evidence</h3>
+          <p>Useful fields include <code>state</code>, <code>cwd</code>, <code>project_dir</code>, <code>pid</code>, <code>last_user_ts</code>, <code>last_resp_ts</code>, and <code>menu_kind</code>.</p>
+        </div>
+        <div class="step project" data-kind="outcome">
+          <h3>ANT resolves the best snapshot</h3>
+          <p><code>agentStateReader</code> finds by session id, cwd, cwd basename, or PID-linked terminal session. <code>agentStateProjection</code> maps state label to ANT status.</p>
+        </div>
+        <div class="step fail" data-kind="failure">
+          <h3>Failure: stale or unmatchable file</h3>
+          <p>If the file is stale, malformed, missing <code>pid/cwd/session</code>, or from the wrong CLI folder, the projection returns null and UI falls back to default/idle.</p>
+        </div>
+      </article>
+
+      <article class="lane">
+        <h2>3. Terminal stream bridge</h2>
+        <div class="step event" data-kind="event">
+          <h3>Terminal page opens</h3>
+          <p>The terminal status view connects to <code>/api/terminals/:id/agent-state/stream</code>.</p>
+        </div>
+        <div class="step hook" data-kind="watcher">
+          <h3>Server polls the local snapshot</h3>
+          <p>The stream polls every second. It prefers PID-disambiguated state, then falls back to session id and cwd lookup.</p>
+        </div>
+        <div class="step write" data-kind="write">
+          <h3>Status is projected into DB</h3>
+          <p>When snapshot state changes, the stream writes <code>terminals.agent_status</code> with source <code>hook</code>.</p>
+        </div>
+        <div class="step project" data-kind="outcome">
+          <h3>Both terminal and room lights update</h3>
+          <p>The terminal stream emits SSE, and the room footer reads the same projected status through <code>/agent-statuses</code>.</p>
+        </div>
+        <div class="step fail" data-kind="failure">
+          <h3>Failure: transient response-required flap</h3>
+          <p>The stream debounces <code>response-required</code> for 3s after <code>working</code> so a gap between tool calls does not falsely shout "needs reply".</p>
+        </div>
+      </article>
+
+      <article class="lane">
+        <h2>4. Transcript tail watchers</h2>
+        <div class="step event" data-kind="event">
+          <h3>CLI writes transcript output</h3>
+          <p>Claude, Codex, Pi, Gemini, Qwen, and Copilot have transcript tail readers/parsers.</p>
+        </div>
+        <div class="step hook" data-kind="watcher">
+          <h3>Watcher parses clean lines</h3>
+          <p>Parsers extract assistant messages, tool events, and token/context readings where each CLI exposes them.</p>
+        </div>
+        <div class="step write" data-kind="write">
+          <h3>Run events and context fill are persisted</h3>
+          <p>Message/tool events go to <code>terminal_run_events</code>. Fresh token/context readings update <code>terminals.agent_context_fill</code>.</p>
+        </div>
+        <div class="step project" data-kind="outcome">
+          <h3>Chat and context chip update</h3>
+          <p><code>transcriptToChatFanout</code> can post clean assistant replies into the linked room. The footer tooltip can show uptime and context percent.</p>
+        </div>
+        <div class="step fail" data-kind="failure">
+          <h3>Failure: transcript exists but chat is quiet</h3>
+          <p>If fanout cannot link terminal to room, or dedupe already reserved the event, transcript ingestion continues but no room message appears.</p>
+        </div>
+      </article>
+
+      <article class="lane">
+        <h2>5. Room footer projection</h2>
+        <div class="step event" data-kind="event">
+          <h3>Room page renders</h3>
+          <p><code>AgentStatusFooter</code> mounts under the sticky composer and calls <code>/api/chat-rooms/:roomId/agent-statuses</code>.</p>
+        </div>
+        <div class="step hook" data-kind="refresh">
+          <h3>Poll and room SSE refresh</h3>
+          <p>The footer fetches immediately, polls every 30s, and refreshes on room SSE <code>agent_activity</code> or <code>message_added</code>.</p>
+        </div>
+        <div class="step write" data-kind="read">
+          <h3>Endpoint joins the room and terminal data</h3>
+          <p>It merges room agent memberships, durable terminal status, spawned CLI agents, open asks, uptime, and fresh context fill.</p>
+        </div>
+        <div class="step project" data-kind="outcome">
+          <h3>Visual state</h3>
+          <p><code>working/thinking</code> crawls. <code>idle/unknown</code> rests visibly. <code>response-required</code> shows the stuck/attention state. Colour is handle-based.</p>
+        </div>
+        <div class="step fail" data-kind="failure">
+          <h3>Failure: UI alive, data missing</h3>
+          <p>If the endpoint returns empty or stale rows, the footer shell stays visible but shows checking/offline/default instead of live ants.</p>
+        </div>
+      </article>
+    </section>
+
+    <section class="matrix" aria-label="Event to status matrix">
+      <div class="head">This happens</div>
+      <div class="head">Hook / reader</div>
+      <div class="head">ANT status</div>
+      <div class="head">Expected outcome</div>
+
+      <div><code>UserPromptSubmit</code> or <code>PreToolUse</code></div>
+      <div><code>hookEventStatusMapper</code></div>
+      <div class="status">working</div>
+      <div>Agent ant crawls; room footer refreshes via status feed.</div>
+
+      <div><code>PostToolUse</code>, <code>Stop</code>, <code>SubagentStop</code></div>
+      <div><code>hookEventStatusMapper</code></div>
+      <div class="status">idle</div>
+      <div>Agent ant rests in a visible slot; no off-screen freeze.</div>
+
+      <div><code>Notification</code>, <code>ThinkingStart</code>, <code>thinking</code></div>
+      <div><code>hookEventStatusMapper</code> or state projection</div>
+      <div class="status">thinking</div>
+      <div>Agent ant crawls; status label says thinking.</div>
+
+      <div>State label <code>Response needed</code> or menu state</div>
+      <div><code>agentStateProjection</code></div>
+      <div class="status">response-required</div>
+      <div>Agent ant becomes stuck/attention, subject to 3s debounce after working.</div>
+
+      <div>Fresh token/context line</div>
+      <div>Transcript parser</div>
+      <div class="status">contextFill only</div>
+      <div>Tooltip/chip shows context percent; it does not drive ant movement.</div>
+    </section>
+
+    <section class="note-grid" aria-label="Operator notes">
+      <article class="note">
+        <h2>What is canonical?</h2>
+        <p>The room UI should trust <code>/agent-statuses</code>, not individual hook files directly. That endpoint is the point where membership, terminal status, spawned CLI agents, asks, uptime, and context fill are reconciled.</p>
+      </article>
+      <article class="note">
+        <h2>What is not canonical?</h2>
+        <p><code>/api/hooks</code> is a no-op compatibility endpoint. It prevents 404 noise from old scripts but does not update live status. Real hook ingestion is <code>/api/cli-hook</code> or the state-file reader path.</p>
+      </article>
+      <article class="note">
+        <h2>Best first debug check</h2>
+        <p>Ask: did the CLI emit anything fresh? Then check whether ANT can match it to the terminal/room. Most failures are stale files, disabled hooks, wrong endpoint, or missing session/cwd/pid binding.</p>
+      </article>
+    </section>
+  </main>
+  <script>
+    for (const [index, row] of document.querySelectorAll('.flow-row').entries()) {
+      const source = row.querySelector('.flow-cell.source');
+      const label = source?.querySelector('strong');
+      if (!source || !label) continue;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'flow-toggle';
+      button.setAttribute('aria-label', `Toggle details for ${label.textContent?.trim() ?? 'flow row'}`);
+      const setExpanded = (expanded) => {
+        row.classList.toggle('is-collapsed', !expanded);
+        row.classList.toggle('is-expanded', expanded);
+        button.textContent = expanded ? '-' : '+';
+        button.setAttribute('aria-expanded', String(expanded));
+      };
+      setExpanded(index === 0);
+      button.addEventListener('click', () => setExpanded(row.classList.contains('is-collapsed')));
+      source.prepend(button);
+    }
+  </script>
+</body>
+</html>

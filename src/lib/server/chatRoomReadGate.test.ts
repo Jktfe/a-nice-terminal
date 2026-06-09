@@ -134,7 +134,7 @@ describe('resolveChatRoomReadAccess debug instrumentation', () => {
     });
     addMember('room-retired', '@retired-reader', session.id);
     expect(removeMember('room-retired', '@retired-reader')).toBe(true);
-    expect(removeHandle('room-retired', '@retired-reader')).toBe('@retired-reader-1');
+    expect(removeHandle('room-retired', '@retired-reader')).toBeNull();
 
     const request = new Request('http://localhost/api/chat-rooms/room-retired/status', {
       headers: { 'x-ant-session-id': session.id }

@@ -26,6 +26,7 @@ const execFile = promisify(execFileCb);
 const TMUX = '/opt/homebrew/bin/tmux';
 const ANT_DIR = join(process.env.HOME || '/tmp', '.ant');
 const PTY_DIR = join(ANT_DIR, 'pty');
+export const DEFAULT_MAX_PTY_DRAIN_BYTES = 16 * 1024;
 
 type OutputCb = (sessionId: string, data: string) => void;
 /** Fired when a session's .out file is truncated/rotated/replaced — i.e. the
@@ -82,6 +83,12 @@ function getStore(): State {
   return g.__antPtyClient;
 }
 
+function maxPtyDrainBytes(): number {
+  const raw = Number(process.env.ANT_PTY_MAX_DRAIN_BYTES);
+  if (!Number.isInteger(raw) || raw < 1) return DEFAULT_MAX_PTY_DRAIN_BYTES;
+  return raw;
+}
+
 function ensurePtyDirExists(): void {
   if (!existsSync(PTY_DIR)) mkdirSync(PTY_DIR, { recursive: true });
 }
@@ -109,16 +116,30 @@ function ensurePtyDirExists(): void {
  * Exported (underscore-prefixed) for direct unit testing of the decision
  * matrix without standing up a real tmux pipe-pane file.
  */
-export function _resolveReadPlan(prevOffset: number, prevIno: number, st: Stats): { from: number; reset: boolean } {
+export function _resolveReadPlan(
+  prevOffset: number,
+  prevIno: number,
+  st: Stats,
+  maxDrainBytes = maxPtyDrainBytes()
+): { from: number; reset: boolean; skippedOversizedAppend: boolean } {
   const rotated = prevIno !== 0 && st.ino !== prevIno; // file replaced under us
   const truncated = st.size < prevOffset;              // file shrank — offset stranded
   if (rotated || truncated) {
     // Reset: adopt the new file's current end as the live baseline. Skip the
     // gap on the live channel; the scrollback re-seed repaints what's onscreen.
-    return { from: st.size, reset: true };
+    return { from: st.size, reset: true, skippedOversizedAppend: false };
+  }
+  if (st.size - prevOffset > maxDrainBytes) {
+    // A pane can dump megabytes or gigabytes between 120ms drains (for example
+    // a runaway command or a pre-existing pipe file missed by a watcher). Do
+    // not allocate and classify that whole chunk in the HTTP server process:
+    // it blocks every route while better-sqlite3 writes the derived events.
+    // Treat it like a reset and resume from EOF; live output after the spike
+    // still tails normally.
+    return { from: st.size, reset: true, skippedOversizedAppend: true };
   }
   // Normal pure-append: read everything after what we already emitted.
-  return { from: prevOffset, reset: false };
+  return { from: prevOffset, reset: false, skippedOversizedAppend: false };
 }
 
 /**

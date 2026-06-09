@@ -1,11 +1,14 @@
 import { statSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { getDbFilePath, getIdentityDb } from './db';
 
 export const DEFAULT_OPERATIONAL_RETENTION_DAYS = 7;
 export const DEFAULT_OPERATIONAL_RETENTION_MAX_DB_BYTES = 1024 * 1024 * 1024;
+export const DEFAULT_WAL_CHECKPOINT_MIN_BYTES = 1024 * 1024 * 1024;
 // Safety bounds — prevent pathological env values from thrashing or disabling hygiene.
 const MAX_RETENTION_DAYS = 365;
 const MIN_MAX_DB_BYTES = 10 * 1024 * 1024; // 10 MB
+const MIN_WAL_CHECKPOINT_BYTES = 1;
 const MIN_SWEEP_INTERVAL_MS = 60_000; // 1 minute
 const MAX_BATCH_SIZE = 500_000;
 const DEFAULT_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -17,6 +20,76 @@ const TIMER_KEY = '__antOperationalRetentionTimer';
 const THRESHOLD_INITIAL_TIMER_KEY = '__antOperationalRetentionThresholdInitialTimer';
 const THRESHOLD_TIMER_KEY = '__antOperationalRetentionThresholdTimer';
 const LAST_RESULT_KEY = '__antOperationalRetentionLastResult';
+const LAST_WAL_CHECKPOINT_KEY = '__antOperationalRetentionLastWalCheckpoint';
+const WAL_CHECKPOINT_CHILD_RUNNING_KEY = '__antOperationalRetentionWalCheckpointChildRunning';
+
+const WAL_CHECKPOINT_CHILD_SCRIPT = `
+import Database from 'better-sqlite3';
+import { statSync } from 'node:fs';
+
+const dbPath = process.env.ANT_WAL_CHECKPOINT_DB_PATH;
+const attemptedAtMs = Number(process.env.ANT_WAL_CHECKPOINT_NOW_MS || Date.now());
+const size = (path) => {
+  try { return statSync(path).size; } catch { return 0; }
+};
+const walPath = \`\${dbPath}-wal\`;
+const walBytesBefore = size(walPath);
+let pragmaResult = null;
+let errorMessage = null;
+let pruned = null;
+const deleteInBatches = (db, tableName, timestampColumn, cutoffMs, batchSize) => {
+  let deleted = 0;
+  while (true) {
+    const result = db.prepare(\`DELETE FROM \${tableName}
+      WHERE rowid IN (
+        SELECT rowid FROM \${tableName}
+         WHERE \${timestampColumn} < ?
+         LIMIT ?
+      )\`).run(cutoffMs, batchSize);
+    const changes = Number(result.changes);
+    deleted += changes;
+    if (changes < batchSize) break;
+  }
+  return deleted;
+};
+try {
+  const db = new Database(dbPath);
+  db.pragma('busy_timeout = 5000');
+  if (process.env.ANT_WAL_CHECKPOINT_PRUNE === '1') {
+    const retentionDays = Math.max(1, Math.min(365, Number(process.env.ANT_OPERATIONAL_RETENTION_DAYS || 7) || 7));
+    const cutoffMs = attemptedAtMs - retentionDays * 24 * 60 * 60 * 1000;
+    const batchSize = 50000;
+    const terminalRunEventsDeleted = deleteInBatches(db, 'terminal_run_events', 'ts_ms', cutoffMs, batchSize);
+    const cliHookEventsDeleted = deleteInBatches(db, 'cli_hook_events', 'received_at_ms', cutoffMs, batchSize);
+    const terminalRecordsDeleted = db.prepare(\`DELETE FROM terminal_records
+       WHERE (superseded_at_ms IS NOT NULL OR session_id NOT IN (SELECT id FROM terminals))
+         AND COALESCE(superseded_at_ms, updated_at_ms) < ?\`).run(cutoffMs).changes;
+    pruned = {
+      retentionDays,
+      cutoffMs,
+      terminalRunEventsDeleted,
+      cliHookEventsDeleted,
+      terminalRecordsDeleted
+    };
+  }
+  pragmaResult = db.pragma('wal_checkpoint(TRUNCATE)');
+  db.close();
+} catch (error) {
+  errorMessage = error instanceof Error ? error.message : String(error);
+}
+const walBytesAfter = size(walPath);
+console.log(JSON.stringify({
+  attemptedAtMs,
+  walPath,
+  walBytesBefore,
+  walBytesAfter,
+  fullyTruncated: walBytesAfter === 0,
+  shrank: walBytesAfter < walBytesBefore,
+  pragmaResult,
+  pruned,
+  errorMessage
+}));
+`;
 
 export type OperationalRetentionResult = {
   retentionDays: number;
@@ -29,6 +102,25 @@ export type OperationalRetentionResult = {
   dbBytesBefore: number;
   dbBytesAfter: number;
   maxDbBytes: number;
+};
+
+export type WalCheckpointResult = {
+  attemptedAtMs: number;
+  walPath: string;
+  walBytesBefore: number;
+  walBytesAfter: number;
+  fullyTruncated: boolean;
+  shrank: boolean;
+  pragmaResult: unknown;
+  errorMessage: string | null;
+};
+
+export type WalCheckpointChildStartResult = {
+  started: boolean;
+  alreadyRunning: boolean;
+  skipped: boolean;
+  walBytesBefore: number;
+  minWalBytes: number;
 };
 
 type BootResult = {
@@ -52,21 +144,33 @@ export function getOperationalRetentionMaxDbBytes(): number {
   return Math.max(parsed, MIN_MAX_DB_BYTES);
 }
 
+export function getWalCheckpointMinBytes(): number {
+  const raw = process.env.ANT_WAL_CHECKPOINT_MIN_BYTES;
+  if (!raw) return DEFAULT_WAL_CHECKPOINT_MIN_BYTES;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1) return DEFAULT_WAL_CHECKPOINT_MIN_BYTES;
+  return Math.max(parsed, MIN_WAL_CHECKPOINT_BYTES);
+}
+
 export function getOperationalRetentionPolicy(): {
   retentionDays: number;
   sweepIntervalMs: number;
   thresholdCheckIntervalMs: number;
   maxDbBytes: number;
+  walCheckpointMinBytes: number;
   disabled: boolean;
   lastResult: OperationalRetentionResult | null;
+  lastWalCheckpoint: WalCheckpointResult | null;
 } {
   return {
     retentionDays: getOperationalRetentionDays(),
     sweepIntervalMs: getSweepIntervalMs(),
     thresholdCheckIntervalMs: getThresholdCheckIntervalMs(),
     maxDbBytes: getOperationalRetentionMaxDbBytes(),
+    walCheckpointMinBytes: getWalCheckpointMinBytes(),
     disabled: process.env.ANT_OPERATIONAL_RETENTION_DISABLED === '1',
-    lastResult: ((globalThis as Record<string, unknown>)[LAST_RESULT_KEY] as OperationalRetentionResult | undefined) ?? null
+    lastResult: ((globalThis as Record<string, unknown>)[LAST_RESULT_KEY] as OperationalRetentionResult | undefined) ?? null,
+    lastWalCheckpoint: ((globalThis as Record<string, unknown>)[LAST_WAL_CHECKPOINT_KEY] as WalCheckpointResult | undefined) ?? null
   };
 }
 
@@ -109,7 +213,7 @@ export function pruneOperationalHistory(input: {
   const deletedTotal = terminalRunEventsDeleted + cliHookEventsDeleted + terminalRecordsDeleted;
   const shouldVacuum = input.vacuum === true && deletedTotal > 0;
   if (shouldVacuum) {
-    db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    checkpointWalTruncate();
     db.exec('VACUUM');
   }
   const result = {
@@ -133,6 +237,7 @@ export function pruneOperationalHistoryIfOverThreshold(input: {
   maxDbBytes?: number;
   retentionDays?: number;
   batchSize?: number;
+  vacuum?: boolean;
 } = {}): OperationalRetentionResult | null {
   const maxDbBytes = input.maxDbBytes ?? getOperationalRetentionMaxDbBytes();
   if (operationalDbBytes() < maxDbBytes) return null;
@@ -140,7 +245,7 @@ export function pruneOperationalHistoryIfOverThreshold(input: {
     nowMs: input.nowMs,
     retentionDays: input.retentionDays,
     batchSize: input.batchSize,
-    vacuum: true,
+    vacuum: input.vacuum ?? true,
     trigger: 'threshold'
   });
 }
@@ -157,12 +262,125 @@ export function pruneOperationalHistoryIfOverThreshold(input: {
  * NOT checkpointing. If a reader pins old frames, TRUNCATE partial-checkpoints
  * and the file is reclaimed on a later pass. Best-effort: never throws.
  */
-export function checkpointWalTruncate(): void {
+export function checkpointWalTruncate(input: {
+  dbPath?: string;
+  nowMs?: number;
+  runCheckpoint?: () => unknown;
+} = {}): WalCheckpointResult {
+  const dbPath = input.dbPath ?? getDbFilePath();
+  const walPath = `${dbPath}-wal`;
+  const attemptedAtMs = input.nowMs ?? Date.now();
+  const walBytesBefore = fileSizeBytes(walPath);
+  let pragmaResult: unknown = null;
+  let errorMessage: string | null = null;
   try {
-    getIdentityDb().pragma('wal_checkpoint(TRUNCATE)');
-  } catch {
+    pragmaResult = input.runCheckpoint
+      ? input.runCheckpoint()
+      : getIdentityDb().pragma('wal_checkpoint(TRUNCATE)');
+  } catch (error) {
+    errorMessage = error instanceof Error ? error.message : String(error);
     /* checkpoint is best-effort maintenance; never crash the sweep */
   }
+  const walBytesAfter = fileSizeBytes(walPath);
+  const result: WalCheckpointResult = {
+    attemptedAtMs,
+    walPath,
+    walBytesBefore,
+    walBytesAfter,
+    fullyTruncated: walBytesAfter === 0,
+    shrank: walBytesAfter < walBytesBefore,
+    pragmaResult,
+    errorMessage
+  };
+  (globalThis as Record<string, unknown>)[LAST_WAL_CHECKPOINT_KEY] = result;
+  return result;
+}
+
+export function checkpointWalTruncateInChild(input: {
+  dbPath?: string;
+  nowMs?: number;
+  minWalBytes?: number;
+  force?: boolean;
+  pruneOperationalRows?: boolean;
+  spawnImpl?: typeof spawn;
+} = {}): WalCheckpointChildStartResult {
+  const slot = globalThis as Record<string, unknown>;
+  const dbPath = input.dbPath ?? getDbFilePath();
+  const walPath = `${dbPath}-wal`;
+  const walBytesBefore = fileSizeBytes(walPath);
+  const minWalBytes = Math.max(MIN_WAL_CHECKPOINT_BYTES, Math.floor(input.minWalBytes ?? getWalCheckpointMinBytes()));
+  if (input.force !== true && walBytesBefore < minWalBytes) {
+    return {
+      started: false,
+      alreadyRunning: false,
+      skipped: true,
+      walBytesBefore,
+      minWalBytes
+    };
+  }
+  if (slot[WAL_CHECKPOINT_CHILD_RUNNING_KEY]) {
+    return {
+      started: false,
+      alreadyRunning: true,
+      skipped: false,
+      walBytesBefore,
+      minWalBytes
+    };
+  }
+  slot[WAL_CHECKPOINT_CHILD_RUNNING_KEY] = true;
+  const nowMs = input.nowMs ?? Date.now();
+  const spawnImpl = input.spawnImpl ?? spawn;
+  const child = spawnImpl(process.execPath, ['--input-type=module', '-e', WAL_CHECKPOINT_CHILD_SCRIPT], {
+    env: {
+      ...process.env,
+      ANT_WAL_CHECKPOINT_DB_PATH: dbPath,
+      ANT_WAL_CHECKPOINT_NOW_MS: String(nowMs),
+      ANT_WAL_CHECKPOINT_PRUNE: input.pruneOperationalRows === true ? '1' : '0'
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout?.setEncoding('utf8');
+  child.stderr?.setEncoding('utf8');
+  child.stdout?.on('data', (chunk) => { stdout += chunk; });
+  child.stderr?.on('data', (chunk) => { stderr += chunk; });
+  const finishWithError = (message: string) => {
+    const walPath = `${dbPath}-wal`;
+    const walBytesAfter = fileSizeBytes(walPath);
+    const result: WalCheckpointResult = {
+      attemptedAtMs: nowMs,
+      walPath,
+      walBytesBefore: walBytesAfter,
+      walBytesAfter,
+      fullyTruncated: walBytesAfter === 0,
+      shrank: false,
+      pragmaResult: null,
+      errorMessage: message
+    };
+    slot[LAST_WAL_CHECKPOINT_KEY] = result;
+  };
+  child.on('error', (error) => {
+    delete slot[WAL_CHECKPOINT_CHILD_RUNNING_KEY];
+    finishWithError(error instanceof Error ? error.message : String(error));
+  });
+  child.on('close', () => {
+    delete slot[WAL_CHECKPOINT_CHILD_RUNNING_KEY];
+    try {
+      const parsed = JSON.parse(stdout.trim()) as WalCheckpointResult;
+      slot[LAST_WAL_CHECKPOINT_KEY] = parsed;
+    } catch (error) {
+      const parseMessage = error instanceof Error ? error.message : String(error);
+      finishWithError(stderr.trim() || parseMessage);
+    }
+  });
+  return {
+    started: true,
+    alreadyRunning: false,
+    skipped: false,
+    walBytesBefore,
+    minWalBytes
+  };
 }
 
 export function ensureOperationalRetentionSweepBooted(input: {
@@ -180,22 +398,12 @@ export function ensureOperationalRetentionSweepBooted(input: {
   slot[BOOT_KEY] = true;
 
   const runSweep = () => {
-    try {
-      pruneOperationalHistory({ vacuum: false, trigger: 'scheduled' });
-    } catch {
-      /* retention is best-effort; do not crash the server */
-    }
+    checkpointWalTruncateInChild();
   };
   const runThresholdCheck = () => {
-    try {
-      pruneOperationalHistoryIfOverThreshold();
-    } catch {
-      /* threshold pruning is best-effort; do not crash the server */
-    }
-    // Bound the -wal file every ~5 min (autocheckpoint only runs PASSIVE and
-    // never truncates it; see checkpointWalTruncate). Keeps the WAL from
-    // re-bloating to ~1GB under the fleet's terminal_run_events write rate.
-    checkpointWalTruncate();
+    // Bound the -wal file out-of-process. Synchronous SQLite maintenance in
+    // this server blocks health/chat while readers pin the WAL.
+    checkpointWalTruncateInChild();
   };
 
   if (input.runImmediately !== false) {
@@ -240,6 +448,8 @@ export function _resetOperationalRetentionBootForTests(): void {
   delete slot[THRESHOLD_INITIAL_TIMER_KEY];
   delete slot[THRESHOLD_TIMER_KEY];
   delete slot[LAST_RESULT_KEY];
+  delete slot[LAST_WAL_CHECKPOINT_KEY];
+  delete slot[WAL_CHECKPOINT_CHILD_RUNNING_KEY];
 }
 
 function getSweepIntervalMs(): number {

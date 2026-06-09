@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ANT CLI Status — Hooks + Live Pane Signatures (expanding)</title>
+<style>
+  :root{
+    --paper:#f4f0e8;--ink:#1d1b17;--muted:#6d685f;--line:#d7cdb9;--card:#fffaf1;
+    --claude:#4338ca;--codex:#a1500a;--qwen:#b8268f;--agy:#0f766e;--copilot:#1f6feb;--pi:#a16207;
+    --ok:#15803d;--fail:#b4332b;--infer:#0f766e;
+    --mono:"SF Mono","Menlo",ui-monospace,monospace;--sans:"Avenir Next","Helvetica Neue",system-ui,sans-serif;--serif:"Iowan Old Style","Charter",Georgia,serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.45}
+  .wrap{max-width:1120px;margin:0 auto;padding:38px 22px 80px}
+  .kicker{margin:0 0 8px;color:var(--muted);font:700 11px/1.2 var(--mono);letter-spacing:.12em;text-transform:uppercase}
+  h1{margin:0 0 8px;font:650 clamp(28px,4vw,46px)/1.04 var(--serif);letter-spacing:-.02em}
+  .lede{margin:0 0 6px;color:var(--muted);font-size:15.5px;max-width:880px}
+  .links{font:600 13px var(--sans);margin:6px 0 0}.links a{color:var(--claude);margin-right:14px}
+  .keyfind{border:1px solid var(--line);border-left:6px solid var(--ok);background:#fff;border-radius:11px;padding:14px 16px;margin:18px 0 6px;font-size:14.5px}
+  .keyfind b{color:var(--ok)}
+
+  details{background:var(--card);border:1px solid var(--line);border-radius:12px;margin:12px 0;overflow:hidden}
+  details[open]{box-shadow:0 1px 0 rgba(0,0,0,.03)}
+  summary{cursor:pointer;list-style:none;padding:14px 16px;display:flex;align-items:center;gap:12px;font-size:15px}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"▸";color:var(--muted);font-size:13px;transition:transform .15s}
+  details[open] summary::before{transform:rotate(90deg)}
+  .cliname{font:700 16px var(--serif)}
+  .cov{font:700 9.5px/1 var(--mono);text-transform:uppercase;letter-spacing:.05em;padding:4px 7px;border-radius:5px}
+  .cov.full{background:#dcf3e1;color:#15803d}.cov.fp{background:#ece6da;color:#8a6d2f}
+  .live{margin-left:auto;font:700 11px var(--mono);padding:4px 9px;border-radius:6px;background:#1d1b17;color:#f4f0e8}
+  .body{padding:0 16px 16px;border-top:1px solid var(--line)}
+  h4{font:700 10.5px/1 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:16px 0 8px}
+  .sig{background:#13110e;color:#e6e0d4;border-radius:9px;padding:12px 14px;font:12px/1.55 var(--mono);overflow-x:auto;white-space:pre-wrap}
+  .sig .lab{color:#7fd1a8}.sig .state{color:#ffd56b;font-weight:700}.sig .reg{color:#9db7ff}
+  table{border-collapse:collapse;width:100%;font-size:12.3px;margin-top:4px}
+  th{text-align:left;font:700 9.5px/1.2 var(--mono);text-transform:uppercase;color:#4a463e;padding:7px 8px;border-bottom:2px solid var(--line);vertical-align:bottom}
+  td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  code{font-family:var(--mono);font-size:11px;background:#0001;padding:1px 4px;border-radius:4px}
+  .fail{color:var(--fail)}.infer{color:var(--infer);font-weight:600}
+  .tag{display:inline-block;font:700 8.5px/1 var(--mono);padding:2px 5px;border-radius:4px;background:#fdeceb;color:#b4332b}
+  .foot{margin-top:26px;color:var(--muted);font-size:12px;border-top:1px solid var(--line);padding-top:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="kicker">ANT · Research Colony · @researchant · 2026-06-09</p>
+  <h1>CLI Status — Hooks + Live Signatures</h1>
+  <p class="lede">Click any CLI to expand its <b>hook flows</b> (event → trigger → does → fails → infer) and its <b>live pane signature</b> — captured straight from the "Agents Agents" room, ~16:50.</p>
+  <p class="links"><a href="ant-cli-hooks-table.html">flat table ↗</a><a href="ant-cli-hooks.csv">CSV ↗</a><a href="ant-cli-hooks-flow.html">flow cards ↗</a></p>
+
+  <div class="keyfind"><b>Key finding (your section model, confirmed live):</b> 3 of 5 CLIs render their <b>state label right in the status strip</b> — Claude <code>Response needed</code>, Codex <code>Ready</code>, Qwen <code>Working</code> — so we can <b>read</b> the state token-free, no hook or model needed. Agy &amp; Copilot don't print a word, but their activity bullets + entry prompt give it away. <b>The pane is the source of truth.</b></div>
+
+  <!-- CLAUDE -->
+  <details open><summary><span class="cliname" style="color:var(--claude)">Claude Code</span> <span class="cov full">fully hooked</span> <span class="live">live: Response needed</span></summary>
+  <div class="body">
+    <h4>Live pane signature (t_xupaxrk5c2)</h4>
+    <div class="sig"><span class="reg">[strip]</span>  ✻ Churned for 1m 51s          <span class="lab"># ✻ &lt;verb&gt; for &lt;time&gt; = thinking</span>
+<span class="reg">[entry]</span> ❯
+<span class="reg">[status]</span> sent:16:48:30 · resp:16:50:21 · edit:16:50:03 │ a-nice-terminal │ Opus 4.8 (1M ctx) │ 6h:53% │ <span class="state">Response needed</span> │ Remote Control
+        ⏵⏵ bypass permissions on (shift+tab) · ← for agents</div>
+    <p style="font-size:13px;color:var(--muted);margin:8px 0 0">Token-free read: <b>state label is literal</b> in the status line (<code>Working</code>/<code>Waiting</code>/<code>Response needed</code>). Strip <code>✻ … for &lt;time&gt;</code> = thinking; tool runs = working.</p>
+    <h4>Hooks</h4>
+    <table><tr><th style="width:140px">Hook</th><th>Fires → does</th><th style="width:150px">Fails</th><th style="width:150px">Infer</th></tr>
+    <tr><td><code>on-session-start</code></td><td>Session begins → <code>state=Available</code></td><td class="fail">no session_id → exit</td><td class="infer">alive &amp; resting</td></tr>
+    <tr><td><code>on-prompt-submit</code></td><td>Prompt → <code>Working</code></td><td class="fail">jq err → stale</td><td class="infer">started working</td></tr>
+    <tr><td><code>on-pre-tool-use</code></td><td>Before tool → <code>Working</code>/<code>Menu</code></td><td class="fail">timeout → silent</td><td class="infer">executing</td></tr>
+    <tr><td><code>on-post-tool-use</code></td><td>After tool → clears Menu</td><td class="fail">net err → silent</td><td class="infer">tool done</td></tr>
+    <tr><td><code>on-stop</code> + poll</td><td>Turn ends → <code>perspective</code> classify → Waiting/Response-needed</td><td class="fail">perspective down → <b>Waiting</b></td><td class="infer">DONE vs NEEDS-YOU</td></tr>
+    <tr><td><code>on-notification</code></td><td>Idle/permission → Response-needed/Permission</td><td class="fail">file missing → empty</td><td class="infer">waiting on a human</td></tr>
+    <tr><td>SessionEnd/Compact</td><td>POST telemetry only</td><td class="fail">net down → silent</td><td class="infer">lifecycle boundary</td></tr>
+    </table>
+  </div></details>
+
+  <!-- CODEX -->
+  <details><summary><span class="cliname" style="color:var(--codex)">Codex</span> <span class="cov full">fully hooked + Dave</span> <span class="live">live: Ready</span></summary>
+  <div class="body">
+    <h4>Live pane signature (t_7rgdwwyp7t)</h4>
+    <div class="sig"><span class="reg">[strip]</span>  ─ Worked for 1m 13s ──        <span class="lab"># ─ Worked for &lt;time&gt; ─ = was working</span>
+<span class="reg">[entry]</span> › Find and fix a bug in @filename   <span class="lab"># greyed placeholder = idle/awaiting</span>
+<span class="reg">[status]</span> gpt-5.5 high · ~/CascadeProjects/a-nice-terminal · gpt-5.5 · <span class="state">Ready</span></div>
+    <p style="font-size:13px;color:var(--muted);margin:8px 0 0">Token-free read: <b><code>Ready</code></b> = idle/awaiting in the status line; <code>─ Working… ─</code> while busy. Entry shows a greyed placeholder when idle.</p>
+    <h4>Hooks <span class="tag">+ MyMateDave blocking</span></h4>
+    <table><tr><th style="width:160px">Hook</th><th>Fires → does</th><th style="width:150px">Fails</th><th style="width:140px">Infer</th></tr>
+    <tr><td><code>ant-status/on-*</code> (full suite)</td><td>Same lifecycle as Claude; dual-write <code>~/.ant/state/codex-cli</code> + <code>~/.codex/state</code></td><td class="fail">state dir fail → exit 1</td><td class="infer">working/idle/menu</td></tr>
+    <tr><td><code>on-permission-request</code></td><td>Permission asked → <code>Permission</code></td><td class="fail">mode null; state set</td><td class="infer">blocked on approval</td></tr>
+    <tr><td><code>on-stop</code></td><td>Turn ends → <code>classify.sh</code> (local model)</td><td class="fail">timeout → Waiting</td><td class="infer">DONE vs NEEDS-YOU</td></tr>
+    <tr><td>Dave <code>pre-tool-use</code> <span class="tag">block</span></td><td>Approval gate (6457/6458) — <b>holds tool till approved</b></td><td class="fail">kill-switch → exit 2; servers down → fail-open</td><td class="infer">awaiting approval / remote-control state</td></tr>
+    <tr><td>Dave <code>stop</code> <span class="tag">block</span></td><td>POST session stop (needs HOOK_SECRET)</td><td class="fail">no secret → exits</td><td class="infer">turn closed on dashboard</td></tr>
+    </table>
+  </div></details>
+
+  <!-- QWEN -->
+  <details><summary><span class="cliname" style="color:var(--qwen)">Qwen</span> <span class="cov fp">no ANT hooks · fingerprint</span> <span class="live">live: Working</span></summary>
+  <div class="body">
+    <h4>Live pane signature (t_yu7ajr74ae)</h4>
+    <div class="sig"><span class="reg">[strip]</span>  ✦ Message posted successfully. Standing by…   <span class="lab"># ✦ = qwen assistant line</span>
+<span class="reg">[entry]</span> * Type your message or @path/to/file
+<span class="reg">[status]</span> <span class="state">Working</span>                         10.9% context used
+        YOLO mode (shift + tab to cycle) · 2 tasks done</div>
+    <p style="font-size:13px;color:var(--muted);margin:8px 0 0">Token-free read: <b><code>Working</code></b> printed in the strip + <code>NN% context used</code> + <code>N tasks done</code>. <b>No hooks needed</b> — the state is on screen.</p>
+    <h4>Status path</h4>
+    <table><tr><th>Source</th><th>How</th><th class="infer" style="width:170px">Infer</th></tr>
+    <tr><td>fingerprint</td><td><code>capture-pane</code> hash change + read the printed <code>Working</code> label + ctx%</td><td class="infer">working / idle / waiting (read the label)</td></tr></table>
+  </div></details>
+
+  <!-- AGY -->
+  <details><summary><span class="cliname" style="color:var(--agy)">Antigravity (Agy)</span> <span class="cov fp">no ANT hooks · fingerprint</span> <span class="live">live: working (inferred)</span></summary>
+  <div class="body">
+    <h4>Live pane signature (t_1u03e0rwke)</h4>
+    <div class="sig"><span class="reg">[strip]</span>  ● Bash(ant chat reply …) (ctrl+o to expand)   <span class="lab"># ● Tool(...) = running a tool</span>
+        1 artifact · /artifact to review
+<span class="reg">[entry]</span> &gt;                                 <span class="lab"># no word-label printed</span></div>
+    <p style="font-size:13px;color:var(--muted);margin:8px 0 0">No literal state word — infer from <code>● Tool(…)</code> bullets (working) vs an empty <code>&gt;</code> prompt (idle). model=gemini under the hood.</p>
+    <h4>Status path</h4>
+    <table><tr><th>Source</th><th>How</th><th class="infer" style="width:170px">Infer</th></tr>
+    <tr><td>fingerprint</td><td><code>capture-pane</code>: <code>● Tool(…)</code> active vs idle <code>&gt;</code> prompt + hash change</td><td class="infer">working when bullets stream; else idle</td></tr></table>
+  </div></details>
+
+  <!-- COPILOT -->
+  <details><summary><span class="cliname" style="color:var(--copilot)">Copilot</span> <span class="cov fp">no ANT hooks · fingerprint</span> <span class="live">live: idle (inferred)</span></summary>
+  <div class="body">
+    <h4>Live pane signature (t_aee6rbn36v)</h4>
+    <div class="sig"><span class="reg">[strip]</span>  ● No reply needed — final state is already clear   <span class="lab"># ● = copilot message bullet</span>
+<span class="reg">[entry]</span> ❯
+        ~/CascadeProjects/a-nice-terminal [⎇ detached@5aa802a*+%]   <span class="lab"># shows git branch!</span>
+<span class="reg">[status]</span> v1.0.60 available · /update · / commands · ? help                         GPT-5.5</div>
+    <p style="font-size:13px;color:var(--muted);margin:8px 0 0">No literal state word — infer from <code>●</code> bullets streaming (working) vs empty <code>❯</code> (idle). Bonus: prints the <b>git branch</b> in the entry region.</p>
+    <h4>Status path</h4>
+    <table><tr><th>Source</th><th>How</th><th class="infer" style="width:170px">Infer</th></tr>
+    <tr><td>fingerprint</td><td><code>capture-pane</code> hash change + <code>●</code> activity vs idle <code>❯</code></td><td class="infer">working when streaming; else idle</td></tr></table>
+  </div></details>
+
+  <!-- PI -->
+  <details><summary><span class="cliname" style="color:var(--pi)">Pi</span> <span class="cov fp">JSONL transcript · fingerprint fallback</span> <span class="live">live: JSONL-emitting · no state-line yet</span></summary>
+  <div class="body">
+    <h4>Live pane signature</h4>
+    <div class="sig"><span class="reg">[strip]</span>  (no status-line word printed today; infer from JSONL events)
+<span class="reg">[entry]</span>  (pi prompt: command or @path input)
+<span class="reg">[status]</span>  Runs the local-model chair — context window 128K</div>
+    <p style="font-size:13px;color:var(--muted);margin:8px 0 0"><b>Token-free read is available via JSONL</b>, not a status word. Pi writes to <code>~/.pi/agent/sessions/&lt;cwd&gt;/&lt;ts&gt;_&lt;sid&gt;.jsonl</code> with structured events (session, message, toolCall, toolResult, thinking). ANT's <code>piTranscriptTail.ts</code> reads these — no tmux heuristics needed for core inference.</p>
+
+    <h4>What we can tell and record now (without hooks)</h4>
+    <table><tr><th>Source</th><th>How</th><th class="infer" style="width:180px">Infer / Record</th></tr>
+    <tr><td><code>piTranscriptTail</code></td><td>Parses <code>.jsonl</code> sessions: <code>type=session</code> (cwd, id, model), <code>type=message</code> (role + content blocks), <code>type=toolCall</code>/<code>type=toolResult</code></td><td class="infer">working on tool execution; thinking when content blocks are <code>type=thinking</code></td></tr>
+    <tr><td><code>terminalRunEventsStore</code></td><td>Events ingested as <code>{kind, text, trust}</code> with trust=<code>certain</code> (from JSONL) vs <code>uncertain</code> (fingerprint)</td><td class="infer">ANT has durable event log per terminal — replayable, queryable</td></tr>
+    <tr><td><code>eventBroadcast</code></td><td>Broadcasts to room participants via SSE; links to <code>transcriptToChatFanout</code></td><td class="infer">Real-time room visibility of Pi activity without polling</td></tr>
+    <tr><td>fingerprint</td><td><code>capture-pane</code> hash change + tool-call signature regex fallback when JSONL watcher lags</td><td class="infer">working when hash changes + ⏺/🔧 seen; idle when stale</td></tr>
+    <tr><td>context-fill telemetry</td><td>Pi payload includes <code>usage.input</code> per message → piped to <code>setAgentContextFill</code></td><td class="infer">Live context-window % in room pill (not hooked today — readable from JSONL)</td></tr>
+    </table>
+
+    <h4>Hooks that COULD be wired · ranked by value</h4>
+    <table><tr><th style="width:160px">Hook</th><th>When it fires → What it writes</th><th style="width:150px">ANT value</th><th style="width:90px">Effort</th></tr>
+    <tr><td><code>on-session-start</code></td><td>New tmux pane / session init → write <code>~/.ant/state/pi/&lt;sid&gt;.json</code> with <code>{stateLabel:"available", cwd, pid}</code></td><td class="infer">Pi joins room with clean idle pill</td><td>Low</td></tr>
+    <tr><td><code>on-tool-use</code></td><td>Assistant emits <code>type=toolCall</code> in JSONL → immediate hook POST to <code>/api/cli-hook</code></td><td class="infer"><b>Precise working state</b> — no fingerprint lag; room sees "Pi is editing" instantly</td><td>Low</td></tr>
+    <tr><td><code>on-thinking</code></td><td>Assistant emits <code>type=thinking</code> block → hook POST <code>state=thinking</code></td><td class="infer">Distinguish "thinking" from "working" in pill</td><td>Low</td></tr>
+    <tr><td><code>on-stop</code></td><td>Turn ends / assistant message complete → classifier or explicit label → write <code>idle</code> or <code>response-needed</code></td><td class="infer">Room knows Pi is done vs waiting for human</td><td>Med</td></tr>
+    <tr><td><code>on-permission-request</code></td><td>Local model asks for edit/file permission → <code>state=permission</code> + menu block</td><td class="infer">Human knows Pi is blocked on approval</td><td>Med</td></tr>
+    <tr><td><code>on-context-window</code></td><td>Every message completed → POST <code>contextUsed%</code> to ANT status line</td><td class="infer">Human sees 128K fill bar like Claude's "6h:53%"</td><td>Low</td></tr>
+    <tr><td><code>on-model-change</code></td><td>Ollama model swap (Kimi → Gemma) → update <code>~/.ant/state/pi</code> model tag</td><td class="infer">Room pill shows correct model identity</td><td>Low</td></tr>
+    </table>
+
+    <h4>Where the hook bridge would live</h4>
+    <p style="font-size:13px;color:var(--muted);margin:6px 0 0">Pi runs inside a pi-coding-agent wrapper (not Claude Code / Codex). The hook emitter would be a small Node/Bun script co-located with the JSONL writer — on each JSONL event, it POSTs to <code>http://127.0.0.1:6174/api/cli-hook</code> with the same shape Claude uses (<code>{terminalId, state, cwd, pid}</code>). No separate daemon needed; it reuses the existing JSONL event stream that already exists.</p>
+  </div></details>
+
+  <p class="foot">Live signatures captured read-only via <code>tmux capture-pane</code> from room <code>c5jwo81m4k</code> "Agents Agents", 2026-06-09 ~16:50. Hooks from <code>~/.claude/settings.json</code>, <code>~/.codex/hooks.json</code> + scripts; ANT <code>fingerprintHasher.ts</code>, <code>cli-hook/+server.ts</code>. @researchant.</p>
+</div>
+</body>
+</html>

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { EventEmitter } from 'node:events';
 import { getIdentityDb, resetIdentityDbForTests } from './db';
 import { appendTerminalRunEvent } from './terminalRunEventsStore';
 import { insertCliHookEvent } from './cliHookEventsStore';
@@ -13,7 +14,9 @@ import {
   pruneOperationalHistory,
   pruneOperationalHistoryIfOverThreshold,
   _resetOperationalRetentionBootForTests,
-  ensureOperationalRetentionSweepBooted
+  ensureOperationalRetentionSweepBooted,
+  checkpointWalTruncate,
+  checkpointWalTruncateInChild
 } from './operationalRetention';
 
 describe('operationalRetention', () => {
@@ -30,6 +33,7 @@ describe('operationalRetention', () => {
     delete process.env.ANT_OPERATIONAL_RETENTION_THRESHOLD_CHECK_INTERVAL_MS;
     delete process.env.ANT_OPERATIONAL_RETENTION_MAX_DB_BYTES;
     delete process.env.ANT_OPERATIONAL_RETENTION_DISABLED;
+    delete process.env.ANT_WAL_CHECKPOINT_MIN_BYTES;
   });
 
   afterEach(() => {
@@ -37,6 +41,7 @@ describe('operationalRetention', () => {
     resetIdentityDbForTests();
     _resetOperationalRetentionBootForTests();
     delete process.env.ANT_FRESH_DB_PATH;
+    delete process.env.ANT_WAL_CHECKPOINT_MIN_BYTES;
     if (tempDir) rmSync(tempDir, { recursive: true, force: true });
     tempDir = null;
   });
@@ -123,6 +128,7 @@ describe('operationalRetention', () => {
     expect(policy.sweepIntervalMs).toBe(120000);
     expect(policy.thresholdCheckIntervalMs).toBe(120000);
     expect(policy.maxDbBytes).toBe(10485760);
+    expect(policy.walCheckpointMinBytes).toBe(1024 * 1024 * 1024);
     expect(policy.lastResult).toEqual(result);
   });
 
@@ -142,8 +148,97 @@ describe('operationalRetention', () => {
     expect(disabled.disabled).toBe(true);
   });
 
-  it('runs a startup threshold prune when the DB already exceeds the ceiling', async () => {
-    vi.useFakeTimers();
+  it('reports when a TRUNCATE checkpoint leaves the WAL file pinned', () => {
+    const dbPath = process.env.ANT_FRESH_DB_PATH!;
+    writeFileSync(`${dbPath}-wal`, 'still pinned');
+
+    const result = checkpointWalTruncate({
+      dbPath,
+      nowMs: 1234,
+      runCheckpoint: () => [{ busy: 0, log: 0, checkpointed: 0 }]
+    });
+
+    expect(result).toMatchObject({
+      attemptedAtMs: 1234,
+      walBytesBefore: 'still pinned'.length,
+      walBytesAfter: 'still pinned'.length,
+      fullyTruncated: false,
+      errorMessage: null
+    });
+    expect(getOperationalRetentionPolicy().lastWalCheckpoint).toEqual(result);
+  });
+
+  it('skips automatic child checkpoints while the WAL is below the floor', () => {
+    const dbPath = process.env.ANT_FRESH_DB_PATH!;
+    writeFileSync(`${dbPath}-wal`, 'tiny');
+    const spawnImpl = vi.fn();
+
+    const result = checkpointWalTruncateInChild({
+      dbPath,
+      minWalBytes: 1024,
+      spawnImpl: spawnImpl as never
+    });
+
+    expect(result).toMatchObject({
+      started: false,
+      alreadyRunning: false,
+      skipped: true,
+      walBytesBefore: 4,
+      minWalBytes: 1024
+    });
+    expect(spawnImpl).not.toHaveBeenCalled();
+  });
+
+  it('starts a child checkpoint once the WAL exceeds the floor', async () => {
+    const dbPath = process.env.ANT_FRESH_DB_PATH!;
+    writeFileSync(`${dbPath}-wal`, 'x'.repeat(2048));
+    const spawnImpl = vi.fn(() => {
+      const child = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter & { setEncoding: (encoding: BufferEncoding) => void };
+        stderr: EventEmitter & { setEncoding: (encoding: BufferEncoding) => void };
+      };
+      child.stdout = Object.assign(new EventEmitter(), { setEncoding: vi.fn() });
+      child.stderr = Object.assign(new EventEmitter(), { setEncoding: vi.fn() });
+      queueMicrotask(() => {
+        child.stdout.emit('data', JSON.stringify({
+          attemptedAtMs: 1234,
+          walPath: `${dbPath}-wal`,
+          walBytesBefore: 2048,
+          walBytesAfter: 0,
+          fullyTruncated: true,
+          shrank: true,
+          pragmaResult: [{ busy: 0, log: 0, checkpointed: 0 }],
+          errorMessage: null
+        }));
+        child.emit('close', 0);
+      });
+      return child;
+    });
+
+    const result = checkpointWalTruncateInChild({
+      dbPath,
+      nowMs: 1234,
+      minWalBytes: 1024,
+      spawnImpl: spawnImpl as never
+    });
+
+    expect(result).toMatchObject({
+      started: true,
+      alreadyRunning: false,
+      skipped: false,
+      walBytesBefore: 2048,
+      minWalBytes: 1024
+    });
+    expect(spawnImpl).toHaveBeenCalledOnce();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(getOperationalRetentionPolicy().lastWalCheckpoint).toMatchObject({
+      attemptedAtMs: 1234,
+      walBytesBefore: 2048,
+      fullyTruncated: true
+    });
+  });
+
+  it('lets server-safe threshold callers prune without synchronous vacuum', () => {
     const nowMs = Date.now();
     const oldMs = nowMs - 8 * 24 * 60 * 60 * 1000;
     appendTerminalRunEvent({
@@ -154,18 +249,14 @@ describe('operationalRetention', () => {
     });
     process.env.ANT_OPERATIONAL_RETENTION_MAX_DB_BYTES = String(10 * 1024 * 1024);
 
-    ensureOperationalRetentionSweepBooted({
-      runImmediately: false,
-      thresholdInitialDelayMs: 0,
-      thresholdCheckIntervalMs: 120000
+    const result = pruneOperationalHistoryIfOverThreshold({
+      nowMs,
+      vacuum: false
     });
 
-    await vi.advanceTimersByTimeAsync(0);
-
-    const policy = getOperationalRetentionPolicy();
-    expect(policy.lastResult).toMatchObject({
+    expect(result).toMatchObject({
       trigger: 'threshold',
-      vacuumed: true,
+      vacuumed: false,
       terminalRunEventsDeleted: 1
     });
     expect(

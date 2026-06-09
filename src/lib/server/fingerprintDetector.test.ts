@@ -53,6 +53,35 @@ describe('detectFingerprint — source cascade', () => {
     expect(r.evidence.source).toBe('tmux-title');
   });
 
+  it('terminal-record source beats noisy pane text for registered non-Claude/Codex CLIs', () => {
+    const t = freshTerminal({ tmux_target_pane: '%1' });
+    const r = detectFingerprint(t, {
+      ...noopDeps,
+      terminalRecordKindFn: () => 'qwen',
+      tmuxTitleFn: () => 'Claude and Codex discussed in this room',
+      captureFn: () => 'Claude Code quoted a Codex answer'
+    });
+    expect(r.kind).toBe('qwen');
+    expect(r.confidence).toBe('high');
+    expect(r.evidence.source).toBe('terminal-record');
+  });
+
+  it.each([
+    ['claude', 'claude_code'],
+    ['codex', 'codex_cli'],
+    ['agy', 'antigravity'],
+    ['antigravity', 'antigravity'],
+    ['pi', 'pi'],
+    ['qwen', 'qwen'],
+    ['copilot', 'copilot']
+  ] as const)('normalizes terminal-record kind %s → %s', (raw, expected) => {
+    const t = freshTerminal();
+    const r = detectFingerprint(t, { ...noopDeps, terminalRecordKindFn: () => raw });
+    expect(r.kind).toBe(expected);
+    expect(r.confidence).toBe('high');
+    expect(r.evidence.detail).toBe(raw);
+  });
+
   it('source 3 capture-fn match → MEDIUM (cursor banner)', () => {
     const t = freshTerminal({ tmux_target_pane: '%2' });
     const r = detectFingerprint(t, { ...noopDeps, captureFn: () => 'Welcome to cursor v0.1' });
@@ -83,8 +112,8 @@ describe('detectFingerprint — fallback string (B4 lock)', () => {
     const t = freshTerminal();
     const r = detectFingerprint(t, { ...noopDeps,
       processTreeFn: () => [{ binary: 'claude', comm: 'claude' }],
-      tmuxTitleFn: () => 'Codex CLI' });
-    expect(r.fallback).toContain('tmux-title:codex_cli@medium');
+      terminalRecordKindFn: () => 'codex' });
+    expect(r.fallback).toContain('terminal-record:codex_cli@high');
   });
 
   it('empty fallback when primary is the last cascade source (name)', () => {
@@ -100,7 +129,7 @@ describe('detectFingerprint — fallback string (B4 lock)', () => {
       tmuxTitleFn: () => null,
       captureFn: () => 'codex banner — should NOT be reached' });
     expect(r.kind).toBe('claude_code');
-    expect(r.fallback).toBe('tmux-title:none');
+    expect(r.fallback).toBe('terminal-record:none');
   });
 });
 

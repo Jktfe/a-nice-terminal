@@ -6,20 +6,25 @@ import { createHash } from 'node:crypto';
 import { getIdentityDb } from './db';
 import { defaultTmuxCaptureFn, type CaptureFn } from './tmuxCapture';
 import { type TerminalRow } from './terminalsStore';
-import { type AgentKind } from './agentKindEnum';
+import { AGENT_KIND_ALIAS_MAP, isValidAnyAgentKind, type AgentKind } from './agentKindEnum';
 
 export { type AgentKind };
 export type Confidence = 'high' | 'medium' | 'low';
-export type SourceLabel = 'process-tree' | 'tmux-title' | 'capture-fn' | 'name' | 'default';
+export type SourceLabel = 'process-tree' | 'terminal-record' | 'tmux-title' | 'capture-fn' | 'name' | 'default';
 
 export type Driver = { binary: string; version: string } | null;
 export type Evidence = { source: SourceLabel; detail: string };
 export type FingerprintDetectionResult = { terminal_id: string; kind: AgentKind; driver: Driver; confidence: Confidence; fallback: string; evidence: Evidence };
 export type ProcessTreeFn = (pid: number) => { binary: string; comm: string }[];
 export type DriverVersionFn = (binary: string) => string;
-export type DetectorDeps = { processTreeFn?: ProcessTreeFn; tmuxTitleFn?: (terminal: TerminalRow) => string | null; captureFn?: CaptureFn; driverVersionFn?: DriverVersionFn };
+export type TerminalRecordKindFn = (terminal: TerminalRow) => string | null;
+export type DetectorDeps = { processTreeFn?: ProcessTreeFn; terminalRecordKindFn?: TerminalRecordKindFn; tmuxTitleFn?: (terminal: TerminalRow) => string | null; captureFn?: CaptureFn; driverVersionFn?: DriverVersionFn };
 
 const KIND_PATTERNS: Array<{ kind: AgentKind; rx: RegExp }> = [
+  { kind: 'antigravity', rx: /\b(?:antigravity|agy)\b/i },
+  { kind: 'qwen', rx: /\bqwen\b/i },
+  { kind: 'copilot', rx: /\bcopilot\b/i },
+  { kind: 'pi', rx: /\bpi(?:[-_ ](?:coding|agent|cli))?\b/i },
   { kind: 'claude_code', rx: /\bclaude(?:[-_ ]code)?\b/i },
   { kind: 'codex_cli', rx: /\bcodex\b/i },
   { kind: 'cursor', rx: /\bcursor\b/i },
@@ -32,6 +37,14 @@ function classifyText(text: string | null): AgentKind | null {
   if (!text || text.length === 0) return null;
   for (const { kind, rx } of KIND_PATTERNS) if (rx.test(text)) return kind;
   return null;
+}
+
+function normalizeAgentKind(value: string | null): AgentKind | null {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, '-');
+  if (normalized.length === 0) return null;
+  const aliased = AGENT_KIND_ALIAS_MAP[normalized] ?? normalized;
+  return isValidAnyAgentKind(aliased) ? aliased : null;
 }
 
 // B1 fix: psRunner = per-pid lookup; makeProcessTreeFn walks ppid chain
@@ -68,6 +81,17 @@ export function makeProcessTreeFn(psRunner: PsRunner = defaultPsRunner): Process
 }
 export const defaultProcessTreeFn: ProcessTreeFn = makeProcessTreeFn();
 
+export const defaultTerminalRecordKindFn: TerminalRecordKindFn = (terminal) => {
+  try {
+    const row = getIdentityDb()
+      .prepare(`SELECT agent_kind FROM terminal_records WHERE session_id = ? AND superseded_at_ms IS NULL`)
+      .get(terminal.id) as { agent_kind: string | null } | undefined;
+    return row?.agent_kind ?? null;
+  } catch {
+    return null;
+  }
+};
+
 export const defaultTmuxTitleFn = (terminal: TerminalRow): string | null => {
   const pane = terminal.tmux_target_pane;
   if (!pane || pane.length === 0) return null;
@@ -98,6 +122,12 @@ function sourceProcessTree(terminal: TerminalRow, deps: DetectorDeps): SourceRes
   }
   return null;
 }
+function sourceTerminalRecord(terminal: TerminalRow, deps: DetectorDeps): SourceResult | null {
+  const rawKind = (deps.terminalRecordKindFn ?? defaultTerminalRecordKindFn)(terminal);
+  const kind = normalizeAgentKind(rawKind);
+  if (!kind || kind === 'remote' || kind === 'browser' || kind === 'unknown') return null;
+  return { kind, driver: null, confidence: 'high', evidence: { source: 'terminal-record', detail: rawKind ?? kind } };
+}
 function sourceTmuxTitle(terminal: TerminalRow, deps: DetectorDeps): SourceResult | null {
   const title = (deps.tmuxTitleFn ?? defaultTmuxTitleFn)(terminal);
   const kind = classifyText(title); if (!kind) return null;
@@ -119,9 +149,9 @@ function sourceDefault(terminal: TerminalRow): SourceResult {
 }
 
 const SOURCES: Array<(t: TerminalRow, d: DetectorDeps) => SourceResult | null> = [
-  sourceProcessTree, sourceTmuxTitle, sourceCapture, (t) => sourceName(t)
+  sourceProcessTree, sourceTerminalRecord, sourceTmuxTitle, sourceCapture, (t) => sourceName(t)
 ];
-const SOURCE_LABELS: SourceLabel[] = ['process-tree', 'tmux-title', 'capture-fn', 'name'];
+const SOURCE_LABELS: SourceLabel[] = ['process-tree', 'terminal-record', 'tmux-title', 'capture-fn', 'name'];
 
 // B2 fix: fallback NAMES the immediately-next source checked even when it
 // returns null. Empty only when no next source EXISTS (end of cascade).
@@ -138,7 +168,7 @@ export function detectFingerprint(terminal: TerminalRow, deps: DetectorDeps = {}
     const r = SOURCES[i](terminal, deps);
     if (r && (r.confidence === 'high' || r.confidence === 'medium')) { primary = r; primaryIdx = i; break; }
   }
-  if (!primary) { const r = sourceName(terminal); if (r) { primary = r; primaryIdx = 3; } }
+  if (!primary) { const r = sourceName(terminal); if (r) { primary = r; primaryIdx = SOURCES.length - 1; } }
   const chosen: SourceResult = primary ?? sourceDefault(terminal);
   let nextLabel: SourceLabel | null = null;
   let next: SourceResult | null = null;

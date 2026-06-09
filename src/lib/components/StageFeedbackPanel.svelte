@@ -34,19 +34,22 @@
     onClear: () => void;
   } = $props();
 
-  const canSubmit = $derived(
-    Boolean(pauseSnapshot) && feedbackText.trim().length > 0 && !feedbackSubmitting
-  );
+  const canSubmit = $derived(feedbackText.trim().length > 0 && !feedbackSubmitting);
 </script>
 
-<section class="feedback-panel" aria-label="Stage feedback">
+<section class="feedback-panel" aria-label="Stage comments and feedback">
   <header>
-    <h3>Feedback</h3>
+    <p class="panel-kicker">Comments</p>
+    <h3>Feedback Panel</h3>
     <p class="panel-hint">
-      Pause narration to anchor feedback to a spoken moment. Submit sends it
-      to the Stage agents without mutating the source deck.
+      Add an overall comment or a slide-specific correction. Pausing narration
+      adds a spoken anchor, but comments can be sent without one.
     </p>
   </header>
+  <div class="comment-scopes" aria-label="Supported comment scopes">
+    <span>Overall comment</span>
+    <span>Slide comment</span>
+  </div>
 
   {#if feedbackNotice}
     <p class={feedbackNotice.kind === 'ok' ? 'feedback-ok' : 'feedback-err'} role="status">
@@ -78,16 +81,15 @@
       {/if}
     </div>
   {:else}
-    <p class="panel-hint">No pause context yet. Hit <strong>Pause</strong> during narration to capture.</p>
+    <p class="panel-hint">No narration anchor yet. This will be submitted as a slide-level comment.</p>
   {/if}
 
   <label class="feedback-field">
-    <span>Your correction or feedback</span>
+    <span>Your comment or correction</span>
     <textarea
       bind:value={feedbackText}
-      placeholder={pauseSnapshot ? "e.g. no -- we do not do that, we do this..." : "Pause narration first to anchor your feedback."}
+      placeholder={pauseSnapshot ? "e.g. no -- we do not do that, we do this..." : "Comment on the current slide or the deck direction."}
       rows="3"
-      disabled={!pauseSnapshot}
     ></textarea>
   </label>
 
@@ -95,9 +97,8 @@
     <span>Additional context (paste)</span>
     <textarea
       bind:value={pasteContext}
-      placeholder={pauseSnapshot ? 'Paste a URL, snippet, or doc reference that clarifies what "that" refers to.' : ''}
+      placeholder={'Paste a URL, snippet, or doc reference that clarifies the comment.'}
       rows="2"
-      disabled={!pauseSnapshot}
     ></textarea>
   </label>
 
@@ -118,11 +119,19 @@
 
 <style>
   .feedback-panel {
-    margin-top: 2rem;
+    margin: 0;
     padding: 1rem 1.25rem;
     border: 1px solid var(--border-soft, #d5d0c4);
     border-radius: 0.5rem;
     background: var(--bg-surface, #fffaf0);
+  }
+  .panel-kicker {
+    margin: 0 0 0.15rem;
+    color: var(--accent);
+    font-size: 0.68rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
   .feedback-panel header h3 {
     margin: 0 0 0.25rem;
@@ -132,6 +141,21 @@
     margin: 0.25rem 0 0.75rem;
     color: var(--ink-soft);
     font-size: 0.9rem;
+  }
+  .comment-scopes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0 0 0.75rem;
+  }
+  .comment-scopes span {
+    padding: 0.24rem 0.55rem;
+    border: 1px solid var(--border-soft, #d5d0c4);
+    border-radius: 999px;
+    background: var(--bg-elevated, #fff);
+    color: var(--ink-strong);
+    font-size: 0.72rem;
+    font-weight: 850;
   }
   .feedback-ok,
   .feedback-err {
@@ -193,10 +217,6 @@
     border: 1px solid var(--border-soft, #d5d0c4);
     border-radius: 0.375rem;
     resize: vertical;
-  }
-  .feedback-field textarea:disabled {
-    background: var(--bg-disabled, #f5f1e8);
-    cursor: not-allowed;
   }
   .feedback-actions {
     display: flex;

@@ -36,7 +36,6 @@ import { handleMemoryVerb } from './ant-cli-memory.mjs';
 import { handleNewVerb } from './ant-cli-new.mjs';
 import { handlePairingVerb } from './ant-cli-pairing.mjs';
 import { handlePlanVerb } from './ant-cli-plan.mjs';
-import { handleQueueVerb } from './ant-cli-queue.mjs';
 import { handleReactionVerb } from './ant-cli-reaction.mjs';
 import { handleReclaimVerb } from './ant-cli-reclaim.mjs';
 import { handleRegisterVerb, handleAddVerb, handleResolveVerb } from './ant-cli-register.mjs';
@@ -68,7 +67,7 @@ const ENV_SERVER_URL = process.env.ANT_SERVER_URL?.trim();
 
 const DISPATCH = {
   plan: handlePlanVerb, ask: handleAskVerb, artefact: handleArtefactVerb, attach: handleAttachVerb, bind: handleBindVerb, invite: handleInviteVerb, chat: handleChatVerb, room: handleRoomVerb,
-  queue: handleQueueVerb, reaction: handleReactionVerb, reclaim: handleReclaimVerb, handle: handleHandleVerb, status: handleStatusVerb, delivery: handleDeliveryVerb, audit: handleAuditVerb, docs: handleDocsVerb,
+  reaction: handleReactionVerb, reclaim: handleReclaimVerb, handle: handleHandleVerb, status: handleStatusVerb, delivery: handleDeliveryVerb, audit: handleAuditVerb, docs: handleDocsVerb,
   deck: handleDeckVerb, decks: handleDecksVerb, stage: handleStageVerb, remote: handleRemoteVerb, 'remote-room': handleRemoteRoomVerb, discussion: handleDiscussionVerb, linkedchat: handleLinkedchatVerb, fingerprint: handleFingerprintVerb, mcp: handleMcpVerb, chair: handleChairVerb, interview: handleInterviewVerb, screenshot: handleScreenshotVerb, hooks: handleHooksVerb, new: handleNewVerb, list: handleListVerb, terminal: handleTerminalVerb, tools: handleToolsVerb, settings: handleSettingsVerb, flag: handleFlagVerb, grant: handleGrantVerb, request: handleRequestVerb, task: handleTaskVerb, memory: handleMemoryVerb, sessions: handleSessionsVerb, voice: handleVoiceVerb, vote: handleVoteVerb, tunnel: handleTunnelVerb, pairing: handlePairingVerb, agents: handleAgentsVerb, share: handleShareVerb, identity: handleIdentityVerb, register: handleRegisterVerb, add: handleAddVerb, resolve: handleResolveVerb, router: handleRouterVerb, whoami: handleWhoamiVerb
 };
 
@@ -463,7 +462,6 @@ Verbs:
   bind --room ROOM --handle @h --terminal "Name"   Bind a friendly terminal to a room handle.
   room members|add-member|aliases     Manage room admission and aliases.
   reaction list|add|remove            Manage message reactions.
-  queue list|add|edit|reorder|drop|pull --room ROOM [--handle @h]   Steer the curated work queue.
   status show --room ROOM_ID          Show pane/terminal delivery status per room member.
   delivery verify --terminal ID       Show delivery state (verified/stale/unknown) + reason.
   audit permissions --room ROOM_ID    Audit identity proofs for every room member.
@@ -477,6 +475,7 @@ Verbs:
   grant <handle> <action> --room|--plan|--task|--org|--system ID [scope] [--revoke]
                                       Stage A permission grant (grants_shim).
   request approve|deny|list|show      Stage B permission_request workflow (approve/deny/list/show).
+  vote create|list|show|cast|close    Open, inspect, cast, and close room/cross-room votes.
   remote admit|redeem|mapping         Remote ANT bridge admission + mapping management.
   router start --room ROOM --handle @h  Route mentions into a local terminal pane.
   remote-room send|status|ack|quarantine  Remote-bridge message ops (admin-bearer).

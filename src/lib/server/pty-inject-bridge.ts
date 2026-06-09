@@ -80,21 +80,9 @@ function matchReadyStateFor(agentKind: string | null, captured: string): boolean
 
 export function verifyPaneTargetState(terminal: TerminalRow): PaneVerifyOutcome {
   if (!terminal.tmux_target_pane) return 'unknown';
-  const captureArgs = ['capture-pane', '-t', terminal.tmux_target_pane, '-p', '-S', '-50'];
-  // A SINGLE capture-pane failure is not proof the pane is gone. tmux capture
-  // transiently exits non-zero when the pane is mid-render of a heavy turn
-  // (e.g. an agent streaming a slow cloud-model response) or the tmux server
-  // is momentarily contended. Treating that one-shot failure as 'stale' falsely
-  // flags a verifiably-alive, actively-working agent offline — it calls
-  // markPaneStale and the fanout path posts "@X appears offline (pane stale)"
-  // even though the agent is just busy (the 2026-06-09 @pis-pi false-offline,
-  // verified-alive mid gemma4 turn). A genuinely-gone pane fails EVERY capture,
-  // so retry once (immediate, sync-safe — no poller-blocking sleep) and only
-  // declare stale on a repeated failure.
-  let result = runScrubbedTmux(captureArgs);
-  if (result.status !== 0) {
-    result = runScrubbedTmux(captureArgs);
-  }
+  const result = runScrubbedTmux([
+    'capture-pane', '-t', terminal.tmux_target_pane, '-p', '-S', '-50'
+  ]);
   if (result.status !== 0) {
     markPaneStale(terminal.id);
     return 'stale';

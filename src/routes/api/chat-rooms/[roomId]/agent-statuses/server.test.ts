@@ -1,29 +1,43 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { GET } from './+server';
 import { createChatRoom, inviteAgentToRoom, resetChatRoomStoreForTests } from '$lib/server/chatRoomStore';
-import { resetIdentityDbForTests } from '$lib/server/db';
+import { getIdentityDb, resetIdentityDbForTests } from '$lib/server/db';
 import { setAgentStatus } from '$lib/server/agentStatusStore';
+import {
+  registerCliAgentForTests,
+  resetCliAgentRegistryForTests,
+  type CliAgentHandle
+} from '$lib/server/cliAgentRegistry';
+import { _clearStateReaderCache } from '$lib/server/agentStateReader';
 import { addMembership } from '$lib/server/roomMembershipsStore';
 import { setTerminalStatus, upsertTerminal } from '$lib/server/terminalsStore';
 
 let tmpDir: string;
 const previousEnvValue = process.env.ANT_FRESH_DB_PATH;
+const previousHomeValue = process.env.HOME;
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'ant-agent-statuses-'));
   process.env.ANT_FRESH_DB_PATH = join(tmpDir, 'test.db');
+  process.env.HOME = tmpDir;
   resetIdentityDbForTests();
   resetChatRoomStoreForTests();
+  resetCliAgentRegistryForTests();
+  _clearStateReaderCache();
 });
 
 afterEach(() => {
+  resetCliAgentRegistryForTests();
+  _clearStateReaderCache();
   resetIdentityDbForTests();
   rmSync(tmpDir, { recursive: true, force: true });
   if (previousEnvValue === undefined) delete process.env.ANT_FRESH_DB_PATH;
   else process.env.ANT_FRESH_DB_PATH = previousEnvValue;
+  if (previousHomeValue === undefined) delete process.env.HOME;
+  else process.env.HOME = previousHomeValue;
 });
 
 async function callGet(roomId: string): Promise<Response> {
@@ -37,6 +51,44 @@ async function callGet(roomId: string): Promise<Response> {
     if (typeof f?.status === 'number') return new Response(JSON.stringify(f.body ?? {}), { status: f.status });
     throw thrown;
   }
+}
+
+function fakeCliAgent(input: {
+  cli: 'codex' | 'pi';
+  handleId: string;
+  roomId: string;
+  sessionId: string | null;
+  cwd?: string | null;
+}): CliAgentHandle {
+  return {
+    handleId: input.handleId,
+    cli: input.cli,
+    cwd: input.cwd ?? null,
+    roomId: input.roomId,
+    spawnedAtMs: Date.now() - 10_000,
+    getSessionId: () => input.sessionId,
+    async sendCommand<TResult = unknown>(): Promise<TResult> {
+      return {} as TResult;
+    },
+    async sendPrompt() {
+      return { threadId: input.sessionId };
+    },
+    async stop() {}
+  };
+}
+
+function writeAgentState(cli: 'codex-cli' | 'pi', sessionId: string, state: string): void {
+  const dir = join(tmpDir, '.ant', 'state', cli);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, `${sessionId}.json`),
+    JSON.stringify({
+      state,
+      session_start: '2026-06-08T12:00:00Z',
+      cwd: '/repo/test'
+    })
+  );
+  _clearStateReaderCache();
 }
 
 describe('GET /api/chat-rooms/:roomId/agent-statuses', () => {
@@ -126,6 +178,25 @@ describe('GET /api/chat-rooms/:roomId/agent-statuses', () => {
     expect(payload.statuses[0].openAsk).toBe(false);
   });
 
+  it('promotes a quiet stored status when fresh PTY output exists', async () => {
+    const room = createChatRoom({ name: 'pty-active-room', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@agent' });
+    const terminal = upsertTerminal({ pid: 3503, pid_start: 'p3b', name: 'agent-term' });
+    addMembership({ room_id: room.id, handle: '@agent', terminal_id: terminal.id });
+    setAgentStatus({ terminalId: terminal.id, newStatus: 'idle', source: 'default', nowMs: 0 });
+    getIdentityDb()
+      .prepare(`UPDATE terminals SET last_pty_byte_at_ms = ? WHERE id = ?`)
+      .run(Date.now(), terminal.id);
+
+    const response = await callGet(room.id);
+    const payload = await response.json();
+    expect(payload.statuses[0]).toMatchObject({
+      handle: '@agent',
+      status: 'working',
+      statusSource: 'ant-activity'
+    });
+  });
+
   it('surfaces the effective status source so UI pills can explain context', async () => {
     const room = createChatRoom({ name: 'source-room', whoCreatedIt: '@you' });
     inviteAgentToRoom({ roomId: room.id, agentHandle: '@agent' });
@@ -140,5 +211,45 @@ describe('GET /api/chat-rooms/:roomId/agent-statuses', () => {
       status: 'thinking',
       statusSource: 'hook'
     });
+  });
+
+  it('includes room-scoped pi CLI agents using the canonical state-file reader', async () => {
+    const room = createChatRoom({ name: 'pi-footer-room', whoCreatedIt: '@you' });
+    writeAgentState('pi', 'pi-sess-1', 'Working');
+    registerCliAgentForTests(fakeCliAgent({
+      cli: 'pi',
+      handleId: 'agent_pi_abc',
+      roomId: room.id,
+      sessionId: 'pi-sess-1'
+    }));
+
+    const response = await callGet(room.id);
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.statuses).toContainEqual(expect.objectContaining({
+      handle: '@pi',
+      status: 'working',
+      statusSource: 'hook',
+      lifecycleStatus: null
+    }));
+  });
+
+  it('suffixes a spawned pi footer handle when @pi is already a room member', async () => {
+    const room = createChatRoom({ name: 'pi-collision-room', whoCreatedIt: '@you' });
+    inviteAgentToRoom({ roomId: room.id, agentHandle: '@pi' });
+    writeAgentState('pi', 'pi-sess-2', 'Working');
+    registerCliAgentForTests(fakeCliAgent({
+      cli: 'pi',
+      handleId: 'agent_pi_def',
+      roomId: room.id,
+      sessionId: 'pi-sess-2'
+    }));
+
+    const response = await callGet(room.id);
+    const payload = await response.json();
+    const handles = payload.statuses.map((row: { handle: string }) => row.handle);
+    expect(handles).toContain('@pi');
+    expect(handles).toContain('@pi-2');
+    expect(new Set(handles).size).toBe(handles.length);
   });
 });

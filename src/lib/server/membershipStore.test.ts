@@ -15,7 +15,7 @@ import {
 import {
   claimHandle,
   isMember as leaseIsMember,
-  removeHandle,
+  listLeases,
   resolveMember as leaseResolveMember
 } from './roomHandleLeaseClean';
 import {
@@ -137,6 +137,7 @@ describe('membershipStore — (room_id, handle, session_id) is the WHOLE table',
     expect(removeMember('roomX', '@alice')).toBe(true);
     expect(isMember('roomX', '@alice')).toBe(false);
     expect(resolveMember('roomX', '@alice')).toBeNull();
+    expect(leaseIsMember('roomX', 'sessZ')).toBe(false);
     expect(removeMember('roomX', '@alice')).toBe(false); // already gone
   });
 
@@ -236,10 +237,22 @@ describe('membershipStore — member ⟹ can post (membership write claims the c
     expect(leaseResolveMember('roomP', '@x')).toBe('incumbent-sess'); // lease clean holder unchanged
   });
 
+  it('removeMember retires every active lease for that handle before a reinvite', () => {
+    addMember('roomP', '@x', 'session-a');
+    expect(removeMember('roomP', '@x')).toBe(true);
+    expect(claimHandle('roomP', '@x', 'session-b')).toBe('@x');
+
+    const leases = listLeases('roomP').filter((lease) => lease.handle === '@x');
+    expect(leases.filter((lease) => lease.active).map((lease) => lease.session_id)).toEqual([
+      'session-b'
+    ]);
+    expect(leaseIsMember('roomP', 'session-a')).toBe(false);
+    expect(leaseResolveMember('roomP', '@x')).toBe('session-b');
+  });
+
   it('retired handle history cannot demote a different live clean holder through addMember', () => {
     addMember('roomP', '@x', 'session-a');
     expect(removeMember('roomP', '@x')).toBe(true);
-    expect(removeHandle('roomP', '@x')).toBe('@x-1');
     expect(claimHandle('roomP', '@x', 'session-b')).toBe('@x');
 
     addMember('roomP', '@x', 'session-a');

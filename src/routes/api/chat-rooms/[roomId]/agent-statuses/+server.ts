@@ -18,6 +18,9 @@ import { getIdentityDb } from '$lib/server/db';
 import { projectEffectiveAgentStatus } from '$lib/server/effectiveAgentStatus';
 import { hasResponseRequiredAsksForHandle } from '$lib/server/askStore';
 import type { AgentStatus as StoredAgentStatus, AgentStatusSource } from '$lib/server/agentStatusStore';
+import { listCliAgentsForRoom, type CliAgentHandle } from '$lib/server/cliAgentRegistry';
+import { findStateForCwd, findStateForSessionId, type AgentCli } from '$lib/server/agentStateReader';
+import { projectLiveAgentStateSnapshotToStatus } from '$lib/server/agentStateProjection';
 
 type AgentStatus = StoredAgentStatus | 'unknown';
 
@@ -26,6 +29,7 @@ type StatusRow = {
   agent_status: StoredAgentStatus | null;
   agent_status_source: AgentStatusSource | null;
   agent_status_at_ms: number | null;
+  last_pty_byte_at_ms: number | null;
   /** terminals.created_at — unix seconds. Used to derive uptimeMs for
    *  the AgentContextChip pill (JWPK msg_dse7xti8fz). */
   created_at: number | null;
@@ -40,10 +44,66 @@ type StatusRow = {
   lifecycle_status: 'live' | 'archived' | 'deleted' | null;
 };
 
+type StatusEntry = {
+  handle: string;
+  status: AgentStatus;
+  statusSource: AgentStatusSource;
+  statusAtMs: number | null;
+  openAsk: boolean;
+  uptimeMs: number | null;
+  contextFill: number | null;
+  lifecycleStatus: 'live' | 'archived' | 'deleted' | null;
+};
+
 /** Stale-data window for context-fill. Probe should rewrite at least
  *  this often; anything older is treated as unknown so the chip doesn't
  *  show stuck percentages when an agent has exited or stalled. */
 const CONTEXT_FILL_FRESH_WINDOW_MS = 5 * 60 * 1000;
+
+function cliKindToStateCli(cli: CliAgentHandle['cli']): AgentCli {
+  return cli === 'codex' ? 'codex-cli' : 'pi';
+}
+
+function displayHandleForCliAgent(
+  agent: CliAgentHandle,
+  duplicateIndex: number,
+  reservedHandles: Set<string>
+): string {
+  const base = `@${agent.cli}`;
+  let candidate = duplicateIndex === 0 ? base : `${base}-${duplicateIndex + 1}`;
+  let suffix = duplicateIndex + 2;
+  while (reservedHandles.has(candidate)) {
+    candidate = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  reservedHandles.add(candidate);
+  return candidate;
+}
+
+function statusEntryForCliAgent(
+  agent: CliAgentHandle,
+  duplicateIndex: number,
+  reservedHandles: Set<string>
+): StatusEntry {
+  const cli = cliKindToStateCli(agent.cli);
+  const sessionId = agent.getSessionId();
+  const snapshot = sessionId ? findStateForSessionId(cli, sessionId) : null;
+  const cwdSnapshot = snapshot ?? (agent.cwd ? findStateForCwd(cli, agent.cwd) : null);
+  const projected = projectLiveAgentStateSnapshotToStatus(cwdSnapshot);
+  return {
+    handle: displayHandleForCliAgent(agent, duplicateIndex, reservedHandles),
+    status: projected ?? 'unknown',
+    statusSource: projected ? 'hook' : 'default',
+    statusAtMs: cwdSnapshot ? Math.round(cwdSnapshot.mtimeMs) : null,
+    openAsk: projected === 'response-required',
+    uptimeMs:
+      typeof agent.spawnedAtMs === 'number'
+        ? Math.max(0, Date.now() - agent.spawnedAtMs)
+        : null,
+    contextFill: null,
+    lifecycleStatus: null
+  };
+}
 
 export const GET: RequestHandler = ({ params }) => {
   const room = findChatRoomById(params.roomId);
@@ -53,26 +113,28 @@ export const GET: RequestHandler = ({ params }) => {
     .filter((member) => member.kind === 'agent')
     .map((member) => member.handle);
 
-  if (agentHandles.length === 0) {
-    return json({ statuses: [] });
-  }
+  const roomCliAgents = listCliAgentsForRoom(params.roomId);
 
-  const placeholders = agentHandles.map(() => '?').join(', ');
-  const rows = getIdentityDb()
-    .prepare(
-      `SELECT m.handle AS handle,
-              t.agent_status AS agent_status,
-              t.agent_status_source AS agent_status_source,
-              t.agent_status_at_ms AS agent_status_at_ms,
-              t.created_at AS created_at,
-              t.agent_context_fill AS agent_context_fill,
-              t.agent_context_fill_at_ms AS agent_context_fill_at_ms,
-              t.status AS lifecycle_status
-         FROM room_memberships m
-         LEFT JOIN terminals t ON t.id = m.terminal_id
-        WHERE m.room_id = ? AND m.handle IN (${placeholders})`
-    )
-    .all(params.roomId, ...agentHandles) as StatusRow[];
+  let rows: StatusRow[] = [];
+  if (agentHandles.length > 0) {
+    const placeholders = agentHandles.map(() => '?').join(', ');
+    rows = getIdentityDb()
+      .prepare(
+        `SELECT m.handle AS handle,
+                t.agent_status AS agent_status,
+                t.agent_status_source AS agent_status_source,
+                t.agent_status_at_ms AS agent_status_at_ms,
+                t.last_pty_byte_at_ms AS last_pty_byte_at_ms,
+                t.created_at AS created_at,
+                t.agent_context_fill AS agent_context_fill,
+                t.agent_context_fill_at_ms AS agent_context_fill_at_ms,
+                t.status AS lifecycle_status
+           FROM room_memberships m
+           LEFT JOIN terminals t ON t.id = m.terminal_id
+          WHERE m.room_id = ? AND m.handle IN (${placeholders})`
+      )
+      .all(params.roomId, ...agentHandles) as StatusRow[];
+  }
 
   const byHandle = new Map<string, StatusRow>();
   for (const row of rows) {
@@ -83,7 +145,7 @@ export const GET: RequestHandler = ({ params }) => {
   }
 
   const nowMs = Date.now();
-  const statuses = agentHandles.map((handle) => {
+  const statuses: StatusEntry[] = agentHandles.map((handle) => {
     const row = byHandle.get(handle);
     const effective = projectEffectiveAgentStatus(row);
     // uptimeMs = now - terminals.created_at (unix seconds). Powers the
@@ -135,6 +197,14 @@ export const GET: RequestHandler = ({ params }) => {
       lifecycleStatus: row?.lifecycle_status ?? null
     };
   });
+
+  const cliCounts = new Map<CliAgentHandle['cli'], number>();
+  const reservedHandles = new Set(agentHandles);
+  for (const agent of roomCliAgents) {
+    const index = cliCounts.get(agent.cli) ?? 0;
+    cliCounts.set(agent.cli, index + 1);
+    statuses.push(statusEntryForCliAgent(agent, index, reservedHandles));
+  }
 
   return json({ statuses });
 };

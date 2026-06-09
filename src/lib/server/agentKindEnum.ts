@@ -7,10 +7,13 @@
 
 export type AgentKind =
   | 'claude_code' | 'codex_cli' | 'cursor' | 'gemini' | 'aider'
+  | 'qwen' | 'pi' | 'copilot' | 'antigravity'
   | 'generic-shell' | 'unknown' | 'remote' | 'browser';
 
 export const AGENT_KINDS_CLIENT_INPUT: ReadonlySet<AgentKind> = new Set<AgentKind>([
-  'claude_code', 'codex_cli', 'cursor', 'gemini', 'aider', 'generic-shell'
+  'claude_code', 'codex_cli', 'cursor', 'gemini', 'aider',
+  'qwen', 'pi', 'copilot', 'antigravity',
+  'generic-shell'
 ]);
 
 export const AGENT_KINDS_SERVER_RESERVED: ReadonlySet<AgentKind> = new Set<AgentKind>([
@@ -31,5 +34,7 @@ export function isValidAnyAgentKind(s: unknown): s is AgentKind {
 
 // Known alias map for the one-time janitor migration.
 export const AGENT_KIND_ALIAS_MAP: Readonly<Record<string, AgentKind>> = {
-  codex: 'codex_cli'
+  claude: 'claude_code',
+  codex: 'codex_cli',
+  agy: 'antigravity'
 };

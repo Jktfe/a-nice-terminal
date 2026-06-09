@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { roomBookmarks, sortByBookmark, visibleBookmarkedRooms } from './roomBookmarks.svelte';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('sortByBookmark', () => {
   it('returns rooms unchanged when nothing is bookmarked', () => {
@@ -157,6 +161,48 @@ describe('roomBookmarks store', () => {
       clear();
       if (prior === undefined) delete g.localStorage;
       else g.localStorage = prior;
+    }
+  });
+
+  it('uses the server bookmark table over stale localStorage on init()', async () => {
+    vi.resetModules();
+    const local = new Map<string, string>([
+      ['ant-room-bookmarks', JSON.stringify(['old-local-room'])]
+    ]);
+    const storageStub = {
+      getItem: (k: string) => (local.has(k) ? local.get(k)! : null),
+      setItem: (k: string, v: string) => void local.set(k, v),
+      removeItem: (k: string) => void local.delete(k),
+      clear: () => local.clear(),
+      key: () => null,
+      get length() { return local.size; }
+    };
+    const fetchStub = vi.fn(async () =>
+      new Response(JSON.stringify({ roomIds: ['server-room-a', 'server-room-b'] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      })
+    );
+    const g = globalThis as unknown as {
+      localStorage?: typeof storageStub;
+      fetch?: typeof fetchStub;
+    };
+    const priorStorage = g.localStorage;
+    const priorFetch = g.fetch;
+    g.localStorage = storageStub;
+    g.fetch = fetchStub;
+    try {
+      const { roomBookmarks: freshBookmarks } = await import('./roomBookmarks.svelte');
+      freshBookmarks.init();
+      await vi.waitFor(() => {
+        expect(freshBookmarks.ids).toEqual(['server-room-a', 'server-room-b']);
+      });
+      expect(JSON.parse(local.get('ant-room-bookmarks')!)).toEqual(['server-room-a', 'server-room-b']);
+    } finally {
+      if (priorStorage === undefined) delete g.localStorage;
+      else g.localStorage = priorStorage;
+      if (priorFetch === undefined) delete g.fetch;
+      else g.fetch = priorFetch;
     }
   });
 

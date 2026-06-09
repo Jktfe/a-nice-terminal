@@ -338,6 +338,39 @@ export function removeHandle(
 }
 
 /**
+ * v1 removal invariant: when a room member is kicked, every active lease for
+ * that base handle in that room must stop being a posting identity. The clean
+ * holder still goes through removeHandle() first so historical posts keep the
+ * stable suffix behaviour; any active suffixed duplicates are then retired too.
+ */
+export function retireActiveLeasesForHandle(
+  roomId: string,
+  rawHandle: string,
+  db = getIdentityDb()
+): number {
+  ensureTable(db);
+  const handle = normaliseBase(rawHandle);
+  const activeBefore = db
+    .prepare(
+      `SELECT COUNT(*) AS count
+         FROM room_handle_lease
+        WHERE room_id = ? AND handle = ? AND active = 1`
+    )
+    .get(roomId, handle) as { count: number };
+
+  removeHandle(roomId, handle, db);
+
+  const now = Date.now();
+  db.prepare(
+    `UPDATE room_handle_lease
+        SET active = 0, retired_at_ms = COALESCE(retired_at_ms, ?)
+      WHERE room_id = ? AND handle = ? AND active = 1`
+  ).run(now, roomId, handle);
+
+  return activeBefore.count;
+}
+
+/**
  * The display handle (@x or @x-N) for a session's lease in a room — drives both
  * current and historical post rendering. Returns the most recently-touched
  * lease for the session if it holds several (it should hold at most one).

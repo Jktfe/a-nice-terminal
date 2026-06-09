@@ -41,7 +41,6 @@ import type { FocusEntry } from './focusModeStore';
 import { listLinkedTerminalRowsForRoom, getLinkedTerminalRowBySessionId } from './linkedRoomTerminalLookup';
 import { deriveHandle, getTerminalRecord } from './terminalRecordsStore';
 import { hasBareEveryoneMention, hasBracketedMention, listBareMentionHandles } from '../chat/mentionRouting';
-import { enqueue as enqueueToCuratedQueue } from './messageQueueStore';
 import { listReadersForMessage, markMessageRead } from './messageReadReceiptStore';
 import { broadcastToRoom } from './eventBroadcast';
 import { findHandleForAliasInRoom } from './chatRoomAliasStore';
@@ -619,16 +618,6 @@ export function fanoutMessageToRoomTerminals(
   const shieldedHandles = new Set(
     focusEntries.filter((e) => e.mode === 'shield').map((e) => e.memberHandle)
   );
-  // DIRECT-MENTIONS-ONLY (2026-06-09, JWPK msg_x4skfkicm6) — per-member shield
-  // breakthrough: a shielded member with this flag STILL receives a direct
-  // @-mention (firehose stays suppressed). This is the "only receive direct @
-  // messages" back-pressure setting for a local chair, composing with shield.
-  // Independent of, and OR-ed with, the global FOCUS_SHIELD_MENTION_BREAKTHROUGH.
-  const directMentionsOnlyHandles = new Set(
-    focusEntries
-      .filter((e) => e.mode === 'shield' && e.directMentionsOnly)
-      .map((e) => e.memberHandle)
-  );
   const soloTargets = new Set(
     focusEntries.filter((e) => e.mode === 'solo').map((e) => e.memberHandle)
   );
@@ -640,14 +629,12 @@ export function fanoutMessageToRoomTerminals(
       continue;
     }
     // SHIELD: a shielded member's firehose is suppressed; a direct @-mention
-    // breaks through when EITHER the global knob is on OR the member opted into
-    // direct-mentions-only (per-member back-pressure, 2026-06-09).
-    if (shieldedHandles.has(membership.handle)) {
-      const mentionBreakthrough =
-        (FOCUS_SHIELD_MENTION_BREAKTHROUGH ||
-          directMentionsOnlyHandles.has(membership.handle)) &&
-        membershipIsTargeted(membership, targetedHandles);
-      if (!mentionBreakthrough) continue;
+    // breaks through ONLY when the breakthrough knob is on (default off).
+    if (
+      shieldedHandles.has(membership.handle) &&
+      !(FOCUS_SHIELD_MENTION_BREAKTHROUGH && membershipIsTargeted(membership, targetedHandles))
+    ) {
+      continue;
     }
     if (!broadcastToAll && !membershipIsTargeted(membership, targetedHandles)) continue;
     if (!activeClaimAllowsRecipient(message, membership.handle)) continue;
@@ -689,30 +676,6 @@ export function fanoutMessageToRoomTerminals(
     const rk = routedKey(room.id, message.id, membership.handle);
     if (routedForMessage.has(rk)) continue;
     routedForMessage.add(rk);
-    // Curated-queue hook (JWPK 2026-06-09, FLAG-GATED, default OFF). If this
-    // terminal opts in via meta.queueEnabled, route the message into the durable
-    // curated queue (messageQueueStore) instead of a direct pane inject — the
-    // curator triages it and the capacity gate releases it when the worker is
-    // free, so the local chair never floods. Absent/false flag = unchanged
-    // direct-inject for every other terminal. Best-effort: failure falls through
-    // to the normal inject so a queue bug can never break delivery.
-    try {
-      const qMeta = typeof terminal.meta === 'string' && terminal.meta.length > 0
-        ? (JSON.parse(terminal.meta) as Record<string, unknown>)
-        : {};
-      if (qMeta.queueEnabled === true) {
-        enqueueToCuratedQueue({
-          roomId: room.id,
-          targetHandle: membership.handle,
-          sourceMessageId: message.id,
-          text: message.body,
-          kind: 'mention'
-        });
-        continue; // durable queue owns delivery for this terminal now
-      }
-    } catch {
-      /* malformed meta or queue error → fall through to the normal direct inject */
-    }
     queue.enqueue(queueKeyFor(room.id, terminal.id), {
       roomId: room.id,
       roomName: room.name,
@@ -741,12 +704,11 @@ export function fanoutMessageToRoomTerminals(
     if (enqueuedIds.has(terminal.id)) continue;
     const linkedHandle = recipientHandleForLinkedTerminal(terminal.id);
     if (soloActive && !soloTargets.has(linkedHandle)) continue;
-    if (shieldedHandles.has(linkedHandle)) {
-      const mentionBreakthrough =
-        (FOCUS_SHIELD_MENTION_BREAKTHROUGH ||
-          directMentionsOnlyHandles.has(linkedHandle)) &&
-        targetedHandles.has(linkedHandle);
-      if (!mentionBreakthrough) continue;
+    if (
+      shieldedHandles.has(linkedHandle) &&
+      !(FOCUS_SHIELD_MENTION_BREAKTHROUGH && targetedHandles.has(linkedHandle))
+    ) {
+      continue;
     }
     if (!broadcastToAll && targetedHandles.size === 0 && containsInformationalMention) continue;
     if (targetedHandles.size > 0 && !broadcastToAll && !targetedHandles.has(linkedHandle)) continue;

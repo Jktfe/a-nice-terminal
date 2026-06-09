@@ -31,15 +31,6 @@ function fakeSpawnReturning(stdout: string, status = 0) {
   };
 }
 
-function fakeSpawnSequence(results: Array<{ stdout?: string; status: number }>) {
-  let i = 0;
-  return (_bin: string, _args: string[], _options: { input?: string | Buffer; env: NodeJS.ProcessEnv }) => {
-    const r = results[Math.min(i, results.length - 1)];
-    i += 1;
-    return { pid: 1, stdout: Buffer.from(r.stdout ?? ''), stderr: Buffer.alloc(0), status: r.status, signal: null, output: [] } as any;
-  };
-}
-
 function captureSpawnCalls(): { calls: SpawnCall[]; impl: (b: string, a: string[], o: any) => any } {
   const calls: SpawnCall[] = [];
   return {
@@ -96,26 +87,6 @@ describe('verifyPaneTargetState', () => {
   it('returns stale + marks pane stale when capture-pane errors', () => {
     setSpawnImplForTests(fakeSpawnReturning('', 1));
     const t = registerPaneTerminal('stale-test');
-    expect(verifyPaneTargetState(t)).toBe('stale');
-    expect(getTerminalById(t.id)?.pane_status).toBe('stale');
-  });
-
-  it('retries capture-pane once: a transient first-failure then a successful retry → verified, NOT stale (the false-offline fix)', () => {
-    // A busy pane mid-render (e.g. an agent streaming a slow cloud-model turn)
-    // makes capture-pane transiently exit non-zero. The retry succeeds, so the
-    // verifiably-alive agent must NOT be flagged stale/offline.
-    setSpawnImplForTests(fakeSpawnSequence([
-      { status: 1 },                                   // transient failure
-      { stdout: 'some lines\n│ > \nmore', status: 0 }  // retry succeeds, ready
-    ]));
-    const t = registerPaneTerminal('transient-stale-recovers');
-    expect(verifyPaneTargetState(t)).toBe('verified');
-    expect(getTerminalById(t.id)?.pane_status).toBe('verified'); // not marked stale
-  });
-
-  it('still returns stale when capture-pane fails on BOTH the initial attempt and the retry (genuinely-gone pane)', () => {
-    setSpawnImplForTests(fakeSpawnSequence([{ status: 1 }, { status: 1 }]));
-    const t = registerPaneTerminal('genuinely-stale');
     expect(verifyPaneTargetState(t)).toBe('stale');
     expect(getTerminalById(t.id)?.pane_status).toBe('stale');
   });

@@ -109,19 +109,6 @@ export const PUT: RequestHandler = async ({ params, request }) => {
     durationMs = durationMsRaw;
   }
 
-  // DIRECT-MENTIONS-ONLY (2026-06-09, JWPK msg_x4skfkicm6): optional per-member
-  // flag — when true, a SHIELDED member still receives direct @-mentions (the
-  // "only receive direct @ messages" back-pressure for a local chair). Omitted
-  // = leave the stored value untouched, so toggling mode/reason never clears it.
-  const directMentionsOnlyRaw = bodyAsObject.directMentionsOnly;
-  let directMentionsOnly: boolean | undefined;
-  if (directMentionsOnlyRaw !== undefined) {
-    if (typeof directMentionsOnlyRaw !== 'boolean') {
-      throw error(400, 'directMentionsOnly must be a boolean when present.');
-    }
-    directMentionsOnly = directMentionsOnlyRaw;
-  }
-
   try {
     const focusEntry = enterFocus({
       roomId: params.roomId,
@@ -132,8 +119,7 @@ export const PUT: RequestHandler = async ({ params, request }) => {
       setter: auth.isAdminBearer ? memberHandle : auth.handle,
       mode,
       reason,
-      durationMs,
-      directMentionsOnly
+      durationMs
     });
     return json({ focusEntry });
   } catch (causeOfFailure) {

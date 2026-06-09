@@ -282,6 +282,15 @@
     if (voiceSettings.autoplay) void playCurrentSlide();
   }
 
+  function showAlternativeForSource(sourceIndex: number, ref: string): void {
+    const composedIndex = slides.findIndex((candidate) => candidate.sourceSlideIndex === sourceIndex);
+    if (composedIndex >= 0 && composedIndex !== activeIndex) {
+      clampedSet(composedIndex);
+    }
+    selectedAlternativeRef = ref;
+    showAlternatives = true;
+  }
+
   function next(): void { clampedSet(activeIndex + 1); }
   function prev(): void { clampedSet(activeIndex - 1); }
 
@@ -463,15 +472,16 @@
   }
 
   async function submitFeedback(): Promise<void> {
-    if (!pauseSnapshot || !activeSlide || feedbackText.trim().length === 0 || feedbackSubmitting) return;
+    if (!activeSlide || feedbackText.trim().length === 0 || feedbackSubmitting) return;
     feedbackSubmitting = true;
     feedbackNotice = null;
+    const feedbackSlideIndex = pauseSnapshot?.slideIndex ?? activeSourceSlideIndex;
     try {
       const response = await fetch(`/api/decks/${encodeURIComponent(deck.id)}/stage-feedback${deckPasswordQuery}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          slideIndex: pauseSnapshot.slideIndex,
+          slideIndex: feedbackSlideIndex,
           feedbackText,
           pasteContext,
           pauseContextRef
@@ -629,22 +639,35 @@
   title={deck.title}
   summary={externalDeckSource ? `From /rooms/${deck.roomId} · ${externalDeckSource.label} deck ${externalDeckSource.path}` : `From /rooms/${deck.roomId} · ${slideCount} slide${slideCount === 1 ? '' : 's'}`}
 >
-  <Explainable explainKey="deck-voice"><DeckViewerToolbar
-    roomId={deck.roomId}
-    {inspectMode}
-    speakingThisSlide={speakingIndex === activeIndex}
-    pausedThisSlide={pausedIndex === activeIndex}
-    canStopVoice={speakingIndex === activeIndex}
-    {showValidation}
-    {lenses}
-    {activeLensId}
-    onToggleInspect={() => (inspectMode = !inspectMode)}
-    onPlayPause={playCurrentSlide}
-    onStop={stopSpeaking}
-    onCopyShareLink={copyShareLink}
-    onToggleValidation={toggleValidation}
-    onLensChange={(lensId) => (activeLensId = lensId)}
-  /></Explainable>
+  <div class="stage-command-strip">
+    <Explainable explainKey="deck-voice"><DeckViewerToolbar
+      roomId={deck.roomId}
+      {inspectMode}
+      speakingThisSlide={speakingIndex === activeIndex}
+      pausedThisSlide={pausedIndex === activeIndex}
+      canStopVoice={speakingIndex === activeIndex}
+      {showValidation}
+      {lenses}
+      {activeLensId}
+      onToggleInspect={() => (inspectMode = !inspectMode)}
+      onPlayPause={playCurrentSlide}
+      onStop={stopSpeaking}
+      onCopyShareLink={copyShareLink}
+      onToggleValidation={toggleValidation}
+      onLensChange={(lensId) => (activeLensId = lensId)}
+    /></Explainable>
+    <details class="assets-menu">
+      <summary>Assets</summary>
+      <div class="assets-menu-panel">
+        <a href={`/rooms/${encodeURIComponent(deck.roomId)}`}>Room record</a>
+        <button type="button" onclick={() => (inspectMode = true)}>Slide JSON</button>
+        {#if externalDeckSource}
+          <a href={externalDeckSource.path} target="_blank" rel="noreferrer">{externalDeckSource.label} source</a>
+        {/if}
+        <span>{stageAlternatives.length} alternative track{stageAlternatives.length === 1 ? '' : 's'}</span>
+      </div>
+    </details>
+  </div>
 
   {#if shareNotice}
     <p class="share-notice" role="status">{shareNotice}</p>
@@ -679,154 +702,209 @@
   {:else if slideCount === 0}
     <p class="empty-deck">This deck has no slides yet.</p>
   {:else if activeSlide}
-    <article class="slide" data-layout={activeSlide.layout ?? 'standard'}>
-      <header class="slide-header">
-        <h2 class="slide-title">{displayedSlideTitle}</h2>
-        <span class="slide-counter">Slide {activeIndex + 1} of {slideCount}</span>
-      </header>
-      {#if visibleSlideAlternative}
-        <p class="alternative-banner">
-          Showing latest alternative · <button type="button" onclick={() => (showAlternatives = false)}>Show original</button>
-        </p>
-      {/if}
-      <div class="slide-body">{@html renderedBody}</div>
-
-      {#if showValidation && slideClaims.length > 0}
-        <Explainable explainKey="deck-validation">
-        <aside class="claims-panel" aria-label="Validation claims for this slide">
-          <header class="claims-panel-header">
-            <strong>Claims on this slide</strong>
-            <span class="claims-count">{slideClaims.length}</span>
-            <span class="claims-lens">via {lenses.find((l) => l.id === activeLensId)?.name ?? 'default lens'}</span>
+    <section class="stage-cockpit" aria-label="ANT Stage presenter workspace">
+      <div class="stage-main-column">
+        <article class="slide" data-layout={activeSlide.layout ?? 'standard'}>
+          <header class="slide-header">
+            <div>
+              <p class="slide-kicker">Main deck</p>
+              <h2 class="slide-title">{displayedSlideTitle}</h2>
+            </div>
+            <span class="slide-counter">Slide {activeIndex + 1} of {slideCount}</span>
           </header>
-          <ol class="claims-list">
-            {#each slideClaims as claim}
-              <li class="claim-row">
-                <button type="button" class="claim-btn" onclick={() => (selectedClaimForOverlay = {index: claim.index, text: claim.text})} title="Click to view validation runs.">
-                  <span class="claim-num">Claim {claim.index}</span>
-                  <span class="claim-text">{claim.text}</span>
-                  <span class="claim-status">unverified</span>
+          {#if visibleSlideAlternative}
+            <p class="alternative-banner">
+              Showing latest alternative · <button type="button" onclick={() => (showAlternatives = false)}>Show original</button>
+            </p>
+          {/if}
+          <div class="slide-body">{@html renderedBody}</div>
+
+          {#if showValidation && slideClaims.length > 0}
+            <Explainable explainKey="deck-validation">
+            <aside class="claims-panel" aria-label="Validation claims for this slide">
+              <header class="claims-panel-header">
+                <strong>Verification panel</strong>
+                <span class="claims-count">{slideClaims.length}</span>
+                <span class="claims-lens">via {lenses.find((l) => l.id === activeLensId)?.name ?? 'default lens'}</span>
+              </header>
+              <ol class="claims-list">
+                {#each slideClaims as claim}
+                  <li class="claim-row">
+                    <button type="button" class="claim-btn" onclick={() => (selectedClaimForOverlay = {index: claim.index, text: claim.text})} title="Click to view validation runs.">
+                      <span class="claim-num">Claim {claim.index}</span>
+                      <span class="claim-text">{claim.text}</span>
+                      <span class="claim-status">unverified</span>
+                    </button>
+                  </li>
+                {/each}
+              </ol>
+              <p class="claims-note">Click-to-overlay (per-claim verifier runs) lands in a follow-up slice. v1: visible enumeration + active lens label so the presenter can see what's making claim-shaped statements.</p>
+            </aside>
+            </Explainable>
+            {#if selectedClaimForOverlay}
+              <ClaimValidationOverlay
+                claimIndex={selectedClaimForOverlay.index}
+                claimText={selectedClaimForOverlay.text}
+                onClose={() => (selectedClaimForOverlay = null)}
+              />
+            {/if}
+          {/if}
+        </article>
+
+        <nav class="deck-nav" aria-label="Slide navigation">
+          <button type="button" class="nav-btn" onclick={prev} disabled={activeIndex === 0}>
+            ← Previous
+          </button>
+          <button type="button" class="nav-btn" onclick={next} disabled={activeIndex >= slideCount - 1}>
+            Next →
+          </button>
+        </nav>
+      </div>
+
+      <aside class="stage-side-column" aria-label="Stage comments and version history">
+        <StageFeedbackPanel
+          {pauseSnapshot}
+          bind:feedbackText
+          bind:pasteContext
+          {feedbackSubmitting}
+          {feedbackNotice}
+          onSubmit={submitFeedback}
+          onClear={() => {
+            pauseSnapshot = null;
+            feedbackText = '';
+            pasteContext = '';
+            pauseContextRef = '';
+            feedbackNotice = null;
+          }}
+        />
+
+        <section class="version-history-panel" aria-label="Version history">
+          <header>
+            <p class="panel-kicker">Version History</p>
+            <h3>Slide {activeSourceSlideIndex + 1}</h3>
+          </header>
+          <ul class="version-history-list">
+            <li class:active={!visibleSlideAlternative}>
+              <button type="button" onclick={() => (showAlternatives = false)}>
+                <span>V1</span>
+                <strong>{originalSlides[activeSourceSlideIndex]?.title ?? activeSlide.title}</strong>
+                <em>{visibleSlideAlternative ? 'View' : 'Viewing'}</em>
+              </button>
+            </li>
+            {#each activeAlternatives as alternative (alternative.ref)}
+              <li class:active={alternative.ref === selectedAlternative?.ref && showAlternatives}>
+                <button
+                  type="button"
+                  onclick={() => {
+                    if (alternative.kind === 'slide') {
+                      showAlternativeForSource(alternative.slideIndex, alternative.ref);
+                    }
+                  }}
+                >
+                  <span>{alternative.kind === 'proposal' ? 'V1 feedback' : 'V2'}</span>
+                  <strong>
+                    {alternative.kind === 'proposal'
+                      ? (alternative.summary ?? alternative.label)
+                      : alternative.proposedTitle}
+                  </strong>
+                  <em>{alternative.ref === selectedAlternative?.ref && showAlternatives ? 'Viewing' : 'View'}</em>
                 </button>
+                {#if alternative.kind === 'proposal'}
+                  <a href={alternative.ref} target="_blank" rel="noopener">Open comment track</a>
+                {:else}
+                  <p>{alternative.rationale}</p>
+                  {#if alternative.feedbackRef}
+                    <p class="alternative-feedback-ref">Addresses feedback {alternative.feedbackRef}</p>
+                  {/if}
+                  {#if alternative.decision}
+                    <p class="alternative-decision">Current path: {alternative.decision.action}</p>
+                  {/if}
+                  <div class="alternative-actions" aria-label="Choose presentation path">
+                    <button type="button" onclick={() => chooseAlternativePath(alternative, 'replace-slide')}>
+                      Replace
+                    </button>
+                    <button type="button" onclick={() => chooseAlternativePath(alternative, 'append-after')}>
+                      Append after
+                    </button>
+                    <button type="button" onclick={() => chooseAlternativePath(alternative, 'append-appendix')}>
+                      Appendix
+                    </button>
+                    <button type="button" onclick={() => chooseAlternativePath(alternative, 'park')}>
+                      Park
+                    </button>
+                    <button type="button" onclick={() => chooseAlternativePath(alternative, 'reject')}>
+                      Reject
+                    </button>
+                  </div>
+                {/if}
               </li>
             {/each}
-          </ol>
-          <p class="claims-note">Click-to-overlay (per-claim verifier runs) lands in a follow-up slice. v1: visible enumeration + active lens label so the presenter can see what's making claim-shaped statements.</p>
-        </aside>
-        </Explainable>
-        {#if selectedClaimForOverlay}
-          <ClaimValidationOverlay
-            claimIndex={selectedClaimForOverlay.index}
-            claimText={selectedClaimForOverlay.text}
-            onClose={() => (selectedClaimForOverlay = null)}
-          />
-        {/if}
-      {/if}
-    </article>
+            {#if feedbackSubmitting}
+              <li class="response-row">
+                <span>Response working on...</span>
+              </li>
+            {:else if feedbackNotice?.kind === 'ok'}
+              <li class="response-row">
+                <span>Response received</span>
+              </li>
+            {/if}
+            {#if activeAlternatives.length === 0}
+              <li class="empty-version-row">
+                <span>No comments or Version B slides for this slide yet.</span>
+              </li>
+            {/if}
+          </ul>
+        </section>
+      </aside>
+    </section>
 
-    <nav class="deck-nav" aria-label="Slide navigation">
-      <button type="button" class="nav-btn" onclick={prev} disabled={activeIndex === 0}>
-        ← Previous
-      </button>
-      <div class="slide-dots" role="tablist" aria-label="Jump to slide">
-        {#each slides as slide, index (slide.id)}
-          <button
-            type="button"
-            class="dot"
-            class:active={index === activeIndex}
-            role="tab"
-            aria-selected={index === activeIndex}
-            aria-label={`Slide ${index + 1}: ${slide.title}`}
-            onclick={() => clampedSet(index)}
-          ></button>
+    <section class="slide-picker" aria-label="Slide picker">
+      <header>
+        <h3>Slide picker</h3>
+        <p>Pick a slide, then view or adopt slide-specific versions.</p>
+      </header>
+      <div class="slide-picker-grid" role="tablist" aria-label="Jump to slide">
+        {#each originalSlides as slide, index (slide.id)}
+          {@const sourceAlternatives = stageAlternatives.filter((alt) => alt.slideIndex === index)}
+          <div class="slide-picker-stack">
+            <button
+              type="button"
+              class="slide-picker-card"
+              class:active={activeSourceSlideIndex === index && !visibleSlideAlternative}
+              role="tab"
+              aria-selected={activeSourceSlideIndex === index && !visibleSlideAlternative}
+              onclick={() => {
+                const composedIndex = slides.findIndex((candidate) => candidate.sourceSlideIndex === index && candidate.source === 'original');
+                showAlternatives = false;
+                selectedAlternativeRef = '';
+                clampedSet(composedIndex >= 0 ? composedIndex : index);
+              }}
+            >
+              <span class="slide-picker-actions" aria-label={`Slide ${index + 1} actions`}>
+                <span>Hide</span>
+                <span>Delete</span>
+                <span>Move</span>
+              </span>
+              <span>Slide {index + 1}</span>
+              <strong>{slide.title}</strong>
+              {#if sourceAlternatives.length > 0}
+                <em>{sourceAlternatives.length} track{sourceAlternatives.length === 1 ? '' : 's'}</em>
+              {/if}
+            </button>
+            {#each sourceAlternatives.filter((alt) => alt.kind === 'slide') as alternative, versionIndex (alternative.ref)}
+              <button
+                type="button"
+                class="slide-picker-version"
+                class:active={alternative.ref === selectedAlternative?.ref && showAlternatives}
+                onclick={() => showAlternativeForSource(index, alternative.ref)}
+              >
+                v{versionIndex + 2}
+              </button>
+            {/each}
+          </div>
         {/each}
       </div>
-      <button type="button" class="nav-btn" onclick={next} disabled={activeIndex >= slideCount - 1}>
-        Next →
-      </button>
-      {#if activeAlternatives.length > 0}
-        <button
-          type="button"
-          class="nav-btn alt-nav-btn"
-          aria-expanded={showAlternatives}
-          onclick={() => {
-            showAlternatives = !showAlternatives;
-            selectedAlternativeRef = selectedAlternative?.ref ?? activeAlternatives[0]?.ref ?? '';
-          }}
-        >
-          {showAlternatives ? 'Hide alternatives' : `See alternatives (${activeAlternatives.length})`}
-        </button>
-      {/if}
-    </nav>
-
-    {#if showAlternatives && activeAlternatives.length > 0}
-      <section class="alternatives-panel" aria-label="Slide alternatives">
-        <header>
-          <h3>Alternatives for this slide</h3>
-          <div class="alternative-mode">
-            <button type="button" class:active={!visibleSlideAlternative} onclick={() => (showAlternatives = false)}>
-              Original
-            </button>
-            {#if activeAlternatives.some((alt) => alt.kind === 'slide')}
-              <button
-                type="button"
-                class:active={!!visibleSlideAlternative}
-                onclick={() => {
-                  const latestSlide = activeAlternatives.find((alt) => alt.kind === 'slide');
-                  selectedAlternativeRef = latestSlide?.ref ?? selectedAlternativeRef;
-                  showAlternatives = true;
-                }}
-              >
-                Latest slide
-              </button>
-            {/if}
-          </div>
-        </header>
-        <ul>
-          {#each activeAlternatives as alternative (alternative.ref)}
-            <li class:active={alternative.ref === selectedAlternative?.ref}>
-              <button
-                type="button"
-                onclick={() => {
-                  selectedAlternativeRef = alternative.ref;
-                  showAlternatives = true;
-                }}
-              >
-                <span>{alternative.kind === 'proposal' ? (alternative.lens ?? 'Proposal') : 'Slide rewrite'}</span>
-                <strong>{alternative.label}</strong>
-              </button>
-              {#if alternative.kind === 'proposal'}
-                <a href={alternative.ref} target="_blank" rel="noopener">Open track</a>
-              {:else}
-                <p>{alternative.rationale}</p>
-                {#if alternative.feedbackRef}
-                  <p class="alternative-feedback-ref">Addresses feedback {alternative.feedbackRef}</p>
-                {/if}
-                {#if alternative.decision}
-                  <p class="alternative-decision">Current path: {alternative.decision.action}</p>
-                {/if}
-                <div class="alternative-actions" aria-label="Choose presentation path">
-                  <button type="button" onclick={() => chooseAlternativePath(alternative, 'replace-slide')}>
-                    Use as replacement
-                  </button>
-                  <button type="button" onclick={() => chooseAlternativePath(alternative, 'append-after')}>
-                    Append after slide
-                  </button>
-                  <button type="button" onclick={() => chooseAlternativePath(alternative, 'append-appendix')}>
-                    Append to appendix
-                  </button>
-                  <button type="button" onclick={() => chooseAlternativePath(alternative, 'park')}>
-                    Park
-                  </button>
-                  <button type="button" onclick={() => chooseAlternativePath(alternative, 'reject')}>
-                    Reject
-                  </button>
-                </div>
-              {/if}
-            </li>
-          {/each}
-        </ul>
-      </section>
-    {/if}
+    </section>
   {/if}
 
   {#if inspectMode && activeSlide}
@@ -835,22 +913,6 @@
       <pre><code>{JSON.stringify(activeSlide, null, 2)}</code></pre>
     </section>
   {/if}
-
-  <StageFeedbackPanel
-    {pauseSnapshot}
-    bind:feedbackText
-    bind:pasteContext
-    {feedbackSubmitting}
-    {feedbackNotice}
-    onSubmit={submitFeedback}
-    onClear={() => {
-      pauseSnapshot = null;
-      feedbackText = '';
-      pasteContext = '';
-      pauseContextRef = '';
-      feedbackNotice = null;
-    }}
-  />
 
   <footer class="deck-meta">
     <span>Created {new Date(deck.createdAtMs).toLocaleString()}</span>
@@ -870,10 +932,91 @@
     font-weight: 700;
     font-size: 0.85rem;
   }
+  .stage-command-strip {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.7rem;
+    margin-bottom: 1rem;
+  }
+  .stage-command-strip :global(.explainable) {
+    min-width: 0;
+    flex: 1;
+  }
+  .assets-menu {
+    position: relative;
+    flex: 0 0 auto;
+    margin-top: 0.55rem;
+  }
+  .assets-menu summary {
+    list-style: none;
+    padding: 0.45rem 0.85rem;
+    border: 1px solid var(--line-soft);
+    border-radius: 999px;
+    background: var(--surface-card);
+    color: var(--ink-strong);
+    font-size: 0.82rem;
+    font-weight: 850;
+    cursor: pointer;
+  }
+  .assets-menu summary::-webkit-details-marker { display: none; }
+  .assets-menu[open] summary,
+  .assets-menu summary:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .assets-menu-panel {
+    position: absolute;
+    z-index: 6;
+    right: 0;
+    top: calc(100% + 0.45rem);
+    display: grid;
+    gap: 0.35rem;
+    min-width: 13rem;
+    padding: 0.65rem;
+    border: 1px solid var(--line-soft);
+    border-radius: 0.75rem;
+    background: var(--surface-card);
+    box-shadow: 0 20px 44px rgb(0 0 0 / 14%);
+  }
+  .assets-menu-panel a,
+  .assets-menu-panel button,
+  .assets-menu-panel span {
+    display: block;
+    width: 100%;
+    padding: 0.42rem 0.5rem;
+    border: 0;
+    border-radius: 0.45rem;
+    background: transparent;
+    color: var(--ink-strong);
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 780;
+    text-align: left;
+    text-decoration: none;
+  }
+  .assets-menu-panel a:hover,
+  .assets-menu-panel button:hover {
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface-card));
+    color: var(--accent);
+  }
   .empty-deck {
     padding: 2rem 1rem;
     text-align: center;
     color: var(--ink-soft);
+  }
+  .stage-cockpit {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(19rem, 25rem);
+    gap: 1rem;
+    align-items: start;
+  }
+  .stage-main-column,
+  .stage-side-column {
+    min-width: 0;
+  }
+  .stage-side-column {
+    display: grid;
+    gap: 1rem;
   }
   .external-deck-stage {
     display: grid;
@@ -918,6 +1061,15 @@
     display: flex;
     flex-direction: column;
     gap: 1rem;
+  }
+  .slide-kicker,
+  .panel-kicker {
+    margin: 0 0 0.2rem;
+    color: var(--accent);
+    font-size: 0.68rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
   .slide-header {
     display: flex;
@@ -1069,7 +1221,7 @@
   .deck-nav {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
     gap: 1rem;
     margin-top: 1rem;
   }
@@ -1085,123 +1237,212 @@
   }
   .nav-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
   .nav-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .alt-nav-btn {
-    border-color: color-mix(in srgb, var(--accent) 55%, var(--line-soft));
-    color: var(--accent);
-  }
-  .slide-dots {
-    display: flex;
-    gap: 0.35rem;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-  .dot {
-    width: 0.65rem;
-    height: 0.65rem;
+  .version-history-panel,
+  .slide-picker {
     border: 1px solid var(--line-soft);
-    border-radius: 50%;
-    background: var(--bg);
-    cursor: pointer;
-    padding: 0;
-    transition: background 0.12s, transform 0.12s;
-  }
-  .dot:hover { transform: scale(1.2); }
-  .dot.active {
-    background: var(--accent);
-    border-color: var(--accent);
-  }
-  .alternatives-panel {
-    margin-top: 1rem;
-    border: 1px solid var(--line-soft);
-    border-radius: 0.85rem;
+    border-radius: 1rem;
     background: var(--surface-card);
+    box-shadow: 0 14px 36px rgb(0 0 0 / 5%);
     overflow: hidden;
   }
-  .alternatives-panel header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 1rem;
-    padding: 0.8rem 1rem;
+  .version-history-panel > header,
+  .slide-picker > header {
+    padding: 0.85rem 1rem;
     border-bottom: 1px solid var(--line-soft);
   }
-  .alternatives-panel h3 {
+  .version-history-panel h3,
+  .slide-picker h3 {
     margin: 0;
-    font-size: 0.9rem;
     color: var(--ink-strong);
+    font-size: 1rem;
   }
-  .alternative-mode {
-    display: flex;
-    gap: 0.35rem;
-  }
-  .alternative-mode button {
-    border: 1px solid var(--line-soft);
-    border-radius: 999px;
-    background: var(--bg);
+  .slide-picker p {
+    margin: 0.25rem 0 0;
     color: var(--ink-soft);
-    padding: 0.35rem 0.65rem;
-    font: inherit;
-    font-size: 0.78rem;
-    font-weight: 800;
-    cursor: pointer;
+    font-size: 0.82rem;
   }
-  .alternative-mode button.active {
-    border-color: var(--accent);
-    color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 10%, var(--surface-card));
-  }
-  .alternatives-panel ul {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
-  .alternatives-panel li {
+  .version-history-list {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.55rem;
+    margin: 0;
+    padding: 0.85rem;
+    list-style: none;
+  }
+  .version-history-list li {
+    border: 1px solid var(--line-soft);
+    border-radius: 0.72rem;
+    background: var(--bg);
+    overflow: hidden;
+  }
+  .version-history-list li.active {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 9%, var(--surface-card));
+  }
+  .version-history-list li > button {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 0.65rem;
     align-items: center;
-    padding: 0.8rem 1rem;
-    border-bottom: 1px solid var(--line-soft);
-  }
-  .alternatives-panel li:last-child { border-bottom: 0; }
-  .alternatives-panel li.active {
-    background: color-mix(in srgb, var(--accent) 8%, var(--surface-card));
-  }
-  .alternatives-panel li > button {
-    min-width: 0;
+    width: 100%;
+    padding: 0.62rem 0.68rem;
     border: 0;
     background: transparent;
     color: inherit;
-    padding: 0;
     text-align: left;
     cursor: pointer;
   }
-  .alternatives-panel li span {
-    display: block;
-    color: var(--ink-soft);
-    font-size: 0.72rem;
-    font-weight: 850;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-  .alternatives-panel li strong {
-    display: block;
-    margin-top: 0.2rem;
-    color: var(--ink-strong);
-    font-size: 0.88rem;
-    line-height: 1.25;
-  }
-  .alternatives-panel a {
+  .version-history-list li span {
     color: var(--accent);
-    font-size: 0.82rem;
-    font-weight: 850;
+    font-size: 0.75rem;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+  .version-history-list li strong {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ink-strong);
+    font-size: 0.83rem;
+    line-height: 1.25;
+    text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .alternatives-panel p {
-    grid-column: 1 / -1;
-    margin: -0.35rem 0 0;
+  .version-history-list li em {
+    padding: 0.18rem 0.5rem;
+    border: 1px solid var(--line-soft);
+    border-radius: 999px;
+    background: var(--surface-card);
+    color: var(--ink-soft);
+    font-size: 0.66rem;
+    font-style: normal;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+  .version-history-list li.active em {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .version-history-list a {
+    display: inline-block;
+    margin: -0.15rem 0 0.65rem 0.68rem;
+    color: var(--accent);
+    font-size: 0.78rem;
+    font-weight: 850;
+  }
+  .version-history-list p {
+    margin: -0.15rem 0.68rem 0.65rem;
+    color: var(--ink-soft);
+    font-size: 0.78rem;
+    line-height: 1.35;
+  }
+  .empty-version-row {
+    padding: 0.7rem;
     color: var(--ink-soft);
     font-size: 0.82rem;
+  }
+  .response-row {
+    padding: 0.62rem 0.68rem;
+    border-style: dashed;
+    color: var(--accent);
+    font-size: 0.78rem;
+    font-weight: 900;
+  }
+  .slide-picker {
+    margin-top: 1rem;
+  }
+  .slide-picker-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+    gap: 0.8rem;
+    padding: 1rem;
+  }
+  .slide-picker-stack {
+    display: grid;
+    justify-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+  }
+  .slide-picker-card,
+  .slide-picker-version {
+    border: 1px solid var(--line-soft);
+    background: var(--bg);
+    color: var(--ink-strong);
+    font: inherit;
+    cursor: pointer;
+    transition: border-color 0.12s, transform 0.12s, background 0.12s;
+  }
+  .slide-picker-card {
+    position: relative;
+    display: grid;
+    gap: 0.25rem;
+    width: 100%;
+    min-height: 5.9rem;
+    padding: 1rem 0.82rem 0.72rem;
+    border-radius: 1rem;
+    text-align: left;
+  }
+  .slide-picker-card:hover,
+  .slide-picker-card.active,
+  .slide-picker-version:hover,
+  .slide-picker-version.active {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface-card));
+    transform: translateY(-1px);
+  }
+  .slide-picker-card > span:not(.slide-picker-actions) {
+    color: var(--accent);
+    font-size: 0.72rem;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+  .slide-picker-card strong {
+    display: -webkit-box;
+    overflow: hidden;
+    color: var(--ink-strong);
+    font-size: 0.84rem;
+    line-height: 1.2;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+  .slide-picker-card em {
+    color: var(--ink-soft);
+    font-size: 0.68rem;
+    font-style: normal;
+    font-weight: 800;
+  }
+  .slide-picker-actions {
+    position: absolute;
+    top: -0.72rem;
+    left: 50%;
+    display: flex;
+    gap: 0.2rem;
+    padding: 0.16rem 0.28rem;
+    border: 1px solid var(--line-soft);
+    border-radius: 0.35rem;
+    background: var(--surface-card);
+    color: var(--ink-soft);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(-50%);
+  }
+  .slide-picker-card:hover .slide-picker-actions,
+  .slide-picker-card:focus-visible .slide-picker-actions {
+    opacity: 1;
+  }
+  .slide-picker-actions span {
+    color: var(--ink-soft);
+    font-size: 0.55rem;
+    font-weight: 900;
+    white-space: nowrap;
+  }
+  .slide-picker-version {
+    width: min(5.2rem, 80%);
+    padding: 0.4rem 0.55rem;
+    border-radius: 0.75rem;
+    color: var(--accent);
+    font-size: 0.74rem;
+    font-weight: 900;
+    text-transform: uppercase;
   }
   .alternative-feedback-ref,
   .alternative-decision {
@@ -1275,5 +1516,61 @@
   .version-badge a {
     color: #1d4ed8;
     text-decoration: underline;
+  }
+  @media (max-width: 1040px) {
+    .stage-cockpit {
+      grid-template-columns: 1fr;
+    }
+    .stage-side-column {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      align-items: start;
+    }
+  }
+  @media (max-width: 740px) {
+    .stage-command-strip {
+      display: grid;
+    }
+    .assets-menu {
+      margin-top: 0;
+      justify-self: stretch;
+    }
+    .assets-menu summary {
+      text-align: center;
+    }
+    .assets-menu-panel {
+      left: 0;
+      right: 0;
+    }
+    .stage-side-column {
+      grid-template-columns: 1fr;
+    }
+    .slide {
+      padding: 1.2rem;
+      border-radius: 0.85rem;
+      min-height: 0;
+    }
+    .slide-header,
+    .deck-nav {
+      align-items: stretch;
+      flex-direction: column;
+    }
+    .deck-nav {
+      gap: 0.6rem;
+    }
+    .nav-btn {
+      width: 100%;
+    }
+    .slide-picker-grid {
+      grid-template-columns: repeat(auto-fill, minmax(7.4rem, 1fr));
+      gap: 0.65rem;
+      padding: 0.8rem;
+    }
+    .version-history-list li > button {
+      grid-template-columns: 1fr;
+      gap: 0.32rem;
+    }
+    .version-history-list li strong {
+      white-space: normal;
+    }
   }
 </style>
