@@ -45,6 +45,19 @@ export type VoteView = {
   tally: VoteTallyRow[];
 };
 
+/** One append-only audit event: a single cast (incl. what it replaced). */
+export type VoteBallotEvent = {
+  seq: number;
+  voterHandle: string;
+  optionId: string;
+  optionLabel: string;
+  previousOptionId: string | null;
+  previousOptionLabel: string | null;
+  roomId: string;
+  reason: string | null;
+  castAtMs: number;
+};
+
 export type CreateVoteInput = {
   title: string;
   body?: string | null;
@@ -145,8 +158,25 @@ function ensureTables(): void {
       FOREIGN KEY (option_id) REFERENCES room_vote_options(id) ON DELETE CASCADE
     );
 
+    -- Append-only audit log: one row per cast (never overwritten), so a voter's
+    -- full change history is recoverable even though room_vote_ballots keeps
+    -- only the latest ballot. previous_option_id is the option this cast replaced
+    -- (NULL on the voter's first cast).
+    CREATE TABLE IF NOT EXISTS room_vote_ballot_events (
+      seq                INTEGER PRIMARY KEY AUTOINCREMENT,
+      vote_id            TEXT NOT NULL,
+      voter_handle       TEXT NOT NULL,
+      option_id          TEXT NOT NULL,
+      previous_option_id TEXT,
+      room_id            TEXT NOT NULL,
+      reason             TEXT,
+      cast_at_ms         INTEGER NOT NULL,
+      FOREIGN KEY (vote_id) REFERENCES room_votes(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_room_vote_rooms_room ON room_vote_rooms(room_id);
     CREATE INDEX IF NOT EXISTS idx_room_vote_ballots_vote ON room_vote_ballots(vote_id);
+    CREATE INDEX IF NOT EXISTS idx_room_vote_ballot_events_vote ON room_vote_ballot_events(vote_id, seq);
   `);
   schemaReady = true;
 }
@@ -216,6 +246,38 @@ export function listVotesForRoom(roomId: string): VoteView[] {
   return rows.map(viewFromRow);
 }
 
+/**
+ * Full append-only ballot history for a vote, oldest first — the audit trail.
+ * Every cast (incl. re-votes) is one event, with what it replaced. Unlike the
+ * tally (latest ballot only), this is never overwritten.
+ */
+export function getVoteBallotHistory(voteId: string): VoteBallotEvent[] {
+  ensureTables();
+  const db = getIdentityDb();
+  const labels = new Map<string, string>();
+  for (const o of db.prepare(`SELECT id, label FROM room_vote_options WHERE vote_id = ?`).all(voteId) as Array<{ id: string; label: string }>) {
+    labels.set(o.id, o.label);
+  }
+  const rows = db
+    .prepare(`SELECT seq, voter_handle, option_id, previous_option_id, room_id, reason, cast_at_ms
+              FROM room_vote_ballot_events WHERE vote_id = ? ORDER BY seq ASC`)
+    .all(voteId) as Array<{
+    seq: number; voter_handle: string; option_id: string; previous_option_id: string | null;
+    room_id: string; reason: string | null; cast_at_ms: number;
+  }>;
+  return rows.map((r) => ({
+    seq: r.seq,
+    voterHandle: r.voter_handle,
+    optionId: r.option_id,
+    optionLabel: labels.get(r.option_id) ?? r.option_id,
+    previousOptionId: r.previous_option_id,
+    previousOptionLabel: r.previous_option_id ? labels.get(r.previous_option_id) ?? r.previous_option_id : null,
+    roomId: r.room_id,
+    reason: r.reason,
+    castAtMs: r.cast_at_ms
+  }));
+}
+
 export function castVoteBallot(input: CastVoteInput): VoteView {
   ensureTables();
   const existing = getVote(input.voteId);
@@ -232,23 +294,35 @@ export function castVoteBallot(input: CastVoteInput): VoteView {
   }
 
   const db = getIdentityDb();
-  db.prepare(`
-    INSERT INTO room_vote_ballots
-      (vote_id, voter_handle, option_id, room_id, reason, cast_at_ms)
-    VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT(vote_id, voter_handle) DO UPDATE SET
-      option_id = excluded.option_id,
-      room_id = excluded.room_id,
-      reason = excluded.reason,
-      cast_at_ms = excluded.cast_at_ms
-  `).run(
-    input.voteId,
-    input.voterHandle,
-    input.optionId,
-    input.roomId,
-    normalizeNullableText(input.reason),
-    Date.now()
-  );
+  const now = Date.now();
+  const reason = normalizeNullableText(input.reason);
+  // The option this cast replaces (NULL on first cast) — for the audit log.
+  const prior = db
+    .prepare(`SELECT option_id FROM room_vote_ballots WHERE vote_id = ? AND voter_handle = ?`)
+    .get(input.voteId, input.voterHandle) as { option_id: string } | undefined;
+  const previousOptionId = prior?.option_id ?? null;
+
+  db.transaction(() => {
+    // Latest ballot (one per voter) — drives the tally.
+    db.prepare(`
+      INSERT INTO room_vote_ballots
+        (vote_id, voter_handle, option_id, room_id, reason, cast_at_ms)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(vote_id, voter_handle) DO UPDATE SET
+        option_id = excluded.option_id,
+        room_id = excluded.room_id,
+        reason = excluded.reason,
+        cast_at_ms = excluded.cast_at_ms
+    `).run(input.voteId, input.voterHandle, input.optionId, input.roomId, reason, now);
+
+    // Append-only audit event — never overwritten, so the full change history
+    // (incl. what each cast replaced) is recoverable.
+    db.prepare(`
+      INSERT INTO room_vote_ballot_events
+        (vote_id, voter_handle, option_id, previous_option_id, room_id, reason, cast_at_ms)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(input.voteId, input.voterHandle, input.optionId, previousOptionId, input.roomId, reason, now);
+  })();
 
   const updated = getVote(input.voteId);
   if (!updated) throw new Error(`castVoteBallot: vote ${input.voteId} disappeared after ballot`);

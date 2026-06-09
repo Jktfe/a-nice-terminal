@@ -81,6 +81,14 @@ async function runShow(args, runtime, CliInputError) {
   if (!voteId) throw new CliInputError('vote show needs VOTE_ID');
   const payload = await fetchJson(runtime, `/api/votes/${encodeURIComponent(voteId)}`);
   writeVote(runtime, flags, payload, formatVote(payload.vote));
+  if (!flags.json && Array.isArray(payload.history) && payload.history.length > 0) {
+    runtime.writeOut(`  audit (${payload.history.length} cast${payload.history.length === 1 ? '' : 's'}):`);
+    for (const e of payload.history) {
+      const change = e.previousOptionLabel ? `${e.previousOptionLabel} → ${e.optionLabel}` : e.optionLabel;
+      const when = new Date(e.castAtMs).toISOString().slice(11, 19);
+      runtime.writeOut(`    ${e.voterHandle}: ${change}${e.reason ? ` ("${e.reason}")` : ''} @${when} [${e.roomId}]`);
+    }
+  }
   return 0;
 }
 
