@@ -618,6 +618,16 @@ export function fanoutMessageToRoomTerminals(
   const shieldedHandles = new Set(
     focusEntries.filter((e) => e.mode === 'shield').map((e) => e.memberHandle)
   );
+  // DIRECT-MENTIONS-ONLY (2026-06-09, JWPK msg_x4skfkicm6) — per-member shield
+  // breakthrough: a shielded member with this flag STILL receives a direct
+  // @-mention (firehose stays suppressed). This is the "only receive direct @
+  // messages" back-pressure setting for a local chair, composing with shield.
+  // Independent of, and OR-ed with, the global FOCUS_SHIELD_MENTION_BREAKTHROUGH.
+  const directMentionsOnlyHandles = new Set(
+    focusEntries
+      .filter((e) => e.mode === 'shield' && e.directMentionsOnly)
+      .map((e) => e.memberHandle)
+  );
   const soloTargets = new Set(
     focusEntries.filter((e) => e.mode === 'solo').map((e) => e.memberHandle)
   );
@@ -629,12 +639,14 @@ export function fanoutMessageToRoomTerminals(
       continue;
     }
     // SHIELD: a shielded member's firehose is suppressed; a direct @-mention
-    // breaks through ONLY when the breakthrough knob is on (default off).
-    if (
-      shieldedHandles.has(membership.handle) &&
-      !(FOCUS_SHIELD_MENTION_BREAKTHROUGH && membershipIsTargeted(membership, targetedHandles))
-    ) {
-      continue;
+    // breaks through when EITHER the global knob is on OR the member opted into
+    // direct-mentions-only (per-member back-pressure, 2026-06-09).
+    if (shieldedHandles.has(membership.handle)) {
+      const mentionBreakthrough =
+        (FOCUS_SHIELD_MENTION_BREAKTHROUGH ||
+          directMentionsOnlyHandles.has(membership.handle)) &&
+        membershipIsTargeted(membership, targetedHandles);
+      if (!mentionBreakthrough) continue;
     }
     if (!broadcastToAll && !membershipIsTargeted(membership, targetedHandles)) continue;
     if (!activeClaimAllowsRecipient(message, membership.handle)) continue;
@@ -704,11 +716,12 @@ export function fanoutMessageToRoomTerminals(
     if (enqueuedIds.has(terminal.id)) continue;
     const linkedHandle = recipientHandleForLinkedTerminal(terminal.id);
     if (soloActive && !soloTargets.has(linkedHandle)) continue;
-    if (
-      shieldedHandles.has(linkedHandle) &&
-      !(FOCUS_SHIELD_MENTION_BREAKTHROUGH && targetedHandles.has(linkedHandle))
-    ) {
-      continue;
+    if (shieldedHandles.has(linkedHandle)) {
+      const mentionBreakthrough =
+        (FOCUS_SHIELD_MENTION_BREAKTHROUGH ||
+          directMentionsOnlyHandles.has(linkedHandle)) &&
+        targetedHandles.has(linkedHandle);
+      if (!mentionBreakthrough) continue;
     }
     if (!broadcastToAll && targetedHandles.size === 0 && containsInformationalMention) continue;
     if (targetedHandles.size > 0 && !broadcastToAll && !targetedHandles.has(linkedHandle)) continue;

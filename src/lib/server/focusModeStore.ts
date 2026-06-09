@@ -43,6 +43,12 @@ export type FocusEntry = {
   // ISO timestamp the setter was notified that the timer lapsed (one-shot per
   // lapse). null = not yet prompted. Cleared on re-enter / extend.
   promptedAt: string | null;
+  // DIRECT-MENTIONS-ONLY (2026-06-09, JWPK): when true, a SHIELDED member still
+  // receives messages that directly @-mention them (the firehose stays
+  // suppressed). This is the per-member "only receive direct @ messages"
+  // back-pressure setting for a local chair. No effect unless mode === 'shield'
+  // — shield does the suppression, this flag is the @-mention breakthrough.
+  directMentionsOnly: boolean;
 };
 
 type FocusRow = {
@@ -55,6 +61,7 @@ type FocusRow = {
   entered_at_ms: number;
   expires_at_ms: number | null;
   prompted_at_ms: number | null;
+  direct_mentions_only: number;
 };
 
 function ensureTable(db = getIdentityDb()): void {
@@ -69,9 +76,20 @@ function ensureTable(db = getIdentityDb()): void {
       entered_at_ms  INTEGER NOT NULL,
       expires_at_ms  INTEGER,
       prompted_at_ms INTEGER,
+      direct_mentions_only INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (room_id, member_handle)
     )
   `);
+  // Migration (2026-06-09): per-member "only receive direct @-mentions"
+  // delivery filter (JWPK msg_x4skfkicm6 — the local-chair back-pressure
+  // setting). Composes with shield: shield suppresses the firehose,
+  // direct_mentions_only lets a direct @-mention break through it. Guarded by
+  // a PRAGMA check so the ALTER runs once on legacy DBs, not as an exception
+  // every call.
+  const cols = db.prepare(`PRAGMA table_info(room_focus)`).all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === 'direct_mentions_only')) {
+    db.exec(`ALTER TABLE room_focus ADD COLUMN direct_mentions_only INTEGER NOT NULL DEFAULT 0`);
+  }
 }
 
 function rowToEntry(row: FocusRow): FocusEntry {
@@ -84,7 +102,8 @@ function rowToEntry(row: FocusRow): FocusEntry {
     reason: row.reason ?? undefined,
     enteredAt: new Date(row.entered_at_ms).toISOString(),
     expiresAt: row.expires_at_ms === null ? null : new Date(row.expires_at_ms).toISOString(),
-    promptedAt: row.prompted_at_ms === null ? null : new Date(row.prompted_at_ms).toISOString()
+    promptedAt: row.prompted_at_ms === null ? null : new Date(row.prompted_at_ms).toISOString(),
+    directMentionsOnly: row.direct_mentions_only !== 0
   };
 }
 
@@ -111,6 +130,11 @@ export function enterFocus(input: {
   // optional auto-clear timer. Milliseconds from now; server stamps the
   // absolute expiresAt. Omit/undefined = indefinite.
   durationMs?: number;
+  // DIRECT-MENTIONS-ONLY (2026-06-09): only meaningful with mode 'shield' —
+  // when true the shielded member still receives direct @-mentions. Omitted =
+  // preserves the existing value on a re-enter (so toggling mode/reason alone
+  // never silently clears it); first-time default is false.
+  directMentionsOnly?: boolean;
 }): FocusEntry {
   const room = findChatRoomById(input.roomId);
   if (!room) {
@@ -150,14 +174,26 @@ export function enterFocus(input: {
 
   const db = getIdentityDb();
   ensureTable(db);
+  // direct_mentions_only: explicit value wins; omitted preserves the existing
+  // row's value (so a plain re-enter to change mode/reason never silently
+  // clears the @-only filter), defaulting to 0 for a brand-new focus.
+  let directMentionsOnlyValue: number;
+  if (input.directMentionsOnly !== undefined) {
+    directMentionsOnlyValue = input.directMentionsOnly ? 1 : 0;
+  } else {
+    const existing = db
+      .prepare(`SELECT direct_mentions_only FROM room_focus WHERE room_id = ? AND member_handle = ?`)
+      .get(input.roomId, handle) as { direct_mentions_only: number } | undefined;
+    directMentionsOnlyValue = existing ? existing.direct_mentions_only : 0;
+  }
   const enteredAtMs = Date.now();
   // Upsert — idempotent per (room, member); a re-enter replaces the prior row.
   // prompted_at_ms resets to NULL on (re)enter — a fresh window / extended
   // timer has not yet prompted the setter.
   db.prepare(
     `INSERT INTO room_focus
-       (room_id, member_handle, setter_handle, mode, exit_policy, reason, entered_at_ms, expires_at_ms, prompted_at_ms)
-     VALUES (?, ?, ?, ?, 'stay-shielded', ?, ?, ?, NULL)
+       (room_id, member_handle, setter_handle, mode, exit_policy, reason, entered_at_ms, expires_at_ms, prompted_at_ms, direct_mentions_only)
+     VALUES (?, ?, ?, ?, 'stay-shielded', ?, ?, ?, NULL, ?)
      ON CONFLICT(room_id, member_handle) DO UPDATE SET
        setter_handle  = excluded.setter_handle,
        mode           = excluded.mode,
@@ -165,8 +201,9 @@ export function enterFocus(input: {
        reason         = excluded.reason,
        entered_at_ms  = excluded.entered_at_ms,
        expires_at_ms  = excluded.expires_at_ms,
-       prompted_at_ms = NULL`
-  ).run(input.roomId, handle, setter, mode, trimmedReason, enteredAtMs, expiresAtMs);
+       prompted_at_ms = NULL,
+       direct_mentions_only = excluded.direct_mentions_only`
+  ).run(input.roomId, handle, setter, mode, trimmedReason, enteredAtMs, expiresAtMs, directMentionsOnlyValue);
 
   return {
     roomId: input.roomId,
@@ -177,7 +214,8 @@ export function enterFocus(input: {
     reason: trimmedReason ?? undefined,
     enteredAt: new Date(enteredAtMs).toISOString(),
     expiresAt: expiresAtMs === null ? null : new Date(expiresAtMs).toISOString(),
-    promptedAt: null
+    promptedAt: null,
+    directMentionsOnly: directMentionsOnlyValue !== 0
   };
 }
 
