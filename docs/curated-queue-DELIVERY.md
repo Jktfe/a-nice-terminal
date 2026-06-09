@@ -3,7 +3,7 @@
 **What you asked for:** a capacity-gated, *curated* FIFO in front of the local chair so it never floods/melts — a curator (Perspective/small model) that *manages* the queue (condense, dedupe, drop-resolved, sort) and does no work, and a worker (Gemma) that pulls one-in-flight at its own pace. Editable by user + CLI. **Status: built, tested, demonstrated working. Branch `feat/curated-queue` (not merged).**
 
 ## It works — proof
-- **Unit:** 76 tests green (store 32 · curator 14 · consumer 8 · API 22) + `svelte-check` **0 errors / 4544 files**.
+- **Unit:** 80 tests green (store 33 · reclaim 3 · curator 14 · consumer 8 · API 22) + `svelte-check` **0 errors / 4545 files**.
 - **End-to-end (real model):** `curatedQueue.demo.test.ts` runs the full loop against **gemma4-chair**: enqueue 5 (incl. a dup) → curate (coalesced the dup → `dropped`) → capacity-gated pull (the **one-in-flight guard held on every iteration** — 2nd pull always `null`) → gemma4-chair responds → `done` → next, until all done. Output saved at `/tmp/curated-queue-demo.txt`.
 - **No regression:** existing fanout suite 53/53 with the inbound-wire added.
 
@@ -41,5 +41,16 @@ With that prompt it behaves correctly ("I am routing this to the Engineering Age
 - **`perspective --fm` as the off-GPU AFM curator** is wired only as the `condenseFn` seam — not yet invoked (v2; needs Apple Intelligence enabled).
 - **Not merged to main, binary not rebuilt** — both your gated go-live steps.
 
-## Adversarial review
-A separate agent stress-tested the spine (one-in-flight races, inbound-wire safety, auth, false-drops, poller spam). Findings + fixes recorded in the final report / follow-up commit.
+## Adversarial review (done — all findings fixed, commit `1590a18`)
+A separate agent stress-tested the spine end-to-end through the real HTTP surface and runtime loop. Every finding is fixed and re-verified (80 tests green, svelte-check 0 errors):
+
+| # | Finding | Fix |
+|---|---------|-----|
+| H1 | A chair that dies mid-item leaves a stuck `working` row that blocks every future pull forever | `reclaimStaleWorking` (commit `5cd7fbd`); curate reclaims on the live path; `maybePullForWorker` takes opt-in `reclaimStaleMs` so the direct-module path also un-stalls |
+| H2 | Poller marked an item `done` prematurely — a local model that hasn't flipped to `working` yet still reads *free*, so the in-flight item got skipped | Dwell guard: mark done only once the chair is observed busy-since-delivery **then** free, or a `--max-dwell` (180 s) fallback elapses |
+| M1 | `GET /queue` was open — leaked routed message bodies (`curatedText`) unauthenticated | Read-gated via `requireChatRoomReadAccess`, like the messages endpoint |
+| M2 | `PATCH …/{id}` could set `status='working'`, creating a second in-flight item and sidestepping one-in-flight | PATCH rejects `working` (claimed only by atomic `pullNext`) |
+| M3 | `coalesce` dropped the source `curatedText` on a non-containment merge — silent data loss | Source text appended (with a containment guard so no redundant dup) |
+| L1 | Poller `--dry-run` still mutated the queue (curate/pull/patch) | Dry-run is now side-effect-free — logs "would …" only |
+| L2 | Poller `isFree` included `idle` (the post-delivery state feeding the H2 race) | Aligned to `waiting`/`available`, matching `queueConsumer.FREE_LABELS` |
+| L3 | `/curate` validated the body before auth → 400-vs-401 contract probing | Auth before field validation |
