@@ -15,6 +15,7 @@ import {
   updateTask,
   deleteTask,
   isTaskStatus,
+  normalizeWorkspaceIdentity,
   planCompletion
 } from '$lib/server/taskStore';
 import {
@@ -133,6 +134,10 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
     planId: 'planId' in b ? (b.planId as string | null) : undefined,
     assignedAgent: 'assignedAgent' in b ? (b.assignedAgent as string | null) : undefined,
     evidence: 'evidence' in b ? (b.evidence as never[] | null) : undefined,
+    workspaceIdentity:
+      'workspaceIdentity' in b || 'workspace_identity' in b
+        ? normalizeWorkspaceIdentity(b.workspaceIdentity ?? b.workspace_identity)
+        : undefined,
     notes: 'notes' in b ? (b.notes as string | null) : undefined,
     startedAtMs: 'startedAtMs' in b ? (b.startedAtMs as number | null) : undefined,
     endedAtMs: 'endedAtMs' in b ? (b.endedAtMs as number | null) : undefined

@@ -6,7 +6,13 @@
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { createTask, getTask, listTasks, isTaskStatus } from '$lib/server/taskStore';
+import {
+  createTask,
+  getTask,
+  listTasks,
+  isTaskStatus,
+  normalizeWorkspaceIdentity
+} from '$lib/server/taskStore';
 import {
   createTask as createJwpkTask,
   listTasks as listJwpkTasks,
@@ -133,6 +139,7 @@ export const POST: RequestHandler = async ({ request }) => {
     planId: typeof b.planId === 'string' ? b.planId : null,
     assignedAgent: typeof b.assignedAgent === 'string' ? b.assignedAgent : null,
     evidence: Array.isArray(b.evidence) ? (b.evidence as never[]) : null,
+    workspaceIdentity: normalizeWorkspaceIdentity(b.workspaceIdentity ?? b.workspace_identity),
     notes: typeof b.notes === 'string' ? b.notes : null,
     startedAtMs: typeof b.startedAtMs === 'number' ? b.startedAtMs : null,
     endedAtMs: typeof b.endedAtMs === 'number' ? b.endedAtMs : null

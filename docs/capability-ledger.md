@@ -42,6 +42,7 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Artefact rail | v5 chat/room lane | CHANGE | Claude | Decks, docs, sheets, files, and sites share the rail. |
 | Plans and tasks | v5 system lane | CHANGE | Codex | Plan is scoreboard, tasks are ownership and review. |
 | DAG task dependencies | v5 system lane | CHANGE | Codex | Implemented a first usable DAG slice on the plan Gantt surface: persisted task dependency edges, cycle prevention, safe add/remove controls, and rendered graph links. |
+| WorkspaceIdentity on task cards | Research Colony unanimous #1, 2026-06-09 | CHANGE | Codex | Plan tasks can now persist `repoRoot`, `launchRoot`, `branchName`, `headSha`, workspace kind, dirty/drift state, evidence receipt, and changed files. Cockpit cards render the recorded workspace or say "Workspace not recorded" instead of silently falling back to local assumptions. |
 | Shared docs | v5 chat/room lane | CHANGE | Claude | Room-facing durable synthesis. |
 | Memory recall | v5 chat/room lane | CHANGE | Claude | Searchable context, not a dumping ground. |
 | Navigate to other chats | v5 chat/room lane | CHANGE | Claude | Command palette and room switcher. |

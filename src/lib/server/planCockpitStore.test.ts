@@ -163,6 +163,49 @@ describe('buildPlanCockpit', () => {
     expect(cockpit?.progress.tasks).toEqual({ total: 2, completed: 0, pct: 0 });
   });
 
+  it('projects workspace identity on plan task cards without local fallback', () => {
+    createTask({
+      id: 'workspace-task',
+      subject: 'Spike WorkspaceIdentity cards',
+      planId: 'workspace-plan',
+      assignedAgent: '@oiresearch',
+      workspaceIdentity: {
+        repoRoot: '/Users/jamesking/CascadeProjects/a-nice-terminal',
+        launchRoot: '/Users/jamesking/CascadeProjects/a-nice-terminal/.worktrees/workspace-identity-cards',
+        branchName: 'feat/workspace-identity-cards',
+        headSha: '5aa802a',
+        workspaceKind: 'isolated-worktree',
+        dirtyState: 'dirty',
+        driftState: 'drifted',
+        lastEvidenceReceipt: 'receipt:workspace-task:001',
+        changedFiles: ['src/lib/server/taskStore.ts']
+      }
+    });
+
+    createTask({
+      id: 'no-workspace-task',
+      subject: 'Legacy task with no workspace record',
+      planId: 'workspace-plan'
+    });
+
+    const cockpit = buildPlanCockpit('workspace-plan');
+
+    const workspaceTask = cockpit?.unphasedTasks.find((task) => task.id === 'workspace-task');
+    expect(workspaceTask?.workspaceIdentity).toEqual({
+      repoRoot: '/Users/jamesking/CascadeProjects/a-nice-terminal',
+      launchRoot: '/Users/jamesking/CascadeProjects/a-nice-terminal/.worktrees/workspace-identity-cards',
+      branchName: 'feat/workspace-identity-cards',
+      headSha: '5aa802a',
+      workspaceKind: 'isolated-worktree',
+      dirtyState: 'dirty',
+      driftState: 'drifted',
+      lastEvidenceReceipt: 'receipt:workspace-task:001',
+      changedFiles: ['src/lib/server/taskStore.ts']
+    });
+    const legacyTask = cockpit?.unphasedTasks.find((task) => task.id === 'no-workspace-task');
+    expect(legacyTask?.workspaceIdentity).toBeNull();
+  });
+
 
   it('includes evidence entries in recentActivity', () => {
     createPlan({ id: 'ev-plan', title: 'Evidence plan', createdBy: '@you' });

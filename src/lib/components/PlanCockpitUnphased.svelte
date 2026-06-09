@@ -8,12 +8,25 @@
 <script lang="ts">
   import { normaliseSubject } from '$lib/tasks/normaliseSubject';
 
+  type WorkspaceIdentity = {
+    repoRoot: string | null;
+    launchRoot: string | null;
+    branchName: string | null;
+    headSha: string | null;
+    workspaceKind: 'repo-checkout' | 'isolated-worktree' | 'live-served' | 'unknown';
+    dirtyState: 'clean' | 'dirty' | 'unknown';
+    driftState: 'match' | 'drifted' | 'missing' | 'unknown';
+    lastEvidenceReceipt: string | null;
+    changedFiles: string[];
+  };
+
   type CockpitTask = {
     id: string;
     subject: string;
     status: string;
     priority: number | null;
     assignedAgent: string | null;
+    workspaceIdentity: WorkspaceIdentity | null;
   };
 
   type Props = {
@@ -29,6 +42,23 @@
     return status
       .replace(/_/g, ' ')
       .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+  function workspaceKindLabel(kind: WorkspaceIdentity['workspaceKind']): string {
+    if (kind === 'isolated-worktree') return 'Isolated worktree';
+    if (kind === 'repo-checkout') return 'Repo checkout';
+    if (kind === 'live-served') return 'Live served';
+    return 'Workspace type unknown';
+  }
+  function shortSha(headSha: string | null): string {
+    return headSha ? headSha.slice(0, 7) : 'head unknown';
+  }
+  function workspaceTone(workspace: WorkspaceIdentity | null): string {
+    if (!workspace) return 'workspace-missing';
+    if (workspace.driftState === 'drifted' || workspace.driftState === 'missing') {
+      return 'workspace-warning';
+    }
+    if (workspace.dirtyState === 'dirty') return 'workspace-dirty';
+    return 'workspace-clean';
   }
 
   const activeUnphased = $derived(unphasedTasks.filter((t) => !isFinished(t.status)));
@@ -52,13 +82,27 @@
           <li class="task-row">
             {#if onSelectTask}
               <button type="button" class="task-jump" onclick={() => onSelectTask?.(task.id)}>
-                <span class="task-subject">{normaliseSubject(task.subject)}</span>
-                <span class={`task-status status-${task.status}`}>{statusLabel(task.status)}</span>
-                {#if task.priority !== null}<span class="task-priority">p{task.priority}</span>{/if}
+                <span class="task-topline">
+                  <span class="task-subject">{normaliseSubject(task.subject)}</span>
+                  <span class={`task-status status-${task.status}`}>{statusLabel(task.status)}</span>
+                  {#if task.priority !== null}<span class="task-priority">p{task.priority}</span>{/if}
+                </span>
+                <span class={`workspace-chip ${workspaceTone(task.workspaceIdentity)}`}>
+                  {#if task.workspaceIdentity}
+                    <span>{workspaceKindLabel(task.workspaceIdentity.workspaceKind)}</span>
+                    <span>{task.workspaceIdentity.branchName ?? 'branch unknown'} @ {shortSha(task.workspaceIdentity.headSha)}</span>
+                    <span>{task.workspaceIdentity.dirtyState} · {task.workspaceIdentity.driftState}</span>
+                  {:else}
+                    <span>Workspace not recorded</span>
+                  {/if}
+                </span>
               </button>
             {:else}
               <span class="task-subject">{normaliseSubject(task.subject)}</span>
               <span class={`task-status status-${task.status}`}>{statusLabel(task.status)}</span>
+              <span class={`workspace-chip ${workspaceTone(task.workspaceIdentity)}`}>
+                {task.workspaceIdentity ? workspaceKindLabel(task.workspaceIdentity.workspaceKind) : 'Workspace not recorded'}
+              </span>
             {/if}
           </li>
         {/each}
@@ -85,8 +129,18 @@
             <li class="task-row">
               {#if onSelectTask}
                 <button type="button" class="task-jump" onclick={() => onSelectTask?.(task.id)}>
-                  <span class="task-subject">{normaliseSubject(task.subject)}</span>
-                  <span class={`task-status status-${task.status}`}>{statusLabel(task.status)}</span>
+                  <span class="task-topline">
+                    <span class="task-subject">{normaliseSubject(task.subject)}</span>
+                    <span class={`task-status status-${task.status}`}>{statusLabel(task.status)}</span>
+                  </span>
+                  <span class={`workspace-chip ${workspaceTone(task.workspaceIdentity)}`}>
+                    {#if task.workspaceIdentity}
+                      <span>{workspaceKindLabel(task.workspaceIdentity.workspaceKind)}</span>
+                      <span>{task.workspaceIdentity.branchName ?? 'branch unknown'} @ {shortSha(task.workspaceIdentity.headSha)}</span>
+                    {:else}
+                      <span>Workspace not recorded</span>
+                    {/if}
+                  </span>
                 </button>
               {:else}
                 <span class="task-subject">{normaliseSubject(task.subject)}</span>
@@ -124,8 +178,9 @@
   .task-row { font-size: 0.85rem; }
   .task-jump {
     display: flex;
-    align-items: center;
-    gap: 0.45rem;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.28rem;
     width: 100%;
     padding: 0.35rem 0.55rem;
     border: 1px solid var(--surface-edge);
@@ -137,6 +192,12 @@
     cursor: pointer;
   }
   .task-jump:hover { border-color: var(--accent); }
+  .task-topline {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-width: 0;
+  }
   .task-subject { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-strong); }
   .task-status {
     padding: 0.05rem 0.4rem;
@@ -151,6 +212,43 @@
   .task-status.status-in_progress { color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
   .task-status.status-completed { color: #16a34a; }
   .task-priority { font-size: 0.7rem; color: var(--ink-soft); font-family: 'JetBrains Mono', monospace; }
+  .workspace-chip {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.28rem;
+    width: fit-content;
+    max-width: 100%;
+    padding: 0.12rem 0.42rem;
+    border: 1px solid var(--surface-edge);
+    border-radius: 0.45rem;
+    background: var(--surface-card);
+    color: var(--ink-soft);
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1.35;
+  }
+  .workspace-chip span + span::before {
+    content: '·';
+    margin-right: 0.28rem;
+    color: var(--ink-soft);
+  }
+  .workspace-clean {
+    border-color: color-mix(in srgb, #16a34a 30%, transparent);
+    color: #15803d;
+  }
+  .workspace-dirty {
+    border-color: color-mix(in srgb, #d97706 35%, transparent);
+    color: #b45309;
+  }
+  .workspace-warning {
+    border-color: color-mix(in srgb, #dc2626 35%, transparent);
+    color: #b91c1c;
+  }
+  .workspace-missing {
+    border-style: dashed;
+    color: var(--ink-soft);
+  }
   .muted { margin: 0; color: var(--ink-soft); font-size: 0.78rem; }
   .group-count {
     margin-left: 0.55rem;

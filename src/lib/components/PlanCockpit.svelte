@@ -32,6 +32,17 @@
     status: string;
     priority: number | null;
     assignedAgent: string | null;
+    workspaceIdentity: {
+      repoRoot: string | null;
+      launchRoot: string | null;
+      branchName: string | null;
+      headSha: string | null;
+      workspaceKind: 'repo-checkout' | 'isolated-worktree' | 'live-served' | 'unknown';
+      dirtyState: 'clean' | 'dirty' | 'unknown';
+      driftState: 'match' | 'drifted' | 'missing' | 'unknown';
+      lastEvidenceReceipt: string | null;
+      changedFiles: string[];
+    } | null;
   };
 
   type RoomLink = {

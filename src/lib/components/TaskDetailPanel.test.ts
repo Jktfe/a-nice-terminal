@@ -25,6 +25,7 @@ function task(overrides: Partial<Task> = {}): Task {
     blocks: [],
     blockedBy: [],
     evidence: [],
+    workspaceIdentity: null,
     notes: null,
     startedAtMs: null,
     endedAtMs: null,

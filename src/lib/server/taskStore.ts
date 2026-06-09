@@ -37,6 +37,22 @@ export function isTaskStatus(value: unknown): value is TaskStatus {
   return typeof value === 'string' && TASK_STATUSES.has(value);
 }
 
+export type WorkspaceKind = 'repo-checkout' | 'isolated-worktree' | 'live-served' | 'unknown';
+export type WorkspaceDirtyState = 'clean' | 'dirty' | 'unknown';
+export type WorkspaceDriftState = 'match' | 'drifted' | 'missing' | 'unknown';
+
+export type WorkspaceIdentity = {
+  repoRoot: string | null;
+  launchRoot: string | null;
+  branchName: string | null;
+  headSha: string | null;
+  workspaceKind: WorkspaceKind;
+  dirtyState: WorkspaceDirtyState;
+  driftState: WorkspaceDriftState;
+  lastEvidenceReceipt: string | null;
+  changedFiles: string[];
+};
+
 export type Task = {
   id: string;
   subject: string;
@@ -48,6 +64,7 @@ export type Task = {
   blocks: string[];
   blockedBy: string[];
   evidence: EvidenceRef[];
+  workspaceIdentity: WorkspaceIdentity | null;
   notes: string | null;
   startedAtMs: number | null;
   endedAtMs: number | null;
@@ -64,6 +81,7 @@ export type CreateTaskInput = {
   planId?: string | null;
   assignedAgent?: string | null;
   evidence?: EvidenceRef[] | null;
+  workspaceIdentity?: WorkspaceIdentity | null;
   notes?: string | null;
   startedAtMs?: number | null;
   endedAtMs?: number | null;
@@ -77,6 +95,7 @@ export type TaskPatch = {
   planId?: string | null;
   assignedAgent?: string | null;
   evidence?: EvidenceRef[] | null;
+  workspaceIdentity?: WorkspaceIdentity | null;
   notes?: string | null;
   startedAtMs?: number | null;
   endedAtMs?: number | null;
@@ -93,6 +112,7 @@ type TaskRow = {
   blocks: string;
   blocked_by: string;
   evidence: string;
+  workspace_identity: string | null;
   notes: string | null;
   started_at_ms: number | null;
   ended_at_ms: number | null;
@@ -123,6 +143,53 @@ function parseEvidence(raw: string): EvidenceRef[] {
   }
 }
 
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function stringArrayOrEmpty(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function workspaceKindOrUnknown(value: unknown): WorkspaceKind {
+  return value === 'repo-checkout' || value === 'isolated-worktree' || value === 'live-served'
+    ? value
+    : 'unknown';
+}
+
+function dirtyStateOrUnknown(value: unknown): WorkspaceDirtyState {
+  return value === 'clean' || value === 'dirty' ? value : 'unknown';
+}
+
+function driftStateOrUnknown(value: unknown): WorkspaceDriftState {
+  return value === 'match' || value === 'drifted' || value === 'missing' ? value : 'unknown';
+}
+
+export function normalizeWorkspaceIdentity(value: unknown): WorkspaceIdentity | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const parsed = value as Record<string, unknown>;
+  return {
+    repoRoot: stringOrNull(parsed.repoRoot),
+    launchRoot: stringOrNull(parsed.launchRoot),
+    branchName: stringOrNull(parsed.branchName),
+    headSha: stringOrNull(parsed.headSha),
+    workspaceKind: workspaceKindOrUnknown(parsed.workspaceKind),
+    dirtyState: dirtyStateOrUnknown(parsed.dirtyState),
+    driftState: driftStateOrUnknown(parsed.driftState),
+    lastEvidenceReceipt: stringOrNull(parsed.lastEvidenceReceipt),
+    changedFiles: stringArrayOrEmpty(parsed.changedFiles)
+  };
+}
+
+function parseWorkspaceIdentity(raw: string | null): WorkspaceIdentity | null {
+  if (!raw) return null;
+  try {
+    return normalizeWorkspaceIdentity(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
 function rowToTask(row: TaskRow): Task {
   return {
     id: row.id,
@@ -135,6 +202,7 @@ function rowToTask(row: TaskRow): Task {
     blocks: parseStringArray(row.blocks),
     blockedBy: parseStringArray(row.blocked_by),
     evidence: parseEvidence(row.evidence),
+    workspaceIdentity: parseWorkspaceIdentity(row.workspace_identity),
     notes: row.notes,
     startedAtMs: row.started_at_ms,
     endedAtMs: row.ended_at_ms,
@@ -158,9 +226,9 @@ export function createTask(input: CreateTaskInput): Task {
   db.prepare(
     `INSERT INTO tasks (
        id, subject, description, status, priority, plan_id, assigned_agent,
-       blocks, blocked_by, evidence, notes, started_at_ms, ended_at_ms,
+       blocks, blocked_by, evidence, workspace_identity, notes, started_at_ms, ended_at_ms,
        created_at_ms, updated_at_ms
-     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).run(
     input.id,
     input.subject,
@@ -172,6 +240,7 @@ export function createTask(input: CreateTaskInput): Task {
     '[]',
     '[]',
     JSON.stringify(input.evidence ?? []),
+    input.workspaceIdentity ? JSON.stringify(input.workspaceIdentity) : null,
     input.notes ?? null,
     input.startedAtMs ?? null,
     input.endedAtMs ?? null,
@@ -255,6 +324,8 @@ export function updateTask(id: string, patch: TaskPatch): Task | null {
     assigned_agent:
       patch.assignedAgent !== undefined ? patch.assignedAgent : existing.assignedAgent,
     evidence: patch.evidence !== undefined ? (patch.evidence ?? []) : existing.evidence,
+    workspace_identity:
+      patch.workspaceIdentity !== undefined ? patch.workspaceIdentity : existing.workspaceIdentity,
     notes: patch.notes !== undefined ? patch.notes : existing.notes,
     started_at_ms: patch.startedAtMs !== undefined ? patch.startedAtMs : existing.startedAtMs,
     ended_at_ms: patch.endedAtMs !== undefined ? patch.endedAtMs : existing.endedAtMs
@@ -263,7 +334,7 @@ export function updateTask(id: string, patch: TaskPatch): Task | null {
     .prepare(
       `UPDATE tasks SET
          subject = ?, description = ?, status = ?, priority = ?, plan_id = ?,
-         assigned_agent = ?, evidence = ?, notes = ?, started_at_ms = ?,
+         assigned_agent = ?, evidence = ?, workspace_identity = ?, notes = ?, started_at_ms = ?,
          ended_at_ms = ?, updated_at_ms = ?
        WHERE id = ?`
     )
@@ -275,6 +346,7 @@ export function updateTask(id: string, patch: TaskPatch): Task | null {
       next.plan_id,
       next.assigned_agent,
       JSON.stringify(next.evidence),
+      next.workspace_identity ? JSON.stringify(next.workspace_identity) : null,
       next.notes,
       next.started_at_ms,
       next.ended_at_ms,
