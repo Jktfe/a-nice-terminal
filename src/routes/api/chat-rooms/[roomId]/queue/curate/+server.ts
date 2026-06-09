@@ -30,12 +30,14 @@ export const POST: RequestHandler = async ({ params, request }) => {
   }
   if (typeof body !== 'object' || body === null) throw error(400, 'body must be an object');
 
+  // Auth BEFORE field validation (adversarial review L3): an unauthenticated
+  // caller must not be able to probe the curate contract via 400-vs-401 timing.
+  requireChatRoomMutationAuth(params.roomId, request, body);
+
   const targetHandle = body.targetHandle;
   if (typeof targetHandle !== 'string' || targetHandle.trim().length === 0) {
     throw error(400, 'targetHandle required');
   }
-
-  requireChatRoomMutationAuth(params.roomId, request, body);
 
   const stuckTtlMs = typeof body.stuckTtlMs === 'number' && body.stuckTtlMs > 0 ? body.stuckTtlMs : STUCK_WORKING_TTL_MS;
   const reclaimed = reclaimStaleWorking(params.roomId, targetHandle, stuckTtlMs);

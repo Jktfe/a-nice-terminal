@@ -243,7 +243,11 @@ export function reorder(id: string, newPriority: number, now = Date.now(), db = 
 /**
  * Coalesce duplicates (curator dedupe): merge `sourceId`'s source_message_ids
  * into `targetId`, then drop the source. Returns the merged target, or null if
- * either is missing. Keeps the target's curated_text (curator can re-condense).
+ * either is missing. PRESERVES the source's text: if the source's curated_text
+ * differs from the target's (and isn't already contained), it is appended — so
+ * even a wrong/near-dup merge never silently loses an instruction (adversarial
+ * review M3: order-independent similarity can match opposite messages). Exact
+ * dups append nothing.
  */
 export function coalesce(targetId: string, sourceId: string, now = Date.now(), db = getIdentityDb()): QueueItem | null {
   ensureSchema(db);
@@ -252,8 +256,13 @@ export function coalesce(targetId: string, sourceId: string, now = Date.now(), d
     const source = getItem(sourceId, db);
     if (!target || !source) return null;
     const merged = Array.from(new Set([...target.sourceMessageIds, ...source.sourceMessageIds]));
-    db.prepare(`UPDATE room_message_queue SET source_message_ids = ?, updated_at_ms = ? WHERE id = ?`).run(
+    const srcText = source.curatedText.trim();
+    const tgtText = target.curatedText;
+    const mergedText =
+      srcText.length === 0 || tgtText.includes(srcText) ? tgtText : `${tgtText}\n— also: ${srcText}`;
+    db.prepare(`UPDATE room_message_queue SET source_message_ids = ?, curated_text = ?, updated_at_ms = ? WHERE id = ?`).run(
       JSON.stringify(merged),
+      mergedText,
       now,
       targetId
     );

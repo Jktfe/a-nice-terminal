@@ -25,7 +25,12 @@
  */
 
 import { getIdentityDb } from './db';
-import { listQueue, pullNext, type QueueItem } from './messageQueueStore';
+import {
+  listQueue,
+  pullNext,
+  reclaimStaleWorking,
+  type QueueItem
+} from './messageQueueStore';
 import {
   findStateForCwdBasename,
   listSnapshots,
@@ -53,6 +58,15 @@ export type MaybePullOpts = {
   now?: number;
   /** Injectable DB handle (in-memory for tests). */
   db?: ReturnType<typeof getIdentityDb>;
+  /**
+   * When set, reclaim any `working` item older than this (ms) back to
+   * `pending` BEFORE the in-flight check (adversarial review H1-hardening:
+   * a chair that died mid-item leaves a stuck `working` row that would block
+   * every future pull forever). Curate also reclaims, but wiring this here
+   * makes the direct-module pull path non-bypassable. Omit = no reclaim
+   * (default, preserves prior behaviour).
+   */
+  reclaimStaleMs?: number;
 };
 
 /**
@@ -113,6 +127,13 @@ export function maybePullForWorker(
   const db = opts.db ?? getIdentityDb();
   const readWorkerState: ReadWorkerState =
     opts.readWorkerState ?? ((h) => defaultReadWorkerState(h, now));
+
+  // Guard 0 (opt-in): reclaim a stuck in-flight item so a dead chair can't
+  // wedge the queue. Runs before the in-flight check so the reclaimed item
+  // becomes eligible to pull this same tick.
+  if (typeof opts.reclaimStaleMs === 'number' && opts.reclaimStaleMs > 0) {
+    reclaimStaleWorking(roomId, targetHandle, opts.reclaimStaleMs, now, db);
+  }
 
   // Guard 1: worker capacity.
   const label = readWorkerState(targetHandle);

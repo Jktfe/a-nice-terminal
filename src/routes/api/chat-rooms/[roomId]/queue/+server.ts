@@ -25,6 +25,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
+import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
 import {
   enqueue,
   listQueue,
@@ -70,8 +71,12 @@ async function parseRequiredJsonBody(request: Request): Promise<Record<string, u
   }
 }
 
-export const GET: RequestHandler = ({ params, url }) => {
-  assertRoomExists(params.roomId);
+export const GET: RequestHandler = async ({ params, url, request }) => {
+  // Read gate (adversarial review M1): the queue holds routed message bodies
+  // (curatedText), so GET must be gated like the messages endpoint — not open.
+  const room = findChatRoomById(params.roomId);
+  if (!room) throw error(404, 'Room not found.');
+  await requireChatRoomReadAccess(request, room);
 
   const handle = url.searchParams.get('handle');
   if (typeof handle !== 'string' || handle.trim().length === 0) {

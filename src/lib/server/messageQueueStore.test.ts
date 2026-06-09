@@ -263,10 +263,26 @@ describe('messageQueueStore — coalesce', () => {
     const merged = coalesce(target.id, source.id, 999);
     expect(merged?.id).toBe(target.id);
     expect(merged?.sourceMessageIds.sort()).toEqual(['m1', 'm2']);
-    expect(merged?.curatedText).toBe('target'); // target text retained
+    // M3 (adversarial review): source text is NOT lost on a non-containment
+    // merge — it is appended so no information is dropped silently.
+    expect(merged?.curatedText).toBe('target\n— also: source');
     expect(merged?.updatedAtMs).toBe(999);
-    // source is dropped
+    // source ITEM is dropped (its content now lives on the target)
     expect(getItem(source.id)?.status).toBe('dropped');
+  });
+
+  it('does not duplicate source text already contained in the target', () => {
+    const target = enqueue(
+      { roomId: ROOM, targetHandle: HANDLE, text: 'deploy the build and verify', sourceMessageId: 'm1' },
+      100
+    );
+    const source = enqueue(
+      { roomId: ROOM, targetHandle: HANDLE, text: 'verify', sourceMessageId: 'm2' },
+      200
+    );
+    const merged = coalesce(target.id, source.id, 999);
+    // 'verify' is already in the target → no redundant append.
+    expect(merged?.curatedText).toBe('deploy the build and verify');
   });
 
   it('de-duplicates overlapping source ids', () => {

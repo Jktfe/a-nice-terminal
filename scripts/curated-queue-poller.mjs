@@ -69,7 +69,15 @@ function chairState() {
     return null;
   }
 }
-const isFree = (st) => !!st && ['waiting', 'available', 'idle'].includes(st.toLowerCase());
+// FREE = waiting/available only (aligned with queueConsumer's FREE_LABELS;
+// adversarial review L2 — 'idle' was the post-delivery state that fed the H2 race).
+const isFree = (st) => !!st && ['waiting', 'available'].includes(st.toLowerCase());
+const isBusy = (st) => !!st && ['working', 'thinking', 'busy'].includes(st.toLowerCase());
+// H2 dwell guard: only mark a 'working' item done once we've OBSERVED the chair
+// go busy since delivery (it actually started it) and then come free — or a
+// max-dwell fallback elapsed (state-reporting lag / a model faster than a tick).
+const MAX_DWELL_MS = Number(flag('max-dwell', '180')) * 1000;
+let observedBusySinceDelivery = false;
 
 function deliverToPane(text) {
   if (!LIVE) { log('[dry-run] would send to', PANE, '→', JSON.stringify(text.slice(0, 80))); return; }
@@ -84,22 +92,36 @@ async function tick() {
   const items = (await api('GET', `?handle=${encodeURIComponent(HANDLE)}`)).items ?? [];
   const working = items.find((i) => i.status === 'working');
   const pending = items.filter((i) => i.status === 'pending');
-  log(`chair=${st ?? 'unknown'} free=${free} | pending=${pending.length} working=${working ? 1 : 0}`);
+  if (isBusy(st)) observedBusySinceDelivery = true; // the chair actually started the item
+  log(`chair=${st ?? 'unknown'} free=${free} | pending=${pending.length} working=${working ? 1 : 0}${working ? ` observedBusy=${observedBusySinceDelivery}` : ''}`);
 
-  // 1. Chair free + an item still 'working' → it finished that item → mark done.
-  if (free && working) {
-    await api('PATCH', `/${working.id}`, { status: 'done' });
-    log('marked done (chair finished):', working.id);
-    return; // next tick releases the next one
+  // 1. An item is in flight ('working'). Mark it done ONLY when the chair is
+  //    free AND we've seen it go busy since delivery (H2: a local model that
+  //    hasn't flipped to 'working' yet still reads free — marking done then
+  //    skips the item). Fallback: if it's been working > MAX_DWELL with no
+  //    observed-busy (state lag / very fast model), release anyway.
+  if (working) {
+    const dwellMs = Date.now() - (working.updatedAtMs ?? Date.now());
+    const finished = free && (observedBusySinceDelivery || dwellMs >= MAX_DWELL_MS);
+    if (finished) {
+      if (LIVE) await api('PATCH', `/${working.id}`, { status: 'done' });
+      log(`${LIVE ? 'marked' : '[dry-run] would mark'} done:`, working.id, observedBusySinceDelivery ? '(observed busy→free)' : '(max-dwell fallback)');
+      observedBusySinceDelivery = false;
+    }
+    return; // hold while in flight (one-in-flight back-pressure)
   }
-  if (!free) return;            // busy → hold (back-pressure)
-  if (working) return;          // one-in-flight guard
-  if (pending.length === 0) return; // empty → (cron would fill here)
+  if (!free) return;                 // busy, nothing claimed yet → hold
+  if (pending.length === 0) return;  // empty → (cron would fill here)
 
-  // 2. Curate, then release ONE.
-  try { const s = await api('POST', '/curate', { targetHandle: HANDLE }); log('curated:', JSON.stringify(s.summary)); } catch (e) { log('curate skipped:', e.message); }
+  // 2. Curate (also reclaims stuck-working), then release ONE.
+  if (!LIVE) {
+    log('[dry-run] would curate + pull + deliver next:', JSON.stringify(pending[0].curatedText.slice(0, 60)));
+    return; // dry-run is side-effect-free (adversarial review L1): no curate/pull/patch
+  }
+  try { const s = await api('POST', '/curate', { targetHandle: HANDLE }); log('curated:', JSON.stringify(s)); } catch (e) { log('curate skipped:', e.message); }
   const pulled = (await api('POST', '/pull', { targetHandle: HANDLE })).item;
   if (!pulled) return;
+  observedBusySinceDelivery = false;
   log('released:', pulled.id, JSON.stringify(pulled.curatedText.slice(0, 60)));
   deliverToPane(pulled.curatedText);
 }

@@ -96,6 +96,12 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
     if (typeof statusRaw !== 'string' || !VALID_STATUS.has(statusRaw)) {
       throw error(400, 'status must be one of pending|working|done|dropped when present.');
     }
+    // One-in-flight invariant (adversarial review M2): 'working' is claimed ONLY
+    // by the atomic pullNext; allowing PATCH→working would let a caller create a
+    // second in-flight item, sidestepping the gate. Reject it here.
+    if (statusRaw === 'working') {
+      throw error(400, "status 'working' is set only by pull (one-in-flight); PATCH to pending/done/dropped.");
+    }
     patch.status = statusRaw as QueueStatus;
   }
 
