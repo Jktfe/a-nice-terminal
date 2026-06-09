@@ -19,6 +19,7 @@
   import RoomTasksPanel from './RoomTasksPanel.svelte';
   import ScreenshotsRoomPanel from './ScreenshotsRoomPanel.svelte';
   import UploadFileButton from './UploadFileButton.svelte';
+  import VotesRoomPanel from './VotesRoomPanel.svelte';
   import RoomRespondersPanel from './RoomRespondersPanel.svelte';
   import type { Ask } from '$lib/server/askStore';
   import type { RoomAliasEntry } from '$lib/server/chatRoomAliasStore';
@@ -175,6 +176,11 @@
     {#if pinnedSectionIds.has('tasks')}
       <CollapsibleSection id="tasks" title="Tasks" count={tasksForRoom.length} pinRoomId={room.id}>
         <RoomTasksPanel tasks={tasksForRoom} />
+      </CollapsibleSection>
+    {/if}
+    {#if pinnedSectionIds.has('votes')}
+      <CollapsibleSection id="votes" title="Votes" pinRoomId={room.id}>
+        <VotesRoomPanel roomId={room.id} />
       </CollapsibleSection>
     {/if}
     {#if pinnedSectionIds.has('linked-rooms')}

@@ -453,7 +453,7 @@
       <RoomCardActivity roomId={roomFromServer.id} variant="header" />
     {/snippet}
     {#snippet menu()}
-      <RoomMenuDropdown summary="More" innerIds={['participants', 'responders', 'focus', 'asks', 'plans', 'tasks', 'linked-rooms', 'interviews', 'artefacts', 'screenshots', 'memory', 'attachments']}>
+      <RoomMenuDropdown summary="More" innerIds={['participants', 'responders', 'focus', 'asks', 'plans', 'tasks', 'votes', 'linked-rooms', 'interviews', 'artefacts', 'screenshots', 'memory', 'attachments']}>
     <nav class="discipline-links" aria-label="Room work surfaces">
       <a class="discipline-link" href={`/asks?roomId=${roomFromServer.id}`}>Asks</a>
       <a class="discipline-link" href={primaryRoomPlanHref}>Plan</a>
