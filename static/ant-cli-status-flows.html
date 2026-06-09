@@ -101,6 +101,17 @@
     <tr><td><code>on-permission-request</code></td><td>Permission asked → <code>Permission</code></td><td class="fail">mode null; state set</td><td class="infer">blocked on approval</td></tr>
     <tr><td><code>on-stop</code></td><td>Turn ends → <code>classify.sh</code> (local model)</td><td class="fail">timeout → Waiting</td><td class="infer">DONE vs NEEDS-YOU</td></tr>
     </table>
+
+    <h4>Status logic — what Claude can emit</h4>
+    <table><tr><th style="width:130px">Canonical</th><th style="width:130px">Stored</th><th>Claude hook / pane source</th><th style="width:120px">ANT notes</th></tr>
+    <tr><td><b>idle</b></td><td><code>idle</code></td><td><code>on-session-start</code> → Available; <code>on-stop</code> classifier when no asks</td><td class="infer">✅ Full fidelity</td></tr>
+    <tr><td><b>working</b></td><td><code>working</code></td><td><code>on-prompt-submit</code>; <code>on-pre-tool-use</code>; tool execution in strip</td><td class="infer">✅ Full fidelity</td></tr>
+    <tr><td><b>thinking</b></td><td><code>thinking</code></td><td>Strip <code>✻ ... for &lt;time&gt;</code>; between prompt-submit and first tool use</td><td class="infer">✅ Inferred from strip + hook gap</td></tr>
+    <tr><td><b>waiting</b></td><td>→ <code>idle</code></td><td><code>on-stop</code> → Waiting when no work queued; status strip shows "Waiting"</td><td class="infer">⚠️ Collapsed to idle — needs schema split</td></tr>
+    <tr><td><b>blocked</b></td><td>→ <code>response-required</code></td><td><code>on-notification</code> Permission; <code>on-pre-tool-use</code> Menu; "⏵⏵ bypass permissions" in strip</td><td class="infer">⚠️ Collapsed to response-required — needs <code>blocked</code> enum</td></tr>
+    <tr><td><b>response needed</b></td><td><code>response-required</code></td><td><code>on-stop</code> perspective classify → Response needed; status strip literal</td><td class="infer">✅ Full fidelity — literal label in strip</td></tr>
+    <tr><td><b>response requested</b></td><td>(none)</td><td>Not emitted by Claude hooks. Only via human asks-store entry.</td><td class="infer">⚠️ No CLI hook for this — purely human-initiated</td></tr>
+    </table>
   </div></details>
 
   <!-- QWEN -->
@@ -115,6 +126,17 @@
     <h4>Status path</h4>
     <table><tr><th>Source</th><th>How</th><th class="infer" style="width:170px">Infer</th></tr>
     <tr><td>fingerprint</td><td><code>capture-pane</code> hash change + read the printed <code>Working</code> label + ctx%</td><td class="infer">working / idle / waiting (read the label)</td></tr></table>
+
+    <h4>Status logic — what Qwen can emit</h4>
+    <table><tr><th style="width:130px">Canonical</th><th style="width:130px">Stored</th><th>Qwen source</th><th style="width:120px">ANT notes</th></tr>
+    <tr><td><b>idle</b></td><td><code>idle</code></td><td>Fingerprint stale (> 30s no hash change); empty prompt with no <code>Working</code> label</td><td class="infer">✅ Fingerprint only — reliable</td></tr>
+    <tr><td><b>working</b></td><td><code>working</code></td><td>Literal <code>Working</code> in status strip; hash change + ctx% increase</td><td class="infer">✅ Full fidelity — literal label</td></tr>
+    <tr><td><b>thinking</b></td><td><code>thinking</code></td><td>Hash change without tool signature; between user message and first tool call</td><td class="infer">⚠️ Inferred — no explicit hook; collapses to working if label reads "Working"</td></tr>
+    <tr><td><b>waiting</b></td><td>→ <code>idle</code></td><td>No explicit signal; "Standing by…" text ≈ idle</td><td class="infer">⚠️ Collapsed to idle — no <code>waiting</code> enum</td></tr>
+    <tr><td><b>blocked</b></td><td>→ <code>response-required</code></td><td>No hook surface; YOLO mode prompt blocks are invisible to ANT</td><td class="infer">❌ Not observable — fingerprint can't detect permission blocks</td></tr>
+    <tr><td><b>response needed</b></td><td><code>response-required</code></td><td>No hook classifier; inferred from idle + asks-store query only</td><td class="infer">⚠️ Asks-store only — no CLI-native signal</td></tr>
+    <tr><td><b>response requested</b></td><td>(none)</td><td>Not emitted by Qwen. Purely human-initiated via asks-store.</td><td class="infer">⚠️ No CLI hook for this</td></tr>
+    </table>
   </div></details>
 
   <!-- AGY -->
@@ -128,6 +150,17 @@
     <h4>Status path</h4>
     <table><tr><th>Source</th><th>How</th><th class="infer" style="width:170px">Infer</th></tr>
     <tr><td>fingerprint</td><td><code>capture-pane</code>: <code>● Tool(…)</code> active vs idle <code>&gt;</code> prompt + hash change</td><td class="infer">working when bullets stream; else idle</td></tr></table>
+
+    <h4>Status logic — what Agy can emit</h4>
+    <table><tr><th style="width:130px">Canonical</th><th style="width:130px">Stored</th><th>Agy source</th><th style="width:120px">ANT notes</th></tr>
+    <tr><td><b>idle</b></td><td><code>idle</code></td><td>Empty <code>&gt;</code> prompt visible; fingerprint stale (> 30s)</td><td class="infer">✅ Fingerprint only — reliable</td></tr>
+    <tr><td><b>working</b></td><td><code>working</code></td><td><code>● Tool(…)</code> bullets streaming; hash change + tool signature</td><td class="infer">✅ Fingerprint only — reliable</td></tr>
+    <tr><td><b>thinking</b></td><td><code>thinking</code></td><td>Hash change without <code>●</code> tool bullet; between user message and first tool call</td><td class="infer">⚠️ Inferred — no explicit hook; may read as working</td></tr>
+    <tr><td><b>waiting</b></td><td>→ <code>idle</code></td><td>No explicit signal; empty prompt = idle</td><td class="infer">⚠️ Collapsed to idle</td></tr>
+    <tr><td><b>blocked</b></td><td>→ <code>response-required</code></td><td>No hook surface; permission menus invisible to ANT</td><td class="infer">❌ Not observable — fingerprint can't detect menu blocks</td></tr>
+    <tr><td><b>response needed</b></td><td><code>response-required</code></td><td>No hook classifier; inferred from idle + asks-store only</td><td class="infer">⚠️ Asks-store only</td></tr>
+    <tr><td><b>response requested</b></td><td>(none)</td><td>Not emitted by Agy. Purely human-initiated.</td><td class="infer">⚠️ No CLI hook for this</td></tr>
+    </table>
   </div></details>
 
   <!-- COPILOT -->
@@ -142,6 +175,17 @@
     <h4>Status path</h4>
     <table><tr><th>Source</th><th>How</th><th class="infer" style="width:170px">Infer</th></tr>
     <tr><td>fingerprint</td><td><code>capture-pane</code> hash change + <code>●</code> activity vs idle <code>❯</code></td><td class="infer">working when streaming; else idle</td></tr></table>
+
+    <h4>Status logic — what Copilot can emit</h4>
+    <table><tr><th style="width:130px">Canonical</th><th style="width:130px">Stored</th><th>Copilot source</th><th style="width:120px">ANT notes</th></tr>
+    <tr><td><b>idle</b></td><td><code>idle</code></td><td><code>❯</code> prompt visible with no streaming <code>●</code> bullets; fingerprint stale</td><td class="infer">✅ Fingerprint only — reliable</td></tr>
+    <tr><td><b>working</b></td><td><code>working</code></td><td><code>●</code> bullets streaming; hash change + tool side effects</td><td class="infer">✅ Fingerprint only — reliable</td></tr>
+    <tr><td><b>thinking</b></td><td><code>thinking</code></td><td>Hash change without <code>●</code> bullet; between user message and first output</td><td class="infer">⚠️ Inferred — may read as working</td></tr>
+    <tr><td><b>waiting</b></td><td>→ <code>idle</code></td><td>No explicit signal; idle prompt = waiting</td><td class="infer">⚠️ Collapsed to idle</td></tr>
+    <tr><td><b>blocked</b></td><td>→ <code>response-required</code></td><td>No native hook; permission prompts invisible to ANT without wrapper</td><td class="infer">❌ Not observable — could be wrapped in future</td></tr>
+    <tr><td><b>response needed</b></td><td><code>response-required</code></td><td>No hook classifier; inferred from idle + asks-store only</td><td class="infer">⚠️ Asks-store only</td></tr>
+    <tr><td><b>response requested</b></td><td>(none)</td><td>Not emitted by Copilot. Purely human-initiated.</td><td class="infer">⚠️ No CLI hook for this</td></tr>
+    </table>
   </div></details>
 
   <!-- PI -->
