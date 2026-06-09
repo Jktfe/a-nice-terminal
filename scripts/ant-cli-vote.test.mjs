@@ -90,7 +90,12 @@ describe('ant vote CLI', () => {
   it('list resolves the room and prints vote state', async () => {
     const { runtime, captured } = makeRuntime({
       '/api/chat-rooms': rooms,
-      '/api/votes?roomId=room-a': response(200, { votes: [vote] })
+      '/api/votes': ({ url }) => {
+        const parsed = new URL(url);
+        expect(parsed.searchParams.get('roomId')).toBe('room-a');
+        expect(parsed.searchParams.get('pidChain')).toBeTruthy();
+        return response(200, { votes: [vote] });
+      }
     });
 
     const code = await handleVoteVerb('list', ['--room', 'Alpha'], runtime, { CliInputError });
@@ -123,10 +128,16 @@ describe('ant vote CLI', () => {
 
   it('show --json prints the raw server payload', async () => {
     const { runtime, captured } = makeRuntime({
-      '/api/votes/vote_1': response(200, { vote })
+      '/api/chat-rooms': rooms,
+      '/api/votes/vote_1': ({ url }) => {
+        const parsed = new URL(url);
+        expect(parsed.searchParams.get('roomId')).toBe('room-a');
+        expect(parsed.searchParams.get('pidChain')).toBeTruthy();
+        return response(200, { vote });
+      }
     });
 
-    const code = await handleVoteVerb('show', ['vote_1', '--json'], runtime, { CliInputError });
+    const code = await handleVoteVerb('show', ['vote_1', '--room', 'Alpha', '--json'], runtime, { CliInputError });
 
     expect(code).toBe(0);
     expect(JSON.parse(captured.stdout[0]).vote.id).toBe('vote_1');

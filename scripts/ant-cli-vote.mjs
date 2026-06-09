@@ -3,7 +3,7 @@
  *
  *   ant vote create --room ROOM --title TEXT --options a,b [--voters @a,@b] [--rooms R2,R3] [--json]
  *   ant vote list --room ROOM [--json]
- *   ant vote show VOTE_ID [--json]
+ *   ant vote show VOTE_ID --room ROOM [--json]
  *   ant vote cast VOTE_ID --room ROOM --option OPTION_ID [--reason TEXT] [--json]
  *   ant vote close VOTE_ID --room ROOM [--json]
  */
@@ -59,6 +59,9 @@ async function runList(args, runtime, CliInputError) {
   const { flags } = parseFlags(args, CliInputError);
   const room = await resolveChatRoomIdentifier(runtime, requireFlag(flags, 'room', CliInputError), CliInputError);
   const query = new URLSearchParams({ roomId: room.id });
+  // The list endpoint enforces room read-access; pass the pidChain in the
+  // query so the read gate can resolve the caller's room-scoped handle.
+  query.set('pidChain', JSON.stringify(processIdentityChain()));
   const payload = await fetchJson(runtime, `/api/votes?${query.toString()}`);
   if (flags.json !== undefined) {
     runtime.writeOut(JSON.stringify(payload));
@@ -79,7 +82,12 @@ async function runShow(args, runtime, CliInputError) {
   const { flags, positionals } = parseFlags(args, CliInputError);
   const voteId = positionals[0];
   if (!voteId) throw new CliInputError('vote show needs VOTE_ID');
-  const payload = await fetchJson(runtime, `/api/votes/${encodeURIComponent(voteId)}`);
+  // Room-scoped show (post-alignment): the endpoint requires roomId + read
+  // access, so supply both the bound room and the caller's pidChain.
+  const room = await resolveChatRoomIdentifier(runtime, requireFlag(flags, 'room', CliInputError), CliInputError);
+  const query = new URLSearchParams({ roomId: room.id });
+  query.set('pidChain', JSON.stringify(processIdentityChain()));
+  const payload = await fetchJson(runtime, `/api/votes/${encodeURIComponent(voteId)}?${query.toString()}`);
   writeVote(runtime, flags, payload, formatVote(payload.vote));
   if (!flags.json && Array.isArray(payload.history) && payload.history.length > 0) {
     runtime.writeOut(`  audit (${payload.history.length} cast${payload.history.length === 1 ? '' : 's'}):`);
@@ -187,7 +195,7 @@ function writeUsage(runtime) {
   runtime.writeOut('ant vote <create|list|show|cast|close>');
   runtime.writeOut('  create --room ROOM --title TEXT --options a,b [--voters @a,@b] [--rooms R2,R3] [--json]');
   runtime.writeOut('  list --room ROOM [--json]');
-  runtime.writeOut('  show VOTE_ID [--json]');
+  runtime.writeOut('  show VOTE_ID --room ROOM [--json]');
   runtime.writeOut('  cast VOTE_ID --room ROOM --option OPTION_ID [--reason TEXT] [--json]');
   runtime.writeOut('  close VOTE_ID --room ROOM [--json]');
 }

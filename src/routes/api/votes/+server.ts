@@ -1,7 +1,8 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { doesChatRoomExist, findChatRoomById } from '$lib/server/chatRoomStore';
+import { doesChatRoomExist, findChatRoomById, isHandleMemberOfRoom } from '$lib/server/chatRoomStore';
 import { resolveCallerIdentityStrict } from '$lib/server/authGate';
+import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
 import {
   createVote,
   listVotesForRoom
@@ -13,10 +14,13 @@ import {
   voteSummary
 } from '$lib/server/voteRouteHelpers';
 
-export const GET: RequestHandler = async ({ url }) => {
+export const GET: RequestHandler = async ({ url, request }) => {
   const roomId = url.searchParams.get('roomId');
   if (!roomId) throw error(400, 'roomId query parameter is required.');
-  if (!doesChatRoomExist(roomId)) throw error(404, 'Room not found.');
+  const room = findChatRoomById(roomId);
+  if (!room) throw error(404, 'Room not found.');
+  // Read-auth: only members (or admin) may list a room's votes.
+  await requireChatRoomReadAccess(request, room);
   return json({ votes: listVotesForRoom(roomId) });
 };
 
@@ -31,6 +35,16 @@ export const POST: RequestHandler = async ({ request }) => {
     if (!doesChatRoomExist(roomId)) throw error(404, `Room not found: ${roomId}`);
   }
   const createdByHandle = resolveCallerIdentityStrict(primaryRoomId, request, rawBody);
+  // The strict resolver only authorizes the creator against the PRIMARY
+  // room. Binding a vote into additional rooms grants those rooms reach into
+  // the vote (receipts, cast scope), so the creator must also be a member of
+  // every OTHER bound room — never bind a room the creator isn't in.
+  for (const roomId of boundRooms) {
+    if (roomId === primaryRoomId) continue;
+    if (!isHandleMemberOfRoom(roomId, createdByHandle)) {
+      throw error(403, `${createdByHandle} is not a member of bound room ${roomId}.`);
+    }
+  }
   const title = requiredString(body.title, 'title');
   const options = readStringList(body.options);
   const explicitVoters = readStringList(body.eligibleVoters ?? body.voters);
