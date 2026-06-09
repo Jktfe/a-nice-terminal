@@ -1,7 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { resolveCallerIdentityStrict } from '$lib/server/authGate';
-import { castVoteBallot } from '$lib/server/voteStore';
+import { castVoteBallot, getVoteBallotHistory, type VoteBallotEvent } from '$lib/server/voteStore';
 import { postVoteReceipts, requiredString } from '$lib/server/voteRouteHelpers';
 
 export const POST: RequestHandler = async ({ params, request }) => {
@@ -22,7 +22,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
     postVoteReceipts(
       vote,
       `🗳️ Vote cast by ${voterHandle}: ${vote.title}\n` +
-        `voteID=${vote.id} state=${vote.state} missing=${vote.missingVoters.join(', ') || '-'}`
+        `voteID=${vote.id} ${castReceiptSummary(vote.id, voterHandle)} state=${vote.state} missing=${vote.missingVoters.join(', ') || '-'}`
     );
     return json({ vote });
   } catch (cause) {
@@ -31,3 +31,12 @@ export const POST: RequestHandler = async ({ params, request }) => {
     throw error(409, message);
   }
 };
+
+function castReceiptSummary(voteId: string, voterHandle: string): string {
+  const event = getVoteBallotHistory(voteId)
+    .filter((candidate: VoteBallotEvent) => candidate.voterHandle === voterHandle)
+    .at(-1);
+  if (!event) return 'choice=unknown';
+  const previous = event.previousOptionLabel ? ` changedFrom=${event.previousOptionLabel}` : '';
+  return `choice=${event.optionLabel}${previous}`;
+}

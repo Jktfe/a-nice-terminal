@@ -151,6 +151,46 @@ describe('votes API', () => {
     expect((shown.body.vote as { complete: boolean }).complete).toBe(true);
   });
 
+  it('posts cast receipts with selected option and changed-from audit detail', async () => {
+    const { primary, convenerPidChain, aPidChain } = setupTwoRooms();
+    const created = await call(votesPOST, {
+      method: 'POST',
+      url: '/api/votes',
+      body: {
+        roomId: primary.id,
+        title: 'Which route?',
+        options: ['left', 'right'],
+        eligibleVoters: ['@a'],
+        pidChain: convenerPidChain
+      }
+    });
+    const vote = created.body.vote as { id: string; options: Array<{ id: string; label: string }> };
+    const left = vote.options.find((option) => option.label === 'left')!;
+    const right = vote.options.find((option) => option.label === 'right')!;
+
+    const first = await call(castPOST, {
+      method: 'POST',
+      url: `/api/votes/${vote.id}/cast`,
+      params: { voteId: vote.id },
+      body: { roomId: primary.id, optionId: left.id, pidChain: aPidChain }
+    });
+    expect(first.status).toBe(200);
+
+    const second = await call(castPOST, {
+      method: 'POST',
+      url: `/api/votes/${vote.id}/cast`,
+      params: { voteId: vote.id },
+      body: { roomId: primary.id, optionId: right.id, pidChain: aPidChain }
+    });
+    expect(second.status).toBe(200);
+
+    const receipts = listMessagesInRoom(primary.id)
+      .map((message) => message.body)
+      .filter((body) => body.includes(`voteID=${vote.id}`));
+    expect(receipts.join('\n')).toContain('choice=left');
+    expect(receipts.join('\n')).toContain('choice=right changedFrom=left');
+  });
+
   it('closes an open vote and rejects further ballots', async () => {
     const { primary, convenerPidChain, aPidChain } = setupTwoRooms();
     const created = await call(votesPOST, {

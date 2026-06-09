@@ -28,9 +28,20 @@ type VoteBallot = {
   roomId: string;
   castAtMs: number;
 };
+
+type VoteBallotEvent = {
+  voterHandle: string;
+  optionId: string;
+  previousOptionId: string | null;
+  reason: string | null;
+  roomId: string;
+  castAtMs: number;
+};
 ```
 
 The state users need is derived from that object: who can vote, whether it is open, whether it is complete, the tally, and which eligible voters are still missing.
+
+The ballot table answers **what counts now**. The append-only ballot event table answers **how the vote got there**. Recasting before close updates the latest ballot, but each cast remains in history.
 
 ## CLI
 
@@ -49,11 +60,11 @@ ant vote cast <voteId> --room "Research Colony" --option ship-now --reason "smal
 ant vote close <voteId> --room "Research Colony"
 ```
 
-Create, cast, and close post system receipts into every bound room so the vote remains visible across the whole span.
+Create, cast, and close post system receipts into every bound room so the vote remains visible across the whole span. Cast receipts include the selected option and, for changed votes, the previous option.
 
 ## Cross-Room Span
 
-v0 ships the **Span** model: one vote can bind multiple rooms, but each eligible handle still has one ballot for the whole vote. If the same handle casts again from another bound room, the ballot updates rather than double-counting.
+v0 ships the **Span** model: one vote can bind multiple rooms, but each eligible handle still has one ballot for the whole vote. If the same handle casts again from another bound room, the ballot updates rather than double-counting, and the append-only history records the previous -> new option change.
 
 This gives a single tally with room context preserved on each ballot. It is the right default for agents that sit across rooms and need to surface different contexts without creating duplicate decisions.
 
