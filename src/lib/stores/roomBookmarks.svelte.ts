@@ -2,29 +2,27 @@
  * roomBookmarks store — dashboard quick-wins room-pinning.
  *
  * User preference for "starred" chat rooms surfaced on the dashboard
- * room strip. localStorage is the working source of truth; the server
- * mirrors it for cross-device sync. Once the user has edited locally
- * (or local already had bookmarks at init), we stop accepting server
- * clobbers — the most-recent local action wins.
+ * room strip. The server table is the boot source of truth so stars
+ * survive device switches and hard refreshes. localStorage is only an
+ * offline seed/cache, and a tab-local edit wins only after init starts.
  *
  * Bug context (JWPK msg_ldbou7jkfs 2026-05-19): "I'm changing my
  * starred chatrooms and they keep reverting". Root cause was a race
  * between the init-time GET and a concurrent PUT triggered by a
  * user-edit firing the moment the page came up. Old behaviour:
  * refreshFromServer would unconditionally overwrite this.ids with the
- * server snapshot — frequently a stale one. New behaviour: hasUserEdited
- * + non-empty-local guard. Server response is read at boot and applied
- * only when local is empty; after that, every change is a one-way
- * write and the GET response is ignored.
+ * server snapshot — frequently a stale one. Current behaviour keeps
+ * the live-edit guard but does not treat old localStorage as a fresh
+ * edit. If the server has rows, it wins on boot; if the server is empty
+ * and localStorage has legacy rows, they are migrated up.
  */
 const STORAGE_KEY = 'ant-room-bookmarks';
 
 class RoomBookmarksStore {
   ids = $state<string[]>([]);
   private hasStartedInit = false;
-  // Set true on any add / remove / move / toggle and on init if local
-  // had any saved bookmarks already. While true, server snapshots are
-  // ignored — local is authoritative.
+  // Set true on any add / remove / move / toggle in this tab. While true,
+  // server snapshots are ignored — the in-tab user action is authoritative.
   private hasUserEdited = false;
 
   init(): void {
@@ -34,9 +32,6 @@ class RoomBookmarksStore {
     const localIds = this.loadLocal();
     if (localIds.length > 0) {
       this.ids = localIds;
-      // Local already has bookmarks — treat that as a prior user edit so
-      // the boot-time server refresh can't clobber.
-      this.hasUserEdited = true;
     }
     void this.refreshFromServer(localIds);
   }
@@ -62,7 +57,8 @@ class RoomBookmarksStore {
       const body = (await response.json()) as { roomIds?: string[] };
       const serverIds = Array.isArray(body.roomIds) ? body.roomIds.filter((id) => typeof id === 'string') : [];
       if (this.hasUserEdited) {
-        // Don't clobber a user edit. If our local set differs from the
+        // Don't clobber an in-tab user edit that happened while the
+        // boot GET was in flight. If our local set differs from the
         // server, persist OUR side back so the server catches up.
         if (!arraysEqual(this.ids, serverIds)) {
           await this.persistToServer(this.ids);

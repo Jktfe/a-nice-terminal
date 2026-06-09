@@ -44,6 +44,7 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Shared docs | v5 chat/room lane | CHANGE | Claude | Room-facing durable synthesis. |
 | Memory recall | v5 chat/room lane | CHANGE | Claude | Searchable context, not a dumping ground. |
 | Navigate to other chats | v5 chat/room lane | CHANGE | Claude | Command palette and room switcher. |
+| Starred room persistence | JWPK Oldboys msg_irghgbdi0u, 2026-06-09 | CHANGE | Codex/Fast | Server table is the boot source of truth for starred rooms. localStorage remains only an offline/legacy cache; in-tab edits still win while a boot GET is in flight. |
 | Upload pictures and files | audit blockers | CHANGE | Claude | Include drag/drop, picker, errors, policy, and mobile. |
 | Break context | v5 chat/room lane | CHANGE | Claude | Breaks are first-class context boundaries. |
 | Room blocks | JWPK msg_21nr8z2x91 + msg_dihwbu3ull + msg_v8u2q86wtx, 2026-06-05 | CHANGE | Claude/Codex | Context breaks now derive addressable room blocks: list/read prior sections, skip soft-deleted messages/blocks by default while retaining audit access, and provide reaction-weighted summary input. Search scoping remains deduped into the shared visible-content/search lane. |
