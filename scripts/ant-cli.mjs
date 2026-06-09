@@ -33,6 +33,7 @@ import { handleLinkedchatVerb } from './ant-cli-linkedchat.mjs';
 import { handleListVerb } from './ant-cli-list.mjs';
 import { handleMcpVerb } from './ant-cli-mcp.mjs';
 import { handleMemoryVerb } from './ant-cli-memory.mjs';
+import { handleBriefVerb } from './ant-cli-brief.mjs';
 import { handleNewVerb } from './ant-cli-new.mjs';
 import { handlePairingVerb } from './ant-cli-pairing.mjs';
 import { handlePlanVerb } from './ant-cli-plan.mjs';
@@ -68,7 +69,7 @@ const ENV_SERVER_URL = process.env.ANT_SERVER_URL?.trim();
 const DISPATCH = {
   plan: handlePlanVerb, ask: handleAskVerb, artefact: handleArtefactVerb, attach: handleAttachVerb, bind: handleBindVerb, invite: handleInviteVerb, chat: handleChatVerb, room: handleRoomVerb,
   reaction: handleReactionVerb, reclaim: handleReclaimVerb, handle: handleHandleVerb, status: handleStatusVerb, delivery: handleDeliveryVerb, audit: handleAuditVerb, docs: handleDocsVerb,
-  deck: handleDeckVerb, decks: handleDecksVerb, stage: handleStageVerb, remote: handleRemoteVerb, 'remote-room': handleRemoteRoomVerb, discussion: handleDiscussionVerb, linkedchat: handleLinkedchatVerb, fingerprint: handleFingerprintVerb, mcp: handleMcpVerb, chair: handleChairVerb, interview: handleInterviewVerb, screenshot: handleScreenshotVerb, hooks: handleHooksVerb, new: handleNewVerb, list: handleListVerb, terminal: handleTerminalVerb, tools: handleToolsVerb, settings: handleSettingsVerb, flag: handleFlagVerb, grant: handleGrantVerb, request: handleRequestVerb, task: handleTaskVerb, memory: handleMemoryVerb, sessions: handleSessionsVerb, voice: handleVoiceVerb, vote: handleVoteVerb, tunnel: handleTunnelVerb, pairing: handlePairingVerb, agents: handleAgentsVerb, share: handleShareVerb, identity: handleIdentityVerb, register: handleRegisterVerb, add: handleAddVerb, resolve: handleResolveVerb, router: handleRouterVerb, whoami: handleWhoamiVerb
+  deck: handleDeckVerb, decks: handleDecksVerb, stage: handleStageVerb, remote: handleRemoteVerb, 'remote-room': handleRemoteRoomVerb, discussion: handleDiscussionVerb, linkedchat: handleLinkedchatVerb, fingerprint: handleFingerprintVerb, mcp: handleMcpVerb, chair: handleChairVerb, interview: handleInterviewVerb, screenshot: handleScreenshotVerb, hooks: handleHooksVerb, new: handleNewVerb, list: handleListVerb, terminal: handleTerminalVerb, tools: handleToolsVerb, settings: handleSettingsVerb, flag: handleFlagVerb, grant: handleGrantVerb, request: handleRequestVerb, task: handleTaskVerb, memory: handleMemoryVerb, brief: handleBriefVerb, sessions: handleSessionsVerb, voice: handleVoiceVerb, vote: handleVoteVerb, tunnel: handleTunnelVerb, pairing: handlePairingVerb, agents: handleAgentsVerb, share: handleShareVerb, identity: handleIdentityVerb, register: handleRegisterVerb, add: handleAddVerb, resolve: handleResolveVerb, router: handleRouterVerb, whoami: handleWhoamiVerb
 };
 
 export function makeCliRunner({ fetchImpl, writeOut, writeErr, serverUrl, serverUrlSource: suppliedServerUrlSource, config } = {}) {
@@ -480,7 +481,8 @@ Verbs:
   router start --room ROOM --handle @h  Route mentions into a local terminal pane.
   remote-room send|status|ack|quarantine  Remote-bridge message ops (admin-bearer).
   stage focus|current                  Publish/read current deck focus for Stage.
-  agents list|show|set|status|bring-in  List, configure, or spawn CLI agents (codex/pi).`);
+  agents list|show|set|status|bring-in  List, configure, or spawn CLI agents (codex/pi).
+  brief write|read|clear              Disposable per-terminal working-memory lane (compaction-survival).`);
 }
 export { CliInputError, CliNetworkError };
 
