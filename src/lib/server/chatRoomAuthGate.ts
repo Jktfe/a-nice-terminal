@@ -45,6 +45,7 @@ import {
 } from './browserSessionStore';
 import { getCookieValuesFromRequest } from './authGate';
 import { resolveHumanOwnership } from './consentGate';
+import { getOperatorHandle, canonicaliseOperatorHandle } from './operatorHandle';
 import { isHandleMemberOfRoom, findChatRoomById } from './chatRoomStore';
 import { buildPermissionDeniedPayload } from './permissionDeniedPayload';
 import { resolveApproversFor } from './permissionApproverResolver';
@@ -95,6 +96,26 @@ export function tryAdminBearer(request: Request): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * True iff the caller is the configured operator, authenticated via their
+ * `ant_browser_session` cookie (room-agnostic). Lets the operator's own antOS
+ * UI perform owner-scoped mutations (e.g. the shared model catalogue) WITHOUT
+ * exposing the server's ANT_ADMIN_TOKEN to the browser. Any non-operator
+ * session — or no session — returns false. Shaped like tryAdminBearer so
+ * routes can gate on `tryAdminBearer(req) || tryOperatorSession(req)`.
+ */
+export function tryOperatorSession(request: Request): boolean {
+  const operator = canonicaliseOperatorHandle(getOperatorHandle());
+  for (const cookieSecret of getCookieValuesFromRequest(request, 'ant_browser_session')) {
+    const resolved = resolveBrowserSessionSecretIgnoringRoom(cookieSecret);
+    if (resolved && canonicaliseOperatorHandle(resolved.handle) === operator) {
+      touchBrowserSessionLastSeen(resolved.session_id);
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
