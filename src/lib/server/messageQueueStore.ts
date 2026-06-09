@@ -263,6 +263,33 @@ export function coalesce(targetId: string, sourceId: string, now = Date.now(), d
   return tx();
 }
 
+/**
+ * Reclaim stuck `working` items — robustness backstop. If the worker dies (or
+ * hangs) mid-item, that item stays `working` forever and pullNext stalls the
+ * whole queue (one-in-flight). After `ttlMs` with no progress, flip stale
+ * `working` items back to `pending` so a recovered/replacement worker can pull
+ * them. Returns the count reclaimed. (Mirrors the room-worker lease TTL reclaim.)
+ */
+export function reclaimStaleWorking(
+  roomId: string,
+  targetHandle: string,
+  ttlMs: number,
+  now = Date.now(),
+  db = getIdentityDb()
+): number {
+  ensureSchema(db);
+  const handle = normaliseHandle(targetHandle);
+  const cutoff = now - ttlMs;
+  const r = db
+    .prepare(
+      `UPDATE room_message_queue
+         SET status = 'pending', updated_at_ms = ?
+       WHERE room_id = ? AND target_handle = ? AND status = 'working' AND updated_at_ms < ?`
+    )
+    .run(now, roomId, handle, cutoff);
+  return r.changes;
+}
+
 export function countPending(roomId: string, targetHandle: string, db = getIdentityDb()): number {
   ensureSchema(db);
   const handle = normaliseHandle(targetHandle);

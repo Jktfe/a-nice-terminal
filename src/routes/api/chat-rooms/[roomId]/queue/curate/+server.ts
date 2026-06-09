@@ -10,6 +10,10 @@ import type { RequestHandler } from './$types';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
 import { requireChatRoomMutationAuth } from '$lib/server/chatRoomAuthGate';
 import { curate } from '$lib/server/queueCurator';
+import { reclaimStaleWorking } from '$lib/server/messageQueueStore';
+
+/** Stuck `working` items older than this rejoin `pending` (chair died mid-item). */
+const STUCK_WORKING_TTL_MS = 5 * 60_000;
 
 function assertRoomExists(roomId: string): void {
   if (!findChatRoomById(roomId)) throw error(404, 'room not found');
@@ -33,6 +37,8 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
   requireChatRoomMutationAuth(params.roomId, request, body);
 
+  const stuckTtlMs = typeof body.stuckTtlMs === 'number' && body.stuckTtlMs > 0 ? body.stuckTtlMs : STUCK_WORKING_TTL_MS;
+  const reclaimed = reclaimStaleWorking(params.roomId, targetHandle, stuckTtlMs);
   const summary = curate(params.roomId, targetHandle);
-  return json({ summary });
+  return json({ reclaimed, summary });
 };
