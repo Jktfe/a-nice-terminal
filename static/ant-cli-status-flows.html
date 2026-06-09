@@ -53,6 +53,19 @@
 
   <div class="keyfind"><b>Key finding (your section model, confirmed live):</b> 3 of 5 CLIs render their <b>state label right in the status strip</b> — Claude <code>Response needed</code>, Codex <code>Ready</code>, Qwen <code>Working</code> — so we can <b>read</b> the state token-free, no hook or model needed. Agy &amp; Copilot don't print a word, but their activity bullets + entry prompt give it away. <b>The pane is the source of truth.</b></div>
 
+  <div class="keyfind" style="border-left-color: var(--claude); margin-top: 12px;">
+    <b>State Space &amp; Status Taxonomy (and how we infer / record them):</b>
+    <ul style="margin: 6px 0 0; padding-left: 20px; font-size: 13.5px; line-height: 1.5;">
+      <li><code>idle</code>: Resting, awaiting user prompt.</li>
+      <li><code>working</code>: Executing commands / tools. Inferred from <code>on-prompt-submit</code> / <code>on-pre-tool-use</code> hooks, or from tmux PTY activity.</li>
+      <li><code>thinking</code>: Processing context / generating reply. Inferred from LLM inference time or explicit <code>on-thinking</code> events.</li>
+      <li><code>waiting</code>: Idle and waiting for queue or shared resources.</li>
+      <li><code>blocked</code>: Turn is blocked on human permissions/approval (e.g. <code>on-permission-request</code> or local prompt blocks).</li>
+      <li><code>response-required</code> (shown as "Response needed"): Turn complete, but active human intervention is required to proceed.</li>
+      <li><code>response-requested</code>: Turn complete and input is requested, independent of a hard blocked / failed state.</li>
+    </ul>
+  </div>
+
   <!-- CLAUDE -->
   <details open><summary><span class="cliname" style="color:var(--claude)">Claude Code</span> <span class="cov full">fully hooked</span> <span class="live">live: Response needed</span></summary>
   <div class="body">
@@ -75,20 +88,18 @@
   </div></details>
 
   <!-- CODEX -->
-  <details><summary><span class="cliname" style="color:var(--codex)">Codex</span> <span class="cov full">fully hooked + Dave</span> <span class="live">live: Ready</span></summary>
+  <details><summary><span class="cliname" style="color:var(--codex)">Codex</span> <span class="cov full">fully hooked</span> <span class="live">live: Ready</span></summary>
   <div class="body">
     <h4>Live pane signature (t_7rgdwwyp7t)</h4>
     <div class="sig"><span class="reg">[strip]</span>  ─ Worked for 1m 13s ──        <span class="lab"># ─ Worked for &lt;time&gt; ─ = was working</span>
 <span class="reg">[entry]</span> › Find and fix a bug in @filename   <span class="lab"># greyed placeholder = idle/awaiting</span>
 <span class="reg">[status]</span> gpt-5.5 high · ~/CascadeProjects/a-nice-terminal · gpt-5.5 · <span class="state">Ready</span></div>
     <p style="font-size:13px;color:var(--muted);margin:8px 0 0">Token-free read: <b><code>Ready</code></b> = idle/awaiting in the status line; <code>─ Working… ─</code> while busy. Entry shows a greyed placeholder when idle.</p>
-    <h4>Hooks <span class="tag">+ MyMateDave blocking</span></h4>
+    <h4>Hooks</h4>
     <table><tr><th style="width:160px">Hook</th><th>Fires → does</th><th style="width:150px">Fails</th><th style="width:140px">Infer</th></tr>
     <tr><td><code>ant-status/on-*</code> (full suite)</td><td>Same lifecycle as Claude; dual-write <code>~/.ant/state/codex-cli</code> + <code>~/.codex/state</code></td><td class="fail">state dir fail → exit 1</td><td class="infer">working/idle/menu</td></tr>
     <tr><td><code>on-permission-request</code></td><td>Permission asked → <code>Permission</code></td><td class="fail">mode null; state set</td><td class="infer">blocked on approval</td></tr>
     <tr><td><code>on-stop</code></td><td>Turn ends → <code>classify.sh</code> (local model)</td><td class="fail">timeout → Waiting</td><td class="infer">DONE vs NEEDS-YOU</td></tr>
-    <tr><td>Dave <code>pre-tool-use</code> <span class="tag">block</span></td><td>Approval gate (6457/6458) — <b>holds tool till approved</b></td><td class="fail">kill-switch → exit 2; servers down → fail-open</td><td class="infer">awaiting approval / remote-control state</td></tr>
-    <tr><td>Dave <code>stop</code> <span class="tag">block</span></td><td>POST session stop (needs HOOK_SECRET)</td><td class="fail">no secret → exits</td><td class="infer">turn closed on dashboard</td></tr>
     </table>
   </div></details>
 
@@ -164,6 +175,28 @@
 
     <h4>Where the hook bridge would live</h4>
     <p style="font-size:13px;color:var(--muted);margin:6px 0 0">Pi runs inside a pi-coding-agent wrapper (not Claude Code / Codex). The hook emitter would be a small Node/Bun script co-located with the JSONL writer — on each JSONL event, it POSTs to <code>http://127.0.0.1:6174/api/cli-hook</code> with the same shape Claude uses (<code>{terminalId, state, cwd, pid}</code>). No separate daemon needed; it reuses the existing JSONL event stream that already exists.</p>
+  </div></details>
+
+  <!-- STATUS LOGIC RECONCILIATION -->
+  <details open><summary><span class="cliname" style="color:var(--pi)">Status Logic — Canonical vs Actual</span> <span class="cov full">JWPK check / code audit</span></summary>
+  <div class="body">
+    <h4>Canonical status names (JWPK) → ANT AgentStatus enum</h4>
+    <p style="font-size:13px;color:var(--muted);margin:6px 0 0">The database stores <code>agent_status</code> as one of <code>idle | thinking | working | response-required</code> (<code>agentStatusStore.ts</code>, <code>ALLOWED_STATUSES</code>). JWPK listed seven canonical names; here is how they map to the actual schema and where each is set.</p>
+    <table><tr><th style="width:130px">Canonical name</th><th style="width:130px">Stored value</th><th>Where it is set</th><th style="width:140px">Gap / Note</th></tr>
+    <tr><td><b>idle</b></td><td><code>idle</code></td><td>Hook <code>on-session-start</code> (Available); fingerprint stale (no hash change > 30s); classifier on-stop when no asks exist; effectiveAgentStatus default</td><td class="infer">✅ Clean</td></tr>
+    <tr><td><b>working</b></td><td><code>working</code></td><td>Hook <code>on-pre-tool-use</code>; fingerprint hash change + tool-call signature (⏺/🔧/<code>→ </code>); <code>ant-activity</code> fresh PTY bytes when prior status was non-volatile</td><td class="infer">✅ Clean — inferred from PreToolUse <i>and</i> fingerprint + PTY</td></tr>
+    <tr><td><b>thinking</b></td><td><code>thinking</code></td><td>Hook <code>on-thinking</code> (Claude/Codex); fingerprint hash change <i>without</i> tool-call signature; Claude strip <code>✻ … for &lt;time&gt;</code></td><td class="infer">✅ Clean</td></tr>
+    <tr><td><b>waiting</b></td><td>→ <code>idle</code></td><td>Mapped to <code>idle</code> in <code>agentStateProjection.ts</code> line 17: <code>key === 'waiting' || key === 'available'</code> → <code>idle</code></td><td class="infer">⚠️ <b>Gap</b> — JWPK wants <code>waiting</code> split from <code>idle</code>. Needs schema migration to add <code>waiting</code> to <code>ALLOWED_STATUSES</code>.</td></tr>
+    <tr><td><b>blocked</b></td><td>(none)</td><td>Exists in <code>tasksStore.ts</code>, <code>planModeStore.ts</code>, <code>planInsightsStore.ts</code> — but <b>not</b> in <code>AgentStatus</code>. An agent waiting on a permission/menu is stored as <code>response-required</code>.</td><td class="infer">⚠️ <b>Gap</b> — JWPK wants <code>blocked</code> as an agent status (covers failure/permission-deadlock). Needs schema + projection changes.</td></tr>
+    <tr><td><b>response needed</b></td><td><code>response-required</code></td><td>Hook <code>on-stop</code> classifier (Claude <code>perspective</code>, Codex <code>classify.sh</code>); hook <code>on-notification</code>; asks-store query (<code>hasResponseRequiredAsksForHandle</code>). <b>Not</b> fingerprint-derived.</td><td class="infer">✅ Clean — name differs by hyphen only (<code>response-required</code> vs "response needed")</td></tr>
+    <tr><td><b>response requested</b></td><td>(none)</td><td>Not in <code>AgentStatus</code>. The asks-store tracks <code>response-required</code> independently of agent status. A human can request a response without the agent being blocked.</td><td class="infer">⚠️ <b>Gap</b> — JWPK wants this as a distinct status (agent was explicitly asked to respond, not just waiting). Could be a new enum value or a parallel flag.</td></tr>
+    </table>
+
+    <h4>PreToolUse inference — why we CAN derive working</h4>
+    <p style="font-size:13px;color:var(--muted);margin:6px 0 0">JWPK asked why "working" can't be inferred from PreToolUse. It <i>can</i> — the cascade already does this: (1) Hook push PRIMARY — <code>on-pre-tool-use</code> writes <code>working</code> directly; (2) Fingerprint FALLBACK — <code>capture-pane</code> hash change + tool-call signature regex (⏺/🔧) sets <code>working</code>; (3) ANT-activity — fresh PTY bytes within 30s flip non-volatile statuses to <code>working</code>. The only case where PreToolUse is <i>not</i> captured is when a CLI has <b>no hooks at all</b> and the tool call finishes before the next fingerprint poll (5s window). That is a known limitation of the fingerprint lane, not a schema gap.</p>
+
+    <h4>Remote-control hooks removed</h4>
+    <p style="font-size:13px;color:var(--muted);margin:6px 0 0">All remote-control/dashboard blocking hooks (pre-tool-use block, stop block, approval gate, kill-switch, HOOK_SECRET) have been removed from this document per JWPK direction. These belong to an external dashboard layer, not ANT-native hook surfaces. The Codex section now documents only the ANT-native <code>on-permission-request</code> hook (which maps to <code>response-required</code>) and the standard lifecycle suite.</p>
   </div></details>
 
   <p class="foot">Live signatures captured read-only via <code>tmux capture-pane</code> from room <code>c5jwo81m4k</code> "Agents Agents", 2026-06-09 ~16:50. Hooks from <code>~/.claude/settings.json</code>, <code>~/.codex/hooks.json</code> + scripts; ANT <code>fingerprintHasher.ts</code>, <code>cli-hook/+server.ts</code>. @researchant.</p>
