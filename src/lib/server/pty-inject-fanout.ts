@@ -41,6 +41,7 @@ import type { FocusEntry } from './focusModeStore';
 import { listLinkedTerminalRowsForRoom, getLinkedTerminalRowBySessionId } from './linkedRoomTerminalLookup';
 import { deriveHandle, getTerminalRecord } from './terminalRecordsStore';
 import { hasBareEveryoneMention, hasBracketedMention, listBareMentionHandles } from '../chat/mentionRouting';
+import { enqueue as enqueueToCuratedQueue } from './messageQueueStore';
 import { listReadersForMessage, markMessageRead } from './messageReadReceiptStore';
 import { broadcastToRoom } from './eventBroadcast';
 import { findHandleForAliasInRoom } from './chatRoomAliasStore';
@@ -676,6 +677,30 @@ export function fanoutMessageToRoomTerminals(
     const rk = routedKey(room.id, message.id, membership.handle);
     if (routedForMessage.has(rk)) continue;
     routedForMessage.add(rk);
+    // Curated-queue hook (JWPK 2026-06-09, FLAG-GATED, default OFF). If this
+    // terminal opts in via meta.queueEnabled, route the message into the durable
+    // curated queue (messageQueueStore) instead of a direct pane inject — the
+    // curator triages it and the capacity gate releases it when the worker is
+    // free, so the local chair never floods. Absent/false flag = unchanged
+    // direct-inject for every other terminal. Best-effort: failure falls through
+    // to the normal inject so a queue bug can never break delivery.
+    try {
+      const qMeta = typeof terminal.meta === 'string' && terminal.meta.length > 0
+        ? (JSON.parse(terminal.meta) as Record<string, unknown>)
+        : {};
+      if (qMeta.queueEnabled === true) {
+        enqueueToCuratedQueue({
+          roomId: room.id,
+          targetHandle: membership.handle,
+          sourceMessageId: message.id,
+          text: message.body,
+          kind: 'mention'
+        });
+        continue; // durable queue owns delivery for this terminal now
+      }
+    } catch {
+      /* malformed meta or queue error → fall through to the normal direct inject */
+    }
     queue.enqueue(queueKeyFor(room.id, terminal.id), {
       roomId: room.id,
       roomName: room.name,
