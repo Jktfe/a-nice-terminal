@@ -501,6 +501,12 @@ export function fanoutMessageToRoomTerminals(
   const memberships = listDeliveryMembershipsForRoom(roomId);
   const targetedHandles = resolveBareMentionsToGlobalHandles(roomId, message.body);
   const containsInformationalMention = hasBracketedMention(message.body);
+  // Reply-parent fetched ONCE here; reused for the implied-mention enrichment
+  // below AND the per-recipient reply-context block further down (no 2nd DB hit).
+  const replyParentMessage =
+    typeof message.parentMessageId === 'string' && message.parentMessageId.length > 0
+      ? getMessageById(message.parentMessageId)
+      : null;
 
   // Asks-as-pill (JWPK 2026-05-22): every bare @-mention of a HUMAN member
   // opens an ask targeting that human, with the message body as the ask
@@ -510,6 +516,32 @@ export function fanoutMessageToRoomTerminals(
   // on (room × askee × messageId) via a small in-process Set so a
   // double-fanout of the same message doesn't double-file the ask.
   autoOpenAsksForHumanMentions(room, message, targetedHandles);
+
+  // Reply implies addressing the thread (JWPK 2026-06-08): a reply's @-set is
+  // IMPLIED to be the parent's author + the parent's @mentions, so you don't
+  // re-@ the thread. Folded in AFTER autoOpenAsks (deliberate, @speedy's lever):
+  // a threaded reply drives delivery + responder-selection + operator-broadcast-
+  // suppression for the thread people, but does NOT re-file an ask-pill for a
+  // human every turn (only an explicit @ in the reply body opens an ask) — kills
+  // the "long thread re-pings everyone" noise. Canonical/alias-resolved set;
+  // excludes the reply's own author (replying never pings yourself).
+  if (replyParentMessage) {
+    const selfHandle = findHandleForAliasInRoom(roomId, message.authorHandle);
+    // Guard an empty author (defensive — not reachable today: authorHandle is
+    // never empty, system posts are '@system'). findHandleForAliasInRoom('')
+    // returns the junk token '@', so skip resolving an empty author AND filter
+    // a bare '@' below — else a no-@ reply could route to a nonexistent '@'
+    // (and an operator reply would flip broadcast→nobody). @speedy nit (b).
+    const parentAuthor = replyParentMessage.authorHandle?.trim();
+    const impliedFromParent = new Set<string>([
+      ...(parentAuthor ? [findHandleForAliasInRoom(roomId, parentAuthor)] : []),
+      ...resolveBareMentionsToGlobalHandles(roomId, replyParentMessage.body)
+    ]);
+    for (const handle of impliedFromParent) {
+      if (handle === '@') continue;
+      if (handle && handle !== selfHandle) targetedHandles.add(handle);
+    }
+  }
   let broadcastToAll =
     options.forceBroadcastToAll === true ||
     hasBareEveryoneMention(message.body) ||
@@ -583,20 +615,20 @@ export function fanoutMessageToRoomTerminals(
   ) {
     return;
   }
-  // Resolve the reply-parent ONCE for this fanout. Every recipient sees
-  // the same reply context — no point hitting the DB per-membership.
-  // Tombstoned parents still surface their (now-empty) handle + body
-  // so the agent at least sees the link; the body field will be empty.
+  // Reuse the reply-parent fetched ONCE above (no 2nd DB hit, @speedy). Every
+  // recipient sees the same reply context. NOTE (@speedy nit b): softDeleteMessage
+  // sets deleted_at_ms/deleted_by_handle but PRESERVES author_handle + body, so a
+  // tombstoned parent surfaces its real author + body here (not empty) — and the
+  // implied-mention block above will route a reply to a deleted parent's real
+  // author/mentions. Deliberate for now; revisit if retracted msgs should not
+  // auto-address.
   let replyParent: { messageId: string; senderHandle: string; body: string } | null = null;
-  if (typeof message.parentMessageId === 'string' && message.parentMessageId.length > 0) {
-    const parent = getMessageById(message.parentMessageId);
-    if (parent) {
-      replyParent = {
-        messageId: parent.id,
-        senderHandle: parent.authorHandle,
-        body: parent.body
-      };
-    }
+  if (replyParentMessage) {
+    replyParent = {
+      messageId: replyParentMessage.id,
+      senderHandle: replyParentMessage.authorHandle,
+      body: replyParentMessage.body
+    };
   }
   // Focus mode (JWPK 2026-06-05) — MVP-2 slice 2: mode-aware suppression at the
   // inject seam. Per-member (focusModeStore, persisted), so focusing @localant
