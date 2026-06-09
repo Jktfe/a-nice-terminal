@@ -2224,7 +2224,41 @@ const SCHEMA_DDL_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_role_assignments_identity ON role_assignments(identity_handle)`,
   `CREATE INDEX IF NOT EXISTS idx_role_assignments_role ON role_assignments(role_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_role_assignments_scope ON role_assignments(scope_kind, scope_id)`
+  `CREATE INDEX IF NOT EXISTS idx_role_assignments_scope ON role_assignments(scope_kind, scope_id)`,
+
+  // task_outcomes — APPEND-ONLY delivery-signal instrument (GEPA-for-ANT
+  // STEP 1: instrument, don't optimise). One row per recorded task
+  // lifecycle outcome so "delivery-not-tokens" (clean completions vs
+  // reopened/corrected/abandoned) becomes a readable signal a future
+  // optimiser can climb.
+  //
+  // ADDITIVE + isolated: the existing `tasks` table is NOT altered. This
+  // table NEVER mutates a row — it only inserts. Derivation source is the
+  // audit_events status-delta history (forward) plus the tasks.status
+  // snapshot (backfill fallback for the pre-instrument 466 rows, which
+  // carry NO task audit history — see backfill honesty note in the store).
+  //
+  // outcome enum:
+  //   clean      = pending→in_progress→completed with no status reversal
+  //   reopened   = a completed→reopened or in_progress→pending reversal
+  //   corrected  = a human/operator re-scope/correction in the linked room
+  //   abandoned  = deleted / cancelled / never-started
+  // No FK on task_id: tasks rows are soft-deleted (never hard-deleted) so a
+  // FK would be safe, but the instrument deliberately stays decoupled from
+  // the tasks DDL to keep this a pure bolt-on the optimiser can drop.
+  `CREATE TABLE IF NOT EXISTS task_outcomes (
+    id            TEXT PRIMARY KEY,
+    task_id       TEXT NOT NULL,
+    outcome       TEXT NOT NULL
+                    CHECK (outcome IN ('clean','reopened','corrected','abandoned')),
+    reason        TEXT,
+    at_ms         INTEGER NOT NULL,
+    actor         TEXT,
+    source        TEXT NOT NULL DEFAULT 'live'
+                    CHECK (source IN ('live','backfill'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_task_outcomes_task ON task_outcomes (task_id, at_ms)`,
+  `CREATE INDEX IF NOT EXISTS idx_task_outcomes_outcome ON task_outcomes (outcome, at_ms)`
 ];
 
 // =====================================================================

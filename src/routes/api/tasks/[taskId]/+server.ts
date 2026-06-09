@@ -27,6 +27,7 @@ import { dispatchPlanEvent } from '$lib/server/planTriggerDispatcher';
 import { requireChatRoomMutationAuth, tryAdminBearer } from '$lib/server/chatRoomAuthGate';
 import { requireChatRoomReadAccess } from '$lib/server/chatRoomReadGate';
 import { findChatRoomById } from '$lib/server/chatRoomStore';
+import { recordTaskTransitionOutcome, jwpkStatusToDb } from '$lib/server/taskOutcomeRecorder';
 
 function requireAdminBearer(request: Request): void {
   if (!tryAdminBearer(request)) {
@@ -113,6 +114,23 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
       patch.assignedTo = typeof b.assigned_to === 'string' ? b.assigned_to : null;
     }
     const updated = updateJwpkTask(params.taskId, patch);
+    // Delivery-signal instrument (additive, non-blocking). before.status is
+    // the DB-enum (both stores share the `tasks` row); updated is the JWPK
+    // form so map it back. A JWPK title/description edit on a task where
+    // work had begun, with no status move, is an operator re-scope.
+    if (updated) {
+      const toStatus = jwpkStatusToDb(updated.status);
+      const scopeEdited =
+        (typeof b.title === 'string' && b.title !== before.subject) ||
+        (typeof b.description === 'string' && b.description !== (before.description ?? ''));
+      recordTaskTransitionOutcome({
+        taskId: params.taskId,
+        fromStatus: before.status,
+        toStatus,
+        operatorRescopeAfterWork: scopeEdited && toStatus === before.status,
+        actor: typeof b.assigned_to === 'string' ? b.assigned_to : null
+      });
+    }
     return json({ task: updated });
   }
 
@@ -148,6 +166,23 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
   // current planId; standalone tasks (planId null) only hit wildcard
   // triggers.
   if (updated) {
+    // Delivery-signal instrument (additive, non-blocking). Both statuses
+    // are already the DB enum on the Lane-D path. A subject/description
+    // edit on a task where work had begun, with no status move, is an
+    // operator re-scope ('corrected').
+    {
+      const scopeEdited =
+        (typeof b.subject === 'string' && b.subject !== before.subject) ||
+        ('description' in b && (b.description as string | null) !== before.description);
+      recordTaskTransitionOutcome({
+        taskId: params.taskId,
+        fromStatus: before.status,
+        toStatus: updated.status,
+        operatorRescopeAfterWork: scopeEdited && updated.status === before.status,
+        actor: updated.assignedAgent
+      });
+    }
+
     const taskCtx = {
       id: updated.id,
       subject: updated.subject,
@@ -193,8 +228,16 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 };
 
 export const DELETE: RequestHandler = async ({ params, request }) => {
-  if (!getTask(params.taskId)) throw error(404, 'Task not found.');
+  const before = getTask(params.taskId);
+  if (!before) throw error(404, 'Task not found.');
   requireTaskMutationAuth(request, null, params.taskId);
   deleteTask(params.taskId);
+  // Delivery-signal instrument (additive, non-blocking): a soft-delete is
+  // an abandonment. before.status is the DB enum; after is 'deleted'.
+  recordTaskTransitionOutcome({
+    taskId: params.taskId,
+    fromStatus: before.status,
+    toStatus: 'deleted'
+  });
   return json({ ok: true });
 };
