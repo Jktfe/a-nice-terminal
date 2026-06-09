@@ -38,18 +38,35 @@ export interface ComposeConstitutionInput {
   volatileContext?: string;
 }
 
-/** Patterns that betray volatile content leaking into the cached prefix. */
+/**
+ * Patterns that betray volatile content leaking into the cached prefix.
+ *
+ * IMPORTANT — this guard is a BACKSTOP, not a proof. The real guarantee is
+ * STRUCTURAL: never interpolate volatile content into `constitution`/`roleOverlay`;
+ * put per-turn values in `volatileContext` (a separate block past the breakpoint).
+ * These patterns only catch the COMMON accidental leaks. They deliberately do NOT
+ * chase every volatile shape — e.g. alt-word counters ("iteration 5", "step 3",
+ * "round 2", "seq 9") and ANT ids ("msg_abc123") are NOT matched, because
+ * broadening to catch them would false-positive on legitimate stable constitution
+ * prose ("Step 1:", "see msg_format"). When in doubt, rely on the structural rule
+ * and the byte-identical-prefix test, not on a bigger regex.
+ */
 const VOLATILE_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
   { name: 'ISO timestamp', re: /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/ },
   { name: 'ISO date', re: /\b\d{4}-\d{2}-\d{2}\b/ },
   { name: 'clock time', re: /\b\d{1,2}:\d{2}(?::\d{2})?\b/ },
-  { name: 'epoch milliseconds', re: /\b1[0-9]{12}\b/ },
+  // Unix epoch — SECONDS (10-digit) and milliseconds (13-digit). Seconds is the
+  // codebase's own created_at/updated_at/currentUnixSeconds format, so it's the
+  // highest real-world leak risk; a 10–13 digit number starting with 1 in a
+  // constitution prefix is a timestamp, not prose.
+  { name: 'epoch seconds or ms', re: /\b1[0-9]{9,12}\b/ },
   {
     name: 'uuid',
     re: /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i
   },
   // Turn / message counters — the classic "looks stable but ticks every turn"
-  // leak. Matches turn=3, turn 3, turn#3, turn-3, message #12, msg 7.
+  // leak. Matches turn=3, turn 3, turn#3, turn-3, message #12, msg 7. (Alt-word
+  // counters are intentionally out of scope — see the note above.)
   { name: 'turn/message counter', re: /\b(?:turn|message|msg)\s*[#=:-]?\s*\d+\b/i }
 ];
 

@@ -86,6 +86,14 @@ describe('assertTurnStable — keeps volatile content OUT of the cached prefix',
       TurnStabilityError
     );
   });
+  // GAP 1 (adversarial-verify, @researchant): epoch SECONDS (10-digit) is the
+  // codebase's own created_at/updated_at format — the highest real-world leak.
+  it('throws on a unix epoch-seconds leak (10-digit)', () => {
+    expect(() => assertTurnStable('created_at 1780999752')).toThrow(TurnStabilityError);
+  });
+  it('throws on a unix epoch-ms leak (13-digit)', () => {
+    expect(() => assertTurnStable('deliveredAtMs 1780999919399')).toThrow(TurnStabilityError);
+  });
   it('passes ordinary turn-stable prose', () => {
     expect(() => assertTurnStable('Act, dont ask. Verify before you claim. One name per concept.')).not.toThrow();
   });
@@ -101,6 +109,28 @@ describe('assertTurnStable — keeps volatile content OUT of the cached prefix',
     expect(() =>
       composeSystemPrompt({ constitution: CONSTITUTION, roleOverlay: 'context: turn=3' })
     ).toThrow(TurnStabilityError);
+  });
+});
+
+// GAP 2 (adversarial-verify, @researchant): the regex guard is a BACKSTOP, not a
+// proof. The real guarantee is structural — never interpolate volatile content
+// into the prefix. These vectors intentionally slip the guard (chasing them would
+// false-positive on legit stable prose like "Step 1:"). This block PINS that
+// documented boundary so it's an explicit, tested decision rather than a silent
+// gap; the byte-identical-prefix test above is what actually guarantees the cache.
+describe('guard boundary — documented limits (backstop, not proof)', () => {
+  it('does NOT throw on alt-word counters (intentional — avoids false positives)', () => {
+    expect(() => assertTurnStable('iteration 5')).not.toThrow();
+    expect(() => assertTurnStable('on step 3')).not.toThrow();
+    expect(() => assertTurnStable('round 2 of review')).not.toThrow();
+  });
+  it('does NOT throw on a constitution that legitimately says "Step 1:"', () => {
+    expect(() => assertTurnStable('## Step 1: read the record before you own a claim')).not.toThrow();
+  });
+  it('the structural guarantee still holds: such content in volatileContext never touches the prefix', () => {
+    const a = composeSystemPrompt({ constitution: CONSTITUTION, volatileContext: 'iteration 5, msg_aaa' });
+    const b = composeSystemPrompt({ constitution: CONSTITUTION, volatileContext: 'iteration 99, msg_zzz' });
+    expect(a[0].text).toBe(b[0].text); // prefix unchanged regardless of the volatile block
   });
 });
 
