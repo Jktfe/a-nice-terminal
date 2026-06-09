@@ -1,0 +1,153 @@
+import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import {
+  composeSystemPrompt,
+  assertTurnStable,
+  TurnStabilityError
+} from './composePrompt';
+import { ROLE_OVERLAYS, roleOverlay } from './roles';
+
+const CONSTITUTION = '# ANT Constitution (v0)\n\nAct, dont ask. Verify before you claim.';
+const ROLE = ROLE_OVERLAYS.verifier;
+
+describe('composeSystemPrompt — cache-friendly system blocks', () => {
+  it('puts the constitution prefix in block 0 with cache_control: ephemeral', () => {
+    const blocks = composeSystemPrompt({ constitution: CONSTITUTION });
+    expect(blocks[0].cache_control).toEqual({ type: 'ephemeral' });
+    expect(blocks[0].text).toContain('ANT Constitution');
+  });
+
+  it('appends the role overlay into the SAME cached prefix block', () => {
+    const blocks = composeSystemPrompt({ constitution: CONSTITUTION, roleOverlay: ROLE });
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].text).toContain('Role overlay: Verifier');
+    expect(blocks[0].cache_control).toEqual({ type: 'ephemeral' });
+  });
+
+  // THE GATE (per @researchant): differing volatile inputs must NEVER change the
+  // cached prefix, or the prompt cache is busted every turn.
+  it('prefix is BYTE-IDENTICAL across differing volatile context (cache hit holds)', () => {
+    const a = composeSystemPrompt({
+      constitution: CONSTITUTION,
+      roleOverlay: ROLE,
+      volatileContext: 'Today is Monday. room=alpha. turn=3. now=12:01.'
+    });
+    const b = composeSystemPrompt({
+      constitution: CONSTITUTION,
+      roleOverlay: ROLE,
+      volatileContext: 'Today is Tuesday. room=omega. turn=9001. now=23:59.'
+    });
+    expect(a[0].text).toBe(b[0].text); // identical prefix
+    expect(a[0].cache_control).toEqual({ type: 'ephemeral' });
+  });
+
+  it('volatile context is a SEPARATE trailing block with NO cache_control', () => {
+    const blocks = composeSystemPrompt({ constitution: CONSTITUTION, volatileContext: 'room=alpha' });
+    expect(blocks).toHaveLength(2);
+    expect(blocks[1].cache_control).toBeUndefined();
+    expect(blocks[1].text).toContain('room=alpha');
+  });
+
+  it('no volatile context → a single cached block', () => {
+    expect(composeSystemPrompt({ constitution: CONSTITUTION })).toHaveLength(1);
+  });
+
+  it('rejects an empty constitution', () => {
+    expect(() => composeSystemPrompt({ constitution: '   ' })).toThrow(/empty/);
+  });
+
+  it('roleOverlay() resolves a known role and undefined otherwise', () => {
+    expect(roleOverlay('builder')).toBe(ROLE_OVERLAYS.builder);
+    expect(roleOverlay(undefined)).toBeUndefined();
+  });
+});
+
+describe('assertTurnStable — keeps volatile content OUT of the cached prefix', () => {
+  // The adversarial cases: a leak of any of these into the prefix must throw,
+  // so a regression fails loudly instead of silently busting the cache.
+  it('throws on an ISO timestamp leak', () => {
+    expect(() => assertTurnStable('built at 2026-06-09T10:00')).toThrow(TurnStabilityError);
+  });
+  it('throws on a bare ISO date leak', () => {
+    expect(() => assertTurnStable('today is 2026-06-09')).toThrow(TurnStabilityError);
+  });
+  it('throws on a turn-counter leak', () => {
+    expect(() => assertTurnStable('you are on turn=42')).toThrow(TurnStabilityError);
+    expect(() => assertTurnStable('handling turn 42 now')).toThrow(TurnStabilityError);
+    expect(() => assertTurnStable('see message #7')).toThrow(TurnStabilityError);
+  });
+  it('throws on a clock-time leak', () => {
+    expect(() => assertTurnStable('the time is 23:59')).toThrow(TurnStabilityError);
+  });
+  it('throws on a uuid / session-id leak', () => {
+    expect(() => assertTurnStable('session d6885d06-b810-4a85-9287-ee118512755c')).toThrow(
+      TurnStabilityError
+    );
+  });
+  // GAP 1 (adversarial-verify, @researchant): epoch SECONDS (10-digit) is the
+  // codebase's own created_at/updated_at format — the highest real-world leak.
+  it('throws on a unix epoch-seconds leak (10-digit)', () => {
+    expect(() => assertTurnStable('created_at 1780999752')).toThrow(TurnStabilityError);
+  });
+  it('throws on a unix epoch-ms leak (13-digit)', () => {
+    expect(() => assertTurnStable('deliveredAtMs 1780999919399')).toThrow(TurnStabilityError);
+  });
+  it('passes ordinary turn-stable prose', () => {
+    expect(() => assertTurnStable('Act, dont ask. Verify before you claim. One name per concept.')).not.toThrow();
+  });
+
+  // composeSystemPrompt enforces the guard end-to-end: a leaked timestamp or
+  // turn-counter in the constitution/overlay aborts the compose.
+  it('composeSystemPrompt throws when a timestamp leaks into the prefix', () => {
+    expect(() => composeSystemPrompt({ constitution: 'rules v0, built 2026-06-09T10:00' })).toThrow(
+      TurnStabilityError
+    );
+  });
+  it('composeSystemPrompt throws when a turn-counter leaks into the prefix', () => {
+    expect(() =>
+      composeSystemPrompt({ constitution: CONSTITUTION, roleOverlay: 'context: turn=3' })
+    ).toThrow(TurnStabilityError);
+  });
+});
+
+// GAP 2 (adversarial-verify, @researchant): the regex guard is a BACKSTOP, not a
+// proof. The real guarantee is structural — never interpolate volatile content
+// into the prefix. These vectors intentionally slip the guard (chasing them would
+// false-positive on legit stable prose like "Step 1:"). This block PINS that
+// documented boundary so it's an explicit, tested decision rather than a silent
+// gap; the byte-identical-prefix test above is what actually guarantees the cache.
+describe('guard boundary — documented limits (backstop, not proof)', () => {
+  it('does NOT throw on alt-word counters (intentional — avoids false positives)', () => {
+    expect(() => assertTurnStable('iteration 5')).not.toThrow();
+    expect(() => assertTurnStable('on step 3')).not.toThrow();
+    expect(() => assertTurnStable('round 2 of review')).not.toThrow();
+  });
+  it('does NOT throw on a constitution that legitimately says "Step 1:"', () => {
+    expect(() => assertTurnStable('## Step 1: read the record before you own a claim')).not.toThrow();
+  });
+  it('the structural guarantee still holds: such content in volatileContext never touches the prefix', () => {
+    const a = composeSystemPrompt({ constitution: CONSTITUTION, volatileContext: 'iteration 5, msg_aaa' });
+    const b = composeSystemPrompt({ constitution: CONSTITUTION, volatileContext: 'iteration 99, msg_zzz' });
+    expect(a[0].text).toBe(b[0].text); // prefix unchanged regardless of the volatile block
+  });
+});
+
+describe('the real constitution.md is cache-safe', () => {
+  it('is turn-stable and composes to an ephemeral-cached prefix', () => {
+    const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+    const text = readFileSync(join(root, 'constitution.md'), 'utf8');
+    // composeSystemPrompt runs assertTurnStable internally — no throw ⇒ the
+    // shipped constitution carries no volatile content.
+    const blocks = composeSystemPrompt({ constitution: text });
+    expect(blocks[0].cache_control).toEqual({ type: 'ephemeral' });
+    expect(blocks).toHaveLength(1);
+  });
+
+  it('every role overlay is itself turn-stable', () => {
+    for (const overlay of Object.values(ROLE_OVERLAYS)) {
+      expect(() => assertTurnStable(overlay)).not.toThrow();
+    }
+  });
+});
