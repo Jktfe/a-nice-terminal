@@ -28,12 +28,33 @@
   const DASH_VIEW_KEY = 'ant.dashboard.view.v1';
   let dashView = $state<'list' | 'grid'>('list');
 
+  // Fresh-tab resilience (JWPK 2026-06-09: right-click→"open in new tab" showed
+  // "something wrong"). On a COLD load the SSR rooms fetch can fail — the server
+  // render doesn't carry the live session the way a client-side nav does — and
+  // the dash surfaces a "Server rooms could not load" banner. The CLIENT fetch
+  // works (it has the session; that's why left-click is fine), so on mount, if
+  // the server load failed, re-fetch the room cards client-side and recover
+  // silently. Happy path (SSR ok) is untouched: recoveredRooms stays null.
+  let recoveredRooms = $state<RoomCard[] | null>(null);
+  let clientRecovered = $state(false);
+
   onMount(() => {
     roomBookmarks.init();
     try {
       const stored = window.localStorage.getItem(DASH_VIEW_KEY);
       if (stored === 'grid' || stored === 'list') dashView = stored;
     } catch { /* localStorage blocked / private mode — stay on default */ }
+    if (data.serverRoomListFailed) {
+      fetch('/api/chat-rooms')
+        .then((resp) => (resp.ok ? resp.json() : null))
+        .then((body: { chatRooms?: RoomCard[] } | null) => {
+          if (body) {
+            recoveredRooms = body.chatRooms ?? [];
+            clientRecovered = true;
+          }
+        })
+        .catch(() => { /* leave the banner — nothing more we can do client-side */ });
+    }
   });
 
   function setDashView(next: 'list' | 'grid') {
@@ -49,7 +70,7 @@
   // bookmark ids array IS the display order — sortByBookmark honours
   // it — and drag commits via roomBookmarks.move().
   const allOpenable = $derived(
-    data.chatRoomsFromServer.map((room) => ({ ...room, isOpenable: true }))
+    (recoveredRooms ?? data.chatRoomsFromServer).map((room) => ({ ...room, isOpenable: true }))
   );
   const starredRooms = $derived(visibleBookmarkedRooms(allOpenable, roomBookmarks.ids));
   const recentRooms = $derived(
@@ -78,7 +99,7 @@
   summary="Recent rooms, open asks, and quick links to the deep surfaces."
   statusPill={livePill}
 >
-  {#if data.serverRoomListFailed}
+  {#if data.serverRoomListFailed && !clientRecovered}
     <p class="server-error" role="alert">Server rooms could not load.</p>
   {/if}
 
