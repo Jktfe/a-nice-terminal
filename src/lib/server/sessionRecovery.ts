@@ -21,7 +21,7 @@
  * automatically — no membership rewrite needed.
  */
 
-import { getTerminalRecord, type TerminalRecord } from './terminalRecordsStore';
+import { getTerminalRecord, updateTerminalRecord, type TerminalRecord } from './terminalRecordsStore';
 import {
   getTerminalById,
   setTerminalStatus,
@@ -172,6 +172,7 @@ export function resolveRecoveryCommand(
 export type RecoverOutcome = {
   sessionId: string;
   name: string;
+  renamedFrom?: string | null;
   command: string | null;
   action: 'planned' | 'spawned' | 'reattached' | 'skipped';
   agentLaunched: boolean;
@@ -185,6 +186,11 @@ export type RecoverOptions = {
   launchAgent?: boolean;
   /** Resolve the command only — no tmux/identity side effects. Default false. */
   dryRun?: boolean;
+  /**
+   * Optional explicit operator rename applied as part of recovery. Dry-runs use
+   * the proposed name for command resolution but do not persist it.
+   */
+  renameBySessionId?: Record<string, string>;
 };
 
 /**
@@ -203,16 +209,22 @@ export async function recoverSession(
       agentLaunched: false, error: 'no terminal_records row'
     };
   }
-  const command = resolveRecoveryCommand(record, { resume });
+  const proposedName = normaliseRecoveryName(opts.renameBySessionId?.[sessionId]);
+  const renamedFrom = proposedName && proposedName !== record.name ? record.name : null;
+  const effectiveRecord = proposedName ? { ...record, name: proposedName } : record;
+  const command = resolveRecoveryCommand(effectiveRecord, { resume });
   if (dryRun) {
-    return { sessionId, name: record.name, command, action: 'planned', agentLaunched: false };
+    return { sessionId, name: effectiveRecord.name, renamedFrom, command, action: 'planned', agentLaunched: false };
+  }
+  if (renamedFrom) {
+    updateTerminalRecord(sessionId, { name: effectiveRecord.name });
   }
 
   // A still-alive session is a no-op: recreating the pane is redundant and —
   // critically — typing the launch command into a LIVE agent's pane would
   // disrupt whatever it's doing. Reattach without side effects.
   if ((await listTerminals()).includes(sessionId)) {
-    return { sessionId, name: record.name, command, action: 'reattached', agentLaunched: false };
+    return { sessionId, name: effectiveRecord.name, renamedFrom, command, action: 'reattached', agentLaunched: false };
   }
   const lastPath = getTerminalById(sessionId)?.last_path ?? undefined;
 
@@ -221,13 +233,13 @@ export async function recoverSession(
     spawn = await spawnTerminal(sessionId, lastPath ? { cwd: lastPath } : {});
   } catch (cause) {
     return {
-      sessionId, name: record.name, command, action: 'skipped', agentLaunched: false,
+      sessionId, name: effectiveRecord.name, renamedFrom, command, action: 'skipped', agentLaunched: false,
       error: cause instanceof Error ? cause.message : 'tmux spawn failed'
     };
   }
   if (!spawn.alive) {
     return {
-      sessionId, name: record.name, command, action: 'skipped', agentLaunched: false,
+      sessionId, name: effectiveRecord.name, renamedFrom, command, action: 'skipped', agentLaunched: false,
       error: 'tmux spawn failed'
     };
   }
@@ -254,7 +266,7 @@ export async function recoverSession(
     agentLaunched = true;
   }
 
-  return { sessionId, name: record.name, command, action: 'spawned', agentLaunched };
+  return { sessionId, name: effectiveRecord.name, renamedFrom, command, action: 'spawned', agentLaunched };
 }
 
 /**
@@ -278,4 +290,10 @@ export async function recoverSessions(
     }
   }
   return outcomes;
+}
+
+function normaliseRecoveryName(raw: string | null | undefined): string | null {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }

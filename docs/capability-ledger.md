@@ -48,6 +48,7 @@ deferred, or rejected with a reason, but it cannot vanish.
 | Break context | v5 chat/room lane | CHANGE | Claude | Breaks are first-class context boundaries. |
 | Room blocks | JWPK msg_21nr8z2x91 + msg_dihwbu3ull + msg_v8u2q86wtx, 2026-06-05 | CHANGE | Claude/Codex | Context breaks now derive addressable room blocks: list/read prior sections, skip soft-deleted messages/blocks by default while retaining audit access, and provide reaction-weighted summary input. Search scoping remains deduped into the shared visible-content/search lane. |
 | Rename session | audit blockers | CHANGE | Codex | Session PATCH and visible rename history. |
+| Recovery rename trigger | Research Colony msg_zokprpw104, 2026-06-09 | CHANGE | Codex | Added explicit session rename during terminal recovery: `/api/terminals/recover` accepts `renames: { sessionId: name }`, `ant sessions recover <name> --rename "New Name"` supports the single-session case, and multi-session recovery supports `--rename old=new,other=new`. Dry-runs use the proposed name for `--resume` command construction without persisting it; real recovery persists the terminal record name before launching. |
 | Search messages | v5 chat/room lane | CHANGE | Claude | Per-room first, global search later if productized. |
 | Linked terminal | v5 terminal lane | CHANGE | Codex | Show linked chat, ANT terminal, and Raw terminal. |
 | Bring agent up to speed | v5 terminal lane | CHANGE | Codex | Context packet must be inspectable. |

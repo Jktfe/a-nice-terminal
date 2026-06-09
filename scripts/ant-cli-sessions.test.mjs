@@ -154,7 +154,7 @@ describe('ant sessions recover', () => {
         const body = JSON.parse(init.body);
         const recovered = body.sessionIds.map((sid) => {
           const t = terminals.find((x) => x.sessionId === sid);
-          return { sessionId: sid, name: t?.name ?? sid, command: 'claude --remote-control', action: body.dryRun ? 'planned' : 'spawned', agentLaunched: !body.dryRun };
+          return { sessionId: sid, name: body.renames?.[sid] ?? t?.name ?? sid, command: 'claude --remote-control', action: body.dryRun ? 'planned' : 'spawned', agentLaunched: !body.dryRun };
         });
         return ok({ recovered });
       }
@@ -172,7 +172,39 @@ describe('ant sessions recover', () => {
     const body = JSON.parse(post.init.body);
     expect(body.sessionIds).toEqual(['t_dead']);
     expect(body.launchAgents).toBe(true);
+    expect(body.renames).toEqual({});
     expect(captured.stdout.join('\n')).toMatch(/speedyClaude/);
+  });
+
+  it('--rename NAME sends a rename map for a single recovered session', async () => {
+    const { runtime, captured } = recoverFixture([
+      { sessionId: 't_dead', name: 'speedyClaude', alive: false, derivedHandle: '@speedyclaude' }
+    ]);
+    await handleSessionsVerb('recover', ['speedyClaude', '--rename', 'Renamed Claude'], runtime, { CliInputError });
+    const post = captured.requests.find((r) => r.url.endsWith('/recover'));
+    const body = JSON.parse(post.init.body);
+    expect(body.renames).toEqual({ t_dead: 'Renamed Claude' });
+    expect(captured.stdout.join('\n')).toContain('Renamed Claude');
+  });
+
+  it('--rename old=new resolves rename keys for multiple recovered sessions', async () => {
+    const { runtime, captured } = recoverFixture([
+      { sessionId: 't_a', name: 'A', alive: false, derivedHandle: '@a' },
+      { sessionId: 't_b', name: 'B', alive: false, derivedHandle: '@b' }
+    ]);
+    await handleSessionsVerb('recover', ['A', 'B', '--rename', 'A=Alpha,B=Beta'], runtime, { CliInputError });
+    const post = captured.requests.find((r) => r.url.endsWith('/recover'));
+    expect(JSON.parse(post.init.body).renames).toEqual({ t_a: 'Alpha', t_b: 'Beta' });
+  });
+
+  it('rejects --rename NAME for multiple recovered sessions', async () => {
+    const { runtime } = recoverFixture([
+      { sessionId: 't_a', name: 'A', alive: false, derivedHandle: '@a' },
+      { sessionId: 't_b', name: 'B', alive: false, derivedHandle: '@b' }
+    ]);
+    await expect(
+      handleSessionsVerb('recover', ['A', 'B', '--rename', 'Combined'], runtime, { CliInputError })
+    ).rejects.toThrow(/only valid for one recovered session/);
   });
 
   it('--all recovers only not-alive sessions', async () => {

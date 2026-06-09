@@ -85,10 +85,11 @@ function writeUsage(runtime) {
   runtime.writeOut('     → alias of `ant new terminal`. POSTs /api/terminals.');
   runtime.writeOut('  sessions export <session-or-room-id> [--format markdown|json|text] [--out FILE] [--json]');
   runtime.writeOut('     → downloads full server-side export (default markdown).');
-  runtime.writeOut('  sessions recover [names…] [--all] [--resume] [--no-agents] [--dry-run] [--json]');
+  runtime.writeOut('  sessions recover [names…] [--all] [--resume] [--rename NAME|old=new[,old2=new2]] [--no-agents] [--dry-run] [--json]');
   runtime.writeOut('     → rebuild dead sessions after a reboot: recreate the tmux pane in the');
   runtime.writeOut('       original cwd, re-run the agent launch command, and rebind identity.');
   runtime.writeOut('       --all recovers every not-alive session; --resume appends --resume "<name>";');
+  runtime.writeOut('       --rename updates the terminal name during recovery; single target may pass a plain name.');
   runtime.writeOut('       --no-agents recreates panes only; --dry-run prints the commands.');
   runtime.writeOut('');
   runtime.writeOut('  KIND ∈ { claude, codex, pi, gemini, qwen, copilot }');
@@ -226,11 +227,13 @@ async function runSessionsRecover(args, runtime, CliInputError) {
   }
 
   const sessionIds = targets.map((t) => t.sessionId);
+  const renames = parseRecoveryRenames(flags.rename, targets, terminals, CliInputError);
   const body = {
     sessionIds,
     resume: flags.resume === true,
     launchAgents: flags['no-agents'] !== true,
-    dryRun: flags['dry-run'] === true
+    dryRun: flags['dry-run'] === true,
+    renames
   };
   const result = await sendJson('/api/terminals/recover', 'POST', body);
   const outcomes = Array.isArray(result?.recovered) ? result.recovered : [];
@@ -252,4 +255,32 @@ async function runSessionsRecover(args, runtime, CliInputError) {
     runtime.writeOut(`    → ${cmd}`);
   }
   return 0;
+}
+
+function parseRecoveryRenames(rawRename, targets, terminals, CliInputError) {
+  if (rawRename === undefined) return {};
+  const raw = String(rawRename).trim();
+  if (raw.length === 0) throw new CliInputError('--rename needs a non-empty value');
+  if (!raw.includes('=')) {
+    if (targets.length !== 1) {
+      throw new CliInputError('--rename NAME is only valid for one recovered session; use old=new,other=new for multiple.');
+    }
+    return { [targets[0].sessionId]: raw };
+  }
+  const out = {};
+  for (const entry of raw.split(',')) {
+    const [identifier, ...rest] = entry.split('=');
+    const nextName = rest.join('=').trim();
+    const key = identifier.trim();
+    if (key.length === 0 || nextName.length === 0) {
+      throw new CliInputError('--rename entries must look like old=new');
+    }
+    const match = matchTerminal(terminals, key);
+    if (!match) throw new CliInputError(`--rename could not resolve "${key}"`);
+    if (!targets.some((target) => target.sessionId === match.sessionId)) {
+      throw new CliInputError(`--rename target "${key}" is not being recovered`);
+    }
+    out[match.sessionId] = nextName;
+  }
+  return out;
 }

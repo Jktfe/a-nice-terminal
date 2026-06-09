@@ -69,7 +69,7 @@ describe('/api/terminals/recover', () => {
     const body = (await res.json()) as { recovered: Array<{ action: string }> };
     expect(body.recovered).toHaveLength(2);
     expect(vi.mocked(recoverSessions)).toHaveBeenCalledWith(['t1', 't2'], {
-      resume: false, launchAgent: true, dryRun: false
+      resume: false, launchAgent: true, dryRun: false, renameBySessionId: {}
     });
   });
 
@@ -79,7 +79,29 @@ describe('/api/terminals/recover', () => {
       eventFor({ sessionIds: ['t1'], resume: true, dryRun: true, launchAgents: false })
     );
     expect(vi.mocked(recoverSessions)).toHaveBeenCalledWith(['t1'], {
-      resume: true, launchAgent: false, dryRun: true
+      resume: true, launchAgent: false, dryRun: true, renameBySessionId: {}
     });
+  });
+
+  it('passes validated recovery renames through to the recovery core', async () => {
+    await runHandler(
+      recoverPost as unknown as AnyHandler,
+      eventFor({ sessionIds: ['t1'], renames: { t1: 'Recovered Claude' } })
+    );
+    expect(vi.mocked(recoverSessions)).toHaveBeenCalledWith(['t1'], {
+      resume: false,
+      launchAgent: true,
+      dryRun: false,
+      renameBySessionId: { t1: 'Recovered Claude' }
+    });
+  });
+
+  it('rejects rename keys outside the selected session set', async () => {
+    const res = await runHandler(
+      recoverPost as unknown as AnyHandler,
+      eventFor({ sessionIds: ['t1'], renames: { other: 'Wrong' } })
+    );
+    expect(res.status).toBe(400);
+    expect(vi.mocked(recoverSessions)).not.toHaveBeenCalled();
   });
 });

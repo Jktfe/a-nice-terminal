@@ -1,7 +1,7 @@
 /**
  * POST /api/terminals/recover
  *   Body: { sessionIds: string[], resume?: boolean, launchAgents?: boolean,
- *           dryRun?: boolean }
+ *           dryRun?: boolean, renames?: Record<sessionId, name> }
  *     → 200 { recovered: RecoverOutcome[] }
  *
  * Rebuild agent sessions after a reboot kills the tmux server: recreate each
@@ -40,7 +40,32 @@ export const POST: RequestHandler = async ({ request }) => {
   // launchAgents defaults to true — recovery means the agent is running again.
   const launchAgents = raw.launchAgents !== false;
   const dryRun = raw.dryRun === true;
+  const renameBySessionId = parseRenameMap(raw.renames, sessionIds);
 
-  const recovered = await recoverSessions(sessionIds, { resume, launchAgent: launchAgents, dryRun });
+  const recovered = await recoverSessions(sessionIds, {
+    resume,
+    launchAgent: launchAgents,
+    dryRun,
+    renameBySessionId
+  });
   return json({ recovered });
 };
+
+function parseRenameMap(raw: unknown, sessionIds: string[]): Record<string, string> {
+  if (raw === undefined || raw === null) return {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw error(400, 'renames must be an object keyed by session id.');
+  }
+  const allowed = new Set(sessionIds);
+  const renames: Record<string, string> = {};
+  for (const [sessionId, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!allowed.has(sessionId)) {
+      throw error(400, `renames.${sessionId} is not in sessionIds.`);
+    }
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      throw error(400, `renames.${sessionId} must be a non-empty string.`);
+    }
+    renames[sessionId] = value.trim();
+  }
+  return renames;
+}

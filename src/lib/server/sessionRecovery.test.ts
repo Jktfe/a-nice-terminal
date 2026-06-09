@@ -167,6 +167,31 @@ describe('recoverSession', () => {
     expect(vi.mocked(writeInput)).not.toHaveBeenCalled();
   });
 
+  it('dryRun uses the proposed rename for resume without persisting it', async () => {
+    createTerminalRecord({
+      sessionId: 't8-rename-dry',
+      name: 'oldClaude',
+      agentKind: 'claude_code',
+      bootCommand: 'claude --remote-control'
+    });
+
+    const out = await recoverSession('t8-rename-dry', {
+      dryRun: true,
+      resume: true,
+      renameBySessionId: { 't8-rename-dry': 'newClaude' }
+    });
+
+    expect(out).toMatchObject({
+      action: 'planned',
+      name: 'newClaude',
+      renamedFrom: 'oldClaude',
+      command: 'claude --remote-control --resume "newClaude"'
+    });
+    expect(getTerminalRecord('t8-rename-dry')?.name).toBe('oldClaude');
+    expect(vi.mocked(spawnTerminal)).not.toHaveBeenCalled();
+    expect(vi.mocked(writeInput)).not.toHaveBeenCalled();
+  });
+
   it('skips a missing record', async () => {
     const out = await recoverSession('ghost', {});
     expect(out.action).toBe('skipped');
@@ -187,6 +212,29 @@ describe('recoverSession', () => {
       sessionId: 't9', tmuxTargetPane: 't9:0.0', agentKind: 'claude_code'
     });
     expect(vi.mocked(writeInput)).toHaveBeenCalledWith('t9', 'claude --remote-control\n');
+  });
+
+  it('persists an explicit rename during real recovery before launching', async () => {
+    createTerminalRecord({
+      sessionId: 't9-rename',
+      name: 'oldCodex',
+      agentKind: 'codex_cli',
+      bootCommand: 'codex'
+    });
+
+    const out = await recoverSession('t9-rename', {
+      resume: true,
+      renameBySessionId: { 't9-rename': 'newCodex' }
+    });
+
+    expect(out).toMatchObject({
+      action: 'spawned',
+      name: 'newCodex',
+      renamedFrom: 'oldCodex',
+      command: 'codex --resume "newCodex"'
+    });
+    expect(getTerminalRecord('t9-rename')?.name).toBe('newCodex');
+    expect(vi.mocked(writeInput)).toHaveBeenCalledWith('t9-rename', 'codex --resume "newCodex"\n');
   });
 
   it('reports reattached when the session is already alive', async () => {
