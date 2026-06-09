@@ -61,7 +61,14 @@ export const POST: RequestHandler = async ({ request }) => {
       roomIds: boundRooms,
       createdByHandle
     });
-    postVoteReceipts(vote, `🗳️ Vote opened by ${createdByHandle}: ${vote.title}\n${voteSummary(vote)}`);
+    // The trailing ant-poll fence makes the receipt render as a live inline
+    // poll in every bound room (pollRefs.ts → MessageRow → PollWidget). The
+    // text summary above it stays as the fallback for CLI/non-rendering
+    // clients. JWPK msg_7nqg8oaufo.
+    postVoteReceipts(
+      vote,
+      `🗳️ Vote opened by ${createdByHandle}: ${vote.title}\n${voteSummary(vote)}\n\n\`\`\`ant-poll\n${vote.id}\n\`\`\``
+    );
     return json({ vote }, { status: 201 });
   } catch (cause) {
     throw error(400, cause instanceof Error ? cause.message : 'Could not create vote.');

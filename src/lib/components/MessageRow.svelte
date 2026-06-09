@@ -21,6 +21,8 @@
   import MessageRowReply from './MessageRowReply.svelte';
   import MessageRowActions from './MessageRowActions.svelte';
   import { renderMarkdown } from '$lib/chat/renderMarkdown';
+  import { extractPollRefs } from '$lib/chat/pollRefs';
+  import PollWidget from './PollWidget.svelte';
   import { resolveAddressedKind, type AddressedKind } from '$lib/chat/addressedToViewer';
   import type { MessageReadReceipt } from '$lib/server/messageReadReceiptStore';
 
@@ -117,7 +119,13 @@
     return (withoutAt.charAt(0) || trimmed.charAt(0) || '?').toUpperCase();
   }
 
-  const renderedBody = $derived(renderMarkdown(message.body));
+  // Inline polls: pull any `ant-poll` fences out of the raw body BEFORE
+  // markdown render (so the fence never shows), then mount a live
+  // <PollWidget> per referenced voteId alongside the message HTML.
+  // Vote-create receipts carry the fence, so a vote surfaces as a poll
+  // in-thread. JWPK msg_7nqg8oaufo.
+  const poll = $derived(extractPollRefs(message.body));
+  const renderedBody = $derived(renderMarkdown(poll.body));
 </script>
 
 {#if message.kind === 'system-break'}
@@ -126,7 +134,12 @@
   </div>
 {:else if message.kind === 'system'}
   <div class="system-row" class:has-read-receipts={isAnsweredAskReceipt}>
-    <span class="system-text">{message.body}</span>
+    {#if poll.body}
+      <span class="system-text">{poll.body}</span>
+    {/if}
+    {#each poll.voteIds as voteId (voteId)}
+      <PollWidget {voteId} roomId={message.roomId} {asHandle} />
+    {/each}
     {#if isAnsweredAskReceipt}
       <MessageReadIndicator
         roomId={message.roomId}
@@ -179,7 +192,12 @@
         <em>Message deleted{message.deletedByHandle ? ` by ${message.deletedByHandle}` : ''}{message.deletedAtMs ? ` at ${describeDeletedAt(message.deletedAtMs)}` : ''}.</em>
       </div>
     {:else}
-      <div class="message-body">{@html renderedBody}</div>
+      {#if poll.body}
+        <div class="message-body">{@html renderedBody}</div>
+      {/if}
+      {#each poll.voteIds as voteId (voteId)}
+        <PollWidget {voteId} roomId={message.roomId} {asHandle} />
+      {/each}
     {/if}
     {#if deleteError}
       <p class="message-error" role="alert">{deleteError}</p>
